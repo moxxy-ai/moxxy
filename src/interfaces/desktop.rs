@@ -1,15 +1,14 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use global_hotkey::{
-    GlobalHotKeyEvent, GlobalHotKeyManager,
+    GlobalHotKeyManager,
     hotkey::{Code, HotKey, Modifiers},
 };
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{error, info};
+use tracing::info;
 
-use crate::core::brain::AutonomousBrain;
 use crate::core::lifecycle::LifecycleComponent;
 use crate::core::llm::LlmManager;
 use crate::core::memory::MemorySystem;
@@ -139,6 +138,10 @@ impl LifecycleComponent for DesktopInterface {
     async fn on_start(&mut self) -> Result<()> {
         #[cfg(target_os = "macos")]
         {
+            use global_hotkey::GlobalHotKeyEvent;
+            use tracing::error;
+            use crate::core::brain::AutonomousBrain;
+
             let registry = self.registry.lock().await;
             if let Some(mem_mutex) = registry.get(&self.agent_name) {
                 let mem = mem_mutex.lock().await;
