@@ -64,7 +64,10 @@ pub async fn gateway_start(
         .spawn()?;
 
     std::fs::write(pid_file, child.id().to_string())?;
-    print_success(&format!("moxxy Swarm started as background daemon (PID {}).", child.id()));
+    print_success(&format!(
+        "moxxy Swarm started as background daemon (PID {}).",
+        child.id()
+    ));
     Ok(())
 }
 
@@ -90,20 +93,23 @@ pub async fn gateway_stop(pid_file: &Path) -> Result<()> {
     }
 
     // Also kill the web service if it's running on port 17890
-    if let Ok(output) =
-        std::process::Command::new("lsof").arg("-ti:17890").output()
-        && let Ok(pids) = String::from_utf8(output.stdout) {
-            for pid in pids.lines() {
-                let pid = pid.trim();
-                if !pid.is_empty() {
-                    let _ = std::process::Command::new("kill")
-                        .arg("-15")
-                        .arg(pid)
-                        .output();
-                    print_success(&format!("Successfully stopped process on port 17890 (PID {}).", pid));
-                }
+    if let Ok(output) = std::process::Command::new("lsof").arg("-ti:17890").output()
+        && let Ok(pids) = String::from_utf8(output.stdout)
+    {
+        for pid in pids.lines() {
+            let pid = pid.trim();
+            if !pid.is_empty() {
+                let _ = std::process::Command::new("kill")
+                    .arg("-15")
+                    .arg(pid)
+                    .output();
+                print_success(&format!(
+                    "Successfully stopped process on port 17890 (PID {}).",
+                    pid
+                ));
             }
         }
+    }
 
     Ok(())
 }
@@ -124,7 +130,10 @@ pub async fn gateway_restart() -> Result<()> {
 pub async fn gateway_status(pid_file: &Path) -> Result<()> {
     if pid_file.exists() {
         let pid_str = std::fs::read_to_string(pid_file)?;
-        print_success(&format!("moxxy Daemon is RUNNING (PID {}).", pid_str.trim()));
+        print_success(&format!(
+            "moxxy Daemon is RUNNING (PID {}).",
+            pid_str.trim()
+        ));
     } else {
         print_info("moxxy Daemon is STOPPED.");
     }

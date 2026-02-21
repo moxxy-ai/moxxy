@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
-use super::{CliInterface, CommandInfo, MessageRole, COMMANDS};
+use super::{COMMANDS, CliInterface, CommandInfo, MessageRole};
 
 impl CliInterface {
     pub(super) fn render_messages(&self, area: Rect) -> (Paragraph<'_>, u16) {

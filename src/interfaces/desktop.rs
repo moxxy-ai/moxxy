@@ -145,109 +145,101 @@ impl LifecycleComponent for DesktopInterface {
                 let vault = crate::core::vault::SecretsVault::new(mem.get_db());
 
                 if let Ok(Some(enabled)) = vault.get_secret("desktop_hotkey_enabled").await
-                    && enabled == "true" {
-                        info!(
-                            "[{}] Desktop Global Hotkey enabled (Cmd+Option+Space).",
-                            self.agent_name
-                        );
+                    && enabled == "true"
+                {
+                    info!(
+                        "[{}] Desktop Global Hotkey enabled (Cmd+Option+Space).",
+                        self.agent_name
+                    );
 
-                        let manager = GlobalHotKeyManager::new().unwrap();
-                        let hotkey =
-                            HotKey::new(Some(Modifiers::META | Modifiers::ALT), Code::Space);
+                    let manager = GlobalHotKeyManager::new().unwrap();
+                    let hotkey = HotKey::new(Some(Modifiers::META | Modifiers::ALT), Code::Space);
 
-                        if let Err(e) = manager.register(hotkey) {
-                            error!("Failed to register global hotkey: {:?}", e);
-                            return Ok(());
-                        }
+                    if let Err(e) = manager.register(hotkey) {
+                        error!("Failed to register global hotkey: {:?}", e);
+                        return Ok(());
+                    }
 
-                        self.hotkey_manager = Some(manager);
-                        let global_hotkey_channel = GlobalHotKeyEvent::receiver();
+                    self.hotkey_manager = Some(manager);
+                    let global_hotkey_channel = GlobalHotKeyEvent::receiver();
 
-                        let agent_name = self.agent_name.clone();
-                        let skills = self
-                            .skill_registry
-                            .lock()
-                            .await
-                            .get(&self.agent_name)
-                            .unwrap()
-                            .clone();
-                        let llms = self
-                            .llm_registry
-                            .lock()
-                            .await
-                            .get(&self.agent_name)
-                            .unwrap()
-                            .clone();
-                        let memory = mem_mutex.clone();
+                    let agent_name = self.agent_name.clone();
+                    let skills = self
+                        .skill_registry
+                        .lock()
+                        .await
+                        .get(&self.agent_name)
+                        .unwrap()
+                        .clone();
+                    let llms = self
+                        .llm_registry
+                        .lock()
+                        .await
+                        .get(&self.agent_name)
+                        .unwrap()
+                        .clone();
+                    let memory = mem_mutex.clone();
 
-                        // Spawn a dedicated listener task for the background event loop
-                        tokio::spawn(async move {
-                            loop {
-                                if let Ok(event) = global_hotkey_channel.try_recv()
-                                    && event.id == hotkey.id()
-                                        && event.state == global_hotkey::HotKeyState::Pressed
+                    // Spawn a dedicated listener task for the background event loop
+                    tokio::spawn(async move {
+                        loop {
+                            if let Ok(event) = global_hotkey_channel.try_recv()
+                                && event.id == hotkey.id()
+                                && event.state == global_hotkey::HotKeyState::Pressed
+                            {
+                                info!(
+                                    "[{}] Global hotkey triggered. Launching native prompt...",
+                                    agent_name
+                                );
+
+                                // 1. Pop the OS-native dialog UI
+                                if let Some(mut prompt) = Self::trigger_native_input_dialog().await
+                                {
+                                    let src_label = "DESKTOP_HOTKEY".to_string();
+                                    Self::trigger_native_notification("moxxy", "Thinking...").await;
+
+                                    // 1.5 Inject macOS Active Window Context before execution
+                                    if let Some(screen_dump) =
+                                        Self::get_active_window_text_context().await
                                     {
-                                        info!(
-                                            "[{}] Global hotkey triggered. Launching native prompt...",
-                                            agent_name
+                                        prompt = format!(
+                                            "[SYSTEM: The user's Active macOS Screen currently reads:]\n{}\n\n[USER COMMAND:]\n{}",
+                                            screen_dump, prompt
                                         );
+                                    }
 
-                                        // 1. Pop the OS-native dialog UI
-                                        if let Some(mut prompt) =
-                                            Self::trigger_native_input_dialog().await
-                                        {
-                                            let src_label = "DESKTOP_HOTKEY".to_string();
+                                    // 2. Feed it into the ReAct loop
+                                    let response = AutonomousBrain::execute_react_loop(
+                                        &prompt,
+                                        &src_label,
+                                        llms.clone(),
+                                        memory.clone(),
+                                        skills.clone(),
+                                        None,
+                                    )
+                                    .await;
+
+                                    // 3. Notify the user of completion
+                                    match response {
+                                        Ok(text) => {
+                                            Self::trigger_native_notification("moxxy Reply", &text)
+                                                .await
+                                        }
+                                        Err(e) => {
+                                            error!("Desktop ReAct failed: {}", e);
                                             Self::trigger_native_notification(
-                                                "moxxy",
-                                                "Thinking...",
+                                                "moxxy Error",
+                                                "Failed to process request.",
                                             )
                                             .await;
-
-                                            // 1.5 Inject macOS Active Window Context before execution
-                                            if let Some(screen_dump) =
-                                                Self::get_active_window_text_context().await
-                                            {
-                                                prompt = format!(
-                                                    "[SYSTEM: The user's Active macOS Screen currently reads:]\n{}\n\n[USER COMMAND:]\n{}",
-                                                    screen_dump, prompt
-                                                );
-                                            }
-
-                                            // 2. Feed it into the ReAct loop
-                                            let response = AutonomousBrain::execute_react_loop(
-                                                &prompt,
-                                                &src_label,
-                                                llms.clone(),
-                                                memory.clone(),
-                                                skills.clone(),
-                                                None,
-                                            )
-                                            .await;
-
-                                            // 3. Notify the user of completion
-                                            match response {
-                                                Ok(text) => {
-                                                    Self::trigger_native_notification(
-                                                        "moxxy Reply",
-                                                        &text,
-                                                    )
-                                                    .await
-                                                }
-                                                Err(e) => {
-                                                    error!("Desktop ReAct failed: {}", e);
-                                                    Self::trigger_native_notification(
-                                                        "moxxy Error",
-                                                        "Failed to process request.",
-                                                    )
-                                                    .await;
-                                                }
-                                            }
                                         }
                                     }
-                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                                }
                             }
-                        });
-                    }
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        }
+                    });
+                }
             }
         }
         Ok(())

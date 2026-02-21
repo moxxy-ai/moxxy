@@ -30,9 +30,10 @@ pub async fn find_agent_using_secret(
         vault.initialize().await?;
 
         if let Ok(Some(existing)) = vault.get_secret(secret_key).await
-            && existing.trim() == value.trim() {
-                return Ok(Some(agent_name));
-            }
+            && existing.trim() == value.trim()
+        {
+            return Ok(Some(agent_name));
+        }
     }
 
     Ok(None)
@@ -76,11 +77,12 @@ pub async fn run_channel_telegram(
     };
     let has_pairing_code = matches!(vault.get_secret("telegram_pairing_code").await, Ok(Some(_)));
 
-    if let Some(ref id) = paired_id && has_token && token_arg.is_none() && pairing_code_arg.is_none() {
-        println!(
-            "  Status: Telegram is PAIRED (chat_id: {})",
-            id
-        );
+    if let Some(ref id) = paired_id
+        && has_token
+        && token_arg.is_none()
+        && pairing_code_arg.is_none()
+    {
+        println!("  Status: Telegram is PAIRED (chat_id: {})", id);
         let action = inquire::Select::new(
             "What would you like to do?",
             vec!["Re-pair with a new device", "Disconnect Telegram", "Cancel"],
@@ -92,7 +94,9 @@ pub async fn run_channel_telegram(
                 vault.remove_secret("telegram_chat_id").await?;
                 vault.remove_secret("telegram_pairing_code").await.ok();
                 vault.remove_secret("telegram_pairing_chat_id").await.ok();
-                print_info("Telegram disconnected. Restart the gateway for changes to take effect.");
+                print_info(
+                    "Telegram disconnected. Restart the gateway for changes to take effect.",
+                );
                 return Ok(());
             }
             "Re-pair with a new device" => {
@@ -148,7 +152,10 @@ pub async fn run_channel_telegram(
     }
 
     if !has_token {
-        print_info(&format!("No Telegram bot token found for agent '{}'.", agent_name));
+        print_info(&format!(
+            "No Telegram bot token found for agent '{}'.",
+            agent_name
+        ));
         println!("  To get a token, talk to @BotFather on Telegram and create a new bot.\n");
         let token = inquire::Password::new("Telegram bot token:")
             .without_confirmation()
@@ -206,13 +213,14 @@ pub async fn run_channel_telegram(
     };
 
     if let Ok(Some(token)) = vault.get_secret("telegram_token").await
-        && let Some(owner) = find_agent_using_secret("telegram_token", &token, &agent_name).await? {
-            println!(
-                "  Error: This Telegram bot token is already bound to agent '{}'. One Telegram channel can only be bound to one agent.",
-                owner
-            );
-            return Ok(());
-        }
+        && let Some(owner) = find_agent_using_secret("telegram_token", &token, &agent_name).await?
+    {
+        println!(
+            "  Error: This Telegram bot token is already bound to agent '{}'. One Telegram channel can only be bound to one agent.",
+            owner
+        );
+        return Ok(());
+    }
 
     // We allow multiple agents to be paired with the same Telegram user (same chat_id)
     // as long as they use different bot tokens. This is already enforced by the token check.
@@ -230,7 +238,10 @@ pub async fn run_channel_telegram(
     vault.remove_secret("telegram_pairing_code").await.ok();
     vault.remove_secret("telegram_pairing_chat_id").await.ok();
 
-    print_success(&format!("Telegram paired successfully! (chat_id: {})", chat_id));
+    print_success(&format!(
+        "Telegram paired successfully! (chat_id: {})",
+        chat_id
+    ));
     print_info(&format!("Telegram is now bound to agent '{}'.", agent_name));
     println!("  Telegram replies are mirrored into the shared web/TUI session.\n");
 
@@ -243,7 +254,8 @@ pub async fn run_channel_telegram(
     if enable_stt {
         vault.set_secret("telegram_stt_enabled", "true").await?;
 
-        let has_openai = matches!(vault.get_secret("openai_api_key").await, Ok(Some(ref v)) if !v.is_empty());
+        let has_openai =
+            matches!(vault.get_secret("openai_api_key").await, Ok(Some(ref v)) if !v.is_empty());
         if has_openai {
             print_info("Using existing OpenAI API Key for voice transcription.");
         } else {

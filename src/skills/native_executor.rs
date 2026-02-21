@@ -7,7 +7,7 @@ use tracing::info;
 use crate::core::vault::SecretsVault;
 use crate::skills::{SkillManifest, SkillSandbox};
 
-/// Native skill executor — runs skills directly on the host via `sh`.
+/// Native skill executor - runs skills directly on the host via `sh`.
 ///
 /// In the agent-level containerization model, the agent's container provides
 /// the isolation boundary, so skills execute natively within it.
@@ -57,7 +57,7 @@ impl SkillSandbox for NativeExecutor {
         let mut cmd = Command::new(&manifest.run_command);
         cmd.arg(&script_path);
 
-        // Check total args size — if it exceeds a safe threshold, skip CLI args
+        // Check total args size - if it exceeds a safe threshold, skip CLI args
         // and pass them only via stdin to avoid OS ARG_MAX errors.
         let total_args_len: usize = args.iter().map(|a| a.len()).sum();
         let use_stdin_args = total_args_len > 100_000; // ~100KB threshold
@@ -81,12 +81,12 @@ impl SkillSandbox for NativeExecutor {
                 .parent()
                 .and_then(|p| p.parent())
                 .and_then(|p| p.parent())
-            {
-                // exe is at target/release/moxxy, source is 2 levels up
-                if source_dir.join("Cargo.toml").exists() {
-                    cmd.env("MOXXY_SOURCE_DIR", source_dir);
-                }
+        {
+            // exe is at target/release/moxxy, source is 2 levels up
+            if source_dir.join("Cargo.toml").exists() {
+                cmd.env("MOXXY_SOURCE_DIR", source_dir);
             }
+        }
 
         if manifest.needs_env {
             info!("Injecting vault secrets for skill: {}", manifest.name);

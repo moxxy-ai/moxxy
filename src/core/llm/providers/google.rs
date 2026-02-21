@@ -130,10 +130,11 @@ impl LlmProvider for GoogleProvider {
 
                     if should_merge {
                         if let Some(last) = contents.last_mut()
-                            && let Some(part) = last.parts.first_mut() {
-                                part.text.push('\n');
-                                part.text.push_str(&prefixed);
-                            }
+                            && let Some(part) = last.parts.first_mut()
+                        {
+                            part.text.push('\n');
+                            part.text.push_str(&prefixed);
+                        }
                     } else {
                         contents.push(GeminiContent {
                             role: "user".to_string(),
@@ -157,10 +158,11 @@ impl LlmProvider for GoogleProvider {
 
                 if should_merge {
                     if let Some(last) = contents.last_mut()
-                        && let Some(part) = last.parts.first_mut() {
-                            part.text.push('\n');
-                            part.text.push_str(&m.content);
-                        }
+                        && let Some(part) = last.parts.first_mut()
+                    {
+                        part.text.push('\n');
+                        part.text.push_str(&m.content);
+                    }
                 } else {
                     contents.push(GeminiContent {
                         role: gemini_role.to_string(),

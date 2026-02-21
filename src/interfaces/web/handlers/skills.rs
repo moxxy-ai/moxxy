@@ -1,4 +1,7 @@
-use axum::{Json, extract::{Path, State}};
+use axum::{
+    Json,
+    extract::{Path, State},
+};
 use tracing::info;
 
 use super::super::AppState;
@@ -30,7 +33,7 @@ pub async fn create_skill_endpoint(
         r#"Generate exactly 3 fenced code blocks for a new agent skill called "{name}".
 Description: {desc}
 
-Block 1 — manifest.toml (TOML):
+Block 1 - manifest.toml (TOML):
 ```toml
 name = "{name}"
 description = "<one-line description>"
@@ -41,13 +44,13 @@ needs_fs_write = <true or false>
 needs_env = <true or false>
 ```
 
-Block 2 — skill.md (Markdown):
+Block 2 - skill.md (Markdown):
 ```markdown
 # {name}
 <usage docs for the agent: when to use, what args it takes ($1, $2, ...), example invocations>
 ```
 
-Block 3 — run.sh (Shell):
+Block 3 - run.sh (Shell):
 ```sh
 #!/bin/sh
 <real shell script that implements the skill, uses $1 $2 etc. for args>

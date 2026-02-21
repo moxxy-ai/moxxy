@@ -148,13 +148,28 @@ impl McpClient {
         match tokio::time::timeout(std::time::Duration::from_secs(15), client.initialize()).await {
             Err(_elapsed) => {
                 let err_log = client.stderr.lock().await;
-                error!("MCP Server [{}] failed to initialize (timeout). Stderr: {}", server_name, err_log);
-                return Err(anyhow!("MCP Initialization timeout for [{}]. Stderr: {}", server_name, err_log));
+                error!(
+                    "MCP Server [{}] failed to initialize (timeout). Stderr: {}",
+                    server_name, err_log
+                );
+                return Err(anyhow!(
+                    "MCP Initialization timeout for [{}]. Stderr: {}",
+                    server_name,
+                    err_log
+                ));
             }
             Ok(Err(e)) => {
                 let err_log = client.stderr.lock().await;
-                error!("MCP Server [{}] failed to initialize: {}. Stderr: {}", server_name, e, err_log);
-                return Err(anyhow!("MCP Initialization failed for [{}]: {}. Stderr: {}", server_name, e, err_log));
+                error!(
+                    "MCP Server [{}] failed to initialize: {}. Stderr: {}",
+                    server_name, e, err_log
+                );
+                return Err(anyhow!(
+                    "MCP Initialization failed for [{}]: {}. Stderr: {}",
+                    server_name,
+                    e,
+                    err_log
+                ));
             }
             Ok(Ok(())) => {
                 info!("MCP Server [{}] initialized successfully", server_name);

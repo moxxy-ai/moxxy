@@ -1,4 +1,7 @@
-use axum::{Json, extract::{Path, State}};
+use axum::{
+    Json,
+    extract::{Path, State},
+};
 
 use super::super::AppState;
 use super::channels::find_agent_with_secret_value;
@@ -65,20 +68,21 @@ pub async fn create_agent_endpoint(
             );
         }
         if let Some(token) = payload.telegram_token
-            && !token.is_empty() {
-                if let Some(owner) =
-                    find_agent_with_secret_value(&state, "telegram_token", &token, &name).await
-                {
-                    return Json(serde_json::json!({
-                        "success": false,
-                        "error": format!(
-                            "This Telegram bot token is already bound to agent '{}'. One Telegram channel can only be bound to one agent.",
-                            owner
-                        )
-                    }));
-                }
-                let _ = vault.set_secret("telegram_token", &token).await;
+            && !token.is_empty()
+        {
+            if let Some(owner) =
+                find_agent_with_secret_value(&state, "telegram_token", &token, &name).await
+            {
+                return Json(serde_json::json!({
+                    "success": false,
+                    "error": format!(
+                        "This Telegram bot token is already bound to agent '{}'. One Telegram channel can only be bound to one agent.",
+                        owner
+                    )
+                }));
             }
+            let _ = vault.set_secret("telegram_token", &token).await;
+        }
 
         // Inherit Master/Default LLM Configuration -- try 'default', then fallback to any existing agent
         let reg = state.registry.lock().await;
@@ -206,7 +210,9 @@ pub async fn delete_agent_endpoint(
     State(state): State<AppState>,
 ) -> Json<serde_json::Value> {
     if agent == "default" {
-        return Json(serde_json::json!({ "success": false, "error": "Cannot delete the default agent." }));
+        return Json(
+            serde_json::json!({ "success": false, "error": "Cannot delete the default agent." }),
+        );
     }
 
     // Remove from all registries
@@ -221,9 +227,12 @@ pub async fn delete_agent_endpoint(
     let home = dirs::home_dir().expect("home dir");
     let agent_dir = home.join(".moxxy").join("agents").join(&agent);
     if agent_dir.exists()
-        && let Err(e) = tokio::fs::remove_dir_all(&agent_dir).await {
-            return Json(serde_json::json!({ "success": false, "error": format!("Removed from registries but failed to delete files: {}", e) }));
-        }
+        && let Err(e) = tokio::fs::remove_dir_all(&agent_dir).await
+    {
+        return Json(
+            serde_json::json!({ "success": false, "error": format!("Removed from registries but failed to delete files: {}", e) }),
+        );
+    }
 
     Json(serde_json::json!({ "success": true, "message": format!("Agent '{}' deleted.", agent) }))
 }
@@ -238,7 +247,9 @@ pub async fn restart_agent_endpoint(
     if let Some(mem_mutex) = reg.get(&agent) {
         let mut mem = mem_mutex.lock().await;
         let _ = mem.new_session();
-        Json(serde_json::json!({ "success": true, "message": format!("Agent '{}' session restarted. Short-term memory cleared.", agent) }))
+        Json(
+            serde_json::json!({ "success": true, "message": format!("Agent '{}' session restarted. Short-term memory cleared.", agent) }),
+        )
     } else {
         Json(serde_json::json!({ "success": false, "error": "Agent not found" }))
     }

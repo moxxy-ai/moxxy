@@ -22,7 +22,8 @@ impl CliInterface {
             }
             "/vault" => {
                 if parts.get(1) == Some(&"set") {
-                    if let (Some(_key), Some(_val)) = (parts.get(2), parts.get(3).or(parts.get(2))) {
+                    if let (Some(_key), Some(_val)) = (parts.get(2), parts.get(3).or(parts.get(2)))
+                    {
                         // Splitn(3, ' ') was used, but we might need more parts for 'set key value'
                         // Let's re-parse for vault set specifically if needed,
                         // but actually original parts[0] is /vault, so parts.get(1) is set,
@@ -33,15 +34,22 @@ impl CliInterface {
                         if sub_parts.len() == 2 {
                             let key = sub_parts[0].to_string();
                             let value = sub_parts[1].to_string();
-                            let url = format!("{}/agents/{}/vault", self.api_base, self.active_agent);
+                            let url =
+                                format!("{}/agents/{}/vault", self.api_base, self.active_agent);
                             let payload = serde_json::json!({ "key": key, "value": value });
                             self.cmd_output_lines.clear();
                             if let Ok(res) = self.client.post(&url).json(&payload).send().await {
                                 if let Ok(json) = res.json::<Value>().await {
                                     if json.get("success").and_then(|v| v.as_bool()) == Some(true) {
-                                        self.push_cmd_output(format!("Secret '{}' updated successfully.", key));
+                                        self.push_cmd_output(format!(
+                                            "Secret '{}' updated successfully.",
+                                            key
+                                        ));
                                     } else {
-                                        let err = json.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+                                        let err = json
+                                            .get("error")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("Unknown error");
                                         self.push_cmd_output(format!("Error: {}", err));
                                     }
                                 }
@@ -62,7 +70,10 @@ impl CliInterface {
                     if let Ok(json) = res.json::<Value>().await {
                         if json.get("success").and_then(|v| v.as_bool()) == Some(true) {
                             if let Some(keys) = json.get("keys").and_then(|k| k.as_array()) {
-                                self.push_cmd_output(format!("Vault Keys for '{}':", self.active_agent));
+                                self.push_cmd_output(format!(
+                                    "Vault Keys for '{}':",
+                                    self.active_agent
+                                ));
                                 if keys.is_empty() {
                                     self.push_cmd_output("  (Empty)".to_string());
                                 } else {
@@ -74,7 +85,10 @@ impl CliInterface {
                                 }
                             }
                         } else {
-                            let err = json.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+                            let err = json
+                                .get("error")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Unknown error");
                             self.push_cmd_output(format!("Error: {}", err));
                         }
                     }
@@ -91,10 +105,10 @@ impl CliInterface {
                     let mut exists = false;
                     if let Ok(res) = self.client.get(&url).send().await
                         && let Ok(json) = res.json::<Value>().await
-                            && let Some(agents) = json.get("agents").and_then(|a| a.as_array()) {
-                                exists =
-                                    agents.iter().filter_map(|v| v.as_str()).any(|s| s == name);
-                            }
+                        && let Some(agents) = json.get("agents").and_then(|a| a.as_array())
+                    {
+                        exists = agents.iter().filter_map(|v| v.as_str()).any(|s| s == name);
+                    }
                     if exists {
                         self.active_agent = name.clone();
                         self.load_history().await;
@@ -108,24 +122,23 @@ impl CliInterface {
                     let url = format!("{}/agents", self.api_base);
                     if let Ok(res) = self.client.get(&url).send().await
                         && let Ok(json) = res.json::<Value>().await
-                            && let Some(agents) = json.get("agents").and_then(|a| a.as_array()) {
-                                self.push_cmd_output(
-                                    "Agents (use /agents <name> to switch):".to_string(),
-                                );
-                                let mut names: Vec<String> = agents
-                                    .iter()
-                                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                                    .collect();
-                                names.sort();
-                                for name in names {
-                                    let marker = if name == self.active_agent {
-                                        " ◀"
-                                    } else {
-                                        ""
-                                    };
-                                    self.push_cmd_output(format!("  {}{}", name, marker));
-                                }
-                            }
+                        && let Some(agents) = json.get("agents").and_then(|a| a.as_array())
+                    {
+                        self.push_cmd_output("Agents (use /agents <name> to switch):".to_string());
+                        let mut names: Vec<String> = agents
+                            .iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect();
+                        names.sort();
+                        for name in names {
+                            let marker = if name == self.active_agent {
+                                " ◀"
+                            } else {
+                                ""
+                            };
+                            self.push_cmd_output(format!("  {}{}", name, marker));
+                        }
+                    }
                 }
             }
             "/models" => {

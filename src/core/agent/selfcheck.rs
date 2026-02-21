@@ -47,8 +47,7 @@ pub(super) async fn attach_self_check(
                     report.push(format!("  Persona: loaded ({} chars)", text.len()));
                 }
                 _ => {
-                    report
-                        .push("  Persona: NOT FOUND — agent using generic prompt".to_string());
+                    report.push("  Persona: NOT FOUND - agent using generic prompt".to_string());
                 }
             }
 
@@ -61,7 +60,7 @@ pub(super) async fn attach_self_check(
                 }];
                 match llm.generate_with_selected(&test_msgs).await {
                     Ok(_) => report.push("  LLM: connected and responding".to_string()),
-                    Err(e) => report.push(format!("  LLM: ERROR — {}", e)),
+                    Err(e) => report.push(format!("  LLM: ERROR - {}", e)),
                 }
             }
 
@@ -77,7 +76,7 @@ pub(super) async fn attach_self_check(
                 let mem = mem_check.lock().await;
                 match mem.read_stm_structured(1, true).await {
                     Ok(_) => report.push("  Memory DB: accessible".to_string()),
-                    Err(e) => report.push(format!("  Memory DB: ERROR — {}", e)),
+                    Err(e) => report.push(format!("  Memory DB: ERROR - {}", e)),
                 }
             }
 
@@ -90,10 +89,7 @@ pub(super) async fn attach_self_check(
                         jobs.len()
                     )),
                     Err(e) => {
-                        report.push(format!(
-                            "  Heartbeats: ERROR reading DB schedules — {}",
-                            e
-                        ))
+                        report.push(format!("  Heartbeats: ERROR reading DB schedules - {}", e))
                     }
                 }
             }

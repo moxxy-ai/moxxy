@@ -8,13 +8,13 @@ moxxy is a self-hosted runtime for AI agents. Each agent gets its own workspace 
 
 **Key features:**
 
-- **Multi-agent isolation** — each agent has its own SQLite memory, persona, vault, and skills
-- **ReAct loop execution** — agents reason and act using LLM-driven tool invocation
-- **Multiple interfaces** — Web dashboard, terminal UI, Telegram, Discord, Slack, WhatsApp
-- **Extensible skills** — shell scripts, Python, MCP servers, or custom tools
-- **WASM sandboxing** — optional containerized execution with capability-based permissions
-- **Scheduled autonomy** — cron-based heartbeats for proactive agent behavior
-- **Swarm intelligence** — agents share facts through a global knowledge base
+- **Multi-agent isolation** - each agent has its own SQLite memory, persona, vault, and skills
+- **ReAct loop execution** - agents reason and act using LLM-driven tool invocation
+- **Multiple interfaces** - Web dashboard, terminal UI, Telegram, Discord, Slack, WhatsApp
+- **Extensible skills** - shell scripts, Python, MCP servers, or custom tools
+- **WASM sandboxing** - optional containerized execution with capability-based permissions
+- **Scheduled autonomy** - cron-based heartbeats for proactive agent behavior
+- **Swarm intelligence** - agents share facts through a global knowledge base
 
 ## Quick Start
 

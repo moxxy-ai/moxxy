@@ -109,45 +109,46 @@ impl LifecycleComponent for MobileInterface {
             let vault = crate::core::vault::SecretsVault::new(mem.get_db());
 
             if let Ok(Some(mobile_key)) = vault.get_secret("mobile_key").await
-                && !mobile_key.is_empty() {
-                    info!(
-                        "[{}] Mobile Copilot API Enabled. Binding Axum WebSocket & REST...",
-                        self.agent_name
-                    );
+                && !mobile_key.is_empty()
+            {
+                info!(
+                    "[{}] Mobile Copilot API Enabled. Binding Axum WebSocket & REST...",
+                    self.agent_name
+                );
 
-                    let state = MobileState {
-                        agent_name: self.agent_name.clone(),
-                        registry: self.registry.clone(),
-                        skill_registry: self.skill_registry.clone(),
-                        llm_registry: self.llm_registry.clone(),
-                        log_tx: self.log_tx.clone(),
-                    };
+                let state = MobileState {
+                    agent_name: self.agent_name.clone(),
+                    registry: self.registry.clone(),
+                    skill_registry: self.skill_registry.clone(),
+                    llm_registry: self.llm_registry.clone(),
+                    log_tx: self.log_tx.clone(),
+                };
 
-                    let app = Router::new()
-                        .route("/api/v1/mobile/telemetry", get(ws_handler))
-                        .route("/api/v1/mobile/chat", post(chat_handler))
-                        .route("/api/v1/mobile/stream", get(sse_stream_handler))
-                        .route("/api/v1/mobile/notifications", get(notifications_handler))
-                        .with_state(state.clone());
+                let app = Router::new()
+                    .route("/api/v1/mobile/telemetry", get(ws_handler))
+                    .route("/api/v1/mobile/chat", post(chat_handler))
+                    .route("/api/v1/mobile/stream", get(sse_stream_handler))
+                    .route("/api/v1/mobile/notifications", get(notifications_handler))
+                    .with_state(state.clone());
 
-                    // Spin up Axum strictly for Mobile on 3003
-                    tokio::spawn(async move {
-                        match tokio::net::TcpListener::bind("0.0.0.0:3003").await {
-                            Ok(listener) => {
-                                info!("Mobile API Copilot listening on 0.0.0.0:3003");
-                                if let Err(e) = axum::serve(listener, app).await {
-                                    error!("Mobile Axum Error: {}", e);
-                                }
-                            }
-                            Err(e) => {
-                                error!(
-                                    "Failed to bind Mobile API to port 3003: {}. Mobile interface disabled.",
-                                    e
-                                );
+                // Spin up Axum strictly for Mobile on 3003
+                tokio::spawn(async move {
+                    match tokio::net::TcpListener::bind("0.0.0.0:3003").await {
+                        Ok(listener) => {
+                            info!("Mobile API Copilot listening on 0.0.0.0:3003");
+                            if let Err(e) = axum::serve(listener, app).await {
+                                error!("Mobile Axum Error: {}", e);
                             }
                         }
-                    });
-                }
+                        Err(e) => {
+                            error!(
+                                "Failed to bind Mobile API to port 3003: {}. Mobile interface disabled.",
+                                e
+                            );
+                        }
+                    }
+                });
+            }
         }
         Ok(())
     }
@@ -161,17 +162,18 @@ async fn validate_bearer_token(
     // Check Authorization: Bearer <key>
     if let Some(auth_header) = headers.get("authorization")
         && let Ok(auth_str) = auth_header.to_str()
-            && let Some(token) = auth_str.strip_prefix("Bearer ") {
-                // Lookup against Vault
-                let reg = registry.lock().await;
-                if let Some(mem_mutex) = reg.get(agent_name) {
-                    let mem = mem_mutex.lock().await;
-                    let vault = crate::core::vault::SecretsVault::new(mem.get_db());
-                    if let Ok(Some(saved_token)) = vault.get_secret("mobile_key").await {
-                        return token == saved_token;
-                    }
-                }
+        && let Some(token) = auth_str.strip_prefix("Bearer ")
+    {
+        // Lookup against Vault
+        let reg = registry.lock().await;
+        if let Some(mem_mutex) = reg.get(agent_name) {
+            let mem = mem_mutex.lock().await;
+            let vault = crate::core::vault::SecretsVault::new(mem.get_db());
+            if let Ok(Some(saved_token)) = vault.get_secret("mobile_key").await {
+                return token == saved_token;
             }
+        }
+    }
     false
 }
 

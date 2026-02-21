@@ -48,7 +48,7 @@ fn build_system_prompt(skill_catalog: &str, persona_text: &Option<String>) -> St
             use your skills via the invocation format below. Do NOT respond with code snippets or instructions.\n\
          2. For pure knowledge questions (math, reasoning, explanations), respond directly.\n\
          3. Only use skills listed in AVAILABLE SKILLS. Never guess or invent skill names.\n\
-         4. Never tell the user to run commands manually — use `host_shell` instead.\n\
+         4. Never tell the user to run commands manually - use `host_shell` instead.\n\
          5. After a skill result is returned to you, present the result to the user and STOP. \
             Do NOT offer menus, ask what to do next, or continue unless the user's original request requires more steps.\n\
          6. Be concise. Answer the question, present the result, done.\n\n\
@@ -128,7 +128,7 @@ impl AutonomousBrain {
         // 3. ReAct Loop
         let mut final_response = String::new();
         let max_iterations = 10;
-        // Ephemeral context for the current loop — not persisted to STM.
+        // Ephemeral context for the current loop - not persisted to STM.
         // This holds skill results and intermediate reasoning within a single request.
         let mut loop_context: Vec<crate::core::llm::ChatMessage> = Vec::new();
         let invoke_re =
@@ -261,7 +261,7 @@ impl AutonomousBrain {
                 continue; // Next iteration to let LLM present the result
             }
 
-            // Check for [CONTINUE] — agent signals it needs another skill call
+            // Check for [CONTINUE] - agent signals it needs another skill call
             if response_text.contains("[CONTINUE]") {
                 let clean = response_text.replace("[CONTINUE]", "").trim().to_string();
                 if !clean.is_empty() {
@@ -281,7 +281,7 @@ impl AutonomousBrain {
                 continue;
             }
 
-            // Final response — no invoke, no [CONTINUE]
+            // Final response - no invoke, no [CONTINUE]
             final_response = response_text;
             break;
         }

@@ -3,8 +3,8 @@ use async_trait::async_trait;
 use rand::Rng;
 use std::sync::Arc;
 use std::time::Duration;
-use teloxide::prelude::*;
 use teloxide::net::Download;
+use teloxide::prelude::*;
 use tokio::sync::Mutex;
 use tracing::{error, info};
 
@@ -19,12 +19,13 @@ async fn transcribe_audio(api_key: &str, buf: Vec<u8>) -> Result<String> {
     let file = reqwest::multipart::Part::bytes(buf)
         .file_name("audio.ogg")
         .mime_str("audio/ogg")?;
-    
+
     let form = reqwest::multipart::Form::new()
         .text("model", "whisper-1")
         .part("file", file);
 
-    let res = client.post("https://api.openai.com/v1/audio/transcriptions")
+    let res = client
+        .post("https://api.openai.com/v1/audio/transcriptions")
         .header("Authorization", format!("Bearer {}", api_key))
         .multipart(form)
         .send()
@@ -113,7 +114,7 @@ impl TelegramInterface {
                             Ok(Some(val)) => val == "true",
                             _ => false,
                         };
-                        
+
                         if !is_enabled {
                             let _ = bot.send_message(msg.chat.id, "🎤 Voice messages are currently disabled. You can enable them in the Web Interface or CLI.").await;
                             return Ok(());

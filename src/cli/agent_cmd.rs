@@ -43,14 +43,23 @@ pub async fn run_agent_command(args: &[String]) -> Result<()> {
                 Ok(resp) => {
                     if let Ok(body) = resp.json::<serde_json::Value>().await {
                         if body.get("success").and_then(|v| v.as_bool()) == Some(true) {
-                            print_success(&format!("Agent '{}' restarted successfully.", agent_name));
+                            print_success(&format!(
+                                "Agent '{}' restarted successfully.",
+                                agent_name
+                            ));
                         } else {
-                            let err = body.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+                            let err = body
+                                .get("error")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Unknown error");
                             print_error(&format!("Error: {}", err));
                         }
                     }
                 }
-                Err(e) => print_error(&format!("Error: Could not reach gateway — {}. Is the gateway running?", e)),
+                Err(e) => print_error(&format!(
+                    "Error: Could not reach gateway - {}. Is the gateway running?",
+                    e
+                )),
             }
         }
         "remove" | "delete" => {
@@ -62,16 +71,25 @@ pub async fn run_agent_command(args: &[String]) -> Result<()> {
                         if body.get("success").and_then(|v| v.as_bool()) == Some(true) {
                             print_success(&format!("Agent '{}' removed successfully.", agent_name));
                         } else {
-                            let err = body.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+                            let err = body
+                                .get("error")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Unknown error");
                             print_error(&format!("Error: {}", err));
                         }
                     }
                 }
-                Err(e) => print_error(&format!("Error: Could not reach gateway — {}. Is the gateway running?", e)),
+                Err(e) => print_error(&format!(
+                    "Error: Could not reach gateway - {}. Is the gateway running?",
+                    e
+                )),
             }
         }
         _ => {
-            println!("{}", style("Usage: moxxy agent <command> [agent_name]").bold());
+            println!(
+                "{}",
+                style("Usage: moxxy agent <command> [agent_name]").bold()
+            );
             println!("  • restart [name]   Restart the agent's session (clears STM)");
             println!("  • remove  [name]   Remove an agent permanently");
             println!("                     Options: --agent <name> --api-url <url>");

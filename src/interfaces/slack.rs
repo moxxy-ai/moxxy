@@ -49,76 +49,77 @@ async fn slack_webhook(
 ) -> Json<serde_json::Value> {
     // 1. Handle URL Verification Challenge required by Slack
     if payload.event_type == "url_verification"
-        && let Some(challenge) = payload.challenge {
-            return Json(serde_json::json!({ "challenge": challenge }));
-        }
+        && let Some(challenge) = payload.challenge
+    {
+        return Json(serde_json::json!({ "challenge": challenge }));
+    }
 
     // 2. Handle actual messages
     if payload.event_type == "event_callback"
-        && let Some(event) = payload.event {
-            // Ignore messages from ourselves or other bots
-            if event.bot_id.is_some() {
-                return Json(serde_json::json!({ "status": "ignored_bot" }));
-            }
+        && let Some(event) = payload.event
+    {
+        // Ignore messages from ourselves or other bots
+        if event.bot_id.is_some() {
+            return Json(serde_json::json!({ "status": "ignored_bot" }));
+        }
 
-            if (event.inner_type == "message" || event.inner_type == "app_mention")
-                && let (Some(text), Some(user), Some(channel)) =
-                    (event.text, event.user, event.channel)
+        if (event.inner_type == "message" || event.inner_type == "app_mention")
+            && let (Some(text), Some(user), Some(channel)) = (event.text, event.user, event.channel)
+        {
+            let src_label = format!("SLACK_{}", user);
+            info!(
+                "[{}] Received Slack message from {}: {}",
+                state.agent_name, user, text
+            );
+
+            let bot_token = state.bot_token.clone();
+            let agent_name = state.agent_name.clone();
+
+            // Fire and forget the ReAct loop so we return 200 OK to Slack immediately
+            tokio::spawn(async move {
+                match AutonomousBrain::execute_react_loop(
+                    &text,
+                    &src_label,
+                    state.llms,
+                    state.memory,
+                    state.skills,
+                    None,
+                )
+                .await
                 {
-                    let src_label = format!("SLACK_{}", user);
-                    info!(
-                        "[{}] Received Slack message from {}: {}",
-                        state.agent_name, user, text
-                    );
+                    Ok(response) => {
+                        // Post the response back to Slack using Reqwest
+                        let client = reqwest::Client::new();
+                        let req_body = serde_json::json!({
+                            "channel": channel,
+                            "text": response
+                        });
 
-                    let bot_token = state.bot_token.clone();
-                    let agent_name = state.agent_name.clone();
+                        let res = client
+                            .post("https://slack.com/api/chat.postMessage")
+                            .header("Authorization", format!("Bearer {}", bot_token))
+                            .header("Content-Type", "application/json")
+                            .json(&req_body)
+                            .send()
+                            .await;
 
-                    // Fire and forget the ReAct loop so we return 200 OK to Slack immediately
-                    tokio::spawn(async move {
-                        match AutonomousBrain::execute_react_loop(
-                            &text,
-                            &src_label,
-                            state.llms,
-                            state.memory,
-                            state.skills,
-                            None,
-                        )
-                        .await
-                        {
-                            Ok(response) => {
-                                // Post the response back to Slack using Reqwest
-                                let client = reqwest::Client::new();
-                                let req_body = serde_json::json!({
-                                    "channel": channel,
-                                    "text": response
-                                });
-
-                                let res = client
-                                    .post("https://slack.com/api/chat.postMessage")
-                                    .header("Authorization", format!("Bearer {}", bot_token))
-                                    .header("Content-Type", "application/json")
-                                    .json(&req_body)
-                                    .send()
-                                    .await;
-
-                                match res {
-                                    Ok(r) if !r.status().is_success() => {
-                                        error!("[{}] Slack API Error: {:?}", agent_name, r.status())
-                                    }
-                                    Err(e) => {
-                                        error!("[{}] Failed to send Slack reply: {}", agent_name, e)
-                                    }
-                                    _ => {}
-                                }
+                        match res {
+                            Ok(r) if !r.status().is_success() => {
+                                error!("[{}] Slack API Error: {:?}", agent_name, r.status())
                             }
                             Err(e) => {
-                                error!("[{}] ReAct loop failed: {}", agent_name, e);
+                                error!("[{}] Failed to send Slack reply: {}", agent_name, e)
                             }
+                            _ => {}
                         }
-                    });
+                    }
+                    Err(e) => {
+                        error!("[{}] ReAct loop failed: {}", agent_name, e);
+                    }
                 }
+            });
         }
+    }
 
     Json(serde_json::json!({ "status": "ok" }))
 }

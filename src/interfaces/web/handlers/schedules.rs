@@ -1,4 +1,7 @@
-use axum::{Json, extract::{Path, State}};
+use axum::{
+    Json,
+    extract::{Path, State},
+};
 use std::collections::HashMap;
 
 use super::super::AppState;
@@ -180,12 +183,13 @@ pub async fn create_schedule_endpoint(
     let mut warning = None;
     if let Some(old_id) = previous_job_id
         && old_id != new_job_id
-            && let Err(e) = scheduler_arc.lock().await.remove(&old_id).await {
-                warning = Some(format!(
-                    "replaced DB/runtime mapping but failed to remove previous runtime job {}: {}",
-                    old_id, e
-                ));
-            }
+        && let Err(e) = scheduler_arc.lock().await.remove(&old_id).await
+    {
+        warning = Some(format!(
+            "replaced DB/runtime mapping but failed to remove previous runtime job {}: {}",
+            old_id, e
+        ));
+    }
 
     let message = if previous_job_id.is_some() {
         "Schedule updated"
@@ -332,7 +336,10 @@ pub async fn delete_all_schedules_endpoint(
         let scheduler = scheduler_mutex.lock().await;
         for (name, job_id) in runtime_jobs_to_remove {
             if let Err(e) = scheduler.remove(&job_id).await {
-                warnings.push(format!("failed to unschedule '{}' ({}): {}", name, job_id, e));
+                warnings.push(format!(
+                    "failed to unschedule '{}' ({}): {}",
+                    name, job_id, e
+                ));
             }
         }
     } else if !runtime_jobs_to_remove.is_empty() {
@@ -346,6 +353,8 @@ pub async fn delete_all_schedules_endpoint(
             "warning": warnings.join("; ")
         }))
     } else {
-        Json(serde_json::json!({ "success": true, "message": format!("Removed {} schedules", removed_count) }))
+        Json(
+            serde_json::json!({ "success": true, "message": format!("Removed {} schedules", removed_count) }),
+        )
     }
 }

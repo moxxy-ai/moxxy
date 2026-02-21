@@ -4,8 +4,8 @@ use tracing::{Level, info};
 use tracing_subscriber::FmtSubscriber;
 
 use crate::core::agent::{
-    AgentInstance, ContainerRegistry, LlmRegistry, MemoryRegistry, RunMode,
-    ScheduledJobRegistry, SchedulerRegistry, SkillRegistry,
+    AgentInstance, ContainerRegistry, LlmRegistry, MemoryRegistry, RunMode, ScheduledJobRegistry,
+    SchedulerRegistry, SkillRegistry,
 };
 use crate::logging::SseMakeWriter;
 
@@ -66,9 +66,10 @@ pub async fn run_swarm_engine(
             let agent_name = entry.file_name().to_string_lossy().to_string();
 
             if let Some(ref target) = target_agent
-                && agent_name != *target {
-                    continue;
-                }
+                && agent_name != *target
+            {
+                continue;
+            }
 
             let agent_workspace = entry.path();
             let registry_clone = swarm_registry.clone();
