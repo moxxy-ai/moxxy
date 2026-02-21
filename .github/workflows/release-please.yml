@@ -20,4 +20,4 @@ jobs:
         id: release
         with:
           release-type: rust
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_TOKEN }}
