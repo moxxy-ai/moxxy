@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/moxxy-ai/moxxy/compare/v0.2.0...v0.2.1) (2026-02-21)
+
+
+### Bug Fixes
+
+* providers build ([#7](https://github.com/moxxy-ai/moxxy/issues/7)) ([e7af57b](https://github.com/moxxy-ai/moxxy/commit/e7af57bc4cf93853fb34cc04f40c325caca2cccf))
+
 ## [0.2.0](https://github.com/moxxy-ai/moxxy/compare/v0.1.1...v0.2.0) (2026-02-21)
 
 
