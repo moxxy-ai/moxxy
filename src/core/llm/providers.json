@@ -1,0 +1,51 @@
+{
+  "providers": [
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "api_format": "openai",
+      "base_url": "https://api.openai.com/v1/chat/completions",
+      "auth": { "type": "bearer", "vault_key": "openai_api_key" },
+      "default_model": "gpt-4o",
+      "models": [
+        { "id": "o3-mini", "name": "OpenAI o3-mini" },
+        { "id": "o1", "name": "OpenAI o1" },
+        { "id": "gpt-5.2", "name": "GPT-5.2" },
+        { "id": "gpt-5.1-pro", "name": "GPT-5.1 Pro" },
+        { "id": "gpt-4.5-preview", "name": "GPT-4.5" },
+        { "id": "gpt-4o", "name": "GPT-4o" },
+        { "id": "gpt-4o-mini", "name": "GPT-4o Mini" }
+      ]
+    },
+    {
+      "id": "google",
+      "name": "Google",
+      "api_format": "gemini",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+      "auth": { "type": "query_param", "param_name": "key", "vault_key": "google_api_key" },
+      "default_model": "gemini-2.5-flash",
+      "models": [
+        { "id": "gemini-3.1-pro", "name": "Gemini 3.1 Pro" },
+        { "id": "gemini-3-flash", "name": "Gemini 3 Flash" },
+        { "id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro" },
+        { "id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash" },
+        { "id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash" }
+      ]
+    },
+    {
+      "id": "zai",
+      "name": "Z.Ai",
+      "api_format": "openai",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+      "auth": { "type": "bearer", "vault_key": "zai_api_key" },
+      "default_model": "glm-5",
+      "models": [
+        { "id": "glm-5", "name": "GLM-5 (Flagship)" },
+        { "id": "glm-4.7", "name": "GLM-4.7" },
+        { "id": "glm-4-plus", "name": "GLM-4 Plus" },
+        { "id": "glm-4-0520", "name": "GLM-4" },
+        { "id": "glm-4v-plus", "name": "GLM-4V Plus" }
+      ]
+    }
+  ]
+}

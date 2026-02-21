@@ -1,5 +1,12 @@
 import { useState, useEffect } from 'react';
 
+interface ProviderInfo {
+  id: string;
+  name: string;
+  default_model: string;
+  models: { id: string; name: string }[];
+}
+
 interface ConfigPanelProps {
   apiBase: string;
   setApiBase: (val: string) => void;
@@ -15,6 +22,7 @@ export function ConfigPanel({
   activeAgent,
   setActiveAgent,
 }: ConfigPanelProps) {
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [llmProvider, setLlmProvider] = useState('');
   const [llmModel, setLlmModel] = useState('');
   const [llmStatus, setLlmStatus] = useState<string | null>(null);
@@ -23,6 +31,17 @@ export function ConfigPanel({
   const [gatewayPort, setGatewayPort] = useState<number>(17890);
   const [webUiPort, setWebUiPort] = useState<number>(3001);
   const [globalConfigStatus, setGlobalConfigStatus] = useState<string | null>(null);
+
+  // Fetch provider registry
+  useEffect(() => {
+    if (!apiBase) return;
+    fetch(`${apiBase}/providers`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) setProviders(data.providers || []);
+      })
+      .catch(() => {});
+  }, [apiBase]);
 
   useEffect(() => {
     if (!apiBase) return;
@@ -47,6 +66,8 @@ export function ConfigPanel({
       .catch(() => { /* ignore */ });
   }, [activeAgent, apiBase]);
 
+  const selectedProvider = providers.find(p => p.id === llmProvider);
+
   return (
     <div className="flex flex-col gap-4 h-full p-4">
       <div className="bg-[#111927]/90 border border-[#1e304f] p-6 shadow-2xl backdrop-blur-sm">
@@ -69,24 +90,38 @@ export function ConfigPanel({
             <label className="block text-xs uppercase tracking-widest text-[#94a3b8] mb-1">LLM Provider</label>
             <select
               value={llmProvider}
-              onChange={e => setLlmProvider(e.target.value)}
+              onChange={e => {
+                const newProvider = e.target.value;
+                setLlmProvider(newProvider);
+                const prov = providers.find(p => p.id === newProvider);
+                if (prov) setLlmModel(prov.default_model);
+              }}
               className="w-full bg-[#090d14] border border-[#1e304f] text-white px-3 py-2 rounded-sm text-sm focus:border-[#00aaff] outline-none"
             >
               <option value="">Select Provider</option>
-              <option value="OpenAI">OpenAI</option>
-              <option value="Google">Google</option>
-              <option value="ZAi">Z.AI</option>
+              {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-xs uppercase tracking-widest text-[#94a3b8] mb-1">Model ID</label>
-            <input
-              type="text"
-              value={llmModel}
-              onChange={e => setLlmModel(e.target.value)}
-              className="w-full bg-[#090d14] border border-[#1e304f] focus:border-[#00aaff] outline-none text-white px-3 py-2 rounded-sm text-sm font-mono"
-              placeholder="e.g. gpt-4o, gemini-2.0-flash"
-            />
+            <label className="block text-xs uppercase tracking-widest text-[#94a3b8] mb-1">Model</label>
+            {selectedProvider && selectedProvider.models.length > 0 ? (
+              <select
+                value={llmModel}
+                onChange={e => setLlmModel(e.target.value)}
+                className="w-full bg-[#090d14] border border-[#1e304f] text-white px-3 py-2 rounded-sm text-sm focus:border-[#00aaff] outline-none"
+              >
+                <option value="">Select Model</option>
+                {selectedProvider.models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={llmModel}
+                onChange={e => setLlmModel(e.target.value)}
+                className="w-full bg-[#090d14] border border-[#1e304f] focus:border-[#00aaff] outline-none text-white px-3 py-2 rounded-sm text-sm font-mono"
+                placeholder="e.g. gpt-4o, gemini-2.0-flash"
+              />
+            )}
           </div>
           <div className="flex items-center gap-3">
             <button

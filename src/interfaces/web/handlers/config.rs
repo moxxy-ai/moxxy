@@ -3,7 +3,26 @@ use axum::{
     extract::{Path, State},
 };
 
+use crate::core::llm::registry::ProviderRegistry;
+
 use super::super::AppState;
+
+pub async fn get_providers_endpoint() -> Json<serde_json::Value> {
+    let registry = ProviderRegistry::load();
+    Json(serde_json::json!({
+        "success": true,
+        "providers": registry.providers.iter().map(|p| {
+            serde_json::json!({
+                "id": p.id,
+                "name": p.name,
+                "default_model": p.default_model,
+                "models": p.models.iter().map(|m| {
+                    serde_json::json!({ "id": m.id, "name": m.name })
+                }).collect::<Vec<_>>()
+            })
+        }).collect::<Vec<_>>()
+    }))
+}
 
 pub async fn get_llm_info(
     Path(agent): Path<String>,
@@ -15,7 +34,7 @@ pub async fn get_llm_info(
         let (provider, model) = llm.get_active_info();
         Json(serde_json::json!({
             "success": true,
-            "provider": provider.map(|p| format!("{:?}", p)),
+            "provider": provider,
             "model": model
         }))
     } else {
@@ -34,22 +53,20 @@ pub async fn set_llm_endpoint(
     State(state): State<AppState>,
     Json(payload): Json<SetLlmRequest>,
 ) -> Json<serde_json::Value> {
-    let p_type = match payload.provider.to_lowercase().as_str() {
-        "openai" => crate::core::llm::ProviderType::OpenAI,
-        "google" => crate::core::llm::ProviderType::Google,
-        "z.ai" | "zai" => crate::core::llm::ProviderType::ZAi,
-        _ => {
-            return Json(
-                serde_json::json!({ "success": false, "error": "Unknown provider. Supported: OpenAI, Google, ZAi" }),
-            );
-        }
-    };
+    let registry = ProviderRegistry::load();
+    let normalized = payload.provider.to_lowercase();
+    if registry.get_provider(&normalized).is_none() {
+        let supported: Vec<&str> = registry.providers.iter().map(|p| p.name.as_str()).collect();
+        return Json(
+            serde_json::json!({ "success": false, "error": format!("Unknown provider. Supported: {}", supported.join(", ")) }),
+        );
+    }
 
     // Update runtime
     let llm_reg = state.llm_registry.lock().await;
     if let Some(llm_mutex) = llm_reg.get(&agent) {
         let mut llm = llm_mutex.lock().await;
-        llm.set_active(p_type, payload.model.clone());
+        llm.set_active(&normalized, payload.model.clone());
     } else {
         return Json(serde_json::json!({ "success": false, "error": "Agent not found" }));
     }
@@ -61,7 +78,7 @@ pub async fn set_llm_endpoint(
         let mem = mem_mutex.lock().await;
         let vault = crate::core::vault::SecretsVault::new(mem.get_db());
         let _ = vault
-            .set_secret("llm_default_provider", &payload.provider)
+            .set_secret("llm_default_provider", &normalized)
             .await;
         let _ = vault.set_secret("llm_default_model", &payload.model).await;
     }

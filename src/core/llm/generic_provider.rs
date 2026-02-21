@@ -3,7 +3,39 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::core::llm::{LlmProvider, ModelInfo, ProviderType};
+use super::registry::{ApiFormat, AuthType, ProviderDef};
+use super::{ChatMessage, LlmProvider, ModelInfo};
+
+// ── OpenAI-compatible request/response ──
+
+#[derive(Serialize)]
+struct OpenAiRequest<'a> {
+    model: &'a str,
+    messages: Vec<OpenAiMessage<'a>>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct OpenAiMessage<'a> {
+    role: &'a str,
+    content: &'a str,
+}
+
+#[derive(Deserialize)]
+struct OpenAiResponse {
+    choices: Vec<OpenAiChoice>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiChoice {
+    message: OpenAiMessageOwned,
+}
+
+#[derive(Deserialize)]
+struct OpenAiMessageOwned {
+    content: String,
+}
+
+// ── Gemini request/response ──
 
 #[derive(Serialize)]
 struct GeminiRequest {
@@ -43,56 +75,63 @@ struct GeminiResPart {
     text: String,
 }
 
-pub struct GoogleProvider {
+// ── Generic Provider ──
+
+pub struct GenericProvider {
+    provider_def: ProviderDef,
     api_key: String,
     client: Client,
 }
 
-impl GoogleProvider {
-    pub fn new(api_key: String) -> Self {
+impl GenericProvider {
+    pub fn new(provider_def: ProviderDef, api_key: String) -> Self {
         Self {
+            provider_def,
             api_key,
             client: Client::new(),
         }
     }
-}
 
-#[async_trait]
-impl LlmProvider for GoogleProvider {
-    fn provider_type(&self) -> ProviderType {
-        ProviderType::Google
+    async fn generate_openai(&self, model_id: &str, messages: &[ChatMessage]) -> Result<String> {
+        let req_messages: Vec<OpenAiMessage> = messages
+            .iter()
+            .map(|m| OpenAiMessage {
+                role: &m.role,
+                content: &m.content,
+            })
+            .collect();
+
+        let req = OpenAiRequest {
+            model: model_id,
+            messages: req_messages,
+        };
+
+        let mut request = self.client.post(&self.provider_def.base_url).json(&req);
+        request = match self.provider_def.auth.auth_type {
+            AuthType::Bearer => {
+                request.header("Authorization", format!("Bearer {}", self.api_key))
+            }
+            AuthType::QueryParam => request, // Not used for OpenAI-format providers currently
+        };
+
+        let res = request.send().await?;
+        if !res.status().is_success() {
+            return Err(anyhow!(
+                "{} API Error: {}",
+                self.provider_def.name,
+                res.text().await.unwrap_or_default()
+            ));
+        }
+        let parsed: OpenAiResponse = res.json().await?;
+        Ok(parsed
+            .choices
+            .into_iter()
+            .next()
+            .map(|c| c.message.content)
+            .unwrap_or_default())
     }
 
-    async fn fetch_models(&self) -> Result<Vec<ModelInfo>> {
-        Ok(vec![
-            ModelInfo {
-                id: "gemini-3.1-pro".to_string(),
-                name: "Gemini 3.1 Pro".to_string(),
-            },
-            ModelInfo {
-                id: "gemini-3-flash".to_string(),
-                name: "Gemini 3 Flash".to_string(),
-            },
-            ModelInfo {
-                id: "gemini-2.5-pro".to_string(),
-                name: "Gemini 2.5 Pro".to_string(),
-            },
-            ModelInfo {
-                id: "gemini-2.5-flash".to_string(),
-                name: "Gemini 2.5 Flash".to_string(),
-            },
-            ModelInfo {
-                id: "gemini-2.0-flash".to_string(),
-                name: "Gemini 2.0 Flash".to_string(),
-            },
-        ])
-    }
-
-    async fn generate(
-        &self,
-        model_id: &str,
-        messages: &[crate::core::llm::ChatMessage],
-    ) -> Result<String> {
+    async fn generate_gemini(&self, model_id: &str, messages: &[ChatMessage]) -> Result<String> {
         let mut contents = Vec::new();
         let mut system_instruction: Option<GeminiContent> = None;
 
@@ -103,25 +142,20 @@ impl LlmProvider for GoogleProvider {
         for m in messages {
             if m.role == "system" {
                 if !past_first_non_system {
-                    // Accumulate into system_instruction
                     if let Some(ref mut si) = system_instruction {
-                        // Append to existing system instruction text
                         if let Some(part) = si.parts.first_mut() {
                             part.text.push('\n');
                             part.text.push_str(&m.content);
                         }
                     } else {
                         system_instruction = Some(GeminiContent {
-                            role: "user".to_string(), // role is ignored for system_instruction but required by struct
+                            role: "user".to_string(),
                             parts: vec![GeminiPart {
                                 text: m.content.clone(),
                             }],
                         });
                     }
                 } else {
-                    // Mid-conversation system message: inject as user with [SYSTEM] prefix
-                    // Gemini requires alternating user/model turns, so merge into
-                    // the previous user turn if the last entry is user, else add new user entry.
                     let prefixed = format!("[SYSTEM] {}", m.content);
                     let should_merge = contents
                         .last()
@@ -178,14 +212,31 @@ impl LlmProvider for GoogleProvider {
             system_instruction,
             contents,
         };
-        let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-            model_id, self.api_key
-        );
-        let res = self.client.post(&url).json(&req).send().await?;
+
+        let url = match self.provider_def.auth.auth_type {
+            AuthType::QueryParam => {
+                let param_name = self
+                    .provider_def
+                    .auth
+                    .param_name
+                    .as_deref()
+                    .unwrap_or("key");
+                let base = self.provider_def.base_url.replace("{model}", model_id);
+                format!("{}?{}={}", base, param_name, self.api_key)
+            }
+            AuthType::Bearer => self.provider_def.base_url.replace("{model}", model_id),
+        };
+
+        let mut request = self.client.post(&url).json(&req);
+        if self.provider_def.auth.auth_type == AuthType::Bearer {
+            request = request.header("Authorization", format!("Bearer {}", self.api_key));
+        }
+
+        let res = request.send().await?;
         if !res.status().is_success() {
             return Err(anyhow!(
-                "Google Gemini API Error: {}",
+                "{} API Error: {}",
+                self.provider_def.name,
                 res.text().await.unwrap_or_default()
             ));
         }
@@ -197,5 +248,31 @@ impl LlmProvider for GoogleProvider {
             .and_then(|c| c.content.parts.into_iter().next())
             .map(|p| p.text)
             .unwrap_or_default())
+    }
+}
+
+#[async_trait]
+impl LlmProvider for GenericProvider {
+    fn provider_id(&self) -> &str {
+        &self.provider_def.id
+    }
+
+    async fn fetch_models(&self) -> Result<Vec<ModelInfo>> {
+        Ok(self
+            .provider_def
+            .models
+            .iter()
+            .map(|m| ModelInfo {
+                id: m.id.clone(),
+                name: m.name.clone(),
+            })
+            .collect())
+    }
+
+    async fn generate(&self, model_id: &str, messages: &[ChatMessage]) -> Result<String> {
+        match self.provider_def.api_format {
+            ApiFormat::Openai => self.generate_openai(model_id, messages).await,
+            ApiFormat::Gemini => self.generate_gemini(model_id, messages).await,
+        }
     }
 }
