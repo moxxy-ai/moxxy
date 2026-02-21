@@ -1,6 +1,8 @@
 use anyhow::Result;
 use console::style;
 
+use crate::core::llm::generic_provider::GenericProvider;
+use crate::core::llm::registry::ProviderRegistry;
 use crate::core::terminal::{self, print_info, print_step, print_success};
 
 pub async fn run_onboarding() -> Result<()> {
@@ -21,47 +23,38 @@ pub async fn run_onboarding() -> Result<()> {
     let vault = crate::core::vault::SecretsVault::new(memory_sys.get_db());
     vault.initialize().await?;
 
-    // --- Step 1: LLM Provider ---
-    let provider_options = vec!["OpenAI", "Google", "Z.Ai"];
-    let provider_choice = inquire::Select::new("Select your AI provider:", provider_options)
+    // --- Step 1: LLM Provider (from registry) ---
+    let registry = ProviderRegistry::load();
+    let provider_names: Vec<&str> = registry.providers.iter().map(|p| p.name.as_str()).collect();
+    let provider_choice = inquire::Select::new("Select your AI provider:", provider_names)
         .with_help_message("Use arrow keys to navigate, Enter to select")
         .prompt()?;
 
-    let (provider_type, default_model) = match provider_choice {
-        "Google" => (crate::core::llm::ProviderType::Google, "gemini-1.5-pro"),
-        "Z.Ai" => (crate::core::llm::ProviderType::ZAi, "zai-core-v1"),
-        _ => (crate::core::llm::ProviderType::OpenAI, "gpt-4o"),
-    };
+    let provider_def = registry
+        .get_provider(provider_choice)
+        .expect("Selected provider not found in registry");
 
     // --- Step 2: Model Name ---
     let final_model = inquire::Text::new("Model name:")
-        .with_default(default_model)
+        .with_default(&provider_def.default_model)
         .with_help_message("Press Enter to use the default")
         .prompt()?;
 
     // --- Step 3: API Key ---
-    let provider_label = match provider_type {
-        crate::core::llm::ProviderType::OpenAI => "OpenAI",
-        crate::core::llm::ProviderType::Google => "Google",
-        crate::core::llm::ProviderType::ZAi => "Z.Ai",
-    };
-    let llm_api_key = inquire::Password::new(&format!("API key for {}:", provider_label))
+    let llm_api_key = inquire::Password::new(&format!("API key for {}:", provider_def.name))
         .without_confirmation()
         .with_help_message("Your key is stored locally and never sent anywhere except the provider")
         .prompt()?;
 
     // Save LLM configuration
     vault
-        .set_secret("llm_default_provider", &format!("{:?}", provider_type))
+        .set_secret("llm_default_provider", &provider_def.id)
         .await?;
     vault.set_secret("llm_default_model", &final_model).await?;
     if !llm_api_key.is_empty() {
-        let key_name = match provider_type {
-            crate::core::llm::ProviderType::OpenAI => "openai_api_key",
-            crate::core::llm::ProviderType::Google => "google_api_key",
-            crate::core::llm::ProviderType::ZAi => "zai_api_key",
-        };
-        vault.set_secret(key_name, &llm_api_key).await?;
+        vault
+            .set_secret(&provider_def.auth.vault_key, &llm_api_key)
+            .await?;
     }
 
     // --- Step 4: Telegram (optional) ---
@@ -95,32 +88,11 @@ pub async fn run_onboarding() -> Result<()> {
             print_step("Generating persona...");
             let mut llm_sys = crate::core::llm::LlmManager::new();
 
-            let openai_key = if provider_type == crate::core::llm::ProviderType::OpenAI {
-                llm_api_key.clone()
-            } else {
-                String::new()
-            };
-            let google_key = if provider_type == crate::core::llm::ProviderType::Google {
-                llm_api_key.clone()
-            } else {
-                String::new()
-            };
-            let zai_key = if provider_type == crate::core::llm::ProviderType::ZAi {
-                llm_api_key.clone()
-            } else {
-                String::new()
-            };
-
-            llm_sys.register_provider(Box::new(crate::core::llm::providers::OpenAiProvider::new(
-                openai_key,
+            llm_sys.register_provider(Box::new(GenericProvider::new(
+                provider_def.clone(),
+                llm_api_key.clone(),
             )));
-            llm_sys.register_provider(Box::new(crate::core::llm::providers::GoogleProvider::new(
-                google_key,
-            )));
-            llm_sys.register_provider(Box::new(crate::core::llm::providers::ZAiProvider::new(
-                zai_key,
-            )));
-            llm_sys.set_active(provider_type, final_model.clone());
+            llm_sys.set_active(&provider_def.id, final_model.clone());
 
             let prompt = format!(
                 "You are a persona generator for moxxy, an autonomous AI agent framework.\n\

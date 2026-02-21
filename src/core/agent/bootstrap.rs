@@ -8,7 +8,8 @@ use tracing::info;
 use crate::core::container::{AgentContainer, ContainerConfig};
 use crate::core::lifecycle::LifecycleManager;
 use crate::core::llm::LlmManager;
-use crate::core::llm::providers::{GoogleProvider, OpenAiProvider, ZAiProvider};
+use crate::core::llm::generic_provider::GenericProvider;
+use crate::core::llm::registry::ProviderRegistry;
 use crate::core::memory::MemorySystem;
 use crate::core::vault::SecretsVault;
 use crate::skills::native_executor::NativeExecutor;
@@ -66,40 +67,29 @@ pub(super) async fn init_core_subsystems(
     ));
     let skill_sys = SkillManager::new(skill_executor, workspace_dir.to_path_buf());
 
-    // LLM
+    // LLM — registry-driven provider registration
+    let registry = ProviderRegistry::load();
     let mut llm_sys = LlmManager::new();
-    let openai_key = vault
-        .get_secret("openai_api_key")
-        .await
-        .unwrap_or(None)
-        .unwrap_or_default();
-    let google_key = vault
-        .get_secret("google_api_key")
-        .await
-        .unwrap_or(None)
-        .unwrap_or_default();
-    let zai_key = vault
-        .get_secret("zai_api_key")
-        .await
-        .unwrap_or(None)
-        .unwrap_or_default();
 
-    llm_sys.register_provider(Box::new(OpenAiProvider::new(openai_key)));
-    llm_sys.register_provider(Box::new(GoogleProvider::new(google_key)));
-    llm_sys.register_provider(Box::new(ZAiProvider::new(zai_key)));
+    for provider_def in &registry.providers {
+        let api_key = vault
+            .get_secret(&provider_def.auth.vault_key)
+            .await
+            .unwrap_or(None)
+            .unwrap_or_default();
+        llm_sys.register_provider(Box::new(GenericProvider::new(
+            provider_def.clone(),
+            api_key,
+        )));
+    }
 
     // Auto-load default LLM provider from Vault
     if let Ok(Some(provider_str)) = vault.get_secret("llm_default_provider").await
         && let Ok(Some(model_id)) = vault.get_secret("llm_default_model").await
     {
-        let p_type = match provider_str.to_lowercase().as_str() {
-            "openai" => Some(crate::core::llm::ProviderType::OpenAI),
-            "google" => Some(crate::core::llm::ProviderType::Google),
-            "z.ai" | "zai" => Some(crate::core::llm::ProviderType::ZAi),
-            _ => None,
-        };
-        if let Some(pt) = p_type {
-            llm_sys.set_active(pt, model_id);
+        let normalized = provider_str.to_lowercase();
+        if registry.get_provider(&normalized).is_some() {
+            llm_sys.set_active(&normalized, model_id);
         }
     }
 

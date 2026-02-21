@@ -112,6 +112,7 @@ pub fn build_api_router(state: AppState) -> Router {
             axum::routing::delete(mcp::delete_mcp_server_endpoint),
         )
         .route("/api/memory/swarm", get(memory::get_swarm_memory))
+        .route("/api/providers", get(config::get_providers_endpoint))
         .route(
             "/api/config/global",
             get(config::get_global_config_endpoint).post(config::set_global_config_endpoint),

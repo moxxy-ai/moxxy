@@ -1,15 +1,9 @@
-pub mod providers;
+pub mod generic_provider;
+pub mod registry;
 
 use anyhow::Result;
 use async_trait::async_trait;
 use tracing::info;
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ProviderType {
-    OpenAI,
-    Google,
-    ZAi,
-}
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -26,19 +20,17 @@ pub struct ChatMessage {
 
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
-    fn provider_type(&self) -> ProviderType;
+    fn provider_id(&self) -> &str;
 
-    // Dynamically fetch available models from the provider's API
     #[allow(dead_code)]
     async fn fetch_models(&self) -> Result<Vec<ModelInfo>>;
 
-    // Execute a prompt against a selected model using a structured conversation history
     async fn generate(&self, model_id: &str, messages: &[ChatMessage]) -> Result<String>;
 }
 
 pub struct LlmManager {
     providers: Vec<Box<dyn LlmProvider>>,
-    selected_provider: Option<ProviderType>,
+    selected_provider: Option<String>,
     selected_model: Option<String>,
 }
 
@@ -52,37 +44,37 @@ impl LlmManager {
     }
 
     pub fn register_provider(&mut self, provider: Box<dyn LlmProvider>) {
-        info!("Registered LLM Provider: {:?}", provider.provider_type());
+        info!("Registered LLM Provider: {}", provider.provider_id());
         self.providers.push(provider);
     }
 
-    pub fn set_active(&mut self, provider: ProviderType, model_id: String) {
-        info!("Setting active LLM: {:?} ({})", provider, model_id);
-        self.selected_provider = Some(provider);
+    pub fn set_active(&mut self, provider_id: &str, model_id: String) {
+        info!("Setting active LLM: {} ({})", provider_id, model_id);
+        self.selected_provider = Some(provider_id.to_string());
         self.selected_model = Some(model_id);
     }
 
-    pub fn get_provider(&self, pt: ProviderType) -> Option<&dyn LlmProvider> {
+    pub fn get_provider(&self, id: &str) -> Option<&dyn LlmProvider> {
         self.providers
             .iter()
-            .find(|p| p.provider_type() == pt)
+            .find(|p| p.provider_id() == id)
             .map(|p| p.as_ref())
     }
 
     #[allow(dead_code)]
-    pub fn list_providers(&self) -> Vec<ProviderType> {
-        self.providers.iter().map(|p| p.provider_type()).collect()
+    pub fn list_providers(&self) -> Vec<&str> {
+        self.providers.iter().map(|p| p.provider_id()).collect()
     }
 
-    pub fn get_active_info(&self) -> (Option<&ProviderType>, Option<&String>) {
+    pub fn get_active_info(&self) -> (Option<&str>, Option<&str>) {
         (
-            self.selected_provider.as_ref(),
-            self.selected_model.as_ref(),
+            self.selected_provider.as_deref(),
+            self.selected_model.as_deref(),
         )
     }
 
     pub async fn generate_with_selected(&self, messages: &[ChatMessage]) -> Result<String> {
-        let provider_type = self.selected_provider.as_ref().ok_or_else(|| {
+        let provider_id = self.selected_provider.as_ref().ok_or_else(|| {
             anyhow::anyhow!("No LLM Provider selected. Please configure one via the CLI.")
         })?;
 
@@ -92,7 +84,7 @@ impl LlmManager {
             .ok_or_else(|| anyhow::anyhow!("No LLM Model selected."))?;
 
         let provider = self
-            .get_provider(provider_type.clone())
+            .get_provider(provider_id)
             .ok_or_else(|| anyhow::anyhow!("Selected provider not found in registry"))?;
 
         provider.generate(model_id, messages).await
