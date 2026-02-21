@@ -46,7 +46,7 @@ export function McpServersPanel({
     <div className="flex flex-col gap-4 h-full p-4">
       <div className="bg-[#111927]/90 border border-[#1e304f] p-6 shadow-2xl backdrop-blur-sm h-full flex flex-col">
         <div className="flex justify-between items-center mb-4 border-b border-[#1e304f] pb-2">
-          <h2 className="text-[#00aaff] uppercase tracking-widest text-sm">MCP Servers — {activeAgent || 'No Agent'}</h2>
+          <h2 className="text-[#00aaff] uppercase tracking-widest text-sm">MCP Servers - {activeAgent || 'No Agent'}</h2>
           <div className="flex items-center gap-3">
             <select
               className="bg-[#090d14] border border-[#1e304f] text-white px-3 py-1.5 outline-none rounded-sm text-xs focus:border-[#00aaff]"

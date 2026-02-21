@@ -157,7 +157,7 @@ impl SkillManager {
         let mut catalog = String::new();
         for manifest in self.skills.values() {
             catalog.push_str(&format!(
-                "### [{}] — {}\n",
+                "### [{}] - {}\n",
                 manifest.name, manifest.description
             ));
             let skill_md_path = manifest.skill_dir.join("skill.md");

@@ -50,7 +50,7 @@ pub async fn run_agent_command(args: &[String]) -> Result<()> {
                         }
                     }
                 }
-                Err(e) => print_error(&format!("Error: Could not reach gateway — {}. Is the gateway running?", e)),
+                Err(e) => print_error(&format!("Error: Could not reach gateway - {}. Is the gateway running?", e)),
             }
         }
         "remove" | "delete" => {
@@ -67,7 +67,7 @@ pub async fn run_agent_command(args: &[String]) -> Result<()> {
                         }
                     }
                 }
-                Err(e) => print_error(&format!("Error: Could not reach gateway — {}. Is the gateway running?", e)),
+                Err(e) => print_error(&format!("Error: Could not reach gateway - {}. Is the gateway running?", e)),
             }
         }
         _ => {

@@ -196,7 +196,7 @@ pub async fn run_main() -> Result<()> {
                     }
                 }
 
-                // Pure frontend server — does NOT boot any agents or API
+                // Pure frontend server - does NOT boot any agents or API
                 use crate::core::lifecycle::LifecycleComponent;
                 use crate::interfaces::web::WebServer;
 

@@ -145,7 +145,7 @@ fn build_system_prompt(skill_catalog: &str, persona: &str) -> String {
             use your skills via the invocation format below. Do NOT respond with code snippets or instructions.\n\
          2. For pure knowledge questions (math, reasoning, explanations), respond directly.\n\
          3. Only use skills listed in AVAILABLE SKILLS. Never guess or invent skill names.\n\
-         4. Never tell the user to run commands manually — use `host_shell` instead.\n\
+         4. Never tell the user to run commands manually - use `host_shell` instead.\n\
          5. After a skill result is returned to you, present the result to the user and STOP. \
             Do NOT offer menus, ask what to do next, or continue unless the user's original request requires more steps.\n\
          6. Be concise. Answer the question, present the result, done.\n\n\
@@ -256,7 +256,7 @@ fn react_loop(user_input: &str) -> String {
             continue;
         }
 
-        // No skill invocation, no [CONTINUE] — final response
+        // No skill invocation, no [CONTINUE] - final response
         write_memory("assistant", &response);
         return response;
     }

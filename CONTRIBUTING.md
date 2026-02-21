@@ -111,7 +111,7 @@ agent_runtime/             # WASM agent runtime (wasm32-wasip1)
 
 - **Rust edition**: 2024
 - **Formatting**: `cargo fmt` before committing
-- **Linting**: `cargo clippy` — address warnings where reasonable
+- **Linting**: `cargo clippy` - address warnings where reasonable
 - **Frontend**: Standard Prettier/ESLint via `npm run lint`
 - **Commits**: Use conventional commit messages (`feat:`, `fix:`, `refactor:`, `docs:`, `chore:`)
 

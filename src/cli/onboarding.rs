@@ -125,7 +125,7 @@ pub async fn run_onboarding() -> Result<()> {
                  - Instructions on how to use skills via <invoke name=\"skill_name\">[\"args\"]</invoke> XML tags\n\
                  - A full catalog of available skills (shell commands, web crawling, task delegation, etc.)\n\
                  - Multi-step autonomy instructions with [CONTINUE] tokens\n\n\
-                 Your job is to define the agent's IDENTITY, PERSONALITY, EXPERTISE, and TONE — NOT how it handles tasks.\n\
+                 Your job is to define the agent's IDENTITY, PERSONALITY, EXPERTISE, and TONE - NOT how it handles tasks.\n\
                  Do NOT include instructions about tool usage, function calling, or code generation patterns.\n\
                  Do NOT tell the agent to write code snippets or suggest npm/pip commands directly.\n\
                  The agent already knows how to execute actions through its skill system.\n\n\

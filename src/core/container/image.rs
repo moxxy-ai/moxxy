@@ -3,7 +3,7 @@ use tracing::info;
 
 /// The pre-built agent_runtime.wasm binary, compiled from `agent_runtime/`
 /// and embedded at compile time. This means users don't need the wasm32-wasip1
-/// target installed — the image ships inside the `moxxy` binary.
+/// target installed - the image ships inside the `moxxy` binary.
 static EMBEDDED_WASM_IMAGE: &[u8] = include_bytes!("../images/agent_runtime.wasm");
 
 /// Ensure the WASM agent runtime image exists at `~/.moxxy/images/agent_runtime.wasm`.

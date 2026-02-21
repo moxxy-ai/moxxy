@@ -311,7 +311,7 @@ impl CliInterface {
                         }
                         KeyCode::PageUp => {
                             if self.scroll_offset == u16::MAX {
-                                // Need to compute real max first — approximate
+                                // Need to compute real max first - approximate
                                 self.scroll_offset =
                                     (self.messages.len() as u16).saturating_sub(10);
                             }

@@ -17,7 +17,7 @@ fn main() {
                     .current_dir("frontend")
                     .status()
             })
-            .expect("Failed to run npm install — is Node.js installed?");
+            .expect("Failed to run npm install - is Node.js installed?");
 
         if !npm_install.success() {
             panic!("npm install failed");
