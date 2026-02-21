@@ -1,0 +1,7 @@
+name = "remove_skill"
+description = "Removes an existing custom skill by name. Args: [\"skill_name\"]. Cannot remove built-in skills. Use this before re-installing a skill that needs to be recreated from scratch."
+version = "1.0.0"
+needs_network = true
+needs_fs_write = true
+run_command = "sh"
+entrypoint = "run.sh"

@@ -1,0 +1,6 @@
+name = "browse_network"
+description = "Fetches and extracts readable text from web pages. Lightweight, zero external dependencies — uses only Python stdlib. Best for articles, docs, and static pages."
+version = "v1.0.0"
+needs_network = true
+run_command = "bash"
+entrypoint = "run.sh"

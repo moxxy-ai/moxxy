@@ -1,0 +1,9 @@
+name = "upgrade_skill"
+description = "Hot-swaps an existing skill's code. Args: [\"skill_name\", \"new_version\", \"manifest_toml\", \"run_sh_script\", \"skill_md_docs\"]. Version must be greater than current."
+version = "1.0.0"
+needs_fs_write = true
+needs_fs_read = true
+needs_network = true
+needs_env = true
+run_command = "sh"
+entrypoint = "run.sh"

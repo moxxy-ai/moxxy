@@ -1,0 +1,6 @@
+name = "telegram_notify"
+description = "Send a proactive message to the paired Telegram user for this agent."
+version = "v1.0.0"
+needs_network = true
+run_command = "sh"
+entrypoint = "run.sh"

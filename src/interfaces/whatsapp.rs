@@ -1,0 +1,200 @@
+use anyhow::Result;
+use async_trait::async_trait;
+use axum::{
+    Router,
+    extract::{Form, State},
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    routing::post,
+};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tracing::{error, info, warn};
+
+use crate::core::brain::AutonomousBrain;
+use crate::core::lifecycle::LifecycleComponent;
+use crate::core::llm::LlmManager;
+use crate::core::memory::MemorySystem;
+use crate::skills::SkillManager;
+
+#[derive(Clone)]
+struct WhatsAppState {
+    agent_name: String,
+    memory: Arc<Mutex<MemorySystem>>,
+    skills: Arc<Mutex<SkillManager>>,
+    llms: Arc<Mutex<LlmManager>>,
+}
+
+// Twilio sends webhooks as application/x-www-form-urlencoded
+#[derive(serde::Deserialize, Debug)]
+#[allow(dead_code)]
+struct TwilioIncomingMessage {
+    #[serde(rename = "MessageSid")]
+    message_sid: Option<String>,
+    #[serde(rename = "From")]
+    from: String,
+    #[serde(rename = "To")]
+    to: String,
+    #[serde(rename = "Body")]
+    body: String,
+}
+
+// TwiML (XML) response format required by Twilio to send a reply immediately
+fn build_twiml_response(message: &str) -> Response {
+    let escaped_msg = quick_xml::escape::escape(message);
+    let xml = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Response><Message>{}</Message></Response>",
+        escaped_msg
+    );
+
+    (
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "application/xml")],
+        xml,
+    )
+        .into_response()
+}
+
+async fn whatsapp_webhook(
+    State(state): State<WhatsAppState>,
+    Form(payload): Form<TwilioIncomingMessage>,
+) -> Response {
+    let trigger_text = payload.body.trim();
+    if trigger_text.is_empty() {
+        return build_twiml_response("");
+    }
+
+    let src_label = format!("WHATSAPP_{}", payload.from);
+    info!(
+        "[{}] Received WhatsApp message from {}: {}",
+        state.agent_name, payload.from, trigger_text
+    );
+
+    // For WhatsApp/Twilio, the easiest way to reply is by literally returning TwiML in the HTTP response.
+    // This requires us to AWAIT the ReAct loop synchronously, blocking the webhook until the brain terminates.
+    // Note: Twilio webhooks have a 15-second timeout, so if skills take forever, this might time out.
+    // A more robust async approach requires storing the Twilio Auth Token and sending a POST request to their REST API.
+    // For this implementation, we will use the fast synchronous TwiML response.
+
+    match AutonomousBrain::execute_react_loop(
+        trigger_text,
+        &src_label,
+        state.llms,
+        state.memory,
+        state.skills,
+        None,
+    )
+    .await
+    {
+        Ok(response) => build_twiml_response(&response),
+        Err(e) => {
+            error!("[{}] ReAct loop failed: {}", state.agent_name, e);
+            build_twiml_response(
+                "I'm sorry, I encountered an internal error processing your request.",
+            )
+        }
+    }
+}
+
+pub struct WhatsAppChannel {
+    agent_name: String,
+    registry: Arc<Mutex<HashMap<String, Arc<Mutex<MemorySystem>>>>>,
+    skill_registry: Arc<Mutex<HashMap<String, Arc<Mutex<SkillManager>>>>>,
+    llm_registry: Arc<Mutex<HashMap<String, Arc<Mutex<LlmManager>>>>>,
+}
+
+impl WhatsAppChannel {
+    pub fn new(
+        agent_name: String,
+        registry: Arc<Mutex<HashMap<String, Arc<Mutex<MemorySystem>>>>>,
+        skill_registry: Arc<Mutex<HashMap<String, Arc<Mutex<SkillManager>>>>>,
+        llm_registry: Arc<Mutex<HashMap<String, Arc<Mutex<LlmManager>>>>>,
+    ) -> Self {
+        Self {
+            agent_name,
+            registry,
+            skill_registry,
+            llm_registry,
+        }
+    }
+}
+
+#[async_trait]
+impl LifecycleComponent for WhatsAppChannel {
+    async fn on_init(&mut self) -> Result<()> {
+        info!(
+            "WhatsApp Channel Interface initializing for [{}]...",
+            self.agent_name
+        );
+        Ok(())
+    }
+
+    async fn on_start(&mut self) -> Result<()> {
+        let registry = self.registry.lock().await;
+        if let Some(mem_mutex) = registry.get(&self.agent_name) {
+            let mem = mem_mutex.lock().await;
+            let vault = crate::core::vault::SecretsVault::new(mem.get_db());
+
+            // To activate WhatsApp, the user just needs to set a `whatsapp_enabled` flag
+            // since Twilio TwiML doesn't strictly require outbound auth tokens for simple replies.
+            if let Ok(Some(enabled)) = vault.get_secret("whatsapp_enabled").await {
+                if enabled == "true" {
+                    info!(
+                        "WhatsApp is enabled for [{}]. Booting Twilio Webhook receiver...",
+                        self.agent_name
+                    );
+
+                    let skill_reg = self.skill_registry.lock().await;
+                    let llm_reg = self.llm_registry.lock().await;
+
+                    let skills = skill_reg
+                        .get(&self.agent_name)
+                        .expect("Skills missing")
+                        .clone();
+                    let llms = llm_reg.get(&self.agent_name).expect("LLMs missing").clone();
+                    let memory = mem_mutex.clone();
+
+                    let state = WhatsAppState {
+                        agent_name: self.agent_name.clone(),
+                        memory,
+                        skills,
+                        llms,
+                    };
+
+                    // We reuse port 3002 for Twilio Webhooks
+                    let app = Router::new()
+                        .route("/whatsapp/events", post(whatsapp_webhook))
+                        .with_state(state);
+
+                    let agent_n = self.agent_name.clone();
+                    tokio::spawn(async move {
+                        if let Ok(listener) = tokio::net::TcpListener::bind("0.0.0.0:3002").await {
+                            info!(
+                                "[{}] WhatsApp (Twilio) Webhook listening at http://0.0.0.0:3002/whatsapp/events",
+                                agent_n
+                            );
+                            if let Err(e) = axum::serve(listener, app).await {
+                                error!("[{}] WhatsApp Webhook crashed: {}", agent_n, e);
+                            }
+                        }
+                    });
+                }
+            } else {
+                warn!(
+                    "[{}] No whatsapp_enabled flag found in vault. WhatsApp Channel disabled.",
+                    self.agent_name
+                );
+            }
+        }
+        Ok(())
+    }
+
+    async fn on_shutdown(&mut self) -> Result<()> {
+        info!(
+            "WhatsApp Channel Interface shutting down for [{}]...",
+            self.agent_name
+        );
+        Ok(())
+    }
+}

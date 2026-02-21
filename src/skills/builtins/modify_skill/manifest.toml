@@ -1,0 +1,9 @@
+name = "modify_skill"
+description = "Modifies a specific file in an existing skill. Args: [\"skill_name\", \"file_name\", \"new_content\"]. file_name must be one of: manifest.toml, skill.md, or run.sh. After modifying manifest.toml, the skill is hot-reloaded in memory."
+version = "1.1.0"
+needs_fs_write = true
+needs_fs_read = true
+needs_network = true
+needs_env = true
+run_command = "sh"
+entrypoint = "run.sh"

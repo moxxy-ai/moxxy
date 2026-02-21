@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .scroll-hidden::-webkit-scrollbar {
+    display: none;
+  }
+
+  .scroll-styled::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scroll-styled::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scroll-styled::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.2);
+    border-radius: 4px;
+  }
+
+  .scroll-styled::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 184, 0.4);
+  }
+
+  .glass-panel {
+    background: rgba(15, 23, 42, 0.7);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}@layer components {
+  .markdown-body {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+  .markdown-body p { margin-bottom: 0.5em; }
+  .markdown-body h1, .markdown-body h2, .markdown-body h3 { font-weight: bold; margin-bottom: 0.5em; color: #fff; }
+  .markdown-body pre { background: #070a0f; padding: 0.5rem; border: 1px solid #1e304f; border-radius: 0.25rem; overflow-x: auto; margin-bottom: 0.5em; }
+  .markdown-body code { font-family: monospace; background: #1e304f; padding: 0.1rem 0.2rem; border-radius: 0.25rem; color: #00aaff; }
+  .markdown-body pre code { background: transparent; padding: 0; color: #cbd5e1; }
+  .markdown-body strong { font-weight: bold; color: #fff; }
+  .markdown-body ul { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 0.5em; }
+}

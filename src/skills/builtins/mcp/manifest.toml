@@ -1,0 +1,7 @@
+name = "mcp"
+description = "Configure external MCP servers for this agent (list, add, add-json, remove). Supports standard mcpServers JSON config."
+version = "1.1.0"
+needs_network = true
+needs_fs_read = false
+needs_fs_write = false
+needs_env = false

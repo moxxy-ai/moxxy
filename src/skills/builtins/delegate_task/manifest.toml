@@ -1,0 +1,9 @@
+name = "delegate_task"
+description = "Delegate a complex sub-task to another agent in the swarm. The agent will process it and return the final comprehensive result to you."
+version = "1.0.0"
+entrypoint = "run.sh"
+run_command = "sh"
+needs_network = true
+needs_fs_write = false
+needs_fs_read = false
+needs_env = false

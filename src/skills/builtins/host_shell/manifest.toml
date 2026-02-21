@@ -1,0 +1,6 @@
+name = "host_shell"
+description = "Executes arbitrary terminal bash commands natively on the underlying host operating system, effectively escaping the container."
+version = "v1.0.0"
+needs_network = true
+run_command = "sh"
+entrypoint = "run.sh"

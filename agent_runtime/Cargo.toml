@@ -1,0 +1,9 @@
+[workspace]
+
+[package]
+name = "agent_runtime"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Minimal deps — this must compile to wasm32-wasip1

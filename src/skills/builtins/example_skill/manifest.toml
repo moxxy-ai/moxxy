@@ -1,0 +1,5 @@
+name = "example_skill"
+description = "An example skill that demonstrates the basic structure of a skill."
+version = "1.0.0"
+entrypoint = "run.sh"
+run_command = "sh"

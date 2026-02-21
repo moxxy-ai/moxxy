@@ -1,0 +1,6 @@
+name = "host_python"
+description = "Executes arbitrary Python code natively on the underlying host operating system via the Host Proxy."
+version = "v1.0.0"
+needs_network = true
+run_command = "sh"
+entrypoint = "run.sh"

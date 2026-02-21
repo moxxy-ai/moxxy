@@ -1,0 +1,5 @@
+name = "scheduler"
+description = "Schedule a recurring job for yourself using cron syntax."
+version = "v1.0.0"
+needs_network = true
+needs_env = true

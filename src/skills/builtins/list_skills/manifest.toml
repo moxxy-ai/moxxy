@@ -1,0 +1,6 @@
+name = "list_skills"
+description = "Lists all the available skills currently installed for the agent. (Triggered by /skills or /skill in Telegram)"
+version = "v1.0.0"
+needs_network = true
+run_command = "sh"
+entrypoint = "run.sh"

@@ -1,0 +1,7 @@
+name = "modify_schedule"
+description = "Modifies an existing background schedule."
+version = "1.0.0"
+needs_network = true
+needs_fs_read = false
+needs_fs_write = false
+needs_env = true

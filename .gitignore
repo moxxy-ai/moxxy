@@ -1,0 +1,5 @@
+/target
+node_modules
+**/venv/
+dist/
+frontend/dist/
