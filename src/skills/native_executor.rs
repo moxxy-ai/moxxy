@@ -81,12 +81,12 @@ impl SkillSandbox for NativeExecutor {
                 .parent()
                 .and_then(|p| p.parent())
                 .and_then(|p| p.parent())
-            {
-                // exe is at target/release/moxxy, source is 2 levels up
-                if source_dir.join("Cargo.toml").exists() {
-                    cmd.env("MOXXY_SOURCE_DIR", source_dir);
-                }
+        {
+            // exe is at target/release/moxxy, source is 2 levels up
+            if source_dir.join("Cargo.toml").exists() {
+                cmd.env("MOXXY_SOURCE_DIR", source_dir);
             }
+        }
 
         if manifest.needs_env {
             info!("Injecting vault secrets for skill: {}", manifest.name);

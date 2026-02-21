@@ -14,7 +14,7 @@ use ratatui::{
 use std::{io, time::Duration};
 use tokio::sync::mpsc;
 
-use super::{CliInterface, StreamEvent, COMMANDS};
+use super::{COMMANDS, CliInterface, StreamEvent};
 
 impl CliInterface {
     pub async fn run_tui(&mut self) -> Result<()> {
@@ -178,159 +178,154 @@ impl CliInterface {
 
             // Poll events with short timeout for animation
             if crossterm::event::poll(Duration::from_millis(80))?
-                && let Event::Key(key) = event::read()? {
-                    // Ctrl+C always quits
-                    if key.modifiers.contains(KeyModifiers::CONTROL)
-                        && key.code == KeyCode::Char('c')
-                    {
-                        self.should_quit = true;
-                        continue;
-                    }
+                && let Event::Key(key) = event::read()?
+            {
+                // Ctrl+C always quits
+                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+                    self.should_quit = true;
+                    continue;
+                }
 
-                    match key.code {
-                        KeyCode::Enter => {
-                            if self.autocomplete_visible {
-                                // Accept the selected autocomplete suggestion
-                                if let Some(&cmd_idx) =
-                                    self.autocomplete_candidates.get(self.autocomplete_selected)
+                match key.code {
+                    KeyCode::Enter => {
+                        if self.autocomplete_visible {
+                            // Accept the selected autocomplete suggestion
+                            if let Some(&cmd_idx) =
+                                self.autocomplete_candidates.get(self.autocomplete_selected)
+                            {
+                                let cmd_name = COMMANDS[cmd_idx].name.to_string();
+                                self.input_buffer = cmd_name.clone();
+                                self.cursor_pos = self.input_buffer.len();
+                                // If the command takes args, add a trailing space
+                                if COMMANDS[cmd_idx].name == "/switch"
+                                    || COMMANDS[cmd_idx].name == "/model"
                                 {
-                                    let cmd_name = COMMANDS[cmd_idx].name.to_string();
-                                    self.input_buffer = cmd_name.clone();
-                                    self.cursor_pos = self.input_buffer.len();
-                                    // If the command takes args, add a trailing space
-                                    if COMMANDS[cmd_idx].name == "/switch"
-                                        || COMMANDS[cmd_idx].name == "/model"
-                                    {
-                                        self.input_buffer.push(' ');
-                                        self.cursor_pos += 1;
-                                    }
-                                }
-                                self.autocomplete_visible = false;
-                                self.autocomplete_candidates.clear();
-                            } else if !self.input_buffer.is_empty() {
-                                let input = self.input_buffer.clone();
-                                self.input_buffer.clear();
-                                self.cursor_pos = 0;
-
-                                if input.starts_with('/') {
-                                    self.handle_command(&input).await;
-                                } else if !self.is_thinking {
-                                    self.submit_chat(input).await;
+                                    self.input_buffer.push(' ');
+                                    self.cursor_pos += 1;
                                 }
                             }
-                        }
-                        KeyCode::Tab => {
-                            if self.autocomplete_visible {
-                                // Accept the selected autocomplete suggestion
-                                if let Some(&cmd_idx) =
-                                    self.autocomplete_candidates.get(self.autocomplete_selected)
-                                {
-                                    let cmd_name = COMMANDS[cmd_idx].name.to_string();
-                                    self.input_buffer = cmd_name.clone();
-                                    self.cursor_pos = self.input_buffer.len();
-                                    // If the command takes args, add a trailing space
-                                    if COMMANDS[cmd_idx].name == "/switch"
-                                        || COMMANDS[cmd_idx].name == "/model"
-                                    {
-                                        self.input_buffer.push(' ');
-                                        self.cursor_pos += 1;
-                                    }
-                                }
-                                self.autocomplete_visible = false;
-                                self.autocomplete_candidates.clear();
-                            }
-                        }
-                        KeyCode::Backspace => {
-                            if self.cursor_pos > 0 {
-                                self.cursor_pos -= 1;
-                                self.input_buffer.remove(self.cursor_pos);
-                                self.update_autocomplete();
-                            }
-                        }
-                        KeyCode::Delete => {
-                            if self.cursor_pos < self.input_buffer.len() {
-                                self.input_buffer.remove(self.cursor_pos);
-                                self.update_autocomplete();
-                            }
-                        }
-                        KeyCode::Left => {
-                            if self.cursor_pos > 0 {
-                                self.cursor_pos -= 1;
-                            }
-                        }
-                        KeyCode::Right => {
-                            if self.cursor_pos < self.input_buffer.len() {
-                                self.cursor_pos += 1;
-                            }
-                        }
-                        KeyCode::Up => {
-                            if self.autocomplete_visible {
-                                if self.autocomplete_selected > 0 {
-                                    self.autocomplete_selected -= 1;
-                                }
-                            } else {
-                                // Scroll chat up
-                                if self.scroll_offset == u16::MAX {
-                                    self.scroll_offset =
-                                        (self.messages.len() as u16).saturating_sub(3);
-                                }
-                                self.scroll_offset = self.scroll_offset.saturating_sub(3);
-                            }
-                        }
-                        KeyCode::Down => {
-                            if self.autocomplete_visible {
-                                if self.autocomplete_selected + 1
-                                    < self.autocomplete_candidates.len()
-                                {
-                                    self.autocomplete_selected += 1;
-                                }
-                            } else {
-                                // Scroll chat down
-                                if self.scroll_offset != u16::MAX {
-                                    self.scroll_offset = self.scroll_offset.saturating_add(3);
-                                }
-                            }
-                        }
-                        KeyCode::Home => {
+                            self.autocomplete_visible = false;
+                            self.autocomplete_candidates.clear();
+                        } else if !self.input_buffer.is_empty() {
+                            let input = self.input_buffer.clone();
+                            self.input_buffer.clear();
                             self.cursor_pos = 0;
-                        }
-                        KeyCode::End => {
-                            self.cursor_pos = self.input_buffer.len();
-                        }
-                        KeyCode::Esc => {
-                            if self.autocomplete_visible {
-                                self.autocomplete_visible = false;
-                                self.autocomplete_candidates.clear();
-                            } else if self.cmd_output_visible {
-                                self.cmd_output_visible = false;
-                                self.cmd_output_lines.clear();
-                            } else {
-                                self.input_buffer.clear();
-                                self.cursor_pos = 0;
+
+                            if input.starts_with('/') {
+                                self.handle_command(&input).await;
+                            } else if !self.is_thinking {
+                                self.submit_chat(input).await;
                             }
                         }
-                        KeyCode::PageUp => {
-                            if self.scroll_offset == u16::MAX {
-                                // Need to compute real max first - approximate
-                                self.scroll_offset =
-                                    (self.messages.len() as u16).saturating_sub(10);
+                    }
+                    KeyCode::Tab => {
+                        if self.autocomplete_visible {
+                            // Accept the selected autocomplete suggestion
+                            if let Some(&cmd_idx) =
+                                self.autocomplete_candidates.get(self.autocomplete_selected)
+                            {
+                                let cmd_name = COMMANDS[cmd_idx].name.to_string();
+                                self.input_buffer = cmd_name.clone();
+                                self.cursor_pos = self.input_buffer.len();
+                                // If the command takes args, add a trailing space
+                                if COMMANDS[cmd_idx].name == "/switch"
+                                    || COMMANDS[cmd_idx].name == "/model"
+                                {
+                                    self.input_buffer.push(' ');
+                                    self.cursor_pos += 1;
+                                }
                             }
-                            self.scroll_offset = self.scroll_offset.saturating_sub(10);
+                            self.autocomplete_visible = false;
+                            self.autocomplete_candidates.clear();
                         }
-                        KeyCode::PageDown => {
-                            if self.scroll_offset != u16::MAX {
-                                self.scroll_offset = self.scroll_offset.saturating_add(10);
-                                // Will be clamped during render
-                            }
-                        }
-                        KeyCode::Char(c) => {
-                            self.input_buffer.insert(self.cursor_pos, c);
-                            self.cursor_pos += 1;
+                    }
+                    KeyCode::Backspace => {
+                        if self.cursor_pos > 0 {
+                            self.cursor_pos -= 1;
+                            self.input_buffer.remove(self.cursor_pos);
                             self.update_autocomplete();
                         }
-                        _ => {}
                     }
+                    KeyCode::Delete => {
+                        if self.cursor_pos < self.input_buffer.len() {
+                            self.input_buffer.remove(self.cursor_pos);
+                            self.update_autocomplete();
+                        }
+                    }
+                    KeyCode::Left => {
+                        if self.cursor_pos > 0 {
+                            self.cursor_pos -= 1;
+                        }
+                    }
+                    KeyCode::Right => {
+                        if self.cursor_pos < self.input_buffer.len() {
+                            self.cursor_pos += 1;
+                        }
+                    }
+                    KeyCode::Up => {
+                        if self.autocomplete_visible {
+                            if self.autocomplete_selected > 0 {
+                                self.autocomplete_selected -= 1;
+                            }
+                        } else {
+                            // Scroll chat up
+                            if self.scroll_offset == u16::MAX {
+                                self.scroll_offset = (self.messages.len() as u16).saturating_sub(3);
+                            }
+                            self.scroll_offset = self.scroll_offset.saturating_sub(3);
+                        }
+                    }
+                    KeyCode::Down => {
+                        if self.autocomplete_visible {
+                            if self.autocomplete_selected + 1 < self.autocomplete_candidates.len() {
+                                self.autocomplete_selected += 1;
+                            }
+                        } else {
+                            // Scroll chat down
+                            if self.scroll_offset != u16::MAX {
+                                self.scroll_offset = self.scroll_offset.saturating_add(3);
+                            }
+                        }
+                    }
+                    KeyCode::Home => {
+                        self.cursor_pos = 0;
+                    }
+                    KeyCode::End => {
+                        self.cursor_pos = self.input_buffer.len();
+                    }
+                    KeyCode::Esc => {
+                        if self.autocomplete_visible {
+                            self.autocomplete_visible = false;
+                            self.autocomplete_candidates.clear();
+                        } else if self.cmd_output_visible {
+                            self.cmd_output_visible = false;
+                            self.cmd_output_lines.clear();
+                        } else {
+                            self.input_buffer.clear();
+                            self.cursor_pos = 0;
+                        }
+                    }
+                    KeyCode::PageUp => {
+                        if self.scroll_offset == u16::MAX {
+                            // Need to compute real max first - approximate
+                            self.scroll_offset = (self.messages.len() as u16).saturating_sub(10);
+                        }
+                        self.scroll_offset = self.scroll_offset.saturating_sub(10);
+                    }
+                    KeyCode::PageDown => {
+                        if self.scroll_offset != u16::MAX {
+                            self.scroll_offset = self.scroll_offset.saturating_add(10);
+                            // Will be clamped during render
+                        }
+                    }
+                    KeyCode::Char(c) => {
+                        self.input_buffer.insert(self.cursor_pos, c);
+                        self.cursor_pos += 1;
+                        self.update_autocomplete();
+                    }
+                    _ => {}
                 }
+            }
         }
     }
 }

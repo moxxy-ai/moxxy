@@ -1,12 +1,17 @@
-use axum::{Json, extract::{Form, Path, State}};
+use axum::{
+    Json,
+    extract::{Form, Path, State},
+};
 use std::sync::Arc;
 use teloxide::prelude::*;
 use tokio::sync::Mutex;
 
-use crate::core::memory::MemorySystem;
 use super::super::AppState;
+use crate::core::memory::MemorySystem;
 
-pub(crate) async fn list_agent_memory_handles(state: &AppState) -> Vec<(String, Arc<Mutex<MemorySystem>>)> {
+pub(crate) async fn list_agent_memory_handles(
+    state: &AppState,
+) -> Vec<(String, Arc<Mutex<MemorySystem>>)> {
     let reg = state.registry.lock().await;
     reg.iter()
         .map(|(name, mem)| (name.clone(), mem.clone()))
@@ -27,9 +32,10 @@ pub(crate) async fn find_agent_with_secret_value(
         let mem = mem_mutex.lock().await;
         let vault = crate::core::vault::SecretsVault::new(mem.get_db());
         if let Ok(Some(existing)) = vault.get_secret(key).await
-            && existing.trim() == value.trim() {
-                return Some(agent_name);
-            }
+            && existing.trim() == value.trim()
+        {
+            return Some(agent_name);
+        }
     }
     None
 }
@@ -45,7 +51,8 @@ pub async fn get_channels(
 
         let tg_has_token = matches!(vault.get_secret("telegram_token").await, Ok(Some(_)));
         let tg_is_paired = matches!(vault.get_secret("telegram_chat_id").await, Ok(Some(_)));
-        let tg_pairing_active = matches!(vault.get_secret("telegram_pairing_code").await, Ok(Some(_)));
+        let tg_pairing_active =
+            matches!(vault.get_secret("telegram_pairing_code").await, Ok(Some(_)));
         let tg_stt_enabled = matches!(vault.get_secret("telegram_stt_enabled").await, Ok(Some(ref v)) if v == "true");
         let tg_has_stt_token = matches!(vault.get_secret("telegram_stt_token").await, Ok(Some(ref v)) if !v.is_empty());
         let discord_has_token = matches!(vault.get_secret("discord_token").await, Ok(Some(_)));
@@ -159,15 +166,15 @@ pub async fn pair_telegram(
     if let Ok(Some(token)) = vault.get_secret("telegram_token").await
         && let Some(owner) =
             find_agent_with_secret_value(&state, "telegram_token", &token, &agent).await
-        {
-            return Json(serde_json::json!({
-                "success": false,
-                "error": format!(
-                    "This Telegram bot token is already bound to agent '{}'. One Telegram channel can only be bound to one agent.",
-                    owner
-                )
-            }));
-        }
+    {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": format!(
+                "This Telegram bot token is already bound to agent '{}'. One Telegram channel can only be bound to one agent.",
+                owner
+            )
+        }));
+    }
 
     // We allow multiple agents to be paired with the same Telegram user (same chat_id)
     // as long as they use different bot tokens. This is already enforced by the token check.
@@ -319,9 +326,10 @@ pub async fn set_telegram_stt(
 
         if let Some(ref token) = payload.token
             && !token.trim().is_empty()
-                && let Err(e) = vault.set_secret("telegram_stt_token", token).await {
-                    return Json(serde_json::json!({ "success": false, "error": e.to_string() }));
-                }
+            && let Err(e) = vault.set_secret("telegram_stt_token", token).await
+        {
+            return Json(serde_json::json!({ "success": false, "error": e.to_string() }));
+        }
 
         Json(serde_json::json!({ "success": true, "message": "Telegram STT configuration saved." }))
     } else {

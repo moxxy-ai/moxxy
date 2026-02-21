@@ -1,8 +1,8 @@
+mod cli;
 mod core;
 mod interfaces;
-mod skills;
-mod cli;
 mod logging;
+mod skills;
 
 use crate::core::terminal;
 

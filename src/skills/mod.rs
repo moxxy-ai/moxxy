@@ -64,7 +64,10 @@ pub trait SkillSandbox: Send + Sync {
 /// Represents how a skill should be executed after the SkillManager lock is dropped.
 pub enum SkillExecution {
     Native(Arc<dyn SkillSandbox>),
-    Mcp { client: Arc<McpClient>, tool_name: String },
+    Mcp {
+        client: Arc<McpClient>,
+        tool_name: String,
+    },
 }
 
 impl SkillExecution {
@@ -83,7 +86,7 @@ impl SkillExecution {
                     // Try parsing directly as a JSON value
                     match serde_json::from_str::<serde_json::Value>(first) {
                         Ok(val) if val.is_object() => val,
-                        _ => serde_json::json!({})
+                        _ => serde_json::json!({}),
                     }
                 } else {
                     serde_json::json!({})
@@ -131,10 +134,13 @@ impl SkillManager {
             for (server, client) in &self.mcp_clients {
                 if name.starts_with(&format!("{}_", server)) {
                     let tool_name = name.trim_start_matches(&format!("{}_", server)).to_string();
-                    return Ok((manifest, SkillExecution::Mcp {
-                        client: Arc::clone(client),
-                        tool_name,
-                    }));
+                    return Ok((
+                        manifest,
+                        SkillExecution::Mcp {
+                            client: Arc::clone(client),
+                            tool_name,
+                        },
+                    ));
                 }
             }
             return Err(anyhow::anyhow!("MCP client not found for skill: {}", name));

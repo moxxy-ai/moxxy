@@ -1,4 +1,7 @@
-use axum::{Json, extract::{Path, State}};
+use axum::{
+    Json,
+    extract::{Path, State},
+};
 
 use super::super::AppState;
 
@@ -53,7 +56,9 @@ pub async fn get_vault_secret(
         let vault = crate::core::vault::SecretsVault::new(mem.get_db());
         match vault.get_secret(&key).await {
             Ok(Some(value)) => Json(serde_json::json!({ "success": true, "value": value })),
-            Ok(None) => Json(serde_json::json!({ "success": false, "error": format!("Secret '{}' not found in vault", key) })),
+            Ok(None) => Json(
+                serde_json::json!({ "success": false, "error": format!("Secret '{}' not found in vault", key) }),
+            ),
             Err(e) => Json(serde_json::json!({ "success": false, "error": e.to_string() })),
         }
     } else {

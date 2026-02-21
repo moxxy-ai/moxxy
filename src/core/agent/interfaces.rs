@@ -158,15 +158,13 @@ pub(super) async fn attach_desktop_poller(
         let mem_clone = memory_sys_arc.clone();
         let skill_clone = skill_sys_arc.clone();
 
-        match tokio_cron_scheduler::Job::new_async(
-            "0 0/5 * * * *",
-            move |_uuid, mut _l| {
-                let llm = llm_clone.clone();
-                let mem = mem_clone.clone();
-                let skills = skill_clone.clone();
+        match tokio_cron_scheduler::Job::new_async("0 0/5 * * * *", move |_uuid, mut _l| {
+            let llm = llm_clone.clone();
+            let mem = mem_clone.clone();
+            let skills = skill_clone.clone();
 
-                Box::pin(async move {
-                    let script = r#"
+            Box::pin(async move {
+                let script = r#"
                     tell application "Mail"
                         set unreadMsgs to (messages of inbox whose read status is false)
                         set output to ""
@@ -177,33 +175,31 @@ pub(super) async fn attach_desktop_poller(
                     end tell
                 "#;
 
-                    if let Ok(output) = tokio::process::Command::new("osascript")
-                        .arg("-e")
-                        .arg(script)
-                        .output()
-                        .await
-                    {
-                        let unread_dump =
-                            String::from_utf8_lossy(&output.stdout).trim().to_string();
-                        if !unread_dump.is_empty() {
-                            let prompt = format!(
-                                "SYSTEM_CRON: I have passively polled my native macOS Mail app. Here are my current unread messages:\n{}\n\nAnalyze these. If any seem URGENT, highly important, or time-sensitive, use your Telegram/WhatsApp/Slack interfaces to ping the user immediately with a summary. If they are just newsletters or spam, silently ignore them and take no action.",
-                                unread_dump
-                            );
-                            let _ = crate::core::brain::AutonomousBrain::execute_react_loop(
-                                &prompt,
-                                "MAC_POLLER",
-                                llm,
-                                mem,
-                                skills,
-                                None,
-                            )
-                            .await;
-                        }
+                if let Ok(output) = tokio::process::Command::new("osascript")
+                    .arg("-e")
+                    .arg(script)
+                    .output()
+                    .await
+                {
+                    let unread_dump = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !unread_dump.is_empty() {
+                        let prompt = format!(
+                            "SYSTEM_CRON: I have passively polled my native macOS Mail app. Here are my current unread messages:\n{}\n\nAnalyze these. If any seem URGENT, highly important, or time-sensitive, use your Telegram/WhatsApp/Slack interfaces to ping the user immediately with a summary. If they are just newsletters or spam, silently ignore them and take no action.",
+                            unread_dump
+                        );
+                        let _ = crate::core::brain::AutonomousBrain::execute_react_loop(
+                            &prompt,
+                            "MAC_POLLER",
+                            llm,
+                            mem,
+                            skills,
+                            None,
+                        )
+                        .await;
                     }
-                })
-            },
-        ) {
+                }
+            })
+        }) {
             Ok(job) => {
                 lifecycle.scheduler.add(job).await?;
             }

@@ -5,5 +5,5 @@ pub mod lifecycle;
 pub mod llm;
 pub mod mcp;
 pub mod memory;
-pub mod vault;
 pub mod terminal;
+pub mod vault;

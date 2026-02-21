@@ -1,4 +1,4 @@
-use console::{style, Emoji};
+use console::{Emoji, style};
 
 pub static LOOKING_GLASS: Emoji<'_, '_> = Emoji("🔍 ", "");
 pub static SUCCESS_ICON: Emoji<'_, '_> = Emoji("✅ ", "");

@@ -63,7 +63,10 @@ impl LlmManager {
     }
 
     pub fn get_provider(&self, pt: ProviderType) -> Option<&dyn LlmProvider> {
-        self.providers.iter().find(|p| p.provider_type() == pt).map(|p| p.as_ref())
+        self.providers
+            .iter()
+            .find(|p| p.provider_type() == pt)
+            .map(|p| p.as_ref())
     }
 
     #[allow(dead_code)]

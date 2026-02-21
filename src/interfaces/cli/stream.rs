@@ -29,10 +29,9 @@ impl CliInterface {
                     use tokio::io::AsyncBufReadExt;
                     use tokio_stream::StreamExt;
                     let stream = res.bytes_stream();
-                    let mut reader =
-                        tokio_util::io::StreamReader::new(stream.map(|r| {
-                            r.map_err(std::io::Error::other)
-                        }));
+                    let mut reader = tokio_util::io::StreamReader::new(
+                        stream.map(|r| r.map_err(std::io::Error::other)),
+                    );
                     let mut buf_reader = tokio::io::BufReader::new(&mut reader);
                     let mut line_buf = String::new();
 

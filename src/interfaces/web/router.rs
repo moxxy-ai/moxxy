@@ -1,4 +1,7 @@
-use axum::{Router, routing::{get, post}};
+use axum::{
+    Router,
+    routing::{get, post},
+};
 use tower_http::cors::CorsLayer;
 
 use super::AppState;
@@ -8,7 +11,10 @@ use super::handlers::{
 
 pub fn build_api_router(state: AppState) -> Router {
     Router::new()
-        .route("/api/agents", get(agents::get_agents).post(agents::create_agent_endpoint))
+        .route(
+            "/api/agents",
+            get(agents::get_agents).post(agents::create_agent_endpoint),
+        )
         .route(
             "/api/agents/{agent}",
             axum::routing::delete(agents::delete_agent_endpoint),
@@ -50,7 +56,10 @@ pub fn build_api_router(state: AppState) -> Router {
             "/api/agents/{agent}/restart",
             post(agents::restart_agent_endpoint),
         )
-        .route("/api/agents/{agent}/pair_mobile", get(mobile::pair_mobile_endpoint))
+        .route(
+            "/api/agents/{agent}/pair_mobile",
+            get(mobile::pair_mobile_endpoint),
+        )
         .route(
             "/api/agents/{agent}/schedules",
             get(schedules::get_schedules_endpoint)
@@ -73,7 +82,10 @@ pub fn build_api_router(state: AppState) -> Router {
             "/api/agents/{agent}/llm",
             get(config::get_llm_info).post(config::set_llm_endpoint),
         )
-        .route("/api/agents/{agent}/skills", get(skills::get_skills_endpoint))
+        .route(
+            "/api/agents/{agent}/skills",
+            get(skills::get_skills_endpoint),
+        )
         .route(
             "/api/agents/{agent}/create_skill",
             post(skills::create_skill_endpoint),
@@ -88,7 +100,8 @@ pub fn build_api_router(state: AppState) -> Router {
         )
         .route(
             "/api/agents/{agent}/skills/{skill_name}",
-            axum::routing::delete(skills::remove_skill_endpoint).patch(skills::modify_skill_endpoint),
+            axum::routing::delete(skills::remove_skill_endpoint)
+                .patch(skills::modify_skill_endpoint),
         )
         .route(
             "/api/agents/{agent}/mcp",
@@ -103,16 +116,25 @@ pub fn build_api_router(state: AppState) -> Router {
             "/api/config/global",
             get(config::get_global_config_endpoint).post(config::set_global_config_endpoint),
         )
-        .route("/api/gateway/restart", post(config::restart_gateway_endpoint))
+        .route(
+            "/api/gateway/restart",
+            post(config::restart_gateway_endpoint),
+        )
         .route("/api/logs", get(super::sse_logs_endpoint))
-        .route("/api/host/execute_applescript", post(proxy::execute_applescript))
+        .route(
+            "/api/host/execute_applescript",
+            post(proxy::execute_applescript),
+        )
         .route("/api/host/execute_bash", post(proxy::execute_bash))
         .route("/api/host/execute_python", post(proxy::execute_python))
         .route(
             "/api/webhooks/{agent}/{event_source}",
             post(webhooks::webhook_endpoint),
         )
-        .route("/api/agents/{agent}/delegate", post(webhooks::delegate_endpoint))
+        .route(
+            "/api/agents/{agent}/delegate",
+            post(webhooks::delegate_endpoint),
+        )
         .route("/api/agents/{agent}/chat", post(chat::chat_endpoint))
         .route(
             "/api/agents/{agent}/chat/stream",

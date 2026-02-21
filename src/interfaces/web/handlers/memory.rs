@@ -1,4 +1,7 @@
-use axum::{Json, extract::{Path, Query, State}};
+use axum::{
+    Json,
+    extract::{Path, Query, State},
+};
 
 use super::super::AppState;
 

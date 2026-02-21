@@ -15,7 +15,8 @@ pub async fn execute_applescript(
     Json(payload): Json<AppleScriptRequest>,
 ) -> Json<serde_json::Value> {
     if state.run_mode != RunMode::Dev {
-        let auth_token = headers.get("X-Moxxy-Internal-Token")
+        let auth_token = headers
+            .get("X-Moxxy-Internal-Token")
             .and_then(|h| h.to_str().ok());
         if auth_token != Some(&state.internal_token) {
             return Json(
@@ -54,7 +55,8 @@ pub async fn execute_bash(
     Json(payload): Json<BashRequest>,
 ) -> Json<serde_json::Value> {
     if state.run_mode != RunMode::Dev {
-        let auth_token = headers.get("X-Moxxy-Internal-Token")
+        let auth_token = headers
+            .get("X-Moxxy-Internal-Token")
             .and_then(|h| h.to_str().ok());
         if auth_token != Some(&state.internal_token) {
             return Json(
@@ -94,7 +96,8 @@ pub async fn execute_python(
     Json(payload): Json<PythonRequest>,
 ) -> Json<serde_json::Value> {
     if state.run_mode != RunMode::Dev {
-        let auth_token = headers.get("X-Moxxy-Internal-Token")
+        let auth_token = headers
+            .get("X-Moxxy-Internal-Token")
             .and_then(|h| h.to_str().ok());
         if auth_token != Some(&state.internal_token) {
             return Json(

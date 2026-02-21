@@ -47,8 +47,7 @@ pub(super) async fn attach_self_check(
                     report.push(format!("  Persona: loaded ({} chars)", text.len()));
                 }
                 _ => {
-                    report
-                        .push("  Persona: NOT FOUND - agent using generic prompt".to_string());
+                    report.push("  Persona: NOT FOUND - agent using generic prompt".to_string());
                 }
             }
 
@@ -90,10 +89,7 @@ pub(super) async fn attach_self_check(
                         jobs.len()
                     )),
                     Err(e) => {
-                        report.push(format!(
-                            "  Heartbeats: ERROR reading DB schedules - {}",
-                            e
-                        ))
+                        report.push(format!("  Heartbeats: ERROR reading DB schedules - {}", e))
                     }
                 }
             }

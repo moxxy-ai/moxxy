@@ -21,16 +21,44 @@ fn print_help() {
     );
     println!("{}", style("Commands:").bold().underlined());
     println!("  {} web       Start the Web Dashboard", style("▶").cyan());
-    println!("  {} tui       Start the Interactive Terminal UI", style("▶").cyan());
-    println!("  {} dev       Start the Daemon in Elevated Dev Mode", style("▶").cyan());
-    println!("  {} init      Run the Onboarding Wizard (or 'onboard')", style("▶").cyan());
-    println!("  {} gateway   Manage the background daemon process", style("▶").cyan());
-    println!("  {} doctor    Check system dependencies", style("▶").cyan());
-    println!("  {} channel   Manage channel connections", style("▶").cyan());
+    println!(
+        "  {} tui       Start the Interactive Terminal UI",
+        style("▶").cyan()
+    );
+    println!(
+        "  {} dev       Start the Daemon in Elevated Dev Mode",
+        style("▶").cyan()
+    );
+    println!(
+        "  {} init      Run the Onboarding Wizard (or 'onboard')",
+        style("▶").cyan()
+    );
+    println!(
+        "  {} gateway   Manage the background daemon process",
+        style("▶").cyan()
+    );
+    println!(
+        "  {} doctor    Check system dependencies",
+        style("▶").cyan()
+    );
+    println!(
+        "  {} channel   Manage channel connections",
+        style("▶").cyan()
+    );
     println!("  {} agent     Manage agents", style("▶").cyan());
-    println!("  {} logs      Follow real-time daemon logs", style("▶").cyan());
-    println!("  {} run       Run a single programmatic prompt", style("▶").cyan());
-    println!("\n{} {} <command> [subcommand]\n", style("Usage:").bold(), style("moxxy").green());
+    println!(
+        "  {} logs      Follow real-time daemon logs",
+        style("▶").cyan()
+    );
+    println!(
+        "  {} run       Run a single programmatic prompt",
+        style("▶").cyan()
+    );
+    println!(
+        "\n{} {} <command> [subcommand]\n",
+        style("Usage:").bold(),
+        style("moxxy").green()
+    );
 }
 
 pub async fn run_main() -> Result<()> {
@@ -51,22 +79,25 @@ pub async fn run_main() -> Result<()> {
     let home = dirs::home_dir().expect("Could not find home directory");
     let default_agent_dir = home.join(".moxxy").join("agents").join("default");
     if default_agent_dir.exists()
-        && let Ok(memory_sys) = crate::core::memory::MemorySystem::new(&default_agent_dir).await {
-            let vault = crate::core::vault::SecretsVault::new(memory_sys.get_db());
-            if vault.initialize().await.is_ok() {
-                if let Ok(Some(host)) = vault.get_secret("gateway_host").await {
-                    api_host = host;
-                }
-                if let Ok(Some(port_str)) = vault.get_secret("gateway_port").await
-                    && let Ok(port) = port_str.parse() {
-                        api_port = port;
-                    }
-                if let Ok(Some(web_port_str)) = vault.get_secret("web_ui_port").await
-                    && let Ok(w_port) = web_port_str.parse() {
-                        web_port = w_port;
-                    }
+        && let Ok(memory_sys) = crate::core::memory::MemorySystem::new(&default_agent_dir).await
+    {
+        let vault = crate::core::vault::SecretsVault::new(memory_sys.get_db());
+        if vault.initialize().await.is_ok() {
+            if let Ok(Some(host)) = vault.get_secret("gateway_host").await {
+                api_host = host;
+            }
+            if let Ok(Some(port_str)) = vault.get_secret("gateway_port").await
+                && let Ok(port) = port_str.parse()
+            {
+                api_port = port;
+            }
+            if let Ok(Some(web_port_str)) = vault.get_secret("web_ui_port").await
+                && let Ok(w_port) = web_port_str.parse()
+            {
+                web_port = w_port;
             }
         }
+    }
 
     if args.len() > 1 {
         let cmd = args[1].as_str();
@@ -108,7 +139,8 @@ pub async fn run_main() -> Result<()> {
                 let sub_cmd = if args.len() > 2 { args[2].as_str() } else { "" };
                 match sub_cmd {
                     "start" => {
-                        daemon::gateway_start(&run_dir, &pid_file, &api_host, api_port, &args).await?;
+                        daemon::gateway_start(&run_dir, &pid_file, &api_host, api_port, &args)
+                            .await?;
                         return Ok(());
                     }
                     "stop" => {
@@ -124,7 +156,9 @@ pub async fn run_main() -> Result<()> {
                         return Ok(());
                     }
                     _ => {
-                        print_error("Unknown or missing gateway command. Expected: start, stop, restart, status");
+                        print_error(
+                            "Unknown or missing gateway command. Expected: start, stop, restart, status",
+                        );
                         print_help();
                         return Ok(());
                     }
@@ -161,7 +195,9 @@ pub async fn run_main() -> Result<()> {
             }
             "web" => {
                 if !pid_file.exists() {
-                    print_error("Error: moxxy Gateway is not running. Please run 'moxxy gateway start' first.");
+                    print_error(
+                        "Error: moxxy Gateway is not running. Please run 'moxxy gateway start' first.",
+                    );
                     return Ok(());
                 }
 
@@ -205,9 +241,16 @@ pub async fn run_main() -> Result<()> {
                 web.on_start().await?;
 
                 println!();
-                print_link("Web Dashboard serving on", &format!("http://127.0.0.1:{}", web_port));
+                print_link(
+                    "Web Dashboard serving on",
+                    &format!("http://127.0.0.1:{}", web_port),
+                );
                 print_status("API Endpoint", &format!("http://127.0.0.1:{}", api_port));
-                println!("\n  {} Press {} to stop.\n", style("ℹ").blue(), style("Ctrl+C").bold().yellow());
+                println!(
+                    "\n  {} Press {} to stop.\n",
+                    style("ℹ").blue(),
+                    style("Ctrl+C").bold().yellow()
+                );
 
                 tokio::signal::ctrl_c().await?;
                 web.on_shutdown().await?;
@@ -215,7 +258,9 @@ pub async fn run_main() -> Result<()> {
             }
             "tui" => {
                 if !pid_file.exists() {
-                    print_error("Error: moxxy Gateway is not running. Please run 'moxxy gateway start' first.");
+                    print_error(
+                        "Error: moxxy Gateway is not running. Please run 'moxxy gateway start' first.",
+                    );
                     return Ok(());
                 }
 
@@ -289,7 +334,9 @@ pub async fn run_main() -> Result<()> {
                     _ => {
                         println!("{}", style("Usage: moxxy channel <type>").bold());
                         println!("  • telegram   Configure and pair a Telegram bot");
-                        println!("               Options: --agent <name> [--token <bot_token>] [--pair-code <6digits>]");
+                        println!(
+                            "               Options: --agent <name> [--token <bot_token>] [--pair-code <6digits>]"
+                        );
                     }
                 }
                 return Ok(());

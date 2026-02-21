@@ -5,7 +5,10 @@ use crate::core::terminal::{self, print_info, print_step, print_success};
 
 pub async fn run_onboarding() -> Result<()> {
     terminal::print_banner();
-    println!("  {}\n", style("Welcome to the Onboarding Wizard. Let's set up your first autonomous agent.").bold());
+    println!(
+        "  {}\n",
+        style("Welcome to the Onboarding Wizard. Let's set up your first autonomous agent.").bold()
+    );
 
     let home = dirs::home_dir().expect("Could not find home directory");
     let default_agent_dir = home.join(".moxxy").join("agents").join("default");

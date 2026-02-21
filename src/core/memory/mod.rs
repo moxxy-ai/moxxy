@@ -44,7 +44,9 @@ impl MemorySystem {
                     *mut *mut i8,
                     *const rusqlite::ffi::sqlite3_api_routines,
                 ) -> i32,
-            >(sqlite_vec::sqlite3_vec_init as *const ())));
+            >(
+                sqlite_vec::sqlite3_vec_init as *const ()
+            )));
         }
 
         let db_path = workspace_dir.join("memory.db");
@@ -194,8 +196,7 @@ impl LifecycleComponent for MemorySystem {
                                 let mut dirs = vec![mount_path.to_path_buf()];
 
                                 while let Some(current_dir) = dirs.pop() {
-                                    if let Ok(mut entries) =
-                                        tokio::fs::read_dir(&current_dir).await
+                                    if let Ok(mut entries) = tokio::fs::read_dir(&current_dir).await
                                     {
                                         while let Ok(Some(entry)) = entries.next_entry().await {
                                             let p = entry.path();

@@ -107,7 +107,13 @@ pub(super) async fn init_core_subsystems(
     let memory_sys_arc = Arc::new(Mutex::new(memory_sys));
     let skill_sys_arc = Arc::new(Mutex::new(skill_sys));
 
-    Ok((memory_sys_arc, skill_sys_arc, llm_sys_arc, wasm_container, vault))
+    Ok((
+        memory_sys_arc,
+        skill_sys_arc,
+        llm_sys_arc,
+        wasm_container,
+        vault,
+    ))
 }
 
 /// Spawn MCP Server initialization tasks (non-blocking).
@@ -137,49 +143,47 @@ pub(super) async fn spawn_mcp_servers(
 
         tokio::spawn(async move {
             match crate::core::mcp::McpClient::new(&server_name, &server_command, args, env).await {
-                Ok(client) => {
-                    match client.list_tools().await {
-                        Ok(tools) => {
-                            let mut skill_sys = skill_sys_clone.lock().await;
-                            for tool in tools {
-                                let skill_name = format!("{}_{}", server_name, tool.name);
-                                let schema_str =
-                                    serde_json::to_string(&tool.input_schema).unwrap_or_default();
-                                let description = format!(
-                                    "[MCP: {}] {}\nArguments: Pass a single JSON object string matching this schema: {}",
-                                    server_name,
-                                    tool.description.unwrap_or_else(|| tool.name.clone()),
-                                    schema_str
-                                );
-
-                                let manifest = SkillManifest {
-                                    name: skill_name.clone(),
-                                    description,
-                                    version: "mcp".to_string(),
-                                    executor_type: "mcp".to_string(),
-                                    needs_network: true,
-                                    needs_fs_read: false,
-                                    needs_fs_write: false,
-                                    needs_env: false,
-                                    entrypoint: tool.name.clone(),
-                                    run_command: "mcp".to_string(),
-                                    skill_dir: PathBuf::new(),
-                                };
-
-                                skill_sys.register_skill(manifest);
-                                info!("Registered MCP Tool as Skill: {}", skill_name);
-                            }
-                            skill_sys.register_mcp_client(server_name, client);
-                        }
-                        Err(e) => {
-                            tracing::error!(
-                                "Failed to list tools for MCP Server [{}]: {}",
+                Ok(client) => match client.list_tools().await {
+                    Ok(tools) => {
+                        let mut skill_sys = skill_sys_clone.lock().await;
+                        for tool in tools {
+                            let skill_name = format!("{}_{}", server_name, tool.name);
+                            let schema_str =
+                                serde_json::to_string(&tool.input_schema).unwrap_or_default();
+                            let description = format!(
+                                "[MCP: {}] {}\nArguments: Pass a single JSON object string matching this schema: {}",
                                 server_name,
-                                e
+                                tool.description.unwrap_or_else(|| tool.name.clone()),
+                                schema_str
                             );
+
+                            let manifest = SkillManifest {
+                                name: skill_name.clone(),
+                                description,
+                                version: "mcp".to_string(),
+                                executor_type: "mcp".to_string(),
+                                needs_network: true,
+                                needs_fs_read: false,
+                                needs_fs_write: false,
+                                needs_env: false,
+                                entrypoint: tool.name.clone(),
+                                run_command: "mcp".to_string(),
+                                skill_dir: PathBuf::new(),
+                            };
+
+                            skill_sys.register_skill(manifest);
+                            info!("Registered MCP Tool as Skill: {}", skill_name);
                         }
+                        skill_sys.register_mcp_client(server_name, client);
                     }
-                }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to list tools for MCP Server [{}]: {}",
+                            server_name,
+                            e
+                        );
+                    }
+                },
                 Err(e) => {
                     tracing::error!("Failed to start MCP Server [{}]: {}", server_name, e);
                 }
@@ -214,27 +218,24 @@ pub(super) async fn schedule_persisted_jobs(
         let prompt_str = scheduled.prompt.clone();
         let scheduled_name = scheduled.name.clone();
 
-        match tokio_cron_scheduler::Job::new_async(
-            scheduled.cron.as_str(),
-            move |_uuid, mut _l| {
-                let llm = llm_clone.clone();
-                let mem = mem_clone.clone();
-                let skills = skill_clone.clone();
-                let p = prompt_str.clone();
+        match tokio_cron_scheduler::Job::new_async(scheduled.cron.as_str(), move |_uuid, mut _l| {
+            let llm = llm_clone.clone();
+            let mem = mem_clone.clone();
+            let skills = skill_clone.clone();
+            let p = prompt_str.clone();
 
-                Box::pin(async move {
-                    let _ = crate::core::brain::AutonomousBrain::execute_react_loop(
-                        &p,
-                        "SYSTEM_CRON",
-                        llm,
-                        mem,
-                        skills,
-                        None,
-                    )
-                    .await;
-                })
-            },
-        ) {
+            Box::pin(async move {
+                let _ = crate::core::brain::AutonomousBrain::execute_react_loop(
+                    &p,
+                    "SYSTEM_CRON",
+                    llm,
+                    mem,
+                    skills,
+                    None,
+                )
+                .await;
+            })
+        }) {
             Ok(job) => match lifecycle.scheduler.add(job).await {
                 Ok(job_id) => {
                     boot_registered_ids.insert(scheduled_name, job_id);
