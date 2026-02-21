@@ -120,14 +120,10 @@ impl GenericProvider {
     }
 
     /// Apply auth and extra headers to a request builder.
-    fn apply_auth(
-        &self,
-        mut request: reqwest::RequestBuilder,
-    ) -> reqwest::RequestBuilder {
+    fn apply_auth(&self, mut request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         match self.provider_def.auth.auth_type {
             AuthType::Bearer => {
-                request =
-                    request.header("Authorization", format!("Bearer {}", self.api_key));
+                request = request.header("Authorization", format!("Bearer {}", self.api_key));
             }
             AuthType::Header => {
                 let header_name = self
@@ -302,11 +298,7 @@ impl GenericProvider {
             .unwrap_or_default())
     }
 
-    async fn generate_anthropic(
-        &self,
-        model_id: &str,
-        messages: &[ChatMessage],
-    ) -> Result<String> {
+    async fn generate_anthropic(&self, model_id: &str, messages: &[ChatMessage]) -> Result<String> {
         let mut system_text: Option<String> = None;
         let mut api_messages: Vec<AnthropicMessage> = Vec::new();
 

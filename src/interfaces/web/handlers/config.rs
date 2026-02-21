@@ -77,9 +77,7 @@ pub async fn set_llm_endpoint(
     if let Some(mem_mutex) = reg.get(&agent) {
         let mem = mem_mutex.lock().await;
         let vault = crate::core::vault::SecretsVault::new(mem.get_db());
-        let _ = vault
-            .set_secret("llm_default_provider", &normalized)
-            .await;
+        let _ = vault.set_secret("llm_default_provider", &normalized).await;
         let _ = vault.set_secret("llm_default_model", &payload.model).await;
     }
 
