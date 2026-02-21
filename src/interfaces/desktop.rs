@@ -138,9 +138,9 @@ impl LifecycleComponent for DesktopInterface {
     async fn on_start(&mut self) -> Result<()> {
         #[cfg(target_os = "macos")]
         {
+            use crate::core::brain::AutonomousBrain;
             use global_hotkey::GlobalHotKeyEvent;
             use tracing::error;
-            use crate::core::brain::AutonomousBrain;
 
             let registry = self.registry.lock().await;
             if let Some(mem_mutex) = registry.get(&self.agent_name) {
