@@ -75,6 +75,33 @@ struct GeminiResPart {
     text: String,
 }
 
+// ── Anthropic Messages API request/response ──
+
+#[derive(Serialize)]
+struct AnthropicRequest<'a> {
+    model: &'a str,
+    max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system: Option<String>,
+    messages: Vec<AnthropicMessage<'a>>,
+}
+
+#[derive(Serialize)]
+struct AnthropicMessage<'a> {
+    role: &'a str,
+    content: &'a str,
+}
+
+#[derive(Deserialize)]
+struct AnthropicResponse {
+    content: Vec<AnthropicContentBlock>,
+}
+
+#[derive(Deserialize)]
+struct AnthropicContentBlock {
+    text: Option<String>,
+}
+
 // ── Generic Provider ──
 
 pub struct GenericProvider {
@@ -92,6 +119,38 @@ impl GenericProvider {
         }
     }
 
+    /// Apply auth and extra headers to a request builder.
+    fn apply_auth(
+        &self,
+        mut request: reqwest::RequestBuilder,
+    ) -> reqwest::RequestBuilder {
+        match self.provider_def.auth.auth_type {
+            AuthType::Bearer => {
+                request =
+                    request.header("Authorization", format!("Bearer {}", self.api_key));
+            }
+            AuthType::Header => {
+                let header_name = self
+                    .provider_def
+                    .auth
+                    .header_name
+                    .as_deref()
+                    .unwrap_or("Authorization");
+                request = request.header(header_name, &self.api_key);
+            }
+            AuthType::QueryParam => {
+                // Handled at URL level, not here
+            }
+        }
+
+        // Apply any extra static headers from the provider config
+        for (k, v) in &self.provider_def.extra_headers {
+            request = request.header(k.as_str(), v.as_str());
+        }
+
+        request
+    }
+
     async fn generate_openai(&self, model_id: &str, messages: &[ChatMessage]) -> Result<String> {
         let req_messages: Vec<OpenAiMessage> = messages
             .iter()
@@ -106,13 +165,8 @@ impl GenericProvider {
             messages: req_messages,
         };
 
-        let mut request = self.client.post(&self.provider_def.base_url).json(&req);
-        request = match self.provider_def.auth.auth_type {
-            AuthType::Bearer => {
-                request.header("Authorization", format!("Bearer {}", self.api_key))
-            }
-            AuthType::QueryParam => request, // Not used for OpenAI-format providers currently
-        };
+        let request = self.client.post(&self.provider_def.base_url).json(&req);
+        let request = self.apply_auth(request);
 
         let res = request.send().await?;
         if !res.status().is_success() {
@@ -224,13 +278,11 @@ impl GenericProvider {
                 let base = self.provider_def.base_url.replace("{model}", model_id);
                 format!("{}?{}={}", base, param_name, self.api_key)
             }
-            AuthType::Bearer => self.provider_def.base_url.replace("{model}", model_id),
+            _ => self.provider_def.base_url.replace("{model}", model_id),
         };
 
-        let mut request = self.client.post(&url).json(&req);
-        if self.provider_def.auth.auth_type == AuthType::Bearer {
-            request = request.header("Authorization", format!("Bearer {}", self.api_key));
-        }
+        let request = self.client.post(&url).json(&req);
+        let request = self.apply_auth(request);
 
         let res = request.send().await?;
         if !res.status().is_success() {
@@ -248,6 +300,59 @@ impl GenericProvider {
             .and_then(|c| c.content.parts.into_iter().next())
             .map(|p| p.text)
             .unwrap_or_default())
+    }
+
+    async fn generate_anthropic(
+        &self,
+        model_id: &str,
+        messages: &[ChatMessage],
+    ) -> Result<String> {
+        let mut system_text: Option<String> = None;
+        let mut api_messages: Vec<AnthropicMessage> = Vec::new();
+
+        for m in messages {
+            if m.role == "system" {
+                // Anthropic uses a top-level `system` field; concatenate all system messages.
+                match &mut system_text {
+                    Some(s) => {
+                        s.push('\n');
+                        s.push_str(&m.content);
+                    }
+                    None => system_text = Some(m.content.clone()),
+                }
+            } else {
+                api_messages.push(AnthropicMessage {
+                    role: &m.role,
+                    content: &m.content,
+                });
+            }
+        }
+
+        let req = AnthropicRequest {
+            model: model_id,
+            max_tokens: 8192,
+            system: system_text,
+            messages: api_messages,
+        };
+
+        let request = self.client.post(&self.provider_def.base_url).json(&req);
+        let request = self.apply_auth(request);
+
+        let res = request.send().await?;
+        if !res.status().is_success() {
+            return Err(anyhow!(
+                "{} API Error: {}",
+                self.provider_def.name,
+                res.text().await.unwrap_or_default()
+            ));
+        }
+        let parsed: AnthropicResponse = res.json().await?;
+        Ok(parsed
+            .content
+            .into_iter()
+            .filter_map(|b| b.text)
+            .collect::<Vec<_>>()
+            .join(""))
     }
 }
 
@@ -273,6 +378,7 @@ impl LlmProvider for GenericProvider {
         match self.provider_def.api_format {
             ApiFormat::Openai => self.generate_openai(model_id, messages).await,
             ApiFormat::Gemini => self.generate_gemini(model_id, messages).await,
+            ApiFormat::Anthropic => self.generate_anthropic(model_id, messages).await,
         }
     }
 }

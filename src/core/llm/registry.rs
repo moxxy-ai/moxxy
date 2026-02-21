@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 const PROVIDERS_JSON: &str = include_str!("providers.json");
 
@@ -16,6 +17,8 @@ pub struct ProviderDef {
     pub auth: AuthConfig,
     pub default_model: String,
     pub models: Vec<ModelDef>,
+    #[serde(default)]
+    pub extra_headers: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -23,6 +26,7 @@ pub struct ProviderDef {
 pub enum ApiFormat {
     Openai,
     Gemini,
+    Anthropic,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +35,9 @@ pub struct AuthConfig {
     pub auth_type: AuthType,
     #[serde(default)]
     pub param_name: Option<String>,
+    /// Custom header name for the API key (defaults to "Authorization" with "Bearer " prefix for bearer type)
+    #[serde(default)]
+    pub header_name: Option<String>,
     pub vault_key: String,
 }
 
@@ -39,6 +46,8 @@ pub struct AuthConfig {
 pub enum AuthType {
     Bearer,
     QueryParam,
+    /// Raw header: sends the key as-is in the header specified by `header_name`
+    Header,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
