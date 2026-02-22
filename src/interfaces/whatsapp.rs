@@ -66,6 +66,19 @@ async fn whatsapp_webhook(
     }
 
     let src_label = format!("WHATSAPP_{}", payload.from);
+
+    // Store user's WhatsApp number in vault for whatsapp_notify skill
+    {
+        let mem = state.memory.lock().await;
+        let vault = crate::core::vault::SecretsVault::new(mem.get_db());
+        let user_number = payload.from.trim().to_string();
+        if let Ok(existing) = vault.get_secret("whatsapp_user_number").await {
+            if existing.as_deref().unwrap_or("") != user_number {
+                let _ = vault.set_secret("whatsapp_user_number", &user_number).await;
+            }
+        }
+    }
+
     info!(
         "[{}] Received WhatsApp message from {}: {}",
         state.agent_name, payload.from, trigger_text

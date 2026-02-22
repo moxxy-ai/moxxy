@@ -1,8 +1,10 @@
 mod discord;
 mod telegram;
+mod whatsapp;
 
 pub use discord::*;
 pub use telegram::*;
+pub use whatsapp::*;
 
 use axum::{
     Json,
@@ -62,7 +64,8 @@ pub async fn get_channels(
         let tg_has_stt_token = matches!(vault.get_secret("telegram_stt_token").await, Ok(Some(ref v)) if !v.is_empty());
         let discord_has_token = matches!(vault.get_secret("discord_token").await, Ok(Some(_)));
         let slack_has_token = matches!(vault.get_secret("slack_token").await, Ok(Some(_)));
-        let whatsapp_has_token = matches!(vault.get_secret("whatsapp_token").await, Ok(Some(_)));
+        let whatsapp_has_token =
+            matches!(vault.get_secret("whatsapp_account_sid").await, Ok(Some(_)));
 
         Json(serde_json::json!({
             "success": true,

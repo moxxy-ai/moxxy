@@ -30,9 +30,14 @@ export function ChannelsPanel({
   const [sttStatus, setSttStatus] = useState<string | null>(null);
   const [discordTokenInput, setDiscordTokenInput] = useState('');
   const [discordStatus, setDiscordStatus] = useState<string | null>(null);
+  const [waAccountSid, setWaAccountSid] = useState('');
+  const [waAuthToken, setWaAuthToken] = useState('');
+  const [waFromNumber, setWaFromNumber] = useState('');
+  const [waStatus, setWaStatus] = useState<string | null>(null);
 
   const tg = channels.find(c => c.type === 'telegram');
   const discord = channels.find(c => c.type === 'discord');
+  const whatsapp = channels.find(c => c.type === 'whatsapp');
 
   const refreshChannels = () => {
     if (activeAgent && apiBase) {
@@ -379,13 +384,106 @@ export function ChannelsPanel({
             <p className="text-[11px] text-[#64748b]">Coming soon</p>
           </div>
 
-          {/* WhatsApp Card - Coming Soon */}
-          <div className="border border-[#1e304f] bg-[#0d1522] p-5 rounded-sm flex flex-col gap-3 opacity-50">
-            <div className="flex items-center gap-2">
-              <Radio size={16} className="text-[#25d366]" />
-              <span className="text-white text-sm font-bold tracking-wide">WhatsApp</span>
+          {/* WhatsApp Card */}
+          <div className="border border-[#1e304f] bg-[#0d1522] p-5 rounded-sm flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Radio size={16} className="text-[#25d366]" />
+                <span className="text-white text-sm font-bold tracking-wide">WhatsApp</span>
+              </div>
+              {whatsapp?.has_token ? (
+                <span className="text-[9px] px-2 py-0.5 border border-emerald-400/30 text-emerald-400 bg-emerald-400/5 rounded-sm uppercase tracking-widest">Connected</span>
+              ) : (
+                <span className="text-[9px] px-2 py-0.5 border border-[#64748b]/30 text-[#64748b] bg-[#64748b]/5 rounded-sm uppercase tracking-widest">Not Configured</span>
+              )}
             </div>
-            <p className="text-[11px] text-[#64748b]">Coming soon</p>
+
+            {waStatus && (
+              <div className={`text-[10px] px-2 py-1 border rounded-sm ${waStatus.includes('Error') ? 'border-red-400/30 text-red-400 bg-red-400/5' : 'border-emerald-400/30 text-emerald-400 bg-emerald-400/5'}`}>
+                {waStatus}
+              </div>
+            )}
+
+            {/* State: Not configured */}
+            {!whatsapp?.has_token && (
+              <div className="flex flex-col gap-2">
+                <p className="text-[11px] text-[#94a3b8] leading-relaxed">Connect WhatsApp via <span className="text-[#25d366]">Twilio</span>. You need your Account SID, Auth Token, and a WhatsApp-enabled sender number.</p>
+                <input
+                  type="text"
+                  value={waAccountSid}
+                  onChange={e => setWaAccountSid(e.target.value)}
+                  className="w-full bg-[#090d14] border border-[#1e304f] focus:border-[#25d366] outline-none px-3 py-1.5 text-xs text-white font-mono"
+                  placeholder="Twilio Account SID"
+                />
+                <input
+                  type="password"
+                  value={waAuthToken}
+                  onChange={e => setWaAuthToken(e.target.value)}
+                  className="w-full bg-[#090d14] border border-[#1e304f] focus:border-[#25d366] outline-none px-3 py-1.5 text-xs text-white font-mono"
+                  placeholder="Twilio Auth Token"
+                />
+                <input
+                  type="text"
+                  value={waFromNumber}
+                  onChange={e => setWaFromNumber(e.target.value)}
+                  className="w-full bg-[#090d14] border border-[#1e304f] focus:border-[#25d366] outline-none px-3 py-1.5 text-xs text-white font-mono"
+                  placeholder="Sender number (e.g. +14155238886)"
+                />
+                <button
+                  onClick={async () => {
+                    if (!waAccountSid.trim() || !waAuthToken.trim() || !waFromNumber.trim() || !activeAgent) return;
+                    setWaStatus(null);
+                    try {
+                      const res = await fetch(`${apiBase}/agents/${activeAgent}/channels/whatsapp/config`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ account_sid: waAccountSid, auth_token: waAuthToken, from_number: waFromNumber })
+                      });
+                      const data = await res.json();
+                      if (data.success) {
+                        setWaStatus('WhatsApp configured. Restart the gateway to activate.');
+                        setWaAccountSid('');
+                        setWaAuthToken('');
+                        setWaFromNumber('');
+                        refreshChannels();
+                      } else {
+                        setWaStatus(`Error: ${data.error}`);
+                      }
+                    } catch (err) { setWaStatus(`Error: ${err}`); }
+                  }}
+                  disabled={!waAccountSid.trim() || !waAuthToken.trim() || !waFromNumber.trim()}
+                  className="bg-[#25d366] hover:bg-[#2ee676] disabled:opacity-50 text-white text-[10px] uppercase tracking-widest px-4 py-1.5 font-bold shadow-[0_0_12px_rgba(37,211,102,0.3)] transition-all self-start"
+                >
+                  Save Config
+                </button>
+              </div>
+            )}
+
+            {/* State: Configured */}
+            {whatsapp?.has_token && (
+              <div className="flex flex-col gap-2">
+                <p className="text-[11px] text-emerald-400 leading-relaxed">WhatsApp (Twilio) is configured. Incoming messages on the webhook are routed to this agent.</p>
+                <button
+                  onClick={async () => {
+                    if (!activeAgent) return;
+                    setWaStatus(null);
+                    try {
+                      const res = await fetch(`${apiBase}/agents/${activeAgent}/channels/whatsapp`, { method: 'DELETE' });
+                      const data = await res.json();
+                      if (data.success) {
+                        setWaStatus('WhatsApp disconnected. Restart gateway to fully remove.');
+                        refreshChannels();
+                      } else {
+                        setWaStatus(`Error: ${data.error}`);
+                      }
+                    } catch (err) { setWaStatus(`Error: ${err}`); }
+                  }}
+                  className="bg-red-500/20 hover:bg-red-500/30 border border-red-400/30 text-red-400 text-[10px] uppercase tracking-widest px-4 py-1.5 font-bold transition-all self-start"
+                >
+                  Disconnect
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
