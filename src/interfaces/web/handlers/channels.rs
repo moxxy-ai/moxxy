@@ -309,6 +309,59 @@ pub struct SetTelegramSttRequest {
     token: Option<String>,
 }
 
+pub async fn set_discord_token(
+    Path(agent): Path<String>,
+    State(state): State<AppState>,
+    Json(payload): Json<SetChannelTokenRequest>,
+) -> Json<serde_json::Value> {
+    if payload.token.trim().is_empty() {
+        return Json(
+            serde_json::json!({ "success": false, "error": "Discord token cannot be empty." }),
+        );
+    }
+
+    if let Some(owner) =
+        find_agent_with_secret_value(&state, "discord_token", &payload.token, &agent).await
+    {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": format!(
+                "This Discord bot token is already bound to agent '{}'. One Discord bot can only be bound to one agent.",
+                owner
+            )
+        }));
+    }
+
+    let reg = state.registry.lock().await;
+    if let Some(mem_mutex) = reg.get(&agent) {
+        let mem = mem_mutex.lock().await;
+        let vault = crate::core::vault::SecretsVault::new(mem.get_db());
+        match vault.set_secret("discord_token", &payload.token).await {
+            Ok(_) => Json(
+                serde_json::json!({ "success": true, "message": "Discord token saved. Restart gateway to activate the bot." }),
+            ),
+            Err(e) => Json(serde_json::json!({ "success": false, "error": e.to_string() })),
+        }
+    } else {
+        Json(serde_json::json!({ "success": false, "error": "Agent not found" }))
+    }
+}
+
+pub async fn disconnect_discord(
+    Path(agent): Path<String>,
+    State(state): State<AppState>,
+) -> Json<serde_json::Value> {
+    let reg = state.registry.lock().await;
+    if let Some(mem_mutex) = reg.get(&agent) {
+        let mem = mem_mutex.lock().await;
+        let vault = crate::core::vault::SecretsVault::new(mem.get_db());
+        let _ = vault.remove_secret("discord_token").await;
+        Json(serde_json::json!({ "success": true, "message": "Discord disconnected." }))
+    } else {
+        Json(serde_json::json!({ "success": false, "error": "Agent not found" }))
+    }
+}
+
 pub async fn set_telegram_stt(
     Path(agent): Path<String>,
     State(state): State<AppState>,
