@@ -2,6 +2,7 @@ mod agent_cmd;
 mod channels;
 mod daemon;
 mod doctor;
+mod install;
 mod migrate;
 mod onboarding;
 mod swarm;
@@ -31,6 +32,10 @@ fn print_help() {
     );
     println!(
         "  {} dev       Start the Daemon in Elevated Dev Mode",
+        style("▶").cyan()
+    );
+    println!(
+        "  {} install   Set up directories and database (non-interactive)",
         style("▶").cyan()
     );
     println!(
@@ -304,6 +309,10 @@ pub async fn run_main() -> Result<()> {
             }
             "dev" => {
                 run_mode = RunMode::Dev;
+            }
+            "install" => {
+                install::run_install().await?;
+                return Ok(());
             }
             "init" | "onboard" => {
                 onboarding::run_onboarding().await?;

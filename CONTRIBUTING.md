@@ -24,7 +24,10 @@ cd frontend && npm install && npm run build && cd ..
 # Build the backend
 cargo build --release
 
-# Run first-time setup
+# Set up directories and database
+./target/release/moxxy install
+
+# Run interactive setup wizard
 ./target/release/moxxy init
 
 # Start the web dashboard
@@ -53,7 +56,8 @@ src/
   cli/                     # CLI command dispatch
     mod.rs                 # Argument parsing, help text
     doctor.rs              # System diagnostics
-    onboarding.rs          # First-time setup wizard
+    install.rs             # Non-interactive setup (moxxy install)
+    onboarding.rs          # Interactive setup wizard (moxxy init)
     channels.rs            # Telegram channel setup
     daemon.rs              # Gateway start/stop/restart
     agent_cmd.rs           # Agent restart/remove

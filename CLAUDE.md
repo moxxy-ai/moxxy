@@ -48,7 +48,8 @@ Each agent lives in `~/.moxxy/agents/<name>/` with:
 - **`src/cli/`** – CLI command dispatch
   - `mod.rs` – argument parsing, help text, `run_main()`
   - `doctor.rs` – system diagnostics (`moxxy doctor`)
-  - `onboarding.rs` – first-time setup wizard
+  - `install.rs` – non-interactive setup (`moxxy install`)
+  - `onboarding.rs` – interactive setup wizard (`moxxy init`)
   - `channels.rs` – Telegram channel setup
   - `daemon.rs` – gateway start/stop/restart/status
   - `agent_cmd.rs` – agent restart/remove
