@@ -129,22 +129,6 @@ export function ConfigPanel({
   const customProviders = providers.filter(p => p.custom);
   const isCustomModel = llmModel === '__custom__';
 
-  useEffect(() => {
-    if (!activeAgent || !llmProvider || !apiBase) return;
-    const prov = providers.find(p => p.id === llmProvider);
-    if (!prov?.vault_key) {
-      setApiToken('');
-      return;
-    }
-    fetch(`${apiBase}/agents/${activeAgent}/vault/${prov.vault_key}`)
-      .then(r => r.json())
-      .then(d => {
-        if (d.success && d.value) setApiToken(d.value);
-        else setApiToken('');
-      })
-      .catch(() => setApiToken(''));
-  }, [activeAgent, llmProvider, apiBase, providers]);
-
   const getModelToSend = () => isCustomModel ? customModelId : llmModel;
 
   const handleAddCustomProvider = async () => {
