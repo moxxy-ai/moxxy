@@ -3,7 +3,7 @@ use console::style;
 
 use crate::core::llm::generic_provider::GenericProvider;
 use crate::core::llm::registry::ProviderRegistry;
-use crate::core::terminal::{self, print_info, print_step, print_success};
+use crate::core::terminal::{self, print_error, print_info, print_step, print_success};
 
 pub async fn run_onboarding() -> Result<()> {
     terminal::print_banner();
@@ -11,6 +11,18 @@ pub async fn run_onboarding() -> Result<()> {
         "  {}\n",
         style("Welcome to the Onboarding Wizard. Let's set up your first autonomous agent.").bold()
     );
+
+    // Pre-step: Check and install required dependencies
+    let deps_ok = super::doctor::ensure_dependencies().await?;
+    if !deps_ok {
+        let proceed = inquire::Confirm::new("Some dependencies are missing. Continue anyway?")
+            .with_default(false)
+            .prompt()?;
+        if !proceed {
+            print_error("Onboarding aborted. Please install the missing dependencies and try again.");
+            return Ok(());
+        }
+    }
 
     let home = dirs::home_dir().expect("Could not find home directory");
     let default_agent_dir = home.join(".moxxy").join("agents").join("default");
