@@ -46,6 +46,8 @@ pub async fn execute_applescript(
 #[derive(serde::Deserialize)]
 pub struct BashRequest {
     command: String,
+    /// Optional working directory for the command.
+    cwd: Option<String>,
 }
 
 /// WARNING: This is the Host Proxy handling arbitrary bash execution natively on the host macOS.
@@ -64,12 +66,12 @@ pub async fn execute_bash(
             );
         }
     }
-    match tokio::process::Command::new("bash")
-        .arg("-c")
-        .arg(&payload.command)
-        .output()
-        .await
-    {
+    let mut cmd = tokio::process::Command::new("bash");
+    cmd.arg("-c").arg(&payload.command);
+    if let Some(ref cwd) = payload.cwd {
+        cmd.current_dir(cwd);
+    }
+    match cmd.output().await {
         Ok(output) => {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -87,6 +89,8 @@ pub async fn execute_bash(
 #[derive(serde::Deserialize)]
 pub struct PythonRequest {
     code: String,
+    /// Optional working directory for the command.
+    cwd: Option<String>,
 }
 
 /// WARNING: This is the Host Proxy handling arbitrary python execution natively on the host macOS.
@@ -105,12 +109,12 @@ pub async fn execute_python(
             );
         }
     }
-    match tokio::process::Command::new("python3")
-        .arg("-c")
-        .arg(&payload.code)
-        .output()
-        .await
-    {
+    let mut cmd = tokio::process::Command::new("python3");
+    cmd.arg("-c").arg(&payload.code);
+    if let Some(ref cwd) = payload.cwd {
+        cmd.current_dir(cwd);
+    }
+    match cmd.output().await {
         Ok(output) => {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();

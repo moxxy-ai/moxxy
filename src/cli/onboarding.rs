@@ -52,6 +52,7 @@ pub async fn run_onboarding() -> Result<()> {
 
     if !default_agent_dir.exists() {
         tokio::fs::create_dir_all(default_agent_dir.join("skills")).await?;
+        tokio::fs::create_dir_all(default_agent_dir.join("workspace")).await?;
     }
 
     let memory_sys = crate::core::memory::MemorySystem::new(&default_agent_dir).await?;
