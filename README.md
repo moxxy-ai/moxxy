@@ -227,6 +227,28 @@ AI-authored PRs are opened as **drafts** so a maintainer always reviews before m
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup and guidelines.
 
+## Comparison
+
+How moxxy compares to similar self-hosted AI agent frameworks:
+
+| | **moxxy** | **[OpenClaw](https://github.com/openclaw/openclaw)** | **[ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw)** |
+|---|---|---|---|
+| **Language** | Rust | TypeScript / Node.js | Rust |
+| **Focus** | Multi-agent autonomy & swarm intelligence | Personal assistant across devices | Minimal agentic runtime ("agent OS") |
+| **Agent model** | Multi-agent with isolated workspaces | Single-agent, single-user | Single-agent, trait-swappable |
+| **Execution** | ReAct loop (LLM → skill → result) | Gateway + WebSocket control plane | Trait-based provider loop |
+| **LLM providers** | OpenAI, Google Gemini, Z.Ai (Grok) | Anthropic, OpenAI (with failover) | OpenAI-compatible, Anthropic, OpenRouter, custom |
+| **Channels** | Web, TUI, Telegram, Discord, Slack, WhatsApp | 13+ (WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Teams, Matrix, Google Chat, Zalo, WebChat) | CLI, Telegram, Discord, Slack, Mattermost, iMessage, Matrix, Signal, WhatsApp |
+| **Memory** | Per-agent SQLite (STM + LTM with vec0 embeddings) + shared swarm.db | Session-based with compacting/summarization | SQLite hybrid search (vectors + FTS5), PostgreSQL, or Markdown |
+| **Swarm / multi-agent** | Yes — agents share facts via `[ANNOUNCE]` tags | No | No |
+| **Skill system** | Shell/Python scripts with manifest.toml, MCP servers | ClawHub skill registry + SKILL.md | Shell, file, HTTP, git, browser, cron tools |
+| **Sandboxing** | WASM containers (wasm32-wasip1) with capability-based permissions | Chrome profile isolation, macOS TCC | Docker sandbox (WASM planned) |
+| **Voice** | Whisper transcription (Telegram) | ElevenLabs + Wake/Talk Mode overlay | No |
+| **Desktop/mobile apps** | Web dashboard, macOS hotkey, mobile endpoint | macOS menu bar app, iOS & Android companion apps | No |
+| **Self-modification** | Yes — `evolve_core` skill in dev mode | No | No |
+| **Binary size / footprint** | Single binary (~12 MB), ~20 MB RAM | Node.js process, higher baseline | Single binary, <5 MB RAM |
+| **License** | MIT | MIT | Apache 2.0 + MIT |
+
 ## Development
 
 ```bash
