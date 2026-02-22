@@ -27,11 +27,7 @@ pub async fn get_providers_endpoint() -> Json<serde_json::Value> {
 
 pub async fn get_custom_providers_endpoint() -> Json<serde_json::Value> {
     let registry = ProviderRegistry::load();
-    let custom: Vec<_> = registry
-        .custom_providers()
-        .into_iter()
-        .cloned()
-        .collect();
+    let custom: Vec<_> = registry.custom_providers().into_iter().cloned().collect();
     Json(serde_json::json!({ "success": true, "providers": custom }))
 }
 
@@ -39,7 +35,9 @@ pub async fn add_custom_provider_endpoint(
     Json(payload): Json<crate::core::llm::registry::ProviderDef>,
 ) -> Json<serde_json::Value> {
     match ProviderRegistry::add_custom_provider(payload) {
-        Ok(()) => Json(serde_json::json!({ "success": true, "message": "Custom provider added. Restart agents to use it." })),
+        Ok(()) => Json(
+            serde_json::json!({ "success": true, "message": "Custom provider added. Restart agents to use it." }),
+        ),
         Err(e) => Json(serde_json::json!({ "success": false, "error": e })),
     }
 }
@@ -48,7 +46,9 @@ pub async fn delete_custom_provider_endpoint(
     Path(provider_id): Path<String>,
 ) -> Json<serde_json::Value> {
     match ProviderRegistry::remove_custom_provider(&provider_id) {
-        Ok(()) => Json(serde_json::json!({ "success": true, "message": "Custom provider removed." })),
+        Ok(()) => {
+            Json(serde_json::json!({ "success": true, "message": "Custom provider removed." }))
+        }
         Err(e) => Json(serde_json::json!({ "success": false, "error": e })),
     }
 }

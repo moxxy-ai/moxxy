@@ -88,10 +88,7 @@ impl ProviderRegistry {
                                 registry.providers.push(cp);
                             }
                         }
-                        info!(
-                            "Loaded custom providers from {}",
-                            custom_path.display()
-                        );
+                        info!("Loaded custom providers from {}", custom_path.display());
                     }
                     Err(e) => warn!("Failed to parse {}: {}", custom_path.display(), e),
                 },
@@ -119,7 +116,11 @@ impl ProviderRegistry {
         let mut custom_registry = Self::load_custom_file();
 
         // Replace if exists, else push
-        if let Some(pos) = custom_registry.providers.iter().position(|p| p.id == provider.id) {
+        if let Some(pos) = custom_registry
+            .providers
+            .iter()
+            .position(|p| p.id == provider.id)
+        {
             custom_registry.providers[pos] = provider;
         } else {
             custom_registry.providers.push(provider);
@@ -161,8 +162,8 @@ impl ProviderRegistry {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create directory: {}", e))?;
         }
-        let json =
-            serde_json::to_string_pretty(registry).map_err(|e| format!("Serialize error: {}", e))?;
+        let json = serde_json::to_string_pretty(registry)
+            .map_err(|e| format!("Serialize error: {}", e))?;
         std::fs::write(&custom_path, json)
             .map_err(|e| format!("Failed to write {}: {}", custom_path.display(), e))
     }

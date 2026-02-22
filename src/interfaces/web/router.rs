@@ -119,8 +119,7 @@ pub fn build_api_router(state: AppState) -> Router {
         .route("/api/providers", get(config::get_providers_endpoint))
         .route(
             "/api/providers/custom",
-            get(config::get_custom_providers_endpoint)
-                .post(config::add_custom_provider_endpoint),
+            get(config::get_custom_providers_endpoint).post(config::add_custom_provider_endpoint),
         )
         .route(
             "/api/providers/custom/{provider_id}",
