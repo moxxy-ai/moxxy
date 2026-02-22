@@ -65,6 +65,18 @@ pub fn build_api_router(state: AppState) -> Router {
             axum::routing::delete(channels::disconnect_discord),
         )
         .route(
+            "/api/agents/{agent}/channels/whatsapp/config",
+            post(channels::set_whatsapp_config),
+        )
+        .route(
+            "/api/agents/{agent}/channels/whatsapp/send",
+            post(channels::send_whatsapp_message),
+        )
+        .route(
+            "/api/agents/{agent}/channels/whatsapp",
+            axum::routing::delete(channels::disconnect_whatsapp),
+        )
+        .route(
             "/api/agents/{agent}/restart",
             post(agents::restart_agent_endpoint),
         )
