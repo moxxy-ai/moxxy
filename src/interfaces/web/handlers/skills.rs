@@ -232,6 +232,34 @@ pub async fn upgrade_skill_endpoint(
     }
 }
 
+#[derive(serde::Deserialize)]
+pub struct InstallOpenclawRequest {
+    url: String,
+}
+
+pub async fn install_openclaw_skill_endpoint(
+    Path(agent): Path<String>,
+    State(state): State<AppState>,
+    Json(payload): Json<InstallOpenclawRequest>,
+) -> Json<serde_json::Value> {
+    let reg = state.skill_registry.lock().await;
+    if let Some(skill_mutex) = reg.get(&agent) {
+        let mut sm = skill_mutex.lock().await;
+        match sm.install_openclaw_skill(&payload.url).await {
+            Ok(_) => Json(serde_json::json!({
+                "success": true,
+                "message": "Openclaw skill installed successfully."
+            })),
+            Err(e) => Json(serde_json::json!({
+                "success": false,
+                "error": e.to_string()
+            })),
+        }
+    } else {
+        Json(serde_json::json!({ "success": false, "error": "Agent not found" }))
+    }
+}
+
 pub async fn remove_skill_endpoint(
     Path((agent, skill_name)): Path<(String, String)>,
     State(state): State<AppState>,

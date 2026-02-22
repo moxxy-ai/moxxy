@@ -99,6 +99,10 @@ pub fn build_api_router(state: AppState) -> Router {
             post(skills::upgrade_skill_endpoint),
         )
         .route(
+            "/api/agents/{agent}/install_openclaw_skill",
+            post(skills::install_openclaw_skill_endpoint),
+        )
+        .route(
             "/api/agents/{agent}/skills/{skill_name}",
             axum::routing::delete(skills::remove_skill_endpoint)
                 .patch(skills::modify_skill_endpoint),

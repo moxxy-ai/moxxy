@@ -1,7 +1,0 @@
-name = "create_skill"
-description = "Creates a new skill directory with a manifest, skill.md, and run.sh script."
-version = "1.0.0"
-needs_fs_write = true
-needs_fs_read = true
-needs_network = true
-needs_env = true

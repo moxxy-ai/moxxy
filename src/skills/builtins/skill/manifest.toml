@@ -1,0 +1,9 @@
+name = "skill"
+description = "Unified skill management. Subcommands: list, install, remove, upgrade, modify, create, read. Example: [\"list\"], [\"install\", \"https://url\"], [\"remove\", \"skill_name\"]."
+version = "1.0.0"
+needs_network = true
+needs_fs_read = true
+needs_fs_write = true
+needs_env = true
+run_command = "sh"
+entrypoint = "run.sh"

@@ -1,7 +1,0 @@
-name = "install_skill"
-description = "Installs a new skill. Inline mode: [\"manifest_toml\", \"run_sh_script\", \"skill_md_docs\"]. URL mode: [\"https://host/path/to/skill\"] fetches manifest.toml, run.sh, skill.md from that URL."
-version = "1.0.0"
-needs_network = true
-needs_fs_write = true
-run_command = "sh"
-entrypoint = "run.sh"

@@ -158,6 +158,9 @@ pub(super) async fn spawn_mcp_servers(
                                 needs_env: false,
                                 entrypoint: tool.name.clone(),
                                 run_command: "mcp".to_string(),
+                                triggers: Vec::new(),
+                                homepage: None,
+                                doc_files: Vec::new(),
                                 skill_dir: PathBuf::new(),
                             };
 

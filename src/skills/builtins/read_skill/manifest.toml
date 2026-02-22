@@ -1,4 +1,0 @@
-name = "read_skill"
-description = "Reads the contents of a skill's manifest.toml, skill.md, and run.sh."
-version = "1.0.0"
-needs_fs_read = true
