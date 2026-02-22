@@ -5,6 +5,7 @@ mod doctor;
 mod migrate;
 mod onboarding;
 mod swarm;
+mod update;
 mod webhooks;
 
 use anyhow::Result;
@@ -53,6 +54,10 @@ fn print_help() {
     );
     println!("  {} agent     Manage agents", style("▶").cyan());
     println!("  {} webhook   Manage webhook endpoints", style("▶").cyan());
+    println!(
+        "  {} update    Update moxxy to the latest version",
+        style("▶").cyan()
+    );
     println!(
         "  {} logs      Follow real-time daemon logs",
         style("▶").cyan()
@@ -387,6 +392,10 @@ pub async fn run_main() -> Result<()> {
             }
             "webhook" | "webhooks" => {
                 webhooks::run_webhook_command(&args).await?;
+                return Ok(());
+            }
+            "update" => {
+                update::run_update().await?;
                 return Ok(());
             }
             "doctor" => {
