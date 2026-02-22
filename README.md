@@ -44,6 +44,12 @@ moxxy is a self-hosted runtime for autonomous AI agents. Each agent gets its own
 curl -fsSL https://raw.githubusercontent.com/moxxy-ai/moxxy/master/install.sh | bash
 ```
 
+The install script downloads the binary and runs `moxxy install` to scaffold the `~/.moxxy` directory. After installation, run the interactive setup:
+
+```bash
+moxxy init
+```
+
 ### Build from Source
 
 ```bash
@@ -51,15 +57,15 @@ git clone https://github.com/moxxy-ai/moxxy.git
 cd moxxy
 cd frontend && npm install && npm run build && cd ..
 cargo build --release
+./target/release/moxxy install
+./target/release/moxxy init
 ```
 
 ### First-Time Setup
 
-```bash
-moxxy init
-```
+`moxxy install` creates the directory structure and initialises the database (non-interactive, safe to run from a piped script).
 
-This walks you through LLM provider configuration, API keys, and optional Telegram setup.
+`moxxy init` walks you through LLM provider configuration, API keys, and optional Telegram setup (interactive, requires a terminal).
 
 ### Start
 
@@ -77,7 +83,8 @@ moxxy gateway start
 ## Commands
 
 ```
-moxxy init                              First-time setup wizard
+moxxy install                           Set up directories and database
+moxxy init                              Interactive setup wizard
 moxxy web                               Web dashboard
 moxxy tui                               Terminal UI
 moxxy gateway start|stop|restart|status  Daemon management
