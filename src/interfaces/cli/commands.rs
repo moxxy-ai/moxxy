@@ -15,7 +15,9 @@ impl CliInterface {
                     "  /agents [name]    List agents or switch to <name>".to_string(),
                 );
                 self.push_cmd_output("  /models           Show current LLM config".to_string());
-                self.push_cmd_output("  /providers        List available LLM providers".to_string());
+                self.push_cmd_output(
+                    "  /providers        List available LLM providers".to_string(),
+                );
                 self.push_cmd_output(
                     "  /token <provider> <key>  Set API token for provider".to_string(),
                 );
@@ -184,20 +186,21 @@ impl CliInterface {
                 if let Ok(res) = self.client.get(&url).send().await {
                     if let Ok(json) = res.json::<Value>().await {
                         if json.get("success").and_then(|v| v.as_bool()) == Some(true) {
-                            if let Some(providers) = json.get("providers").and_then(|p| p.as_array())
+                            if let Some(providers) =
+                                json.get("providers").and_then(|p| p.as_array())
                             {
                                 self.push_cmd_output("Available Providers:".to_string());
                                 for p in providers {
                                     let _id = p.get("id").and_then(|v| v.as_str()).unwrap_or("");
                                     let name = p.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                                    let custom = p.get("custom").and_then(|v| v.as_bool()).unwrap_or(false);
-                                    let vault_key = p.get("vault_key").and_then(|v| v.as_str()).unwrap_or("");
+                                    let custom =
+                                        p.get("custom").and_then(|v| v.as_bool()).unwrap_or(false);
+                                    let vault_key =
+                                        p.get("vault_key").and_then(|v| v.as_str()).unwrap_or("");
                                     let custom_tag = if custom { " (custom)" } else { "" };
                                     self.push_cmd_output(format!(
                                         "  {}{} – vault_key: {}",
-                                        name,
-                                        custom_tag,
-                                        vault_key
+                                        name, custom_tag, vault_key
                                     ));
                                 }
                             }
@@ -215,12 +218,16 @@ impl CliInterface {
                     let mut vault_key: Option<String> = None;
                     if let Ok(res) = self.client.get(&url).send().await {
                         if let Ok(json) = res.json::<Value>().await {
-                            if let Some(providers) = json.get("providers").and_then(|p| p.as_array())
+                            if let Some(providers) =
+                                json.get("providers").and_then(|p| p.as_array())
                             {
                                 for p in providers {
                                     let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("");
                                     if id.eq_ignore_ascii_case(provider) {
-                                        vault_key = p.get("vault_key").and_then(|v| v.as_str()).map(|s| s.to_string());
+                                        vault_key = p
+                                            .get("vault_key")
+                                            .and_then(|v| v.as_str())
+                                            .map(|s| s.to_string());
                                         break;
                                     }
                                 }
@@ -228,7 +235,8 @@ impl CliInterface {
                         }
                     }
                     if let Some(vk) = vault_key {
-                        let set_url = format!("{}/agents/{}/vault", self.api_base, self.active_agent);
+                        let set_url =
+                            format!("{}/agents/{}/vault", self.api_base, self.active_agent);
                         let payload = serde_json::json!({ "key": vk, "value": token });
                         self.cmd_output_lines.clear();
                         if let Ok(res) = self.client.post(&set_url).json(&payload).send().await {
