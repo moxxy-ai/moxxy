@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/moxxy-ai/moxxy/compare/v0.8.1...v0.8.2) (2026-02-22)
+
+
+### Bug Fixes
+
+* remove unused check ([#33](https://github.com/moxxy-ai/moxxy/issues/33)) ([1d4115a](https://github.com/moxxy-ai/moxxy/commit/1d4115acd112f18a043112dbc4da47043bfe868e))
+
 ## [0.8.1](https://github.com/moxxy-ai/moxxy/compare/v0.8.0...v0.8.1) (2026-02-22)
 
 
