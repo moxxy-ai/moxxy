@@ -67,7 +67,7 @@ pub(super) async fn init_core_subsystems(
     ));
     let skill_sys = SkillManager::new(skill_executor, workspace_dir.to_path_buf());
 
-    // LLM — registry-driven provider registration
+    // LLM - registry-driven provider registration
     let registry = ProviderRegistry::load();
     let mut llm_sys = LlmManager::new();
 

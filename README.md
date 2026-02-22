@@ -1,20 +1,40 @@
-# moxxy
+<p align="center">
+  <img src="https://moxxy.ai/logo-gradient.svg" alt="moxxy" width="200" />
+</p>
 
-An autonomous multi-agent AI framework built in Rust. Run local AI agents with isolated memory, tool execution, and multi-channel integrations.
+<h3 align="center">Your Everyday AI Assistant Agents</h3>
+
+<p align="center">
+  A self-hosted multi-agent AI framework built in Rust. Complete data sovereignty with agents running on your own infrastructure.
+</p>
+
+<p align="center">
+  <a href="https://docs.moxxy.ai">Documentation</a> · <a href="https://moxxy.ai">Website</a> · <a href="https://github.com/moxxy-ai/moxxy">GitHub</a>
+</p>
+
+---
 
 ## What is moxxy?
 
-moxxy is a self-hosted runtime for AI agents. Each agent gets its own workspace with private memory, a persona, encrypted secrets, and access to extensible skills (tools). Agents can run autonomously on schedules, respond to messages across multiple channels, and share intelligence through a swarm knowledge base.
+moxxy is a self-hosted runtime for autonomous AI agents. Each agent gets its own isolated workspace with private memory, a persona, encrypted secrets, and access to extensible skills. Agents run autonomously on schedules, respond to messages across multiple channels, and share intelligence through a swarm knowledge base - all on your own infrastructure with complete data sovereignty.
 
 **Key features:**
 
 - **Multi-agent isolation** - each agent has its own SQLite memory, persona, vault, and skills
-- **ReAct loop execution** - agents reason and act using LLM-driven tool invocation
+- **ReAct loop execution** - LLM-driven tool invocation with a transparent execution model
 - **Multiple interfaces** - Web dashboard, terminal UI, Telegram, Discord, Slack, WhatsApp
 - **Extensible skills** - shell scripts, Python, MCP servers, or custom tools
-- **WASM sandboxing** - optional containerized execution with capability-based permissions
+- **WASM sandboxing** - containerized execution with capability-based permissions
 - **Scheduled autonomy** - cron-based heartbeats for proactive agent behavior
 - **Swarm intelligence** - agents share facts through a global knowledge base
+
+**What can you do with it?**
+
+- Automate repetitive tasks - emails, reports, data processing
+- Monitor systems via logs and APIs with alerting
+- Build custom workflows by chaining skills together
+- Deploy conversational bots to messaging platforms
+- Develop AI applications via the REST API
 
 ## Quick Start
 
@@ -187,6 +207,12 @@ cd frontend && npm run dev
 # Run diagnostics
 moxxy doctor
 ```
+
+## Links
+
+- [Website](https://moxxy.ai)
+- [Documentation](https://docs.moxxy.ai)
+- [GitHub](https://github.com/moxxy-ai/moxxy)
 
 ## License
 
