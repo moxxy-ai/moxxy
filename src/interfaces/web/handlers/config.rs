@@ -17,6 +17,7 @@ pub async fn get_providers_endpoint() -> Json<serde_json::Value> {
                 "name": p.name,
                 "default_model": p.default_model,
                 "custom": p.custom,
+                "vault_key": p.auth.vault_key,
                 "models": p.models.iter().map(|m| {
                     serde_json::json!({ "id": m.id, "name": m.name })
                 }).collect::<Vec<_>>()

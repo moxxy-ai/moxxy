@@ -5,6 +5,7 @@ interface ProviderInfo {
   name: string;
   default_model: string;
   custom?: boolean;
+  vault_key?: string;
   models: { id: string; name: string }[];
 }
 
@@ -48,7 +49,10 @@ export function ConfigPanel({
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [llmProvider, setLlmProvider] = useState('');
   const [llmModel, setLlmModel] = useState('');
+  const [customModelId, setCustomModelId] = useState('');
   const [llmStatus, setLlmStatus] = useState<string | null>(null);
+  const [apiToken, setApiToken] = useState('');
+  const [apiTokenStatus, setApiTokenStatus] = useState<string | null>(null);
 
   const [gatewayHost, setGatewayHost] = useState('');
   const [gatewayPort, setGatewayPort] = useState<number>(17890);
@@ -99,6 +103,25 @@ export function ConfigPanel({
 
   const selectedProvider = providers.find(p => p.id === llmProvider);
   const customProviders = providers.filter(p => p.custom);
+  const isCustomModel = llmModel === '__custom__';
+
+  useEffect(() => {
+    if (!activeAgent || !llmProvider || !apiBase) return;
+    const prov = providers.find(p => p.id === llmProvider);
+    if (!prov?.vault_key) {
+      setApiToken('');
+      return;
+    }
+    fetch(`${apiBase}/agents/${activeAgent}/vault/${prov.vault_key}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && d.value) setApiToken(d.value);
+        else setApiToken('');
+      })
+      .catch(() => setApiToken(''));
+  }, [activeAgent, llmProvider, apiBase, providers]);
+
+  const getModelToSend = () => isCustomModel ? customModelId : llmModel;
 
   const handleAddCustomProvider = async () => {
     setCustomStatus(null);
@@ -207,14 +230,26 @@ export function ConfigPanel({
           <div>
             <label className={labelClass}>Model</label>
             {selectedProvider && selectedProvider.models.length > 0 ? (
-              <select
-                value={llmModel}
-                onChange={e => setLlmModel(e.target.value)}
-                className={selectClass}
-              >
-                <option value="">Select Model</option>
-                {selectedProvider.models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
+              <>
+                <select
+                  value={llmModel}
+                  onChange={e => setLlmModel(e.target.value)}
+                  className={selectClass}
+                >
+                  <option value="">Select Model</option>
+                  {selectedProvider.models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  <option value="__custom__">Custom Model ID...</option>
+                </select>
+                {isCustomModel && (
+                  <input
+                    type="text"
+                    value={customModelId}
+                    onChange={e => setCustomModelId(e.target.value)}
+                    className={`${inputClass} mt-2`}
+                    placeholder="e.g. gpt-4o-2024-11-20, claude-3-opus"
+                  />
+                )}
+              </>
             ) : (
               <input
                 type="text"
@@ -225,16 +260,57 @@ export function ConfigPanel({
               />
             )}
           </div>
+          {selectedProvider?.vault_key && (
+            <div>
+              <label className={labelClass}>API Token (stored in vault)</label>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={apiToken}
+                  onChange={e => setApiToken(e.target.value)}
+                  className={inputClass}
+                  placeholder={`Enter ${selectedProvider.name} API key`}
+                />
+                <button
+                  onClick={async () => {
+                    if (!activeAgent || !selectedProvider?.vault_key || !apiToken.trim()) return;
+                    setApiTokenStatus(null);
+                    try {
+                      const res = await fetch(`${apiBase}/agents/${activeAgent}/vault`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ key: selectedProvider.vault_key, value: apiToken })
+                      });
+                      const data = await res.json();
+                      if (data.success) {
+                        setApiTokenStatus('Token saved.');
+                      } else {
+                        setApiTokenStatus(`Error: ${data.error}`);
+                      }
+                    } catch (err) { setApiTokenStatus(`Error: ${err}`); }
+                  }}
+                  disabled={!activeAgent || !apiToken.trim()}
+                  className="bg-[#1e304f] hover:bg-[#2a4a6f] disabled:opacity-50 text-white text-[10px] uppercase tracking-widest px-4 py-2 whitespace-nowrap"
+                >
+                  Save
+                </button>
+              </div>
+              {apiTokenStatus && (
+                <span className={`text-[10px] mt-1 block ${apiTokenStatus.includes('Error') ? 'text-red-400' : 'text-emerald-400'}`}>{apiTokenStatus}</span>
+              )}
+            </div>
+          )}
           <div className="flex items-center gap-3">
             <button
               onClick={async () => {
-                if (!activeAgent || !llmProvider || !llmModel) return;
+                const modelToSend = getModelToSend();
+                if (!activeAgent || !llmProvider || !modelToSend) return;
                 setLlmStatus(null);
                 try {
                   const res = await fetch(`${apiBase}/agents/${activeAgent}/llm`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ provider: llmProvider, model: llmModel })
+                    body: JSON.stringify({ provider: llmProvider, model: modelToSend })
                   });
                   const data = await res.json();
                   if (data.success) {
@@ -244,7 +320,7 @@ export function ConfigPanel({
                   }
                 } catch (err) { setLlmStatus(`Error: ${err}`); }
               }}
-              disabled={!llmProvider || !llmModel}
+              disabled={!llmProvider || !getModelToSend()}
               className={btnClass}
             >
               Save LLM Config
