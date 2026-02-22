@@ -110,3 +110,42 @@ Each agent lives in `~/.moxxy/agents/<name>/` with:
 - **Frontend dev proxy**: Vite proxies `/api` to `http://127.0.0.1:17890` during development
 - **Environment variables**: `MOXXY_API_BASE`, `MOXXY_INTERNAL_TOKEN`, `MOXXY_SOURCE_DIR`, `MOXXY_ARGS_MODE`
 - **Internal auth header**: `X-Moxxy-Internal-Token`
+- **Formatting**: Always run `cargo fmt` after any Rust code change before committing or building
+
+## Developer Documentation
+
+Detailed guides for extending the framework:
+
+- **`docs/architecture.md`** – Architecture deep-dive: boot sequence, ReAct loop, skill pipeline, registries, memory system, frontend patterns
+- **`docs/skills-authoring.md`** – Complete guide to creating built-in skills (manifest, run.sh, skill.md, compilation, testing)
+- **`docs/api-reference.md`** – All API endpoints with request/response shapes for skill scripts and handlers
+
+## Claude Code Commands
+
+Slash commands for agentic development (`.claude/commands/`):
+
+| Command | Description |
+|---------|-------------|
+| `/create-skill <name> - <description>` | Scaffold a new built-in skill (manifest.toml + run.sh + skill.md) |
+| `/create-interface <name> - <description>` | Scaffold a new messaging interface with LifecycleComponent |
+| `/create-handler <name> - <description>` | Add a new Axum web API handler module |
+| `/create-component <Name> - <description>` | Create a new React dashboard panel component |
+| `/build` | Build and verify both frontend and backend |
+| `/test-skill <name>` | Validate and test a built-in skill end-to-end |
+
+### Workflow Examples
+
+**Add a new skill:**
+```
+/create-skill email_send - Send emails via SMTP using vault credentials
+/test-skill email_send
+```
+
+**Add a new channel integration:**
+```
+/create-interface matrix - Matrix messenger integration
+/create-skill matrix_notify - Send a proactive message via Matrix
+/create-handler matrix_channel - Matrix channel configuration endpoints
+/create-component MatrixPanel - Matrix channel configuration UI
+/build
+```
