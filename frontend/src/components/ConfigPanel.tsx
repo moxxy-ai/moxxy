@@ -50,6 +50,7 @@ export function ConfigPanel({
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [llmProvider, setLlmProvider] = useState('');
   const [llmModel, setLlmModel] = useState('');
+  const [customModelId, setCustomModelId] = useState('');
   const [llmStatus, setLlmStatus] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
@@ -126,6 +127,25 @@ export function ConfigPanel({
 
   const selectedProvider = providers.find(p => p.id === llmProvider);
   const customProviders = providers.filter(p => p.custom);
+  const isCustomModel = llmModel === '__custom__';
+
+  useEffect(() => {
+    if (!activeAgent || !llmProvider || !apiBase) return;
+    const prov = providers.find(p => p.id === llmProvider);
+    if (!prov?.vault_key) {
+      setApiToken('');
+      return;
+    }
+    fetch(`${apiBase}/agents/${activeAgent}/vault/${prov.vault_key}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && d.value) setApiToken(d.value);
+        else setApiToken('');
+      })
+      .catch(() => setApiToken(''));
+  }, [activeAgent, llmProvider, apiBase, providers]);
+
+  const getModelToSend = () => isCustomModel ? customModelId : llmModel;
 
   const handleAddCustomProvider = async () => {
     setCustomStatus(null);
@@ -234,14 +254,26 @@ export function ConfigPanel({
           <div>
             <label className={labelClass}>Model</label>
             {selectedProvider && selectedProvider.models.length > 0 ? (
-              <select
-                value={llmModel}
-                onChange={e => setLlmModel(e.target.value)}
-                className={selectClass}
-              >
-                <option value="">Select Model</option>
-                {selectedProvider.models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
+              <>
+                <select
+                  value={llmModel}
+                  onChange={e => setLlmModel(e.target.value)}
+                  className={selectClass}
+                >
+                  <option value="">Select Model</option>
+                  {selectedProvider.models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  <option value="__custom__">Custom Model ID...</option>
+                </select>
+                {isCustomModel && (
+                  <input
+                    type="text"
+                    value={customModelId}
+                    onChange={e => setCustomModelId(e.target.value)}
+                    className={`${inputClass} mt-2`}
+                    placeholder="e.g. gpt-4o-2024-11-20, claude-3-opus"
+                  />
+                )}
+              </>
             ) : (
               <input
                 type="text"
@@ -271,13 +303,14 @@ export function ConfigPanel({
           <div className="flex items-center gap-3">
             <button
               onClick={async () => {
-                if (!activeAgent || !llmProvider || !llmModel) return;
+                const modelToSend = getModelToSend();
+                if (!activeAgent || !llmProvider || !modelToSend) return;
                 setLlmStatus(null);
                 try {
                   const res = await fetch(`${apiBase}/agents/${activeAgent}/llm`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ provider: llmProvider, model: llmModel })
+                    body: JSON.stringify({ provider: llmProvider, model: modelToSend })
                   });
                   const data = await res.json();
                   if (data.success) {
@@ -302,7 +335,7 @@ export function ConfigPanel({
                   }
                 } catch (err) { setLlmStatus(`Error: ${err}`); }
               }}
-              disabled={!llmProvider || !llmModel}
+              disabled={!llmProvider || !getModelToSend()}
               className={btnClass}
             >
               Save LLM Config
