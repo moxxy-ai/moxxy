@@ -61,27 +61,19 @@ pub async fn run_webhook_command(args: &[String]) -> Result<()> {
                                     style(&agent_name).bold()
                                 );
                                 for wh in &webhooks {
-                                    let name = wh
-                                        .get("name")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("?");
-                                    let source = wh
-                                        .get("source")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("?");
-                                    let active = wh
-                                        .get("active")
-                                        .and_then(|v| v.as_bool())
-                                        .unwrap_or(false);
+                                    let name =
+                                        wh.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+                                    let source =
+                                        wh.get("source").and_then(|v| v.as_str()).unwrap_or("?");
+                                    let active =
+                                        wh.get("active").and_then(|v| v.as_bool()).unwrap_or(false);
                                     let status = if active {
                                         style("ACTIVE").green().bold().to_string()
                                     } else {
                                         style("INACTIVE").dim().to_string()
                                     };
-                                    let secret = wh
-                                        .get("secret")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("");
+                                    let secret =
+                                        wh.get("secret").and_then(|v| v.as_str()).unwrap_or("");
                                     let signed = if !secret.is_empty() {
                                         format!(" {}", style("[SIGNED]").yellow())
                                     } else {
@@ -105,10 +97,7 @@ pub async fn run_webhook_command(args: &[String]) -> Result<()> {
                                         } else {
                                             prompt.to_string()
                                         };
-                                        println!(
-                                            "    Prompt: {}\n",
-                                            style(truncated).dim()
-                                        );
+                                        println!("    Prompt: {}\n", style(truncated).dim());
                                     }
                                 }
                             }
@@ -164,10 +153,14 @@ pub async fn run_webhook_command(args: &[String]) -> Result<()> {
             if name.is_empty() || source.is_empty() || prompt_template.is_empty() {
                 println!(
                     "{}",
-                    style("Usage: moxxy webhook add <name> <source> <prompt_template> [--secret <s>]")
-                        .bold()
+                    style(
+                        "Usage: moxxy webhook add <name> <source> <prompt_template> [--secret <s>]"
+                    )
+                    .bold()
                 );
-                println!("  Example: moxxy webhook add github-push github \"Process GitHub push events\"");
+                println!(
+                    "  Example: moxxy webhook add github-push github \"Process GitHub push events\""
+                );
                 return Ok(());
             }
 
@@ -183,9 +176,7 @@ pub async fn run_webhook_command(args: &[String]) -> Result<()> {
                     if let Ok(body) = resp.json::<serde_json::Value>().await {
                         if body.get("success").and_then(|v| v.as_bool()) == Some(true) {
                             print_success(&format!("Webhook '{}' registered.", name));
-                            if let Some(wh_url) =
-                                body.get("webhook_url").and_then(|v| v.as_str())
-                            {
+                            if let Some(wh_url) = body.get("webhook_url").and_then(|v| v.as_str()) {
                                 println!("  URL: {}", style(wh_url).cyan());
                             }
                         } else {
@@ -227,7 +218,9 @@ pub async fn run_webhook_command(args: &[String]) -> Result<()> {
 
             let url = format!(
                 "{}/api/agents/{}/webhooks/{}",
-                api_url, agent_name, urlencoding::encode(&name)
+                api_url,
+                agent_name,
+                urlencoding::encode(&name)
             );
             match client.delete(&url).send().await {
                 Ok(resp) => {
@@ -274,7 +267,9 @@ pub async fn run_webhook_command(args: &[String]) -> Result<()> {
 
             let url = format!(
                 "{}/api/agents/{}/webhooks/{}",
-                api_url, agent_name, urlencoding::encode(&name)
+                api_url,
+                agent_name,
+                urlencoding::encode(&name)
             );
             let payload = serde_json::json!({ "active": active });
             match client.patch(&url).json(&payload).send().await {

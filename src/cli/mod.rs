@@ -47,10 +47,7 @@ fn print_help() {
         style("▶").cyan()
     );
     println!("  {} agent     Manage agents", style("▶").cyan());
-    println!(
-        "  {} webhook   Manage webhook endpoints",
-        style("▶").cyan()
-    );
+    println!("  {} webhook   Manage webhook endpoints", style("▶").cyan());
     println!(
         "  {} logs      Follow real-time daemon logs",
         style("▶").cyan()

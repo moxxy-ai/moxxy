@@ -166,9 +166,7 @@ pub async fn update_webhook_endpoint(
     let mem = mem_arc.lock().await;
     match mem.update_webhook_active(&name, active).await {
         Ok(true) => Json(serde_json::json!({ "success": true, "message": "Webhook updated" })),
-        Ok(false) => {
-            Json(serde_json::json!({ "success": false, "error": "Webhook not found" }))
-        }
+        Ok(false) => Json(serde_json::json!({ "success": false, "error": "Webhook not found" })),
         Err(e) => Json(serde_json::json!({
             "success": false,
             "error": format!("Database error: {}", e)
@@ -370,10 +368,8 @@ fn verify_webhook_signature(headers: &HeaderMap, body: &str, secret: &str) -> bo
         .get("stripe-signature")
         .and_then(|v| v.to_str().ok())
     {
-        let parts: std::collections::HashMap<&str, &str> = sig
-            .split(',')
-            .filter_map(|p| p.split_once('='))
-            .collect();
+        let parts: std::collections::HashMap<&str, &str> =
+            sig.split(',').filter_map(|p| p.split_once('=')).collect();
         if let (Some(timestamp), Some(v1_sig)) = (parts.get("t"), parts.get("v1")) {
             let signed_payload = format!("{}.{}", timestamp, body);
             let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();

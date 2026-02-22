@@ -72,8 +72,7 @@ pub fn build_api_router(state: AppState) -> Router {
         )
         .route(
             "/api/agents/{agent}/webhooks",
-            get(webhooks::get_webhooks_endpoint)
-                .post(webhooks::create_webhook_endpoint),
+            get(webhooks::get_webhooks_endpoint).post(webhooks::create_webhook_endpoint),
         )
         .route(
             "/api/agents/{agent}/webhooks/{webhook_name}",
