@@ -5,6 +5,7 @@ mod doctor;
 mod migrate;
 mod onboarding;
 mod swarm;
+mod uninstall;
 mod update;
 mod webhooks;
 
@@ -56,6 +57,10 @@ fn print_help() {
     println!("  {} webhook   Manage webhook endpoints", style("▶").cyan());
     println!(
         "  {} update    Update moxxy to the latest version",
+        style("▶").cyan()
+    );
+    println!(
+        "  {} uninstall Remove moxxy binary and all data",
         style("▶").cyan()
     );
     println!(
@@ -396,6 +401,10 @@ pub async fn run_main() -> Result<()> {
             }
             "update" => {
                 update::run_update().await?;
+                return Ok(());
+            }
+            "uninstall" => {
+                uninstall::run_uninstall().await?;
                 return Ok(());
             }
             "doctor" => {
