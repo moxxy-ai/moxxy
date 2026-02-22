@@ -31,17 +31,22 @@ pub async fn run_uninstall() -> Result<()> {
         std::fs::remove_dir_all(&moxxy_dir).context("Failed to remove ~/.moxxy directory")?;
     }
 
-    let current_exe = std::env::current_exe().context("Cannot determine current binary path")?;
-    let current_exe = current_exe.canonicalize().unwrap_or(current_exe);
+    let binary_path = home.join(".local").join("bin").join("moxxy");
 
-    print_step(&format!("Removing binary: {}", current_exe.display()));
-
-    if let Err(e) = std::fs::remove_file(&current_exe) {
-        bail!(
-            "Failed to remove binary '{}': {}\nYou may need to run with sudo.",
-            current_exe.display(),
-            e
-        );
+    if binary_path.exists() {
+        print_step(&format!("Removing binary: {}", binary_path.display()));
+        if let Err(e) = std::fs::remove_file(&binary_path) {
+            bail!(
+                "Failed to remove binary '{}': {}\nYou may need to run with sudo.",
+                binary_path.display(),
+                e
+            );
+        }
+    } else {
+        print_warn(&format!(
+            "Binary not found at {} (already removed?)",
+            binary_path.display()
+        ));
     }
 
     println!();
