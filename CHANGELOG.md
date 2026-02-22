@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/moxxy-ai/moxxy/compare/v0.3.0...v0.4.0) (2026-02-22)
+
+
+### Features
+
+* skill redesign ([#10](https://github.com/moxxy-ai/moxxy/issues/10)) ([7bf1c97](https://github.com/moxxy-ai/moxxy/commit/7bf1c97bfeed55e57da60953ab152df8c9981f6b))
+
 ## [0.3.0](https://github.com/moxxy-ai/moxxy/compare/v0.2.1...v0.3.0) (2026-02-22)
 
 
