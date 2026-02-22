@@ -4,8 +4,31 @@ interface ProviderInfo {
   id: string;
   name: string;
   default_model: string;
+  custom?: boolean;
   models: { id: string; name: string }[];
 }
+
+interface CustomProviderForm {
+  id: string;
+  name: string;
+  api_format: string;
+  base_url: string;
+  auth_type: string;
+  vault_key: string;
+  default_model: string;
+  models_text: string;
+}
+
+const emptyForm: CustomProviderForm = {
+  id: '',
+  name: '',
+  api_format: 'openai',
+  base_url: '',
+  auth_type: 'bearer',
+  vault_key: '',
+  default_model: '',
+  models_text: '',
+};
 
 interface ConfigPanelProps {
   apiBase: string;
@@ -32,8 +55,11 @@ export function ConfigPanel({
   const [webUiPort, setWebUiPort] = useState<number>(3001);
   const [globalConfigStatus, setGlobalConfigStatus] = useState<string | null>(null);
 
-  // Fetch provider registry
-  useEffect(() => {
+  const [showCustomForm, setShowCustomForm] = useState(false);
+  const [customForm, setCustomForm] = useState<CustomProviderForm>(emptyForm);
+  const [customStatus, setCustomStatus] = useState<string | null>(null);
+
+  const fetchProviders = () => {
     if (!apiBase) return;
     fetch(`${apiBase}/providers`)
       .then(r => r.json())
@@ -41,6 +67,11 @@ export function ConfigPanel({
         if (data.success) setProviders(data.providers || []);
       })
       .catch(() => {});
+  };
+
+  // Fetch provider registry
+  useEffect(() => {
+    fetchProviders();
   }, [apiBase]);
 
   useEffect(() => {
@@ -67,6 +98,77 @@ export function ConfigPanel({
   }, [activeAgent, apiBase]);
 
   const selectedProvider = providers.find(p => p.id === llmProvider);
+  const customProviders = providers.filter(p => p.custom);
+
+  const handleAddCustomProvider = async () => {
+    setCustomStatus(null);
+    const models = customForm.models_text
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(line => {
+        const parts = line.split(':');
+        return parts.length >= 2
+          ? { id: parts[0].trim(), name: parts.slice(1).join(':').trim() }
+          : { id: line, name: line };
+      });
+
+    const authObj: Record<string, string> = { type: customForm.auth_type, vault_key: customForm.vault_key };
+    if (customForm.auth_type === 'header') {
+      authObj.header_name = 'x-api-key';
+    }
+
+    const payload = {
+      id: customForm.id,
+      name: customForm.name,
+      api_format: customForm.api_format,
+      base_url: customForm.base_url,
+      auth: authObj,
+      default_model: customForm.default_model || (models[0]?.id ?? ''),
+      models,
+      extra_headers: {},
+      custom: true,
+    };
+
+    try {
+      const res = await fetch(`${apiBase}/providers/custom`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCustomStatus('Provider added. Restart agents to use it.');
+        setCustomForm(emptyForm);
+        setShowCustomForm(false);
+        fetchProviders();
+      } else {
+        setCustomStatus(`Error: ${data.error}`);
+      }
+    } catch (err) {
+      setCustomStatus(`Error: ${err}`);
+    }
+  };
+
+  const handleDeleteCustomProvider = async (id: string) => {
+    try {
+      const res = await fetch(`${apiBase}/providers/custom/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        fetchProviders();
+        setCustomStatus('Provider removed.');
+      } else {
+        setCustomStatus(`Error: ${data.error}`);
+      }
+    } catch (err) {
+      setCustomStatus(`Error: ${err}`);
+    }
+  };
+
+  const inputClass = "w-full bg-[#090d14] border border-[#1e304f] focus:border-[#00aaff] outline-none text-white px-3 py-2 rounded-sm text-sm font-mono";
+  const selectClass = "w-full bg-[#090d14] border border-[#1e304f] text-white px-3 py-2 rounded-sm text-sm focus:border-[#00aaff] outline-none";
+  const labelClass = "block text-[10px] uppercase tracking-widest text-[#94a3b8] mb-1";
+  const btnClass = "bg-[#00aaff] hover:bg-[#33bfff] disabled:opacity-50 text-white text-[10px] uppercase tracking-widest px-6 py-1.5 font-bold shadow-[0_0_12px_rgba(0,170,255,0.3)] transition-all";
 
   return (
     <div className="flex flex-col gap-4 h-full p-4">
@@ -87,7 +189,7 @@ export function ConfigPanel({
         </div>
         <div className="space-y-4 max-w-lg">
           <div>
-            <label className="block text-xs uppercase tracking-widest text-[#94a3b8] mb-1">LLM Provider</label>
+            <label className={labelClass}>LLM Provider</label>
             <select
               value={llmProvider}
               onChange={e => {
@@ -96,19 +198,19 @@ export function ConfigPanel({
                 const prov = providers.find(p => p.id === newProvider);
                 if (prov) setLlmModel(prov.default_model);
               }}
-              className="w-full bg-[#090d14] border border-[#1e304f] text-white px-3 py-2 rounded-sm text-sm focus:border-[#00aaff] outline-none"
+              className={selectClass}
             >
               <option value="">Select Provider</option>
-              {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {providers.map(p => <option key={p.id} value={p.id}>{p.name}{p.custom ? ' (custom)' : ''}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-xs uppercase tracking-widest text-[#94a3b8] mb-1">Model</label>
+            <label className={labelClass}>Model</label>
             {selectedProvider && selectedProvider.models.length > 0 ? (
               <select
                 value={llmModel}
                 onChange={e => setLlmModel(e.target.value)}
-                className="w-full bg-[#090d14] border border-[#1e304f] text-white px-3 py-2 rounded-sm text-sm focus:border-[#00aaff] outline-none"
+                className={selectClass}
               >
                 <option value="">Select Model</option>
                 {selectedProvider.models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -118,7 +220,7 @@ export function ConfigPanel({
                 type="text"
                 value={llmModel}
                 onChange={e => setLlmModel(e.target.value)}
-                className="w-full bg-[#090d14] border border-[#1e304f] focus:border-[#00aaff] outline-none text-white px-3 py-2 rounded-sm text-sm font-mono"
+                className={inputClass}
                 placeholder="e.g. gpt-4o, gemini-2.0-flash"
               />
             )}
@@ -143,7 +245,7 @@ export function ConfigPanel({
                 } catch (err) { setLlmStatus(`Error: ${err}`); }
               }}
               disabled={!llmProvider || !llmModel}
-              className="bg-[#00aaff] hover:bg-[#33bfff] disabled:opacity-50 text-white text-[10px] uppercase tracking-widest px-6 py-1.5 font-bold shadow-[0_0_12px_rgba(0,170,255,0.3)] transition-all"
+              className={btnClass}
             >
               Save LLM Config
             </button>
@@ -151,6 +253,113 @@ export function ConfigPanel({
               <span className={`text-[10px] ${llmStatus.includes('Error') ? 'text-red-400' : 'text-emerald-400'}`}>{llmStatus}</span>
             )}
           </div>
+
+          {/* Custom Providers Section */}
+          <div className="border-t border-[#1e304f] pt-6 mt-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-[#00aaff] text-[10px] uppercase tracking-widest">Custom Providers</h3>
+              <button
+                onClick={() => setShowCustomForm(!showCustomForm)}
+                className="text-[#00aaff] hover:text-[#33bfff] text-[10px] uppercase tracking-widest border border-[#1e304f] px-3 py-1 transition-all"
+              >
+                {showCustomForm ? 'Cancel' : '+ Add Provider'}
+              </button>
+            </div>
+
+            {customStatus && (
+              <p className={`text-[10px] mb-3 ${customStatus.includes('Error') ? 'text-red-400' : 'text-emerald-400'}`}>{customStatus}</p>
+            )}
+
+            {/* Existing custom providers list */}
+            {customProviders.length > 0 && (
+              <div className="space-y-2 mb-4">
+                {customProviders.map(p => (
+                  <div key={p.id} className="flex items-center justify-between bg-[#090d14] border border-[#1e304f] px-3 py-2 rounded-sm">
+                    <div>
+                      <span className="text-white text-sm">{p.name}</span>
+                      <span className="text-[#64748b] text-[10px] ml-2">({p.id})</span>
+                      <span className="text-[#64748b] text-[10px] ml-2">{p.models.length} models</span>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteCustomProvider(p.id)}
+                      className="text-red-400 hover:text-red-300 text-[10px] uppercase tracking-widest"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {customProviders.length === 0 && !showCustomForm && (
+              <p className="text-[10px] text-[#64748b]">No custom providers configured. Add one to connect local LLMs (Ollama, LM Studio, vLLM) or other OpenAI-compatible APIs.</p>
+            )}
+
+            {/* Add custom provider form */}
+            {showCustomForm && (
+              <div className="space-y-3 bg-[#090d14] border border-[#1e304f] p-4 rounded-sm">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={labelClass}>Provider ID</label>
+                    <input type="text" value={customForm.id} onChange={e => setCustomForm({ ...customForm, id: e.target.value })} className={inputClass} placeholder="e.g. ollama, lmstudio" />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Display Name</label>
+                    <input type="text" value={customForm.name} onChange={e => setCustomForm({ ...customForm, name: e.target.value })} className={inputClass} placeholder="e.g. Ollama (Local)" />
+                  </div>
+                </div>
+                <div>
+                  <label className={labelClass}>Base URL</label>
+                  <input type="text" value={customForm.base_url} onChange={e => setCustomForm({ ...customForm, base_url: e.target.value })} className={inputClass} placeholder="e.g. http://localhost:11434/v1/chat/completions" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={labelClass}>API Format</label>
+                    <select value={customForm.api_format} onChange={e => setCustomForm({ ...customForm, api_format: e.target.value })} className={selectClass}>
+                      <option value="openai">OpenAI-compatible</option>
+                      <option value="gemini">Gemini</option>
+                      <option value="anthropic">Anthropic</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className={labelClass}>Auth Type</label>
+                    <select value={customForm.auth_type} onChange={e => setCustomForm({ ...customForm, auth_type: e.target.value })} className={selectClass}>
+                      <option value="bearer">Bearer Token</option>
+                      <option value="header">Custom Header</option>
+                      <option value="query_param">Query Parameter</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={labelClass}>Vault Key (for API key)</label>
+                    <input type="text" value={customForm.vault_key} onChange={e => setCustomForm({ ...customForm, vault_key: e.target.value })} className={inputClass} placeholder="e.g. ollama_api_key" />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Default Model</label>
+                    <input type="text" value={customForm.default_model} onChange={e => setCustomForm({ ...customForm, default_model: e.target.value })} className={inputClass} placeholder="e.g. llama3.3:70b" />
+                  </div>
+                </div>
+                <div>
+                  <label className={labelClass}>Models (one per line: id:display name)</label>
+                  <textarea
+                    value={customForm.models_text}
+                    onChange={e => setCustomForm({ ...customForm, models_text: e.target.value })}
+                    className={`${inputClass} h-20 resize-none`}
+                    placeholder={"llama3.3:70b:Llama 3.3 70B\nqwen3:32b:Qwen 3 32B\ndeepseek-r1:14b:DeepSeek R1 14B"}
+                  />
+                </div>
+                <button
+                  onClick={handleAddCustomProvider}
+                  disabled={!customForm.id || !customForm.name || !customForm.base_url || !customForm.vault_key}
+                  className={btnClass}
+                >
+                  Add Custom Provider
+                </button>
+              </div>
+            )}
+          </div>
+
           <div className="border-t border-[#1e304f] pt-6 mt-6">
             <h3 className="text-[#00aaff] text-[10px] uppercase tracking-widest mb-4">Global System Configuration</h3>
 
@@ -161,7 +370,7 @@ export function ConfigPanel({
                   type="text"
                   value={gatewayHost}
                   onChange={e => setGatewayHost(e.target.value)}
-                  className="w-full bg-[#090d14] border border-[#1e304f] focus:border-[#00aaff] outline-none text-white px-3 py-2 rounded-sm text-sm font-mono"
+                  className={inputClass}
                   placeholder="127.0.0.1"
                 />
               </div>
@@ -172,7 +381,7 @@ export function ConfigPanel({
                     type="number"
                     value={gatewayPort}
                     onChange={e => setGatewayPort(parseInt(e.target.value))}
-                    className="w-full bg-[#090d14] border border-[#1e304f] focus:border-[#00aaff] outline-none text-white px-3 py-2 rounded-sm text-sm font-mono"
+                    className={inputClass}
                   />
                 </div>
                 <div>
@@ -181,7 +390,7 @@ export function ConfigPanel({
                     type="number"
                     value={webUiPort}
                     onChange={e => setWebUiPort(parseInt(e.target.value))}
-                    className="w-full bg-[#090d14] border border-[#1e304f] focus:border-[#00aaff] outline-none text-white px-3 py-2 rounded-sm text-sm font-mono"
+                    className={inputClass}
                   />
                 </div>
               </div>
@@ -231,7 +440,7 @@ export function ConfigPanel({
                       }
                     } catch (err) { setGlobalConfigStatus(`Error: ${err}`); }
                   }}
-                  className="bg-[#00aaff] hover:bg-[#33bfff] text-white text-[10px] uppercase tracking-widest px-6 py-1.5 font-bold shadow-[0_0_12px_rgba(0,170,255,0.3)] transition-all"
+                  className={btnClass}
                 >
                   Save &amp; Restart Gateway
                 </button>

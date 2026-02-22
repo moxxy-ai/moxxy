@@ -103,6 +103,51 @@
         { "id": "glm-4-0520", "name": "GLM-4" },
         { "id": "glm-4v-plus", "name": "GLM-4V Plus" }
       ]
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "api_format": "openai",
+      "base_url": "https://openrouter.ai/api/v1/chat/completions",
+      "auth": { "type": "bearer", "vault_key": "openrouter_api_key" },
+      "default_model": "anthropic/claude-sonnet-4.6",
+      "models": [
+        { "id": "anthropic/claude-opus-4.6", "name": "Claude Opus 4.6" },
+        { "id": "anthropic/claude-sonnet-4.6", "name": "Claude Sonnet 4.6" },
+        { "id": "anthropic/claude-sonnet-4.5", "name": "Claude Sonnet 4.5" },
+        { "id": "anthropic/claude-haiku-4.5", "name": "Claude Haiku 4.5" },
+        { "id": "openai/gpt-5.2", "name": "GPT-5.2" },
+        { "id": "openai/gpt-5.2-codex", "name": "GPT-5.2 Codex" },
+        { "id": "openai/o3", "name": "OpenAI o3" },
+        { "id": "openai/o4-mini-high", "name": "OpenAI o4-mini High" },
+        { "id": "google/gemini-3.1-pro-preview", "name": "Gemini 3.1 Pro" },
+        { "id": "google/gemini-3-flash-preview", "name": "Gemini 3 Flash" },
+        { "id": "google/gemini-2.5-pro", "name": "Gemini 2.5 Pro" },
+        { "id": "google/gemini-2.5-flash", "name": "Gemini 2.5 Flash" },
+        { "id": "deepseek/deepseek-v3.2", "name": "DeepSeek V3.2" },
+        { "id": "deepseek/deepseek-r1-0528", "name": "DeepSeek R1" },
+        { "id": "meta-llama/llama-3.3-70b-instruct", "name": "Llama 3.3 70B" },
+        { "id": "mistralai/mistral-large-2512", "name": "Mistral Large" }
+      ]
+    },
+    {
+      "id": "vercel",
+      "name": "Vercel AI Gateway",
+      "api_format": "openai",
+      "base_url": "https://ai-gateway.vercel.sh/v1/chat/completions",
+      "auth": { "type": "bearer", "vault_key": "vercel_ai_gateway_api_key" },
+      "default_model": "anthropic/claude-sonnet-4.6",
+      "models": [
+        { "id": "anthropic/claude-opus-4.6", "name": "Claude Opus 4.6" },
+        { "id": "anthropic/claude-sonnet-4.6", "name": "Claude Sonnet 4.6" },
+        { "id": "anthropic/claude-haiku-4.5", "name": "Claude Haiku 4.5" },
+        { "id": "openai/gpt-5.2", "name": "GPT-5.2" },
+        { "id": "openai/o3", "name": "OpenAI o3" },
+        { "id": "google/gemini-2.5-pro", "name": "Gemini 2.5 Pro" },
+        { "id": "google/gemini-2.5-flash", "name": "Gemini 2.5 Flash" },
+        { "id": "deepseek/deepseek-v3.2", "name": "DeepSeek V3.2" },
+        { "id": "mistralai/mistral-large-2512", "name": "Mistral Large" }
+      ]
     }
   ]
 }

@@ -1,0 +1,7 @@
+name = "manage_providers"
+description = "Manage LLM providers: list all providers, add a custom provider (local or remote), remove a custom provider, or switch the active provider and model."
+version = "1.0.0"
+needs_network = true
+needs_fs_read = false
+needs_fs_write = false
+needs_env = true
