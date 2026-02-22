@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/moxxy-ai/moxxy/compare/v0.5.0...v0.6.0) (2026-02-22)
+
+
+### Features
+
+* openclaw migration wizard ([#17](https://github.com/moxxy-ai/moxxy/issues/17)) ([9e57e7f](https://github.com/moxxy-ai/moxxy/commit/9e57e7f43298685e8d40ebdb0436c5439e1e10d9))
+
+
+### Bug Fixes
+
+* missing provider token setup ([#16](https://github.com/moxxy-ai/moxxy/issues/16)) ([31b0413](https://github.com/moxxy-ai/moxxy/commit/31b041395718f0ded21fd640cea90727821dc045))
+
 ## [0.5.0](https://github.com/moxxy-ai/moxxy/compare/v0.4.0...v0.5.0) (2026-02-22)
 
 
