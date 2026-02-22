@@ -26,6 +26,14 @@ pub trait LlmProvider: Send + Sync {
     async fn fetch_models(&self) -> Result<Vec<ModelInfo>>;
 
     async fn generate(&self, model_id: &str, messages: &[ChatMessage]) -> Result<String>;
+
+    /// Update the API key at runtime (e.g. after vault change).
+    fn set_api_key(&mut self, _key: String) {}
+
+    /// Returns the vault key name for this provider's API key.
+    fn vault_key(&self) -> Option<&str> {
+        None
+    }
 }
 
 pub struct LlmManager {
@@ -59,6 +67,19 @@ impl LlmManager {
             .iter()
             .find(|p| p.provider_id() == id)
             .map(|p| p.as_ref())
+    }
+
+    /// Update the API key for any provider whose vault_key matches.
+    pub fn update_key_for_vault_entry(&mut self, vault_key: &str, new_api_key: &str) {
+        for provider in &mut self.providers {
+            if provider.vault_key().is_some_and(|k| k == vault_key) {
+                provider.set_api_key(new_api_key.to_string());
+                info!(
+                    "Hot-reloaded API key for provider: {}",
+                    provider.provider_id()
+                );
+            }
+        }
     }
 
     #[allow(dead_code)]

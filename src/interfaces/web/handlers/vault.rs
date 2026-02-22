@@ -38,7 +38,15 @@ pub async fn set_vault_secret(
         let mem = mem_mutex.lock().await;
         let vault = crate::core::vault::SecretsVault::new(mem.get_db());
         match vault.set_secret(&payload.key, &payload.value).await {
-            Ok(_) => Json(serde_json::json!({ "success": true, "message": "Secret updated" })),
+            Ok(_) => {
+                // Hot-reload API key on the LLM provider if this vault key matches one
+                let llm_reg = state.llm_registry.lock().await;
+                if let Some(llm_mutex) = llm_reg.get(&agent) {
+                    let mut llm = llm_mutex.lock().await;
+                    llm.update_key_for_vault_entry(&payload.key, &payload.value);
+                }
+                Json(serde_json::json!({ "success": true, "message": "Secret updated" }))
+            }
             Err(e) => Json(serde_json::json!({ "success": false, "error": e.to_string() })),
         }
     } else {
