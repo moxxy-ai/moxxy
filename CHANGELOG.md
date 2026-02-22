@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.0](https://github.com/moxxy-ai/moxxy/compare/v0.6.0...v0.7.0) (2026-02-22)
+
+
+### Features
+
+* add whatsapp channel ([#24](https://github.com/moxxy-ai/moxxy/issues/24)) ([2c04e47](https://github.com/moxxy-ai/moxxy/commit/2c04e47f800c6898f6a0b2c535fb4d32d97860a1))
+* agentic only development ([#19](https://github.com/moxxy-ai/moxxy/issues/19)) ([2547fd5](https://github.com/moxxy-ai/moxxy/commit/2547fd5e006df98ff680e5e03505894f1c6acf82))
+* discord integration ([#22](https://github.com/moxxy-ai/moxxy/issues/22)) ([41b1ec5](https://github.com/moxxy-ai/moxxy/commit/41b1ec5e90e9b6992704954fc92953a8c6b50e56))
+
+
+### Bug Fixes
+
+* agent workspace predefined cwd and directory ([#23](https://github.com/moxxy-ai/moxxy/issues/23)) ([3980397](https://github.com/moxxy-ai/moxxy/commit/39803979edd445aeb59a2ac152ad990d5a4cb56a))
+* terminal gateway restart ([#21](https://github.com/moxxy-ai/moxxy/issues/21)) ([34fd912](https://github.com/moxxy-ai/moxxy/commit/34fd91285680b1b1edb3922c3fae93887befd69d))
+
 ## [0.6.0](https://github.com/moxxy-ai/moxxy/compare/v0.5.0...v0.6.0) (2026-02-22)
 
 
