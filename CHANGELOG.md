@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.1](https://github.com/moxxy-ai/moxxy/compare/v0.8.0...v0.8.1) (2026-02-22)
+
+
+### Bug Fixes
+
+* install script ([#29](https://github.com/moxxy-ai/moxxy/issues/29)) ([6918af8](https://github.com/moxxy-ai/moxxy/commit/6918af8255d03a56dbe76213cd0e78798af120ed))
+* uninstall path ([850218b](https://github.com/moxxy-ai/moxxy/commit/850218b44eb883b4a82f302edf86d33294bffd49))
+
 ## [0.8.0](https://github.com/moxxy-ai/moxxy/compare/v0.7.0...v0.8.0) (2026-02-22)
 
 
