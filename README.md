@@ -142,7 +142,7 @@ Configure via the web dashboard (Config tab) or during `moxxy init`.
 |-------|-------------|
 | `host_shell` | Execute shell commands |
 | `host_python` | Run Python scripts |
-| `web_crawler` | Fetch and parse web pages |
+| `browser` | Interactive browser automation and web page fetching |
 | `git` | Git operations |
 | `telegram_notify` | Send Telegram notifications |
 | `scheduler` | Create cron-based heartbeats |

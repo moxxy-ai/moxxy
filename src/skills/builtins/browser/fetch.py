@@ -56,9 +56,9 @@ class HTMLToText(HTMLParser):
             self.result.append("\n```\n")
         if tag == "code" and not self.in_pre:
             self.result.append("`")
-        if tag == "strong" or tag == "b":
+        if tag in ("strong", "b"):
             self.result.append("**")
-        if tag == "em" or tag == "i":
+        if tag in ("em", "i"):
             self.result.append("*")
 
     def handle_endtag(self, tag):
@@ -82,9 +82,9 @@ class HTMLToText(HTMLParser):
             self.result.append("\n```\n")
         if tag == "code" and not self.in_pre:
             self.result.append("`")
-        if tag == "strong" or tag == "b":
+        if tag in ("strong", "b"):
             self.result.append("**")
-        if tag == "em" or tag == "i":
+        if tag in ("em", "i"):
             self.result.append("*")
 
     def handle_data(self, data):
@@ -131,7 +131,7 @@ def fetch_url(url):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: browse_network <URL>")
+        print("Usage: browser fetch <URL>")
         sys.exit(1)
 
     url = sys.argv[1]
@@ -146,7 +146,7 @@ def main():
 
         if not text.strip():
             print(f"Warning: No readable content extracted from {url}")
-            print("The page may require JavaScript to render content.")
+            print("The page may require JavaScript -- try: browser navigate {url}")
             sys.exit(0)
 
         print(f"--- CONTENT FROM {url} ---\n")
