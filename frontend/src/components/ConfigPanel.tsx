@@ -167,6 +167,10 @@ export function ConfigPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+      if (!res.ok) {
+        setCustomStatus(`Error: ${await res.text()}`);
+        return;
+      }
       const data = await res.json();
       if (data.success) {
         setCustomStatus('Provider added. Restart agents to use it.');
@@ -184,6 +188,10 @@ export function ConfigPanel({
   const handleDeleteCustomProvider = async (id: string) => {
     try {
       const res = await fetch(`${apiBase}/providers/custom/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        setCustomStatus(`Error: ${await res.text()}`);
+        return;
+      }
       const data = await res.json();
       if (data.success) {
         fetchProviders();
@@ -296,23 +304,40 @@ export function ConfigPanel({
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ provider: llmProvider, model: modelToSend })
                   });
+                  if (!res.ok) {
+                    const text = await res.text();
+                    setLlmStatus(`Error: ${text}`);
+                    return;
+                  }
                   const data = await res.json();
                   if (data.success) {
-                    if (apiKey && selectedProvider) {
+                    const vaultKey = selectedProvider?.vault_key
+                      || providers.find(p => p.id === llmProvider)?.vault_key
+                      || (llmProvider ? `${llmProvider}_api_key` : '');
+                    if (apiKey && vaultKey) {
                       const vaultRes = await fetch(`${apiBase}/agents/${activeAgent}/vault`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ key: selectedProvider.vault_key, value: apiKey })
+                        body: JSON.stringify({ key: vaultKey, value: apiKey })
                       });
+                      if (!vaultRes.ok) {
+                        const text = await vaultRes.text();
+                        setLlmStatus(`LLM saved, but API key failed: ${text}`);
+                        return;
+                      }
                       const vaultData = await vaultRes.json();
                       if (vaultData.success) {
                         setHasApiKey(true);
-                        setLlmStatus('LLM configuration and API key saved successfully.');
+                        setLlmStatus('Configuration saved. Restarting gateway...');
+                        try { await fetch(`${apiBase}/gateway/restart`, { method: 'POST' }); } catch { /* gateway dies before responding */ }
+                        setLlmStatus('Configuration saved. Gateway restarting...');
                       } else {
                         setLlmStatus(`LLM saved, but API key failed: ${vaultData.error}`);
                       }
                     } else {
-                      setLlmStatus('LLM configuration saved successfully.');
+                      setLlmStatus('Configuration saved. Restarting gateway...');
+                      try { await fetch(`${apiBase}/gateway/restart`, { method: 'POST' }); } catch { /* gateway dies before responding */ }
+                      setLlmStatus('Configuration saved. Gateway restarting...');
                     }
                   } else {
                     setLlmStatus(`Error: ${data.error}`);
@@ -487,6 +512,10 @@ export function ConfigPanel({
                           web_ui_port: webUiPort
                         })
                       });
+                      if (!res.ok) {
+                        setGlobalConfigStatus(`Error: ${await res.text()}`);
+                        return;
+                      }
                       const data = await res.json();
                       if (data.success) {
                         setGlobalConfigStatus('Config saved. Restarting gateway...');

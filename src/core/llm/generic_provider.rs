@@ -373,4 +373,12 @@ impl LlmProvider for GenericProvider {
             ApiFormat::Anthropic => self.generate_anthropic(model_id, messages).await,
         }
     }
+
+    fn set_api_key(&mut self, key: String) {
+        self.api_key = key;
+    }
+
+    fn vault_key(&self) -> Option<&str> {
+        Some(&self.provider_def.auth.vault_key)
+    }
 }
