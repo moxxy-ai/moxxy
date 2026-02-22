@@ -285,6 +285,80 @@ pub async fn send_telegram_message(
     }
 }
 
+#[derive(serde::Deserialize)]
+pub struct DiscordSendRequest {
+    message: String,
+}
+
+pub async fn send_discord_message(
+    Path(agent): Path<String>,
+    State(state): State<AppState>,
+    Form(payload): Form<DiscordSendRequest>,
+) -> Json<serde_json::Value> {
+    let message = payload.message.trim();
+    if message.is_empty() {
+        return Json(serde_json::json!({ "success": false, "error": "Message cannot be empty." }));
+    }
+
+    let mem_mutex = {
+        let reg = state.registry.lock().await;
+        match reg.get(&agent) {
+            Some(mem_mutex) => mem_mutex.clone(),
+            None => {
+                return Json(serde_json::json!({ "success": false, "error": "Agent not found" }));
+            }
+        }
+    };
+
+    let mem = mem_mutex.lock().await;
+    let vault = crate::core::vault::SecretsVault::new(mem.get_db());
+
+    let token = match vault.get_secret("discord_token").await {
+        Ok(Some(token)) if !token.trim().is_empty() => token,
+        _ => {
+            return Json(
+                serde_json::json!({ "success": false, "error": "Discord token is not configured for this agent." }),
+            );
+        }
+    };
+
+    let channel_id = match vault.get_secret("discord_channel_id").await {
+        Ok(Some(id)) if !id.trim().is_empty() => id,
+        _ => {
+            return Json(
+                serde_json::json!({ "success": false, "error": "Discord channel is not paired for this agent. Send a message in Discord first." }),
+            );
+        }
+    };
+    drop(mem);
+
+    let client = reqwest::Client::new();
+    let url = format!(
+        "https://discord.com/api/v10/channels/{}/messages",
+        channel_id.trim()
+    );
+
+    match client
+        .post(&url)
+        .header("Authorization", format!("Bot {}", token.trim()))
+        .json(&serde_json::json!({ "content": message }))
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            Json(serde_json::json!({ "success": true, "message": "Discord message sent." }))
+        }
+        Ok(resp) => {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            Json(
+                serde_json::json!({ "success": false, "error": format!("Discord API error ({}): {}", status, body) }),
+            )
+        }
+        Err(e) => Json(serde_json::json!({ "success": false, "error": e.to_string() })),
+    }
+}
+
 pub async fn disconnect_telegram(
     Path(agent): Path<String>,
     State(state): State<AppState>,

@@ -57,6 +57,10 @@ pub fn build_api_router(state: AppState) -> Router {
             post(channels::set_discord_token),
         )
         .route(
+            "/api/agents/{agent}/channels/discord/send",
+            post(channels::send_discord_message),
+        )
+        .route(
             "/api/agents/{agent}/channels/discord",
             axum::routing::delete(channels::disconnect_discord),
         )

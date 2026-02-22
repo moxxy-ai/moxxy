@@ -494,6 +494,7 @@ impl SkillManager {
         "browser",
         "example_skill",
         "telegram_notify",
+        "discord_notify",
         "git",
         "scheduler",
         "remove_schedule",
