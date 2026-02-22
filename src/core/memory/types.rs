@@ -28,3 +28,13 @@ pub struct McpServerRecord {
     pub args: String,
     pub env: String,
 }
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WebhookRecord {
+    pub name: String,
+    pub source: String,
+    pub secret: String,
+    pub prompt_template: String,
+    pub active: bool,
+    pub created_at: String,
+}

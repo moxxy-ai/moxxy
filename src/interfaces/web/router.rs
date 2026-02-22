@@ -71,6 +71,15 @@ pub fn build_api_router(state: AppState) -> Router {
             axum::routing::delete(schedules::delete_schedule_endpoint),
         )
         .route(
+            "/api/agents/{agent}/webhooks",
+            get(webhooks::get_webhooks_endpoint).post(webhooks::create_webhook_endpoint),
+        )
+        .route(
+            "/api/agents/{agent}/webhooks/{webhook_name}",
+            axum::routing::delete(webhooks::delete_webhook_endpoint)
+                .patch(webhooks::update_webhook_endpoint),
+        )
+        .route(
             "/api/agents/{agent}/memory/short",
             get(memory::get_short_term_memory),
         )

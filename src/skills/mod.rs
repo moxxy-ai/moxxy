@@ -498,6 +498,7 @@ impl SkillManager {
         "scheduler",
         "remove_schedule",
         "modify_schedule",
+        "webhook",
     ];
 
     pub async fn remove_skill(&mut self, skill_name: &str) -> Result<()> {

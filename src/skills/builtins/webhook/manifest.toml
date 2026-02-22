@@ -1,0 +1,5 @@
+name = "webhook"
+description = "Manage webhook endpoints — register, remove, enable, disable, update, or list webhooks for receiving events from external services."
+version = "v1.0.0"
+needs_network = true
+needs_env = true

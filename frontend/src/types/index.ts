@@ -41,4 +41,13 @@ export interface McpServer {
   env: string;
 }
 
-export type TabId = 'Overview' | 'Interface' | 'Memory' | 'Skills' | 'Channels' | 'Schedules' | 'MCPServers' | 'Vault' | 'Config';
+export interface Webhook {
+  name: string;
+  source: string;
+  secret: string;
+  prompt_template: string;
+  active: boolean;
+  created_at: string;
+}
+
+export type TabId = 'Overview' | 'Interface' | 'Memory' | 'Skills' | 'Channels' | 'Schedules' | 'Webhooks' | 'MCPServers' | 'Vault' | 'Config';
