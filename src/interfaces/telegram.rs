@@ -208,7 +208,7 @@ impl TelegramInterface {
 
                         let text = if text.trim() == "/skills" || text.trim() == "/skill" {
                             let _ = bot.send_message(msg.chat.id, "🔍 Checking available skills...").await;
-                            "list_skills".to_string()
+                            "skill list".to_string()
                         } else if text.trim() == "/new" {
                             {
                                 let mut mem = memory.lock().await;

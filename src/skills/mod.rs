@@ -22,7 +22,7 @@ pub struct SkillManifest {
     pub version: String,
 
     #[serde(default = "default_executor_type")]
-    pub executor_type: String, // "native", "wasm", "mcp"
+    pub executor_type: String, // "native", "wasm", "mcp", "openclaw"
     #[serde(default)]
     pub needs_network: bool,
     #[serde(default)]
@@ -38,6 +38,14 @@ pub struct SkillManifest {
 
     #[serde(default = "default_run_command")]
     pub run_command: String,
+
+    // Openclaw fields
+    #[serde(default)]
+    pub triggers: Vec<String>,
+    #[serde(default)]
+    pub homepage: Option<String>,
+    #[serde(default)]
+    pub doc_files: Vec<String>,
 
     // Internal path injected during load to know where the skill lives
     #[serde(skip)]
@@ -68,6 +76,7 @@ pub enum SkillExecution {
         client: Arc<McpClient>,
         tool_name: String,
     },
+    Openclaw,
 }
 
 impl SkillExecution {
@@ -94,8 +103,87 @@ impl SkillExecution {
                 let result = client.call_tool(tool_name, args_json).await?;
                 Ok(serde_json::to_string_pretty(&result)?)
             }
+            SkillExecution::Openclaw => {
+                let files = if manifest.doc_files.is_empty() {
+                    vec!["skill.md".to_string()]
+                } else {
+                    manifest.doc_files.clone()
+                };
+                let mut docs = String::new();
+                for filename in &files {
+                    let path = manifest.skill_dir.join(filename);
+                    if let Ok(content) = tokio::fs::read_to_string(&path).await {
+                        if !docs.is_empty() {
+                            docs.push_str("\n\n---\n\n");
+                        }
+                        docs.push_str(&content);
+                    }
+                }
+                if docs.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "Openclaw skill '{}' has no documentation files",
+                        manifest.name
+                    ));
+                }
+                // If the agent passed arguments, include them as context
+                let context = if !args.is_empty() && !args[0].is_empty() {
+                    format!("\n\nUser request context: {}\n", args.join(" "))
+                } else {
+                    String::new()
+                };
+                Ok(format!(
+                    "This is an openclaw (documentation-only) skill. \
+                     Use `host_shell` with curl to make the API calls described below.{}\n\n{}",
+                    context, docs
+                ))
+            }
         }
     }
+}
+
+// --- Openclaw parsing helpers ---
+
+#[derive(Debug, Deserialize)]
+struct OpenclawFrontmatter {
+    name: Option<String>,
+    version: Option<String>,
+    description: Option<String>,
+    homepage: Option<String>,
+    #[allow(dead_code)]
+    metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct OpenclawSkillJson {
+    name: Option<String>,
+    version: Option<String>,
+    description: Option<String>,
+    homepage: Option<String>,
+    moltbot: Option<OpenclawMoltbot>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenclawMoltbot {
+    triggers: Option<Vec<String>>,
+    files: Option<HashMap<String, String>>,
+    #[allow(dead_code)]
+    api_base: Option<String>,
+}
+
+fn parse_yaml_frontmatter(content: &str) -> Result<(OpenclawFrontmatter, String)> {
+    let trimmed = content.trim();
+    if !trimmed.starts_with("---") {
+        return Err(anyhow::anyhow!("No YAML frontmatter found"));
+    }
+    let after_first = &trimmed[3..];
+    let end_idx = after_first
+        .find("\n---")
+        .ok_or_else(|| anyhow::anyhow!("Unterminated YAML frontmatter"))?;
+    let yaml_str = &after_first[..end_idx];
+    let body = &after_first[end_idx + 4..];
+    let frontmatter: OpenclawFrontmatter = serde_yaml::from_str(yaml_str)?;
+    Ok((frontmatter, body.to_string()))
 }
 
 pub struct SkillManager {
@@ -146,6 +234,10 @@ impl SkillManager {
             return Err(anyhow::anyhow!("MCP client not found for skill: {}", name));
         }
 
+        if manifest.executor_type == "openclaw" {
+            return Ok((manifest, SkillExecution::Openclaw));
+        }
+
         Ok((manifest, SkillExecution::Native(Arc::clone(&self.sandbox))))
     }
 
@@ -166,11 +258,20 @@ impl SkillManager {
                 "### [{}] - {}\n",
                 manifest.name, manifest.description
             ));
+
+            if manifest.executor_type == "openclaw" && !manifest.triggers.is_empty() {
+                catalog.push_str(&format!("Triggers: {}\n", manifest.triggers.join(", ")));
+            }
+
             let skill_md_path = manifest.skill_dir.join("skill.md");
             if let Ok(docs) = std::fs::read_to_string(&skill_md_path) {
-                // Include a trimmed version of skill.md for context
-                let trimmed = if docs.len() > 500 {
-                    format!("{}...", &docs[..500])
+                let max_len = if manifest.executor_type == "openclaw" {
+                    2000
+                } else {
+                    500
+                };
+                let trimmed = if docs.len() > max_len {
+                    format!("{}...", &docs[..max_len])
                 } else {
                     docs
                 };
@@ -225,20 +326,12 @@ impl SkillManager {
             .ok_or_else(|| anyhow::anyhow!("Skill not found: {}", name))?;
 
         if manifest.executor_type == "mcp" {
-            // Reconstruct the MCP server name (for now assume it's stored in entrypoint or we can just parse it)
-            // Or better, the MCP client lookup: the skill name comes from mcp tools,
-            // but we need to know WHICH mcp client owns it.
-            // Let's iterate and find the client that has this tool.
-
-            // First parse args as a JSON string, which is how the Brain passes arguments to MCP tools.
             let args_json = if !args.is_empty() {
                 serde_json::from_str(&args[0]).unwrap_or_else(|_| serde_json::json!({}))
             } else {
                 serde_json::json!({})
             };
 
-            // Look up the tool in registered clients using the prefix logic
-            // Assuming skill_name = "server_name_tool_name"
             for (server, client) in &self.mcp_clients {
                 if name.starts_with(&format!("{}_", server)) {
                     let tool = name.trim_start_matches(&format!("{}_", server));
@@ -251,6 +344,11 @@ impl SkillManager {
                 "MCP client not found to execute tool: {}",
                 name
             ));
+        }
+
+        if manifest.executor_type == "openclaw" {
+            let execution = SkillExecution::Openclaw;
+            return execution.execute(manifest, args).await;
         }
 
         self.sandbox.execute(manifest, args).await
@@ -285,13 +383,110 @@ impl SkillManager {
         Ok(())
     }
 
+    pub async fn install_openclaw_skill(&mut self, url: &str) -> Result<()> {
+        let client = reqwest::Client::new();
+
+        // 1. Fetch the primary skill.md
+        let skill_md_content = client
+            .get(url)
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+
+        // 2. Parse YAML frontmatter
+        let (frontmatter, _body) = parse_yaml_frontmatter(&skill_md_content)?;
+
+        let name = frontmatter
+            .name
+            .ok_or_else(|| anyhow::anyhow!("skill.md has no 'name' in YAML frontmatter"))?;
+        let version = frontmatter.version.unwrap_or_else(|| "1.0.0".to_string());
+        let description = frontmatter
+            .description
+            .unwrap_or_else(|| format!("Openclaw skill: {}", name));
+        let homepage = frontmatter.homepage;
+
+        // 3. Try to fetch skill.json from the same base URL
+        let base_url = url.rsplit_once('/').map(|(base, _)| base).unwrap_or(url);
+        let skill_json_url = format!("{}/skill.json", base_url);
+        let skill_json: Option<OpenclawSkillJson> = match client.get(&skill_json_url).send().await {
+            Ok(resp) if resp.status().is_success() => resp.json().await.ok(),
+            _ => None,
+        };
+
+        // 4. Collect triggers and additional files
+        let mut triggers: Vec<String> = Vec::new();
+        let mut doc_files: Vec<String> = vec!["skill.md".to_string()];
+        let mut additional_docs: Vec<(String, String)> = Vec::new();
+
+        if let Some(ref sj) = skill_json {
+            if let Some(ref moltbot) = sj.moltbot {
+                triggers = moltbot.triggers.clone().unwrap_or_default();
+                if let Some(ref files) = moltbot.files {
+                    for (filename, file_url) in files {
+                        let normalized = filename.to_lowercase();
+                        if normalized == "skill.md" {
+                            continue;
+                        }
+                        if let Ok(resp) = client.get(file_url).send().await {
+                            if let Ok(content) = resp.text().await {
+                                additional_docs.push((normalized.clone(), content));
+                                doc_files.push(normalized);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. Check if skill already exists
+        let skill_dir = self.workspace_dir.join("skills").join(&name);
+        if skill_dir.exists() {
+            return Err(anyhow::anyhow!(
+                "Skill {} already exists. Remove it first to reinstall.",
+                name
+            ));
+        }
+
+        // 6. Build manifest
+        let manifest = SkillManifest {
+            name: name.clone(),
+            description,
+            version,
+            executor_type: "openclaw".to_string(),
+            needs_network: true,
+            needs_fs_read: false,
+            needs_fs_write: false,
+            needs_env: false,
+            entrypoint: "skill.md".to_string(),
+            run_command: String::new(),
+            triggers,
+            homepage,
+            doc_files,
+            skill_dir: skill_dir.clone(),
+        };
+
+        // 7. Write files to disk
+        tokio::fs::create_dir_all(&skill_dir).await?;
+
+        let manifest_toml = toml::to_string_pretty(&manifest)?;
+        tokio::fs::write(skill_dir.join("manifest.toml"), &manifest_toml).await?;
+        tokio::fs::write(skill_dir.join("skill.md"), &skill_md_content).await?;
+
+        for (filename, content) in &additional_docs {
+            tokio::fs::write(skill_dir.join(filename), content).await?;
+        }
+
+        // 8. Register
+        self.register_skill(manifest);
+        info!("Successfully installed openclaw skill: {}", name);
+        Ok(())
+    }
+
     /// Built-in skill names that cannot be removed.
     const PROTECTED_SKILLS: &'static [&'static str] = &[
-        "install_skill",
-        "upgrade_skill",
-        "remove_skill",
-        "modify_skill",
-        "list_skills",
+        "skill",
         "host_shell",
         "delegate_task",
         "evolve_core",
@@ -344,11 +539,21 @@ impl SkillManager {
             .ok_or_else(|| anyhow::anyhow!("Skill not found: {}", skill_name))?;
 
         let skill_dir = manifest.skill_dir.clone();
-        let allowed_files = ["manifest.toml", "skill.md", "run.sh"];
-        if !allowed_files.contains(&file_name) {
-            return Err(anyhow::anyhow!(
-                "Can only modify: manifest.toml, skill.md, or run.sh"
-            ));
+        let is_openclaw = manifest.executor_type == "openclaw";
+
+        if is_openclaw {
+            if file_name != "manifest.toml" && !file_name.ends_with(".md") {
+                return Err(anyhow::anyhow!(
+                    "Openclaw skills can only modify manifest.toml or .md files"
+                ));
+            }
+        } else {
+            let allowed_files = ["manifest.toml", "skill.md", "run.sh"];
+            if !allowed_files.contains(&file_name) {
+                return Err(anyhow::anyhow!(
+                    "Can only modify: manifest.toml, skill.md, or run.sh"
+                ));
+            }
         }
 
         let file_path = skill_dir.join(file_name);
