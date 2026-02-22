@@ -4,7 +4,7 @@ set -e
 DIR=$(dirname "$0")
 VENV_PATH="$DIR/venv"
 
-echo "Setting up virtual environment for web_crawler in $VENV_PATH..."
+echo "Setting up browser automation environment in $VENV_PATH..."
 
 if ! command -v python3 >/dev/null 2>&1; then
     echo "Error: python3 is not installed."
@@ -21,4 +21,4 @@ echo "Installing dependencies..."
 echo "Installing Playwright Chromium..."
 "$VENV_PATH/bin/playwright" install chromium || { echo "Error: Playwright browser install failed"; exit 1; }
 
-echo "Setup complete."
+echo "Browser setup complete."

@@ -1,0 +1,10 @@
+name = "browser"
+description = "Interactive browser automation -- navigate, click, type, screenshot, and read web pages. Supports both lightweight fetch (no browser) and full Chromium automation with accessibility snapshots."
+version = "v1.0.0"
+executor_type = "native"
+needs_network = true
+needs_fs_read = false
+needs_fs_write = false
+needs_env = false
+entrypoint = "run.sh"
+run_command = "sh"

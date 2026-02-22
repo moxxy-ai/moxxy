@@ -31,7 +31,7 @@ mcp remove <server_name>
 ### Setup from URL
 
 If the user provides a URL for MCP setup (e.g. `https://mcp.exa.ai/mcp`), you should:
-1. Use `web_crawler` to fetch the page content
+1. Use `browser` to fetch the page content (e.g. `browser "fetch" "<url>"`)
 2. Look for the MCP JSON configuration on the page (the `mcpServers` JSON block)
 3. Call `mcp add-json` with the extracted JSON config
 4. Ask the user for any required API keys or env values before adding

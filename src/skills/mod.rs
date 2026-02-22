@@ -491,7 +491,7 @@ impl SkillManager {
         "delegate_task",
         "evolve_core",
         "computer_control",
-        "web_crawler",
+        "browser",
         "example_skill",
         "telegram_notify",
         "git",

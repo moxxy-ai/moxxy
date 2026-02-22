@@ -1,6 +1,0 @@
-name = "web_crawler"
-description = "Crawls a given URL using a headless browser (Playwright) and returns the extracted Markdown text."
-version = "v1.0.0"
-needs_network = true
-run_command = "bash"
-entrypoint = "run.sh"
