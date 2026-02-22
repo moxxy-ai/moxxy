@@ -1,4 +1,4 @@
-import { Network, Terminal, Database, Cpu, Radio, CalendarClock, Key, Settings } from 'lucide-react';
+import { Network, Terminal, Database, Cpu, Radio, CalendarClock, Key, Settings, Globe } from 'lucide-react';
 import type { TabId } from '../types';
 
 interface SidebarProps {
@@ -13,6 +13,7 @@ const NAV_ITEMS: { id: TabId; icon: typeof Network; label: string }[] = [
   { id: 'Skills', icon: Cpu, label: 'Skills Vault' },
   { id: 'Channels', icon: Radio, label: 'Channels' },
   { id: 'Schedules', icon: CalendarClock, label: 'Schedules' },
+  { id: 'Webhooks', icon: Globe, label: 'Webhooks' },
   { id: 'MCPServers', icon: Network, label: 'MCP Servers' },
   { id: 'Vault', icon: Key, label: 'Vault (Secrets)' },
   { id: 'Config', icon: Settings, label: 'Configuration' },

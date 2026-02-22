@@ -12,6 +12,7 @@ import { MemoryViewer } from './components/MemoryViewer';
 import { SkillsManager } from './components/SkillsManager';
 import { ChannelsPanel } from './components/ChannelsPanel';
 import { SchedulesPanel } from './components/SchedulesPanel';
+import { WebhooksPanel } from './components/WebhooksPanel';
 import { McpServersPanel } from './components/McpServersPanel';
 import { VaultPanel } from './components/VaultPanel';
 import { ConfigPanel } from './components/ConfigPanel';
@@ -123,6 +124,17 @@ function App() {
             setActiveAgent={agentState.setActiveAgent}
             schedules={agentState.schedules}
             setSchedules={agentState.setSchedules}
+          />
+        );
+      case 'Webhooks':
+        return (
+          <WebhooksPanel
+            apiBase={apiBase}
+            agents={agentState.agents}
+            activeAgent={agentState.activeAgent}
+            setActiveAgent={agentState.setActiveAgent}
+            webhooks={agentState.webhooks}
+            setWebhooks={agentState.setWebhooks}
           />
         );
       case 'MCPServers':

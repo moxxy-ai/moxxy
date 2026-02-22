@@ -4,6 +4,7 @@ mod daemon;
 mod doctor;
 mod onboarding;
 mod swarm;
+mod webhooks;
 
 use anyhow::Result;
 use console::style;
@@ -46,6 +47,10 @@ fn print_help() {
         style("▶").cyan()
     );
     println!("  {} agent     Manage agents", style("▶").cyan());
+    println!(
+        "  {} webhook   Manage webhook endpoints",
+        style("▶").cyan()
+    );
     println!(
         "  {} logs      Follow real-time daemon logs",
         style("▶").cyan()
@@ -343,6 +348,10 @@ pub async fn run_main() -> Result<()> {
             }
             "agent" => {
                 agent_cmd::run_agent_command(&args).await?;
+                return Ok(());
+            }
+            "webhook" | "webhooks" => {
+                webhooks::run_webhook_command(&args).await?;
                 return Ok(());
             }
             "doctor" => {

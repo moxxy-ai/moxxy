@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { Skill, Schedule, Channel, McpServer } from '../types';
+import type { Skill, Schedule, Channel, McpServer, Webhook } from '../types';
 
 export function useAgents(apiBase: string) {
   const [agents, setAgents] = useState<string[]>([]);
@@ -9,6 +9,7 @@ export function useAgents(apiBase: string) {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+  const [webhooks, setWebhooks] = useState<Webhook[]>([]);
   const [vaultKeys, setVaultKeys] = useState<string[]>([]);
   const [sttEnabled, setSttEnabled] = useState(false);
 
@@ -57,6 +58,11 @@ export function useAgents(apiBase: string) {
       .then(data => { if (data.success) setSchedules(data.schedules || []); })
       .catch(() => setSchedules([]));
 
+    fetch(`${apiBase}/agents/${activeAgent}/webhooks`)
+      .then(res => res.json())
+      .then(data => { if (data.success) setWebhooks(data.webhooks || []); })
+      .catch(() => setWebhooks([]));
+
     fetch(`${apiBase}/agents/${activeAgent}/mcp`)
       .then(res => res.json())
       .then(data => { if (data.success) setMcpServers(data.mcp_servers || []); })
@@ -75,6 +81,7 @@ export function useAgents(apiBase: string) {
     skills, setSkills,
     schedules, setSchedules,
     channels, setChannels,
+    webhooks, setWebhooks,
     mcpServers, setMcpServers,
     vaultKeys, setVaultKeys,
     sttEnabled, setSttEnabled,

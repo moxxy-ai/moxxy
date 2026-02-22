@@ -4,6 +4,7 @@ mod schedule;
 mod stm;
 mod swarm;
 pub mod types;
+mod webhook;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -80,6 +81,18 @@ impl MemorySystem {
                 command TEXT NOT NULL,
                 args TEXT NOT NULL,
                 env TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS webhooks (
+                name TEXT PRIMARY KEY,
+                source TEXT NOT NULL UNIQUE,
+                secret TEXT NOT NULL DEFAULT '',
+                prompt_template TEXT NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )",
             [],
