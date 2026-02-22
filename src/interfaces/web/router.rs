@@ -118,6 +118,14 @@ pub fn build_api_router(state: AppState) -> Router {
         .route("/api/memory/swarm", get(memory::get_swarm_memory))
         .route("/api/providers", get(config::get_providers_endpoint))
         .route(
+            "/api/providers/custom",
+            get(config::get_custom_providers_endpoint).post(config::add_custom_provider_endpoint),
+        )
+        .route(
+            "/api/providers/custom/{provider_id}",
+            axum::routing::delete(config::delete_custom_provider_endpoint),
+        )
+        .route(
             "/api/config/global",
             get(config::get_global_config_endpoint).post(config::set_global_config_endpoint),
         )
