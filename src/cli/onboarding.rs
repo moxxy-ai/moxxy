@@ -1,5 +1,3 @@
-use std::io::IsTerminal;
-
 use anyhow::Result;
 use console::style;
 
@@ -9,16 +7,6 @@ use crate::core::terminal::{self, print_error, print_info, print_step, print_suc
 
 pub async fn run_onboarding() -> Result<()> {
     terminal::print_banner();
-
-    if !std::io::stdin().is_terminal() {
-        println!(
-            "  {}\n",
-            style("Onboarding requires an interactive terminal.").bold()
-        );
-        println!("  If you installed via a pipe (curl ... | sh), run onboarding separately:\n");
-        println!("    {} moxxy init\n", style("▶").cyan());
-        return Ok(());
-    }
 
     // Ensure directories and vault exist (in case `moxxy install` wasn't run first)
     let home = dirs::home_dir().expect("Could not find home directory");
