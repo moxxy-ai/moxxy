@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.0](https://github.com/moxxy-ai/moxxy/compare/v0.7.0...v0.8.0) (2026-02-22)
+
+
+### Features
+
+* add more agentic improvements [claude] ([#27](https://github.com/moxxy-ai/moxxy/issues/27)) ([c07a044](https://github.com/moxxy-ai/moxxy/commit/c07a04482638d33b3baf5956e72df5d37881c16d))
+* update mechanism ([#25](https://github.com/moxxy-ai/moxxy/issues/25)) ([2581c23](https://github.com/moxxy-ai/moxxy/commit/2581c234ee20092801526c1ee7e8f9bf5b756078))
+
 ## [0.7.0](https://github.com/moxxy-ai/moxxy/compare/v0.6.0...v0.7.0) (2026-02-22)
 
 
