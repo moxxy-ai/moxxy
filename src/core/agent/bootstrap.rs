@@ -32,6 +32,9 @@ pub(super) async fn init_core_subsystems(
     Option<Arc<AgentContainer>>,
     Arc<SecretsVault>,
 )> {
+    // Ensure workspace directory exists (for agent file operations)
+    tokio::fs::create_dir_all(workspace_dir.join("workspace")).await?;
+
     // Memory & Vault
     let memory_sys = MemorySystem::new(workspace_dir).await?;
     let mem_db_conn = memory_sys.get_db();
@@ -61,6 +64,7 @@ pub(super) async fn init_core_subsystems(
     let skill_executor = Box::new(NativeExecutor::new(
         vault.clone(),
         name.to_string(),
+        workspace_dir.to_path_buf(),
         api_host.to_string(),
         api_port,
         internal_token.to_string(),

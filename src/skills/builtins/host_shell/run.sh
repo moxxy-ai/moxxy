@@ -16,9 +16,17 @@ if [ -z "$CMD" ]; then
     exit 1
 fi
 
-# Pipe through jq to curl to avoid shell argument size limits
-printf '%s' "$CMD" | jq -Rs '{command: .}' | \
-    curl -s -X POST -H "Content-Type: application/json" \
-    -H "X-Moxxy-Internal-Token: $MOXXY_INTERNAL_TOKEN" \
-    -d @- \
-    ${MOXXY_API_BASE:-http://127.0.0.1:17890/api}/host/execute_bash
+# Build JSON payload with command and optional cwd (agent workspace)
+if [ -n "$AGENT_WORKSPACE" ]; then
+    printf '%s\n%s' "$CMD" "$AGENT_WORKSPACE" | jq -Rs 'split("\n") | {command: .[0], cwd: .[1]}' | \
+        curl -s -X POST -H "Content-Type: application/json" \
+        -H "X-Moxxy-Internal-Token: $MOXXY_INTERNAL_TOKEN" \
+        -d @- \
+        ${MOXXY_API_BASE:-http://127.0.0.1:17890/api}/host/execute_bash
+else
+    printf '%s' "$CMD" | jq -Rs '{command: .}' | \
+        curl -s -X POST -H "Content-Type: application/json" \
+        -H "X-Moxxy-Internal-Token: $MOXXY_INTERNAL_TOKEN" \
+        -d @- \
+        ${MOXXY_API_BASE:-http://127.0.0.1:17890/api}/host/execute_bash
+fi

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::process::Command;
 use tracing::info;
@@ -14,6 +15,7 @@ use crate::skills::{SkillManifest, SkillSandbox};
 pub struct NativeExecutor {
     vault: Arc<SecretsVault>,
     agent_name: String,
+    agent_dir: PathBuf,
     api_host: String,
     api_port: u16,
     internal_token: String,
@@ -23,6 +25,7 @@ impl NativeExecutor {
     pub fn new(
         vault: Arc<SecretsVault>,
         agent_name: String,
+        agent_dir: PathBuf,
         api_host: String,
         api_port: u16,
         internal_token: String,
@@ -30,6 +33,7 @@ impl NativeExecutor {
         Self {
             vault,
             agent_name,
+            agent_dir,
             api_host,
             api_port,
             internal_token,
@@ -69,6 +73,8 @@ impl SkillSandbox for NativeExecutor {
 
         // Inject environment
         cmd.env("AGENT_NAME", &self.agent_name);
+        cmd.env("AGENT_HOME", &self.agent_dir);
+        cmd.env("AGENT_WORKSPACE", self.agent_dir.join("workspace"));
         cmd.env(
             "MOXXY_API_BASE",
             format!("http://{}:{}/api", self.api_host, self.api_port),

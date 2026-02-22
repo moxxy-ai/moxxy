@@ -32,13 +32,21 @@ impl ImageProfile {
     pub fn default_capabilities(profile: &str) -> CapabilityConfig {
         match profile {
             "base" => CapabilityConfig {
-                filesystem: vec!["./skills".to_string(), "./memory".to_string()],
+                filesystem: vec![
+                    "./skills".to_string(),
+                    "./memory".to_string(),
+                    "./workspace".to_string(),
+                ],
                 network: false,
                 max_memory_mb: 128,
                 env_inherit: false,
             },
             "networked" => CapabilityConfig {
-                filesystem: vec!["./skills".to_string(), "./memory".to_string()],
+                filesystem: vec![
+                    "./skills".to_string(),
+                    "./memory".to_string(),
+                    "./workspace".to_string(),
+                ],
                 network: true,
                 max_memory_mb: 256,
                 env_inherit: false,

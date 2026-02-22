@@ -37,7 +37,10 @@ pub async fn create_agent_endpoint(
         return Json(serde_json::json!({ "success": false, "error": "Agent already exists" }));
     }
 
-    if let Err(e) = tokio::fs::create_dir_all(agent_workspace.join("skills")).await {
+    if let Err(e) = tokio::fs::create_dir_all(agent_workspace.join("skills"))
+        .await
+        .and(tokio::fs::create_dir_all(agent_workspace.join("workspace")).await)
+    {
         return Json(
             serde_json::json!({ "success": false, "error": format!("Failed creating dirs: {}", e) }),
         );
