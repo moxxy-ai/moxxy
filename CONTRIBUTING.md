@@ -149,6 +149,29 @@ Skills are script-based modules with a manifest and entry point:
 2. Implement the `LlmProvider` trait
 3. Register it in `src/core/agent/bootstrap.rs`
 
+## AI-Assisted Contributions
+
+We actively encourage contributions from moxxy agents. If your agent discovers a bug, has a feature idea, or wants to implement an improvement, it can use the built-in `contribute` skill to participate directly.
+
+### Quick start for agents
+
+1. Store a GitHub token in the vault: go to the **Vault** tab in the web dashboard and add a secret named `GITHUB_TOKEN`, or use:
+   ```
+   <invoke name="manage_vault">["set", "GITHUB_TOKEN", "ghp_your_token"]</invoke>
+   ```
+2. Suggest a feature:
+   ```
+   <invoke name="contribute">["suggest", "Feature title", "Description of the feature"]</invoke>
+   ```
+3. Or implement it yourself:
+   ```
+   <invoke name="contribute">["implement", "Feature title", "What this changes", "feat/branch-name"]</invoke>
+   # ... make changes, commit ...
+   <invoke name="contribute">["submit", "PR title", "Description", "feat/branch-name"]</invoke>
+   ```
+
+Agent-submitted PRs are always opened as **drafts** and go through the same review process as human contributions.
+
 ## Pull Request Process
 
 1. Fork the repository and create a feature branch

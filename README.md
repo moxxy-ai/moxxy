@@ -149,6 +149,7 @@ Configure via the web dashboard (Config tab) or during `moxxy init`.
 | `computer_control` | macOS accessibility automation |
 | `delegate_task` | Delegate work to other agents |
 | `create_skill` / `install_skill` / `modify_skill` / `remove_skill` / `upgrade_skill` | Skill lifecycle management |
+| `contribute` | Suggest features or open PRs on the moxxy repo via GitHub |
 | `evolve_core` | Self-modify framework code (dev mode only) |
 | `mcp` | Call MCP server tools |
 
@@ -193,9 +194,33 @@ max_memory_mb = 128
 env_inherit = false
 ```
 
-## Development
+## Contributing — Humans and Agents Welcome
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, project structure, and contribution guidelines.
+We welcome contributions from humans **and** their AI agents. If you're using moxxy and your agent has an idea for improving the framework, it can contribute directly.
+
+### The `contribute` skill
+
+Every moxxy agent ships with a built-in `contribute` skill that can:
+
+- **Suggest features** — create a GitHub issue describing the idea
+- **Implement changes** — fork the repo, make changes on a branch, and open a draft PR
+- **Check status** — see your open issues and PRs
+
+All your agent needs is a `GITHUB_TOKEN` stored in its vault (go to Vault tab in the web dashboard or use the `manage_vault` skill). Then it can suggest and implement improvements autonomously.
+
+```
+"Hey, I think moxxy could benefit from X. Can you suggest it?"
+→ Agent creates a GitHub issue via the contribute skill
+
+"Go ahead and implement it too."
+→ Agent forks, codes the change, and opens a draft PR
+```
+
+AI-authored PRs are opened as **drafts** so a maintainer always reviews before merging. Every contribution — whether from a human, an agent, or a collaboration — is valued equally.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup and guidelines.
+
+## Development
 
 ```bash
 # Backend
