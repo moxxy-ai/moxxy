@@ -16,6 +16,9 @@ impl CliInterface {
                 );
                 self.push_cmd_output("  /models           Show current LLM config".to_string());
                 self.push_cmd_output(
+                    "  /setmodel <provider> <model>  Set LLM provider and model".to_string(),
+                );
+                self.push_cmd_output(
                     "  /providers        List available LLM providers".to_string(),
                 );
                 self.push_cmd_output(
@@ -48,7 +51,7 @@ impl CliInterface {
                                 if let Ok(json) = res.json::<Value>().await {
                                     if json.get("success").and_then(|v| v.as_bool()) == Some(true) {
                                         self.push_cmd_output(format!(
-                                            "Secret '{}' updated successfully.",
+                                            "Secret '{}' updated successfully (changes applied immediately).",
                                             key
                                         ));
                                     } else {
@@ -171,6 +174,46 @@ impl CliInterface {
                     self.push_cmd_output("API unreachable.".to_string());
                 }
             }
+            "/setmodel" => {
+                // Usage: /setmodel <provider> <model>
+                if let Some(rest) = parts.get(1).or(parts.get(2)) {
+                    let sub_parts: Vec<&str> = rest.splitn(2, ' ').collect();
+                    if sub_parts.len() == 2 {
+                        let provider = sub_parts[0];
+                        let model = sub_parts[1];
+                        let url = format!("{}/agents/{}/llm", self.api_base, self.active_agent);
+                        let payload = serde_json::json!({ "provider": provider, "model": model });
+                        self.cmd_output_lines.clear();
+                        if let Ok(res) = self.client.post(&url).json(&payload).send().await {
+                            if let Ok(json) = res.json::<Value>().await {
+                                if json.get("success").and_then(|v| v.as_bool()) == Some(true) {
+                                    self.push_cmd_output(format!(
+                                        "LLM set to {} / {}. Restarting gateway...",
+                                        provider, model
+                                    ));
+                                    let restart_url = format!("{}/gateway/restart", self.api_base);
+                                    let _ = self.client.post(&restart_url).send().await;
+                                    self.push_cmd_output("Gateway restart triggered.".to_string());
+                                } else {
+                                    let err = json
+                                        .get("error")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("Unknown error");
+                                    self.push_cmd_output(format!("Error: {}", err));
+                                }
+                            }
+                        } else {
+                            self.push_cmd_output("API unreachable.".to_string());
+                        }
+                    } else {
+                        self.push_cmd_output("Usage: /setmodel <provider> <model>".to_string());
+                        self.push_cmd_output("Example: /setmodel openai gpt-5-mini".to_string());
+                    }
+                } else {
+                    self.push_cmd_output("Usage: /setmodel <provider> <model>".to_string());
+                    self.push_cmd_output("Example: /setmodel openai gpt-5-mini".to_string());
+                }
+            }
             "/clear" => {
                 self.messages.clear();
                 self.scroll_offset = 0;
@@ -243,7 +286,7 @@ impl CliInterface {
                             if let Ok(json) = res.json::<Value>().await {
                                 if json.get("success").and_then(|v| v.as_bool()) == Some(true) {
                                     self.push_cmd_output(format!(
-                                        "API token for '{}' saved to vault key '{}'.",
+                                        "API token for '{}' saved and hot-reloaded (vault key '{}').",
                                         provider, vk
                                     ));
                                 } else {
