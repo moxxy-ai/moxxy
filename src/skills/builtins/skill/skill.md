@@ -20,7 +20,7 @@ From a moxxy skill URL:
 
 From an openclaw-compatible URL:
 ```
-<invoke name="skill">["install", "https://moltbook.com/skill.md"]</invoke>
+<invoke name="skill">["install", "https://example.com/skill.md"]</invoke>
 ```
 
 Inline (manifest, run.sh, skill.md):
