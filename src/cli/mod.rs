@@ -2,6 +2,7 @@ mod agent_cmd;
 mod channels;
 mod daemon;
 mod doctor;
+mod migrate;
 mod onboarding;
 mod swarm;
 mod webhooks;
@@ -32,6 +33,10 @@ fn print_help() {
     );
     println!(
         "  {} init      Run the Onboarding Wizard (or 'onboard')",
+        style("▶").cyan()
+    );
+    println!(
+        "  {} migrate   Migrate from OpenClaw to Moxxy",
         style("▶").cyan()
     );
     println!(
@@ -292,6 +297,10 @@ pub async fn run_main() -> Result<()> {
             }
             "init" | "onboard" => {
                 onboarding::run_onboarding().await?;
+                return Ok(());
+            }
+            "migrate" => {
+                migrate::run_migration_wizard().await?;
                 return Ok(());
             }
             "channel" => {

@@ -1,0 +1,9 @@
+name = "openclaw_migrate"
+description = "Migrate OpenClaw agents, personas, and skills to Moxxy. Use when user wants to import their OpenClaw configuration."
+version = "1.0.0"
+needs_network = false
+needs_fs_read = true
+needs_fs_write = true
+needs_env = false
+run_command = "sh"
+entrypoint = "run.sh"

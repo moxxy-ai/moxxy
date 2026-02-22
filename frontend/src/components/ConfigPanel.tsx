@@ -5,6 +5,8 @@ interface ProviderInfo {
   name: string;
   default_model: string;
   custom?: boolean;
+  vault_key: string;
+  base_url: string;
   models: { id: string; name: string }[];
 }
 
@@ -49,6 +51,8 @@ export function ConfigPanel({
   const [llmProvider, setLlmProvider] = useState('');
   const [llmModel, setLlmModel] = useState('');
   const [llmStatus, setLlmStatus] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState('');
+  const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
 
   const [gatewayHost, setGatewayHost] = useState('');
   const [gatewayPort, setGatewayPort] = useState<number>(17890);
@@ -96,6 +100,29 @@ export function ConfigPanel({
       .then(d => { if (d.success) { setLlmProvider(d.provider || ''); setLlmModel(d.model || ''); } })
       .catch(() => { /* ignore */ });
   }, [activeAgent, apiBase]);
+
+  // Fetch API key status when provider changes
+  useEffect(() => {
+    if (!activeAgent || !apiBase || !llmProvider) {
+      setHasApiKey(null);
+      setApiKey('');
+      return;
+    }
+    const selectedProv = providers.find(p => p.id === llmProvider);
+    if (!selectedProv) return;
+    fetch(`${apiBase}/agents/${activeAgent}/vault/${selectedProv.vault_key}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          setHasApiKey(true);
+          setApiKey(d.value);
+        } else {
+          setHasApiKey(false);
+          setApiKey('');
+        }
+      })
+      .catch(() => { setHasApiKey(false); setApiKey(''); });
+  }, [activeAgent, apiBase, llmProvider, providers]);
 
   const selectedProvider = providers.find(p => p.id === llmProvider);
   const customProviders = providers.filter(p => p.custom);
@@ -225,6 +252,22 @@ export function ConfigPanel({
               />
             )}
           </div>
+          {selectedProvider && (
+            <div>
+              <label className={labelClass}>
+                {selectedProvider.name} API Key
+                {hasApiKey === false && <span className="text-amber-400 ml-2">(not set)</span>}
+                {hasApiKey === true && <span className="text-emerald-400 ml-2">(configured)</span>}
+              </label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={e => { setApiKey(e.target.value); setHasApiKey(null); }}
+                className={inputClass}
+                placeholder={hasApiKey ? '••••••••••••' : `Enter your ${selectedProvider.name} API key`}
+              />
+            </div>
+          )}
           <div className="flex items-center gap-3">
             <button
               onClick={async () => {
@@ -238,7 +281,22 @@ export function ConfigPanel({
                   });
                   const data = await res.json();
                   if (data.success) {
-                    setLlmStatus('LLM configuration saved successfully.');
+                    if (apiKey && selectedProvider) {
+                      const vaultRes = await fetch(`${apiBase}/agents/${activeAgent}/vault`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ key: selectedProvider.vault_key, value: apiKey })
+                      });
+                      const vaultData = await vaultRes.json();
+                      if (vaultData.success) {
+                        setHasApiKey(true);
+                        setLlmStatus('LLM configuration and API key saved successfully.');
+                      } else {
+                        setLlmStatus(`LLM saved, but API key failed: ${vaultData.error}`);
+                      }
+                    } else {
+                      setLlmStatus('LLM configuration saved successfully.');
+                    }
                   } else {
                     setLlmStatus(`Error: ${data.error}`);
                   }
@@ -275,14 +333,17 @@ export function ConfigPanel({
               <div className="space-y-2 mb-4">
                 {customProviders.map(p => (
                   <div key={p.id} className="flex items-center justify-between bg-[#090d14] border border-[#1e304f] px-3 py-2 rounded-sm">
-                    <div>
-                      <span className="text-white text-sm">{p.name}</span>
-                      <span className="text-[#64748b] text-[10px] ml-2">({p.id})</span>
-                      <span className="text-[#64748b] text-[10px] ml-2">{p.models.length} models</span>
+                    <div className="flex-1 min-w-0">
+                      <div>
+                        <span className="text-white text-sm">{p.name}</span>
+                        <span className="text-[#64748b] text-[10px] ml-2">({p.id})</span>
+                        <span className="text-[#64748b] text-[10px] ml-2">{p.models.length} models</span>
+                      </div>
+                      <div className="text-[#64748b] text-[10px] truncate">{p.base_url}</div>
                     </div>
                     <button
                       onClick={() => handleDeleteCustomProvider(p.id)}
-                      className="text-red-400 hover:text-red-300 text-[10px] uppercase tracking-widest"
+                      className="text-red-400 hover:text-red-300 text-[10px] uppercase tracking-widest ml-2"
                     >
                       Remove
                     </button>

@@ -12,6 +12,27 @@ pub async fn run_onboarding() -> Result<()> {
         style("Welcome to the Onboarding Wizard. Let's set up your first autonomous agent.").bold()
     );
 
+    if let Some(openclaw_path) = super::migrate::check_openclaw_installation() {
+        if super::migrate::has_migratable_content(&openclaw_path) {
+            println!(
+                "  {} {}",
+                style("ℹ").blue(),
+                style("Detected OpenClaw installation with migratable content.").dim()
+            );
+
+            let migrate_now = inquire::Confirm::new("Would you like to migrate from OpenClaw?")
+                .with_default(true)
+                .with_help_message("Import your SOUL.md, AGENTS.md, skills, and memory")
+                .prompt()?;
+
+            if migrate_now {
+                super::migrate::run_migration_wizard().await?;
+                return Ok(());
+            }
+            println!();
+        }
+    }
+
     // Pre-step: Check and install required dependencies
     let deps_ok = super::doctor::ensure_dependencies().await?;
     if !deps_ok {
