@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/moxxy-ai/moxxy/compare/v0.4.0...v0.5.0) (2026-02-22)
+
+
+### Features
+
+* browser skill unification and revamp ([#13](https://github.com/moxxy-ai/moxxy/issues/13)) ([7a0d197](https://github.com/moxxy-ai/moxxy/commit/7a0d197b122514d2d06a5ba88e365ae95c7c4692))
+* webhooks triggering agents ([#15](https://github.com/moxxy-ai/moxxy/issues/15)) ([36f54f8](https://github.com/moxxy-ai/moxxy/commit/36f54f81517af43731a8d38f36cae8fd96f706e5))
+
 ## [0.4.0](https://github.com/moxxy-ai/moxxy/compare/v0.3.0...v0.4.0) (2026-02-22)
 
 
