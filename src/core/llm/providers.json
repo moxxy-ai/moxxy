@@ -105,6 +105,21 @@
       ]
     },
     {
+      "id": "minimax",
+      "name": "MiniMax",
+      "api_format": "openai",
+      "base_url": "https://api.minimax.io/v1/chat/completions",
+      "auth": { "type": "bearer", "vault_key": "minimax_api_key" },
+      "default_model": "MiniMax-M2.5",
+      "models": [
+        { "id": "MiniMax-M2.5", "name": "MiniMax M2.5" },
+        { "id": "MiniMax-M2.5-highspeed", "name": "MiniMax M2.5 Highspeed" },
+        { "id": "MiniMax-M2.1", "name": "MiniMax M2.1" },
+        { "id": "MiniMax-M2.1-highspeed", "name": "MiniMax M2.1 Highspeed" },
+        { "id": "MiniMax-M2", "name": "MiniMax M2" }
+      ]
+    },
+    {
       "id": "openrouter",
       "name": "OpenRouter",
       "api_format": "openai",

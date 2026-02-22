@@ -58,13 +58,13 @@ moxxy provides stronger isolation guarantees (WASM sandbox with filesystem/netwo
 | Vercel AI Gateway | Yes | -- |
 | Custom / Local (Ollama, LM Studio, vLLM) | Yes (custom provider system) | Yes |
 | Meta (Llama via local) | Yes (via OpenRouter or custom) | Yes (local) |
-| Minimax | -- | Yes |
-| **Total built-in providers** | **9** | **6+** |
+| MiniMax (M2.5, M2.1, M2) | Yes | Yes |
+| **Total built-in providers** | **10** | **6+** |
 | **Custom provider support** | **Yes (via API, UI, and agent skill)** | **Limited** |
 
 ### Verdict
 
-moxxy now supports 9 built-in providers including multi-model gateways (OpenRouter with 300+ models, Vercel AI Gateway). The custom provider system allows users to add any OpenAI/Gemini/Anthropic-compatible endpoint (local or remote) via the web UI, API, or by simply asking their agent. OpenClaw still has an edge with some niche providers like Minimax.
+moxxy now supports 10 built-in providers including multi-model gateways (OpenRouter with 300+ models, Vercel AI Gateway) and MiniMax. The custom provider system allows users to add any OpenAI/Gemini/Anthropic-compatible endpoint (local or remote) via the web UI, API, or by simply asking their agent.
 
 ---
 
