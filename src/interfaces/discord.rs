@@ -34,6 +34,20 @@ impl EventHandler for Handler {
 
         let src_label = format!("DISCORD_{}", msg.author.id);
 
+        // Store channel ID in vault for discord_notify skill (only if not already set)
+        {
+            let mem = self.memory.lock().await;
+            let vault = crate::core::vault::SecretsVault::new(mem.get_db());
+            let channel_id_str = msg.channel_id.to_string();
+            if let Ok(existing) = vault.get_secret("discord_channel_id").await {
+                if existing.as_deref().unwrap_or("") != channel_id_str {
+                    let _ = vault
+                        .set_secret("discord_channel_id", &channel_id_str)
+                        .await;
+                }
+            }
+        }
+
         info!(
             "[{}] Received Discord message from {}: {}",
             self.agent_name, msg.author.name, trigger_text

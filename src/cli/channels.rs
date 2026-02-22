@@ -39,6 +39,104 @@ pub async fn find_agent_using_secret(
     Ok(None)
 }
 
+pub async fn run_channel_discord(
+    agent_arg: Option<String>,
+    token_arg: Option<String>,
+) -> Result<()> {
+    terminal::print_banner();
+    println!("  {}\n", style("Channel Setup: Discord").bold());
+
+    let agent_name = match agent_arg {
+        Some(name) => name,
+        None => inquire::Text::new("Agent name:")
+            .with_default("default")
+            .with_help_message("Which agent should this Discord bot connect to?")
+            .prompt()?,
+    };
+
+    let home = dirs::home_dir().expect("Could not find home directory");
+    let agent_dir = home.join(".moxxy").join("agents").join(&agent_name);
+
+    if !agent_dir.exists() {
+        println!(
+            "  Error: Agent '{}' does not exist. Run 'moxxy init' first.",
+            agent_name
+        );
+        return Ok(());
+    }
+
+    let memory_sys = crate::core::memory::MemorySystem::new(&agent_dir).await?;
+    let vault = crate::core::vault::SecretsVault::new(memory_sys.get_db());
+    vault.initialize().await?;
+
+    let has_token = matches!(vault.get_secret("discord_token").await, Ok(Some(_)));
+
+    if has_token && token_arg.is_none() {
+        println!("  Status: Discord bot token is CONFIGURED");
+        let action = inquire::Select::new(
+            "What would you like to do?",
+            vec!["Replace token", "Disconnect Discord", "Cancel"],
+        )
+        .prompt()?;
+        match action {
+            "Disconnect Discord" => {
+                vault.remove_secret("discord_token").await?;
+                print_info("Discord disconnected. Restart the gateway for changes to take effect.");
+                return Ok(());
+            }
+            "Replace token" => {
+                vault.remove_secret("discord_token").await?;
+                print_info("Existing token cleared. Proceeding to set a new one...");
+            }
+            _ => return Ok(()),
+        }
+    }
+
+    let token = match token_arg {
+        Some(t) => t,
+        None => {
+            print_info("To get a Discord bot token:");
+            println!("  1. Go to https://discord.com/developers/applications");
+            println!("  2. Create a New Application → go to Bot section");
+            println!("  3. Click 'Reset Token' to get a bot token");
+            println!("  4. Enable 'Message Content Intent' under Privileged Gateway Intents");
+            println!(
+                "  5. Invite the bot to your server with the Bot scope + Send Messages permission\n"
+            );
+            inquire::Password::new("Discord bot token:")
+                .without_confirmation()
+                .with_help_message("Paste the token from the Discord Developer Portal")
+                .prompt()?
+        }
+    };
+
+    if token.is_empty() {
+        println!("  No token provided. Aborting.");
+        return Ok(());
+    }
+
+    if let Some(owner) = find_agent_using_secret("discord_token", &token, &agent_name).await? {
+        println!(
+            "  Error: This Discord bot token is already bound to agent '{}'. One Discord bot can only be bound to one agent.",
+            owner
+        );
+        return Ok(());
+    }
+
+    vault.set_secret("discord_token", &token).await?;
+    print_success(&format!(
+        "Discord bot token saved for agent '{}'.",
+        agent_name
+    ));
+
+    println!("\n  Next steps:");
+    println!("  1. Make sure the bot is invited to your Discord server");
+    println!("  2. Restart the moxxy gateway: moxxy gateway restart");
+    println!("  3. Send a message in any channel the bot has access to\n");
+
+    Ok(())
+}
+
 pub async fn run_channel_telegram(
     agent_arg: Option<String>,
     token_arg: Option<String>,

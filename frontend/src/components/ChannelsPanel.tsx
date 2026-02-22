@@ -28,8 +28,11 @@ export function ChannelsPanel({
   const [channelStatus, setChannelStatus] = useState<string | null>(null);
   const [sttTokenInput, setSttTokenInput] = useState('');
   const [sttStatus, setSttStatus] = useState<string | null>(null);
+  const [discordTokenInput, setDiscordTokenInput] = useState('');
+  const [discordStatus, setDiscordStatus] = useState<string | null>(null);
 
   const tg = channels.find(c => c.type === 'telegram');
+  const discord = channels.find(c => c.type === 'discord');
 
   const refreshChannels = () => {
     if (activeAgent && apiBase) {
@@ -281,13 +284,90 @@ export function ChannelsPanel({
             )}
           </div>
 
-          {/* Discord Card - Coming Soon */}
-          <div className="border border-[#1e304f] bg-[#0d1522] p-5 rounded-sm flex flex-col gap-3 opacity-50">
-            <div className="flex items-center gap-2">
-              <Radio size={16} className="text-[#7c3aed]" />
-              <span className="text-white text-sm font-bold tracking-wide">Discord</span>
+          {/* Discord Card */}
+          <div className="border border-[#1e304f] bg-[#0d1522] p-5 rounded-sm flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Radio size={16} className="text-[#7c3aed]" />
+                <span className="text-white text-sm font-bold tracking-wide">Discord</span>
+              </div>
+              {discord?.has_token ? (
+                <span className="text-[9px] px-2 py-0.5 border border-emerald-400/30 text-emerald-400 bg-emerald-400/5 rounded-sm uppercase tracking-widest">Connected</span>
+              ) : (
+                <span className="text-[9px] px-2 py-0.5 border border-[#64748b]/30 text-[#64748b] bg-[#64748b]/5 rounded-sm uppercase tracking-widest">Not Configured</span>
+              )}
             </div>
-            <p className="text-[11px] text-[#64748b]">Coming soon</p>
+
+            {discordStatus && (
+              <div className={`text-[10px] px-2 py-1 border rounded-sm ${discordStatus.includes('Error') ? 'border-red-400/30 text-red-400 bg-red-400/5' : 'border-emerald-400/30 text-emerald-400 bg-emerald-400/5'}`}>
+                {discordStatus}
+              </div>
+            )}
+
+            {/* State: No token */}
+            {!discord?.has_token && (
+              <div className="flex flex-col gap-2">
+                <p className="text-[11px] text-[#94a3b8] leading-relaxed">Connect a Discord bot to this agent. Create a bot at the <span className="text-[#7c3aed]">Discord Developer Portal</span> and enable the <span className="text-white font-mono text-[10px]">Message Content</span> intent.</p>
+                <input
+                  type="password"
+                  value={discordTokenInput}
+                  onChange={e => setDiscordTokenInput(e.target.value)}
+                  className="w-full bg-[#090d14] border border-[#1e304f] focus:border-[#7c3aed] outline-none px-3 py-1.5 text-xs text-white font-mono"
+                  placeholder="Bot token from Developer Portal"
+                />
+                <button
+                  onClick={async () => {
+                    if (!discordTokenInput.trim() || !activeAgent) return;
+                    setDiscordStatus(null);
+                    try {
+                      const res = await fetch(`${apiBase}/agents/${activeAgent}/channels/discord/token`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ token: discordTokenInput })
+                      });
+                      const data = await res.json();
+                      if (data.success) {
+                        setDiscordStatus('Token saved. Restart the gateway to activate the bot.');
+                        setDiscordTokenInput('');
+                        refreshChannels();
+                      } else {
+                        setDiscordStatus(`Error: ${data.error}`);
+                      }
+                    } catch (err) { setDiscordStatus(`Error: ${err}`); }
+                  }}
+                  disabled={!discordTokenInput.trim()}
+                  className="bg-[#7c3aed] hover:bg-[#9461fb] disabled:opacity-50 text-white text-[10px] uppercase tracking-widest px-4 py-1.5 font-bold shadow-[0_0_12px_rgba(124,58,237,0.3)] transition-all self-start"
+                >
+                  Save Token
+                </button>
+              </div>
+            )}
+
+            {/* State: Token saved */}
+            {discord?.has_token && (
+              <div className="flex flex-col gap-2">
+                <p className="text-[11px] text-emerald-400 leading-relaxed">Discord bot is configured. Messages in channels the bot has access to are routed to this agent.</p>
+                <button
+                  onClick={async () => {
+                    if (!activeAgent) return;
+                    setDiscordStatus(null);
+                    try {
+                      const res = await fetch(`${apiBase}/agents/${activeAgent}/channels/discord`, { method: 'DELETE' });
+                      const data = await res.json();
+                      if (data.success) {
+                        setDiscordStatus('Discord disconnected. Restart gateway to fully remove.');
+                        refreshChannels();
+                      } else {
+                        setDiscordStatus(`Error: ${data.error}`);
+                      }
+                    } catch (err) { setDiscordStatus(`Error: ${err}`); }
+                  }}
+                  className="bg-red-500/20 hover:bg-red-500/30 border border-red-400/30 text-red-400 text-[10px] uppercase tracking-widest px-4 py-1.5 font-bold transition-all self-start"
+                >
+                  Disconnect
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Slack Card - Coming Soon */}

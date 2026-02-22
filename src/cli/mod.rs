@@ -342,12 +342,41 @@ pub async fn run_main() -> Result<()> {
                         }
                         channels::run_channel_telegram(agent_arg, token_arg, pair_code_arg).await?;
                     }
+                    "discord" => {
+                        let mut agent_arg: Option<String> = None;
+                        let mut token_arg: Option<String> = None;
+                        let mut i = 3;
+                        while i < args.len() {
+                            match args[i].as_str() {
+                                "--agent" | "-a" => {
+                                    if i + 1 < args.len() {
+                                        agent_arg = Some(args[i + 1].clone());
+                                        i += 2;
+                                    } else {
+                                        i += 1;
+                                    }
+                                }
+                                "--token" => {
+                                    if i + 1 < args.len() {
+                                        token_arg = Some(args[i + 1].clone());
+                                        i += 2;
+                                    } else {
+                                        i += 1;
+                                    }
+                                }
+                                _ => i += 1,
+                            }
+                        }
+                        channels::run_channel_discord(agent_arg, token_arg).await?;
+                    }
                     _ => {
                         println!("{}", style("Usage: moxxy channel <type>").bold());
                         println!("  • telegram   Configure and pair a Telegram bot");
                         println!(
                             "               Options: --agent <name> [--token <bot_token>] [--pair-code <6digits>]"
                         );
+                        println!("  • discord    Configure a Discord bot");
+                        println!("               Options: --agent <name> [--token <bot_token>]");
                     }
                 }
                 return Ok(());

@@ -53,6 +53,18 @@ pub fn build_api_router(state: AppState) -> Router {
             post(channels::set_telegram_stt),
         )
         .route(
+            "/api/agents/{agent}/channels/discord/token",
+            post(channels::set_discord_token),
+        )
+        .route(
+            "/api/agents/{agent}/channels/discord/send",
+            post(channels::send_discord_message),
+        )
+        .route(
+            "/api/agents/{agent}/channels/discord",
+            axum::routing::delete(channels::disconnect_discord),
+        )
+        .route(
             "/api/agents/{agent}/restart",
             post(agents::restart_agent_endpoint),
         )
