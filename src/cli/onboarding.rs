@@ -19,7 +19,9 @@ pub async fn run_onboarding() -> Result<()> {
             .with_default(false)
             .prompt()?;
         if !proceed {
-            print_error("Onboarding aborted. Please install the missing dependencies and try again.");
+            print_error(
+                "Onboarding aborted. Please install the missing dependencies and try again.",
+            );
             return Ok(());
         }
     }
