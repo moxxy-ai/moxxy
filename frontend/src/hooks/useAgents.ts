@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { Skill, Schedule, Channel, McpServer, Webhook } from '../types';
+import type { Skill, Schedule, Channel, McpServer, Webhook, ApiToken } from '../types';
 
 export function useAgents(apiBase: string) {
   const [agents, setAgents] = useState<string[]>([]);
@@ -11,6 +11,7 @@ export function useAgents(apiBase: string) {
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [webhooks, setWebhooks] = useState<Webhook[]>([]);
   const [vaultKeys, setVaultKeys] = useState<string[]>([]);
+  const [apiTokens, setApiTokens] = useState<ApiToken[]>([]);
   const [sttEnabled, setSttEnabled] = useState(false);
 
   useEffect(() => {
@@ -72,6 +73,11 @@ export function useAgents(apiBase: string) {
       .then(res => res.json())
       .then(data => { if (data.success) setVaultKeys(data.keys || []); })
       .catch(() => setVaultKeys([]));
+
+    fetch(`${apiBase}/agents/${activeAgent}/tokens`)
+      .then(res => res.json())
+      .then(data => { if (data.success) setApiTokens(data.tokens || []); })
+      .catch(() => setApiTokens([]));
   }, [activeAgent, apiBase]);
 
   return {
@@ -84,6 +90,7 @@ export function useAgents(apiBase: string) {
     webhooks, setWebhooks,
     mcpServers, setMcpServers,
     vaultKeys, setVaultKeys,
+    apiTokens, setApiTokens,
     sttEnabled, setSttEnabled,
   };
 }

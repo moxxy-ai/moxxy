@@ -1,12 +1,14 @@
 use axum::{
-    Router,
+    Router, middleware,
     routing::{get, post},
 };
 use tower_http::cors::CorsLayer;
 
 use super::AppState;
+use super::auth;
 use super::handlers::{
-    agents, channels, chat, config, mcp, memory, mobile, proxy, schedules, skills, vault, webhooks,
+    agents, channels, chat, config, mcp, memory, mobile, proxy, schedules, skills, tokens, vault,
+    webhooks,
 };
 
 pub fn build_api_router(state: AppState) -> Router {
@@ -186,6 +188,18 @@ pub fn build_api_router(state: AppState) -> Router {
             "/api/agents/{agent}/chat/stream",
             post(chat::chat_stream_endpoint),
         )
+        .route(
+            "/api/agents/{agent}/tokens",
+            get(tokens::list_tokens).post(tokens::create_token),
+        )
+        .route(
+            "/api/agents/{agent}/tokens/{token_id}",
+            axum::routing::delete(tokens::delete_token),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::require_auth,
+        ))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }

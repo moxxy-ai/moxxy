@@ -6,6 +6,7 @@ mod install;
 mod migrate;
 mod onboarding;
 mod swarm;
+mod tokens;
 mod uninstall;
 mod update;
 mod webhooks;
@@ -177,9 +178,13 @@ pub async fn run_main() -> Result<()> {
                         daemon::gateway_status(&pid_file).await?;
                         return Ok(());
                     }
+                    "token" => {
+                        tokens::run_token_command(&args).await?;
+                        return Ok(());
+                    }
                     _ => {
                         print_error(
-                            "Unknown or missing gateway command. Expected: start, stop, restart, status",
+                            "Unknown or missing gateway command. Expected: start, stop, restart, status, token",
                         );
                         print_help();
                         return Ok(());
