@@ -550,8 +550,8 @@ impl SkillManager {
         "modify_schedule",
         "webhook",
         "openclaw_migrate",
-        "contribute",
         "osx_email",
+        "github",
     ];
 
     pub async fn remove_skill(&mut self, skill_name: &str) -> Result<()> {
