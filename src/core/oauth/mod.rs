@@ -9,6 +9,7 @@ use tokio::fs;
 use crate::skills::{OAuthConfig, SkillManifest};
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct TokenResponse {
     refresh_token: Option<String>,
     access_token: Option<String>,
@@ -21,6 +22,7 @@ struct TokenResponse {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct OAuthSkill {
     pub skill_name: String,
     pub manifest_path: PathBuf,
