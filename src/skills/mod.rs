@@ -272,6 +272,11 @@ const PRIVILEGED_SKILLS: &[&str] = &[
     "evolve_core",
     "browser",
     "osx_email",
+    "git",
+    "github",
+    "google_workspace",
+    "skill",
+    "openclaw_migrate",
 ];
 
 pub struct SkillManager {
@@ -609,6 +614,7 @@ impl SkillManager {
         "discord_notify",
         "whatsapp_notify",
         "git",
+        "github",
         "scheduler",
         "remove_schedule",
         "modify_schedule",

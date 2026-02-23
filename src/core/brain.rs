@@ -58,10 +58,14 @@ fn build_system_prompt(skill_catalog: &str, persona_text: &Option<String>) -> St
             use your skills via the invocation format below. Do NOT respond with code snippets or instructions.\n\
          2. For pure knowledge questions (math, reasoning, explanations), respond directly.\n\
          3. Only use skills listed in AVAILABLE SKILLS. Never guess or invent skill names.\n\
-         4. Never tell the user to run commands manually - use `host_shell` instead.\n\
-         5. After a skill result is returned to you, present the result to the user and STOP. \
+         4. Never tell the user to run commands manually - use your skills instead.\n\
+         5. NEVER use `host_shell` or `host_python` on your own. These are restricted to explicit user requests \
+            (e.g. \"run this on my machine\"). Always use dedicated skills instead \
+            (e.g. `git` for git, `github` for GitHub issues/PRs). \
+            If no dedicated skill exists, ask the user before resorting to host_shell.\n\
+         6. After a skill result is returned to you, present the result to the user and STOP. \
             Do NOT offer menus, ask what to do next, or continue unless the user's original request requires more steps.\n\
-         6. Be concise. Answer the question, present the result, done.\n\n\
+         7. Be concise. Answer the question, present the result, done.\n\n\
          SKILL INVOCATION FORMAT:\n\
          <invoke name=\"skill_name\">[\"arg1\", \"arg2\"]</invoke>\n\
          Arguments MUST be a valid JSON array of strings. Use [] for no arguments.\n\
