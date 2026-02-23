@@ -118,7 +118,7 @@ impl SecretsVault {
             match self.decrypt(&stored) {
                 Ok(plaintext) => Ok(Some(plaintext)),
                 Err(_) => {
-                    // Legacy plaintext value — migrate to encrypted
+                    // Legacy plaintext value - migrate to encrypted
                     warn!(
                         "Vault key '{}' appears to be plaintext legacy value, migrating to encrypted",
                         key
