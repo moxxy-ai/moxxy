@@ -503,6 +503,7 @@ impl SkillManager {
         "webhook",
         "openclaw_migrate",
         "contribute",
+        "osx_email",
     ];
 
     pub async fn remove_skill(&mut self, skill_name: &str) -> Result<()> {

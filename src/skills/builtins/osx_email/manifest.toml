@@ -1,0 +1,8 @@
+name = "osx_email"
+description = "Read and send emails via macOS Mail.app with built-in security sanitization. Fetches emails to local files first, then uses permissive_read with threat scanning before exposing content."
+version = "v1.0.0"
+needs_network = true
+needs_fs_write = true
+needs_fs_read = true
+run_command = "bash"
+entrypoint = "run.sh"
