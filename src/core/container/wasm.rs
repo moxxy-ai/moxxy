@@ -167,17 +167,37 @@ impl AgentContainer {
             wasi_builder.inherit_stdout();
             wasi_builder.inherit_stderr();
 
+            // Validate and mount preopened directories, blocking path traversal attempts.
+            let workspace_canonical = workspace_dir
+                .canonicalize()
+                .unwrap_or_else(|_| workspace_dir.clone());
+
             for fs_path in &config.capabilities.filesystem {
-                let host_path = workspace_dir.join(fs_path.trim_start_matches("./"));
-                if host_path.exists() {
-                    let guest_path = format!("/{}", fs_path.trim_start_matches("./"));
-                    wasi_builder.preopened_dir(
-                        &host_path,
-                        &guest_path,
-                        DirPerms::all(),
-                        FilePerms::all(),
-                    )?;
+                let raw = fs_path.trim_start_matches("./");
+                let host_path = workspace_dir.join(raw);
+                if !host_path.exists() {
+                    continue;
                 }
+                let canonical = match host_path.canonicalize() {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                };
+                if !canonical.starts_with(&workspace_canonical) {
+                    tracing::warn!(
+                        "WASM Container [{}]: Blocked filesystem path escape attempt: {:?} resolves to {:?}",
+                        agent_name,
+                        fs_path,
+                        canonical
+                    );
+                    continue;
+                }
+                let guest_path = format!("/{}", raw);
+                wasi_builder.preopened_dir(
+                    &host_path,
+                    &guest_path,
+                    DirPerms::all(),
+                    FilePerms::all(),
+                )?;
             }
 
             let mut limits_builder = StoreLimitsBuilder::new();

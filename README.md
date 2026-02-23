@@ -138,8 +138,8 @@ Each agent lives in `~/.moxxy/agents/<name>/` with:
 | `memory.db` | Private SQLite (STM + LTM with vector embeddings) |
 | `current.md` | Human-readable STM snapshot |
 | `skills/` | Agent-specific custom skills |
+| `workspace/` | Sandboxed working directory (all agent file operations are confined here) |
 | `container.toml` | Runtime config (native or WASM) |
-| `mounts.toml` | File indexer paths |
 
 ### LLM Providers
 
@@ -201,9 +201,23 @@ moxxy channel telegram --agent default
 
 Voice messages are supported via OpenAI Whisper (configurable).
 
-## WASM Sandboxing
+## Security & Agent Isolation
 
-Agents can run inside WASM containers with capability-based permissions. Configure in `container.toml`:
+moxxy enforces strict workspace isolation for agents through multiple security layers:
+
+**Workspace confinement** — Every agent's file operations are restricted to `~/.moxxy/agents/<name>/workspace/`. There is no mechanism for an agent to read or write files outside this directory.
+
+**Privilege tiers** — Skills are divided into privileged (hardcoded built-in skills with full host access: `host_shell`, `host_python`, `computer_control`, `evolve_core`, `browser`, `osx_email`) and sandboxed (all other skills, including agent-installed ones). Agent-installed skills cannot escalate to privileged status.
+
+**OS-level sandboxing** — Non-privileged skills execute inside an OS sandbox (`sandbox-exec` on macOS, `bwrap` on Linux) that enforces read-write access only to the agent's workspace directory at the kernel level.
+
+**Environment isolation** — Sandboxed skills receive a clean environment with no internal API tokens, no access to the agent's home directory, and no source directory paths. Without the internal token, sandboxed skills cannot call host proxy endpoints.
+
+**Host proxy authentication** — The host proxy (`execute_bash`, `execute_python`, `execute_applescript`) always requires the internal token, even in dev mode. Working directory parameters are validated to stay within `~/.moxxy/`.
+
+**WASM containerization** — Agents can optionally run their brain (ReAct loop) inside a WASM container for defense-in-depth. WASM preopened directories are restricted to `./workspace` only, with path traversal protection via canonicalization.
+
+Configure WASM mode in `container.toml`:
 
 ```toml
 [runtime]
@@ -211,7 +225,7 @@ type = "wasm"
 image = "base"      # base | networked | full
 
 [capabilities]
-filesystem = ["./skills", "./memory"]
+filesystem = ["./workspace"]
 network = false
 max_memory_mb = 128
 env_inherit = false
@@ -258,7 +272,7 @@ How moxxy compares to similar self-hosted AI agent frameworks:
 | **Memory** | Per-agent SQLite (STM + LTM with vec0 embeddings) + shared swarm.db | Session-based with compacting/summarization | SQLite hybrid search (vectors + FTS5), PostgreSQL, or Markdown |
 | **Swarm / multi-agent** | Yes — agents share facts via `[ANNOUNCE]` tags | No | No |
 | **Skill system** | Shell/Python scripts with manifest.toml, MCP servers | ClawHub skill registry + SKILL.md | Shell, file, HTTP, git, browser, cron tools |
-| **Sandboxing** | WASM containers (wasm32-wasip1) with capability-based permissions | Chrome profile isolation, macOS TCC | Docker sandbox (WASM planned) |
+| **Sandboxing** | OS-level sandbox (sandbox-exec / bwrap) + optional WASM containers, workspace-confined agents | Chrome profile isolation, macOS TCC | Docker sandbox (WASM planned) |
 | **Voice** | Whisper transcription (Telegram) | ElevenLabs + Wake/Talk Mode overlay | No |
 | **Desktop/mobile apps** | Web dashboard, macOS hotkey, mobile endpoint | macOS menu bar app, iOS & Android companion apps | No |
 | **Self-modification** | Yes — `evolve_core` skill in dev mode | No | No |

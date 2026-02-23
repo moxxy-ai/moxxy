@@ -193,72 +193,8 @@ impl LifecycleComponent for MemorySystem {
 
     async fn on_start(&mut self) -> Result<()> {
         info!("Memory System starting...");
-
-        let db = self.db.clone();
-        let workspace_dir = self.workspace_dir.clone();
-
-        // Background Codebase / File Indexing Task
-        tokio::spawn(async move {
-            let mounts_file = workspace_dir.join("mounts.toml");
-            loop {
-                if mounts_file.exists()
-                    && let Ok(config_str) = tokio::fs::read_to_string(&mounts_file).await
-                    && let Ok(config) = config_str.parse::<toml::Value>()
-                    && let Some(paths) = config
-                        .get("mounts")
-                        .and_then(|m| m.get("paths"))
-                        .and_then(|p| p.as_array())
-                {
-                    for val in paths {
-                        if let Some(path_str) = val.as_str() {
-                            let mount_path = std::path::Path::new(path_str);
-                            if mount_path.exists() && mount_path.is_dir() {
-                                tracing::info!(
-                                    "MemorySystem Background Indexing Path: {:?}",
-                                    mount_path
-                                );
-                                let mut dirs = vec![mount_path.to_path_buf()];
-
-                                while let Some(current_dir) = dirs.pop() {
-                                    if let Ok(mut entries) = tokio::fs::read_dir(&current_dir).await
-                                    {
-                                        while let Ok(Some(entry)) = entries.next_entry().await {
-                                            let p = entry.path();
-                                            if p.is_dir() {
-                                                dirs.push(p);
-                                            } else if p.is_file() {
-                                                let ext = p
-                                                    .extension()
-                                                    .and_then(|e| e.to_str())
-                                                    .unwrap_or("");
-                                                if [
-                                                    "md", "rs", "txt", "py", "js", "ts", "json",
-                                                    "toml",
-                                                ]
-                                                .contains(&ext)
-                                                    && let Ok(content) =
-                                                        tokio::fs::read_to_string(&p).await
-                                                {
-                                                    let db_mutex = db.lock().await;
-                                                    let file_path_str =
-                                                        p.to_string_lossy().to_string();
-                                                    let _ = db_mutex.execute(
-                                                        "INSERT OR REPLACE INTO long_term_files (file_path, content, last_indexed) VALUES (?1, ?2, CURRENT_TIMESTAMP)",
-                                                        rusqlite::params![file_path_str, content],
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
-            }
-        });
-
+        // NOTE: Background mounts.toml file indexing has been removed for security.
+        // Agents that need to index external files should use privileged skills explicitly.
         Ok(())
     }
 

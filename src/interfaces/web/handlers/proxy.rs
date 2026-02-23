@@ -1,11 +1,43 @@
 use axum::{Json, extract::State};
 
 use super::super::AppState;
-use crate::core::agent::RunMode;
 
 #[derive(serde::Deserialize)]
 pub struct AppleScriptRequest {
     script: String,
+}
+
+/// Validate that the internal token is present and correct.
+/// Host proxy endpoints ALWAYS require authentication, regardless of run mode.
+fn verify_internal_token(
+    headers: &axum::http::HeaderMap,
+    expected: &str,
+) -> Result<(), Json<serde_json::Value>> {
+    let auth_token = headers
+        .get("X-Moxxy-Internal-Token")
+        .and_then(|h| h.to_str().ok());
+    if auth_token != Some(expected) {
+        return Err(Json(
+            serde_json::json!({ "success": false, "error": "401 Unauthorized: Internal token required for host proxy." }),
+        ));
+    }
+    Ok(())
+}
+
+/// Validate that a cwd path is within the moxxy directory.
+fn validate_cwd(cwd: &str) -> Result<(), Json<serde_json::Value>> {
+    let cwd_path = std::path::Path::new(cwd);
+    let canonical = cwd_path
+        .canonicalize()
+        .unwrap_or_else(|_| cwd_path.to_path_buf());
+    let home = dirs::home_dir().expect("Could not find home directory");
+    let moxxy_dir = home.join(".moxxy");
+    if !canonical.starts_with(&moxxy_dir) {
+        return Err(Json(
+            serde_json::json!({ "success": false, "error": "403 Forbidden: cwd must be within the moxxy directory." }),
+        ));
+    }
+    Ok(())
 }
 
 /// WARNING: This is the Host Proxy. It executes arbitrary AppleScript natively on the host macOS.
@@ -14,15 +46,8 @@ pub async fn execute_applescript(
     headers: axum::http::HeaderMap,
     Json(payload): Json<AppleScriptRequest>,
 ) -> Json<serde_json::Value> {
-    if state.run_mode != RunMode::Dev {
-        let auth_token = headers
-            .get("X-Moxxy-Internal-Token")
-            .and_then(|h| h.to_str().ok());
-        if auth_token != Some(&state.internal_token) {
-            return Json(
-                serde_json::json!({ "success": false, "error": "401 Unauthorized: Host Proxy is disabled outside of Dev Mode." }),
-            );
-        }
+    if let Err(e) = verify_internal_token(&headers, &state.internal_token) {
+        return e;
     }
     match tokio::process::Command::new("osascript")
         .arg("-e")
@@ -56,19 +81,15 @@ pub async fn execute_bash(
     headers: axum::http::HeaderMap,
     Json(payload): Json<BashRequest>,
 ) -> Json<serde_json::Value> {
-    if state.run_mode != RunMode::Dev {
-        let auth_token = headers
-            .get("X-Moxxy-Internal-Token")
-            .and_then(|h| h.to_str().ok());
-        if auth_token != Some(&state.internal_token) {
-            return Json(
-                serde_json::json!({ "success": false, "error": "401 Unauthorized: Host Proxy is disabled outside of Dev Mode." }),
-            );
-        }
+    if let Err(e) = verify_internal_token(&headers, &state.internal_token) {
+        return e;
     }
     let mut cmd = tokio::process::Command::new("bash");
     cmd.arg("-c").arg(&payload.command);
     if let Some(ref cwd) = payload.cwd {
+        if let Err(e) = validate_cwd(cwd) {
+            return e;
+        }
         cmd.current_dir(cwd);
     }
     match cmd.output().await {
@@ -99,19 +120,15 @@ pub async fn execute_python(
     headers: axum::http::HeaderMap,
     Json(payload): Json<PythonRequest>,
 ) -> Json<serde_json::Value> {
-    if state.run_mode != RunMode::Dev {
-        let auth_token = headers
-            .get("X-Moxxy-Internal-Token")
-            .and_then(|h| h.to_str().ok());
-        if auth_token != Some(&state.internal_token) {
-            return Json(
-                serde_json::json!({ "success": false, "error": "401 Unauthorized: Host Proxy is disabled outside of Dev Mode." }),
-            );
-        }
+    if let Err(e) = verify_internal_token(&headers, &state.internal_token) {
+        return e;
     }
     let mut cmd = tokio::process::Command::new("python3");
     cmd.arg("-c").arg(&payload.code);
     if let Some(ref cwd) = payload.cwd {
+        if let Err(e) = validate_cwd(cwd) {
+            return e;
+        }
         cmd.current_dir(cwd);
     }
     match cmd.output().await {

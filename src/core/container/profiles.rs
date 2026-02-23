@@ -29,30 +29,25 @@ impl ImageProfile {
     }
 
     /// Get the default capabilities for a profile.
+    ///
+    /// All profiles are restricted to `./workspace` only for filesystem access.
+    /// Agents access skills and memory via host bridge functions, not direct FS.
     pub fn default_capabilities(profile: &str) -> CapabilityConfig {
         match profile {
             "base" => CapabilityConfig {
-                filesystem: vec![
-                    "./skills".to_string(),
-                    "./memory".to_string(),
-                    "./workspace".to_string(),
-                ],
+                filesystem: vec!["./workspace".to_string()],
                 network: false,
                 max_memory_mb: 128,
                 env_inherit: false,
             },
             "networked" => CapabilityConfig {
-                filesystem: vec![
-                    "./skills".to_string(),
-                    "./memory".to_string(),
-                    "./workspace".to_string(),
-                ],
+                filesystem: vec!["./workspace".to_string()],
                 network: true,
                 max_memory_mb: 256,
                 env_inherit: false,
             },
             "full" => CapabilityConfig {
-                filesystem: vec![".".to_string()],
+                filesystem: vec!["./workspace".to_string()],
                 network: true,
                 max_memory_mb: 0,
                 env_inherit: true,
