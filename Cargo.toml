@@ -4,7 +4,7 @@ exclude = ["agent_runtime"]
 
 [package]
 name = "moxxy"
-version = "0.8.3"
+version = "0.9.0"
 edition = "2024"
 
 [dependencies]
