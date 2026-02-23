@@ -1,6 +1,5 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use rand::Rng;
 use std::sync::Arc;
 use std::time::Duration;
 use teloxide::net::Download;
@@ -171,8 +170,13 @@ impl TelegramInterface {
                             info!("[{}] Processing /start pairing request for chat_id: {}", agent_name, chat_id);
                             let _ = bot.send_chat_action(msg.chat.id, teloxide::types::ChatAction::Typing).await;
 
-                            let code: u32 = rand::thread_rng().gen_range(100000..999999);
-                            info!("[{}] Generated pairing code: {} for chat_id: {}", agent_name, code, chat_id);
+                            // Generate a cryptographically strong 8-char alphanumeric code
+                            let code: String = rand::Rng::sample_iter(rand::thread_rng(), &rand::distributions::Alphanumeric)
+                                .take(8)
+                                .map(char::from)
+                                .collect();
+                            // Do NOT log the pairing code to prevent exposure via SSE logs
+                            info!("[{}] Generated pairing code for chat_id: {}", agent_name, chat_id);
                             if let Err(e) = vault.set_secret("telegram_pairing_code", &code.to_string()).await {
                                 error!("[{}] Failed to store pairing code in vault: {}", agent_name, e);
                                 let _ = bot.send_message(msg.chat.id, "❌ System error: failed to generate pairing code.").await;
@@ -240,7 +244,7 @@ impl TelegramInterface {
                             container.execute(&text, llm.clone(), memory.clone(), skills.clone(), None).await
                         } else {
                             let src = format!("TELEGRAM_{}", chat_id);
-                            crate::core::brain::AutonomousBrain::execute_react_loop(&text, &src, llm.clone(), memory.clone(), skills.clone(), None).await
+                            crate::core::brain::AutonomousBrain::execute_react_loop(&text, &src, llm.clone(), memory.clone(), skills.clone(), None, &agent_name).await
                         };
 
                         let _ = typing_stop_tx.send(());

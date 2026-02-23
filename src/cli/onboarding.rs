@@ -15,6 +15,21 @@ pub async fn run_onboarding() -> Result<()> {
     if !default_agent_dir.exists() {
         tokio::fs::create_dir_all(default_agent_dir.join("skills")).await?;
         tokio::fs::create_dir_all(default_agent_dir.join("workspace")).await?;
+        // Set restrictive permissions on agent directories
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = tokio::fs::set_permissions(
+                &home.join(".moxxy"),
+                std::fs::Permissions::from_mode(0o700),
+            )
+            .await;
+            let _ = tokio::fs::set_permissions(
+                &default_agent_dir,
+                std::fs::Permissions::from_mode(0o700),
+            )
+            .await;
+        }
     }
 
     println!(

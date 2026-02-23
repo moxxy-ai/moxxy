@@ -8,6 +8,16 @@ use crate::core::llm::LlmManager;
 use crate::core::memory::MemorySystem;
 use crate::skills::SkillManager;
 
+/// Strip `<invoke>` tags from untrusted text to prevent prompt injection.
+/// Skill results, webhook payloads, and other external inputs must be sanitized
+/// before being fed back into the ReAct loop context.
+pub fn sanitize_invoke_tags(text: &str) -> String {
+    // Replace <invoke ...>...</invoke> with a safe placeholder
+    let re = Regex::new(r#"<invoke\s+name\s*=\s*["'][^"']+["']\s*>[\s\S]*?</invoke>"#).unwrap();
+    re.replace_all(text, "[invoke tag removed for security]")
+        .to_string()
+}
+
 /// Helper to send a JSON SSE event if a stream sender is provided.
 async fn emit(tx: &Option<tokio::sync::mpsc::Sender<String>>, event: serde_json::Value) {
     if let Some(tx) = tx {
@@ -88,6 +98,7 @@ impl AutonomousBrain {
         memory: Arc<Mutex<MemorySystem>>,
         skills: Arc<Mutex<SkillManager>>,
         stream_tx: Option<tokio::sync::mpsc::Sender<String>>,
+        agent_name: &str,
     ) -> Result<String> {
         info!("Brain activated by {}: {}", origin, trigger_text);
 
@@ -239,13 +250,15 @@ impl AutonomousBrain {
                         emit(&stream_tx, serde_json::json!({
                             "type": "skill_result", "skill": skill_name, "success": true, "output": out
                         })).await;
-                        format!("SKILL RESULT [{}] (success):\n{}", skill_name, out)
+                        let safe_out = sanitize_invoke_tags(out);
+                        format!("SKILL RESULT [{}] (success):\n{}", skill_name, safe_out)
                     }
                     Err(e) => {
                         emit(&stream_tx, serde_json::json!({
                             "type": "skill_result", "skill": skill_name, "success": false, "output": e.to_string()
                         })).await;
-                        format!("SKILL RESULT [{}] (error): {}", skill_name, e)
+                        let safe_err = sanitize_invoke_tags(&e.to_string());
+                        format!("SKILL RESULT [{}] (error): {}", skill_name, safe_err)
                     }
                 };
 
@@ -304,7 +317,7 @@ impl AutonomousBrain {
         if final_response.starts_with("[ANNOUNCE]") {
             let m = memory.lock().await;
             let msg = final_response.trim_start_matches("[ANNOUNCE]").trim();
-            let _ = m.add_swarm_memory("Agent_Brain", msg).await;
+            let _ = m.add_swarm_memory(agent_name, msg).await;
         }
 
         // Restore previous session if we isolated

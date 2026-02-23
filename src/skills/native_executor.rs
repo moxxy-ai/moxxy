@@ -92,12 +92,13 @@ impl NativeExecutor {
         let profile = format!(
             r#"(version 1)
 (deny default)
-(allow process-exec)
+(allow process-exec (subpath "/usr/bin") (subpath "/bin") (subpath "/usr/local/bin"))
 (allow process-fork)
 (allow file-read* (subpath "/usr"))
 (allow file-read* (subpath "/bin"))
 (allow file-read* (subpath "/etc"))
-(allow file-read* (subpath "/dev"))
+(allow file-read* (literal "/dev/null") (literal "/dev/urandom") (literal "/dev/random") (literal "/dev/zero") (literal "/dev/stdin") (literal "/dev/stdout") (literal "/dev/stderr"))
+(allow file-write* (literal "/dev/null") (literal "/dev/stdout") (literal "/dev/stderr"))
 (allow file-read* (subpath "/tmp"))
 (allow file-read* (subpath "/private/tmp"))
 (allow file-read* (subpath "/var"))
@@ -107,11 +108,12 @@ impl NativeExecutor {
 (allow file-read* (subpath "/private/var"))
 (allow file-read* (subpath "{}"))
 (allow file-read* file-write* (subpath "{}"))
+(deny file-write-create (subpath "{}") (require-all (file-mode #o120000)))
 (allow network-outbound)
 (allow sysctl-read)
 (allow mach-lookup)
 "#,
-            skill_dir_str, workspace_str
+            skill_dir_str, workspace_str, workspace_str
         );
 
         info!(
@@ -239,6 +241,9 @@ impl SkillSandbox for NativeExecutor {
                 "MOXXY_API_BASE",
                 format!("http://{}:{}/api", self.api_host, self.api_port),
             );
+            // Internal token is only exposed to privileged built-in skills
+            // (controlled by PRIVILEGED_SKILLS allowlist in skills/mod.rs).
+            // User-installed and sandboxed skills never receive this.
             cmd.env("MOXXY_INTERNAL_TOKEN", &self.internal_token);
 
             // Inject source directory only for evolve_core
@@ -259,6 +264,9 @@ impl SkillSandbox for NativeExecutor {
                 info!("Injecting vault secrets for skill: {}", manifest.name);
                 let secrets = self.vault.list_keys().await?;
                 for key in secrets {
+                    if !manifest.env_keys.is_empty() && !manifest.env_keys.contains(&key) {
+                        continue;
+                    }
                     if let Some(val) = self.vault.get_secret(&key).await? {
                         cmd.env(&key, &val);
                     }
@@ -288,6 +296,9 @@ impl SkillSandbox for NativeExecutor {
                 );
                 let secrets = self.vault.list_keys().await?;
                 for key in secrets {
+                    if !manifest.env_keys.is_empty() && !manifest.env_keys.contains(&key) {
+                        continue;
+                    }
                     if let Some(val) = self.vault.get_secret(&key).await? {
                         cmd.env(&key, &val);
                     }

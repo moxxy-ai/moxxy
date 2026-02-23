@@ -60,6 +60,7 @@ impl EventHandler for Handler {
             self.memory.clone(),
             self.skills.clone(),
             None,
+            &self.agent_name,
         )
         .await
         {

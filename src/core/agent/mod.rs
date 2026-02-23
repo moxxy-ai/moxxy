@@ -178,6 +178,7 @@ impl AgentInstance {
             let llm = llm_sys_arc.clone();
             let mem = memory_sys_arc.clone();
             let skills = skill_sys_arc.clone();
+            let agent_name = name.clone();
             headless_job = Some(Box::pin(async move {
                 let _ = crate::core::brain::AutonomousBrain::execute_react_loop(
                     &prompt,
@@ -186,6 +187,7 @@ impl AgentInstance {
                     mem,
                     skills,
                     None,
+                    &agent_name,
                 )
                 .await;
             })

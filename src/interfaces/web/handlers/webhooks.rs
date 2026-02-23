@@ -81,7 +81,7 @@ pub async fn create_webhook_endpoint(
         Ok(_) => {
             let webhook_url = format!(
                 "http://{}:{}/api/webhooks/{}/{}",
-                state.api_host, state.web_port, agent, source
+                state.api_host, state.api_port, agent, source
             );
             Json(serde_json::json!({
                 "success": true,
@@ -226,9 +226,15 @@ pub async fn webhook_endpoint(
             }));
         }
 
-        // Verify signature if secret is set
-        if !webhook.secret.is_empty() && !verify_webhook_signature(&headers, &body, &webhook.secret)
-        {
+        // Require webhook secret for signature verification.
+        // Webhooks without a secret are rejected to prevent unauthenticated triggering.
+        if webhook.secret.is_empty() {
+            return Json(serde_json::json!({
+                "success": false,
+                "error": "Webhook has no secret configured. Set a secret to enable signature verification."
+            }));
+        }
+        if !verify_webhook_signature(&headers, &body, &webhook.secret) {
             return Json(serde_json::json!({
                 "success": false,
                 "error": "Signature verification failed"
@@ -240,10 +246,12 @@ pub async fn webhook_endpoint(
         let wasm_container = container_reg.get(&agent).cloned();
         drop(container_reg);
 
-        // Build trigger text using the prompt_template
+        // Build trigger text using the prompt_template.
+        // Sanitize the body to prevent prompt injection via invoke tags.
+        let safe_body = crate::core::brain::sanitize_invoke_tags(&body);
         let trigger_text = format!(
             "{}\n\n--- Webhook Payload from [{}] ---\n{}",
-            webhook.prompt_template, source, body
+            webhook.prompt_template, source, safe_body
         );
         let src_label = format!("WEBHOOK_{}", source.to_uppercase());
 
@@ -253,6 +261,7 @@ pub async fn webhook_endpoint(
         );
 
         // Fire and forget the ReAct loop
+        let agent_name = agent.clone();
         tokio::spawn(async move {
             if let Some(container) = wasm_container {
                 let _ = container
@@ -266,6 +275,7 @@ pub async fn webhook_endpoint(
                     mem,
                     skills,
                     None,
+                    &agent_name,
                 )
                 .await;
             }
@@ -307,7 +317,8 @@ pub async fn delegate_endpoint(
         let wasm_container = container_reg.get(&agent).cloned();
         drop(container_reg);
 
-        let trigger_text = format!("DELEGATED TASK: {}", body);
+        let safe_body = crate::core::brain::sanitize_invoke_tags(&body);
+        let trigger_text = format!("DELEGATED TASK: {}", safe_body);
 
         info!("Dispatching Delegation to Agent [{}]", agent);
 
@@ -328,6 +339,7 @@ pub async fn delegate_endpoint(
                 mem,
                 skills,
                 None,
+                &agent,
             )
             .await
             {
@@ -371,6 +383,16 @@ fn verify_webhook_signature(headers: &HeaderMap, body: &str, secret: &str) -> bo
         let parts: std::collections::HashMap<&str, &str> =
             sig.split(',').filter_map(|p| p.split_once('=')).collect();
         if let (Some(timestamp), Some(v1_sig)) = (parts.get("t"), parts.get("v1")) {
+            // Reject signatures older than 5 minutes to prevent replay attacks
+            if let Ok(ts) = timestamp.parse::<u64>() {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                if now.abs_diff(ts) > 300 {
+                    return false;
+                }
+            }
             let signed_payload = format!("{}.{}", timestamp, body);
             let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
             mac.update(signed_payload.as_bytes());

@@ -37,9 +37,21 @@ pub async fn require_auth(
         found
     };
 
-    // 3. No tokens configured anywhere → open access (backwards compatible)
+    // 3. No tokens configured → allow open access only on loopback (safe for local dev)
     if !any_tokens_exist {
-        return next.run(req).await;
+        let is_loopback = state.api_host == "127.0.0.1"
+            || state.api_host == "::1"
+            || state.api_host == "localhost";
+        if is_loopback {
+            return next.run(req).await;
+        }
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({
+                "error": "No API tokens configured. Create a token via the dashboard or API before exposing on a non-loopback address."
+            })),
+        )
+            .into_response();
     }
 
     // 4. Extract bearer token

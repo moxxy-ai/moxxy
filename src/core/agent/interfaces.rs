@@ -157,11 +157,13 @@ pub(super) async fn attach_desktop_poller(
         let llm_clone = llm_sys_arc.clone();
         let mem_clone = memory_sys_arc.clone();
         let skill_clone = skill_sys_arc.clone();
+        let agent_name_clone = name.to_string();
 
         match tokio_cron_scheduler::Job::new_async("0 0/5 * * * *", move |_uuid, mut _l| {
             let llm = llm_clone.clone();
             let mem = mem_clone.clone();
             let skills = skill_clone.clone();
+            let agent_name = agent_name_clone.clone();
 
             Box::pin(async move {
                 let script = r#"
@@ -194,6 +196,7 @@ pub(super) async fn attach_desktop_poller(
                             mem,
                             skills,
                             None,
+                            &agent_name,
                         )
                         .await;
                     }
