@@ -155,18 +155,26 @@ Configure via the web dashboard (Config tab) or during `moxxy init`.
 
 | Skill | Description |
 |-------|-------------|
-| `host_shell` | Execute shell commands |
-| `host_python` | Run Python scripts |
-| `browser` | Interactive browser automation and web page fetching |
-| `git` | Git operations |
-| `telegram_notify` | Send Telegram notifications |
-| `scheduler` | Create cron-based heartbeats |
-| `computer_control` | macOS accessibility automation |
-| `delegate_task` | Delegate work to other agents |
-| `create_skill` / `install_skill` / `modify_skill` / `remove_skill` / `upgrade_skill` | Skill lifecycle management |
+| `host_shell` | Execute shell commands on the host machine |
+| `host_python` | Run Python scripts on the host machine |
+| `browser` | Browser automation and web page fetching (lightweight fetch or full Chromium) |
+| `git` | Git operations in the agent's workspace |
+| `computer_control` | macOS accessibility automation via AppleScript |
+| `delegate_task` | Delegate sub-tasks to other agents in the swarm |
+| `skill` | Unified skill management (list, install, remove, upgrade, modify, create, read) |
+| `scheduler` | Schedule recurring jobs using cron syntax |
+| `modify_schedule` | Modify an existing scheduled job |
+| `remove_schedule` | Remove a scheduled job by name |
+| `telegram_notify` | Send proactive Telegram messages |
+| `discord_notify` | Send proactive Discord messages |
+| `whatsapp_notify` | Send proactive WhatsApp messages |
+| `webhook` | Manage webhook endpoints for receiving external events |
+| `manage_providers` | Manage LLM providers (list, add, remove, switch) |
+| `manage_vault` | Manage vault secrets (list, get, set, remove) |
+| `mcp` | Configure external MCP servers (list, add, remove) |
 | `contribute` | Suggest features or open PRs on the moxxy repo via GitHub |
 | `evolve_core` | Self-modify framework code (dev mode only) |
-| `mcp` | Call MCP server tools |
+| `openclaw_migrate` | Migrate OpenClaw agents, personas, and skills to moxxy |
 
 ### MCP Integration
 
