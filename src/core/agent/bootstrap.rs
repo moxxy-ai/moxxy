@@ -167,6 +167,7 @@ pub(super) async fn spawn_mcp_servers(
                                 doc_files: Vec::new(),
                                 skill_dir: PathBuf::new(),
                                 privileged: false,
+                                oauth: None,
                             };
 
                             skill_sys.register_skill(manifest);

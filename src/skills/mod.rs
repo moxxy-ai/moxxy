@@ -55,6 +55,10 @@ pub struct SkillManifest {
     /// Agent-installed skills always have this forced to `false`.
     #[serde(skip)]
     pub privileged: bool,
+
+    // OAuth2 configuration for skills that require OAuth authentication
+    #[serde(default)]
+    pub oauth: Option<OAuthConfig>,
 }
 
 fn default_executor_type() -> String {
@@ -67,6 +71,22 @@ fn default_entrypoint() -> String {
 
 fn default_run_command() -> String {
     "sh".to_string()
+}
+
+fn default_scope_separator() -> String {
+    " ".to_string()
+}
+
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+pub struct OAuthConfig {
+    pub auth_url: String,
+    pub token_url: String,
+    pub client_id_env: String,
+    pub client_secret_env: String,
+    pub refresh_token_env: String,
+    pub scopes: Vec<String>,
+    #[serde(default = "default_scope_separator")]
+    pub scope_separator: String,
 }
 
 #[async_trait]
@@ -492,6 +512,7 @@ impl SkillManager {
             doc_files,
             skill_dir: skill_dir.clone(),
             privileged: false,
+            oauth: None,
         };
 
         // 7. Write files to disk
