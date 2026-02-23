@@ -9,6 +9,14 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/moxxy-ai/moxxy/releases"><img src="https://img.shields.io/github/v/release/moxxy-ai/moxxy?style=flat-square&color=blue" alt="Release"></a>
+  <a href="https://github.com/moxxy-ai/moxxy/blob/main/LICENSE"><img src="https://img.shields.io/github/license/moxxy-ai/moxxy?style=flat-square" alt="License"></a>
+  <a href="https://github.com/moxxy-ai/moxxy/stargazers"><img src="https://img.shields.io/github/stars/moxxy-ai/moxxy?style=flat-square" alt="Stars"></a>
+  <a href="https://github.com/moxxy-ai/moxxy/issues"><img src="https://img.shields.io/github/issues/moxxy-ai/moxxy?style=flat-square" alt="Issues"></a>
+  <a href="https://github.com/moxxy-ai/moxxy/actions"><img src="https://img.shields.io/github/actions/workflow/status/moxxy-ai/moxxy/ci.yml?style=flat-square&label=build" alt="Build"></a>
+</p>
+
+<p align="center">
   <a href="https://docs.moxxy.ai">Documentation</a> · <a href="https://moxxy.ai">Website</a> · <a href="https://github.com/moxxy-ai/moxxy">GitHub</a>
 </p>
 
