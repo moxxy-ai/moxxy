@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.11.0](https://github.com/moxxy-ai/moxxy/compare/v0.10.0...v0.11.0) (2026-02-23)
+
+
+### Features
+
+* generic github skill ([#47](https://github.com/moxxy-ai/moxxy/issues/47)) ([86de97f](https://github.com/moxxy-ai/moxxy/commit/86de97f810b2e1c857b65028afce30aa31eac64e))
+
+
+### Bug Fixes
+
+* browser skill ([#50](https://github.com/moxxy-ai/moxxy/issues/50)) ([4a79238](https://github.com/moxxy-ai/moxxy/commit/4a79238fe32e2192e683be4478ee330720862660))
+* security fixes ([#48](https://github.com/moxxy-ai/moxxy/issues/48)) ([e5084cb](https://github.com/moxxy-ai/moxxy/commit/e5084cb3f5cfe64a1d162f5abf9f8688240a146c))
+
 ## [0.10.0](https://github.com/moxxy-ai/moxxy/compare/v0.9.0...v0.10.0) (2026-02-23)
 
 
