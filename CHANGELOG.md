@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.3](https://github.com/moxxy-ai/moxxy/compare/v0.8.2...v0.8.3) (2026-02-23)
+
+
+### Bug Fixes
+
+* telegram connection ([#35](https://github.com/moxxy-ai/moxxy/issues/35)) ([e23c774](https://github.com/moxxy-ai/moxxy/commit/e23c774efb1a0cb65e18f6c2503b9c992bd90921))
+
 ## [0.8.2](https://github.com/moxxy-ai/moxxy/compare/v0.8.1...v0.8.2) (2026-02-22)
 
 
