@@ -1,9 +1,9 @@
 name = "git"
-description = "Execute git commands in the agent's workspace."
-version = "v1.0.0"
+description = "Execute git commands and interact with GitHub repositories - create issues, fork repos, open pull requests, and more."
+version = "v2.0.0"
 needs_network = true
 needs_fs_read = true
 needs_fs_write = true
 needs_env = true
-run_command = "sh"
+run_command = "bash"
 entrypoint = "run.sh"

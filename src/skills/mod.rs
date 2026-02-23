@@ -614,7 +614,6 @@ impl SkillManager {
         "modify_schedule",
         "webhook",
         "openclaw_migrate",
-        "contribute",
         "osx_email",
     ];
 
