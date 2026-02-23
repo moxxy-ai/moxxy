@@ -1,6 +1,6 @@
 # Browser Skill
 
-Unified browser automation skill. Supports lightweight HTTP fetch for static pages and full interactive Chromium automation for JS-heavy sites.
+Unified browser automation skill. Supports lightweight HTTP fetch for static pages, web search, and full interactive Chromium automation for JS-heavy sites.
 
 ## Actions
 
@@ -8,6 +8,12 @@ Unified browser automation skill. Supports lightweight HTTP fetch for static pag
 Fetches a URL and returns readable text. Best for articles, docs, static pages.
 ```
 browser "fetch" "https://docs.python.org/3/library/asyncio.html"
+```
+
+### search (no browser needed, fast)
+Searches the web using DuckDuckGo and returns top results with titles, links, and snippets.
+```
+browser "search" "rust async runtime comparison"
 ```
 
 ### navigate (launches browser)
@@ -86,7 +92,10 @@ browser "wait" "2000"
 5. `browser "snapshot"` -- see the result page
 
 ## Tips
+- Use `search` to find information on the web before fetching specific pages
 - Use `fetch` for reading articles/documentation (faster, no browser startup)
 - Use `navigate` when you need JavaScript rendering or plan to interact with the page
+- If `fetch` returns a warning about JavaScript or anti-bot protection, switch to `navigate`
+- `fetch` will tell you if a page returned a 404 (don't retry) or 403 (use navigate instead)
 - Snapshot refs change after every navigation or page mutation -- always re-snapshot before interacting
 - The browser stays open between invocations for the same agent session
