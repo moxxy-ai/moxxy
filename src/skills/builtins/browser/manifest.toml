@@ -7,4 +7,4 @@ needs_fs_read = false
 needs_fs_write = false
 needs_env = false
 entrypoint = "run.sh"
-run_command = "sh"
+run_command = "bash"
