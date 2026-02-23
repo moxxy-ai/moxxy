@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use axum::{
     Router,
     extract::{Form, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::post,
 };
@@ -24,6 +24,8 @@ struct WhatsAppState {
     memory: Arc<Mutex<MemorySystem>>,
     skills: Arc<Mutex<SkillManager>>,
     llms: Arc<Mutex<LlmManager>>,
+    auth_token: String,
+    webhook_url: String,
 }
 
 // Twilio sends webhooks as application/x-www-form-urlencoded
@@ -56,10 +58,76 @@ fn build_twiml_response(message: &str) -> Response {
         .into_response()
 }
 
+/// Verify Twilio request signature (X-Twilio-Signature).
+/// Twilio signs requests using HMAC-SHA1 of the full URL + sorted POST params.
+fn verify_twilio_signature(
+    headers: &HeaderMap,
+    webhook_url: &str,
+    params: &[(&str, &str)],
+    auth_token: &str,
+) -> bool {
+    use base64::Engine;
+    use hmac::Mac;
+    use sha1::Sha1;
+    type HmacSha1 = hmac::Hmac<Sha1>;
+
+    let sig = match headers
+        .get("x-twilio-signature")
+        .and_then(|v| v.to_str().ok())
+    {
+        Some(s) => s,
+        None => return false,
+    };
+
+    // Build the data string: URL + sorted params key/value concatenated
+    let mut data = webhook_url.to_string();
+    let mut sorted_params: Vec<(&str, &str)> = params.to_vec();
+    sorted_params.sort_by_key(|(k, _)| *k);
+    for (k, v) in &sorted_params {
+        data.push_str(k);
+        data.push_str(v);
+    }
+
+    let mut mac = match HmacSha1::new_from_slice(auth_token.as_bytes()) {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    mac.update(data.as_bytes());
+    let expected = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+
+    // Constant-time comparison
+    if sig.len() != expected.len() {
+        return false;
+    }
+    sig.as_bytes()
+        .iter()
+        .zip(expected.as_bytes().iter())
+        .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+        == 0
+}
+
 async fn whatsapp_webhook(
     State(state): State<WhatsAppState>,
+    headers: HeaderMap,
     Form(payload): Form<TwilioIncomingMessage>,
 ) -> Response {
+    // Verify Twilio signature if auth token is configured
+    if !state.auth_token.is_empty() {
+        let params: Vec<(&str, &str)> = vec![
+            ("MessageSid", payload.message_sid.as_deref().unwrap_or("")),
+            ("From", &payload.from),
+            ("To", &payload.to),
+            ("Body", &payload.body),
+        ];
+        if !verify_twilio_signature(&headers, &state.webhook_url, &params, &state.auth_token) {
+            warn!(
+                "[{}] WhatsApp webhook signature verification failed",
+                state.agent_name
+            );
+            return (StatusCode::UNAUTHORIZED, "Invalid signature").into_response();
+        }
+    }
+
     let trigger_text = payload.body.trim();
     if trigger_text.is_empty() {
         return build_twiml_response("");
@@ -97,6 +165,7 @@ async fn whatsapp_webhook(
         state.memory,
         state.skills,
         None,
+        &state.agent_name,
     )
     .await
     {
@@ -168,23 +237,40 @@ impl LifecycleComponent for WhatsAppChannel {
                     let llms = llm_reg.get(&self.agent_name).expect("LLMs missing").clone();
                     let memory = mem_mutex.clone();
 
+                    // Load Twilio auth token for signature verification
+                    let auth_token = vault
+                        .get_secret("whatsapp_auth_token")
+                        .await
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default();
+                    if auth_token.is_empty() {
+                        warn!(
+                            "[{}] No whatsapp_auth_token in vault. Twilio webhook requests will NOT be verified. \
+                             Set 'whatsapp_auth_token' in the vault for security.",
+                            self.agent_name
+                        );
+                    }
+
                     let state = WhatsAppState {
                         agent_name: self.agent_name.clone(),
                         memory,
                         skills,
                         llms,
+                        auth_token,
+                        webhook_url: "http://127.0.0.1:3002/whatsapp/events".to_string(),
                     };
 
-                    // We reuse port 3002 for Twilio Webhooks
                     let app = Router::new()
                         .route("/whatsapp/events", post(whatsapp_webhook))
                         .with_state(state);
 
                     let agent_n = self.agent_name.clone();
                     tokio::spawn(async move {
-                        if let Ok(listener) = tokio::net::TcpListener::bind("0.0.0.0:3002").await {
+                        if let Ok(listener) = tokio::net::TcpListener::bind("127.0.0.1:3002").await
+                        {
                             info!(
-                                "[{}] WhatsApp (Twilio) Webhook listening at http://0.0.0.0:3002/whatsapp/events",
+                                "[{}] WhatsApp (Twilio) Webhook listening at http://127.0.0.1:3002/whatsapp/events",
                                 agent_n
                             );
                             if let Err(e) = axum::serve(listener, app).await {

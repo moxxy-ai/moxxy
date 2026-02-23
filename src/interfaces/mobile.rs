@@ -236,6 +236,7 @@ async fn handle_socket(mut socket: WebSocket, state: MobileState) {
                 if let (Some(skills_arc), Some(llm_arc), Some(mem_arc)) =
                     (skills_arc, llm_arc, mem_arc)
                 {
+                    let agent_name = state.agent_name.clone();
                     tokio::spawn(async move {
                         let _ = AutonomousBrain::execute_react_loop(
                             &prompt,
@@ -244,6 +245,7 @@ async fn handle_socket(mut socket: WebSocket, state: MobileState) {
                             mem_arc,
                             skills_arc,
                             None,
+                            &agent_name,
                         )
                         .await;
                     });
@@ -329,6 +331,7 @@ async fn chat_handler(
         mem_arc,
         skills_arc,
         None,
+        &state.agent_name,
     )
     .await;
 

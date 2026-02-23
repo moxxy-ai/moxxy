@@ -168,6 +168,7 @@ pub(super) async fn spawn_mcp_servers(
                                 skill_dir: PathBuf::new(),
                                 privileged: false,
                                 oauth: None,
+                                env_keys: Vec::new(),
                             };
 
                             skill_sys.register_skill(manifest);
@@ -216,12 +217,14 @@ pub(super) async fn schedule_persisted_jobs(
         let skill_clone = skill_sys_arc.clone();
         let prompt_str = scheduled.prompt.clone();
         let scheduled_name = scheduled.name.clone();
+        let agent_name_clone = name.to_string();
 
         match tokio_cron_scheduler::Job::new_async(scheduled.cron.as_str(), move |_uuid, mut _l| {
             let llm = llm_clone.clone();
             let mem = mem_clone.clone();
             let skills = skill_clone.clone();
             let p = prompt_str.clone();
+            let agent_name = agent_name_clone.clone();
 
             Box::pin(async move {
                 let _ = crate::core::brain::AutonomousBrain::execute_react_loop(
@@ -231,6 +234,7 @@ pub(super) async fn schedule_persisted_jobs(
                     mem,
                     skills,
                     None,
+                    &agent_name,
                 )
                 .await;
             })

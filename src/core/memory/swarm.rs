@@ -5,6 +5,12 @@ use super::MemorySystem;
 
 impl MemorySystem {
     pub async fn add_swarm_memory(&self, agent_name: &str, content: &str) -> Result<()> {
+        if content.len() > 2000 {
+            return Err(anyhow::anyhow!(
+                "Swarm memory content exceeds 2000 character limit ({} chars)",
+                content.len()
+            ));
+        }
         let db = self.global_db.lock().await;
         db.execute(
             "INSERT INTO global_docs (agent_source, content) VALUES (?1, ?2)",

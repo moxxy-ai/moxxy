@@ -31,6 +31,12 @@ impl MemorySystem {
         if !workspace_dir.exists() {
             fs::create_dir_all(&workspace_dir).await?;
         }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ =
+                fs::set_permissions(&workspace_dir, std::fs::Permissions::from_mode(0o700)).await;
+        }
 
         let stm_path = workspace_dir.join("current.md");
         if !stm_path.exists() {
@@ -52,7 +58,12 @@ impl MemorySystem {
         }
 
         let db_path = workspace_dir.join("memory.db");
-        let db = Connection::open(db_path)?;
+        let db = Connection::open(&db_path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&db_path, std::fs::Permissions::from_mode(0o600));
+        }
 
         db.execute(
             "CREATE TABLE IF NOT EXISTS short_term_memory (
@@ -137,7 +148,13 @@ impl MemorySystem {
         // Swarm Intelligence: Global Knowledge Base shared across all agents
         let home = dirs::home_dir().expect("Could not find home directory");
         let swarm_db_path = home.join(".moxxy").join("swarm.db");
-        let global_db = Connection::open(swarm_db_path)?;
+        let global_db = Connection::open(&swarm_db_path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ =
+                std::fs::set_permissions(&swarm_db_path, std::fs::Permissions::from_mode(0o600));
+        }
 
         global_db.execute(
             "CREATE TABLE IF NOT EXISTS global_docs (

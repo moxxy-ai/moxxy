@@ -6,6 +6,22 @@ use axum::{
 use super::super::AppState;
 use super::channels::find_agent_with_secret_value;
 
+fn validate_agent_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.len() > 64 {
+        return Err("Agent name must be 1-64 characters".to_string());
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(
+            "Agent name must contain only alphanumeric characters, underscores, and dashes"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
 pub async fn get_agents(State(state): State<AppState>) -> Json<serde_json::Value> {
     let reg = state.registry.lock().await;
     let agents: Vec<String> = reg.keys().cloned().collect();
@@ -28,6 +44,10 @@ pub async fn create_agent_endpoint(
     Json(payload): Json<CreateAgentRequest>,
 ) -> Json<serde_json::Value> {
     let name = payload.name;
+
+    if let Err(e) = validate_agent_name(&name) {
+        return Json(serde_json::json!({ "success": false, "error": e }));
+    }
 
     let home = dirs::home_dir().expect("Could not find home directory");
     let agents_dir = home.join(".moxxy").join("agents");
@@ -212,6 +232,10 @@ pub async fn delete_agent_endpoint(
     Path(agent): Path<String>,
     State(state): State<AppState>,
 ) -> Json<serde_json::Value> {
+    if let Err(e) = validate_agent_name(&agent) {
+        return Json(serde_json::json!({ "success": false, "error": e }));
+    }
+
     if agent == "default" {
         return Json(
             serde_json::json!({ "success": false, "error": "Cannot delete the default agent." }),

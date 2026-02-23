@@ -11,6 +11,11 @@ pub async fn gateway_start(
     args: &[String],
 ) -> Result<()> {
     std::fs::create_dir_all(run_dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(run_dir, std::fs::Permissions::from_mode(0o700));
+    }
     if pid_file.exists() && std::fs::read_to_string(pid_file).is_ok() {
         print_warn("Daemon is already running. Use 'moxxy gateway stop' first.");
         return Ok(());

@@ -54,6 +54,15 @@ pub async fn set_vault_secret(
     }
 }
 
+/// Mask a secret value for safe display (show first 4 chars + asterisks).
+fn mask_secret(value: &str) -> String {
+    if value.len() <= 4 {
+        "*".repeat(value.len())
+    } else {
+        format!("{}****", &value[..4])
+    }
+}
+
 pub async fn get_vault_secret(
     Path((agent, key)): Path<(String, String)>,
     State(state): State<AppState>,
@@ -63,11 +72,17 @@ pub async fn get_vault_secret(
         let mem = mem_mutex.lock().await;
         let vault = crate::core::vault::SecretsVault::new(mem.get_db());
         match vault.get_secret(&key).await {
-            Ok(Some(value)) => Json(serde_json::json!({ "success": true, "value": value })),
+            Ok(Some(value)) => {
+                // Never return plaintext secrets via API. Return masked value only.
+                let masked = mask_secret(&value);
+                Json(serde_json::json!({ "success": true, "exists": true, "masked_value": masked }))
+            }
             Ok(None) => Json(
                 serde_json::json!({ "success": false, "error": format!("Secret '{}' not found in vault", key) }),
             ),
-            Err(e) => Json(serde_json::json!({ "success": false, "error": e.to_string() })),
+            Err(_e) => {
+                Json(serde_json::json!({ "success": false, "error": "Failed to read secret" }))
+            }
         }
     } else {
         Json(serde_json::json!({ "success": false, "error": "Agent not found" }))

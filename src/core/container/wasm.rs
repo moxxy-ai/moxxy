@@ -13,6 +13,20 @@ use crate::skills::SkillManager;
 use super::config::ContainerConfig;
 use super::profiles::ImageProfile;
 
+/// Safely read a UTF-8 string from WASM linear memory with bounds checking.
+fn safe_read_str(data: &[u8], ptr: u32, len: u32) -> String {
+    let start = ptr as usize;
+    let Some(end) = start.checked_add(len as usize) else {
+        return String::new();
+    };
+    if end > data.len() {
+        return String::new();
+    }
+    std::str::from_utf8(&data[start..end])
+        .unwrap_or("")
+        .to_string()
+}
+
 struct HostState {
     wasi: WasiP1Ctx,
     response_buffer: Vec<u8>,
@@ -241,11 +255,12 @@ impl AgentContainer {
                         return err.len() as u32;
                     };
                     let data = mem.data(&caller);
-                    let prompt = std::str::from_utf8(
-                        &data[prompt_ptr as usize..(prompt_ptr + prompt_len) as usize],
-                    )
-                    .unwrap_or("")
-                    .to_string();
+                    let prompt = safe_read_str(data, prompt_ptr, prompt_len);
+                    if prompt.is_empty() && prompt_len > 0 {
+                        let err = b"ERROR: Invalid memory access in host_invoke_llm";
+                        caller.data_mut().response_buffer = err.to_vec();
+                        return err.len() as u32;
+                    }
 
                     let Some(bridge) = caller.data().bridge.as_ref() else {
                         let err = b"ERROR: Host bridge not initialized";
@@ -308,8 +323,13 @@ impl AgentContainer {
                     return err.len() as u32;
                 };
                 let data = mem.data(&caller);
-                let name = std::str::from_utf8(&data[name_ptr as usize..(name_ptr + name_len) as usize]).unwrap_or("").to_string();
-                let args_str = std::str::from_utf8(&data[args_ptr as usize..(args_ptr + args_len) as usize]).unwrap_or("").to_string();
+                let name = safe_read_str(data, name_ptr, name_len);
+                let args_str = safe_read_str(data, args_ptr, args_len);
+                if name.is_empty() && name_len > 0 {
+                    let err = b"ERROR: Invalid memory access in host_execute_skill";
+                    caller.data_mut().response_buffer = err.to_vec();
+                    return err.len() as u32;
+                }
 
                 let Some(bridge) = caller.data().bridge.as_ref() else {
                     let err = b"ERROR: Host bridge not initialized";
@@ -437,16 +457,16 @@ impl AgentContainer {
                         return;
                     };
                     let data = mem.data(&caller);
-                    let role = std::str::from_utf8(
-                        &data[role_ptr as usize..(role_ptr + role_len) as usize],
-                    )
-                    .unwrap_or("SYSTEM")
-                    .to_string();
-                    let content = std::str::from_utf8(
-                        &data[content_ptr as usize..(content_ptr + content_len) as usize],
-                    )
-                    .unwrap_or("")
-                    .to_string();
+                    let role = safe_read_str(data, role_ptr, role_len);
+                    let role = if role.is_empty() {
+                        "SYSTEM".to_string()
+                    } else {
+                        role
+                    };
+                    let content = safe_read_str(data, content_ptr, content_len);
+                    if content.is_empty() && content_len > 0 {
+                        return; // Invalid memory access, skip silently
+                    }
 
                     info!(
                         "WASM host_write_memory: role={}, content={} chars",
@@ -486,8 +506,14 @@ impl AgentContainer {
                     else {
                         return 0;
                     };
-                    mem.data_mut(&mut caller)[out_ptr as usize..out_ptr as usize + copy_len]
-                        .copy_from_slice(&response[..copy_len]);
+                    let start = out_ptr as usize;
+                    let Some(end) = start.checked_add(copy_len) else {
+                        return 0;
+                    };
+                    if end > mem.data(&caller).len() {
+                        return 0;
+                    }
+                    mem.data_mut(&mut caller)[start..end].copy_from_slice(&response[..copy_len]);
                     copy_len as u32
                 },
             )?;

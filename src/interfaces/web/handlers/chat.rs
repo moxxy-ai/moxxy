@@ -60,6 +60,7 @@ pub async fn chat_endpoint(
                 mem,
                 skills,
                 None,
+                &agent,
             )
             .await
             {
@@ -98,6 +99,7 @@ pub async fn chat_stream_endpoint(
 
         let (tx, rx) = tokio::sync::mpsc::channel::<String>(32);
         let prompt = payload.prompt.clone();
+        let agent_name = agent.clone();
 
         tokio::spawn(async move {
             if let Some(container) = wasm_container {
@@ -132,6 +134,7 @@ pub async fn chat_stream_endpoint(
                     mem,
                     skills,
                     Some(tx),
+                    &agent_name,
                 )
                 .await;
             }

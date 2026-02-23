@@ -32,6 +32,10 @@ pub struct SkillManifest {
     #[serde(default)]
     pub needs_env: bool,
 
+    /// When non-empty, only inject these vault keys (instead of all secrets).
+    #[serde(default)]
+    pub env_keys: Vec<String>,
+
     // Optional path to the executable script (defaults to run.sh)
     #[serde(default = "default_entrypoint")]
     pub entrypoint: String,
@@ -136,6 +140,9 @@ impl SkillExecution {
                 };
                 let mut docs = String::new();
                 for filename in &files {
+                    if validate_filename(filename).is_err() {
+                        continue;
+                    }
                     let path = manifest.skill_dir.join(filename);
                     if let Ok(content) = tokio::fs::read_to_string(&path).await {
                         if !docs.is_empty() {
@@ -209,6 +216,51 @@ fn parse_yaml_frontmatter(content: &str) -> Result<(OpenclawFrontmatter, String)
     let body = &after_first[end_idx + 4..];
     let frontmatter: OpenclawFrontmatter = serde_yaml::from_str(yaml_str)?;
     Ok((frontmatter, body.to_string()))
+}
+
+/// Validate a filename to prevent directory traversal attacks.
+fn validate_filename(name: &str) -> Result<()> {
+    if name.contains("..") || name.starts_with('/') || name.starts_with('\\') || name.contains('\0')
+    {
+        return Err(anyhow::anyhow!(
+            "Invalid filename '{}': must not contain '..', start with '/' or '\\', or contain null bytes",
+            name
+        ));
+    }
+    Ok(())
+}
+
+/// Validate that a URL is not targeting localhost or private networks (SSRF protection).
+fn validate_url_not_local(url: &str) -> Result<()> {
+    let parsed =
+        url::Url::parse(url).map_err(|e| anyhow::anyhow!("Invalid URL '{}': {}", url, e))?;
+    if let Some(host) = parsed.host_str() {
+        let host_lower = host.to_lowercase();
+        if host_lower == "localhost"
+            || host_lower == "127.0.0.1"
+            || host_lower == "::1"
+            || host_lower == "[::1]"
+            || host_lower == "0.0.0.0"
+            || host_lower.starts_with("10.")
+            || host_lower.starts_with("192.168.")
+            || host_lower.starts_with("172.16.")
+            || host_lower.starts_with("172.17.")
+            || host_lower.starts_with("172.18.")
+            || host_lower.starts_with("172.19.")
+            || host_lower.starts_with("172.2")
+            || host_lower.starts_with("172.30.")
+            || host_lower.starts_with("172.31.")
+            || host_lower.ends_with(".local")
+            || host_lower == "metadata.google.internal"
+            || host_lower == "169.254.169.254"
+        {
+            return Err(anyhow::anyhow!(
+                "URL '{}' targets a local or private network address, which is not allowed for security reasons",
+                url
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Built-in skills that are granted full host access (bypass workspace sandbox).
@@ -430,6 +482,9 @@ impl SkillManager {
     }
 
     pub async fn install_openclaw_skill(&mut self, url: &str) -> Result<()> {
+        // Validate URL is not targeting localhost/private networks (SSRF protection)
+        validate_url_not_local(url)?;
+
         let client = reqwest::Client::new();
 
         // 1. Fetch the primary skill.md
@@ -475,6 +530,14 @@ impl SkillManager {
                         if normalized == "skill.md" {
                             continue;
                         }
+                        if validate_filename(&normalized).is_err() {
+                            warn!("Skipping remote file with invalid name: {}", normalized);
+                            continue;
+                        }
+                        if validate_url_not_local(file_url).is_err() {
+                            warn!("Skipping remote file with local/private URL: {}", file_url);
+                            continue;
+                        }
                         if let Ok(resp) = client.get(file_url).send().await {
                             if let Ok(content) = resp.text().await {
                                 additional_docs.push((normalized.clone(), content));
@@ -513,6 +576,7 @@ impl SkillManager {
             skill_dir: skill_dir.clone(),
             privileged: false,
             oauth: None,
+            env_keys: Vec::new(),
         };
 
         // 7. Write files to disk
@@ -594,6 +658,8 @@ impl SkillManager {
         let skill_dir = manifest.skill_dir.clone();
         let is_openclaw = manifest.executor_type == "openclaw";
 
+        validate_filename(file_name)?;
+
         if is_openclaw {
             if file_name != "manifest.toml" && !file_name.ends_with(".md") {
                 return Err(anyhow::anyhow!(
@@ -616,6 +682,19 @@ impl SkillManager {
         if file_name == "manifest.toml" {
             let mut new_manifest: SkillManifest = toml::from_str(content)
                 .map_err(|e| anyhow::anyhow!("Invalid manifest TOML: {}", e))?;
+
+            // Prevent privilege escalation: the manifest name must match the
+            // original skill name. Changing it to a PRIVILEGED_SKILLS entry
+            // would grant unintended host access.
+            if new_manifest.name != skill_name {
+                return Err(anyhow::anyhow!(
+                    "Cannot change skill name via manifest modification (was '{}', got '{}'). \
+                     Remove and reinstall the skill instead.",
+                    skill_name,
+                    new_manifest.name
+                ));
+            }
+
             new_manifest.skill_dir = skill_dir;
             // Only hardcoded built-in skills can be privileged
             new_manifest.privileged = PRIVILEGED_SKILLS.contains(&new_manifest.name.as_str());

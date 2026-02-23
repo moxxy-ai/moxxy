@@ -5,6 +5,54 @@ use axum::{
 
 use super::super::AppState;
 
+/// Default allowed MCP server commands. Users can extend this by creating
+/// `~/.moxxy/allowed_mcp_commands.txt` with one command per line.
+const DEFAULT_MCP_COMMANDS: &[&str] = &[
+    "npx", "uvx", "node", "python", "python3", "docker", "deno", "bun",
+];
+
+fn is_mcp_command_allowed(command: &str) -> bool {
+    let base_cmd = std::path::Path::new(command)
+        .file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or(command);
+
+    if DEFAULT_MCP_COMMANDS.contains(&base_cmd) {
+        return true;
+    }
+
+    // Check user-configured allowlist
+    if let Some(home) = dirs::home_dir() {
+        let allowlist_path = home.join(".moxxy").join("allowed_mcp_commands.txt");
+        if let Ok(contents) = std::fs::read_to_string(&allowlist_path) {
+            for line in contents.lines() {
+                let line = line.trim();
+                if !line.is_empty() && !line.starts_with('#') && line == base_cmd {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
+fn allowed_commands_list() -> String {
+    let mut cmds: Vec<String> = DEFAULT_MCP_COMMANDS.iter().map(|s| s.to_string()).collect();
+    if let Some(home) = dirs::home_dir() {
+        let allowlist_path = home.join(".moxxy").join("allowed_mcp_commands.txt");
+        if let Ok(contents) = std::fs::read_to_string(&allowlist_path) {
+            for line in contents.lines() {
+                let line = line.trim();
+                if !line.is_empty() && !line.starts_with('#') {
+                    cmds.push(line.to_string());
+                }
+            }
+        }
+    }
+    cmds.join(", ")
+}
+
 pub async fn get_mcp_servers_endpoint(
     Path(agent): Path<String>,
     State(state): State<AppState>,
@@ -42,6 +90,17 @@ pub async fn add_mcp_server_endpoint(
         return Json(serde_json::json!({
             "success": false,
             "error": "name and command are required"
+        }));
+    }
+
+    if !is_mcp_command_allowed(&command) {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": format!(
+                "Command '{}' is not allowed. Allowed: {}. Add custom commands to ~/.moxxy/allowed_mcp_commands.txt",
+                command,
+                allowed_commands_list()
+            )
         }));
     }
 
