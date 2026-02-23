@@ -90,7 +90,7 @@ pub async fn run_token_command(args: &[String]) -> Result<()> {
                                 style(token).green().bold()
                             );
                             println!(
-                                "  {} Save this token now — it will not be shown again.",
+                                "  {} Save this token now - it will not be shown again.",
                                 style("⚠").yellow()
                             );
                             println!(

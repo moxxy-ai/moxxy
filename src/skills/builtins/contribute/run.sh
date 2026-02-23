@@ -21,10 +21,10 @@ if [ -z "$GITHUB_TOKEN" ]; then
     echo ""
     echo "To use the contribute skill, you need a GitHub Personal Access Token."
     echo ""
-    echo "Option 1 — Set it via the web dashboard:"
+    echo "Option 1 - Set it via the web dashboard:"
     echo "  Go to the Vault tab → Add a secret with the exact name: GITHUB_TOKEN"
     echo ""
-    echo "Option 2 — Set it via the vault skill:"
+    echo "Option 2 - Set it via the vault skill:"
     echo '  <invoke name="manage_vault">["set", "GITHUB_TOKEN", "ghp_your_token_here"]</invoke>'
     echo ""
     echo "How to create a token:"
@@ -109,7 +109,7 @@ case "$ACTION" in
         GITHUB_USER=$(echo "$user_body" | jq -r '.login')
         echo "Authenticated as: $GITHUB_USER"
 
-        # Step 2: Fork the repo (idempotent — GitHub returns existing fork if one exists)
+        # Step 2: Fork the repo (idempotent - GitHub returns existing fork if one exists)
         echo "Ensuring fork exists..."
         fork_response=$(curl -s -w "\n%{http_code}" -X POST "$API/repos/$REPO/forks" \
             -H "$AUTH_HEADER" \
@@ -243,7 +243,7 @@ $DESCRIPTION
             -H "$AUTH_HEADER" \
             -H "Accept: application/vnd.github+json")
 
-        echo "$issues_response" | jq -r '.[] | select(.pull_request == null) | "#\(.number) \(.title) (\(.state)) — \(.html_url)"' 2>/dev/null
+        echo "$issues_response" | jq -r '.[] | select(.pull_request == null) | "#\(.number) \(.title) (\(.state)) - \(.html_url)"' 2>/dev/null
         issue_count=$(echo "$issues_response" | jq '[.[] | select(.pull_request == null)] | length' 2>/dev/null)
         if [ "$issue_count" = "0" ] || [ -z "$issue_count" ]; then
             echo "  No open issues."
@@ -255,7 +255,7 @@ $DESCRIPTION
             -H "$AUTH_HEADER" \
             -H "Accept: application/vnd.github+json")
 
-        echo "$prs_response" | jq -r --arg user "$GITHUB_USER" '.[] | select(.user.login == $user) | "#\(.number) \(.title) [\(if .draft then "DRAFT" else "OPEN" end)] — \(.html_url)"' 2>/dev/null
+        echo "$prs_response" | jq -r --arg user "$GITHUB_USER" '.[] | select(.user.login == $user) | "#\(.number) \(.title) [\(if .draft then "DRAFT" else "OPEN" end)] - \(.html_url)"' 2>/dev/null
         pr_count=$(echo "$prs_response" | jq --arg user "$GITHUB_USER" '[.[] | select(.user.login == $user)] | length' 2>/dev/null)
         if [ "$pr_count" = "0" ] || [ -z "$pr_count" ]; then
             echo "  No open PRs."

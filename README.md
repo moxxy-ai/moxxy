@@ -205,17 +205,17 @@ Voice messages are supported via OpenAI Whisper (configurable).
 
 moxxy enforces strict workspace isolation for agents through multiple security layers:
 
-**Workspace confinement** — Every agent's file operations are restricted to `~/.moxxy/agents/<name>/workspace/`. There is no mechanism for an agent to read or write files outside this directory.
+**Workspace confinement** - Every agent's file operations are restricted to `~/.moxxy/agents/<name>/workspace/`. There is no mechanism for an agent to read or write files outside this directory.
 
-**Privilege tiers** — Skills are divided into privileged (hardcoded built-in skills with full host access: `host_shell`, `host_python`, `computer_control`, `evolve_core`, `browser`, `osx_email`) and sandboxed (all other skills, including agent-installed ones). Agent-installed skills cannot escalate to privileged status.
+**Privilege tiers** - Skills are divided into privileged (hardcoded built-in skills with full host access: `host_shell`, `host_python`, `computer_control`, `evolve_core`, `browser`, `osx_email`) and sandboxed (all other skills, including agent-installed ones). Agent-installed skills cannot escalate to privileged status.
 
-**OS-level sandboxing** — Non-privileged skills execute inside an OS sandbox (`sandbox-exec` on macOS, `bwrap` on Linux) that enforces read-write access only to the agent's workspace directory at the kernel level.
+**OS-level sandboxing** - Non-privileged skills execute inside an OS sandbox (`sandbox-exec` on macOS, `bwrap` on Linux) that enforces read-write access only to the agent's workspace directory at the kernel level.
 
-**Environment isolation** — Sandboxed skills receive a clean environment with no internal API tokens, no access to the agent's home directory, and no source directory paths. Without the internal token, sandboxed skills cannot call host proxy endpoints.
+**Environment isolation** - Sandboxed skills receive a clean environment with no internal API tokens, no access to the agent's home directory, and no source directory paths. Without the internal token, sandboxed skills cannot call host proxy endpoints.
 
-**Host proxy authentication** — The host proxy (`execute_bash`, `execute_python`, `execute_applescript`) always requires the internal token, even in dev mode. Working directory parameters are validated to stay within `~/.moxxy/`.
+**Host proxy authentication** - The host proxy (`execute_bash`, `execute_python`, `execute_applescript`) always requires the internal token, even in dev mode. Working directory parameters are validated to stay within `~/.moxxy/`.
 
-**WASM containerization** — Agents can optionally run their brain (ReAct loop) inside a WASM container for defense-in-depth. WASM preopened directories are restricted to `./workspace` only, with path traversal protection via canonicalization.
+**WASM containerization** - Agents can optionally run their brain (ReAct loop) inside a WASM container for defense-in-depth. WASM preopened directories are restricted to `./workspace` only, with path traversal protection via canonicalization.
 
 Configure WASM mode in `container.toml`:
 
@@ -231,7 +231,7 @@ max_memory_mb = 128
 env_inherit = false
 ```
 
-## Contributing — Humans and Agents Welcome
+## Contributing - Humans and Agents Welcome
 
 We welcome contributions from humans **and** their AI agents. If you're using moxxy and your agent has an idea for improving the framework, it can contribute directly.
 
@@ -239,9 +239,9 @@ We welcome contributions from humans **and** their AI agents. If you're using mo
 
 Every moxxy agent ships with a built-in `contribute` skill that can:
 
-- **Suggest features** — create a GitHub issue describing the idea
-- **Implement changes** — fork the repo, make changes on a branch, and open a draft PR
-- **Check status** — see your open issues and PRs
+- **Suggest features** - create a GitHub issue describing the idea
+- **Implement changes** - fork the repo, make changes on a branch, and open a draft PR
+- **Check status** - see your open issues and PRs
 
 All your agent needs is a `GITHUB_TOKEN` stored in its vault (go to Vault tab in the web dashboard or use the `manage_vault` skill). Then it can suggest and implement improvements autonomously.
 
@@ -253,7 +253,7 @@ All your agent needs is a `GITHUB_TOKEN` stored in its vault (go to Vault tab in
 → Agent forks, codes the change, and opens a draft PR
 ```
 
-AI-authored PRs are opened as **drafts** so a maintainer always reviews before merging. Every contribution — whether from a human, an agent, or a collaboration — is valued equally.
+AI-authored PRs are opened as **drafts** so a maintainer always reviews before merging. Every contribution - whether from a human, an agent, or a collaboration - is valued equally.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup and guidelines.
 
@@ -270,12 +270,12 @@ How moxxy compares to similar self-hosted AI agent frameworks:
 | **LLM providers** | OpenAI, Google Gemini, Z.Ai (Grok) | Anthropic, OpenAI (with failover) | OpenAI-compatible, Anthropic, OpenRouter, custom |
 | **Channels** | Web, TUI, Telegram, Discord, Slack, WhatsApp | 13+ (WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Teams, Matrix, Google Chat, Zalo, WebChat) | CLI, Telegram, Discord, Slack, Mattermost, iMessage, Matrix, Signal, WhatsApp |
 | **Memory** | Per-agent SQLite (STM + LTM with vec0 embeddings) + shared swarm.db | Session-based with compacting/summarization | SQLite hybrid search (vectors + FTS5), PostgreSQL, or Markdown |
-| **Swarm / multi-agent** | Yes — agents share facts via `[ANNOUNCE]` tags | No | No |
+| **Swarm / multi-agent** | Yes - agents share facts via `[ANNOUNCE]` tags | No | No |
 | **Skill system** | Shell/Python scripts with manifest.toml, MCP servers | ClawHub skill registry + SKILL.md | Shell, file, HTTP, git, browser, cron tools |
 | **Sandboxing** | OS-level sandbox (sandbox-exec / bwrap) + optional WASM containers, workspace-confined agents | Chrome profile isolation, macOS TCC | Docker sandbox (WASM planned) |
 | **Voice** | Whisper transcription (Telegram) | ElevenLabs + Wake/Talk Mode overlay | No |
 | **Desktop/mobile apps** | Web dashboard, macOS hotkey, mobile endpoint | macOS menu bar app, iOS & Android companion apps | No |
-| **Self-modification** | Yes — `evolve_core` skill in dev mode | No | No |
+| **Self-modification** | Yes - `evolve_core` skill in dev mode | No | No |
 | **Binary size / footprint** | Single binary (~12 MB), ~20 MB RAM | Node.js process, higher baseline | Single binary, <5 MB RAM |
 | **License** | MIT | MIT | Apache 2.0 + MIT |
 

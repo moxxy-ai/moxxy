@@ -10,7 +10,7 @@ When an external service sends an event to a registered webhook URL, you will be
 `<invoke name="webhook">["register", "name", "source_slug", "prompt_template", "secret"]</invoke>`
 
 - **name**: Human-friendly identifier (e.g. "stripe-payments")
-- **source_slug**: URL path segment — alphanumeric, hyphens, underscores only (e.g. "stripe")
+- **source_slug**: URL path segment - alphanumeric, hyphens, underscores only (e.g. "stripe")
 - **prompt_template**: Instructions prepended to every incoming payload
 - **secret** (optional): Shared secret for HMAC signature verification
 

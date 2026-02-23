@@ -85,7 +85,7 @@ export function AccessTokensPanel({
               <div className="mb-3">
                 <div className="p-3 border border-emerald-400/30 bg-emerald-400/5 rounded-sm mb-2">
                   <p className="text-[10px] uppercase tracking-widest text-amber-400 mb-2 font-bold">
-                    Save this token — it will not be shown again
+                    Save this token - it will not be shown again
                   </p>
                   <div className="flex items-center gap-2">
                     <code className="flex-grow text-sm text-emerald-400 font-mono bg-[#090d14] px-3 py-2 border border-[#1e304f] rounded-sm select-all break-all">
@@ -167,7 +167,7 @@ export function AccessTokensPanel({
           <>
             <div className="mb-3 p-3 border border-amber-400/20 bg-amber-400/5 rounded-sm">
               <p className="text-[10px] text-amber-400 tracking-wide">
-                {apiTokens.length} token{apiTokens.length !== 1 ? 's' : ''} configured — all API endpoints now require authentication.
+                {apiTokens.length} token{apiTokens.length !== 1 ? 's' : ''} configured - all API endpoints now require authentication.
               </p>
             </div>
             <div className="flex-grow overflow-y-auto scroll-styled flex flex-col gap-3">

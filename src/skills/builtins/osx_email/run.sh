@@ -309,14 +309,14 @@ do_permissive_read() {
 
     # Normal read: sanitize and return content
     if [ "$THREAT_COUNT" -eq 0 ]; then
-        # Clean email — strip HTML tags and return
+        # Clean email - strip HTML tags and return
         local content
         content=$(sed 's/<[^>]*>//g' "$filepath")
         local content_escaped
         content_escaped=$(printf '%s' "$content" | jq -Rs '.')
         printf '{"success":true,"verdict":"SAFE","threat_count":0,"content":%s}\n' "$content_escaped"
     else
-        # Threats found — redact dangerous lines
+        # Threats found - redact dangerous lines
         local redacted=""
         local line_num=0
         local in_body=0

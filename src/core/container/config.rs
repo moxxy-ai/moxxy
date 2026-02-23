@@ -45,7 +45,7 @@ fn default_filesystem() -> Vec<String> {
 }
 
 /// Allowed preopened directory names within the agent directory.
-/// Only `workspace` is permitted — agents access skills and memory via host bridge functions.
+/// Only `workspace` is permitted - agents access skills and memory via host bridge functions.
 const ALLOWED_FS_ENTRIES: &[&str] = &["workspace"];
 
 impl Default for RuntimeConfig {
@@ -78,7 +78,7 @@ impl ContainerConfig {
         let content = tokio::fs::read_to_string(&config_path).await?;
         let mut config: ContainerConfig = toml::from_str(&content)?;
 
-        // Security: validate filesystem entries — only allowed directories within agent dir.
+        // Security: validate filesystem entries - only allowed directories within agent dir.
         // Strip any entries that could escape the sandbox (e.g., "..", "/", ".", "./skills").
         let original_count = config.capabilities.filesystem.len();
         config.capabilities.filesystem.retain(|path| {

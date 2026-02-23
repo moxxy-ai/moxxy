@@ -44,7 +44,7 @@ pub async fn create_token(
                 "success": true,
                 "token": raw_token,
                 "record": record,
-                "message": "Token created. Save the token value — it will not be shown again."
+                "message": "Token created. Save the token value - it will not be shown again."
             })),
             Err(e) => Json(serde_json::json!({ "success": false, "error": e.to_string() })),
         }

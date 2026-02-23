@@ -1,6 +1,6 @@
 # contribute
 
-Suggest features or contribute code to the moxxy project via GitHub. This skill lets you create issues with feature ideas, fork the repo to implement changes, and open draft pull requests — all from within your agent.
+Suggest features or contribute code to the moxxy project via GitHub. This skill lets you create issues with feature ideas, fork the repo to implement changes, and open draft pull requests - all from within your agent.
 
 **Prerequisite:** A GitHub Personal Access Token must be stored in the vault under the exact name `GITHUB_TOKEN` (with `repo` scope).
 
@@ -53,5 +53,5 @@ Lists your open issues and pull requests on the moxxy repo.
 ## Notes
 - Issues are labeled as agent-submitted for easy identification by maintainers.
 - PRs are always opened as **drafts** so a human maintainer can review before merging.
-- The `implement` action clones to `/tmp/moxxy-contribute-*` — use `host_shell` to navigate there.
+- The `implement` action clones to `/tmp/moxxy-contribute-*` - use `host_shell` to navigate there.
 - You need `git` installed on the host system for the implement/submit actions.

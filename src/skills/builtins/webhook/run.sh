@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Built-in Skill: webhook
-# Unified webhook management — register, remove, enable, disable, update, list.
+# Unified webhook management - register, remove, enable, disable, update, list.
 
 ACTION=$1
 

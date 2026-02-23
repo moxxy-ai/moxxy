@@ -387,7 +387,7 @@ fn verify_webhook_signature(headers: &HeaderMap, body: &str, secret: &str) -> bo
         return constant_time_eq(sig.as_bytes(), expected.as_bytes());
     }
 
-    // No recognized signature header found — fail closed
+    // No recognized signature header found - fail closed
     false
 }
 
