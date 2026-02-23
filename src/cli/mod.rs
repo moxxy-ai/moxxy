@@ -329,9 +329,14 @@ pub async fn run_main() -> Result<()> {
                         let mut agent_arg: Option<String> = None;
                         let mut token_arg: Option<String> = None;
                         let mut pair_code_arg: Option<String> = None;
+                        let mut show_help = false;
                         let mut i = 3;
                         while i < args.len() {
                             match args[i].as_str() {
+                                "--help" | "-h" => {
+                                    show_help = true;
+                                    i += 1;
+                                }
                                 "--agent" | "-a" => {
                                     if i + 1 < args.len() {
                                         agent_arg = Some(args[i + 1].clone());
@@ -359,14 +364,51 @@ pub async fn run_main() -> Result<()> {
                                 _ => i += 1,
                             }
                         }
-                        channels::run_channel_telegram(agent_arg, token_arg, pair_code_arg).await?;
+                        if show_help {
+                            println!(
+                                "{}\n",
+                                style("moxxy channel telegram - Configure and pair a Telegram bot")
+                                    .bold()
+                            );
+                            println!("{}", style("Usage:").bold());
+                            println!("  moxxy channel telegram [OPTIONS]\n");
+                            println!("{}", style("Options:").bold());
+                            println!(
+                                "  --agent, -a <name>       Agent to bind the bot to (default: \"default\")"
+                            );
+                            println!("  --token <bot_token>      Bot token from @BotFather");
+                            println!(
+                                "  --pair-code, -c <code>   6-digit pairing code from the bot"
+                            );
+                            println!("  --help, -h               Show this help message\n");
+                            println!("{}", style("Examples:").bold());
+                            println!("  moxxy channel telegram");
+                            println!("  moxxy channel telegram --agent mybot");
+                            println!("  moxxy channel telegram --token 123456:ABC-DEF");
+                            println!("  moxxy channel telegram --pair-code 123456\n");
+                            println!("{}", style("Interactive mode:").bold());
+                            println!(
+                                "  Run without arguments to enter the interactive setup wizard."
+                            );
+                            println!(
+                                "  If a token is already configured, you can replace it or disconnect."
+                            );
+                        } else {
+                            channels::run_channel_telegram(agent_arg, token_arg, pair_code_arg)
+                                .await?;
+                        }
                     }
                     "discord" => {
                         let mut agent_arg: Option<String> = None;
                         let mut token_arg: Option<String> = None;
+                        let mut show_help = false;
                         let mut i = 3;
                         while i < args.len() {
                             match args[i].as_str() {
+                                "--help" | "-h" => {
+                                    show_help = true;
+                                    i += 1;
+                                }
                                 "--agent" | "-a" => {
                                     if i + 1 < args.len() {
                                         agent_arg = Some(args[i + 1].clone());
@@ -386,7 +428,28 @@ pub async fn run_main() -> Result<()> {
                                 _ => i += 1,
                             }
                         }
-                        channels::run_channel_discord(agent_arg, token_arg).await?;
+                        if show_help {
+                            println!(
+                                "{}\n",
+                                style("moxxy channel discord - Configure a Discord bot").bold()
+                            );
+                            println!("{}", style("Usage:").bold());
+                            println!("  moxxy channel discord [OPTIONS]\n");
+                            println!("{}", style("Options:").bold());
+                            println!(
+                                "  --agent, -a <name>    Agent to bind the bot to (default: \"default\")"
+                            );
+                            println!(
+                                "  --token <bot_token>   Bot token from Discord Developer Portal"
+                            );
+                            println!("  --help, -h            Show this help message\n");
+                            println!("{}", style("Examples:").bold());
+                            println!("  moxxy channel discord");
+                            println!("  moxxy channel discord --agent mybot");
+                            println!("  moxxy channel discord --token YOUR_BOT_TOKEN");
+                        } else {
+                            channels::run_channel_discord(agent_arg, token_arg).await?;
+                        }
                     }
                     _ => {
                         println!("{}", style("Usage: moxxy channel <type>").bold());
