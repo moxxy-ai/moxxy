@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.10.0](https://github.com/moxxy-ai/moxxy/compare/v0.9.0...v0.10.0) (2026-02-23)
+
+
+### Features
+
+* google workspace skill ([#45](https://github.com/moxxy-ai/moxxy/issues/45)) ([7b9dd1e](https://github.com/moxxy-ai/moxxy/commit/7b9dd1ea6712136859a0014f04373b8241fe8666))
+* osx mail skill ([#43](https://github.com/moxxy-ai/moxxy/issues/43)) ([549dcd9](https://github.com/moxxy-ai/moxxy/commit/549dcd98b403f243f6bfbb6654d9d5542951920f))
+* security redesign ([#46](https://github.com/moxxy-ai/moxxy/issues/46)) ([988bf3d](https://github.com/moxxy-ai/moxxy/commit/988bf3d158158e369a501d0e93ea7c401215168c))
+
+
+### Bug Fixes
+
+* cargo build ([220716a](https://github.com/moxxy-ai/moxxy/commit/220716aebe93eaaab4fa6de483e145a08652fb24))
+* emdashes to dashes ([429551e](https://github.com/moxxy-ai/moxxy/commit/429551ec4b35cdeb3ba3fa6adb4599c0983e76e0))
+
 ## [0.9.0](https://github.com/moxxy-ai/moxxy/compare/v0.8.3...v0.9.0) (2026-02-23)
 
 
