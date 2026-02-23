@@ -1,0 +1,10 @@
+name = "google_workspace"
+description = "Interact with Google Workspace services: Gmail (read, send, search emails), Google Drive (list, upload, download, share files), Google Calendar (events, scheduling), Google Chat (messages, spaces), Google Docs, and Google Sheets. Requires OAuth2 credentials in vault."
+version = "1.0.0"
+executor_type = "native"
+entrypoint = "run.sh"
+run_command = "bash"
+needs_network = true
+needs_fs_read = true
+needs_fs_write = true
+needs_env = true
