@@ -383,6 +383,19 @@ def main():
         url = "https://" + url
 
     try:
+        # Google News article redirect URLs require JavaScript to resolve.
+        # Give the agent clear guidance instead of returning empty content.
+        parsed_url = urllib.parse.urlparse(url)
+        if ("news.google.com" in (parsed_url.hostname or "")
+                and "/articles/" in parsed_url.path):
+            print(f"Google News article links (news.google.com/rss/articles/...) "
+                  f"are JavaScript redirects that cannot be fetched directly.\n\n"
+                  f"To read this article, try one of these approaches:\n"
+                  f"1. Use `browser navigate {url}` to follow the JS redirect and read the page\n"
+                  f"2. Search for the article title directly: `browser search \"<article title>\"`\n"
+                  f"   then `browser fetch <direct-url>` on the result")
+            sys.exit(0)
+
         # Auto-detect Google News and use RSS feed
         rss_url = google_news_to_rss(url)
         if rss_url:

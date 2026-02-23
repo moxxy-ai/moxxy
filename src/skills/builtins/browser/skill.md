@@ -83,8 +83,34 @@ Waits for a specified number of milliseconds.
 browser "wait" "2000"
 ```
 
-## Workflow Example
+## Common Workflows
 
+### Get latest news
+```
+browser "fetch" "https://news.google.com/"
+```
+Google News URLs are automatically converted to RSS feeds for clean, structured results. Works for:
+- Top headlines: `browser "fetch" "https://news.google.com/"`
+- Topic search: `browser "fetch" "https://news.google.com/search?q=AI&hl=en-US&gl=US"`
+
+### Research a topic
+1. `browser "search" "rust async runtime comparison"` -- find relevant pages
+2. `browser "fetch" "<url>"` -- read the most relevant result
+
+### Find recent articles about a subject
+1. `browser "search" "latest articles about Donald Trump 2026"` -- search with recent date
+2. `browser "fetch" "<url>"` for each interesting result to read the full article
+
+### Get sports results
+1. `browser "search" "Real Madrid vs Barcelona latest match result"` -- find score/recap
+2. `browser "fetch" "<url>"` -- read the match report
+
+### Compile a list of articles on a topic
+1. `browser "search" "<topic> news"` -- get a list of results
+2. `browser "fetch" "https://news.google.com/search?q=<topic>"` -- or use Google News for more results
+3. `browser "fetch" "<url>"` -- read individual articles as needed
+
+### Log into a website
 1. `browser "navigate" "https://github.com/login"` -- get page snapshot
 2. `browser "type" "3" "myuser"` -- type username into ref [3]
 3. `browser "type" "5" "mypassword"` -- type password into ref [5]
