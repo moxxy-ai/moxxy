@@ -2,7 +2,10 @@ use anyhow::Result;
 use async_trait::async_trait;
 use axum::{
     Router,
-    extract::{Json, State},
+    body::Bytes,
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Json, Response},
     routing::post,
 };
 use std::collections::HashMap;
@@ -23,6 +26,7 @@ struct SlackState {
     skills: Arc<Mutex<SkillManager>>,
     llms: Arc<Mutex<LlmManager>>,
     bot_token: String,
+    signing_secret: String,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -43,15 +47,91 @@ struct SlackEventDetails {
     bot_id: Option<String>,
 }
 
+/// Verify Slack request signature using the signing secret.
+fn verify_slack_signature(headers: &HeaderMap, body: &[u8], signing_secret: &str) -> bool {
+    use hmac::Mac;
+    use sha2::Sha256;
+    type HmacSha256 = hmac::Hmac<Sha256>;
+
+    let timestamp = match headers
+        .get("x-slack-request-timestamp")
+        .and_then(|v| v.to_str().ok())
+    {
+        Some(ts) => ts,
+        None => return false,
+    };
+
+    // Reject requests older than 5 minutes to prevent replay attacks
+    if let Ok(ts) = timestamp.parse::<u64>() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        if now.abs_diff(ts) > 300 {
+            return false;
+        }
+    }
+
+    let sig = match headers
+        .get("x-slack-signature")
+        .and_then(|v| v.to_str().ok())
+    {
+        Some(s) => s,
+        None => return false,
+    };
+
+    let sig_basestring = format!("v0:{}:{}", timestamp, String::from_utf8_lossy(body));
+
+    let mut mac = match HmacSha256::new_from_slice(signing_secret.as_bytes()) {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    mac.update(sig_basestring.as_bytes());
+    let expected = format!("v0={}", hex::encode(mac.finalize().into_bytes()));
+
+    // Constant-time comparison
+    if sig.len() != expected.len() {
+        return false;
+    }
+    sig.as_bytes()
+        .iter()
+        .zip(expected.as_bytes().iter())
+        .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+        == 0
+}
+
 async fn slack_webhook(
     State(state): State<SlackState>,
-    Json(payload): Json<SlackEventPayload>,
-) -> Json<serde_json::Value> {
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    // Verify signature if signing secret is configured
+    if !state.signing_secret.is_empty()
+        && !verify_slack_signature(&headers, &body, &state.signing_secret)
+    {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "Invalid signature" })),
+        )
+            .into_response();
+    }
+
+    let payload: SlackEventPayload = match serde_json::from_slice(&body) {
+        Ok(p) => p,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "Invalid JSON" })),
+            )
+                .into_response();
+        }
+    };
+
     // 1. Handle URL Verification Challenge required by Slack
     if payload.event_type == "url_verification"
         && let Some(challenge) = payload.challenge
     {
-        return Json(serde_json::json!({ "challenge": challenge }));
+        return Json(serde_json::json!({ "challenge": challenge })).into_response();
     }
 
     // 2. Handle actual messages
@@ -60,7 +140,7 @@ async fn slack_webhook(
     {
         // Ignore messages from ourselves or other bots
         if event.bot_id.is_some() {
-            return Json(serde_json::json!({ "status": "ignored_bot" }));
+            return Json(serde_json::json!({ "status": "ignored_bot" })).into_response();
         }
 
         if (event.inner_type == "message" || event.inner_type == "app_mention")
@@ -84,6 +164,7 @@ async fn slack_webhook(
                     state.memory,
                     state.skills,
                     None,
+                    &agent_name,
                 )
                 .await
                 {
@@ -121,7 +202,7 @@ async fn slack_webhook(
         }
     }
 
-    Json(serde_json::json!({ "status": "ok" }))
+    Json(serde_json::json!({ "status": "ok" })).into_response()
 }
 
 pub struct SlackChannel {
@@ -169,6 +250,21 @@ impl LifecycleComponent for SlackChannel {
                     self.agent_name
                 );
 
+                // Load signing secret for request signature verification
+                let signing_secret = vault
+                    .get_secret("slack_signing_secret")
+                    .await
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+                if signing_secret.is_empty() {
+                    warn!(
+                        "[{}] No slack_signing_secret in vault. Slack webhook requests will NOT be verified. \
+                         Set 'slack_signing_secret' in the vault for security.",
+                        self.agent_name
+                    );
+                }
+
                 let skill_reg = self.skill_registry.lock().await;
                 let llm_reg = self.llm_registry.lock().await;
 
@@ -185,18 +281,18 @@ impl LifecycleComponent for SlackChannel {
                     skills,
                     llms,
                     bot_token: token,
+                    signing_secret,
                 };
 
-                // The slack receiver will run on port 3001 specifically for Webhooks to avoid colliding with the WebDashboard on 3000
                 let app = Router::new()
                     .route("/slack/events", post(slack_webhook))
                     .with_state(state);
 
                 let agent_n = self.agent_name.clone();
                 tokio::spawn(async move {
-                    if let Ok(listener) = tokio::net::TcpListener::bind("0.0.0.0:3001").await {
+                    if let Ok(listener) = tokio::net::TcpListener::bind("127.0.0.1:3001").await {
                         info!(
-                            "[{}] Slack Webhook listening at http://0.0.0.0:3001/slack/events",
+                            "[{}] Slack Webhook listening at http://127.0.0.1:3001/slack/events",
                             agent_n
                         );
                         if let Err(e) = axum::serve(listener, app).await {

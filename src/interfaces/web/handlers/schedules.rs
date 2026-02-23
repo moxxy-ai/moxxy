@@ -47,7 +47,8 @@ pub async fn create_schedule_endpoint(
 ) -> Json<serde_json::Value> {
     let schedule_name = payload.name.trim().to_string();
     let cron_expr = payload.cron.trim().to_string();
-    let prompt_text = payload.prompt.trim().to_string();
+    // Sanitize schedule prompt to prevent invoke tag injection
+    let prompt_text = crate::core::brain::sanitize_invoke_tags(payload.prompt.trim()).to_string();
 
     if schedule_name.is_empty() || cron_expr.is_empty() || prompt_text.is_empty() {
         return Json(serde_json::json!({
@@ -113,12 +114,14 @@ pub async fn create_schedule_endpoint(
     let mem_for_job = mem_arc.clone();
     let skills_for_job = skill_arc.clone();
     let prompt_for_job = prompt_text.clone();
+    let agent_for_job = agent.clone();
     let cron_job =
         match tokio_cron_scheduler::Job::new_async(cron_expr.as_str(), move |_uuid, mut _l| {
             let llm = llm_for_job.clone();
             let mem = mem_for_job.clone();
             let skills = skills_for_job.clone();
             let p = prompt_for_job.clone();
+            let agent_name = agent_for_job.clone();
 
             Box::pin(async move {
                 let _ = crate::core::brain::AutonomousBrain::execute_react_loop(
@@ -128,6 +131,7 @@ pub async fn create_schedule_endpoint(
                     mem,
                     skills,
                     None,
+                    &agent_name,
                 )
                 .await;
             })

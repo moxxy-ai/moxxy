@@ -234,12 +234,27 @@ impl LifecycleComponent for WebServer {
                 "api_base": api_url
             });
 
+            let origins: Vec<axum::http::HeaderValue> = [
+                format!("http://127.0.0.1:{}", web_port),
+                format!("http://localhost:{}", web_port),
+                format!("http://127.0.0.1:{}", api_port),
+                format!("http://localhost:{}", api_port),
+            ]
+            .iter()
+            .filter_map(|o| o.parse().ok())
+            .collect();
+
+            let cors = CorsLayer::new()
+                .allow_origin(origins)
+                .allow_methods([axum::http::Method::GET, axum::http::Method::OPTIONS])
+                .allow_headers(tower_http::cors::Any);
+
             let app = Router::new()
                 .route(
                     "/config.json",
                     get(move || async move { Json(config_json.clone()) }),
                 )
-                .layer(CorsLayer::permissive())
+                .layer(cors)
                 .fallback(web_static_handler);
 
             let addr = format!("127.0.0.1:{}", web_port);

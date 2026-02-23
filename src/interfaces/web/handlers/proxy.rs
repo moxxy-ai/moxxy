@@ -27,9 +27,12 @@ fn verify_internal_token(
 /// Validate that a cwd path is within the moxxy directory.
 fn validate_cwd(cwd: &str) -> Result<(), Json<serde_json::Value>> {
     let cwd_path = std::path::Path::new(cwd);
-    let canonical = cwd_path
-        .canonicalize()
-        .unwrap_or_else(|_| cwd_path.to_path_buf());
+    let canonical = cwd_path.canonicalize().map_err(|_| {
+        Json(serde_json::json!({
+            "success": false,
+            "error": "403 Forbidden: cwd path does not exist or cannot be resolved."
+        }))
+    })?;
     let home = dirs::home_dir().expect("Could not find home directory");
     let moxxy_dir = home.join(".moxxy");
     if !canonical.starts_with(&moxxy_dir) {

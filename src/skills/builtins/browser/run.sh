@@ -83,19 +83,19 @@ if ! curl -sf "$BRIDGE_URL/health" >/dev/null 2>&1; then
     start_bridge
 fi
 
-# Build JSON payload
+# Build JSON payload (pass via env vars to prevent shell injection)
 if [ -n "$ARGS_JSON" ]; then
-    PAYLOAD=$(python3 -c "
-import json, sys
-action = '$ACTION'
-args = json.loads('$ARGS_JSON')
+    PAYLOAD=$(ACTION="$ACTION" ARGS_JSON="$ARGS_JSON" python3 -c "
+import json, os
+action = os.environ['ACTION']
+args = json.loads(os.environ['ARGS_JSON'])
 print(json.dumps({'action': action, 'args': args}))
 " 2>/dev/null)
 else
-    # Build from positional args
-    PAYLOAD=$(python3 -c "
-import json, sys
-action = '$ACTION'
+    # Build from positional args (safe: ${ARGS[@]} goes to sys.argv)
+    PAYLOAD=$(ACTION="$ACTION" python3 -c "
+import json, sys, os
+action = os.environ['ACTION']
 args = sys.argv[1:]
 print(json.dumps({'action': action, 'args': args}))
 " "${ARGS[@]}" 2>/dev/null)

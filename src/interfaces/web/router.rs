@@ -1,5 +1,9 @@
 use axum::{
-    Router, middleware,
+    Router,
+    body::Body,
+    http::{HeaderValue, Method, Request, header},
+    middleware,
+    middleware::Next,
     routing::{get, post},
 };
 use tower_http::cors::CorsLayer;
@@ -10,6 +14,29 @@ use super::handlers::{
     agents, channels, chat, config, mcp, memory, mobile, proxy, schedules, skills, tokens, vault,
     webhooks,
 };
+
+fn build_localhost_cors(api_port: u16, web_port: u16) -> CorsLayer {
+    let origins: Vec<HeaderValue> = [
+        format!("http://127.0.0.1:{}", api_port),
+        format!("http://localhost:{}", api_port),
+        format!("http://127.0.0.1:{}", web_port),
+        format!("http://localhost:{}", web_port),
+    ]
+    .iter()
+    .filter_map(|o| o.parse().ok())
+    .collect();
+
+    CorsLayer::new()
+        .allow_origin(origins)
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::DELETE,
+            Method::PATCH,
+            Method::OPTIONS,
+        ])
+        .allow_headers(tower_http::cors::Any)
+}
 
 pub fn build_api_router(state: AppState) -> Router {
     Router::new()
@@ -200,6 +227,24 @@ pub fn build_api_router(state: AppState) -> Router {
             state.clone(),
             auth::require_auth,
         ))
-        .layer(CorsLayer::permissive())
+        .layer(middleware::from_fn(security_headers))
+        .layer(build_localhost_cors(state.api_port, state.web_port))
         .with_state(state)
+}
+
+async fn security_headers(req: Request<Body>, next: Next) -> axum::response::Response {
+    let mut response = next.run(req).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'",
+        ),
+    );
+    response
 }
