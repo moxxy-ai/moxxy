@@ -311,6 +311,8 @@ impl SkillSandbox for NativeExecutor {
         let args_json = serde_json::to_string(args).unwrap_or_else(|_| "[]".to_string());
         cmd.env("MOXXY_ARGS_MODE", "stdin");
         cmd.stdin(std::process::Stdio::piped());
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
 
         let mut child = cmd.spawn()?;
         if let Some(mut stdin) = child.stdin.take() {

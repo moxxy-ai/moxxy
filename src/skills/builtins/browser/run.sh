@@ -18,22 +18,40 @@ fi
 
 if [ -z "$ACTION" ]; then
     echo "Usage: browser <action> [args...]"
-    echo "Actions: fetch, navigate, snapshot, click, type, screenshot, scroll, evaluate, back, forward, tabs, close, wait"
+    echo "Actions: fetch, search, navigate, snapshot, click, type, screenshot, scroll, evaluate, back, forward, tabs, close, wait"
     exit 1
 fi
 
 # --- fetch action: lightweight, no browser needed ---
 if [ "$ACTION" = "fetch" ]; then
-    URL="${ARGS[0]:-$ARGS_JSON}"
-    if [ -z "$URL" ]; then
-        # Try extracting from JSON args
-        URL=$(echo "$ARGS_JSON" | python3 -c "import sys,json; a=json.load(sys.stdin); print(a[0] if a else '')" 2>/dev/null)
+    # Extract URL from positional args or from ARGS_JSON
+    if [ -n "${ARGS[0]}" ]; then
+        URL="${ARGS[0]}"
+    elif [ -n "$ARGS_JSON" ]; then
+        URL=$(echo "$ARGS_JSON" | python3 -c "import sys,json; a=json.load(sys.stdin); print(a[0] if isinstance(a,list) and a else (a if isinstance(a,str) else ''))" 2>/dev/null)
     fi
     if [ -z "$URL" ]; then
         echo "Error: fetch requires a URL argument"
         exit 1
     fi
     python3 "$DIR/fetch.py" "$URL"
+    exit $?
+fi
+
+# --- search action: web search via DuckDuckGo, no browser needed ---
+if [ "$ACTION" = "search" ]; then
+    # Build query from positional args or ARGS_JSON
+    if [ -n "${ARGS[0]}" ]; then
+        QUERY="${ARGS[*]}"
+    elif [ -n "$ARGS_JSON" ]; then
+        QUERY=$(echo "$ARGS_JSON" | python3 -c "import sys,json; a=json.load(sys.stdin); print(' '.join(a) if isinstance(a,list) else str(a))" 2>/dev/null)
+    fi
+    if [ -z "$QUERY" ]; then
+        echo "Error: search requires a query argument"
+        echo "Usage: browser search <query>"
+        exit 1
+    fi
+    python3 "$DIR/fetch.py" --search "$QUERY"
     exit $?
 fi
 
