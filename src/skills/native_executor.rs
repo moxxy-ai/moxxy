@@ -3,15 +3,16 @@ use async_trait::async_trait;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::process::Command;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::core::vault::SecretsVault;
 use crate::skills::{SkillManifest, SkillSandbox};
 
 /// Native skill executor - runs skills directly on the host via `sh`.
 ///
-/// In the agent-level containerization model, the agent's container provides
-/// the isolation boundary, so skills execute natively within it.
+/// Skills are executed in one of two modes based on their `privileged` flag:
+/// - **Privileged**: Full host access (host_shell, host_python, etc.)
+/// - **Sandboxed**: Restricted to agent workspace, no internal token, OS-level sandbox
 pub struct NativeExecutor {
     vault: Arc<SecretsVault>,
     agent_name: String,
@@ -39,14 +40,163 @@ impl NativeExecutor {
             internal_token,
         }
     }
+
+    /// Build a sandboxed command that wraps the skill execution with OS-level filesystem isolation.
+    /// Returns the Command with sandbox wrapper applied, or a plain command if no sandbox is available.
+    #[allow(unused_variables)]
+    fn build_sandboxed_command(
+        &self,
+        manifest: &SkillManifest,
+        script_path: &std::path::Path,
+        workspace_path: &std::path::Path,
+    ) -> Command {
+        // Try OS-level sandbox first
+        #[cfg(target_os = "macos")]
+        {
+            if Self::has_sandbox_exec() {
+                return self.build_macos_sandbox(manifest, script_path, workspace_path);
+            }
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            if Self::has_bwrap() {
+                return self.build_linux_sandbox(manifest, script_path, workspace_path);
+            }
+        }
+
+        // Fallback: no OS-level sandbox available
+        warn!(
+            "No OS-level sandbox available for skill [{}]. Relying on environment restrictions only.",
+            manifest.name
+        );
+        let mut cmd = Command::new(&manifest.run_command);
+        cmd.arg(script_path);
+        cmd
+    }
+
+    #[cfg(target_os = "macos")]
+    fn has_sandbox_exec() -> bool {
+        std::path::Path::new("/usr/bin/sandbox-exec").exists()
+    }
+
+    #[cfg(target_os = "macos")]
+    fn build_macos_sandbox(
+        &self,
+        manifest: &SkillManifest,
+        script_path: &std::path::Path,
+        workspace_path: &std::path::Path,
+    ) -> Command {
+        let workspace_str = workspace_path.to_string_lossy();
+        let skill_dir_str = manifest.skill_dir.to_string_lossy();
+        let profile = format!(
+            r#"(version 1)
+(deny default)
+(allow process-exec)
+(allow process-fork)
+(allow file-read* (subpath "/usr"))
+(allow file-read* (subpath "/bin"))
+(allow file-read* (subpath "/etc"))
+(allow file-read* (subpath "/dev"))
+(allow file-read* (subpath "/tmp"))
+(allow file-read* (subpath "/private/tmp"))
+(allow file-read* (subpath "/var"))
+(allow file-read* (subpath "/Library"))
+(allow file-read* (subpath "/System"))
+(allow file-read* (subpath "/opt"))
+(allow file-read* (subpath "/private/var"))
+(allow file-read* (subpath "{}"))
+(allow file-read* file-write* (subpath "{}"))
+(allow network-outbound)
+(allow sysctl-read)
+(allow mach-lookup)
+"#,
+            skill_dir_str, workspace_str
+        );
+
+        info!(
+            "Sandboxing skill [{}] with macOS sandbox-exec (workspace: {})",
+            manifest.name, workspace_str
+        );
+
+        let mut cmd = Command::new("sandbox-exec");
+        cmd.arg("-p");
+        cmd.arg(profile);
+        cmd.arg(&manifest.run_command);
+        cmd.arg(script_path);
+        cmd
+    }
+
+    #[cfg(target_os = "linux")]
+    fn has_bwrap() -> bool {
+        std::process::Command::new("which")
+            .arg("bwrap")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn build_linux_sandbox(
+        &self,
+        manifest: &SkillManifest,
+        script_path: &std::path::Path,
+        workspace_path: &std::path::Path,
+    ) -> Command {
+        let workspace_str = workspace_path.to_string_lossy().to_string();
+        let skill_dir_str = manifest.skill_dir.to_string_lossy().to_string();
+
+        info!(
+            "Sandboxing skill [{}] with bwrap (workspace: {})",
+            manifest.name, workspace_str
+        );
+
+        let mut cmd = Command::new("bwrap");
+        cmd.args([
+            "--ro-bind",
+            "/usr",
+            "/usr",
+            "--ro-bind",
+            "/bin",
+            "/bin",
+            "--ro-bind",
+            "/etc",
+            "/etc",
+            "--ro-bind-try",
+            "/lib",
+            "/lib",
+            "--ro-bind-try",
+            "/lib64",
+            "/lib64",
+            "--ro-bind",
+            &skill_dir_str,
+            &skill_dir_str,
+            "--bind",
+            &workspace_str,
+            &workspace_str,
+            "--proc",
+            "/proc",
+            "--dev",
+            "/dev",
+            "--tmpfs",
+            "/tmp",
+            "--unshare-all",
+            "--share-net",
+            "--die-with-parent",
+            "--",
+            &manifest.run_command,
+        ]);
+        cmd.arg(script_path);
+        cmd
+    }
 }
 
 #[async_trait]
 impl SkillSandbox for NativeExecutor {
     async fn execute(&self, manifest: &SkillManifest, args: &[String]) -> Result<String> {
         info!(
-            "Executing skill [{}] natively... (v{})",
-            manifest.name, manifest.version
+            "Executing skill [{}] natively... (v{}, privileged={})",
+            manifest.name, manifest.version, manifest.privileged
         );
         info!("Description: {}", manifest.description);
 
@@ -58,8 +208,17 @@ impl SkillSandbox for NativeExecutor {
             ));
         }
 
-        let mut cmd = Command::new(&manifest.run_command);
-        cmd.arg(&script_path);
+        let workspace_path = self.agent_dir.join("workspace");
+
+        // Build the command: privileged skills get a plain command,
+        // sandboxed skills get wrapped with OS-level isolation.
+        let mut cmd = if manifest.privileged {
+            let mut c = Command::new(&manifest.run_command);
+            c.arg(&script_path);
+            c
+        } else {
+            self.build_sandboxed_command(manifest, &script_path, &workspace_path)
+        };
 
         // Check total args size - if it exceeds a safe threshold, skip CLI args
         // and pass them only via stdin to avoid OS ARG_MAX errors.
@@ -69,37 +228,69 @@ impl SkillSandbox for NativeExecutor {
         if !use_stdin_args {
             cmd.args(args);
         }
-        cmd.current_dir(&manifest.skill_dir);
 
-        // Inject environment
-        cmd.env("AGENT_NAME", &self.agent_name);
-        cmd.env("AGENT_HOME", &self.agent_dir);
-        cmd.env("AGENT_WORKSPACE", self.agent_dir.join("workspace"));
-        cmd.env(
-            "MOXXY_API_BASE",
-            format!("http://{}:{}/api", self.api_host, self.api_port),
-        );
-        cmd.env("MOXXY_INTERNAL_TOKEN", &self.internal_token);
+        if manifest.privileged {
+            // ── Privileged execution: full host access ──
+            cmd.current_dir(&manifest.skill_dir);
+            cmd.env("AGENT_NAME", &self.agent_name);
+            cmd.env("AGENT_HOME", &self.agent_dir);
+            cmd.env("AGENT_WORKSPACE", &workspace_path);
+            cmd.env(
+                "MOXXY_API_BASE",
+                format!("http://{}:{}/api", self.api_host, self.api_port),
+            );
+            cmd.env("MOXXY_INTERNAL_TOKEN", &self.internal_token);
 
-        // Inject source directory for self-modifying skills (evolve_core)
-        if let Ok(exe_path) = std::env::current_exe()
-            && let Some(source_dir) = exe_path
-                .parent()
-                .and_then(|p| p.parent())
-                .and_then(|p| p.parent())
-        {
-            // exe is at target/release/moxxy, source is 2 levels up
-            if source_dir.join("Cargo.toml").exists() {
-                cmd.env("MOXXY_SOURCE_DIR", source_dir);
+            // Inject source directory only for evolve_core
+            if manifest.name == "evolve_core" {
+                if let Ok(exe_path) = std::env::current_exe()
+                    && let Some(source_dir) = exe_path
+                        .parent()
+                        .and_then(|p| p.parent())
+                        .and_then(|p| p.parent())
+                {
+                    if source_dir.join("Cargo.toml").exists() {
+                        cmd.env("MOXXY_SOURCE_DIR", source_dir);
+                    }
+                }
             }
-        }
 
-        if manifest.needs_env {
-            info!("Injecting vault secrets for skill: {}", manifest.name);
-            let secrets = self.vault.list_keys().await?;
-            for key in secrets {
-                if let Some(val) = self.vault.get_secret(&key).await? {
-                    cmd.env(&key, &val);
+            if manifest.needs_env {
+                info!("Injecting vault secrets for skill: {}", manifest.name);
+                let secrets = self.vault.list_keys().await?;
+                for key in secrets {
+                    if let Some(val) = self.vault.get_secret(&key).await? {
+                        cmd.env(&key, &val);
+                    }
+                }
+            }
+        } else {
+            // ── Sandboxed execution: workspace-only access ──
+            cmd.env_clear();
+            cmd.current_dir(&workspace_path);
+            cmd.env("AGENT_NAME", &self.agent_name);
+            cmd.env("AGENT_WORKSPACE", &workspace_path);
+            cmd.env("HOME", &workspace_path);
+            cmd.env("PATH", "/usr/local/bin:/usr/bin:/bin");
+            cmd.env(
+                "MOXXY_API_BASE",
+                format!("http://{}:{}/api", self.api_host, self.api_port),
+            );
+            // NOTE: MOXXY_INTERNAL_TOKEN intentionally NOT injected.
+            // Sandboxed skills cannot call the host proxy.
+            // NOTE: AGENT_HOME intentionally NOT injected.
+            // NOTE: MOXXY_SOURCE_DIR intentionally NOT injected.
+
+            if manifest.needs_env {
+                info!(
+                    "Injecting vault secrets for sandboxed skill: {}",
+                    manifest.name
+                );
+                let secrets = self.vault.list_keys().await?;
+                for key in secrets {
+                    if let Some(val) = self.vault.get_secret(&key).await? {
+                        cmd.env(&key, &val);
+                    }
                 }
             }
         }

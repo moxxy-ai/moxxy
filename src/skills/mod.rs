@@ -51,6 +51,11 @@ pub struct SkillManifest {
     #[serde(skip)]
     pub skill_dir: PathBuf,
 
+    /// Whether this skill has full host access (only set for hardcoded built-in skills).
+    /// Agent-installed skills always have this forced to `false`.
+    #[serde(skip)]
+    pub privileged: bool,
+
     // OAuth2 configuration for skills that require OAuth authentication
     #[serde(default)]
     pub oauth: Option<OAuthConfig>,
@@ -205,6 +210,17 @@ fn parse_yaml_frontmatter(content: &str) -> Result<(OpenclawFrontmatter, String)
     let frontmatter: OpenclawFrontmatter = serde_yaml::from_str(yaml_str)?;
     Ok((frontmatter, body.to_string()))
 }
+
+/// Built-in skills that are granted full host access (bypass workspace sandbox).
+/// These are hardcoded and cannot be overridden by agent-installed skills.
+const PRIVILEGED_SKILLS: &[&str] = &[
+    "host_shell",
+    "host_python",
+    "computer_control",
+    "evolve_core",
+    "browser",
+    "osx_email",
+];
 
 pub struct SkillManager {
     skills: HashMap<String, SkillManifest>,
@@ -380,7 +396,17 @@ impl SkillManager {
         new_run_sh: &str,
         new_skill_md: &str,
     ) -> Result<()> {
-        let manifest: SkillManifest = toml::from_str(new_manifest_content)?;
+        let mut manifest: SkillManifest = toml::from_str(new_manifest_content)?;
+        // Agent-installed skills are never privileged
+        manifest.privileged = false;
+
+        // Validate entrypoint path to prevent directory traversal
+        if manifest.entrypoint.contains("..") || manifest.entrypoint.starts_with('/') {
+            return Err(anyhow::anyhow!(
+                "Invalid entrypoint path: must not contain '..' or start with '/'"
+            ));
+        }
+
         let skill_dir = self.workspace_dir.join("skills").join(&manifest.name);
 
         if skill_dir.exists() {
@@ -469,7 +495,7 @@ impl SkillManager {
             ));
         }
 
-        // 6. Build manifest
+        // 6. Build manifest (agent-installed skills are never privileged)
         let manifest = SkillManifest {
             name: name.clone(),
             description,
@@ -485,6 +511,7 @@ impl SkillManager {
             homepage,
             doc_files,
             skill_dir: skill_dir.clone(),
+            privileged: false,
             oauth: None,
         };
 
@@ -591,6 +618,8 @@ impl SkillManager {
             let mut new_manifest: SkillManifest = toml::from_str(content)
                 .map_err(|e| anyhow::anyhow!("Invalid manifest TOML: {}", e))?;
             new_manifest.skill_dir = skill_dir;
+            // Only hardcoded built-in skills can be privileged
+            new_manifest.privileged = PRIVILEGED_SKILLS.contains(&new_manifest.name.as_str());
             self.register_skill(new_manifest);
             info!("Hot-reloaded skill manifest for: {}", skill_name);
         }
@@ -607,6 +636,14 @@ impl SkillManager {
         new_run_sh: &str,
         new_skill_md: &str,
     ) -> Result<()> {
+        // Reject upgrades to privileged built-in skills (they are compiled into the binary)
+        if PRIVILEGED_SKILLS.contains(&skill_name) {
+            return Err(anyhow::anyhow!(
+                "Cannot upgrade privileged built-in skill: {}",
+                skill_name
+            ));
+        }
+
         let current_manifest = self
             .skills
             .get(skill_name)
@@ -639,6 +676,8 @@ impl SkillManager {
         // Hot-swap parsing
         let mut new_manifest: SkillManifest = toml::from_str(new_manifest_content)?;
         new_manifest.skill_dir = skill_dir.clone();
+        // Only hardcoded built-in skills can be privileged
+        new_manifest.privileged = PRIVILEGED_SKILLS.contains(&new_manifest.name.as_str());
 
         self.register_skill(new_manifest);
 
@@ -674,6 +713,13 @@ impl LifecycleComponent for SkillManager {
                 skills_dir, e
             );
         }
+
+        // Set privileged flag based on hardcoded allowlist (authoritative source).
+        // This ensures even tampered manifest.toml files cannot grant privilege.
+        for manifest in self.skills.values_mut() {
+            manifest.privileged = PRIVILEGED_SKILLS.contains(&manifest.name.as_str());
+        }
+
         Ok(())
     }
 

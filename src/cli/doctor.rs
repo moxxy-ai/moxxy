@@ -136,6 +136,9 @@ pub async fn ensure_dependencies() -> Result<bool> {
         }
     }
 
+    // 7. OS-level Sandbox Check & Install
+    check_and_install_sandbox().await;
+
     println!("");
 
     let all_ok = !missing_rustup && !missing_wasm;
@@ -278,6 +281,13 @@ pub async fn run_doctor(fix: bool) -> Result<()> {
         }
     }
 
+    // 7. OS-level Sandbox Check & Install
+    if fix {
+        check_and_install_sandbox().await;
+    } else {
+        check_sandbox_status();
+    }
+
     println!("");
 
     if (missing_rustup || missing_wasm) && !fix {
@@ -292,4 +302,157 @@ pub async fn run_doctor(fix: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Check sandbox availability without attempting installation.
+fn check_sandbox_status() {
+    #[cfg(target_os = "macos")]
+    {
+        if std::path::Path::new("/usr/bin/sandbox-exec").exists() {
+            print_success("OS sandbox: sandbox-exec is available (macOS built-in).");
+        } else {
+            print_warn(
+                "OS sandbox: sandbox-exec not found. Skill isolation will use environment restrictions only.",
+            );
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        match std::process::Command::new("which").arg("bwrap").output() {
+            Ok(out) if out.status.success() => {
+                print_success("OS sandbox: bubblewrap (bwrap) is available.");
+            }
+            _ => {
+                print_warn(
+                    "OS sandbox: bubblewrap (bwrap) is not installed. Skill isolation will use environment restrictions only.",
+                );
+                print_info(
+                    "Install with: sudo apt install bubblewrap  (Debian/Ubuntu) or sudo dnf install bubblewrap  (Fedora)",
+                );
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        print_warn(
+            "OS sandbox: Windows does not support sandbox-exec or bwrap. Skill isolation uses environment restrictions and token-based access control.",
+        );
+    }
+}
+
+/// Check and attempt to install OS-level sandbox dependencies.
+async fn check_and_install_sandbox() {
+    #[cfg(target_os = "macos")]
+    {
+        // sandbox-exec is built into macOS, no installation needed
+        if std::path::Path::new("/usr/bin/sandbox-exec").exists() {
+            print_success("OS sandbox: sandbox-exec is available (macOS built-in).");
+        } else {
+            print_warn(
+                "OS sandbox: sandbox-exec not found at /usr/bin/sandbox-exec. This is unexpected on macOS.",
+            );
+            print_info("Skill isolation will fall back to environment restrictions only.");
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let has_bwrap = std::process::Command::new("which")
+            .arg("bwrap")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        if has_bwrap {
+            print_success("OS sandbox: bubblewrap (bwrap) is available.");
+        } else {
+            print_warn("OS sandbox: bubblewrap (bwrap) is not installed.");
+            print_info("Attempting to install bubblewrap for skill sandboxing...");
+
+            // Try apt (Debian/Ubuntu)
+            let installed =
+                try_install_bwrap_apt() || try_install_bwrap_dnf() || try_install_bwrap_pacman();
+
+            if installed {
+                print_success("Successfully installed bubblewrap.");
+            } else {
+                print_warn("Could not auto-install bubblewrap. Please install manually:");
+                print_info("  Debian/Ubuntu: sudo apt install bubblewrap");
+                print_info("  Fedora/RHEL:   sudo dnf install bubblewrap");
+                print_info("  Arch Linux:    sudo pacman -S bubblewrap");
+                print_info("Skill isolation will fall back to environment restrictions only.");
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        print_warn("OS sandbox: Windows does not have sandbox-exec or bubblewrap equivalents.");
+        print_info(
+            "On Windows, skill isolation relies on environment restrictions and token-based access control.",
+        );
+        print_info(
+            "Non-privileged skills cannot access the host proxy (no internal token) and run with a clean environment.",
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn try_install_bwrap_apt() -> bool {
+    // Check if apt is available
+    if std::process::Command::new("which")
+        .arg("apt-get")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        print_info("Trying: sudo apt-get install -y bubblewrap");
+        std::process::Command::new("sudo")
+            .args(["apt-get", "install", "-y", "bubblewrap"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    } else {
+        false
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn try_install_bwrap_dnf() -> bool {
+    if std::process::Command::new("which")
+        .arg("dnf")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        print_info("Trying: sudo dnf install -y bubblewrap");
+        std::process::Command::new("sudo")
+            .args(["dnf", "install", "-y", "bubblewrap"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    } else {
+        false
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn try_install_bwrap_pacman() -> bool {
+    if std::process::Command::new("which")
+        .arg("pacman")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        print_info("Trying: sudo pacman -S --noconfirm bubblewrap");
+        std::process::Command::new("sudo")
+            .args(["pacman", "-S", "--noconfirm", "bubblewrap"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    } else {
+        false
+    }
 }

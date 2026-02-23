@@ -41,8 +41,12 @@ fn default_runtime_type() -> String {
     "native".to_string()
 }
 fn default_filesystem() -> Vec<String> {
-    vec!["./skills".to_string(), "./memory".to_string()]
+    vec!["./workspace".to_string()]
 }
+
+/// Allowed preopened directory names within the agent directory.
+/// Only `workspace` is permitted — agents access skills and memory via host bridge functions.
+const ALLOWED_FS_ENTRIES: &[&str] = &["workspace"];
 
 impl Default for RuntimeConfig {
     fn default() -> Self {
@@ -72,10 +76,34 @@ impl ContainerConfig {
             return Ok(Self::default());
         }
         let content = tokio::fs::read_to_string(&config_path).await?;
-        let config: ContainerConfig = toml::from_str(&content)?;
+        let mut config: ContainerConfig = toml::from_str(&content)?;
+
+        // Security: validate filesystem entries — only allowed directories within agent dir.
+        // Strip any entries that could escape the sandbox (e.g., "..", "/", ".", "./skills").
+        let original_count = config.capabilities.filesystem.len();
+        config.capabilities.filesystem.retain(|path| {
+            let normalized = path.trim_start_matches("./").trim_end_matches('/');
+            ALLOWED_FS_ENTRIES.contains(&normalized)
+        });
+
+        if config.capabilities.filesystem.len() != original_count {
+            info!(
+                "Stripped {} disallowed filesystem entries from container.toml",
+                original_count - config.capabilities.filesystem.len()
+            );
+        }
+
+        // Ensure workspace is always present
+        if config.capabilities.filesystem.is_empty() {
+            config.capabilities.filesystem = vec!["./workspace".to_string()];
+        }
+
         info!(
-            "Loaded container config: runtime={}, network={}, max_memory={}MB",
-            config.runtime.r#type, config.capabilities.network, config.capabilities.max_memory_mb
+            "Loaded container config: runtime={}, network={}, max_memory={}MB, fs={:?}",
+            config.runtime.r#type,
+            config.capabilities.network,
+            config.capabilities.max_memory_mb,
+            config.capabilities.filesystem
         );
         Ok(config)
     }
