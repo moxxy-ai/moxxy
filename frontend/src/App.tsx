@@ -15,6 +15,7 @@ import { SchedulesPanel } from './components/SchedulesPanel';
 import { WebhooksPanel } from './components/WebhooksPanel';
 import { McpServersPanel } from './components/McpServersPanel';
 import { VaultPanel } from './components/VaultPanel';
+import { AccessTokensPanel } from './components/AccessTokensPanel';
 import { ConfigPanel } from './components/ConfigPanel';
 
 function App() {
@@ -157,6 +158,17 @@ function App() {
             setActiveAgent={agentState.setActiveAgent}
             vaultKeys={agentState.vaultKeys}
             setVaultKeys={agentState.setVaultKeys}
+          />
+        );
+      case 'AccessTokens':
+        return (
+          <AccessTokensPanel
+            apiBase={apiBase}
+            agents={agentState.agents}
+            activeAgent={agentState.activeAgent}
+            setActiveAgent={agentState.setActiveAgent}
+            apiTokens={agentState.apiTokens}
+            setApiTokens={agentState.setApiTokens}
           />
         );
       case 'Config':

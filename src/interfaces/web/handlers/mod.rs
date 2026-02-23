@@ -8,5 +8,6 @@ pub mod mobile;
 pub mod proxy;
 pub mod schedules;
 pub mod skills;
+pub mod tokens;
 pub mod vault;
 pub mod webhooks;

@@ -1,3 +1,4 @@
+pub(crate) mod auth;
 mod handlers;
 mod router;
 

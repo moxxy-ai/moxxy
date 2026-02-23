@@ -50,4 +50,10 @@ export interface Webhook {
   created_at: string;
 }
 
-export type TabId = 'Overview' | 'Interface' | 'Memory' | 'Skills' | 'Channels' | 'Schedules' | 'Webhooks' | 'MCPServers' | 'Vault' | 'Config';
+export interface ApiToken {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+export type TabId = 'Overview' | 'Interface' | 'Memory' | 'Skills' | 'Channels' | 'Schedules' | 'Webhooks' | 'MCPServers' | 'Vault' | 'AccessTokens' | 'Config';

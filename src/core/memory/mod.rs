@@ -3,6 +3,7 @@ mod mcp;
 mod schedule;
 mod stm;
 mod swarm;
+mod tokens;
 pub mod types;
 mod webhook;
 
@@ -93,6 +94,16 @@ impl MemorySystem {
                 secret TEXT NOT NULL DEFAULT '',
                 prompt_template TEXT NOT NULL,
                 active INTEGER NOT NULL DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS api_tokens (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )",
             [],

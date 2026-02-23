@@ -38,3 +38,10 @@ pub struct WebhookRecord {
     pub active: bool,
     pub created_at: String,
 }
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ApiTokenRecord {
+    pub id: String,
+    pub name: String,
+    pub created_at: String,
+}
