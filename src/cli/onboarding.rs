@@ -72,11 +72,36 @@ pub async fn run_onboarding() -> Result<()> {
         .get_provider(provider_choice)
         .expect("Selected provider not found in registry");
 
-    // --- Step 2: Model Name ---
-    let final_model = inquire::Text::new("Model name:")
-        .with_default(&provider_def.default_model)
-        .with_help_message("Press Enter to use the default")
-        .prompt()?;
+    // --- Step 2: Model Selection ---
+    let final_model = {
+        let mut model_options: Vec<String> = provider_def
+            .models
+            .iter()
+            .map(|m| format!("{} ({})", m.name, m.id))
+            .collect();
+        model_options.push("Custom model ID...".to_string());
+
+        let default_idx = provider_def
+            .models
+            .iter()
+            .position(|m| m.id == provider_def.default_model)
+            .unwrap_or(0);
+
+        let option_refs: Vec<&str> = model_options.iter().map(|s| s.as_str()).collect();
+        let choice = inquire::Select::new("Select model:", option_refs)
+            .with_starting_cursor(default_idx)
+            .with_help_message("Use arrow keys to navigate, Enter to select")
+            .prompt()?;
+
+        if choice == "Custom model ID..." {
+            inquire::Text::new("Enter custom model ID:")
+                .with_help_message("e.g. claude-sonnet-4-6")
+                .prompt()?
+        } else {
+            let idx = model_options.iter().position(|o| o == choice).unwrap();
+            provider_def.models[idx].id.clone()
+        }
+    };
 
     // --- Step 3: API Key ---
     let llm_api_key = inquire::Password::new(&format!("API key for {}:", provider_def.name))
@@ -207,16 +232,84 @@ pub async fn run_onboarding() -> Result<()> {
         print_success(&format!("Container configured with '{}' profile.", profile));
     }
 
-    print_success("Onboarding complete!");
-    println!("\n{}", style("Start your swarm with:").bold());
-    println!("  1. {} moxxy gateway start", style("▶").cyan());
-    println!("  2. {} moxxy web", style("▶").cyan());
-    println!("  3. {} moxxy tui", style("▶").cyan());
+    print_success("Onboarding complete! Your agent is ready to go.");
 
-    println!("\n{}", style("Other useful commands:").bold());
-    println!("  • moxxy gateway stop");
-    println!("  • moxxy gateway status");
-    println!("  • moxxy logs\n");
+    // --- Getting Started Guide ---
+    println!("\n{}", style("Getting Started").bold().underlined());
+    println!("\n  Start the background gateway, then connect via web or terminal:\n");
+    println!("  1. {} moxxy gateway start", style("▶").cyan());
+    println!(
+        "  2. {} moxxy web            {}",
+        style("▶").cyan(),
+        style("# Web dashboard at http://127.0.0.1:3001").dim()
+    );
+    println!(
+        "  3. {} moxxy tui            {}",
+        style("▶").cyan(),
+        style("# Interactive terminal UI").dim()
+    );
+
+    // --- Connect Channels ---
+    println!("\n{}", style("Connect Channels").bold().underlined());
+    println!(
+        "\n  {}",
+        style("Chat with your agent from any messaging platform:").dim()
+    );
+    println!("\n  {}", style("Telegram").bold());
+    println!(
+        "    1. Talk to {} on Telegram to create a bot",
+        style("@BotFather").cyan()
+    );
+    println!("    2. Run: {} moxxy channel telegram", style("$").dim());
+    println!("    3. Paste your bot token when prompted");
+    println!(
+        "    4. Start the gateway, send {} to your bot, and enter the pairing code",
+        style("/start").cyan()
+    );
+
+    println!("\n  {}", style("Discord").bold());
+    println!(
+        "    1. Create an app at {}",
+        style("https://discord.com/developers/applications").cyan()
+    );
+    println!("    2. Go to Bot section, reset token, enable Message Content Intent");
+    println!("    3. Invite the bot to your server (Bot scope + Send Messages)");
+    println!("    4. Run: {} moxxy channel discord", style("$").dim());
+
+    println!("\n  {}", style("More channels:").dim());
+    println!(
+        "    {} Slack, WhatsApp, and others can be configured from the Web Dashboard.",
+        style("•").dim()
+    );
+
+    // --- Useful Commands ---
+    println!("\n{}", style("Useful Commands").bold().underlined());
+    println!(
+        "\n  {} moxxy gateway status    {}",
+        style("$").dim(),
+        style("# Check if gateway is running").dim()
+    );
+    println!(
+        "  {} moxxy gateway restart   {}",
+        style("$").dim(),
+        style("# Restart after config changes").dim()
+    );
+    println!(
+        "  {} moxxy logs              {}",
+        style("$").dim(),
+        style("# Follow real-time logs").dim()
+    );
+    println!(
+        "  {} moxxy doctor            {}",
+        style("$").dim(),
+        style("# Diagnose system issues").dim()
+    );
+    println!(
+        "  {} moxxy channel --help    {}",
+        style("$").dim(),
+        style("# See all channel options").dim()
+    );
+    println!();
 
     Ok(())
 }

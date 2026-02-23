@@ -224,6 +224,39 @@ pub async fn run_channel_telegram(
             }
             _ => return Ok(()),
         }
+    } else if has_token
+        && paired_id.is_none()
+        && !has_pairing_code
+        && token_arg.is_none()
+        && pairing_code_arg.is_none()
+    {
+        println!("  Status: Telegram bot token is CONFIGURED (not yet paired)");
+        let action = inquire::Select::new(
+            "What would you like to do?",
+            vec![
+                "Continue to pairing",
+                "Replace token",
+                "Disconnect Telegram",
+                "Cancel",
+            ],
+        )
+        .prompt()?;
+        match action {
+            "Disconnect Telegram" => {
+                vault.remove_secret("telegram_token").await?;
+                print_info("Telegram disconnected.");
+                return Ok(());
+            }
+            "Replace token" => {
+                vault.remove_secret("telegram_token").await?;
+                print_info("Existing token cleared. Proceeding to set a new one...");
+                // Fall through to token entry below
+            }
+            "Continue to pairing" => {
+                // Fall through to pairing steps below
+            }
+            _ => return Ok(()),
+        }
     } else if paired_id.is_some() && (token_arg.is_some() || pairing_code_arg.is_some()) {
         vault.remove_secret("telegram_chat_id").await.ok();
         vault.remove_secret("telegram_pairing_code").await.ok();
