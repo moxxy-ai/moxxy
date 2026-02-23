@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/moxxy-ai/moxxy/compare/v0.8.3...v0.9.0) (2026-02-23)
+
+
+### Features
+
+* add external auth token ([#41](https://github.com/moxxy-ai/moxxy/issues/41)) ([bb63dfb](https://github.com/moxxy-ai/moxxy/commit/bb63dfb5017c24d854f0d4df4b86e9280892834b))
+
 ## [0.8.3](https://github.com/moxxy-ai/moxxy/compare/v0.8.2...v0.8.3) (2026-02-23)
 
 
