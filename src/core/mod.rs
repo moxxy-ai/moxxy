@@ -5,5 +5,6 @@ pub mod lifecycle;
 pub mod llm;
 pub mod mcp;
 pub mod memory;
+pub mod oauth;
 pub mod terminal;
 pub mod vault;

@@ -50,6 +50,10 @@ pub struct SkillManifest {
     // Internal path injected during load to know where the skill lives
     #[serde(skip)]
     pub skill_dir: PathBuf,
+
+    // OAuth2 configuration for skills that require OAuth authentication
+    #[serde(default)]
+    pub oauth: Option<OAuthConfig>,
 }
 
 fn default_executor_type() -> String {
@@ -62,6 +66,22 @@ fn default_entrypoint() -> String {
 
 fn default_run_command() -> String {
     "sh".to_string()
+}
+
+fn default_scope_separator() -> String {
+    " ".to_string()
+}
+
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+pub struct OAuthConfig {
+    pub auth_url: String,
+    pub token_url: String,
+    pub client_id_env: String,
+    pub client_secret_env: String,
+    pub refresh_token_env: String,
+    pub scopes: Vec<String>,
+    #[serde(default = "default_scope_separator")]
+    pub scope_separator: String,
 }
 
 #[async_trait]
@@ -465,6 +485,7 @@ impl SkillManager {
             homepage,
             doc_files,
             skill_dir: skill_dir.clone(),
+            oauth: None,
         };
 
         // 7. Write files to disk
