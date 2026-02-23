@@ -4,6 +4,7 @@ mod daemon;
 mod doctor;
 mod install;
 mod migrate;
+mod oauth;
 mod onboarding;
 mod swarm;
 mod tokens;
@@ -60,6 +61,10 @@ fn print_help() {
         style("▶").cyan()
     );
     println!("  {} agent     Manage agents", style("▶").cyan());
+    println!(
+        "  {} oauth     Run OAuth flows for skills",
+        style("▶").cyan()
+    );
     println!("  {} webhook   Manage webhook endpoints", style("▶").cyan());
     println!(
         "  {} update    Update moxxy to the latest version",
@@ -470,6 +475,10 @@ pub async fn run_main() -> Result<()> {
             }
             "agent" => {
                 agent_cmd::run_agent_command(&args).await?;
+                return Ok(());
+            }
+            "oauth" => {
+                oauth::run_oauth_command(&args).await?;
                 return Ok(());
             }
             "webhook" | "webhooks" => {
