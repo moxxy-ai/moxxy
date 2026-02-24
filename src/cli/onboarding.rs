@@ -4,8 +4,8 @@ use console::style;
 use crate::core::llm::generic_provider::GenericProvider;
 use crate::core::llm::registry::ProviderRegistry;
 use crate::core::terminal::{
-    self, GuideSection, close_section, guide_bar, print_error, print_info, print_step,
-    print_success,
+    self, GuideSection, bordered_info, bordered_render_config, bordered_step, bordered_success,
+    close_section, guide_bar, print_error, print_success,
 };
 
 pub async fn run_onboarding() -> Result<()> {
@@ -32,13 +32,14 @@ pub async fn run_onboarding() -> Result<()> {
         if super::migrate::has_migratable_content(&openclaw_path) {
             println!(
                 "  {} {}",
-                style("ℹ").blue(),
+                style("i").blue(),
                 style("Detected OpenClaw installation with migratable content.").dim()
             );
 
             let migrate_now = inquire::Confirm::new("Would you like to migrate from OpenClaw?")
                 .with_default(true)
                 .with_help_message("Import your SOUL.md, AGENTS.md, skills, and memory")
+                .with_render_config(bordered_render_config())
                 .prompt()?;
 
             if migrate_now {
@@ -54,6 +55,7 @@ pub async fn run_onboarding() -> Result<()> {
     if !deps_ok {
         let proceed = inquire::Confirm::new("Some dependencies are missing. Continue anyway?")
             .with_default(false)
+            .with_render_config(bordered_render_config())
             .prompt()?;
         if !proceed {
             print_error(
@@ -79,6 +81,7 @@ pub async fn run_onboarding() -> Result<()> {
     let provider_names: Vec<&str> = registry.providers.iter().map(|p| p.name.as_str()).collect();
     let provider_choice = inquire::Select::new("Select your AI provider:", provider_names)
         .with_help_message("Use arrow keys to navigate, Enter to select")
+        .with_render_config(bordered_render_config())
         .prompt()?;
     guide_bar();
     close_section();
@@ -112,11 +115,13 @@ pub async fn run_onboarding() -> Result<()> {
         let choice = inquire::Select::new("Select model:", option_refs)
             .with_starting_cursor(default_idx)
             .with_help_message("Use arrow keys to navigate, Enter to select")
+            .with_render_config(bordered_render_config())
             .prompt()?;
 
         if choice == "Custom model ID..." {
             inquire::Text::new("Enter custom model ID:")
                 .with_help_message("e.g. claude-sonnet-4-6")
+                .with_render_config(bordered_render_config())
                 .prompt()?
         } else {
             let idx = model_options.iter().position(|o| o == choice).unwrap();
@@ -141,6 +146,7 @@ pub async fn run_onboarding() -> Result<()> {
     let llm_api_key = inquire::Password::new(&format!("API key for {}:", provider_def.name))
         .without_confirmation()
         .with_help_message("Stored locally in the agent's encrypted vault")
+        .with_render_config(bordered_render_config())
         .prompt()?;
     guide_bar();
     close_section();
@@ -173,6 +179,7 @@ pub async fn run_onboarding() -> Result<()> {
             .with_help_message(
                 "Use Space to select, Enter to confirm. You can always add more later.",
             )
+            .with_render_config(bordered_render_config())
             .prompt()?;
     guide_bar();
     close_section();
@@ -207,16 +214,17 @@ pub async fn run_onboarding() -> Result<()> {
                 let tg_token = inquire::Password::new("Telegram bot token:")
                     .without_confirmation()
                     .with_help_message("Paste the token from @BotFather")
+                    .with_render_config(bordered_render_config())
                     .prompt()?;
 
                 if !tg_token.is_empty() {
                     vault.set_secret("telegram_token", &tg_token).await?;
-                    print_success("Telegram token saved.");
-                    print_info(
+                    bordered_success("Telegram token saved.");
+                    bordered_info(
                         "After onboarding, run: moxxy channel telegram (to complete pairing)",
                     );
                 } else {
-                    print_info(
+                    bordered_info(
                         "Skipped - you can configure Telegram later with 'moxxy channel telegram'.",
                     );
                 }
@@ -256,13 +264,14 @@ pub async fn run_onboarding() -> Result<()> {
                 let dc_token = inquire::Password::new("Discord bot token:")
                     .without_confirmation()
                     .with_help_message("Paste the token from Discord Developer Portal")
+                    .with_render_config(bordered_render_config())
                     .prompt()?;
 
                 if !dc_token.is_empty() {
                     vault.set_secret("discord_token", &dc_token).await?;
-                    print_success("Discord token saved.");
+                    bordered_success("Discord token saved.");
                 } else {
-                    print_info(
+                    bordered_info(
                         "Skipped - you can configure Discord later with 'moxxy channel discord'.",
                     );
                 }
@@ -289,15 +298,17 @@ pub async fn run_onboarding() -> Result<()> {
     let generate_persona = inquire::Confirm::new("Generate a custom AI persona for your agent?")
         .with_default(false)
         .with_help_message("Uses your LLM provider to create a tailored system prompt")
+        .with_render_config(bordered_render_config())
         .prompt()?;
 
     if generate_persona {
         let description = inquire::Text::new("Describe your ideal AI agent:")
             .with_help_message("e.g. 'A senior DevOps engineer who monitors my infra'")
+            .with_render_config(bordered_render_config())
             .prompt()?;
 
         if !description.is_empty() {
-            print_step("Generating persona...");
+            bordered_step("Generating persona...");
             let mut llm_sys = crate::core::llm::LlmManager::new();
 
             llm_sys.register_provider(Box::new(GenericProvider::new(
@@ -336,7 +347,7 @@ pub async fn run_onboarding() -> Result<()> {
 
             let persona_path = default_agent_dir.join("persona.md");
             tokio::fs::write(&persona_path, generated_persona).await?;
-            print_info("Saved to ~/.moxxy/agents/default/persona.md");
+            bordered_info("Saved to ~/.moxxy/agents/default/persona.md");
         }
     }
     guide_bar();
@@ -359,6 +370,7 @@ pub async fn run_onboarding() -> Result<()> {
     let runtime_options = vec!["Native (recommended)", "WASM Container (sandboxed)"];
     let runtime_choice = inquire::Select::new("Select agent runtime:", runtime_options)
         .with_help_message("Native runs directly on your system; WASM runs in an isolated sandbox")
+        .with_render_config(bordered_render_config())
         .prompt()?;
 
     if runtime_choice.starts_with("WASM") {
@@ -367,8 +379,9 @@ pub async fn run_onboarding() -> Result<()> {
             "Networked - 256MB, Network Access",
             "Full      - Unlimited, All Capabilities",
         ];
-        let profile_choice =
-            inquire::Select::new("WASM isolation profile:", profile_options).prompt()?;
+        let profile_choice = inquire::Select::new("WASM isolation profile:", profile_options)
+            .with_render_config(bordered_render_config())
+            .prompt()?;
 
         let profile = if profile_choice.starts_with("Networked") {
             "networked"
@@ -393,7 +406,7 @@ pub async fn run_onboarding() -> Result<()> {
         );
         tokio::fs::write(default_agent_dir.join("container.toml"), container_toml).await?;
         crate::core::container::ensure_wasm_image().await?;
-        print_success(&format!("Container configured with '{}' profile.", profile));
+        bordered_success(&format!("Container configured with '{}' profile.", profile));
     }
     guide_bar();
     close_section();

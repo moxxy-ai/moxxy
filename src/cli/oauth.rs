@@ -3,7 +3,9 @@ use console::style;
 use std::path::PathBuf;
 
 use crate::core::oauth;
-use crate::core::terminal::{GuideSection, close_section, guide_bar, print_error, print_step};
+use crate::core::terminal::{
+    GuideSection, bordered_render_config, close_section, guide_bar, print_error, print_step,
+};
 
 fn get_agents_dir() -> PathBuf {
     use crate::platform::{NativePlatform, Platform};
@@ -161,6 +163,7 @@ pub async fn run_oauth_flow(
         None => inquire::Text::new("Agent name:")
             .with_default("default")
             .with_help_message("Which agent's vault should store the OAuth credentials?")
+            .with_render_config(bordered_render_config())
             .prompt()?,
     };
     guide_bar();
@@ -203,6 +206,7 @@ pub async fn run_oauth_flow(
             inquire::Text::new(&prompt_text)
                 .with_default(&existing_client_id)
                 .with_help_message("From your OAuth provider's developer console")
+                .with_render_config(bordered_render_config())
                 .prompt()?
         }
     };
@@ -220,6 +224,7 @@ pub async fn run_oauth_flow(
         None => inquire::Password::new("OAuth Client Secret:")
             .with_help_message("Hidden for security")
             .without_confirmation()
+            .with_render_config(bordered_render_config())
             .prompt()?,
     };
     guide_bar();
@@ -241,6 +246,7 @@ pub async fn run_oauth_flow(
 
     let auth_code = inquire::Text::new("4. Paste authorization code:")
         .with_help_message("The code parameter from the redirect URL or result page")
+        .with_render_config(bordered_render_config())
         .prompt()?;
     guide_bar();
     close_section();
