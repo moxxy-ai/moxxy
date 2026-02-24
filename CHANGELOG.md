@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.1](https://github.com/moxxy-ai/moxxy/compare/v0.11.0...v0.11.1) (2026-02-24)
+
+
+### Bug Fixes
+
+* brain chaining ([#55](https://github.com/moxxy-ai/moxxy/issues/55)) ([8468b8e](https://github.com/moxxy-ai/moxxy/commit/8468b8ee92460409be576925081d684b4444e044))
+* git skill fixup ([#52](https://github.com/moxxy-ai/moxxy/issues/52)) ([9f6bfba](https://github.com/moxxy-ai/moxxy/commit/9f6bfba08bfd6a313c9df1cb2dcfaf3e04041298))
+
 ## [0.11.0](https://github.com/moxxy-ai/moxxy/compare/v0.10.0...v0.11.0) (2026-02-23)
 
 
