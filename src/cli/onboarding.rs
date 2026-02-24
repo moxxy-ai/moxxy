@@ -28,28 +28,6 @@ pub async fn run_onboarding() -> Result<()> {
         style("Welcome to the Onboarding Wizard. Let's set up your first autonomous agent.").bold()
     );
 
-    if let Some(openclaw_path) = super::migrate::check_openclaw_installation() {
-        if super::migrate::has_migratable_content(&openclaw_path) {
-            println!(
-                "  {} {}",
-                style("i").blue(),
-                style("Detected OpenClaw installation with migratable content.").dim()
-            );
-
-            let migrate_now = inquire::Confirm::new("Would you like to migrate from OpenClaw?")
-                .with_default(true)
-                .with_help_message("Import your SOUL.md, AGENTS.md, skills, and memory")
-                .with_render_config(bordered_render_config())
-                .prompt()?;
-
-            if migrate_now {
-                super::migrate::run_migration_wizard().await?;
-                return Ok(());
-            }
-            println!();
-        }
-    }
-
     // Pre-step: Check and install required dependencies
     let deps_ok = super::doctor::ensure_dependencies().await?;
     if !deps_ok {
@@ -412,6 +390,30 @@ pub async fn run_onboarding() -> Result<()> {
     close_section();
 
     print_success("Onboarding complete! Your agent is ready to go.");
+
+    // --- Optional: Import from OpenClaw ---
+    if let Some(openclaw_path) = super::migrate::check_openclaw_installation() {
+        if super::migrate::has_migratable_content(&openclaw_path) {
+            println!(
+                "  {} {}",
+                style("i").blue(),
+                style("Detected OpenClaw installation with migratable content.").dim()
+            );
+
+            let migrate_now = inquire::Confirm::new("Would you like to import from OpenClaw?")
+                .with_default(true)
+                .with_help_message(
+                    "Import SOUL.md, AGENTS.md, skills, memory, heartbeat, and LLM config",
+                )
+                .with_render_config(bordered_render_config())
+                .prompt()?;
+
+            if migrate_now {
+                super::migrate::run_migration_wizard().await?;
+            }
+            println!();
+        }
+    }
 
     // --- Getting Started Guide ---
     GuideSection::new("Getting Started")

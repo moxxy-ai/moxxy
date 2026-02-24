@@ -9,6 +9,8 @@
 #   skills <agent>            - Migrate only skills
 
 OPENCLAW_DIR="$HOME/.openclaw/workspace"
+OPENCLAW_ROOT="$HOME/.openclaw"
+API_BASE="${MOXXY_API_BASE:-http://127.0.0.1:17890/api}"
 # AGENT_HOME is set by the skill executor (e.g. ~/.moxxy/agents/<name>)
 # Derive the agents directory from it, falling back to ~/.moxxy/agents
 if [ -n "$AGENT_HOME" ]; then
@@ -16,6 +18,72 @@ if [ -n "$AGENT_HOME" ]; then
 else
     MOXXY_DIR="$HOME/.moxxy/agents"
 fi
+
+# Inline awk to transform OC persona for moxxy (strip OC-specific sections)
+transform_persona() {
+    awk '
+    function normalize(s) {
+        gsub(/^#+[[:space:]]*/, "", s);
+        gsub(/[\x80-\xff]/, "", s);
+        gsub(/[^a-zA-Z0-9 .()-]/, "", s);
+        gsub(/[[:space:]]+/, " ", s);
+        sub(/^[[:space:]]+/, "", s);
+        sub(/[[:space:]]+$/, "", s);
+        return tolower(s);
+    }
+    function matches_skip(norm) {
+        if (index(norm, "first run") == 1) return 1;
+        if (index(norm, "every session") == 1) return 1;
+        if (norm == "memory") return 1;
+        if (index(norm, "memory.md") >= 1) return 1;
+        if (index(norm, "write it down") >= 1) return 1;
+        if (index(norm, "heartbeats") >= 1) return 1;
+        if (index(norm, "heartbeat vs cron") >= 1) return 1;
+        if (index(norm, "memory maintenance") >= 1) return 1;
+        if (index(norm, "know when to speak") >= 1) return 1;
+        return 0;
+    }
+    {
+        line = $0;
+        heading_level = 0;
+        if (match(line, /^#+/)) heading_level = RLENGTH;
+        if (heading_level > 0) {
+            if (skip) {
+                if (heading_level <= skip_level) skip = 0;
+                else { next; }
+            }
+            if (!skip) {
+                norm = normalize(line);
+                if (matches_skip(norm)) { skip = 1; skip_level = heading_level; next; }
+            }
+        }
+        if (!skip) {
+            gsub(/ \(from SOUL\.md\)/, "");
+            gsub(/ \(from AGENTS\.md\)/, "");
+            gsub(/^_Migrated from OpenClaw_$/, "");
+            print;
+        }
+    }' "$@"
+}
+
+# Convert duration (30m, 1h) to 6-field cron
+duration_to_cron() {
+    case "$1" in
+        0m|0h) echo "" ;;
+        *m) n="${1%m}"; [ "$n" -gt 0 ] 2>/dev/null && echo "0 */$n * * * *" ;;
+        *h) n="${1%h}"; [ "$n" -gt 0 ] 2>/dev/null && echo "0 0 */$n * * *" ;;
+        *) echo "" ;;
+    esac
+}
+
+# API call helper (uses internal token when available)
+api_post() {
+    if [ -n "$MOXXY_INTERNAL_TOKEN" ]; then
+        curl -s -X POST -H "X-Moxxy-Internal-Token: $MOXXY_INTERNAL_TOKEN" -H "Content-Type: application/json" -d "$2" "$1"
+    else
+        curl -s -X POST -H "Content-Type: application/json" -d "$2" "$1"
+    fi
+}
 
 SUBCMD="$1"
 shift 2>/dev/null
@@ -90,28 +158,65 @@ migrate)
     TARGET_DIR="$MOXXY_DIR/$TARGET"
     mkdir -p "$TARGET_DIR/skills"
     
-    # Build persona.md
-    PERSONA_FILE="$TARGET_DIR/persona.md"
-    echo "# Agent Persona" > "$PERSONA_FILE"
-    echo "" >> "$PERSONA_FILE"
-    echo "_Migrated from OpenClaw_" >> "$PERSONA_FILE"
-    echo "" >> "$PERSONA_FILE"
+    # Build persona.md (raw then transform)
+    PERSONA_RAW=$(mktemp)
+    trap "rm -f $PERSONA_RAW" EXIT
+    {
+        echo "# Agent Persona"
+        echo ""
+        if [ -f "$OPENCLAW_DIR/SOUL.md" ]; then
+            echo "## Core Identity"
+            echo ""
+            cat "$OPENCLAW_DIR/SOUL.md"
+            echo ""
+        fi
+        if [ -f "$OPENCLAW_DIR/AGENTS.md" ]; then
+            echo "## Workspace Guidelines"
+            echo ""
+            grep -v "^## Skills" "$OPENCLAW_DIR/AGENTS.md" 2>/dev/null | grep -v "^## Tools" 2>/dev/null || cat "$OPENCLAW_DIR/AGENTS.md"
+            echo ""
+        fi
+    } > "$PERSONA_RAW"
+    transform_persona "$PERSONA_RAW" > "$TARGET_DIR/persona.md"
     
-    if [ -f "$OPENCLAW_DIR/SOUL.md" ]; then
-        echo "## Core Identity (from SOUL.md)" >> "$PERSONA_FILE"
-        echo "" >> "$PERSONA_FILE"
-        cat "$OPENCLAW_DIR/SOUL.md" >> "$PERSONA_FILE"
-        echo "" >> "$PERSONA_FILE"
-        echo "Migrated: SOUL.md"
+    # Heartbeat migration (if openclaw.json and jq available)
+    if [ -f "$OPENCLAW_ROOT/openclaw.json" ] && command -v jq >/dev/null 2>&1; then
+        HB_EVERY=$(jq -r '.agents.defaults.heartbeat.every // .heartbeat.every // empty' "$OPENCLAW_ROOT/openclaw.json" 2>/dev/null)
+        if [ -n "$HB_EVERY" ]; then
+            CRON=$(duration_to_cron "$HB_EVERY")
+            if [ -n "$CRON" ]; then
+                if [ -f "$OPENCLAW_DIR/HEARTBEAT.md" ]; then
+                    HB_PROMPT=$(jq -Rs . < "$OPENCLAW_DIR/HEARTBEAT.md")
+                else
+                    HB_PROMPT=$(echo "Proactively check for anything needing attention (inbox, calendar, notifications). If nothing needs attention, respond briefly." | jq -Rs .)
+                fi
+                PAYLOAD=$(jq -n --arg name "openclaw_heartbeat" --arg cron "$CRON" --argjson prompt "$HB_PROMPT" '{name:$name,cron:$cron,prompt:$prompt}')
+                resp=$(api_post "$API_BASE/agents/$TARGET/schedules" "$PAYLOAD")
+                if echo "$resp" | grep -q '"success":true'; then
+                    echo "Migrated: heartbeat -> scheduled job"
+                fi
+            fi
+        fi
     fi
     
-    if [ -f "$OPENCLAW_DIR/AGENTS.md" ]; then
-        echo "## Workspace Guidelines (from AGENTS.md)" >> "$PERSONA_FILE"
-        echo "" >> "$PERSONA_FILE"
-        # Filter out tool-specific sections
-        grep -v "^## Skills" "$OPENCLAW_DIR/AGENTS.md" | grep -v "^## Tools" >> "$PERSONA_FILE" 2>/dev/null || cat "$OPENCLAW_DIR/AGENTS.md" >> "$PERSONA_FILE"
-        echo "" >> "$PERSONA_FILE"
-        echo "Migrated: AGENTS.md"
+    # LLM migration (auth-profiles, vault, llm) - requires agent to exist in moxxy
+    if [ -f "$OPENCLAW_ROOT/openclaw.json" ] && command -v jq >/dev/null 2>&1; then
+        for auth_file in "$OPENCLAW_ROOT"/agents/*/agent/auth-profiles.json; do
+            [ -f "$auth_file" ] || continue
+            jq -c '.profiles | to_entries[] | select(.value.type=="api_key") | {key: (.value.provider + "_api_key"), value: .value.key}' "$auth_file" 2>/dev/null | while read -r row; do
+                [ -n "$row" ] && api_post "$API_BASE/agents/$TARGET/vault" "$row" >/dev/null 2>&1
+            done
+            break
+        done
+        PRIMARY=$(jq -r '.agent.model.primary // .agents.defaults.model.primary // empty' "$OPENCLAW_ROOT/openclaw.json" 2>/dev/null)
+        if [ -n "$PRIMARY" ]; then
+            PROVIDER="${PRIMARY%%/*}"
+            MODEL="${PRIMARY#*/}"
+            resp=$(api_post "$API_BASE/agents/$TARGET/llm" "{\"provider\":\"$PROVIDER\",\"model\":\"$MODEL\"}")
+            if echo "$resp" | grep -q '"success":true'; then
+                echo "Migrated: LLM provider/model"
+            fi
+        fi
     fi
     
     # Migrate skills
@@ -168,27 +273,27 @@ persona)
     TARGET_DIR="$MOXXY_DIR/$TARGET"
     mkdir -p "$TARGET_DIR"
     
-    PERSONA_FILE="$TARGET_DIR/persona.md"
-    echo "# Agent Persona" > "$PERSONA_FILE"
-    echo "" >> "$PERSONA_FILE"
-    echo "_Migrated from OpenClaw_" >> "$PERSONA_FILE"
-    echo "" >> "$PERSONA_FILE"
+    PERSONA_RAW=$(mktemp)
+    trap "rm -f $PERSONA_RAW" EXIT
+    {
+        echo "# Agent Persona"
+        echo ""
+        if [ -f "$OPENCLAW_DIR/SOUL.md" ]; then
+            echo "## Core Identity"
+            echo ""
+            cat "$OPENCLAW_DIR/SOUL.md"
+            echo ""
+        fi
+        if [ -f "$OPENCLAW_DIR/AGENTS.md" ]; then
+            echo "## Workspace Guidelines"
+            echo ""
+            grep -v "^## Skills" "$OPENCLAW_DIR/AGENTS.md" 2>/dev/null | grep -v "^## Tools" 2>/dev/null || cat "$OPENCLAW_DIR/AGENTS.md"
+            echo ""
+        fi
+    } > "$PERSONA_RAW"
+    transform_persona "$PERSONA_RAW" > "$TARGET_DIR/persona.md"
     
-    if [ -f "$OPENCLAW_DIR/SOUL.md" ]; then
-        echo "## Core Identity (from SOUL.md)" >> "$PERSONA_FILE"
-        echo "" >> "$PERSONA_FILE"
-        cat "$OPENCLAW_DIR/SOUL.md" >> "$PERSONA_FILE"
-        echo "" >> "$PERSONA_FILE"
-    fi
-    
-    if [ -f "$OPENCLAW_DIR/AGENTS.md" ]; then
-        echo "## Workspace Guidelines (from AGENTS.md)" >> "$PERSONA_FILE"
-        echo "" >> "$PERSONA_FILE"
-        cat "$OPENCLAW_DIR/AGENTS.md" >> "$PERSONA_FILE"
-        echo "" >> "$PERSONA_FILE"
-    fi
-    
-    echo "Persona migrated to: $PERSONA_FILE"
+    echo "Persona migrated to: $TARGET_DIR/persona.md"
     ;;
 
 # ---- SKILLS ----
