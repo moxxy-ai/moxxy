@@ -183,6 +183,7 @@ pub async fn create_agent_endpoint(
     let skill_reg_clone = state.skill_registry.clone();
     let llm_reg_clone = state.llm_registry.clone();
     let container_reg_clone = state.container_registry.clone();
+    let vault_reg_clone = state.vault_registry.clone();
     let scheduler_reg_clone = state.scheduler_registry.clone();
     let scheduled_job_reg_clone = state.scheduled_job_registry.clone();
     let log_tx_clone = state.log_tx.clone();
@@ -203,6 +204,7 @@ pub async fn create_agent_endpoint(
             skill_reg_clone,
             llm_reg_clone,
             container_reg_clone,
+            vault_reg_clone,
             scheduler_reg_clone,
             scheduled_job_reg_clone,
             log_tx_clone,

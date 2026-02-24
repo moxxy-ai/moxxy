@@ -8,7 +8,7 @@ When an external service sends an event to a registered webhook URL, you will be
 
 Registering a webhook is a **two-step process** that requires user involvement:
 
-1. **You register the webhook** using the `register` action below. This creates the endpoint on your side.
+1. **You register the webhook** using the `register` action below. This creates the endpoint and stores the secret in your encrypted vault.
 2. **The user must configure the external service** (GitHub, Stripe, etc.) with the webhook URL and secret you provide.
 
 After registering, you MUST tell the user:
@@ -16,6 +16,12 @@ After registering, you MUST tell the user:
 - The **secret** they chose or you generated
 - **Where to configure it** in the external service (e.g., "Go to your GitHub repo → Settings → Webhooks → Add webhook")
 - **Which events** to subscribe to (e.g., "Select 'Releases' events only")
+
+## Secret Storage
+
+Webhook secrets are stored **encrypted** in the agent's vault under the key `webhook_secret:<webhook_name>`. They are never stored in plaintext. Each webhook has its own vault entry, so multiple webhooks each have independent secrets.
+
+When you pass a secret to the `register` action, it is automatically saved to the vault. You do NOT need to use `manage_vault` separately — the webhook skill handles vault storage internally.
 
 ## Arguments
 
@@ -44,19 +50,23 @@ The `secret` is a shared HMAC key used to verify that incoming requests actually
 - **name**: Human-friendly identifier (e.g. "github-releases", "stripe-payments")
 - **source_slug**: URL path segment — alphanumeric, hyphens, underscores ONLY (e.g. "github", "stripe")
 - **prompt_template**: Instructions prepended to every incoming payload. Include context about what repo/resource this is for.
-- **secret**: Shared HMAC secret for signature verification (REQUIRED for production use)
+- **secret**: Shared HMAC secret for signature verification (REQUIRED — stored encrypted in vault as `webhook_secret:<name>`)
 
 ### Remove a webhook
 `<invoke name="webhook">["remove", "webhook_name"]</invoke>`
 
+Removes the webhook registration and deletes the secret from the vault.
+
 ### Enable a disabled webhook
 `<invoke name="webhook">["enable", "webhook_name"]</invoke>`
 
-### Disable a webhook (keeps registration, stops processing)
+### Disable a webhook (keeps registration and secret, stops processing)
 `<invoke name="webhook">["disable", "webhook_name"]</invoke>`
 
 ### Update a webhook (re-registers with new settings)
 `<invoke name="webhook">["update", "name", "source_slug", "new_prompt_template", "new_secret"]</invoke>`
+
+Updates the webhook registration and replaces the secret in the vault.
 
 ### List all registered webhooks
 `<invoke name="webhook">["list"]</invoke>`

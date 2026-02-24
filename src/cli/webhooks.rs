@@ -67,9 +67,11 @@ pub async fn run_webhook_command(args: &[String]) -> Result<()> {
                                     } else {
                                         style("INACTIVE").dim().to_string()
                                     };
-                                    let secret =
-                                        wh.get("secret").and_then(|v| v.as_str()).unwrap_or("");
-                                    let signed = if !secret.is_empty() {
+                                    let has_secret = wh
+                                        .get("has_secret")
+                                        .and_then(|v| v.as_bool())
+                                        .unwrap_or(false);
+                                    let signed = if has_secret {
                                         format!(" {}", style("[SIGNED]").yellow())
                                     } else {
                                         String::new()

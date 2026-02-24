@@ -1,11 +1,16 @@
 use axum::{
     Json,
     extract::{Path, State},
-    http::HeaderMap,
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
 };
-use tracing::info;
+use tracing::{error, info, warn};
 
 use super::super::AppState;
+
+fn vault_key_for_webhook(name: &str) -> String {
+    format!("webhook_secret:{}", name)
+}
 
 // === CRUD Handlers ===
 
@@ -14,14 +19,41 @@ pub async fn get_webhooks_endpoint(
     State(state): State<AppState>,
 ) -> Json<serde_json::Value> {
     let reg = state.registry.lock().await;
-    if let Some(mem_mutex) = reg.get(&agent) {
-        let mem = mem_mutex.lock().await;
-        match mem.get_all_webhooks().await {
-            Ok(webhooks) => Json(serde_json::json!({ "success": true, "webhooks": webhooks })),
-            Err(e) => Json(serde_json::json!({ "success": false, "error": e.to_string() })),
+    let vault_reg = state.vault_registry.lock().await;
+
+    let (mem_arc, vault_arc) = match (reg.get(&agent), vault_reg.get(&agent)) {
+        (Some(m), Some(v)) => (m.clone(), v.clone()),
+        _ => {
+            return Json(serde_json::json!({ "success": false, "error": "Agent not found" }));
         }
-    } else {
-        Json(serde_json::json!({ "success": false, "error": "Agent not found" }))
+    };
+    drop(reg);
+    drop(vault_reg);
+
+    let mem = mem_arc.lock().await;
+    match mem.get_all_webhooks().await {
+        Ok(webhooks) => {
+            let mut results = Vec::new();
+            for wh in webhooks {
+                let has_secret = vault_arc
+                    .get_secret(&vault_key_for_webhook(&wh.name))
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|s| !s.is_empty())
+                    .unwrap_or(false);
+                results.push(serde_json::json!({
+                    "name": wh.name,
+                    "source": wh.source,
+                    "prompt_template": wh.prompt_template,
+                    "active": wh.active,
+                    "has_secret": has_secret,
+                    "created_at": wh.created_at,
+                }));
+            }
+            Json(serde_json::json!({ "success": true, "webhooks": results }))
+        }
+        Err(e) => Json(serde_json::json!({ "success": false, "error": e.to_string() })),
     }
 }
 
@@ -73,12 +105,34 @@ pub async fn create_webhook_endpoint(
         }
     };
 
+    let vault_arc = {
+        let vault_reg = state.vault_registry.lock().await;
+        match vault_reg.get(&agent) {
+            Some(v) => v.clone(),
+            None => {
+                return Json(serde_json::json!({
+                    "success": false,
+                    "error": "Agent vault not found"
+                }));
+            }
+        }
+    };
+
     let mem = mem_arc.lock().await;
-    match mem
-        .add_webhook(&name, &source, &payload.secret, &prompt_template)
-        .await
-    {
+    match mem.add_webhook(&name, &source, &prompt_template).await {
         Ok(_) => {
+            if !payload.secret.is_empty() {
+                if let Err(e) = vault_arc
+                    .set_secret(&vault_key_for_webhook(&name), &payload.secret)
+                    .await
+                {
+                    error!("Failed to store webhook secret in vault: {}", e);
+                    return Json(serde_json::json!({
+                        "success": false,
+                        "error": format!("Failed to store secret: {}", e)
+                    }));
+                }
+            }
             let webhook_url = format!(
                 "http://{}:{}/api/webhooks/{}/{}",
                 state.api_host, state.api_port, agent, source
@@ -121,9 +175,19 @@ pub async fn delete_webhook_endpoint(
         }
     };
 
+    let vault_arc = {
+        let vault_reg = state.vault_registry.lock().await;
+        vault_reg.get(&agent).cloned()
+    };
+
     let mem = mem_arc.lock().await;
     match mem.remove_webhook(&name).await {
-        Ok(true) => Json(serde_json::json!({ "success": true, "message": "Webhook removed" })),
+        Ok(true) => {
+            if let Some(vault) = vault_arc {
+                let _ = vault.remove_secret(&vault_key_for_webhook(&name)).await;
+            }
+            Json(serde_json::json!({ "success": true, "message": "Webhook removed" }))
+        }
         Ok(false) => Json(serde_json::json!({ "success": false, "error": "Webhook not found" })),
         Err(e) => Json(serde_json::json!({
             "success": false,
@@ -181,115 +245,185 @@ pub async fn webhook_endpoint(
     State(state): State<AppState>,
     headers: HeaderMap,
     body: String,
-) -> Json<serde_json::Value> {
+) -> impl IntoResponse {
+    info!(
+        "Incoming webhook request: agent='{}', source='{}', body_len={}",
+        agent,
+        source,
+        body.len()
+    );
+
     let reg = state.registry.lock().await;
     let skill_reg = state.skill_registry.lock().await;
     let llm_reg = state.llm_registry.lock().await;
+    let vault_reg = state.vault_registry.lock().await;
 
-    if let (Some(mem_sys), Some(skill_sys), Some(llm_sys)) =
-        (reg.get(&agent), skill_reg.get(&agent), llm_reg.get(&agent))
-    {
-        let mem = mem_sys.clone();
-        let skills = skill_sys.clone();
-        let llms = llm_sys.clone();
+    let (mem, skills, llms, vault) = match (
+        reg.get(&agent),
+        skill_reg.get(&agent),
+        llm_reg.get(&agent),
+        vault_reg.get(&agent),
+    ) {
+        (Some(m), Some(s), Some(l), Some(v)) => (m.clone(), s.clone(), l.clone(), v.clone()),
+        _ => {
+            warn!(
+                "Webhook rejected: agent '{}' not found in registries (source: {})",
+                agent, source
+            );
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "success": false, "error": "Agent not found" })),
+            );
+        }
+    };
 
-        // Release locks before doing work
-        drop(reg);
-        drop(skill_reg);
-        drop(llm_reg);
+    drop(reg);
+    drop(skill_reg);
+    drop(llm_reg);
+    drop(vault_reg);
 
-        // Look up webhook registration
-        let webhook = {
-            let mem_lock = mem.lock().await;
-            match mem_lock.get_webhook_by_source(&source).await {
-                Ok(Some(wh)) => wh,
-                Ok(None) => {
-                    return Json(serde_json::json!({
+    let webhook = {
+        let mem_lock = mem.lock().await;
+        match mem_lock.get_webhook_by_source(&source).await {
+            Ok(Some(wh)) => wh,
+            Ok(None) => {
+                warn!(
+                    "Webhook rejected: no webhook registered for source '{}' on agent '{}'",
+                    source, agent
+                );
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({
                         "success": false,
                         "error": "No webhook registered for this source"
-                    }));
-                }
-                Err(e) => {
-                    return Json(serde_json::json!({
+                    })),
+                );
+            }
+            Err(e) => {
+                error!(
+                    "Webhook database error for agent '{}', source '{}': {}",
+                    agent, source, e
+                );
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
                         "success": false,
                         "error": format!("Database error: {}", e)
-                    }));
-                }
+                    })),
+                );
             }
-        };
+        }
+    };
 
-        // Check if active
-        if !webhook.active {
-            return Json(serde_json::json!({
+    if !webhook.active {
+        warn!(
+            "Webhook rejected: webhook '{}' on agent '{}' is disabled",
+            webhook.name, agent
+        );
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
                 "success": false,
                 "error": "Webhook is currently disabled"
-            }));
-        }
+            })),
+        );
+    }
 
-        // Require webhook secret for signature verification.
-        // Webhooks without a secret are rejected to prevent unauthenticated triggering.
-        if webhook.secret.is_empty() {
-            return Json(serde_json::json!({
-                "success": false,
-                "error": "Webhook has no secret configured. Set a secret to enable signature verification."
-            }));
+    // Retrieve secret from vault
+    let secret = match vault
+        .get_secret(&vault_key_for_webhook(&webhook.name))
+        .await
+    {
+        Ok(Some(s)) if !s.is_empty() => s,
+        _ => {
+            warn!(
+                "Webhook rejected: webhook '{}' on agent '{}' has no secret in vault",
+                webhook.name, agent
+            );
+            return (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": "Webhook has no secret configured. Set a secret to enable signature verification."
+                })),
+            );
         }
-        if !verify_webhook_signature(&headers, &body, &webhook.secret) {
-            return Json(serde_json::json!({
+    };
+
+    if !verify_webhook_signature(&headers, &body, &secret) {
+        warn!(
+            "Webhook rejected: signature verification failed for '{}' on agent '{}' (source: {})",
+            webhook.name, agent, source
+        );
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({
                 "success": false,
                 "error": "Signature verification failed"
-            }));
-        }
-
-        // Check if this agent has a WASM container
-        let container_reg = state.container_registry.lock().await;
-        let wasm_container = container_reg.get(&agent).cloned();
-        drop(container_reg);
-
-        // Build trigger text using the prompt_template.
-        // Sanitize the body to prevent prompt injection via invoke tags.
-        let safe_body = crate::core::brain::sanitize_invoke_tags(&body);
-        let trigger_text = format!(
-            "{}\n\n--- Webhook Payload from [{}] ---\n{}",
-            webhook.prompt_template, source, safe_body
+            })),
         );
-        let src_label = format!("WEBHOOK_{}", source.to_uppercase());
+    }
 
-        info!(
-            "Dispatching verified webhook '{}' ({}) to Agent [{}]",
-            webhook.name, source, agent
-        );
+    let container_reg = state.container_registry.lock().await;
+    let wasm_container = container_reg.get(&agent).cloned();
+    drop(container_reg);
 
-        // Fire and forget the ReAct loop
-        let agent_name = agent.clone();
-        tokio::spawn(async move {
-            if let Some(container) = wasm_container {
-                let _ = container
-                    .execute(&trigger_text, llms, mem, skills, None)
-                    .await;
-            } else {
-                let _ = crate::core::brain::AutonomousBrain::execute_react_loop(
-                    &trigger_text,
-                    &src_label,
-                    llms,
-                    mem,
-                    skills,
-                    None,
-                    &agent_name,
-                )
-                .await;
+    let safe_body = crate::core::brain::sanitize_invoke_tags(&body);
+    let trigger_text = format!(
+        "{}\n\n--- Webhook Payload from [{}] ---\n{}",
+        webhook.prompt_template, source, safe_body
+    );
+    let src_label = format!("WEBHOOK_{}", source.to_uppercase());
+
+    info!(
+        "Dispatching verified webhook '{}' ({}) to Agent [{}]",
+        webhook.name, source, agent
+    );
+
+    let agent_name = agent.clone();
+    let webhook_name = webhook.name.clone();
+    tokio::spawn(async move {
+        let result = if let Some(container) = wasm_container {
+            container
+                .execute(&trigger_text, llms, mem, skills, None)
+                .await
+        } else {
+            crate::core::brain::AutonomousBrain::execute_react_loop(
+                &trigger_text,
+                &src_label,
+                llms,
+                mem,
+                skills,
+                None,
+                &agent_name,
+            )
+            .await
+        };
+
+        match result {
+            Ok(response) => {
+                let preview: String = response.chars().take(200).collect();
+                info!(
+                    "Webhook '{}' processing completed for agent '{}': {}",
+                    webhook_name, agent_name, preview
+                );
             }
-        });
+            Err(e) => error!(
+                "Webhook '{}' processing FAILED for agent '{}': {}",
+                webhook_name, agent_name, e
+            ),
+        }
+    });
 
+    (
+        StatusCode::OK,
         Json(
             serde_json::json!({ "success": true, "message": "Webhook received and agent loop triggered." }),
-        )
-    } else {
-        Json(serde_json::json!({ "success": false, "error": "Agent not found" }))
-    }
+        ),
+    )
 }
 
-// === Delegation Endpoint (unchanged) ===
+// === Delegation Endpoint ===
 
 pub async fn delegate_endpoint(
     Path(agent): Path<String>,
@@ -307,12 +441,10 @@ pub async fn delegate_endpoint(
         let skills = skill_sys.clone();
         let llms = llm_sys.clone();
 
-        // Release locks before heavily blocking on the ReAct loop
         drop(reg);
         drop(skill_reg);
         drop(llm_reg);
 
-        // Check if this agent has a WASM container
         let container_reg = state.container_registry.lock().await;
         let wasm_container = container_reg.get(&agent).cloned();
         drop(container_reg);
@@ -354,8 +486,6 @@ pub async fn delegate_endpoint(
 
 // === Signature Verification ===
 
-/// Verify webhook signature against common patterns.
-/// Supports: GitHub (X-Hub-Signature-256), Stripe (Stripe-Signature), generic (X-Signature).
 fn verify_webhook_signature(headers: &HeaderMap, body: &str, secret: &str) -> bool {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
@@ -383,7 +513,6 @@ fn verify_webhook_signature(headers: &HeaderMap, body: &str, secret: &str) -> bo
         let parts: std::collections::HashMap<&str, &str> =
             sig.split(',').filter_map(|p| p.split_once('=')).collect();
         if let (Some(timestamp), Some(v1_sig)) = (parts.get("t"), parts.get("v1")) {
-            // Reject signatures older than 5 minutes to prevent replay attacks
             if let Ok(ts) = timestamp.parse::<u64>() {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -409,11 +538,9 @@ fn verify_webhook_signature(headers: &HeaderMap, body: &str, secret: &str) -> bo
         return constant_time_eq(sig.as_bytes(), expected.as_bytes());
     }
 
-    // No recognized signature header found - fail closed
     false
 }
 
-/// Constant-time comparison to prevent timing attacks.
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;

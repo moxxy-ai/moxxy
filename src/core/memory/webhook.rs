@@ -52,17 +52,11 @@ impl MemorySystem {
         }
     }
 
-    pub async fn add_webhook(
-        &self,
-        name: &str,
-        source: &str,
-        secret: &str,
-        prompt_template: &str,
-    ) -> Result<()> {
+    pub async fn add_webhook(&self, name: &str, source: &str, prompt_template: &str) -> Result<()> {
         let db = self.db.lock().await;
         db.execute(
-            "INSERT OR REPLACE INTO webhooks (name, source, secret, prompt_template, active) VALUES (?1, ?2, ?3, ?4, 1)",
-            params![name, source, secret, prompt_template],
+            "INSERT OR REPLACE INTO webhooks (name, source, secret, prompt_template, active) VALUES (?1, ?2, '', ?3, 1)",
+            params![name, source, prompt_template],
         )?;
         Ok(())
     }

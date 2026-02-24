@@ -23,6 +23,7 @@ pub type MemoryRegistry = Arc<Mutex<HashMap<String, Arc<Mutex<MemorySystem>>>>>;
 pub type SkillRegistry = Arc<Mutex<HashMap<String, Arc<Mutex<SkillManager>>>>>;
 pub type LlmRegistry = Arc<Mutex<HashMap<String, Arc<Mutex<LlmManager>>>>>;
 pub type ContainerRegistry = Arc<Mutex<HashMap<String, Arc<AgentContainer>>>>;
+pub type VaultRegistry = Arc<Mutex<HashMap<String, Arc<crate::core::vault::SecretsVault>>>>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RunMode {
@@ -43,6 +44,7 @@ pub struct AgentInstance {
 }
 
 impl AgentInstance {
+    #[allow(clippy::too_many_arguments)]
     pub async fn boot(
         name: String,
         workspace_dir: PathBuf,
@@ -54,6 +56,7 @@ impl AgentInstance {
         skill_registry: SkillRegistry,
         llm_registry: LlmRegistry,
         container_registry: ContainerRegistry,
+        vault_registry: VaultRegistry,
         scheduler_registry: SchedulerRegistry,
         scheduled_job_registry: ScheduledJobRegistry,
         log_tx: tokio::sync::broadcast::Sender<String>,
@@ -90,6 +93,11 @@ impl AgentInstance {
             .lock()
             .await
             .insert(name.clone(), llm_sys_arc.clone());
+
+        vault_registry
+            .lock()
+            .await
+            .insert(name.clone(), vault.clone());
 
         if let Some(ref container) = wasm_container {
             container_registry
@@ -136,6 +144,7 @@ impl AgentInstance {
             &skill_registry,
             &llm_registry,
             &container_registry,
+            &vault_registry,
             &scheduler_registry,
             &scheduled_job_registry,
             &llm_sys_arc,

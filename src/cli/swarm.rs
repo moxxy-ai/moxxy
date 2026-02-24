@@ -5,7 +5,7 @@ use tracing_subscriber::FmtSubscriber;
 
 use crate::core::agent::{
     AgentInstance, ContainerRegistry, LlmRegistry, MemoryRegistry, RunMode, ScheduledJobRegistry,
-    SchedulerRegistry, SkillRegistry,
+    SchedulerRegistry, SkillRegistry, VaultRegistry,
 };
 use crate::logging::SseMakeWriter;
 
@@ -58,6 +58,8 @@ pub async fn run_swarm_engine(
         std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
     let scheduled_job_registry: ScheduledJobRegistry =
         std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
+    let vault_registry: VaultRegistry =
+        std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
 
     let internal_token = uuid::Uuid::new_v4().to_string();
 
@@ -76,6 +78,7 @@ pub async fn run_swarm_engine(
             let skill_registry_clone = skill_registry.clone();
             let llm_registry_clone = llm_registry.clone();
             let container_registry_clone = container_registry.clone();
+            let vault_registry_clone = vault_registry.clone();
             let scheduler_registry_clone = scheduler_registry.clone();
             let scheduled_job_registry_clone = scheduled_job_registry.clone();
             let log_tx_clone = log_tx.clone();
@@ -101,6 +104,7 @@ pub async fn run_swarm_engine(
                     skill_registry_clone,
                     llm_registry_clone,
                     container_registry_clone,
+                    vault_registry_clone,
                     scheduler_registry_clone,
                     scheduled_job_registry_clone,
                     log_tx_clone,

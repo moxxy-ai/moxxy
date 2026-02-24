@@ -23,7 +23,7 @@ static FRONTEND_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/frontend/dist");
 
 use crate::core::agent::{
     ContainerRegistry, LlmRegistry, MemoryRegistry, RunMode, ScheduledJobRegistry,
-    SchedulerRegistry, SkillRegistry,
+    SchedulerRegistry, SkillRegistry, VaultRegistry,
 };
 use crate::core::lifecycle::LifecycleComponent;
 
@@ -32,6 +32,7 @@ pub struct ApiServer {
     skill_registry: SkillRegistry,
     llm_registry: LlmRegistry,
     container_registry: ContainerRegistry,
+    vault_registry: VaultRegistry,
     scheduler_registry: SchedulerRegistry,
     scheduled_job_registry: ScheduledJobRegistry,
     log_tx: tokio::sync::broadcast::Sender<String>,
@@ -47,6 +48,7 @@ pub struct ApiServerConfig {
     pub skill_registry: SkillRegistry,
     pub llm_registry: LlmRegistry,
     pub container_registry: ContainerRegistry,
+    pub vault_registry: VaultRegistry,
     pub scheduler_registry: SchedulerRegistry,
     pub scheduled_job_registry: ScheduledJobRegistry,
     pub log_tx: tokio::sync::broadcast::Sender<String>,
@@ -63,6 +65,7 @@ pub(crate) struct AppState {
     pub(crate) skill_registry: SkillRegistry,
     pub(crate) llm_registry: LlmRegistry,
     pub(crate) container_registry: ContainerRegistry,
+    pub(crate) vault_registry: VaultRegistry,
     pub(crate) scheduler_registry: SchedulerRegistry,
     pub(crate) scheduled_job_registry: ScheduledJobRegistry,
     pub(crate) log_tx: tokio::sync::broadcast::Sender<String>,
@@ -80,6 +83,7 @@ impl ApiServer {
             skill_registry: config.skill_registry,
             llm_registry: config.llm_registry,
             container_registry: config.container_registry,
+            vault_registry: config.vault_registry,
             scheduler_registry: config.scheduler_registry,
             scheduled_job_registry: config.scheduled_job_registry,
             log_tx: config.log_tx,
@@ -140,6 +144,7 @@ impl LifecycleComponent for ApiServer {
         let skill_registry = self.skill_registry.clone();
         let llm_registry = self.llm_registry.clone();
         let container_registry = self.container_registry.clone();
+        let vault_registry = self.vault_registry.clone();
         let scheduler_registry = self.scheduler_registry.clone();
         let scheduled_job_registry = self.scheduled_job_registry.clone();
         let log_tx = self.log_tx.clone();
@@ -156,6 +161,7 @@ impl LifecycleComponent for ApiServer {
                 skill_registry,
                 llm_registry,
                 container_registry,
+                vault_registry,
                 scheduler_registry,
                 scheduled_job_registry,
                 log_tx,
