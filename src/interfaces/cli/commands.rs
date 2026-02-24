@@ -88,7 +88,7 @@ impl CliInterface {
                                 } else {
                                     for key in keys {
                                         if let Some(key_str) = key.as_str() {
-                                            self.push_cmd_output(format!("  • {}", key_str));
+                                            self.push_cmd_output(format!("  - {}", key_str));
                                         }
                                     }
                                 }
@@ -242,7 +242,7 @@ impl CliInterface {
                                         p.get("vault_key").and_then(|v| v.as_str()).unwrap_or("");
                                     let custom_tag = if custom { " (custom)" } else { "" };
                                     self.push_cmd_output(format!(
-                                        "  {}{} – vault_key: {}",
+                                        "  {}{} - vault_key: {}",
                                         name, custom_tag, vault_key
                                     ));
                                 }

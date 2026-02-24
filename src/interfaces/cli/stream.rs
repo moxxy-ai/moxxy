@@ -62,7 +62,7 @@ impl CliInterface {
                                                     .unwrap_or_default();
                                                 let _ = tx
                                                     .send(StreamEvent::Activity(format!(
-                                                        "⚡ Invoking skill: {} {}",
+                                                        "Invoking skill: {} {}",
                                                         skill, args
                                                     )))
                                                     .await;
@@ -101,7 +101,7 @@ impl CliInterface {
                                                     .unwrap_or("");
                                                 let _ = tx
                                                     .send(StreamEvent::Activity(format!(
-                                                        "💭 {}",
+                                                        "Thinking: {}",
                                                         text
                                                     )))
                                                     .await;

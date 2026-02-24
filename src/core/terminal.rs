@@ -1,11 +1,11 @@
 use console::{Emoji, style};
 
-pub static SUCCESS_ICON: Emoji<'_, '_> = Emoji("✅ ", "");
-pub static INFO_ICON: Emoji<'_, '_> = Emoji("ℹ️  ", "");
-pub static WARN_ICON: Emoji<'_, '_> = Emoji("⚠️  ", "");
-pub static ERROR_ICON: Emoji<'_, '_> = Emoji("❌ ", "");
-pub static GEAR: Emoji<'_, '_> = Emoji("⚙️  ", "");
-pub static SPARKLE: Emoji<'_, '_> = Emoji("✨ ", "");
+pub static SUCCESS_ICON: Emoji<'_, '_> = Emoji("", "");
+pub static INFO_ICON: Emoji<'_, '_> = Emoji("", "");
+pub static WARN_ICON: Emoji<'_, '_> = Emoji("", "");
+pub static ERROR_ICON: Emoji<'_, '_> = Emoji("", "");
+pub static GEAR: Emoji<'_, '_> = Emoji("", "");
+pub static SPARKLE: Emoji<'_, '_> = Emoji("", "");
 
 // ── Box-drawing constants ──────────────────────────────────────────────────
 const BOX_WIDTH: usize = 72;
@@ -36,6 +36,61 @@ pub fn print_step(step: &str) {
     println!("{} {}", SPARKLE, style(step).bold());
 }
 
+// ── Bordered message helpers (for use inside guide sections) ──────────────
+
+#[allow(dead_code)]
+pub fn bordered_success(msg: &str) {
+    println!(
+        " {}  {} {}",
+        style(BOX_V).dim(),
+        SUCCESS_ICON,
+        style(msg).green()
+    );
+}
+
+pub fn bordered_info(msg: &str) {
+    println!(
+        " {}  {} {}",
+        style(BOX_V).dim(),
+        INFO_ICON,
+        style(msg).blue()
+    );
+}
+
+#[allow(dead_code)]
+pub fn bordered_warn(msg: &str) {
+    println!(
+        " {}  {} {}",
+        style(BOX_V).dim(),
+        WARN_ICON,
+        style(msg).yellow()
+    );
+}
+
+#[allow(dead_code)]
+pub fn bordered_error(msg: &str) {
+    eprintln!(
+        " {}  {} {}",
+        style(BOX_V).dim(),
+        ERROR_ICON,
+        style(msg).red().bold()
+    );
+}
+
+pub fn bordered_step(step: &str) {
+    println!(
+        " {}  {} {}",
+        style(BOX_V).dim(),
+        SPARKLE,
+        style(step).bold()
+    );
+}
+
+#[allow(dead_code)]
+pub fn bordered_bullet(text: &str) {
+    println!(" {}   {} {}", style(BOX_V).dim(), style("–").dim(), text);
+}
+
 // ── Section & layout helpers ───────────────────────────────────────────────
 
 /// Print a bullet point.
@@ -52,6 +107,18 @@ pub fn guide_bar() {
 pub fn close_section() {
     let bar = BOX_H.repeat(BOX_WIDTH);
     println!(" {}{}", style(BOX_BL).dim(), style(&bar).dim());
+}
+
+// ── Inquire render config with guide borders ──────────────────────────────
+
+/// Returns an `inquire::ui::RenderConfig` whose prompt prefix and answered
+/// prefix are `│` so that interactive inputs render inside a guide section.
+pub fn bordered_render_config<'a>() -> inquire::ui::RenderConfig<'a> {
+    inquire::ui::RenderConfig::default_colored()
+        .with_prompt_prefix(inquire::ui::Styled::new(" │ ").with_fg(inquire::ui::Color::DarkGrey))
+        .with_answered_prompt_prefix(
+            inquire::ui::Styled::new(" │ ").with_fg(inquire::ui::Color::DarkGrey),
+        )
 }
 
 // ── Boxed guide section ────────────────────────────────────────────────────

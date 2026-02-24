@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use tokio::fs;
 
 use crate::core::terminal::{
-    self, GuideSection, close_section, guide_bar, print_error, print_info, print_step,
-    print_success,
+    self, GuideSection, bordered_render_config, close_section, guide_bar, print_error, print_info,
+    print_step, print_success,
 };
 
 const OPENCLAW_DIR: &str = ".openclaw";
@@ -169,6 +169,7 @@ pub async fn run_migration_wizard() -> Result<()> {
     let target_agent = inquire::Text::new("Target agent name:")
         .with_default("default")
         .with_help_message("Name for the new Moxxy agent")
+        .with_render_config(bordered_render_config())
         .prompt()?;
     guide_bar();
     close_section();
@@ -181,6 +182,7 @@ pub async fn run_migration_wizard() -> Result<()> {
         inquire::Confirm::new("Migrate skills?")
             .with_default(true)
             .with_help_message("Convert OpenClaw skills to Moxxy format")
+            .with_render_config(bordered_render_config())
             .prompt()?
     } else {
         false
@@ -190,6 +192,7 @@ pub async fn run_migration_wizard() -> Result<()> {
         inquire::Confirm::new("Migrate memory files?")
             .with_default(true)
             .with_help_message("Import MEMORY.md and daily memory files")
+            .with_render_config(bordered_render_config())
             .prompt()?
     } else {
         false
@@ -240,6 +243,7 @@ pub async fn run_migration_wizard() -> Result<()> {
 
     let proceed = inquire::Confirm::new("Proceed with migration?")
         .with_default(true)
+        .with_render_config(bordered_render_config())
         .prompt()?;
     guide_bar();
     close_section();

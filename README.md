@@ -49,7 +49,7 @@ moxxy is a self-hosted runtime for autonomous AI agents. Each agent gets its own
 ### Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/moxxy-ai/moxxy/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/moxxy-ai/moxxy/main/install.sh | bash
 ```
 
 The install script downloads the binary and runs `moxxy install` to scaffold the `~/.moxxy` directory. After installation, run the interactive setup:
@@ -158,7 +158,10 @@ Configure via the web dashboard (Config tab) or during `moxxy init`.
 | `host_shell` | Execute shell commands on the host machine |
 | `host_python` | Run Python scripts on the host machine |
 | `browser` | Browser automation and web page fetching (lightweight fetch or full Chromium) |
-| `git` | Git operations in the agent's workspace |
+| `git` | Git operations (supports `-C` for workspace repos) |
+| `github` | GitHub API (issues, PRs, clone, fork, comment) - clones into agent workspace by default |
+| `file_ops` | Read, write, patch, append, and navigate files for development tasks |
+| `workspace_shell` | Run build/test commands locked to the agent workspace (npm, cargo, make, etc.) |
 | `computer_control` | macOS accessibility automation via AppleScript |
 | `delegate_task` | Delegate sub-tasks to other agents in the swarm |
 | `skill` | Unified skill management (list, install, remove, upgrade, modify, create, read) |
@@ -207,7 +210,7 @@ moxxy enforces strict workspace isolation for agents through multiple security l
 
 **Workspace confinement** - Every agent's file operations are restricted to `~/.moxxy/agents/<name>/workspace/`. There is no mechanism for an agent to read or write files outside this directory.
 
-**Privilege tiers** - Skills are divided into privileged (hardcoded built-in skills with full host access: `host_shell`, `host_python`, `computer_control`, `evolve_core`, `browser`, `osx_email`) and sandboxed (all other skills, including agent-installed ones). Agent-installed skills cannot escalate to privileged status.
+**Privilege tiers** - Skills are divided into privileged (hardcoded built-in skills with full host access: `host_shell`, `host_python`, `computer_control`, `evolve_core`, `browser`, `osx_email`, `git`, `github`, `file_ops`, `workspace_shell`) and sandboxed (all other skills, including agent-installed ones). Agent-installed skills cannot escalate to privileged status.
 
 **OS-level sandboxing** - Non-privileged skills execute inside an OS sandbox (`sandbox-exec` on macOS, `bwrap` on Linux) that enforces read-write access only to the agent's workspace directory at the kernel level.
 

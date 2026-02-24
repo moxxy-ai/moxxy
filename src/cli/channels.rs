@@ -2,7 +2,8 @@ use anyhow::Result;
 use console::style;
 
 use crate::core::terminal::{
-    self, GuideSection, close_section, guide_bar, print_error, print_info, print_success,
+    self, GuideSection, bordered_info, bordered_render_config, bordered_success, close_section,
+    guide_bar, print_error, print_info, print_success,
 };
 
 pub async fn find_agent_using_secret(
@@ -60,6 +61,7 @@ pub async fn run_channel_discord(
         None => inquire::Text::new("Agent name:")
             .with_default("default")
             .with_help_message("Which agent should this Discord bot connect to?")
+            .with_render_config(bordered_render_config())
             .prompt()?,
     };
     guide_bar();
@@ -93,6 +95,7 @@ pub async fn run_channel_discord(
             "What would you like to do?",
             vec!["Replace token", "Disconnect Discord", "Cancel"],
         )
+        .with_render_config(bordered_render_config())
         .prompt()?;
         guide_bar();
         close_section();
@@ -141,6 +144,7 @@ pub async fn run_channel_discord(
             let t = inquire::Password::new("Discord bot token:")
                 .without_confirmation()
                 .with_help_message("Paste the token from the Discord Developer Portal")
+                .with_render_config(bordered_render_config())
                 .prompt()?;
             guide_bar();
             close_section();
@@ -162,7 +166,7 @@ pub async fn run_channel_discord(
     }
 
     vault.set_secret("discord_token", &token).await?;
-    print_success(&format!(
+    bordered_success(&format!(
         "Discord bot token saved for agent '{}'.",
         agent_name
     ));
@@ -203,6 +207,7 @@ pub async fn run_channel_telegram(
         None => inquire::Text::new("Agent name:")
             .with_default("default")
             .with_help_message("Which agent should this Telegram bot connect to?")
+            .with_render_config(bordered_render_config())
             .prompt()?,
     };
     guide_bar();
@@ -249,6 +254,7 @@ pub async fn run_channel_telegram(
             "What would you like to do?",
             vec!["Re-pair with a new device", "Disconnect Telegram", "Cancel"],
         )
+        .with_render_config(bordered_render_config())
         .prompt()?;
         guide_bar();
         close_section();
@@ -282,6 +288,7 @@ pub async fn run_channel_telegram(
             "What would you like to do?",
             vec!["Enter pairing code", "Revoke Pairing Request", "Cancel"],
         )
+        .with_render_config(bordered_render_config())
         .prompt()?;
         guide_bar();
         close_section();
@@ -318,6 +325,7 @@ pub async fn run_channel_telegram(
                 "Cancel",
             ],
         )
+        .with_render_config(bordered_render_config())
         .prompt()?;
         guide_bar();
         close_section();
@@ -375,6 +383,7 @@ pub async fn run_channel_telegram(
         let token = inquire::Password::new("Telegram bot token:")
             .without_confirmation()
             .with_help_message("Paste the token from @BotFather")
+            .with_render_config(bordered_render_config())
             .prompt()?;
         guide_bar();
         close_section();
@@ -417,6 +426,7 @@ pub async fn run_channel_telegram(
         Some(code) => code,
         None => inquire::Text::new("Pairing code:")
             .with_help_message("Enter the 6-digit code from your Telegram bot")
+            .with_render_config(bordered_render_config())
             .prompt()?,
     };
     guide_bar();
@@ -475,6 +485,7 @@ pub async fn run_channel_telegram(
     let enable_stt = inquire::Confirm::new("Enable Voice Recognition (OpenAI Whisper)?")
         .with_default(false)
         .with_help_message("Transcribes voice messages received on Telegram")
+        .with_render_config(bordered_render_config())
         .prompt()?;
 
     if enable_stt {
@@ -483,18 +494,19 @@ pub async fn run_channel_telegram(
         let has_openai =
             matches!(vault.get_secret("openai_api_key").await, Ok(Some(ref v)) if !v.is_empty());
         if has_openai {
-            print_info("Using existing OpenAI API Key for voice transcription.");
+            bordered_info("Using existing OpenAI API Key for voice transcription.");
         } else {
             let stt_key = inquire::Password::new("OpenAI API key for Whisper:")
                 .without_confirmation()
                 .with_help_message("Stored locally in the agent's vault")
+                .with_render_config(bordered_render_config())
                 .prompt()?;
             if !stt_key.is_empty() {
                 vault.set_secret("telegram_stt_token", &stt_key).await?;
-                print_success("STT API key saved.");
+                bordered_success("STT API key saved.");
             }
         }
-        print_success("Voice Recognition enabled.");
+        bordered_success("Voice Recognition enabled.");
     } else {
         vault.set_secret("telegram_stt_enabled", "false").await?;
     }
