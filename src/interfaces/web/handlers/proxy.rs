@@ -34,8 +34,7 @@ fn validate_cwd(cwd: &str) -> Result<(), Json<serde_json::Value>> {
             "error": "403 Forbidden: cwd path does not exist or cannot be resolved."
         }))
     })?;
-    let home = dirs::home_dir().expect("Could not find home directory");
-    let moxxy_dir = home.join(".moxxy");
+    let moxxy_dir = NativePlatform::data_dir();
     if !canonical.starts_with(&moxxy_dir) {
         return Err(Json(
             serde_json::json!({ "success": false, "error": "403 Forbidden: cwd must be within the moxxy directory." }),

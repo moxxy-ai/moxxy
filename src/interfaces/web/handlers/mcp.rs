@@ -22,8 +22,9 @@ fn is_mcp_command_allowed(command: &str) -> bool {
     }
 
     // Check user-configured allowlist
-    if let Some(home) = dirs::home_dir() {
-        let allowlist_path = home.join(".moxxy").join("allowed_mcp_commands.txt");
+    {
+        use crate::platform::{NativePlatform, Platform};
+        let allowlist_path = NativePlatform::data_dir().join("allowed_mcp_commands.txt");
         if let Ok(contents) = std::fs::read_to_string(&allowlist_path) {
             for line in contents.lines() {
                 let line = line.trim();
@@ -39,8 +40,9 @@ fn is_mcp_command_allowed(command: &str) -> bool {
 
 fn allowed_commands_list() -> String {
     let mut cmds: Vec<String> = DEFAULT_MCP_COMMANDS.iter().map(|s| s.to_string()).collect();
-    if let Some(home) = dirs::home_dir() {
-        let allowlist_path = home.join(".moxxy").join("allowed_mcp_commands.txt");
+    {
+        use crate::platform::{NativePlatform, Platform};
+        let allowlist_path = NativePlatform::data_dir().join("allowed_mcp_commands.txt");
         if let Ok(contents) = std::fs::read_to_string(&allowlist_path) {
             for line in contents.lines() {
                 let line = line.trim();

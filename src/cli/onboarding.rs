@@ -12,18 +12,15 @@ pub async fn run_onboarding() -> Result<()> {
     terminal::print_banner();
 
     // Ensure directories and vault exist (in case `moxxy install` wasn't run first)
-    let home = dirs::home_dir().expect("Could not find home directory");
-    let default_agent_dir = home.join(".moxxy").join("agents").join("default");
+    use crate::platform::{NativePlatform, Platform};
+    let moxxy_dir = NativePlatform::data_dir();
+    let default_agent_dir = moxxy_dir.join("agents").join("default");
 
     if !default_agent_dir.exists() {
         tokio::fs::create_dir_all(default_agent_dir.join("skills")).await?;
         tokio::fs::create_dir_all(default_agent_dir.join("workspace")).await?;
-        // Set restrictive permissions on agent directories
-        {
-            use crate::platform::{NativePlatform, Platform};
-            NativePlatform::restrict_dir_permissions(&home.join(".moxxy"));
-            NativePlatform::restrict_dir_permissions(&default_agent_dir);
-        }
+        NativePlatform::restrict_dir_permissions(&moxxy_dir);
+        NativePlatform::restrict_dir_permissions(&default_agent_dir);
     }
 
     println!(

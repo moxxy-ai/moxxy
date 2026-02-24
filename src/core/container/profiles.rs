@@ -10,8 +10,8 @@ impl ImageProfile {
     /// Resolve an image name to a filesystem path.
     /// Supports profile names ("base", "networked", "full") and raw paths.
     pub fn resolve(image_name: &str, workspace_dir: &Path) -> std::path::PathBuf {
-        let home = dirs::home_dir().expect("Could not find home directory");
-        let images_dir = home.join(".moxxy").join("images");
+        use crate::platform::{NativePlatform, Platform};
+        let images_dir = NativePlatform::data_dir().join("images");
 
         match image_name {
             "base" => images_dir.join("agent_runtime.wasm"),

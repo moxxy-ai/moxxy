@@ -10,8 +10,8 @@ pub async fn find_agent_using_secret(
     value: &str,
     exclude_agent: &str,
 ) -> Result<Option<String>> {
-    let home = dirs::home_dir().expect("Could not find home directory");
-    let agents_dir = home.join(".moxxy").join("agents");
+    use crate::platform::{NativePlatform, Platform};
+    let agents_dir = NativePlatform::data_dir().join("agents");
     if !agents_dir.exists() {
         return Ok(None);
     }
@@ -65,8 +65,8 @@ pub async fn run_channel_discord(
     guide_bar();
     close_section();
 
-    let home = dirs::home_dir().expect("Could not find home directory");
-    let agent_dir = home.join(".moxxy").join("agents").join(&agent_name);
+    use crate::platform::{NativePlatform, Platform};
+    let agent_dir = NativePlatform::data_dir().join("agents").join(&agent_name);
 
     if !agent_dir.exists() {
         print_error(&format!(
@@ -208,8 +208,8 @@ pub async fn run_channel_telegram(
     guide_bar();
     close_section();
 
-    let home = dirs::home_dir().expect("Could not find home directory");
-    let agent_dir = home.join(".moxxy").join("agents").join(&agent_name);
+    use crate::platform::{NativePlatform, Platform};
+    let agent_dir = NativePlatform::data_dir().join("agents").join(&agent_name);
 
     if !agent_dir.exists() {
         print_error(&format!(

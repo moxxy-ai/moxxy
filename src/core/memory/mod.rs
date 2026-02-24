@@ -138,8 +138,7 @@ impl MemorySystem {
         )?;
 
         // Swarm Intelligence: Global Knowledge Base shared across all agents
-        let home = dirs::home_dir().expect("Could not find home directory");
-        let swarm_db_path = home.join(".moxxy").join("swarm.db");
+        let swarm_db_path = NativePlatform::data_dir().join("swarm.db");
         let global_db = Connection::open(&swarm_db_path)?;
         NativePlatform::restrict_file_permissions(&swarm_db_path);
 

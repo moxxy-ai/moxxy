@@ -118,4 +118,10 @@ impl Platform for NativePlatform {
             .join("bin")
             .join("moxxy")
     }
+
+    fn data_dir() -> PathBuf {
+        dirs::home_dir()
+            .expect("Could not find home directory")
+            .join(".moxxy")
+    }
 }
