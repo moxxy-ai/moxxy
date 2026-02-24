@@ -3,7 +3,20 @@
 # Built-in Skill: webhook
 # Unified webhook management - register, remove, enable, disable, update, list.
 
-ACTION=$1
+set -eu
+
+if [ -z "${AGENT_NAME:-}" ]; then
+    echo "AGENT_NAME is required"
+    exit 1
+fi
+
+API_BASE="${MOXXY_API_BASE:-http://127.0.0.1:17890/api}"
+AUTH_HEADER=""
+if [ -n "${MOXXY_INTERNAL_TOKEN:-}" ]; then
+  AUTH_HEADER="X-Moxxy-Internal-Token: ${MOXXY_INTERNAL_TOKEN}"
+fi
+
+ACTION=${1:-}
 
 if [ -z "$ACTION" ]; then
     echo "Usage: webhook <action> [arguments...]"
@@ -14,10 +27,10 @@ fi
 
 case "$ACTION" in
     register)
-        NAME=$2
-        SOURCE=$3
-        PROMPT_TEMPLATE=$4
-        SECRET=$5
+        NAME=${2:-}
+        SOURCE=${3:-}
+        PROMPT_TEMPLATE=${4:-}
+        SECRET=${5:-}
         if [ -z "$NAME" ] || [ -z "$SOURCE" ] || [ -z "$PROMPT_TEMPLATE" ]; then
             echo "Usage: webhook register <name> <source_slug> <prompt_template> [secret]"
             echo "Error: name, source_slug, and prompt_template are required."
@@ -29,22 +42,26 @@ case "$ACTION" in
           --arg prompt_template "$PROMPT_TEMPLATE" \
           --arg secret "${SECRET:-}" \
           '{name: $name, source: $source, prompt_template: $prompt_template, secret: $secret}')
-        response=$(curl -s -w "\n%{http_code}" -X POST "$MOXXY_API_BASE/agents/$AGENT_NAME/webhooks" \
+        response=$(curl -s -w "\n%{http_code}" -X POST \
+            ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
             -H "Content-Type: application/json" \
-            -d "$PAYLOAD")
+            -d "$PAYLOAD" \
+            "$API_BASE/agents/$AGENT_NAME/webhooks")
         ;;
     remove)
-        NAME=$2
+        NAME=${2:-}
         if [ -z "$NAME" ]; then
             echo "Usage: webhook remove <webhook_name>"
             echo "Error: webhook name is required."
             exit 1
         fi
         ENCODED_NAME=$(jq -rn --arg x "$NAME" '$x|@uri')
-        response=$(curl -s -w "\n%{http_code}" -X DELETE "$MOXXY_API_BASE/agents/$AGENT_NAME/webhooks/$ENCODED_NAME")
+        response=$(curl -s -w "\n%{http_code}" -X DELETE \
+            ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
+            "$API_BASE/agents/$AGENT_NAME/webhooks/$ENCODED_NAME")
         ;;
     enable)
-        NAME=$2
+        NAME=${2:-}
         if [ -z "$NAME" ]; then
             echo "Usage: webhook enable <webhook_name>"
             echo "Error: webhook name is required."
@@ -52,12 +69,14 @@ case "$ACTION" in
         fi
         ENCODED_NAME=$(jq -rn --arg x "$NAME" '$x|@uri')
         PAYLOAD=$(jq -n '{active: true}')
-        response=$(curl -s -w "\n%{http_code}" -X PATCH "$MOXXY_API_BASE/agents/$AGENT_NAME/webhooks/$ENCODED_NAME" \
+        response=$(curl -s -w "\n%{http_code}" -X PATCH \
+            ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
             -H "Content-Type: application/json" \
-            -d "$PAYLOAD")
+            -d "$PAYLOAD" \
+            "$API_BASE/agents/$AGENT_NAME/webhooks/$ENCODED_NAME")
         ;;
     disable)
-        NAME=$2
+        NAME=${2:-}
         if [ -z "$NAME" ]; then
             echo "Usage: webhook disable <webhook_name>"
             echo "Error: webhook name is required."
@@ -65,15 +84,17 @@ case "$ACTION" in
         fi
         ENCODED_NAME=$(jq -rn --arg x "$NAME" '$x|@uri')
         PAYLOAD=$(jq -n '{active: false}')
-        response=$(curl -s -w "\n%{http_code}" -X PATCH "$MOXXY_API_BASE/agents/$AGENT_NAME/webhooks/$ENCODED_NAME" \
+        response=$(curl -s -w "\n%{http_code}" -X PATCH \
+            ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
             -H "Content-Type: application/json" \
-            -d "$PAYLOAD")
+            -d "$PAYLOAD" \
+            "$API_BASE/agents/$AGENT_NAME/webhooks/$ENCODED_NAME")
         ;;
     update)
-        NAME=$2
-        SOURCE=$3
-        PROMPT_TEMPLATE=$4
-        SECRET=$5
+        NAME=${2:-}
+        SOURCE=${3:-}
+        PROMPT_TEMPLATE=${4:-}
+        SECRET=${5:-}
         if [ -z "$NAME" ] || [ -z "$SOURCE" ] || [ -z "$PROMPT_TEMPLATE" ]; then
             echo "Usage: webhook update <name> <source_slug> <new_prompt_template> [new_secret]"
             echo "Error: name, source_slug, and prompt_template are required."
@@ -85,12 +106,16 @@ case "$ACTION" in
           --arg prompt_template "$PROMPT_TEMPLATE" \
           --arg secret "${SECRET:-}" \
           '{name: $name, source: $source, prompt_template: $prompt_template, secret: $secret}')
-        response=$(curl -s -w "\n%{http_code}" -X POST "$MOXXY_API_BASE/agents/$AGENT_NAME/webhooks" \
+        response=$(curl -s -w "\n%{http_code}" -X POST \
+            ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
             -H "Content-Type: application/json" \
-            -d "$PAYLOAD")
+            -d "$PAYLOAD" \
+            "$API_BASE/agents/$AGENT_NAME/webhooks")
         ;;
     list)
-        response=$(curl -s -w "\n%{http_code}" -X GET "$MOXXY_API_BASE/agents/$AGENT_NAME/webhooks")
+        response=$(curl -s -w "\n%{http_code}" -X GET \
+            ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
+            "$API_BASE/agents/$AGENT_NAME/webhooks")
         body=$(echo "$response" | sed '$d')
         status_code=$(echo "$response" | tail -n 1)
         if [ "$status_code" -eq 200 ]; then

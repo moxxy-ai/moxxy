@@ -256,10 +256,10 @@ pub async fn run_main() -> Result<()> {
                     )
                     .status("API Endpoint", &format!("http://127.0.0.1:{}", api_port))
                     .blank()
-                    .info(&format!(
-                        "Press {} to stop.",
-                        style("Ctrl+C").bold().yellow()
-                    ))
+                    .status(
+                        "Press Ctrl+C to stop the dashboard.",
+                        &format!("{}", style("Ctrl+C").bold().yellow()),
+                    )
                     .print();
                 println!();
 

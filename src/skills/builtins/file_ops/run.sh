@@ -2,7 +2,7 @@
 
 # Built-in Skill: file_ops
 # Structured file manipulation for development workflows.
-# Operations: read, write, patch, append, ls, mkdir, tree
+# Operations: read, write, patch, append, remove, ls, mkdir, tree
 
 ACTION="${1:-}"
 
@@ -82,6 +82,25 @@ print('Patched successfully')
         echo "Appended to $FILE"
         ;;
 
+    remove|rm)
+        TARGET="${2:-}"
+        if [ -z "$TARGET" ]; then
+            echo "Usage: file_ops remove <path>"
+            exit 1
+        fi
+        if [ ! -e "$TARGET" ]; then
+            echo "Error: path not found: $TARGET"
+            exit 1
+        fi
+        if [ -d "$TARGET" ]; then
+            rm -rf "$TARGET"
+            echo "Removed directory: $TARGET"
+        else
+            rm -f "$TARGET"
+            echo "Removed file: $TARGET"
+        fi
+        ;;
+
     ls)
         DIR="${2:-.}"
         if [ ! -d "$DIR" ]; then
@@ -119,13 +138,14 @@ print('Patched successfully')
     *)
         echo "Unknown action: $ACTION"
         echo ""
-        echo "Available actions: read, write, patch, append, ls, mkdir, tree"
+        echo "Available actions: read, write, patch, append, remove, ls, mkdir, tree"
         echo ""
         echo "Usage:"
         echo "  file_ops read <path> [start_line] [end_line]"
         echo "  file_ops write <path> <content>"
         echo "  file_ops patch <path> <search> <replace>"
         echo "  file_ops append <path> <content>"
+        echo "  file_ops remove <path>"
         echo "  file_ops ls [path]"
         echo "  file_ops mkdir <path>"
         echo "  file_ops tree [path] [depth]"

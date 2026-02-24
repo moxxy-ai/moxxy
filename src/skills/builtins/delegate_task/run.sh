@@ -1,5 +1,10 @@
 #!/bin/sh
 
+AUTH_HEADER=""
+if [ -n "${MOXXY_INTERNAL_TOKEN:-}" ]; then
+    AUTH_HEADER="X-Moxxy-Internal-Token: ${MOXXY_INTERNAL_TOKEN}"
+fi
+
 AGENT_NAME="$1"
 PROMPT="$2"
 
@@ -8,10 +13,7 @@ if [ -z "$AGENT_NAME" ] || [ -z "$PROMPT" ]; then
     exit 1
 fi
 
-# The container utilizes alpine's native curl and jq to parse the Control Plane JSON natively
-
-# Securely dispatch the prompt over the host boundary into the Axum Control Plane
-RESPONSE=$(curl -s -X POST -H "Content-Type: text/plain" -d "$PROMPT" "${MOXXY_API_BASE:-http://127.0.0.1:17890/api}/agents/$AGENT_NAME/delegate")
+RESPONSE=$(curl -s -X POST ${AUTH_HEADER:+-H "$AUTH_HEADER"} -H "Content-Type: text/plain" -d "$PROMPT" "${MOXXY_API_BASE:-http://127.0.0.1:17890/api}/agents/$AGENT_NAME/delegate")
 
 SUCCESS=$(echo "$RESPONSE" | jq -r '.success')
 

@@ -280,6 +280,18 @@ const PRIVILEGED_SKILLS: &[&str] = &[
     "openclaw_migrate",
     "file_ops",
     "workspace_shell",
+    "manage_vault",
+    "manage_providers",
+    "scheduler",
+    "modify_schedule",
+    "remove_schedule",
+    "mcp",
+    "delegate_task",
+    "telegram_notify",
+    "discord_notify",
+    "discord_channels",
+    "whatsapp_notify",
+    "webhook",
 ];
 
 pub struct SkillManager {
@@ -615,6 +627,7 @@ impl SkillManager {
         "example_skill",
         "telegram_notify",
         "discord_notify",
+        "discord_channels",
         "whatsapp_notify",
         "git",
         "github",

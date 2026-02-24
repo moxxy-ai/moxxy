@@ -140,128 +140,8 @@ pub async fn run_onboarding() -> Result<()> {
             .await?;
     }
 
-    // --- Step 4: Channel connections (optional) ---
-    GuideSection::new("Step 4 · Channel Connections")
-        .text("Channels let you talk to your agent from messaging platforms")
-        .text("like Telegram, Discord, Slack, and more. Each channel requires")
-        .text("a bot token from the respective platform.")
-        .blank()
-        .text("You can skip this now and add channels later with:")
-        .hint("moxxy channel telegram", "")
-        .hint("moxxy channel discord", "")
-        .open();
-
-    let channel_options = vec!["Telegram", "Discord", "Skip for now"];
-    let channels =
-        inquire::MultiSelect::new("Which channels do you want to connect?", channel_options)
-            .with_help_message(
-                "Use Space to select, Enter to confirm. You can always add more later.",
-            )
-            .with_render_config(bordered_render_config())
-            .prompt()?;
-    guide_bar();
-    close_section();
-
-    for channel in &channels {
-        match *channel {
-            "Telegram" => {
-                GuideSection::new("Telegram Setup")
-                    .text("Connect a Telegram bot so you can chat with your agent on mobile.")
-                    .blank()
-                    .text(&format!("{}", style("How to get a bot token:").bold()))
-                    .blank()
-                    .numbered(
-                        1,
-                        &format!(
-                            "Open Telegram and search for {}",
-                            style("@BotFather").cyan()
-                        ),
-                    )
-                    .numbered(
-                        2,
-                        &format!("Send {} to create a new bot", style("/newbot").cyan()),
-                    )
-                    .numbered(3, "Choose a name and username for your bot")
-                    .numbered(
-                        4,
-                        "BotFather will reply with a bot token (like 123456:ABC-DEF)",
-                    )
-                    .numbered(5, "Copy that token and paste it below")
-                    .open();
-
-                let tg_token = inquire::Password::new("Telegram bot token:")
-                    .without_confirmation()
-                    .with_help_message("Paste the token from @BotFather")
-                    .with_render_config(bordered_render_config())
-                    .prompt()?;
-
-                if !tg_token.is_empty() {
-                    vault.set_secret("telegram_token", &tg_token).await?;
-                    bordered_success("Telegram token saved.");
-                    bordered_info(
-                        "After onboarding, run: moxxy channel telegram (to complete pairing)",
-                    );
-                } else {
-                    bordered_info(
-                        "Skipped - you can configure Telegram later with 'moxxy channel telegram'.",
-                    );
-                }
-                guide_bar();
-                close_section();
-            }
-            "Discord" => {
-                GuideSection::new("Discord Setup")
-                    .text("Connect a Discord bot so your agent can chat in your server.")
-                    .blank()
-                    .text(&format!("{}", style("How to get a bot token:").bold()))
-                    .blank()
-                    .numbered(
-                        1,
-                        &format!(
-                            "Go to {}",
-                            style("https://discord.com/developers/applications").cyan()
-                        ),
-                    )
-                    .numbered(2, "Click 'New Application' and give it a name")
-                    .numbered(3, "Go to the Bot section in the left sidebar")
-                    .numbered(4, "Click 'Reset Token' and copy the new token")
-                    .numbered(
-                        5,
-                        &format!(
-                            "Enable {} under Privileged Gateway Intents",
-                            style("Message Content Intent").bold()
-                        ),
-                    )
-                    .numbered(
-                        6,
-                        "Go to OAuth2 > URL Generator, select 'bot' scope + 'Send Messages'",
-                    )
-                    .numbered(7, "Open the generated URL to invite the bot to your server")
-                    .open();
-
-                let dc_token = inquire::Password::new("Discord bot token:")
-                    .without_confirmation()
-                    .with_help_message("Paste the token from Discord Developer Portal")
-                    .with_render_config(bordered_render_config())
-                    .prompt()?;
-
-                if !dc_token.is_empty() {
-                    vault.set_secret("discord_token", &dc_token).await?;
-                    bordered_success("Discord token saved.");
-                } else {
-                    bordered_info(
-                        "Skipped - you can configure Discord later with 'moxxy channel discord'.",
-                    );
-                }
-                guide_bar();
-                close_section();
-            }
-            _ => {}
-        }
-    }
-
-    // --- Step 5: Agent Persona ---
-    GuideSection::new("Step 5 · Agent Persona")
+    // --- Step 4: Agent Persona ---
+    GuideSection::new("Step 4 · Agent Persona")
         .text("A persona defines your agent's identity, expertise, and")
         .text("communication style. It's a system prompt prepended to every")
         .text("conversation. You can generate one now using your LLM, or")
@@ -331,8 +211,8 @@ pub async fn run_onboarding() -> Result<()> {
     guide_bar();
     close_section();
 
-    // --- Step 6: Runtime Type ---
-    GuideSection::new("Step 6 · Agent Runtime")
+    // --- Step 5: Runtime Type ---
+    GuideSection::new("Step 5 · Agent Runtime")
         .text("Choose how your agent executes skills on your system:")
         .blank()
         .bullet(&format!(
@@ -440,52 +320,31 @@ pub async fn run_onboarding() -> Result<()> {
 
     // --- Connect Channels ---
     GuideSection::new("Connect Channels")
-        .text("Chat with your agent from any messaging platform:")
+        .text("Channels let you chat with your agent from messaging platforms.")
+        .text("Each channel has a dedicated setup wizard that walks you through")
+        .text("the full configuration, including token setup and pairing.")
         .blank()
         .text(&format!("{}", style("Telegram").bold()))
-        .numbered(
-            1,
-            &format!(
-                "Talk to {} on Telegram to create a bot",
-                style("@BotFather").cyan()
-            ),
+        .hint(
+            "moxxy channel telegram",
+            "# Full guided setup: token + pairing",
         )
-        .numbered(
-            2,
-            &format!("Run: {}", style("moxxy channel telegram").cyan()),
-        )
-        .numbered(3, "Paste your bot token when prompted")
-        .numbered(
-            4,
-            &format!(
-                "Start the gateway, send {} to your bot, enter the pairing code",
-                style("/start").cyan()
-            ),
-        )
+        .text("  Creates a bot via @BotFather, saves the token, starts the")
+        .text("  gateway, pairs your device with a 6-digit code, and optionally")
+        .text("  enables voice recognition (Whisper STT).")
         .blank()
         .text(&format!("{}", style("Discord").bold()))
-        .numbered(
-            1,
-            &format!(
-                "Create an app at {}",
-                style("https://discord.com/developers/applications").cyan()
-            ),
+        .hint(
+            "moxxy channel discord",
+            "# Full guided setup: token + channel",
         )
-        .numbered(
-            2,
-            "Go to Bot section, reset token, enable Message Content Intent",
-        )
-        .numbered(
-            3,
-            "Invite the bot to your server (Bot scope + Send Messages)",
-        )
-        .numbered(
-            4,
-            &format!("Run: {}", style("moxxy channel discord").cyan()),
-        )
+        .text("  Creates a bot at discord.com/developers, saves the token,")
+        .text("  invites the bot to your server. After restarting the gateway,")
+        .text("  message the bot in the channel you want it to use for")
+        .text("  notifications — or pin a channel explicitly via the dashboard.")
         .blank()
         .text(&format!(
-            "{} Slack, WhatsApp, and others via the Web Dashboard.",
+            "{} Slack, WhatsApp, and others can be configured via the Web Dashboard.",
             style("More:").dim()
         ))
         .print();

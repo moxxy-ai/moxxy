@@ -1,6 +1,6 @@
 # file_ops
 
-Read, write, patch, and navigate files. Use this instead of host_shell for file manipulation.
+Read, write, patch, remove, and navigate files. Use this instead of host_shell for file manipulation.
 
 **Read a file:**
 `<invoke name="file_ops">["read", "/path/to/file"]</invoke>`
@@ -16,6 +16,9 @@ Read, write, patch, and navigate files. Use this instead of host_shell for file 
 
 **Append to a file:**
 `<invoke name="file_ops">["append", "/path/to/file", "content to append"]</invoke>`
+
+**Remove a file or directory:**
+`<invoke name="file_ops">["remove", "/path/to/file_or_dir"]</invoke>`
 
 **List directory:**
 `<invoke name="file_ops">["ls", "/path/to/dir"]</invoke>`

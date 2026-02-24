@@ -3,6 +3,11 @@
 # Built-in Skill: remove_schedule
 # Allows an agent to remove a previously scheduled background task.
 
+AUTH_HEADER=""
+if [ -n "${MOXXY_INTERNAL_TOKEN:-}" ]; then
+    AUTH_HEADER="X-Moxxy-Internal-Token: ${MOXXY_INTERNAL_TOKEN}"
+fi
+
 NAME=$1
 
 if [ -z "$NAME" ]; then
@@ -12,11 +17,10 @@ if [ -z "$NAME" ]; then
 fi
 
 if [ "$NAME" = "--all" ]; then
-    response=$(curl -s -w "\n%{http_code}" -X DELETE "$MOXXY_API_BASE/agents/$AGENT_NAME/schedules")
+    response=$(curl -s -w "\n%{http_code}" -X DELETE ${AUTH_HEADER:+-H "$AUTH_HEADER"} "$MOXXY_API_BASE/agents/$AGENT_NAME/schedules")
 else
-    # URL encode the schedule name to safely handle spaces and special characters
     ENCODED_NAME=$(jq -rn --arg x "$NAME" '$x|@uri')
-    response=$(curl -s -w "\n%{http_code}" -X DELETE "$MOXXY_API_BASE/agents/$AGENT_NAME/schedules/$ENCODED_NAME")
+    response=$(curl -s -w "\n%{http_code}" -X DELETE ${AUTH_HEADER:+-H "$AUTH_HEADER"} "$MOXXY_API_BASE/agents/$AGENT_NAME/schedules/$ENCODED_NAME")
 fi
 
 body=$(echo "$response" | sed '$d')

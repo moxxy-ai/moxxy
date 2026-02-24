@@ -12,27 +12,14 @@ if [ -n "${MOXXY_INTERNAL_TOKEN:-}" ]; then
   AUTH_HEADER="X-Moxxy-Internal-Token: ${MOXXY_INTERNAL_TOKEN}"
 fi
 
-if [ "$#" -lt 1 ]; then
-  echo "Usage: telegram_notify '<message>'"
-  exit 1
-fi
-
-message="$1"
-shift
-for part in "$@"; do
-  message="$message $part"
-done
-
-resp=$(curl -sS -X POST \
+resp=$(curl -sS \
   ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
-  --data-urlencode "message=${message}" \
-  "${API_BASE}/agents/${AGENT_NAME}/channels/telegram/send")
+  "${API_BASE}/agents/${AGENT_NAME}/channels/discord/list-channels")
 
 if printf '%s' "$resp" | grep -qE '"success"[[:space:]]*:[[:space:]]*true'; then
-  msg=$(printf '%s' "$resp" | sed -n 's/.*"message"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-  printf '%s\n' "${msg:-Telegram message sent.}"
+  printf '%s\n' "$resp"
 else
   err=$(printf '%s' "$resp" | sed -n 's/.*"error"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-  echo "Error: ${err:-failed to send Telegram message}"
+  echo "Error: ${err:-failed to list Discord channels}"
   exit 1
 fi
