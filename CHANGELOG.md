@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.1](https://github.com/moxxy-ai/moxxy/compare/v0.12.0...v0.12.1) (2026-02-24)
+
+
+### Bug Fixes
+
+* remove emdashes ([3990315](https://github.com/moxxy-ai/moxxy/commit/39903154e94210fcf73176ef146d9d4a8ec909e6))
+* webhooks secrets collision ([#72](https://github.com/moxxy-ai/moxxy/issues/72)) ([748656a](https://github.com/moxxy-ai/moxxy/commit/748656ae608d97498d661edd27b7fd18059b947a))
+
 ## [0.12.0](https://github.com/moxxy-ai/moxxy/compare/v0.11.5...v0.12.0) (2026-02-24)
 
 
