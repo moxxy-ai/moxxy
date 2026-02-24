@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.5](https://github.com/moxxy-ai/moxxy/compare/v0.11.4...v0.11.5) (2026-02-24)
+
+
+### Bug Fixes
+
+* skill auto repair ([#66](https://github.com/moxxy-ai/moxxy/issues/66)) ([e27dfa7](https://github.com/moxxy-ai/moxxy/commit/e27dfa75de48171de88765c9bfdb64c925351336))
+
 ## [0.11.4](https://github.com/moxxy-ai/moxxy/compare/v0.11.3...v0.11.4) (2026-02-24)
 
 
