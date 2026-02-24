@@ -1,0 +1,7 @@
+name = "file_ops"
+description = "Read, write, patch, and navigate files on the filesystem for development tasks."
+version = "v1.0.0"
+needs_fs_read = true
+needs_fs_write = true
+run_command = "bash"
+entrypoint = "run.sh"

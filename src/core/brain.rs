@@ -1,5 +1,6 @@
 use anyhow::Result;
 use regex::Regex;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::info;
@@ -59,13 +60,18 @@ fn build_system_prompt(skill_catalog: &str, persona_text: &Option<String>) -> St
          2. For pure knowledge questions (math, reasoning, explanations), respond directly.\n\
          3. Only use skills listed in AVAILABLE SKILLS. Never guess or invent skill names.\n\
          4. Never tell the user to run commands manually - use your skills instead.\n\
-         5. NEVER use `host_shell` or `host_python` on your own. These are restricted to explicit user requests \
-            (e.g. \"run this on my machine\"). Always use dedicated skills instead \
-            (e.g. `git` for git, `github` for GitHub issues/PRs). \
-            If no dedicated skill exists, ask the user before resorting to host_shell.\n\
-         6. After a skill result is returned to you, present the result to the user and STOP. \
-            Do NOT offer menus, ask what to do next, or continue unless the user's original request requires more steps.\n\
-         7. Be concise. Answer the question, present the result, done.\n\n\
+         5. Prefer dedicated skills over host_shell:\
+            - `git` for git commands, `github` for GitHub API (issues, PRs, clone)\
+            - `file_ops` for reading, writing, and patching files\
+            - `workspace_shell` for running build/test commands in a cloned repo (npm, cargo, make, etc.)\
+            Only use host_shell when no dedicated skill covers the need, and ask the user first.\n\
+         6. For MULTI-STEP tasks (clone repo, edit files, build, push, create PR, etc.), \
+            keep going — invoke the next skill immediately after receiving a result. \
+            Do NOT stop to present intermediate results or ask the user between steps. \
+            Only present the final summary when the entire task is complete.\n\
+         7. For SINGLE-STEP tasks, present the result concisely and stop. \
+            Do NOT offer menus, ask what to do next, or suggest follow-ups.\n\
+         8. Be concise. Answer the question, present the result, done.\n\n\
          SKILL INVOCATION FORMAT:\n\
          <invoke name=\"skill_name\">[\"arg1\", \"arg2\"]</invoke>\n\
          Arguments MUST be a valid JSON array of strings. Use [] for no arguments.\n\
@@ -73,9 +79,9 @@ fn build_system_prompt(skill_catalog: &str, persona_text: &Option<String>) -> St
          After invoking a skill, STOP and wait for the system to return the result.\n\
          Do NOT output anything else in the same response as an <invoke> tag.\n\n\
          MULTI-STEP TASKS:\n\
-         If a task genuinely requires multiple sequential skill calls (e.g. create a file then verify it), \
-         append [CONTINUE] to your message after presenting an intermediate result.\n\
-         Only use [CONTINUE] when you need to invoke ANOTHER skill. Never use it just to offer options.\n\n\
+         When a task requires multiple sequential skill calls (e.g. clone, edit, build, push, PR), \
+         invoke the next skill directly after receiving each result — do NOT wait for user input between steps. \
+         If you need to signal intermediate progress without a skill call, append [CONTINUE] to your message.\n\n\
          --- AVAILABLE SKILLS ---\n"
     );
     system_prompt.push_str(skill_catalog);
@@ -140,16 +146,21 @@ impl AutonomousBrain {
             }
         };
 
-        // 3. ReAct Loop
+        // 3. ReAct Loop — unbounded with smart termination
         let mut final_response = String::new();
-        let max_iterations = 10;
         // Ephemeral context for the current loop - not persisted to STM.
         // This holds skill results and intermediate reasoning within a single request.
         let mut loop_context: Vec<crate::core::llm::ChatMessage> = Vec::new();
         let invoke_re =
             Regex::new(r#"<invoke\s+name\s*=\s*["']([^"']+)["']\s*>([\s\S]*?)</invoke>"#).unwrap();
 
-        for iter in 0..max_iterations {
+        let mut iter: usize = 0;
+        let mut consecutive_errors: usize = 0;
+        let mut last_response_hash: u64 = 0;
+
+        loop {
+            iter += 1;
+
             let response_text: String = {
                 let llm_guard = llm.lock().await;
                 let m = memory.lock().await;
@@ -198,6 +209,19 @@ impl AutonomousBrain {
 
             info!("ReAct iter {}: {} chars", iter, response_text.len());
 
+            // Idle detection: identical response twice in a row → agent is stuck
+            let current_hash = {
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                response_text.hash(&mut hasher);
+                hasher.finish()
+            };
+            if current_hash == last_response_hash {
+                info!("ReAct loop: identical response at iter {}, stopping", iter);
+                final_response = response_text;
+                break;
+            }
+            last_response_hash = current_hash;
+
             // Check for skill invocation
             if let Some(captures) = invoke_re.captures(&response_text) {
                 let skill_name = captures.get(1).unwrap().as_str().trim().to_string();
@@ -243,6 +267,18 @@ impl AutonomousBrain {
                                 role: "system".to_string(),
                                 content: err_msg,
                             });
+                            consecutive_errors += 1;
+                            if consecutive_errors >= 3 {
+                                info!(
+                                    "ReAct loop: 3 consecutive errors at iter {}, stopping",
+                                    iter
+                                );
+                                loop_context.push(crate::core::llm::ChatMessage {
+                                    role: "system".to_string(),
+                                    content: "Too many consecutive skill errors. Stop and report the issue to the user.".to_string(),
+                                });
+                                break;
+                            }
                             continue;
                         }
                     }
@@ -251,6 +287,7 @@ impl AutonomousBrain {
 
                 let feedback = match &result {
                     Ok(out) => {
+                        consecutive_errors = 0;
                         emit(&stream_tx, serde_json::json!({
                             "type": "skill_result", "skill": skill_name, "success": true, "output": out
                         })).await;
@@ -258,6 +295,7 @@ impl AutonomousBrain {
                         format!("SKILL RESULT [{}] (success):\n{}", skill_name, safe_out)
                     }
                     Err(e) => {
+                        consecutive_errors += 1;
                         emit(&stream_tx, serde_json::json!({
                             "type": "skill_result", "skill": skill_name, "success": false, "output": e.to_string()
                         })).await;
@@ -266,11 +304,28 @@ impl AutonomousBrain {
                     }
                 };
 
+                // Check consecutive error threshold after skill execution
+                if consecutive_errors >= 3 {
+                    info!(
+                        "ReAct loop: 3 consecutive skill errors at iter {}, stopping",
+                        iter
+                    );
+                    loop_context.push(crate::core::llm::ChatMessage {
+                        role: "system".to_string(),
+                        content: format!(
+                            "{}\n\nToo many consecutive skill errors. Stop and report the issue to the user.",
+                            feedback
+                        ),
+                    });
+                    break;
+                }
+
                 // Add skill result to ephemeral context with clear instruction
                 loop_context.push(crate::core::llm::ChatMessage {
                     role: "system".to_string(),
                     content: format!(
-                        "{}\n\nNow present this result to the user concisely. Do NOT offer follow-up menus or ask what to do next.",
+                        "{}\n\nIf the user's original request requires more steps, invoke the next skill immediately. \
+                         If the task is complete, present a concise final summary.",
                         feedback
                     ),
                 });
