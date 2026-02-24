@@ -94,7 +94,7 @@ pub async fn run_onboarding() -> Result<()> {
     GuideSection::new("Step 2 · Model Selection")
         .text("Each provider offers multiple models. Larger models are more")
         .text("capable but slower and more expensive. The default is a good")
-        .text("starting point — you can change it later in the vault.")
+        .text("starting point - you can change it later in the vault.")
         .open();
 
     let final_model = {
@@ -220,7 +220,7 @@ pub async fn run_onboarding() -> Result<()> {
                     );
                 } else {
                     print_info(
-                        "Skipped — you can configure Telegram later with 'moxxy channel telegram'.",
+                        "Skipped - you can configure Telegram later with 'moxxy channel telegram'.",
                     );
                 }
                 guide_bar();
@@ -266,7 +266,7 @@ pub async fn run_onboarding() -> Result<()> {
                     print_success("Discord token saved.");
                 } else {
                     print_info(
-                        "Skipped — you can configure Discord later with 'moxxy channel discord'.",
+                        "Skipped - you can configure Discord later with 'moxxy channel discord'.",
                     );
                 }
                 guide_bar();
@@ -350,11 +350,11 @@ pub async fn run_onboarding() -> Result<()> {
         .text("Choose how your agent executes skills on your system:")
         .blank()
         .bullet(&format!(
-            "{} — Runs directly on your host. Full speed, full access.",
+            "{} - Runs directly on your host. Full speed, full access.",
             style("Native").bold()
         ))
         .bullet(&format!(
-            "{} — Runs in a WebAssembly sandbox with memory/network limits.",
+            "{} - Runs in a WebAssembly sandbox with memory/network limits.",
             style("WASM").bold()
         ))
         .open();

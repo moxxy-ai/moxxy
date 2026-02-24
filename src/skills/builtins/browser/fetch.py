@@ -334,7 +334,7 @@ def parse_rss(xml_text):
 
         entry = f"{i}. **{title}**"
         if source:
-            entry += f" — {source}"
+            entry += f" - {source}"
         if pub_date:
             entry += f" ({pub_date})"
         if link:

@@ -212,7 +212,7 @@ pub async fn run_oauth_flow(
     // --- Client Secret ---
     GuideSection::new("OAuth · Client Secret")
         .text("The Client Secret authenticates your application.")
-        .text("Keep this value secure — it is stored in the agent's encrypted vault.")
+        .text("Keep this value secure - it is stored in the agent's encrypted vault.")
         .open();
 
     let client_secret = match client_secret_arg {

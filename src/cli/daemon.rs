@@ -176,7 +176,7 @@ pub async fn follow_logs(run_dir: &Path, pid_file: &Path) -> Result<()> {
         if log_file.exists() {
             GuideSection::new("Live Logs")
                 .text(&format!(
-                    "Following {} — press {} to stop.",
+                    "Following {} - press {} to stop.",
                     style("moxxy.log").cyan(),
                     style("Ctrl+C").bold().yellow()
                 ))
