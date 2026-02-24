@@ -46,7 +46,7 @@ export interface McpServer {
 export interface Webhook {
   name: string;
   source: string;
-  secret: string;
+  has_secret: boolean;
   prompt_template: string;
   active: boolean;
   created_at: string;

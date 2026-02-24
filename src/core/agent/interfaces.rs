@@ -19,7 +19,7 @@ use crate::skills::SkillManager;
 
 use super::{
     ContainerRegistry, LlmRegistry, MemoryRegistry, RunMode, ScheduledJobRegistry,
-    SchedulerRegistry, SkillRegistry,
+    SchedulerRegistry, SkillRegistry, VaultRegistry,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -32,6 +32,7 @@ pub(super) async fn attach_interfaces(
     skill_registry: &SkillRegistry,
     llm_registry: &LlmRegistry,
     container_registry: &ContainerRegistry,
+    vault_registry: &VaultRegistry,
     scheduler_registry: &SchedulerRegistry,
     scheduled_job_registry: &ScheduledJobRegistry,
     llm_sys_arc: &Arc<Mutex<LlmManager>>,
@@ -54,6 +55,7 @@ pub(super) async fn attach_interfaces(
                 skill_registry: skill_registry.clone(),
                 llm_registry: llm_registry.clone(),
                 container_registry: container_registry.clone(),
+                vault_registry: vault_registry.clone(),
                 scheduler_registry: scheduler_registry.clone(),
                 scheduled_job_registry: scheduled_job_registry.clone(),
                 log_tx: log_tx.clone(),
