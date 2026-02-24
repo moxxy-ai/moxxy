@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use console::style;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 
@@ -28,12 +29,21 @@ pub struct OpenclawSkill {
     pub skill_md: String,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct OpenclawLlmConfig {
+    pub primary_provider: Option<String>,
+    pub primary_model: Option<String>,
+    pub api_keys: HashMap<String, String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct MigrationPlan {
     pub target_agent: String,
     pub persona_content: String,
     pub skills: Vec<SkillConversion>,
     pub memory_entries: Vec<String>,
+    pub heartbeat_schedule: Option<(String, String)>,
+    pub llm_migration: Option<OpenclawLlmConfig>,
 }
 
 #[derive(Debug, Clone)]
@@ -197,6 +207,20 @@ pub async fn run_migration_wizard() -> Result<()> {
     } else {
         false
     };
+
+    let (heartbeat_scan, llm_scan) = scan_openclaw_config(&openclaw_path).await;
+    let include_heartbeat = heartbeat_scan.is_some()
+        && inquire::Confirm::new("Migrate heartbeat as scheduled job?")
+            .with_default(true)
+            .with_help_message("Convert OpenClaw heartbeat to moxxy cron schedule")
+            .with_render_config(bordered_render_config())
+            .prompt()?;
+    let include_llm = llm_scan.is_some()
+        && inquire::Confirm::new("Migrate LLM provider and API keys?")
+            .with_default(true)
+            .with_help_message("Import primary model and API keys to vault")
+            .with_render_config(bordered_render_config())
+            .prompt()?;
     guide_bar();
     close_section();
 
@@ -221,11 +245,20 @@ pub async fn run_migration_wizard() -> Result<()> {
         }
     }
 
+    let heartbeat_schedule = if include_heartbeat {
+        heartbeat_scan
+    } else {
+        None
+    };
+    let llm_migration = if include_llm { llm_scan } else { None };
+
     let plan = MigrationPlan {
         target_agent: target_agent.clone(),
         persona_content,
         skills: skill_conversions,
         memory_entries,
+        heartbeat_schedule,
+        llm_migration,
     };
 
     let mut will_create = terminal::GuideSection::new("Will Create")
@@ -238,6 +271,13 @@ pub async fn run_migration_wizard() -> Result<()> {
     }
     if !plan.memory_entries.is_empty() {
         will_create = will_create.bullet("Memory entries will be imported to STM");
+    }
+    if plan.heartbeat_schedule.is_some() {
+        will_create = will_create.bullet("Heartbeat will be created as scheduled job");
+    }
+    if plan.llm_migration.is_some() {
+        will_create =
+            will_create.bullet("LLM provider/model and API keys will be migrated to vault");
     }
     will_create.open();
 
@@ -260,26 +300,31 @@ pub async fn run_migration_wizard() -> Result<()> {
         "Migration complete! Agent '{}' is ready.",
         target_agent
     ));
-    terminal::GuideSection::new("Next Steps")
-        .numbered(
-            1,
+    let mut next = terminal::GuideSection::new("Next Steps");
+    let mut n = 1;
+    if plan.llm_migration.is_none() {
+        next = next.numbered(
+            n,
             &format!(
                 "Run {} to configure LLM provider",
                 style("moxxy init").cyan()
             ),
-        )
+        );
+        n += 1;
+    }
+    next = next
         .numbered(
-            2,
+            n,
             &format!(
                 "Run {} to start the daemon",
                 style("moxxy gateway start").cyan()
             ),
         )
         .numbered(
-            3,
+            n + 1,
             &format!("Run {} to access the dashboard", style("moxxy web").cyan()),
-        )
-        .print();
+        );
+    next.print();
     println!();
 
     Ok(())
@@ -328,26 +373,107 @@ fn parse_openclaw_skill(content: &str) -> Option<OpenclawSkill> {
     })
 }
 
-fn build_persona_md(agent: &OpenclawAgent) -> String {
-    let mut persona = String::new();
+/// Sections to strip from migrated persona (OC-specific, not applicable to moxxy).
+/// Matching is case-insensitive; headings are normalized (emoji/symbols stripped).
+const PERSONA_SECTIONS_TO_STRIP: &[&str] = &[
+    "First Run",
+    "Every Session",
+    "Memory",
+    "MEMORY.md - Your Long-Term Memory",
+    "Write It Down",
+    "Write It Down - No Mental Notes",
+    "Heartbeats",
+    "Heartbeats - Be Proactive",
+    "Heartbeat vs Cron",
+    "Memory Maintenance (During Heartbeats)",
+    "Know When to Speak",
+];
 
-    persona.push_str("# Agent Persona\n\n");
-    persona.push_str("_Migrated from OpenClaw_\n\n");
+fn normalize_heading_for_match(line: &str) -> String {
+    let heading = line.trim_start_matches('#').trim();
+    heading
+        .chars()
+        .filter(|c| {
+            c.is_alphanumeric()
+                || c.is_whitespace()
+                || *c == '.'
+                || *c == '-'
+                || *c == '('
+                || *c == ')'
+        })
+        .collect::<String>()
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn heading_matches_skip(line: &str) -> bool {
+    let normalized = normalize_heading_for_match(line);
+    for s in PERSONA_SECTIONS_TO_STRIP {
+        let target = s.to_lowercase();
+        if normalized == target
+            || normalized.starts_with(&target)
+            || target.starts_with(&normalized)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Transform OpenClaw persona content for moxxy: strip OC-specific sections, rewrite metadata.
+fn transform_persona_for_moxxy(raw: &str) -> String {
+    let mut result = String::new();
+    let mut skip = false;
+    let mut skip_level = 0u32;
+
+    for line in raw.lines() {
+        let heading_level = line.chars().take_while(|c| *c == '#').count() as u32;
+
+        if heading_level > 0 {
+            if skip {
+                if heading_level <= skip_level {
+                    skip = false;
+                } else {
+                    continue;
+                }
+            }
+            if !skip && heading_matches_skip(line) {
+                skip = true;
+                skip_level = heading_level;
+                continue;
+            }
+        }
+
+        if !skip {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+
+    result
+}
+
+fn build_persona_md(agent: &OpenclawAgent) -> String {
+    let mut raw = String::new();
+
+    raw.push_str("# Agent Persona\n\n");
 
     if let Some(ref soul) = agent.soul_md {
-        persona.push_str("## Core Identity (from SOUL.md)\n\n");
-        persona.push_str(soul);
-        persona.push_str("\n\n");
+        raw.push_str("## Core Identity\n\n");
+        raw.push_str(soul);
+        raw.push_str("\n\n");
     }
 
     if let Some(ref agents) = agent.agents_md {
-        persona.push_str("## Workspace Guidelines (from AGENTS.md)\n\n");
+        raw.push_str("## Workspace Guidelines\n\n");
         let filtered = filter_agents_md(agents);
-        persona.push_str(&filtered);
-        persona.push_str("\n");
+        raw.push_str(&filtered);
+        raw.push_str("\n");
     }
 
-    persona
+    transform_persona_for_moxxy(&raw)
 }
 
 fn filter_agents_md(content: &str) -> String {
@@ -379,6 +505,251 @@ fn filter_agents_md(content: &str) -> String {
     }
 
     result
+}
+
+/// Convert OpenClaw duration string to 6-field cron (sec min hour day month dow).
+fn duration_to_cron(duration: &str) -> Option<String> {
+    let s = duration.trim().to_lowercase();
+    if s.is_empty() || s == "0m" || s == "0h" {
+        return None;
+    }
+    if s.ends_with('m') {
+        let n: u32 = s.trim_end_matches('m').parse().ok()?;
+        if n == 0 {
+            return None;
+        }
+        return Some(format!("0 */{} * * * *", n.min(59)));
+    }
+    if s.ends_with('h') {
+        let n: u32 = s.trim_end_matches('h').parse().ok()?;
+        if n == 0 {
+            return None;
+        }
+        return Some(format!("0 0 */{} * * *", n.min(23)));
+    }
+    None
+}
+
+fn provider_to_vault_key(provider: &str) -> String {
+    let p = provider.to_lowercase();
+    format!("{}_api_key", p.replace(['/', '.'], "_"))
+}
+
+/// Scan OpenClaw config for heartbeat and LLM settings.
+async fn scan_openclaw_config(
+    openclaw_path: &Path,
+) -> (Option<(String, String)>, Option<OpenclawLlmConfig>) {
+    let mut heartbeat = None;
+    let mut llm = OpenclawLlmConfig::default();
+
+    let config_path = openclaw_path.join("openclaw.json");
+    let config_content = match fs::read_to_string(&config_path).await {
+        Ok(c) => c,
+        Err(_) => return (heartbeat, None),
+    };
+
+    let config: serde_json::Value = match json5::from_str(&config_content) {
+        Ok(c) => c,
+        Err(_) => return (heartbeat, None),
+    };
+
+    // Heartbeat: agents.defaults.heartbeat.every, optional prompt
+    let heartbeat_every = config
+        .get("agents")
+        .and_then(|a| a.get("defaults"))
+        .and_then(|d| d.get("heartbeat"))
+        .and_then(|h| h.get("every"))
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            config
+                .get("heartbeat")
+                .and_then(|h| h.get("every"))
+                .and_then(|v| v.as_str())
+        });
+
+    if let Some(every) = heartbeat_every {
+        if let Some(cron) = duration_to_cron(every) {
+            let custom_prompt = config
+                .get("agents")
+                .and_then(|a| a.get("defaults"))
+                .and_then(|d| d.get("heartbeat"))
+                .and_then(|h| h.get("prompt"))
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty());
+            let prompt = if let Some(cp) = custom_prompt {
+                cp.to_string()
+            } else {
+                let workspace = openclaw_path.join("workspace");
+                let heartbeat_md = workspace.join("HEARTBEAT.md");
+                if heartbeat_md.exists() {
+                    let content = fs::read_to_string(&heartbeat_md)
+                        .await
+                        .unwrap_or_default()
+                        .trim()
+                        .to_string();
+                    if !content.is_empty() {
+                        content
+                    } else {
+                        "Proactively check for anything needing attention (inbox, calendar, notifications). If nothing needs attention, respond briefly.".to_string()
+                    }
+                } else {
+                    "Proactively check for anything needing attention (inbox, calendar, notifications). If nothing needs attention, respond briefly.".to_string()
+                }
+            };
+            if !prompt.is_empty() {
+                heartbeat = Some((cron, prompt));
+            }
+        }
+    }
+
+    // Primary model: agent.model.primary or agents.defaults.model.primary
+    let primary = config
+        .get("agent")
+        .and_then(|a| a.get("model"))
+        .and_then(|m| m.as_str())
+        .or_else(|| {
+            config
+                .get("agents")
+                .and_then(|a| a.get("defaults"))
+                .and_then(|d| d.get("model"))
+                .and_then(|m| m.get("primary"))
+                .and_then(|v| v.as_str())
+        });
+
+    if let Some(ref_str) = primary {
+        let parts: Vec<&str> = ref_str.splitn(2, '/').collect();
+        if parts.len() == 2 {
+            llm.primary_provider = Some(parts[0].to_lowercase());
+            llm.primary_model = Some(parts[1].to_string());
+        }
+    }
+
+    // API keys: auth-profiles.json first
+    let agents_dir = openclaw_path.join("agents");
+    if agents_dir.exists() {
+        if let Ok(mut entries) = fs::read_dir(&agents_dir).await {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                let auth_path = entry.path().join("agent").join("auth-profiles.json");
+                if auth_path.exists() {
+                    if let Ok(content) = fs::read_to_string(&auth_path).await {
+                        if let Ok(auth) = serde_json::from_str::<serde_json::Value>(&content) {
+                            if let Some(profiles) = auth.get("profiles").and_then(|p| p.as_object())
+                            {
+                                for (_, profile) in profiles {
+                                    if profile.get("type").and_then(|t| t.as_str())
+                                        == Some("api_key")
+                                        && let Some(provider) =
+                                            profile.get("provider").and_then(|p| p.as_str())
+                                        && let Some(key) =
+                                            profile.get("key").and_then(|k| k.as_str())
+                                    {
+                                        let vault_key = provider_to_vault_key(provider);
+                                        if !key.is_empty() {
+                                            llm.api_keys.insert(vault_key, key.to_string());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // models.providers.*.apiKey (literal or ${ENV})
+    if let Some(providers) = config
+        .get("models")
+        .and_then(|m| m.get("providers"))
+        .and_then(|p| p.as_object())
+    {
+        for (prov_id, prov) in providers {
+            if let Some(api_key_val) = prov.get("apiKey").or_else(|| prov.get("api_key")) {
+                let key_str = api_key_val.as_str().unwrap_or_default();
+                if key_str.starts_with("${") && key_str.ends_with('}') {
+                    let var = &key_str[2..key_str.len() - 1];
+                    if let Ok(val) = std::env::var(var) {
+                        llm.api_keys.insert(provider_to_vault_key(prov_id), val);
+                    }
+                } else if !key_str.is_empty() && !key_str.starts_with('$') {
+                    llm.api_keys
+                        .insert(provider_to_vault_key(prov_id), key_str.to_string());
+                }
+            }
+        }
+    }
+
+    // env.OPENROUTER_API_KEY etc
+    if let Some(env_obj) = config.get("env") {
+        let mapping = [
+            ("OPENROUTER_API_KEY", "openrouter_api_key"),
+            ("ANTHROPIC_API_KEY", "anthropic_api_key"),
+            ("OPENAI_API_KEY", "openai_api_key"),
+            ("GOOGLE_API_KEY", "google_api_key"),
+        ];
+        for (env_var, vault_key) in mapping {
+            if let Some(v) = env_obj.get(env_var).and_then(|x| x.as_str()) {
+                if !v.is_empty() {
+                    llm.api_keys.insert(vault_key.to_string(), v.to_string());
+                }
+            }
+        }
+        if let Some(vars) = env_obj.get("vars").and_then(|v| v.as_object()) {
+            let mapping = [
+                ("GROQ_API_KEY", "groq_api_key"),
+                ("XAI_API_KEY", "xai_api_key"),
+                ("DEEPSEEK_API_KEY", "deepseek_api_key"),
+                ("MISTRAL_API_KEY", "mistral_api_key"),
+                ("ZAI_API_KEY", "zai_api_key"),
+                ("MINIMAX_API_KEY", "minimax_api_key"),
+            ];
+            for (env_key, vault_key) in mapping {
+                if let Some(v) = vars.get(env_key).and_then(|x| x.as_str()) {
+                    if !v.is_empty() {
+                        llm.api_keys.insert(vault_key.to_string(), v.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // ~/.openclaw/.env
+    let env_path = openclaw_path.join(".env");
+    if env_path.exists() {
+        if let Ok(content) = fs::read_to_string(&env_path).await {
+            for line in content.lines() {
+                let line = line.trim();
+                if line.starts_with('#') {
+                    continue;
+                }
+                if let Some((k, v)) = line.split_once('=') {
+                    let k = k.trim().strip_prefix("export ").unwrap_or(k).trim();
+                    let v = v.trim().trim_matches('"').trim_matches('\'');
+                    let mapping = [
+                        ("ANTHROPIC_API_KEY", "anthropic_api_key"),
+                        ("OPENAI_API_KEY", "openai_api_key"),
+                        ("GOOGLE_API_KEY", "google_api_key"),
+                        ("OPENROUTER_API_KEY", "openrouter_api_key"),
+                        ("ZAI_API_KEY", "zai_api_key"),
+                        ("DEEPSEEK_API_KEY", "deepseek_api_key"),
+                        ("MISTRAL_API_KEY", "mistral_api_key"),
+                        ("MINIMAX_API_KEY", "minimax_api_key"),
+                    ];
+                    for (env_key, vault_key) in mapping {
+                        if k == env_key && !v.is_empty() {
+                            llm.api_keys.insert(vault_key.to_string(), v.to_string());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let has_llm = llm.primary_provider.is_some() || !llm.api_keys.is_empty();
+    let llm_opt = if has_llm { Some(llm) } else { None };
+
+    (heartbeat, llm_opt)
 }
 
 fn convert_skill_to_moxxy(skill: &OpenclawSkill) -> SkillConversion {
@@ -474,6 +845,22 @@ async fn execute_migration(plan: &MigrationPlan) -> Result<()> {
         }
     }
 
+    if let Some((ref cron, ref prompt)) = plan.heartbeat_schedule {
+        let _ = memory_sys
+            .add_scheduled_job("openclaw_heartbeat", cron, prompt, "openclaw_migrate")
+            .await;
+    }
+
+    if let Some(ref llm) = plan.llm_migration {
+        if let (Some(provider), Some(model)) = (&llm.primary_provider, &llm.primary_model) {
+            let _ = vault.set_secret("llm_default_provider", provider).await;
+            let _ = vault.set_secret("llm_default_model", model).await;
+        }
+        for (key, value) in &llm.api_keys {
+            let _ = vault.set_secret(key, value).await;
+        }
+    }
+
     Ok(())
 }
 
@@ -497,4 +884,35 @@ pub fn has_migratable_content(openclaw_path: &Path) -> bool {
         || workspace.join("AGENTS.md").exists()
         || workspace.join("MEMORY.md").exists()
         || workspace.join("skills").exists()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transform_persona_strips_oc_sections() {
+        let input = r#"## Core Identity
+## First Run
+Skip this section
+## Every Session
+Also skip
+## Memory
+File-based memory
+### MEMORY.md - Your Long-Term Memory
+Nested skip
+## Heartbeats - Be Proactive!
+HEARTBEAT_OK stuff
+## Safety
+Keep this
+"#;
+        let out = transform_persona_for_moxxy(input);
+        assert!(!out.contains("First Run"));
+        assert!(!out.contains("Every Session"));
+        assert!(!out.contains("MEMORY.md"));
+        assert!(!out.contains("Heartbeats"));
+        assert!(!out.contains("HEARTBEAT_OK"));
+        assert!(out.contains("Safety"));
+        assert!(out.contains("Core Identity"));
+    }
 }
