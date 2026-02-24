@@ -148,7 +148,6 @@ impl SecretsVault {
         Ok(keys)
     }
 
-    #[allow(dead_code)]
     pub async fn remove_secret(&self, key: &str) -> Result<()> {
         let db = self.db.lock().await;
         db.execute("DELETE FROM secrets_vault WHERE key = ?1", [key])?;

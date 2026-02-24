@@ -74,6 +74,11 @@ impl TelegramInterface {
         let bot_client = Bot::new(&self.token);
 
         let commands = vec![
+            teloxide::types::BotCommand::new("help", "Show all available commands"),
+            teloxide::types::BotCommand::new("vault", "Manage secrets (set/get/delete)"),
+            teloxide::types::BotCommand::new("model", "View or switch LLM model"),
+            teloxide::types::BotCommand::new("status", "Show agent status"),
+            teloxide::types::BotCommand::new("memory", "View or clear short-term memory"),
             teloxide::types::BotCommand::new("new", "Clear agent's short-term memory"),
             teloxide::types::BotCommand::new("skills", "List available skills"),
             teloxide::types::BotCommand::new("skill", "List available skills"),
@@ -210,10 +215,200 @@ impl TelegramInterface {
                             return Ok(());
                         }
 
-                        let text = if text.trim() == "/skills" || text.trim() == "/skill" {
+                        let trimmed = text.trim();
+
+                        // /help
+                        if trimmed == "/help" {
+                            let help_text = "\
+🤖 *moxxy Bot Commands*
+
+/help — Show this help message
+/vault — List all vault keys
+/vault set <key> <value> — Set a vault secret
+/vault get <key> — Check if a key exists (masked)
+/vault delete <key> — Remove a vault secret
+/model — Show current LLM provider and model
+/model <provider> <model> — Switch LLM provider/model
+/status — Show agent status
+/memory — Show short-term memory info
+/memory clear — Clear short-term memory
+/new — Clear short-term memory
+/skills — List available skills
+
+Any other message is sent to the agent for processing.";
+                            let _ = bot.send_message(msg.chat.id, help_text).await;
+                            return Ok(());
+                        }
+
+                        // /vault
+                        if trimmed == "/vault" {
+                            match vault.list_keys().await {
+                                Ok(keys) if keys.is_empty() => {
+                                    let _ = bot.send_message(msg.chat.id, "🔐 Vault is empty. Use /vault set <key> <value> to add secrets.").await;
+                                }
+                                Ok(keys) => {
+                                    let list = keys.iter().enumerate()
+                                        .map(|(i, k)| format!("{}. {}", i + 1, k))
+                                        .collect::<Vec<_>>()
+                                        .join("\n");
+                                    let _ = bot.send_message(msg.chat.id, format!("🔐 Vault keys ({}):\n\n{}", keys.len(), list)).await;
+                                }
+                                Err(e) => {
+                                    let _ = bot.send_message(msg.chat.id, format!("❌ Failed to list vault keys: {}", e)).await;
+                                }
+                            }
+                            return Ok(());
+                        }
+
+                        if let Some(rest) = trimmed.strip_prefix("/vault ") {
+                            let parts: Vec<&str> = rest.splitn(3, ' ').collect();
+                            match parts.first().copied() {
+                                Some("set") => {
+                                    if parts.len() < 3 {
+                                        let _ = bot.send_message(msg.chat.id, "Usage: /vault set <key> <value>").await;
+                                    } else {
+                                        let key = parts[1];
+                                        let value = parts[2];
+                                        match vault.set_secret(key, value).await {
+                                            Ok(()) => {
+                                                let _ = bot.send_message(msg.chat.id, format!("✅ Vault key '{}' updated.", key)).await;
+                                            }
+                                            Err(e) => {
+                                                let _ = bot.send_message(msg.chat.id, format!("❌ Failed to set vault key: {}", e)).await;
+                                            }
+                                        }
+                                    }
+                                }
+                                Some("get") => {
+                                    if parts.len() < 2 {
+                                        let _ = bot.send_message(msg.chat.id, "Usage: /vault get <key>").await;
+                                    } else {
+                                        let key = parts[1];
+                                        match vault.get_secret(key).await {
+                                            Ok(Some(val)) => {
+                                                let masked = if val.len() <= 4 {
+                                                    "*".repeat(val.len())
+                                                } else {
+                                                    format!("{}****", &val[..4])
+                                                };
+                                                let _ = bot.send_message(msg.chat.id, format!("🔑 {}: {}", key, masked)).await;
+                                            }
+                                            Ok(None) => {
+                                                let _ = bot.send_message(msg.chat.id, format!("🔑 Key '{}' not found in vault.", key)).await;
+                                            }
+                                            Err(e) => {
+                                                let _ = bot.send_message(msg.chat.id, format!("❌ Failed to read vault key: {}", e)).await;
+                                            }
+                                        }
+                                    }
+                                }
+                                Some("delete") => {
+                                    if parts.len() < 2 {
+                                        let _ = bot.send_message(msg.chat.id, "Usage: /vault delete <key>").await;
+                                    } else {
+                                        let key = parts[1];
+                                        match vault.remove_secret(key).await {
+                                            Ok(()) => {
+                                                let _ = bot.send_message(msg.chat.id, format!("🗑️ Vault key '{}' removed.", key)).await;
+                                            }
+                                            Err(e) => {
+                                                let _ = bot.send_message(msg.chat.id, format!("❌ Failed to delete vault key: {}", e)).await;
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    let _ = bot.send_message(msg.chat.id, "Usage: /vault [set <key> <value> | get <key> | delete <key>]").await;
+                                }
+                            }
+                            return Ok(());
+                        }
+
+                        // /model
+                        if trimmed == "/model" {
+                            let provider = vault.get_secret("llm_default_provider").await.ok().flatten().unwrap_or_else(|| "not set".to_string());
+                            let model = vault.get_secret("llm_default_model").await.ok().flatten().unwrap_or_else(|| "not set".to_string());
+                            let _ = bot.send_message(msg.chat.id, format!("🧠 Current LLM:\nProvider: {}\nModel: {}", provider, model)).await;
+                            return Ok(());
+                        }
+
+                        if let Some(rest) = trimmed.strip_prefix("/model ") {
+                            let parts: Vec<&str> = rest.splitn(2, ' ').collect();
+                            if parts.len() < 2 {
+                                let _ = bot.send_message(msg.chat.id, "Usage: /model <provider> <model>\nExample: /model openai gpt-4o").await;
+                            } else {
+                                let provider = parts[0];
+                                let model = parts[1];
+                                let r1 = vault.set_secret("llm_default_provider", provider).await;
+                                let r2 = vault.set_secret("llm_default_model", model).await;
+                                if r1.is_ok() && r2.is_ok() {
+                                    let _ = bot.send_message(msg.chat.id, format!("✅ LLM switched to {} / {}\n⚠️ Restart the agent for changes to take effect.", provider, model)).await;
+                                } else {
+                                    let _ = bot.send_message(msg.chat.id, "❌ Failed to update model settings.").await;
+                                }
+                            }
+                            return Ok(());
+                        }
+
+                        // /status
+                        if trimmed == "/status" {
+                            let provider = vault.get_secret("llm_default_provider").await.ok().flatten().unwrap_or_else(|| "not set".to_string());
+                            let model = vault.get_secret("llm_default_model").await.ok().flatten().unwrap_or_else(|| "not set".to_string());
+                            let skill_count = {
+                                let sm = skills.lock().await;
+                                sm.get_all_skills().len()
+                            };
+                            let stm_count = {
+                                let mem = memory.lock().await;
+                                mem.read_stm_structured(100, false).await.map(|e| e.len()).unwrap_or(0)
+                            };
+                            let status = format!(
+                                "📊 Agent Status\n\nAgent: {}\nProvider: {}\nModel: {}\nSkills: {}\nSTM entries: {}",
+                                agent_name, provider, model, skill_count, stm_count
+                            );
+                            let _ = bot.send_message(msg.chat.id, status).await;
+                            return Ok(());
+                        }
+
+                        // /memory
+                        if trimmed == "/memory" || trimmed == "/memory info" {
+                            let (count, preview) = {
+                                let mem = memory.lock().await;
+                                let entries = mem.read_stm_structured(10, true).await.unwrap_or_default();
+                                let count = entries.len();
+                                let preview: Vec<String> = entries.iter().take(5).map(|e| {
+                                    let content = if e.content.len() > 80 {
+                                        format!("{}...", &e.content[..80])
+                                    } else {
+                                        e.content.clone()
+                                    };
+                                    format!("[{}] {}", e.role, content)
+                                }).collect();
+                                (count, preview)
+                            };
+                            let mut reply = format!("🧠 Short-term memory: {} entries", count);
+                            if !preview.is_empty() {
+                                reply.push_str("\n\nRecent:\n");
+                                reply.push_str(&preview.join("\n"));
+                            }
+                            let _ = bot.send_message(msg.chat.id, reply).await;
+                            return Ok(());
+                        }
+
+                        if trimmed == "/memory clear" {
+                            {
+                                let mut mem = memory.lock().await;
+                                let _ = mem.new_session();
+                            }
+                            let _ = bot.send_message(msg.chat.id, "🔄 Agent's short-term memory cleared. Starting fresh!").await;
+                            return Ok(());
+                        }
+
+                        // /skills or /skill
+                        let text = if trimmed == "/skills" || trimmed == "/skill" {
                             let _ = bot.send_message(msg.chat.id, "🔍 Checking available skills...").await;
                             "skill list".to_string()
-                        } else if text.trim() == "/new" {
+                        } else if trimmed == "/new" {
                             {
                                 let mut mem = memory.lock().await;
                                 let _ = mem.new_session();
