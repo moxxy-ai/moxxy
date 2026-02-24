@@ -30,6 +30,9 @@ export function ChannelsPanel({
   const [sttStatus, setSttStatus] = useState<string | null>(null);
   const [discordTokenInput, setDiscordTokenInput] = useState('');
   const [discordStatus, setDiscordStatus] = useState<string | null>(null);
+  const [discordAvailableChannels, setDiscordAvailableChannels] = useState<{guild: string; channel: string; channel_id: string}[]>([]);
+  const [discordChannelsLoading, setDiscordChannelsLoading] = useState(false);
+  const [discordAddChannelId, setDiscordAddChannelId] = useState('');
   const [waAccountSid, setWaAccountSid] = useState('');
   const [waAuthToken, setWaAuthToken] = useState('');
   const [waFromNumber, setWaFromNumber] = useState('');
@@ -351,7 +354,160 @@ export function ChannelsPanel({
             {/* State: Token saved */}
             {discord?.has_token && (
               <div className="flex flex-col gap-2">
-                <p className="text-[11px] text-emerald-400 leading-relaxed">Discord bot is configured. Messages in channels the bot has access to are routed to this agent.</p>
+                <p className="text-[11px] text-emerald-400 leading-relaxed">
+                  Discord bot is configured.
+                  {(discord.listen_channels?.length ?? 0) > 0
+                    ? ` Listening on ${discord.listen_channels!.length} channel(s) (${discord.listen_mode === 'mentions' ? 'mentions only' : 'all messages'}).`
+                    : ' No listen channels configured — bot is idle. Add channels below.'}
+                </p>
+
+                {/* Listen Channels */}
+                <div className="border-t border-[#1e304f] pt-3 mt-1 flex flex-col gap-2">
+                  <span className="text-[10px] text-[#94a3b8] uppercase tracking-widest">Listen Channels</span>
+
+                  {/* Current channels list */}
+                  {(discord.listen_channels?.length ?? 0) > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {discord.listen_channels!.map(chId => {
+                        const info = discordAvailableChannels.find(c => c.channel_id === chId);
+                        return (
+                          <span key={chId} className="inline-flex items-center gap-1 bg-[#7c3aed]/10 border border-[#7c3aed]/30 text-[#c4b5fd] text-[10px] px-2 py-0.5 rounded-sm">
+                            {info ? `#${info.channel}` : chId}
+                            <button
+                              onClick={async () => {
+                                if (!activeAgent) return;
+                                setDiscordStatus(null);
+                                try {
+                                  const res = await fetch(`${apiBase}/agents/${activeAgent}/channels/discord/listen-channels/remove`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ channel_id: chId })
+                                  });
+                                  const data = await res.json();
+                                  if (data.success) {
+                                    setDiscordStatus(data.message);
+                                    refreshChannels();
+                                  } else {
+                                    setDiscordStatus(`Error: ${data.error}`);
+                                  }
+                                } catch (err) { setDiscordStatus(`Error: ${err}`); }
+                              }}
+                              className="text-red-400 hover:text-red-300 font-bold leading-none"
+                              title="Remove channel"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Add channel */}
+                  <div className="flex gap-2 items-center">
+                    <select
+                      className="flex-1 bg-[#090d14] border border-[#1e304f] text-white px-3 py-1.5 outline-none rounded-sm text-xs focus:border-[#7c3aed]"
+                      value={discordAddChannelId}
+                      onChange={e => setDiscordAddChannelId(e.target.value)}
+                    >
+                      <option value="">Select a channel to add...</option>
+                      {discordAvailableChannels
+                        .filter(ch => !(discord.listen_channels || []).includes(ch.channel_id))
+                        .map(ch => (
+                          <option key={ch.channel_id} value={ch.channel_id}>#{ch.channel} ({ch.guild})</option>
+                        ))}
+                    </select>
+                    <button
+                      onClick={async () => {
+                        if (!activeAgent || !discordAddChannelId) return;
+                        setDiscordStatus(null);
+                        try {
+                          const res = await fetch(`${apiBase}/agents/${activeAgent}/channels/discord/listen-channels`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ channel_id: discordAddChannelId })
+                          });
+                          const data = await res.json();
+                          if (data.success) {
+                            setDiscordStatus(data.message);
+                            setDiscordAddChannelId('');
+                            refreshChannels();
+                          } else {
+                            setDiscordStatus(`Error: ${data.error}`);
+                          }
+                        } catch (err) { setDiscordStatus(`Error: ${err}`); }
+                      }}
+                      disabled={!discordAddChannelId}
+                      className="bg-[#7c3aed] hover:bg-[#9461fb] disabled:opacity-50 text-white text-[10px] uppercase tracking-widest px-3 py-1.5 font-bold shadow-[0_0_12px_rgba(124,58,237,0.3)] transition-all whitespace-nowrap"
+                    >
+                      Add
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!activeAgent) return;
+                        setDiscordChannelsLoading(true);
+                        try {
+                          const res = await fetch(`${apiBase}/agents/${activeAgent}/channels/discord/list-channels`);
+                          const data = await res.json();
+                          if (data.success) {
+                            setDiscordAvailableChannels(data.channels || []);
+                          } else {
+                            setDiscordStatus(`Error: ${data.error}`);
+                          }
+                        } catch (err) { setDiscordStatus(`Error: ${err}`); }
+                        setDiscordChannelsLoading(false);
+                      }}
+                      disabled={discordChannelsLoading}
+                      className="bg-[#7c3aed]/20 hover:bg-[#7c3aed]/30 border border-[#7c3aed]/30 text-[#7c3aed] text-[10px] uppercase tracking-widest px-3 py-1.5 font-bold transition-all whitespace-nowrap"
+                    >
+                      {discordChannelsLoading ? '...' : 'Fetch'}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-[#64748b]">Click Fetch to load available channels from Discord, then select and add. The bot only listens on channels in this list.</p>
+                </div>
+
+                {/* Listen Mode */}
+                <div className="flex flex-col gap-2">
+                  <span className="text-[10px] text-[#94a3b8] uppercase tracking-widest">Listen Mode</span>
+                  <div className="flex gap-2">
+                    {(['all', 'mentions'] as const).map(mode => (
+                      <button
+                        key={mode}
+                        onClick={async () => {
+                          if (!activeAgent) return;
+                          setDiscordStatus(null);
+                          try {
+                            const res = await fetch(`${apiBase}/agents/${activeAgent}/channels/discord/listen-mode`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ mode })
+                            });
+                            const data = await res.json();
+                            if (data.success) {
+                              setDiscordStatus(`Listen mode set to '${mode}'.`);
+                              refreshChannels();
+                            } else {
+                              setDiscordStatus(`Error: ${data.error}`);
+                            }
+                          } catch (err) { setDiscordStatus(`Error: ${err}`); }
+                        }}
+                        className={`text-[10px] uppercase tracking-widest px-4 py-1.5 font-bold transition-all border rounded-sm ${
+                          discord.listen_mode === mode
+                            ? 'bg-[#7c3aed] border-[#7c3aed] text-white shadow-[0_0_12px_rgba(124,58,237,0.3)]'
+                            : 'bg-[#090d14] border-[#1e304f] text-[#94a3b8] hover:border-[#7c3aed]/50'
+                        }`}
+                      >
+                        {mode === 'all' ? 'All Messages' : 'Mentions Only'}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-[#64748b]">
+                    {discord.listen_mode === 'mentions'
+                      ? 'Bot only responds when @mentioned in listen channels. DMs are always accepted.'
+                      : 'Bot responds to every message in listen channels. DMs are always accepted.'}
+                  </p>
+                </div>
+
                 <button
                   onClick={async () => {
                     if (!activeAgent) return;

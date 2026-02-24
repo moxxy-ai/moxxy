@@ -3,6 +3,11 @@
 # Built-in Skill: scheduler
 # Allows an agent to schedule tasks for itself using cron syntax.
 
+AUTH_HEADER=""
+if [ -n "${MOXXY_INTERNAL_TOKEN:-}" ]; then
+    AUTH_HEADER="X-Moxxy-Internal-Token: ${MOXXY_INTERNAL_TOKEN}"
+fi
+
 NAME=$1
 CRON=$2
 PROMPT=$3
@@ -20,9 +25,10 @@ PAYLOAD=$(jq -n \
   '{name: $name, cron: $cron, prompt: $prompt}')
 
 # Use the dynamically injected API base URL
-response=$(curl -s -w "\n%{http_code}" -X POST "$MOXXY_API_BASE/agents/$AGENT_NAME/schedules" \
+response=$(curl -s -w "\n%{http_code}" -X POST ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
     -H "Content-Type: application/json" \
-    -d "$PAYLOAD")
+    -d "$PAYLOAD" \
+    "$MOXXY_API_BASE/agents/$AGENT_NAME/schedules")
 
 body=$(echo "$response" | sed '$d')
 status_code=$(echo "$response" | tail -n 1)

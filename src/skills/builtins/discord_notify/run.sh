@@ -7,6 +7,10 @@ if [ -z "${AGENT_NAME:-}" ]; then
 fi
 
 API_BASE="${MOXXY_API_BASE:-http://127.0.0.1:17890/api}"
+AUTH_HEADER=""
+if [ -n "${MOXXY_INTERNAL_TOKEN:-}" ]; then
+  AUTH_HEADER="X-Moxxy-Internal-Token: ${MOXXY_INTERNAL_TOKEN}"
+fi
 
 if [ "$#" -lt 1 ]; then
   echo "Usage: discord_notify '<message>'"
@@ -25,6 +29,7 @@ if [ "$#" -ge 2 ] && printf '%s' "$1" | grep -qE '^[0-9]+$'; then
     message="$message $part"
   done
   resp=$(curl -sS -X POST \
+    ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
     --data-urlencode "message=${message}" \
     --data-urlencode "channel_id=${channel_id}" \
     "${API_BASE}/agents/${AGENT_NAME}/channels/discord/send")
@@ -35,6 +40,7 @@ else
     message="$message $part"
   done
   resp=$(curl -sS -X POST \
+    ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
     --data-urlencode "message=${message}" \
     "${API_BASE}/agents/${AGENT_NAME}/channels/discord/send")
 fi

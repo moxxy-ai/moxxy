@@ -1,9 +1,9 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serenity::Client;
-use serenity::all::{Context, EventHandler, GatewayIntents, Message, Ready};
+use serenity::all::{Context, EventHandler, GatewayIntents, Message, Ready, UserId};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
@@ -18,6 +18,7 @@ struct Handler {
     memory: Arc<Mutex<MemorySystem>>,
     skills: Arc<Mutex<SkillManager>>,
     llms: Arc<Mutex<LlmManager>>,
+    bot_user_id: Arc<OnceLock<UserId>>,
 }
 
 #[async_trait]
@@ -32,24 +33,49 @@ impl EventHandler for Handler {
             return;
         }
 
-        let src_label = format!("DISCORD_{}", msg.author.id);
+        let is_dm = msg.guild_id.is_none();
 
-        // Store channel ID in vault for discord_notify skill.
-        // Only auto-set when no channel is configured yet; once a channel is
-        // pinned (via API or first message), it stays stable so proactive
-        // notifications always target the intended channel.
-        {
-            let mem = self.memory.lock().await;
-            let vault = crate::core::vault::SecretsVault::new(mem.get_db());
-            match vault.get_secret("discord_channel_id").await {
-                Ok(Some(ref existing)) if !existing.is_empty() => {}
-                _ => {
-                    let _ = vault
-                        .set_secret("discord_channel_id", &msg.channel_id.to_string())
-                        .await;
+        if !is_dm {
+            let (listen_channels, listen_mode) = {
+                let mem = self.memory.lock().await;
+                let vault = crate::core::vault::SecretsVault::new(mem.get_db());
+
+                let channels: Vec<String> = match vault.get_secret("discord_listen_channels").await
+                {
+                    Ok(Some(ref raw)) if !raw.is_empty() => {
+                        serde_json::from_str(raw).unwrap_or_default()
+                    }
+                    _ => Vec::new(),
+                };
+
+                let mode = match vault.get_secret("discord_listen_mode").await {
+                    Ok(Some(ref m)) if !m.is_empty() => m.clone(),
+                    _ => "all".to_string(),
+                };
+
+                (channels, mode)
+            };
+
+            if listen_channels.is_empty() {
+                return;
+            }
+
+            let ch_str = msg.channel_id.to_string();
+            if !listen_channels.iter().any(|id| id == &ch_str) {
+                return;
+            }
+
+            if listen_mode == "mentions" {
+                if let Some(bot_id) = self.bot_user_id.get() {
+                    let mentioned = msg.mentions.iter().any(|u| u.id == *bot_id);
+                    if !mentioned {
+                        return;
+                    }
                 }
             }
         }
+
+        let src_label = format!("DISCORD_{}", msg.author.id);
 
         info!(
             "[{}] Received Discord message from {}: {}",
@@ -89,9 +115,10 @@ impl EventHandler for Handler {
     }
 
     async fn ready(&self, _: Context, ready: Ready) {
+        let _ = self.bot_user_id.set(ready.user.id);
         info!(
-            "[{}] Discord Bot connected as {}",
-            self.agent_name, ready.user.name
+            "[{}] Discord Bot connected as {} (id: {})",
+            self.agent_name, ready.user.name, ready.user.id
         );
     }
 }
@@ -171,6 +198,7 @@ impl LifecycleComponent for DiscordChannel {
                     memory,
                     skills,
                     llms,
+                    bot_user_id: Arc::new(OnceLock::new()),
                 };
 
                 let intents = GatewayIntents::GUILD_MESSAGES

@@ -29,9 +29,11 @@ export interface Schedule {
 export interface Channel {
   type: string;
   has_token: boolean;
-  is_paired: boolean;
+  is_paired?: boolean;
   stt_enabled?: boolean;
   has_stt_token?: boolean;
+  listen_channels?: string[];
+  listen_mode?: string;
 }
 
 export interface McpServer {

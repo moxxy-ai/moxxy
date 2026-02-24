@@ -4,12 +4,16 @@
 
 API_URL="${MOXXY_API_BASE:-http://127.0.0.1:17890/api}"
 AGENT_NAME="${MOXXY_AGENT_NAME:-default}"
+AUTH_HEADER=""
+if [ -n "${MOXXY_INTERNAL_TOKEN:-}" ]; then
+    AUTH_HEADER="X-Moxxy-Internal-Token: ${MOXXY_INTERNAL_TOKEN}"
+fi
 
 action="$1"
 
 case "$action" in
     "list")
-        curl -s "${API_URL}/agents/${AGENT_NAME}/mcp" | jq '.'
+        curl -s ${AUTH_HEADER:+-H "$AUTH_HEADER"} "${API_URL}/agents/${AGENT_NAME}/mcp" | jq '.'
         ;;
     "add")
         server_name="$2"
@@ -30,7 +34,7 @@ case "$action" in
           --arg e "$env_json" \
           '{name: $n, command: $c, args: $a, env: $e}')
 
-        curl -s -X POST -H "Content-Type: application/json" -d "$payload" "${API_URL}/agents/${AGENT_NAME}/mcp" | jq '.'
+        curl -s -X POST ${AUTH_HEADER:+-H "$AUTH_HEADER"} -H "Content-Type: application/json" -d "$payload" "${API_URL}/agents/${AGENT_NAME}/mcp" | jq '.'
         ;;
     "add-json")
         json_config="$2"
@@ -92,7 +96,7 @@ case "$action" in
               '{name: $n, command: $c, args: $a, env: $e}')
 
             echo "Adding MCP server: $server_name"
-            curl -s -X POST -H "Content-Type: application/json" -d "$payload" "${API_URL}/agents/${AGENT_NAME}/mcp" | jq '.'
+            curl -s -X POST ${AUTH_HEADER:+-H "$AUTH_HEADER"} -H "Content-Type: application/json" -d "$payload" "${API_URL}/agents/${AGENT_NAME}/mcp" | jq '.'
             added=$((added + 1))
         done
 
@@ -105,7 +109,7 @@ case "$action" in
             exit 1
         fi
 
-        curl -s -X DELETE "${API_URL}/agents/${AGENT_NAME}/mcp/${server_name}" | jq '.'
+        curl -s -X DELETE ${AUTH_HEADER:+-H "$AUTH_HEADER"} "${API_URL}/agents/${AGENT_NAME}/mcp/${server_name}" | jq '.'
         ;;
     *)
         echo "Usage:"

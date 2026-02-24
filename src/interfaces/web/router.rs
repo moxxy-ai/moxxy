@@ -39,7 +39,16 @@ fn build_localhost_cors(api_port: u16, web_port: u16) -> CorsLayer {
 }
 
 pub fn build_api_router(state: AppState) -> Router {
-    Router::new()
+    // Public routes that bypass auth (external services authenticate via HMAC signatures)
+    let public_routes = Router::new()
+        .route(
+            "/api/webhooks/{agent}/{event_source}",
+            post(webhooks::webhook_endpoint),
+        )
+        .layer(middleware::from_fn(security_headers))
+        .with_state(state.clone());
+
+    let authed_routes = Router::new()
         .route(
             "/api/agents",
             get(agents::get_agents).post(agents::create_agent_endpoint),
@@ -90,12 +99,20 @@ pub fn build_api_router(state: AppState) -> Router {
             post(channels::send_discord_message),
         )
         .route(
-            "/api/agents/{agent}/channels/discord/channel",
-            get(channels::get_discord_channel).post(channels::set_discord_channel),
+            "/api/agents/{agent}/channels/discord/listen-channels",
+            get(channels::get_discord_listen_channels).post(channels::add_discord_listen_channel),
+        )
+        .route(
+            "/api/agents/{agent}/channels/discord/listen-channels/remove",
+            post(channels::remove_discord_listen_channel),
         )
         .route(
             "/api/agents/{agent}/channels/discord/list-channels",
             get(channels::list_discord_channels),
+        )
+        .route(
+            "/api/agents/{agent}/channels/discord/listen-mode",
+            get(channels::get_discord_listen_mode).post(channels::set_discord_listen_mode),
         )
         .route(
             "/api/agents/{agent}/channels/discord",
@@ -211,10 +228,6 @@ pub fn build_api_router(state: AppState) -> Router {
         .route("/api/host/execute_bash", post(proxy::execute_bash))
         .route("/api/host/execute_python", post(proxy::execute_python))
         .route(
-            "/api/webhooks/{agent}/{event_source}",
-            post(webhooks::webhook_endpoint),
-        )
-        .route(
             "/api/agents/{agent}/delegate",
             post(webhooks::delegate_endpoint),
         )
@@ -237,7 +250,9 @@ pub fn build_api_router(state: AppState) -> Router {
         ))
         .layer(middleware::from_fn(security_headers))
         .layer(build_localhost_cors(state.api_port, state.web_port))
-        .with_state(state)
+        .with_state(state.clone());
+
+    public_routes.merge(authed_routes)
 }
 
 async fn security_headers(req: Request<Body>, next: Next) -> axum::response::Response {

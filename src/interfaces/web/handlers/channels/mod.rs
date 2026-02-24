@@ -63,7 +63,17 @@ pub async fn get_channels(
         let tg_stt_enabled = matches!(vault.get_secret("telegram_stt_enabled").await, Ok(Some(ref v)) if v == "true");
         let tg_has_stt_token = matches!(vault.get_secret("telegram_stt_token").await, Ok(Some(ref v)) if !v.is_empty());
         let discord_has_token = matches!(vault.get_secret("discord_token").await, Ok(Some(_)));
-        let discord_is_paired = matches!(vault.get_secret("discord_channel_id").await, Ok(Some(ref v)) if !v.is_empty());
+        let discord_listen_channels: Vec<String> = match vault
+            .get_secret("discord_listen_channels")
+            .await
+        {
+            Ok(Some(ref raw)) if !raw.is_empty() => serde_json::from_str(raw).unwrap_or_default(),
+            _ => Vec::new(),
+        };
+        let discord_listen_mode = match vault.get_secret("discord_listen_mode").await {
+            Ok(Some(ref v)) if !v.is_empty() => v.clone(),
+            _ => "all".to_string(),
+        };
         let slack_has_token = matches!(vault.get_secret("slack_token").await, Ok(Some(_)));
         let whatsapp_has_token =
             matches!(vault.get_secret("whatsapp_account_sid").await, Ok(Some(_)));
@@ -72,7 +82,7 @@ pub async fn get_channels(
             "success": true,
             "channels": [
                 { "type": "telegram", "has_token": tg_has_token, "is_paired": tg_is_paired, "pairing_active": tg_pairing_active, "stt_enabled": tg_stt_enabled, "has_stt_token": tg_has_stt_token },
-                { "type": "discord", "has_token": discord_has_token, "is_paired": discord_is_paired },
+                { "type": "discord", "has_token": discord_has_token, "listen_channels": discord_listen_channels, "listen_mode": discord_listen_mode },
                 { "type": "slack", "has_token": slack_has_token, "is_paired": false },
                 { "type": "whatsapp", "has_token": whatsapp_has_token, "is_paired": false }
             ]

@@ -5,16 +5,20 @@ if [ -z "$AGENT_NAME" ]; then
 fi
 
 API_BASE="${MOXXY_API_BASE:-http://127.0.0.1:17890/api}"
+AUTH_HEADER=""
+if [ -n "${MOXXY_INTERNAL_TOKEN:-}" ]; then
+    AUTH_HEADER="X-Moxxy-Internal-Token: ${MOXXY_INTERNAL_TOKEN}"
+fi
 
 ACTION=$1
 shift
 
 case "$ACTION" in
     "list")
-        curl -s "$API_BASE/providers"
+        curl -s ${AUTH_HEADER:+-H "$AUTH_HEADER"} "$API_BASE/providers"
         ;;
     "list_custom")
-        curl -s "$API_BASE/providers/custom"
+        curl -s ${AUTH_HEADER:+-H "$AUTH_HEADER"} "$API_BASE/providers/custom"
         ;;
     "add")
         # Arguments: id name base_url api_format vault_key default_model [models_json]
@@ -45,7 +49,7 @@ case "$ACTION" in
 }
 EOJSON
 )
-        curl -s -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$API_BASE/providers/custom"
+        curl -s -X POST ${AUTH_HEADER:+-H "$AUTH_HEADER"} -H "Content-Type: application/json" -d "$PAYLOAD" "$API_BASE/providers/custom"
         ;;
     "remove")
         PROV_ID=$1
@@ -53,7 +57,7 @@ EOJSON
             echo '{"success":false, "error":"Usage: manage_providers remove <provider_id>"}'
             exit 1
         fi
-        curl -s -X DELETE "$API_BASE/providers/custom/$PROV_ID"
+        curl -s -X DELETE ${AUTH_HEADER:+-H "$AUTH_HEADER"} "$API_BASE/providers/custom/$PROV_ID"
         ;;
     "switch")
         PROVIDER=$1
@@ -62,7 +66,7 @@ EOJSON
             echo '{"success":false, "error":"Usage: manage_providers switch <provider_id> <model_id>"}'
             exit 1
         fi
-        curl -s -X POST -H "Content-Type: application/json" \
+        curl -s -X POST ${AUTH_HEADER:+-H "$AUTH_HEADER"} -H "Content-Type: application/json" \
             -d "{\"provider\":\"$PROVIDER\", \"model\":\"$MODEL\"}" \
             "$API_BASE/agents/$AGENT_NAME/llm"
         ;;

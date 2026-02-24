@@ -47,6 +47,7 @@ pub async fn set_discord_token(
 #[derive(serde::Deserialize)]
 pub struct DiscordSendRequest {
     message: String,
+    #[serde(default)]
     channel_id: Option<String>,
 }
 
@@ -91,11 +92,15 @@ pub async fn send_discord_message(
         }
         id
     } else {
-        match vault.get_secret("discord_channel_id").await {
-            Ok(Some(id)) if !id.trim().is_empty() => id,
-            _ => {
+        let channels: Vec<String> = match vault.get_secret("discord_listen_channels").await {
+            Ok(Some(ref raw)) if !raw.is_empty() => serde_json::from_str(raw).unwrap_or_default(),
+            _ => Vec::new(),
+        };
+        match channels.first() {
+            Some(id) => id.clone(),
+            None => {
                 return Json(
-                    serde_json::json!({ "success": false, "error": "No channel_id provided and no default channel is paired. Use discord_channels to find the channel ID first." }),
+                    serde_json::json!({ "success": false, "error": "No channel_id provided and no listen channels configured. Use discord_channels to find the channel ID first." }),
                 );
             }
         }
@@ -239,22 +244,50 @@ pub async fn list_discord_channels(
 }
 
 #[derive(serde::Deserialize)]
-pub struct SetDiscordChannelRequest {
+pub struct DiscordListenChannelRequest {
     pub channel_id: String,
 }
 
-pub async fn set_discord_channel(
+async fn read_listen_channels(vault: &crate::core::vault::SecretsVault) -> Vec<String> {
+    match vault.get_secret("discord_listen_channels").await {
+        Ok(Some(ref raw)) if !raw.is_empty() => serde_json::from_str(raw).unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+async fn write_listen_channels(
+    vault: &crate::core::vault::SecretsVault,
+    channels: &[String],
+) -> Result<(), String> {
+    let json = serde_json::to_string(channels).map_err(|e| e.to_string())?;
+    vault
+        .set_secret("discord_listen_channels", &json)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub async fn get_discord_listen_channels(
     Path(agent): Path<String>,
     State(state): State<AppState>,
-    Json(payload): Json<SetDiscordChannelRequest>,
+) -> Json<serde_json::Value> {
+    let reg = state.registry.lock().await;
+    if let Some(mem_mutex) = reg.get(&agent) {
+        let mem = mem_mutex.lock().await;
+        let vault = crate::core::vault::SecretsVault::new(mem.get_db());
+        let channels = read_listen_channels(&vault).await;
+        Json(serde_json::json!({ "success": true, "channels": channels }))
+    } else {
+        Json(serde_json::json!({ "success": false, "error": "Agent not found" }))
+    }
+}
+
+pub async fn add_discord_listen_channel(
+    Path(agent): Path<String>,
+    State(state): State<AppState>,
+    Json(payload): Json<DiscordListenChannelRequest>,
 ) -> Json<serde_json::Value> {
     let channel_id = payload.channel_id.trim().to_string();
-    if channel_id.is_empty() {
-        return Json(
-            serde_json::json!({ "success": false, "error": "channel_id cannot be empty." }),
-        );
-    }
-    if !channel_id.chars().all(|c| c.is_ascii_digit()) {
+    if channel_id.is_empty() || !channel_id.chars().all(|c| c.is_ascii_digit()) {
         return Json(
             serde_json::json!({ "success": false, "error": "channel_id must be a numeric Discord snowflake." }),
         );
@@ -264,19 +297,73 @@ pub async fn set_discord_channel(
     if let Some(mem_mutex) = reg.get(&agent) {
         let mem = mem_mutex.lock().await;
         let vault = crate::core::vault::SecretsVault::new(mem.get_db());
-        match vault.set_secret("discord_channel_id", &channel_id).await {
+        let mut channels = read_listen_channels(&vault).await;
+
+        if channels.contains(&channel_id) {
+            return Json(serde_json::json!({
+                "success": true,
+                "message": format!("Channel {} is already in the listen list.", channel_id),
+                "channels": channels
+            }));
+        }
+
+        channels.push(channel_id.clone());
+        match write_listen_channels(&vault, &channels).await {
             Ok(_) => Json(serde_json::json!({
                 "success": true,
-                "message": format!("Discord channel pinned to {}.", channel_id)
+                "message": format!("Channel {} added to listen list.", channel_id),
+                "channels": channels
             })),
-            Err(e) => Json(serde_json::json!({ "success": false, "error": e.to_string() })),
+            Err(e) => Json(serde_json::json!({ "success": false, "error": e })),
         }
     } else {
         Json(serde_json::json!({ "success": false, "error": "Agent not found" }))
     }
 }
 
-pub async fn get_discord_channel(
+pub async fn remove_discord_listen_channel(
+    Path(agent): Path<String>,
+    State(state): State<AppState>,
+    Json(payload): Json<DiscordListenChannelRequest>,
+) -> Json<serde_json::Value> {
+    let channel_id = payload.channel_id.trim().to_string();
+
+    let reg = state.registry.lock().await;
+    if let Some(mem_mutex) = reg.get(&agent) {
+        let mem = mem_mutex.lock().await;
+        let vault = crate::core::vault::SecretsVault::new(mem.get_db());
+        let mut channels = read_listen_channels(&vault).await;
+
+        let before_len = channels.len();
+        channels.retain(|id| id != &channel_id);
+
+        if channels.len() == before_len {
+            return Json(serde_json::json!({
+                "success": true,
+                "message": format!("Channel {} was not in the listen list.", channel_id),
+                "channels": channels
+            }));
+        }
+
+        match write_listen_channels(&vault, &channels).await {
+            Ok(_) => Json(serde_json::json!({
+                "success": true,
+                "message": format!("Channel {} removed from listen list.", channel_id),
+                "channels": channels
+            })),
+            Err(e) => Json(serde_json::json!({ "success": false, "error": e })),
+        }
+    } else {
+        Json(serde_json::json!({ "success": false, "error": "Agent not found" }))
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct SetDiscordListenModeRequest {
+    pub mode: String,
+}
+
+pub async fn get_discord_listen_mode(
     Path(agent): Path<String>,
     State(state): State<AppState>,
 ) -> Json<serde_json::Value> {
@@ -284,11 +371,40 @@ pub async fn get_discord_channel(
     if let Some(mem_mutex) = reg.get(&agent) {
         let mem = mem_mutex.lock().await;
         let vault = crate::core::vault::SecretsVault::new(mem.get_db());
-        let channel_id = match vault.get_secret("discord_channel_id").await {
-            Ok(Some(id)) if !id.is_empty() => Some(id),
-            _ => None,
+        let mode = match vault.get_secret("discord_listen_mode").await {
+            Ok(Some(ref m)) if !m.is_empty() => m.clone(),
+            _ => "all".to_string(),
         };
-        Json(serde_json::json!({ "success": true, "channel_id": channel_id }))
+        Json(serde_json::json!({ "success": true, "mode": mode }))
+    } else {
+        Json(serde_json::json!({ "success": false, "error": "Agent not found" }))
+    }
+}
+
+pub async fn set_discord_listen_mode(
+    Path(agent): Path<String>,
+    State(state): State<AppState>,
+    Json(payload): Json<SetDiscordListenModeRequest>,
+) -> Json<serde_json::Value> {
+    let mode = payload.mode.trim().to_lowercase();
+    if mode != "all" && mode != "mentions" {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": "mode must be 'all' or 'mentions'."
+        }));
+    }
+
+    let reg = state.registry.lock().await;
+    if let Some(mem_mutex) = reg.get(&agent) {
+        let mem = mem_mutex.lock().await;
+        let vault = crate::core::vault::SecretsVault::new(mem.get_db());
+        match vault.set_secret("discord_listen_mode", &mode).await {
+            Ok(_) => Json(serde_json::json!({
+                "success": true,
+                "message": format!("Discord listen mode set to '{}'.", mode)
+            })),
+            Err(e) => Json(serde_json::json!({ "success": false, "error": e.to_string() })),
+        }
     } else {
         Json(serde_json::json!({ "success": false, "error": "Agent not found" }))
     }
@@ -303,6 +419,8 @@ pub async fn disconnect_discord(
         let mem = mem_mutex.lock().await;
         let vault = crate::core::vault::SecretsVault::new(mem.get_db());
         let _ = vault.remove_secret("discord_token").await;
+        let _ = vault.remove_secret("discord_listen_channels").await;
+        let _ = vault.remove_secret("discord_listen_mode").await;
         let _ = vault.remove_secret("discord_channel_id").await;
         Json(serde_json::json!({ "success": true, "message": "Discord disconnected." }))
     } else {

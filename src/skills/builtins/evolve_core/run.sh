@@ -59,4 +59,9 @@ EOF
 
 JSON_PAYLOAD=$(jq -n --arg script "$PAYLOAD" '{command: $script}')
 
-curl -s -X POST -H "Content-Type: application/json" -d "$JSON_PAYLOAD" ${MOXXY_API_BASE:-http://127.0.0.1:17890/api}/host/execute_bash
+AUTH_HEADER=""
+if [ -n "${MOXXY_INTERNAL_TOKEN:-}" ]; then
+    AUTH_HEADER="X-Moxxy-Internal-Token: ${MOXXY_INTERNAL_TOKEN}"
+fi
+
+curl -s -X POST ${AUTH_HEADER:+-H "$AUTH_HEADER"} -H "Content-Type: application/json" -d "$JSON_PAYLOAD" ${MOXXY_API_BASE:-http://127.0.0.1:17890/api}/host/execute_bash
