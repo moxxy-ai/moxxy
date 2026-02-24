@@ -102,6 +102,7 @@ pub async fn run_channel_discord(
         match action {
             "Disconnect Discord" => {
                 vault.remove_secret("discord_token").await?;
+                let _ = vault.remove_secret("discord_channel_id").await;
                 print_info("Discord disconnected. Restart the gateway for changes to take effect.");
                 return Ok(());
             }
@@ -180,7 +181,30 @@ pub async fn run_channel_discord(
                 style("moxxy gateway restart").cyan()
             ),
         )
-        .numbered(3, "Send a message in any channel the bot has access to")
+        .numbered(
+            3,
+            "Send a message to the bot in the channel you want it to use for notifications",
+        )
+        .blank()
+        .text(&format!(
+            "  {} The first channel where the bot receives a message becomes its",
+            style("Channel targeting:").bold()
+        ))
+        .text("  notification target (used by the discord_notify skill). To pin a")
+        .text("  different channel, use the web dashboard or the API:")
+        .hint(
+            "POST /api/agents/{agent}/channels/discord/channel",
+            "{ \"channel_id\": \"<id>\" }",
+        )
+        .blank()
+        .text(&format!(
+            "  {} Right-click a channel in Discord → Copy Channel ID",
+            style("Tip:").dim()
+        ))
+        .text(&format!(
+            "  {} (requires Developer Mode: User Settings → Advanced)",
+            style("").dim()
+        ))
         .print();
     println!();
 

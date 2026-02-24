@@ -1,0 +1,6 @@
+name = "discord_channels"
+description = "List all Discord text channels the bot can see. Use this to find a channel ID before sending a message with discord_notify."
+version = "v1.0.0"
+needs_network = true
+run_command = "sh"
+entrypoint = "run.sh"

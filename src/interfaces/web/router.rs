@@ -90,6 +90,14 @@ pub fn build_api_router(state: AppState) -> Router {
             post(channels::send_discord_message),
         )
         .route(
+            "/api/agents/{agent}/channels/discord/channel",
+            get(channels::get_discord_channel).post(channels::set_discord_channel),
+        )
+        .route(
+            "/api/agents/{agent}/channels/discord/list-channels",
+            get(channels::list_discord_channels),
+        )
+        .route(
             "/api/agents/{agent}/channels/discord",
             axum::routing::delete(channels::disconnect_discord),
         )

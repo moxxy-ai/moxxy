@@ -615,6 +615,7 @@ impl SkillManager {
         "example_skill",
         "telegram_notify",
         "discord_notify",
+        "discord_channels",
         "whatsapp_notify",
         "git",
         "github",
