@@ -106,11 +106,15 @@ case "$ACTION" in
 
         REPO_NAME=$(echo "$REPO" | cut -d'/' -f2)
         if [ -z "$TARGET_DIR" ]; then
-            TARGET_DIR="/tmp/git-${REPO_NAME}-$$"
+            if [ -n "${AGENT_WORKSPACE:-}" ]; then
+                TARGET_DIR="${AGENT_WORKSPACE}/${REPO_NAME}"
+            else
+                TARGET_DIR="/tmp/git-${REPO_NAME}-$$"
+            fi
         fi
 
         CLONE_URL="https://${GITHUB_TOKEN}@github.com/${REPO}.git"
-        git clone --depth 1 "$CLONE_URL" "$TARGET_DIR" 2>&1
+        git clone "$CLONE_URL" "$TARGET_DIR" 2>&1
 
         if [ $? -ne 0 ]; then
             echo "Failed to clone repository."
