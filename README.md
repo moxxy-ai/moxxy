@@ -298,6 +298,10 @@ moxxy doctor
 - [Documentation](https://docs.moxxy.ai)
 - [GitHub](https://github.com/moxxy-ai/moxxy)
 
+## Test [for tests]
+
+This is a short test note added by the MoxxyAgent (MoxxyAgent/moxxy) to verify automatic editing, commit, and PR workflow.
+
 ## License
 
 [MIT](LICENSE)
