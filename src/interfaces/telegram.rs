@@ -222,18 +222,18 @@ impl TelegramInterface {
                             let help_text = "\
 🤖 *moxxy Bot Commands*
 
-/help — Show this help message
-/vault — List all vault keys
-/vault set <key> <value> — Set a vault secret
-/vault get <key> — Check if a key exists (masked)
-/vault delete <key> — Remove a vault secret
-/model — Show current LLM provider and model
-/model <provider> <model> — Switch LLM provider/model
-/status — Show agent status
-/memory — Show short-term memory info
-/memory clear — Clear short-term memory
-/new — Clear short-term memory
-/skills — List available skills
+/help - Show this help message
+/vault - List all vault keys
+/vault set <key> <value> - Set a vault secret
+/vault get <key> - Check if a key exists (masked)
+/vault delete <key> - Remove a vault secret
+/model - Show current LLM provider and model
+/model <provider> <model> - Switch LLM provider/model
+/status - Show agent status
+/memory - Show short-term memory info
+/memory clear - Clear short-term memory
+/new - Clear short-term memory
+/skills - List available skills
 
 Any other message is sent to the agent for processing.";
                             let _ = bot.send_message(msg.chat.id, help_text).await;
