@@ -1,0 +1,9 @@
+name = "workspace_shell"
+description = "Run shell commands within the agent workspace (npm install, cargo build, make, pytest, etc). Locked to workspace directory."
+version = "v1.0.0"
+needs_network = true
+needs_fs_read = true
+needs_fs_write = true
+needs_env = true
+run_command = "bash"
+entrypoint = "run.sh"

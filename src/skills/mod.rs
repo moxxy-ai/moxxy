@@ -278,6 +278,8 @@ const PRIVILEGED_SKILLS: &[&str] = &[
     "google_workspace",
     "skill",
     "openclaw_migrate",
+    "file_ops",
+    "workspace_shell",
 ];
 
 pub struct SkillManager {
@@ -622,6 +624,8 @@ impl SkillManager {
         "webhook",
         "openclaw_migrate",
         "osx_email",
+        "file_ops",
+        "workspace_shell",
     ];
 
     pub async fn remove_skill(&mut self, skill_name: &str) -> Result<()> {
