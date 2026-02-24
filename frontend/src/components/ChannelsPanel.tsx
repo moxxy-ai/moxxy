@@ -358,7 +358,7 @@ export function ChannelsPanel({
                   Discord bot is configured.
                   {(discord.listen_channels?.length ?? 0) > 0
                     ? ` Listening on ${discord.listen_channels!.length} channel(s) (${discord.listen_mode === 'mentions' ? 'mentions only' : 'all messages'}).`
-                    : ' No listen channels configured — bot is idle. Add channels below.'}
+                    : ' No listen channels configured - bot is idle. Add channels below.'}
                 </p>
 
                 {/* Listen Channels */}

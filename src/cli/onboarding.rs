@@ -341,7 +341,7 @@ pub async fn run_onboarding() -> Result<()> {
         .text("  Creates a bot at discord.com/developers, saves the token,")
         .text("  invites the bot to your server. After restarting the gateway,")
         .text("  message the bot in the channel you want it to use for")
-        .text("  notifications — or pin a channel explicitly via the dashboard.")
+        .text("  notifications - or pin a channel explicitly via the dashboard.")
         .blank()
         .text(&format!(
             "{} Slack, WhatsApp, and others can be configured via the Web Dashboard.",

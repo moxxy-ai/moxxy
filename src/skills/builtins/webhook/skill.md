@@ -21,7 +21,7 @@ After registering, you MUST tell the user:
 
 Webhook secrets are stored **encrypted** in the agent's vault under the key `webhook_secret:<webhook_name>`. They are never stored in plaintext. Each webhook has its own vault entry, so multiple webhooks each have independent secrets.
 
-When you pass a secret to the `register` action, it is automatically saved to the vault. You do NOT need to use `manage_vault` separately — the webhook skill handles vault storage internally.
+When you pass a secret to the `register` action, it is automatically saved to the vault. You do NOT need to use `manage_vault` separately - the webhook skill handles vault storage internally.
 
 ## Arguments
 
@@ -32,7 +32,7 @@ The `source_slug` is a **short URL-safe identifier** used as part of the webhook
 - CORRECT: `github`, `stripe`, `gmail`, `github-releases`, `my_service`
 - WRONG: `github:owner/repo`, `https://github.com`, `github.com/user/repo`
 
-The source_slug does NOT encode the specific repo or resource — that context belongs in the `prompt_template`.
+The source_slug does NOT encode the specific repo or resource - that context belongs in the `prompt_template`.
 
 ### secret
 
@@ -48,9 +48,9 @@ The `secret` is a shared HMAC key used to verify that incoming requests actually
 `<invoke name="webhook">["register", "name", "source_slug", "prompt_template", "secret"]</invoke>`
 
 - **name**: Human-friendly identifier (e.g. "github-releases", "stripe-payments")
-- **source_slug**: URL path segment — alphanumeric, hyphens, underscores ONLY (e.g. "github", "stripe")
+- **source_slug**: URL path segment - alphanumeric, hyphens, underscores ONLY (e.g. "github", "stripe")
 - **prompt_template**: Instructions prepended to every incoming payload. Include context about what repo/resource this is for.
-- **secret**: Shared HMAC secret for signature verification (REQUIRED — stored encrypted in vault as `webhook_secret:<name>`)
+- **secret**: Shared HMAC secret for signature verification (REQUIRED - stored encrypted in vault as `webhook_secret:<name>`)
 
 ### Remove a webhook
 `<invoke name="webhook">["remove", "webhook_name"]</invoke>`
@@ -75,12 +75,12 @@ Updates the webhook registration and replaces the secret in the vault.
 
 ### GitHub Releases webhook
 
-Step 1 — Ask the user for their preferred secret or generate one.
+Step 1 - Ask the user for their preferred secret or generate one.
 
-Step 2 — Register:
+Step 2 - Register:
 `<invoke name="webhook">["register", "moxxy-releases", "github-releases", "You received a GitHub webhook event for the moxxy-ai/moxxy repository. Check if payload.action is 'published' and payload.release exists. Extract the release name, tag, body, URL, and author. Compose an announcement and send it via discord_notify.", "wh_a7Bx9kQ2mP4nR8sT1vW3yZ5"]</invoke>`
 
-Step 3 — Tell the user the webhook URL and secret, and instruct them to:
+Step 3 - Tell the user the webhook URL and secret, and instruct them to:
 1. Go to https://github.com/moxxy-ai/moxxy/settings/hooks
 2. Click "Add webhook"
 3. Paste the Webhook URL
