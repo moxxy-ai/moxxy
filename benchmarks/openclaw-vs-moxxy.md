@@ -1,6 +1,6 @@
 # Benchmark: moxxy vs OpenClaw
 
-> Comparison date: 2026-02-22 | moxxy v0.4.0 vs OpenClaw (latest main)
+> Comparison date: 2026-02-24 | moxxy v0.11.2 vs OpenClaw (latest main)
 
 ## Executive Summary
 
@@ -13,16 +13,16 @@ Both moxxy and OpenClaw are self-hosted, multi-agent AI frameworks that connect 
 | Metric | moxxy | OpenClaw |
 |---|---|---|
 | **Language** | Rust (2024 edition) | TypeScript / Node.js (v22+) |
-| **Binary / Runtime** | Single 12.1 MB static binary | Node.js monorepo (pnpm) |
-| **Source LOC** | ~11,200 (Rust) | ~50,000+ (TypeScript) |
-| **Dependencies** | 48 direct crates | 200+ npm packages |
+| **Binary / Runtime** | Single ~12 MB static binary | Node.js monorepo (pnpm) |
+| **Source LOC** | ~17,000 (Rust) | ~50,000+ (TypeScript) |
+| **Dependencies** | 51 direct crates | 200+ npm packages |
 | **Package manager** | Cargo | pnpm |
 | **Frontend** | React 19 SPA (embedded in binary) | React-based web UI + companion apps |
 | **Deployment** | Single binary, zero runtime deps | Node.js + pnpm + native modules |
 
 ### Verdict
 
-moxxy ships as a single self-contained binary with the frontend baked in. OpenClaw requires a Node.js runtime and a full monorepo install. For deployment simplicity and cold-start performance, moxxy has a clear edge. OpenClaw trades that for faster iteration speed and a larger contributor pool.
+moxxy ships as a single self-contained binary with the frontend baked in -- despite growing from ~11k to ~17k LOC over recent releases, the binary size has remained stable at ~12 MB. OpenClaw requires a Node.js runtime and a full monorepo install. For deployment simplicity and cold-start performance, moxxy has a clear edge. OpenClaw trades that for faster iteration speed and a larger contributor pool.
 
 ---
 
@@ -54,17 +54,19 @@ moxxy provides stronger isolation guarantees (WASM sandbox with filesystem/netwo
 | DeepSeek | Yes | Yes |
 | xAI (Grok) | Yes | -- |
 | Mistral | Yes | Yes |
+| Z.Ai (GLM-5, GLM-4) | Yes | -- |
 | OpenRouter (300+ models) | Yes | -- |
 | Vercel AI Gateway | Yes | -- |
 | Custom / Local (Ollama, LM Studio, vLLM) | Yes (custom provider system) | Yes |
 | Meta (Llama via local) | Yes (via OpenRouter or custom) | Yes (local) |
 | MiniMax (M2.5, M2.1, M2) | Yes | Yes |
-| **Total built-in providers** | **10** | **6+** |
+| **Total built-in providers** | **11** | **6+** |
+| **Total supported models** | **64** | **~30** |
 | **Custom provider support** | **Yes (via API, UI, and agent skill)** | **Limited** |
 
 ### Verdict
 
-moxxy now supports 10 built-in providers including multi-model gateways (OpenRouter with 300+ models, Vercel AI Gateway) and MiniMax. The custom provider system allows users to add any OpenAI/Gemini/Anthropic-compatible endpoint (local or remote) via the web UI, API, or by simply asking their agent.
+moxxy now supports 11 built-in providers (including Z.Ai) with 64 supported models across multi-model gateways (OpenRouter with 300+ models, Vercel AI Gateway), Chinese AI providers (Z.Ai, MiniMax), and all major Western providers. The custom provider system allows users to add any OpenAI/Gemini/Anthropic-compatible endpoint (local or remote) via the web UI, API, or by simply asking their agent.
 
 ---
 
@@ -102,7 +104,7 @@ OpenClaw has broader channel coverage, especially for enterprise messaging (Team
 |---|---|---|
 | **Cold start time** | ~50ms (native binary) | ~2-5s (Node.js boot + module load) |
 | **Memory footprint (idle)** | ~15-30 MB (single agent) | ~100-200 MB (Node.js baseline) |
-| **Binary size** | 12.1 MB | N/A (runtime + node_modules ~300 MB+) |
+| **Binary size** | ~12 MB | N/A (runtime + node_modules ~300 MB+) |
 | **Async model** | tokio (zero-cost futures) | Node.js event loop (V8) |
 | **Concurrency** | Multi-threaded (tokio tasks) | Single-threaded (event loop) + worker threads |
 | **Database** | SQLite (embedded, zero-network) | Markdown files (filesystem I/O) |
@@ -137,7 +139,7 @@ moxxy's WASM sandboxing provides defense-in-depth that OpenClaw currently lacks.
 
 | Feature | moxxy | OpenClaw |
 |---|---|---|
-| **Skill system** | 16 built-in (manifest.toml + run.sh) | 50+ integrations + community skills |
+| **Skill system** | 25 built-in (manifest.toml + run.sh) | 50+ integrations + community skills |
 | **MCP support** | Yes (Model Context Protocol) | Not documented |
 | **Plugin format** | Shell/Python scripts | TypeScript modules |
 | **Community size** | Early stage | 100,000+ GitHub stars |
@@ -158,21 +160,21 @@ OpenClaw has a massive ecosystem advantage with 50+ integrations and a thriving 
 | **Security / Isolation** | 9/10 | 5/10 | moxxy |
 | **Memory System** | 9/10 | 4/10 | moxxy |
 | **Deployment Simplicity** | 10/10 | 4/10 | moxxy |
-| **LLM Provider Coverage** | 9/10 | 9/10 | Tie |
+| **LLM Provider Coverage** | 10/10 | 8/10 | moxxy |
 | **Channel Coverage** | 7/10 | 10/10 | OpenClaw |
 | **Ecosystem / Community** | 3/10 | 10/10 | OpenClaw |
-| **Extensibility** | 7/10 | 8/10 | OpenClaw |
+| **Extensibility** | 8/10 | 8/10 | Tie |
 | **Swarm Intelligence** | 8/10 | 3/10 | moxxy |
 | **Resource Efficiency** | 10/10 | 4/10 | moxxy |
-| **Overall** | **81/100** | **62/100** | **moxxy** |
+| **Overall** | **84/100** | **61/100** | **moxxy** |
 
 ---
 
 ## Conclusion
 
-**moxxy excels** where engineering rigor matters: performance, security, memory architecture, and deployment simplicity. A single 12 MB binary with WASM-sandboxed agents, vector-embedded memory, and swarm intelligence represents a technically superior foundation.
+**moxxy excels** where engineering rigor matters: performance, security, memory architecture, and deployment simplicity. A single ~12 MB binary with 25 built-in skills, 11 LLM providers (64 models), WASM-sandboxed agents, vector-embedded memory, and swarm intelligence represents a technically superior foundation.
 
-**OpenClaw excels** where ecosystem breadth matters: more LLM providers, more messaging channels, more integrations, and a massive community. Its TypeScript stack enables faster community contributions and broader adoption.
+**OpenClaw excels** where ecosystem breadth matters: more messaging channels, more integrations, and a massive community. Its TypeScript stack enables faster community contributions and broader adoption.
 
 **Choose moxxy** if you need: self-hosted efficiency, strong agent isolation, structured memory with semantic search, resource-constrained deployment, or multi-agent swarm coordination.
 
