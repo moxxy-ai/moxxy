@@ -1,7 +1,8 @@
 use anyhow::Result;
+use console::style;
 use std::path::Path;
 
-use crate::core::terminal::{print_error, print_info, print_success, print_warn};
+use crate::core::terminal::{GuideSection, print_error, print_info, print_warn};
 use crate::platform::{NativePlatform, Platform};
 
 pub async fn gateway_start(
@@ -66,10 +67,25 @@ pub async fn gateway_start(
         .spawn()?;
 
     std::fs::write(pid_file, child.id().to_string())?;
-    print_success(&format!(
-        "moxxy Swarm started as background daemon (PID {}).",
-        child.id()
-    ));
+
+    GuideSection::new("Gateway Started")
+        .status(
+            "Status",
+            &format!(
+                "{} (PID {})",
+                style("RUNNING").green().bold(),
+                style(child.id()).dim()
+            ),
+        )
+        .status("API Endpoint", &format!("http://{}:{}", api_host, api_port))
+        .blank()
+        .info(&format!(
+            "Run {} to open the dashboard.",
+            style("moxxy web").cyan().bold()
+        ))
+        .print();
+    println!();
+
     Ok(())
 }
 
@@ -80,7 +96,16 @@ pub async fn gateway_stop(pid_file: &Path) -> Result<()> {
             let pid = pid_str.trim();
             if !pid.is_empty() {
                 let _ = NativePlatform::kill_process(pid);
-                print_success(&format!("Successfully stopped moxxy Daemon (PID {}).", pid));
+                GuideSection::new("Gateway Stopped")
+                    .status(
+                        "Status",
+                        &format!(
+                            "{} (was PID {})",
+                            style("STOPPED").red().bold(),
+                            style(pid).dim()
+                        ),
+                    )
+                    .print();
                 daemon_stopped = true;
             }
         }
@@ -88,18 +113,20 @@ pub async fn gateway_stop(pid_file: &Path) -> Result<()> {
     }
 
     if !daemon_stopped {
-        print_info("Daemon is not currently running.");
+        print_info("Gateway is not currently running.");
     }
 
     // Also kill the web service if it's running on port 17890
     for pid in NativePlatform::find_pids_on_port(17890) {
         let _ = NativePlatform::kill_process(&pid);
-        print_success(&format!(
-            "Successfully stopped process on port 17890 (PID {}).",
-            pid
+        print_info(&format!(
+            "Cleaned up process on port {} (PID {})",
+            style("17890").cyan(),
+            style(&pid).bold()
         ));
     }
 
+    println!();
     Ok(())
 }
 
@@ -119,13 +146,27 @@ pub async fn gateway_restart() -> Result<()> {
 pub async fn gateway_status(pid_file: &Path) -> Result<()> {
     if pid_file.exists() {
         let pid_str = std::fs::read_to_string(pid_file)?;
-        print_success(&format!(
-            "moxxy Daemon is RUNNING (PID {}).",
-            pid_str.trim()
-        ));
+        GuideSection::new("Gateway Status")
+            .status(
+                "Gateway",
+                &format!(
+                    "{} (PID {})",
+                    style("RUNNING").green().bold(),
+                    style(pid_str.trim()).dim()
+                ),
+            )
+            .print();
     } else {
-        print_info("moxxy Daemon is STOPPED.");
+        GuideSection::new("Gateway Status")
+            .status("Gateway", &style("STOPPED").red().bold().to_string())
+            .blank()
+            .info(&format!(
+                "Run {} to start the daemon.",
+                style("moxxy gateway start").cyan().bold()
+            ))
+            .print();
     }
+    println!();
     Ok(())
 }
 
@@ -133,13 +174,32 @@ pub async fn follow_logs(run_dir: &Path, pid_file: &Path) -> Result<()> {
     if pid_file.exists() && std::fs::read_to_string(pid_file).is_ok() {
         let log_file = run_dir.join("moxxy.log");
         if log_file.exists() {
+            GuideSection::new("Live Logs")
+                .text(&format!(
+                    "Following {} - press {} to stop.",
+                    style("moxxy.log").cyan(),
+                    style("Ctrl+C").bold().yellow()
+                ))
+                .print();
+            println!();
             let mut child = NativePlatform::tail_file(&log_file)?;
             let _ = child.wait()?;
         } else {
-            print_error(&format!("Log file not found at {:?}", log_file));
+            print_error(&format!(
+                "Log file not found at {}",
+                style(log_file.display()).dim()
+            ));
         }
     } else {
-        print_error("Daemon is not currently running. Start it with 'moxxy gateway start'.");
+        GuideSection::new("Live Logs")
+            .warn("Gateway is not running.")
+            .blank()
+            .info(&format!(
+                "Run {} to start it.",
+                style("moxxy gateway start").cyan().bold()
+            ))
+            .print();
+        println!();
     }
     Ok(())
 }

@@ -1,7 +1,9 @@
 use anyhow::Result;
 use console::style;
 
-use crate::core::terminal::{self, print_info, print_success};
+use crate::core::terminal::{
+    self, GuideSection, close_section, guide_bar, print_error, print_info, print_success,
+};
 
 pub async fn find_agent_using_secret(
     secret_key: &str,
@@ -44,24 +46,33 @@ pub async fn run_channel_discord(
     token_arg: Option<String>,
 ) -> Result<()> {
     terminal::print_banner();
-    println!("  {}\n", style("Channel Setup: Discord").bold());
+
+    // --- Agent selection ---
+    GuideSection::new("Discord · Agent Selection")
+        .text("Choose which agent this Discord bot should connect to.")
+        .open();
 
     let agent_name = match agent_arg {
-        Some(name) => name,
+        Some(name) => {
+            println!("  Agent: {}", style(&name).cyan());
+            name
+        }
         None => inquire::Text::new("Agent name:")
             .with_default("default")
             .with_help_message("Which agent should this Discord bot connect to?")
             .prompt()?,
     };
+    guide_bar();
+    close_section();
 
     let home = dirs::home_dir().expect("Could not find home directory");
     let agent_dir = home.join(".moxxy").join("agents").join(&agent_name);
 
     if !agent_dir.exists() {
-        println!(
-            "  Error: Agent '{}' does not exist. Run 'moxxy init' first.",
+        print_error(&format!(
+            "Agent '{}' does not exist. Run 'moxxy init' first.",
             agent_name
-        );
+        ));
         return Ok(());
     }
 
@@ -72,12 +83,19 @@ pub async fn run_channel_discord(
     let has_token = matches!(vault.get_secret("discord_token").await, Ok(Some(_)));
 
     if has_token && token_arg.is_none() {
-        println!("  Status: Discord bot token is CONFIGURED");
+        GuideSection::new("Discord · Status")
+            .status(
+                "Discord",
+                &format!("{}", style("CONFIGURED").green().bold()),
+            )
+            .open();
         let action = inquire::Select::new(
             "What would you like to do?",
             vec!["Replace token", "Disconnect Discord", "Cancel"],
         )
         .prompt()?;
+        guide_bar();
+        close_section();
         match action {
             "Disconnect Discord" => {
                 vault.remove_secret("discord_token").await?;
@@ -95,31 +113,51 @@ pub async fn run_channel_discord(
     let token = match token_arg {
         Some(t) => t,
         None => {
-            print_info("To get a Discord bot token:");
-            println!("  1. Go to https://discord.com/developers/applications");
-            println!("  2. Create a New Application → go to Bot section");
-            println!("  3. Click 'Reset Token' to get a bot token");
-            println!("  4. Enable 'Message Content Intent' under Privileged Gateway Intents");
-            println!(
-                "  5. Invite the bot to your server with the Bot scope + Send Messages permission\n"
-            );
-            inquire::Password::new("Discord bot token:")
+            GuideSection::new("Discord · Bot Token")
+                .text("To get a Discord bot token:")
+                .blank()
+                .numbered(
+                    1,
+                    &format!(
+                        "Go to {}",
+                        style("https://discord.com/developers/applications").cyan()
+                    ),
+                )
+                .numbered(2, "Create a New Application, go to Bot section")
+                .numbered(3, "Click 'Reset Token' to get a bot token")
+                .numbered(
+                    4,
+                    &format!(
+                        "Enable {} under Privileged Gateway Intents",
+                        style("Message Content Intent").bold()
+                    ),
+                )
+                .numbered(
+                    5,
+                    "Invite the bot to your server with the Bot scope + Send Messages permission",
+                )
+                .open();
+
+            let t = inquire::Password::new("Discord bot token:")
                 .without_confirmation()
                 .with_help_message("Paste the token from the Discord Developer Portal")
-                .prompt()?
+                .prompt()?;
+            guide_bar();
+            close_section();
+            t
         }
     };
 
     if token.is_empty() {
-        println!("  No token provided. Aborting.");
+        print_info("No token provided. Aborting.");
         return Ok(());
     }
 
     if let Some(owner) = find_agent_using_secret("discord_token", &token, &agent_name).await? {
-        println!(
-            "  Error: This Discord bot token is already bound to agent '{}'. One Discord bot can only be bound to one agent.",
+        print_error(&format!(
+            "This Discord bot token is already bound to agent '{}'. One bot per agent.",
             owner
-        );
+        ));
         return Ok(());
     }
 
@@ -129,10 +167,18 @@ pub async fn run_channel_discord(
         agent_name
     ));
 
-    println!("\n  Next steps:");
-    println!("  1. Make sure the bot is invited to your Discord server");
-    println!("  2. Restart the moxxy gateway: moxxy gateway restart");
-    println!("  3. Send a message in any channel the bot has access to\n");
+    GuideSection::new("Next Steps")
+        .numbered(1, "Make sure the bot is invited to your Discord server")
+        .numbered(
+            2,
+            &format!(
+                "Restart the gateway: {}",
+                style("moxxy gateway restart").cyan()
+            ),
+        )
+        .numbered(3, "Send a message in any channel the bot has access to")
+        .print();
+    println!();
 
     Ok(())
 }
@@ -143,24 +189,33 @@ pub async fn run_channel_telegram(
     pairing_code_arg: Option<String>,
 ) -> Result<()> {
     terminal::print_banner();
-    println!("  {}\n", style("Channel Setup: Telegram").bold());
+
+    // --- Agent selection ---
+    GuideSection::new("Telegram · Agent Selection")
+        .text("Choose which agent this Telegram bot should connect to.")
+        .open();
 
     let agent_name = match agent_arg {
-        Some(name) => name,
+        Some(name) => {
+            println!("  Agent: {}", style(&name).cyan());
+            name
+        }
         None => inquire::Text::new("Agent name:")
             .with_default("default")
             .with_help_message("Which agent should this Telegram bot connect to?")
             .prompt()?,
     };
+    guide_bar();
+    close_section();
 
     let home = dirs::home_dir().expect("Could not find home directory");
     let agent_dir = home.join(".moxxy").join("agents").join(&agent_name);
 
     if !agent_dir.exists() {
-        println!(
-            "  Error: Agent '{}' does not exist. Run 'moxxy init' first.",
+        print_error(&format!(
+            "Agent '{}' does not exist. Run 'moxxy init' first.",
             agent_name
-        );
+        ));
         return Ok(());
     }
 
@@ -180,12 +235,23 @@ pub async fn run_channel_telegram(
         && token_arg.is_none()
         && pairing_code_arg.is_none()
     {
-        println!("  Status: Telegram is PAIRED (chat_id: {})", id);
+        GuideSection::new("Telegram · Status")
+            .status(
+                "Telegram",
+                &format!(
+                    "{} (chat_id: {})",
+                    style("PAIRED").green().bold(),
+                    style(id).dim()
+                ),
+            )
+            .open();
         let action = inquire::Select::new(
             "What would you like to do?",
             vec!["Re-pair with a new device", "Disconnect Telegram", "Cancel"],
         )
         .prompt()?;
+        guide_bar();
+        close_section();
         match action {
             "Disconnect Telegram" => {
                 vault.remove_secret("telegram_token").await?;
@@ -206,12 +272,19 @@ pub async fn run_channel_telegram(
             _ => return Ok(()),
         }
     } else if has_pairing_code && token_arg.is_none() && pairing_code_arg.is_none() {
-        println!("  Status: Telegram has a PENDING pairing request.");
+        GuideSection::new("Telegram · Status")
+            .status(
+                "Telegram",
+                &format!("{}", style("PENDING PAIRING").yellow().bold()),
+            )
+            .open();
         let action = inquire::Select::new(
             "What would you like to do?",
             vec!["Enter pairing code", "Revoke Pairing Request", "Cancel"],
         )
         .prompt()?;
+        guide_bar();
+        close_section();
         match action {
             "Revoke Pairing Request" => {
                 vault.remove_secret("telegram_pairing_code").await.ok();
@@ -230,7 +303,12 @@ pub async fn run_channel_telegram(
         && token_arg.is_none()
         && pairing_code_arg.is_none()
     {
-        println!("  Status: Telegram bot token is CONFIGURED (not yet paired)");
+        GuideSection::new("Telegram · Status")
+            .status(
+                "Telegram",
+                &format!("{}", style("TOKEN SET (not paired)").yellow().bold()),
+            )
+            .open();
         let action = inquire::Select::new(
             "What would you like to do?",
             vec![
@@ -241,6 +319,8 @@ pub async fn run_channel_telegram(
             ],
         )
         .prompt()?;
+        guide_bar();
+        close_section();
         match action {
             "Disconnect Telegram" => {
                 vault.remove_secret("telegram_token").await?;
@@ -267,14 +347,14 @@ pub async fn run_channel_telegram(
     let mut has_token = matches!(vault.get_secret("telegram_token").await, Ok(Some(_)));
     if let Some(token) = token_arg {
         if token.trim().is_empty() {
-            println!("  Error: Telegram token cannot be empty.");
+            print_error("Telegram token cannot be empty.");
             return Ok(());
         }
         if let Some(owner) = find_agent_using_secret("telegram_token", &token, &agent_name).await? {
-            println!(
-                "  Error: This Telegram bot token is already bound to agent '{}'. One Telegram channel can only be bound to one agent.",
+            print_error(&format!(
+                "This Telegram bot token is already bound to agent '{}'. One bot per agent.",
                 owner
-            );
+            ));
             return Ok(());
         }
         vault.set_secret("telegram_token", &token).await?;
@@ -283,35 +363,55 @@ pub async fn run_channel_telegram(
     }
 
     if !has_token {
-        print_info(&format!(
-            "No Telegram bot token found for agent '{}'.",
-            agent_name
-        ));
-        println!("  To get a token, talk to @BotFather on Telegram and create a new bot.\n");
+        GuideSection::new("Telegram · Bot Token")
+            .text(&format!(
+                "No Telegram bot token found for agent '{}'.",
+                agent_name
+            ))
+            .blank()
+            .text("To get a token, talk to @BotFather on Telegram and create a new bot.")
+            .open();
+
         let token = inquire::Password::new("Telegram bot token:")
             .without_confirmation()
             .with_help_message("Paste the token from @BotFather")
             .prompt()?;
+        guide_bar();
+        close_section();
+
         if token.is_empty() {
-            println!("  No token provided. Aborting.");
+            print_info("No token provided. Aborting.");
             return Ok(());
         }
         if let Some(owner) = find_agent_using_secret("telegram_token", &token, &agent_name).await? {
-            println!(
-                "  Error: This Telegram bot token is already bound to agent '{}'. One Telegram channel can only be bound to one agent.",
+            print_error(&format!(
+                "This Telegram bot token is already bound to agent '{}'. One bot per agent.",
                 owner
-            );
+            ));
             return Ok(());
         }
         vault.set_secret("telegram_token", &token).await?;
         print_success("Token saved.");
     }
 
-    println!("\n  Next steps:");
-    println!("  1. Make sure the moxxy gateway is running: moxxy gateway start");
-    println!("  2. Open Telegram and send /start to your bot");
-    println!("  3. The bot will reply with a 6-digit pairing code");
-    println!("  4. Enter that code below\n");
+    GuideSection::new("Pairing Guide")
+        .numbered(
+            1,
+            &format!(
+                "Make sure the gateway is running: {}",
+                style("moxxy gateway start").cyan()
+            ),
+        )
+        .numbered(
+            2,
+            &format!(
+                "Open Telegram and send {} to your bot",
+                style("/start").cyan()
+            ),
+        )
+        .numbered(3, "The bot will reply with a 6-digit pairing code")
+        .numbered(4, "Enter that code below")
+        .open();
 
     let code = match pairing_code_arg {
         Some(code) => code,
@@ -319,26 +419,28 @@ pub async fn run_channel_telegram(
             .with_help_message("Enter the 6-digit code from your Telegram bot")
             .prompt()?,
     };
+    guide_bar();
+    close_section();
 
     let stored_code = match vault.get_secret("telegram_pairing_code").await {
         Ok(Some(c)) => c,
         _ => {
-            println!(
-                "  Error: No pairing code found. Make sure the gateway is running and you've sent /start to the bot."
+            print_error(
+                "No pairing code found. Make sure the gateway is running and you've sent /start to the bot.",
             );
             return Ok(());
         }
     };
 
     if code.trim() != stored_code.trim() {
-        println!("  Error: Pairing code does not match. Please try again.");
+        print_error("Pairing code does not match. Please try again.");
         return Ok(());
     }
 
     let chat_id = match vault.get_secret("telegram_pairing_chat_id").await {
         Ok(Some(id)) => id,
         _ => {
-            println!("  Error: No chat ID found for pairing. Please send /start to the bot again.");
+            print_error("No chat ID found for pairing. Send /start to the bot again.");
             return Ok(());
         }
     };
@@ -346,24 +448,12 @@ pub async fn run_channel_telegram(
     if let Ok(Some(token)) = vault.get_secret("telegram_token").await
         && let Some(owner) = find_agent_using_secret("telegram_token", &token, &agent_name).await?
     {
-        println!(
-            "  Error: This Telegram bot token is already bound to agent '{}'. One Telegram channel can only be bound to one agent.",
+        print_error(&format!(
+            "This Telegram bot token is already bound to agent '{}'. One bot per agent.",
             owner
-        );
+        ));
         return Ok(());
     }
-
-    // We allow multiple agents to be paired with the same Telegram user (same chat_id)
-    // as long as they use different bot tokens. This is already enforced by the token check.
-    /*
-    if let Some(owner) = find_agent_using_secret("telegram_chat_id", &chat_id, &agent_name).await? {
-        println!(
-            "  Error: This Telegram chat is already paired with agent '{}'. One Telegram channel can only be bound to one agent.",
-            owner
-        );
-        return Ok(());
-    }
-    */
 
     vault.set_secret("telegram_chat_id", &chat_id).await?;
     vault.remove_secret("telegram_pairing_code").await.ok();
@@ -374,9 +464,14 @@ pub async fn run_channel_telegram(
         chat_id
     ));
     print_info(&format!("Telegram is now bound to agent '{}'.", agent_name));
-    println!("  Telegram replies are mirrored into the shared web/TUI session.\n");
+    terminal::print_bullet("Telegram replies are mirrored into the shared web/TUI session.");
 
     // --- Voice Recognition (STT) Configuration ---
+    GuideSection::new("Voice Recognition")
+        .text("Optionally enable voice transcription for Telegram voice messages.")
+        .text("This uses OpenAI's Whisper API to convert speech to text.")
+        .open();
+
     let enable_stt = inquire::Confirm::new("Enable Voice Recognition (OpenAI Whisper)?")
         .with_default(false)
         .with_help_message("Transcribes voice messages received on Telegram")
@@ -403,6 +498,8 @@ pub async fn run_channel_telegram(
     } else {
         vault.set_secret("telegram_stt_enabled", "false").await?;
     }
+    guide_bar();
+    close_section();
 
     Ok(())
 }

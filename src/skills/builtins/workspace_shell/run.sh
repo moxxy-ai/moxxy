@@ -30,7 +30,7 @@ fi
 
 WORKSPACE_RESOLVED=$(cd "$AGENT_WORKSPACE" && pwd -P)
 case "$RESOLVED" in
-    "$WORKSPACE_RESOLVED"*) ;; # OK — within workspace
+    "$WORKSPACE_RESOLVED"*) ;; # OK - within workspace
     *)
         echo "Error: resolved path '$RESOLVED' is outside workspace"
         exit 1

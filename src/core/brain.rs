@@ -66,7 +66,7 @@ fn build_system_prompt(skill_catalog: &str, persona_text: &Option<String>) -> St
             - `workspace_shell` for running build/test commands in a cloned repo (npm, cargo, make, etc.)\
             Only use host_shell when no dedicated skill covers the need, and ask the user first.\n\
          6. For MULTI-STEP tasks (clone repo, edit files, build, push, create PR, etc.), \
-            keep going — invoke the next skill immediately after receiving a result. \
+            keep going - invoke the next skill immediately after receiving a result. \
             Do NOT stop to present intermediate results or ask the user between steps. \
             Only present the final summary when the entire task is complete.\n\
          7. For SINGLE-STEP tasks, present the result concisely and stop. \
@@ -80,7 +80,7 @@ fn build_system_prompt(skill_catalog: &str, persona_text: &Option<String>) -> St
          Do NOT output anything else in the same response as an <invoke> tag.\n\n\
          MULTI-STEP TASKS:\n\
          When a task requires multiple sequential skill calls (e.g. clone, edit, build, push, PR), \
-         invoke the next skill directly after receiving each result — do NOT wait for user input between steps. \
+         invoke the next skill directly after receiving each result - do NOT wait for user input between steps. \
          If you need to signal intermediate progress without a skill call, append [CONTINUE] to your message.\n\n\
          --- AVAILABLE SKILLS ---\n"
     );
@@ -146,7 +146,7 @@ impl AutonomousBrain {
             }
         };
 
-        // 3. ReAct Loop — unbounded with smart termination
+        // 3. ReAct Loop - unbounded with smart termination
         let mut final_response = String::new();
         // Ephemeral context for the current loop - not persisted to STM.
         // This holds skill results and intermediate reasoning within a single request.

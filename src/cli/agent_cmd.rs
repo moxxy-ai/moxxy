@@ -1,7 +1,6 @@
 use anyhow::Result;
-use console::style;
 
-use crate::core::terminal::{print_error, print_success};
+use crate::core::terminal::{GuideSection, print_error, print_success};
 
 pub async fn run_agent_command(args: &[String]) -> Result<()> {
     let sub_cmd = if args.len() > 2 { args[2].as_str() } else { "" };
@@ -86,13 +85,13 @@ pub async fn run_agent_command(args: &[String]) -> Result<()> {
             }
         }
         _ => {
-            println!(
-                "{}",
-                style("Usage: moxxy agent <command> [agent_name]").bold()
-            );
-            println!("  • restart [name]   Restart the agent's session (clears STM)");
-            println!("  • remove  [name]   Remove an agent permanently");
-            println!("                     Options: --agent <name> --api-url <url>");
+            GuideSection::new("moxxy agent")
+                .command("restart", "Restart the agent's session (clears STM)")
+                .command("remove", "Remove an agent permanently")
+                .blank()
+                .text("Options: --agent <name>  --api-url <url>")
+                .print();
+            println!();
         }
     }
     Ok(())

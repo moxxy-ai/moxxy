@@ -3,7 +3,10 @@ use console::style;
 
 use crate::core::llm::generic_provider::GenericProvider;
 use crate::core::llm::registry::ProviderRegistry;
-use crate::core::terminal::{self, print_error, print_info, print_step, print_success};
+use crate::core::terminal::{
+    self, GuideSection, close_section, guide_bar, print_error, print_info, print_step,
+    print_success,
+};
 
 pub async fn run_onboarding() -> Result<()> {
     terminal::print_banner();
@@ -67,18 +70,33 @@ pub async fn run_onboarding() -> Result<()> {
     let vault = crate::core::vault::SecretsVault::new(memory_sys.get_db());
     vault.initialize().await?;
 
-    // --- Step 1: LLM Provider (from registry) ---
+    // --- Step 1: LLM Provider ---
+    GuideSection::new("Step 1 · AI Provider")
+        .text("Your agent needs an AI provider to power its reasoning.")
+        .text("Each provider offers different models with varying capabilities")
+        .text("and pricing. The provider you choose determines which LLM")
+        .text("your agent will use.")
+        .open();
+
     let registry = ProviderRegistry::load();
     let provider_names: Vec<&str> = registry.providers.iter().map(|p| p.name.as_str()).collect();
     let provider_choice = inquire::Select::new("Select your AI provider:", provider_names)
         .with_help_message("Use arrow keys to navigate, Enter to select")
         .prompt()?;
+    guide_bar();
+    close_section();
 
     let provider_def = registry
         .get_provider(provider_choice)
         .expect("Selected provider not found in registry");
 
     // --- Step 2: Model Selection ---
+    GuideSection::new("Step 2 · Model Selection")
+        .text("Each provider offers multiple models. Larger models are more")
+        .text("capable but slower and more expensive. The default is a good")
+        .text("starting point - you can change it later in the vault.")
+        .open();
+
     let final_model = {
         let mut model_options: Vec<String> = provider_def
             .models
@@ -108,12 +126,27 @@ pub async fn run_onboarding() -> Result<()> {
             provider_def.models[idx].id.clone()
         }
     };
+    guide_bar();
+    close_section();
 
     // --- Step 3: API Key ---
+    GuideSection::new("Step 3 · API Key")
+        .text("Your API key authenticates requests to the AI provider.")
+        .text("It is stored locally in an encrypted vault and never sent")
+        .text("anywhere except the provider's API.")
+        .blank()
+        .text(&format!(
+            "Get your key from the {} developer dashboard.",
+            style(&provider_def.name).bold()
+        ))
+        .open();
+
     let llm_api_key = inquire::Password::new(&format!("API key for {}:", provider_def.name))
         .without_confirmation()
-        .with_help_message("Your key is stored locally and never sent anywhere except the provider")
+        .with_help_message("Stored locally in the agent's encrypted vault")
         .prompt()?;
+    guide_bar();
+    close_section();
 
     // Save LLM configuration
     vault
@@ -126,23 +159,136 @@ pub async fn run_onboarding() -> Result<()> {
             .await?;
     }
 
-    // --- Step 4: Telegram (optional) ---
-    let connect_telegram = inquire::Confirm::new("Connect a Telegram bot?")
-        .with_default(false)
-        .with_help_message("You can always add this later")
-        .prompt()?;
+    // --- Step 4: Channel connections (optional) ---
+    GuideSection::new("Step 4 · Channel Connections")
+        .text("Channels let you talk to your agent from messaging platforms")
+        .text("like Telegram, Discord, Slack, and more. Each channel requires")
+        .text("a bot token from the respective platform.")
+        .blank()
+        .text("You can skip this now and add channels later with:")
+        .hint("moxxy channel telegram", "")
+        .hint("moxxy channel discord", "")
+        .open();
 
-    if connect_telegram {
-        let tg_token = inquire::Password::new("Telegram bot token:")
-            .without_confirmation()
+    let channel_options = vec!["Telegram", "Discord", "Skip for now"];
+    let channels =
+        inquire::MultiSelect::new("Which channels do you want to connect?", channel_options)
+            .with_help_message(
+                "Use Space to select, Enter to confirm. You can always add more later.",
+            )
             .prompt()?;
-        if !tg_token.is_empty() {
-            vault.set_secret("telegram_token", &tg_token).await?;
-            print_success("Telegram token saved.");
+    guide_bar();
+    close_section();
+
+    for channel in &channels {
+        match *channel {
+            "Telegram" => {
+                GuideSection::new("Telegram Setup")
+                    .text("Connect a Telegram bot so you can chat with your agent on mobile.")
+                    .blank()
+                    .text(&format!("{}", style("How to get a bot token:").bold()))
+                    .blank()
+                    .numbered(
+                        1,
+                        &format!(
+                            "Open Telegram and search for {}",
+                            style("@BotFather").cyan()
+                        ),
+                    )
+                    .numbered(
+                        2,
+                        &format!("Send {} to create a new bot", style("/newbot").cyan()),
+                    )
+                    .numbered(3, "Choose a name and username for your bot")
+                    .numbered(
+                        4,
+                        "BotFather will reply with a bot token (like 123456:ABC-DEF)",
+                    )
+                    .numbered(5, "Copy that token and paste it below")
+                    .open();
+
+                let tg_token = inquire::Password::new("Telegram bot token:")
+                    .without_confirmation()
+                    .with_help_message("Paste the token from @BotFather")
+                    .prompt()?;
+
+                if !tg_token.is_empty() {
+                    vault.set_secret("telegram_token", &tg_token).await?;
+                    print_success("Telegram token saved.");
+                    print_info(
+                        "After onboarding, run: moxxy channel telegram (to complete pairing)",
+                    );
+                } else {
+                    print_info(
+                        "Skipped - you can configure Telegram later with 'moxxy channel telegram'.",
+                    );
+                }
+                guide_bar();
+                close_section();
+            }
+            "Discord" => {
+                GuideSection::new("Discord Setup")
+                    .text("Connect a Discord bot so your agent can chat in your server.")
+                    .blank()
+                    .text(&format!("{}", style("How to get a bot token:").bold()))
+                    .blank()
+                    .numbered(
+                        1,
+                        &format!(
+                            "Go to {}",
+                            style("https://discord.com/developers/applications").cyan()
+                        ),
+                    )
+                    .numbered(2, "Click 'New Application' and give it a name")
+                    .numbered(3, "Go to the Bot section in the left sidebar")
+                    .numbered(4, "Click 'Reset Token' and copy the new token")
+                    .numbered(
+                        5,
+                        &format!(
+                            "Enable {} under Privileged Gateway Intents",
+                            style("Message Content Intent").bold()
+                        ),
+                    )
+                    .numbered(
+                        6,
+                        "Go to OAuth2 > URL Generator, select 'bot' scope + 'Send Messages'",
+                    )
+                    .numbered(7, "Open the generated URL to invite the bot to your server")
+                    .open();
+
+                let dc_token = inquire::Password::new("Discord bot token:")
+                    .without_confirmation()
+                    .with_help_message("Paste the token from Discord Developer Portal")
+                    .prompt()?;
+
+                if !dc_token.is_empty() {
+                    vault.set_secret("discord_token", &dc_token).await?;
+                    print_success("Discord token saved.");
+                } else {
+                    print_info(
+                        "Skipped - you can configure Discord later with 'moxxy channel discord'.",
+                    );
+                }
+                guide_bar();
+                close_section();
+            }
+            _ => {}
         }
     }
 
     // --- Step 5: Agent Persona ---
+    GuideSection::new("Step 5 · Agent Persona")
+        .text("A persona defines your agent's identity, expertise, and")
+        .text("communication style. It's a system prompt prepended to every")
+        .text("conversation. You can generate one now using your LLM, or")
+        .text("skip to use the default persona.")
+        .blank()
+        .text(&format!(
+            "Stored at {}",
+            style("~/.moxxy/agents/default/persona.md").cyan()
+        ))
+        .open();
+
     let generate_persona = inquire::Confirm::new("Generate a custom AI persona for your agent?")
         .with_default(false)
         .with_help_message("Uses your LLM provider to create a tailored system prompt")
@@ -196,8 +342,23 @@ pub async fn run_onboarding() -> Result<()> {
             print_info("Saved to ~/.moxxy/agents/default/persona.md");
         }
     }
+    guide_bar();
+    close_section();
 
     // --- Step 6: Runtime Type ---
+    GuideSection::new("Step 6 · Agent Runtime")
+        .text("Choose how your agent executes skills on your system:")
+        .blank()
+        .bullet(&format!(
+            "{} - Runs directly on your host. Full speed, full access.",
+            style("Native").bold()
+        ))
+        .bullet(&format!(
+            "{} - Runs in a WebAssembly sandbox with memory/network limits.",
+            style("WASM").bold()
+        ))
+        .open();
+
     let runtime_options = vec!["Native (recommended)", "WASM Container (sandboxed)"];
     let runtime_choice = inquire::Select::new("Select agent runtime:", runtime_options)
         .with_help_message("Native runs directly on your system; WASM runs in an isolated sandbox")
@@ -237,84 +398,95 @@ pub async fn run_onboarding() -> Result<()> {
         crate::core::container::ensure_wasm_image().await?;
         print_success(&format!("Container configured with '{}' profile.", profile));
     }
+    guide_bar();
+    close_section();
 
     print_success("Onboarding complete! Your agent is ready to go.");
 
     // --- Getting Started Guide ---
-    println!("\n{}", style("Getting Started").bold().underlined());
-    println!("\n  Start the background gateway, then connect via web or terminal:\n");
-    println!("  1. {} moxxy gateway start", style("▶").cyan());
-    println!(
-        "  2. {} moxxy web            {}",
-        style("▶").cyan(),
-        style("# Web dashboard at http://127.0.0.1:3001").dim()
-    );
-    println!(
-        "  3. {} moxxy tui            {}",
-        style("▶").cyan(),
-        style("# Interactive terminal UI").dim()
-    );
+    GuideSection::new("Getting Started")
+        .text("Start the background gateway, then connect via web or terminal:")
+        .blank()
+        .numbered(1, &format!("{}", style("moxxy gateway start").cyan()))
+        .numbered(
+            2,
+            &format!(
+                "{:<28} {}",
+                style("moxxy web").cyan(),
+                style("# Web dashboard").dim()
+            ),
+        )
+        .numbered(
+            3,
+            &format!(
+                "{:<28} {}",
+                style("moxxy tui").cyan(),
+                style("# Terminal UI").dim()
+            ),
+        )
+        .print();
 
     // --- Connect Channels ---
-    println!("\n{}", style("Connect Channels").bold().underlined());
-    println!(
-        "\n  {}",
-        style("Chat with your agent from any messaging platform:").dim()
-    );
-    println!("\n  {}", style("Telegram").bold());
-    println!(
-        "    1. Talk to {} on Telegram to create a bot",
-        style("@BotFather").cyan()
-    );
-    println!("    2. Run: {} moxxy channel telegram", style("$").dim());
-    println!("    3. Paste your bot token when prompted");
-    println!(
-        "    4. Start the gateway, send {} to your bot, and enter the pairing code",
-        style("/start").cyan()
-    );
-
-    println!("\n  {}", style("Discord").bold());
-    println!(
-        "    1. Create an app at {}",
-        style("https://discord.com/developers/applications").cyan()
-    );
-    println!("    2. Go to Bot section, reset token, enable Message Content Intent");
-    println!("    3. Invite the bot to your server (Bot scope + Send Messages)");
-    println!("    4. Run: {} moxxy channel discord", style("$").dim());
-
-    println!("\n  {}", style("More channels:").dim());
-    println!(
-        "    {} Slack, WhatsApp, and others can be configured from the Web Dashboard.",
-        style("•").dim()
-    );
+    GuideSection::new("Connect Channels")
+        .text("Chat with your agent from any messaging platform:")
+        .blank()
+        .text(&format!("{}", style("Telegram").bold()))
+        .numbered(
+            1,
+            &format!(
+                "Talk to {} on Telegram to create a bot",
+                style("@BotFather").cyan()
+            ),
+        )
+        .numbered(
+            2,
+            &format!("Run: {}", style("moxxy channel telegram").cyan()),
+        )
+        .numbered(3, "Paste your bot token when prompted")
+        .numbered(
+            4,
+            &format!(
+                "Start the gateway, send {} to your bot, enter the pairing code",
+                style("/start").cyan()
+            ),
+        )
+        .blank()
+        .text(&format!("{}", style("Discord").bold()))
+        .numbered(
+            1,
+            &format!(
+                "Create an app at {}",
+                style("https://discord.com/developers/applications").cyan()
+            ),
+        )
+        .numbered(
+            2,
+            "Go to Bot section, reset token, enable Message Content Intent",
+        )
+        .numbered(
+            3,
+            "Invite the bot to your server (Bot scope + Send Messages)",
+        )
+        .numbered(
+            4,
+            &format!("Run: {}", style("moxxy channel discord").cyan()),
+        )
+        .blank()
+        .text(&format!(
+            "{} Slack, WhatsApp, and others via the Web Dashboard.",
+            style("More:").dim()
+        ))
+        .print();
 
     // --- Useful Commands ---
-    println!("\n{}", style("Useful Commands").bold().underlined());
-    println!(
-        "\n  {} moxxy gateway status    {}",
-        style("$").dim(),
-        style("# Check if gateway is running").dim()
-    );
-    println!(
-        "  {} moxxy gateway restart   {}",
-        style("$").dim(),
-        style("# Restart after config changes").dim()
-    );
-    println!(
-        "  {} moxxy logs              {}",
-        style("$").dim(),
-        style("# Follow real-time logs").dim()
-    );
-    println!(
-        "  {} moxxy doctor            {}",
-        style("$").dim(),
-        style("# Diagnose system issues").dim()
-    );
-    println!(
-        "  {} moxxy channel --help    {}",
-        style("$").dim(),
-        style("# See all channel options").dim()
-    );
+    GuideSection::new("Useful Commands")
+        .hint("moxxy gateway status", "# Check if gateway is running")
+        .hint("moxxy gateway restart", "# Restart after config changes")
+        .hint("moxxy logs", "# Follow real-time logs")
+        .hint("moxxy doctor", "# Diagnose system issues")
+        .hint("moxxy channel --help", "# See all channel options")
+        .print();
+
     println!();
 
     Ok(())

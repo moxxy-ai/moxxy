@@ -1,7 +1,7 @@
 use anyhow::Result;
 use console::style;
 
-use crate::core::terminal::{print_error, print_success};
+use crate::core::terminal::{GuideSection, print_error, print_success};
 
 pub async fn run_token_command(args: &[String]) -> Result<()> {
     let sub_cmd = if args.len() > 3 { args[3].as_str() } else { "" };
@@ -64,11 +64,15 @@ pub async fn run_token_command(args: &[String]) -> Result<()> {
     match sub_cmd {
         "create" => {
             if token_name.is_empty() {
-                println!(
-                    "{}",
-                    style("Usage: moxxy gateway token create <name> [--agent <name>]").bold()
-                );
-                println!("  Example: moxxy gateway token create my-integration --agent default");
+                GuideSection::new("moxxy gateway token create")
+                    .text("Usage: moxxy gateway token create <name> [--agent <name>]")
+                    .blank()
+                    .hint(
+                        "moxxy gateway token create my-integration --agent default",
+                        "",
+                    )
+                    .print();
+                println!();
                 return Ok(());
             }
 
@@ -79,25 +83,17 @@ pub async fn run_token_command(args: &[String]) -> Result<()> {
                     if let Ok(body) = resp.json::<serde_json::Value>().await {
                         if body.get("success").and_then(|v| v.as_bool()) == Some(true) {
                             let token = body.get("token").and_then(|v| v.as_str()).unwrap_or("?");
-                            println!();
                             print_success(&format!(
                                 "API token '{}' created for agent '{}'.",
                                 token_name, agent_name
                             ));
-                            println!(
-                                "\n  {} {}\n",
-                                style("Token:").bold(),
-                                style(token).green().bold()
-                            );
-                            println!(
-                                "  {} Save this token now - it will not be shown again.",
-                                style("⚠").yellow()
-                            );
-                            println!(
-                                "  {} Use it with: Authorization: Bearer {}\n",
-                                style("→").cyan(),
-                                token
-                            );
+                            GuideSection::new("API Token Created")
+                                .status("Token", &style(token).green().bold().to_string())
+                                .blank()
+                                .warn("Save this token now - it will not be shown again.")
+                                .text(&format!("Use it with: Authorization: Bearer {}", token))
+                                .print();
+                            println!();
                         } else {
                             let err = body
                                 .get("error")
@@ -125,17 +121,12 @@ pub async fn run_token_command(args: &[String]) -> Result<()> {
                                 .cloned()
                                 .unwrap_or_default();
                             if tokens.is_empty() {
-                                println!(
-                                    "  {} No API tokens for agent '{}'.",
-                                    style("●").dim(),
-                                    agent_name
-                                );
+                                GuideSection::new(&format!("API Tokens · {}", agent_name))
+                                    .text("No API tokens found for this agent.")
+                                    .print();
                             } else {
-                                println!(
-                                    "\n  {} API tokens for agent '{}':\n",
-                                    style("●").cyan(),
-                                    style(&agent_name).bold()
-                                );
+                                let mut section =
+                                    GuideSection::new(&format!("API Tokens · {}", agent_name));
                                 for tk in &tokens {
                                     let id = tk.get("id").and_then(|v| v.as_str()).unwrap_or("?");
                                     let name =
@@ -145,16 +136,16 @@ pub async fn run_token_command(args: &[String]) -> Result<()> {
                                         .and_then(|v| v.as_str())
                                         .unwrap_or("?");
                                     let short_id = if id.len() > 8 { &id[..8] } else { id };
-                                    println!(
-                                        "  {} {} (id: {}…)  created: {}",
-                                        style("→").cyan(),
+                                    section = section.bullet(&format!(
+                                        "{} (id: {}...)  created: {}",
                                         style(name).white().bold(),
                                         style(short_id).dim(),
                                         style(created).dim()
-                                    );
+                                    ));
                                 }
-                                println!();
+                                section.print();
                             }
+                            println!();
                         } else {
                             let err = body
                                 .get("error")
@@ -172,10 +163,10 @@ pub async fn run_token_command(args: &[String]) -> Result<()> {
         }
         "revoke" | "delete" | "rm" => {
             if token_id.is_empty() {
-                println!(
-                    "{}",
-                    style("Usage: moxxy gateway token revoke <token_id> [--agent <name>]").bold()
-                );
+                GuideSection::new("moxxy gateway token revoke")
+                    .text("Usage: moxxy gateway token revoke <token_id> [--agent <name>]")
+                    .print();
+                println!();
                 return Ok(());
             }
 
@@ -203,14 +194,14 @@ pub async fn run_token_command(args: &[String]) -> Result<()> {
             }
         }
         _ => {
-            println!(
-                "{}",
-                style("Usage: moxxy gateway token <command> [options]").bold()
-            );
-            println!("  • create <name>    Create a new API token");
-            println!("  • list             List all API tokens");
-            println!("  • revoke <id>      Revoke an API token");
-            println!("\n  Options: --agent <name> (default: default) --api-url <url>");
+            GuideSection::new("moxxy gateway token")
+                .command("create", "Create a new API token  <name>")
+                .command("list", "List all API tokens")
+                .command("revoke", "Revoke an API token     <id>")
+                .blank()
+                .text("Options: --agent <name>  --api-url <url>")
+                .print();
+            println!();
         }
     }
 

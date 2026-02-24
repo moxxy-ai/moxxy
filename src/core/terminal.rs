@@ -1,14 +1,20 @@
 use console::{Emoji, style};
 
-pub static LOOKING_GLASS: Emoji<'_, '_> = Emoji("🔍 ", "");
 pub static SUCCESS_ICON: Emoji<'_, '_> = Emoji("✅ ", "");
 pub static INFO_ICON: Emoji<'_, '_> = Emoji("ℹ️  ", "");
 pub static WARN_ICON: Emoji<'_, '_> = Emoji("⚠️  ", "");
 pub static ERROR_ICON: Emoji<'_, '_> = Emoji("❌ ", "");
-pub static ROCKET: Emoji<'_, '_> = Emoji("🚀 ", "");
-pub static GLOBE: Emoji<'_, '_> = Emoji("🌐 ", "");
 pub static GEAR: Emoji<'_, '_> = Emoji("⚙️  ", "");
 pub static SPARKLE: Emoji<'_, '_> = Emoji("✨ ", "");
+
+// ── Box-drawing constants ──────────────────────────────────────────────────
+const BOX_WIDTH: usize = 72;
+const BOX_H: &str = "─";
+const BOX_V: &str = "│";
+const BOX_BL: &str = "└";
+const BOX_DIAMOND: &str = "◇";
+
+// ── Simple message helpers ─────────────────────────────────────────────────
 
 pub fn print_success(msg: &str) {
     println!("{} {}", SUCCESS_ICON, style(msg).green());
@@ -26,22 +32,217 @@ pub fn print_error(msg: &str) {
     eprintln!("{} {}", ERROR_ICON, style(msg).red().bold());
 }
 
-pub fn print_status(label: &str, msg: &str) {
-    println!("  {} {}: {}", GEAR, style(label).bold().cyan(), msg);
-}
-
 pub fn print_step(step: &str) {
     println!("{} {}", SPARKLE, style(step).bold());
 }
 
-pub fn print_link(label: &str, url: &str) {
-    println!(
-        "  {} {}: {}",
-        GLOBE,
-        style(label).bold(),
-        style(url).underlined().cyan()
-    );
+// ── Section & layout helpers ───────────────────────────────────────────────
+
+/// Print a bullet point.
+pub fn print_bullet(text: &str) {
+    println!("   {} {}", style("–").dim(), text);
 }
+
+/// Print a `│` continuation bar (for use between open() and close_section()).
+pub fn guide_bar() {
+    println!(" {}", style(BOX_V).dim());
+}
+
+/// Print the bottom border of a guide section: └──────────
+pub fn close_section() {
+    let bar = BOX_H.repeat(BOX_WIDTH);
+    println!(" {}{}", style(BOX_BL).dim(), style(&bar).dim());
+}
+
+// ── Boxed guide section ────────────────────────────────────────────────────
+
+/// A builder for rendering a bordered section like:
+/// ```text
+/// ◇ Title ──────────────────────────────────────
+/// │
+/// │  Content lines go here.
+/// │  More content.
+/// │
+/// └─────────────────────────────────────────────
+/// ```
+///
+/// Use `print()` for self-contained sections.
+/// Use `open()` to render header+content without closing, then call
+/// `guide_bar()` / `close_section()` around inputs.
+pub struct GuideSection {
+    title: String,
+    lines: Vec<GuideLine>,
+}
+
+#[allow(dead_code)]
+enum GuideLine {
+    Text(String),
+    Blank,
+    Numbered(usize, String),
+    Bullet(String),
+    Hint(String, String),
+    Success(String),
+    Info(String),
+    Warn(String),
+    Command(String, String),
+    Status(String, String),
+}
+
+#[allow(dead_code)]
+impl GuideSection {
+    pub fn new(title: &str) -> Self {
+        Self {
+            title: title.to_string(),
+            lines: Vec::new(),
+        }
+    }
+
+    pub fn text(mut self, text: &str) -> Self {
+        self.lines.push(GuideLine::Text(text.to_string()));
+        self
+    }
+
+    pub fn blank(mut self) -> Self {
+        self.lines.push(GuideLine::Blank);
+        self
+    }
+
+    pub fn numbered(mut self, n: usize, text: &str) -> Self {
+        self.lines.push(GuideLine::Numbered(n, text.to_string()));
+        self
+    }
+
+    pub fn bullet(mut self, text: &str) -> Self {
+        self.lines.push(GuideLine::Bullet(text.to_string()));
+        self
+    }
+
+    pub fn hint(mut self, cmd: &str, comment: &str) -> Self {
+        self.lines
+            .push(GuideLine::Hint(cmd.to_string(), comment.to_string()));
+        self
+    }
+
+    pub fn success(mut self, text: &str) -> Self {
+        self.lines.push(GuideLine::Success(text.to_string()));
+        self
+    }
+
+    pub fn info(mut self, text: &str) -> Self {
+        self.lines.push(GuideLine::Info(text.to_string()));
+        self
+    }
+
+    pub fn warn(mut self, text: &str) -> Self {
+        self.lines.push(GuideLine::Warn(text.to_string()));
+        self
+    }
+
+    pub fn command(mut self, cmd: &str, desc: &str) -> Self {
+        self.lines
+            .push(GuideLine::Command(cmd.to_string(), desc.to_string()));
+        self
+    }
+
+    pub fn status(mut self, label: &str, value: &str) -> Self {
+        self.lines
+            .push(GuideLine::Status(label.to_string(), value.to_string()));
+        self
+    }
+
+    /// Render the full bordered section (header + content + bottom border).
+    pub fn print(&self) {
+        self.render_header_and_content();
+        // Empty line before bottom
+        guide_bar();
+        // Bottom border
+        close_section();
+    }
+
+    /// Render header + content but leave the section open (no bottom border).
+    /// Call `guide_bar()` for continuation lines, then `close_section()` when done.
+    pub fn open(&self) {
+        self.render_header_and_content();
+        guide_bar();
+    }
+
+    fn render_header_and_content(&self) {
+        let v = style(BOX_V).dim();
+
+        // Top border: ◇ Title ──────────────────────────────────────
+        let title_display = format!(" {} ", self.title);
+        let title_width = console::measure_text_width(&title_display);
+        let remaining = if BOX_WIDTH > title_width + 3 {
+            BOX_WIDTH - title_width - 3
+        } else {
+            4
+        };
+        println!();
+        println!(
+            " {} {}{}",
+            style(BOX_DIAMOND).cyan(),
+            style(&title_display).bold(),
+            style(BOX_H.repeat(remaining)).dim(),
+        );
+
+        // Empty line after title
+        println!(" {}", v);
+
+        // Content lines
+        for line in &self.lines {
+            match line {
+                GuideLine::Blank => {
+                    println!(" {}", v);
+                }
+                GuideLine::Text(t) => {
+                    println!(" {}  {}", v, style(t).dim());
+                }
+                GuideLine::Numbered(n, t) => {
+                    println!(" {}  {}. {}", v, style(n).cyan().bold(), t);
+                }
+                GuideLine::Bullet(t) => {
+                    println!(" {}  {} {}", v, style("–").dim(), t);
+                }
+                GuideLine::Hint(cmd, comment) => {
+                    if comment.is_empty() {
+                        println!(" {}  {} {}", v, style("$").dim(), style(cmd).cyan());
+                    } else {
+                        println!(
+                            " {}  {} {:<28} {}",
+                            v,
+                            style("$").dim(),
+                            style(cmd).cyan(),
+                            style(comment).dim()
+                        );
+                    }
+                }
+                GuideLine::Success(t) => {
+                    println!(" {}  {} {}", v, SUCCESS_ICON, style(t).green());
+                }
+                GuideLine::Info(t) => {
+                    println!(" {}  {} {}", v, INFO_ICON, style(t).blue());
+                }
+                GuideLine::Warn(t) => {
+                    println!(" {}  {} {}", v, WARN_ICON, style(t).yellow());
+                }
+                GuideLine::Command(cmd, desc) => {
+                    println!(
+                        " {}  {} {:<14} {}",
+                        v,
+                        style("▶").cyan(),
+                        style(cmd).white(),
+                        style(desc).dim()
+                    );
+                }
+                GuideLine::Status(label, value) => {
+                    println!(" {}  {} {}: {}", v, GEAR, style(label).bold().cyan(), value);
+                }
+            }
+        }
+    }
+}
+
+// ── Banner ─────────────────────────────────────────────────────────────────
 
 pub fn print_banner() {
     let lines: &[&str] = &[
@@ -59,7 +260,9 @@ pub fn print_banner() {
     let max_d = max_w + 5 * 10;
 
     println!();
+
     for (y, line) in lines.iter().enumerate() {
+        print!("  ");
         for (x, ch) in line.chars().enumerate() {
             if ch == ' ' {
                 print!(" ");
@@ -75,11 +278,11 @@ pub fn print_banner() {
             };
             print!("\x1b[38;2;{};{};{}m{}", r, g, b, ch);
         }
-        println!();
+        println!("\x1b[0m");
     }
-    print!("\x1b[0m");
 
-    println!("\x1b[38;2;34;211;238mAgents that think while you sleep.\x1b[0m\n");
+    println!(" \x1b[38;2;34;211;238m Agents that think while you sleep.\x1b[0m");
+    println!();
 }
 
 fn lerp_color(a: (u8, u8, u8), b: (u8, u8, u8), t: u32) -> (u8, u8, u8) {
