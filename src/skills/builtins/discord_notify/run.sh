@@ -23,11 +23,12 @@ resp=$(curl -sS -X POST \
   --data-urlencode "message=${message}" \
   "${API_BASE}/agents/${AGENT_NAME}/channels/discord/send")
 
-success=$(printf '%s' "$resp" | jq -r '.success // false')
-if [ "$success" != "true" ]; then
-  err=$(printf '%s' "$resp" | jq -r '.error // "failed to send Discord message"')
-  echo "Error: $err"
+# Parse JSON without jq (not available in sandboxed/minimal environments)
+if printf '%s' "$resp" | grep -qE '"success"[[:space:]]*:[[:space:]]*true'; then
+  msg=$(printf '%s' "$resp" | sed -n 's/.*"message"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  printf '%s\n' "${msg:-Discord message sent.}"
+else
+  err=$(printf '%s' "$resp" | sed -n 's/.*"error"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  echo "Error: ${err:-failed to send Discord message}"
   exit 1
 fi
-
-printf '%s\n' "$resp" | jq -r '.message // "Discord message sent."'
