@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/moxxy-ai/moxxy/compare/v0.11.5...v0.12.0) (2026-02-24)
+
+
+### Features
+
+* multi-channel discord listener + permissions fixes ([#69](https://github.com/moxxy-ai/moxxy/issues/69)) ([d099cc7](https://github.com/moxxy-ai/moxxy/commit/d099cc762ad40a1676a2be780e514d8011fe13c2))
+
 ## [0.11.5](https://github.com/moxxy-ai/moxxy/compare/v0.11.4...v0.11.5) (2026-02-24)
 
 
