@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.3](https://github.com/moxxy-ai/moxxy/compare/v0.11.2...v0.11.3) (2026-02-24)
+
+
+### Bug Fixes
+
+* styling ([#62](https://github.com/moxxy-ai/moxxy/issues/62)) ([d99b095](https://github.com/moxxy-ai/moxxy/commit/d99b095b5d18fa0e4f957751c385d84b9b4f8d92))
+
 ## [0.11.2](https://github.com/moxxy-ai/moxxy/compare/v0.11.1...v0.11.2) (2026-02-24)
 
 
