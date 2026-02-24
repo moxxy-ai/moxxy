@@ -2429,7 +2429,7 @@ dependencies = [
 
 [[package]]
 name = "moxxy"
-version = "0.11.3"
+version = "0.11.4"
 dependencies = [
  "aes-gcm",
  "anyhow",

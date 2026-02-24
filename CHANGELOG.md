@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.4](https://github.com/moxxy-ai/moxxy/compare/v0.11.3...v0.11.4) (2026-02-24)
+
+
+### Bug Fixes
+
+* openclaw migration ([#64](https://github.com/moxxy-ai/moxxy/issues/64)) ([507b726](https://github.com/moxxy-ai/moxxy/commit/507b726a39ee0171be63a4657e70a3d174081105))
+
 ## [0.11.3](https://github.com/moxxy-ai/moxxy/compare/v0.11.2...v0.11.3) (2026-02-24)
 
 
