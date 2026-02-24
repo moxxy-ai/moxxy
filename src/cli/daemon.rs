@@ -2,6 +2,7 @@ use anyhow::Result;
 use std::path::Path;
 
 use crate::core::terminal::{print_error, print_info, print_success, print_warn};
+use crate::platform::{NativePlatform, Platform};
 
 pub async fn gateway_start(
     run_dir: &Path,
@@ -11,11 +12,7 @@ pub async fn gateway_start(
     args: &[String],
 ) -> Result<()> {
     std::fs::create_dir_all(run_dir)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(run_dir, std::fs::Permissions::from_mode(0o700));
-    }
+    NativePlatform::restrict_dir_permissions(run_dir);
     if pid_file.exists() && std::fs::read_to_string(pid_file).is_ok() {
         print_warn("Daemon is already running. Use 'moxxy gateway stop' first.");
         return Ok(());
@@ -82,10 +79,7 @@ pub async fn gateway_stop(pid_file: &Path) -> Result<()> {
         if let Ok(pid_str) = std::fs::read_to_string(pid_file) {
             let pid = pid_str.trim();
             if !pid.is_empty() {
-                let _ = std::process::Command::new("kill")
-                    .arg("-15")
-                    .arg(pid)
-                    .output();
+                let _ = NativePlatform::kill_process(pid);
                 print_success(&format!("Successfully stopped moxxy Daemon (PID {}).", pid));
                 daemon_stopped = true;
             }
@@ -98,22 +92,12 @@ pub async fn gateway_stop(pid_file: &Path) -> Result<()> {
     }
 
     // Also kill the web service if it's running on port 17890
-    if let Ok(output) = std::process::Command::new("lsof").arg("-ti:17890").output()
-        && let Ok(pids) = String::from_utf8(output.stdout)
-    {
-        for pid in pids.lines() {
-            let pid = pid.trim();
-            if !pid.is_empty() {
-                let _ = std::process::Command::new("kill")
-                    .arg("-15")
-                    .arg(pid)
-                    .output();
-                print_success(&format!(
-                    "Successfully stopped process on port 17890 (PID {}).",
-                    pid
-                ));
-            }
-        }
+    for pid in NativePlatform::find_pids_on_port(17890) {
+        let _ = NativePlatform::kill_process(&pid);
+        print_success(&format!(
+            "Successfully stopped process on port 17890 (PID {}).",
+            pid
+        ));
     }
 
     Ok(())
@@ -149,12 +133,7 @@ pub async fn follow_logs(run_dir: &Path, pid_file: &Path) -> Result<()> {
     if pid_file.exists() && std::fs::read_to_string(pid_file).is_ok() {
         let log_file = run_dir.join("moxxy.log");
         if log_file.exists() {
-            let mut child = std::process::Command::new("tail")
-                .arg("-n")
-                .arg("200")
-                .arg("-f")
-                .arg(&log_file)
-                .spawn()?;
+            let mut child = NativePlatform::tail_file(&log_file)?;
             let _ = child.wait()?;
         } else {
             print_error(&format!("Log file not found at {:?}", log_file));

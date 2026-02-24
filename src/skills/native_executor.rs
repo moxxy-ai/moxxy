@@ -70,8 +70,8 @@ impl NativeExecutor {
             "No OS-level sandbox available for skill [{}]. Relying on environment restrictions only.",
             manifest.name
         );
-        let mut cmd = Command::new(&manifest.run_command);
-        cmd.arg(script_path);
+        use crate::platform::{NativePlatform, Platform};
+        let cmd = NativePlatform::shell_command_async(script_path);
         cmd
     }
 
@@ -214,9 +214,9 @@ impl SkillSandbox for NativeExecutor {
 
         // Build the command: privileged skills get a plain command,
         // sandboxed skills get wrapped with OS-level isolation.
+        use crate::platform::{NativePlatform, Platform};
         let mut cmd = if manifest.privileged {
-            let mut c = Command::new(&manifest.run_command);
-            c.arg(&script_path);
+            let c = NativePlatform::shell_command_async(&script_path);
             c
         } else {
             self.build_sandboxed_command(manifest, &script_path, &workspace_path)
@@ -279,7 +279,7 @@ impl SkillSandbox for NativeExecutor {
             cmd.env("AGENT_NAME", &self.agent_name);
             cmd.env("AGENT_WORKSPACE", &workspace_path);
             cmd.env("HOME", &workspace_path);
-            cmd.env("PATH", "/usr/local/bin:/usr/bin:/bin");
+            cmd.env("PATH", NativePlatform::sandboxed_path());
             cmd.env(
                 "MOXXY_API_BASE",
                 format!("http://{}:{}/api", self.api_host, self.api_port),

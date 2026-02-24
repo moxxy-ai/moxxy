@@ -3,6 +3,7 @@ use console::style;
 use std::io::{self, Write};
 
 use crate::core::terminal::{print_step, print_success, print_warn};
+use crate::platform::{NativePlatform, Platform};
 
 pub async fn run_uninstall() -> Result<()> {
     println!();
@@ -31,7 +32,7 @@ pub async fn run_uninstall() -> Result<()> {
         std::fs::remove_dir_all(&moxxy_dir).context("Failed to remove ~/.moxxy directory")?;
     }
 
-    let binary_path = home.join(".local").join("bin").join("moxxy");
+    let binary_path = NativePlatform::installed_binary_path();
 
     if binary_path.exists() {
         print_step(&format!("Removing binary: {}", binary_path.display()));

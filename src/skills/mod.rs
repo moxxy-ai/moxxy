@@ -74,7 +74,8 @@ fn default_entrypoint() -> String {
 }
 
 fn default_run_command() -> String {
-    "sh".to_string()
+    use crate::platform::{NativePlatform, Platform};
+    NativePlatform::default_shell().to_string()
 }
 
 fn default_scope_separator() -> String {
@@ -788,6 +789,21 @@ impl LifecycleComponent for SkillManager {
             tokio::task::spawn_blocking(move || BUILTINS_DIR.extract(&extract_path)).await?
         {
             warn!("Failed extracting builtins: {}", e);
+        }
+
+        // Set executable permission on extracted skill scripts
+        {
+            use crate::platform::{NativePlatform, Platform};
+            if let Ok(mut entries) = tokio::fs::read_dir(&skills_dir).await {
+                while let Ok(Some(entry)) = entries.next_entry().await {
+                    if entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false) {
+                        let run_sh = entry.path().join("run.sh");
+                        if run_sh.exists() {
+                            NativePlatform::set_executable(&run_sh);
+                        }
+                    }
+                }
+            }
         }
 
         // Auto-load skills from the agent's workspace

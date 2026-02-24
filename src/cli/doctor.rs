@@ -1,6 +1,7 @@
 use anyhow::Result;
 
 use crate::core::terminal::{self, print_error, print_info, print_step, print_success, print_warn};
+use crate::platform::{NativePlatform, Platform};
 
 /// Check and optionally install required dependencies.
 /// Returns `true` if all critical dependencies are satisfied.
@@ -31,10 +32,7 @@ pub async fn ensure_dependencies() -> Result<bool> {
     // 2. Install Rustup if missing
     if missing_rustup {
         print_info("Attempting to install Rustup via the official installer...");
-        let install_cmd = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y";
-        let status = std::process::Command::new("sh")
-            .args(["-c", install_cmd])
-            .status();
+        let status = NativePlatform::install_rustup();
 
         match status {
             Ok(s) if s.success() => {
@@ -78,9 +76,7 @@ pub async fn ensure_dependencies() -> Result<bool> {
                 ));
             }
             _ => {
-                print_warn(
-                    "Cargo not found in current PATH. You might need to run 'source $HOME/.cargo/env'.",
-                );
+                print_warn(NativePlatform::cargo_missing_hint());
             }
         }
 
@@ -136,7 +132,10 @@ pub async fn ensure_dependencies() -> Result<bool> {
         }
     }
 
-    // 7. OS-level Sandbox Check & Install
+    // 7. Git & Bash Check (bash ships with Git for Windows)
+    check_and_install_git();
+
+    // 8. OS-level Sandbox Check & Install
     check_and_install_sandbox().await;
 
     println!("");
@@ -176,10 +175,7 @@ pub async fn run_doctor(fix: bool) -> Result<()> {
     // 2. Fix Rustup if requested
     if missing_rustup && fix {
         print_info("Attempting to install Rustup via the official installer...");
-        let install_cmd = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y";
-        let status = std::process::Command::new("sh")
-            .args(["-c", install_cmd])
-            .status();
+        let status = NativePlatform::install_rustup();
 
         match status {
             Ok(s) if s.success() => {
@@ -223,9 +219,7 @@ pub async fn run_doctor(fix: bool) -> Result<()> {
                 ));
             }
             _ => {
-                print_warn(
-                    "Cargo not found in current PATH. You might need to run 'source $HOME/.cargo/env'.",
-                );
+                print_warn(NativePlatform::cargo_missing_hint());
             }
         }
 
@@ -281,7 +275,10 @@ pub async fn run_doctor(fix: bool) -> Result<()> {
         }
     }
 
-    // 7. OS-level Sandbox Check & Install
+    // 7. Git & Bash Check (bash ships with Git for Windows)
+    check_and_install_git();
+
+    // 8. OS-level Sandbox Check & Install
     if fix {
         check_and_install_sandbox().await;
     } else {
@@ -302,6 +299,83 @@ pub async fn run_doctor(fix: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Check that git (and bash) are available. On Windows, bash is bundled with Git for Windows.
+/// Attempts automatic installation via winget on Windows if git is missing.
+fn check_and_install_git() {
+    // Git check
+    let has_git = match std::process::Command::new("git").arg("--version").output() {
+        Ok(out) if out.status.success() => {
+            print_success(&format!(
+                "Git is available: {}",
+                String::from_utf8_lossy(&out.stdout).trim()
+            ));
+            true
+        }
+        _ => {
+            print_warn("Git is missing!");
+            false
+        }
+    };
+
+    // Attempt to install git if missing
+    if !has_git {
+        if cfg!(windows) {
+            print_info("Attempting to install Git for Windows via winget...");
+            let status = std::process::Command::new("winget")
+                .args([
+                    "install",
+                    "--id",
+                    "Git.Git",
+                    "-e",
+                    "--accept-source-agreements",
+                    "--accept-package-agreements",
+                ])
+                .status();
+            match status {
+                Ok(s) if s.success() => {
+                    print_success(
+                        "Git for Windows installed successfully. Please restart your terminal for PATH changes to take effect.",
+                    );
+                }
+                _ => {
+                    print_warn("Could not auto-install Git. Please install manually:");
+                    print_info("  Download from https://gitforwindows.org");
+                    print_info("  Or run: winget install --id Git.Git -e");
+                }
+            }
+        } else if cfg!(target_os = "macos") {
+            print_info("Install via: xcode-select --install  (or brew install git)");
+        } else {
+            print_info("Install via your package manager (e.g. sudo apt install git)");
+        }
+    }
+
+    // Bash check (git ships bash on Windows)
+    match std::process::Command::new("bash").arg("--version").output() {
+        Ok(out) if out.status.success() => {
+            let version = String::from_utf8_lossy(&out.stdout);
+            let first_line = version.lines().next().unwrap_or("").trim();
+            print_success(&format!("Bash is available: {}", first_line));
+        }
+        _ => {
+            if cfg!(windows) {
+                print_warn("Bash is missing! Skills require bash to run.");
+                if has_git {
+                    print_info(
+                        "Git is installed but bash is not on PATH. Ensure Git for Windows bin directory is in your PATH.",
+                    );
+                } else {
+                    print_info(
+                        "Install Git for Windows (https://gitforwindows.org) which includes bash.",
+                    );
+                }
+            } else {
+                print_warn("Bash is not available. Some skills may not work.");
+            }
+        }
+    }
 }
 
 /// Check sandbox availability without attempting installation.

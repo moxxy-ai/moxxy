@@ -23,6 +23,13 @@ pub async fn run_install() -> Result<()> {
     tokio::fs::create_dir_all(default_agent_dir.join("workspace")).await?;
     tokio::fs::create_dir_all(&run_dir).await?;
 
+    // Set restrictive permissions on directories
+    {
+        use crate::platform::{NativePlatform, Platform};
+        NativePlatform::restrict_dir_permissions(&moxxy_dir);
+        NativePlatform::restrict_dir_permissions(&default_agent_dir);
+    }
+
     // Initialise database and vault
     let memory_sys = crate::core::memory::MemorySystem::new(&default_agent_dir).await?;
     let vault = crate::core::vault::SecretsVault::new(memory_sys.get_db());
