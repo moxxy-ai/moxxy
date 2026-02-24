@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.11.2](https://github.com/moxxy-ai/moxxy/compare/v0.11.1...v0.11.2) (2026-02-24)
+
+
+### Bug Fixes
+
+* migrate script ([#60](https://github.com/moxxy-ai/moxxy/issues/60)) ([997023d](https://github.com/moxxy-ai/moxxy/commit/997023d0b5458455a4cbbd80422903f755d583be))
+* missing telegram commands ([#59](https://github.com/moxxy-ai/moxxy/issues/59)) ([ae5e6b4](https://github.com/moxxy-ai/moxxy/commit/ae5e6b45ea57ad3a8b2c91f513fdfafb9c715c3c))
+* windows compatibility ([#56](https://github.com/moxxy-ai/moxxy/issues/56)) ([10ba11a](https://github.com/moxxy-ai/moxxy/commit/10ba11a41469b907267255c1dc404bb970b9cb02))
+
 ## [0.11.1](https://github.com/moxxy-ai/moxxy/compare/v0.11.0...v0.11.1) (2026-02-24)
 
 
