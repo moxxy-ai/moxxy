@@ -9,7 +9,13 @@
 #   skills <agent>            - Migrate only skills
 
 OPENCLAW_DIR="$HOME/.openclaw/workspace"
-MOXXY_DIR="$HOME/.moxxy/agents"
+# AGENT_HOME is set by the skill executor (e.g. ~/.moxxy/agents/<name>)
+# Derive the agents directory from it, falling back to ~/.moxxy/agents
+if [ -n "$AGENT_HOME" ]; then
+    MOXXY_DIR="$(dirname "$AGENT_HOME")"
+else
+    MOXXY_DIR="$HOME/.moxxy/agents"
+fi
 
 SUBCMD="$1"
 shift 2>/dev/null

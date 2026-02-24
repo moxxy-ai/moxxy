@@ -34,8 +34,8 @@ pub async fn run_swarm_engine(
         run_mode != RunMode::Daemon
     );
 
-    let home = dirs::home_dir().expect("Could not find home directory");
-    let agents_dir = home.join(".moxxy").join("agents");
+    use crate::platform::{NativePlatform, Platform};
+    let agents_dir = NativePlatform::data_dir().join("agents");
 
     // Ensure at least the default agent directory exists
     if !agents_dir.join("default").exists() {

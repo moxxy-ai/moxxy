@@ -62,10 +62,8 @@ pub struct ModelDef {
 }
 
 fn custom_providers_path() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".moxxy")
-        .join("custom_providers.json")
+    use crate::platform::{NativePlatform, Platform};
+    NativePlatform::data_dir().join("custom_providers.json")
 }
 
 impl ProviderRegistry {

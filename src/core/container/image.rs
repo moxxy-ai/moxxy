@@ -9,8 +9,8 @@ static EMBEDDED_WASM_IMAGE: &[u8] = include_bytes!("../images/agent_runtime.wasm
 /// Ensure the WASM agent runtime image exists at `~/.moxxy/images/agent_runtime.wasm`.
 /// If missing, extracts the embedded pre-built binary. Returns the path to the image.
 pub async fn ensure_wasm_image() -> Result<std::path::PathBuf> {
-    let home = dirs::home_dir().expect("Could not find home directory");
-    let images_dir = home.join(".moxxy").join("images");
+    use crate::platform::{NativePlatform, Platform};
+    let images_dir = NativePlatform::data_dir().join("images");
     let image_path = images_dir.join("agent_runtime.wasm");
 
     if !image_path.exists() {

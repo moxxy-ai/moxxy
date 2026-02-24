@@ -9,7 +9,6 @@ use crate::core::terminal::{
 };
 
 const OPENCLAW_DIR: &str = ".openclaw";
-const MOXXY_DIR: &str = ".moxxy";
 
 #[derive(Debug, Clone)]
 pub struct OpenclawAgent {
@@ -352,15 +351,21 @@ fn filter_agents_md(content: &str) -> String {
 
     let mut result = String::new();
     let mut skip = false;
+    let mut skip_level = 0; // heading level that started the skip
 
     for line in content.lines() {
-        if sections_to_skip.iter().any(|s| line.starts_with(s)) {
-            skip = true;
-            continue;
-        }
-
-        if line.starts_with("## ") && skip {
-            skip = false;
+        if !skip {
+            if let Some(s) = sections_to_skip.iter().find(|s| line.starts_with(**s)) {
+                skip = true;
+                skip_level = s.chars().take_while(|c| *c == '#').count();
+                continue;
+            }
+        } else {
+            // Stop skipping when we hit a heading at the same or higher level
+            let heading_level = line.chars().take_while(|c| *c == '#').count();
+            if heading_level > 0 && heading_level <= skip_level {
+                skip = false;
+            }
         }
 
         if !skip {
@@ -373,6 +378,8 @@ fn filter_agents_md(content: &str) -> String {
 }
 
 fn convert_skill_to_moxxy(skill: &OpenclawSkill) -> SkillConversion {
+    let escaped_name = skill.name.replace('\\', "\\\\").replace('"', "\\\"");
+    let escaped_desc = skill.description.replace('\\', "\\\\").replace('"', "\\\"");
     let manifest_toml = format!(
         r#"name = "{}"
 description = "{}"
@@ -386,13 +393,16 @@ entrypoint = "skill.md"
 run_command = ""
 {}
 "#,
-        skill.name,
-        skill.description,
+        escaped_name,
+        escaped_desc,
         skill.version,
         skill
             .homepage
             .as_ref()
-            .map(|h| format!("homepage = \"{}\"", h))
+            .map(|h| format!(
+                "homepage = \"{}\"",
+                h.replace('\\', "\\\\").replace('"', "\\\"")
+            ))
             .unwrap_or_default()
     );
 
@@ -417,11 +427,16 @@ echo "This is a documentation-only skill. See skill.md for usage."
 }
 
 async fn execute_migration(plan: &MigrationPlan) -> Result<()> {
-    let home = dirs::home_dir().expect("Could not find home directory");
-    let agent_dir = home.join(MOXXY_DIR).join("agents").join(&plan.target_agent);
+    use crate::platform::{NativePlatform, Platform};
+    let moxxy_dir = NativePlatform::data_dir();
+    let agent_dir = moxxy_dir.join("agents").join(&plan.target_agent);
 
     fs::create_dir_all(&agent_dir).await?;
     fs::create_dir_all(agent_dir.join("skills")).await?;
+    fs::create_dir_all(agent_dir.join("workspace")).await?;
+
+    NativePlatform::restrict_dir_permissions(&moxxy_dir);
+    NativePlatform::restrict_dir_permissions(&agent_dir);
 
     let persona_path = agent_dir.join("persona.md");
     fs::write(&persona_path, &plan.persona_content)
@@ -433,14 +448,19 @@ async fn execute_migration(plan: &MigrationPlan) -> Result<()> {
         fs::create_dir_all(&skill_dir).await?;
 
         fs::write(skill_dir.join("manifest.toml"), &skill_conv.manifest_toml).await?;
-        fs::write(skill_dir.join("run.sh"), &skill_conv.run_sh).await?;
+        let run_sh_path = skill_dir.join("run.sh");
+        fs::write(&run_sh_path, &skill_conv.run_sh).await?;
+        NativePlatform::set_executable(&run_sh_path);
         fs::write(skill_dir.join("skill.md"), &skill_conv.skill_md).await?;
     }
 
-    if !plan.memory_entries.is_empty() {
-        let memory_sys = crate::core::memory::MemorySystem::new(&agent_dir).await?;
-        let db = memory_sys.get_db();
+    // Initialize memory database and vault for the new agent
+    let memory_sys = crate::core::memory::MemorySystem::new(&agent_dir).await?;
+    let vault = crate::core::vault::SecretsVault::new(memory_sys.get_db());
+    vault.initialize().await?;
 
+    if !plan.memory_entries.is_empty() {
+        let db = memory_sys.get_db();
         for entry in &plan.memory_entries {
             let db_guard = db.lock().await;
             db_guard.execute(

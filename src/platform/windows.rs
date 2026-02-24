@@ -108,4 +108,15 @@ impl Platform for NativePlatform {
     fn installed_binary_path() -> PathBuf {
         std::env::current_exe().unwrap_or_else(|_| PathBuf::from("moxxy.exe"))
     }
+
+    fn data_dir() -> PathBuf {
+        std::env::var("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                dirs::home_dir()
+                    .expect("Could not find home directory")
+                    .join(".moxxy")
+            })
+            .join("moxxy")
+    }
 }

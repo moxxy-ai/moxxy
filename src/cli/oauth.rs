@@ -6,8 +6,8 @@ use crate::core::oauth;
 use crate::core::terminal::{GuideSection, close_section, guide_bar, print_error, print_step};
 
 fn get_agents_dir() -> PathBuf {
-    let home = dirs::home_dir().expect("Could not find home directory");
-    home.join(".moxxy").join("agents")
+    use crate::platform::{NativePlatform, Platform};
+    NativePlatform::data_dir().join("agents")
 }
 
 pub async fn run_oauth_command(args: &[String]) -> Result<()> {

@@ -51,6 +51,10 @@ pub trait Platform {
 
     /// Conventional install location of the moxxy binary for uninstall purposes.
     fn installed_binary_path() -> PathBuf;
+
+    /// Root data directory for moxxy.
+    /// Unix: `~/.moxxy`, Windows: `%APPDATA%\moxxy`.
+    fn data_dir() -> PathBuf;
 }
 
 #[cfg(unix)]

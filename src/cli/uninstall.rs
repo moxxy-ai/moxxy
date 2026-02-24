@@ -27,8 +27,7 @@ pub async fn run_uninstall() -> Result<()> {
         return Ok(());
     }
 
-    let home = dirs::home_dir().context("Could not find home directory")?;
-    let moxxy_dir = home.join(".moxxy");
+    let moxxy_dir = NativePlatform::data_dir();
 
     if moxxy_dir.exists() {
         print_step("Removing ~/.moxxy directory...");

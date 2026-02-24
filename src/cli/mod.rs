@@ -60,10 +60,8 @@ fn print_help() {
 pub async fn run_main() -> Result<()> {
     let run_mode;
     let args: Vec<String> = std::env::args().collect();
-    let run_dir = dirs::home_dir()
-        .expect("Could not find home directory")
-        .join(".moxxy")
-        .join("run");
+    use crate::platform::{NativePlatform, Platform};
+    let run_dir = NativePlatform::data_dir().join("run");
     let pid_file = run_dir.join("moxxy.pid");
 
     let mut target_agent: Option<String> = None;
@@ -72,8 +70,7 @@ pub async fn run_main() -> Result<()> {
     let mut web_port: u16 = 3001;
 
     // Load global config from default agent's vault if it exists
-    let home = dirs::home_dir().expect("Could not find home directory");
-    let default_agent_dir = home.join(".moxxy").join("agents").join("default");
+    let default_agent_dir = NativePlatform::data_dir().join("agents").join("default");
     if default_agent_dir.exists()
         && let Ok(memory_sys) = crate::core::memory::MemorySystem::new(&default_agent_dir).await
     {
@@ -132,7 +129,7 @@ pub async fn run_main() -> Result<()> {
                 run_mode = RunMode::Headless(prompt_val);
             }
             "gateway" => {
-                let moxxy_dir = home.join(".moxxy");
+                let moxxy_dir = NativePlatform::data_dir();
                 if !moxxy_dir.exists() {
                     print_error(
                         "moxxy is not set up yet. Run 'moxxy init' or 'moxxy install' first.",

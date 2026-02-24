@@ -49,8 +49,8 @@ pub async fn create_agent_endpoint(
         return Json(serde_json::json!({ "success": false, "error": e }));
     }
 
-    let home = dirs::home_dir().expect("Could not find home directory");
-    let agents_dir = home.join(".moxxy").join("agents");
+    use crate::platform::{NativePlatform, Platform};
+    let agents_dir = NativePlatform::data_dir().join("agents");
     let agent_workspace = agents_dir.join(&name);
 
     if agent_workspace.exists() {
@@ -251,8 +251,8 @@ pub async fn delete_agent_endpoint(
     state.scheduled_job_registry.lock().await.remove(&agent);
 
     // Delete workspace directory
-    let home = dirs::home_dir().expect("home dir");
-    let agent_dir = home.join(".moxxy").join("agents").join(&agent);
+    use crate::platform::{NativePlatform, Platform};
+    let agent_dir = NativePlatform::data_dir().join("agents").join(&agent);
     if agent_dir.exists()
         && let Err(e) = tokio::fs::remove_dir_all(&agent_dir).await
     {
