@@ -2,6 +2,7 @@ mod cli;
 mod core;
 mod interfaces;
 mod logging;
+pub mod platform;
 mod skills;
 
 use crate::core::terminal;

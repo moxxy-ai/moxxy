@@ -5,18 +5,19 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 
 use crate::core::terminal::{print_info, print_step, print_success};
+use crate::platform::{NativePlatform, Platform};
 
 const GITHUB_REPO: &str = "moxxy-ai/moxxy";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn detect_platform() -> Result<&'static str> {
-    match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("macos", "aarch64") => Ok("darwin-aarch64"),
-        ("macos", "x86_64") => Ok("darwin-x86_64"),
-        ("linux", "aarch64") => Ok("linux-aarch64"),
-        ("linux", "x86_64") => Ok("linux-x86_64"),
-        (os, arch) => bail!("Unsupported platform: {os}-{arch}"),
-    }
+    NativePlatform::update_platform().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Unsupported platform: {}-{}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        )
+    })
 }
 
 pub async fn run_update() -> Result<()> {
@@ -145,7 +146,7 @@ pub async fn run_update() -> Result<()> {
     for entry in archive.entries()? {
         let mut entry = entry?;
         let path = entry.path()?;
-        if path.file_name().and_then(|n| n.to_str()) == Some("moxxy") {
+        if path.file_name().and_then(|n| n.to_str()) == Some(NativePlatform::binary_name()) {
             let mut buf = Vec::new();
             entry.read_to_end(&mut buf)?;
             new_binary = Some(buf);
@@ -153,7 +154,10 @@ pub async fn run_update() -> Result<()> {
         }
     }
 
-    let new_binary = new_binary.context("Binary 'moxxy' not found in archive")?;
+    let new_binary = new_binary.context(format!(
+        "Binary '{}' not found in archive",
+        NativePlatform::binary_name()
+    ))?;
 
     // Replace the current binary
     print_step("Installing...");
@@ -174,11 +178,7 @@ pub async fn run_update() -> Result<()> {
     }
 
     // Set executable permissions
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&current_exe, std::fs::Permissions::from_mode(0o755))?;
-    }
+    NativePlatform::set_executable(&current_exe);
 
     // Remove backup
     let _ = std::fs::remove_file(&backup_path);

@@ -164,6 +164,13 @@ pub async fn run_main() -> Result<()> {
                 run_mode = RunMode::Headless(prompt_val);
             }
             "gateway" => {
+                let moxxy_dir = home.join(".moxxy");
+                if !moxxy_dir.exists() {
+                    print_error(
+                        "moxxy is not set up yet. Run 'moxxy init' or 'moxxy install' first.",
+                    );
+                    return Ok(());
+                }
                 let sub_cmd = if args.len() > 2 { args[2].as_str() } else { "" };
                 match sub_cmd {
                     "start" => {

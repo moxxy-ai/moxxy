@@ -1,6 +1,7 @@
 use axum::{Json, extract::State};
 
 use super::super::AppState;
+use crate::platform::{NativePlatform, Platform};
 
 #[derive(serde::Deserialize)]
 pub struct AppleScriptRequest {
@@ -87,8 +88,7 @@ pub async fn execute_bash(
     if let Err(e) = verify_internal_token(&headers, &state.internal_token) {
         return e;
     }
-    let mut cmd = tokio::process::Command::new("bash");
-    cmd.arg("-c").arg(&payload.command);
+    let mut cmd = NativePlatform::shell_inline(&payload.command);
     if let Some(ref cwd) = payload.cwd {
         if let Err(e) = validate_cwd(cwd) {
             return e;
