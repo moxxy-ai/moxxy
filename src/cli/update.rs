@@ -4,7 +4,7 @@ use flate2::read::GzDecoder;
 use sha2::{Digest, Sha256};
 use std::io::Read;
 
-use crate::core::terminal::{print_info, print_step, print_success};
+use crate::core::terminal::{GuideSection, print_info, print_step};
 use crate::platform::{NativePlatform, Platform};
 
 const GITHUB_REPO: &str = "moxxy-ai/moxxy";
@@ -23,11 +23,13 @@ fn detect_platform() -> Result<&'static str> {
 pub async fn run_update() -> Result<()> {
     let platform = detect_platform()?;
 
-    print_step(&format!(
-        "Current version: {} ({})",
-        style(CURRENT_VERSION).cyan(),
-        platform
-    ));
+    GuideSection::new("Update")
+        .status(
+            "Current",
+            &format!("{} ({})", style(CURRENT_VERSION).cyan(), platform),
+        )
+        .print();
+    println!();
 
     // Fetch latest release from GitHub API
     print_step("Checking for updates...");
@@ -57,12 +59,14 @@ pub async fn run_update() -> Result<()> {
     let latest = semver::Version::parse(latest_version)?;
 
     if current >= latest {
-        print_success(&format!("Already up to date! (v{})", CURRENT_VERSION));
+        GuideSection::new("Update")
+            .success(&format!("Already up to date! (v{})", CURRENT_VERSION))
+            .print();
         return Ok(());
     }
 
     print_info(&format!(
-        "New version available: {} → {}",
+        "New version available: {} -> {}",
         style(CURRENT_VERSION).red(),
         style(latest_version).green()
     ));
@@ -183,12 +187,15 @@ pub async fn run_update() -> Result<()> {
     // Remove backup
     let _ = std::fs::remove_file(&backup_path);
 
+    GuideSection::new("Update Complete")
+        .success(&format!(
+            "Updated moxxy: v{} -> v{}",
+            CURRENT_VERSION, latest_version
+        ))
+        .blank()
+        .info("Restart any running moxxy processes to use the new version.")
+        .print();
     println!();
-    print_success(&format!(
-        "Updated moxxy: v{} → v{}",
-        CURRENT_VERSION, latest_version
-    ));
-    print_info("Restart any running moxxy processes to use the new version.");
 
     Ok(())
 }

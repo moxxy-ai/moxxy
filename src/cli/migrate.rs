@@ -3,7 +3,10 @@ use console::style;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 
-use crate::core::terminal::{print_error, print_info, print_step, print_success};
+use crate::core::terminal::{
+    self, GuideSection, close_section, guide_bar, print_error, print_info, print_step,
+    print_success,
+};
 
 const OPENCLAW_DIR: &str = ".openclaw";
 const MOXXY_DIR: &str = ".moxxy";
@@ -124,45 +127,56 @@ pub async fn run_migration_wizard() -> Result<()> {
         }
     }
 
-    println!();
-    println!("{}", style("Migration Summary:").bold());
-    println!(
-        "  • SOUL.md: {}",
-        if agent.soul_md.is_some() {
-            "✓"
+    let check = |b: bool| {
+        if b {
+            style("found").green().to_string()
         } else {
-            "✗"
+            style("not found").dim().to_string()
         }
-    );
-    println!(
-        "  • AGENTS.md: {}",
-        if agent.agents_md.is_some() {
-            "✓"
-        } else {
-            "✗"
-        }
-    );
-    println!(
-        "  • MEMORY.md: {}",
-        if agent.memory_md.is_some() {
-            "✓"
-        } else {
-            "✗"
-        }
-    );
-    println!("  • Daily memories: {}", agent.daily_memories.len());
-    println!("  • Skills: {}", agent.skills.len());
-    println!();
+    };
+    terminal::GuideSection::new("Migration Summary")
+        .bullet(&format!(
+            "SOUL.md:        {}",
+            check(agent.soul_md.is_some())
+        ))
+        .bullet(&format!(
+            "AGENTS.md:      {}",
+            check(agent.agents_md.is_some())
+        ))
+        .bullet(&format!(
+            "MEMORY.md:      {}",
+            check(agent.memory_md.is_some())
+        ))
+        .bullet(&format!(
+            "Daily memories: {}",
+            style(agent.daily_memories.len()).cyan()
+        ))
+        .bullet(&format!(
+            "Skills:         {}",
+            style(agent.skills.len()).cyan()
+        ))
+        .print();
 
     if agent.soul_md.is_none() && agent.agents_md.is_none() && agent.skills.is_empty() {
         print_error("No migratable content found in OpenClaw workspace.");
         return Ok(());
     }
 
+    GuideSection::new("Migration · Target Agent")
+        .text("Choose the name of the Moxxy agent to migrate content into.")
+        .text("Use 'default' for the primary agent, or pick a custom name.")
+        .open();
+
     let target_agent = inquire::Text::new("Target agent name:")
         .with_default("default")
         .with_help_message("Name for the new Moxxy agent")
         .prompt()?;
+    guide_bar();
+    close_section();
+
+    GuideSection::new("Migration · Content Selection")
+        .text("Choose what to migrate from your OpenClaw installation.")
+        .open();
 
     let include_skills = if !agent.skills.is_empty() {
         inquire::Confirm::new("Migrate skills?")
@@ -181,6 +195,8 @@ pub async fn run_migration_wizard() -> Result<()> {
     } else {
         false
     };
+    guide_bar();
+    close_section();
 
     print_step("Creating migration plan...");
 
@@ -210,23 +226,24 @@ pub async fn run_migration_wizard() -> Result<()> {
         memory_entries,
     };
 
-    println!();
-    println!("{}", style("Will create:").bold());
-    println!("  • ~/.moxxy/agents/{}/persona.md", target_agent);
+    let mut will_create = terminal::GuideSection::new("Will Create")
+        .bullet(&format!("~/.moxxy/agents/{}/persona.md", target_agent));
     for skill in &plan.skills {
-        println!(
-            "  • ~/.moxxy/agents/{}/skills/{}/",
+        will_create = will_create.bullet(&format!(
+            "~/.moxxy/agents/{}/skills/{}/",
             target_agent, skill.skill_name
-        );
+        ));
     }
     if !plan.memory_entries.is_empty() {
-        println!("  • Memory entries will be imported to STM");
+        will_create = will_create.bullet("Memory entries will be imported to STM");
     }
-    println!();
+    will_create.open();
 
     let proceed = inquire::Confirm::new("Proceed with migration?")
         .with_default(true)
         .prompt()?;
+    guide_bar();
+    close_section();
 
     if !proceed {
         print_info("Migration cancelled.");
@@ -240,11 +257,26 @@ pub async fn run_migration_wizard() -> Result<()> {
         "Migration complete! Agent '{}' is ready.",
         target_agent
     ));
-    println!();
-    println!("{}", style("Next steps:").bold());
-    println!("  1. Run 'moxxy init' to configure LLM provider");
-    println!("  2. Run 'moxxy gateway start' to start the daemon");
-    println!("  3. Run 'moxxy web' to access the dashboard");
+    terminal::GuideSection::new("Next Steps")
+        .numbered(
+            1,
+            &format!(
+                "Run {} to configure LLM provider",
+                style("moxxy init").cyan()
+            ),
+        )
+        .numbered(
+            2,
+            &format!(
+                "Run {} to start the daemon",
+                style("moxxy gateway start").cyan()
+            ),
+        )
+        .numbered(
+            3,
+            &format!("Run {} to access the dashboard", style("moxxy web").cyan()),
+        )
+        .print();
     println!();
 
     Ok(())

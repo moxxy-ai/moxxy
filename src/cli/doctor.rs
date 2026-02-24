@@ -1,6 +1,8 @@
 use anyhow::Result;
 
-use crate::core::terminal::{self, print_error, print_info, print_step, print_success, print_warn};
+use crate::core::terminal::{
+    self, GuideSection, print_error, print_info, print_step, print_success, print_warn,
+};
 use crate::platform::{NativePlatform, Platform};
 
 /// Check and optionally install required dependencies.
@@ -149,8 +151,12 @@ pub async fn ensure_dependencies() -> Result<bool> {
 }
 
 pub async fn run_doctor(fix: bool) -> Result<()> {
-    print_step("moxxy System Doctor - Checking Dependencies...");
-    println!("");
+    terminal::print_banner();
+
+    GuideSection::new("System Doctor")
+        .text("Checking system dependencies and configuration...")
+        .print();
+    println!();
 
     let mut missing_rustup = false;
     let mut missing_wasm = false;
@@ -285,18 +291,25 @@ pub async fn run_doctor(fix: bool) -> Result<()> {
         check_sandbox_status();
     }
 
-    println!("");
-
     if (missing_rustup || missing_wasm) && !fix {
-        print_info("To automatically install missing dependencies, run: moxxy doctor --fix");
+        GuideSection::new("Result")
+            .warn("Some dependencies are missing.")
+            .blank()
+            .info(&format!(
+                "Run {} to auto-fix.",
+                console::style("moxxy doctor --fix").cyan().bold()
+            ))
+            .print();
     } else if !missing_rustup && !missing_wasm {
-        println!(
-            "{} All systems normal. You are ready to fly!",
-            terminal::ROCKET
-        );
+        GuideSection::new("Result")
+            .success("All systems normal. You are ready to fly!")
+            .print();
     } else {
-        print_error("Some critical dependencies are still missing. Please check the logs above.");
+        GuideSection::new("Result")
+            .warn("Some critical dependencies are still missing. Check the output above.")
+            .print();
     }
+    println!();
 
     Ok(())
 }
@@ -475,7 +488,6 @@ async fn check_and_install_sandbox() {
 
 #[cfg(target_os = "linux")]
 fn try_install_bwrap_apt() -> bool {
-    // Check if apt is available
     if std::process::Command::new("which")
         .arg("apt-get")
         .output()

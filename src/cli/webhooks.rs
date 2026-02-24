@@ -1,7 +1,7 @@
 use anyhow::Result;
 use console::style;
 
-use crate::core::terminal::{print_error, print_success};
+use crate::core::terminal::{GuideSection, print_error, print_success};
 
 pub async fn run_webhook_command(args: &[String]) -> Result<()> {
     let sub_cmd = if args.len() > 2 { args[2].as_str() } else { "" };
@@ -49,17 +49,12 @@ pub async fn run_webhook_command(args: &[String]) -> Result<()> {
                                 .cloned()
                                 .unwrap_or_default();
                             if webhooks.is_empty() {
-                                println!(
-                                    "  {} No webhooks registered for agent '{}'.",
-                                    style("●").dim(),
-                                    agent_name
-                                );
+                                GuideSection::new(&format!("Webhooks · {}", agent_name))
+                                    .text("No webhooks registered for this agent.")
+                                    .print();
                             } else {
-                                println!(
-                                    "\n  {} Webhooks for agent '{}':\n",
-                                    style("●").cyan(),
-                                    style(&agent_name).bold()
-                                );
+                                let mut section =
+                                    GuideSection::new(&format!("Webhooks · {}", agent_name));
                                 for wh in &webhooks {
                                     let name =
                                         wh.get("name").and_then(|v| v.as_str()).unwrap_or("?");
@@ -79,28 +74,30 @@ pub async fn run_webhook_command(args: &[String]) -> Result<()> {
                                     } else {
                                         String::new()
                                     };
-                                    println!(
-                                        "  {} {} [{}]{}\n    URL: {}/api/webhooks/{}/{}",
-                                        style("→").cyan(),
+                                    section = section.bullet(&format!(
+                                        "{} [{}]{}",
                                         style(name).white().bold(),
                                         status,
                                         signed,
-                                        api_url,
-                                        agent_name,
-                                        source
-                                    );
+                                    ));
+                                    section = section.text(&format!(
+                                        "  URL: {}/api/webhooks/{}/{}",
+                                        api_url, agent_name, source
+                                    ));
                                     if let Some(prompt) =
                                         wh.get("prompt_template").and_then(|v| v.as_str())
                                     {
-                                        let truncated = if prompt.len() > 100 {
-                                            format!("{}...", &prompt[..100])
+                                        let truncated = if prompt.len() > 80 {
+                                            format!("{}...", &prompt[..80])
                                         } else {
                                             prompt.to_string()
                                         };
-                                        println!("    Prompt: {}\n", style(truncated).dim());
+                                        section = section.text(&format!("  Prompt: {}", truncated));
                                     }
                                 }
+                                section.print();
                             }
+                            println!();
                         } else {
                             let err = body
                                 .get("error")
@@ -151,16 +148,17 @@ pub async fn run_webhook_command(args: &[String]) -> Result<()> {
             }
 
             if name.is_empty() || source.is_empty() || prompt_template.is_empty() {
-                println!(
-                    "{}",
-                    style(
-                        "Usage: moxxy webhook add <name> <source> <prompt_template> [--secret <s>]"
+                GuideSection::new("moxxy webhook add")
+                    .text(
+                        "Usage: moxxy webhook add <name> <source> <prompt_template> [--secret <s>]",
                     )
-                    .bold()
-                );
-                println!(
-                    "  Example: moxxy webhook add github-push github \"Process GitHub push events\""
-                );
+                    .blank()
+                    .hint(
+                        "moxxy webhook add github-push github \"Process GitHub push events\"",
+                        "",
+                    )
+                    .print();
+                println!();
                 return Ok(());
             }
 
@@ -177,7 +175,10 @@ pub async fn run_webhook_command(args: &[String]) -> Result<()> {
                         if body.get("success").and_then(|v| v.as_bool()) == Some(true) {
                             print_success(&format!("Webhook '{}' registered.", name));
                             if let Some(wh_url) = body.get("webhook_url").and_then(|v| v.as_str()) {
-                                println!("  URL: {}", style(wh_url).cyan());
+                                GuideSection::new("Webhook Created")
+                                    .status("URL", &style(wh_url).cyan().to_string())
+                                    .print();
+                                println!();
                             }
                         } else {
                             let err = body
@@ -209,10 +210,10 @@ pub async fn run_webhook_command(args: &[String]) -> Result<()> {
             }
 
             if name.is_empty() {
-                println!(
-                    "{}",
-                    style("Usage: moxxy webhook remove <webhook_name>").bold()
-                );
+                GuideSection::new("moxxy webhook remove")
+                    .text("Usage: moxxy webhook remove <webhook_name>")
+                    .print();
+                println!();
                 return Ok(());
             }
 
@@ -258,10 +259,10 @@ pub async fn run_webhook_command(args: &[String]) -> Result<()> {
             }
 
             if name.is_empty() {
-                println!(
-                    "{}",
-                    style(format!("Usage: moxxy webhook {} <webhook_name>", sub_cmd)).bold()
-                );
+                GuideSection::new(&format!("moxxy webhook {}", sub_cmd))
+                    .text(&format!("Usage: moxxy webhook {} <webhook_name>", sub_cmd))
+                    .print();
+                println!();
                 return Ok(());
             }
 
@@ -291,18 +292,16 @@ pub async fn run_webhook_command(args: &[String]) -> Result<()> {
             }
         }
         _ => {
-            println!(
-                "{}",
-                style("Usage: moxxy webhook <command> [options]").bold()
-            );
-            println!("  • list                                         List all webhooks");
-            println!("  • add <name> <source> <prompt> [--secret <s>]  Register a webhook");
-            println!("  • remove <name>                                Remove a webhook");
-            println!("  • enable <name>                                Enable a webhook");
-            println!("  • disable <name>                               Disable a webhook");
-            println!(
-                "                     Options: --agent <name> (default: default) --api-url <url>"
-            );
+            GuideSection::new("moxxy webhook")
+                .command("list", "List all webhooks")
+                .command("add", "Register a webhook  <name> <source> <prompt>")
+                .command("remove", "Remove a webhook    <name>")
+                .command("enable", "Enable a webhook    <name>")
+                .command("disable", "Disable a webhook   <name>")
+                .blank()
+                .text("Options: --agent <name>  --api-url <url>")
+                .print();
+            println!();
         }
     }
 

@@ -1,17 +1,18 @@
 use anyhow::Result;
 use console::style;
 
-use crate::core::terminal::{self, print_success};
+use crate::core::terminal::{self, GuideSection, print_success};
 
 /// Non-interactive first-run setup.
 /// Creates the directory scaffold, initialises the database and vault.
 /// Safe to call from a piped install script (`curl … | sh`).
 pub async fn run_install() -> Result<()> {
     terminal::print_banner();
-    println!(
-        "  {}\n",
-        style("Setting up moxxy directory structure...").bold()
-    );
+
+    GuideSection::new("Installation")
+        .text("Setting up moxxy directory structure and initializing database...")
+        .print();
+    println!();
 
     let home = dirs::home_dir().expect("Could not find home directory");
     let moxxy_dir = home.join(".moxxy");
@@ -39,10 +40,14 @@ pub async fn run_install() -> Result<()> {
     super::doctor::ensure_dependencies().await?;
 
     print_success("Installation complete!");
-    println!(
-        "\n  Run {} to configure your AI provider and agent.\n",
-        style("moxxy init").cyan().bold()
-    );
+
+    GuideSection::new("Next Steps")
+        .info(&format!(
+            "Run {} to configure your AI provider and agent.",
+            style("moxxy init").cyan().bold()
+        ))
+        .print();
+    println!();
 
     Ok(())
 }

@@ -16,74 +16,42 @@ use anyhow::Result;
 use console::style;
 
 use crate::core::agent::RunMode;
-use crate::core::terminal::{self, print_error, print_link, print_status};
+use crate::core::terminal::{self, GuideSection, print_error};
 use crate::interfaces::cli::CliInterface;
 
 fn print_help() {
     terminal::print_banner();
+
+    GuideSection::new("Core")
+        .command("web", "Start the Web Dashboard")
+        .command("tui", "Start the Interactive Terminal UI")
+        .command("dev", "Start the Daemon in Elevated Dev Mode")
+        .command("run", "Run a single programmatic prompt")
+        .print();
+
+    GuideSection::new("Setup")
+        .command("install", "Set up directories and database")
+        .command("init", "Run the Onboarding Wizard")
+        .command("migrate", "Migrate from OpenClaw to Moxxy")
+        .print();
+
+    GuideSection::new("Management")
+        .command("gateway", "Manage the background daemon process")
+        .command("agent", "Manage agents")
+        .command("channel", "Manage channel connections")
+        .command("webhook", "Manage webhook endpoints")
+        .command("oauth", "Run OAuth flows for skills")
+        .print();
+
+    GuideSection::new("Diagnostics")
+        .command("doctor", "Check system dependencies")
+        .command("logs", "Follow real-time daemon logs")
+        .command("update", "Update moxxy to the latest version")
+        .command("uninstall", "Remove moxxy binary and all data")
+        .print();
+
     println!(
-        "{} {}\n",
-        terminal::LOOKING_GLASS,
-        style("moxxy is a highly secure, next-generation Agentic Swarm framework.").dim()
-    );
-    println!("{}", style("Commands:").bold().underlined());
-    println!("  {} web       Start the Web Dashboard", style("▶").cyan());
-    println!(
-        "  {} tui       Start the Interactive Terminal UI",
-        style("▶").cyan()
-    );
-    println!(
-        "  {} dev       Start the Daemon in Elevated Dev Mode",
-        style("▶").cyan()
-    );
-    println!(
-        "  {} install   Set up directories and database (non-interactive)",
-        style("▶").cyan()
-    );
-    println!(
-        "  {} init      Run the Onboarding Wizard (or 'onboard')",
-        style("▶").cyan()
-    );
-    println!(
-        "  {} migrate   Migrate from OpenClaw to Moxxy",
-        style("▶").cyan()
-    );
-    println!(
-        "  {} gateway   Manage the background daemon process",
-        style("▶").cyan()
-    );
-    println!(
-        "  {} doctor    Check system dependencies",
-        style("▶").cyan()
-    );
-    println!(
-        "  {} channel   Manage channel connections",
-        style("▶").cyan()
-    );
-    println!("  {} agent     Manage agents", style("▶").cyan());
-    println!(
-        "  {} oauth     Run OAuth flows for skills",
-        style("▶").cyan()
-    );
-    println!("  {} webhook   Manage webhook endpoints", style("▶").cyan());
-    println!(
-        "  {} update    Update moxxy to the latest version",
-        style("▶").cyan()
-    );
-    println!(
-        "  {} uninstall Remove moxxy binary and all data",
-        style("▶").cyan()
-    );
-    println!(
-        "  {} logs      Follow real-time daemon logs",
-        style("▶").cyan()
-    );
-    println!(
-        "  {} run       Run a single programmatic prompt",
-        style("▶").cyan()
-    );
-    println!(
-        "\n{} {} <command> [subcommand]\n",
+        "\n {} {} <command> [subcommand]\n",
         style("Usage:").bold(),
         style("moxxy").green()
     );
@@ -279,17 +247,24 @@ pub async fn run_main() -> Result<()> {
                 web.on_init().await?;
                 web.on_start().await?;
 
+                GuideSection::new("Web Dashboard")
+                    .status(
+                        "Dashboard",
+                        &format!(
+                            "{}",
+                            style(format!("http://127.0.0.1:{}", web_port))
+                                .underlined()
+                                .cyan()
+                        ),
+                    )
+                    .status("API Endpoint", &format!("http://127.0.0.1:{}", api_port))
+                    .blank()
+                    .info(&format!(
+                        "Press {} to stop.",
+                        style("Ctrl+C").bold().yellow()
+                    ))
+                    .print();
                 println!();
-                print_link(
-                    "Web Dashboard serving on",
-                    &format!("http://127.0.0.1:{}", web_port),
-                );
-                print_status("API Endpoint", &format!("http://127.0.0.1:{}", api_port));
-                println!(
-                    "\n  {} Press {} to stop.\n",
-                    style("ℹ").blue(),
-                    style("Ctrl+C").bold().yellow()
-                );
 
                 tokio::signal::ctrl_c().await?;
                 web.on_shutdown().await?;
@@ -382,34 +357,23 @@ pub async fn run_main() -> Result<()> {
                             }
                         }
                         if show_help {
-                            println!(
-                                "{}\n",
-                                style("moxxy channel telegram - Configure and pair a Telegram bot")
-                                    .bold()
-                            );
-                            println!("{}", style("Usage:").bold());
-                            println!("  moxxy channel telegram [OPTIONS]\n");
-                            println!("{}", style("Options:").bold());
-                            println!(
-                                "  --agent, -a <name>       Agent to bind the bot to (default: \"default\")"
-                            );
-                            println!("  --token <bot_token>      Bot token from @BotFather");
-                            println!(
-                                "  --pair-code, -c <code>   6-digit pairing code from the bot"
-                            );
-                            println!("  --help, -h               Show this help message\n");
-                            println!("{}", style("Examples:").bold());
-                            println!("  moxxy channel telegram");
-                            println!("  moxxy channel telegram --agent mybot");
-                            println!("  moxxy channel telegram --token 123456:ABC-DEF");
-                            println!("  moxxy channel telegram --pair-code 123456\n");
-                            println!("{}", style("Interactive mode:").bold());
-                            println!(
-                                "  Run without arguments to enter the interactive setup wizard."
-                            );
-                            println!(
-                                "  If a token is already configured, you can replace it or disconnect."
-                            );
+                            GuideSection::new("moxxy channel telegram")
+                                .text("Configure and pair a Telegram bot.")
+                                .blank()
+                                .text(
+                                    "--agent, -a <name>       Agent to bind (default: \"default\")",
+                                )
+                                .text("--token <bot_token>      Bot token from @BotFather")
+                                .text("--pair-code, -c <code>   6-digit pairing code from the bot")
+                                .text("--help, -h               Show this help message")
+                                .blank()
+                                .hint("moxxy channel telegram", "")
+                                .hint("moxxy channel telegram --agent mybot", "")
+                                .hint("moxxy channel telegram --token 123456:ABC-DEF", "")
+                                .blank()
+                                .text("Run without arguments for the interactive setup wizard.")
+                                .print();
+                            println!();
                         } else {
                             channels::run_channel_telegram(agent_arg, token_arg, pair_code_arg)
                                 .await?;
@@ -446,36 +410,32 @@ pub async fn run_main() -> Result<()> {
                             }
                         }
                         if show_help {
-                            println!(
-                                "{}\n",
-                                style("moxxy channel discord - Configure a Discord bot").bold()
-                            );
-                            println!("{}", style("Usage:").bold());
-                            println!("  moxxy channel discord [OPTIONS]\n");
-                            println!("{}", style("Options:").bold());
-                            println!(
-                                "  --agent, -a <name>    Agent to bind the bot to (default: \"default\")"
-                            );
-                            println!(
-                                "  --token <bot_token>   Bot token from Discord Developer Portal"
-                            );
-                            println!("  --help, -h            Show this help message\n");
-                            println!("{}", style("Examples:").bold());
-                            println!("  moxxy channel discord");
-                            println!("  moxxy channel discord --agent mybot");
-                            println!("  moxxy channel discord --token YOUR_BOT_TOKEN");
+                            GuideSection::new("moxxy channel discord")
+                                .text("Configure a Discord bot.")
+                                .blank()
+                                .text("--agent, -a <name>    Agent to bind (default: \"default\")")
+                                .text("--token <bot_token>   Bot token from Developer Portal")
+                                .text("--help, -h            Show this help message")
+                                .blank()
+                                .hint("moxxy channel discord", "")
+                                .hint("moxxy channel discord --agent mybot", "")
+                                .hint("moxxy channel discord --token YOUR_BOT_TOKEN", "")
+                                .print();
+                            println!();
                         } else {
                             channels::run_channel_discord(agent_arg, token_arg).await?;
                         }
                     }
                     _ => {
-                        println!("{}", style("Usage: moxxy channel <type>").bold());
-                        println!("  • telegram   Configure and pair a Telegram bot");
-                        println!(
-                            "               Options: --agent <name> [--token <bot_token>] [--pair-code <6digits>]"
-                        );
-                        println!("  • discord    Configure a Discord bot");
-                        println!("               Options: --agent <name> [--token <bot_token>]");
+                        GuideSection::new("moxxy channel")
+                            .command("telegram", "Configure and pair a Telegram bot")
+                            .command("discord", "Configure a Discord bot")
+                            .blank()
+                            .text(
+                                "Options: --agent <name>  --token <bot_token>  --pair-code <code>",
+                            )
+                            .print();
+                        println!();
                     }
                 }
                 return Ok(());

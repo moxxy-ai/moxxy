@@ -3,7 +3,7 @@ use console::style;
 use std::path::PathBuf;
 
 use crate::core::oauth;
-use crate::core::terminal::{self, print_error, print_step, print_success};
+use crate::core::terminal::{GuideSection, close_section, guide_bar, print_error, print_step};
 
 fn get_agents_dir() -> PathBuf {
     let home = dirs::home_dir().expect("Could not find home directory");
@@ -78,41 +78,37 @@ pub async fn run_oauth_command(args: &[String]) -> Result<()> {
 }
 
 fn print_help() {
-    println!(
-        "{}\n",
-        style("moxxy oauth - Run OAuth flows for skills").bold()
-    );
-    println!("{}", style("Usage:").bold());
-    println!("  moxxy oauth <skill_name>  Run OAuth for a specific skill");
-    println!("  moxxy oauth list          List skills with OAuth support\n");
-    println!("{}", style("Options:").bold());
-    println!("  --agent, -a <name>        Target agent (default: \"default\")");
-    println!("  --client-id <id>          OAuth client ID (will prompt if not provided)");
-    println!("  --client-secret <secret>  OAuth client secret (will prompt if not provided)");
-    println!("  --help, -h                Show this help message\n");
-    println!("{}", style("Examples:").bold());
-    println!("  moxxy oauth google_workspace");
-    println!("  moxxy oauth google_workspace --agent myagent");
-    println!("  moxxy oauth google_workspace --client-id X --client-secret Y");
-    println!("  moxxy oauth list\n");
+    GuideSection::new("moxxy oauth")
+        .command("<skill>", "Run OAuth for a specific skill")
+        .command("list", "List skills with OAuth support")
+        .blank()
+        .text("--agent, -a <name>        Target agent (default: \"default\")")
+        .text("--client-id <id>          OAuth client ID")
+        .text("--client-secret <secret>  OAuth client secret")
+        .text("--help, -h                Show this help message")
+        .blank()
+        .hint("moxxy oauth google_workspace", "")
+        .hint("moxxy oauth list", "")
+        .print();
+    println!();
 }
 
 pub async fn run_oauth_list() -> Result<()> {
-    terminal::print_banner();
-    println!("  {}\n", style("Skills with OAuth Support").bold());
-
     let agents_dir = get_agents_dir();
     let skills = oauth::discover_oauth_skills(&agents_dir).await?;
 
     if skills.is_empty() {
-        println!("  No skills with OAuth configuration found.");
-        println!("\n  Skills can declare OAuth support by adding an [oauth] section");
-        println!("  to their manifest.toml file.");
+        GuideSection::new("Skills with OAuth Support")
+            .text("No skills with OAuth configuration found.")
+            .blank()
+            .text("Skills can declare OAuth support by adding an [oauth] section")
+            .text("to their manifest.toml file.")
+            .print();
         return Ok(());
     }
 
     println!(
-        "  {:<25} {}",
+        "\n  {:<25} {}",
         style("Skill").bold(),
         style("Auth URL").dim()
     );
@@ -142,13 +138,6 @@ pub async fn run_oauth_flow(
     client_id_arg: Option<String>,
     client_secret_arg: Option<String>,
 ) -> Result<()> {
-    terminal::print_banner();
-    println!(
-        "  {} {}\n",
-        style("OAuth Setup:").bold(),
-        style(skill_name).cyan()
-    );
-
     let agents_dir = get_agents_dir();
     let oauth_skill = oauth::find_oauth_skill(&agents_dir, skill_name)
         .await?
@@ -159,13 +148,23 @@ pub async fn run_oauth_flow(
             )
         })?;
 
+    // --- Agent selection ---
+    GuideSection::new(&format!("OAuth · {}", skill_name))
+        .text("Select which agent's vault should store the OAuth credentials.")
+        .open();
+
     let agent_name = match agent_arg {
-        Some(name) => name,
+        Some(name) => {
+            println!("  Agent: {}", style(&name).cyan());
+            name
+        }
         None => inquire::Text::new("Agent name:")
             .with_default("default")
             .with_help_message("Which agent's vault should store the OAuth credentials?")
             .prompt()?,
     };
+    guide_bar();
+    close_section();
 
     let agent_dir = agents_dir.join(&agent_name);
     if !agent_dir.exists() {
@@ -182,6 +181,12 @@ pub async fn run_oauth_flow(
         .get_secret(&oauth_skill.config.client_id_env)
         .await?
         .unwrap_or_default();
+
+    // --- Client ID ---
+    GuideSection::new("OAuth · Client ID")
+        .text("The Client ID identifies your application to the OAuth provider.")
+        .text("Find it in your OAuth provider's developer console.")
+        .open();
 
     let client_id = match client_id_arg {
         Some(id) => id,
@@ -201,6 +206,14 @@ pub async fn run_oauth_flow(
                 .prompt()?
         }
     };
+    guide_bar();
+    close_section();
+
+    // --- Client Secret ---
+    GuideSection::new("OAuth · Client Secret")
+        .text("The Client Secret authenticates your application.")
+        .text("Keep this value secure — it is stored in the agent's encrypted vault.")
+        .open();
 
     let client_secret = match client_secret_arg {
         Some(secret) => secret,
@@ -209,27 +222,28 @@ pub async fn run_oauth_flow(
             .without_confirmation()
             .prompt()?,
     };
+    guide_bar();
+    close_section();
 
-    println!();
     print_step("Generating authorization URL...");
 
     let state = oauth::generate_state();
     let auth_url = oauth::build_auth_url(&oauth_skill.config, &client_id, &state);
 
-    println!();
-    println!("  {}", style("1. Open this URL in your browser:").bold());
-    println!();
-    println!("    {}\n", style(&auth_url).cyan());
-    println!("  {}", style("2. Authorize the application").bold());
-    println!(
-        "  {}",
-        style("3. Copy the authorization code from the result page").bold()
-    );
-    println!();
+    GuideSection::new("OAuth · Authorization")
+        .numbered(1, "Open this URL in your browser:")
+        .blank()
+        .text(&format!("  {}", style(&auth_url).cyan()))
+        .blank()
+        .numbered(2, "Authorize the application")
+        .numbered(3, "Copy the authorization code from the result page")
+        .open();
 
     let auth_code = inquire::Text::new("4. Paste authorization code:")
         .with_help_message("The code parameter from the redirect URL or result page")
         .prompt()?;
+    guide_bar();
+    close_section();
 
     if auth_code.trim().is_empty() {
         print_error("Authorization code cannot be empty.");
@@ -258,19 +272,20 @@ pub async fn run_oauth_flow(
         .set_secret(&oauth_skill.config.refresh_token_env, &refresh_token)
         .await?;
 
-    println!();
-    print_success("OAuth credentials stored successfully!");
-    println!();
-    println!("  Stored in vault:");
-    println!("    • {}", oauth_skill.config.client_id_env);
-    println!("    • {}", oauth_skill.config.client_secret_env);
-    println!("    • {}", oauth_skill.config.refresh_token_env);
-    println!();
-    println!(
-        "  You can now use the {} skill with agent '{}'.",
-        style(skill_name).cyan(),
-        style(&agent_name).green()
-    );
+    GuideSection::new("OAuth · Complete")
+        .success("OAuth credentials stored successfully!")
+        .blank()
+        .text("Stored in vault:")
+        .bullet(&oauth_skill.config.client_id_env)
+        .bullet(&oauth_skill.config.client_secret_env)
+        .bullet(&oauth_skill.config.refresh_token_env)
+        .blank()
+        .text(&format!(
+            "You can now use the {} skill with agent '{}'.",
+            style(skill_name).cyan(),
+            style(&agent_name).green()
+        ))
+        .print();
 
     Ok(())
 }

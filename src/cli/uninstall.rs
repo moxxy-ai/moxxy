@@ -2,15 +2,16 @@ use anyhow::{Context, Result, bail};
 use console::style;
 use std::io::{self, Write};
 
-use crate::core::terminal::{print_step, print_success, print_warn};
+use crate::core::terminal::{GuideSection, close_section, guide_bar, print_step, print_warn};
 use crate::platform::{NativePlatform, Platform};
 
 pub async fn run_uninstall() -> Result<()> {
-    println!();
-    print_warn("This will completely remove moxxy from your system:");
-    println!("  • The moxxy binary");
-    println!("  • All agent data (~/.moxxy directory)");
-    println!();
+    GuideSection::new("Uninstall moxxy")
+        .warn("This will completely remove moxxy from your system:")
+        .blank()
+        .bullet("The moxxy binary")
+        .bullet("All agent data (~/.moxxy directory)")
+        .open();
 
     print!("{} ", style("Continue? [y/N]").yellow().bold());
     io::stdout().flush()?;
@@ -18,6 +19,8 @@ pub async fn run_uninstall() -> Result<()> {
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
     let input = input.trim().to_lowercase();
+    guide_bar();
+    close_section();
 
     if input != "y" && input != "yes" {
         println!("{}", style("Uninstall cancelled.").dim());
@@ -50,8 +53,9 @@ pub async fn run_uninstall() -> Result<()> {
         ));
     }
 
-    println!();
-    print_success("moxxy has been uninstalled.");
+    GuideSection::new("Uninstall Complete")
+        .success("moxxy has been uninstalled.")
+        .print();
     println!();
 
     Ok(())
