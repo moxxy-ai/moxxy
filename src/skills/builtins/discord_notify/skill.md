@@ -35,9 +35,11 @@ A **listen mode** (`discord_listen_mode`) further narrows behaviour:
 - `mentions` – only respond when the bot is @mentioned in a listen channel.
 
 Channels can be added or removed via:
-- `POST /api/agents/{agent}/channels/discord/listen-channels` with `{ "channel_id": "123456789" }`
-- `POST /api/agents/{agent}/channels/discord/listen-channels/remove` with `{ "channel_id": "123456789" }`
+- **`discord_add_listen_channel "<channel_id>"`** – add a channel to the listen list (preferred; use this when the user asks to add a channel).
+- **`discord_remove_listen_channel "<channel_id>"`** – remove a channel from the listen list.
 - The web dashboard Channels panel.
+
+**Important:** Do NOT use `manage_vault` to modify `discord_listen_channels` – that overwrites the entire list. Always use the skills above.
 
 ## Notes
 - Discord must already be configured for the current agent.

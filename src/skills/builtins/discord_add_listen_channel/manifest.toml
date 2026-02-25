@@ -1,0 +1,6 @@
+name = "discord_add_listen_channel"
+description = "Add a Discord channel to the bot's listen list. The bot will then process messages from this channel."
+version = "v1.0.0"
+needs_network = true
+run_command = "sh"
+entrypoint = "run.sh"
