@@ -19,18 +19,12 @@ import { AccessTokensPanel } from './components/AccessTokensPanel';
 import { ConfigPanel } from './components/ConfigPanel';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<TabId>('Interface');
-  const [now, setNow] = useState(new Date());
+  const [activeTab, setActiveTab] = useState<TabId>('Overview');
 
   const { apiBase, setApiBase } = useApi();
   const agentState = useAgents(apiBase);
   const { logs, logsEndRef } = useLogs(apiBase);
   const polling = usePolling(apiBase, agentState.activeAgent);
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -40,12 +34,18 @@ function App() {
     polling.chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [polling.chatHistory, polling.streamMessages, polling.optimisticUserMsg, polling.isTyping, activeTab, polling.chatEndRef]);
 
+  useEffect(() => {
+    if (!agentState.activeAgent && activeTab !== 'Overview' && activeTab !== 'Config') {
+      setActiveTab('Overview');
+    }
+  }, [activeTab, agentState.activeAgent]);
+
   const parseLogLine = (line: string): React.ReactNode => {
     const clean = line.replace(/\\x1B\[[0-9;]*[a-zA-Z]/g, '').replace(/\[[0-9;]+m/g, '');
-    if (clean.includes('INFO')) return <><span className="text-[#0088ff] font-bold">INFO</span> {clean.replace('INFO', '')}</>;
+    if (clean.includes('INFO')) return <><span className="text-primary-light font-bold">INFO</span> {clean.replace('INFO', '')}</>;
     if (clean.includes('WARN')) return <><span className="text-amber-400 font-bold">WARN</span> {clean.replace('WARN', '')}</>;
     if (clean.includes('ERROR')) return <><span className="text-red-400 font-bold">ERROR</span> {clean.replace('ERROR', '')}</>;
-    if (clean.includes('OK')) return <><span className="text-emerald-400 font-bold">OK</span> {clean.replace('OK', '')}</>;
+    if (clean.includes('OK')) return <><span className="text-green font-bold">OK</span> {clean.replace('OK', '')}</>;
     return clean;
   };
 
@@ -182,18 +182,45 @@ function App() {
           />
         );
       default:
-        return <div>Module Offline</div>;
+        return <div className="panel-page"><div className="panel-shell">Module offline.</div></div>;
     }
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-[#0b101a] text-slate-300 font-sans overflow-hidden">
-      <Header now={now} agentCount={agentState.agents.length} />
-      <div className="flex-grow flex overflow-hidden">
-        <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
-        <main className="flex-grow bg-gradient-to-br from-[#121c2d] to-[#0a0f18] relative overflow-hidden">
-          <div className="absolute inset-0 p-4 pb-6 h-full overflow-y-auto scroll-styled">
-            {renderContent()}
+    <div className="app-shell">
+      <Header
+        agents={agentState.agents}
+        activeAgent={agentState.activeAgent}
+        setActiveAgent={agentState.setActiveAgent}
+      />
+      <div className="shell-body">
+        <Sidebar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          activeAgent={agentState.activeAgent}
+        />
+        <main className="main-canvas">
+          <div className="main-canvas-inner scroll-styled">
+            {activeTab !== 'Overview' && activeTab !== 'Config' && !agentState.activeAgent ? (
+              <div className="panel-page">
+                <div className="panel-shell items-start justify-center">
+                  <h2 className="text-lg font-semibold text-text mb-2">Select an Agent First</h2>
+                  <p className="text-sm text-text-muted mb-4">
+                    {agentState.agents.length === 0
+                      ? 'Create your first agent in Overview, then continue.'
+                      : 'Choose an agent from the header selector to continue.'}
+                  </p>
+                  <button
+                    onClick={() => setActiveTab('Overview')}
+                    className="btn-primary"
+                  >
+                    Open Overview
+                  </button>
+                </div>
+              </div>
+            ) : (
+              renderContent()
+            )}
           </div>
         </main>
       </div>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Radio } from 'lucide-react';
 import type { Channel } from '../types';
+import { AppSelect } from './ui/AppSelect';
 
 interface ChannelsPanelProps {
   apiBase: string;
@@ -15,9 +16,9 @@ interface ChannelsPanelProps {
 
 export function ChannelsPanel({
   apiBase,
-  agents,
+  agents: _agents,
   activeAgent,
-  setActiveAgent,
+  setActiveAgent: _setActiveAgent,
   channels,
   setChannels,
   sttEnabled,
@@ -57,18 +58,10 @@ export function ChannelsPanel({
   };
 
   return (
-    <div className="flex flex-col gap-4 h-full p-4">
-      <div className="bg-[#111927]/90 border border-[#1e304f] p-6 shadow-2xl backdrop-blur-sm h-full flex flex-col">
+    <div className="panel-page">
+      <div className="panel-shell">
         <div className="flex justify-between items-center mb-4 border-b border-[#1e304f] pb-2">
           <h2 className="text-[#00aaff] uppercase tracking-widest text-sm">Channels - {activeAgent || 'No Agent'}</h2>
-          <select
-            className="bg-[#090d14] border border-[#1e304f] text-white px-3 py-1.5 outline-none rounded-sm text-xs focus:border-[#00aaff]"
-            value={activeAgent || ''}
-            onChange={e => setActiveAgent(e.target.value)}
-          >
-            <option disabled value="">Select Node</option>
-            {agents.map(a => <option key={a} value={a}>{a}</option>)}
-          </select>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -405,8 +398,9 @@ export function ChannelsPanel({
 
                   {/* Add channel */}
                   <div className="flex gap-2 items-center">
-                    <select
-                      className="flex-1 bg-[#090d14] border border-[#1e304f] text-white px-3 py-1.5 outline-none rounded-sm text-xs focus:border-[#7c3aed]"
+                    <AppSelect
+                      wrapperClassName="flex-1"
+                      className="text-xs py-1.5 rounded-sm"
                       value={discordAddChannelId}
                       onChange={e => setDiscordAddChannelId(e.target.value)}
                     >
@@ -416,7 +410,7 @@ export function ChannelsPanel({
                         .map(ch => (
                           <option key={ch.channel_id} value={ch.channel_id}>#{ch.channel} ({ch.guild})</option>
                         ))}
-                    </select>
+                    </AppSelect>
                     <button
                       onClick={async () => {
                         if (!activeAgent || !discordAddChannelId) return;
