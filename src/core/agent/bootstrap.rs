@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tracing::info;
 
 use crate::core::container::{AgentContainer, ContainerConfig};
@@ -28,7 +28,7 @@ pub(super) async fn init_core_subsystems(
 ) -> Result<(
     Arc<Mutex<MemorySystem>>,
     Arc<Mutex<SkillManager>>,
-    Arc<Mutex<LlmManager>>,
+    Arc<RwLock<LlmManager>>,
     Option<Arc<AgentContainer>>,
     Arc<SecretsVault>,
 )> {
@@ -97,7 +97,7 @@ pub(super) async fn init_core_subsystems(
         }
     }
 
-    let llm_sys_arc = Arc::new(Mutex::new(llm_sys));
+    let llm_sys_arc = Arc::new(RwLock::new(llm_sys));
     let memory_sys_arc = Arc::new(Mutex::new(memory_sys));
     let skill_sys_arc = Arc::new(Mutex::new(skill_sys));
 
@@ -196,7 +196,7 @@ pub(super) async fn spawn_mcp_servers(
 pub(super) async fn schedule_persisted_jobs(
     name: &str,
     lifecycle: &mut LifecycleManager,
-    llm_sys_arc: &Arc<Mutex<LlmManager>>,
+    llm_sys_arc: &Arc<RwLock<LlmManager>>,
     memory_sys_arc: &Arc<Mutex<MemorySystem>>,
     skill_sys_arc: &Arc<Mutex<SkillManager>>,
     scheduled_job_registry: &ScheduledJobRegistry,

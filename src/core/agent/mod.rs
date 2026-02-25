@@ -5,7 +5,7 @@ mod selfcheck;
 use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tracing::info;
 
 use std::collections::HashMap;
@@ -21,7 +21,7 @@ pub type SchedulerRegistry =
 pub type ScheduledJobRegistry = Arc<Mutex<HashMap<String, HashMap<String, uuid::Uuid>>>>;
 pub type MemoryRegistry = Arc<Mutex<HashMap<String, Arc<Mutex<MemorySystem>>>>>;
 pub type SkillRegistry = Arc<Mutex<HashMap<String, Arc<Mutex<SkillManager>>>>>;
-pub type LlmRegistry = Arc<Mutex<HashMap<String, Arc<Mutex<LlmManager>>>>>;
+pub type LlmRegistry = Arc<Mutex<HashMap<String, Arc<RwLock<LlmManager>>>>>;
 pub type ContainerRegistry = Arc<Mutex<HashMap<String, Arc<AgentContainer>>>>;
 pub type VaultRegistry = Arc<Mutex<HashMap<String, Arc<crate::core::vault::SecretsVault>>>>;
 

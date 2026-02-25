@@ -4,7 +4,7 @@ use serenity::Client;
 use serenity::all::{Context, EventHandler, GatewayIntents, Message, Ready, UserId};
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tracing::{error, info, warn};
 
 use crate::core::brain::AutonomousBrain;
@@ -17,7 +17,7 @@ struct Handler {
     agent_name: String,
     memory: Arc<Mutex<MemorySystem>>,
     skills: Arc<Mutex<SkillManager>>,
-    llms: Arc<Mutex<LlmManager>>,
+    llms: Arc<RwLock<LlmManager>>,
     bot_user_id: Arc<OnceLock<UserId>>,
 }
 
@@ -127,7 +127,7 @@ pub struct DiscordChannel {
     agent_name: String,
     registry: Arc<Mutex<HashMap<String, Arc<Mutex<MemorySystem>>>>>,
     skill_registry: Arc<Mutex<HashMap<String, Arc<Mutex<SkillManager>>>>>,
-    llm_registry: Arc<Mutex<HashMap<String, Arc<Mutex<LlmManager>>>>>,
+    llm_registry: Arc<Mutex<HashMap<String, Arc<RwLock<LlmManager>>>>>,
 }
 
 impl DiscordChannel {
@@ -135,7 +135,7 @@ impl DiscordChannel {
         agent_name: String,
         registry: Arc<Mutex<HashMap<String, Arc<Mutex<MemorySystem>>>>>,
         skill_registry: Arc<Mutex<HashMap<String, Arc<Mutex<SkillManager>>>>>,
-        llm_registry: Arc<Mutex<HashMap<String, Arc<Mutex<LlmManager>>>>>,
+        llm_registry: Arc<Mutex<HashMap<String, Arc<RwLock<LlmManager>>>>>,
     ) -> Self {
         Self {
             agent_name,

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tracing::info;
 
 use crate::core::container::AgentContainer;
@@ -35,7 +35,7 @@ pub(super) async fn attach_interfaces(
     vault_registry: &VaultRegistry,
     scheduler_registry: &SchedulerRegistry,
     scheduled_job_registry: &ScheduledJobRegistry,
-    llm_sys_arc: &Arc<Mutex<LlmManager>>,
+    llm_sys_arc: &Arc<RwLock<LlmManager>>,
     memory_sys_arc: &Arc<Mutex<MemorySystem>>,
     skill_sys_arc: &Arc<Mutex<SkillManager>>,
     wasm_container: &Option<Arc<AgentContainer>>,
@@ -144,7 +144,7 @@ pub(super) async fn attach_desktop_poller(
     name: &str,
     lifecycle: &mut LifecycleManager,
     vault: &Arc<SecretsVault>,
-    llm_sys_arc: &Arc<Mutex<LlmManager>>,
+    llm_sys_arc: &Arc<RwLock<LlmManager>>,
     memory_sys_arc: &Arc<Mutex<MemorySystem>>,
     skill_sys_arc: &Arc<Mutex<SkillManager>>,
 ) -> Result<()> {

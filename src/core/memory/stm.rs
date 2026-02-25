@@ -17,6 +17,60 @@ impl MemorySystem {
         Ok(content)
     }
 
+    /// Read structured STM entries for a specific session_id.
+    /// Allows callers to manage their own session without mutating MemorySystem state.
+    pub async fn read_stm_for_session(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> Result<Vec<StmEntry>> {
+        let db = self.db.lock().await;
+        let mut stmt = db.prepare(
+            "SELECT role, content FROM short_term_memory \
+             WHERE session_id = ?1 ORDER BY id ASC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![session_id, limit as i64], |row| {
+            Ok(StmEntry {
+                role: row.get(0)?,
+                content: row.get(1)?,
+            })
+        })?;
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
+        }
+        Ok(results)
+    }
+
+    /// Append a message to STM for a specific session_id.
+    /// Allows callers to manage their own session without mutating MemorySystem state.
+    pub async fn append_stm_for_session(
+        &self,
+        session_id: &str,
+        role: &str,
+        content: &str,
+    ) -> Result<()> {
+        let stored_content = if content.len() > STM_CONTENT_MAX_CHARS {
+            format!("{}... [truncated]", &content[..STM_CONTENT_MAX_CHARS])
+        } else {
+            content.to_string()
+        };
+
+        {
+            let db = self.db.lock().await;
+            db.execute(
+                "INSERT INTO short_term_memory (session_id, role, content) VALUES (?1, ?2, ?3)",
+                params![session_id, role, stored_content],
+            )?;
+        }
+
+        let stm_path = self.workspace_dir.join("current.md");
+        let formatted = format!("**{}**: {}\n\n", role, stored_content);
+        let mut file = OpenOptions::new().append(true).open(&stm_path).await?;
+        file.write_all(formatted.as_bytes()).await?;
+        Ok(())
+    }
+
     /// Read structured STM entries from SQLite.
     /// Returns the last `limit` entries ordered by id ascending.
     pub async fn read_stm_structured(

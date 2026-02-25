@@ -42,7 +42,7 @@ pub async fn set_vault_secret(
                 // Hot-reload API key on the LLM provider if this vault key matches one
                 let llm_reg = state.llm_registry.lock().await;
                 if let Some(llm_mutex) = llm_reg.get(&agent) {
-                    let mut llm = llm_mutex.lock().await;
+                    let mut llm = llm_mutex.write().await;
                     llm.update_key_for_vault_entry(&payload.key, &payload.value);
                 }
                 Json(serde_json::json!({ "success": true, "message": "Secret updated" }))

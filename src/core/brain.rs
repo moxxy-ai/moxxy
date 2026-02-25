@@ -2,7 +2,7 @@ use anyhow::Result;
 use regex::Regex;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tracing::info;
 
 use crate::core::llm::LlmManager;
@@ -108,7 +108,7 @@ impl AutonomousBrain {
     pub async fn execute_react_loop(
         trigger_text: &str,
         origin: &str,
-        llm: Arc<Mutex<LlmManager>>,
+        llm: Arc<RwLock<LlmManager>>,
         memory: Arc<Mutex<MemorySystem>>,
         skills: Arc<Mutex<SkillManager>>,
         stream_tx: Option<tokio::sync::mpsc::Sender<String>>,
@@ -118,42 +118,41 @@ impl AutonomousBrain {
 
         let role = origin_to_role(origin);
 
-        // Session isolation: non-human origins get a fresh session.
-        let previous_session = {
-            let mut m = memory.lock().await;
-            if !is_human_origin(origin) {
-                let old = m.new_session();
-                info!("Isolated session for origin={}: {}", origin, m.session_id());
-                Some(old)
-            } else {
-                None
-            }
+        // Session isolation: non-human origins get a private session_id.
+        // We capture session_id locally instead of mutating the shared MemorySystem,
+        // so concurrent ReAct loops (cron jobs, chat, webhooks) never corrupt each other.
+        let session_id = if is_human_origin(origin) {
+            let m = memory.lock().await;
+            m.session_id().to_string()
+        } else {
+            let id = uuid::Uuid::new_v4().to_string();
+            info!("Isolated session for origin={}: {}", origin, id);
+            id
         };
 
-        // 1. Write the trigger to STM
+        // 1. Write the trigger to STM (brief lock)
         {
             let m = memory.lock().await;
-            let _ = m.append_short_term_memory(role, trigger_text).await;
+            let _ = m
+                .append_stm_for_session(&session_id, role, trigger_text)
+                .await;
             if role == "user" {
                 let _ = m.add_long_term_memory(trigger_text).await;
             }
         }
 
-        // 2. Load persona
-        let persona_text = {
+        // 2. Load persona (brief lock to get path, then file I/O without lock)
+        let persona_path = {
             let m = memory.lock().await;
-            let workspace = m.workspace_dir();
-            let persona_path = workspace.join("persona.md");
-            match tokio::fs::read_to_string(&persona_path).await {
-                Ok(text) if !text.trim().is_empty() => Some(text),
-                _ => None,
-            }
+            m.workspace_dir().join("persona.md")
+        };
+        let persona_text = match tokio::fs::read_to_string(&persona_path).await {
+            Ok(text) if !text.trim().is_empty() => Some(text),
+            _ => None,
         };
 
         // 3. ReAct Loop - unbounded with smart termination
         let mut final_response = String::new();
-        // Ephemeral context for the current loop - not persisted to STM.
-        // This holds skill results and intermediate reasoning within a single request.
         let mut loop_context: Vec<crate::core::llm::ChatMessage> = Vec::new();
         let invoke_re =
             Regex::new(r#"<invoke\s+name\s*=\s*["']([^"']+)["']\s*>([\s\S]*?)</invoke>"#).unwrap();
@@ -165,55 +164,59 @@ impl AutonomousBrain {
         loop {
             iter += 1;
 
-            let response_text: String = {
-                let llm_guard = llm.lock().await;
+            // 3a. Read context with brief, non-overlapping locks
+            let (stm_entries, swarm_kbs) = {
                 let m = memory.lock().await;
-                let stm_entries = m.read_stm_structured(60, true).await.unwrap_or_default();
-                let swarm_kbs = m.read_swarm_memory(10).await.unwrap_or_default();
+                let stm = m
+                    .read_stm_for_session(&session_id, 60)
+                    .await
+                    .unwrap_or_default();
+                let swarm = m.read_swarm_memory(10).await.unwrap_or_default();
+                (stm, swarm)
+            }; // memory lock released
 
-                let skill_catalog = {
-                    let s = skills.lock().await;
-                    s.get_skill_catalog()
-                };
+            let skill_catalog = {
+                let s = skills.lock().await;
+                s.get_skill_catalog()
+            }; // skills lock released
 
-                let mut messages: Vec<crate::core::llm::ChatMessage> = Vec::new();
+            // 3b. Build message array (no locks held)
+            let mut messages: Vec<crate::core::llm::ChatMessage> = Vec::new();
 
-                // System prompt
+            messages.push(crate::core::llm::ChatMessage {
+                role: "system".to_string(),
+                content: build_system_prompt(&skill_catalog, &persona_text),
+            });
+
+            for kb_chunk in swarm_kbs {
                 messages.push(crate::core::llm::ChatMessage {
                     role: "system".to_string(),
-                    content: build_system_prompt(&skill_catalog, &persona_text),
+                    content: format!("--- SWARM INTELLIGENCE ---\n{}\n---", kb_chunk),
                 });
+            }
 
-                // Swarm intelligence
-                for kb_chunk in swarm_kbs {
-                    messages.push(crate::core::llm::ChatMessage {
-                        role: "system".to_string(),
-                        content: format!("--- SWARM INTELLIGENCE ---\n{}\n---", kb_chunk),
-                    });
-                }
+            let max_history = 40;
+            let start_idx = stm_entries.len().saturating_sub(max_history);
+            for entry in stm_entries.into_iter().skip(start_idx) {
+                messages.push(crate::core::llm::ChatMessage {
+                    role: entry.role.clone(),
+                    content: entry.content.clone(),
+                });
+            }
 
-                // Conversation history from STM
-                let max_history = 40;
-                let start_idx = stm_entries.len().saturating_sub(max_history);
-                for entry in stm_entries.into_iter().skip(start_idx) {
-                    messages.push(crate::core::llm::ChatMessage {
-                        role: entry.role.clone(),
-                        content: entry.content.clone(),
-                    });
-                }
+            messages.extend(loop_context.iter().cloned());
 
-                // Ephemeral loop context (skill results from this request cycle)
-                messages.extend(loop_context.iter().cloned());
-
+            // 3c. LLM call (RwLock read - allows concurrent reads from other loops)
+            let response_text: String = {
+                let llm_guard = llm.read().await;
                 llm_guard
                     .generate_with_selected(&messages)
                     .await
                     .unwrap_or_else(|e| format!("LLM Error: {}", e))
-            };
+            }; // llm read lock released
 
             info!("ReAct iter {}: {} chars", iter, response_text.len());
 
-            // Idle detection: identical response twice in a row → agent is stuck
             let current_hash = {
                 let mut hasher = std::collections::hash_map::DefaultHasher::new();
                 response_text.hash(&mut hasher);
@@ -226,7 +229,6 @@ impl AutonomousBrain {
             }
             last_response_hash = current_hash;
 
-            // Check for skill invocation
             if let Some(captures) = invoke_re.captures(&response_text) {
                 let skill_name = captures.get(1).unwrap().as_str().trim().to_string();
                 let args_str = captures.get(2).unwrap().as_str().trim();
@@ -251,13 +253,11 @@ impl AutonomousBrain {
                 )
                 .await;
 
-                // Add the assistant's invoke to ephemeral context
                 loop_context.push(crate::core::llm::ChatMessage {
                     role: "assistant".to_string(),
                     content: response_text.clone(),
                 });
 
-                // Execute the skill
                 let (manifest, execution) = {
                     let s = skills.lock().await;
                     match s.prepare_skill(&skill_name) {
@@ -308,7 +308,6 @@ impl AutonomousBrain {
                     }
                 };
 
-                // Check consecutive error threshold after skill execution
                 if consecutive_errors >= 3 {
                     info!(
                         "ReAct loop: 3 consecutive skill errors at iter {}, stopping",
@@ -324,7 +323,6 @@ impl AutonomousBrain {
                     break;
                 }
 
-                // Add skill result to ephemeral context with clear instruction
                 loop_context.push(crate::core::llm::ChatMessage {
                     role: "system".to_string(),
                     content: format!(
@@ -334,10 +332,9 @@ impl AutonomousBrain {
                     ),
                 });
 
-                continue; // Next iteration to let LLM present the result
+                continue;
             }
 
-            // Check for [CONTINUE] - agent signals it needs another skill call
             if response_text.contains("[CONTINUE]") {
                 let clean = response_text.replace("[CONTINUE]", "").trim().to_string();
                 if !clean.is_empty() {
@@ -357,16 +354,15 @@ impl AutonomousBrain {
                 continue;
             }
 
-            // Final response - no invoke, no [CONTINUE]
             final_response = response_text;
             break;
         }
 
-        // Persist the final response to STM (only the final answer, not intermediate noise)
+        // Persist final response (brief lock)
         if !final_response.is_empty() {
             let m = memory.lock().await;
             let _ = m
-                .append_short_term_memory("assistant", &final_response)
+                .append_stm_for_session(&session_id, "assistant", &final_response)
                 .await;
         }
 
@@ -376,17 +372,10 @@ impl AutonomousBrain {
         )
         .await;
 
-        // Broadcast to swarm if requested
         if final_response.starts_with("[ANNOUNCE]") {
             let m = memory.lock().await;
             let msg = final_response.trim_start_matches("[ANNOUNCE]").trim();
             let _ = m.add_swarm_memory(agent_name, msg).await;
-        }
-
-        // Restore previous session if we isolated
-        if let Some(prev) = previous_session {
-            let mut m = memory.lock().await;
-            m.restore_session(prev);
         }
 
         emit(&stream_tx, serde_json::json!({ "type": "done" })).await;
