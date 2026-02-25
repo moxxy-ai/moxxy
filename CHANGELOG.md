@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.2](https://github.com/moxxy-ai/moxxy/compare/v0.12.1...v0.12.2) (2026-02-25)
+
+
+### Bug Fixes
+
+* session race condition ([#74](https://github.com/moxxy-ai/moxxy/issues/74)) ([ec6ed21](https://github.com/moxxy-ai/moxxy/commit/ec6ed214fa9944d159e06f4de52381355e887642))
+
 ## [0.12.1](https://github.com/moxxy-ai/moxxy/compare/v0.12.0...v0.12.1) (2026-02-24)
 
 
