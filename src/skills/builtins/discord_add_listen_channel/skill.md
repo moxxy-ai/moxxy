@@ -19,6 +19,6 @@ When the user asks you to add a Discord channel for the bot to listen to:
 ## Notes
 
 - **Do NOT use manage_vault** to modify `discord_listen_channels`. That would overwrite the entire list instead of appending. Always use this skill.
-- Discord must already be configured for the current agent.
+- Discord must already be configured: the bot token must be stored in the vault as **`discord_token`** (see `discord_notify` skill for setup instructions).
 - The bot must be a member of the guild (server) where the channel exists.
 - Channel IDs are numeric Discord snowflakes (e.g. `1234567890123456789`).

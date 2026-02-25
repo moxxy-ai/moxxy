@@ -1,11 +1,11 @@
 # `evolve_core` Tool
 
 ## Description
-This tool compiles, tests, and safely restarts the moxxy framework backend. It is the core mechanism for **Self-Evolution** and only functions when the engine is running in **Dev Mode**.
+This tool compiles, tests, and safely restarts the moxxy framework backend. It is the core mechanism for **Self-Evolution** and requires explicit user confirmation before execution.
 
 ## When to use
 - IMMEDIATELY after you use `host_shell` to write, modify, or extend any `.rs` files or capabilities inside the core moxxy filesystem.
-- When you want to apply changes you made to the agent's framework.
+- When the user asks you to upgrade, update, or modify the framework itself.
 
 ## What it does
 1. **Safety Checks:** Runs `cargo check` and `cargo test` sequentially. If your code modifications have a syntax error, this tool will fail safely and return the compiler errors to you.

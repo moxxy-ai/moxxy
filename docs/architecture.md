@@ -6,7 +6,7 @@ This document provides implementation-level architecture details for developers 
 
 ```
 cli::run_main()
-  -> parse CLI args (web/tui/daemon/dev/headless)
+  -> parse CLI args (web/tui/daemon/headless)
   -> cli::swarm::boot_swarm_engine()
        -> for each agent in ~/.moxxy/agents/*/
             -> AgentInstance::boot(name, workspace_dir, run_mode, ...)
@@ -255,7 +255,6 @@ pub enum RunMode {
     Web,              // API server + web dashboard + all interfaces
     Tui,              // Terminal UI only
     Daemon,           // API server + interfaces, no UI
-    Dev,              // Like Web but enables evolve_core skill (self-modification)
     Headless(String), // Execute single prompt and exit
 }
 ```
@@ -266,7 +265,7 @@ pub enum RunMode {
 |----------|---------|
 | `MOXXY_API_BASE` | API server base URL (default: `http://127.0.0.1:17890/api`) |
 | `MOXXY_INTERNAL_TOKEN` | Auth token for internal API calls |
-| `MOXXY_SOURCE_DIR` | Source directory (dev mode, for `evolve_core`) |
+| `MOXXY_SOURCE_DIR` | Source directory (auto-detected for `evolve_core`) |
 | `MOXXY_ARGS_MODE` | Set to `"stdin"` when skill args are passed via stdin |
 | `AGENT_NAME` | Current agent's name |
 | `AGENT_HOME` | Agent's home directory (`~/.moxxy/agents/<name>/`) |

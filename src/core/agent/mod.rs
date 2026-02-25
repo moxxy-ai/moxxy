@@ -30,7 +30,6 @@ pub enum RunMode {
     Web,
     Tui,
     Daemon,
-    Dev,
     Headless(String),
 }
 

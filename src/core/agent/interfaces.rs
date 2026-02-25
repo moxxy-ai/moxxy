@@ -45,10 +45,8 @@ pub(super) async fn attach_interfaces(
     web_port: u16,
     internal_token: &str,
 ) {
-    // API Server (default agent only, in web/daemon/dev modes)
-    if name == "default"
-        && (*run_mode == RunMode::Web || *run_mode == RunMode::Daemon || *run_mode == RunMode::Dev)
-    {
+    // API Server (default agent only, in web/daemon modes)
+    if name == "default" && (*run_mode == RunMode::Web || *run_mode == RunMode::Daemon) {
         lifecycle.attach(Arc::new(Mutex::new(ApiServer::new(
             crate::interfaces::web::ApiServerConfig {
                 registry: swarm_registry.clone(),

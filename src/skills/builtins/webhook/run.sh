@@ -16,6 +16,10 @@ if [ -n "${MOXXY_INTERNAL_TOKEN:-}" ]; then
   AUTH_HEADER="X-Moxxy-Internal-Token: ${MOXXY_INTERNAL_TOKEN}"
 fi
 
+_esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'NR>1{printf "%s","\\n"}{printf "%s",$0}'; }
+_jv() { v=$(printf '%s' "$1" | sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1); printf '%s' "${v:-$3}"; }
+_urlencode() { printf '%s' "$1" | sed -e 's/ /%20/g' -e 's/!/%21/g' -e 's/#/%23/g' -e 's/&/%26/g' -e 's/+/%2B/g' -e 's/\//%2F/g' -e 's/:/%3A/g' -e 's/\?/%3F/g'; }
+
 ACTION=${1:-}
 
 if [ -z "$ACTION" ]; then
@@ -36,12 +40,8 @@ case "$ACTION" in
             echo "Error: name, source_slug, and prompt_template are required."
             exit 1
         fi
-        PAYLOAD=$(jq -n \
-          --arg name "$NAME" \
-          --arg source "$SOURCE" \
-          --arg prompt_template "$PROMPT_TEMPLATE" \
-          --arg secret "${SECRET:-}" \
-          '{name: $name, source: $source, prompt_template: $prompt_template, secret: $secret}')
+        PAYLOAD=$(printf '{"name":"%s","source":"%s","prompt_template":"%s","secret":"%s"}' \
+          "$(_esc "$NAME")" "$(_esc "$SOURCE")" "$(_esc "$PROMPT_TEMPLATE")" "$(_esc "${SECRET:-}")")
         response=$(curl -s -w "\n%{http_code}" -X POST \
             ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
             -H "Content-Type: application/json" \
@@ -55,7 +55,7 @@ case "$ACTION" in
             echo "Error: webhook name is required."
             exit 1
         fi
-        ENCODED_NAME=$(jq -rn --arg x "$NAME" '$x|@uri')
+        ENCODED_NAME=$(_urlencode "$NAME")
         response=$(curl -s -w "\n%{http_code}" -X DELETE \
             ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
             "$API_BASE/agents/$AGENT_NAME/webhooks/$ENCODED_NAME")
@@ -67,12 +67,11 @@ case "$ACTION" in
             echo "Error: webhook name is required."
             exit 1
         fi
-        ENCODED_NAME=$(jq -rn --arg x "$NAME" '$x|@uri')
-        PAYLOAD=$(jq -n '{active: true}')
+        ENCODED_NAME=$(_urlencode "$NAME")
         response=$(curl -s -w "\n%{http_code}" -X PATCH \
             ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
             -H "Content-Type: application/json" \
-            -d "$PAYLOAD" \
+            -d '{"active":true}' \
             "$API_BASE/agents/$AGENT_NAME/webhooks/$ENCODED_NAME")
         ;;
     disable)
@@ -82,12 +81,11 @@ case "$ACTION" in
             echo "Error: webhook name is required."
             exit 1
         fi
-        ENCODED_NAME=$(jq -rn --arg x "$NAME" '$x|@uri')
-        PAYLOAD=$(jq -n '{active: false}')
+        ENCODED_NAME=$(_urlencode "$NAME")
         response=$(curl -s -w "\n%{http_code}" -X PATCH \
             ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
             -H "Content-Type: application/json" \
-            -d "$PAYLOAD" \
+            -d '{"active":false}' \
             "$API_BASE/agents/$AGENT_NAME/webhooks/$ENCODED_NAME")
         ;;
     update)
@@ -100,12 +98,8 @@ case "$ACTION" in
             echo "Error: name, source_slug, and prompt_template are required."
             exit 1
         fi
-        PAYLOAD=$(jq -n \
-          --arg name "$NAME" \
-          --arg source "$SOURCE" \
-          --arg prompt_template "$PROMPT_TEMPLATE" \
-          --arg secret "${SECRET:-}" \
-          '{name: $name, source: $source, prompt_template: $prompt_template, secret: $secret}')
+        PAYLOAD=$(printf '{"name":"%s","source":"%s","prompt_template":"%s","secret":"%s"}' \
+          "$(_esc "$NAME")" "$(_esc "$SOURCE")" "$(_esc "$PROMPT_TEMPLATE")" "$(_esc "${SECRET:-}")")
         response=$(curl -s -w "\n%{http_code}" -X POST \
             ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
             -H "Content-Type: application/json" \
@@ -119,8 +113,20 @@ case "$ACTION" in
         body=$(echo "$response" | sed '$d')
         status_code=$(echo "$response" | tail -n 1)
         if [ "$status_code" -eq 200 ]; then
-            echo "$body" | jq -r '.webhooks[] | "[\(if .active then "ACTIVE" else "INACTIVE" end)] \(.name) → /api/webhooks/'"$AGENT_NAME"'/\(.source)"' 2>/dev/null
-            if [ $? -ne 0 ]; then
+            # Parse webhook list using grep/sed
+            has_webhooks=false
+            printf '%s' "$body" | grep -o '"name":"[^"]*"' | sed 's/"name":"//;s/"$//' | while read -r wh_name; do
+                has_webhooks=true
+                # Check if active
+                active_val=$(printf '%s' "$body" | grep -o "\"name\":\"${wh_name}\"[^}]*" | grep -o '"active":[a-z]*' | head -1 | sed 's/"active"://')
+                source_val=$(printf '%s' "$body" | grep -o "\"name\":\"${wh_name}\"[^}]*" | grep -o '"source":"[^"]*"' | head -1 | sed 's/"source":"//;s/"$//')
+                if [ "$active_val" = "true" ]; then
+                    echo "[ACTIVE] $wh_name -> /api/webhooks/${AGENT_NAME}/${source_val}"
+                else
+                    echo "[INACTIVE] $wh_name -> /api/webhooks/${AGENT_NAME}/${source_val}"
+                fi
+            done
+            if [ "$has_webhooks" = "false" ]; then
                 echo "No webhooks registered."
             fi
         else
@@ -143,11 +149,11 @@ if [ "$status_code" -eq 200 ]; then
     success=$(echo "$body" | grep -o '"success":true')
     if [ ! -z "$success" ]; then
         echo "Successfully performed '$ACTION' on webhook."
-        webhook_url=$(echo "$body" | jq -r '.webhook_url // empty' 2>/dev/null)
+        webhook_url=$(_jv "$body" "webhook_url" "")
         if [ ! -z "$webhook_url" ]; then
             echo "Webhook URL: $webhook_url"
         fi
-        msg=$(echo "$body" | jq -r '.message // empty' 2>/dev/null)
+        msg=$(_jv "$body" "message" "")
         if [ ! -z "$msg" ]; then
             echo "$msg"
         fi

@@ -18,11 +18,9 @@ if [ -z "$NAME" ] || [ -z "$CRON" ] || [ -z "$PROMPT" ]; then
     exit 1
 fi
 
-PAYLOAD=$(jq -n \
-  --arg name "$NAME" \
-  --arg cron "$CRON" \
-  --arg prompt "$PROMPT" \
-  '{name: $name, cron: $cron, prompt: $prompt}')
+_esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'NR>1{printf "%s","\\n"}{printf "%s",$0}'; }
+
+PAYLOAD=$(printf '{"name":"%s","cron":"%s","prompt":"%s"}' "$(_esc "$NAME")" "$(_esc "$CRON")" "$(_esc "$PROMPT")")
 
 # POST to the schedules endpoint acts as an upsert (replace)
 response=$(curl -s -w "\n%{http_code}" -X POST ${AUTH_HEADER:+-H "$AUTH_HEADER"} \

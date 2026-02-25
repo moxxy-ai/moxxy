@@ -32,10 +32,10 @@ resp=$(curl -sS -X POST \
   "${API_BASE}/agents/${AGENT_NAME}/channels/discord/listen-channels/remove")
 
 if printf '%s' "$resp" | grep -qE '"success"[[:space:]]*:[[:space:]]*true'; then
-  msg=$(printf '%s' "$resp" | jq -r '.message // "Channel removed from listen list."')
-  echo "$msg"
+  msg=$(printf '%s' "$resp" | sed -n 's/.*"message"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+  echo "${msg:-Channel removed from listen list.}"
 else
-  err=$(printf '%s' "$resp" | jq -r '.error // "failed to remove channel"')
-  echo "Error: $err"
+  err=$(printf '%s' "$resp" | sed -n 's/.*"error"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+  echo "Error: ${err:-failed to remove channel}"
   exit 1
 fi

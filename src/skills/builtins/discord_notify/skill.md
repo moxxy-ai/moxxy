@@ -31,17 +31,28 @@ The bot maintains a **list of listen channels** (`discord_listen_channels`):
 - DMs are always accepted regardless of the listen list.
 
 A **listen mode** (`discord_listen_mode`) further narrows behaviour:
-- `all` (default) – respond to every message in the listen channels.
-- `mentions` – only respond when the bot is @mentioned in a listen channel.
+- `all` (default) - respond to every message in the listen channels.
+- `mentions` - only respond when the bot is @mentioned in a listen channel.
 
 Channels can be added or removed via:
-- **`discord_add_listen_channel "<channel_id>"`** – add a channel to the listen list (preferred; use this when the user asks to add a channel).
-- **`discord_remove_listen_channel "<channel_id>"`** – remove a channel from the listen list.
+- **`discord_add_listen_channel "<channel_id>"`** - add a channel to the listen list (preferred; use this when the user asks to add a channel).
+- **`discord_remove_listen_channel "<channel_id>"`** - remove a channel from the listen list.
 - The web dashboard Channels panel.
 
-**Important:** Do NOT use `manage_vault` to modify `discord_listen_channels` – that overwrites the entire list. Always use the skills above.
+**Important:** Do NOT use `manage_vault` to modify `discord_listen_channels` - that overwrites the entire list. Always use the skills above.
+
+## Setup
+
+To configure Discord for the current agent, store the bot token in the vault under the key **`discord_token`**:
+
+```bash
+manage_vault set discord_token "<your-bot-token>"
+```
+
+The key **must** be exactly `discord_token` — any other name (e.g. `discord_bot_token`) will not be recognised by the runtime.
+
+After saving the token, the gateway must be restarted for the bot to connect.
 
 ## Notes
-- Discord must already be configured for the current agent.
 - Use `discord_channels` to discover available channel IDs by name.
 - The bot always *replies* in the channel where it received a message. The listen list controls which channels the bot pays attention to.

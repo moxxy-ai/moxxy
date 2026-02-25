@@ -28,11 +28,11 @@ resp=$(curl -sS -X POST \
   --data-urlencode "message=${message}" \
   "${API_BASE}/agents/${AGENT_NAME}/channels/whatsapp/send")
 
-success=$(printf '%s' "$resp" | jq -r '.success // false')
-if [ "$success" != "true" ]; then
-  err=$(printf '%s' "$resp" | jq -r '.error // "failed to send WhatsApp message"')
-  echo "Error: $err"
+if ! printf '%s' "$resp" | grep -qE '"success"[[:space:]]*:[[:space:]]*true'; then
+  err=$(printf '%s' "$resp" | sed -n 's/.*"error"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+  echo "Error: ${err:-failed to send WhatsApp message}"
   exit 1
 fi
 
-printf '%s\n' "$resp" | jq -r '.message // "WhatsApp message sent."'
+msg=$(printf '%s' "$resp" | sed -n 's/.*"message"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+echo "${msg:-WhatsApp message sent.}"

@@ -3,7 +3,9 @@
 Use this skill to configure external Model Context Protocol (MCP) servers for the current agent.
 Once connected, the agent will dynamically inherit all tools from the MCP server as native skills, prefixed with the server name (e.g. `github_list_issues` for a server named `github`).
 
-You MUST ALWAYS reboot yourself after adding or removing an MCP Server for the changes to apply (using `run_applescript`).
+**Naming:** Always use descriptive server names (e.g. `exa`, `github`, `files`). Never use generic names like `default`, `mcp`, or `server`. When adding from a URL config, derive the name from the server purpose (e.g. exa.ai → `exa`, GitHub server → `github`). If the config has a generic key, `add-json` will auto-derive a name from the package/command.
+
+You MUST restart the gateway for changes to apply. Ask the user to run `moxxy gateway restart` or use the dashboard's gateway restart.
 
 ### Usage
 
@@ -37,4 +39,4 @@ If the user provides a URL for MCP setup (e.g. `https://mcp.exa.ai/mcp`), you sh
 4. Ask the user for any required API keys or env values before adding
 
 ### Note
-Adding an MCP server directly expands your own toolset on next reboot.
+Adding an MCP server directly expands your own toolset after the next gateway restart.

@@ -58,6 +58,30 @@ needs_env = false            # true to inject all vault secrets as env vars
 | `entrypoint` | string | Script filename. Usually `run.sh` but can be `run.py` etc. |
 | `run_command` | string | Interpreter. Use `sh` for shell, `bash` for bash-specific features, `python3` for Python |
 
+## Cross-System Compatibility
+
+All skills **must** be portable across macOS and Linux unless the skill is explicitly platform-specific (e.g. `osx_email` which uses AppleScript). Follow these rules:
+
+- Use `#!/bin/sh` (POSIX sh), not `#!/bin/bash`, unless bash-specific features are truly needed
+- **Never depend on `jq`** -- it is not installed on many systems and causes skills to crash. Use `grep`, `sed`, and `awk` for JSON parsing instead
+- Avoid GNU-only flags (e.g. `sed -i ''` on macOS vs `sed -i` on Linux). Prefer writing to a temp file and `mv`
+- Only rely on tools that are universally available: `sh`, `curl`, `grep`, `sed`, `awk`, `printf`, `cat`, `tr`, `cut`, `head`, `tail`, `wc`
+- If complex JSON parsing is unavoidable, use `python3` as a fallback (far more available than `jq`) and check for it with `command -v python3`
+
+Common portable JSON helpers:
+
+```bash
+# Escape a string for embedding in JSON values
+_esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'NR>1{printf "%s","\\n"}{printf "%s",$0}'; }
+
+# Extract a string field from JSON (with default)
+# Usage: _jv "$json" "field_name" "default_value"
+_jv() { v=$(printf '%s' "$1" | sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1); printf '%s' "${v:-$3}"; }
+
+# Build JSON: printf '{"key":"%s"}' "$(_esc "$value")"
+# Check success: printf '%s' "$resp" | grep -qE '"success"[[:space:]]*:[[:space:]]*true'
+```
+
 ## run.sh Patterns
 
 ### Environment Variables Available
@@ -72,7 +96,7 @@ Every skill script receives these environment variables automatically:
 | `MOXXY_API_BASE` | API base URL (default: `http://127.0.0.1:17890/api`) |
 | `MOXXY_INTERNAL_TOKEN` | Auth token for internal API calls |
 | `MOXXY_ARGS_MODE` | Set to `"stdin"` when args are passed via stdin (large payloads) |
-| `MOXXY_SOURCE_DIR` | Source dir (dev mode only, for `evolve_core`) |
+| `MOXXY_SOURCE_DIR` | Source dir (auto-detected, for `evolve_core`) |
 
 If `needs_env = true`, all vault secrets are also injected as environment variables.
 
@@ -104,14 +128,14 @@ resp=$(curl -sS -X POST \
   -d "{\"key\": \"$message\"}" \
   "${API_BASE}/agents/${AGENT_NAME}/your_endpoint")
 
-success=$(printf '%s' "$resp" | jq -r '.success // false')
-if [ "$success" != "true" ]; then
-  err=$(printf '%s' "$resp" | jq -r '.error // "operation failed"')
-  echo "Error: $err"
+if ! printf '%s' "$resp" | grep -qE '"success"[[:space:]]*:[[:space:]]*true'; then
+  err=$(printf '%s' "$resp" | sed -n 's/.*"error"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+  echo "Error: ${err:-operation failed}"
   exit 1
 fi
 
-printf '%s\n' "$resp" | jq -r '.message // "Done."'
+msg=$(printf '%s' "$resp" | sed -n 's/.*"message"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+echo "${msg:-Done.}"
 ```
 
 ### Pattern 2: Stdin JSON Handling (for large payloads)
@@ -121,12 +145,15 @@ Based on `host_shell/run.sh` -- handles both CLI args and stdin:
 ```bash
 #!/bin/sh
 
+_esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'NR>1{printf "%s","\\n"}{printf "%s",$0}'; }
+
 # Read command from CLI arg or stdin (for large payloads exceeding OS limits)
 if [ -n "$1" ]; then
     CMD="$1"
 elif [ "$MOXXY_ARGS_MODE" = "stdin" ]; then
-    # Args arrive as a JSON array on stdin, extract the first element
-    CMD=$(cat | jq -r '.[0] // empty')
+    # Args arrive as a JSON array on stdin; extract the first string element
+    raw_input=$(cat)
+    CMD=$(printf '%s' "$raw_input" | sed 's/^\["//' | sed 's/"\]$//' | sed 's/\\"/"/g' | sed 's/\\\\/\\/g')
 else
     echo "Usage: your_skill '<argument>'"
     exit 1
@@ -138,10 +165,10 @@ if [ -z "$CMD" ]; then
 fi
 
 # Make API call
-printf '%s' "$CMD" | jq -Rs '{command: .}' | \
-    curl -s -X POST -H "Content-Type: application/json" \
+JSON_PAYLOAD=$(printf '{"command":"%s"}' "$(_esc "$CMD")")
+curl -s -X POST -H "Content-Type: application/json" \
     -H "X-Moxxy-Internal-Token: $MOXXY_INTERNAL_TOKEN" \
-    -d @- \
+    -d "$JSON_PAYLOAD" \
     ${MOXXY_API_BASE:-http://127.0.0.1:17890/api}/host/execute_bash
 ```
 
@@ -166,7 +193,7 @@ resp=$(curl -s -X POST \
     -d "$PROMPT" \
     "${MOXXY_API_BASE}/agents/$TARGET_AGENT/delegate")
 
-echo "$resp" | jq -r '.response'
+printf '%s' "$resp" | sed -n 's/.*"response"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
 ```
 
 ### Pattern 4: No API Call (local operation)
@@ -187,8 +214,8 @@ git "$@"
 - Always use `set -eu` at the top (exit on error, exit on undefined variable)
 - Validate required arguments before doing anything
 - Check `$AGENT_NAME` if you make API calls (it's always set, but good to verify)
-- Use `jq` to parse JSON responses
-- Check the `.success` field from API responses
+- Use `grep`/`sed` to parse JSON responses (do NOT use `jq` -- it is not broadly available)
+- Check the `.success` field from API responses using `grep -q '"success".*true'`
 - Exit with code 0 on success, non-zero on failure
 - Write errors to stdout (not stderr) -- the skill result is captured from stdout
 

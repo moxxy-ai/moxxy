@@ -7,6 +7,9 @@
 GITHUB_API="https://api.github.com"
 ACTION="${1:-}"
 
+_esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'NR>1{printf "%s","\\n"}{printf "%s",$0}'; }
+_jv() { v=$(printf '%s' "$1" | sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1); printf '%s' "${v:-$3}"; }
+
 require_github_token() {
     if [ -z "${GITHUB_TOKEN:-}" ]; then
         echo "Error: GITHUB_TOKEN is not set in your vault."
@@ -43,10 +46,7 @@ case "$ACTION" in
             exit 1
         fi
 
-        PAYLOAD=$(jq -n \
-            --arg title "$TITLE" \
-            --arg body "${BODY:-}" \
-            '{title: $title, body: $body}')
+        PAYLOAD=$(printf '{"title":"%s","body":"%s"}' "$(_esc "$TITLE")" "$(_esc "${BODY:-}")")
 
         response=$(curl -s -w "\n%{http_code}" -X POST "$GITHUB_API/repos/$REPO/issues" \
             -H "$AUTH_HEADER" \
@@ -58,12 +58,13 @@ case "$ACTION" in
         status_code=$(echo "$response" | tail -n 1)
 
         if [ "$status_code" = "201" ]; then
-            issue_url=$(echo "$body" | jq -r '.html_url // empty')
-            issue_number=$(echo "$body" | jq -r '.number // empty')
+            issue_url=$(_jv "$body" "html_url" "")
+            issue_number=$(_jv "$body" "number" "")
             echo "Issue #$issue_number created: $issue_url"
         else
             echo "Failed (HTTP $status_code)."
-            echo "$body" | jq -r '.message // .' 2>/dev/null || echo "$body"
+            msg=$(_jv "$body" "message" "")
+            echo "${msg:-$body}"
             exit 1
         fi
         ;;
@@ -85,12 +86,13 @@ case "$ACTION" in
         status_code=$(echo "$response" | tail -n 1)
 
         if [ "$status_code" = "202" ] || [ "$status_code" = "200" ]; then
-            fork_url=$(echo "$body" | jq -r '.html_url // empty')
-            full_name=$(echo "$body" | jq -r '.full_name // empty')
+            fork_url=$(_jv "$body" "html_url" "")
+            full_name=$(_jv "$body" "full_name" "")
             echo "Forked: $full_name - $fork_url"
         else
             echo "Failed (HTTP $status_code)."
-            echo "$body" | jq -r '.message // .' 2>/dev/null || echo "$body"
+            msg=$(_jv "$body" "message" "")
+            echo "${msg:-$body}"
             exit 1
         fi
         ;;
@@ -136,12 +138,8 @@ case "$ACTION" in
             exit 1
         fi
 
-        PAYLOAD=$(jq -n \
-            --arg title "$TITLE" \
-            --arg body "${DESCRIPTION:-}" \
-            --arg head "$HEAD" \
-            --arg base "$BASE" \
-            '{title: $title, body: $body, head: $head, base: $base, draft: true}')
+        PAYLOAD=$(printf '{"title":"%s","body":"%s","head":"%s","base":"%s","draft":true}' \
+            "$(_esc "$TITLE")" "$(_esc "${DESCRIPTION:-}")" "$(_esc "$HEAD")" "$(_esc "$BASE")")
 
         response=$(curl -s -w "\n%{http_code}" -X POST "$GITHUB_API/repos/$REPO/pulls" \
             -H "$AUTH_HEADER" \
@@ -153,12 +151,13 @@ case "$ACTION" in
         status_code=$(echo "$response" | tail -n 1)
 
         if [ "$status_code" = "201" ]; then
-            pr_url=$(echo "$body" | jq -r '.html_url // empty')
-            pr_number=$(echo "$body" | jq -r '.number // empty')
+            pr_url=$(_jv "$body" "html_url" "")
+            pr_number=$(_jv "$body" "number" "")
             echo "Draft PR #$pr_number created: $pr_url"
         else
             echo "Failed (HTTP $status_code)."
-            echo "$body" | jq -r '.message // .' 2>/dev/null || echo "$body"
+            msg=$(_jv "$body" "message" "")
+            echo "${msg:-$body}"
             exit 1
         fi
         ;;
@@ -173,7 +172,7 @@ case "$ACTION" in
             exit 1
         fi
 
-        PAYLOAD=$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')
+        PAYLOAD=$(printf '{"body":"%s"}' "$(_esc "$COMMENT_BODY")")
 
         response=$(curl -s -w "\n%{http_code}" -X POST "$GITHUB_API/repos/$REPO/issues/$ISSUE_NUMBER/comments" \
             -H "$AUTH_HEADER" \
@@ -185,11 +184,12 @@ case "$ACTION" in
         status_code=$(echo "$response" | tail -n 1)
 
         if [ "$status_code" = "201" ]; then
-            comment_url=$(echo "$body" | jq -r '.html_url // empty')
+            comment_url=$(_jv "$body" "html_url" "")
             echo "Comment posted: $comment_url"
         else
             echo "Failed (HTTP $status_code)."
-            echo "$body" | jq -r '.message // .' 2>/dev/null || echo "$body"
+            msg=$(_jv "$body" "message" "")
+            echo "${msg:-$body}"
             exit 1
         fi
         ;;
@@ -207,9 +207,23 @@ case "$ACTION" in
             -H "Accept: application/vnd.github+json")
 
         echo "Open issues on $REPO:"
-        echo "$response" | jq -r '.[] | select(.pull_request == null) | "#\(.number) \(.title) - \(.html_url)"' 2>/dev/null
-        issue_count=$(echo "$response" | jq '[.[] | select(.pull_request == null)] | length' 2>/dev/null)
-        if [ "$issue_count" = "0" ] || [ -z "$issue_count" ]; then
+        # Parse JSON array items; each issue has number, title, html_url
+        # Filter out pull requests (they also appear in /issues)
+        printf '%s' "$response" | grep -o '"number":[0-9]*,"title":"[^"]*"[^}]*"html_url":"[^"]*"' | while read -r item; do
+            # Skip items that contain pull_request
+            if printf '%s' "$item" | grep -q '"pull_request"'; then
+                continue
+            fi
+            num=$(printf '%s' "$item" | sed -n 's/.*"number":\([0-9]*\).*/\1/p')
+            title=$(printf '%s' "$item" | sed -n 's/.*"title":"\([^"]*\)".*/\1/p')
+            url=$(printf '%s' "$item" | sed -n 's/.*"html_url":"\([^"]*\)".*/\1/p')
+            if [ -n "$num" ]; then
+                echo "#$num $title - $url"
+            fi
+        done
+        # Check if any were printed
+        count=$(printf '%s' "$response" | grep -c '"number"' 2>/dev/null || true)
+        if [ "$count" = "0" ] || [ -z "$count" ]; then
             echo "  No open issues."
         fi
         ;;
@@ -227,9 +241,21 @@ case "$ACTION" in
             -H "Accept: application/vnd.github+json")
 
         echo "Open PRs on $REPO:"
-        echo "$response" | jq -r '.[] | "#\(.number) \(.title) [\(if .draft then "DRAFT" else "OPEN" end)] - \(.html_url)"' 2>/dev/null
-        pr_count=$(echo "$response" | jq '. | length' 2>/dev/null)
-        if [ "$pr_count" = "0" ] || [ -z "$pr_count" ]; then
+        # Parse each PR object for number, title, html_url, draft
+        printf '%s' "$response" | grep -o '"number":[0-9]*' | sed 's/"number"://' | while read -r num; do
+            title=$(printf '%s' "$response" | grep -o "\"number\":${num},\"title\":\"[^\"]*\"" | sed -n 's/.*"title":"\([^"]*\)".*/\1/p' | head -1)
+            url=$(printf '%s' "$response" | grep -o "\"number\":${num}[^}]*\"html_url\":\"[^\"]*\"" | sed -n 's/.*"html_url":"\([^"]*\)".*/\1/p' | head -1)
+            draft=$(printf '%s' "$response" | grep -o "\"number\":${num}[^}]*\"draft\":[a-z]*" | sed -n 's/.*"draft":\([a-z]*\).*/\1/p' | head -1)
+            status_label="OPEN"
+            if [ "$draft" = "true" ]; then
+                status_label="DRAFT"
+            fi
+            if [ -n "$num" ] && [ -n "$title" ]; then
+                echo "#$num $title [$status_label] - $url"
+            fi
+        done
+        count=$(printf '%s' "$response" | grep -c '"number"' 2>/dev/null || true)
+        if [ "$count" = "0" ] || [ -z "$count" ]; then
             echo "  No open PRs."
         fi
         ;;

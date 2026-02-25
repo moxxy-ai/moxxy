@@ -1,7 +1,7 @@
 #!/bin/sh
 
 if [ -z "$MOXXY_SOURCE_DIR" ]; then
-    echo "Error: MOXXY_SOURCE_DIR is not set. This skill can only be run in Dev Mode."
+    echo "Error: MOXXY_SOURCE_DIR is not set. The source directory could not be detected from the running binary."
     exit 1
 fi
 
@@ -41,13 +41,13 @@ cat << 'WDOG' > target/release/watchdog.sh
 sleep 2
 killall moxxy || true
 sleep 1
-./target/release/moxxy dev &
+./target/release/moxxy web &
 NEW_PID=$!
 sleep 5
 if ! kill -0 $NEW_PID 2>/dev/null; then
     echo "Watchdog: New process crashed! Rolling back..."
     cp target/release/moxxy.bak target/release/moxxy
-    ./target/release/moxxy dev &
+    ./target/release/moxxy web &
 fi
 WDOG
 
@@ -57,7 +57,9 @@ echo "Watchdog deployed. Restart sequence initiating... Connection will drop sho
 EOF
 )
 
-JSON_PAYLOAD=$(jq -n --arg script "$PAYLOAD" '{command: $script}')
+_esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'NR>1{printf "%s","\\n"}{printf "%s",$0}'; }
+
+JSON_PAYLOAD=$(printf '{"command":"%s"}' "$(_esc "$PAYLOAD")")
 
 AUTH_HEADER=""
 if [ -n "${MOXXY_INTERNAL_TOKEN:-}" ]; then
