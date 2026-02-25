@@ -9,7 +9,9 @@ if [ -n "${MOXXY_INTERNAL_TOKEN:-}" ]; then
     AUTH_HEADER="X-Moxxy-Internal-Token: ${MOXXY_INTERNAL_TOKEN}"
 fi
 
-JSON_PAYLOAD=$(jq -n --arg script "$1" '{script: $script}')
+_esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'NR>1{printf "%s","\\n"}{printf "%s",$0}'; }
+
+JSON_PAYLOAD=$(printf '{"script":"%s"}' "$(_esc "$1")")
 
 curl -s -X POST ${AUTH_HEADER:+-H "$AUTH_HEADER"} -H "Content-Type: application/json" \
     -d "$JSON_PAYLOAD" \

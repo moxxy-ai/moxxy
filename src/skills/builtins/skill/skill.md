@@ -59,8 +59,7 @@ Read a skill's source files:
 ```
 
 ### Fix broken skills (self-repair)
-When a skill fails with "command not found" or "not found" (e.g. jq, curl), fix it by editing the skill rather than installing system packages:
+When a skill fails with "command not found" or "not found" (e.g. curl, python3), fix it by editing the skill rather than installing system packages:
 1. Read the skill: `skill read <skill_name>`
-2. Edit run.sh to remove the dependency (e.g. use grep/sed instead of jq)
+2. Edit run.sh to remove the dependency (e.g. use grep/sed for JSON parsing)
 3. Apply the fix: `skill modify <skill_name> run.sh "<new_content>"`
-Example: if discord_notify fails with "jq: not found", replace jq-based JSON parsing with grep/sed in run.sh.

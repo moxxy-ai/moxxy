@@ -41,7 +41,18 @@ Channels can be added or removed via:
 
 **Important:** Do NOT use `manage_vault` to modify `discord_listen_channels` – that overwrites the entire list. Always use the skills above.
 
+## Setup
+
+To configure Discord for the current agent, store the bot token in the vault under the key **`discord_token`**:
+
+```bash
+manage_vault set discord_token "<your-bot-token>"
+```
+
+The key **must** be exactly `discord_token` — any other name (e.g. `discord_bot_token`) will not be recognised by the runtime.
+
+After saving the token, the gateway must be restarted for the bot to connect.
+
 ## Notes
-- Discord must already be configured for the current agent.
 - Use `discord_channels` to discover available channel IDs by name.
 - The bot always *replies* in the channel where it received a message. The listen list controls which channels the bot pays attention to.

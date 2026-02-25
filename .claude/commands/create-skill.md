@@ -74,23 +74,26 @@ resp=$(curl -sS -X POST \
   -d "{\"key\": \"$arg1\"}" \
   "${API_BASE}/your/endpoint")
 
-# Check response
-success=$(printf '%s' "$resp" | jq -r '.success // false')
-if [ "$success" != "true" ]; then
-  err=$(printf '%s' "$resp" | jq -r '.error // "operation failed"')
-  echo "Error: $err"
+# Check response (use grep/sed instead of jq -- jq is not broadly available)
+if ! printf '%s' "$resp" | grep -qE '"success"[[:space:]]*:[[:space:]]*true'; then
+  err=$(printf '%s' "$resp" | sed -n 's/.*"error"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+  echo "Error: ${err:-operation failed}"
   exit 1
 fi
 
-printf '%s\n' "$resp" | jq -r '.message // "Done."'
+msg=$(printf '%s' "$resp" | sed -n 's/.*"message"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+echo "${msg:-Done.}"
 ```
 
 Rules:
 - Always start with `#!/bin/sh` and `set -eu`
+- **Must be cross-system compatible** (macOS + Linux) unless the user explicitly requests a platform-specific skill
+- **Never use `jq`** -- it crashes on systems where it is not installed. Use `grep`/`sed`/`awk` for JSON parsing
+- Only depend on universally available tools: `sh`, `curl`, `grep`, `sed`, `awk`, `printf`, `cat`, `tr`, `cut`
 - Validate required arguments
 - Use `$MOXXY_API_BASE` with fallback for API calls
 - Include `X-Moxxy-Internal-Token` header on API calls
-- Check `.success` field from API responses
+- Check `.success` field using `grep -qE '"success"[[:space:]]*:[[:space:]]*true'`
 - Exit 0 on success, non-zero on failure
 - Output results to stdout
 

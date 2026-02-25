@@ -179,18 +179,26 @@ migrate)
     } > "$PERSONA_RAW"
     transform_persona "$PERSONA_RAW" > "$TARGET_DIR/persona.md"
     
-    # Heartbeat migration (if openclaw.json and jq available)
-    if [ -f "$OPENCLAW_ROOT/openclaw.json" ] && command -v jq >/dev/null 2>&1; then
-        HB_EVERY=$(jq -r '.agents.defaults.heartbeat.every // .heartbeat.every // empty' "$OPENCLAW_ROOT/openclaw.json" 2>/dev/null)
+    # Heartbeat migration (if openclaw.json exists and python3 available)
+    if [ -f "$OPENCLAW_ROOT/openclaw.json" ] && command -v python3 >/dev/null 2>&1; then
+        HB_EVERY=$(python3 -c "
+import json
+with open('$OPENCLAW_ROOT/openclaw.json') as f:
+    c = json.load(f)
+v = c.get('agents',{}).get('defaults',{}).get('heartbeat',{}).get('every','')
+if not v: v = c.get('heartbeat',{}).get('every','')
+print(v)
+" 2>/dev/null)
         if [ -n "$HB_EVERY" ]; then
             CRON=$(duration_to_cron "$HB_EVERY")
             if [ -n "$CRON" ]; then
                 if [ -f "$OPENCLAW_DIR/HEARTBEAT.md" ]; then
-                    HB_PROMPT=$(jq -Rs . < "$OPENCLAW_DIR/HEARTBEAT.md")
+                    HB_PROMPT=$(cat "$OPENCLAW_DIR/HEARTBEAT.md")
                 else
-                    HB_PROMPT=$(echo "Proactively check for anything needing attention (inbox, calendar, notifications). If nothing needs attention, respond briefly." | jq -Rs .)
+                    HB_PROMPT="Proactively check for anything needing attention (inbox, calendar, notifications). If nothing needs attention, respond briefly."
                 fi
-                PAYLOAD=$(jq -n --arg name "openclaw_heartbeat" --arg cron "$CRON" --argjson prompt "$HB_PROMPT" '{name:$name,cron:$cron,prompt:$prompt}')
+                _esc_oc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'NR>1{printf "%s","\\n"}{printf "%s",$0}'; }
+                PAYLOAD=$(printf '{"name":"openclaw_heartbeat","cron":"%s","prompt":"%s"}' "$(_esc_oc "$CRON")" "$(_esc_oc "$HB_PROMPT")")
                 resp=$(api_post "$API_BASE/agents/$TARGET/schedules" "$PAYLOAD")
                 if echo "$resp" | grep -q '"success":true'; then
                     echo "Migrated: heartbeat -> scheduled job"
@@ -200,15 +208,29 @@ migrate)
     fi
     
     # LLM migration (auth-profiles, vault, llm) - requires agent to exist in moxxy
-    if [ -f "$OPENCLAW_ROOT/openclaw.json" ] && command -v jq >/dev/null 2>&1; then
+    if [ -f "$OPENCLAW_ROOT/openclaw.json" ] && command -v python3 >/dev/null 2>&1; then
         for auth_file in "$OPENCLAW_ROOT"/agents/*/agent/auth-profiles.json; do
             [ -f "$auth_file" ] || continue
-            jq -c '.profiles | to_entries[] | select(.value.type=="api_key") | {key: (.value.provider + "_api_key"), value: .value.key}' "$auth_file" 2>/dev/null | while read -r row; do
+            python3 -c "
+import json
+with open('$auth_file') as f:
+    data = json.load(f)
+for name, p in data.get('profiles',{}).items():
+    if p.get('type') == 'api_key':
+        print(json.dumps({'key': p.get('provider','') + '_api_key', 'value': p.get('key','')}))
+" 2>/dev/null | while read -r row; do
                 [ -n "$row" ] && api_post "$API_BASE/agents/$TARGET/vault" "$row" >/dev/null 2>&1
             done
             break
         done
-        PRIMARY=$(jq -r '.agent.model.primary // .agents.defaults.model.primary // empty' "$OPENCLAW_ROOT/openclaw.json" 2>/dev/null)
+        PRIMARY=$(python3 -c "
+import json
+with open('$OPENCLAW_ROOT/openclaw.json') as f:
+    c = json.load(f)
+v = c.get('agent',{}).get('model',{}).get('primary','')
+if not v: v = c.get('agents',{}).get('defaults',{}).get('model',{}).get('primary','')
+print(v)
+" 2>/dev/null)
         if [ -n "$PRIMARY" ]; then
             PROVIDER="${PRIMARY%%/*}"
             MODEL="${PRIMARY#*/}"

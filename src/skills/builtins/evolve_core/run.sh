@@ -57,7 +57,9 @@ echo "Watchdog deployed. Restart sequence initiating... Connection will drop sho
 EOF
 )
 
-JSON_PAYLOAD=$(jq -n --arg script "$PAYLOAD" '{command: $script}')
+_esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'NR>1{printf "%s","\\n"}{printf "%s",$0}'; }
+
+JSON_PAYLOAD=$(printf '{"command":"%s"}' "$(_esc "$PAYLOAD")")
 
 AUTH_HEADER=""
 if [ -n "${MOXXY_INTERNAL_TOKEN:-}" ]; then

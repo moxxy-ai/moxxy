@@ -9,11 +9,13 @@ if [ -n "${MOXXY_INTERNAL_TOKEN:-}" ]; then
     AUTH_HEADER="X-Moxxy-Internal-Token: ${MOXXY_INTERNAL_TOKEN}"
 fi
 
+_esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'NR>1{printf "%s","\\n"}{printf "%s",$0}'; }
+
 action="$1"
 
 case "$action" in
     "list")
-        curl -s ${AUTH_HEADER:+-H "$AUTH_HEADER"} "${API_URL}/agents/${AGENT_NAME}/mcp" | jq '.'
+        curl -s ${AUTH_HEADER:+-H "$AUTH_HEADER"} "${API_URL}/agents/${AGENT_NAME}/mcp"
         ;;
     "add")
         server_name="$2"
@@ -26,15 +28,10 @@ case "$action" in
             exit 1
         fi
 
-        # Prepare JSON payload safely
-        payload=$(jq -n \
-          --arg n "$server_name" \
-          --arg c "$command" \
-          --arg a "$args" \
-          --arg e "$env_json" \
-          '{name: $n, command: $c, args: $a, env: $e}')
+        payload=$(printf '{"name":"%s","command":"%s","args":"%s","env":"%s"}' \
+          "$(_esc "$server_name")" "$(_esc "$command")" "$(_esc "$args")" "$(_esc "$env_json")")
 
-        curl -s -X POST ${AUTH_HEADER:+-H "$AUTH_HEADER"} -H "Content-Type: application/json" -d "$payload" "${API_URL}/agents/${AGENT_NAME}/mcp" | jq '.'
+        curl -s -X POST ${AUTH_HEADER:+-H "$AUTH_HEADER"} -H "Content-Type: application/json" -d "$payload" "${API_URL}/agents/${AGENT_NAME}/mcp"
         ;;
     "add-json")
         json_config="$2"
@@ -45,62 +42,45 @@ case "$action" in
             exit 1
         fi
 
-        # Validate JSON
-        if ! echo "$json_config" | jq empty 2>/dev/null; then
-            echo "Error: Invalid JSON provided."
+        # Use Python3 for complex JSON parsing (broadly available)
+        if ! command -v python3 >/dev/null 2>&1; then
+            echo "Error: python3 is required for add-json. Use 'mcp add <name> <command> <args> [env_json]' instead."
             exit 1
         fi
 
-        # Extract server names from mcpServers object
-        servers=$(echo "$json_config" | jq -r '.mcpServers // . | keys[]' 2>/dev/null)
+        python3 -c "
+import json, sys, urllib.request
 
-        if [ -z "$servers" ]; then
-            echo "Error: No servers found in JSON config."
-            exit 1
-        fi
+config = json.loads(sys.argv[1])
+servers = config.get('mcpServers', config)
+api_url = sys.argv[2]
+agent = sys.argv[3]
+auth = sys.argv[4] if len(sys.argv) > 4 else ''
+added = 0
 
-        # Determine the root: either .mcpServers or the object itself
-        root_expr='.mcpServers // .'
+for name, spec in servers.items():
+    cmd = spec.get('command', '')
+    if not cmd:
+        print(f'Skipping \"{name}\": no command specified.')
+        continue
+    args = spec.get('args', [])
+    args_str = ' '.join(args) if isinstance(args, list) else str(args)
+    env = json.dumps(spec.get('env', {}))
+    payload = json.dumps({'name': name, 'command': cmd, 'args': args_str, 'env': env}).encode()
+    headers = {'Content-Type': 'application/json'}
+    if auth:
+        headers['X-Moxxy-Internal-Token'] = auth
+    print(f'Adding MCP server: {name}')
+    req = urllib.request.Request(f'{api_url}/agents/{agent}/mcp', data=payload, headers=headers, method='POST')
+    try:
+        resp = urllib.request.urlopen(req)
+        print(resp.read().decode())
+    except Exception as e:
+        print(f'Error adding {name}: {e}')
+    added += 1
 
-        added=0
-        for server_name in $servers; do
-            server_json=$(echo "$json_config" | jq -c "($root_expr)[\"$server_name\"]")
-
-            command=$(echo "$server_json" | jq -r '.command // empty')
-            if [ -z "$command" ]; then
-                echo "Skipping '$server_name': no command specified."
-                continue
-            fi
-
-            # Convert args array to space-separated string
-            args=$(echo "$server_json" | jq -r '
-                if .args then
-                    if (.args | type) == "array" then
-                        .args | join(" ")
-                    else
-                        .args
-                    end
-                else
-                    ""
-                end
-            ')
-
-            # Extract env as JSON string
-            env_json=$(echo "$server_json" | jq -c '.env // {}')
-
-            payload=$(jq -n \
-              --arg n "$server_name" \
-              --arg c "$command" \
-              --arg a "$args" \
-              --arg e "$env_json" \
-              '{name: $n, command: $c, args: $a, env: $e}')
-
-            echo "Adding MCP server: $server_name"
-            curl -s -X POST ${AUTH_HEADER:+-H "$AUTH_HEADER"} -H "Content-Type: application/json" -d "$payload" "${API_URL}/agents/${AGENT_NAME}/mcp" | jq '.'
-            added=$((added + 1))
-        done
-
-        echo "Added $added MCP server(s). Please reboot the agent to initialize them."
+print(f'Added {added} MCP server(s). Please reboot the agent to initialize them.')
+" "$json_config" "$API_URL" "$AGENT_NAME" "${MOXXY_INTERNAL_TOKEN:-}"
         ;;
     "remove")
         server_name="$2"
@@ -109,7 +89,7 @@ case "$action" in
             exit 1
         fi
 
-        curl -s -X DELETE ${AUTH_HEADER:+-H "$AUTH_HEADER"} "${API_URL}/agents/${AGENT_NAME}/mcp/${server_name}" | jq '.'
+        curl -s -X DELETE ${AUTH_HEADER:+-H "$AUTH_HEADER"} "${API_URL}/agents/${AGENT_NAME}/mcp/${server_name}"
         ;;
     *)
         echo "Usage:"

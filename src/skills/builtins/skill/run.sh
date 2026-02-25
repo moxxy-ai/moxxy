@@ -19,6 +19,9 @@ API="${MOXXY_API_BASE:-http://127.0.0.1:17890/api}"
 SUBCMD="$1"
 shift 2>/dev/null
 
+_esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'NR>1{printf "%s","\\n"}{printf "%s",$0}'; }
+_jv() { v=$(printf '%s' "$1" | sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1); printf '%s' "${v:-$3}"; }
+
 case "$SUBCMD" in
 
 # ---- LIST ----
@@ -39,11 +42,8 @@ install)
         RUN_SH="$2"
         SKILL_MD="${3:-# Skill}"
 
-        JSON_PAYLOAD=$(jq -n \
-          --arg nm "$MANIFEST" \
-          --arg rs "$RUN_SH" \
-          --arg sd "$SKILL_MD" \
-          '{new_manifest_content: $nm, new_run_sh: $rs, new_skill_md: $sd}')
+        JSON_PAYLOAD=$(printf '{"new_manifest_content":"%s","new_run_sh":"%s","new_skill_md":"%s"}' \
+          "$(_esc "$MANIFEST")" "$(_esc "$RUN_SH")" "$(_esc "$SKILL_MD")")
 
         curl -s -X POST -H "Content-Type: application/json" \
             -H "X-Moxxy-Internal-Token: ${MOXXY_INTERNAL_TOKEN}" \
@@ -67,9 +67,9 @@ install)
     fi
 
     if [ "$IS_OPENCLAW" = "true" ]; then
-        JSON_PAYLOAD=$(jq -n --arg url "$BASE_URL" '{url: $url}')
+        JSON_PAYLOAD=$(printf '{"url":"%s"}' "$(_esc "$BASE_URL")")
         curl -s -X POST -H "Content-Type: application/json" \
-            -H "X-Moxxy-Internal-Token: ${MOXXY_INTERNAL_TOKEN}" \
+            -H "X X-Moxxy-Internal-Token: ${MOXXY_INTERNAL_TOKEN}" \
             -d "$JSON_PAYLOAD" \
             "${API}/agents/${AGENT_NAME}/install_openclaw_skill"
         exit 0
@@ -87,11 +87,8 @@ install)
     echo "Fetching skill.md from ${BASE_URL}/skill.md..."
     SKILL_MD=$(curl -sf "$BASE_URL/skill.md" || echo "# Skill")
 
-    JSON_PAYLOAD=$(jq -n \
-      --arg nm "$MANIFEST" \
-      --arg rs "$RUN_SH" \
-      --arg sd "$SKILL_MD" \
-      '{new_manifest_content: $nm, new_run_sh: $rs, new_skill_md: $sd}')
+    JSON_PAYLOAD=$(printf '{"new_manifest_content":"%s","new_run_sh":"%s","new_skill_md":"%s"}' \
+      "$(_esc "$MANIFEST")" "$(_esc "$RUN_SH")" "$(_esc "$SKILL_MD")")
 
     curl -s -X POST -H "Content-Type: application/json" \
         -H "X-Moxxy-Internal-Token: ${MOXXY_INTERNAL_TOKEN}" \
@@ -120,13 +117,8 @@ upgrade)
     NEW_RUN_SH="$4"
     NEW_SKILL_MD="${5:-# $SKILL_NAME}"
 
-    JSON_PAYLOAD=$(jq -n \
-      --arg sn "$SKILL_NAME" \
-      --arg nv "$NEW_VERSION" \
-      --arg nm "$NEW_MANIFEST" \
-      --arg rs "$NEW_RUN_SH" \
-      --arg sd "$NEW_SKILL_MD" \
-      '{skill_name: $sn, new_version_str: $nv, new_manifest_content: $nm, new_run_sh: $rs, new_skill_md: $sd}')
+    JSON_PAYLOAD=$(printf '{"skill_name":"%s","new_version_str":"%s","new_manifest_content":"%s","new_run_sh":"%s","new_skill_md":"%s"}' \
+      "$(_esc "$SKILL_NAME")" "$(_esc "$NEW_VERSION")" "$(_esc "$NEW_MANIFEST")" "$(_esc "$NEW_RUN_SH")" "$(_esc "$NEW_SKILL_MD")")
 
     curl -s -X POST -H "Content-Type: application/json" \
         -d "$JSON_PAYLOAD" \
@@ -143,11 +135,8 @@ modify)
     FILE_NAME="$2"
     CONTENT="$3"
 
-    JSON_PAYLOAD=$(jq -n \
-      --arg sn "$SKILL_NAME" \
-      --arg fn "$FILE_NAME" \
-      --arg ct "$CONTENT" \
-      '{skill_name: $sn, file_name: $fn, content: $ct}')
+    JSON_PAYLOAD=$(printf '{"skill_name":"%s","file_name":"%s","content":"%s"}' \
+      "$(_esc "$SKILL_NAME")" "$(_esc "$FILE_NAME")" "$(_esc "$CONTENT")")
 
     curl -s -X PATCH -H "Content-Type: application/json" \
         -d "$JSON_PAYLOAD" \
@@ -160,16 +149,16 @@ create)
         echo "Usage: skill create <skill_name> <description>"
         exit 1
     fi
-    JSON_PAYLOAD=$(jq -n --arg name "$1" --arg desc "$2" '{name: $name, description: $desc}')
+    JSON_PAYLOAD=$(printf '{"name":"%s","description":"%s"}' "$(_esc "$1")" "$(_esc "$2")")
 
     RESULT=$(curl -s -X POST -H "Content-Type: application/json" \
         -d "$JSON_PAYLOAD" \
         "${API}/agents/${AGENT_NAME}/create_skill")
 
-    if echo "$RESULT" | jq -e '.success == true' > /dev/null 2>&1; then
+    if printf '%s' "$RESULT" | grep -qE '"success"[[:space:]]*:[[:space:]]*true'; then
         echo "Skill '$1' created and registered successfully."
     else
-        ERROR=$(echo "$RESULT" | jq -r '.error // "Unknown error"')
+        ERROR=$(_jv "$RESULT" "error" "Unknown error")
         echo "ERROR: Failed to create skill '$1': $ERROR"
         exit 1
     fi

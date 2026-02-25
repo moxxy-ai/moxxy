@@ -26,5 +26,5 @@ Returns a JSON list of channels with `guild`, `guild_id`, `channel` (name), and 
 3. Invoke `discord_add_listen_channel "<channel_id>"`.
 
 ## Notes
-- Discord must already be configured and paired for the current agent.
+- Discord must already be configured: the bot token must be stored in the vault as **`discord_token`** (see `discord_notify` skill for setup instructions).
 - Only text channels (type 0) are returned.

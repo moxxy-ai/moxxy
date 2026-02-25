@@ -16,10 +16,12 @@ if [ -z "$NAME" ]; then
     exit 1
 fi
 
+_urlencode() { printf '%s' "$1" | sed -e 's/ /%20/g' -e 's/!/%21/g' -e 's/#/%23/g' -e 's/&/%26/g' -e 's/+/%2B/g' -e 's/\//%2F/g' -e 's/:/%3A/g' -e 's/\?/%3F/g'; }
+
 if [ "$NAME" = "--all" ]; then
     response=$(curl -s -w "\n%{http_code}" -X DELETE ${AUTH_HEADER:+-H "$AUTH_HEADER"} "$MOXXY_API_BASE/agents/$AGENT_NAME/schedules")
 else
-    ENCODED_NAME=$(jq -rn --arg x "$NAME" '$x|@uri')
+    ENCODED_NAME=$(_urlencode "$NAME")
     response=$(curl -s -w "\n%{http_code}" -X DELETE ${AUTH_HEADER:+-H "$AUTH_HEADER"} "$MOXXY_API_BASE/agents/$AGENT_NAME/schedules/$ENCODED_NAME")
 fi
 
