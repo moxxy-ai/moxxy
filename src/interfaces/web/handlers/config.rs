@@ -61,7 +61,7 @@ pub async fn get_llm_info(
 ) -> Json<serde_json::Value> {
     let llm_reg = state.llm_registry.lock().await;
     if let Some(llm_mutex) = llm_reg.get(&agent) {
-        let llm = llm_mutex.lock().await;
+        let llm = llm_mutex.read().await;
         let (provider, model) = llm.get_active_info();
         Json(serde_json::json!({
             "success": true,
@@ -96,7 +96,7 @@ pub async fn set_llm_endpoint(
     // Update runtime
     let llm_reg = state.llm_registry.lock().await;
     if let Some(llm_mutex) = llm_reg.get(&agent) {
-        let mut llm = llm_mutex.lock().await;
+        let mut llm = llm_mutex.write().await;
         llm.set_active(&normalized, payload.model.clone());
     } else {
         return Json(serde_json::json!({ "success": false, "error": "Agent not found" }));

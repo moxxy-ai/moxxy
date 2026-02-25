@@ -177,6 +177,7 @@ impl MemorySystem {
     }
 
     /// Restore a previous session_id.
+    #[allow(dead_code)]
     pub fn restore_session(&mut self, session_id: String) {
         info!("Restoring STM session: {}", session_id);
         self.session_id = session_id;

@@ -35,7 +35,7 @@ struct HostState {
 }
 
 struct HostBridge {
-    llm: Arc<Mutex<LlmManager>>,
+    llm: Arc<tokio::sync::RwLock<LlmManager>>,
     memory: Arc<Mutex<MemorySystem>>,
     skills: Arc<Mutex<SkillManager>>,
     stream_tx: Option<tokio::sync::mpsc::Sender<String>>,
@@ -127,7 +127,7 @@ impl AgentContainer {
     pub async fn execute(
         &self,
         input: &str,
-        llm: Arc<Mutex<LlmManager>>,
+        llm: Arc<tokio::sync::RwLock<LlmManager>>,
         memory: Arc<Mutex<MemorySystem>>,
         skills: Arc<Mutex<SkillManager>>,
         stream_tx: Option<tokio::sync::mpsc::Sender<String>>,
@@ -294,7 +294,7 @@ impl AgentContainer {
                         };
 
                     let response = rt.block_on(async {
-                        let llm_guard = llm.lock().await;
+                        let llm_guard = llm.read().await;
                         match tokio::time::timeout(
                             std::time::Duration::from_secs(120),
                             llm_guard.generate_with_selected(&messages),

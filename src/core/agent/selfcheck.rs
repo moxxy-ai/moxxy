@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tracing::info;
 
 use crate::core::lifecycle::LifecycleManager;
@@ -16,7 +16,7 @@ pub(super) async fn attach_self_check(
     name: &str,
     workspace_dir: &Path,
     lifecycle: &mut LifecycleManager,
-    llm_sys_arc: &Arc<Mutex<LlmManager>>,
+    llm_sys_arc: &Arc<RwLock<LlmManager>>,
     memory_sys_arc: &Arc<Mutex<MemorySystem>>,
     skill_sys_arc: &Arc<Mutex<SkillManager>>,
 ) -> Result<()> {
@@ -53,7 +53,7 @@ pub(super) async fn attach_self_check(
 
             // LLM configured?
             {
-                let llm = llm_check.lock().await;
+                let llm = llm_check.read().await;
                 let test_msgs = vec![crate::core::llm::ChatMessage {
                     role: "user".to_string(),
                     content: "Reply with OK".to_string(),

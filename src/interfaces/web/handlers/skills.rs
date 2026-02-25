@@ -81,7 +81,7 @@ Rules:
 
     // 3. Call the LLM
     let llm_response = {
-        let llm = llm_mutex.lock().await;
+        let llm = llm_mutex.read().await;
         match llm.generate_with_selected(&messages).await {
             Ok(r) => r,
             Err(e) => {

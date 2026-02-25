@@ -6,7 +6,7 @@ use global_hotkey::{
 };
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tracing::info;
 
 use crate::core::lifecycle::LifecycleComponent;
@@ -19,7 +19,7 @@ pub struct DesktopInterface {
     agent_name: String,
     registry: Arc<Mutex<HashMap<String, Arc<Mutex<MemorySystem>>>>>,
     skill_registry: Arc<Mutex<HashMap<String, Arc<Mutex<SkillManager>>>>>,
-    llm_registry: Arc<Mutex<HashMap<String, Arc<Mutex<LlmManager>>>>>,
+    llm_registry: Arc<Mutex<HashMap<String, Arc<RwLock<LlmManager>>>>>,
     hotkey_manager: Option<GlobalHotKeyManager>,
 }
 
@@ -29,7 +29,7 @@ impl DesktopInterface {
         agent_name: String,
         registry: Arc<Mutex<HashMap<String, Arc<Mutex<MemorySystem>>>>>,
         skill_registry: Arc<Mutex<HashMap<String, Arc<Mutex<SkillManager>>>>>,
-        llm_registry: Arc<Mutex<HashMap<String, Arc<Mutex<LlmManager>>>>>,
+        llm_registry: Arc<Mutex<HashMap<String, Arc<RwLock<LlmManager>>>>>,
     ) -> Self {
         Self {
             agent_name,

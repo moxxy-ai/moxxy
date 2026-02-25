@@ -9,7 +9,7 @@ use axum::{
 };
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tracing::{error, info, warn};
 
 use crate::core::brain::AutonomousBrain;
@@ -23,7 +23,7 @@ struct WhatsAppState {
     agent_name: String,
     memory: Arc<Mutex<MemorySystem>>,
     skills: Arc<Mutex<SkillManager>>,
-    llms: Arc<Mutex<LlmManager>>,
+    llms: Arc<RwLock<LlmManager>>,
     auth_token: String,
     webhook_url: String,
 }
@@ -183,7 +183,7 @@ pub struct WhatsAppChannel {
     agent_name: String,
     registry: Arc<Mutex<HashMap<String, Arc<Mutex<MemorySystem>>>>>,
     skill_registry: Arc<Mutex<HashMap<String, Arc<Mutex<SkillManager>>>>>,
-    llm_registry: Arc<Mutex<HashMap<String, Arc<Mutex<LlmManager>>>>>,
+    llm_registry: Arc<Mutex<HashMap<String, Arc<RwLock<LlmManager>>>>>,
 }
 
 impl WhatsAppChannel {
@@ -191,7 +191,7 @@ impl WhatsAppChannel {
         agent_name: String,
         registry: Arc<Mutex<HashMap<String, Arc<Mutex<MemorySystem>>>>>,
         skill_registry: Arc<Mutex<HashMap<String, Arc<Mutex<SkillManager>>>>>,
-        llm_registry: Arc<Mutex<HashMap<String, Arc<Mutex<LlmManager>>>>>,
+        llm_registry: Arc<Mutex<HashMap<String, Arc<RwLock<LlmManager>>>>>,
     ) -> Self {
         Self {
             agent_name,

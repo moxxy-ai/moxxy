@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use teloxide::net::Download;
 use teloxide::prelude::*;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tracing::{error, info};
 
 use crate::core::container::AgentContainer;
@@ -45,7 +45,7 @@ async fn transcribe_audio(api_key: &str, buf: Vec<u8>) -> Result<String> {
 pub struct TelegramInterface {
     agent_name: String,
     token: String,
-    llm_manager: Arc<Mutex<LlmManager>>,
+    llm_manager: Arc<RwLock<LlmManager>>,
     memory_sys: Arc<Mutex<MemorySystem>>,
     skill_sys: Arc<Mutex<SkillManager>>,
     wasm_container: Option<Arc<AgentContainer>>,
@@ -55,7 +55,7 @@ impl TelegramInterface {
     pub fn new(
         agent_name: String,
         token: String,
-        llm_manager: Arc<Mutex<LlmManager>>,
+        llm_manager: Arc<RwLock<LlmManager>>,
         memory_sys: Arc<Mutex<MemorySystem>>,
         skill_sys: Arc<Mutex<SkillManager>>,
         wasm_container: Option<Arc<AgentContainer>>,
