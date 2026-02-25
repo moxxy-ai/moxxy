@@ -1,0 +1,6 @@
+name = "discord_remove_listen_channel"
+description = "Remove a Discord channel from the bot's listen list. The bot will stop processing messages from this channel."
+version = "v1.0.0"
+needs_network = true
+run_command = "sh"
+entrypoint = "run.sh"

@@ -290,6 +290,8 @@ const PRIVILEGED_SKILLS: &[&str] = &[
     "telegram_notify",
     "discord_notify",
     "discord_channels",
+    "discord_add_listen_channel",
+    "discord_remove_listen_channel",
     "whatsapp_notify",
     "webhook",
 ];
@@ -628,6 +630,8 @@ impl SkillManager {
         "telegram_notify",
         "discord_notify",
         "discord_channels",
+        "discord_add_listen_channel",
+        "discord_remove_listen_channel",
         "whatsapp_notify",
         "git",
         "github",
