@@ -116,3 +116,104 @@ impl ContainerConfig {
         self.runtime.r#type == "native"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_is_native() {
+        let config = ContainerConfig::default();
+        assert!(!config.is_wasm());
+        assert!(config.is_native());
+        assert_eq!(config.runtime.r#type, "native");
+        assert!(config.runtime.image.is_none());
+    }
+
+    #[test]
+    fn default_capabilities() {
+        let cap = CapabilityConfig::default();
+        assert_eq!(cap.filesystem, vec!["./workspace".to_string()]);
+        assert!(!cap.network);
+        assert_eq!(cap.max_memory_mb, 0);
+        assert!(!cap.env_inherit);
+    }
+
+    #[test]
+    fn is_wasm_detects_wasm_runtime() {
+        let mut config = ContainerConfig::default();
+        config.runtime.r#type = "wasm".to_string();
+        assert!(config.is_wasm());
+        assert!(!config.is_native());
+    }
+
+    #[tokio::test]
+    async fn load_missing_file_returns_default() {
+        let tmpdir = std::env::temp_dir().join(format!("moxxy-cfg-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&tmpdir).unwrap();
+        let config = ContainerConfig::load(&tmpdir).await.unwrap();
+        assert!(config.is_native());
+    }
+
+    #[tokio::test]
+    async fn load_strips_disallowed_fs_entries() {
+        let tmpdir = std::env::temp_dir().join(format!("moxxy-cfg-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&tmpdir).unwrap();
+
+        let toml_content = r#"
+[runtime]
+type = "wasm"
+
+[capabilities]
+filesystem = ["./workspace", "../escape", "/etc/passwd", "./skills", "./workspace"]
+network = true
+"#;
+        std::fs::write(tmpdir.join("container.toml"), toml_content).unwrap();
+
+        let config = ContainerConfig::load(&tmpdir).await.unwrap();
+        assert!(config.is_wasm());
+        assert!(config.capabilities.network);
+        for entry in &config.capabilities.filesystem {
+            let normalized = entry.trim_start_matches("./").trim_end_matches('/');
+            assert_eq!(normalized, "workspace");
+        }
+    }
+
+    #[tokio::test]
+    async fn load_ensures_workspace_when_all_entries_stripped() {
+        let tmpdir = std::env::temp_dir().join(format!("moxxy-cfg-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&tmpdir).unwrap();
+
+        let toml_content = r#"
+[runtime]
+type = "wasm"
+
+[capabilities]
+filesystem = ["../escape", "/root"]
+"#;
+        std::fs::write(tmpdir.join("container.toml"), toml_content).unwrap();
+
+        let config = ContainerConfig::load(&tmpdir).await.unwrap();
+        assert_eq!(config.capabilities.filesystem, vec!["./workspace"]);
+    }
+
+    #[test]
+    fn parse_valid_toml_config() {
+        let content = r#"
+[runtime]
+type = "wasm"
+image = "base"
+
+[capabilities]
+filesystem = ["./workspace"]
+network = true
+max_memory_mb = 512
+env_inherit = false
+"#;
+        let config: ContainerConfig = toml::from_str(content).unwrap();
+        assert!(config.is_wasm());
+        assert_eq!(config.runtime.image, Some("base".to_string()));
+        assert!(config.capabilities.network);
+        assert_eq!(config.capabilities.max_memory_mb, 512);
+    }
+}

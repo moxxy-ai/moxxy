@@ -271,3 +271,433 @@ async fn security_headers(req: Request<Body>, next: Next) -> axum::response::Res
     );
     response
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::agent::{
+        ContainerRegistry, LlmRegistry, MemoryRegistry, RunMode, ScheduledJobRegistry,
+        SchedulerRegistry, SkillRegistry, VaultRegistry,
+    };
+    use axum::http::StatusCode;
+    use serde_json;
+    use std::collections::HashSet;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    use tower::util::ServiceExt;
+
+    fn empty_state() -> AppState {
+        let registry: MemoryRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let skill_registry: SkillRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let llm_registry: LlmRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let container_registry: ContainerRegistry =
+            Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let vault_registry: VaultRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let scheduler_registry: SchedulerRegistry =
+            Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let scheduled_job_registry: ScheduledJobRegistry =
+            Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let (log_tx, _) = tokio::sync::broadcast::channel(16);
+
+        AppState {
+            registry,
+            skill_registry,
+            llm_registry,
+            container_registry,
+            vault_registry,
+            scheduler_registry,
+            scheduled_job_registry,
+            log_tx,
+            run_mode: RunMode::Daemon,
+            api_host: "127.0.0.1".to_string(),
+            api_port: 17890,
+            web_port: 3001,
+            internal_token: "test-internal-token".to_string(),
+        }
+    }
+
+    async fn state_with_memory() -> AppState {
+        let mem = crate::core::memory::test_memory_system().await;
+        let vault = Arc::new(crate::core::vault::SecretsVault::new(mem.get_db()));
+        vault.initialize().await.expect("vault init");
+
+        let mem_arc = Arc::new(Mutex::new(mem));
+        let registry: MemoryRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        registry.lock().await.insert("default".to_string(), mem_arc);
+        let skill_registry: SkillRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let llm_registry: LlmRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let container_registry: ContainerRegistry =
+            Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let vault_registry: VaultRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        vault_registry
+            .lock()
+            .await
+            .insert("default".to_string(), vault);
+        let scheduler_registry: SchedulerRegistry =
+            Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let scheduled_job_registry: ScheduledJobRegistry =
+            Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let (log_tx, _) = tokio::sync::broadcast::channel(16);
+
+        AppState {
+            registry,
+            skill_registry,
+            llm_registry,
+            container_registry,
+            vault_registry,
+            scheduler_registry,
+            scheduled_job_registry,
+            log_tx,
+            run_mode: RunMode::Daemon,
+            api_host: "127.0.0.1".to_string(),
+            api_port: 17890,
+            web_port: 3001,
+            internal_token: "test-internal-token".to_string(),
+        }
+    }
+
+    async fn json_request(
+        app: Router,
+        method: Method,
+        path: &str,
+        body: Option<serde_json::Value>,
+        token: &str,
+    ) -> (StatusCode, serde_json::Value) {
+        let body = match body {
+            Some(json) => Body::from(serde_json::to_string(&json).unwrap()),
+            None => Body::empty(),
+        };
+
+        let req = Request::builder()
+            .method(method)
+            .uri(path)
+            .header("content-type", "application/json")
+            .header("x-moxxy-internal-token", token)
+            .body(body)
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        let status = resp.status();
+        let body_bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let json: serde_json::Value =
+            serde_json::from_slice(&body_bytes).unwrap_or(serde_json::json!({}));
+        (status, json)
+    }
+
+    #[tokio::test]
+    async fn security_headers_present_on_responses() {
+        let state = empty_state();
+        let app = build_api_router(state.clone());
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/api/agents")
+            .header("x-moxxy-internal-token", "test-internal-token")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(
+            resp.headers().get("x-content-type-options").unwrap(),
+            "nosniff"
+        );
+        assert_eq!(resp.headers().get("x-frame-options").unwrap(), "DENY");
+        assert!(
+            resp.headers()
+                .get("content-security-policy")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("default-src 'self'")
+        );
+    }
+
+    #[tokio::test]
+    async fn get_agents_returns_json() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+        let (status, json) =
+            json_request(app, Method::GET, "/api/agents", None, "test-internal-token").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(json.get("agents").is_some());
+    }
+
+    #[tokio::test]
+    async fn get_schedules_returns_empty_list() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+        let (status, json) = json_request(
+            app,
+            Method::GET,
+            "/api/agents/default/schedules",
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["success"], true);
+        assert_eq!(json["schedules"].as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn get_webhooks_returns_empty_list() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+        let (status, json) = json_request(
+            app,
+            Method::GET,
+            "/api/agents/default/webhooks",
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["success"], true);
+        assert_eq!(json["webhooks"].as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn create_webhook_and_list_roundtrip() {
+        let state = state_with_memory().await;
+
+        let app = build_api_router(state.clone());
+        let (status, json) = json_request(
+            app,
+            Method::POST,
+            "/api/agents/default/webhooks",
+            Some(serde_json::json!({
+                "name": "gh-alerts",
+                "source": "github",
+                "secret": "",
+                "prompt_template": "Process: {{body}}"
+            })),
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["success"], true);
+        assert!(json["webhook_url"].as_str().unwrap().contains("github"));
+
+        let app = build_api_router(state);
+        let (_, json) = json_request(
+            app,
+            Method::GET,
+            "/api/agents/default/webhooks",
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(json["webhooks"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn delete_webhook_roundtrip() {
+        let state = state_with_memory().await;
+
+        let app = build_api_router(state.clone());
+        json_request(
+            app,
+            Method::POST,
+            "/api/agents/default/webhooks",
+            Some(serde_json::json!({
+                "name": "temp",
+                "source": "stripe",
+                "secret": "",
+                "prompt_template": "t"
+            })),
+            "test-internal-token",
+        )
+        .await;
+
+        let app = build_api_router(state.clone());
+        let (status, json) = json_request(
+            app,
+            Method::DELETE,
+            "/api/agents/default/webhooks/temp",
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["success"], true);
+
+        let app = build_api_router(state);
+        let (_, json) = json_request(
+            app,
+            Method::GET,
+            "/api/agents/default/webhooks",
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(json["webhooks"].as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn get_short_term_memory_returns_content() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+        let (status, json) = json_request(
+            app,
+            Method::GET,
+            "/api/agents/default/memory/short",
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(json.get("content").is_some());
+    }
+
+    #[tokio::test]
+    async fn get_session_messages_returns_success() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+        let (status, json) = json_request(
+            app,
+            Method::GET,
+            "/api/agents/default/session/messages",
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["success"], true);
+        assert!(json["messages"].as_array().is_some());
+    }
+
+    #[tokio::test]
+    async fn authed_route_rejects_without_token() {
+        let state = state_with_memory().await;
+        {
+            let reg = state.registry.lock().await;
+            let mem_arc = reg.get("default").unwrap();
+            let mem = mem_arc.lock().await;
+            mem.create_api_token("test").await.unwrap();
+        }
+        let app = build_api_router(state);
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/api/agents")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn nonexistent_agent_returns_not_found_or_error() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+        let (status, json) = json_request(
+            app,
+            Method::GET,
+            "/api/agents/nonexistent/memory/short",
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(json["content"].as_str().unwrap().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn method_not_allowed_returns_405() {
+        let state = empty_state();
+        let app = build_api_router(state);
+        let req = Request::builder()
+            .method(Method::PATCH)
+            .uri("/api/agents")
+            .header("x-moxxy-internal-token", "test-internal-token")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+    }
+
+    #[tokio::test]
+    async fn api_route_contract_has_all_expected_paths() {
+        let paths = [
+            "/api/webhooks/default/source",
+            "/api/agents",
+            "/api/agents/default",
+            "/api/agents/default/vault",
+            "/api/agents/default/vault/test",
+            "/api/agents/default/channels",
+            "/api/agents/default/channels/telegram/token",
+            "/api/agents/default/channels/telegram/pair",
+            "/api/agents/default/channels/telegram/revoke",
+            "/api/agents/default/channels/telegram/send",
+            "/api/agents/default/channels/telegram",
+            "/api/agents/default/channels/telegram/stt",
+            "/api/agents/default/channels/discord/token",
+            "/api/agents/default/channels/discord/send",
+            "/api/agents/default/channels/discord/listen-channels",
+            "/api/agents/default/channels/discord/listen-channels/remove",
+            "/api/agents/default/channels/discord/list-channels",
+            "/api/agents/default/channels/discord/listen-mode",
+            "/api/agents/default/channels/discord",
+            "/api/agents/default/channels/whatsapp/config",
+            "/api/agents/default/channels/whatsapp/send",
+            "/api/agents/default/channels/whatsapp",
+            "/api/agents/default/restart",
+            "/api/agents/default/pair_mobile",
+            "/api/agents/default/schedules",
+            "/api/agents/default/schedules/nightly_digest",
+            "/api/agents/default/webhooks",
+            "/api/agents/default/webhooks/alpha",
+            "/api/agents/default/memory/short",
+            "/api/agents/default/session/messages",
+            "/api/agents/default/llm",
+            "/api/agents/default/skills",
+            "/api/agents/default/create_skill",
+            "/api/agents/default/install_skill",
+            "/api/agents/default/upgrade_skill",
+            "/api/agents/default/install_openclaw_skill",
+            "/api/agents/default/skills/sample_skill",
+            "/api/agents/default/mcp",
+            "/api/agents/default/mcp/server_a",
+            "/api/memory/swarm",
+            "/api/providers",
+            "/api/providers/custom",
+            "/api/providers/custom/custom_provider",
+            "/api/config/global",
+            "/api/gateway/restart",
+            "/api/logs",
+            "/api/host/execute_applescript",
+            "/api/host/execute_bash",
+            "/api/host/execute_python",
+            "/api/agents/default/delegate",
+            "/api/agents/default/chat",
+            "/api/agents/default/chat/stream",
+            "/api/agents/default/tokens",
+            "/api/agents/default/tokens/token_1",
+        ];
+
+        assert_eq!(paths.len(), 54, "Expected exactly 54 API routes");
+
+        let unique: HashSet<&str> = paths.iter().copied().collect();
+        assert_eq!(unique.len(), 54, "Duplicate routes found in route contract");
+
+        let app = build_api_router(empty_state());
+        for path in paths {
+            let req = Request::builder()
+                .method(Method::PUT)
+                .uri(path)
+                .body(Body::empty())
+                .expect("request should build");
+            let resp = app
+                .clone()
+                .oneshot(req)
+                .await
+                .expect("router oneshot should succeed");
+            assert_ne!(
+                resp.status(),
+                StatusCode::NOT_FOUND,
+                "Route missing from router: {}",
+                path
+            );
+        }
+    }
+}

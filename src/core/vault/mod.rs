@@ -154,3 +154,129 @@ impl SecretsVault {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    async fn test_vault() -> SecretsVault {
+        let db = Connection::open_in_memory().expect("in-memory db");
+        let vault = SecretsVault::new(Arc::new(Mutex::new(db)));
+        vault.initialize().await.expect("init vault tables");
+        vault
+    }
+
+    #[test]
+    fn encrypt_decrypt_roundtrip() {
+        let db = Connection::open_in_memory().unwrap();
+        let vault = SecretsVault::new(Arc::new(Mutex::new(db)));
+
+        let plaintext = "super-secret-api-key-12345";
+        let encrypted = vault.encrypt(plaintext).unwrap();
+        assert_ne!(encrypted, plaintext);
+        let decrypted = vault.decrypt(&encrypted).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn encrypt_produces_different_ciphertext_each_time() {
+        let db = Connection::open_in_memory().unwrap();
+        let vault = SecretsVault::new(Arc::new(Mutex::new(db)));
+
+        let plaintext = "same-input";
+        let a = vault.encrypt(plaintext).unwrap();
+        let b = vault.encrypt(plaintext).unwrap();
+        assert_ne!(a, b, "random nonce should produce different ciphertext");
+        assert_eq!(vault.decrypt(&a).unwrap(), plaintext);
+        assert_eq!(vault.decrypt(&b).unwrap(), plaintext);
+    }
+
+    #[test]
+    fn decrypt_rejects_short_input() {
+        let db = Connection::open_in_memory().unwrap();
+        let vault = SecretsVault::new(Arc::new(Mutex::new(db)));
+        let short = base64::engine::general_purpose::STANDARD.encode(b"short");
+        assert!(vault.decrypt(&short).is_err());
+    }
+
+    #[test]
+    fn decrypt_rejects_invalid_base64() {
+        let db = Connection::open_in_memory().unwrap();
+        let vault = SecretsVault::new(Arc::new(Mutex::new(db)));
+        assert!(vault.decrypt("not-valid-base64!!!").is_err());
+    }
+
+    #[tokio::test]
+    async fn set_and_get_secret() {
+        let vault = test_vault().await;
+        vault.set_secret("api_key", "sk-12345").await.unwrap();
+        let val = vault.get_secret("api_key").await.unwrap();
+        assert_eq!(val, Some("sk-12345".to_string()));
+    }
+
+    #[tokio::test]
+    async fn get_nonexistent_secret_returns_none() {
+        let vault = test_vault().await;
+        assert_eq!(vault.get_secret("ghost").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn set_secret_overwrites_existing() {
+        let vault = test_vault().await;
+        vault.set_secret("key", "old").await.unwrap();
+        vault.set_secret("key", "new").await.unwrap();
+        assert_eq!(
+            vault.get_secret("key").await.unwrap(),
+            Some("new".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn list_keys_returns_all_stored_keys() {
+        let vault = test_vault().await;
+        vault.set_secret("alpha", "1").await.unwrap();
+        vault.set_secret("beta", "2").await.unwrap();
+        vault.set_secret("gamma", "3").await.unwrap();
+        let mut keys = vault.list_keys().await.unwrap();
+        keys.sort();
+        assert_eq!(keys, vec!["alpha", "beta", "gamma"]);
+    }
+
+    #[tokio::test]
+    async fn remove_secret_deletes_key() {
+        let vault = test_vault().await;
+        vault.set_secret("ephemeral", "val").await.unwrap();
+        vault.remove_secret("ephemeral").await.unwrap();
+        assert_eq!(vault.get_secret("ephemeral").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn remove_nonexistent_secret_is_ok() {
+        let vault = test_vault().await;
+        vault.remove_secret("nope").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn handles_empty_string_value() {
+        let vault = test_vault().await;
+        vault.set_secret("empty_key", "").await.unwrap();
+        assert_eq!(
+            vault.get_secret("empty_key").await.unwrap(),
+            Some(String::new())
+        );
+    }
+
+    #[tokio::test]
+    async fn handles_unicode_values() {
+        let vault = test_vault().await;
+        vault
+            .set_secret("unicode", "日本語テスト 🔑")
+            .await
+            .unwrap();
+        assert_eq!(
+            vault.get_secret("unicode").await.unwrap(),
+            Some("日本語テスト 🔑".to_string())
+        );
+    }
+}

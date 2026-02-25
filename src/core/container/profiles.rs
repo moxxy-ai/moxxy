@@ -56,3 +56,42 @@ impl ImageProfile {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn base_profile_has_no_network() {
+        let cap = ImageProfile::default_capabilities("base");
+        assert!(!cap.network);
+        assert_eq!(cap.max_memory_mb, 128);
+        assert!(!cap.env_inherit);
+        assert_eq!(cap.filesystem, vec!["./workspace"]);
+    }
+
+    #[test]
+    fn networked_profile_enables_network() {
+        let cap = ImageProfile::default_capabilities("networked");
+        assert!(cap.network);
+        assert_eq!(cap.max_memory_mb, 256);
+        assert!(!cap.env_inherit);
+    }
+
+    #[test]
+    fn full_profile_enables_everything() {
+        let cap = ImageProfile::default_capabilities("full");
+        assert!(cap.network);
+        assert_eq!(cap.max_memory_mb, 0);
+        assert!(cap.env_inherit);
+    }
+
+    #[test]
+    fn unknown_profile_returns_default() {
+        let cap = ImageProfile::default_capabilities("custom_thing");
+        let default = CapabilityConfig::default();
+        assert_eq!(cap.network, default.network);
+        assert_eq!(cap.max_memory_mb, default.max_memory_mb);
+        assert_eq!(cap.env_inherit, default.env_inherit);
+    }
+}

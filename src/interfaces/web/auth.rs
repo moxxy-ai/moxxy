@@ -122,3 +122,158 @@ fn extract_agent_from_path(path: &str) -> Option<String> {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::agent::{
+        ContainerRegistry, LlmRegistry, MemoryRegistry, RunMode, ScheduledJobRegistry,
+        SchedulerRegistry, SkillRegistry, VaultRegistry,
+    };
+    use axum::{Router, middleware, response::IntoResponse, routing::get};
+    use serde_json::json;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    use tower::util::ServiceExt;
+    use uuid::Uuid;
+
+    async fn test_state(api_host: &str, with_token: bool) -> (AppState, Option<String>) {
+        let registry: MemoryRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let token = if with_token {
+            let tempdir_path = unique_temp_dir();
+            let mem = crate::core::memory::MemorySystem::new(&tempdir_path)
+                .await
+                .expect("memory should initialize");
+            let (raw_token, _) = mem
+                .create_api_token("test-token")
+                .await
+                .expect("api token should be created");
+            registry
+                .lock()
+                .await
+                .insert("default".to_string(), Arc::new(Mutex::new(mem)));
+            Some(raw_token)
+        } else {
+            None
+        };
+
+        let skill_registry: SkillRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let llm_registry: LlmRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let container_registry: ContainerRegistry =
+            Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let vault_registry: VaultRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let scheduler_registry: SchedulerRegistry =
+            Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let scheduled_job_registry: ScheduledJobRegistry =
+            Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let (log_tx, _) = tokio::sync::broadcast::channel(8);
+
+        (
+            AppState {
+                registry,
+                skill_registry,
+                llm_registry,
+                container_registry,
+                vault_registry,
+                scheduler_registry,
+                scheduled_job_registry,
+                log_tx,
+                run_mode: RunMode::Daemon,
+                api_host: api_host.to_string(),
+                api_port: 17890,
+                web_port: 3001,
+                internal_token: "internal-123".to_string(),
+            },
+            token,
+        )
+    }
+
+    fn unique_temp_dir() -> PathBuf {
+        let path = std::env::temp_dir().join(format!("moxxy-auth-{}", Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&path).expect("temp test dir should be created");
+        path
+    }
+
+    fn protected_app(state: AppState) -> Router {
+        Router::new()
+            .route(
+                "/api/agents/default/ping",
+                get(|| async { axum::Json(json!({ "ok": true })).into_response() }),
+            )
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                super::require_auth,
+            ))
+            .with_state(state)
+    }
+
+    async fn request_ping_status(app: Router, headers: Vec<(&str, String)>) -> StatusCode {
+        let mut req_builder = Request::builder().uri("/api/agents/default/ping");
+        for (k, v) in headers {
+            req_builder = req_builder.header(k, v);
+        }
+        let req = req_builder
+            .body(Body::empty())
+            .expect("request should build");
+        app.oneshot(req)
+            .await
+            .expect("oneshot should succeed")
+            .status()
+    }
+
+    #[test]
+    fn extract_agent_from_path_parses_agent_segments() {
+        assert_eq!(
+            super::extract_agent_from_path("/api/agents/default/chat"),
+            Some("default".to_string())
+        );
+        assert_eq!(super::extract_agent_from_path("/api/providers"), None);
+    }
+
+    #[tokio::test]
+    async fn no_tokens_on_loopback_allows_request() {
+        let (state, _) = test_state("127.0.0.1", false).await;
+        let app = protected_app(state);
+        let status = request_ping_status(app, vec![]).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn no_tokens_on_non_loopback_rejects_request() {
+        let (state, _) = test_state("0.0.0.0", false).await;
+        let app = protected_app(state);
+        let status = request_ping_status(app, vec![]).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn token_present_requires_authorization_header() {
+        let (state, _) = test_state("127.0.0.1", true).await;
+        let app = protected_app(state);
+        let status = request_ping_status(app, vec![]).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn valid_bearer_token_is_accepted() {
+        let (state, token) = test_state("127.0.0.1", true).await;
+        let token = token.expect("token should exist");
+        let app = protected_app(state);
+        let status =
+            request_ping_status(app, vec![("authorization", format!("Bearer {}", token))]).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn internal_token_header_bypasses_auth() {
+        let (state, _) = test_state("127.0.0.1", true).await;
+        let app = protected_app(state);
+        let status = request_ping_status(
+            app,
+            vec![("x-moxxy-internal-token", "internal-123".to_string())],
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+}

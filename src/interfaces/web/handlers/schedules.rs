@@ -362,3 +362,90 @@ pub async fn delete_all_schedules_endpoint(
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::agent::{
+        ContainerRegistry, LlmRegistry, MemoryRegistry, RunMode, ScheduledJobRegistry,
+        SchedulerRegistry, SkillRegistry, VaultRegistry,
+    };
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    fn empty_state() -> AppState {
+        let registry: MemoryRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let skill_registry: SkillRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let llm_registry: LlmRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let container_registry: ContainerRegistry =
+            Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let vault_registry: VaultRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let scheduler_registry: SchedulerRegistry =
+            Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let scheduled_job_registry: ScheduledJobRegistry =
+            Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let (log_tx, _) = tokio::sync::broadcast::channel(8);
+
+        AppState {
+            registry,
+            skill_registry,
+            llm_registry,
+            container_registry,
+            vault_registry,
+            scheduler_registry,
+            scheduled_job_registry,
+            log_tx,
+            run_mode: RunMode::Daemon,
+            api_host: "127.0.0.1".to_string(),
+            api_port: 17890,
+            web_port: 3001,
+            internal_token: "test-internal".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn create_schedule_rejects_empty_fields() {
+        let state = empty_state();
+        let payload = CreateScheduleRequest {
+            name: "".to_string(),
+            cron: " ".to_string(),
+            prompt: "".to_string(),
+        };
+
+        let Json(out) =
+            create_schedule_endpoint(Path("default".to_string()), State(state), Json(payload))
+                .await;
+
+        assert_eq!(
+            out.get("success").and_then(serde_json::Value::as_bool),
+            Some(false)
+        );
+        assert!(
+            out.get("error")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .contains("required")
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_schedule_rejects_blank_name() {
+        let state = empty_state();
+        let Json(out) = delete_schedule_endpoint(
+            Path(("default".to_string(), "   ".to_string())),
+            State(state),
+        )
+        .await;
+
+        assert_eq!(
+            out.get("success").and_then(serde_json::Value::as_bool),
+            Some(false)
+        );
+        assert!(
+            out.get("error")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .contains("required")
+        );
+    }
+}
