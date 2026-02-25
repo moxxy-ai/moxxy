@@ -61,11 +61,12 @@ fn build_system_prompt(skill_catalog: &str, persona_text: &Option<String>) -> St
          3. Only use skills listed in AVAILABLE SKILLS. Never guess or invent skill names.\n\
          4. Never tell the user to run commands manually - use your skills instead.\n\
          5. Prefer dedicated skills over host_shell:\
-            - `git` for git commands, `github` for GitHub API (issues, PRs, clone)\
+            - `git` for local git operations and isolated repo worktrees (`git ws init` / `git ws use`)\
+            - `github` for GitHub API actions (issues, PRs, comments, forks)\
             - `file_ops` for reading, writing, and patching files\
             - `workspace_shell` for running build/test commands in a cloned repo (npm, cargo, make, etc.)\
             Only use host_shell when no dedicated skill covers the need, and ask the user first.\n\
-         6. For MULTI-STEP tasks (clone repo, edit files, build, push, create PR, etc.), \
+         6. For MULTI-STEP repo tasks, initialize an isolated worktree first when needed, then continue (edit files, build, push, create PR, etc.). \
             keep going - invoke the next skill immediately after receiving a result. \
             Do NOT stop to present intermediate results or ask the user between steps. \
             Only present the final summary when the entire task is complete.\n\

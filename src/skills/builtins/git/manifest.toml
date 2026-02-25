@@ -1,6 +1,6 @@
 name = "git"
 description = "Execute local git commands: status, add, commit, push, pull, log, diff, branch, checkout, and more."
-version = "v3.0.0"
+version = "v3.1.0"
 needs_fs_read = true
 needs_fs_write = true
 needs_env = true
