@@ -132,19 +132,14 @@ mod tests {
     };
     use axum::{Router, middleware, response::IntoResponse, routing::get};
     use serde_json::json;
-    use std::path::PathBuf;
     use std::sync::Arc;
     use tokio::sync::Mutex;
     use tower::util::ServiceExt;
-    use uuid::Uuid;
 
     async fn test_state(api_host: &str, with_token: bool) -> (AppState, Option<String>) {
         let registry: MemoryRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
         let token = if with_token {
-            let tempdir_path = unique_temp_dir();
-            let mem = crate::core::memory::MemorySystem::new(&tempdir_path)
-                .await
-                .expect("memory should initialize");
+            let mem = crate::core::memory::test_memory_system().await;
             let (raw_token, _) = mem
                 .create_api_token("test-token")
                 .await
@@ -187,12 +182,6 @@ mod tests {
             },
             token,
         )
-    }
-
-    fn unique_temp_dir() -> PathBuf {
-        let path = std::env::temp_dir().join(format!("moxxy-auth-{}", Uuid::new_v4().simple()));
-        std::fs::create_dir_all(&path).expect("temp test dir should be created");
-        path
     }
 
     fn protected_app(state: AppState) -> Router {
