@@ -12,9 +12,9 @@ interface VaultPanelProps {
 
 export function VaultPanel({
   apiBase,
-  agents,
+  agents: _agents,
   activeAgent,
-  setActiveAgent,
+  setActiveAgent: _setActiveAgent,
   vaultKeys,
   setVaultKeys,
 }: VaultPanelProps) {
@@ -26,19 +26,11 @@ export function VaultPanel({
   const [removingVaultKey, setRemovingVaultKey] = useState<string | null>(null);
 
   return (
-    <div className="flex flex-col gap-4 h-full p-4">
-      <div className="bg-[#111927]/90 border border-[#1e304f] p-6 shadow-2xl backdrop-blur-sm h-full flex flex-col">
+    <div className="panel-page">
+      <div className="panel-shell">
         <div className="flex justify-between items-center mb-4 border-b border-[#1e304f] pb-2">
           <h2 className="text-[#00aaff] uppercase tracking-widest text-sm">Vault (Secrets) - {activeAgent || 'No Agent'}</h2>
           <div className="flex gap-3">
-            <select
-              className="bg-[#090d14] border border-[#1e304f] text-white px-3 py-1.5 outline-none rounded-sm text-xs focus:border-[#00aaff]"
-              value={activeAgent || ''}
-              onChange={e => setActiveAgent(e.target.value)}
-            >
-              <option disabled value="">Select Node</option>
-              {agents.map(a => <option key={a} value={a}>{a}</option>)}
-            </select>
             <button
               onClick={() => setShowAddVaultKey(!showAddVaultKey)}
               className="bg-[#00aaff] hover:bg-[#33bfff] text-white text-[10px] uppercase tracking-widest px-4 py-1.5 transition-all shadow-[0_0_12px_rgba(0,170,255,0.3)] font-bold"

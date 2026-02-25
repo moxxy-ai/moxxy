@@ -8,21 +8,13 @@ interface SkillsManagerProps {
   skills: Skill[];
 }
 
-export function SkillsManager({ agents, activeAgent, setActiveAgent, skills }: SkillsManagerProps) {
+export function SkillsManager({ agents: _agents, activeAgent, setActiveAgent: _setActiveAgent, skills }: SkillsManagerProps) {
   return (
-    <div className="flex flex-col gap-4 h-full p-4">
-      <div className="bg-[#111927]/90 border border-[#1e304f] p-6 shadow-2xl backdrop-blur-sm h-full flex flex-col">
+    <div className="panel-page">
+      <div className="panel-shell">
         <div className="flex justify-between items-center mb-4 border-b border-[#1e304f] pb-2">
           <h2 className="text-[#00aaff] uppercase tracking-widest text-sm">Skills Vault - {activeAgent || 'No Agent'}</h2>
           <div className="flex items-center gap-3">
-            <select
-              className="bg-[#090d14] border border-[#1e304f] text-white px-3 py-1.5 outline-none rounded-sm text-xs focus:border-[#00aaff]"
-              value={activeAgent || ''}
-              onChange={e => setActiveAgent(e.target.value)}
-            >
-              <option disabled value="">Select Node</option>
-              {agents.map(a => <option key={a} value={a}>{a}</option>)}
-            </select>
             <span className="text-[10px] text-[#64748b] uppercase tracking-widest">{skills.length} loaded</span>
           </div>
         </div>

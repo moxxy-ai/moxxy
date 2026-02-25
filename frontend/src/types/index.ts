@@ -58,4 +58,14 @@ export interface ApiToken {
   created_at: string;
 }
 
+export interface ProviderInfo {
+  id: string;
+  name: string;
+  default_model: string;
+  custom?: boolean;
+  vault_key: string;
+  base_url: string;
+  models: { id: string; name: string }[];
+}
+
 export type TabId = 'Overview' | 'Interface' | 'Memory' | 'Skills' | 'Channels' | 'Schedules' | 'Webhooks' | 'MCPServers' | 'Vault' | 'AccessTokens' | 'Config';
