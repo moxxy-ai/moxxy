@@ -1,20 +1,23 @@
 # git
 
-Run any local git command. Arguments are passed directly to git.
+Run local git commands with managed worktree isolation.
 
+Start an isolated task workspace for a repo:
+`<invoke name="git">["ws", "init", "moxxy-ai/moxxy", "main", "fix-auth-bug"]</invoke>`
+
+Switch/list active worktrees:
+`<invoke name="git">["ws", "list"]</invoke>`
+`<invoke name="git">["ws", "use", "fix-auth-bug-20260225-103000"]</invoke>`
+`<invoke name="git">["ws", "active"]</invoke>`
+
+After `ws init`/`ws use`, regular commands run in the active worktree by default:
 `<invoke name="git">["status"]</invoke>`
+`<invoke name="git">["checkout", "-b", "feat/my-feature"]</invoke>`
 `<invoke name="git">["add", "."]</invoke>`
 `<invoke name="git">["commit", "-m", "feat: add feature"]</invoke>`
-`<invoke name="git">["push", "origin", "main"]</invoke>`
-`<invoke name="git">["log", "--oneline", "-5"]</invoke>`
-`<invoke name="git">["checkout", "-b", "my-branch"]</invoke>`
-`<invoke name="git">["diff"]</invoke>`
+`<invoke name="git">["push", "origin", "feat/my-feature"]</invoke>`
 
-**Operate on a repo in the workspace (use -C):**
+Or use explicit path:
 `<invoke name="git">["-C", "/path/to/repo", "status"]</invoke>`
-`<invoke name="git">["-C", "/path/to/repo", "checkout", "-b", "feat/my-feature"]</invoke>`
-`<invoke name="git">["-C", "/path/to/repo", "add", "."]</invoke>`
-`<invoke name="git">["-C", "/path/to/repo", "commit", "-m", "feat: add feature"]</invoke>`
-`<invoke name="git">["-C", "/path/to/repo", "push", "origin", "feat/my-feature"]</invoke>`
 
-For GitHub actions (issues, PRs, forks), use the `github` skill.
+For GitHub API actions (issues/PRs/comments/forks), use the `github` skill.

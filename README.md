@@ -158,7 +158,7 @@ Configure via the web dashboard (Config tab) or during `moxxy init`.
 | `host_shell` | Execute shell commands on the host machine |
 | `host_python` | Run Python scripts on the host machine |
 | `browser` | Browser automation and web page fetching (lightweight fetch or full Chromium) |
-| `git` | Git operations (supports `-C` for workspace repos) |
+| `git` | Git operations with managed isolated worktrees (`ws init/use/list`) plus `-C` support |
 | `github` | GitHub API (issues, PRs, clone, fork, comment) - clones into agent workspace by default |
 | `file_ops` | Read, write, patch, append, and navigate files for development tasks |
 | `workspace_shell` | Run build/test commands locked to the agent workspace (npm, cargo, make, etc.) |
