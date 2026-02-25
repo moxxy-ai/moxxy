@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.12.3](https://github.com/moxxy-ai/moxxy/compare/v0.12.2...v0.12.3) (2026-02-25)
+
+
+### Bug Fixes
+
+* discord multi channel ([#76](https://github.com/moxxy-ai/moxxy/issues/76)) ([0966808](https://github.com/moxxy-ai/moxxy/commit/096680802d10b0b42a0586c9b3df9efab2a4f256))
+* git worktrees ([#79](https://github.com/moxxy-ai/moxxy/issues/79)) ([cbf0a45](https://github.com/moxxy-ai/moxxy/commit/cbf0a455e075f4b3ba9ddbcff0373788f2fd34d3))
+* webui redesign ([#78](https://github.com/moxxy-ai/moxxy/issues/78)) ([68e7e85](https://github.com/moxxy-ai/moxxy/commit/68e7e85b38d146147f737dae5eac858bd813cf0f))
+
 ## [0.12.2](https://github.com/moxxy-ai/moxxy/compare/v0.12.1...v0.12.2) (2026-02-25)
 
 
