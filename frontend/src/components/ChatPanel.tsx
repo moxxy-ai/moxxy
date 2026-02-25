@@ -38,14 +38,14 @@ export function ChatPanel({
     <div className="panel-page">
       <div className="grid grid-cols-1 xl:grid-cols-[260px_1fr] gap-3 min-h-0 h-[66%]">
         <section className="panel-shell">
-          <div className="flex items-center justify-between pb-2 border-b border-[#e5e7eb]">
+          <div className="flex items-center justify-between pb-2 border-b border-border">
             <h2 className="panel-title">Agents</h2>
-            <span className="text-xs text-[#64748b]">{agents.length}</span>
+            <span className="text-xs text-text-muted">{agents.length}</span>
           </div>
 
           <div className="mt-3 space-y-2 overflow-y-auto scroll-styled min-h-0">
             {agents.length === 0 && (
-              <p className="text-xs text-[#64748b]">No agents available.</p>
+              <p className="text-xs text-text-muted">No agents available.</p>
             )}
 
             {agents.map(agent => (
@@ -54,8 +54,8 @@ export function ChatPanel({
                 onClick={() => setActiveAgent(agent)}
                 className={`w-full rounded-md border px-3 py-2 text-left text-sm transition-colors ${
                   activeAgent === agent
-                    ? 'bg-[#111827] border-[#111827] text-white'
-                    : 'bg-white border-[#d1d5db] text-[#1f2937] hover:bg-[#f8fafc]'
+                    ? 'gradient-bg border-transparent text-white'
+                    : 'bg-bg-card border-border text-text-muted hover:bg-bg-card-hover hover:text-text'
                 }`}
               >
                 <div className="font-medium truncate">{agent}</div>
@@ -66,14 +66,14 @@ export function ChatPanel({
         </section>
 
         <section className="panel-shell min-h-0">
-          <div className="flex items-center justify-between pb-2 border-b border-[#e5e7eb]">
+          <div className="flex items-center justify-between pb-2 border-b border-border">
             <h2 className="panel-title">Chat</h2>
-            <span className="text-xs text-[#64748b]">{activeAgent || 'Select agent'}</span>
+            <span className="text-xs text-text-muted">{activeAgent || 'Select agent'}</span>
           </div>
 
-          <div className="mt-3 flex-1 min-h-0 overflow-y-auto scroll-styled rounded-md border border-[#d1d5db] bg-white p-3 space-y-3">
+          <div className="mt-3 flex-1 min-h-0 overflow-y-auto scroll-styled rounded-md border border-border bg-bg p-3 space-y-3">
             {chatHistory.length === 0 && !optimisticUserMsg && streamMessages.length === 0 && !isTyping && (
-              <p className="text-xs text-[#64748b]">Start by asking your assistant a task.</p>
+              <p className="text-xs text-text-muted">Start by asking your assistant a task.</p>
             )}
 
             {chatHistory.map((msg: ChatMessage) => (
@@ -81,8 +81,8 @@ export function ChatPanel({
                 <div
                   className={`max-w-[88%] rounded-md border px-3 py-2 text-sm whitespace-pre-wrap ${
                     msg.sender === 'user'
-                      ? 'bg-[#eef2ff] border-[#c7d2fe] text-[#1e1b4b]'
-                      : 'bg-[#f8fafc] border-[#d1d5db] text-[#0f172a]'
+                      ? 'bg-primary/20 border-primary/40 text-text'
+                      : 'bg-bg-card border-border text-text'
                   }`}
                 >
                   {msg.text}
@@ -92,7 +92,7 @@ export function ChatPanel({
 
             {optimisticUserMsg && (
               <div className="flex justify-end">
-                <div className="max-w-[88%] rounded-md border px-3 py-2 text-sm bg-[#eef2ff] border-[#c7d2fe] text-[#1e1b4b] opacity-60">
+                <div className="max-w-[88%] rounded-md border px-3 py-2 text-sm bg-primary/20 border-primary/40 text-text opacity-60">
                   {optimisticUserMsg}
                 </div>
               </div>
@@ -103,8 +103,8 @@ export function ChatPanel({
                 <div
                   className={`max-w-[88%] rounded-md border px-3 py-2 text-sm whitespace-pre-wrap ${
                     msg.sender === 'user'
-                      ? 'bg-[#eef2ff] border-[#c7d2fe] text-[#1e1b4b]'
-                      : 'bg-[#ecfeff] border-[#bae6fd] text-[#0f766e]'
+                      ? 'bg-primary/20 border-primary/40 text-text'
+                      : 'bg-accent/10 border-accent/30 text-text'
                   }`}
                 >
                   {msg.text}
@@ -113,7 +113,7 @@ export function ChatPanel({
             ))}
 
             {isTyping && streamMessages.length === 0 && (
-              <div className="inline-flex items-center gap-2 rounded-md border border-[#d1d5db] bg-[#f8fafc] px-3 py-2 text-xs text-[#64748b]">
+              <div className="inline-flex items-center gap-2 rounded-md border border-border bg-bg-card px-3 py-2 text-xs text-text-muted">
                 Assistant is typing...
               </div>
             )}
@@ -126,13 +126,13 @@ export function ChatPanel({
               type="text"
               value={chatInput}
               onChange={e => setChatInput(e.target.value)}
-              className="flex-1 rounded-md border border-[#d1d5db] bg-white px-3 py-2 text-sm text-[#111827]"
+              className="input-dark flex-1"
               placeholder="Ask your agent to plan, build, summarize, or automate"
             />
             <button
               type="submit"
               disabled={!activeAgent || isTyping}
-              className="rounded-md border border-[#111827] bg-[#111827] text-white px-4 py-2 text-sm font-medium disabled:opacity-50"
+              className="btn-primary"
             >
               Send
             </button>
@@ -141,17 +141,17 @@ export function ChatPanel({
       </div>
 
       <section className="panel-shell h-[34%]">
-        <div className="flex items-center justify-between pb-2 border-b border-[#e5e7eb]">
+        <div className="flex items-center justify-between pb-2 border-b border-border">
           <h2 className="panel-title">Activity Log</h2>
-          <span className="text-xs text-[#64748b]">live</span>
+          <span className="text-xs text-text-muted">live</span>
         </div>
 
-        <div className="mt-3 h-full rounded-md border border-[#d1d5db] bg-white p-3 text-xs overflow-y-auto scroll-styled whitespace-pre-wrap">
+        <div className="mt-3 h-full rounded-md border border-border bg-bg p-3 text-xs overflow-y-auto scroll-styled whitespace-pre-wrap">
           {logs.length === 0 ? (
-            <p className="text-[#64748b] italic">Waiting for events...</p>
+            <p className="text-text-muted italic">Waiting for events...</p>
           ) : (
             logs.map((log, i) => (
-              <div key={i} className="mb-1 pl-2 border-l border-[#e5e7eb] hover:bg-[#f8fafc]">
+              <div key={i} className="mb-1 pl-2 border-l border-border hover:bg-bg-card">
                 {parseLogLine(log)}
               </div>
             ))

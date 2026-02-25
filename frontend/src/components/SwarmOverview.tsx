@@ -204,19 +204,19 @@ export function SwarmOverview({
   return (
     <div className="panel-page">
       <div className="panel-shell">
-        <div className="mb-4 border-b border-[#d1d5db] pb-3">
-          <h2 className="text-lg font-semibold text-[#111827]">Setup & Agents</h2>
-          <p className="text-sm text-[#64748b] mt-1">
+        <div className="mb-4 border-b border-border pb-3">
+          <h2 className="text-lg font-semibold text-text">Setup & Agents</h2>
+          <p className="text-sm text-text-muted mt-1">
             Simple flow: create agent first, then add provider to that agent.
           </p>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-5">
-          <section className="rounded-lg border border-[#d1d5db] bg-white p-4 order-2 xl:order-2">
-            <h3 className="text-sm font-semibold text-[#111827] mb-3">2. Add Provider To Agent</h3>
+          <section className="rounded-lg border border-border bg-bg-card p-4 order-2 xl:order-2">
+            <h3 className="text-sm font-semibold text-text mb-3">2. Add Provider To Agent</h3>
             <div className="space-y-3">
               <div>
-                <label className="block text-xs text-[#64748b] mb-1">Provider</label>
+                <label className="block text-xs text-text-muted mb-1">Provider</label>
                 <AppSelect
                   value={providerId}
                   onChange={e => {
@@ -236,7 +236,7 @@ export function SwarmOverview({
               </div>
 
               <div>
-                <label className="block text-xs text-[#64748b] mb-1">Model</label>
+                <label className="block text-xs text-text-muted mb-1">Model</label>
                 {selectedProvider && selectedProvider.models.length > 0 ? (
                   <>
                     <AppSelect
@@ -255,7 +255,7 @@ export function SwarmOverview({
                         type="text"
                         value={providerCustomModel}
                         onChange={e => setProviderCustomModel(e.target.value)}
-                        className="mt-2 w-full rounded-md border border-[#d1d5db] px-3 py-2 text-sm"
+                        className="input-dark mt-2"
                         placeholder="Enter custom model id"
                       />
                     )}
@@ -265,19 +265,19 @@ export function SwarmOverview({
                     type="text"
                     value={providerModel}
                     onChange={e => setProviderModel(e.target.value)}
-                    className="w-full rounded-md border border-[#d1d5db] px-3 py-2 text-sm"
+                    className="input-dark"
                     placeholder="Model id"
                   />
                 )}
               </div>
 
               <div>
-                <label className="block text-xs text-[#64748b] mb-1">API Key (optional)</label>
+                <label className="block text-xs text-text-muted mb-1">API Key (optional)</label>
                 <input
                   type="password"
                   value={providerApiKey}
                   onChange={e => setProviderApiKey(e.target.value)}
-                  className="w-full rounded-md border border-[#d1d5db] px-3 py-2 text-sm"
+                  className="input-dark"
                   placeholder="Leave blank to keep existing key"
                 />
               </div>
@@ -286,51 +286,51 @@ export function SwarmOverview({
                 <button
                   onClick={handleApplyProviderToActive}
                   disabled={!activeAgent || !providerId || !resolvedModel || isApplyingProvider}
-                  className="rounded-md border border-[#111827] bg-[#111827] text-white px-4 py-2 text-xs font-medium disabled:opacity-50"
+                  className="btn-primary"
                 >
                   {isApplyingProvider ? 'Saving...' : 'Apply To Selected Agent'}
                 </button>
-                <span className="text-xs text-[#64748b]">
+                <span className="text-xs text-text-muted">
                   {activeAgent ? `Active: ${activeAgent}` : 'No active agent selected yet.'}
                 </span>
               </div>
 
               {providerStatus && (
-                <p className={`text-xs ${providerStatus.startsWith('Failed') ? 'text-red-600' : 'text-emerald-700'}`}>
+                <p className={`text-xs ${providerStatus.startsWith('Failed') ? 'text-red-400' : 'text-green'}`}>
                   {providerStatus}
                 </p>
               )}
             </div>
           </section>
 
-          <section className="rounded-lg border border-[#d1d5db] bg-white p-4 order-1 xl:order-1">
-            <h3 className="text-sm font-semibold text-[#111827] mb-3">1. Create Agent</h3>
+          <section className="rounded-lg border border-border bg-bg-card p-4 order-1 xl:order-1">
+            <h3 className="text-sm font-semibold text-text mb-3">1. Create Agent</h3>
             <div className="space-y-3">
               <div>
-                <label className="block text-xs text-[#64748b] mb-1">Agent Name</label>
+                <label className="block text-xs text-text-muted mb-1">Agent Name</label>
                 <input
                   type="text"
                   value={newNodeName}
                   onChange={e => setNewNodeName(e.target.value)}
-                  className="w-full rounded-md border border-[#d1d5db] px-3 py-2 text-sm"
+                  className="input-dark"
                   placeholder="e.g. personal-assistant"
                 />
               </div>
 
               <div>
-                <label className="block text-xs text-[#64748b] mb-1">Description</label>
+                <label className="block text-xs text-text-muted mb-1">Description</label>
                 <input
                   type="text"
                   value={newNodeDesc}
                   onChange={e => setNewNodeDesc(e.target.value)}
-                  className="w-full rounded-md border border-[#d1d5db] px-3 py-2 text-sm"
+                  className="input-dark"
                   placeholder="What this agent should focus on"
                 />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-[#64748b] mb-1">Runtime</label>
+                  <label className="block text-xs text-text-muted mb-1">Runtime</label>
                   <AppSelect
                     value={newNodeRuntime}
                     onChange={e => setNewNodeRuntime(e.target.value)}
@@ -341,7 +341,7 @@ export function SwarmOverview({
                 </div>
                 {newNodeRuntime === 'wasm' && (
                   <div>
-                    <label className="block text-xs text-[#64748b] mb-1">WASM Profile</label>
+                    <label className="block text-xs text-text-muted mb-1">WASM Profile</label>
                     <AppSelect
                       value={newNodeProfile}
                       onChange={e => setNewNodeProfile(e.target.value)}
@@ -355,7 +355,7 @@ export function SwarmOverview({
               </div>
 
               {newNodeRuntime === 'wasm' && (
-                <div className="text-xs text-[#64748b] border border-[#e5e7eb] rounded-md p-2 bg-[#f8fafc] flex items-center gap-2">
+                <div className="text-xs text-text-muted border border-border rounded-md p-2 bg-bg flex items-center gap-2">
                   <Cpu size={12} />
                   Runs in a sandboxed WASM runtime.
                 </div>
@@ -364,17 +364,17 @@ export function SwarmOverview({
               <button
                 onClick={handleCreateAgent}
                 disabled={!newNodeName.trim() || isProvisioning}
-                className="rounded-md border border-[#111827] bg-[#111827] text-white px-4 py-2 text-xs font-medium disabled:opacity-50"
+                className="btn-primary"
               >
                 {isProvisioning ? 'Creating...' : 'Create Agent'}
               </button>
 
-              <p className="text-xs text-[#64748b]">
+              <p className="text-xs text-text-muted">
                 After creation, choose this agent in the header and configure provider in step 2.
               </p>
 
               {provisionStatus && (
-                <p className={`text-xs ${provisionStatus.startsWith('Error') ? 'text-red-600' : 'text-emerald-700'}`}>
+                <p className={`text-xs ${provisionStatus.startsWith('Error') ? 'text-red-400' : 'text-green'}`}>
                   {provisionStatus}
                 </p>
               )}
@@ -383,21 +383,21 @@ export function SwarmOverview({
         </div>
 
         <div>
-          <h3 className="text-sm font-semibold text-[#111827] mb-3">Current Agents</h3>
+          <h3 className="text-sm font-semibold text-text mb-3">Current Agents</h3>
           {agents.length === 0 ? (
-            <p className="text-sm text-[#64748b]">No agents yet. Create your first agent above.</p>
+            <p className="text-sm text-text-muted">No agents yet. Create your first agent above.</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
               {agents.map(agent => (
-                <div key={agent} className="rounded-lg border border-[#d1d5db] bg-white p-3">
+                <div key={agent} className="rounded-lg border border-border bg-bg-card p-3">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <div className="text-sm font-semibold text-[#111827]">{agent}</div>
-                      <div className="text-xs text-[#64748b]">{activeAgent === agent ? 'Active agent' : 'Ready'}</div>
+                      <div className="text-sm font-semibold text-text">{agent}</div>
+                      <div className="text-xs text-text-muted">{activeAgent === agent ? 'Active agent' : 'Ready'}</div>
                     </div>
                     <button
                       onClick={() => setActiveAgent(agent)}
-                      className="text-xs rounded-md border border-[#2563eb] px-2 py-1 bg-[#2563eb] text-white hover:bg-[#1d4ed8]"
+                      className="text-xs btn-primary px-2 py-1"
                     >
                       Select
                     </button>
@@ -425,7 +425,7 @@ export function SwarmOverview({
                           setProvisionStatus(`Error: ${String(err)}`);
                         }
                       }}
-                      className="text-xs rounded-md border border-[#facc15] bg-[#fef9c3] px-2 py-1 text-[#92400e]"
+                      className="text-xs btn-secondary px-2 py-1 text-orange"
                     >
                       Restart
                     </button>
@@ -449,7 +449,7 @@ export function SwarmOverview({
                             setProvisionStatus(`Error: ${String(err)}`);
                           }
                         }}
-                        className="text-xs rounded-md border border-[#fecaca] bg-[#fef2f2] px-2 py-1 text-[#b91c1c]"
+                        className="text-xs px-2 py-1 text-red-400 border border-red-400/30 bg-red-500/10 hover:bg-red-500/20 rounded-md transition-colors"
                       >
                         Remove
                       </button>

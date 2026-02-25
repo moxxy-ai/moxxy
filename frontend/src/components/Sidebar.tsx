@@ -48,8 +48,8 @@ export function Sidebar({ activeTab, setActiveTab, activeAgent }: SidebarProps) 
               onClick={() => setActiveTab(item.id)}
               className={`shrink-0 inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs transition-colors ${
                 isActive
-                  ? 'bg-[#111827] border-[#111827] text-white'
-                  : 'bg-white border-[#d1d5db] text-[#334155] hover:bg-[#f8fafc]'
+                  ? 'gradient-bg border-transparent text-white glow-primary'
+                  : 'bg-bg-card border-border text-text-muted hover:bg-bg-card-hover hover:text-text'
               }`}
             >
               <item.icon size={14} />

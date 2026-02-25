@@ -42,10 +42,10 @@ function App() {
 
   const parseLogLine = (line: string): React.ReactNode => {
     const clean = line.replace(/\\x1B\[[0-9;]*[a-zA-Z]/g, '').replace(/\[[0-9;]+m/g, '');
-    if (clean.includes('INFO')) return <><span className="text-sky-600 font-bold">INFO</span> {clean.replace('INFO', '')}</>;
+    if (clean.includes('INFO')) return <><span className="text-primary-light font-bold">INFO</span> {clean.replace('INFO', '')}</>;
     if (clean.includes('WARN')) return <><span className="text-amber-400 font-bold">WARN</span> {clean.replace('WARN', '')}</>;
     if (clean.includes('ERROR')) return <><span className="text-red-400 font-bold">ERROR</span> {clean.replace('ERROR', '')}</>;
-    if (clean.includes('OK')) return <><span className="text-emerald-400 font-bold">OK</span> {clean.replace('OK', '')}</>;
+    if (clean.includes('OK')) return <><span className="text-green font-bold">OK</span> {clean.replace('OK', '')}</>;
     return clean;
   };
 
@@ -204,15 +204,15 @@ function App() {
             {activeTab !== 'Overview' && activeTab !== 'Config' && !agentState.activeAgent ? (
               <div className="panel-page">
                 <div className="panel-shell items-start justify-center">
-                  <h2 className="text-lg font-semibold text-[#111827] mb-2">Select an Agent First</h2>
-                  <p className="text-sm text-[#64748b] mb-4">
+                  <h2 className="text-lg font-semibold text-text mb-2">Select an Agent First</h2>
+                  <p className="text-sm text-text-muted mb-4">
                     {agentState.agents.length === 0
                       ? 'Create your first agent in Overview, then continue.'
                       : 'Choose an agent from the header selector to continue.'}
                   </p>
                   <button
                     onClick={() => setActiveTab('Overview')}
-                    className="rounded-md border border-[#2563eb] bg-[#2563eb] text-white px-3 py-2 text-xs font-medium hover:bg-[#1d4ed8]"
+                    className="btn-primary"
                   >
                     Open Overview
                   </button>

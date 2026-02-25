@@ -23,50 +23,48 @@ export function Header({ agents, activeAgent, setActiveAgent }: HeaderProps) {
 
   return (
     <header className="dashboard-header">
-      <div className="dashboard-header-inner px-4 md:px-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
-        <div className="min-w-0 flex-1">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-[#64748b]">moxxy</div>
-          <h1 className="text-base md:text-lg font-semibold text-[#111827] truncate">Agent Workspace</h1>
+      <div className="dashboard-header-inner px-4 md:px-6 flex items-center justify-between gap-3 min-h-0">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <img src="/favicon.svg" alt="Moxxy" className="w-8 h-8 shrink-0 align-middle" />
+          <span className="text-lg font-bold tracking-tight text-text truncate">moxxy</span>
         </div>
 
-        <div className="w-full sm:w-auto flex items-center justify-end gap-4 sm:gap-5">
-          <div ref={agentMenuRef} className="relative min-w-[140px] sm:min-w-[165px] text-right ml-auto">
-            <button
-              type="button"
-              onClick={() => setIsAgentMenuOpen(open => !open)}
-              className="inline-flex items-center gap-1 text-xs leading-none text-[#0f172a] hover:text-[#1d4ed8]"
-            >
-              <span className="text-[#64748b]">Selected Agent:</span>
-              <span className="underline underline-offset-2">{activeAgent || 'None'}</span>
-              <ChevronDown
-                size={12}
-                className={`transition-transform ${isAgentMenuOpen ? 'rotate-180' : ''}`}
-              />
-            </button>
+        <div ref={agentMenuRef} className="relative shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsAgentMenuOpen(open => !open)}
+            className="inline-flex items-center gap-1 text-xs leading-none text-text hover:text-primary-light min-w-0 max-w-[50vw] sm:max-w-none"
+          >
+            <span className="text-text-muted hidden sm:inline">Selected Agent:</span>
+            <span className="underline underline-offset-2 truncate">{activeAgent || 'None'}</span>
+            <ChevronDown
+              size={12}
+              className={`shrink-0 transition-transform ${isAgentMenuOpen ? 'rotate-180' : ''}`}
+            />
+          </button>
 
-            {isAgentMenuOpen && (
-              <div className="absolute right-0 top-[calc(100%+6px)] z-30 w-56 rounded-md border border-[#d1d5db] bg-white shadow-lg overflow-hidden text-left">
-                {agents.length === 0 ? (
-                  <div className="px-3 py-2 text-xs text-[#64748b]">No agents available</div>
-                ) : (
-                  agents.map(agent => (
-                    <button
-                      key={agent}
-                      type="button"
-                      onClick={() => {
-                        setActiveAgent(agent);
-                        setIsAgentMenuOpen(false);
-                      }}
-                      className="w-full px-3 py-2 text-left text-sm text-[#0f172a] hover:bg-[#eff6ff] flex items-center justify-between"
-                    >
-                      <span>{agent}</span>
-                      {activeAgent === agent && <Check size={13} className="text-[#2563eb]" />}
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
+          {isAgentMenuOpen && (
+            <div className="absolute right-0 top-[calc(100%+6px)] z-30 w-56 sm:w-56 min-w-[180px] max-w-[calc(100vw-2rem)] rounded-md border border-border bg-bg-card shadow-lg overflow-hidden text-left">
+              {agents.length === 0 ? (
+                <div className="px-3 py-2 text-xs text-text-muted">No agents available</div>
+              ) : (
+                agents.map(agent => (
+                  <button
+                    key={agent}
+                    type="button"
+                    onClick={() => {
+                      setActiveAgent(agent);
+                      setIsAgentMenuOpen(false);
+                    }}
+                    className="w-full px-3 py-2 text-left text-sm text-text hover:bg-bg-card-hover flex items-center justify-between truncate"
+                  >
+                    <span className="truncate">{agent}</span>
+                    {activeAgent === agent && <Check size={13} className="text-primary-light shrink-0 ml-2" />}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
         </div>
       </div>
     </header>
