@@ -96,7 +96,7 @@ Every skill script receives these environment variables automatically:
 | `MOXXY_API_BASE` | API base URL (default: `http://127.0.0.1:17890/api`) |
 | `MOXXY_INTERNAL_TOKEN` | Auth token for internal API calls |
 | `MOXXY_ARGS_MODE` | Set to `"stdin"` when args are passed via stdin (large payloads) |
-| `MOXXY_SOURCE_DIR` | Source dir (dev mode only, for `evolve_core`) |
+| `MOXXY_SOURCE_DIR` | Source dir (auto-detected, for `evolve_core`) |
 
 If `needs_env = true`, all vault secrets are also injected as environment variables.
 

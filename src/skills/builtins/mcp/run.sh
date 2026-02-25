@@ -49,7 +49,35 @@ case "$action" in
         fi
 
         python3 -c "
-import json, sys, urllib.request
+import json, re, sys, urllib.request
+
+GENERIC_NAMES = frozenset({'default', 'mcp', 'server', 'default_server', 'unknown'})
+
+def derive_name_from_spec(spec):
+    \"\"\"Derive a descriptive name from command/args when config uses a generic name.\"\"\"
+    args = spec.get('args', [])
+    if isinstance(args, str):
+        args = args.split()
+    for a in reversed(args):
+        a = str(a).strip()
+        if not a or a.startswith('-') or a.startswith('/'):
+            continue
+        # exa-mcp-server -> exa, @modelcontextprotocol/server-github -> github
+        part = a.split('/')[-1].split('@')[-1]
+        # Try first segment (exa-mcp-server -> exa)
+        match = re.match(r'^([a-zA-Z0-9]+)(?:[-_]?(?:mcp|server))?', part)
+        if match:
+            derived = match.group(1).lower()
+            if derived and derived not in GENERIC_NAMES:
+                return derived
+        # If part is generic-word-specific (server-github), use the specific part
+        if '-' in part or '_' in part:
+            for seg in part.replace('_', '-').split('-'):
+                if seg and seg.lower() not in GENERIC_NAMES and re.match(r'^[a-zA-Z][a-zA-Z0-9]*$', seg):
+                    return seg.lower()
+        if re.match(r'^[a-zA-Z][a-zA-Z0-9_-]+$', part):
+            return part.split('-')[0].split('_')[0].lower()
+    return 'mcp_tool'
 
 config = json.loads(sys.argv[1])
 servers = config.get('mcpServers', config)
@@ -63,14 +91,17 @@ for name, spec in servers.items():
     if not cmd:
         print(f'Skipping \"{name}\": no command specified.')
         continue
+    final_name = name if name.lower() not in GENERIC_NAMES else derive_name_from_spec(spec)
+    if final_name != name:
+        print(f'Renaming generic \"{name}\" to \"{final_name}\" (derived from spec)')
     args = spec.get('args', [])
     args_str = ' '.join(args) if isinstance(args, list) else str(args)
     env = json.dumps(spec.get('env', {}))
-    payload = json.dumps({'name': name, 'command': cmd, 'args': args_str, 'env': env}).encode()
+    payload = json.dumps({'name': final_name, 'command': cmd, 'args': args_str, 'env': env}).encode()
     headers = {'Content-Type': 'application/json'}
     if auth:
         headers['X-Moxxy-Internal-Token'] = auth
-    print(f'Adding MCP server: {name}')
+    print(f'Adding MCP server: {final_name}')
     req = urllib.request.Request(f'{api_url}/agents/{agent}/mcp', data=payload, headers=headers, method='POST')
     try:
         resp = urllib.request.urlopen(req)
@@ -79,7 +110,7 @@ for name, spec in servers.items():
         print(f'Error adding {name}: {e}')
     added += 1
 
-print(f'Added {added} MCP server(s). Please reboot the agent to initialize them.')
+print(f'Added {added} MCP server(s). Please restart the gateway (moxxy gateway restart) to initialize them.')
 " "$json_config" "$API_URL" "$AGENT_NAME" "${MOXXY_INTERNAL_TOKEN:-}"
         ;;
     "remove")

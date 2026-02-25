@@ -25,7 +25,6 @@ fn print_help() {
     GuideSection::new("Core")
         .command("web", "Start the Web Dashboard")
         .command("tui", "Start the Interactive Terminal UI")
-        .command("dev", "Start the Daemon in Elevated Dev Mode")
         .command("run", "Run a single programmatic prompt")
         .print();
 
@@ -334,9 +333,6 @@ pub async fn run_main() -> Result<()> {
                 let mut cli = CliInterface::new(custom_api_url);
                 cli.run_tui().await?;
                 return Ok(());
-            }
-            "dev" => {
-                run_mode = RunMode::Dev;
             }
             "install" => {
                 install::run_install().await?;

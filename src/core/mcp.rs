@@ -179,6 +179,9 @@ impl McpClient {
         Ok(client)
     }
 
+    /// Default timeout for MCP RPC calls (tool calls, list_tools). Initialize uses 15s.
+    const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
     pub async fn call(&self, method: &str, params: Option<Value>) -> Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let req = JsonRpcRequest {
@@ -198,8 +201,16 @@ impl McpClient {
 
         self.tx_req.send(req_str).await?;
 
-        // Wait for response
-        let resp = rx.await?;
+        // Wait for response with timeout to avoid indefinite hangs on server crash/hang
+        let resp = match tokio::time::timeout(Self::CALL_TIMEOUT, rx).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => return Err(e.into()),
+            Err(_elapsed) => {
+                let mut p = self.pending_requests.lock().await;
+                p.remove(&id);
+                return Err(anyhow!("MCP RPC timeout after {:?}", Self::CALL_TIMEOUT));
+            }
+        };
         if let Some(error) = resp.error {
             return Err(anyhow!("MCP RPC Error: {:?}", error));
         }
@@ -253,5 +264,79 @@ impl McpClient {
             "arguments": arguments
         });
         self.call("tools/call", Some(params)).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mock_server_script_path() -> Option<std::path::PathBuf> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("mock_mcp_server.py");
+        if path.exists() { Some(path) } else { None }
+    }
+
+    #[tokio::test]
+    async fn mcp_client_integration_with_mock_server() {
+        let script_path = match mock_server_script_path() {
+            Some(p) => p,
+            None => {
+                eprintln!("Skipping MCP integration test: mock_mcp_server.py not found");
+                return;
+            }
+        };
+
+        let python = if cfg!(target_os = "windows") {
+            "python"
+        } else {
+            "python3"
+        };
+
+        let client = match McpClient::new(
+            "mock_test",
+            python,
+            vec![script_path.to_string_lossy().to_string()],
+            HashMap::new(),
+        )
+        .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!(
+                    "Skipping MCP integration test: failed to start mock server: {}",
+                    e
+                );
+                return;
+            }
+        };
+
+        let tools = client
+            .list_tools()
+            .await
+            .expect("list_tools should succeed");
+        assert_eq!(tools.len(), 1, "Mock server should expose one tool");
+        assert_eq!(tools[0].name, "echo");
+
+        let result = client
+            .call_tool("echo", serde_json::json!({"text": "hello"}))
+            .await
+            .expect("call_tool should succeed");
+
+        let content = result
+            .get("content")
+            .and_then(|c| c.as_array())
+            .expect("result should have content array");
+        let text_item = content
+            .iter()
+            .find(|c| c.get("type").and_then(|t| t.as_str()) == Some("text"))
+            .expect("should have text content item");
+        let text = text_item
+            .get("text")
+            .and_then(|t| t.as_str())
+            .expect("text item should have text field");
+        assert_eq!(text, "echo: hello");
     }
 }

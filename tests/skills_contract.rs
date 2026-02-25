@@ -135,6 +135,101 @@ fn every_builtin_manifest_parses_and_has_required_fields() {
     }
 }
 
+const SKILLS_REQUIRING_CONFIRMATION: &[&str] = &["evolve_core"];
+
+#[test]
+fn evolve_core_manifest_requires_confirmation() {
+    let manifest_path = builtins_dir().join("evolve_core").join("manifest.toml");
+    let raw = std::fs::read_to_string(&manifest_path).expect("manifest should be readable");
+    let value: toml::Value = toml::from_str(&raw).expect("manifest should parse");
+
+    let needs_confirmation = value
+        .get("needs_confirmation")
+        .and_then(toml::Value::as_bool)
+        .unwrap_or(false);
+    assert!(
+        needs_confirmation,
+        "evolve_core must have needs_confirmation = true"
+    );
+}
+
+#[test]
+fn needs_confirmation_only_set_on_expected_skills() {
+    let dir = builtins_dir();
+    let expected: HashSet<&str> = SKILLS_REQUIRING_CONFIRMATION.iter().copied().collect();
+
+    for entry in std::fs::read_dir(&dir).expect("builtins dir should be readable") {
+        let entry = entry.expect("dir entry");
+        if !entry.path().is_dir() {
+            continue;
+        }
+        let skill_name = entry.file_name().to_string_lossy().to_string();
+        let manifest_path = entry.path().join("manifest.toml");
+        if !manifest_path.exists() {
+            continue;
+        }
+
+        let raw = std::fs::read_to_string(&manifest_path).expect("manifest should be readable");
+        let value: toml::Value = toml::from_str(&raw).expect("manifest should parse");
+
+        let needs_confirmation = value
+            .get("needs_confirmation")
+            .and_then(toml::Value::as_bool)
+            .unwrap_or(false);
+
+        if expected.contains(skill_name.as_str()) {
+            assert!(
+                needs_confirmation,
+                "Skill {} should have needs_confirmation = true",
+                skill_name
+            );
+        } else {
+            assert!(
+                !needs_confirmation,
+                "Skill {} should NOT have needs_confirmation = true (not in allowlist)",
+                skill_name
+            );
+        }
+    }
+}
+
+#[test]
+fn evolve_core_docs_do_not_reference_dev_mode() {
+    let skill_md = builtins_dir().join("evolve_core").join("skill.md");
+    let content = std::fs::read_to_string(&skill_md).expect("skill.md should be readable");
+    let lower = content.to_lowercase();
+    assert!(
+        !lower.contains("dev mode"),
+        "evolve_core skill.md should not reference dev mode"
+    );
+
+    let manifest = builtins_dir().join("evolve_core").join("manifest.toml");
+    let manifest_content = std::fs::read_to_string(&manifest).expect("manifest should be readable");
+    let manifest_lower = manifest_content.to_lowercase();
+    assert!(
+        !manifest_lower.contains("dev mode"),
+        "evolve_core manifest.toml should not reference dev mode"
+    );
+}
+
+#[test]
+fn needs_confirmation_defaults_to_false_when_absent() {
+    let toml_str = r#"
+name = "test_skill"
+description = "A test skill"
+version = "1.0.0"
+"#;
+    let value: toml::Value = toml::from_str(toml_str).expect("should parse");
+    let needs_confirmation = value
+        .get("needs_confirmation")
+        .and_then(toml::Value::as_bool)
+        .unwrap_or(false);
+    assert!(
+        !needs_confirmation,
+        "needs_confirmation should default to false when absent"
+    );
+}
+
 #[test]
 fn every_builtin_run_script_passes_shell_syntax_check() {
     for skill in EXPECTED_SKILLS {

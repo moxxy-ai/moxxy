@@ -1,11 +1,14 @@
 use anyhow::{Context, Result, bail};
 use console::style;
 use flate2::read::GzDecoder;
+use include_dir::{Dir, include_dir};
 use sha2::{Digest, Sha256};
 use std::io::Read;
 
 use crate::core::terminal::{GuideSection, print_info, print_step};
 use crate::platform::{NativePlatform, Platform};
+
+static BUILTINS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/src/skills/builtins");
 
 const GITHUB_REPO: &str = "moxxy-ai/moxxy";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -187,6 +190,10 @@ pub async fn run_update() -> Result<()> {
     // Remove backup
     let _ = std::fs::remove_file(&backup_path);
 
+    // Purge stale built-in skills from every agent so the new binary
+    // extracts fresh copies on next boot.
+    refresh_agent_skills();
+
     GuideSection::new("Update Complete")
         .success(&format!(
             "Updated moxxy: v{} -> v{}",
@@ -198,4 +205,41 @@ pub async fn run_update() -> Result<()> {
     println!();
 
     Ok(())
+}
+
+/// Remove built-in skill directories from every agent workspace so the new
+/// binary will extract its (potentially updated) copies on next start.
+fn refresh_agent_skills() {
+    let agents_dir = NativePlatform::data_dir().join("agents");
+    let Ok(entries) = std::fs::read_dir(&agents_dir) else {
+        return;
+    };
+
+    let builtin_names: Vec<&str> = BUILTINS_DIR
+        .dirs()
+        .map(|d| d.path().file_name().and_then(|n| n.to_str()).unwrap_or(""))
+        .filter(|n| !n.is_empty())
+        .collect();
+
+    let mut refreshed: usize = 0;
+    for entry in entries.flatten() {
+        let skills_dir = entry.path().join("skills");
+        if !skills_dir.is_dir() {
+            continue;
+        }
+        for name in &builtin_names {
+            let skill_path = skills_dir.join(name);
+            if skill_path.exists() {
+                let _ = std::fs::remove_dir_all(&skill_path);
+            }
+        }
+        refreshed += 1;
+    }
+
+    if refreshed > 0 {
+        print_step(&format!(
+            "Cleared stale built-in skills for {} agent(s).",
+            refreshed
+        ));
+    }
 }

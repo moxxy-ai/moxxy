@@ -5,6 +5,14 @@ use axum::{
 
 use super::super::AppState;
 
+/// Generic names that must not be used for MCP servers. The agent should derive descriptive names.
+const DISALLOWED_SERVER_NAMES: &[&str] = &["default", "mcp", "server", "default_server", "unknown"];
+
+fn is_server_name_allowed(name: &str) -> bool {
+    let lower = name.trim().to_lowercase();
+    !DISALLOWED_SERVER_NAMES.iter().any(|d| *d == lower)
+}
+
 /// Default allowed MCP server commands. Users can extend this by creating
 /// `~/.moxxy/allowed_mcp_commands.txt` with one command per line.
 const DEFAULT_MCP_COMMANDS: &[&str] = &[
@@ -95,6 +103,30 @@ pub async fn add_mcp_server_endpoint(
         }));
     }
 
+    if !is_server_name_allowed(&server_name) {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": "Server name cannot be generic (e.g. default, mcp, server). Use a descriptive name derived from the server purpose (e.g. exa, github, files)."
+        }));
+    }
+
+    if server_name.len() > 128 {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": "Server name must be 128 characters or less"
+        }));
+    }
+
+    if !server_name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": "Server name must contain only letters, numbers, underscores, and hyphens"
+        }));
+    }
+
     if !is_mcp_command_allowed(&command) {
         return Json(serde_json::json!({
             "success": false,
@@ -114,7 +146,7 @@ pub async fn add_mcp_server_endpoint(
             .await
         {
             Ok(_) => Json(
-                serde_json::json!({ "success": true, "message": "MCP Server added. Please reboot the agent to initialize it." }),
+                serde_json::json!({ "success": true, "message": "MCP Server added. Please restart the gateway (e.g. moxxy gateway restart) to initialize it." }),
             ),
             Err(e) => Json(
                 serde_json::json!({ "success": false, "error": format!("Database error: {}", e) }),
@@ -142,7 +174,7 @@ pub async fn delete_mcp_server_endpoint(
         let mem = mem_mutex.lock().await;
         match mem.remove_mcp_server(&server_name).await {
             Ok(true) => Json(
-                serde_json::json!({ "success": true, "message": "MCP Server removed. Please reboot the agent to detach it." }),
+                serde_json::json!({ "success": true, "message": "MCP Server removed. Please restart the gateway (e.g. moxxy gateway restart) to detach it." }),
             ),
             Ok(false) => {
                 Json(serde_json::json!({ "success": false, "error": "MCP Server not found" }))

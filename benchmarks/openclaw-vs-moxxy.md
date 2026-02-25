@@ -35,7 +35,7 @@ moxxy ships as a single self-contained binary with the frontend baked in -- desp
 | **Sandboxing** | WASM (wasmtime) with capability-based permissions | Not prominently documented |
 | **Memory** | SQLite with STM + LTM + vec0 vector embeddings | Local Markdown files |
 | **Swarm intelligence** | `[ANNOUNCE]` tags to shared `swarm.db` | Multi-agent routing (no shared knowledge base) |
-| **Self-modification** | `evolve_core` skill in dev mode | Not available |
+| **Self-modification** | `evolve_core` skill (with user confirmation) | Not available |
 | **Scheduled autonomy** | Cron-based heartbeat daemon | Heartbeat daemon + webhooks + Gmail Pub/Sub |
 
 ### Verdict

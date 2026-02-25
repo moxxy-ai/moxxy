@@ -101,7 +101,6 @@ moxxy run --agent <name> --prompt "..."  One-shot prompt execution
 moxxy channel telegram --agent <name>    Telegram channel setup
 moxxy agent restart|remove <name>        Agent management
 moxxy doctor                             System diagnostics
-moxxy dev                                Dev mode (elevated permissions)
 ```
 
 ## Architecture
@@ -176,7 +175,7 @@ Configure via the web dashboard (Config tab) or during `moxxy init`.
 | `manage_vault` | Manage vault secrets (list, get, set, remove) |
 | `mcp` | Configure external MCP servers (list, add, remove) |
 | `contribute` | Suggest features or open PRs on the moxxy repo via GitHub |
-| `evolve_core` | Self-modify framework code (dev mode only) |
+| `evolve_core` | Self-modify framework code (requires user confirmation) |
 | `openclaw_migrate` | Migrate OpenClaw agents, personas, and skills to moxxy |
 
 ### MCP Integration
@@ -216,7 +215,7 @@ moxxy enforces strict workspace isolation for agents through multiple security l
 
 **Environment isolation** - Sandboxed skills receive a clean environment with no internal API tokens, no access to the agent's home directory, and no source directory paths. Without the internal token, sandboxed skills cannot call host proxy endpoints.
 
-**Host proxy authentication** - The host proxy (`execute_bash`, `execute_python`, `execute_applescript`) always requires the internal token, even in dev mode. Working directory parameters are validated to stay within `~/.moxxy/`.
+**Host proxy authentication** - The host proxy (`execute_bash`, `execute_python`, `execute_applescript`) always requires the internal token. Working directory parameters are validated to stay within `~/.moxxy/`.
 
 **WASM containerization** - Agents can optionally run their brain (ReAct loop) inside a WASM container for defense-in-depth. WASM preopened directories are restricted to `./workspace` only, with path traversal protection via canonicalization.
 
@@ -278,7 +277,7 @@ How moxxy compares to similar self-hosted AI agent frameworks:
 | **Sandboxing** | OS-level sandbox (sandbox-exec / bwrap) + optional WASM containers, workspace-confined agents | Chrome profile isolation, macOS TCC | Docker sandbox (WASM planned) |
 | **Voice** | Whisper transcription (Telegram) | ElevenLabs + Wake/Talk Mode overlay | No |
 | **Desktop/mobile apps** | Web dashboard, macOS hotkey, mobile endpoint | macOS menu bar app, iOS & Android companion apps | No |
-| **Self-modification** | Yes - `evolve_core` skill in dev mode | No | No |
+| **Self-modification** | Yes - `evolve_core` skill (with user confirmation) | No | No |
 | **Binary size / footprint** | Single binary (~12 MB), ~20 MB RAM | Node.js process, higher baseline | Single binary, <5 MB RAM |
 | **License** | MIT | MIT | Apache 2.0 + MIT |
 

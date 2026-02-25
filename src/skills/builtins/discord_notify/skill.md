@@ -31,15 +31,15 @@ The bot maintains a **list of listen channels** (`discord_listen_channels`):
 - DMs are always accepted regardless of the listen list.
 
 A **listen mode** (`discord_listen_mode`) further narrows behaviour:
-- `all` (default) – respond to every message in the listen channels.
-- `mentions` – only respond when the bot is @mentioned in a listen channel.
+- `all` (default) - respond to every message in the listen channels.
+- `mentions` - only respond when the bot is @mentioned in a listen channel.
 
 Channels can be added or removed via:
-- **`discord_add_listen_channel "<channel_id>"`** – add a channel to the listen list (preferred; use this when the user asks to add a channel).
-- **`discord_remove_listen_channel "<channel_id>"`** – remove a channel from the listen list.
+- **`discord_add_listen_channel "<channel_id>"`** - add a channel to the listen list (preferred; use this when the user asks to add a channel).
+- **`discord_remove_listen_channel "<channel_id>"`** - remove a channel from the listen list.
 - The web dashboard Channels panel.
 
-**Important:** Do NOT use `manage_vault` to modify `discord_listen_channels` – that overwrites the entire list. Always use the skills above.
+**Important:** Do NOT use `manage_vault` to modify `discord_listen_channels` - that overwrites the entire list. Always use the skills above.
 
 ## Setup
 

@@ -110,7 +110,8 @@ pub(super) async fn init_core_subsystems(
     ))
 }
 
-/// Spawn MCP Server initialization tasks (non-blocking).
+/// Initialize MCP servers and await completion before the agent becomes ready.
+/// Ensures all MCP tools are registered before any messages can be processed.
 pub(super) async fn spawn_mcp_servers(
     memory_sys_arc: &Arc<Mutex<MemorySystem>>,
     skill_sys_arc: &Arc<Mutex<SkillManager>>,
@@ -120,6 +121,7 @@ pub(super) async fn spawn_mcp_servers(
         mem.get_all_mcp_servers().await.unwrap_or_default()
     };
 
+    let mut handles = Vec::new();
     for server in mcp_servers {
         let args: Vec<String> = match serde_json::from_str::<Vec<String>>(&server.args) {
             Ok(parsed) => parsed,
@@ -135,7 +137,7 @@ pub(super) async fn spawn_mcp_servers(
         let server_name = server.name.clone();
         let server_command = server.command.clone();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             match crate::core::mcp::McpClient::new(&server_name, &server_command, args, env).await {
                 Ok(client) => match client.list_tools().await {
                     Ok(tools) => {
@@ -167,6 +169,7 @@ pub(super) async fn spawn_mcp_servers(
                                 doc_files: Vec::new(),
                                 skill_dir: PathBuf::new(),
                                 privileged: false,
+                                needs_confirmation: false,
                                 oauth: None,
                                 env_keys: Vec::new(),
                             };
@@ -189,6 +192,11 @@ pub(super) async fn spawn_mcp_servers(
                 }
             }
         });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        let _ = handle.await;
     }
 }
 

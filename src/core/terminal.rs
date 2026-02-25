@@ -88,14 +88,14 @@ pub fn bordered_step(step: &str) {
 
 #[allow(dead_code)]
 pub fn bordered_bullet(text: &str) {
-    println!(" {}   {} {}", style(BOX_V).dim(), style("–").dim(), text);
+    println!(" {}   {} {}", style(BOX_V).dim(), style("-").dim(), text);
 }
 
 // ── Section & layout helpers ───────────────────────────────────────────────
 
 /// Print a bullet point.
 pub fn print_bullet(text: &str) {
-    println!("   {} {}", style("–").dim(), text);
+    println!("   {} {}", style("-").dim(), text);
 }
 
 /// Print a `│` continuation bar (for use between open() and close_section()).
@@ -268,7 +268,7 @@ impl GuideSection {
                     println!(" {}  {}. {}", v, style(n).cyan().bold(), t);
                 }
                 GuideLine::Bullet(t) => {
-                    println!(" {}  {} {}", v, style("–").dim(), t);
+                    println!(" {}  {} {}", v, style("-").dim(), t);
                 }
                 GuideLine::Hint(cmd, comment) => {
                     if comment.is_empty() {

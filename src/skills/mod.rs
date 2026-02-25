@@ -60,6 +60,10 @@ pub struct SkillManifest {
     #[serde(skip)]
     pub privileged: bool,
 
+    /// When true, the agent must ask for explicit user confirmation before executing.
+    #[serde(default)]
+    pub needs_confirmation: bool,
+
     // OAuth2 configuration for skills that require OAuth authentication
     #[serde(default)]
     pub oauth: Option<OAuthConfig>,
@@ -80,6 +84,31 @@ fn default_run_command() -> String {
 
 fn default_scope_separator() -> String {
     " ".to_string()
+}
+
+/// Extract human-readable text from MCP tools/call result.
+/// The MCP result has `content: [{type: "text", text: "..."}, ...]`.
+/// Falls back to pretty-printed JSON if no text content is found.
+fn extract_mcp_text_content(result: &serde_json::Value) -> String {
+    let Some(content) = result.get("content").and_then(|c| c.as_array()) else {
+        return serde_json::to_string_pretty(result).unwrap_or_default();
+    };
+    let texts: Vec<String> = content
+        .iter()
+        .filter_map(|item| {
+            item.get("type")
+                .and_then(|t| t.as_str())
+                .filter(|&t| t == "text")
+                .and_then(|_| item.get("text"))
+                .and_then(|t| t.as_str())
+                .map(String::from)
+        })
+        .collect();
+    if texts.is_empty() {
+        serde_json::to_string_pretty(result).unwrap_or_default()
+    } else {
+        texts.join("\n\n")
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
@@ -131,7 +160,7 @@ impl SkillExecution {
                     serde_json::json!({})
                 };
                 let result = client.call_tool(tool_name, args_json).await?;
-                Ok(serde_json::to_string_pretty(&result)?)
+                Ok(extract_mcp_text_content(&result))
             }
             SkillExecution::Openclaw => {
                 let files = if manifest.doc_files.is_empty() {
@@ -328,15 +357,16 @@ impl SkillManager {
             .clone();
 
         if manifest.executor_type == "mcp" {
-            // Find the MCP client that owns this tool
+            // Find the MCP client that owns this tool (use strip_prefix to avoid over-trimming
+            // when tool names overlap with server prefix, e.g. server "exa" + tool "exa_search")
             for (server, client) in &self.mcp_clients {
-                if name.starts_with(&format!("{}_", server)) {
-                    let tool_name = name.trim_start_matches(&format!("{}_", server)).to_string();
+                let prefix = format!("{}_", server);
+                if let Some(suffix) = name.strip_prefix(&prefix) {
                     return Ok((
                         manifest,
                         SkillExecution::Mcp {
                             client: Arc::clone(client),
-                            tool_name,
+                            tool_name: suffix.to_string(),
                         },
                     ));
                 }
@@ -364,9 +394,14 @@ impl SkillManager {
     pub fn get_skill_catalog(&self) -> String {
         let mut catalog = String::new();
         for manifest in self.skills.values() {
+            let confirm_tag = if manifest.needs_confirmation {
+                " [REQUIRES CONFIRMATION]"
+            } else {
+                ""
+            };
             catalog.push_str(&format!(
-                "### [{}] - {}\n",
-                manifest.name, manifest.description
+                "### [{}] - {}{}\n",
+                manifest.name, manifest.description, confirm_tag
             ));
 
             if manifest.executor_type == "openclaw" && !manifest.triggers.is_empty() {
@@ -443,10 +478,10 @@ impl SkillManager {
             };
 
             for (server, client) in &self.mcp_clients {
-                if name.starts_with(&format!("{}_", server)) {
-                    let tool = name.trim_start_matches(&format!("{}_", server));
+                let prefix = format!("{}_", server);
+                if let Some(tool) = name.strip_prefix(&prefix) {
                     let result = client.call_tool(tool, args_json).await?;
-                    return Ok(serde_json::to_string_pretty(&result)?);
+                    return Ok(extract_mcp_text_content(&result));
                 }
             }
 
@@ -597,6 +632,7 @@ impl SkillManager {
             doc_files,
             skill_dir: skill_dir.clone(),
             privileged: false,
+            needs_confirmation: false,
             oauth: None,
             env_keys: Vec::new(),
         };
@@ -804,7 +840,19 @@ impl LifecycleComponent for SkillManager {
             tokio::fs::create_dir_all(&skills_dir).await?;
         }
 
-        // Unpack Native Built-In Skills cleanly into the agent's sandbox
+        // Remove stale built-in skill directories before re-extracting so that
+        // a binary update always replaces them with the version compiled in.
+        let pre_clean_path = skills_dir.clone();
+        tokio::task::spawn_blocking(move || {
+            for entry in BUILTINS_DIR.dirs() {
+                let dir_path = pre_clean_path.join(entry.path());
+                if dir_path.exists() {
+                    let _ = std::fs::remove_dir_all(&dir_path);
+                }
+            }
+        })
+        .await?;
+
         let extract_path = skills_dir.clone();
         if let Err(e) =
             tokio::task::spawn_blocking(move || BUILTINS_DIR.extract(&extract_path)).await?
@@ -853,5 +901,50 @@ impl LifecycleComponent for SkillManager {
     async fn on_shutdown(&mut self) -> Result<()> {
         info!("SkillManager shutting down...");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_mcp_text_content_extracts_text_items() {
+        let result = serde_json::json!({
+            "content": [
+                {"type": "text", "text": "First output"},
+                {"type": "image", "data": "base64..."},
+                {"type": "text", "text": "Second output"}
+            ],
+            "isError": false
+        });
+        let out = extract_mcp_text_content(&result);
+        assert_eq!(out, "First output\n\nSecond output");
+    }
+
+    #[test]
+    fn extract_mcp_text_content_falls_back_to_json_when_no_text() {
+        let result = serde_json::json!({
+            "content": [{"type": "image", "data": "base64..."}],
+            "isError": false
+        });
+        let out = extract_mcp_text_content(&result);
+        assert!(out.contains("\"content\""));
+        assert!(out.contains("\"image\""));
+    }
+
+    #[test]
+    fn extract_mcp_text_content_falls_back_to_json_when_no_content_key() {
+        let result = serde_json::json!({"isError": false});
+        let out = extract_mcp_text_content(&result);
+        assert!(out.contains("\"isError\""));
+        assert_eq!(result.get("content"), None);
+    }
+
+    #[test]
+    fn extract_mcp_text_content_handles_empty_content_array() {
+        let result = serde_json::json!({"content": [], "isError": false});
+        let out = extract_mcp_text_content(&result);
+        assert!(out.contains("\"content\""));
     }
 }

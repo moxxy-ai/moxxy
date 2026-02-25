@@ -58,8 +58,42 @@ Read a skill's source files:
 <invoke name="skill">["read", "skill_name"]</invoke>
 ```
 
-### Fix broken skills (self-repair)
-When a skill fails with "command not found" or "not found" (e.g. curl, python3), fix it by editing the skill rather than installing system packages:
-1. Read the skill: `skill read <skill_name>`
-2. Edit run.sh to remove the dependency (e.g. use grep/sed for JSON parsing)
-3. Apply the fix: `skill modify <skill_name> run.sh "<new_content>"`
+### check
+Scan skills for common problems (missing files, non-portable dependencies like jq, syntax issues):
+```
+<invoke name="skill">["check"]</invoke>
+```
+
+Check a specific skill:
+```
+<invoke name="skill">["check", "skill_name"]</invoke>
+```
+
+## Self-Check and Self-Repair
+
+**When a skill fails**, follow this procedure:
+
+1. **Run check** to identify the problem:
+   ```
+   <invoke name="skill">["check", "failing_skill_name"]</invoke>
+   ```
+
+2. **Read the skill source** to see the full code:
+   ```
+   <invoke name="skill">["read", "failing_skill_name"]</invoke>
+   ```
+
+3. **Fix the run.sh** by writing a corrected version:
+   ```
+   <invoke name="skill">["modify", "failing_skill_name", "run.sh", "#!/bin/sh\nset -eu\n... fixed code ..."]</invoke>
+   ```
+
+**Common fixes:**
+- `jq: not found` → Replace all `jq` usage with `grep`/`sed`/`awk` (jq is NOT available on most systems)
+- `command not found` → Replace the missing command with a portable alternative, do NOT try to install packages
+- Skill must provide the ENTIRE new file content to `modify`, not just a diff
+
+**Portable JSON patterns to use instead of jq:**
+- Build JSON: `printf '{"key":"%s"}' "$(printf '%s' "$val" | sed 's/\\\\/\\\\\\\\/g; s/"/\\\\"/g')"`
+- Check success: `printf '%s' "$resp" | grep -qE '"success"[[:space:]]*:[[:space:]]*true'`
+- Extract field: `printf '%s' "$resp" | sed -n 's/.*"field"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1`

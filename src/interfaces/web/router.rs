@@ -700,4 +700,264 @@ mod tests {
             );
         }
     }
+
+    #[tokio::test]
+    async fn mcp_get_returns_empty_when_no_servers() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+
+        let (status, json) = json_request(
+            app,
+            Method::GET,
+            "/api/agents/default/mcp",
+            None,
+            "test-internal-token",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(true));
+        let servers = json.get("mcp_servers").and_then(|v| v.as_array()).unwrap();
+        assert!(servers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn mcp_add_and_list_and_delete() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+
+        // Add MCP server (npx is in default allowlist)
+        let (status, json) = json_request(
+            app.clone(),
+            Method::POST,
+            "/api/agents/default/mcp",
+            Some(serde_json::json!({
+                "name": "test_server",
+                "command": "npx",
+                "args": "-y @modelcontextprotocol/server-filesystem",
+                "env": "{}"
+            })),
+            "test-internal-token",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "add failed: {:?}", json);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(true));
+
+        // List
+        let (status, json) = json_request(
+            app.clone(),
+            Method::GET,
+            "/api/agents/default/mcp",
+            None,
+            "test-internal-token",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        let servers = json.get("mcp_servers").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(servers.len(), 1);
+        assert_eq!(
+            servers[0].get("name").and_then(|v| v.as_str()),
+            Some("test_server")
+        );
+
+        // Delete
+        let (status, json) = json_request(
+            app.clone(),
+            Method::DELETE,
+            "/api/agents/default/mcp/test_server",
+            None,
+            "test-internal-token",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(true));
+
+        // List again - empty
+        let (status, json) = json_request(
+            app,
+            Method::GET,
+            "/api/agents/default/mcp",
+            None,
+            "test-internal-token",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        let servers = json.get("mcp_servers").and_then(|v| v.as_array()).unwrap();
+        assert!(servers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn mcp_add_rejects_empty_name_and_command() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+
+        let (status, json) = json_request(
+            app.clone(),
+            Method::POST,
+            "/api/agents/default/mcp",
+            Some(serde_json::json!({
+                "name": "",
+                "command": "npx",
+                "args": "[]",
+                "env": "{}"
+            })),
+            "test-internal-token",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(false));
+        assert!(json.get("error").is_some());
+
+        let (status, json) = json_request(
+            app,
+            Method::POST,
+            "/api/agents/default/mcp",
+            Some(serde_json::json!({
+                "name": "ok",
+                "command": "",
+                "args": "[]",
+                "env": "{}"
+            })),
+            "test-internal-token",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(false));
+    }
+
+    #[tokio::test]
+    async fn mcp_add_rejects_generic_server_name() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+
+        for generic in ["default", "mcp", "server", "MCP"] {
+            let (status, json) = json_request(
+                app.clone(),
+                Method::POST,
+                "/api/agents/default/mcp",
+                Some(serde_json::json!({
+                    "name": generic,
+                    "command": "npx",
+                    "args": "[]",
+                    "env": "{}"
+                })),
+                "test-internal-token",
+            )
+            .await;
+
+            assert_eq!(status, StatusCode::OK, "generic name {}", generic);
+            assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(false));
+            assert!(
+                json.get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .contains("generic"),
+                "expected generic name error for {}",
+                generic
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn mcp_add_rejects_invalid_server_name() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+
+        let (status, json) = json_request(
+            app.clone(),
+            Method::POST,
+            "/api/agents/default/mcp",
+            Some(serde_json::json!({
+                "name": "bad name with spaces",
+                "command": "npx",
+                "args": "[]",
+                "env": "{}"
+            })),
+            "test-internal-token",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(false));
+        assert!(
+            json.get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .contains("letters, numbers")
+        );
+
+        let (status, json) = json_request(
+            app,
+            Method::POST,
+            "/api/agents/default/mcp",
+            Some(serde_json::json!({
+                "name": "ok_name-123",
+                "command": "npx",
+                "args": "[]",
+                "env": "{}"
+            })),
+            "test-internal-token",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(true));
+    }
+
+    #[tokio::test]
+    async fn mcp_add_rejects_disallowed_command() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+
+        let (status, json) = json_request(
+            app,
+            Method::POST,
+            "/api/agents/default/mcp",
+            Some(serde_json::json!({
+                "name": "bad_server",
+                "command": "curl",
+                "args": "[]",
+                "env": "{}"
+            })),
+            "test-internal-token",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(false));
+        assert!(
+            json.get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .contains("not allowed")
+        );
+    }
+
+    #[tokio::test]
+    async fn mcp_get_returns_error_for_nonexistent_agent() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+
+        let (status, json) = json_request(
+            app,
+            Method::GET,
+            "/api/agents/nonexistent_agent/mcp",
+            None,
+            "test-internal-token",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(false));
+        assert_eq!(
+            json.get("error").and_then(|v| v.as_str()),
+            Some("Agent not found")
+        );
+    }
 }

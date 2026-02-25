@@ -9,6 +9,45 @@ use crate::core::llm::LlmManager;
 use crate::core::memory::MemorySystem;
 use crate::skills::SkillManager;
 
+const PENDING_CONFIRM_PREFIX: &str = "[PENDING_CONFIRM:";
+
+/// Returns true if the message looks like a user confirming a pending action.
+fn is_confirmation_message(text: &str) -> bool {
+    let lower = text.trim().to_lowercase();
+    if lower.len() > 120 {
+        return false;
+    }
+    let confirmations = [
+        "yes",
+        "y",
+        "confirm",
+        "go ahead",
+        "proceed",
+        "do it",
+        "sure",
+        "ok",
+        "okay",
+        "yep",
+        "yeah",
+        "affirmative",
+        "approved",
+        "go for it",
+        "please",
+        "please do",
+        "yes please",
+        "go",
+        "yea",
+        "aye",
+    ];
+    confirmations.iter().any(|c| {
+        lower == *c
+            || lower.starts_with(&format!("{} ", c))
+            || lower.starts_with(&format!("{}!", c))
+            || lower.starts_with(&format!("{}.", c))
+            || lower.starts_with(&format!("{},", c))
+    })
+}
+
 /// Strip `<invoke>` tags from untrusted text to prevent prompt injection.
 /// Skill results, webhook payloads, and other external inputs must be sanitized
 /// before being fed back into the ReAct loop context.
@@ -76,7 +115,10 @@ fn build_system_prompt(skill_catalog: &str, persona_text: &Option<String>) -> St
          9. When a skill fails (e.g. \"jq: not found\", \"command not found\"), FIX THE SKILL by editing it: \
             use skill read <skill_name> to inspect the code, then skill modify <skill_name> run.sh \"<new content>\" to update it. \
             Prefer rewriting the skill to avoid the missing dependency (e.g. use grep/sed instead of jq). \
-            Never use host_shell to install system packages (apt-get, etc.) to work around missing tools.\n\n\
+            Never use host_shell to install system packages (apt-get, etc.) to work around missing tools.\n\
+         10. Skills marked [REQUIRES CONFIRMATION] are destructive or high-impact. Before invoking them, \
+            you MUST first describe exactly what you are about to do and ask the user for explicit confirmation. \
+            Only invoke the skill after the user explicitly confirms.\n\n\
          SKILL INVOCATION FORMAT:\n\
          <invoke name=\"skill_name\">[\"arg1\", \"arg2\"]</invoke>\n\
          Arguments MUST be a valid JSON array of strings. Use [] for no arguments.\n\
@@ -206,7 +248,7 @@ impl AutonomousBrain {
 
             let max_history = 40;
             let start_idx = stm_entries.len().saturating_sub(max_history);
-            for entry in stm_entries.into_iter().skip(start_idx) {
+            for entry in stm_entries.iter().skip(start_idx) {
                 messages.push(crate::core::llm::ChatMessage {
                     role: entry.role.clone(),
                     content: entry.content.clone(),
@@ -296,6 +338,52 @@ impl AutonomousBrain {
                         }
                     }
                 };
+
+                // Confirmation guard: skills with needs_confirmation require explicit user approval.
+                if manifest.needs_confirmation {
+                    let pending_marker = format!("{}{}]", PENDING_CONFIRM_PREFIX, skill_name);
+
+                    let has_pending = stm_entries
+                        .iter()
+                        .rev()
+                        .take(6)
+                        .any(|e| e.role == "system" && e.content.contains(&pending_marker));
+
+                    let confirmed = has_pending && is_confirmation_message(trigger_text);
+
+                    if !confirmed {
+                        info!(
+                            "Skill '{}' requires confirmation, blocking execution",
+                            skill_name
+                        );
+
+                        // Write a pending-confirmation marker to STM so the next loop
+                        // invocation can detect that confirmation was already requested.
+                        {
+                            let m = memory.lock().await;
+                            let _ = m
+                                .append_stm_for_session(&session_id, "system", &pending_marker)
+                                .await;
+                        }
+
+                        loop_context.push(crate::core::llm::ChatMessage {
+                            role: "system".to_string(),
+                            content: format!(
+                                "BLOCKED: The skill '{}' requires explicit user confirmation before it can run. \
+                                 Describe exactly what this skill will do and what changes it will make, \
+                                 then ask the user to confirm. Do NOT invoke the skill again until the user confirms.",
+                                skill_name
+                            ),
+                        });
+                        continue;
+                    }
+
+                    info!(
+                        "Skill '{}' confirmed by user, proceeding with execution",
+                        skill_name
+                    );
+                }
+
                 let result = execution.execute(&manifest, &args).await;
 
                 let feedback = match &result {
@@ -313,7 +401,25 @@ impl AutonomousBrain {
                             "type": "skill_result", "skill": skill_name, "success": false, "output": e.to_string()
                         })).await;
                         let safe_err = sanitize_invoke_tags(&e.to_string());
-                        format!("SKILL RESULT [{}] (error): {}", skill_name, safe_err)
+                        let err_lower = e.to_string().to_lowercase();
+                        let repair_hint = if err_lower.contains("not found")
+                            || err_lower.contains("command not found")
+                            || err_lower.contains("no such file")
+                        {
+                            format!(
+                                "\n\nThis looks like a missing dependency. You can self-repair this skill:\n\
+                                 1. <invoke name=\"skill\">[\"read\", \"{}\"]</invoke>\n\
+                                 2. Fix the run.sh to remove the missing dependency (use grep/sed/awk instead of jq, etc.)\n\
+                                 3. <invoke name=\"skill\">[\"modify\", \"{}\", \"run.sh\", \"<entire fixed run.sh content>\"]</invoke>",
+                                skill_name, skill_name
+                            )
+                        } else {
+                            String::new()
+                        };
+                        format!(
+                            "SKILL RESULT [{}] (error): {}{}",
+                            skill_name, safe_err, repair_hint
+                        )
                     }
                 };
 
@@ -515,5 +621,99 @@ mod tests {
         assert!(prompt.contains("SKILL INVOCATION FORMAT"));
         assert!(prompt.contains("<invoke name="));
         assert!(prompt.contains("MULTI-STEP"));
+    }
+
+    #[test]
+    fn build_system_prompt_contains_confirmation_rule() {
+        let prompt = AutonomousBrain::build_system_prompt_for_test("", &None);
+        assert!(prompt.contains("REQUIRES CONFIRMATION"));
+        assert!(prompt.contains("explicit confirmation"));
+    }
+
+    #[test]
+    fn is_confirmation_accepts_simple_yes() {
+        assert!(is_confirmation_message("yes"));
+        assert!(is_confirmation_message("Yes"));
+        assert!(is_confirmation_message("YES"));
+        assert!(is_confirmation_message("y"));
+        assert!(is_confirmation_message("Y"));
+    }
+
+    #[test]
+    fn is_confirmation_accepts_affirmative_phrases() {
+        assert!(is_confirmation_message("go ahead"));
+        assert!(is_confirmation_message("Go ahead"));
+        assert!(is_confirmation_message("proceed"));
+        assert!(is_confirmation_message("do it"));
+        assert!(is_confirmation_message("sure"));
+        assert!(is_confirmation_message("ok"));
+        assert!(is_confirmation_message("okay"));
+        assert!(is_confirmation_message("yep"));
+        assert!(is_confirmation_message("yeah"));
+        assert!(is_confirmation_message("confirm"));
+        assert!(is_confirmation_message("approved"));
+        assert!(is_confirmation_message("go for it"));
+        assert!(is_confirmation_message("yes please"));
+        assert!(is_confirmation_message("please do"));
+        assert!(is_confirmation_message("aye"));
+    }
+
+    #[test]
+    fn is_confirmation_accepts_with_trailing_punctuation() {
+        assert!(is_confirmation_message("yes!"));
+        assert!(is_confirmation_message("yes."));
+        assert!(is_confirmation_message("sure, go ahead"));
+        assert!(is_confirmation_message("ok!"));
+        assert!(is_confirmation_message("go ahead."));
+    }
+
+    #[test]
+    fn is_confirmation_accepts_with_trailing_text() {
+        assert!(is_confirmation_message("yes do it"));
+        assert!(is_confirmation_message("ok sounds good"));
+        assert!(is_confirmation_message("sure thing"));
+        assert!(is_confirmation_message("go ahead and run it"));
+    }
+
+    #[test]
+    fn is_confirmation_accepts_with_whitespace() {
+        assert!(is_confirmation_message("  yes  "));
+        assert!(is_confirmation_message("\nyes\n"));
+        assert!(is_confirmation_message("  ok  "));
+    }
+
+    #[test]
+    fn is_confirmation_rejects_non_confirmations() {
+        assert!(!is_confirmation_message("no"));
+        assert!(!is_confirmation_message("No"));
+        assert!(!is_confirmation_message("cancel"));
+        assert!(!is_confirmation_message("wait"));
+        assert!(!is_confirmation_message("stop"));
+        assert!(!is_confirmation_message("what does it do?"));
+        assert!(!is_confirmation_message("can you explain more?"));
+        assert!(!is_confirmation_message(
+            "actually I want to modify the database module instead"
+        ));
+    }
+
+    #[test]
+    fn is_confirmation_rejects_long_messages() {
+        let long_msg = "yes ".repeat(50);
+        assert!(!is_confirmation_message(&long_msg));
+    }
+
+    #[test]
+    fn is_confirmation_rejects_empty_input() {
+        assert!(!is_confirmation_message(""));
+        assert!(!is_confirmation_message("   "));
+    }
+
+    #[test]
+    fn pending_confirm_marker_roundtrip() {
+        let skill = "evolve_core";
+        let marker = format!("{}{}]", PENDING_CONFIRM_PREFIX, skill);
+        assert_eq!(marker, "[PENDING_CONFIRM:evolve_core]");
+        assert!(marker.contains(PENDING_CONFIRM_PREFIX));
+        assert!(marker.contains(skill));
     }
 }

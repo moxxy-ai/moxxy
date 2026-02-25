@@ -1,9 +1,10 @@
 name = "evolve_core"
-description = "Safely compiles and restarts the moxxy core framework. Only works in DEV mode. Automatically runs cargo check, test, and build. Deploys a background Watchdog to rollback the binary if the new compilation panics upon boot."
-version = "1.0.0"
+description = "Safely compiles and restarts the moxxy core framework. Automatically runs cargo check, test, and build. Deploys a background Watchdog to rollback the binary if the new compilation panics upon boot."
+version = "1.1.0"
 entrypoint = "run.sh"
 run_command = "sh"
 needs_network = true
 needs_fs_write = false
 needs_fs_read = false
 needs_env = true
+needs_confirmation = true

@@ -1,5 +1,5 @@
 name = "skill"
-description = "Unified skill management. Subcommands: list, install, remove, upgrade, modify, create, read. Use read+modify to fix broken skills instead of installing packages. Example: [\"list\"], [\"read\", \"skill_name\"], [\"modify\", \"skill_name\", \"run.sh\", \"<content>\"], [\"remove\", \"skill_name\"]."
+description = "Unified skill management. Subcommands: list, install, remove, upgrade, modify, create, read, check. When a skill fails, use check+read+modify to self-repair (never install system packages). Example: [\"check\"], [\"read\", \"skill_name\"], [\"modify\", \"skill_name\", \"run.sh\", \"<fixed content>\"]."
 version = "1.0.0"
 needs_network = true
 needs_fs_read = true
