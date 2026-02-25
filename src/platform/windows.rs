@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use super::Platform;
+use super::{Platform, resolve_data_dir};
 
 pub struct NativePlatform;
 
@@ -110,13 +110,15 @@ impl Platform for NativePlatform {
     }
 
     fn data_dir() -> PathBuf {
-        std::env::var("APPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                dirs::home_dir()
-                    .expect("Could not find home directory")
-                    .join(".moxxy")
-            })
-            .join("moxxy")
+        resolve_data_dir(
+            std::env::var("APPDATA")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| {
+                    dirs::home_dir()
+                        .expect("Could not find home directory")
+                        .join(".moxxy")
+                })
+                .join("moxxy"),
+        )
     }
 }

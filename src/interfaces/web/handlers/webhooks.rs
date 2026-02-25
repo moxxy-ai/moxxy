@@ -550,3 +550,232 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
         .fold(0u8, |acc, (x, y)| acc | (x ^ y))
         == 0
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::agent::{
+        ContainerRegistry, LlmRegistry, MemoryRegistry, RunMode, ScheduledJobRegistry,
+        SchedulerRegistry, SkillRegistry, VaultRegistry,
+    };
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    fn empty_state() -> AppState {
+        let registry: MemoryRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let skill_registry: SkillRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let llm_registry: LlmRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let container_registry: ContainerRegistry =
+            Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let vault_registry: VaultRegistry = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let scheduler_registry: SchedulerRegistry =
+            Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let scheduled_job_registry: ScheduledJobRegistry =
+            Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let (log_tx, _) = tokio::sync::broadcast::channel(8);
+
+        AppState {
+            registry,
+            skill_registry,
+            llm_registry,
+            container_registry,
+            vault_registry,
+            scheduler_registry,
+            scheduled_job_registry,
+            log_tx,
+            run_mode: RunMode::Daemon,
+            api_host: "127.0.0.1".to_string(),
+            api_port: 17890,
+            web_port: 3001,
+            internal_token: "test-internal".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn create_webhook_rejects_invalid_source_format() {
+        let payload = CreateWebhookRequest {
+            name: "alerts".to_string(),
+            source: "bad source!".to_string(),
+            secret: "".to_string(),
+            prompt_template: "Do work".to_string(),
+        };
+
+        let Json(out) = create_webhook_endpoint(
+            Path("default".to_string()),
+            State(empty_state()),
+            Json(payload),
+        )
+        .await;
+
+        assert_eq!(
+            out.get("success").and_then(serde_json::Value::as_bool),
+            Some(false)
+        );
+        assert!(
+            out.get("error")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .contains("alphanumeric")
+        );
+    }
+
+    fn compute_hmac(secret: &str, data: &str) -> String {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+        type HmacSha256 = Hmac<Sha256>;
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).expect("hmac");
+        mac.update(data.as_bytes());
+        hex::encode(mac.finalize().into_bytes())
+    }
+
+    #[test]
+    fn verify_webhook_signature_accepts_generic_hmac_header() {
+        let body = "{\"hello\":\"world\"}";
+        let secret = "test-secret";
+        let signature = compute_hmac(secret, body);
+        let mut headers = HeaderMap::new();
+        headers.insert("x-signature", signature.parse().unwrap());
+        assert!(verify_webhook_signature(&headers, body, secret));
+    }
+
+    #[test]
+    fn verify_webhook_signature_accepts_github_header() {
+        let body = "{\"action\":\"opened\"}";
+        let secret = "gh-secret";
+        let sig = compute_hmac(secret, body);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-hub-signature-256",
+            format!("sha256={}", sig).parse().unwrap(),
+        );
+        assert!(verify_webhook_signature(&headers, body, secret));
+    }
+
+    #[test]
+    fn verify_webhook_signature_rejects_github_bad_signature() {
+        let body = "{\"data\":1}";
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-hub-signature-256",
+            "sha256=deadbeefdeadbeef".parse().unwrap(),
+        );
+        assert!(!verify_webhook_signature(&headers, body, "real-secret"));
+    }
+
+    #[test]
+    fn verify_webhook_signature_accepts_stripe_header() {
+        let body = "{\"id\":\"evt_123\"}";
+        let secret = "whsec_test";
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let signed_payload = format!("{}.{}", now, body);
+        let v1_sig = compute_hmac(secret, &signed_payload);
+        let stripe_header = format!("t={},v1={}", now, v1_sig);
+        let mut headers = HeaderMap::new();
+        headers.insert("stripe-signature", stripe_header.parse().unwrap());
+        assert!(verify_webhook_signature(&headers, body, secret));
+    }
+
+    #[test]
+    fn verify_webhook_signature_rejects_stripe_stale_timestamp() {
+        let body = "{}";
+        let secret = "whsec_test";
+        let stale = 1_000_000u64;
+        let signed_payload = format!("{}.{}", stale, body);
+        let v1_sig = compute_hmac(secret, &signed_payload);
+        let stripe_header = format!("t={},v1={}", stale, v1_sig);
+        let mut headers = HeaderMap::new();
+        headers.insert("stripe-signature", stripe_header.parse().unwrap());
+        assert!(!verify_webhook_signature(&headers, body, secret));
+    }
+
+    #[test]
+    fn verify_webhook_signature_rejects_no_signature_headers() {
+        let headers = HeaderMap::new();
+        assert!(!verify_webhook_signature(&headers, "body", "secret"));
+    }
+
+    #[test]
+    fn verify_webhook_signature_rejects_wrong_generic_signature() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-signature", "badsignature".parse().unwrap());
+        assert!(!verify_webhook_signature(&headers, "body", "secret"));
+    }
+
+    // --- constant_time_eq ---
+
+    #[test]
+    fn constant_time_eq_equal_slices() {
+        assert!(constant_time_eq(b"abc", b"abc"));
+        assert!(constant_time_eq(b"", b""));
+    }
+
+    #[test]
+    fn constant_time_eq_different_lengths() {
+        assert!(!constant_time_eq(b"abc", b"abcd"));
+        assert!(!constant_time_eq(b"abcd", b"abc"));
+    }
+
+    #[test]
+    fn constant_time_eq_same_length_different_content() {
+        assert!(!constant_time_eq(b"abc", b"abd"));
+        assert!(!constant_time_eq(b"aaa", b"bbb"));
+    }
+
+    // --- vault_key_for_webhook ---
+
+    #[test]
+    fn vault_key_for_webhook_generates_correct_key() {
+        assert_eq!(
+            vault_key_for_webhook("github_alerts"),
+            "webhook_secret:github_alerts"
+        );
+        assert_eq!(vault_key_for_webhook(""), "webhook_secret:");
+    }
+
+    // --- create_webhook_endpoint validation ---
+
+    #[tokio::test]
+    async fn create_webhook_rejects_empty_fields() {
+        let payload = CreateWebhookRequest {
+            name: "".to_string(),
+            source: "github".to_string(),
+            secret: "".to_string(),
+            prompt_template: "do work".to_string(),
+        };
+        let Json(out) = create_webhook_endpoint(
+            Path("default".to_string()),
+            State(empty_state()),
+            Json(payload),
+        )
+        .await;
+        assert_eq!(out["success"], false);
+        assert!(out["error"].as_str().unwrap().contains("required"));
+    }
+
+    #[tokio::test]
+    async fn delete_webhook_rejects_blank_name() {
+        let Json(out) = delete_webhook_endpoint(
+            Path(("default".to_string(), "   ".to_string())),
+            State(empty_state()),
+        )
+        .await;
+        assert_eq!(out["success"], false);
+        assert!(out["error"].as_str().unwrap().contains("required"));
+    }
+
+    #[tokio::test]
+    async fn update_webhook_rejects_no_fields() {
+        let payload = UpdateWebhookRequest { active: None };
+        let Json(out) = update_webhook_endpoint(
+            Path(("default".to_string(), "wh1".to_string())),
+            State(empty_state()),
+            Json(payload),
+        )
+        .await;
+        assert_eq!(out["success"], false);
+        assert!(out["error"].as_str().unwrap().contains("No fields"));
+    }
+}

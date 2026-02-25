@@ -1,5 +1,14 @@
 use std::path::{Path, PathBuf};
 
+/// Resolve a moxxy data directory with an optional environment override.
+/// When `MOXXY_DATA_DIR` is set, it takes precedence over platform defaults.
+pub fn resolve_data_dir(default_path: PathBuf) -> PathBuf {
+    match std::env::var("MOXXY_DATA_DIR") {
+        Ok(path) if !path.trim().is_empty() => PathBuf::from(path),
+        _ => default_path,
+    }
+}
+
 /// Platform-specific operations abstracted behind a common interface.
 /// Each OS provides its own `NativePlatform` implementation so call sites
 /// remain free of `#[cfg]` blocks.

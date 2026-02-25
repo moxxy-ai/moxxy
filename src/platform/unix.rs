@@ -1,7 +1,7 @@
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use super::Platform;
+use super::{Platform, resolve_data_dir};
 
 pub struct NativePlatform;
 
@@ -120,8 +120,10 @@ impl Platform for NativePlatform {
     }
 
     fn data_dir() -> PathBuf {
-        dirs::home_dir()
-            .expect("Could not find home directory")
-            .join(".moxxy")
+        resolve_data_dir(
+            dirs::home_dir()
+                .expect("Could not find home directory")
+                .join(".moxxy"),
+        )
     }
 }

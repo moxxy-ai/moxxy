@@ -915,4 +915,218 @@ Keep this
         assert!(out.contains("Safety"));
         assert!(out.contains("Core Identity"));
     }
+
+    // --- duration_to_cron ---
+
+    #[test]
+    fn duration_to_cron_minutes() {
+        assert_eq!(duration_to_cron("15m"), Some("0 */15 * * * *".to_string()));
+        assert_eq!(duration_to_cron("1m"), Some("0 */1 * * * *".to_string()));
+    }
+
+    #[test]
+    fn duration_to_cron_hours() {
+        assert_eq!(duration_to_cron("2h"), Some("0 0 */2 * * *".to_string()));
+        assert_eq!(duration_to_cron("1h"), Some("0 0 */1 * * *".to_string()));
+    }
+
+    #[test]
+    fn duration_to_cron_clamps_extremes() {
+        assert_eq!(duration_to_cron("120m"), Some("0 */59 * * * *".to_string()));
+        assert_eq!(duration_to_cron("48h"), Some("0 0 */23 * * *".to_string()));
+    }
+
+    #[test]
+    fn duration_to_cron_rejects_zero() {
+        assert_eq!(duration_to_cron("0m"), None);
+        assert_eq!(duration_to_cron("0h"), None);
+    }
+
+    #[test]
+    fn duration_to_cron_rejects_invalid() {
+        assert_eq!(duration_to_cron(""), None);
+        assert_eq!(duration_to_cron("abc"), None);
+        assert_eq!(duration_to_cron("15s"), None);
+    }
+
+    #[test]
+    fn duration_to_cron_case_insensitive() {
+        assert_eq!(duration_to_cron("15M"), Some("0 */15 * * * *".to_string()));
+        assert_eq!(duration_to_cron("2H"), Some("0 0 */2 * * *".to_string()));
+    }
+
+    // --- parse_openclaw_skill ---
+
+    #[test]
+    fn parse_openclaw_skill_valid_frontmatter() {
+        let content =
+            "---\nname: my_skill\ndescription: Does things\nversion: 2.0.0\n---\n# Skill body";
+        let skill = parse_openclaw_skill(content).unwrap();
+        assert_eq!(skill.name, "my_skill");
+        assert_eq!(skill.description, "Does things");
+        assert_eq!(skill.version, "2.0.0");
+        assert!(skill.homepage.is_none());
+        assert_eq!(skill.skill_md, content);
+    }
+
+    #[test]
+    fn parse_openclaw_skill_with_homepage() {
+        let content = "---\nname: web_skill\ndescription: Web stuff\nversion: 1.0.0\nhomepage: https://example.com\n---\nbody";
+        let skill = parse_openclaw_skill(content).unwrap();
+        assert_eq!(skill.homepage, Some("https://example.com".to_string()));
+    }
+
+    #[test]
+    fn parse_openclaw_skill_missing_name_returns_none() {
+        let content = "---\ndescription: No name\nversion: 1.0.0\n---\nbody";
+        assert!(parse_openclaw_skill(content).is_none());
+    }
+
+    #[test]
+    fn parse_openclaw_skill_no_frontmatter_returns_none() {
+        assert!(parse_openclaw_skill("Just plain text").is_none());
+    }
+
+    #[test]
+    fn parse_openclaw_skill_defaults_description_and_version() {
+        let content = "---\nname: minimal\n---\nbody";
+        let skill = parse_openclaw_skill(content).unwrap();
+        assert!(skill.description.contains("minimal"));
+        assert_eq!(skill.version, "1.0.0");
+    }
+
+    // --- provider_to_vault_key ---
+
+    #[test]
+    fn provider_to_vault_key_normalizes() {
+        assert_eq!(provider_to_vault_key("OpenAI"), "openai_api_key");
+        assert_eq!(
+            provider_to_vault_key("openrouter/anthropic"),
+            "openrouter_anthropic_api_key"
+        );
+        assert_eq!(provider_to_vault_key("z.ai"), "z_ai_api_key");
+    }
+
+    // --- filter_agents_md ---
+
+    #[test]
+    fn filter_agents_md_strips_skills_section() {
+        let input = "## Intro\nKeep this\n## Skills\n- skill1\n- skill2\n## Other\nAlso keep";
+        let out = filter_agents_md(input);
+        assert!(out.contains("Intro"));
+        assert!(out.contains("Other"));
+        assert!(!out.contains("skill1"));
+        assert!(!out.contains("skill2"));
+    }
+
+    #[test]
+    fn filter_agents_md_strips_tools_section() {
+        let input = "## Setup\nSetup text\n### Tools\nTool list\n## Config\nConfig text";
+        let out = filter_agents_md(input);
+        assert!(out.contains("Setup text"));
+        assert!(!out.contains("Tool list"));
+        assert!(out.contains("Config text"));
+    }
+
+    #[test]
+    fn filter_agents_md_preserves_everything_when_no_skip_sections() {
+        let input = "## Overview\nAll content\n## Guidelines\nMore content";
+        let out = filter_agents_md(input);
+        assert!(out.contains("Overview"));
+        assert!(out.contains("All content"));
+        assert!(out.contains("More content"));
+    }
+
+    // --- convert_skill_to_moxxy ---
+
+    #[test]
+    fn convert_skill_to_moxxy_generates_valid_manifest() {
+        let skill = OpenclawSkill {
+            name: "test_skill".to_string(),
+            description: "A test skill".to_string(),
+            version: "1.2.3".to_string(),
+            homepage: Some("https://example.com".to_string()),
+            skill_md: "# Test\nBody".to_string(),
+        };
+        let conv = convert_skill_to_moxxy(&skill);
+        assert_eq!(conv.skill_name, "test_skill");
+        assert!(conv.manifest_toml.contains("name = \"test_skill\""));
+        assert!(conv.manifest_toml.contains("version = \"1.2.3\""));
+        assert!(conv.manifest_toml.contains("executor_type = \"openclaw\""));
+        assert!(
+            conv.manifest_toml
+                .contains("homepage = \"https://example.com\"")
+        );
+        assert!(conv.run_sh.contains("#!/bin/sh"));
+        assert_eq!(conv.skill_md, "# Test\nBody");
+    }
+
+    #[test]
+    fn convert_skill_to_moxxy_escapes_quotes() {
+        let skill = OpenclawSkill {
+            name: "has\"quotes".to_string(),
+            description: "desc with \"quotes\"".to_string(),
+            version: "1.0.0".to_string(),
+            homepage: None,
+            skill_md: "body".to_string(),
+        };
+        let conv = convert_skill_to_moxxy(&skill);
+        assert!(conv.manifest_toml.contains(r#"has\"quotes"#));
+        assert!(conv.manifest_toml.contains(r#"desc with \"quotes\""#));
+    }
+
+    // --- build_persona_md ---
+
+    #[test]
+    fn build_persona_md_includes_soul_and_agents() {
+        let agent = OpenclawAgent {
+            soul_md: Some("I am a helpful assistant.".to_string()),
+            agents_md: Some("## Guidelines\nBe nice".to_string()),
+            memory_md: None,
+            daily_memories: vec![],
+            skills: vec![],
+        };
+        let persona = build_persona_md(&agent);
+        assert!(persona.contains("Core Identity"));
+        assert!(persona.contains("helpful assistant"));
+        assert!(persona.contains("Be nice"));
+    }
+
+    #[test]
+    fn build_persona_md_handles_empty_agent() {
+        let agent = OpenclawAgent {
+            soul_md: None,
+            agents_md: None,
+            memory_md: None,
+            daily_memories: vec![],
+            skills: vec![],
+        };
+        let persona = build_persona_md(&agent);
+        assert!(persona.contains("Agent Persona"));
+    }
+
+    // --- heading_matches_skip ---
+
+    #[test]
+    fn heading_matches_skip_detects_known_sections() {
+        assert!(heading_matches_skip("## First Run"));
+        assert!(heading_matches_skip("### Every Session"));
+        assert!(heading_matches_skip("## 🧠 Memory"));
+        assert!(heading_matches_skip("## Heartbeats - Be Proactive!"));
+    }
+
+    #[test]
+    fn heading_matches_skip_allows_unknown_sections() {
+        assert!(!heading_matches_skip("## Safety"));
+        assert!(!heading_matches_skip("## Core Identity"));
+        assert!(!heading_matches_skip("## Custom Section"));
+    }
+
+    // --- normalize_heading_for_match ---
+
+    #[test]
+    fn normalize_heading_strips_markdown_and_emoji() {
+        assert_eq!(normalize_heading_for_match("### 🧠 Memory"), "memory");
+        assert_eq!(normalize_heading_for_match("## ✅ First Run"), "first run");
+    }
 }

@@ -1,0 +1,46 @@
+name: Live LLM E2E
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"
+
+env:
+  CARGO_TERM_COLOR: always
+  MOXXY_RUN_LIVE_E2E: "1"
+  MOXXY_E2E_OPENAI_MODEL: "gpt-4.1-mini"
+  MOXXY_E2E_ARTIFACTS: target/e2e-artifacts
+
+jobs:
+  live-e2e:
+    name: Live Provider E2E Conversations
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Run live OpenAI E2E conversation test
+        env:
+          MOXXY_E2E_OPENAI_API_KEY: ${{ secrets.MOXXY_E2E_OPENAI_API_KEY }}
+        run: cargo test --test e2e_conversations_live -- --ignored --nocapture
+
+      - name: Upload live E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-e2e-artifacts
+          path: |
+            target/e2e-artifacts/**

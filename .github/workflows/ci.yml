@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  MOXXY_E2E_ARTIFACTS: target/e2e-artifacts
 
 jobs:
   check:
@@ -74,5 +75,18 @@ jobs:
         run: cargo build
 
       - name: Run tests
-        run: cargo test
+        run: cargo test --workspace --all-targets -- --nocapture
 
+      - name: Build test inventory report
+        run: |
+          mkdir -p target/coverage
+          cargo test --workspace --all-targets -- --list > target/coverage/test-inventory.txt
+
+      - name: Upload deterministic test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deterministic-test-artifacts
+          path: |
+            target/e2e-artifacts/**
+            target/coverage/test-inventory.txt
