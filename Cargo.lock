@@ -2469,6 +2469,7 @@ dependencies = [
  "sqlite-vec",
  "tar",
  "teloxide",
+ "tempfile",
  "tokio",
  "tokio-cron-scheduler",
  "tokio-stream",

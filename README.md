@@ -99,7 +99,8 @@ moxxy gateway start|stop|restart|status  Daemon management
 moxxy logs                              Follow daemon logs
 moxxy run --agent <name> --prompt "..."  One-shot prompt execution
 moxxy channel telegram --agent <name>    Telegram channel setup
-moxxy agent restart|remove <name>        Agent management
+moxxy oauth <skill>|list                 OAuth flows (see [docs/oauth.md](docs/oauth.md))
+moxxy agent restart|remove <name>       Agent management
 moxxy doctor                             System diagnostics
 ```
 
@@ -292,6 +293,16 @@ cd frontend && npm run dev
 
 # Run diagnostics
 moxxy doctor
+```
+
+### Testing
+
+```bash
+# Run all OAuth-related tests
+cargo test oauth
+
+# Run full OAuth flow integration test (requires moxxy install)
+MOXXY_OAUTH_FULL_FLOW=1 cargo test --test oauth_integration oauth_full_flow
 ```
 
 ## Links

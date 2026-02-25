@@ -127,6 +127,7 @@ Detailed guides for extending the framework:
 
 - **`docs/architecture.md`** - Architecture deep-dive: boot sequence, ReAct loop, skill pipeline, registries, memory system, frontend patterns
 - **`docs/skills-authoring.md`** - Complete guide to creating built-in skills (manifest, run.sh, skill.md, compilation, testing)
+- **`docs/oauth.md`** - OAuth flow for skills (local with --open-browser, server with --code, URL always shown)
 - **`docs/api-reference.md`** - All API endpoints with request/response shapes for skill scripts and handlers
 
 ## Claude Code Commands
