@@ -152,15 +152,27 @@ switch ($subcmd) {
     }
     "create" {
         if (-not $remaining[0] -or -not $remaining[1]) {
-            Write-Output "Usage: skill create <skill_name> <description>"
+            Write-Output "Usage: skill create <skill_name> <description> [--platform all|windows|macos|linux]"
+            Write-Output "  --platform: all (default) = both run.sh+run.ps1, windows = run.ps1 only, macos/linux = run.sh only"
             exit 1
         }
-        $body = @{ name = $remaining[0]; description = $remaining[1] } | ConvertTo-Json
-        $result = Invoke-RestMethod -Uri "$api/agents/$agentName/create_skill" -Method Post -Headers $headers -Body $body
+        $skillName = $remaining[0]
+        $description = $remaining[1]
+        $platform = $null
+        $i = 2
+        while ($i -lt $remaining.Length) {
+            if ($remaining[$i] -eq "--platform" -and ($i + 1) -lt $remaining.Length) {
+                $platform = $remaining[$i + 1]
+                $i += 2
+            } else { $i++ }
+        }
+        $body = @{ name = $skillName; description = $description }
+        if ($platform) { $body["platform"] = $platform }
+        $result = Invoke-RestMethod -Uri "$api/agents/$agentName/create_skill" -Method Post -Headers $headers -Body ($body | ConvertTo-Json)
         if ($result.success) {
-            Write-Output "Skill '$($remaining[0])' created and registered successfully."
+            Write-Output "Skill '$skillName' created and registered successfully."
         } else {
-            Write-Output "ERROR: Failed to create skill '$($remaining[0])': $($result.error)"
+            Write-Output "ERROR: Failed to create skill '$skillName': $($result.error)"
             exit 1
         }
     }

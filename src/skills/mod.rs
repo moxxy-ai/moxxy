@@ -541,9 +541,16 @@ impl SkillManager {
     pub async fn install_skill(
         &mut self,
         new_manifest_content: &str,
-        new_run_sh: &str,
+        new_run_sh: Option<&str>,
+        new_run_ps1: Option<&str>,
         new_skill_md: &str,
     ) -> Result<()> {
+        if new_run_sh.is_none() && new_run_ps1.is_none() {
+            return Err(anyhow::anyhow!(
+                "At least one of run.sh or run.ps1 content must be provided"
+            ));
+        }
+
         let mut manifest: SkillManifest = toml::from_str(new_manifest_content)?;
         // Agent-installed skills are never privileged
         manifest.privileged = false;
@@ -566,7 +573,12 @@ impl SkillManager {
 
         tokio::fs::create_dir_all(&skill_dir).await?;
         tokio::fs::write(skill_dir.join("manifest.toml"), new_manifest_content).await?;
-        tokio::fs::write(skill_dir.join("run.sh"), new_run_sh).await?;
+        if let Some(sh) = new_run_sh {
+            tokio::fs::write(skill_dir.join("run.sh"), sh).await?;
+        }
+        if let Some(ps1) = new_run_ps1 {
+            tokio::fs::write(skill_dir.join("run.ps1"), ps1).await?;
+        }
         tokio::fs::write(skill_dir.join("skill.md"), new_skill_md).await?;
 
         let mut new_manifest = manifest.clone();
@@ -772,10 +784,10 @@ impl SkillManager {
                 ));
             }
         } else {
-            let allowed_files = ["manifest.toml", "skill.md", "run.sh"];
+            let allowed_files = ["manifest.toml", "skill.md", "run.sh", "run.ps1"];
             if !allowed_files.contains(&file_name) {
                 return Err(anyhow::anyhow!(
-                    "Can only modify: manifest.toml, skill.md, or run.sh"
+                    "Can only modify: manifest.toml, skill.md, run.sh, or run.ps1"
                 ));
             }
         }
@@ -816,9 +828,16 @@ impl SkillManager {
         skill_name: &str,
         new_version_str: &str,
         new_manifest_content: &str,
-        new_run_sh: &str,
+        new_run_sh: Option<&str>,
+        new_run_ps1: Option<&str>,
         new_skill_md: &str,
     ) -> Result<()> {
+        if new_run_sh.is_none() && new_run_ps1.is_none() {
+            return Err(anyhow::anyhow!(
+                "At least one of run.sh or run.ps1 content must be provided"
+            ));
+        }
+
         // Reject upgrades to privileged built-in skills (they are compiled into the binary)
         if PRIVILEGED_SKILLS.contains(&skill_name) {
             return Err(anyhow::anyhow!(
@@ -853,7 +872,12 @@ impl SkillManager {
         // Write the new payload over the host files
         let skill_dir = current_manifest.skill_dir.clone();
         tokio::fs::write(skill_dir.join("manifest.toml"), new_manifest_content).await?;
-        tokio::fs::write(skill_dir.join("run.sh"), new_run_sh).await?;
+        if let Some(sh) = new_run_sh {
+            tokio::fs::write(skill_dir.join("run.sh"), sh).await?;
+        }
+        if let Some(ps1) = new_run_ps1 {
+            tokio::fs::write(skill_dir.join("run.ps1"), ps1).await?;
+        }
         tokio::fs::write(skill_dir.join("skill.md"), new_skill_md).await?;
 
         // Hot-swap parsing

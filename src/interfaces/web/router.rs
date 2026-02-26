@@ -294,6 +294,7 @@ mod tests {
         ContainerRegistry, LlmRegistry, MemoryRegistry, RunMode, ScheduledJobRegistry,
         SchedulerRegistry, SkillRegistry, VaultRegistry,
     };
+    use crate::core::lifecycle::LifecycleComponent;
     use axum::http::StatusCode;
     use serde_json;
     use std::collections::HashSet;
@@ -369,6 +370,36 @@ mod tests {
             web_port: 3001,
             internal_token: "test-internal-token".to_string(),
         }
+    }
+
+    async fn state_with_skills() -> AppState {
+        let state = state_with_memory().await;
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let workspace_dir = tmp.path().join("agents").join("default");
+        std::fs::create_dir_all(&workspace_dir).expect("create workspace");
+
+        let vault = {
+            let reg = state.vault_registry.lock().await;
+            reg.get("default").cloned().expect("vault")
+        };
+
+        let agent_dir = tmp.path().join("agents").join("default");
+        let sandbox = crate::skills::native_executor::NativeExecutor::new(
+            vault,
+            "default".to_string(),
+            agent_dir.clone(),
+            "127.0.0.1".to_string(),
+            17890,
+            "test-token".to_string(),
+        );
+        let mut sm = crate::skills::SkillManager::new(Box::new(sandbox), agent_dir.clone());
+        sm.on_init().await.expect("skill manager init");
+
+        let mut skill_reg = state.skill_registry.lock().await;
+        skill_reg.insert("default".to_string(), Arc::new(Mutex::new(sm)));
+        drop(skill_reg);
+
+        state
     }
 
     async fn json_request(
@@ -733,6 +764,141 @@ mod tests {
                 path
             );
         }
+    }
+
+    #[tokio::test]
+    async fn install_skill_with_run_sh_only_succeeds() {
+        let state = state_with_skills().await;
+        let app = build_api_router(state);
+
+        let (status, json) = json_request(
+            app,
+            Method::POST,
+            "/api/agents/default/install_skill",
+            Some(serde_json::json!({
+                "new_manifest_content": "name = \"test_skill\"\ndescription = \"Test\"\nversion = \"1.0.0\"",
+                "new_run_sh": "#!/bin/sh\necho ok",
+                "new_skill_md": "# Test"
+            })),
+            "test-internal-token",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(true));
+    }
+
+    #[tokio::test]
+    async fn install_skill_with_run_ps1_only_succeeds() {
+        let state = state_with_skills().await;
+        let app = build_api_router(state);
+
+        let (status, json) = json_request(
+            app,
+            Method::POST,
+            "/api/agents/default/install_skill",
+            Some(serde_json::json!({
+                "new_manifest_content": r#"name = "test_windows_skill"
+description = "Windows only"
+version = "1.0.0"
+entrypoint = "run.ps1"
+run_command = "powershell"
+platform = "windows""#,
+                "new_run_ps1": "$ErrorActionPreference = \"Stop\"\nWrite-Output \"ok\"",
+                "new_skill_md": "# Windows Test"
+            })),
+            "test-internal-token",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(true));
+    }
+
+    #[tokio::test]
+    async fn install_skill_with_both_scripts_succeeds() {
+        let state = state_with_skills().await;
+        let app = build_api_router(state);
+
+        let (status, json) = json_request(
+            app,
+            Method::POST,
+            "/api/agents/default/install_skill",
+            Some(serde_json::json!({
+                "new_manifest_content": "name = \"test_cross\"\ndescription = \"Cross\"\nversion = \"1.0.0\"\nplatform = \"all\"",
+                "new_run_sh": "#!/bin/sh\necho ok",
+                "new_run_ps1": "$ErrorActionPreference = \"Stop\"\nWrite-Output \"ok\"",
+                "new_skill_md": "# Cross"
+            })),
+            "test-internal-token",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(true));
+    }
+
+    #[tokio::test]
+    async fn install_skill_with_neither_script_fails() {
+        let state = state_with_skills().await;
+        let app = build_api_router(state);
+
+        let (status, json) = json_request(
+            app,
+            Method::POST,
+            "/api/agents/default/install_skill",
+            Some(serde_json::json!({
+                "new_manifest_content": "name = \"test\"\ndescription = \"Test\"\nversion = \"1.0.0\"",
+                "new_skill_md": "# Test"
+            })),
+            "test-internal-token",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(false));
+        let err = json.get("error").and_then(|v| v.as_str()).unwrap_or("");
+        assert!(
+            err.contains("run.sh") || err.contains("run.ps1"),
+            "expected run.sh or run.ps1 in error: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn create_skill_with_invalid_platform_returns_error() {
+        let state = state_with_skills().await;
+        let llm = crate::core::llm::LlmManager::new();
+        {
+            let mut reg = state.llm_registry.lock().await;
+            reg.insert(
+                "default".to_string(),
+                std::sync::Arc::new(tokio::sync::RwLock::new(llm)),
+            );
+        }
+        let app = build_api_router(state);
+
+        let (status, json) = json_request(
+            app,
+            Method::POST,
+            "/api/agents/default/create_skill",
+            Some(serde_json::json!({
+                "name": "test_skill",
+                "description": "Test",
+                "platform": "invalid_platform"
+            })),
+            "test-internal-token",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(false));
+        let err = json.get("error").and_then(|v| v.as_str()).unwrap_or("");
+        assert!(
+            err.to_lowercase().contains("invalid platform"),
+            "expected invalid platform in error: {}",
+            err
+        );
     }
 
     #[tokio::test]

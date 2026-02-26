@@ -231,7 +231,10 @@ version = "1.0.0"
 }
 
 #[test]
-#[cfg_attr(windows, ignore = "run.sh syntax check not applicable on Windows (skills use run.ps1)")]
+#[cfg_attr(
+    windows,
+    ignore = "run.sh syntax check not applicable on Windows (skills use run.ps1)"
+)]
 fn every_builtin_run_script_passes_shell_syntax_check() {
     for skill in EXPECTED_SKILLS {
         let skill_dir = builtins_dir().join(skill);

@@ -17,6 +17,8 @@ export interface Skill {
   needs_fs_read?: boolean;
   needs_fs_write?: boolean;
   needs_env?: boolean;
+  /** Platform: "all" (cross-platform), "windows", "macos", "linux" */
+  platform?: string;
 }
 
 export interface Schedule {

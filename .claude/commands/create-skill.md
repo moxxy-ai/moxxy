@@ -23,7 +23,13 @@ Read these files to understand the patterns:
 
 Create `src/skills/builtins/<skill_name>/` with 3-4 files: `manifest.toml`, `run.sh`, `skill.md`, and optionally `run.ps1` for cross-platform support.
 
-**Unless the user explicitly requests a platform-specific skill (macOS-only or Windows-only), always create both `run.sh` and `run.ps1`** so the skill works on macOS, Linux, and Windows. For platform-specific skills, add `platform = "macos"` or `platform = "windows"` to the manifest and include an OS guard at the top of the script.
+**Platform handling:**
+- **Default (not specified)**: Always create both `run.sh` and `run.ps1` so the skill works on macOS, Linux, and Windows.
+- **Platform specified**: Create only the appropriate file(s):
+  - `platform = "windows"` → `run.ps1` only
+  - `platform = "macos"` or `platform = "linux"` → `run.sh` only
+
+For platform-specific skills, add `platform = "macos"` or `platform = "windows"` to the manifest and include an OS guard at the top of the script.
 
 #### manifest.toml
 
