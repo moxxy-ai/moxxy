@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/moxxy-ai/moxxy/compare/v0.14.0...v0.15.0) (2026-02-26)
+
+
+### Features
+
+* orchestrator ephemeral ([#88](https://github.com/moxxy-ai/moxxy/issues/88)) ([fbc60de](https://github.com/moxxy-ai/moxxy/commit/fbc60de98ee677ea4430b6e7c4690f3f53051358))
+
 ## [0.14.0](https://github.com/moxxy-ai/moxxy/compare/v0.13.0...v0.14.0) (2026-02-26)
 
 
