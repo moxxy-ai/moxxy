@@ -12,7 +12,8 @@ use crate::core::{
     llm::registry::ProviderRegistry,
     orchestrator::{
         JobState, OrchestratorAgentConfig, OrchestratorTemplate, WorkerMode, can_transition,
-        resolve_job_defaults, resolve_worker_assignments,
+        resolve_job_defaults, resolve_phased_worker_assignments, resolve_worker_assignments,
+        run_orchestration_job,
     },
     vault::SecretsVault,
 };
@@ -27,6 +28,10 @@ pub struct StartJobRequest {
     pub existing_agents: Option<Vec<String>>,
     pub ephemeral: Option<EphemeralRequest>,
     pub max_parallelism: Option<usize>,
+    /// Phase order: e.g. ["builder", "checker"]. When set, one worker per phase with that role.
+    pub phases: Option<Vec<String>>,
+    /// After checks pass: merge_direct, merge_and_pr, pr_only, or none. Triggers merger phase.
+    pub merge_action: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -195,30 +200,139 @@ pub async fn start_orchestration_job(
     State(state): State<AppState>,
     Json(payload): Json<StartJobRequest>,
 ) -> Json<serde_json::Value> {
+    let start_res = start_orchestration_job_inner(&agent, &state, &payload).await;
+    let (job, worker_assignments, spawn_profiles, mem_arc) = match start_res {
+        Ok(x) => x,
+        Err(json) => return json,
+    };
+
+    let job_id = job.job_id.clone();
+    let prompt = payload.prompt.trim().to_string();
+    let merge_action = payload.merge_action.clone();
+    let agent_clone = agent.clone();
+    let state_clone = state.clone();
+
+    let worker_count = worker_assignments.len();
+    tokio::spawn(async move {
+        run_orchestration_job(
+            agent_clone,
+            job_id,
+            prompt,
+            worker_assignments,
+            spawn_profiles,
+            merge_action,
+            mem_arc,
+            state_clone,
+            None,
+        )
+        .await;
+    });
+
+    Json(serde_json::json!({
+        "success": true,
+        "job_id": job.job_id,
+        "worker_count": worker_count
+    }))
+}
+
+/// Blocking variant: starts job and awaits completion, returns workers.
+pub async fn start_orchestration_job_run(
+    Path(agent): Path<String>,
+    State(state): State<AppState>,
+    Json(payload): Json<StartJobRequest>,
+) -> Json<serde_json::Value> {
+    let start_res = start_orchestration_job_inner(&agent, &state, &payload).await;
+    let (job, worker_assignments, spawn_profiles, mem_arc) = match start_res {
+        Ok(x) => x,
+        Err(json) => return json,
+    };
+
+    let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+    let job_id = job.job_id.clone();
+    let prompt = payload.prompt.trim().to_string();
+    let merge_action = payload.merge_action.clone();
+    let agent_clone = agent.clone();
+    let state_clone = state.clone();
+
+    tokio::spawn(async move {
+        run_orchestration_job(
+            agent_clone,
+            job_id,
+            prompt,
+            worker_assignments,
+            spawn_profiles,
+            merge_action,
+            mem_arc,
+            state_clone,
+            Some(done_tx),
+        )
+        .await;
+    });
+
+    match done_rx.await {
+        Ok(result) => Json(serde_json::json!({
+            "success": result.status == "completed",
+            "job_id": result.job_id,
+            "status": result.status,
+            "workers": result.workers.iter().map(|w| serde_json::json!({
+                "worker_agent": w.worker_agent,
+                "role": w.role,
+                "status": w.status,
+                "output": w.output
+            })).collect::<Vec<_>>()
+        })),
+        Err(_) => Json(serde_json::json!({
+            "success": false,
+            "error": "Job runner closed unexpectedly"
+        })),
+    }
+}
+
+/// Inner setup for start_orchestration_job and start_orchestration_job_run.
+/// Returns (job, worker_assignments, spawn_profiles, mem_arc) or error JSON.
+async fn start_orchestration_job_inner(
+    agent: &str,
+    state: &AppState,
+    payload: &StartJobRequest,
+) -> Result<
+    (
+        crate::core::memory::types::OrchestratorJobRecord,
+        Vec<crate::core::orchestrator::WorkerAssignment>,
+        Vec<crate::core::orchestrator::SpawnProfile>,
+        Arc<tokio::sync::Mutex<crate::core::memory::MemorySystem>>,
+    ),
+    Json<serde_json::Value>,
+> {
     let prompt = crate::core::brain::sanitize_invoke_tags(payload.prompt.trim()).to_string();
     if prompt.is_empty() {
-        return Json(serde_json::json!({ "success": false, "error": "prompt is required" }));
+        return Err(Json(
+            serde_json::json!({ "success": false, "error": "prompt is required" }),
+        ));
     }
 
-    let Some(mem_arc) = get_agent_memory(&agent, &state).await else {
-        return Json(serde_json::json!({ "success": false, "error": "Agent not found" }));
+    let Some(mem_arc) = get_agent_memory(agent, state).await else {
+        return Err(Json(
+            serde_json::json!({ "success": false, "error": "Agent not found" }),
+        ));
     };
 
     let mem = mem_arc.lock().await;
-    let vault = get_or_create_agent_vault(&agent, &state, &mem).await;
+    let vault = get_or_create_agent_vault(agent, state, &mem).await;
 
     let config = match mem.get_orchestrator_config().await {
         Ok(Some(c)) => c,
         Ok(None) => OrchestratorAgentConfig::default(),
         Err(e) => {
-            return Json(serde_json::json!({ "success": false, "error": e.to_string() }));
+            return Err(Json(
+                serde_json::json!({ "success": false, "error": e.to_string() }),
+            ));
         }
     };
 
-    let template_id = resolve_template_id(&payload, &config);
+    let template_id = resolve_template_id(payload, &config);
     let template = match resolve_template(&mem, template_id).await {
         Ok(value) => value,
-        Err(e) => return Json(serde_json::json!({ "success": false, "error": e })),
+        Err(e) => return Err(Json(serde_json::json!({ "success": false, "error": e }))),
     };
 
     let (resolved_mode, resolved_parallelism, advisory) = resolve_job_defaults(
@@ -229,37 +343,56 @@ pub async fn start_orchestration_job(
     );
 
     let worker_mode = resolved_mode;
-    let mut existing_agents = payload.existing_agents.unwrap_or_default();
-    let mut ephemeral_count = payload.ephemeral.and_then(|e| e.count).unwrap_or(0);
+    let mut existing_agents = payload.existing_agents.clone().unwrap_or_default();
+    let mut ephemeral_count = payload
+        .ephemeral
+        .as_ref()
+        .and_then(|e| e.count)
+        .unwrap_or(0);
 
     if matches!(worker_mode, WorkerMode::Existing | WorkerMode::Mixed) && existing_agents.is_empty()
     {
-        existing_agents.push(agent.clone());
+        existing_agents.push(agent.to_string());
     }
     if matches!(worker_mode, WorkerMode::Ephemeral | WorkerMode::Mixed) && ephemeral_count == 0 {
         ephemeral_count = 1;
     }
 
-    let worker_assignments = resolve_worker_assignments(
-        worker_mode,
-        &existing_agents,
-        &template
-            .as_ref()
-            .map(|t| t.spawn_profiles.clone())
-            .unwrap_or_default(),
-        ephemeral_count,
-    );
+    let spawn_profiles = template
+        .as_ref()
+        .map(|t| t.spawn_profiles.clone())
+        .unwrap_or_default();
+
+    let worker_assignments = if let Some(ref phases) = payload.phases {
+        if phases.is_empty() {
+            resolve_worker_assignments(
+                worker_mode,
+                &existing_agents,
+                &spawn_profiles,
+                ephemeral_count,
+            )
+        } else {
+            resolve_phased_worker_assignments(WorkerMode::Ephemeral, phases, &spawn_profiles)
+        }
+    } else {
+        resolve_worker_assignments(
+            worker_mode,
+            &existing_agents,
+            &spawn_profiles,
+            ephemeral_count,
+        )
+    };
 
     let job = match mem
-        .create_orchestrator_job(
-            &agent,
-            &prompt,
-            &format!("{:?}", worker_mode).to_lowercase(),
-        )
+        .create_orchestrator_job(agent, &prompt, &format!("{:?}", worker_mode).to_lowercase())
         .await
     {
         Ok(job) => job,
-        Err(e) => return Json(serde_json::json!({ "success": false, "error": e.to_string() })),
+        Err(e) => {
+            return Err(Json(
+                serde_json::json!({ "success": false, "error": e.to_string() }),
+            ));
+        }
     };
 
     let _ = mem
@@ -302,91 +435,17 @@ pub async fn start_orchestration_job(
             .add_orchestrator_event(&job.job_id, "done", r#"{"status":"failed"}"#)
             .await;
 
-        return Json(
-            serde_json::json!({ "success": false, "job_id": job.job_id, "error": "orchestration failed" }),
-        );
+        return Err(Json(serde_json::json!({
+            "success": false,
+            "job_id": job.job_id,
+            "error": "orchestration failed"
+        })));
     }
 
     let _ = transition_job_state(&mem, &job.job_id, JobState::Dispatching, None, None).await;
     let _ = transition_job_state(&mem, &job.job_id, JobState::Executing, None, None).await;
 
-    for assignment in worker_assignments {
-        let worker = match mem
-            .add_orchestrator_worker_run(
-                &job.job_id,
-                &assignment.worker_agent,
-                &format!("{:?}", assignment.worker_mode).to_lowercase(),
-                &format!("{} :: {}", assignment.role, prompt),
-                "running",
-                1,
-            )
-            .await
-        {
-            Ok(w) => w,
-            Err(_) => continue,
-        };
-
-        let _ = mem
-            .add_orchestrator_event(
-                &job.job_id,
-                "worker_started",
-                &serde_json::json!({
-                    "worker_run_id": worker.worker_run_id,
-                    "worker_agent": worker.worker_agent,
-                    "worker_mode": worker.worker_mode,
-                })
-                .to_string(),
-            )
-            .await;
-
-        let _ = mem
-            .update_orchestrator_worker_run(
-                &worker.worker_run_id,
-                "succeeded",
-                Some("simulated worker completion"),
-                None,
-            )
-            .await;
-
-        let _ = mem
-            .add_orchestrator_event(
-                &job.job_id,
-                "worker_completed",
-                &serde_json::json!({
-                    "worker_run_id": worker.worker_run_id,
-                    "worker_agent": worker.worker_agent,
-                    "status": "succeeded",
-                })
-                .to_string(),
-            )
-            .await;
-    }
-
-    let _ = transition_job_state(
-        &mem,
-        &job.job_id,
-        JobState::Completed,
-        Some("Orchestration completed"),
-        None,
-    )
-    .await;
-    let _ = mem
-        .add_orchestrator_event(
-            &job.job_id,
-            "done",
-            &serde_json::json!({ "status": "completed" }).to_string(),
-        )
-        .await;
-
-    Json(serde_json::json!({
-        "success": true,
-        "job_id": job.job_id,
-        "worker_count": mem
-            .list_orchestrator_worker_runs(&job.job_id)
-            .await
-            .map(|w| w.len())
-            .unwrap_or(0)
-    }))
+    Ok((job, worker_assignments, spawn_profiles, mem_arc.clone()))
 }
 
 pub async fn get_orchestration_job(

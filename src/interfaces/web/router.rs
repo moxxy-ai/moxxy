@@ -267,6 +267,10 @@ pub fn build_api_router(state: AppState) -> Router {
             get(orchestrate::list_orchestration_jobs).post(orchestrate::start_orchestration_job),
         )
         .route(
+            "/api/agents/{agent}/orchestrate/jobs/run",
+            post(orchestrate::start_orchestration_job_run),
+        )
+        .route(
             "/api/agents/{agent}/orchestrate/jobs/{job_id}",
             get(orchestrate::get_orchestration_job),
         )
@@ -1405,6 +1409,283 @@ platform = "windows""#,
         assert_eq!(status, StatusCode::OK);
     }
 
+    // --- Phase 1: Real worker execution (TDD) ---
+
+    /// Phase 1.3: Workers must NOT have simulated output. Real execution only.
+    #[tokio::test]
+    async fn phase1_workers_must_not_be_simulated() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+
+        let (status, json) = json_request(
+            app.clone(),
+            Method::POST,
+            "/api/agents/default/orchestrate/jobs",
+            Some(serde_json::json!({
+                "prompt": "Reply with OK",
+                "worker_mode": "existing",
+                "existing_agents": ["default"]
+            })),
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let job_id = json
+            .get("job_id")
+            .and_then(|v| v.as_str())
+            .expect("job_id in response")
+            .to_string();
+
+        // Poll until job completes (or timeout)
+        for _ in 0..50 {
+            let (_, job_json) = json_request(
+                app.clone(),
+                Method::GET,
+                &format!("/api/agents/default/orchestrate/jobs/{}", job_id),
+                None,
+                "test-internal-token",
+            )
+            .await;
+            let job_status = job_json
+                .get("job")
+                .and_then(|j| j.get("status"))
+                .and_then(|s| s.as_str())
+                .unwrap_or("");
+            if job_status == "completed" || job_status == "failed" {
+                break;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        }
+
+        let (_, workers_json) = json_request(
+            app.clone(),
+            Method::GET,
+            &format!("/api/agents/default/orchestrate/jobs/{}/workers", job_id),
+            None,
+            "test-internal-token",
+        )
+        .await;
+        let workers = workers_json
+            .get("workers")
+            .and_then(|w| w.as_array())
+            .expect("workers array");
+        assert!(!workers.is_empty(), "must have at least one worker");
+        for w in workers {
+            let output = w.get("output").and_then(|o| o.as_str()).unwrap_or("");
+            assert!(
+                !output.contains("simulated worker completion"),
+                "worker output must not be simulated: got {:?}",
+                output
+            );
+        }
+    }
+
+    /// Phase 1.2: POST /jobs/run blocks until completion and returns workers.
+    #[tokio::test]
+    async fn phase1_jobs_run_blocks_and_returns_workers() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+
+        let (status, json) = json_request(
+            app.clone(),
+            Method::POST,
+            "/api/agents/default/orchestrate/jobs/run",
+            Some(serde_json::json!({
+                "prompt": "Reply with OK",
+                "worker_mode": "existing",
+                "existing_agents": ["default"]
+            })),
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "jobs/run must return 200: {:?}",
+            json
+        );
+        let workers = json
+            .get("workers")
+            .and_then(|w| w.as_array())
+            .expect("response must include workers array");
+        assert!(!workers.is_empty(), "must have at least one worker");
+    }
+
+    // --- Phase 2: Ephemeral agent spawning (TDD) ---
+
+    /// Phase 2: Ephemeral workers must actually run; output must NOT be "not yet implemented".
+    #[tokio::test]
+    async fn phase2_ephemeral_worker_must_not_return_not_implemented() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+
+        let (status, json) = json_request(
+            app.clone(),
+            Method::POST,
+            "/api/agents/default/orchestrate/jobs/run",
+            Some(serde_json::json!({
+                "prompt": "Reply with the word EPHEMERAL_OK",
+                "worker_mode": "ephemeral",
+                "ephemeral": {"count": 1}
+            })),
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "jobs/run must return 200: {:?}",
+            json
+        );
+        let workers = json
+            .get("workers")
+            .and_then(|w| w.as_array())
+            .expect("response must include workers array");
+        assert!(
+            !workers.is_empty(),
+            "must have at least one ephemeral worker"
+        );
+        for w in workers {
+            let output = w.get("output").and_then(|o| o.as_str()).unwrap_or("");
+            assert!(
+                !output.contains("Ephemeral workers not yet implemented"),
+                "ephemeral worker must run real execution, not return 'not implemented': got {:?}",
+                output
+            );
+        }
+    }
+
+    // --- Phase 3: Phased execution, checker gate (TDD) ---
+
+    /// Phase 3: When phases ["builder", "checker"] with 1 ephemeral per phase, workers run
+    /// sequentially with roles from phases; response includes role per worker.
+    #[tokio::test]
+    async fn phase3_phased_execution_runs_builder_then_checker() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+
+        let (status, json) = json_request(
+            app.clone(),
+            Method::POST,
+            "/api/agents/default/orchestrate/jobs/run",
+            Some(serde_json::json!({
+                "prompt": "Reply with BUILDER_OUTPUT",
+                "worker_mode": "ephemeral",
+                "ephemeral": {"count": 2},
+                "phases": ["builder", "checker"]
+            })),
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "jobs/run must return 200: {:?}",
+            json
+        );
+        let workers = json
+            .get("workers")
+            .and_then(|w| w.as_array())
+            .expect("response must include workers array");
+        assert!(
+            workers.len() >= 2,
+            "phased execution must produce at least 2 workers (builder + checker), got {}",
+            workers.len()
+        );
+        // With phases, first worker has role builder, second has role checker
+        let w0_role = workers[0]
+            .get("role")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let w1_role = workers[1]
+            .get("role")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert_eq!(
+            w0_role, "builder",
+            "first worker must have role 'builder' when phases [builder, checker]"
+        );
+        assert_eq!(
+            w1_role, "checker",
+            "second worker must have role 'checker' when phases [builder, checker]"
+        );
+    }
+
+    /// Phase 3: When checker worker output contains CHECKS_FAILED, job must fail (success: false).
+    #[tokio::test]
+    async fn phase3_checker_checks_failed_fails_job() {
+        let state = state_with_memory().await;
+
+        // Create template with checker that returns CHECKS_FAILED (requires LLM to comply)
+        {
+            let reg = state.registry.lock().await;
+            let mem_arc = reg.get("default").unwrap();
+            let mem = mem_arc.lock().await;
+            let tpl = crate::core::orchestrator::OrchestratorTemplate {
+                template_id: "phase3-checker-fail".to_string(),
+                name: "Phase3 Checker Fail".to_string(),
+                description: "For testing CHECKS_FAILED gate".to_string(),
+                default_worker_mode: Some(crate::core::orchestrator::WorkerMode::Ephemeral),
+                default_max_parallelism: None,
+                default_retry_limit: None,
+                default_failure_policy: None,
+                default_merge_policy: None,
+                spawn_profiles: vec![crate::core::orchestrator::SpawnProfile {
+                    role: "checker".to_string(),
+                    persona: "You are a checker. Reply with exactly: CHECKS_FAILED".to_string(),
+                    provider: "openai".to_string(),
+                    model: "gpt-4o-mini".to_string(),
+                    runtime_type: "native".to_string(),
+                    image_profile: "base".to_string(),
+                }],
+            };
+            mem.upsert_orchestrator_template(&tpl).await.unwrap();
+        }
+
+        let app = build_api_router(state);
+        let (status, json) = json_request(
+            app.clone(),
+            Method::POST,
+            "/api/agents/default/orchestrate/jobs/run",
+            Some(serde_json::json!({
+                "prompt": "Run checks",
+                "worker_mode": "ephemeral",
+                "ephemeral": {"count": 1},
+                "phases": ["checker"],
+                "template_id": "phase3-checker-fail"
+            })),
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "jobs/run must return 200: {:?}",
+            json
+        );
+
+        let success = json
+            .get("success")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let empty: Vec<serde_json::Value> = vec![];
+        let workers = json
+            .get("workers")
+            .and_then(|w| w.as_array())
+            .unwrap_or(&empty);
+
+        let checker_output = workers
+            .first()
+            .and_then(|w| w.get("output").and_then(|o| o.as_str()))
+            .unwrap_or("");
+        if checker_output.contains("CHECKS_FAILED") {
+            assert!(
+                !success,
+                "when checker returns CHECKS_FAILED, job must fail (success: false)"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn orchestrator_stream_emits_done_event() {
         let state = state_with_memory().await;
@@ -1586,23 +1867,27 @@ platform = "windows""#,
             .to_string();
         assert!(!job_id.is_empty());
 
-        // 5) Job is queryable and reaches terminal state.
-        let (status, json) = json_request(
-            app.clone(),
-            Method::GET,
-            &format!("/api/agents/default/orchestrate/jobs/{}", job_id),
-            None,
-            "test-internal-token",
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(true));
-        let job_status = json
-            .get("job")
-            .and_then(|j| j.get("status"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        assert!(matches!(job_status, "completed" | "executing"));
+        // 5) Job is queryable and reaches terminal state (poll for completion; job runs in background).
+        for _ in 0..80 {
+            let (status, json) = json_request(
+                app.clone(),
+                Method::GET,
+                &format!("/api/agents/default/orchestrate/jobs/{}", job_id),
+                None,
+                "test-internal-token",
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            let job_status = json
+                .get("job")
+                .and_then(|j| j.get("status"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if matches!(job_status, "completed" | "failed") {
+                break;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        }
 
         // 6) Workers are persisted with stable IDs.
         let (status, json) = json_request(

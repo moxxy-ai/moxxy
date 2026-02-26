@@ -64,6 +64,11 @@ switch ("$resource`:$action") {
         Invoke-OrchestratorRequest -Method "POST" -Url "$apiUrl/jobs" -Body $arg1
         break
     }
+    "jobs:run" {
+        if (-not $arg1) { Write-Output '{"success":false,"error":"Missing JSON payload"}'; exit 1 }
+        Invoke-OrchestratorRequest -Method "POST" -Url "$apiUrl/jobs/run" -Body $arg1
+        break
+    }
     { $_ -in @("jobs:get", "jobs:status") } {
         if (-not $arg1) { Write-Output '{"success":false,"error":"Missing job_id"}'; exit 1 }
         Invoke-OrchestratorRequest -Method "GET" -Url "$apiUrl/jobs/$arg1"

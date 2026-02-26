@@ -1,5 +1,10 @@
+mod default_templates;
+mod executor;
 pub mod types;
 
+pub use default_templates::seed_default_templates;
+
+pub use executor::run_orchestration_job;
 pub use types::{
     JobFailurePolicy, JobMergePolicy, JobState, OrchestratorAgentConfig, OrchestratorTemplate,
     SpawnProfile, WorkerAssignment, WorkerMode,
@@ -134,6 +139,50 @@ pub fn resolve_worker_assignments(
     }
 
     out
+}
+
+/// Resolve worker assignments for phased execution. One worker per phase with role from phase name.
+/// Spawn profiles are matched by role (case-insensitive); falls back to index when no role match.
+pub fn resolve_phased_worker_assignments(
+    _mode: WorkerMode,
+    phases: &[String],
+    spawn_profiles: &[SpawnProfile],
+) -> Vec<WorkerAssignment> {
+    if phases.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for (i, role) in phases.iter().enumerate() {
+        let profile = if spawn_profiles.is_empty() {
+            None
+        } else {
+            spawn_profiles
+                .iter()
+                .find(|p| p.role.eq_ignore_ascii_case(role))
+                .or_else(|| spawn_profiles.get(i % spawn_profiles.len()))
+        };
+        out.push(WorkerAssignment {
+            worker_mode: WorkerMode::Ephemeral,
+            worker_agent: format!("ephemeral-{}", i + 1),
+            role: role.clone(),
+            persona: profile.map(|p| p.persona.clone()),
+            provider: profile.map(|p| p.provider.clone()),
+            model: profile.map(|p| p.model.clone()),
+            runtime_type: profile.map(|p| p.runtime_type.clone()),
+            image_profile: profile.map(|p| p.image_profile.clone()),
+        });
+    }
+    out
+}
+
+/// Look up a spawn profile by role (case-insensitive). Used for merger phase.
+pub fn find_spawn_profile_by_role<'a>(
+    spawn_profiles: &'a [SpawnProfile],
+    role: &str,
+) -> Option<&'a SpawnProfile> {
+    spawn_profiles
+        .iter()
+        .find(|p| p.role.eq_ignore_ascii_case(role))
 }
 
 pub fn resolve_job_defaults(

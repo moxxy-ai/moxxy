@@ -33,6 +33,9 @@ pub async fn run_install() -> Result<()> {
     let vault = crate::core::vault::SecretsVault::new(memory_sys.get_db());
     vault.initialize().await?;
 
+    // Seed default orchestrator templates if none exist
+    let _ = crate::core::orchestrator::seed_default_templates(&memory_sys).await;
+
     // Check dependencies (non-interactive, just report)
     super::doctor::ensure_dependencies().await?;
 
