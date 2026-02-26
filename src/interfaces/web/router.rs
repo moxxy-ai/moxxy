@@ -633,7 +633,7 @@ mod tests {
 
     #[tokio::test]
     async fn api_route_contract_has_all_expected_paths() {
-        let paths = [
+        let mut paths: Vec<&'static str> = vec![
             "/api/webhooks/default/source",
             "/api/agents",
             "/api/agents/default",
@@ -680,7 +680,12 @@ mod tests {
             "/api/config/global",
             "/api/gateway/restart",
             "/api/logs",
-            "/api/host/execute_applescript",
+        ];
+        #[cfg(target_os = "macos")]
+        paths.push("/api/host/execute_applescript");
+        #[cfg(target_os = "windows")]
+        paths.push("/api/host/execute_powershell");
+        paths.extend([
             "/api/host/execute_bash",
             "/api/host/execute_python",
             "/api/agents/default/delegate",
@@ -688,12 +693,26 @@ mod tests {
             "/api/agents/default/chat/stream",
             "/api/agents/default/tokens",
             "/api/agents/default/tokens/token_1",
-        ];
+        ]);
 
-        assert_eq!(paths.len(), 54, "Expected exactly 54 API routes");
+        let expected_len = if cfg!(target_os = "macos") || cfg!(target_os = "windows") {
+            54
+        } else {
+            53
+        };
+        assert_eq!(
+            paths.len(),
+            expected_len,
+            "Expected {} API routes on this platform",
+            expected_len
+        );
 
         let unique: HashSet<&str> = paths.iter().copied().collect();
-        assert_eq!(unique.len(), 54, "Duplicate routes found in route contract");
+        assert_eq!(
+            unique.len(),
+            paths.len(),
+            "Duplicate routes found in route contract"
+        );
 
         let app = build_api_router(empty_state());
         for path in paths {
