@@ -70,4 +70,59 @@ export interface ProviderInfo {
   models: { id: string; name: string }[];
 }
 
-export type TabId = 'Overview' | 'Interface' | 'Memory' | 'Skills' | 'Channels' | 'Schedules' | 'Webhooks' | 'MCPServers' | 'Vault' | 'AccessTokens' | 'Config';
+export interface OrchestratorConfig {
+  default_template_id?: string | null;
+  default_worker_mode: 'existing' | 'ephemeral' | 'mixed';
+  default_max_parallelism?: number | null;
+  default_retry_limit: number;
+  default_failure_policy: 'auto_replan' | 'fail_fast' | 'best_effort';
+  default_merge_policy: 'manual_approval' | 'auto_on_review_pass';
+  parallelism_warn_threshold: number;
+}
+
+export interface OrchestratorSpawnProfile {
+  role: string;
+  persona: string;
+  provider: string;
+  model: string;
+  runtime_type: string;
+  image_profile: string;
+}
+
+export interface OrchestratorTemplate {
+  template_id: string;
+  name: string;
+  description: string;
+  default_worker_mode?: 'existing' | 'ephemeral' | 'mixed';
+  default_max_parallelism?: number;
+  default_retry_limit?: number;
+  default_failure_policy?: 'auto_replan' | 'fail_fast' | 'best_effort';
+  default_merge_policy?: 'manual_approval' | 'auto_on_review_pass';
+  spawn_profiles: OrchestratorSpawnProfile[];
+}
+
+export interface OrchestratorJob {
+  job_id: string;
+  status: string;
+  prompt: string;
+  worker_mode: string;
+  summary?: string;
+  error?: string;
+}
+
+export interface OrchestratorWorkerRun {
+  worker_run_id: string;
+  worker_agent: string;
+  worker_mode: string;
+  status: string;
+  attempt: number;
+}
+
+export interface OrchestratorEvent {
+  id: number;
+  event_type: string;
+  payload_json: string;
+  created_at: string;
+}
+
+export type TabId = 'Overview' | 'Interface' | 'Memory' | 'Skills' | 'Channels' | 'Schedules' | 'Webhooks' | 'MCPServers' | 'Orchestrator' | 'Templates' | 'Vault' | 'AccessTokens' | 'Config';

@@ -6,5 +6,6 @@ pub mod llm;
 pub mod mcp;
 pub mod memory;
 pub mod oauth;
+pub mod orchestrator;
 pub mod terminal;
 pub mod vault;

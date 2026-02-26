@@ -9,6 +9,8 @@ import {
   Settings,
   Globe,
   Shield,
+  Workflow,
+  LayoutTemplate,
 } from 'lucide-react';
 import type { TabId } from '../types';
 
@@ -27,6 +29,8 @@ const NAV_ITEMS: { id: TabId; icon: typeof Network; label: string }[] = [
   { id: 'Schedules', icon: CalendarClock, label: 'Schedules' },
   { id: 'Webhooks', icon: Globe, label: 'Webhooks' },
   { id: 'MCPServers', icon: Network, label: 'MCP' },
+  { id: 'Orchestrator', icon: Workflow, label: 'Orchestrator' },
+  { id: 'Templates', icon: LayoutTemplate, label: 'Templates' },
   { id: 'Vault', icon: Key, label: 'Vault' },
   { id: 'AccessTokens', icon: Shield, label: 'Access' },
   { id: 'Config', icon: Settings, label: 'Config' },

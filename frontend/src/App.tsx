@@ -17,6 +17,8 @@ import { McpServersPanel } from './components/McpServersPanel';
 import { VaultPanel } from './components/VaultPanel';
 import { AccessTokensPanel } from './components/AccessTokensPanel';
 import { ConfigPanel } from './components/ConfigPanel';
+import { OrchestratorPanel } from './components/OrchestratorPanel';
+import { OrchestratorTemplatesPanel } from './components/OrchestratorTemplatesPanel';
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabId>('Overview');
@@ -147,6 +149,24 @@ function App() {
             setActiveAgent={agentState.setActiveAgent}
             mcpServers={agentState.mcpServers}
             setMcpServers={agentState.setMcpServers}
+          />
+        );
+      case 'Orchestrator':
+        return (
+          <OrchestratorPanel
+            apiBase={apiBase}
+            agents={agentState.agents}
+            activeAgent={agentState.activeAgent}
+            setActiveAgent={agentState.setActiveAgent}
+          />
+        );
+      case 'Templates':
+        return (
+          <OrchestratorTemplatesPanel
+            apiBase={apiBase}
+            agents={agentState.agents}
+            activeAgent={agentState.activeAgent}
+            setActiveAgent={agentState.setActiveAgent}
           />
         );
       case 'Vault':

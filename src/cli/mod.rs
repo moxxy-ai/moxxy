@@ -6,6 +6,7 @@ mod install;
 mod migrate;
 mod oauth;
 mod onboarding;
+mod orchestrator;
 mod swarm;
 mod tokens;
 mod uninstall;
@@ -37,6 +38,7 @@ fn print_help() {
     GuideSection::new("Management")
         .command("gateway", "Manage the background daemon process")
         .command("agent", "Manage agents")
+        .command("orchestrator", "Manage orchestration config/templates/jobs")
         .command("channel", "Manage channel connections")
         .command("webhook", "Manage webhook endpoints")
         .command("oauth", "Run OAuth flows for skills")
@@ -474,6 +476,10 @@ pub async fn run_main() -> Result<()> {
             }
             "agent" => {
                 agent_cmd::run_agent_command(&args).await?;
+                return Ok(());
+            }
+            "orchestrator" | "orchestrate" => {
+                orchestrator::run_orchestrator_command(&args).await?;
                 return Ok(());
             }
             "oauth" => {

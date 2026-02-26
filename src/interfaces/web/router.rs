@@ -11,8 +11,8 @@ use tower_http::cors::CorsLayer;
 use super::AppState;
 use super::auth;
 use super::handlers::{
-    agents, channels, chat, config, mcp, memory, mobile, proxy, schedules, skills, tokens, vault,
-    webhooks,
+    agents, channels, chat, config, mcp, memory, mobile, orchestrate, orchestrator_config,
+    orchestrator_templates, proxy, schedules, skills, tokens, vault, webhooks,
 };
 
 fn build_localhost_cors(api_port: u16, web_port: u16) -> CorsLayer {
@@ -245,6 +245,50 @@ pub fn build_api_router(state: AppState) -> Router {
         .route(
             "/api/agents/{agent}/delegate",
             post(webhooks::delegate_endpoint),
+        )
+        .route(
+            "/api/agents/{agent}/orchestrate/config",
+            get(orchestrator_config::get_orchestrator_config)
+                .post(orchestrator_config::set_orchestrator_config),
+        )
+        .route(
+            "/api/agents/{agent}/orchestrate/templates",
+            get(orchestrator_templates::list_orchestrator_templates)
+                .post(orchestrator_templates::upsert_orchestrator_template),
+        )
+        .route(
+            "/api/agents/{agent}/orchestrate/templates/{template_id}",
+            get(orchestrator_templates::get_orchestrator_template)
+                .patch(orchestrator_templates::patch_orchestrator_template)
+                .delete(orchestrator_templates::delete_orchestrator_template),
+        )
+        .route(
+            "/api/agents/{agent}/orchestrate/jobs",
+            get(orchestrate::list_orchestration_jobs).post(orchestrate::start_orchestration_job),
+        )
+        .route(
+            "/api/agents/{agent}/orchestrate/jobs/{job_id}",
+            get(orchestrate::get_orchestration_job),
+        )
+        .route(
+            "/api/agents/{agent}/orchestrate/jobs/{job_id}/workers",
+            get(orchestrate::list_orchestration_workers),
+        )
+        .route(
+            "/api/agents/{agent}/orchestrate/jobs/{job_id}/events",
+            get(orchestrate::list_orchestration_events),
+        )
+        .route(
+            "/api/agents/{agent}/orchestrate/jobs/{job_id}/stream",
+            get(orchestrate::stream_orchestration_events),
+        )
+        .route(
+            "/api/agents/{agent}/orchestrate/jobs/{job_id}/cancel",
+            post(orchestrate::cancel_orchestration_job),
+        )
+        .route(
+            "/api/agents/{agent}/orchestrate/jobs/{job_id}/actions/approve-merge",
+            post(orchestrate::approve_orchestration_merge),
         )
         .route("/api/agents/{agent}/chat", post(chat::chat_endpoint))
         .route(
@@ -1159,5 +1203,486 @@ platform = "windows""#,
             json.get("error").and_then(|v| v.as_str()),
             Some("Agent not found")
         );
+    }
+
+    #[tokio::test]
+    async fn orchestrator_config_endpoints_exist_and_roundtrip() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state.clone());
+
+        let (status, _json) = json_request(
+            app.clone(),
+            Method::GET,
+            "/api/agents/default/orchestrate/config",
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, json) = json_request(
+            app.clone(),
+            Method::POST,
+            "/api/agents/default/orchestrate/config",
+            Some(serde_json::json!({
+                "default_template_id": "tpl-a",
+                "default_worker_mode": "mixed",
+                "default_max_parallelism": 11,
+                "default_retry_limit": 1,
+                "default_failure_policy": "auto_replan",
+                "default_merge_policy": "manual_approval",
+                "parallelism_warn_threshold": 5
+            })),
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(true));
+    }
+
+    #[tokio::test]
+    async fn orchestrator_template_crud_endpoints_exist() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+
+        let (status, json) = json_request(
+            app.clone(),
+            Method::POST,
+            "/api/agents/default/orchestrate/templates",
+            Some(serde_json::json!({
+                "template_id": "tpl-kanban",
+                "name": "Kanban",
+                "description": "d",
+                "default_worker_mode": "mixed",
+                "default_max_parallelism": 9,
+                "default_retry_limit": 1,
+                "default_failure_policy": "auto_replan",
+                "default_merge_policy": "manual_approval",
+                "spawn_profiles": [{
+                    "role": "builder",
+                    "persona": "builder persona",
+                    "provider": "openai",
+                    "model": "gpt-4o",
+                    "runtime_type": "native",
+                    "image_profile": "base"
+                }]
+            })),
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(true));
+
+        let (status, _json) = json_request(
+            app.clone(),
+            Method::GET,
+            "/api/agents/default/orchestrate/templates",
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, _json) = json_request(
+            app.clone(),
+            Method::PATCH,
+            "/api/agents/default/orchestrate/templates/tpl-kanban",
+            Some(serde_json::json!({"name": "Kanban v2"})),
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, _json) = json_request(
+            app,
+            Method::DELETE,
+            "/api/agents/default/orchestrate/templates/tpl-kanban",
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn orchestrator_job_endpoints_exist() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+
+        let (status, json) = json_request(
+            app.clone(),
+            Method::POST,
+            "/api/agents/default/orchestrate/jobs",
+            Some(serde_json::json!({
+                "prompt": "Do complex job",
+                "worker_mode": "mixed",
+                "existing_agents": ["default"],
+                "ephemeral": {"count": 1},
+                "max_parallelism": 7
+            })),
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(true));
+        let job_id = json
+            .get("job_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        assert!(!job_id.is_empty());
+
+        let (status, json) = json_request(
+            app.clone(),
+            Method::GET,
+            "/api/agents/default/orchestrate/jobs",
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(true));
+
+        let (status, _json) = json_request(
+            app.clone(),
+            Method::GET,
+            &format!("/api/agents/default/orchestrate/jobs/{}", job_id),
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, _json) = json_request(
+            app.clone(),
+            Method::GET,
+            &format!("/api/agents/default/orchestrate/jobs/{}/workers", job_id),
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, _json) = json_request(
+            app.clone(),
+            Method::GET,
+            &format!("/api/agents/default/orchestrate/jobs/{}/events", job_id),
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, _json) = json_request(
+            app.clone(),
+            Method::POST,
+            &format!("/api/agents/default/orchestrate/jobs/{}/cancel", job_id),
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn orchestrator_stream_emits_done_event() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+
+        let (status, json) = json_request(
+            app.clone(),
+            Method::POST,
+            "/api/agents/default/orchestrate/jobs",
+            Some(serde_json::json!({
+                "prompt": "stream me",
+                "worker_mode": "existing",
+                "existing_agents": ["default"]
+            })),
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let job_id = json
+            .get("job_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        assert!(!job_id.is_empty());
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri(format!(
+                "/api/agents/default/orchestrate/jobs/{}/stream",
+                job_id
+            ))
+            .header("x-moxxy-internal-token", "test-internal-token")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let body = String::from_utf8_lossy(&bytes);
+        assert!(body.contains("\"type\":\"done\""));
+    }
+
+    #[tokio::test]
+    async fn orchestrator_start_with_missing_model_key_returns_failure_not_crash() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+
+        let _ = json_request(
+            app.clone(),
+            Method::POST,
+            "/api/agents/default/orchestrate/templates",
+            Some(serde_json::json!({
+                "template_id": "tpl-missing-key",
+                "name": "Missing key",
+                "description": "d",
+                "default_worker_mode": "ephemeral",
+                "spawn_profiles": [{
+                    "role": "builder",
+                    "persona": "builder",
+                    "provider": "google",
+                    "model": "gemini-2.5-flash",
+                    "runtime_type": "native",
+                    "image_profile": "base"
+                }]
+            })),
+            "test-internal-token",
+        )
+        .await;
+
+        let (status, json) = json_request(
+            app,
+            Method::POST,
+            "/api/agents/default/orchestrate/jobs",
+            Some(serde_json::json!({
+                "prompt": "run with missing key",
+                "template_id": "tpl-missing-key",
+                "worker_mode": "ephemeral",
+                "ephemeral": { "count": 1 }
+            })),
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(false));
+    }
+
+    #[tokio::test]
+    async fn orchestrator_full_e2e_lifecycle_flow() {
+        let state = state_with_memory().await;
+        let app = build_api_router(state);
+
+        // 1) Provision provider key in agent vault (required by template spawn profile).
+        let (status, json) = json_request(
+            app.clone(),
+            Method::POST,
+            "/api/agents/default/vault",
+            Some(serde_json::json!({
+                "key": "openai_api_key",
+                "value": "sk-test-e2e"
+            })),
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(true));
+
+        // 2) Configure orchestrator defaults for this agent.
+        let (status, json) = json_request(
+            app.clone(),
+            Method::POST,
+            "/api/agents/default/orchestrate/config",
+            Some(serde_json::json!({
+                "default_template_id": "tpl-e2e",
+                "default_worker_mode": "mixed",
+                "default_max_parallelism": 6,
+                "default_retry_limit": 1,
+                "default_failure_policy": "auto_replan",
+                "default_merge_policy": "manual_approval",
+                "parallelism_warn_threshold": 2
+            })),
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(true));
+
+        // 3) Create a template with an ephemeral spawn profile.
+        let (status, json) = json_request(
+            app.clone(),
+            Method::POST,
+            "/api/agents/default/orchestrate/templates",
+            Some(serde_json::json!({
+                "template_id": "tpl-e2e",
+                "name": "E2E Template",
+                "description": "full lifecycle test",
+                "default_worker_mode": "mixed",
+                "default_max_parallelism": 6,
+                "default_retry_limit": 1,
+                "default_failure_policy": "auto_replan",
+                "default_merge_policy": "manual_approval",
+                "spawn_profiles": [{
+                    "role": "builder",
+                    "persona": "build persona",
+                    "provider": "openai",
+                    "model": "gpt-4o",
+                    "runtime_type": "native",
+                    "image_profile": "base"
+                }]
+            })),
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(true));
+
+        // 4) Start a mixed-mode job (existing + ephemeral workers).
+        let (status, json) = json_request(
+            app.clone(),
+            Method::POST,
+            "/api/agents/default/orchestrate/jobs",
+            Some(serde_json::json!({
+                "prompt": "Build a taskee orchestrator e2e",
+                "template_id": "tpl-e2e",
+                "worker_mode": "mixed",
+                "existing_agents": ["default"],
+                "ephemeral": {"count": 2},
+                "max_parallelism": 6
+            })),
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(true));
+        let job_id = json
+            .get("job_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        assert!(!job_id.is_empty());
+
+        // 5) Job is queryable and reaches terminal state.
+        let (status, json) = json_request(
+            app.clone(),
+            Method::GET,
+            &format!("/api/agents/default/orchestrate/jobs/{}", job_id),
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(true));
+        let job_status = json
+            .get("job")
+            .and_then(|j| j.get("status"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert!(matches!(job_status, "completed" | "executing"));
+
+        // 6) Workers are persisted with stable IDs.
+        let (status, json) = json_request(
+            app.clone(),
+            Method::GET,
+            &format!("/api/agents/default/orchestrate/jobs/{}/workers", job_id),
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let workers = json
+            .get("workers")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(workers.len(), 3);
+        let worker_ids_first: Vec<String> = workers
+            .iter()
+            .filter_map(|w| w.get("worker_run_id").and_then(|v| v.as_str()))
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(worker_ids_first.len(), 3);
+
+        let (status, json) = json_request(
+            app.clone(),
+            Method::GET,
+            &format!("/api/agents/default/orchestrate/jobs/{}/workers", job_id),
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let workers_second = json
+            .get("workers")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let worker_ids_second: Vec<String> = workers_second
+            .iter()
+            .filter_map(|w| w.get("worker_run_id").and_then(|v| v.as_str()))
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(worker_ids_first, worker_ids_second);
+
+        // 7) Events include advisory + done and are queryable.
+        let (status, json) = json_request(
+            app.clone(),
+            Method::GET,
+            &format!("/api/agents/default/orchestrate/jobs/{}/events", job_id),
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let events = json
+            .get("events")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        assert!(!events.is_empty());
+        let event_types: Vec<String> = events
+            .iter()
+            .filter_map(|e| e.get("event_type").and_then(|v| v.as_str()))
+            .map(|s| s.to_string())
+            .collect();
+        assert!(event_types.iter().any(|t| t == "advisory"));
+        assert!(event_types.iter().any(|t| t == "done"));
+
+        // 8) Stream endpoint emits the full terminal stream including done.
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri(format!(
+                "/api/agents/default/orchestrate/jobs/{}/stream",
+                job_id
+            ))
+            .header("x-moxxy-internal-token", "test-internal-token")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let body = String::from_utf8_lossy(&bytes);
+        assert!(body.contains("\"type\":\"advisory\""));
+        assert!(body.contains("\"type\":\"done\""));
+
+        // 9) Merge approval action stays callable and returns success.
+        let (status, json) = json_request(
+            app,
+            Method::POST,
+            &format!(
+                "/api/agents/default/orchestrate/jobs/{}/actions/approve-merge",
+                job_id
+            ),
+            None,
+            "test-internal-token",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(true));
     }
 }
