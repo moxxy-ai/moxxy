@@ -107,6 +107,7 @@ moxxy logs                              Follow daemon logs
 moxxy run --agent <name> --prompt "..."  One-shot prompt execution
 moxxy channel telegram --agent <name>    Telegram channel setup
 moxxy oauth <skill>|list                 OAuth flows (see [docs/oauth.md](docs/oauth.md))
+moxxy orchestrator <group> <action>      ReActOr config/templates/jobs management
 moxxy agent restart|remove <name>       Agent management
 moxxy doctor                             System diagnostics
 ```
@@ -172,6 +173,7 @@ Configure via the web dashboard (Config tab) or during `moxxy init`.
 | `computer_control` | macOS accessibility automation via AppleScript |
 | `windows_control` | Windows system control via PowerShell (app control, clipboard, system info) |
 | `delegate_task` | Delegate sub-tasks to other agents in the swarm |
+| `orchestrator` | Manage ReActOr config, templates, and jobs via API-backed commands |
 | `skill` | Unified skill management (list, install, remove, upgrade, modify, create, read) |
 | `scheduler` | Schedule recurring jobs using cron syntax |
 | `modify_schedule` | Modify an existing scheduled job |
@@ -186,6 +188,65 @@ Configure via the web dashboard (Config tab) or during `moxxy init`.
 | `contribute` | Suggest features or open PRs on the moxxy repo via GitHub |
 | `evolve_core` | Self-modify framework code (requires user confirmation) |
 | `openclaw_migrate` | Migrate OpenClaw agents, personas, and skills to moxxy |
+
+## ReActOr Orchestration
+
+ReActOr extends the regular ReAct loop with a durable orchestration lifecycle for larger jobs.
+
+### How it works
+
+1. Configure orchestrator defaults per agent (`/orchestrate/config`).
+2. Define persona templates per agent (`/orchestrate/templates`) with spawn profiles (role, persona, provider, model, runtime).
+3. Start a job (`/orchestrate/jobs`) with mode `existing`, `ephemeral`, or `mixed`.
+4. ReActOr writes durable records to the agent's `memory.db`:
+   - `orchestrator_jobs`
+   - `orchestrator_worker_runs`
+   - `orchestrator_events`
+5. Track execution through status/workers/events endpoints or SSE stream (`/stream`) until terminal `done`.
+6. Optionally approve merge using `/actions/approve-merge`.
+
+### Lifecycle states
+
+`queued -> planning -> dispatching -> executing -> reviewing -> merge_pending -> merging -> completed`
+
+Failure/interrupt paths are supported:
+- `failed`
+- `canceled`
+- `replanning` (for retry/replan flows)
+
+### Worker modes
+
+- `existing`: dispatch only to pre-existing agents.
+- `ephemeral`: spawn transient workers from template spawn profiles.
+- `mixed`: use both existing and ephemeral workers.
+
+Ephemeral workers inherit persona/provider/model/runtime from the selected template's spawn profile. Existing agents are not mutated by templates.
+
+### Parallelism behavior
+
+Parallelism has no hard cap.  
+If configured parallelism is above the per-agent advisory threshold (default `5`), ReActOr emits an `advisory` event but still runs.
+
+### Where to manage it
+
+- **Web UI**: `Orchestrator` and `Templates` tabs.
+- **CLI**: `moxxy orchestrator` command group.
+- **Skill**: built-in `orchestrator` skill for API-backed orchestration actions.
+
+### Minimal CLI examples
+
+```bash
+# Get/set per-agent orchestrator config
+moxxy orchestrator config get --agent default
+moxxy orchestrator config set --agent default --json '{"default_worker_mode":"mixed","parallelism_warn_threshold":5}'
+
+# Create template
+moxxy orchestrator templates create --agent default --json '{"template_id":"tpl-kanban","name":"Kanban","description":"kanban flow","default_worker_mode":"mixed","spawn_profiles":[{"role":"builder","persona":"builder","provider":"openai","model":"gpt-4o","runtime_type":"native","image_profile":"base"}]}'
+
+# Start and monitor a job
+moxxy orchestrator jobs start --agent default --prompt "Build taskee board" --mode mixed --existing default --ephemeral 1 --max-parallelism 6
+moxxy orchestrator jobs stream --agent default <job_id>
+```
 
 ### MCP Integration
 

@@ -1,5 +1,6 @@
 mod ltm;
 mod mcp;
+mod orchestrator;
 mod schedule;
 mod stm;
 mod swarm;
@@ -109,6 +110,82 @@ impl MemorySystem {
                 token_hash TEXT NOT NULL UNIQUE,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )",
+            [],
+        )?;
+
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS orchestrator_config (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                config_json TEXT NOT NULL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS orchestrator_templates (
+                template_id TEXT PRIMARY KEY,
+                template_json TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS orchestrator_jobs (
+                job_id TEXT PRIMARY KEY,
+                agent_name TEXT NOT NULL,
+                status TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                worker_mode TEXT NOT NULL,
+                summary TEXT,
+                error TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                finished_at DATETIME
+            )",
+            [],
+        )?;
+
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS orchestrator_worker_runs (
+                worker_run_id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL,
+                worker_agent TEXT NOT NULL,
+                worker_mode TEXT NOT NULL,
+                task_prompt TEXT NOT NULL,
+                status TEXT NOT NULL,
+                attempt INTEGER NOT NULL,
+                started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                finished_at DATETIME,
+                output TEXT,
+                error TEXT
+            )",
+            [],
+        )?;
+
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS orchestrator_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_orchestrator_events_job_id_id ON orchestrator_events(job_id, id)",
+            [],
+        )?;
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_orchestrator_workers_job_id ON orchestrator_worker_runs(job_id)",
+            [],
+        )?;
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_orchestrator_jobs_status_created ON orchestrator_jobs(status, created_at)",
             [],
         )?;
 
@@ -257,6 +334,84 @@ pub async fn test_memory_system() -> MemorySystem {
             token_hash TEXT NOT NULL UNIQUE,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS orchestrator_config (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            config_json TEXT NOT NULL,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS orchestrator_templates (
+            template_id TEXT PRIMARY KEY,
+            template_json TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS orchestrator_jobs (
+            job_id TEXT PRIMARY KEY,
+            agent_name TEXT NOT NULL,
+            status TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            worker_mode TEXT NOT NULL,
+            summary TEXT,
+            error TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            finished_at DATETIME
+        )",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS orchestrator_worker_runs (
+            worker_run_id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            worker_agent TEXT NOT NULL,
+            worker_mode TEXT NOT NULL,
+            task_prompt TEXT NOT NULL,
+            status TEXT NOT NULL,
+            attempt INTEGER NOT NULL,
+            started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            finished_at DATETIME,
+            output TEXT,
+            error TEXT
+        )",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS orchestrator_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_orchestrator_events_job_id_id ON orchestrator_events(job_id, id)",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_orchestrator_workers_job_id ON orchestrator_worker_runs(job_id)",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_orchestrator_jobs_status_created ON orchestrator_jobs(status, created_at)",
         [],
     )
     .unwrap();
@@ -674,5 +829,78 @@ mod tests {
         let mem = test_memory_system().await;
         mem.create_api_token("k").await.unwrap();
         assert!(mem.has_any_api_tokens().await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn orchestrator_config_roundtrip() {
+        let mem = test_memory_system().await;
+        let cfg = crate::core::orchestrator::OrchestratorAgentConfig {
+            default_template_id: Some("tpl-a".to_string()),
+            default_worker_mode: crate::core::orchestrator::WorkerMode::Mixed,
+            default_max_parallelism: Some(12),
+            default_retry_limit: 1,
+            default_failure_policy: crate::core::orchestrator::JobFailurePolicy::AutoReplan,
+            default_merge_policy: crate::core::orchestrator::JobMergePolicy::ManualApproval,
+            parallelism_warn_threshold: 5,
+        };
+        mem.set_orchestrator_config(&cfg).await.unwrap();
+        let got = mem.get_orchestrator_config().await.unwrap().unwrap();
+        assert_eq!(got.default_template_id.as_deref(), Some("tpl-a"));
+        assert_eq!(got.default_max_parallelism, Some(12));
+    }
+
+    #[tokio::test]
+    async fn orchestrator_templates_crud() {
+        let mem = test_memory_system().await;
+        let tpl = crate::core::orchestrator::OrchestratorTemplate {
+            template_id: "tpl-kanban".to_string(),
+            name: "Kanban".to_string(),
+            description: "d".to_string(),
+            default_worker_mode: Some(crate::core::orchestrator::WorkerMode::Mixed),
+            default_max_parallelism: Some(9),
+            default_retry_limit: Some(1),
+            default_failure_policy: Some(crate::core::orchestrator::JobFailurePolicy::AutoReplan),
+            default_merge_policy: Some(crate::core::orchestrator::JobMergePolicy::ManualApproval),
+            spawn_profiles: vec![],
+        };
+        mem.upsert_orchestrator_template(&tpl).await.unwrap();
+        let got = mem
+            .get_orchestrator_template("tpl-kanban")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(got.name, "Kanban");
+        let list = mem.list_orchestrator_templates().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert!(
+            mem.delete_orchestrator_template("tpl-kanban")
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn orchestrator_job_worker_event_persistence() {
+        let mem = test_memory_system().await;
+        let job = mem
+            .create_orchestrator_job("default", "build this", "mixed")
+            .await
+            .unwrap();
+        mem.add_orchestrator_worker_run(&job.job_id, "worker-a", "existing", "do x", "running", 1)
+            .await
+            .unwrap();
+        mem.add_orchestrator_event(&job.job_id, "job_state_changed", r#"{"state":"planning"}"#)
+            .await
+            .unwrap();
+        let workers = mem
+            .list_orchestrator_worker_runs(&job.job_id)
+            .await
+            .unwrap();
+        assert_eq!(workers.len(), 1);
+        let events = mem
+            .list_orchestrator_events(&job.job_id, 0, 100)
+            .await
+            .unwrap();
+        assert_eq!(events.len(), 1);
     }
 }

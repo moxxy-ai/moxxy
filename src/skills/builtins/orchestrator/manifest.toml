@@ -1,0 +1,9 @@
+name = "orchestrator"
+description = "Manage ReActOr orchestration config, templates, and jobs for the active agent via API-backed commands."
+version = "1.0.0"
+entrypoint = "run.sh"
+run_command = "sh"
+needs_network = true
+needs_fs_write = false
+needs_fs_read = false
+needs_env = false

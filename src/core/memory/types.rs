@@ -45,3 +45,41 @@ pub struct ApiTokenRecord {
     pub name: String,
     pub created_at: String,
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OrchestratorJobRecord {
+    pub job_id: String,
+    pub agent_name: String,
+    pub status: String,
+    pub prompt: String,
+    pub worker_mode: String,
+    pub summary: Option<String>,
+    pub error: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub finished_at: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OrchestratorWorkerRunRecord {
+    pub worker_run_id: String,
+    pub job_id: String,
+    pub worker_agent: String,
+    pub worker_mode: String,
+    pub task_prompt: String,
+    pub status: String,
+    pub attempt: i64,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub output: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OrchestratorEventRecord {
+    pub id: i64,
+    pub job_id: String,
+    pub event_type: String,
+    pub payload_json: String,
+    pub created_at: String,
+}
