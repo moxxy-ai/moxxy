@@ -220,13 +220,28 @@ pub fn build_api_router(state: AppState) -> Router {
             "/api/gateway/restart",
             post(config::restart_gateway_endpoint),
         )
-        .route("/api/logs", get(super::sse_logs_endpoint))
-        .route(
+        .route("/api/logs", get(super::sse_logs_endpoint));
+
+    let mut authed_routes = authed_routes
+        .route("/api/host/execute_bash", post(proxy::execute_bash))
+        .route("/api/host/execute_python", post(proxy::execute_python));
+
+    #[cfg(target_os = "macos")]
+    {
+        authed_routes = authed_routes.route(
             "/api/host/execute_applescript",
             post(proxy::execute_applescript),
-        )
-        .route("/api/host/execute_bash", post(proxy::execute_bash))
-        .route("/api/host/execute_python", post(proxy::execute_python))
+        );
+    }
+    #[cfg(target_os = "windows")]
+    {
+        authed_routes = authed_routes.route(
+            "/api/host/execute_powershell",
+            post(proxy::execute_powershell),
+        );
+    }
+
+    let authed_routes = authed_routes
         .route(
             "/api/agents/{agent}/delegate",
             post(webhooks::delegate_endpoint),

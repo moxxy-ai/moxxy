@@ -1,6 +1,7 @@
 name = "computer_control"
 description = "Executes AppleScript natively on the host macOS machine to control the UI (type text, click buttons, open apps)."
 version = "v1.0.0"
+platform = "macos"
 needs_network = true
 run_command = "sh"
 entrypoint = "run.sh"

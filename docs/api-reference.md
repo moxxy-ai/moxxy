@@ -234,9 +234,10 @@ Handler: `src/interfaces/web/handlers/config.rs`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/host/execute_bash` | Execute a bash command on the host |
+| POST | `/api/host/execute_bash` | Execute a bash/shell command on the host |
 | POST | `/api/host/execute_python` | Execute Python code on the host |
-| POST | `/api/host/execute_applescript` | Execute AppleScript on the host (macOS) |
+| POST | `/api/host/execute_applescript` | Execute AppleScript on the host (macOS only) |
+| POST | `/api/host/execute_powershell` | Execute PowerShell on the host (Windows only) |
 
 **POST /api/host/execute_bash** body:
 ```json

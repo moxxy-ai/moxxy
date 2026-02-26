@@ -43,6 +43,10 @@ pub struct SkillManifest {
     #[serde(default = "default_run_command")]
     pub run_command: String,
 
+    /// Platform filter: "all" (default), "macos", or "windows". Skills with non-matching platform are skipped at load time.
+    #[serde(default = "default_platform")]
+    pub platform: String,
+
     // Openclaw fields
     #[serde(default)]
     pub triggers: Vec<String>,
@@ -80,6 +84,23 @@ fn default_entrypoint() -> String {
 fn default_run_command() -> String {
     use crate::platform::{NativePlatform, Platform};
     NativePlatform::default_shell().to_string()
+}
+
+fn default_platform() -> String {
+    "all".to_string()
+}
+
+/// Returns true if this skill's platform filter matches the current OS.
+fn platform_matches(platform: &str) -> bool {
+    if platform == "all" {
+        return true;
+    }
+    let current = std::env::consts::OS;
+    match platform {
+        "macos" => current == "macos",
+        "windows" => current == "windows",
+        _ => true,
+    }
 }
 
 fn default_scope_separator() -> String {
@@ -299,6 +320,7 @@ const PRIVILEGED_SKILLS: &[&str] = &[
     "host_shell",
     "host_python",
     "computer_control",
+    "windows_control",
     "evolve_core",
     "browser",
     "osx_email",
@@ -448,7 +470,24 @@ impl SkillManager {
                     match fs::read_to_string(&manifest_path).await {
                         Ok(contents) => match toml::from_str::<SkillManifest>(&contents) {
                             Ok(mut manifest) => {
+                                if !platform_matches(&manifest.platform) {
+                                    info!(
+                                        "Skipping skill [{}]: platform {:?} does not match current OS",
+                                        manifest.name, manifest.platform
+                                    );
+                                    continue;
+                                }
                                 manifest.skill_dir = skill_dir.clone();
+
+                                // On Windows, prefer run.ps1 over run.sh when available
+                                if std::env::consts::OS == "windows" {
+                                    let run_ps1 = skill_dir.join("run.ps1");
+                                    if run_ps1.exists() && manifest.entrypoint == "run.sh" {
+                                        manifest.entrypoint = "run.ps1".to_string();
+                                        manifest.run_command = "powershell".to_string();
+                                    }
+                                }
+
                                 self.register_skill(manifest);
                             }
                             Err(e) => {
@@ -627,6 +666,7 @@ impl SkillManager {
             needs_env: false,
             entrypoint: "skill.md".to_string(),
             run_command: String::new(),
+            platform: "all".to_string(),
             triggers,
             homepage,
             doc_files,
@@ -661,6 +701,7 @@ impl SkillManager {
         "delegate_task",
         "evolve_core",
         "computer_control",
+        "windows_control",
         "browser",
         "example_skill",
         "telegram_notify",

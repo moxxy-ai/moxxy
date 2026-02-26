@@ -48,11 +48,14 @@ moxxy is a self-hosted runtime for autonomous AI agents. Each agent gets its own
 
 ### Install
 
+**macOS / Linux:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/moxxy-ai/moxxy/main/install.sh | bash
 ```
 
-The install script downloads the binary and runs `moxxy install` to scaffold the `~/.moxxy` directory. After installation, run the interactive setup:
+**Windows:** Download the `moxxy-windows-x86_64.zip` (or `windows-aarch64` for ARM) from [Releases](https://github.com/moxxy-ai/moxxy/releases), extract, and run `moxxy install` from the extracted directory. Then run `moxxy init` for interactive setup. PowerShell is required for skill execution.
+
+The install script (or manual install on Windows) scaffolds the data directory (`~/.moxxy` on Unix, `%APPDATA%\moxxy` on Windows). After installation, run the interactive setup:
 
 ```bash
 moxxy init
@@ -65,8 +68,12 @@ git clone https://github.com/moxxy-ai/moxxy.git
 cd moxxy
 cd frontend && npm install && npm run build && cd ..
 cargo build --release
+# Unix:
 ./target/release/moxxy install
 ./target/release/moxxy init
+# Windows:
+.\target\release\moxxy.exe install
+.\target\release\moxxy.exe init
 ```
 
 ### First-Time Setup
@@ -163,6 +170,7 @@ Configure via the web dashboard (Config tab) or during `moxxy init`.
 | `file_ops` | Read, write, patch, append, and navigate files for development tasks |
 | `workspace_shell` | Run build/test commands locked to the agent workspace (npm, cargo, make, etc.) |
 | `computer_control` | macOS accessibility automation via AppleScript |
+| `windows_control` | Windows system control via PowerShell (app control, clipboard, system info) |
 | `delegate_task` | Delegate sub-tasks to other agents in the swarm |
 | `skill` | Unified skill management (list, install, remove, upgrade, modify, create, read) |
 | `scheduler` | Schedule recurring jobs using cron syntax |
@@ -210,13 +218,13 @@ moxxy enforces strict workspace isolation for agents through multiple security l
 
 **Workspace confinement** - Every agent's file operations are restricted to `~/.moxxy/agents/<name>/workspace/`. There is no mechanism for an agent to read or write files outside this directory.
 
-**Privilege tiers** - Skills are divided into privileged (hardcoded built-in skills with full host access: `host_shell`, `host_python`, `computer_control`, `evolve_core`, `browser`, `osx_email`, `git`, `github`, `file_ops`, `workspace_shell`) and sandboxed (all other skills, including agent-installed ones). Agent-installed skills cannot escalate to privileged status.
+**Privilege tiers** - Skills are divided into privileged (hardcoded built-in skills with full host access: `host_shell`, `host_python`, `computer_control`, `windows_control`, `evolve_core`, `browser`, `osx_email`, `git`, `github`, `file_ops`, `workspace_shell`) and sandboxed (all other skills, including agent-installed ones). Agent-installed skills cannot escalate to privileged status.
 
 **OS-level sandboxing** - Non-privileged skills execute inside an OS sandbox (`sandbox-exec` on macOS, `bwrap` on Linux) that enforces read-write access only to the agent's workspace directory at the kernel level.
 
 **Environment isolation** - Sandboxed skills receive a clean environment with no internal API tokens, no access to the agent's home directory, and no source directory paths. Without the internal token, sandboxed skills cannot call host proxy endpoints.
 
-**Host proxy authentication** - The host proxy (`execute_bash`, `execute_python`, `execute_applescript`) always requires the internal token. Working directory parameters are validated to stay within `~/.moxxy/`.
+**Host proxy authentication** - The host proxy (`execute_bash`, `execute_python`, `execute_applescript` on macOS, `execute_powershell` on Windows) always requires the internal token. Working directory parameters are validated to stay within the moxxy data directory.
 
 **WASM containerization** - Agents can optionally run their brain (ReAct loop) inside a WASM container for defense-in-depth. WASM preopened directories are restricted to `./workspace` only, with path traversal protection via canonicalization.
 

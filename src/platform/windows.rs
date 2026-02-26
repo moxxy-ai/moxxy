@@ -6,24 +6,47 @@ pub struct NativePlatform;
 
 impl Platform for NativePlatform {
     fn default_shell() -> &'static str {
-        "bash"
+        "powershell"
     }
 
     fn shell_command(script_path: &Path) -> std::process::Command {
-        let mut cmd = std::process::Command::new("bash");
-        cmd.arg(script_path);
-        cmd
+        let is_ps1 = script_path
+            .extension()
+            .map(|e| e.eq_ignore_ascii_case("ps1"))
+            .unwrap_or(false);
+        if is_ps1 {
+            let mut cmd = std::process::Command::new("powershell");
+            cmd.args(["-ExecutionPolicy", "Bypass", "-NoProfile", "-File"]);
+            cmd.arg(script_path);
+            cmd
+        } else {
+            // Fallback for run.sh (e.g. during transition; requires Git for Windows bash)
+            let mut cmd = std::process::Command::new("bash");
+            cmd.arg(script_path);
+            cmd
+        }
     }
 
     fn shell_command_async(script_path: &Path) -> tokio::process::Command {
-        let mut cmd = tokio::process::Command::new("bash");
-        cmd.arg(script_path);
-        cmd
+        let is_ps1 = script_path
+            .extension()
+            .map(|e| e.eq_ignore_ascii_case("ps1"))
+            .unwrap_or(false);
+        if is_ps1 {
+            let mut cmd = tokio::process::Command::new("powershell");
+            cmd.args(["-ExecutionPolicy", "Bypass", "-NoProfile", "-File"]);
+            cmd.arg(script_path);
+            cmd
+        } else {
+            let mut cmd = tokio::process::Command::new("bash");
+            cmd.arg(script_path);
+            cmd
+        }
     }
 
     fn shell_inline(command: &str) -> tokio::process::Command {
-        let mut cmd = tokio::process::Command::new("bash");
-        cmd.arg("-c").arg(command);
+        let mut cmd = tokio::process::Command::new("powershell");
+        cmd.args(["-NoProfile", "-NonInteractive", "-Command", command]);
         cmd
     }
 

@@ -44,6 +44,7 @@ fn validate_cwd(cwd: &str) -> Result<(), Json<serde_json::Value>> {
 }
 
 /// WARNING: This is the Host Proxy. It executes arbitrary AppleScript natively on the host macOS.
+#[cfg(target_os = "macos")]
 pub async fn execute_applescript(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
@@ -55,6 +56,40 @@ pub async fn execute_applescript(
     match tokio::process::Command::new("osascript")
         .arg("-e")
         .arg(&payload.script)
+        .output()
+        .await
+    {
+        Ok(output) => {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                Json(serde_json::json!({ "success": true, "output": stdout }))
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                Json(serde_json::json!({ "success": false, "error": stderr }))
+            }
+        }
+        Err(e) => Json(serde_json::json!({ "success": false, "error": e.to_string() })),
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub struct PowerShellRequest {
+    script: String,
+}
+
+/// WARNING: This is the Host Proxy. It executes arbitrary PowerShell natively on the host Windows.
+#[cfg(target_os = "windows")]
+pub async fn execute_powershell(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(payload): Json<PowerShellRequest>,
+) -> Json<serde_json::Value> {
+    if let Err(e) = verify_internal_token(&headers, &state.internal_token) {
+        return e;
+    }
+    match tokio::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &payload.script])
         .output()
         .await
     {
