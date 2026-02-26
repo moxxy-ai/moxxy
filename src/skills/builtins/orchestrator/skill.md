@@ -18,6 +18,7 @@ Manage per-agent ReActOr configuration, persona templates, and orchestration job
 - `templates patch <template_id> <json_payload>`
 - `templates delete <template_id>`
 - `jobs start <json_payload>`
+- `jobs run <json_payload>` — same as `start` but blocks until job completes; returns final status and workers
 - `jobs get <job_id>`
 - `jobs workers <job_id>`
 - `jobs events <job_id>`
@@ -29,5 +30,12 @@ Manage per-agent ReActOr configuration, persona templates, and orchestration job
 - The tool targets the current `AGENT_NAME` by default.
 - JSON payloads must be valid JSON objects.
 
-## Example
+## Examples
+
+**Simple job:**
 <invoke name="orchestrator">jobs|start|{"prompt":"Build a kanban orchestrator","worker_mode":"mixed","existing_agents":["default"],"ephemeral":{"count":1}}</invoke>
+
+**Builder–checker–merger with PR:**
+<invoke name="orchestrator">jobs|run|{"prompt":"Build feature XXX in moxxy-ai/moxxy and open a PR","phases":["builder","checker","merger"],"merge_action":"merge_and_pr","worker_mode":"ephemeral","ephemeral":{"count":3}}</invoke>
+
+The template `builder-checker-merger` defines three phases: `builder` produces code, `checker` validates (on failure the job stops), `merger` runs only if all prior phases succeed and uses the `merge_action` to open a PR.

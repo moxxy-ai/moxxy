@@ -6,6 +6,7 @@ use tokio::sync::{Mutex, RwLock};
 use tracing::info;
 
 use crate::core::container::{AgentContainer, ContainerConfig};
+use crate::core::lifecycle::LifecycleComponent;
 use crate::core::lifecycle::LifecycleManager;
 use crate::core::llm::LlmManager;
 use crate::core::llm::generic_provider::GenericProvider;
@@ -16,6 +17,103 @@ use crate::skills::native_executor::NativeExecutor;
 use crate::skills::{SkillManager, SkillManifest};
 
 use super::ScheduledJobRegistry;
+
+/// Keys to copy from orchestrator vault into ephemeral agent vault.
+const EPHEMERAL_VAULT_KEYS: &[&str] = &[
+    "GITHUB_TOKEN",
+    "llm_default_provider",
+    "llm_default_model",
+    // Provider API keys (from registry)
+    "openai_api_key",
+    "anthropic_api_key",
+    "google_api_key",
+    "xai_api_key",
+    "deepseek_api_key",
+    "mistral_api_key",
+    "z_ai_api_key",
+    "minimax_api_key",
+    "openrouter_api_key",
+    "vercel_ai_gateway_api_key",
+];
+
+/// Initialize ephemeral agent subsystems: memory, vault (with keys copied from parent), skills, LLM.
+/// Skips MCP servers and WASM container. Used for orchestrator ephemeral workers.
+pub async fn init_ephemeral_subsystems(
+    name: &str,
+    workspace_dir: &Path,
+    parent_vault: &SecretsVault,
+    api_host: &str,
+    api_port: u16,
+    internal_token: &str,
+) -> Result<(
+    Arc<Mutex<MemorySystem>>,
+    Arc<Mutex<SkillManager>>,
+    Arc<RwLock<LlmManager>>,
+)> {
+    tokio::fs::create_dir_all(workspace_dir.join("workspace")).await?;
+
+    let memory_sys = MemorySystem::new(workspace_dir).await?;
+    let mem_db_conn = memory_sys.get_db();
+    let vault = Arc::new(SecretsVault::new(mem_db_conn));
+    vault.initialize().await?;
+
+    // Copy selected keys from orchestrator vault
+    let registry = ProviderRegistry::load();
+    let mut keys_to_copy: Vec<String> = EPHEMERAL_VAULT_KEYS
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect();
+    for provider_def in &registry.providers {
+        keys_to_copy.push(provider_def.auth.vault_key.clone());
+    }
+    keys_to_copy.sort();
+    keys_to_copy.dedup();
+
+    for key in &keys_to_copy {
+        if let Ok(Some(val)) = parent_vault.get_secret(key).await {
+            let _ = vault.set_secret(key, &val).await;
+        }
+    }
+
+    let skill_executor = Box::new(NativeExecutor::new(
+        vault.clone(),
+        name.to_string(),
+        workspace_dir.to_path_buf(),
+        api_host.to_string(),
+        api_port,
+        internal_token.to_string(),
+    ));
+    let mut skill_sys = SkillManager::new(skill_executor, workspace_dir.to_path_buf());
+    skill_sys.on_init().await?;
+
+    let mut llm_sys = LlmManager::new();
+    for provider_def in &registry.providers {
+        let api_key = vault
+            .get_secret(&provider_def.auth.vault_key)
+            .await
+            .unwrap_or(None)
+            .unwrap_or_default();
+        llm_sys.register_provider(Box::new(GenericProvider::new(
+            provider_def.clone(),
+            api_key,
+        )));
+    }
+
+    if let Ok(Some(provider_str)) = vault.get_secret("llm_default_provider").await
+        && let Ok(Some(model_id)) = vault.get_secret("llm_default_model").await
+    {
+        let normalized = provider_str.to_lowercase();
+        if registry.get_provider(&normalized).is_some() {
+            llm_sys.set_active(&normalized, model_id);
+        }
+    }
+
+    Ok((
+        Arc::new(Mutex::new(memory_sys)),
+        Arc::new(Mutex::new(skill_sys)),
+        Arc::new(RwLock::new(llm_sys)),
+    ))
+}
 
 /// Initialize core agent subsystems: memory, vault, container, skills, LLM.
 /// Returns Arc-wrapped subsystems and the vault for later use.

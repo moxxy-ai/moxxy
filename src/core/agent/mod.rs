@@ -1,5 +1,8 @@
-mod bootstrap;
+pub mod bootstrap;
 mod interfaces;
+pub mod kind;
+
+pub use kind::{Agent, EphemeralAgent, EphemeralAgentParams, NativeAgent};
 mod selfcheck;
 
 use anyhow::Result;

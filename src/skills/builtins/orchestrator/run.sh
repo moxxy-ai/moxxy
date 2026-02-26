@@ -77,6 +77,13 @@ case "$RESOURCE:$ACTION" in
         fi
         request "POST" "$API_URL/jobs" "$ARG1"
         ;;
+    "jobs:run")
+        if [ -z "$ARG1" ]; then
+            echo '{"success":false,"error":"Missing JSON payload"}'
+            exit 1
+        fi
+        request "POST" "$API_URL/jobs/run" "$ARG1"
+        ;;
     "jobs:get"|"jobs:status")
         if [ -z "$ARG1" ]; then
             echo '{"success":false,"error":"Missing job_id"}'
