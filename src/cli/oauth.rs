@@ -4,7 +4,8 @@ use std::path::PathBuf;
 
 use crate::core::oauth;
 use crate::core::terminal::{
-    GuideSection, bordered_render_config, close_section, guide_bar, print_error, print_step,
+    GuideSection, bordered_render_config, close_section, guide_bar, large_input_formatter,
+    print_error, print_step,
 };
 
 fn get_agents_dir() -> PathBuf {
@@ -290,6 +291,7 @@ pub async fn run_oauth_flow(
 
             let code = inquire::Text::new("4. Paste authorization code:")
                 .with_help_message("The code parameter from the redirect URL or result page")
+                .with_formatter(&large_input_formatter)
                 .with_render_config(bordered_render_config())
                 .prompt()?;
             guide_bar();

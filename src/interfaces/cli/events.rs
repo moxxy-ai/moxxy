@@ -1,9 +1,16 @@
 use anyhow::Result;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
+    event::{
+        self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+        Event, KeyCode, KeyModifiers,
+    },
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
+
+/// When input exceeds this length (e.g. from paste), show a placeholder instead of raw text
+/// to avoid terminal display overflow and overlapping with subsequent UI.
+const PASTE_DISPLAY_THRESHOLD: usize = 100;
 use ratatui::{
     Terminal,
     backend::Backend,
@@ -23,7 +30,12 @@ impl CliInterface {
 
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        execute!(
+            stdout,
+            EnterAlternateScreen,
+            EnableMouseCapture,
+            EnableBracketedPaste
+        )?;
         let backend = ratatui::backend::CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
@@ -33,7 +45,8 @@ impl CliInterface {
         execute!(
             terminal.backend_mut(),
             LeaveAlternateScreen,
-            DisableMouseCapture
+            DisableMouseCapture,
+            DisableBracketedPaste
         )?;
         terminal.show_cursor()?;
 
@@ -143,9 +156,14 @@ impl CliInterface {
                     f.render_widget(cmd_widget, chunks[1]);
                 }
 
-                // Input area
+                // Input area - show placeholder for pasted/long content to avoid display overflow
                 let prompt_label = format!("{} > ", active_agent);
-                let input_text = format!("{}{}", prompt_label, input_buf);
+                let displayed_input = if input_buf.len() > PASTE_DISPLAY_THRESHOLD {
+                    format!("[Pasted content - {} chars]", input_buf.len())
+                } else {
+                    input_buf.clone()
+                };
+                let input_text = format!("{}{}", prompt_label, displayed_input);
 
                 let input_style = if is_thinking {
                     Style::default().fg(Color::DarkGray)
@@ -169,158 +187,177 @@ impl CliInterface {
                     f.render_widget(popup_widget, popup_area);
                 }
 
-                // Place cursor
+                // Place cursor (when truncated, show at end of placeholder)
+                let cursor_display_len = if input_buf.len() > PASTE_DISPLAY_THRESHOLD {
+                    displayed_input.len()
+                } else {
+                    cursor_pos
+                };
                 let cursor_x =
-                    chunks[input_idx].x + 1 + prompt_label.len() as u16 + cursor_pos as u16;
+                    chunks[input_idx].x + 1 + prompt_label.len() as u16 + cursor_display_len as u16;
                 let cursor_y = chunks[input_idx].y + 1;
                 f.set_cursor_position((cursor_x, cursor_y));
             })?;
 
             // Poll events with short timeout for animation
-            if crossterm::event::poll(Duration::from_millis(80))?
-                && let Event::Key(key) = event::read()?
-            {
-                // Ctrl+C always quits
-                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-                    self.should_quit = true;
-                    continue;
-                }
+            if crossterm::event::poll(Duration::from_millis(80))? {
+                match event::read()? {
+                    Event::Key(key) => {
+                        // Ctrl+C always quits
+                        if key.modifiers.contains(KeyModifiers::CONTROL)
+                            && key.code == KeyCode::Char('c')
+                        {
+                            self.should_quit = true;
+                            continue;
+                        }
 
-                match key.code {
-                    KeyCode::Enter => {
-                        if self.autocomplete_visible {
-                            // Accept the selected autocomplete suggestion
-                            if let Some(&cmd_idx) =
-                                self.autocomplete_candidates.get(self.autocomplete_selected)
-                            {
-                                let cmd_name = COMMANDS[cmd_idx].name.to_string();
-                                self.input_buffer = cmd_name.clone();
-                                self.cursor_pos = self.input_buffer.len();
-                                // If the command takes args, add a trailing space
-                                if COMMANDS[cmd_idx].name == "/switch"
-                                    || COMMANDS[cmd_idx].name == "/model"
-                                {
-                                    self.input_buffer.push(' ');
+                        match key.code {
+                            KeyCode::Enter => {
+                                if self.autocomplete_visible {
+                                    // Accept the selected autocomplete suggestion
+                                    if let Some(&cmd_idx) =
+                                        self.autocomplete_candidates.get(self.autocomplete_selected)
+                                    {
+                                        let cmd_name = COMMANDS[cmd_idx].name.to_string();
+                                        self.input_buffer = cmd_name.clone();
+                                        self.cursor_pos = self.input_buffer.len();
+                                        // If the command takes args, add a trailing space
+                                        if COMMANDS[cmd_idx].name == "/switch"
+                                            || COMMANDS[cmd_idx].name == "/model"
+                                        {
+                                            self.input_buffer.push(' ');
+                                            self.cursor_pos += 1;
+                                        }
+                                    }
+                                    self.autocomplete_visible = false;
+                                    self.autocomplete_candidates.clear();
+                                } else if !self.input_buffer.is_empty() {
+                                    let input = self.input_buffer.clone();
+                                    self.input_buffer.clear();
+                                    self.cursor_pos = 0;
+
+                                    if input.starts_with('/') {
+                                        self.handle_command(&input).await;
+                                    } else if !self.is_thinking {
+                                        self.submit_chat(input).await;
+                                    }
+                                }
+                            }
+                            KeyCode::Tab => {
+                                if self.autocomplete_visible {
+                                    // Accept the selected autocomplete suggestion
+                                    if let Some(&cmd_idx) =
+                                        self.autocomplete_candidates.get(self.autocomplete_selected)
+                                    {
+                                        let cmd_name = COMMANDS[cmd_idx].name.to_string();
+                                        self.input_buffer = cmd_name.clone();
+                                        self.cursor_pos = self.input_buffer.len();
+                                        // If the command takes args, add a trailing space
+                                        if COMMANDS[cmd_idx].name == "/switch"
+                                            || COMMANDS[cmd_idx].name == "/model"
+                                        {
+                                            self.input_buffer.push(' ');
+                                            self.cursor_pos += 1;
+                                        }
+                                    }
+                                    self.autocomplete_visible = false;
+                                    self.autocomplete_candidates.clear();
+                                }
+                            }
+                            KeyCode::Backspace => {
+                                if self.cursor_pos > 0 {
+                                    self.cursor_pos -= 1;
+                                    self.input_buffer.remove(self.cursor_pos);
+                                    self.update_autocomplete();
+                                }
+                            }
+                            KeyCode::Delete => {
+                                if self.cursor_pos < self.input_buffer.len() {
+                                    self.input_buffer.remove(self.cursor_pos);
+                                    self.update_autocomplete();
+                                }
+                            }
+                            KeyCode::Left => {
+                                if self.cursor_pos > 0 {
+                                    self.cursor_pos -= 1;
+                                }
+                            }
+                            KeyCode::Right => {
+                                if self.cursor_pos < self.input_buffer.len() {
                                     self.cursor_pos += 1;
                                 }
                             }
-                            self.autocomplete_visible = false;
-                            self.autocomplete_candidates.clear();
-                        } else if !self.input_buffer.is_empty() {
-                            let input = self.input_buffer.clone();
-                            self.input_buffer.clear();
-                            self.cursor_pos = 0;
-
-                            if input.starts_with('/') {
-                                self.handle_command(&input).await;
-                            } else if !self.is_thinking {
-                                self.submit_chat(input).await;
-                            }
-                        }
-                    }
-                    KeyCode::Tab => {
-                        if self.autocomplete_visible {
-                            // Accept the selected autocomplete suggestion
-                            if let Some(&cmd_idx) =
-                                self.autocomplete_candidates.get(self.autocomplete_selected)
-                            {
-                                let cmd_name = COMMANDS[cmd_idx].name.to_string();
-                                self.input_buffer = cmd_name.clone();
-                                self.cursor_pos = self.input_buffer.len();
-                                // If the command takes args, add a trailing space
-                                if COMMANDS[cmd_idx].name == "/switch"
-                                    || COMMANDS[cmd_idx].name == "/model"
-                                {
-                                    self.input_buffer.push(' ');
-                                    self.cursor_pos += 1;
+                            KeyCode::Up => {
+                                if self.autocomplete_visible {
+                                    if self.autocomplete_selected > 0 {
+                                        self.autocomplete_selected -= 1;
+                                    }
+                                } else {
+                                    // Scroll chat up
+                                    if self.scroll_offset == u16::MAX {
+                                        self.scroll_offset =
+                                            (self.messages.len() as u16).saturating_sub(3);
+                                    }
+                                    self.scroll_offset = self.scroll_offset.saturating_sub(3);
                                 }
                             }
-                            self.autocomplete_visible = false;
-                            self.autocomplete_candidates.clear();
-                        }
-                    }
-                    KeyCode::Backspace => {
-                        if self.cursor_pos > 0 {
-                            self.cursor_pos -= 1;
-                            self.input_buffer.remove(self.cursor_pos);
-                            self.update_autocomplete();
-                        }
-                    }
-                    KeyCode::Delete => {
-                        if self.cursor_pos < self.input_buffer.len() {
-                            self.input_buffer.remove(self.cursor_pos);
-                            self.update_autocomplete();
-                        }
-                    }
-                    KeyCode::Left => {
-                        if self.cursor_pos > 0 {
-                            self.cursor_pos -= 1;
-                        }
-                    }
-                    KeyCode::Right => {
-                        if self.cursor_pos < self.input_buffer.len() {
-                            self.cursor_pos += 1;
-                        }
-                    }
-                    KeyCode::Up => {
-                        if self.autocomplete_visible {
-                            if self.autocomplete_selected > 0 {
-                                self.autocomplete_selected -= 1;
+                            KeyCode::Down => {
+                                if self.autocomplete_visible {
+                                    if self.autocomplete_selected + 1
+                                        < self.autocomplete_candidates.len()
+                                    {
+                                        self.autocomplete_selected += 1;
+                                    }
+                                } else {
+                                    // Scroll chat down
+                                    if self.scroll_offset != u16::MAX {
+                                        self.scroll_offset = self.scroll_offset.saturating_add(3);
+                                    }
+                                }
                             }
-                        } else {
-                            // Scroll chat up
-                            if self.scroll_offset == u16::MAX {
-                                self.scroll_offset = (self.messages.len() as u16).saturating_sub(3);
+                            KeyCode::Home => {
+                                self.cursor_pos = 0;
                             }
-                            self.scroll_offset = self.scroll_offset.saturating_sub(3);
-                        }
-                    }
-                    KeyCode::Down => {
-                        if self.autocomplete_visible {
-                            if self.autocomplete_selected + 1 < self.autocomplete_candidates.len() {
-                                self.autocomplete_selected += 1;
+                            KeyCode::End => {
+                                self.cursor_pos = self.input_buffer.len();
                             }
-                        } else {
-                            // Scroll chat down
-                            if self.scroll_offset != u16::MAX {
-                                self.scroll_offset = self.scroll_offset.saturating_add(3);
+                            KeyCode::Esc => {
+                                if self.autocomplete_visible {
+                                    self.autocomplete_visible = false;
+                                    self.autocomplete_candidates.clear();
+                                } else if self.cmd_output_visible {
+                                    self.cmd_output_visible = false;
+                                    self.cmd_output_lines.clear();
+                                } else {
+                                    self.input_buffer.clear();
+                                    self.cursor_pos = 0;
+                                }
                             }
+                            KeyCode::PageUp => {
+                                if self.scroll_offset == u16::MAX {
+                                    // Need to compute real max first - approximate
+                                    self.scroll_offset =
+                                        (self.messages.len() as u16).saturating_sub(10);
+                                }
+                                self.scroll_offset = self.scroll_offset.saturating_sub(10);
+                            }
+                            KeyCode::PageDown => {
+                                if self.scroll_offset != u16::MAX {
+                                    self.scroll_offset = self.scroll_offset.saturating_add(10);
+                                    // Will be clamped during render
+                                }
+                            }
+                            KeyCode::Char(c) => {
+                                self.input_buffer.insert(self.cursor_pos, c);
+                                self.cursor_pos += 1;
+                                self.update_autocomplete();
+                            }
+                            _ => {}
                         }
                     }
-                    KeyCode::Home => {
-                        self.cursor_pos = 0;
-                    }
-                    KeyCode::End => {
-                        self.cursor_pos = self.input_buffer.len();
-                    }
-                    KeyCode::Esc => {
-                        if self.autocomplete_visible {
-                            self.autocomplete_visible = false;
-                            self.autocomplete_candidates.clear();
-                        } else if self.cmd_output_visible {
-                            self.cmd_output_visible = false;
-                            self.cmd_output_lines.clear();
-                        } else {
-                            self.input_buffer.clear();
-                            self.cursor_pos = 0;
-                        }
-                    }
-                    KeyCode::PageUp => {
-                        if self.scroll_offset == u16::MAX {
-                            // Need to compute real max first - approximate
-                            self.scroll_offset = (self.messages.len() as u16).saturating_sub(10);
-                        }
-                        self.scroll_offset = self.scroll_offset.saturating_sub(10);
-                    }
-                    KeyCode::PageDown => {
-                        if self.scroll_offset != u16::MAX {
-                            self.scroll_offset = self.scroll_offset.saturating_add(10);
-                            // Will be clamped during render
-                        }
-                    }
-                    KeyCode::Char(c) => {
-                        self.input_buffer.insert(self.cursor_pos, c);
-                        self.cursor_pos += 1;
+                    Event::Paste(data) => {
+                        self.input_buffer.insert_str(self.cursor_pos, &data);
+                        self.cursor_pos += data.chars().count();
                         self.update_autocomplete();
                     }
                     _ => {}

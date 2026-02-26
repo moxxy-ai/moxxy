@@ -5,7 +5,7 @@ use crate::core::llm::generic_provider::GenericProvider;
 use crate::core::llm::registry::ProviderRegistry;
 use crate::core::terminal::{
     self, GuideSection, bordered_info, bordered_render_config, bordered_step, bordered_success,
-    close_section, guide_bar, print_error, print_success,
+    close_section, guide_bar, large_input_formatter, print_error, print_success,
 };
 
 pub async fn run_onboarding() -> Result<()> {
@@ -165,6 +165,7 @@ pub async fn run_onboarding() -> Result<()> {
     if generate_persona {
         let description = inquire::Text::new("Describe your ideal AI agent:")
             .with_help_message("e.g. 'A senior DevOps engineer who monitors my infra'")
+            .with_formatter(&large_input_formatter)
             .with_render_config(bordered_render_config())
             .prompt()?;
 

@@ -12,6 +12,14 @@ fi
 _esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'NR>1{printf "%s","\\n"}{printf "%s",$0}'; }
 
 action="$1"
+# When no positional args but stdin has JSON array (MOXXY_ARGS_MODE=stdin), parse action from stdin
+if [ -z "$action" ] && [ "$MOXXY_ARGS_MODE" = "stdin" ]; then
+    _stdin=$(cat)
+    if [ -n "$_stdin" ]; then
+        action=$(printf '%s' "$_stdin" | python3 -c "import sys,json; a=json.load(sys.stdin); print(a[0] if a else '')" 2>/dev/null || echo '')
+        export _MOXXY_STDIN_ARGS="$_stdin"
+    fi
+fi
 
 case "$action" in
     "list")
@@ -35,6 +43,21 @@ case "$action" in
         ;;
     "add-json")
         json_config="$2"
+        # Fallback: when $2 is empty, get JSON from stdin (already consumed above) or read stdin now
+        if [ -z "$json_config" ] && [ "$MOXXY_ARGS_MODE" = "stdin" ]; then
+            _input="${_MOXXY_STDIN_ARGS:-}"
+            if [ -z "$_input" ]; then
+                _input=$(cat)
+            fi
+            json_config=$(printf '%s' "$_input" | python3 -c "
+import sys, json
+try:
+    a = json.load(sys.stdin)
+    print(a[1] if isinstance(a, list) and len(a) > 1 else '')
+except Exception:
+    print('')
+" 2>/dev/null || echo '')
+        fi
 
         if [ -z "$json_config" ]; then
             echo "Error: JSON config is required."
@@ -48,7 +71,8 @@ case "$action" in
             exit 1
         fi
 
-        python3 -c "
+        # Pass JSON via stdin to avoid argv escaping/size issues when invoked by agent
+        printf '%s' "$json_config" | python3 -c "
 import json, re, sys, urllib.request
 
 GENERIC_NAMES = frozenset({'default', 'mcp', 'server', 'default_server', 'unknown'})
@@ -79,11 +103,11 @@ def derive_name_from_spec(spec):
             return part.split('-')[0].split('_')[0].lower()
     return 'mcp_tool'
 
-config = json.loads(sys.argv[1])
+config = json.load(sys.stdin)
 servers = config.get('mcpServers', config)
-api_url = sys.argv[2]
-agent = sys.argv[3]
-auth = sys.argv[4] if len(sys.argv) > 4 else ''
+api_url = sys.argv[1]
+agent = sys.argv[2]
+auth = sys.argv[3] if len(sys.argv) > 3 else ''
 added = 0
 
 for name, spec in servers.items():
@@ -111,7 +135,7 @@ for name, spec in servers.items():
     added += 1
 
 print(f'Added {added} MCP server(s). Please restart the gateway (moxxy gateway restart) to initialize them.')
-" "$json_config" "$API_URL" "$AGENT_NAME" "${MOXXY_INTERNAL_TOKEN:-}"
+" "$API_URL" "$AGENT_NAME" "${MOXXY_INTERNAL_TOKEN:-}"
         ;;
     "remove")
         server_name="$2"

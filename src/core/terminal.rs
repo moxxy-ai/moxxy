@@ -111,6 +111,21 @@ pub fn close_section() {
 
 // ── Inquire render config with guide borders ──────────────────────────────
 
+/// Threshold above which pasted content is shown as a placeholder to avoid
+/// terminal display overflow and overlapping with subsequent prompts.
+const LARGE_INPUT_DISPLAY_THRESHOLD: usize = 120;
+
+/// Formatter for inquire Text prompts that may receive pasted content.
+/// When the answer exceeds the threshold, shows `[Pasted content - N chars]`
+/// instead of raw text to keep the terminal display clean.
+pub fn large_input_formatter(s: &str) -> String {
+    if s.len() > LARGE_INPUT_DISPLAY_THRESHOLD {
+        format!("[Pasted content - {} chars]", s.len())
+    } else {
+        s.to_string()
+    }
+}
+
 /// Returns an `inquire::ui::RenderConfig` whose prompt prefix and answered
 /// prefix are `│` so that interactive inputs render inside a guide section.
 pub fn bordered_render_config<'a>() -> inquire::ui::RenderConfig<'a> {
