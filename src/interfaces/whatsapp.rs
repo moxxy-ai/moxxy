@@ -165,6 +165,7 @@ async fn whatsapp_webhook(
         state.memory,
         state.skills,
         None,
+        false,
         &state.agent_name,
     )
     .await

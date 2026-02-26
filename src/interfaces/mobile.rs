@@ -245,6 +245,7 @@ async fn handle_socket(mut socket: WebSocket, state: MobileState) {
                             mem_arc,
                             skills_arc,
                             None,
+                            false,
                             &agent_name,
                         )
                         .await;
@@ -331,6 +332,7 @@ async fn chat_handler(
         mem_arc,
         skills_arc,
         None,
+        false,
         &state.agent_name,
     )
     .await;

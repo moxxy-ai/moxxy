@@ -13,6 +13,8 @@ use super::super::AppState;
 #[derive(serde::Deserialize)]
 pub struct ChatRequest {
     prompt: String,
+    #[serde(default)]
+    verbose_reasoning: bool,
 }
 
 pub async fn chat_endpoint(
@@ -45,7 +47,7 @@ pub async fn chat_endpoint(
             // WASM agent -- execute through the container
             info!("Routing chat for agent [{}] through WASM container", agent);
             match container
-                .execute(&payload.prompt, llms, mem, skills, None)
+                .execute(&payload.prompt, llms, mem, skills, None, false)
                 .await
             {
                 Ok(res) => Json(serde_json::json!({ "success": true, "response": res })),
@@ -60,6 +62,7 @@ pub async fn chat_endpoint(
                 mem,
                 skills,
                 None,
+                false,
                 &agent,
             )
             .await
@@ -99,12 +102,20 @@ pub async fn chat_stream_endpoint(
 
         let (tx, rx) = tokio::sync::mpsc::channel::<String>(32);
         let prompt = payload.prompt.clone();
+        let verbose_reasoning = payload.verbose_reasoning;
         let agent_name = agent.clone();
 
         tokio::spawn(async move {
             if let Some(container) = wasm_container {
                 match container
-                    .execute(&prompt, llms, mem, skills, Some(tx.clone()))
+                    .execute(
+                        &prompt,
+                        llms,
+                        mem,
+                        skills,
+                        Some(tx.clone()),
+                        verbose_reasoning,
+                    )
                     .await
                 {
                     Ok(res) => {
@@ -134,6 +145,7 @@ pub async fn chat_stream_endpoint(
                     mem,
                     skills,
                     Some(tx),
+                    verbose_reasoning,
                     &agent_name,
                 )
                 .await;

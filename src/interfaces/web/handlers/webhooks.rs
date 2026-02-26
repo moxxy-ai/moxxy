@@ -385,7 +385,7 @@ pub async fn webhook_endpoint(
     tokio::spawn(async move {
         let result = if let Some(container) = wasm_container {
             container
-                .execute(&trigger_text, llms, mem, skills, None)
+                .execute(&trigger_text, llms, mem, skills, None, false)
                 .await
         } else {
             crate::core::brain::AutonomousBrain::execute_react_loop(
@@ -395,6 +395,7 @@ pub async fn webhook_endpoint(
                 mem,
                 skills,
                 None,
+                false,
                 &agent_name,
             )
             .await
@@ -456,7 +457,7 @@ pub async fn delegate_endpoint(
 
         if let Some(container) = wasm_container {
             match container
-                .execute(&trigger_text, llms, mem, skills, None)
+                .execute(&trigger_text, llms, mem, skills, None, false)
                 .await
             {
                 Ok(res) => Json(serde_json::json!({ "success": true, "response": res })),
@@ -471,6 +472,7 @@ pub async fn delegate_endpoint(
                 mem,
                 skills,
                 None,
+                false,
                 &agent,
             )
             .await

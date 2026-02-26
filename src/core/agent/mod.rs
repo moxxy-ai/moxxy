@@ -196,6 +196,7 @@ impl AgentInstance {
                     mem,
                     skills,
                     None,
+                    false,
                     &agent_name,
                 )
                 .await;

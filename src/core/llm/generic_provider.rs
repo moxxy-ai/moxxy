@@ -4,7 +4,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 use super::registry::{ApiFormat, AuthType, ProviderDef};
-use super::{ChatMessage, LlmProvider, ModelInfo};
+use super::{ChatMessage, LlmGenerateOutput, LlmProvider, ModelInfo, TokenUsage};
 
 // ── OpenAI-compatible request/response ──
 
@@ -23,6 +23,7 @@ struct OpenAiMessage<'a> {
 #[derive(Deserialize)]
 struct OpenAiResponse {
     choices: Vec<OpenAiChoice>,
+    usage: Option<OpenAiUsage>,
 }
 
 #[derive(Deserialize)]
@@ -33,6 +34,13 @@ struct OpenAiChoice {
 #[derive(Deserialize)]
 struct OpenAiMessageOwned {
     content: String,
+}
+
+#[derive(Deserialize)]
+struct OpenAiUsage {
+    prompt_tokens: u64,
+    completion_tokens: u64,
+    total_tokens: u64,
 }
 
 // ── Gemini request/response ──
@@ -58,6 +66,8 @@ struct GeminiPart {
 #[derive(Deserialize)]
 struct GeminiResponse {
     candidates: Vec<GeminiCandidate>,
+    #[serde(rename = "usageMetadata")]
+    usage_metadata: Option<GeminiUsageMetadata>,
 }
 
 #[derive(Deserialize)]
@@ -73,6 +83,16 @@ struct GeminiResContent {
 #[derive(Deserialize)]
 struct GeminiResPart {
     text: String,
+}
+
+#[derive(Deserialize)]
+struct GeminiUsageMetadata {
+    #[serde(rename = "promptTokenCount")]
+    prompt_token_count: u64,
+    #[serde(rename = "candidatesTokenCount")]
+    candidates_token_count: u64,
+    #[serde(rename = "totalTokenCount")]
+    total_token_count: u64,
 }
 
 // ── Anthropic Messages API request/response ──
@@ -95,11 +115,45 @@ struct AnthropicMessage<'a> {
 #[derive(Deserialize)]
 struct AnthropicResponse {
     content: Vec<AnthropicContentBlock>,
+    usage: Option<AnthropicUsage>,
 }
 
 #[derive(Deserialize)]
 struct AnthropicContentBlock {
     text: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AnthropicUsage {
+    input_tokens: u64,
+    output_tokens: u64,
+}
+
+fn to_openai_usage(usage: Option<OpenAiUsage>) -> Option<TokenUsage> {
+    usage.map(|u| TokenUsage {
+        input_tokens: u.prompt_tokens,
+        output_tokens: u.completion_tokens,
+        total_tokens: u.total_tokens,
+        estimated: false,
+    })
+}
+
+fn to_gemini_usage(usage: Option<GeminiUsageMetadata>) -> Option<TokenUsage> {
+    usage.map(|u| TokenUsage {
+        input_tokens: u.prompt_token_count,
+        output_tokens: u.candidates_token_count,
+        total_tokens: u.total_token_count,
+        estimated: false,
+    })
+}
+
+fn to_anthropic_usage(usage: Option<AnthropicUsage>) -> Option<TokenUsage> {
+    usage.map(|u| TokenUsage {
+        input_tokens: u.input_tokens,
+        output_tokens: u.output_tokens,
+        total_tokens: u.input_tokens + u.output_tokens,
+        estimated: false,
+    })
 }
 
 // ── Generic Provider ──
@@ -147,7 +201,11 @@ impl GenericProvider {
         request
     }
 
-    async fn generate_openai(&self, model_id: &str, messages: &[ChatMessage]) -> Result<String> {
+    async fn generate_openai(
+        &self,
+        model_id: &str,
+        messages: &[ChatMessage],
+    ) -> Result<LlmGenerateOutput> {
         let req_messages: Vec<OpenAiMessage> = messages
             .iter()
             .map(|m| OpenAiMessage {
@@ -173,15 +231,21 @@ impl GenericProvider {
             ));
         }
         let parsed: OpenAiResponse = res.json().await?;
-        Ok(parsed
+        let text = parsed
             .choices
             .into_iter()
             .next()
             .map(|c| c.message.content)
-            .unwrap_or_default())
+            .unwrap_or_default();
+        let usage = to_openai_usage(parsed.usage);
+        Ok(LlmGenerateOutput { text, usage })
     }
 
-    async fn generate_gemini(&self, model_id: &str, messages: &[ChatMessage]) -> Result<String> {
+    async fn generate_gemini(
+        &self,
+        model_id: &str,
+        messages: &[ChatMessage],
+    ) -> Result<LlmGenerateOutput> {
         let mut contents = Vec::new();
         let mut system_instruction: Option<GeminiContent> = None;
 
@@ -289,16 +353,22 @@ impl GenericProvider {
             ));
         }
         let parsed: GeminiResponse = res.json().await?;
-        Ok(parsed
+        let text = parsed
             .candidates
             .into_iter()
             .next()
             .and_then(|c| c.content.parts.into_iter().next())
             .map(|p| p.text)
-            .unwrap_or_default())
+            .unwrap_or_default();
+        let usage = to_gemini_usage(parsed.usage_metadata);
+        Ok(LlmGenerateOutput { text, usage })
     }
 
-    async fn generate_anthropic(&self, model_id: &str, messages: &[ChatMessage]) -> Result<String> {
+    async fn generate_anthropic(
+        &self,
+        model_id: &str,
+        messages: &[ChatMessage],
+    ) -> Result<LlmGenerateOutput> {
         let mut system_text: Option<String> = None;
         let mut api_messages: Vec<AnthropicMessage> = Vec::new();
 
@@ -339,12 +409,14 @@ impl GenericProvider {
             ));
         }
         let parsed: AnthropicResponse = res.json().await?;
-        Ok(parsed
+        let text = parsed
             .content
             .into_iter()
             .filter_map(|b| b.text)
             .collect::<Vec<_>>()
-            .join(""))
+            .join("");
+        let usage = to_anthropic_usage(parsed.usage);
+        Ok(LlmGenerateOutput { text, usage })
     }
 }
 
@@ -366,7 +438,11 @@ impl LlmProvider for GenericProvider {
             .collect())
     }
 
-    async fn generate(&self, model_id: &str, messages: &[ChatMessage]) -> Result<String> {
+    async fn generate(
+        &self,
+        model_id: &str,
+        messages: &[ChatMessage],
+    ) -> Result<LlmGenerateOutput> {
         match self.provider_def.api_format {
             ApiFormat::Openai => self.generate_openai(model_id, messages).await,
             ApiFormat::Gemini => self.generate_gemini(model_id, messages).await,
@@ -380,5 +456,53 @@ impl LlmProvider for GenericProvider {
 
     fn vault_key(&self) -> Option<&str> {
         Some(&self.provider_def.auth.vault_key)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_openai_usage_fields() {
+        let body = r#"{
+          "choices": [{"message": {"content": "ok"}}],
+          "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18}
+        }"#;
+        let parsed: OpenAiResponse = serde_json::from_str(body).expect("valid openai response");
+        let usage = to_openai_usage(parsed.usage).expect("usage should exist");
+        assert_eq!(usage.input_tokens, 11);
+        assert_eq!(usage.output_tokens, 7);
+        assert_eq!(usage.total_tokens, 18);
+        assert!(!usage.estimated);
+    }
+
+    #[test]
+    fn parses_gemini_usage_fields() {
+        let body = r#"{
+          "candidates": [{"content": {"parts": [{"text": "ok"}]}}],
+          "usageMetadata": {"promptTokenCount": 20, "candidatesTokenCount": 9, "totalTokenCount": 29}
+        }"#;
+        let parsed: GeminiResponse = serde_json::from_str(body).expect("valid gemini response");
+        let usage = to_gemini_usage(parsed.usage_metadata).expect("usage should exist");
+        assert_eq!(usage.input_tokens, 20);
+        assert_eq!(usage.output_tokens, 9);
+        assert_eq!(usage.total_tokens, 29);
+        assert!(!usage.estimated);
+    }
+
+    #[test]
+    fn parses_anthropic_usage_fields() {
+        let body = r#"{
+          "content": [{"text":"ok"}],
+          "usage": {"input_tokens": 13, "output_tokens": 4}
+        }"#;
+        let parsed: AnthropicResponse =
+            serde_json::from_str(body).expect("valid anthropic response");
+        let usage = to_anthropic_usage(parsed.usage).expect("usage should exist");
+        assert_eq!(usage.input_tokens, 13);
+        assert_eq!(usage.output_tokens, 4);
+        assert_eq!(usage.total_tokens, 17);
+        assert!(!usage.estimated);
     }
 }

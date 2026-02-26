@@ -61,6 +61,11 @@ function App() {
             streamMessages={polling.streamMessages}
             optimisticUserMsg={polling.optimisticUserMsg}
             isTyping={polling.isTyping}
+            verboseReasoning={polling.verboseReasoning}
+            setVerboseReasoning={polling.setVerboseReasoning}
+            reasoningTapeText={polling.reasoningTapeText}
+            usageLive={polling.usageLive}
+            usageFinal={polling.usageFinal}
             chatInput={polling.chatInput}
             setChatInput={polling.setChatInput}
             handleChatSubmit={polling.handleChatSubmit}

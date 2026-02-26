@@ -243,6 +243,7 @@ pub(super) async fn schedule_persisted_jobs(
                     mem,
                     skills,
                     None,
+                    false,
                     &agent_name,
                 )
                 .await;

@@ -131,6 +131,7 @@ pub async fn create_schedule_endpoint(
                     mem,
                     skills,
                     None,
+                    false,
                     &agent_name,
                 )
                 .await;

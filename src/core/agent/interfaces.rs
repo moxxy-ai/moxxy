@@ -197,6 +197,7 @@ pub(super) async fn attach_desktop_poller(
                             mem,
                             skills,
                             None,
+                            false,
                             &agent_name,
                         )
                         .await;

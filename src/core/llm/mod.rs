@@ -18,6 +18,21 @@ pub struct ChatMessage {
     pub content: String,
 }
 
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub struct TokenUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub total_tokens: u64,
+    #[serde(default)]
+    pub estimated: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LlmGenerateOutput {
+    pub text: String,
+    pub usage: Option<TokenUsage>,
+}
+
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
     fn provider_id(&self) -> &str;
@@ -25,7 +40,8 @@ pub trait LlmProvider: Send + Sync {
     #[allow(dead_code)]
     async fn fetch_models(&self) -> Result<Vec<ModelInfo>>;
 
-    async fn generate(&self, model_id: &str, messages: &[ChatMessage]) -> Result<String>;
+    async fn generate(&self, model_id: &str, messages: &[ChatMessage])
+    -> Result<LlmGenerateOutput>;
 
     /// Update the API key at runtime (e.g. after vault change).
     fn set_api_key(&mut self, _key: String) {}
@@ -94,7 +110,10 @@ impl LlmManager {
         )
     }
 
-    pub async fn generate_with_selected(&self, messages: &[ChatMessage]) -> Result<String> {
+    pub async fn generate_with_selected(
+        &self,
+        messages: &[ChatMessage],
+    ) -> Result<LlmGenerateOutput> {
         let provider_id = self.selected_provider.as_ref().ok_or_else(|| {
             anyhow::anyhow!("No LLM Provider selected. Please configure one via the CLI.")
         })?;

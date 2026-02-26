@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import type { ChatMessage, StreamMessage } from '../types';
+import type { ChatMessage, StreamMessage, TokenUsageSnapshot } from '../types';
 
 export function usePolling(apiBase: string, activeAgent: string | null) {
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
@@ -7,11 +7,19 @@ export function usePolling(apiBase: string, activeAgent: string | null) {
   const [optimisticUserMsg, setOptimisticUserMsg] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [verboseReasoning, setVerboseReasoning] = useState(false);
+  const [reasoningTapeText, setReasoningTapeText] = useState('');
+  const [usageLive, setUsageLive] = useState<TokenUsageSnapshot | null>(null);
+  const [usageFinal, setUsageFinal] = useState<TokenUsageSnapshot | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const sessionCursorRef = useRef<number>(0);
   const seenIdsRef = useRef<Set<number>>(new Set());
   const isStreamingRef = useRef(false);
+  const lastReasoningRef = useRef('');
+  const lastResponseRef = useRef('');
+  const usageLiveRef = useRef<TokenUsageSnapshot | null>(null);
+  const usageFinalRef = useRef<TokenUsageSnapshot | null>(null);
 
   useEffect(() => {
     if (!activeAgent || !apiBase) return;
@@ -19,6 +27,13 @@ export function usePolling(apiBase: string, activeAgent: string | null) {
     let stopped = false;
     sessionCursorRef.current = 0;
     seenIdsRef.current = new Set();
+    setReasoningTapeText('');
+    setUsageLive(null);
+    setUsageFinal(null);
+    lastReasoningRef.current = '';
+    lastResponseRef.current = '';
+    usageLiveRef.current = null;
+    usageFinalRef.current = null;
 
     const toChatItems = (messages: { id?: number; role?: string; content?: string }[]) => messages
       .filter((m) => m && (m.role === 'user' || m.role === 'assistant'))
@@ -142,6 +157,13 @@ export function usePolling(apiBase: string, activeAgent: string | null) {
     setChatInput('');
     setOptimisticUserMsg(prompt);
     setStreamMessages([]);
+    setReasoningTapeText('');
+    setUsageLive(null);
+    setUsageFinal(null);
+    lastReasoningRef.current = '';
+    lastResponseRef.current = '';
+    usageLiveRef.current = null;
+    usageFinalRef.current = null;
     setIsTyping(true);
     isStreamingRef.current = true;
 
@@ -149,7 +171,7 @@ export function usePolling(apiBase: string, activeAgent: string | null) {
       const res = await fetch(`${apiBase}/agents/${activeAgent}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt })
+        body: JSON.stringify({ prompt, verbose_reasoning: verboseReasoning })
       });
 
       const reader = res.body?.getReader();
@@ -175,8 +197,18 @@ export function usePolling(apiBase: string, activeAgent: string | null) {
             const evt = JSON.parse(jsonStr);
             switch (evt.type) {
               case 'thinking':
-                setStreamMessages(prev => [...prev, { sender: 'agent', text: `[thinking] ${evt.text}` }]);
+                if (!verboseReasoning) {
+                  setStreamMessages(prev => [...prev, { sender: 'agent', text: `[thinking] ${evt.text}` }]);
+                }
                 break;
+              case 'reasoning': {
+                const text = typeof evt.text === 'string' ? evt.text.trim() : '';
+                if (text) {
+                  lastReasoningRef.current = text;
+                  setReasoningTapeText(text);
+                }
+                break;
+              }
               case 'skill_invoke':
                 setStreamMessages(prev => [...prev, { sender: 'agent', text: `> Invoking skill: ${evt.skill}` }]);
                 break;
@@ -186,12 +218,41 @@ export function usePolling(apiBase: string, activeAgent: string | null) {
                 }
                 break;
               case 'response':
+                if (typeof evt.text === 'string') {
+                  lastResponseRef.current = evt.text.trim();
+                }
                 break;
+              case 'token_usage': {
+                const cumulative = evt?.cumulative;
+                if (cumulative && typeof cumulative.input === 'number' && typeof cumulative.output === 'number' && typeof cumulative.total === 'number') {
+                  const nextUsage: TokenUsageSnapshot = {
+                    input: cumulative.input,
+                    output: cumulative.output,
+                    total: cumulative.total,
+                    estimated: Boolean(cumulative.estimated),
+                  };
+                  setUsageLive(nextUsage);
+                  usageLiveRef.current = nextUsage;
+                  if (evt.final) {
+                    setUsageFinal(nextUsage);
+                    usageFinalRef.current = nextUsage;
+                  }
+                }
+                break;
+              }
               case 'error':
                 setStreamMessages(prev => [...prev, { sender: 'agent', text: `System Failure: ${evt.message}` }]);
                 break;
               case 'done':
                 setStreamMessages([]);
+                if (!usageFinalRef.current && usageLiveRef.current) {
+                  setUsageFinal(usageLiveRef.current);
+                  usageFinalRef.current = usageLiveRef.current;
+                }
+                if (lastResponseRef.current && lastResponseRef.current === lastReasoningRef.current) {
+                  setReasoningTapeText('');
+                }
+                setIsTyping(false);
                 isStreamingRef.current = false;
                 void forcePollUpdates();
                 break;
@@ -201,8 +262,8 @@ export function usePolling(apiBase: string, activeAgent: string | null) {
       }
       setIsTyping(false);
     } catch (err) {
-      isStreamingRef.current = false;
-      setIsTyping(false);
+    isStreamingRef.current = false;
+    setIsTyping(false);
       setStreamMessages(prev => [...prev, { sender: 'agent', text: `Uplink Error: ${err}` }]);
       void forcePollUpdates();
     }
@@ -214,6 +275,10 @@ export function usePolling(apiBase: string, activeAgent: string | null) {
     optimisticUserMsg, setOptimisticUserMsg,
     chatInput, setChatInput,
     isTyping,
+    verboseReasoning, setVerboseReasoning,
+    reasoningTapeText,
+    usageLive,
+    usageFinal,
     chatEndRef,
     sessionCursorRef,
     seenIdsRef,

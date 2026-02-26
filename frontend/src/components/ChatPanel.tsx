@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ChatMessage, StreamMessage } from '../types';
+import type { ChatMessage, StreamMessage, TokenUsageSnapshot } from '../types';
 
 interface ChatPanelProps {
   agents: string[];
@@ -9,6 +9,11 @@ interface ChatPanelProps {
   streamMessages: StreamMessage[];
   optimisticUserMsg: string | null;
   isTyping: boolean;
+  verboseReasoning: boolean;
+  setVerboseReasoning: (val: boolean) => void;
+  reasoningTapeText: string;
+  usageLive: TokenUsageSnapshot | null;
+  usageFinal: TokenUsageSnapshot | null;
   chatInput: string;
   setChatInput: (val: string) => void;
   handleChatSubmit: (e: React.FormEvent) => void;
@@ -26,6 +31,11 @@ export function ChatPanel({
   streamMessages,
   optimisticUserMsg,
   isTyping,
+  verboseReasoning,
+  setVerboseReasoning,
+  reasoningTapeText,
+  usageLive,
+  usageFinal,
   chatInput,
   setChatInput,
   handleChatSubmit,
@@ -34,6 +44,9 @@ export function ChatPanel({
   logsEndRef,
   parseLogLine,
 }: ChatPanelProps) {
+  const usage = isTyping ? (usageLive ?? usageFinal) : (usageFinal ?? usageLive);
+  const usageStatus = usageFinal ? 'final' : (isTyping ? 'live' : 'latest');
+
   return (
     <div className="panel-page">
       <div className="grid grid-cols-1 xl:grid-cols-[260px_1fr] gap-3 min-h-0 h-[66%]">
@@ -71,7 +84,29 @@ export function ChatPanel({
             <span className="text-xs text-text-muted">{activeAgent || 'Select agent'}</span>
           </div>
 
-          <div className="mt-3 flex-1 min-h-0 overflow-y-auto scroll-styled rounded-md border border-border bg-bg p-3 space-y-3">
+          <div className="mt-3 rounded-md border border-border bg-bg px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
+              <span className="font-semibold uppercase tracking-[0.14em] text-text">Token Meter</span>
+              <span className="rounded border border-border px-2 py-0.5">in {usage ? usage.input : '-'}</span>
+              <span className="rounded border border-border px-2 py-0.5">out {usage ? usage.output : '-'}</span>
+              <span className="rounded border border-border px-2 py-0.5">total {usage ? usage.total : '-'}</span>
+              {usage?.estimated && (
+                <span className="rounded border border-orange/40 bg-orange/10 px-2 py-0.5 text-orange">estimated</span>
+              )}
+              <span className="rounded border border-border px-2 py-0.5">{usageStatus}</span>
+            </div>
+          </div>
+
+          {reasoningTapeText && (
+            <div className="mt-2 reasoning-marquee-shell">
+              <div className="reasoning-marquee-track">
+                <span>{reasoningTapeText}</span>
+                <span>{reasoningTapeText}</span>
+              </div>
+            </div>
+          )}
+
+          <div className="mt-2 flex-1 min-h-0 overflow-y-auto scroll-styled rounded-md border border-border bg-bg p-3 space-y-3">
             {chatHistory.length === 0 && !optimisticUserMsg && streamMessages.length === 0 && !isTyping && (
               <p className="text-xs text-text-muted">Start by asking your assistant a task.</p>
             )}
@@ -121,7 +156,18 @@ export function ChatPanel({
             <div ref={chatEndRef} />
           </div>
 
-          <form onSubmit={handleChatSubmit} className="mt-3 flex gap-2">
+          <form onSubmit={handleChatSubmit} className="mt-3 flex flex-col gap-2">
+            <label className="inline-flex items-center gap-2 text-xs text-text-muted">
+              <input
+                type="checkbox"
+                checked={verboseReasoning}
+                onChange={e => setVerboseReasoning(e.target.checked)}
+                className="h-3.5 w-3.5 accent-primary"
+              />
+              <span className="text-text">Deep reasoning stream</span>
+              <span>Higher token usage and latency</span>
+            </label>
+            <div className="flex gap-2">
             <input
               type="text"
               value={chatInput}
@@ -136,6 +182,7 @@ export function ChatPanel({
             >
               Send
             </button>
+            </div>
           </form>
         </section>
       </div>
