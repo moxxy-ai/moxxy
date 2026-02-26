@@ -158,7 +158,8 @@ impl AgentInstance {
         )
         .await;
 
-        // 8. Desktop mail poller (macOS)
+        // 8. Desktop mail poller (macOS only)
+        #[cfg(target_os = "macos")]
         interfaces::attach_desktop_poller(
             &name,
             &mut lifecycle,

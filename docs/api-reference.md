@@ -75,20 +75,45 @@ Handler: `src/interfaces/web/handlers/memory.rs`
 |--------|------|-------------|
 | GET | `/api/agents/{agent}/skills` | List all registered skills |
 | POST | `/api/agents/{agent}/create_skill` | LLM-generate a new skill |
-| POST | `/api/agents/{agent}/install_skill` | Install skill from manifest/run.sh/skill.md |
+| POST | `/api/agents/{agent}/install_skill` | Install skill from manifest + run.sh and/or run.ps1 |
 | POST | `/api/agents/{agent}/upgrade_skill` | Hot-swap skill code (semver check) |
 | POST | `/api/agents/{agent}/install_openclaw_skill` | Install skill from URL |
 | DELETE | `/api/agents/{agent}/skills/{skill_name}` | Remove a skill |
 | PATCH | `/api/agents/{agent}/skills/{skill_name}` | Modify a skill file |
 
+**POST /api/agents/{agent}/create_skill** body:
+```json
+{
+  "name": "my_skill",
+  "description": "One-line description",
+  "platform": "all"
+}
+```
+- `platform` (optional): `"all"` (default) = generate both run.sh and run.ps1; `"windows"` = run.ps1 only; `"macos"` or `"linux"` = run.sh only.
+
 **POST /api/agents/{agent}/install_skill** body:
 ```json
 {
-  "manifest": "name = \"my_skill\"\n...",
-  "run_sh": "#!/bin/sh\n...",
-  "skill_md": "# My Skill\n..."
+  "new_manifest_content": "name = \"my_skill\"\n...",
+  "new_run_sh": "#!/bin/sh\n...",
+  "new_run_ps1": "optional PowerShell script for Windows",
+  "new_skill_md": "# My Skill\n..."
 }
 ```
+- At least one of `new_run_sh` or `new_run_ps1` required. Omit `new_run_ps1` for Unix-only, omit `new_run_sh` for Windows-only.
+
+**POST /api/agents/{agent}/upgrade_skill** body:
+```json
+{
+  "skill_name": "my_skill",
+  "new_version_str": "1.1.0",
+  "new_manifest_content": "...",
+  "new_run_sh": "optional",
+  "new_run_ps1": "optional",
+  "new_skill_md": "..."
+}
+```
+- At least one of `new_run_sh` or `new_run_ps1` required.
 
 **PATCH /api/agents/{agent}/skills/{skill_name}** body:
 ```json
@@ -234,9 +259,10 @@ Handler: `src/interfaces/web/handlers/config.rs`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/host/execute_bash` | Execute a bash command on the host |
+| POST | `/api/host/execute_bash` | Execute a bash/shell command on the host |
 | POST | `/api/host/execute_python` | Execute Python code on the host |
-| POST | `/api/host/execute_applescript` | Execute AppleScript on the host (macOS) |
+| POST | `/api/host/execute_applescript` | Execute AppleScript on the host (macOS only) |
+| POST | `/api/host/execute_powershell` | Execute PowerShell on the host (Windows only) |
 
 **POST /api/host/execute_bash** body:
 ```json

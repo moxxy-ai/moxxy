@@ -3,3 +3,4 @@ node_modules
 **/venv/
 dist/
 frontend/dist/
+.DS_Store

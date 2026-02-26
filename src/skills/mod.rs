@@ -43,6 +43,10 @@ pub struct SkillManifest {
     #[serde(default = "default_run_command")]
     pub run_command: String,
 
+    /// Platform filter: "all" (default), "macos", or "windows". Skills with non-matching platform are skipped at load time.
+    #[serde(default = "default_platform")]
+    pub platform: String,
+
     // Openclaw fields
     #[serde(default)]
     pub triggers: Vec<String>,
@@ -80,6 +84,23 @@ fn default_entrypoint() -> String {
 fn default_run_command() -> String {
     use crate::platform::{NativePlatform, Platform};
     NativePlatform::default_shell().to_string()
+}
+
+fn default_platform() -> String {
+    "all".to_string()
+}
+
+/// Returns true if this skill's platform filter matches the current OS.
+fn platform_matches(platform: &str) -> bool {
+    if platform == "all" {
+        return true;
+    }
+    let current = std::env::consts::OS;
+    match platform {
+        "macos" => current == "macos",
+        "windows" => current == "windows",
+        _ => true,
+    }
 }
 
 fn default_scope_separator() -> String {
@@ -299,6 +320,7 @@ const PRIVILEGED_SKILLS: &[&str] = &[
     "host_shell",
     "host_python",
     "computer_control",
+    "windows_control",
     "evolve_core",
     "browser",
     "osx_email",
@@ -448,7 +470,24 @@ impl SkillManager {
                     match fs::read_to_string(&manifest_path).await {
                         Ok(contents) => match toml::from_str::<SkillManifest>(&contents) {
                             Ok(mut manifest) => {
+                                if !platform_matches(&manifest.platform) {
+                                    info!(
+                                        "Skipping skill [{}]: platform {:?} does not match current OS",
+                                        manifest.name, manifest.platform
+                                    );
+                                    continue;
+                                }
                                 manifest.skill_dir = skill_dir.clone();
+
+                                // On Windows, prefer run.ps1 over run.sh when available
+                                if std::env::consts::OS == "windows" {
+                                    let run_ps1 = skill_dir.join("run.ps1");
+                                    if run_ps1.exists() && manifest.entrypoint == "run.sh" {
+                                        manifest.entrypoint = "run.ps1".to_string();
+                                        manifest.run_command = "powershell".to_string();
+                                    }
+                                }
+
                                 self.register_skill(manifest);
                             }
                             Err(e) => {
@@ -502,9 +541,16 @@ impl SkillManager {
     pub async fn install_skill(
         &mut self,
         new_manifest_content: &str,
-        new_run_sh: &str,
+        new_run_sh: Option<&str>,
+        new_run_ps1: Option<&str>,
         new_skill_md: &str,
     ) -> Result<()> {
+        if new_run_sh.is_none() && new_run_ps1.is_none() {
+            return Err(anyhow::anyhow!(
+                "At least one of run.sh or run.ps1 content must be provided"
+            ));
+        }
+
         let mut manifest: SkillManifest = toml::from_str(new_manifest_content)?;
         // Agent-installed skills are never privileged
         manifest.privileged = false;
@@ -527,7 +573,12 @@ impl SkillManager {
 
         tokio::fs::create_dir_all(&skill_dir).await?;
         tokio::fs::write(skill_dir.join("manifest.toml"), new_manifest_content).await?;
-        tokio::fs::write(skill_dir.join("run.sh"), new_run_sh).await?;
+        if let Some(sh) = new_run_sh {
+            tokio::fs::write(skill_dir.join("run.sh"), sh).await?;
+        }
+        if let Some(ps1) = new_run_ps1 {
+            tokio::fs::write(skill_dir.join("run.ps1"), ps1).await?;
+        }
         tokio::fs::write(skill_dir.join("skill.md"), new_skill_md).await?;
 
         let mut new_manifest = manifest.clone();
@@ -627,6 +678,7 @@ impl SkillManager {
             needs_env: false,
             entrypoint: "skill.md".to_string(),
             run_command: String::new(),
+            platform: "all".to_string(),
             triggers,
             homepage,
             doc_files,
@@ -661,6 +713,7 @@ impl SkillManager {
         "delegate_task",
         "evolve_core",
         "computer_control",
+        "windows_control",
         "browser",
         "example_skill",
         "telegram_notify",
@@ -731,10 +784,10 @@ impl SkillManager {
                 ));
             }
         } else {
-            let allowed_files = ["manifest.toml", "skill.md", "run.sh"];
+            let allowed_files = ["manifest.toml", "skill.md", "run.sh", "run.ps1"];
             if !allowed_files.contains(&file_name) {
                 return Err(anyhow::anyhow!(
-                    "Can only modify: manifest.toml, skill.md, or run.sh"
+                    "Can only modify: manifest.toml, skill.md, run.sh, or run.ps1"
                 ));
             }
         }
@@ -775,9 +828,16 @@ impl SkillManager {
         skill_name: &str,
         new_version_str: &str,
         new_manifest_content: &str,
-        new_run_sh: &str,
+        new_run_sh: Option<&str>,
+        new_run_ps1: Option<&str>,
         new_skill_md: &str,
     ) -> Result<()> {
+        if new_run_sh.is_none() && new_run_ps1.is_none() {
+            return Err(anyhow::anyhow!(
+                "At least one of run.sh or run.ps1 content must be provided"
+            ));
+        }
+
         // Reject upgrades to privileged built-in skills (they are compiled into the binary)
         if PRIVILEGED_SKILLS.contains(&skill_name) {
             return Err(anyhow::anyhow!(
@@ -812,7 +872,12 @@ impl SkillManager {
         // Write the new payload over the host files
         let skill_dir = current_manifest.skill_dir.clone();
         tokio::fs::write(skill_dir.join("manifest.toml"), new_manifest_content).await?;
-        tokio::fs::write(skill_dir.join("run.sh"), new_run_sh).await?;
+        if let Some(sh) = new_run_sh {
+            tokio::fs::write(skill_dir.join("run.sh"), sh).await?;
+        }
+        if let Some(ps1) = new_run_ps1 {
+            tokio::fs::write(skill_dir.join("run.ps1"), ps1).await?;
+        }
         tokio::fs::write(skill_dir.join("skill.md"), new_skill_md).await?;
 
         // Hot-swap parsing

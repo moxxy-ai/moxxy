@@ -5,9 +5,11 @@ This guide covers everything needed to create a new built-in skill for moxxy.
 ## Quick Start
 
 1. Create a directory: `src/skills/builtins/<skill_name>/`
-2. Add three files: `manifest.toml`, `run.sh`, `skill.md`
+2. Add files: `manifest.toml`, `run.sh`, `skill.md`, and `run.ps1` (for cross-platform Windows support)
 3. Build: `cargo build --release`
 4. Done. The skill is automatically embedded in the binary.
+
+**Cross-platform:** Create both `run.sh` and `run.ps1` so the skill works on macOS, Linux, and Windows. On Windows, the loader prefers `run.ps1` when available.
 
 No Rust code changes are needed. The `include_dir!` macro in `src/skills/mod.rs` embeds the entire `src/skills/builtins/` directory at compile time.
 
@@ -17,7 +19,8 @@ No Rust code changes are needed. The `include_dir!` macro in `src/skills/mod.rs`
 src/skills/builtins/
   your_skill/
     manifest.toml    # Skill metadata and capabilities
-    run.sh           # Entry point script (or run.py)
+    run.sh           # Entry point for macOS/Linux
+    run.ps1          # Entry point for Windows (optional but recommended)
     skill.md         # Documentation for the LLM
 ```
 
@@ -33,8 +36,9 @@ version = "1.0.0"            # Semver string
 
 # Optional (defaults shown)
 executor_type = "native"     # "native", "wasm", "mcp", or "openclaw"
-entrypoint = "run.sh"        # Script to execute
-run_command = "sh"            # Shell interpreter (sh, bash, python3)
+entrypoint = "run.sh"        # Script to execute (run.ps1 preferred on Windows when present)
+run_command = "sh"           # Shell interpreter (sh, bash, python3, powershell)
+platform = "all"             # "all" (default), "macos", or "windows" -- skills with non-matching platform are skipped at load
 
 # Capability flags (all default to false)
 needs_network = false        # true if skill makes HTTP requests
@@ -55,18 +59,20 @@ needs_env = false            # true to inject all vault secrets as env vars
 | `needs_fs_read` | bool | Set `true` if the script reads files from the filesystem |
 | `needs_fs_write` | bool | Set `true` if the script writes files to the filesystem |
 | `needs_env` | bool | Set `true` to inject **all vault secrets** as environment variables. Use sparingly |
-| `entrypoint` | string | Script filename. Usually `run.sh` but can be `run.py` etc. |
-| `run_command` | string | Interpreter. Use `sh` for shell, `bash` for bash-specific features, `python3` for Python |
+| `entrypoint` | string | Script filename. Usually `run.sh` but use `run.ps1` for Windows-only skills |
+| `run_command` | string | Interpreter. Use `sh` for shell, `bash` for bash, `python3` for Python, `powershell` for Windows |
+| `platform` | string | `"all"` (default), `"macos"`, or `"windows"`. Platform-specific skills are skipped on non-matching OS |
 
 ## Cross-System Compatibility
 
-All skills **must** be portable across macOS and Linux unless the skill is explicitly platform-specific (e.g. `osx_email` which uses AppleScript). Follow these rules:
+All skills **must** be portable across macOS, Linux, and Windows unless the skill is explicitly platform-specific. For cross-platform skills, create both `run.sh` and `run.ps1`. Follow these rules:
 
 - Use `#!/bin/sh` (POSIX sh), not `#!/bin/bash`, unless bash-specific features are truly needed
 - **Never depend on `jq`** -- it is not installed on many systems and causes skills to crash. Use `grep`, `sed`, and `awk` for JSON parsing instead
 - Avoid GNU-only flags (e.g. `sed -i ''` on macOS vs `sed -i` on Linux). Prefer writing to a temp file and `mv`
 - Only rely on tools that are universally available: `sh`, `curl`, `grep`, `sed`, `awk`, `printf`, `cat`, `tr`, `cut`, `head`, `tail`, `wc`
 - If complex JSON parsing is unavoidable, use `python3` as a fallback (far more available than `jq`) and check for it with `command -v python3`
+- **Platform-specific skills** (e.g. `osx_email`, `computer_control`, `windows_control`): Add `platform = "macos"` or `platform = "windows"` to the manifest, and include an OS guard at the top of the script that returns a JSON error (`{"success":false,"error":"..."}`) with `exit 0` if run on the wrong OS
 
 Common portable JSON helpers:
 
@@ -219,6 +225,69 @@ git "$@"
 - Exit with code 0 on success, non-zero on failure
 - Write errors to stdout (not stderr) -- the skill result is captured from stdout
 
+## PowerShell Patterns (run.ps1)
+
+For cross-platform skills, create a `run.ps1` that mirrors `run.sh`. PowerShell has native JSON support (`ConvertTo-Json`, `ConvertFrom-Json`, `Invoke-RestMethod`), so no `grep`/`sed` workarounds are needed.
+
+### Pattern 1: Simple API Call
+
+```powershell
+$ErrorActionPreference = "Stop"
+
+if (-not $env:AGENT_NAME) {
+    Write-Output "AGENT_NAME is required"
+    exit 1
+}
+
+$apiBase = if ($env:MOXXY_API_BASE) { $env:MOXXY_API_BASE } else { "http://127.0.0.1:17890/api" }
+$headers = @{
+    "Content-Type" = "application/json"
+    "X-Moxxy-Internal-Token" = $env:MOXXY_INTERNAL_TOKEN
+}
+
+if ($args.Count -lt 1) {
+    Write-Output "Usage: your_skill '<argument>'"
+    exit 1
+}
+
+$body = @{ key = $args[0] } | ConvertTo-Json
+$resp = Invoke-RestMethod -Uri "$apiBase/your/endpoint" -Method Post -Body $body -Headers $headers
+if ($resp.success) {
+    Write-Output ($resp.message ?? "Done.")
+} else {
+    Write-Output "Error: $($resp.error ?? 'operation failed')"
+    exit 1
+}
+```
+
+### Pattern 2: Form-URLEncoded (e.g. Telegram/Discord send)
+
+```powershell
+$body = "message=" + [System.Net.WebUtility]::UrlEncode($message)
+$resp = Invoke-RestMethod -Uri "$apiBase/agents/$env:AGENT_NAME/channels/telegram/send" `
+    -Method Post -Body $body -ContentType "application/x-www-form-urlencoded" -Headers $headers
+```
+
+### Pattern 3: Stdin JSON (for large args)
+
+```powershell
+if ($args.Count -ge 1) {
+    $cmd = $args[0]
+} elseif ($env:MOXXY_ARGS_MODE -eq "stdin") {
+    $arr = $input | Out-String | ConvertFrom-Json
+    $cmd = $arr[0]
+}
+```
+
+### Pattern 4: Platform Guard (Windows-only skills)
+
+```powershell
+if ($env:OS -ne "Windows_NT") {
+    Write-Output '{"success":false,"error":"This skill requires Windows."}'
+    exit 0
+}
+```
+
 ## skill.md Format
 
 The skill.md file is included in the LLM's skill catalog. Keep it concise but comprehensive.
@@ -268,7 +337,7 @@ The LLM sees this documentation alongside the manifest description when deciding
 These built-in skills cannot be removed by agents at runtime (defined in `src/skills/mod.rs`):
 
 ```
-skill, host_shell, delegate_task, evolve_core, computer_control, browser,
+skill, host_shell, delegate_task, evolve_core, computer_control, windows_control, browser,
 example_skill, telegram_notify, discord_notify, whatsapp_notify, git,
 scheduler, remove_schedule, modify_schedule, webhook, openclaw_migrate, contribute
 ```

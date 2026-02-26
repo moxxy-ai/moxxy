@@ -14,10 +14,10 @@ moxxy oauth <skill_name> [options]
 
 ## Flow Overview
 
-1. **Agent selection** – Choose which agent's vault stores the credentials (default: `default`)
-2. **Client ID & Secret** – From your OAuth provider's developer console
-3. **Authorization** – Authorize the app in your browser, then paste the code
-4. **Storage** – Credentials are encrypted and stored in the vault
+1. **Agent selection** - Choose which agent's vault stores the credentials (default: `default`)
+2. **Client ID & Secret** - From your OAuth provider's developer console
+3. **Authorization** - Authorize the app in your browser, then paste the code
+4. **Storage** - Credentials are encrypted and stored in the vault
 
 The authorization URL is **always shown in the terminal**, even when the browser opens automatically. This gives you a fallback if the browser fails to open or you prefer to copy the link manually.
 

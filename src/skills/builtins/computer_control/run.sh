@@ -1,4 +1,8 @@
 #!/bin/sh
+if [ "$(uname -s)" != "Darwin" ]; then
+    echo '{"success":false,"error":"This skill requires macOS. It is not available on your current operating system."}'
+    exit 0
+fi
 if [ -z "$1" ]; then
     echo "Usage: computer_control '<AppleScript Code>'"
     exit 1

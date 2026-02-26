@@ -206,10 +206,31 @@ modify)
 # ---- CREATE ----
 create)
     if [ -z "$1" ] || [ -z "$2" ]; then
-        echo "Usage: skill create <skill_name> <description>"
+        echo "Usage: skill create <skill_name> <description> [--platform all|windows|macos|linux]"
+        echo "  --platform: all (default) = both run.sh+run.ps1, windows = run.ps1 only, macos/linux = run.sh only"
         exit 1
     fi
-    JSON_PAYLOAD=$(printf '{"name":"%s","description":"%s"}' "$(_esc "$1")" "$(_esc "$2")")
+    SKILL_NAME="$1"
+    DESCRIPTION="$2"
+    PLATFORM=""
+    shift 2
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --platform)
+                PLATFORM="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+    if [ -n "$PLATFORM" ]; then
+        JSON_PAYLOAD=$(printf '{"name":"%s","description":"%s","platform":"%s"}' \
+          "$(_esc "$SKILL_NAME")" "$(_esc "$DESCRIPTION")" "$(_esc "$PLATFORM")")
+    else
+        JSON_PAYLOAD=$(printf '{"name":"%s","description":"%s"}' "$(_esc "$SKILL_NAME")" "$(_esc "$DESCRIPTION")")
+    fi
 
     RESULT=$(curl -s -X POST -H "Content-Type: application/json" \
         ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
@@ -217,10 +238,10 @@ create)
         "${API}/agents/${AGENT_NAME}/create_skill")
 
     if printf '%s' "$RESULT" | grep -qE '"success"[[:space:]]*:[[:space:]]*true'; then
-        echo "Skill '$1' created and registered successfully."
+        echo "Skill '$SKILL_NAME' created and registered successfully."
     else
         ERROR=$(_jv "$RESULT" "error" "Unknown error")
-        echo "ERROR: Failed to create skill '$1': $ERROR"
+        echo "ERROR: Failed to create skill '$SKILL_NAME': $ERROR"
         exit 1
     fi
     ;;

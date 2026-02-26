@@ -1,6 +1,11 @@
 #!/bin/bash
 set -eu
 
+if [ "$(uname -s)" != "Darwin" ]; then
+    echo '{"success":false,"error":"This skill requires macOS. It is not available on your current operating system."}'
+    exit 0
+fi
+
 ACTION="${1:-}"
 if [ -z "$ACTION" ]; then
     echo '{"success":false,"error":"Usage: osx_email <fetch|list|permissive_read|send> [args...]"}'

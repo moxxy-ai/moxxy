@@ -1,0 +1,7 @@
+name = "windows_control"
+description = "Executes PowerShell natively on the host Windows machine for system info, app control, UI automation, clipboard, and more."
+version = "v1.0.0"
+platform = "windows"
+needs_network = true
+run_command = "powershell"
+entrypoint = "run.ps1"

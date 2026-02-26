@@ -35,6 +35,9 @@ export function SkillsManager({ agents: _agents, activeAgent, setActiveAgent: _s
                 </div>
                 <p className="text-[11px] text-[#94a3b8] leading-relaxed">{skill.description}</p>
                 <div className="flex gap-2 flex-wrap mt-1">
+                  {skill.platform === 'windows' && <span className="text-[9px] px-1.5 py-0.5 border border-[#0078d4]/50 text-[#0078d4] bg-[#0078d4]/10 rounded-sm uppercase tracking-widest">Windows</span>}
+                  {(skill.platform === 'macos' || skill.platform === 'linux') && <span className="text-[9px] px-1.5 py-0.5 border border-emerald-400/50 text-emerald-400 bg-emerald-400/10 rounded-sm uppercase tracking-widest">{skill.platform === 'macos' ? 'macOS' : 'Linux'}</span>}
+                  {(!skill.platform || skill.platform === 'all') && <span className="text-[9px] px-1.5 py-0.5 border border-violet-400/50 text-violet-400 bg-violet-400/10 rounded-sm uppercase tracking-widest">Cross-platform</span>}
                   {skill.needs_network && <span className="text-[9px] px-1.5 py-0.5 border border-[#00aaff]/30 text-[#00aaff] bg-[#00aaff]/5 rounded-sm uppercase tracking-widest">Network</span>}
                   {skill.needs_fs_read && <span className="text-[9px] px-1.5 py-0.5 border border-emerald-400/30 text-emerald-400 bg-emerald-400/5 rounded-sm uppercase tracking-widest">FS Read</span>}
                   {skill.needs_fs_write && <span className="text-[9px] px-1.5 py-0.5 border border-amber-400/30 text-amber-400 bg-amber-400/5 rounded-sm uppercase tracking-widest">FS Write</span>}

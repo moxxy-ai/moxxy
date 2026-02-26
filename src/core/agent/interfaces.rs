@@ -138,6 +138,7 @@ pub(super) async fn attach_interfaces(
 }
 
 /// Attach the macOS Desktop Mail/Calendar Poller (runs every 5 minutes).
+#[cfg(target_os = "macos")]
 pub(super) async fn attach_desktop_poller(
     name: &str,
     lifecycle: &mut LifecycleManager,

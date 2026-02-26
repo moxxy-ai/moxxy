@@ -469,7 +469,10 @@
                                 <span class="bg-slate-700/50 text-slate-400 text-[10px] px-2 py-0.5 rounded border border-slate-600 font-mono">${sk.version}</span>
                             </div>
                             <p class="text-xs text-slate-400 mb-3 line-clamp-2">${sk.description}</p>
-                            <div class="flex gap-2">
+                            <div class="flex gap-2 flex-wrap">
+                                ${sk.platform === 'windows' ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-[#0078d4]/20 text-[#0078d4] border border-[#0078d4]/30">Windows</span>' : ''}
+                                ${(sk.platform === 'macos' || sk.platform === 'linux') ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">${sk.platform === 'macos' ? 'macOS' : 'Linux'}</span>` : ''}
+                                ${(!sk.platform || sk.platform === 'all') ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-400 border border-violet-500/30">Cross-platform</span>' : ''}
                                 ${sk.needs_network ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/20">NET</span>' : ''}
                                 ${sk.needs_env ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/20">ENV</span>' : ''}
                                 ${sk.needs_fs_write ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/20">FSW</span>' : ''}
