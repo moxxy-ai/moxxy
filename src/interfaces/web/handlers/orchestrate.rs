@@ -201,7 +201,7 @@ pub async fn start_orchestration_job(
     Json(payload): Json<StartJobRequest>,
 ) -> Json<serde_json::Value> {
     let start_res = start_orchestration_job_inner(&agent, &state, &payload).await;
-    let (job, worker_assignments, mem_arc) = match start_res {
+    let (job, worker_assignments, spawn_profiles, mem_arc) = match start_res {
         Ok(x) => x,
         Err(json) => return json,
     };
@@ -219,6 +219,7 @@ pub async fn start_orchestration_job(
             job_id,
             prompt,
             worker_assignments,
+            spawn_profiles,
             merge_action,
             mem_arc,
             state_clone,
@@ -241,7 +242,7 @@ pub async fn start_orchestration_job_run(
     Json(payload): Json<StartJobRequest>,
 ) -> Json<serde_json::Value> {
     let start_res = start_orchestration_job_inner(&agent, &state, &payload).await;
-    let (job, worker_assignments, mem_arc) = match start_res {
+    let (job, worker_assignments, spawn_profiles, mem_arc) = match start_res {
         Ok(x) => x,
         Err(json) => return json,
     };
@@ -259,6 +260,7 @@ pub async fn start_orchestration_job_run(
             job_id,
             prompt,
             worker_assignments,
+            spawn_profiles,
             merge_action,
             mem_arc,
             state_clone,
@@ -287,7 +289,7 @@ pub async fn start_orchestration_job_run(
 }
 
 /// Inner setup for start_orchestration_job and start_orchestration_job_run.
-/// Returns (job, worker_assignments, mem_arc) or error JSON.
+/// Returns (job, worker_assignments, spawn_profiles, mem_arc) or error JSON.
 async fn start_orchestration_job_inner(
     agent: &str,
     state: &AppState,
@@ -296,6 +298,7 @@ async fn start_orchestration_job_inner(
     (
         crate::core::memory::types::OrchestratorJobRecord,
         Vec<crate::core::orchestrator::WorkerAssignment>,
+        Vec<crate::core::orchestrator::SpawnProfile>,
         Arc<tokio::sync::Mutex<crate::core::memory::MemorySystem>>,
     ),
     Json<serde_json::Value>,
@@ -442,7 +445,7 @@ async fn start_orchestration_job_inner(
     let _ = transition_job_state(&mem, &job.job_id, JobState::Dispatching, None, None).await;
     let _ = transition_job_state(&mem, &job.job_id, JobState::Executing, None, None).await;
 
-    Ok((job, worker_assignments, mem_arc.clone()))
+    Ok((job, worker_assignments, spawn_profiles, mem_arc.clone()))
 }
 
 pub async fn get_orchestration_job(

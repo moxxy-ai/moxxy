@@ -38,6 +38,7 @@ const EPHEMERAL_VAULT_KEYS: &[&str] = &[
 
 /// Initialize ephemeral agent subsystems: memory, vault (with keys copied from parent), skills, LLM.
 /// Skips MCP servers and WASM container. Used for orchestrator ephemeral workers.
+/// When llm_provider/llm_model are set (from template spawn profile), they override vault defaults.
 pub async fn init_ephemeral_subsystems(
     name: &str,
     workspace_dir: &Path,
@@ -45,6 +46,8 @@ pub async fn init_ephemeral_subsystems(
     api_host: &str,
     api_port: u16,
     internal_token: &str,
+    llm_provider: Option<&str>,
+    llm_model: Option<&str>,
 ) -> Result<(
     Arc<Mutex<MemorySystem>>,
     Arc<Mutex<SkillManager>>,
@@ -99,12 +102,23 @@ pub async fn init_ephemeral_subsystems(
         )));
     }
 
-    if let Ok(Some(provider_str)) = vault.get_secret("llm_default_provider").await
-        && let Ok(Some(model_id)) = vault.get_secret("llm_default_model").await
-    {
-        let normalized = provider_str.to_lowercase();
-        if registry.get_provider(&normalized).is_some() {
-            llm_sys.set_active(&normalized, model_id);
+    // Prefer template override (llm_provider/llm_model) over vault defaults
+    let (provider_str, model_id) = match (llm_provider, llm_model) {
+        (Some(p), Some(m)) if !p.is_empty() && !m.is_empty() => (p.to_lowercase(), m.to_string()),
+        _ => {
+            if let Ok(Some(vp)) = vault.get_secret("llm_default_provider").await
+                && let Ok(Some(vm)) = vault.get_secret("llm_default_model").await
+            {
+                (vp.to_lowercase(), vm)
+            } else {
+                (String::new(), String::new())
+            }
+        }
+    };
+
+    if !provider_str.is_empty() && !model_id.is_empty() {
+        if registry.get_provider(&provider_str).is_some() {
+            llm_sys.set_active(&provider_str, model_id);
         }
     }
 

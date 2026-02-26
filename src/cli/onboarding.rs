@@ -47,6 +47,9 @@ pub async fn run_onboarding() -> Result<()> {
     let vault = crate::core::vault::SecretsVault::new(memory_sys.get_db());
     vault.initialize().await?;
 
+    // Seed default orchestrator templates if none exist
+    let _ = crate::core::orchestrator::seed_default_templates(&memory_sys).await;
+
     // --- Step 1: LLM Provider ---
     GuideSection::new("Step 1 · AI Provider")
         .text("Your agent needs an AI provider to power its reasoning.")

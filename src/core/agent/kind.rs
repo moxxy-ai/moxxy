@@ -96,6 +96,10 @@ pub struct EphemeralAgentParams {
     pub api_host: String,
     pub api_port: u16,
     pub internal_token: String,
+    /// LLM provider override from template spawn profile; when set, used instead of vault default.
+    pub llm_provider: Option<String>,
+    /// LLM model override from template spawn profile; when set, used instead of vault default.
+    pub llm_model: Option<String>,
 }
 
 /// Ephemeral agent: creates subsystems on demand, runs task, cleans up.
@@ -118,6 +122,8 @@ impl EphemeralAgent {
             &self.params.api_host,
             self.params.api_port,
             &self.params.internal_token,
+            self.params.llm_provider.as_deref(),
+            self.params.llm_model.as_deref(),
         )
         .await?;
 

@@ -9,7 +9,9 @@ mod native;
 
 use std::sync::Arc;
 
-use crate::core::orchestrator::{JobState, WorkerAssignment, WorkerMode};
+use crate::core::orchestrator::{
+    JobState, SpawnProfile, WorkerAssignment, WorkerMode, find_spawn_profile_by_role,
+};
 use crate::interfaces::web::AppState;
 
 /// Result of a completed orchestration job for the blocking API.
@@ -61,6 +63,7 @@ pub async fn run_orchestration_job(
     job_id: String,
     prompt: String,
     worker_assignments: Vec<WorkerAssignment>,
+    spawn_profiles: Vec<SpawnProfile>,
     merge_action: Option<String>,
     mem_arc: Arc<tokio::sync::Mutex<crate::core::memory::MemorySystem>>,
     state: AppState,
@@ -202,20 +205,25 @@ pub async fn run_orchestration_job(
         });
 
     if should_run_merger {
+        let merger_profile = find_spawn_profile_by_role(&spawn_profiles, "merger");
         let merger_assignment = WorkerAssignment {
             worker_mode: WorkerMode::Ephemeral,
             worker_agent: format!("ephemeral-{}", workers_result.len() + 1),
             role: "merger".to_string(),
-            persona: Some(format!(
-                "You are a merger agent. Use the github skill to open a PR or merge based on the prior phase outputs. \
-                 Merge action: {}. Prior outputs contain fork URL, branch, and upstream repo. \
-                 Extract them and use github pr to open a PR, or merge as instructed.",
-                merge_action.as_deref().unwrap_or("pr_only")
-            )),
-            provider: None,
-            model: None,
-            runtime_type: None,
-            image_profile: None,
+            persona: merger_profile
+                .map(|p| p.persona.clone())
+                .or_else(|| {
+                    Some(format!(
+                        "You are a merger agent. Use the github skill to open a PR or merge based on the prior phase outputs. \
+                         Merge action: {}. Prior outputs contain fork URL, branch, and upstream repo. \
+                         Extract them and use github pr to open a PR, or merge as instructed.",
+                        merge_action.as_deref().unwrap_or("pr_only")
+                    ))
+                }),
+            provider: merger_profile.map(|p| p.provider.clone()),
+            model: merger_profile.map(|p| p.model.clone()),
+            runtime_type: merger_profile.map(|p| p.runtime_type.clone()),
+            image_profile: merger_profile.map(|p| p.image_profile.clone()),
         };
 
         let prior = phase_outputs

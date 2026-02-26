@@ -39,3 +39,5 @@ Manage per-agent ReActOr configuration, persona templates, and orchestration job
 <invoke name="orchestrator">jobs|run|{"prompt":"Build feature XXX in moxxy-ai/moxxy and open a PR","phases":["builder","checker","merger"],"merge_action":"merge_and_pr","worker_mode":"ephemeral","ephemeral":{"count":3}}</invoke>
 
 The template `builder-checker-merger` defines three phases: `builder` produces code, `checker` validates (on failure the job stops), `merger` runs only if all prior phases succeed and uses the `merge_action` to open a PR.
+
+**Per-role provider and model:** Each spawn profile in a template specifies `provider`, `model`, and `persona`. Ephemeral agents use the profile matching their role (by name). For example, a checker can use `google`/`gemini-2.5-flash` while the builder uses `openai`/`gpt-4o`.

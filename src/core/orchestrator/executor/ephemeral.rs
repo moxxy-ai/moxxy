@@ -88,6 +88,8 @@ pub async fn execute(
         api_host: state.api_host.clone(),
         api_port: state.api_port,
         internal_token: state.internal_token.clone(),
+        llm_provider: assignment.provider.clone(),
+        llm_model: assignment.model.clone(),
     });
 
     let trigger = format!(
