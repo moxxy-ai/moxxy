@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.13.0](https://github.com/moxxy-ai/moxxy/compare/v0.12.3...v0.13.0) (2026-02-26)
+
+
+### Features
+
+* add missing cargo tests ([#80](https://github.com/moxxy-ai/moxxy/issues/80)) ([c66ae08](https://github.com/moxxy-ai/moxxy/commit/c66ae083d26f26ab15f225cb8a2ed2625cfb9013))
+* windows support ([#83](https://github.com/moxxy-ai/moxxy/issues/83)) ([b918e9d](https://github.com/moxxy-ai/moxxy/commit/b918e9d1ca8fc9b8b28b0744ba6e5be9e60fd4a9))
+
+
+### Bug Fixes
+
+* skills cross env support ([#82](https://github.com/moxxy-ai/moxxy/issues/82)) ([bc39a46](https://github.com/moxxy-ai/moxxy/commit/bc39a46ca14e62b117bf5555a7fe830c00b1475b))
+
 ## [0.12.3](https://github.com/moxxy-ai/moxxy/compare/v0.12.2...v0.12.3) (2026-02-25)
 
 
