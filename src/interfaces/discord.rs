@@ -89,6 +89,7 @@ impl EventHandler for Handler {
             self.memory.clone(),
             self.skills.clone(),
             None,
+            false,
             &self.agent_name,
         )
         .await

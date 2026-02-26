@@ -9,6 +9,29 @@ export interface StreamMessage {
   text: string;
 }
 
+export interface TokenUsageSnapshot {
+  input: number;
+  output: number;
+  total: number;
+  estimated: boolean;
+}
+
+export interface ChatStreamTokenUsageEvent {
+  type: 'token_usage';
+  iteration: number;
+  delta: TokenUsageSnapshot;
+  cumulative: TokenUsageSnapshot;
+  provider?: string;
+  model?: string;
+  final?: boolean;
+}
+
+export interface ChatStreamReasoningEvent {
+  type: 'reasoning';
+  text: string;
+  iteration: number;
+}
+
 export interface Skill {
   name: string;
   description: string;

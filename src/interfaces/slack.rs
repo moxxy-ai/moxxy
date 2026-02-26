@@ -164,6 +164,7 @@ async fn slack_webhook(
                     state.memory,
                     state.skills,
                     None,
+                    false,
                     &agent_name,
                 )
                 .await

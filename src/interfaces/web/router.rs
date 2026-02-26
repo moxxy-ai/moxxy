@@ -767,6 +767,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn chat_stream_accepts_verbose_reasoning_field() {
+        let state = empty_state();
+        let app = build_api_router(state);
+        let (status, json) = json_request(
+            app,
+            Method::POST,
+            "/api/agents/default/chat/stream",
+            Some(serde_json::json!({
+                "prompt": "test",
+                "verbose_reasoning": true
+            })),
+            "test-internal-token",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["success"], false);
+        assert_eq!(json["error"], "Agent not found");
+    }
+
+    #[tokio::test]
     async fn install_skill_with_run_sh_only_succeeds() {
         let state = state_with_skills().await;
         let app = build_api_router(state);

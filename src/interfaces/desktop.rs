@@ -313,6 +313,7 @@ impl LifecycleComponent for DesktopInterface {
                                         memory.clone(),
                                         skills.clone(),
                                         None,
+                                        false,
                                         &agent_name,
                                     )
                                     .await;

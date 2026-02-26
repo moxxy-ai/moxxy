@@ -234,13 +234,27 @@ async fn mock_chat_completion(
     Json(payload): Json<MockOpenAiRequest>,
 ) -> Json<Value> {
     let response_content = mock_llm_response(&payload.messages);
+    let prompt_chars: usize = payload
+        .messages
+        .iter()
+        .map(|m| m.content.chars().count())
+        .sum();
+    let completion_chars = response_content.chars().count();
+    let prompt_tokens = prompt_chars.div_ceil(4) as u64;
+    let completion_tokens = completion_chars.div_ceil(4) as u64;
+    let total_tokens = prompt_tokens + completion_tokens;
     let response = json!({
         "choices": [{
             "message": {
                 "role": "assistant",
                 "content": response_content
             }
-        }]
+        }],
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens
+        }
     });
 
     let mut traces = state.traces.lock().unwrap_or_else(|e| e.into_inner());

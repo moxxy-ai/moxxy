@@ -6,7 +6,7 @@ use wasmtime::*;
 use wasmtime_wasi::p1::{self, WasiP1Ctx};
 use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder};
 
-use crate::core::llm::{ChatMessage, LlmManager};
+use crate::core::llm::{ChatMessage, LlmGenerateOutput, LlmManager, TokenUsage};
 use crate::core::memory::MemorySystem;
 use crate::skills::SkillManager;
 
@@ -27,6 +27,67 @@ fn safe_read_str(data: &[u8], ptr: u32, len: u32) -> String {
         .to_string()
 }
 
+#[derive(Default)]
+struct WasmUsageState {
+    iteration: usize,
+    cumulative_input: u64,
+    cumulative_output: u64,
+    cumulative_total: u64,
+    cumulative_estimated: bool,
+    event_count: usize,
+    last_provider: Option<String>,
+    last_model: Option<String>,
+}
+
+fn estimate_tokens_from_chars(char_count: usize) -> u64 {
+    (char_count as u64).div_ceil(4)
+}
+
+fn estimate_usage(messages: &[ChatMessage], response_text: &str) -> TokenUsage {
+    let input_chars = messages.iter().map(|m| m.content.chars().count()).sum();
+    let output_chars = response_text.chars().count();
+    let input_tokens = estimate_tokens_from_chars(input_chars);
+    let output_tokens = estimate_tokens_from_chars(output_chars);
+    TokenUsage {
+        input_tokens,
+        output_tokens,
+        total_tokens: input_tokens + output_tokens,
+        estimated: true,
+    }
+}
+
+fn build_token_usage_event(
+    iteration: usize,
+    delta: TokenUsage,
+    cumulative_input: u64,
+    cumulative_output: u64,
+    cumulative_total: u64,
+    cumulative_estimated: bool,
+    provider: Option<&str>,
+    model: Option<&str>,
+    is_final: bool,
+) -> serde_json::Value {
+    serde_json::json!({
+        "type": "token_usage",
+        "iteration": iteration,
+        "delta": {
+            "input": delta.input_tokens,
+            "output": delta.output_tokens,
+            "total": delta.total_tokens,
+            "estimated": delta.estimated
+        },
+        "cumulative": {
+            "input": cumulative_input,
+            "output": cumulative_output,
+            "total": cumulative_total,
+            "estimated": cumulative_estimated
+        },
+        "provider": provider,
+        "model": model,
+        "final": is_final
+    })
+}
+
 struct HostState {
     wasi: WasiP1Ctx,
     response_buffer: Vec<u8>,
@@ -39,6 +100,8 @@ struct HostBridge {
     memory: Arc<Mutex<MemorySystem>>,
     skills: Arc<Mutex<SkillManager>>,
     stream_tx: Option<tokio::sync::mpsc::Sender<String>>,
+    verbose_reasoning: bool,
+    usage_state: Arc<Mutex<WasmUsageState>>,
     rt_handle: tokio::runtime::Handle,
 }
 
@@ -131,6 +194,7 @@ impl AgentContainer {
         memory: Arc<Mutex<MemorySystem>>,
         skills: Arc<Mutex<SkillManager>>,
         stream_tx: Option<tokio::sync::mpsc::Sender<String>>,
+        verbose_reasoning: bool,
     ) -> Result<String> {
         self.set_status(ContainerStatus::Running);
         self.execution_count
@@ -169,6 +233,9 @@ impl AgentContainer {
         let config = self.config.clone();
         let input_owned = input.to_string();
         let rt_handle = tokio::runtime::Handle::current();
+        let usage_state = Arc::new(Mutex::new(WasmUsageState::default()));
+        let usage_state_for_host = usage_state.clone();
+        let stream_tx_for_final = stream_tx.clone();
 
         let result = tokio::task::spawn_blocking(move || -> Result<String> {
             let mut engine_config = Config::new();
@@ -234,6 +301,8 @@ impl AgentContainer {
                     memory,
                     skills,
                     stream_tx,
+                    verbose_reasoning,
+                    usage_state: usage_state_for_host,
                     rt_handle,
                 }),
                 limiter: store_limits,
@@ -268,6 +337,9 @@ impl AgentContainer {
                         return err.len() as u32;
                     };
                     let llm = bridge.llm.clone();
+                    let stream_tx = bridge.stream_tx.clone();
+                    let verbose_reasoning = bridge.verbose_reasoning;
+                    let usage_state = bridge.usage_state.clone();
                     let rt = bridge.rt_handle.clone();
 
                     info!("WASM host_invoke_llm: prompt {} chars", prompt.len());
@@ -293,17 +365,87 @@ impl AgentContainer {
                             }]
                         };
 
-                    let response = rt.block_on(async {
+                    let (llm_out, provider, model): (
+                        LlmGenerateOutput,
+                        Option<String>,
+                        Option<String>,
+                    ) = rt.block_on(async {
                         let llm_guard = llm.read().await;
+                        let (provider, model) = llm_guard.get_active_info();
+                        let provider = provider.map(|s| s.to_string());
+                        let model = model.map(|s| s.to_string());
                         match tokio::time::timeout(
                             std::time::Duration::from_secs(120),
                             llm_guard.generate_with_selected(&messages),
                         )
                         .await
                         {
-                            Ok(Ok(text)) => text,
-                            Ok(Err(e)) => format!("LLM Error: {}", e),
-                            Err(_) => "LLM Error: request timed out after 120 seconds".to_string(),
+                            Ok(Ok(out)) => (out, provider, model),
+                            Ok(Err(e)) => (
+                                LlmGenerateOutput {
+                                    text: format!("LLM Error: {}", e),
+                                    usage: None,
+                                },
+                                provider,
+                                model,
+                            ),
+                            Err(_) => (
+                                LlmGenerateOutput {
+                                    text: "LLM Error: request timed out after 120 seconds"
+                                        .to_string(),
+                                    usage: None,
+                                },
+                                provider,
+                                model,
+                            ),
+                        }
+                    });
+                    let response = llm_out.text;
+                    let delta_usage = llm_out
+                        .usage
+                        .unwrap_or_else(|| estimate_usage(&messages, &response));
+
+                    rt.block_on(async {
+                        let mut usage = usage_state.lock().await;
+                        usage.iteration += 1;
+                        usage.event_count += 1;
+                        usage.cumulative_input += delta_usage.input_tokens;
+                        usage.cumulative_output += delta_usage.output_tokens;
+                        usage.cumulative_total += delta_usage.total_tokens;
+                        usage.cumulative_estimated =
+                            usage.cumulative_estimated || delta_usage.estimated;
+                        usage.last_provider = provider.clone();
+                        usage.last_model = model.clone();
+
+                        if let Some(ref tx) = stream_tx {
+                            let usage_evt = build_token_usage_event(
+                                usage.iteration,
+                                delta_usage,
+                                usage.cumulative_input,
+                                usage.cumulative_output,
+                                usage.cumulative_total,
+                                usage.cumulative_estimated,
+                                provider.as_deref(),
+                                model.as_deref(),
+                                false,
+                            );
+                            let _ = tx.send(usage_evt.to_string()).await;
+
+                            if verbose_reasoning {
+                                let reasoning = response.trim();
+                                if !reasoning.is_empty() {
+                                    let _ = tx
+                                        .send(
+                                            serde_json::json!({
+                                                "type": "reasoning",
+                                                "text": reasoning,
+                                                "iteration": usage.iteration
+                                            })
+                                            .to_string(),
+                                        )
+                                        .await;
+                                }
+                            }
                         }
                     });
 
@@ -565,6 +707,29 @@ impl AgentContainer {
         match &result {
             Ok(_) => self.set_status(ContainerStatus::Running),
             Err(_) => self.set_status(ContainerStatus::Failed),
+        }
+
+        if let Some(tx) = stream_tx_for_final {
+            let usage = usage_state.lock().await;
+            if usage.event_count > 0 {
+                let final_event = build_token_usage_event(
+                    usage.iteration,
+                    TokenUsage {
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        total_tokens: 0,
+                        estimated: usage.cumulative_estimated,
+                    },
+                    usage.cumulative_input,
+                    usage.cumulative_output,
+                    usage.cumulative_total,
+                    usage.cumulative_estimated,
+                    usage.last_provider.as_deref(),
+                    usage.last_model.as_deref(),
+                    true,
+                );
+                let _ = tx.send(final_event.to_string()).await;
+            }
         }
 
         result

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use tracing::info;
 
-use crate::core::llm::LlmManager;
+use crate::core::llm::{ChatMessage, LlmGenerateOutput, LlmManager, TokenUsage};
 use crate::core::memory::MemorySystem;
 use crate::skills::SkillManager;
 
@@ -63,6 +63,55 @@ async fn emit(tx: &Option<tokio::sync::mpsc::Sender<String>>, event: serde_json:
     if let Some(tx) = tx {
         let _ = tx.send(event.to_string()).await;
     }
+}
+
+fn estimate_tokens_from_chars(char_count: usize) -> u64 {
+    (char_count as u64).div_ceil(4)
+}
+
+fn estimate_usage(messages: &[ChatMessage], response_text: &str) -> TokenUsage {
+    let input_chars = messages.iter().map(|m| m.content.chars().count()).sum();
+    let output_chars = response_text.chars().count();
+    let input_tokens = estimate_tokens_from_chars(input_chars);
+    let output_tokens = estimate_tokens_from_chars(output_chars);
+    TokenUsage {
+        input_tokens,
+        output_tokens,
+        total_tokens: input_tokens + output_tokens,
+        estimated: true,
+    }
+}
+
+fn build_token_usage_event(
+    iteration: usize,
+    delta: TokenUsage,
+    cumulative_input: u64,
+    cumulative_output: u64,
+    cumulative_total: u64,
+    cumulative_estimated: bool,
+    provider: Option<&str>,
+    model: Option<&str>,
+    is_final: bool,
+) -> serde_json::Value {
+    serde_json::json!({
+        "type": "token_usage",
+        "iteration": iteration,
+        "delta": {
+            "input": delta.input_tokens,
+            "output": delta.output_tokens,
+            "total": delta.total_tokens,
+            "estimated": delta.estimated
+        },
+        "cumulative": {
+            "input": cumulative_input,
+            "output": cumulative_output,
+            "total": cumulative_total,
+            "estimated": cumulative_estimated
+        },
+        "provider": provider,
+        "model": model,
+        "final": is_final
+    })
 }
 
 /// Normalize an origin tag to an LLM chat role.
@@ -163,6 +212,7 @@ impl AutonomousBrain {
         memory: Arc<Mutex<MemorySystem>>,
         skills: Arc<Mutex<SkillManager>>,
         stream_tx: Option<tokio::sync::mpsc::Sender<String>>,
+        verbose_reasoning: bool,
         agent_name: &str,
     ) -> Result<String> {
         info!("Brain activated by {}: {}", origin, trigger_text);
@@ -204,13 +254,18 @@ impl AutonomousBrain {
 
         // 3. ReAct Loop - unbounded with smart termination
         let mut final_response = String::new();
-        let mut loop_context: Vec<crate::core::llm::ChatMessage> = Vec::new();
+        let mut loop_context: Vec<ChatMessage> = Vec::new();
         let invoke_re =
             Regex::new(r#"<invoke\s+name\s*=\s*["']([^"']+)["']\s*>([\s\S]*?)</invoke>"#).unwrap();
 
         let mut iter: usize = 0;
         let mut consecutive_errors: usize = 0;
         let mut last_response_hash: u64 = 0;
+        let mut cumulative_input_tokens: u64 = 0;
+        let mut cumulative_output_tokens: u64 = 0;
+        let mut cumulative_total_tokens: u64 = 0;
+        let mut cumulative_estimated: bool = false;
+        let mut usage_event_count: usize = 0;
 
         loop {
             iter += 1;
@@ -232,15 +287,15 @@ impl AutonomousBrain {
             }; // skills lock released
 
             // 3b. Build message array (no locks held)
-            let mut messages: Vec<crate::core::llm::ChatMessage> = Vec::new();
+            let mut messages: Vec<ChatMessage> = Vec::new();
 
-            messages.push(crate::core::llm::ChatMessage {
+            messages.push(ChatMessage {
                 role: "system".to_string(),
                 content: build_system_prompt(&skill_catalog, &persona_text),
             });
 
             for kb_chunk in swarm_kbs {
-                messages.push(crate::core::llm::ChatMessage {
+                messages.push(ChatMessage {
                     role: "system".to_string(),
                     content: format!("--- SWARM INTELLIGENCE ---\n{}\n---", kb_chunk),
                 });
@@ -249,7 +304,7 @@ impl AutonomousBrain {
             let max_history = 40;
             let start_idx = stm_entries.len().saturating_sub(max_history);
             for entry in stm_entries.iter().skip(start_idx) {
-                messages.push(crate::core::llm::ChatMessage {
+                messages.push(ChatMessage {
                     role: entry.role.clone(),
                     content: entry.content.clone(),
                 });
@@ -258,15 +313,62 @@ impl AutonomousBrain {
             messages.extend(loop_context.iter().cloned());
 
             // 3c. LLM call (RwLock read - allows concurrent reads from other loops)
-            let response_text: String = {
+            let (llm_out, provider, model): (LlmGenerateOutput, Option<String>, Option<String>) = {
                 let llm_guard = llm.read().await;
-                llm_guard
+                let (provider, model) = llm_guard.get_active_info();
+                let provider = provider.map(|s| s.to_string());
+                let model = model.map(|s| s.to_string());
+                let out = llm_guard
                     .generate_with_selected(&messages)
                     .await
-                    .unwrap_or_else(|e| format!("LLM Error: {}", e))
+                    .unwrap_or_else(|e| LlmGenerateOutput {
+                        text: format!("LLM Error: {}", e),
+                        usage: None,
+                    });
+                (out, provider, model)
             }; // llm read lock released
+            let response_text = llm_out.text;
+            let delta_usage = llm_out
+                .usage
+                .unwrap_or_else(|| estimate_usage(&messages, &response_text));
+            cumulative_input_tokens += delta_usage.input_tokens;
+            cumulative_output_tokens += delta_usage.output_tokens;
+            cumulative_total_tokens += delta_usage.total_tokens;
+            cumulative_estimated = cumulative_estimated || delta_usage.estimated;
+            usage_event_count += 1;
+
+            emit(
+                &stream_tx,
+                build_token_usage_event(
+                    iter,
+                    delta_usage,
+                    cumulative_input_tokens,
+                    cumulative_output_tokens,
+                    cumulative_total_tokens,
+                    cumulative_estimated,
+                    provider.as_deref(),
+                    model.as_deref(),
+                    false,
+                ),
+            )
+            .await;
 
             info!("ReAct iter {}: {} chars", iter, response_text.len());
+
+            if verbose_reasoning {
+                let reasoning = response_text.trim();
+                if !reasoning.is_empty() {
+                    emit(
+                        &stream_tx,
+                        serde_json::json!({
+                            "type": "reasoning",
+                            "text": reasoning,
+                            "iteration": iter
+                        }),
+                    )
+                    .await;
+                }
+            }
 
             let current_hash = {
                 let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -304,7 +406,7 @@ impl AutonomousBrain {
                 )
                 .await;
 
-                loop_context.push(crate::core::llm::ChatMessage {
+                loop_context.push(ChatMessage {
                     role: "assistant".to_string(),
                     content: response_text.clone(),
                 });
@@ -318,7 +420,7 @@ impl AutonomousBrain {
                             emit(&stream_tx, serde_json::json!({
                                 "type": "skill_result", "skill": skill_name, "success": false, "output": e.to_string()
                             })).await;
-                            loop_context.push(crate::core::llm::ChatMessage {
+                            loop_context.push(ChatMessage {
                                 role: "system".to_string(),
                                 content: err_msg,
                             });
@@ -328,7 +430,7 @@ impl AutonomousBrain {
                                     "ReAct loop: 3 consecutive errors at iter {}, stopping",
                                     iter
                                 );
-                                loop_context.push(crate::core::llm::ChatMessage {
+                                loop_context.push(ChatMessage {
                                     role: "system".to_string(),
                                     content: "Too many consecutive skill errors. Stop and report the issue to the user.".to_string(),
                                 });
@@ -366,7 +468,7 @@ impl AutonomousBrain {
                                 .await;
                         }
 
-                        loop_context.push(crate::core::llm::ChatMessage {
+                        loop_context.push(ChatMessage {
                             role: "system".to_string(),
                             content: format!(
                                 "BLOCKED: The skill '{}' requires explicit user confirmation before it can run. \
@@ -428,7 +530,7 @@ impl AutonomousBrain {
                         "ReAct loop: 3 consecutive skill errors at iter {}, stopping",
                         iter
                     );
-                    loop_context.push(crate::core::llm::ChatMessage {
+                    loop_context.push(ChatMessage {
                         role: "system".to_string(),
                         content: format!(
                             "{}\n\nToo many consecutive skill errors. Stop and report the issue to the user.",
@@ -438,7 +540,7 @@ impl AutonomousBrain {
                     break;
                 }
 
-                loop_context.push(crate::core::llm::ChatMessage {
+                loop_context.push(ChatMessage {
                     role: "system".to_string(),
                     content: format!(
                         "{}\n\nIf the user's original request requires more steps, invoke the next skill immediately. \
@@ -460,7 +562,7 @@ impl AutonomousBrain {
                     .await;
                 }
 
-                loop_context.push(crate::core::llm::ChatMessage {
+                loop_context.push(ChatMessage {
                     role: "assistant".to_string(),
                     content: response_text.clone(),
                 });
@@ -493,6 +595,29 @@ impl AutonomousBrain {
             let _ = m.add_swarm_memory(agent_name, msg).await;
         }
 
+        if usage_event_count > 0 {
+            emit(
+                &stream_tx,
+                build_token_usage_event(
+                    iter,
+                    TokenUsage {
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        total_tokens: 0,
+                        estimated: cumulative_estimated,
+                    },
+                    cumulative_input_tokens,
+                    cumulative_output_tokens,
+                    cumulative_total_tokens,
+                    cumulative_estimated,
+                    None,
+                    None,
+                    true,
+                ),
+            )
+            .await;
+        }
+
         emit(&stream_tx, serde_json::json!({ "type": "done" })).await;
 
         Ok(final_response)
@@ -502,6 +627,51 @@ impl AutonomousBrain {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn estimate_usage_falls_back_to_char_based_tokens() {
+        let messages = vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: "abcd".to_string(),
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: "abcdef".to_string(),
+            },
+        ];
+        let usage = estimate_usage(&messages, "abcdefgh");
+        assert_eq!(usage.input_tokens, 3); // ceil((4 + 6) / 4)
+        assert_eq!(usage.output_tokens, 2); // ceil(8 / 4)
+        assert_eq!(usage.total_tokens, 5);
+        assert!(usage.estimated);
+    }
+
+    #[test]
+    fn token_usage_event_marks_final_and_cumulative_totals() {
+        let evt = build_token_usage_event(
+            4,
+            TokenUsage {
+                input_tokens: 0,
+                output_tokens: 0,
+                total_tokens: 0,
+                estimated: true,
+            },
+            120,
+            44,
+            164,
+            true,
+            Some("openai"),
+            Some("gpt-4.1-mini"),
+            true,
+        );
+
+        assert_eq!(evt["type"], "token_usage");
+        assert_eq!(evt["iteration"], 4);
+        assert_eq!(evt["cumulative"]["total"], 164);
+        assert_eq!(evt["cumulative"]["estimated"], true);
+        assert_eq!(evt["final"], true);
+    }
 
     #[test]
     fn sanitize_invoke_tags_removes_single_invoke() {

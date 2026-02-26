@@ -197,7 +197,7 @@ Rules:
     let llm_response = {
         let llm = llm_mutex.read().await;
         match llm.generate_with_selected(&messages).await {
-            Ok(r) => r,
+            Ok(r) => r.text,
             Err(e) => {
                 return Json(
                     serde_json::json!({ "success": false, "error": format!("LLM call failed: {}", e) }),

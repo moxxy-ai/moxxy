@@ -201,6 +201,7 @@ pub async fn run_onboarding() -> Result<()> {
             let generated_persona = llm_sys
                 .generate_with_selected(&messages)
                 .await
+                .map(|r| r.text)
                 .unwrap_or_else(|e| format!("Failed to generate persona: {}", e));
 
             let persona_path = default_agent_dir.join("persona.md");

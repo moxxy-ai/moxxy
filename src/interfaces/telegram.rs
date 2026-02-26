@@ -436,10 +436,10 @@ Any other message is sent to the agent for processing.";
                         });
 
                         let result = if let Some(ref container) = container {
-                            container.execute(&text, llm.clone(), memory.clone(), skills.clone(), None).await
+                            container.execute(&text, llm.clone(), memory.clone(), skills.clone(), None, false).await
                         } else {
                             let src = format!("TELEGRAM_{}", chat_id);
-                            crate::core::brain::AutonomousBrain::execute_react_loop(&text, &src, llm.clone(), memory.clone(), skills.clone(), None, &agent_name).await
+                            crate::core::brain::AutonomousBrain::execute_react_loop(&text, &src, llm.clone(), memory.clone(), skills.clone(), None, false, &agent_name).await
                         };
 
                         let _ = typing_stop_tx.send(());
