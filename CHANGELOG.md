@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.0](https://github.com/moxxy-ai/moxxy/compare/v0.13.0...v0.14.0) (2026-02-26)
+
+
+### Features
+
+* add ReActOr implementation ([#87](https://github.com/moxxy-ai/moxxy/issues/87)) ([acc743a](https://github.com/moxxy-ai/moxxy/commit/acc743a6b616c7f0ac0e753f1114b5b67c4ddcfc))
+* add token meter + usage ([#84](https://github.com/moxxy-ai/moxxy/issues/84)) ([cd9c755](https://github.com/moxxy-ai/moxxy/commit/cd9c755a402a57542db22ae42c6bb7e5a3b8f13f))
+
 ## [0.13.0](https://github.com/moxxy-ai/moxxy/compare/v0.12.3...v0.13.0) (2026-02-26)
 
 
