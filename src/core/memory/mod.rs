@@ -190,6 +190,30 @@ impl MemorySystem {
         )?;
 
         db.execute(
+            "CREATE TABLE IF NOT EXISTS orchestrator_tasks (
+                task_id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL,
+                context_json TEXT NOT NULL DEFAULT '{}',
+                depends_on_json TEXT NOT NULL DEFAULT '[]',
+                status TEXT NOT NULL DEFAULT 'pending',
+                worker_agent TEXT,
+                output TEXT,
+                error TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_orchestrator_tasks_job_id ON orchestrator_tasks(job_id)",
+            [],
+        )?;
+
+        db.execute(
             "CREATE VIRTUAL TABLE IF NOT EXISTS vss_long_term_memory USING vec0(
                 embedding float[1536]
             )",
@@ -412,6 +436,30 @@ pub async fn test_memory_system() -> MemorySystem {
     .unwrap();
     db.execute(
         "CREATE INDEX IF NOT EXISTS idx_orchestrator_jobs_status_created ON orchestrator_jobs(status, created_at)",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS orchestrator_tasks (
+            task_id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            context_json TEXT NOT NULL DEFAULT '{}',
+            depends_on_json TEXT NOT NULL DEFAULT '[]',
+            status TEXT NOT NULL DEFAULT 'pending',
+            worker_agent TEXT,
+            output TEXT,
+            error TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_orchestrator_tasks_job_id ON orchestrator_tasks(job_id)",
         [],
     )
     .unwrap();

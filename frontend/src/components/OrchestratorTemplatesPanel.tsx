@@ -45,6 +45,7 @@ export function OrchestratorTemplatesPanel({
   const [status, setStatus] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [importJson, setImportJson] = useState('');
 
   const statusTone = useMemo(() => {
     if (!status) return 'text-[#94a3b8]';
@@ -63,6 +64,38 @@ export function OrchestratorTemplatesPanel({
     setFailurePolicy('auto_replan');
     setMergePolicy('manual_approval');
     setSpawnProfilesJson(defaultSpawnProfiles);
+    setImportJson('');
+  };
+
+  const importFromJson = () => {
+    setStatus(null);
+    try {
+      const parsed = JSON.parse(importJson.trim());
+      if (Array.isArray(parsed)) {
+        setSpawnProfilesJson(JSON.stringify(parsed, null, 2));
+        setStatus('Imported spawn_profiles array.');
+      } else if (parsed && typeof parsed === 'object') {
+        const profiles = parsed.spawn_profiles ?? parsed.spawnProfiles;
+        if (!Array.isArray(profiles)) {
+          setStatus('Error: JSON must be a full template with spawn_profiles array, or a spawn_profiles array.');
+          return;
+        }
+        if (parsed.template_id) setTemplateId(String(parsed.template_id));
+        if (parsed.name) setName(String(parsed.name));
+        if (parsed.description) setDescription(String(parsed.description ?? ''));
+        if (parsed.default_worker_mode) setWorkerMode(parsed.default_worker_mode as 'existing' | 'ephemeral' | 'mixed');
+        if (parsed.default_max_parallelism != null) setMaxParallelism(String(parsed.default_max_parallelism));
+        if (parsed.default_retry_limit != null) setRetryLimit(String(parsed.default_retry_limit));
+        if (parsed.default_failure_policy) setFailurePolicy(parsed.default_failure_policy as 'auto_replan' | 'fail_fast' | 'best_effort');
+        if (parsed.default_merge_policy) setMergePolicy(parsed.default_merge_policy as 'manual_approval' | 'auto_on_review_pass');
+        setSpawnProfilesJson(JSON.stringify(profiles, null, 2));
+        setStatus('Template imported. Review and click Create Template.');
+      } else {
+        setStatus('Error: JSON must be a template object or spawn_profiles array.');
+      }
+    } catch (err) {
+      setStatus(`Error: invalid JSON: ${String(err)}`);
+    }
   };
 
   const refreshTemplates = async () => {
@@ -228,6 +261,25 @@ export function OrchestratorTemplatesPanel({
             <h3 className="text-[#00aaff] text-[10px] uppercase tracking-widest mb-3">
               {editingId ? `Edit ${editingId}` : 'Create Template'}
             </h3>
+
+            <div className="mb-4 p-3 border border-[#1e304f] rounded-sm bg-[#090d14]">
+              <div className="text-[10px] uppercase tracking-widest text-[#94a3b8] mb-2">Import from JSON</div>
+              <p className="text-[11px] text-[#64748b] mb-2">
+                Paste full template or spawn_profiles array, then Import.
+              </p>
+              <textarea
+                value={importJson}
+                onChange={e => setImportJson(e.target.value)}
+                placeholder='{"template_id":"...","name":"...","spawn_profiles":[...]}'
+                className="w-full bg-[#0d1522] border border-[#1e304f] focus:border-[#00aaff] outline-none px-3 py-1.5 text-xs text-white font-mono h-20 resize-none mb-2"
+              />
+              <button
+                onClick={importFromJson}
+                className="bg-[#0d1522] hover:bg-[#15233c] border border-[#1e304f] text-white text-[10px] uppercase tracking-widest px-3 py-1 font-bold"
+              >
+                Import
+              </button>
+            </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>

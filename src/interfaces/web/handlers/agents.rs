@@ -121,6 +121,7 @@ pub async fn create_agent_endpoint(
                 "openai_api_key",
                 "google_api_key",
                 "zai_api_key",
+                "zai_plan_api_key",
             ];
             for key in keys_to_copy.iter() {
                 match global_vault.get_secret(key).await {

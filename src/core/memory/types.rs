@@ -83,3 +83,20 @@ pub struct OrchestratorEventRecord {
     pub payload_json: String,
     pub created_at: String,
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OrchestratorTaskRecord {
+    pub task_id: String,
+    pub job_id: String,
+    pub role: String,
+    pub title: String,
+    pub description: String,
+    pub context_json: String,
+    pub depends_on_json: String,
+    pub status: String,
+    pub worker_agent: Option<String>,
+    pub output: Option<String>,
+    pub error: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}

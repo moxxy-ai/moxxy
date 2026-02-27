@@ -134,3 +134,58 @@ pub struct WorkerAssignment {
     pub runtime_type: Option<String>,
     pub image_profile: Option<String>,
 }
+
+// --- Structured Task Graph types for orchestration ---
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskStatus {
+    Pending,
+    InProgress,
+    Succeeded,
+    Failed,
+    Skipped,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct TaskContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files_to_create: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files_to_edit: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub build_commands: Vec<String>,
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub prior_outputs: std::collections::HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub extra: std::collections::HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TaskNode {
+    pub task_id: String,
+    pub role: String,
+    pub title: String,
+    pub description: String,
+    #[serde(default)]
+    pub context: TaskContext,
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+    #[serde(default = "default_task_status")]
+    pub status: TaskStatus,
+}
+
+fn default_task_status() -> TaskStatus {
+    TaskStatus::Pending
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TaskGraph {
+    pub tasks: Vec<TaskNode>,
+}

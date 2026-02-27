@@ -4,10 +4,12 @@ Run local git commands with managed worktree isolation.
 
 Start an isolated task workspace for a repo:
 `<invoke name="git">["ws", "init", "moxxy-ai/moxxy", "main", "fix-auth-bug"]</invoke>`
+`<invoke name="git">["init", "moxxy-ai/moxxy", "main", "fix-auth-bug"]</invoke>` — shorthand for ws init
 
 Switch/list active worktrees:
 `<invoke name="git">["ws", "list"]</invoke>`
 `<invoke name="git">["ws", "use", "fix-auth-bug-20260225-103000"]</invoke>`
+`<invoke name="git">["ws", "use", "companion"]</invoke>` — works with github-cloned repo dirs (e.g. after `github clone owner/companion`)
 `<invoke name="git">["ws", "active"]</invoke>`
 
 After `ws init`/`ws use`, regular commands run in the active worktree by default:

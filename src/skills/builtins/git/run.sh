@@ -12,6 +12,22 @@ export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
 export GIT_AUTHOR_EMAIL="${GIT_USER_EMAIL:-${AGENT_NAME:-agent}@moxxy.local}"
 export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
 
+# Git HTTPS auth via GITHUB_TOKEN (for clone, fetch, push)
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+    # Use askpass-style helper so token is injected into all HTTPS git operations
+    _MOXXY_GIT_ASKPASS=$(mktemp)
+    cat > "$_MOXXY_GIT_ASKPASS" <<'ASKPASS'
+#!/bin/sh
+echo "${GITHUB_TOKEN}"
+ASKPASS
+    chmod +x "$_MOXXY_GIT_ASKPASS"
+    export GIT_ASKPASS="$_MOXXY_GIT_ASKPASS"
+    export GIT_TERMINAL_PROMPT=0
+
+    # Also configure credential helper for explicit push/fetch
+    git config --global credential.https://github.com.username "x-access-token" 2>/dev/null || true
+fi
+
 if ! command -v git >/dev/null 2>&1; then
     echo "Error: 'git' is not installed on this system." >&2
     exit 1
@@ -103,16 +119,38 @@ sync_repo_mirror() {
     local bare_repo="${REPOS_DIR}/${repo_id}.git"
 
     if [ -d "$bare_repo" ]; then
-        git -C "$bare_repo" fetch --all --prune >/dev/null 2>&1 || git -C "$bare_repo" fetch --all --prune
+        if ! git -C "$bare_repo" fetch --all --prune >/dev/null 2>&1; then
+            if ! git -C "$bare_repo" fetch --all --prune; then
+                echo "Error: could not fetch from '$repo_url'. Verify the repository exists and GITHUB_TOKEN is set in vault." >&2
+                return 1
+            fi
+        fi
     else
-        git clone --bare "$repo_url" "$bare_repo" >/dev/null 2>&1 || git clone --bare "$repo_url" "$bare_repo"
+        if ! git clone --bare "$repo_url" "$bare_repo" >/dev/null 2>&1; then
+            if ! git clone --bare "$repo_url" "$bare_repo"; then
+                echo "Error: could not clone '$repo_url'. Verify the repository exists and GITHUB_TOKEN is set in vault." >&2
+                return 1
+            fi
+        fi
     fi
     printf '%s\n' "$bare_repo"
+}
+
+is_empty_repo() {
+    local bare_repo="$1"
+    # git show-ref exits 1 when no refs exist, which would crash under pipefail
+    git -C "$bare_repo" show-ref >/dev/null 2>&1 && return 1 || return 0
 }
 
 resolve_base_ref() {
     local bare_repo="$1"
     local requested="${2:-}"
+
+    # Empty repo: no refs exist at all
+    if is_empty_repo "$bare_repo"; then
+        printf '__EMPTY_REPO__\n'
+        return 0
+    fi
 
     if [ -n "$requested" ]; then
         if git -C "$bare_repo" show-ref --verify --quiet "refs/remotes/origin/${requested}"; then
@@ -190,6 +228,25 @@ find_worktree_target() {
     fi
     if [ "$count" -gt 1 ]; then
         echo "Error: multiple worktrees match '$target'. Use an explicit path." >&2
+        return 1
+    fi
+
+    # Prefix match: e.g. "companion" matches "companion-20260227-004030"
+    first=""
+    count=0
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        count=$((count + 1))
+        if [ "$count" -eq 1 ]; then
+            first="$path"
+        fi
+    done < <(find "$WORKTREES_DIR" -mindepth 2 -maxdepth 2 -type d -name "${target}*" 2>/dev/null | sort)
+    if [ "$count" -eq 1 ] && [ -n "$first" ] && is_git_repo "$first"; then
+        printf '%s\n' "$first"
+        return 0
+    fi
+    if [ "$count" -gt 1 ]; then
+        echo "Error: multiple worktrees match prefix '$target'. Use an explicit path or more specific name." >&2
     fi
     return 1
 }
@@ -198,12 +255,14 @@ print_ws_help() {
     cat <<'EOF'
 Usage:
   git ws init <repo> [base_branch] [task_name]
+  git init <owner/repo> [base_branch] [task_name]   # shorthand for ws init
   git ws list
   git ws use <worktree_path_or_name>
   git ws active
 
 Examples:
   git ws init moxxy-ai/moxxy main fix-telemetry
+  git init moxxy-ai/moxxy main fix-telemetry
   git ws list
   git ws use fix-telemetry-20260225-103000
   git status
@@ -251,14 +310,23 @@ handle_ws_command() {
             local worktree_dir="${WORKTREES_DIR}/${repo_id}/${worktree_name}"
             mkdir -p "${WORKTREES_DIR}/${repo_id}"
 
-            git -C "$bare_repo" worktree add "$worktree_dir" "$base_ref" >/dev/null 2>&1 || \
-                git -C "$bare_repo" worktree add "$worktree_dir" "$base_ref"
-
             local branch_name="moxxy/${task_slug}-${ts}"
-            if ! git -C "$worktree_dir" checkout -b "$branch_name" >/dev/null 2>&1; then
-                branch_name="moxxy/${task_slug}-${ts}-${RANDOM}"
-                git -C "$worktree_dir" checkout -b "$branch_name" >/dev/null 2>&1 || \
-                    git -C "$worktree_dir" checkout -b "$branch_name"
+
+            if [ "$base_ref" = "__EMPTY_REPO__" ]; then
+                # Empty repo: clone normally and create orphan branch
+                git clone "$repo_url" "$worktree_dir" 2>/dev/null || git clone "$repo_url" "$worktree_dir"
+                git -C "$worktree_dir" checkout --orphan "$branch_name" 2>/dev/null || \
+                    git -C "$worktree_dir" checkout --orphan "$branch_name"
+                base_ref="(empty repo - orphan branch)"
+            else
+                git -C "$bare_repo" worktree add "$worktree_dir" "$base_ref" >/dev/null 2>&1 || \
+                    git -C "$bare_repo" worktree add "$worktree_dir" "$base_ref"
+
+                if ! git -C "$worktree_dir" checkout -b "$branch_name" >/dev/null 2>&1; then
+                    branch_name="moxxy/${task_slug}-${ts}-${RANDOM}"
+                    git -C "$worktree_dir" checkout -b "$branch_name" >/dev/null 2>&1 || \
+                        git -C "$worktree_dir" checkout -b "$branch_name"
+                fi
             fi
 
             set_active_worktree "$worktree_dir"
@@ -383,6 +451,13 @@ run_git_with_active_context() {
 if [ "${1:-}" = "ws" ]; then
     shift
     handle_ws_command "$@"
+    exit $?
+fi
+
+# Alias: git init owner/repo [base] [task] -> git ws init owner/repo [base] [task]
+if [ "${1:-}" = "init" ] && [ -n "${2:-}" ] && [[ "${2}" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
+    shift
+    handle_ws_command init "$@"
     exit $?
 fi
 

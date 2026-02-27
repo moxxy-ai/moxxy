@@ -139,6 +139,9 @@ export interface OrchestratorWorkerRun {
   worker_mode: string;
   status: string;
   attempt: number;
+  task_prompt?: string;
+  output?: string | null;
+  error?: string | null;
 }
 
 export interface OrchestratorEvent {
@@ -146,6 +149,22 @@ export interface OrchestratorEvent {
   event_type: string;
   payload_json: string;
   created_at: string;
+}
+
+export interface OrchestratorTask {
+  task_id: string;
+  job_id: string;
+  role: string;
+  title: string;
+  description: string;
+  context_json: string;
+  depends_on_json: string;
+  status: 'pending' | 'in_progress' | 'succeeded' | 'failed' | 'skipped';
+  worker_agent?: string | null;
+  output?: string | null;
+  error?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export type TabId = 'Overview' | 'Interface' | 'Memory' | 'Skills' | 'Channels' | 'Schedules' | 'Webhooks' | 'MCPServers' | 'Orchestrator' | 'Templates' | 'Vault' | 'AccessTokens' | 'Config';

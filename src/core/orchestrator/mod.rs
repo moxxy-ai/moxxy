@@ -7,7 +7,7 @@ pub use default_templates::seed_default_templates;
 pub use executor::run_orchestration_job;
 pub use types::{
     JobFailurePolicy, JobMergePolicy, JobState, OrchestratorAgentConfig, OrchestratorTemplate,
-    SpawnProfile, WorkerAssignment, WorkerMode,
+    SpawnProfile, TaskGraph, TaskNode, TaskStatus, WorkerAssignment, WorkerMode,
 };
 
 pub fn can_transition(_from: JobState, _to: JobState) -> bool {

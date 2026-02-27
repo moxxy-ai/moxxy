@@ -2,7 +2,10 @@ use anyhow::Result;
 use rusqlite::params;
 
 use super::MemorySystem;
-use super::types::{OrchestratorEventRecord, OrchestratorJobRecord, OrchestratorWorkerRunRecord};
+use super::types::{
+    OrchestratorEventRecord, OrchestratorJobRecord, OrchestratorTaskRecord,
+    OrchestratorWorkerRunRecord,
+};
 
 impl MemorySystem {
     pub async fn set_orchestrator_config(
@@ -356,5 +359,126 @@ impl MemorySystem {
             out.push(row?);
         }
         Ok(out)
+    }
+
+    // --- Orchestrator tasks (structured task graph persistence) ---
+
+    pub async fn create_orchestrator_task(
+        &self,
+        job_id: &str,
+        task: &crate::core::orchestrator::TaskNode,
+    ) -> Result<()> {
+        let db = self.db.lock().await;
+        let context_json = serde_json::to_string(&task.context)?;
+        let depends_on_json = serde_json::to_string(&task.depends_on)?;
+        let status = match task.status {
+            crate::core::orchestrator::TaskStatus::Pending => "pending",
+            crate::core::orchestrator::TaskStatus::InProgress => "in_progress",
+            crate::core::orchestrator::TaskStatus::Succeeded => "succeeded",
+            crate::core::orchestrator::TaskStatus::Failed => "failed",
+            crate::core::orchestrator::TaskStatus::Skipped => "skipped",
+        };
+        db.execute(
+            "INSERT OR REPLACE INTO orchestrator_tasks
+             (task_id, job_id, role, title, description, context_json, depends_on_json, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                task.task_id,
+                job_id,
+                task.role,
+                task.title,
+                task.description,
+                context_json,
+                depends_on_json,
+                status,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub async fn update_orchestrator_task_status(
+        &self,
+        task_id: &str,
+        status: &str,
+        worker_agent: Option<&str>,
+        output: Option<&str>,
+        error: Option<&str>,
+    ) -> Result<bool> {
+        let db = self.db.lock().await;
+        let rows = db.execute(
+            "UPDATE orchestrator_tasks
+             SET status = ?1, worker_agent = COALESCE(?2, worker_agent),
+                 output = COALESCE(?3, output), error = COALESCE(?4, error),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE task_id = ?5",
+            params![status, worker_agent, output, error, task_id],
+        )?;
+        Ok(rows > 0)
+    }
+
+    pub async fn list_orchestrator_tasks(
+        &self,
+        job_id: &str,
+    ) -> Result<Vec<OrchestratorTaskRecord>> {
+        let db = self.db.lock().await;
+        let mut stmt = db.prepare(
+            "SELECT task_id, job_id, role, title, description, context_json, depends_on_json,
+                    status, worker_agent, output, error, created_at, updated_at
+             FROM orchestrator_tasks WHERE job_id = ?1 ORDER BY created_at ASC",
+        )?;
+        let rows = stmt.query_map(params![job_id], |row| {
+            Ok(OrchestratorTaskRecord {
+                task_id: row.get(0)?,
+                job_id: row.get(1)?,
+                role: row.get(2)?,
+                title: row.get(3)?,
+                description: row.get(4)?,
+                context_json: row.get(5)?,
+                depends_on_json: row.get(6)?,
+                status: row.get(7)?,
+                worker_agent: row.get(8)?,
+                output: row.get(9)?,
+                error: row.get(10)?,
+                created_at: row.get(11)?,
+                updated_at: row.get(12)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub async fn get_orchestrator_task(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<OrchestratorTaskRecord>> {
+        let db = self.db.lock().await;
+        let mut stmt = db.prepare(
+            "SELECT task_id, job_id, role, title, description, context_json, depends_on_json,
+                    status, worker_agent, output, error, created_at, updated_at
+             FROM orchestrator_tasks WHERE task_id = ?1 LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![task_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(OrchestratorTaskRecord {
+                task_id: row.get(0)?,
+                job_id: row.get(1)?,
+                role: row.get(2)?,
+                title: row.get(3)?,
+                description: row.get(4)?,
+                context_json: row.get(5)?,
+                depends_on_json: row.get(6)?,
+                status: row.get(7)?,
+                worker_agent: row.get(8)?,
+                output: row.get(9)?,
+                error: row.get(10)?,
+                created_at: row.get(11)?,
+                updated_at: row.get(12)?,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 }

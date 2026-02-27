@@ -117,6 +117,10 @@ async fn validate_spawn_profiles_against_vault(
     let registry = ProviderRegistry::load();
     for profile in &template.spawn_profiles {
         let provider = profile.provider.trim().to_lowercase();
+        // Empty provider/model means "inherit from agent defaults" — skip validation
+        if provider.is_empty() || profile.model.trim().is_empty() {
+            continue;
+        }
         let Some(provider_def) = registry.get_provider(&provider) else {
             return Err(format!("Unknown provider '{}'", profile.provider));
         };
@@ -354,14 +358,15 @@ async fn start_orchestration_job_inner(
     {
         existing_agents.push(agent.to_string());
     }
-    if matches!(worker_mode, WorkerMode::Ephemeral | WorkerMode::Mixed) && ephemeral_count == 0 {
-        ephemeral_count = 1;
-    }
-
     let spawn_profiles = template
         .as_ref()
         .map(|t| t.spawn_profiles.clone())
         .unwrap_or_default();
+
+    if matches!(worker_mode, WorkerMode::Ephemeral | WorkerMode::Mixed) && ephemeral_count == 0 {
+        // Default to 1 worker; for builder-checker-merger use phases from template
+        ephemeral_count = 1;
+    }
 
     let worker_assignments = if let Some(ref phases) = payload.phases {
         if phases.is_empty() {
@@ -374,6 +379,14 @@ async fn start_orchestration_job_inner(
         } else {
             resolve_phased_worker_assignments(WorkerMode::Ephemeral, phases, &spawn_profiles)
         }
+    } else if template
+        .as_ref()
+        .map(|t| t.template_id == "builder-checker-merger")
+        .unwrap_or(false)
+    {
+        // Auto-infer phases for builder-checker-merger when phases not provided
+        let phases: Vec<String> = spawn_profiles.iter().map(|p| p.role.clone()).collect();
+        resolve_phased_worker_assignments(WorkerMode::Ephemeral, &phases, &spawn_profiles)
     } else {
         resolve_worker_assignments(
             worker_mode,
@@ -475,6 +488,37 @@ pub async fn list_orchestration_workers(
     let mem = mem_arc.lock().await;
     match mem.list_orchestrator_worker_runs(&job_id).await {
         Ok(workers) => Json(serde_json::json!({ "success": true, "workers": workers })),
+        Err(e) => Json(serde_json::json!({ "success": false, "error": e.to_string() })),
+    }
+}
+
+pub async fn list_orchestration_tasks(
+    Path((agent, job_id)): Path<(String, String)>,
+    State(state): State<AppState>,
+) -> Json<serde_json::Value> {
+    let Some(mem_arc) = get_agent_memory(&agent, &state).await else {
+        return Json(serde_json::json!({ "success": false, "error": "Agent not found" }));
+    };
+
+    let mem = mem_arc.lock().await;
+    match mem.list_orchestrator_tasks(&job_id).await {
+        Ok(tasks) => Json(serde_json::json!({ "success": true, "tasks": tasks })),
+        Err(e) => Json(serde_json::json!({ "success": false, "error": e.to_string() })),
+    }
+}
+
+pub async fn get_orchestration_task(
+    Path((agent, _job_id, task_id)): Path<(String, String, String)>,
+    State(state): State<AppState>,
+) -> Json<serde_json::Value> {
+    let Some(mem_arc) = get_agent_memory(&agent, &state).await else {
+        return Json(serde_json::json!({ "success": false, "error": "Agent not found" }));
+    };
+
+    let mem = mem_arc.lock().await;
+    match mem.get_orchestrator_task(&task_id).await {
+        Ok(Some(task)) => Json(serde_json::json!({ "success": true, "task": task })),
+        Ok(None) => Json(serde_json::json!({ "success": false, "error": "Task not found" })),
         Err(e) => Json(serde_json::json!({ "success": false, "error": e.to_string() })),
     }
 }

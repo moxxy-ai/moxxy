@@ -30,7 +30,8 @@ const EPHEMERAL_VAULT_KEYS: &[&str] = &[
     "xai_api_key",
     "deepseek_api_key",
     "mistral_api_key",
-    "z_ai_api_key",
+    "zai_api_key",
+    "zai_plan_api_key",
     "minimax_api_key",
     "openrouter_api_key",
     "vercel_ai_gateway_api_key",
@@ -87,6 +88,7 @@ pub async fn init_ephemeral_subsystems(
         internal_token.to_string(),
     ));
     let mut skill_sys = SkillManager::new(skill_executor, workspace_dir.to_path_buf());
+    skill_sys.read_only = true; // Prevent orchestrator workers from modifying shared skills
     skill_sys.on_init().await?;
 
     let mut llm_sys = LlmManager::new();

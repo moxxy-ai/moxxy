@@ -352,6 +352,9 @@ pub struct SkillManager {
     sandbox: Arc<dyn SkillSandbox>,
     mcp_clients: HashMap<String, Arc<McpClient>>, // MCP server name -> client
     workspace_dir: PathBuf,
+    /// When true, skill modification (create/modify/upgrade) is blocked.
+    /// Set for orchestrator ephemeral agents to prevent shared skill corruption.
+    pub read_only: bool,
 }
 
 impl SkillManager {
@@ -361,6 +364,7 @@ impl SkillManager {
             sandbox: Arc::from(sandbox),
             mcp_clients: HashMap::new(),
             workspace_dir,
+            read_only: false,
         }
     }
 
@@ -432,17 +436,7 @@ impl SkillManager {
 
             let skill_md_path = manifest.skill_dir.join("skill.md");
             if let Ok(docs) = std::fs::read_to_string(&skill_md_path) {
-                let max_len = if manifest.executor_type == "openclaw" {
-                    2000
-                } else {
-                    500
-                };
-                let trimmed = if docs.len() > max_len {
-                    format!("{}...", &docs[..max_len])
-                } else {
-                    docs
-                };
-                catalog.push_str(&trimmed);
+                catalog.push_str(&docs);
                 catalog.push('\n');
             }
             catalog.push('\n');
@@ -767,6 +761,20 @@ impl SkillManager {
         file_name: &str,
         content: &str,
     ) -> Result<()> {
+        if self.read_only {
+            return Err(anyhow::anyhow!(
+                "Skill modification is disabled for orchestrator workers. \
+                 Focus on executing your assigned task using skills as-is."
+            ));
+        }
+        if PRIVILEGED_SKILLS.contains(&skill_name) {
+            return Err(anyhow::anyhow!(
+                "Cannot modify built-in skill: {}. Built-in skills are compiled into the binary. \
+                 Report issues or request changes via the project repository.",
+                skill_name
+            ));
+        }
+
         let manifest = self
             .skills
             .get(skill_name)
@@ -832,6 +840,12 @@ impl SkillManager {
         new_run_ps1: Option<&str>,
         new_skill_md: &str,
     ) -> Result<()> {
+        if self.read_only {
+            return Err(anyhow::anyhow!(
+                "Skill modification is disabled for orchestrator workers. \
+                 Focus on executing your assigned task using skills as-is."
+            ));
+        }
         if new_run_sh.is_none() && new_run_ps1.is_none() {
             return Err(anyhow::anyhow!(
                 "At least one of run.sh or run.ps1 content must be provided"

@@ -49,6 +49,7 @@ export function SwarmOverview({
   const [newNodeProfile, setNewNodeProfile] = useState('base');
   const [provisionStatus, setProvisionStatus] = useState<string | null>(null);
   const [isProvisioning, setIsProvisioning] = useState(false);
+  const [agentLlmInfo, setAgentLlmInfo] = useState<Record<string, { provider: string; model: string }>>({});
 
   useEffect(() => {
     if (!apiBase) return;
@@ -61,6 +62,41 @@ export function SwarmOverview({
       })
       .catch(() => setProviders([]));
   }, [apiBase]);
+
+  // Fetch LLM info for all agents
+  useEffect(() => {
+    if (!apiBase || agents.length === 0) return;
+    agents.forEach(agent => {
+      fetch(`${apiBase}/agents/${encodeURIComponent(agent)}/llm`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.provider) {
+            setAgentLlmInfo(prev => ({ ...prev, [agent]: { provider: data.provider, model: data.model } }));
+          }
+        })
+        .catch(() => {});
+    });
+  }, [apiBase, agents]);
+
+  // When active agent changes, pre-populate provider/model from its current config
+  useEffect(() => {
+    if (!activeAgent || providers.length === 0) return;
+    const info = agentLlmInfo[activeAgent];
+    if (info && info.provider) {
+      const matchedProvider = providers.find(p => p.id === info.provider);
+      if (matchedProvider) {
+        setProviderId(matchedProvider.id);
+        const modelInList = matchedProvider.models.find(m => m.id === info.model);
+        if (modelInList) {
+          setProviderModel(info.model);
+          setProviderCustomModel('');
+        } else if (info.model) {
+          setProviderModel('__custom__');
+          setProviderCustomModel(info.model);
+        }
+      }
+    }
+  }, [activeAgent, agentLlmInfo, providers]);
 
   useEffect(() => {
     if (providers.length === 0) return;
@@ -142,6 +178,7 @@ export function SwarmOverview({
       }
     }
 
+    setAgentLlmInfo(prev => ({ ...prev, [agentName]: { provider: selectedProvider.id, model: resolvedModel } }));
     const successMsg = `Provider ${selectedProvider.name} / ${resolvedModel} applied to '${agentName}'.`;
     if (!silent) setProviderStatus(successMsg);
     return { ok: true, message: successMsg };
@@ -213,7 +250,7 @@ export function SwarmOverview({
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-5">
           <section className="rounded-lg border border-border bg-bg-card p-4 order-2 xl:order-2">
-            <h3 className="text-sm font-semibold text-text mb-3">2. Add Provider To Agent</h3>
+            <h3 className="text-sm font-semibold text-text mb-3">2. Set Provider & Model</h3>
             <div className="space-y-3">
               <div>
                 <label className="block text-xs text-text-muted mb-1">Provider</label>
@@ -394,6 +431,11 @@ export function SwarmOverview({
                     <div>
                       <div className="text-sm font-semibold text-text">{agent}</div>
                       <div className="text-xs text-text-muted">{activeAgent === agent ? 'Active agent' : 'Ready'}</div>
+                      {agentLlmInfo[agent] && (
+                        <div className="text-xs text-text-muted mt-1">
+                          {agentLlmInfo[agent].provider} / {agentLlmInfo[agent].model}
+                        </div>
+                      )}
                     </div>
                     <button
                       onClick={() => setActiveAgent(agent)}

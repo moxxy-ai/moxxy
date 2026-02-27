@@ -3,3 +3,4 @@ mod default_templates;
 mod mode_resolution;
 mod phased_resolution;
 mod state_machine;
+mod task_graph;

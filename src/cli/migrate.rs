@@ -701,6 +701,7 @@ async fn scan_openclaw_config(
                 ("DEEPSEEK_API_KEY", "deepseek_api_key"),
                 ("MISTRAL_API_KEY", "mistral_api_key"),
                 ("ZAI_API_KEY", "zai_api_key"),
+                ("ZAI_PLAN_API_KEY", "zai_plan_api_key"),
                 ("MINIMAX_API_KEY", "minimax_api_key"),
             ];
             for (env_key, vault_key) in mapping {
@@ -731,6 +732,7 @@ async fn scan_openclaw_config(
                         ("GOOGLE_API_KEY", "google_api_key"),
                         ("OPENROUTER_API_KEY", "openrouter_api_key"),
                         ("ZAI_API_KEY", "zai_api_key"),
+                        ("ZAI_PLAN_API_KEY", "zai_plan_api_key"),
                         ("DEEPSEEK_API_KEY", "deepseek_api_key"),
                         ("MISTRAL_API_KEY", "mistral_api_key"),
                         ("MINIMAX_API_KEY", "minimax_api_key"),

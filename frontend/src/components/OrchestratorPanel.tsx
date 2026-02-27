@@ -3,8 +3,64 @@ import type {
   OrchestratorConfig,
   OrchestratorEvent,
   OrchestratorJob,
+  OrchestratorTask,
+  OrchestratorTemplate,
   OrchestratorWorkerRun,
 } from '../types';
+
+/** Parse planner output into role -> task map. Format: ## role\n<task>\n\n## next\n<task> */
+function parsePlannerTasks(text: string): Map<string, string> {
+  const map = new Map<string, string>();
+  const re = /^##\s*(\w+)\s*\n([\s\S]*?)(?=^##\s|\z)/gm;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const role = m[1].toLowerCase();
+    const task = m[2].trim();
+    if (role && task) map.set(role, task);
+  }
+  return map;
+}
+
+/** Extract role from task_prompt (format "role :: prompt") */
+function roleFromTaskPrompt(taskPrompt: string): string {
+  const idx = taskPrompt.indexOf(' :: ');
+  if (idx === -1) return '';
+  return taskPrompt.slice(0, idx).trim().toLowerCase();
+}
+
+type ChecklistItem = { role: string; task: string; status: 'pending' | 'running' | 'succeeded' | 'failed' };
+
+function buildChecklist(workers: OrchestratorWorkerRun[]): ChecklistItem[] {
+  const planner = workers.find(w => roleFromTaskPrompt(w.task_prompt || '') === 'planner');
+  const planText = planner?.output || planner?.error || '';
+  const tasksByRole = parsePlannerTasks(planText);
+
+  const workerByRole = new Map<string, OrchestratorWorkerRun>();
+  for (const w of workers) {
+    const r = roleFromTaskPrompt(w.task_prompt || '');
+    if (r && r !== 'planner') workerByRole.set(r, w);
+  }
+
+  if (tasksByRole.size > 0) {
+    return [...tasksByRole.entries()].map(([role, task]) => {
+      const w = workerByRole.get(role);
+      const status = !w
+        ? 'pending'
+        : w.status === 'succeeded'
+          ? 'succeeded'
+          : w.status === 'failed'
+            ? 'failed'
+            : 'running';
+      return { role, task, status };
+    });
+  }
+
+  return [...workerByRole.entries()].map(([role, w]) => ({
+    role,
+    task: w.task_prompt?.replace(/^[^:]*\s*::\s*/, '').slice(0, 120) || '—',
+    status: (w.status === 'succeeded' ? 'succeeded' : w.status === 'failed' ? 'failed' : 'running') as ChecklistItem['status'],
+  }));
+}
 
 interface OrchestratorPanelProps {
   apiBase: string;
@@ -44,7 +100,9 @@ export function OrchestratorPanel({
 
   const [monitoredJobId, setMonitoredJobId] = useState<string>('');
   const [job, setJob] = useState<OrchestratorJob | null>(null);
+  const [templates, setTemplates] = useState<OrchestratorTemplate[]>([]);
   const [workers, setWorkers] = useState<OrchestratorWorkerRun[]>([]);
+  const [tasks, setTasks] = useState<OrchestratorTask[]>([]);
   const [events, setEvents] = useState<OrchestratorEvent[]>([]);
   const [streamMessages, setStreamMessages] = useState<string[]>([]);
 
@@ -71,6 +129,40 @@ export function OrchestratorPanel({
   useEffect(() => {
     loadConfig();
   }, [apiBase, activeAgent]);
+
+  const loadTemplates = async () => {
+    if (!apiBase || !activeAgent) return;
+    try {
+      const res = await fetch(`${apiBase}/agents/${activeAgent}/orchestrate/templates`);
+      const data = await res.json();
+      if (data.success) setTemplates(data.templates || []);
+    } catch {
+      setTemplates([]);
+    }
+  };
+
+  useEffect(() => {
+    loadTemplates();
+  }, [apiBase, activeAgent]);
+
+  const isJobActive = useMemo(
+    () =>
+      job &&
+      !['completed', 'failed', 'canceled'].includes((job.status || '').toLowerCase()),
+    [job]
+  );
+
+  const checklist = useMemo(() => buildChecklist(workers), [workers]);
+
+  useEffect(() => {
+    if (!monitoredJobId.trim() || !activeAgent || !apiBase) return;
+    if (job && !isJobActive) return;
+
+    const poll = () => refreshJob(monitoredJobId.trim());
+    poll();
+    const id = setInterval(poll, 2000);
+    return () => clearInterval(id);
+  }, [monitoredJobId, activeAgent, apiBase, isJobActive]);
 
   const saveConfig = async () => {
     if (!activeAgent) return;
@@ -111,22 +203,26 @@ export function OrchestratorPanel({
     if (!activeAgent || !jobId) return;
 
     try {
-      const [jobRes, workersRes, eventsRes] = await Promise.all([
+      const [jobRes, workersRes, tasksRes, eventsRes] = await Promise.all([
         fetch(`${apiBase}/agents/${activeAgent}/orchestrate/jobs/${jobId}`),
         fetch(`${apiBase}/agents/${activeAgent}/orchestrate/jobs/${jobId}/workers`),
+        fetch(`${apiBase}/agents/${activeAgent}/orchestrate/jobs/${jobId}/tasks`),
         fetch(`${apiBase}/agents/${activeAgent}/orchestrate/jobs/${jobId}/events`),
       ]);
 
       const jobData = await jobRes.json();
       const workersData = await workersRes.json();
+      const tasksData = await tasksRes.json();
       const eventsData = await eventsRes.json();
 
       setJob(jobData.job || null);
       setWorkers(workersData.workers || []);
+      setTasks(tasksData.tasks || []);
       setEvents(eventsData.events || []);
     } catch {
       setJob(null);
       setWorkers([]);
+      setTasks([]);
       setEvents([]);
     }
   };
@@ -219,7 +315,10 @@ export function OrchestratorPanel({
             Orchestrator - {activeAgent || 'No Agent'}
           </h2>
           <button
-            onClick={loadConfig}
+            onClick={() => {
+              loadConfig();
+              loadTemplates();
+            }}
             className="bg-[#0d1522] hover:bg-[#15233c] border border-[#1e304f] text-white text-[10px] uppercase tracking-widest px-4 py-1.5 transition-all font-bold"
           >
             Refresh
@@ -334,14 +433,19 @@ export function OrchestratorPanel({
                 </select>
               </div>
               <div>
-                <label className="block text-[10px] uppercase tracking-widest text-[#94a3b8] mb-1">Template ID (optional)</label>
-                <input
-                  type="text"
+                <label className="block text-[10px] uppercase tracking-widest text-[#94a3b8] mb-1">Template (optional)</label>
+                <select
                   value={templateId}
                   onChange={e => setTemplateId(e.target.value)}
-                  className="w-full bg-[#090d14] border border-[#1e304f] focus:border-[#00aaff] outline-none px-3 py-1.5 text-xs text-white font-mono"
-                  placeholder="tpl-kanban"
-                />
+                  className="w-full bg-[#090d14] border border-[#1e304f] focus:border-[#00aaff] outline-none px-3 py-1.5 text-xs text-white"
+                >
+                  <option value="">None</option>
+                  {templates.map(t => (
+                    <option key={t.template_id} value={t.template_id}>
+                      {t.name} ({t.template_id})
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="block text-[10px] uppercase tracking-widest text-[#94a3b8] mb-1">Existing Agents (csv)</label>
@@ -416,16 +520,89 @@ export function OrchestratorPanel({
             </button>
           </div>
 
+          {/* Task Board (structured task graph) */}
+          {tasks.length > 0 && (
+            <div className="border border-[#1e304f] bg-[#0d1522] p-3 rounded-sm mb-4">
+              <div className="text-[#00aaff] uppercase tracking-widest text-[10px] mb-3">Task Board</div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px]">
+                {(['pending', 'in_progress', 'succeeded', 'failed'] as const).map(status => {
+                  const statusTasks = tasks.filter(t => t.status === status);
+                  const label = status === 'in_progress' ? 'In Progress' : status.charAt(0).toUpperCase() + status.slice(1);
+                  const color = status === 'succeeded' ? 'text-emerald-400' : status === 'failed' ? 'text-red-400' : status === 'in_progress' ? 'text-amber-400' : 'text-[#64748b]';
+                  return (
+                    <div key={status}>
+                      <div className={`${color} uppercase tracking-widest mb-2 font-bold`}>{label} ({statusTasks.length})</div>
+                      <div className="space-y-1.5">
+                        {statusTasks.map(task => (
+                          <div key={task.task_id} className="border border-[#1e304f] bg-[#0a0f1a] p-2 rounded-sm">
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <span className={`px-1.5 py-0.5 rounded-sm text-[9px] font-mono ${
+                                task.role === 'builder' ? 'bg-blue-900/40 text-blue-300' :
+                                task.role === 'checker' ? 'bg-purple-900/40 text-purple-300' :
+                                task.role === 'merger' ? 'bg-green-900/40 text-green-300' :
+                                'bg-gray-800 text-gray-400'
+                              }`}>{task.role}</span>
+                            </div>
+                            <div className="text-[#dbe7ff] font-semibold text-[11px] mb-0.5">{task.title}</div>
+                            <div className="text-[#94a3b8] leading-tight break-words">{task.description.slice(0, 100)}{task.description.length > 100 ? '…' : ''}</div>
+                            {task.worker_agent && (
+                              <div className="text-[#64748b] mt-1 font-mono">{task.worker_agent}</div>
+                            )}
+                          </div>
+                        ))}
+                        {statusTasks.length === 0 && <div className="text-[#3a4a63] italic">None</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 text-[11px]">
             <div className="border border-[#1e304f] bg-[#0d1522] p-3 rounded-sm">
-              <div className="text-[#00aaff] uppercase tracking-widest text-[10px] mb-2">Job</div>
+              <div className="text-[#00aaff] uppercase tracking-widest text-[10px] mb-2">Checklist</div>
               {job ? (
-                <div className="space-y-1 text-[#dbe7ff]">
-                  <div>id: <span className="font-mono">{job.job_id}</span></div>
-                  <div>status: <span className="font-mono">{job.status}</span></div>
-                  <div>mode: <span className="font-mono">{job.worker_mode}</span></div>
-                  {job.summary && <div>summary: {job.summary}</div>}
-                  {job.error && <div className="text-red-400">error: {job.error}</div>}
+                <div className="space-y-2 max-h-64 overflow-auto scroll-styled">
+                  {checklist.length === 0 ? (
+                    <div className="text-[#64748b]">
+                      {workers.length === 0 ? 'Waiting for planner…' : 'No tasks yet.'}
+                    </div>
+                  ) : (
+                    checklist.map((item, i) => (
+                      <div
+                        key={`${item.role}-${i}`}
+                        className="border border-[#1e304f] p-2 rounded-sm"
+                      >
+                        <div className="flex items-start gap-2">
+                          <span
+                            className="shrink-0 mt-0.5"
+                            title={item.status}
+                            aria-label={item.status}
+                          >
+                            {item.status === 'succeeded' && (
+                              <span className="text-emerald-400" role="img">✓</span>
+                            )}
+                            {item.status === 'failed' && (
+                              <span className="text-red-400" role="img">✗</span>
+                            )}
+                            {item.status === 'running' && (
+                              <span className="text-amber-400 animate-pulse" role="img">○</span>
+                            )}
+                            {item.status === 'pending' && (
+                              <span className="text-[#64748b]" role="img">○</span>
+                            )}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="text-[#00aaff] font-mono text-[10px]">{item.role}</div>
+                            <div className="text-[#dbe7ff] text-[11px] break-words leading-tight mt-0.5">
+                              {item.task}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               ) : (
                 <div className="text-[#64748b]">No job loaded.</div>

@@ -136,8 +136,25 @@ fn is_human_origin(origin: &str) -> bool {
 }
 
 /// Build the system prompt with skill catalog and optional persona.
-fn build_system_prompt(skill_catalog: &str, persona_text: &Option<String>) -> String {
+/// When `is_orchestrator_worker` is true, rule 9 is replaced to prevent
+/// orchestrator workers from modifying skill definitions.
+fn build_system_prompt(
+    skill_catalog: &str,
+    persona_text: &Option<String>,
+    is_orchestrator_worker: bool,
+) -> String {
     let mut system_prompt = String::new();
+
+    let rule_9 = if is_orchestrator_worker {
+        "9. You are an orchestrator worker. Do NOT modify, read, or edit any skill definitions. \
+            Focus exclusively on executing your assigned task using the available skills as-is. \
+            If a skill fails, report the failure in your output and try an alternative approach.\n"
+    } else {
+        "9. When a skill fails (e.g. \"jq: not found\", \"command not found\"), FIX THE SKILL by editing it: \
+            use skill read <skill_name> to inspect the code, then skill modify <skill_name> run.sh \"<new content>\" to update it. \
+            Prefer rewriting the skill to avoid the missing dependency (e.g. use grep/sed instead of jq). \
+            Never use host_shell to install system packages (apt-get, etc.) to work around missing tools.\n"
+    };
 
     system_prompt.push_str(
         "You are an autonomous AI agent running inside the moxxy framework.\n\
@@ -160,12 +177,11 @@ fn build_system_prompt(skill_catalog: &str, persona_text: &Option<String>) -> St
             Only present the final summary when the entire task is complete.\n\
          7. For SINGLE-STEP tasks, present the result concisely and stop. \
             Do NOT offer menus, ask what to do next, or suggest follow-ups.\n\
-         8. Be concise. Answer the question, present the result, done.\n\
-         9. When a skill fails (e.g. \"jq: not found\", \"command not found\"), FIX THE SKILL by editing it: \
-            use skill read <skill_name> to inspect the code, then skill modify <skill_name> run.sh \"<new content>\" to update it. \
-            Prefer rewriting the skill to avoid the missing dependency (e.g. use grep/sed instead of jq). \
-            Never use host_shell to install system packages (apt-get, etc.) to work around missing tools.\n\
-         10. Skills marked [REQUIRES CONFIRMATION] are destructive or high-impact. Before invoking them, \
+         8. Be concise. Answer the question, present the result, done.\n         "
+    );
+    system_prompt.push_str(rule_9);
+    system_prompt.push_str(
+        "10. Skills marked [REQUIRES CONFIRMATION] are destructive or high-impact. Before invoking them, \
             you MUST first describe exactly what you are about to do and ask the user for explicit confirmation. \
             Only invoke the skill after the user explicitly confirms.\n\n\
          SKILL INVOCATION FORMAT:\n\
@@ -202,7 +218,7 @@ impl AutonomousBrain {
         skill_catalog: &str,
         persona_text: &Option<String>,
     ) -> String {
-        build_system_prompt(skill_catalog, persona_text)
+        build_system_prompt(skill_catalog, persona_text, false)
     }
 
     pub async fn execute_react_loop(
@@ -260,6 +276,7 @@ impl AutonomousBrain {
 
         let mut iter: usize = 0;
         let mut consecutive_errors: usize = 0;
+        let mut exited_due_to_consecutive_errors = false;
         let mut last_response_hash: u64 = 0;
         let mut cumulative_input_tokens: u64 = 0;
         let mut cumulative_output_tokens: u64 = 0;
@@ -289,9 +306,11 @@ impl AutonomousBrain {
             // 3b. Build message array (no locks held)
             let mut messages: Vec<ChatMessage> = Vec::new();
 
+            let is_orchestrator_worker =
+                origin == "ORCHESTRATOR_EPHEMERAL" || origin == "ORCHESTRATOR";
             messages.push(ChatMessage {
                 role: "system".to_string(),
-                content: build_system_prompt(&skill_catalog, &persona_text),
+                content: build_system_prompt(&skill_catalog, &persona_text, is_orchestrator_worker),
             });
 
             for kb_chunk in swarm_kbs {
@@ -422,14 +441,38 @@ impl AutonomousBrain {
                             })).await;
                             loop_context.push(ChatMessage {
                                 role: "system".to_string(),
-                                content: err_msg,
+                                content: err_msg.clone(),
                             });
                             consecutive_errors += 1;
                             if consecutive_errors >= 3 {
+                                let is_orchestrator =
+                                    origin == "ORCHESTRATOR_EPHEMERAL" || origin == "ORCHESTRATOR";
+                                let replan_key = "REPLAN_ATTEMPTED";
+                                let has_replanned = loop_context
+                                    .iter()
+                                    .any(|m| m.role == "system" && m.content.contains(replan_key));
+
+                                if is_orchestrator && !has_replanned {
+                                    info!(
+                                        "ReAct loop: 3 consecutive errors at iter {}, allowing one replan",
+                                        iter
+                                    );
+                                    consecutive_errors = 0;
+                                    loop_context.push(ChatMessage {
+                                        role: "system".to_string(),
+                                        content: format!(
+                                            "{}\n\n{}\nYou have hit 3 consecutive skill errors. REPLAN: Try a different skill or approach. Do NOT repeat the same failing invocation. You have ONE more attempt.",
+                                            err_msg, replan_key
+                                        ),
+                                    });
+                                    continue;
+                                }
+
                                 info!(
                                     "ReAct loop: 3 consecutive errors at iter {}, stopping",
                                     iter
                                 );
+                                exited_due_to_consecutive_errors = true;
                                 loop_context.push(ChatMessage {
                                     role: "system".to_string(),
                                     content: "Too many consecutive skill errors. Stop and report the issue to the user.".to_string(),
@@ -526,10 +569,35 @@ impl AutonomousBrain {
                 };
 
                 if consecutive_errors >= 3 {
+                    // Give orchestrator workers one replan chance before giving up
+                    let is_orchestrator =
+                        origin == "ORCHESTRATOR_EPHEMERAL" || origin == "ORCHESTRATOR";
+                    let replan_key = "REPLAN_ATTEMPTED";
+                    let has_replanned = loop_context
+                        .iter()
+                        .any(|m| m.role == "system" && m.content.contains(replan_key));
+
+                    if is_orchestrator && !has_replanned {
+                        info!(
+                            "ReAct loop: 3 consecutive skill errors at iter {}, allowing one replan",
+                            iter
+                        );
+                        consecutive_errors = 0;
+                        loop_context.push(ChatMessage {
+                            role: "system".to_string(),
+                            content: format!(
+                                "{}\n\n{}\nYou have hit 3 consecutive skill errors. REPLAN: Try a different approach—use a different skill, fix the workflow, or work around the failure. Do NOT repeat the same failing invocation. You have ONE more attempt.",
+                                feedback, replan_key
+                            ),
+                        });
+                        continue;
+                    }
+
                     info!(
                         "ReAct loop: 3 consecutive skill errors at iter {}, stopping",
                         iter
                     );
+                    exited_due_to_consecutive_errors = true;
                     loop_context.push(ChatMessage {
                         role: "system".to_string(),
                         content: format!(
@@ -569,6 +637,65 @@ impl AutonomousBrain {
 
                 info!("Agent continuing (iter {}): {}", iter, clean);
                 continue;
+            }
+
+            // Orchestrator workers: nudge to continue if they produce text
+            // without invoking a skill. This prevents premature exit when the
+            // LLM "thinks out loud" between skill invocations.
+            let is_orchestrator_loop =
+                origin == "ORCHESTRATOR_EPHEMERAL" || origin == "ORCHESTRATOR";
+            let has_done_work = loop_context
+                .iter()
+                .any(|m| m.role == "system" && m.content.contains("SKILL RESULT"));
+
+            if is_orchestrator_loop && iter < 25 {
+                if !has_done_work {
+                    // No work done at all — strongly nudge to start
+                    info!(
+                        "ReAct loop: orchestrator worker no work at iter {}, nudging",
+                        iter
+                    );
+                    loop_context.push(ChatMessage {
+                        role: "assistant".to_string(),
+                        content: response_text.clone(),
+                    });
+                    loop_context.push(ChatMessage {
+                        role: "system".to_string(),
+                        content: "You must use your available skills to complete the task. \
+                            Do not describe what you plan to do — invoke a skill now to make progress."
+                            .to_string(),
+                    });
+                    continue;
+                }
+
+                // Count how many nudges we've already sent (max 3 after work started)
+                let nudge_count = loop_context
+                    .iter()
+                    .filter(|m| {
+                        m.role == "system"
+                            && m.content
+                                .contains("If you have more work to do, invoke a skill")
+                    })
+                    .count();
+
+                if nudge_count < 3 {
+                    info!(
+                        "ReAct loop: orchestrator worker text-only at iter {} (nudge {}), continuing",
+                        iter,
+                        nudge_count + 1
+                    );
+                    loop_context.push(ChatMessage {
+                        role: "assistant".to_string(),
+                        content: response_text.clone(),
+                    });
+                    loop_context.push(ChatMessage {
+                        role: "system".to_string(),
+                        content: "If you have more work to do, invoke a skill now to continue. \
+                            If you are truly done with ALL steps in your workflow, report your final results."
+                            .to_string(),
+                    });
+                    continue;
+                }
             }
 
             final_response = response_text;
@@ -620,6 +747,11 @@ impl AutonomousBrain {
 
         emit(&stream_tx, serde_json::json!({ "type": "done" })).await;
 
+        if exited_due_to_consecutive_errors {
+            return Err(anyhow::anyhow!(
+                "ReAct loop stopped: too many consecutive skill errors. Report this to the user."
+            ));
+        }
         Ok(final_response)
     }
 }
