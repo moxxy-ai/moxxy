@@ -7,6 +7,43 @@ use tokio::process::Command;
 use crate::context::PrimitiveContext;
 use crate::registry::{Primitive, PrimitiveError};
 
+/// Well-known directories that commonly contain developer tools.
+/// Appended to the inherited PATH so binaries like git, node, cargo, etc.
+/// are discoverable even when the gateway runs with a minimal environment
+/// (e.g. launched from launchd, systemd, or a daemon wrapper).
+const EXTRA_PATH_DIRS: &[&str] = &[
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+    "/opt/homebrew/sbin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+];
+
+/// Build an augmented PATH string that merges the current PATH with
+/// well-known directories (deduped, original order preserved first).
+pub fn augmented_path() -> &'static str {
+    static PATH: OnceLock<String> = OnceLock::new();
+    PATH.get_or_init(|| {
+        let current = std::env::var("PATH").unwrap_or_default();
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        let mut parts: Vec<&str> = Vec::new();
+
+        for dir in current.split(':') {
+            if !dir.is_empty() && seen.insert(dir) {
+                parts.push(dir);
+            }
+        }
+        for dir in EXTRA_PATH_DIRS {
+            if seen.insert(dir) {
+                parts.push(dir);
+            }
+        }
+        parts.join(":")
+    })
+}
+
 /// Resolve the absolute path to the `git` binary once and cache it.
 /// Falls back to common well-known locations when `git` is not on PATH.
 fn git_binary() -> &'static str {
@@ -15,6 +52,7 @@ fn git_binary() -> &'static str {
         // First try the bare name via PATH (uses std, not tokio)
         if let Ok(output) = std::process::Command::new("git")
             .arg("--version")
+            .env("PATH", augmented_path())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status()
@@ -48,6 +86,7 @@ async fn run_git(
     let child = Command::new(git_binary())
         .args(args)
         .current_dir(cwd)
+        .env("PATH", augmented_path())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()

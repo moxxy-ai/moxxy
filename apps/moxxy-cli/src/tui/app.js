@@ -271,6 +271,19 @@ export class App {
     const task = text.trim().replace(/^\/{2,}/, '/');
     if (!task) return;
 
+    // Pending ask: agent asked for user input via user.ask primitive
+    if (this.eventsHandler.pendingAsk) {
+      const { questionId } = this.eventsHandler.pendingAsk;
+      this.eventsHandler.pendingAsk = null;
+      this.eventsHandler.addUserMessage(task);
+      try {
+        await this.client.respondToAsk(this.agentId, questionId, task);
+      } catch (err) {
+        this.eventsHandler.addSystemMessage(`Error responding: ${err.message}`);
+      }
+      return;
+    }
+
     // Two-step command: vault set (capture secret value)
     if (this._pendingVaultSet) {
       const { keyName } = this._pendingVaultSet;

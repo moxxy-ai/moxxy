@@ -56,6 +56,7 @@ export class EventsHandler {
     this._onChange = null; // callback when messages/stats change
     this.thinking = false;
     this._thinkingTimer = null;
+    this.pendingAsk = null; // { questionId, question } — set when agent asks user
   }
 
   /** Set callback invoked on any state change. */
@@ -176,6 +177,39 @@ export class EventsHandler {
     }
     if (type === 'model.response' && payload.usage) {
       this.stats.tokenEstimate += (payload.usage.total_tokens || 0);
+    }
+
+    // Show channel messages (from Telegram, Discord, etc.) as user messages
+    if (type === 'channel.message_received') {
+      const sender = payload.sender_name || 'User';
+      const channel = payload.channel_type || 'channel';
+      const task = payload.task || '';
+      this._assistantBuffer = '';
+      this.messages.push({
+        type: 'channel', sender, channel, content: task, ts: event.ts,
+      });
+      this._startThinking();
+      this._notify();
+      return;
+    }
+
+    // Handle user.ask — agent is asking the user a question
+    if (type === 'user.ask_question') {
+      if (this.thinking) this._stopThinking();
+      const questionId = payload.question_id;
+      const question = payload.question || 'The agent is asking for input.';
+      this.pendingAsk = { questionId, question };
+      this.messages.push({ type: 'ask', question, questionId, ts: event.ts });
+      this._notify();
+      return;
+    }
+
+    // Handle user.ask_answered — question was answered, clear pending state
+    if (type === 'user.ask_answered') {
+      this.pendingAsk = null;
+      this._startThinking();
+      this._notify();
+      return;
     }
 
     if (type === 'message.delta') {

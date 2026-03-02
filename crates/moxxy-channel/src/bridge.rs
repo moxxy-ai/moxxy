@@ -243,7 +243,9 @@ impl ChannelBridge {
             EventType::ChannelMessageReceived,
             serde_json::json!({
                 "channel_id": channel_id,
+                "channel_type": transport.transport_name(),
                 "external_chat_id": msg.external_chat_id,
+                "sender_name": msg.sender_name,
                 "task": msg.text,
             }),
         );

@@ -55,6 +55,15 @@ function renderMessage(msg, width, agentName) {
     return [header, ...lines];
   }
 
+  if (msg.type === 'channel') {
+    const channel = msg.channel ? msg.channel.charAt(0).toUpperCase() + msg.channel.slice(1) : 'Channel';
+    const sender = msg.sender || 'User';
+    const header = styles.info.bold(sender) + styles.dim(` via ${channel}`);
+    const content = msg.content || '';
+    const lines = wrapTextWithAnsi(content, width);
+    return [header, ...lines];
+  }
+
   if (msg.type === 'assistant') {
     const name = agentName || 'Assistant';
     const header = styles.accent.bold(name) + (msg.streaming ? styles.dim(' \u2026') : '');
@@ -62,6 +71,14 @@ function renderMessage(msg, width, agentName) {
     const md = new Markdown(content, 0, 0, MD_THEME);
     const lines = md.render(width);
     return [header, ...lines];
+  }
+
+  if (msg.type === 'ask') {
+    const header = styles.warning.bold('? Agent needs your input');
+    const question = msg.question || '';
+    const questionLines = wrapTextWithAnsi(question, width);
+    const hint = styles.dim('Type your answer below and press Enter.');
+    return [header, ...questionLines, '', hint];
   }
 
   if (msg.type === 'system') {

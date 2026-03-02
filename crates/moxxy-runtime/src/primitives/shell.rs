@@ -120,6 +120,7 @@ impl Primitive for ShellExecPrimitive {
 
         let mut cmd = Command::new(&exec_cmd);
         cmd.args(&exec_args)
+            .env("PATH", super::git::augmented_path())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
 

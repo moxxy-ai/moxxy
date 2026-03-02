@@ -55,13 +55,51 @@ impl PathPolicy {
                 PathPolicyError::OutsideWorkspace(format!("{}: {}", path.display(), e))
             })?
         } else {
-            let parent = path
-                .parent()
-                .ok_or_else(|| PathPolicyError::OutsideWorkspace(path.display().to_string()))?;
-            let canonical_parent = parent.canonicalize().map_err(|e| {
-                PathPolicyError::OutsideWorkspace(format!("{}: {}", parent.display(), e))
-            })?;
-            canonical_parent.join(path.file_name().unwrap_or_default())
+            // Walk up ancestors to find the first existing directory, then
+            // append the remaining relative suffix. This handles writes into
+            // directories that will be created (e.g. workspace/project/src/).
+            let mut existing_ancestor = None;
+            let mut current = path.to_path_buf();
+            let mut suffix_parts: Vec<std::ffi::OsString> = Vec::new();
+
+            // Collect the trailing components that don't exist yet
+            while !current.exists() {
+                if let Some(name) = current.file_name() {
+                    suffix_parts.push(name.to_os_string());
+                } else {
+                    break;
+                }
+                match current.parent() {
+                    Some(p) if p != current => current = p.to_path_buf(),
+                    _ => break,
+                }
+            }
+            if current.exists() {
+                existing_ancestor = Some(current);
+            }
+
+            match existing_ancestor {
+                Some(ancestor) => {
+                    let canonical = ancestor.canonicalize().map_err(|e| {
+                        PathPolicyError::OutsideWorkspace(format!(
+                            "{}: {}",
+                            ancestor.display(),
+                            e
+                        ))
+                    })?;
+                    // Re-append the non-existent suffix in correct order
+                    let mut result = canonical;
+                    for part in suffix_parts.into_iter().rev() {
+                        result = result.join(part);
+                    }
+                    result
+                }
+                None => {
+                    return Err(PathPolicyError::OutsideWorkspace(
+                        path.display().to_string(),
+                    ));
+                }
+            }
         };
 
         // 1. workspace_root — always allow (agent's own dir)
@@ -245,5 +283,30 @@ mod tests {
         std::fs::write(&file, "{}").unwrap();
         assert!(policy.ensure_readable(&file).is_ok());
         assert!(policy.ensure_writable(&file).is_ok());
+    }
+
+    #[test]
+    fn allows_write_to_nested_nonexistent_dirs_in_workspace() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let policy = PathPolicy::new(workspace.clone(), None, None);
+
+        // workspace/project/src/main.rs — neither "project" nor "src" exist yet
+        let deep_file = workspace.join("project").join("src").join("main.rs");
+        assert!(policy.ensure_writable(&deep_file).is_ok());
+    }
+
+    #[test]
+    fn blocks_write_to_nested_nonexistent_dirs_outside_workspace() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path().join("workspace");
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(&workspace).unwrap();
+        // Don't create "outside" — the ancestor walk should resolve to tmp
+        let policy = PathPolicy::new(workspace, None, None);
+
+        let deep_file = outside.join("hack").join("file.txt");
+        assert!(policy.ensure_writable(&deep_file).is_err());
     }
 }

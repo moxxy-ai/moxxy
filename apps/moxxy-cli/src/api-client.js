@@ -150,6 +150,14 @@ export class ApiClient {
     return this.request(`/v1/vault/secrets/${encodeURIComponent(id)}`, 'DELETE');
   }
 
+  async respondToAsk(agentId, questionId, answer) {
+    return this.request(
+      `/v1/agents/${encodeURIComponent(agentId)}/ask-responses/${encodeURIComponent(questionId)}`,
+      'POST',
+      { answer },
+    );
+  }
+
   async listSkills(agentId) {
     return this.request(`/v1/agents/${encodeURIComponent(agentId)}/skills`, 'GET');
   }
