@@ -23,7 +23,6 @@ impl HttpRequestPrimitive {
     }
 
     fn extract_domain(url: &str) -> Option<String> {
-        // Simple domain extraction from URL
         let without_scheme = if let Some(rest) = url.strip_prefix("https://") {
             rest
         } else if let Some(rest) = url.strip_prefix("http://") {
@@ -43,7 +42,10 @@ impl Primitive for HttpRequestPrimitive {
         "http.request"
     }
 
-    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
+    async fn invoke(
+        &self,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, PrimitiveError> {
         let url = params["url"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'url' parameter".into()))?;
@@ -58,14 +60,77 @@ impl Primitive for HttpRequestPrimitive {
             )));
         }
 
-        let _method = params["method"].as_str().unwrap_or("GET");
+        let method = params["method"].as_str().unwrap_or("GET");
+        let body = params["body"].as_str().map(|s| s.to_string());
+        let headers = params["headers"].as_object();
 
-        // Stub: actual HTTP implementation would use reqwest or similar.
-        // For now, return a placeholder indicating the request was validated.
+        let client = reqwest::Client::builder()
+            .timeout(self.timeout)
+            .build()
+            .map_err(|e| PrimitiveError::ExecutionFailed(format!("HTTP client error: {}", e)))?;
+
+        let mut req = match method.to_uppercase().as_str() {
+            "GET" => client.get(url),
+            "POST" => client.post(url),
+            "PUT" => client.put(url),
+            "PATCH" => client.patch(url),
+            "DELETE" => client.delete(url),
+            "HEAD" => client.head(url),
+            _ => {
+                return Err(PrimitiveError::InvalidParams(format!(
+                    "Unsupported HTTP method: {}",
+                    method
+                )));
+            }
+        };
+
+        if let Some(hdrs) = headers {
+            for (k, v) in hdrs {
+                if let Some(val) = v.as_str() {
+                    req = req.header(k.as_str(), val);
+                }
+            }
+        }
+
+        if let Some(b) = body {
+            req = req.header("content-type", "application/json").body(b);
+        }
+
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    PrimitiveError::Timeout
+                } else {
+                    PrimitiveError::ExecutionFailed(format!("HTTP request failed: {}", e))
+                }
+            })?;
+
+        let status = resp.status().as_u16();
+        let resp_headers: serde_json::Value = serde_json::json!(
+            resp.headers()
+                .iter()
+                .filter_map(|(k, v)| {
+                    v.to_str().ok().map(|val| (k.to_string(), val.to_string()))
+                })
+                .collect::<std::collections::HashMap<String, String>>()
+        );
+
+        let bytes = resp.bytes().await.map_err(|e| {
+            PrimitiveError::ExecutionFailed(format!("Failed to read response: {}", e))
+        })?;
+
+        if bytes.len() > self.max_response_bytes {
+            return Err(PrimitiveError::SizeLimitExceeded);
+        }
+
+        let body_str = String::from_utf8_lossy(&bytes).to_string();
+
         Ok(serde_json::json!({
-            "status": "not_implemented",
-            "message": "HTTP client not yet wired; domain check passed",
-            "url": url,
+            "status": status,
+            "headers": resp_headers,
+            "body": body_str,
         }))
     }
 }

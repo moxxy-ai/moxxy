@@ -36,6 +36,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/v1/agents/{id}/subagents",
             post(routes::agents::spawn_subagent),
         )
+        // Memory
+        .route(
+            "/v1/agents/{id}/memory/search",
+            get(routes::memory::search_memory),
+        )
         // Heartbeats
         .route(
             "/v1/agents/{id}/heartbeats",
