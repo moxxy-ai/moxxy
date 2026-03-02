@@ -12,8 +12,17 @@ import { runVault } from './commands/vault.js';
 import { runEvents } from './commands/events.js';
 import { runGateway } from './commands/gateway.js';
 
-const HELP = `
-moxxy - Agentic Framework CLI
+const LOGO = `
+  ███╗   ███╗ ██████╗ ██╗  ██╗██╗  ██╗██╗   ██╗
+  ████╗ ████║██╔═══██╗╚██╗██╔╝╚██╗██╔╝╚██╗ ██╔╝
+  ██╔████╔██║██║   ██║ ╚███╔╝  ╚███╔╝  ╚████╔╝
+  ██║╚██╔╝██║██║   ██║ ██╔██╗  ██╔██╗   ╚██╔╝
+  ██║ ╚═╝ ██║╚██████╔╝██╔╝ ██╗██╔╝ ██╗   ██║
+  ╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝
+`;
+
+const HELP = `${LOGO}
+  Agentic Framework CLI
 
 Usage:
   moxxy                                               Interactive menu
@@ -101,6 +110,7 @@ async function main() {
   const client = createApiClient(baseUrl, token);
 
   if (!command && isInteractive()) {
+    console.log(LOGO);
     p.intro('moxxy');
 
     const selected = await p.select({
