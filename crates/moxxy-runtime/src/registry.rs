@@ -20,14 +20,17 @@ pub enum PrimitiveError {
 #[async_trait]
 pub trait Primitive: Send + Sync {
     fn name(&self) -> &str;
-    async fn invoke(
-        &self,
-        params: serde_json::Value,
-    ) -> Result<serde_json::Value, PrimitiveError>;
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError>;
 }
 
 pub struct PrimitiveRegistry {
     primitives: HashMap<String, Box<dyn Primitive>>,
+}
+
+impl Default for PrimitiveRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PrimitiveRegistry {
@@ -90,11 +93,7 @@ mod tests {
         let mut registry = PrimitiveRegistry::new();
         registry.register(Box::new(EchoPrimitive));
         let result = registry
-            .invoke(
-                "echo",
-                serde_json::json!({"msg": "hi"}),
-                &["echo".into()],
-            )
+            .invoke("echo", serde_json::json!({"msg": "hi"}), &["echo".into()])
             .await
             .unwrap();
         assert_eq!(result["msg"], "hi");
@@ -104,11 +103,12 @@ mod tests {
     async fn registry_blocks_disallowed_primitive() {
         let mut registry = PrimitiveRegistry::new();
         registry.register(Box::new(EchoPrimitive));
-        let result = registry
-            .invoke("echo", serde_json::json!({}), &[])
-            .await;
+        let result = registry.invoke("echo", serde_json::json!({}), &[]).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), PrimitiveError::AccessDenied(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            PrimitiveError::AccessDenied(_)
+        ));
     }
 
     #[tokio::test]

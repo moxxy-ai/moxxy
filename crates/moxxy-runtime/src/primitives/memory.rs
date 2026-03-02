@@ -20,10 +20,7 @@ impl Primitive for MemoryAppendPrimitive {
         "memory.append"
     }
 
-    async fn invoke(
-        &self,
-        params: serde_json::Value,
-    ) -> Result<serde_json::Value, PrimitiveError> {
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let content = params["content"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'content' parameter".into()))?;
@@ -67,10 +64,7 @@ impl Primitive for MemorySearchPrimitive {
         "memory.search"
     }
 
-    async fn invoke(
-        &self,
-        params: serde_json::Value,
-    ) -> Result<serde_json::Value, PrimitiveError> {
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let query = params["query"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'query' parameter".into()))?;
@@ -84,15 +78,14 @@ impl Primitive for MemorySearchPrimitive {
 
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().is_some_and(|ext| ext == "md") {
-                    if let Ok(content) = std::fs::read_to_string(&path) {
-                        if content.to_lowercase().contains(&query_lower) {
-                            results.push(serde_json::json!({
-                                "path": path.to_string_lossy(),
-                                "snippet": content.chars().take(200).collect::<String>(),
-                            }));
-                        }
-                    }
+                if path.extension().is_some_and(|ext| ext == "md")
+                    && let Ok(content) = std::fs::read_to_string(&path)
+                    && content.to_lowercase().contains(&query_lower)
+                {
+                    results.push(serde_json::json!({
+                        "path": path.to_string_lossy(),
+                        "snippet": content.chars().take(200).collect::<String>(),
+                    }));
                 }
             }
         }
@@ -204,13 +197,9 @@ mod tests {
     async fn memory_summarize_produces_summary() {
         let tmp = TempDir::new().unwrap();
         let journal = MemoryJournal::new(tmp.path().to_path_buf());
-        journal
-            .append("Entry one about testing", &[])
-            .unwrap();
+        journal.append("Entry one about testing", &[]).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(2));
-        journal
-            .append("Entry two about coding", &[])
-            .unwrap();
+        journal.append("Entry two about coding", &[]).unwrap();
 
         let prim = MemorySummarizePrimitive::new(tmp.path().to_path_buf());
         let result = prim.invoke(serde_json::json!({})).await.unwrap();

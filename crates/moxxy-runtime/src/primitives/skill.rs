@@ -5,6 +5,12 @@ use crate::registry::{Primitive, PrimitiveError};
 
 pub struct SkillImportPrimitive;
 
+impl Default for SkillImportPrimitive {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SkillImportPrimitive {
     pub fn new() -> Self {
         Self
@@ -17,25 +23,18 @@ impl Primitive for SkillImportPrimitive {
         "skill.import"
     }
 
-    async fn invoke(
-        &self,
-        params: serde_json::Value,
-    ) -> Result<serde_json::Value, PrimitiveError> {
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let content = params["content"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'content' parameter".into()))?;
 
-        let name = params["name"]
-            .as_str()
-            .unwrap_or("unknown");
+        let name = params["name"].as_str().unwrap_or("unknown");
 
-        let version = params["version"]
-            .as_str()
-            .unwrap_or("0.0.0");
+        let version = params["version"].as_str().unwrap_or("0.0.0");
 
         // Validate frontmatter by parsing
-        let _doc = SkillDoc::parse(content)
-            .map_err(|e| PrimitiveError::InvalidParams(e.to_string()))?;
+        let _doc =
+            SkillDoc::parse(content).map_err(|e| PrimitiveError::InvalidParams(e.to_string()))?;
 
         // All imported skills start in quarantine
         Ok(serde_json::json!({
@@ -47,6 +46,12 @@ impl Primitive for SkillImportPrimitive {
 }
 
 pub struct SkillValidatePrimitive;
+
+impl Default for SkillValidatePrimitive {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl SkillValidatePrimitive {
     pub fn new() -> Self {
@@ -60,16 +65,13 @@ impl Primitive for SkillValidatePrimitive {
         "skill.validate"
     }
 
-    async fn invoke(
-        &self,
-        params: serde_json::Value,
-    ) -> Result<serde_json::Value, PrimitiveError> {
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let content = params["content"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'content' parameter".into()))?;
 
-        let doc = SkillDoc::parse(content)
-            .map_err(|e| PrimitiveError::InvalidParams(e.to_string()))?;
+        let doc =
+            SkillDoc::parse(content).map_err(|e| PrimitiveError::InvalidParams(e.to_string()))?;
 
         Ok(serde_json::json!({
             "valid": true,

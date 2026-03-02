@@ -76,18 +76,17 @@ where
             ));
         }
 
-        if let Some(ref exp) = stored.expires_at {
-            if let Ok(expires) = exp.parse::<chrono::DateTime<chrono::Utc>>() {
-                if expires < chrono::Utc::now() {
-                    return Err((
-                        axum::http::StatusCode::UNAUTHORIZED,
-                        axum::Json(serde_json::json!({
-                            "error": "unauthorized",
-                            "message": "Token expired"
-                        })),
-                    ));
-                }
-            }
+        if let Some(ref exp) = stored.expires_at
+            && let Ok(expires) = exp.parse::<chrono::DateTime<chrono::Utc>>()
+            && expires < chrono::Utc::now()
+        {
+            return Err((
+                axum::http::StatusCode::UNAUTHORIZED,
+                axum::Json(serde_json::json!({
+                    "error": "unauthorized",
+                    "message": "Token expired"
+                })),
+            ));
         }
 
         Ok(AuthToken(stored))

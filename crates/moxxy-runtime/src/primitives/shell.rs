@@ -26,10 +26,7 @@ impl Primitive for ShellExecPrimitive {
         "shell.exec"
     }
 
-    async fn invoke(
-        &self,
-        params: serde_json::Value,
-    ) -> Result<serde_json::Value, PrimitiveError> {
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let command = params["command"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'command' parameter".into()))?;
@@ -109,11 +106,8 @@ mod tests {
 
     #[tokio::test]
     async fn shell_exec_blocks_disallowed_command() {
-        let prim = ShellExecPrimitive::new(
-            vec!["echo".into()],
-            Duration::from_secs(5),
-            1024 * 1024,
-        );
+        let prim =
+            ShellExecPrimitive::new(vec!["echo".into()], Duration::from_secs(5), 1024 * 1024);
         let result = prim
             .invoke(serde_json::json!({"command": "rm", "args": ["-rf", "/"]}))
             .await;
@@ -126,11 +120,7 @@ mod tests {
 
     #[tokio::test]
     async fn shell_exec_enforces_timeout() {
-        let prim = ShellExecPrimitive::new(
-            vec!["sleep".into()],
-            Duration::from_millis(100),
-            1024,
-        );
+        let prim = ShellExecPrimitive::new(vec!["sleep".into()], Duration::from_millis(100), 1024);
         let result = prim
             .invoke(serde_json::json!({"command": "sleep", "args": ["10"]}))
             .await;
@@ -140,11 +130,7 @@ mod tests {
 
     #[tokio::test]
     async fn shell_exec_caps_output_size() {
-        let prim = ShellExecPrimitive::new(
-            vec!["yes".into()],
-            Duration::from_secs(2),
-            100,
-        );
+        let prim = ShellExecPrimitive::new(vec!["yes".into()], Duration::from_secs(2), 100);
         let result = prim
             .invoke(serde_json::json!({"command": "yes", "args": []}))
             .await;

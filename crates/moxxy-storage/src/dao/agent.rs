@@ -1,6 +1,6 @@
-use rusqlite::{Connection, params};
-use moxxy_types::StorageError;
 use crate::rows::AgentRow;
+use moxxy_types::StorageError;
+use rusqlite::{Connection, params};
 
 pub struct AgentDao<'a> {
     pub conn: &'a Connection,
@@ -52,7 +52,9 @@ impl<'a> AgentDao<'a> {
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
 
         match rows.next() {
-            Some(r) => Ok(Some(r.map_err(|e| StorageError::QueryFailed(e.to_string()))?)),
+            Some(r) => Ok(Some(
+                r.map_err(|e| StorageError::QueryFailed(e.to_string()))?,
+            )),
             None => Ok(None),
         }
     }
@@ -128,8 +130,8 @@ impl<'a> AgentDao<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moxxy_test_utils::TestDb;
     use crate::fixtures::*;
+    use moxxy_test_utils::TestDb;
 
     fn insert_provider_for_agent(db: &TestDb) {
         let provider = fixture_provider_row();

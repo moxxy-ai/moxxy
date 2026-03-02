@@ -24,10 +24,7 @@ impl Primitive for WebhookNotifyPrimitive {
         "notify.webhook"
     }
 
-    async fn invoke(
-        &self,
-        params: serde_json::Value,
-    ) -> Result<serde_json::Value, PrimitiveError> {
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let url = params["url"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'url' parameter".into()))?;
@@ -76,10 +73,7 @@ impl Primitive for CliNotifyPrimitive {
         "notify.cli"
     }
 
-    async fn invoke(
-        &self,
-        params: serde_json::Value,
-    ) -> Result<serde_json::Value, PrimitiveError> {
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let message = params["message"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'message' parameter".into()))?;

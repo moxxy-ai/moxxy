@@ -60,7 +60,9 @@ mod tests {
         service
             .create_secret_ref("my-key", "backend-1", None)
             .unwrap();
-        service.store_secret("backend-1", "super-secret-value").unwrap();
+        service
+            .store_secret("backend-1", "super-secret-value")
+            .unwrap();
         let value = service.get_secret_material("backend-1").unwrap();
         assert_eq!(value, "super-secret-value");
     }
@@ -72,14 +74,15 @@ mod tests {
         let backend = InMemoryBackend::new();
         let service = VaultService::new(backend, test_db.conn());
 
-        let secret_ref = service
-            .create_secret_ref("my-key", "bk-1", None)
-            .unwrap();
+        let secret_ref = service.create_secret_ref("my-key", "bk-1", None).unwrap();
         service.store_secret("bk-1", "secret").unwrap();
 
         let result = service.resolve("agent-1", &secret_ref.id);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), moxxy_types::VaultError::AccessDenied));
+        assert!(matches!(
+            result.unwrap_err(),
+            moxxy_types::VaultError::AccessDenied
+        ));
     }
 
     #[test]
@@ -89,9 +92,7 @@ mod tests {
         let backend = InMemoryBackend::new();
         let service = VaultService::new(backend, test_db.conn());
 
-        let secret_ref = service
-            .create_secret_ref("my-key", "bk-1", None)
-            .unwrap();
+        let secret_ref = service.create_secret_ref("my-key", "bk-1", None).unwrap();
         service.store_secret("bk-1", "the-secret").unwrap();
         service.grant_access("agent-1", &secret_ref.id).unwrap();
 
@@ -106,9 +107,7 @@ mod tests {
         let backend = InMemoryBackend::new();
         let service = VaultService::new(backend, test_db.conn());
 
-        let secret_ref = service
-            .create_secret_ref("my-key", "bk-1", None)
-            .unwrap();
+        let secret_ref = service.create_secret_ref("my-key", "bk-1", None).unwrap();
         service.store_secret("bk-1", "secret").unwrap();
         let grant = service.grant_access("agent-1", &secret_ref.id).unwrap();
         service.revoke_grant(&grant.id).unwrap();
@@ -124,9 +123,7 @@ mod tests {
         let backend = InMemoryBackend::new();
         let service = VaultService::new(backend, test_db.conn());
 
-        let secret_ref = service
-            .create_secret_ref("my-key", "bk-1", None)
-            .unwrap();
+        let secret_ref = service.create_secret_ref("my-key", "bk-1", None).unwrap();
         let g1 = service.grant_access("agent-1", &secret_ref.id).unwrap();
         let g2 = service.grant_access("agent-1", &secret_ref.id).unwrap();
         // Should return same grant
@@ -140,12 +137,8 @@ mod tests {
         let backend = InMemoryBackend::new();
         let service = VaultService::new(backend, test_db.conn());
 
-        service
-            .create_secret_ref("key-1", "bk-1", None)
-            .unwrap();
-        service
-            .create_secret_ref("key-2", "bk-2", None)
-            .unwrap();
+        service.create_secret_ref("key-1", "bk-1", None).unwrap();
+        service.create_secret_ref("key-2", "bk-2", None).unwrap();
 
         let refs = service.list_refs().unwrap();
         assert_eq!(refs.len(), 2);
@@ -159,12 +152,8 @@ mod tests {
         let backend = InMemoryBackend::new();
         let service = VaultService::new(backend, test_db.conn());
 
-        let r1 = service
-            .create_secret_ref("key-1", "bk-1", None)
-            .unwrap();
-        let r2 = service
-            .create_secret_ref("key-2", "bk-2", None)
-            .unwrap();
+        let r1 = service.create_secret_ref("key-1", "bk-1", None).unwrap();
+        let r2 = service.create_secret_ref("key-2", "bk-2", None).unwrap();
         service.grant_access("agent-1", &r1.id).unwrap();
         service.grant_access("agent-2", &r2.id).unwrap();
 
@@ -179,9 +168,7 @@ mod tests {
         let backend = InMemoryBackend::new();
         let service = VaultService::new(backend, test_db.conn());
 
-        let secret_ref = service
-            .create_secret_ref("my-key", "bk-1", None)
-            .unwrap();
+        let secret_ref = service.create_secret_ref("my-key", "bk-1", None).unwrap();
         service.store_secret("bk-1", "secret").unwrap();
 
         service.delete_secret(&secret_ref.id).unwrap();

@@ -12,6 +12,12 @@ pub struct InMemoryBackend {
     secrets: Mutex<HashMap<String, String>>,
 }
 
+impl Default for InMemoryBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InMemoryBackend {
     pub fn new() -> Self {
         Self {
@@ -35,9 +41,7 @@ impl SecretBackend for InMemoryBackend {
             .secrets
             .lock()
             .map_err(|e| VaultError::BackendError(e.to_string()))?;
-        map.get(key)
-            .cloned()
-            .ok_or(VaultError::SecretNotFound)
+        map.get(key).cloned().ok_or(VaultError::SecretNotFound)
     }
 
     fn delete_secret(&self, key: &str) -> Result<(), VaultError> {
@@ -45,8 +49,7 @@ impl SecretBackend for InMemoryBackend {
             .secrets
             .lock()
             .map_err(|e| VaultError::BackendError(e.to_string()))?;
-        map.remove(key)
-            .ok_or(VaultError::SecretNotFound)?;
+        map.remove(key).ok_or(VaultError::SecretNotFound)?;
         Ok(())
     }
 }

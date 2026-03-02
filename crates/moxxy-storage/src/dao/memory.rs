@@ -1,6 +1,6 @@
-use rusqlite::{Connection, params};
-use moxxy_types::StorageError;
 use crate::rows::MemoryIndexRow;
+use moxxy_types::StorageError;
+use rusqlite::{Connection, params};
 
 pub struct MemoryDao<'a> {
     pub conn: &'a Connection,
@@ -43,7 +43,9 @@ impl<'a> MemoryDao<'a> {
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
 
         match rows.next() {
-            Some(r) => Ok(Some(r.map_err(|e| StorageError::QueryFailed(e.to_string()))?)),
+            Some(r) => Ok(Some(
+                r.map_err(|e| StorageError::QueryFailed(e.to_string()))?,
+            )),
             None => Ok(None),
         }
     }
@@ -113,8 +115,8 @@ impl<'a> MemoryDao<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moxxy_test_utils::TestDb;
     use crate::fixtures::*;
+    use moxxy_test_utils::TestDb;
 
     fn seed_agent(db: &TestDb) -> String {
         let provider = fixture_provider_row();
@@ -137,10 +139,21 @@ mod tests {
                  status, depth, spawned_total, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
                 params![
-                    agent.id, agent.parent_agent_id, agent.provider_id, agent.model_id,
-                    agent.workspace_root, agent.core_mount, agent.policy_profile, agent.temperature,
-                    agent.max_subagent_depth, agent.max_subagents_total, agent.status,
-                    agent.depth, agent.spawned_total, agent.created_at, agent.updated_at,
+                    agent.id,
+                    agent.parent_agent_id,
+                    agent.provider_id,
+                    agent.model_id,
+                    agent.workspace_root,
+                    agent.core_mount,
+                    agent.policy_profile,
+                    agent.temperature,
+                    agent.max_subagent_depth,
+                    agent.max_subagents_total,
+                    agent.status,
+                    agent.depth,
+                    agent.spawned_total,
+                    agent.created_at,
+                    agent.updated_at,
                 ],
             )
             .unwrap();

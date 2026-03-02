@@ -10,11 +10,7 @@ pub struct HttpRequestPrimitive {
 }
 
 impl HttpRequestPrimitive {
-    pub fn new(
-        allowed_domains: Vec<String>,
-        timeout: Duration,
-        max_response_bytes: usize,
-    ) -> Self {
+    pub fn new(allowed_domains: Vec<String>, timeout: Duration, max_response_bytes: usize) -> Self {
         Self {
             allowed_domains,
             timeout,
@@ -47,10 +43,7 @@ impl Primitive for HttpRequestPrimitive {
         "http.request"
     }
 
-    async fn invoke(
-        &self,
-        params: serde_json::Value,
-    ) -> Result<serde_json::Value, PrimitiveError> {
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let url = params["url"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'url' parameter".into()))?;
@@ -65,9 +58,7 @@ impl Primitive for HttpRequestPrimitive {
             )));
         }
 
-        let _method = params["method"]
-            .as_str()
-            .unwrap_or("GET");
+        let _method = params["method"].as_str().unwrap_or("GET");
 
         // Stub: actual HTTP implementation would use reqwest or similar.
         // For now, return a placeholder indicating the request was validated.
@@ -115,11 +106,8 @@ mod tests {
 
     #[tokio::test]
     async fn http_request_enforces_timeout() {
-        let prim = HttpRequestPrimitive::new(
-            vec!["httpbin.org".into()],
-            Duration::from_millis(1),
-            1024,
-        );
+        let prim =
+            HttpRequestPrimitive::new(vec!["httpbin.org".into()], Duration::from_millis(1), 1024);
         assert_eq!(prim.timeout.as_millis(), 1);
     }
 

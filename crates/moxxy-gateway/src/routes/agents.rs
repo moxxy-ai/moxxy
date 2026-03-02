@@ -1,11 +1,11 @@
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 use moxxy_storage::AgentRow;
 use moxxy_types::TokenScope;
 use std::sync::Arc;
 
-use crate::auth_extractor::{check_scope, AuthToken};
+use crate::auth_extractor::{AuthToken, check_scope};
 use crate::state::AppState;
 
 #[derive(serde::Deserialize)]
@@ -145,12 +145,16 @@ pub async fn start_run(
             )
         })?;
 
-    db.agents().update_status(&agent.id, "running").map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "internal", "message": "Failed to update status"})),
-        )
-    })?;
+    db.agents()
+        .update_status(&agent.id, "running")
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    serde_json::json!({"error": "internal", "message": "Failed to update status"}),
+                ),
+            )
+        })?;
 
     let run_id = uuid::Uuid::now_v7().to_string();
 
@@ -220,7 +224,9 @@ pub async fn spawn_subagent(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "not_found", "message": "Parent agent not found"})),
+                Json(
+                    serde_json::json!({"error": "not_found", "message": "Parent agent not found"}),
+                ),
             )
         })?;
 

@@ -1,10 +1,10 @@
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 use moxxy_types::TokenScope;
 use std::sync::Arc;
 
-use crate::auth_extractor::{check_scope, AuthToken};
+use crate::auth_extractor::{AuthToken, check_scope};
 use crate::state::AppState;
 
 pub async fn list_providers(

@@ -1,11 +1,11 @@
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
 use moxxy_storage::{VaultGrantRow, VaultSecretRefRow};
 use moxxy_types::TokenScope;
 use std::sync::Arc;
 
-use crate::auth_extractor::{check_scope, AuthToken};
+use crate::auth_extractor::{AuthToken, check_scope};
 use crate::state::AppState;
 
 #[derive(serde::Deserialize)]
@@ -44,7 +44,9 @@ pub async fn create_secret_ref(
     db.vault_refs().insert(&row).map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "internal", "message": "Failed to create secret ref"})),
+            Json(
+                serde_json::json!({"error": "internal", "message": "Failed to create secret ref"}),
+            ),
         )
     })?;
 

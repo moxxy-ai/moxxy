@@ -1,6 +1,6 @@
-use rusqlite::{Connection, params};
-use moxxy_types::StorageError;
 use crate::rows::VaultSecretRefRow;
+use moxxy_types::StorageError;
+use rusqlite::{Connection, params};
 
 pub struct VaultRefDao<'a> {
     pub conn: &'a Connection,
@@ -39,12 +39,17 @@ impl<'a> VaultRefDao<'a> {
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
 
         match rows.next() {
-            Some(r) => Ok(Some(r.map_err(|e| StorageError::QueryFailed(e.to_string()))?)),
+            Some(r) => Ok(Some(
+                r.map_err(|e| StorageError::QueryFailed(e.to_string()))?,
+            )),
             None => Ok(None),
         }
     }
 
-    pub fn find_by_key_name(&self, key_name: &str) -> Result<Option<VaultSecretRefRow>, StorageError> {
+    pub fn find_by_key_name(
+        &self,
+        key_name: &str,
+    ) -> Result<Option<VaultSecretRefRow>, StorageError> {
         let mut stmt = self
             .conn
             .prepare(
@@ -58,7 +63,9 @@ impl<'a> VaultRefDao<'a> {
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
 
         match rows.next() {
-            Some(r) => Ok(Some(r.map_err(|e| StorageError::QueryFailed(e.to_string()))?)),
+            Some(r) => Ok(Some(
+                r.map_err(|e| StorageError::QueryFailed(e.to_string()))?,
+            )),
             None => Ok(None),
         }
     }
@@ -107,8 +114,8 @@ impl<'a> VaultRefDao<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moxxy_test_utils::TestDb;
     use crate::fixtures::*;
+    use moxxy_test_utils::TestDb;
 
     #[test]
     fn insert_and_find_by_id() {

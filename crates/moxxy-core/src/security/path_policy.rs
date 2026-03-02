@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
 use moxxy_types::PathPolicyError;
+use std::path::{Path, PathBuf};
 
 pub struct PathPolicy {
     workspace_root: PathBuf,
@@ -22,10 +22,10 @@ impl PathPolicy {
         if canonical.starts_with(&self.workspace_root) {
             return Ok(());
         }
-        if let Some(ref core) = self.core_mount {
-            if canonical.starts_with(core) {
-                return Ok(());
-            }
+        if let Some(ref core) = self.core_mount
+            && canonical.starts_with(core)
+        {
+            return Ok(());
         }
         Err(PathPolicyError::OutsideWorkspace(
             canonical.display().to_string(),
@@ -50,12 +50,12 @@ impl PathPolicy {
         if check_path.starts_with(&self.workspace_root) {
             return Ok(());
         }
-        if let Some(ref core) = self.core_mount {
-            if check_path.starts_with(core) {
-                return Err(PathPolicyError::WriteToReadOnly(
-                    check_path.display().to_string(),
-                ));
-            }
+        if let Some(ref core) = self.core_mount
+            && check_path.starts_with(core)
+        {
+            return Err(PathPolicyError::WriteToReadOnly(
+                check_path.display().to_string(),
+            ));
         }
         Err(PathPolicyError::OutsideWorkspace(
             check_path.display().to_string(),

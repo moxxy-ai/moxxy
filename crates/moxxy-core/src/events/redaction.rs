@@ -17,7 +17,7 @@ impl RedactionEngine {
     ) -> Value {
         match value {
             Value::String(s) => {
-                if secrets.iter().any(|secret| s == *secret) {
+                if secrets.contains(&s) {
                     redacted_paths.push(path);
                     Value::String("[REDACTED]".to_string())
                 } else {

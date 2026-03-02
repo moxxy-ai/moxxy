@@ -49,7 +49,9 @@ mod tests {
     fn append_creates_markdown_file() {
         let tmp = TempDir::new().unwrap();
         let journal = MemoryJournal::new(tmp.path().to_path_buf());
-        let record = journal.append("Test memory entry", &["tag1", "tag2"]).unwrap();
+        let record = journal
+            .append("Test memory entry", &["tag1", "tag2"])
+            .unwrap();
         assert!(std::path::Path::new(&record.path).exists());
         let content = std::fs::read_to_string(&record.path).unwrap();
         assert!(content.contains("Test memory entry"));

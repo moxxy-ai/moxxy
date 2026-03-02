@@ -4,10 +4,9 @@ pub mod provider;
 pub mod registry;
 
 pub use primitives::{
-    CliNotifyPrimitive, FsListPrimitive, FsReadPrimitive, FsWritePrimitive,
-    HttpRequestPrimitive, MemoryAppendPrimitive, MemorySearchPrimitive,
-    MemorySummarizePrimitive, ShellExecPrimitive, SkillImportPrimitive,
-    SkillValidatePrimitive, WebhookNotifyPrimitive,
+    CliNotifyPrimitive, FsListPrimitive, FsReadPrimitive, FsWritePrimitive, HttpRequestPrimitive,
+    MemoryAppendPrimitive, MemorySearchPrimitive, MemorySummarizePrimitive, ShellExecPrimitive,
+    SkillImportPrimitive, SkillValidatePrimitive, WebhookNotifyPrimitive,
 };
 pub use process::{AgentProcess, AgentProcessConfig};
 pub use provider::{Message, ModelConfig, Provider, ProviderResponse, ToolCall};

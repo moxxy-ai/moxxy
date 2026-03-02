@@ -20,10 +20,7 @@ impl Primitive for FsReadPrimitive {
         "fs.read"
     }
 
-    async fn invoke(
-        &self,
-        params: serde_json::Value,
-    ) -> Result<serde_json::Value, PrimitiveError> {
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let path_str = params["path"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'path' parameter".into()))?;
@@ -56,10 +53,7 @@ impl Primitive for FsWritePrimitive {
         "fs.write"
     }
 
-    async fn invoke(
-        &self,
-        params: serde_json::Value,
-    ) -> Result<serde_json::Value, PrimitiveError> {
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let path_str = params["path"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'path' parameter".into()))?;
@@ -100,10 +94,7 @@ impl Primitive for FsListPrimitive {
         "fs.list"
     }
 
-    async fn invoke(
-        &self,
-        params: serde_json::Value,
-    ) -> Result<serde_json::Value, PrimitiveError> {
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let path_str = params["path"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'path' parameter".into()))?;
@@ -116,9 +107,9 @@ impl Primitive for FsListPrimitive {
         let entries: Vec<String> = std::fs::read_dir(path)
             .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?
             .filter_map(|entry| {
-                entry.ok().map(|e| {
-                    e.file_name().to_string_lossy().to_string()
-                })
+                entry
+                    .ok()
+                    .map(|e| e.file_name().to_string_lossy().to_string())
             })
             .collect();
 

@@ -17,10 +17,10 @@ impl HeartbeatScheduler {
         Ok(())
     }
 
-    pub fn due_rules<'a>(
-        rules: &'a [HeartbeatRule],
+    pub fn due_rules(
+        rules: &[HeartbeatRule],
         now: chrono::DateTime<chrono::Utc>,
-    ) -> Vec<&'a HeartbeatRule> {
+    ) -> Vec<&HeartbeatRule> {
         rules
             .iter()
             .filter(|r| {
@@ -43,7 +43,7 @@ impl HeartbeatScheduler {
         let mut next: chrono::DateTime<chrono::Utc> = current_next_run.parse().unwrap();
         let interval = chrono::Duration::minutes(interval_minutes as i64);
         while next <= now {
-            next = next + interval;
+            next += interval;
         }
         next.to_rfc3339()
     }

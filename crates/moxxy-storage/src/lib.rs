@@ -1,11 +1,11 @@
-pub mod rows;
 pub mod dao;
+pub mod rows;
 
 #[cfg(test)]
 pub(crate) mod fixtures;
 
-pub use rows::*;
 pub use dao::*;
+pub use rows::*;
 
 use rusqlite::Connection;
 

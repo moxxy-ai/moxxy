@@ -130,10 +130,7 @@ impl<B: SecretBackend> VaultService<B> {
             .map_err(|e| VaultError::BackendError(e.to_string()))
     }
 
-    pub fn list_grants_for_agent(
-        &self,
-        agent_id: &str,
-    ) -> Result<Vec<VaultGrantRow>, VaultError> {
+    pub fn list_grants_for_agent(&self, agent_id: &str) -> Result<Vec<VaultGrantRow>, VaultError> {
         self.grant_dao()
             .find_by_agent(agent_id)
             .map_err(|e| VaultError::BackendError(e.to_string()))

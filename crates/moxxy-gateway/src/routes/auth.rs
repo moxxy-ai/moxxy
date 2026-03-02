@@ -1,12 +1,12 @@
+use axum::Json;
 use axum::extract::{Request, State};
 use axum::http::StatusCode;
-use axum::Json;
 use moxxy_core::ApiTokenService;
 use moxxy_storage::StoredTokenRow;
 use moxxy_types::TokenScope;
 use std::sync::Arc;
 
-use crate::auth_extractor::{check_scope, AuthToken};
+use crate::auth_extractor::{AuthToken, check_scope};
 use crate::state::AppState;
 
 #[derive(serde::Deserialize)]
@@ -16,10 +16,7 @@ pub struct TokenCreateRequest {
     pub description: Option<String>,
 }
 
-fn try_extract_token(
-    state: &AppState,
-    headers: &axum::http::HeaderMap,
-) -> Option<StoredTokenRow> {
+fn try_extract_token(state: &AppState, headers: &axum::http::HeaderMap) -> Option<StoredTokenRow> {
     let auth_header = headers.get("authorization")?.to_str().ok()?;
     let token_str = auth_header.strip_prefix("Bearer ")?;
     let hash = ApiTokenService::hash(token_str);
@@ -28,12 +25,11 @@ fn try_extract_token(
     if stored.status == "revoked" {
         return None;
     }
-    if let Some(ref exp) = stored.expires_at {
-        if let Ok(expires) = exp.parse::<chrono::DateTime<chrono::Utc>>() {
-            if expires < chrono::Utc::now() {
-                return None;
-            }
-        }
+    if let Some(ref exp) = stored.expires_at
+        && let Ok(expires) = exp.parse::<chrono::DateTime<chrono::Utc>>()
+        && expires < chrono::Utc::now()
+    {
+        return None;
     }
     Some(stored)
 }
@@ -43,14 +39,12 @@ pub async fn create_token(
     req: Request,
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
     let (parts, body) = req.into_parts();
-    let body_bytes = axum::body::to_bytes(body, 1024 * 1024)
-        .await
-        .map_err(|_| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "bad_request", "message": "Invalid request body"})),
-            )
-        })?;
+    let body_bytes = axum::body::to_bytes(body, 1024 * 1024).await.map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "bad_request", "message": "Invalid request body"})),
+        )
+    })?;
     let body: TokenCreateRequest = serde_json::from_slice(&body_bytes).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
@@ -101,8 +95,7 @@ pub async fn create_token(
         )
     })?;
 
-    let scopes: Vec<TokenScope> =
-        serde_json::from_str(&issued.scopes_json).unwrap_or_default();
+    let scopes: Vec<TokenScope> = serde_json::from_str(&issued.scopes_json).unwrap_or_default();
 
     Ok((
         StatusCode::CREATED,
@@ -134,8 +127,7 @@ pub async fn list_tokens(
     let result: Vec<serde_json::Value> = tokens
         .iter()
         .map(|t| {
-            let scopes: Vec<TokenScope> =
-                serde_json::from_str(&t.scopes_json).unwrap_or_default();
+            let scopes: Vec<TokenScope> = serde_json::from_str(&t.scopes_json).unwrap_or_default();
             serde_json::json!({
                 "id": t.id,
                 "scopes": scopes,

@@ -4,6 +4,12 @@ pub struct TestDb {
     conn: Connection,
 }
 
+impl Default for TestDb {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TestDb {
     pub fn new() -> Self {
         let conn = Connection::open_in_memory().expect("Failed to create in-memory SQLite");

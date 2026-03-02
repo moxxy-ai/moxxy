@@ -4,11 +4,10 @@
   "description": "Moxxy Agentic Framework CLI",
   "type": "module",
   "bin": {
-    "moxxy": "./src/main.js"
+    "moxxy": "./src/cli.js"
   },
   "scripts": {
-    "test": "node --test test/**/*.test.js",
-    "start": "node src/main.js"
+    "test": "node --test test/cli.test.js"
   },
   "engines": {
     "node": ">=22.0.0"

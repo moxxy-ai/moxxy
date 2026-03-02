@@ -2,8 +2,8 @@ pub mod auth_extractor;
 pub mod routes;
 pub mod state;
 
-use axum::routing::{delete, get, post};
 use axum::Router;
+use axum::routing::{delete, get, post};
 use state::AppState;
 use std::sync::Arc;
 
@@ -14,10 +14,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/v1/auth/tokens",
             post(routes::auth::create_token).get(routes::auth::list_tokens),
         )
-        .route(
-            "/v1/auth/tokens/{id}",
-            delete(routes::auth::revoke_token),
-        )
+        .route("/v1/auth/tokens/{id}", delete(routes::auth::revoke_token))
         // Providers
         .route("/v1/providers", get(routes::providers::list_providers))
         .route(
@@ -58,8 +55,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
 #[cfg(test)]
 mod test_helpers {
     use super::*;
-    use axum::body::Body;
     use axum::Router;
+    use axum::body::Body;
     use http::Request;
     use moxxy_core::ApiTokenService;
     use moxxy_storage::{ProviderRow, StoredTokenRow};
@@ -360,10 +357,8 @@ mod agent_tests {
     #[tokio::test]
     async fn start_run_transitions_status() {
         let (app, state) = test_app();
-        let token = create_token_in_db(
-            &state,
-            vec![TokenScope::AgentsWrite, TokenScope::RunsWrite],
-        );
+        let token =
+            create_token_in_db(&state, vec![TokenScope::AgentsWrite, TokenScope::RunsWrite]);
         seed_provider(&state);
         let req = Request::builder()
             .method("POST")
@@ -401,10 +396,8 @@ mod agent_tests {
     #[tokio::test]
     async fn stop_run_transitions_status() {
         let (app, state) = test_app();
-        let token = create_token_in_db(
-            &state,
-            vec![TokenScope::AgentsWrite, TokenScope::RunsWrite],
-        );
+        let token =
+            create_token_in_db(&state, vec![TokenScope::AgentsWrite, TokenScope::RunsWrite]);
         seed_provider(&state);
         // Create agent
         let req = Request::builder()

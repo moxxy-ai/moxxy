@@ -1,14 +1,14 @@
+use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
-use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
-use axum::Json;
+use axum::response::sse::{Event, KeepAlive, Sse};
 use moxxy_types::TokenScope;
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::auth_extractor::{check_scope, AuthToken};
+use crate::auth_extractor::{AuthToken, check_scope};
 use crate::state::AppState;
 
 #[derive(serde::Deserialize, Default)]
@@ -32,11 +32,10 @@ pub async fn event_stream(
         loop {
             match rx.recv().await {
                 Ok(envelope) => {
-                    if let Some(ref filter_agent) = params.agent_id {
-                        if &envelope.agent_id != filter_agent {
+                    if let Some(ref filter_agent) = params.agent_id
+                        && &envelope.agent_id != filter_agent {
                             continue;
                         }
-                    }
                     if let Some(ref filter_run) = params.run_id {
                         match &envelope.run_id {
                             Some(run_id) if run_id == filter_run => {}

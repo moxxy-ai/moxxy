@@ -1,129 +1,94 @@
 /**
- * Moxxy API client wrapping native fetch with auth header injection.
+ * Moxxy API client.
+ * Uses native fetch with bearer token injection.
  */
 export class ApiClient {
-  #baseUrl;
-  #token;
-
-  constructor(baseUrl = 'http://localhost:3000', token = null) {
-    this.#baseUrl = baseUrl.replace(/\/+$/, '');
-    this.#token = token;
+  constructor(baseUrl, token) {
+    this.baseUrl = baseUrl;
+    this.token = token;
   }
 
-  get baseUrl() {
-    return this.#baseUrl;
+  buildUrl(path) {
+    return `${this.baseUrl}${path}`;
   }
 
-  get token() {
-    return this.#token;
-  }
-
-  setToken(token) {
-    this.#token = token;
-  }
-
-  #headers(extra = {}) {
-    const headers = { 'Content-Type': 'application/json', ...extra };
-    if (this.#token) {
-      headers['Authorization'] = `Bearer ${this.#token}`;
-    }
-    return headers;
-  }
-
-  async #request(method, path, body = null) {
-    const url = `${this.#baseUrl}${path}`;
-    const opts = {
-      method,
-      headers: this.#headers(),
+  buildRequest(path, method, body) {
+    const headers = {
+      'content-type': 'application/json',
     };
-    if (body !== null && body !== undefined) {
-      opts.body = JSON.stringify(body);
+    if (this.token) {
+      headers['authorization'] = `Bearer ${this.token}`;
     }
-    const resp = await fetch(url, opts);
-    const contentType = resp.headers.get('content-type') || '';
+    return new Request(this.buildUrl(path), {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  }
 
-    let data = null;
-    if (contentType.includes('application/json')) {
-      data = await resp.json();
-    } else {
-      data = await resp.text();
-    }
-
+  async request(path, method, body) {
+    const req = this.buildRequest(path, method, body);
+    const resp = await fetch(req);
     if (!resp.ok) {
-      const errMsg = data?.message || data?.error || `HTTP ${resp.status}`;
-      const err = new Error(errMsg);
-      err.status = resp.status;
-      err.data = data;
-      throw err;
+      const err = await resp.json().catch(() => ({
+        error: 'unknown',
+        message: resp.statusText,
+      }));
+      const error = new Error(err.message || `API error ${resp.status}`);
+      error.status = resp.status;
+      throw error;
     }
-    return data;
+    const text = await resp.text();
+    if (!text) return {};
+    return JSON.parse(text);
   }
 
-  get(path) {
-    return this.#request('GET', path);
-  }
-
-  post(path, body) {
-    return this.#request('POST', path, body);
-  }
-
-  delete(path) {
-    return this.#request('DELETE', path);
-  }
-
-  // --- Auth ---
-  createToken(scopes, ttlSeconds = null, description = '') {
+  async createToken(scopes, ttlSeconds, description) {
     const body = { scopes };
-    if (ttlSeconds) body.ttl_seconds = ttlSeconds;
+    if (ttlSeconds !== undefined && ttlSeconds !== null) body.ttl_seconds = ttlSeconds;
     if (description) body.description = description;
-    return this.post('/v1/auth/tokens', body);
+    return this.request('/v1/auth/tokens', 'POST', body);
   }
 
-  listTokens() {
-    return this.get('/v1/auth/tokens');
+  async listTokens() {
+    return this.request('/v1/auth/tokens', 'GET');
   }
 
-  revokeToken(id) {
-    return this.delete(`/v1/auth/tokens/${encodeURIComponent(id)}`);
+  async revokeToken(id) {
+    return this.request(`/v1/auth/tokens/${encodeURIComponent(id)}`, 'DELETE');
   }
 
-  // --- Agents ---
-  createAgent(providerId, modelId, workspaceRoot, opts = {}) {
-    return this.post('/v1/agents', {
+  async createAgent(providerId, modelId, workspaceRoot, opts = {}) {
+    const body = {
       provider_id: providerId,
       model_id: modelId,
       workspace_root: workspaceRoot,
       ...opts,
-    });
+    };
+    return this.request('/v1/agents', 'POST', body);
   }
 
-  getAgent(id) {
-    return this.get(`/v1/agents/${encodeURIComponent(id)}`);
+  async getAgent(id) {
+    return this.request(`/v1/agents/${encodeURIComponent(id)}`, 'GET');
   }
 
-  startRun(agentId, task) {
-    return this.post(`/v1/agents/${encodeURIComponent(agentId)}/runs`, { task });
+  async startRun(agentId, task) {
+    return this.request(`/v1/agents/${encodeURIComponent(agentId)}/runs`, 'POST', { task });
   }
 
-  stopAgent(agentId) {
-    return this.post(`/v1/agents/${encodeURIComponent(agentId)}/stop`, {});
+  async stopAgent(agentId) {
+    return this.request(`/v1/agents/${encodeURIComponent(agentId)}/stop`, 'POST');
   }
 
-  // --- Events ---
   eventStreamUrl(filters = {}) {
-    const params = new URLSearchParams();
-    if (filters.agent_id) params.set('agent_id', filters.agent_id);
-    if (filters.run_id) params.set('run_id', filters.run_id);
-    const qs = params.toString();
-    return `${this.#baseUrl}/v1/events/stream${qs ? '?' + qs : ''}`;
+    const url = new URL('/v1/events/stream', this.baseUrl);
+    for (const [k, v] of Object.entries(filters)) {
+      if (v) url.searchParams.set(k, v);
+    }
+    return url.toString();
   }
 }
 
-/**
- * Load API client from environment/config.
- */
-export function createClient() {
-  const baseUrl = process.env.MOXXY_API_URL || 'http://localhost:3000';
-  const token = process.env.MOXXY_TOKEN || null;
+export function createApiClient(baseUrl, token) {
   return new ApiClient(baseUrl, token);
 }

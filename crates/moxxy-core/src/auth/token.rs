@@ -1,5 +1,5 @@
-use sha2::{Sha256, Digest};
-use moxxy_types::{TokenScope, TokenError};
+use moxxy_types::{TokenError, TokenScope};
+use sha2::{Digest, Sha256};
 
 pub struct IssuedToken {
     pub id: String,
@@ -122,8 +122,7 @@ mod tests {
             vec![TokenScope::AgentsRead],
             Some(chrono::Duration::seconds(-1)),
         );
-        stored.expires_at =
-            Some((chrono::Utc::now() - chrono::Duration::seconds(60)).to_rfc3339());
+        stored.expires_at = Some((chrono::Utc::now() - chrono::Duration::seconds(60)).to_rfc3339());
         let err = ApiTokenService::verify(&plaintext, &stored).unwrap_err();
         assert!(matches!(err, TokenError::Expired));
     }

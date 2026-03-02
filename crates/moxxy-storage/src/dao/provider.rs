@@ -1,6 +1,6 @@
-use rusqlite::{Connection, params};
+use crate::rows::{ProviderModelRow, ProviderRow};
 use moxxy_types::StorageError;
-use crate::rows::{ProviderRow, ProviderModelRow};
+use rusqlite::{Connection, params};
 
 pub struct ProviderDao<'a> {
     pub conn: &'a Connection,
@@ -39,7 +39,9 @@ impl<'a> ProviderDao<'a> {
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
 
         match rows.next() {
-            Some(r) => Ok(Some(r.map_err(|e| StorageError::QueryFailed(e.to_string()))?)),
+            Some(r) => Ok(Some(
+                r.map_err(|e| StorageError::QueryFailed(e.to_string()))?,
+            )),
             None => Ok(None),
         }
     }
@@ -128,8 +130,8 @@ impl<'a> ProviderDao<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moxxy_test_utils::TestDb;
     use crate::fixtures::*;
+    use moxxy_test_utils::TestDb;
 
     #[test]
     fn insert_and_find_by_id() {

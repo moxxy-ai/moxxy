@@ -187,8 +187,7 @@ body"#;
 
     #[test]
     fn preserves_body_whitespace() {
-        let input =
-            "---\nid: s\nname: S\nversion: \"1\"\ninputs_schema: {}\nallowed_primitives: [fs.read]\nsafety_notes: safe\n---\n  indented\n    more indented";
+        let input = "---\nid: s\nname: S\nversion: \"1\"\ninputs_schema: {}\nallowed_primitives: [fs.read]\nsafety_notes: safe\n---\n  indented\n    more indented";
         let doc = SkillDoc::parse(input).unwrap();
         assert!(doc.body.contains("  indented"));
         assert!(doc.body.contains("    more indented"));
