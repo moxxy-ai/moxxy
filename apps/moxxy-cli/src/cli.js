@@ -154,6 +154,9 @@ async function main() {
     return;
   }
 
+  // Clear the terminal for a clean start
+  process.stdout.write('\x1b[2J\x1b[H');
+
   const baseUrl = process.env.MOXXY_API_URL || 'http://localhost:3000';
   const authMode = readAuthMode();
   const token = process.env.MOXXY_TOKEN || '';
