@@ -9,3 +9,4 @@ pub mod memory;
 pub mod providers;
 pub mod skills;
 pub mod vault;
+pub mod webhooks;

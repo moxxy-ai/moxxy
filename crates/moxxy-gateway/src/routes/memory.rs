@@ -102,11 +102,12 @@ pub async fn compact_memory(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::AgentsWrite)?;
 
-    let records = {
+    let (records, workspace_root) = {
         let db = state.db.lock().unwrap();
 
-        // Verify agent exists
-        db.agents()
+        // Verify agent exists and get workspace_root
+        let agent = db
+            .agents()
             .find_by_id(&agent_id)
             .map_err(|_| {
                 (
@@ -121,12 +122,14 @@ pub async fn compact_memory(
                 )
             })?;
 
-        db.memory().find_by_agent(&agent_id).map_err(|_| {
+        let records = db.memory().find_by_agent(&agent_id).map_err(|_| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "internal", "message": "Database error"})),
             )
-        })?
+        })?;
+
+        (records, agent.workspace_root)
     };
 
     // Emit compact started event
@@ -158,11 +161,12 @@ pub async fn compact_memory(
     let compactor = MemoryCompactor::new(CompactionConfig::default());
     let groups = compactor.find_eligible(&eligible_entries, chrono::Utc::now());
 
+    let workspace = std::path::PathBuf::from(&workspace_root);
+    let memory_dir = workspace.join(".moxxy").join("memory");
+    let archive_dir = workspace.join(".moxxy").join("archive");
+
     let mut results = Vec::new();
     for (tag, entries) in &groups {
-        let memory_dir = std::path::PathBuf::from(format!("/tmp/moxxy/{}/memory", agent_id));
-        let archive_dir = std::path::PathBuf::from(format!("/tmp/moxxy/{}/archive", agent_id));
-
         match compactor
             .compact_group(entries, tag, &memory_dir, &archive_dir, None)
             .await

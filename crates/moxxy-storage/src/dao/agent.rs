@@ -122,6 +122,44 @@ impl<'a> AgentDao<'a> {
         Ok(())
     }
 
+    pub fn find_by_status(&self, status: &str) -> Result<Vec<AgentRow>, StorageError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, parent_agent_id, provider_id, model_id, workspace_root,
+                 core_mount, policy_profile, temperature, max_subagent_depth, max_subagents_total,
+                 status, depth, spawned_total, created_at, updated_at
+                 FROM agents WHERE status = ?1",
+            )
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        let rows = stmt
+            .query_map(params![status], Self::map_row)
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))
+    }
+
+    pub fn find_by_parent(&self, parent_id: &str) -> Result<Vec<AgentRow>, StorageError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, parent_agent_id, provider_id, model_id, workspace_root,
+                 core_mount, policy_profile, temperature, max_subagent_depth, max_subagents_total,
+                 status, depth, spawned_total, created_at, updated_at
+                 FROM agents WHERE parent_agent_id = ?1",
+            )
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        let rows = stmt
+            .query_map(params![parent_id], Self::map_row)
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))
+    }
+
     fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRow> {
         Ok(AgentRow {
             id: row.get(0)?,
@@ -248,6 +286,42 @@ mod tests {
 
         dao.increment_spawned_total(&agent.id).unwrap();
         assert_eq!(dao.find_by_id(&agent.id).unwrap().unwrap().spawned_total, 2);
+    }
+
+    #[test]
+    fn find_by_status() {
+        let db = TestDb::new();
+        insert_provider_for_agent(&db);
+        let dao = AgentDao { conn: db.conn() };
+        let agent = fixture_agent_row();
+        dao.insert(&agent).unwrap();
+        dao.update_status(&agent.id, "running").unwrap();
+
+        let running = dao.find_by_status("running").unwrap();
+        assert_eq!(running.len(), 1);
+        assert_eq!(running[0].id, agent.id);
+
+        let idle = dao.find_by_status("idle").unwrap();
+        assert!(idle.is_empty());
+    }
+
+    #[test]
+    fn find_by_parent() {
+        let db = TestDb::new();
+        insert_provider_for_agent(&db);
+        let dao = AgentDao { conn: db.conn() };
+        let parent = fixture_agent_row();
+        dao.insert(&parent).unwrap();
+
+        let mut child = fixture_agent_row();
+        child.id = uuid::Uuid::now_v7().to_string();
+        child.parent_agent_id = Some(parent.id.clone());
+        child.depth = 1;
+        dao.insert(&child).unwrap();
+
+        let children = dao.find_by_parent(&parent.id).unwrap();
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].id, child.id);
     }
 
     #[test]

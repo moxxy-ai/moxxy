@@ -89,6 +89,39 @@ impl<'a> EventAuditDao<'a> {
             .map_err(|e| StorageError::QueryFailed(e.to_string()))
     }
 
+    pub fn find_by_run(&self, run_id: &str) -> Result<Vec<EventAuditRow>, StorageError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT event_id, ts, agent_id, run_id, parent_run_id,
+                 sequence, event_type, payload_json, redactions_json, sensitive, created_at
+                 FROM event_audit WHERE run_id = ?1 ORDER BY sequence ASC",
+            )
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        let rows = stmt
+            .query_map(params![run_id], Self::map_row)
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))
+    }
+
+    pub fn delete(&self, event_id: &str) -> Result<(), StorageError> {
+        let affected = self
+            .conn
+            .execute(
+                "DELETE FROM event_audit WHERE event_id = ?1",
+                params![event_id],
+            )
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        if affected == 0 {
+            return Err(StorageError::NotFound);
+        }
+        Ok(())
+    }
+
     fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<EventAuditRow> {
         Ok(EventAuditRow {
             event_id: row.get(0)?,
@@ -165,6 +198,41 @@ mod tests {
         dao.insert(&event).unwrap();
         let found = dao.find_by_id(&event.event_id).unwrap().unwrap();
         assert!(found.sensitive);
+    }
+
+    #[test]
+    fn find_by_run() {
+        let db = TestDb::new();
+        let dao = EventAuditDao { conn: db.conn() };
+        let mut event = fixture_event_audit_row();
+        event.run_id = Some("run-123".to_string());
+        dao.insert(&event).unwrap();
+
+        let found = dao.find_by_run("run-123").unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].event_id, event.event_id);
+
+        let empty = dao.find_by_run("no-such-run").unwrap();
+        assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn delete_event() {
+        let db = TestDb::new();
+        let dao = EventAuditDao { conn: db.conn() };
+        let event = fixture_event_audit_row();
+        dao.insert(&event).unwrap();
+        dao.delete(&event.event_id).unwrap();
+        let found = dao.find_by_id(&event.event_id).unwrap();
+        assert!(found.is_none());
+    }
+
+    #[test]
+    fn delete_nonexistent_event_returns_not_found() {
+        let db = TestDb::new();
+        let dao = EventAuditDao { conn: db.conn() };
+        let result = dao.delete("nonexistent");
+        assert!(matches!(result, Err(StorageError::NotFound)));
     }
 
     #[test]

@@ -262,32 +262,35 @@ pub async fn stop_run(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::RunsWrite)?;
 
-    let db = state.db.lock().unwrap();
-    let agent = db
-        .agents()
-        .find_by_id(&id)
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "internal", "message": "Database error"})),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "not_found", "message": "Agent not found"})),
-            )
-        })?;
+    // Verify agent exists first
+    {
+        let db = state.db.lock().unwrap();
+        db.agents()
+            .find_by_id(&id)
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "internal", "message": "Database error"})),
+                )
+            })?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({"error": "not_found", "message": "Agent not found"})),
+                )
+            })?;
+    }
 
-    db.agents().update_status(&agent.id, "idle").map_err(|_| {
+    // Cancel the running executor and update status via RunService
+    state.run_service.do_stop_agent(&id).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "internal", "message": "Failed to update status"})),
+            Json(serde_json::json!({"error": "internal", "message": e})),
         )
     })?;
 
     Ok(Json(serde_json::json!({
-        "agent_id": agent.id,
+        "agent_id": id,
         "status": "idle"
     })))
 }

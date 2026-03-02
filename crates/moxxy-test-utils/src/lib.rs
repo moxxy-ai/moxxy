@@ -45,19 +45,6 @@ impl TestDb {
         self.conn
             .execute_batch(sql4)
             .expect("Migration 0004 failed");
-        // Migration 0006: heartbeat cron columns
-        let has_cron: bool = self
-            .conn
-            .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='heartbeats'")
-            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, String>(0)))
-            .map(|sql| sql.contains("cron_expr"))
-            .unwrap_or(false);
-        if !has_cron {
-            let sql6 = include_str!("../../../migrations/0006_heartbeat_cron.sql");
-            self.conn
-                .execute_batch(sql6)
-                .expect("Migration 0006 failed");
-        }
         // Migration 0005: ALTER TABLE is not idempotent, so check if column exists first
         let has_status: bool = self
             .conn
@@ -70,6 +57,19 @@ impl TestDb {
             self.conn
                 .execute_batch(sql5)
                 .expect("Migration 0005 failed");
+        }
+        // Migration 0006: heartbeat cron columns
+        let has_cron: bool = self
+            .conn
+            .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='heartbeats'")
+            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, String>(0)))
+            .map(|sql| sql.contains("cron_expr"))
+            .unwrap_or(false);
+        if !has_cron {
+            let sql6 = include_str!("../../../migrations/0006_heartbeat_cron.sql");
+            self.conn
+                .execute_batch(sql6)
+                .expect("Migration 0006 failed");
         }
         self.conn
             .execute_batch(

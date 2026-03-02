@@ -109,6 +109,18 @@ impl<'a> SkillDao<'a> {
             .map_err(|e| StorageError::QueryFailed(e.to_string()))
     }
 
+    pub fn delete(&self, id: &str) -> Result<(), StorageError> {
+        let affected = self
+            .conn
+            .execute("DELETE FROM skills WHERE id = ?1", params![id])
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        if affected == 0 {
+            return Err(StorageError::NotFound);
+        }
+        Ok(())
+    }
+
     fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SkillRow> {
         Ok(SkillRow {
             id: row.get(0)?,
@@ -230,6 +242,27 @@ mod tests {
         dao.insert(&skill).unwrap();
         let all = dao.list_all().unwrap();
         assert_eq!(all.len(), 1);
+    }
+
+    #[test]
+    fn delete_skill() {
+        let db = TestDb::new();
+        let agent_id = seed_agent(&db);
+        let dao = SkillDao { conn: db.conn() };
+        let mut skill = fixture_skill_row();
+        skill.agent_id = agent_id;
+        dao.insert(&skill).unwrap();
+        dao.delete(&skill.id).unwrap();
+        let found = dao.find_by_id(&skill.id).unwrap();
+        assert!(found.is_none());
+    }
+
+    #[test]
+    fn delete_nonexistent_skill_returns_not_found() {
+        let db = TestDb::new();
+        let dao = SkillDao { conn: db.conn() };
+        let result = dao.delete("nonexistent");
+        assert!(matches!(result, Err(StorageError::NotFound)));
     }
 
     #[test]

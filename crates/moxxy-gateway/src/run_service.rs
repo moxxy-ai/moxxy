@@ -43,6 +43,8 @@ pub struct RunService {
     pub run_tokens: Arc<Mutex<HashMap<String, CancellationToken>>>,
     channel_sender: Mutex<Option<Arc<dyn ChannelMessageSender>>>,
     vault_backend: Arc<dyn SecretBackend + Send + Sync>,
+    pub allowed_domains: Vec<String>,
+    pub shell_allowlist: Vec<String>,
 }
 
 impl RunService {
@@ -59,6 +61,15 @@ impl RunService {
             run_tokens: Arc::new(Mutex::new(HashMap::new())),
             channel_sender: Mutex::new(None),
             vault_backend,
+            allowed_domains: vec![],
+            shell_allowlist: vec![
+                "ls".into(),
+                "cat".into(),
+                "grep".into(),
+                "find".into(),
+                "echo".into(),
+                "wc".into(),
+            ],
         }
     }
 
@@ -85,6 +96,10 @@ impl RunService {
                 .find_by_id(agent_id)
                 .map_err(|e| e.to_string())?
                 .ok_or_else(|| "Agent not found".to_string())?;
+
+            if agent.status == "running" {
+                return Err("Agent is already running".to_string());
+            }
 
             db.agents()
                 .update_status(&agent.id, "running")
@@ -128,23 +143,16 @@ impl RunService {
             memory_base,
         )));
 
-        // Shell primitive (restricted allowlist, 30s timeout, 1MB output cap)
+        // Shell primitive (configurable allowlist, 30s timeout, 1MB output cap)
         registry.register(Box::new(moxxy_runtime::ShellExecPrimitive::new(
-            vec![
-                "ls".into(),
-                "cat".into(),
-                "grep".into(),
-                "find".into(),
-                "echo".into(),
-                "wc".into(),
-            ],
+            self.shell_allowlist.clone(),
             std::time::Duration::from_secs(30),
             1024 * 1024,
         )));
 
-        // HTTP primitive (empty domain allowlist by default)
+        // HTTP primitive (configurable domain allowlist)
         registry.register(Box::new(moxxy_runtime::HttpRequestPrimitive::new(
-            vec![],
+            self.allowed_domains.clone(),
             std::time::Duration::from_secs(30),
             5 * 1024 * 1024,
         )));
@@ -154,7 +162,9 @@ impl RunService {
         registry.register(Box::new(moxxy_runtime::SkillValidatePrimitive::new()));
 
         // Notification primitives
-        registry.register(Box::new(moxxy_runtime::WebhookNotifyPrimitive::new(vec![])));
+        registry.register(Box::new(moxxy_runtime::WebhookNotifyPrimitive::new(
+            self.allowed_domains.clone(),
+        )));
         registry.register(Box::new(moxxy_runtime::CliNotifyPrimitive::new(
             event_bus.clone(),
         )));
@@ -175,9 +185,9 @@ impl RunService {
             self.db.clone(),
         )));
 
-        // Browse primitives
+        // Browse primitives (configurable domain allowlist)
         registry.register(Box::new(moxxy_runtime::BrowseFetchPrimitive::new(
-            vec![],
+            self.allowed_domains.clone(),
             std::time::Duration::from_secs(30),
             10 * 1024 * 1024,
         )));

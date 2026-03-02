@@ -105,9 +105,17 @@ impl<'a> MemoryDao<'a> {
         embedding: &[u8],
     ) -> Result<(), StorageError> {
         self.insert(row)?;
+        // Insert into regular table (FK-backed storage)
         self.conn
             .execute(
                 "INSERT INTO memory_vec (memory_id, embedding) VALUES (?1, ?2)",
+                params![row.id, embedding],
+            )
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+        // Insert into vec0 virtual table (KNN search)
+        self.conn
+            .execute(
+                "INSERT INTO memory_vec0 (memory_id, embedding) VALUES (?1, ?2)",
                 params![row.id, embedding],
             )
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
@@ -117,37 +125,47 @@ impl<'a> MemoryDao<'a> {
     pub fn search_similar(
         &self,
         agent_id: &str,
-        _embedding: &[u8],
+        embedding: &[u8],
         limit: usize,
     ) -> Result<Vec<(MemoryIndexRow, f64)>, StorageError> {
+        // Over-fetch from vec0 to account for agent_id/status filtering
+        let overfetch = (limit * 5).max(50) as i64;
         let mut stmt = self
             .conn
             .prepare(
                 "SELECT mi.id, mi.agent_id, mi.markdown_path, mi.tags_json, mi.chunk_hash,
-                 mi.embedding_id, mi.status, mi.created_at, mi.updated_at, mv.rowid
-                 FROM memory_vec mv
-                 JOIN memory_index mi ON mi.id = mv.memory_id
-                 WHERE mi.agent_id = ?1 AND mi.status = 'active'
-                 ORDER BY mv.rowid
-                 LIMIT ?2",
+                 mi.embedding_id, mi.status, mi.created_at, mi.updated_at, v.distance
+                 FROM (
+                     SELECT memory_id, distance
+                     FROM memory_vec0
+                     WHERE embedding MATCH ?1 AND k = ?2
+                 ) v
+                 JOIN memory_index mi ON mi.id = v.memory_id
+                 WHERE mi.agent_id = ?3 AND mi.status = 'active'
+                 ORDER BY v.distance
+                 LIMIT ?4",
             )
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
 
         let rows = stmt
-            .query_map(params![agent_id, limit as i64], |row| {
-                let mem = MemoryIndexRow {
-                    id: row.get(0)?,
-                    agent_id: row.get(1)?,
-                    markdown_path: row.get(2)?,
-                    tags_json: row.get(3)?,
-                    chunk_hash: row.get(4)?,
-                    embedding_id: row.get(5)?,
-                    status: row.get(6)?,
-                    created_at: row.get(7)?,
-                    updated_at: row.get(8)?,
-                };
-                Ok((mem, 0.0_f64))
-            })
+            .query_map(
+                params![embedding, overfetch, agent_id, limit as i64],
+                |row| {
+                    let mem = MemoryIndexRow {
+                        id: row.get(0)?,
+                        agent_id: row.get(1)?,
+                        markdown_path: row.get(2)?,
+                        tags_json: row.get(3)?,
+                        chunk_hash: row.get(4)?,
+                        embedding_id: row.get(5)?,
+                        status: row.get(6)?,
+                        created_at: row.get(7)?,
+                        updated_at: row.get(8)?,
+                    };
+                    let distance: f64 = row.get(9)?;
+                    Ok((mem, distance))
+                },
+            )
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
 
         rows.collect::<Result<Vec<_>, _>>()
@@ -177,6 +195,12 @@ impl<'a> MemoryDao<'a> {
                 params![memory_id],
             )
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        // Also remove from vec0 virtual table
+        let _ = self.conn.execute(
+            "DELETE FROM memory_vec0 WHERE memory_id = ?1",
+            params![memory_id],
+        );
 
         if affected == 0 {
             return Err(StorageError::NotFound);

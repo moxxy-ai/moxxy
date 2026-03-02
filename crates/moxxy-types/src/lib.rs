@@ -4,7 +4,6 @@ pub mod channels;
 pub mod errors;
 pub mod events;
 pub mod heartbeat;
-pub mod memory;
 pub mod skills;
 pub mod vault;
 

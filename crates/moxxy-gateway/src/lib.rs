@@ -99,6 +99,19 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
             post(routes::vault::create_grant).get(routes::vault::list_grants),
         )
         .route("/v1/vault/grants/{id}", delete(routes::vault::revoke_grant))
+        // Webhooks
+        .route(
+            "/v1/agents/{id}/webhooks",
+            get(routes::webhooks::list_webhooks),
+        )
+        .route(
+            "/v1/agents/{id}/webhooks/{wh_id}",
+            delete(routes::webhooks::delete_webhook),
+        )
+        .route(
+            "/v1/agents/{id}/webhooks/{wh_id}/deliveries",
+            get(routes::webhooks::list_deliveries),
+        )
         // Audit logs
         .route("/v1/audit-logs", get(routes::audit::list_audit_logs))
         // Events
