@@ -6,5 +6,10 @@ edition.workspace = true
 [dependencies]
 moxxy-types = { path = "../moxxy-types" }
 moxxy-storage = { path = "../moxxy-storage" }
-keyring = { workspace = true }
+rusqlite = { workspace = true }
 thiserror = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+moxxy-test-utils = { path = "../moxxy-test-utils" }
