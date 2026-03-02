@@ -2,7 +2,7 @@ pub mod backend;
 pub mod policy;
 pub mod service;
 
-pub use backend::{InMemoryBackend, SecretBackend};
+pub use backend::{InMemoryBackend, SecretBackend, SqliteBackend};
 pub use policy::VaultPolicy;
 pub use service::VaultService;
 

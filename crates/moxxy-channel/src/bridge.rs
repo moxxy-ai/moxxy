@@ -2,31 +2,27 @@ use crate::pairing::PairingService;
 use crate::transport::{ChannelTransport, IncomingMessage, OutgoingMessage};
 use moxxy_core::EventBus;
 use moxxy_storage::Database;
-use moxxy_types::{ChannelError, EventType};
+use moxxy_types::{ChannelError, EventType, MessageContent, RunStarter};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
-/// Trait for triggering agent runs. Implemented by the gateway's RunService.
-#[async_trait::async_trait]
-pub trait RunStarter: Send + Sync {
-    async fn start_run(&self, agent_id: &str, task: &str) -> Result<String, String>;
-    async fn stop_agent(&self, agent_id: &str) -> Result<(), String>;
-    fn agent_status(&self, agent_id: &str) -> Result<Option<String>, String>;
-}
-
 /// Trait for sending messages through channels. Used by ChannelNotifyPrimitive.
 #[async_trait::async_trait]
 pub trait ChannelSender: Send + Sync {
-    /// Send a message to all active channel bindings for an agent.
+    /// Send structured content to all active channel bindings for an agent.
     /// Returns the number of channels notified.
     async fn send_to_agent_channels(
         &self,
         agent_id: &str,
-        message: &str,
+        content: MessageContent,
     ) -> Result<u32, ChannelError>;
-    /// Send a message to a specific channel's bound chat.
-    async fn send_to_channel(&self, channel_id: &str, message: &str) -> Result<(), ChannelError>;
+    /// Send structured content to a specific channel's bound chat.
+    async fn send_to_channel(
+        &self,
+        channel_id: &str,
+        content: MessageContent,
+    ) -> Result<(), ChannelError>;
 }
 
 pub struct ChannelBridge {
@@ -138,6 +134,13 @@ impl ChannelBridge {
         transport: &Arc<dyn ChannelTransport>,
         msg: IncomingMessage,
     ) {
+        tracing::info!(
+            channel_id,
+            external_chat_id = %msg.external_chat_id,
+            text_len = msg.text.len(),
+            "Inbound channel message"
+        );
+
         // Handle platform slash commands
         if msg.text.starts_with('/') {
             self.handle_platform_command(channel_id, transport, &msg)
@@ -161,8 +164,7 @@ impl ChannelBridge {
             let _ = transport
                 .send_message(OutgoingMessage {
                     external_chat_id: msg.external_chat_id.clone(),
-                    text: "This chat is not paired to an agent. Send /start to get a pairing code."
-                        .into(),
+                    content: MessageContent::Text("This chat is not paired to an agent. Send /start to get a pairing code.".into()),
                 })
                 .await;
             return;
@@ -172,7 +174,7 @@ impl ChannelBridge {
             let _ = transport
                 .send_message(OutgoingMessage {
                     external_chat_id: msg.external_chat_id.clone(),
-                    text: "This binding is not active.".into(),
+                    content: MessageContent::Text("This binding is not active.".into()),
                 })
                 .await;
             return;
@@ -205,7 +207,7 @@ impl ChannelBridge {
                 let _ = transport
                     .send_message(OutgoingMessage {
                         external_chat_id: msg.external_chat_id.clone(),
-                        text: format!("Failed to start agent run: {}", e),
+                        content: MessageContent::Text(format!("Failed to start agent run: {}", e)),
                     })
                     .await;
             }
@@ -241,7 +243,7 @@ impl ChannelBridge {
         let _ = transport
             .send_message(OutgoingMessage {
                 external_chat_id: msg.external_chat_id.clone(),
-                text: response_text,
+                content: MessageContent::Text(response_text),
             })
             .await;
     }
@@ -297,7 +299,71 @@ impl ChannelBridge {
         }
     }
 
-    /// Subscribe to EventBus and forward message.final events to bound platform chats.
+    /// Convert an event envelope into structured `MessageContent`, if applicable.
+    fn event_to_content(envelope: &moxxy_types::EventEnvelope) -> Option<MessageContent> {
+        match envelope.event_type {
+            EventType::MessageFinal => {
+                let text = envelope
+                    .payload
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                if text.is_empty() {
+                    None
+                } else {
+                    Some(MessageContent::Text(text))
+                }
+            }
+            EventType::PrimitiveInvoked => {
+                let name = envelope
+                    .payload
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let arguments = envelope
+                    .payload
+                    .get("arguments")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                Some(MessageContent::ToolInvocation { name, arguments })
+            }
+            EventType::PrimitiveCompleted => {
+                let name = envelope
+                    .payload
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let result = envelope
+                    .payload
+                    .get("result")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                Some(MessageContent::ToolResult { name, result })
+            }
+            EventType::PrimitiveFailed => {
+                let name = envelope
+                    .payload
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let error = envelope
+                    .payload
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown error")
+                    .to_string();
+                Some(MessageContent::ToolError { name, error })
+            }
+            EventType::RunCompleted => Some(MessageContent::RunCompleted),
+            _ => None,
+        }
+    }
+
+    /// Subscribe to EventBus and forward relevant events to bound platform chats.
     fn spawn_event_listener(self: &Arc<Self>) {
         let mut rx = self.event_bus.subscribe();
         let bridge = self.clone();
@@ -310,25 +376,35 @@ impl ChannelBridge {
                     result = rx.recv() => {
                         match result {
                             Ok(envelope) => {
-                                if envelope.event_type != EventType::MessageFinal {
+                                let Some(content) = Self::event_to_content(&envelope) else {
                                     continue;
+                                };
+
+                                tracing::info!(
+                                    agent_id = %envelope.agent_id,
+                                    event_type = ?envelope.event_type,
+                                    "Bridge event listener forwarding to channels"
+                                );
+
+                                match bridge
+                                    .send_to_agent_channels(&envelope.agent_id, content)
+                                    .await
+                                {
+                                    Ok(sent) => {
+                                        tracing::info!(
+                                            agent_id = %envelope.agent_id,
+                                            channels_notified = sent,
+                                            "Bridge forwarded event to channels"
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            agent_id = %envelope.agent_id,
+                                            error = %e,
+                                            "Bridge failed to forward event"
+                                        );
+                                    }
                                 }
-
-                                let content = envelope
-                                    .payload
-                                    .get("content")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string();
-
-                                if content.is_empty() {
-                                    continue;
-                                }
-
-                                // Use ChannelSender to forward to all agent channels
-                                let _ = bridge
-                                    .send_to_agent_channels(&envelope.agent_id, &content)
-                                    .await;
                             }
                             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                             Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
@@ -349,7 +425,7 @@ impl ChannelSender for ChannelBridge {
     async fn send_to_agent_channels(
         &self,
         agent_id: &str,
-        message: &str,
+        content: MessageContent,
     ) -> Result<u32, ChannelError> {
         let bindings = {
             let db = self
@@ -379,9 +455,14 @@ impl ChannelSender for ChannelBridge {
                 .collect()
         };
         for (transport, chat_id) in to_send {
+            tracing::info!(
+                agent_id,
+                external_chat_id = %chat_id,
+                "Outbound channel message"
+            );
             let msg = OutgoingMessage {
                 external_chat_id: chat_id,
-                text: message.to_string(),
+                content: content.clone(),
             };
             if transport.send_message(msg).await.is_ok() {
                 sent += 1;
@@ -390,7 +471,11 @@ impl ChannelSender for ChannelBridge {
         Ok(sent)
     }
 
-    async fn send_to_channel(&self, channel_id: &str, message: &str) -> Result<(), ChannelError> {
+    async fn send_to_channel(
+        &self,
+        channel_id: &str,
+        content: MessageContent,
+    ) -> Result<(), ChannelError> {
         let (transport, chat_id) = {
             let db = self
                 .db
@@ -415,10 +500,15 @@ impl ChannelSender for ChannelBridge {
             (transport, binding.external_chat_id)
         };
 
+        tracing::info!(
+            channel_id,
+            external_chat_id = %chat_id,
+            "Outbound channel message (direct)"
+        );
         transport
             .send_message(OutgoingMessage {
                 external_chat_id: chat_id,
-                text: message.to_string(),
+                content,
             })
             .await
     }

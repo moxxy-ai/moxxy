@@ -6,6 +6,7 @@ import { parseAgentCommand } from '../src/commands/agent.js';
 import { buildSseUrl, parseSseEvent, createSseClient } from '../src/sse-client.js';
 import { isInteractive, handleCancel } from '../src/ui.js';
 import { matchCommands, isSlashCommand, SLASH_COMMANDS } from '../src/tui/slash-commands.js';
+import { EventsHandler } from '../src/tui/events-handler.js';
 
 // API Client tests
 describe('api-client', () => {
@@ -22,8 +23,21 @@ describe('api-client', () => {
   });
 
   it('request throws on error response', async () => {
-    const client = createApiClient('http://localhost:99999', 'tok');
+    const client = createApiClient('http://127.0.0.1:19876', 'tok');
     await assert.rejects(() => client.request('/v1/agents', 'GET'));
+  });
+
+  it('request throws gateway-down error when connection refused', async () => {
+    // Use a valid port that's almost certainly not listening
+    const client = createApiClient('http://127.0.0.1:19876', 'tok');
+    try {
+      await client.request('/v1/agents', 'GET');
+      assert.fail('should have thrown');
+    } catch (err) {
+      assert.equal(err.isGatewayDown, true);
+      assert.ok(err.message.includes('Gateway is not running'));
+      assert.ok(err.message.includes('moxxy gateway start'));
+    }
   });
 });
 
@@ -58,11 +72,11 @@ describe('auth commands', () => {
 
 describe('agent commands', () => {
   it('parse agent create with required flags', () => {
-    const args = ['create', '--provider', 'openai', '--model', 'gpt-4', '--workspace', '/tmp/ws'];
+    const args = ['create', '--provider', 'openai', '--model', 'gpt-4', '--name', 'my-agent'];
     const parsed = parseAgentCommand(args);
     assert.equal(parsed.provider_id, 'openai');
     assert.equal(parsed.model_id, 'gpt-4');
-    assert.equal(parsed.workspace_root, '/tmp/ws');
+    assert.equal(parsed.name, 'my-agent');
   });
 
   it('parse agent run with task', () => {
@@ -78,6 +92,26 @@ describe('agent commands', () => {
     const parsed = parseAgentCommand(args);
     assert.equal(parsed.action, 'stop');
     assert.equal(parsed.id, 'agent-123');
+  });
+
+  it('parse agent update with all flags', () => {
+    const args = ['update', '--id', 'agent-123', '--provider', 'openai', '--model', 'gpt-4o', '--temperature', '0.9'];
+    const parsed = parseAgentCommand(args);
+    assert.equal(parsed.action, 'update');
+    assert.equal(parsed.id, 'agent-123');
+    assert.equal(parsed.provider_id, 'openai');
+    assert.equal(parsed.model_id, 'gpt-4o');
+    assert.equal(parsed.temperature, 0.9);
+  });
+
+  it('parse agent update with partial flags', () => {
+    const args = ['update', '--id', 'agent-123', '--temperature', '1.0'];
+    const parsed = parseAgentCommand(args);
+    assert.equal(parsed.action, 'update');
+    assert.equal(parsed.id, 'agent-123');
+    assert.equal(parsed.provider_id, undefined);
+    assert.equal(parsed.model_id, undefined);
+    assert.equal(parsed.temperature, 1.0);
   });
 });
 
@@ -162,6 +196,17 @@ describe('api-client new methods', () => {
     const client = createApiClient('http://localhost:3000', 'tok');
     assert.equal(typeof client.listSecrets, 'function');
   });
+
+  it('has updateAgent method', () => {
+    const client = createApiClient('http://localhost:3000', 'tok');
+    assert.equal(typeof client.updateAgent, 'function');
+  });
+
+  it('builds update agent URL', () => {
+    const client = createApiClient('http://localhost:3000', 'tok');
+    const url = client.buildUrl('/v1/agents/agent-123');
+    assert.equal(url, 'http://localhost:3000/v1/agents/agent-123');
+  });
 });
 
 // Slash command tests
@@ -194,5 +239,34 @@ describe('slash commands', () => {
     assert.equal(isSlashCommand('/'), true);
     assert.equal(isSlashCommand('hello'), false);
     assert.equal(isSlashCommand(''), false);
+  });
+});
+
+// Gateway down detection
+describe('gateway down detection', () => {
+  it('EventsHandler detects ECONNREFUSED', () => {
+    const handler = new EventsHandler({}, 'agent-1');
+    const err = new Error('fetch failed');
+    err.cause = { code: 'ECONNREFUSED' };
+    assert.equal(handler._isConnectionError(err), true);
+  });
+
+  it('EventsHandler detects ECONNRESET', () => {
+    const handler = new EventsHandler({}, 'agent-1');
+    const err = new Error('connection reset');
+    err.cause = { code: 'ECONNRESET' };
+    assert.equal(handler._isConnectionError(err), true);
+  });
+
+  it('EventsHandler detects fetch failed message', () => {
+    const handler = new EventsHandler({}, 'agent-1');
+    const err = new Error('fetch failed');
+    assert.equal(handler._isConnectionError(err), true);
+  });
+
+  it('EventsHandler ignores unrelated errors', () => {
+    const handler = new EventsHandler({}, 'agent-1');
+    const err = new Error('timeout');
+    assert.equal(handler._isConnectionError(err), false);
   });
 });

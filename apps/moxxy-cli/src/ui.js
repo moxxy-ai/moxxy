@@ -35,7 +35,7 @@ export async function pickAgent(client, message = 'Select an agent') {
     message,
     options: agents.map(a => ({
       value: a.id,
-      label: a.id.slice(0, 12),
+      label: a.name || a.id.slice(0, 12),
       hint: `${a.provider_id}/${a.model_id} [${a.status}]`,
     })),
   });

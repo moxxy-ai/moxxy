@@ -1,13 +1,12 @@
-import React from 'react';
-import { render } from 'ink';
-import { h } from './helpers.js';
+import { TUI, ProcessTerminal } from '@mariozechner/pi-tui';
 import { App } from './app.js';
 import { parseFlags } from '../commands/auth.js';
-import { isInteractive, pickAgent, p } from '../ui.js';
+import { isInteractive, pickAgent } from '../ui.js';
 
 export async function startTui(client, args) {
   const flags = parseFlags(args);
   let agentId = flags.agent || flags.id;
+  const debug = !!flags.debug;
 
   if (!agentId) {
     try {
@@ -28,16 +27,25 @@ export async function startTui(client, args) {
         return;
       }
     } catch (err) {
-      console.error(`Failed to list agents: ${err.message}`);
+      if (err.isGatewayDown) {
+        console.log(err.message);
+      } else {
+        console.error(`Failed to list agents: ${err.message}`);
+      }
       process.exitCode = 1;
       return;
     }
   }
 
-  const { waitUntilExit } = render(
-    h(App, { client, agentId }),
-    { exitOnCtrlC: true, patchConsole: true, fullScreen: true }
-  );
+  const terminal = new ProcessTerminal();
+  const tui = new TUI(terminal);
+  const app = new App(tui, client, agentId, { debug });
 
-  await waitUntilExit();
+  // Handle terminal resize
+  process.stdout.on('resize', () => {
+    app._updateLayout();
+    tui.requestRender(true); // force full re-render on resize
+  });
+
+  await app.start();
 }

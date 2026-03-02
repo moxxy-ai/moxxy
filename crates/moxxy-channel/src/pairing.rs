@@ -23,6 +23,12 @@ impl PairingService {
         let now = chrono::Utc::now();
         let expires_at = now + chrono::Duration::minutes(5);
 
+        tracing::info!(
+            channel_id,
+            external_chat_id,
+            "Generating pairing code"
+        );
+
         let row = ChannelPairingCodeRow {
             id: uuid::Uuid::now_v7().to_string(),
             channel_id: channel_id.to_string(),
@@ -41,6 +47,7 @@ impl PairingService {
             .insert(&row)
             .map_err(|e| ChannelError::StorageError(e.to_string()))?;
 
+        tracing::info!(channel_id, "Pairing code generated successfully");
         Ok(code)
     }
 
@@ -51,6 +58,8 @@ impl PairingService {
         code: &str,
         agent_id: &str,
     ) -> Result<ChannelBindingRow, ChannelError> {
+        tracing::info!(agent_id, "Consuming pairing code");
+
         let db = self
             .db
             .lock()
@@ -60,9 +69,13 @@ impl PairingService {
             .channel_pairing()
             .find_by_code(code)
             .map_err(|e| ChannelError::StorageError(e.to_string()))?
-            .ok_or(ChannelError::PairingCodeInvalid)?;
+            .ok_or_else(|| {
+                tracing::warn!(agent_id, "Pairing code not found");
+                ChannelError::PairingCodeInvalid
+            })?;
 
         if pairing.consumed {
+            tracing::warn!(agent_id, channel_id = %pairing.channel_id, "Pairing code already consumed");
             return Err(ChannelError::PairingCodeInvalid);
         }
 
@@ -72,7 +85,7 @@ impl PairingService {
             .parse::<chrono::DateTime<chrono::Utc>>()
             .map_err(|e| ChannelError::StorageError(e.to_string()))?;
         if expires_at < chrono::Utc::now() {
-            // Clean up this and other expired codes
+            tracing::warn!(agent_id, channel_id = %pairing.channel_id, "Pairing code expired");
             let _ = db.channel_pairing().delete_expired();
             return Err(ChannelError::PairingCodeExpired);
         }
@@ -98,6 +111,12 @@ impl PairingService {
             .insert(&binding)
             .map_err(|e| ChannelError::StorageError(e.to_string()))?;
 
+        tracing::info!(
+            agent_id,
+            channel_id = %pairing.channel_id,
+            binding_id = %binding.id,
+            "Pairing code consumed, binding created"
+        );
         Ok(binding)
     }
 }

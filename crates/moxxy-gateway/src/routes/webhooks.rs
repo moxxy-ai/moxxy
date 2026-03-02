@@ -14,6 +14,7 @@ pub async fn list_webhooks(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::AgentsRead)?;
 
+    tracing::debug!(agent_id = %agent_id, "Listing webhooks");
     let db = state.db.lock().unwrap();
     let webhooks = db.webhooks().find_by_agent(&agent_id).map_err(|_| {
         (
@@ -50,6 +51,7 @@ pub async fn delete_webhook(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::AgentsWrite)?;
 
+    tracing::info!(webhook_id = %webhook_id, "Deleting webhook");
     let db = state.db.lock().unwrap();
     db.webhooks().delete(&webhook_id).map_err(|e| match e {
         moxxy_types::StorageError::NotFound => (
@@ -74,6 +76,7 @@ pub async fn list_deliveries(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::AgentsRead)?;
 
+    tracing::debug!(webhook_id = %webhook_id, "Listing webhook deliveries");
     let db = state.db.lock().unwrap();
     let deliveries = db
         .webhook_deliveries()

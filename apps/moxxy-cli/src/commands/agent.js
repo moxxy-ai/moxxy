@@ -2,10 +2,7 @@
  * Agent commands: create/run/stop/status.
  */
 import { parseFlags } from './auth.js';
-import { getMoxxyHome } from './init.js';
 import { isInteractive, handleCancel, withSpinner, showResult, pickAgent, pickProvider, pickModel, p } from '../ui.js';
-import { join } from 'node:path';
-import { mkdirSync } from 'node:fs';
 
 export function parseAgentCommand(args) {
   const [action, ...rest] = args;
@@ -17,7 +14,8 @@ export function parseAgentCommand(args) {
         action: 'create',
         provider_id: flags.provider,
         model_id: flags.model,
-        workspace_root: flags.workspace,
+        name: flags.name,
+        persona: flags.persona,
         temperature: flags.temperature ? parseFloat(flags.temperature) : undefined,
         policy_profile: flags.policy,
         json: flags.json === true || flags.json === 'true',
@@ -44,6 +42,16 @@ export function parseAgentCommand(args) {
         json: flags.json === true || flags.json === 'true',
       };
 
+    case 'update':
+      return {
+        action: 'update',
+        id: flags.id,
+        provider_id: flags.provider,
+        model_id: flags.model,
+        temperature: flags.temperature ? parseFloat(flags.temperature) : undefined,
+        json: flags.json === true || flags.json === 'true',
+      };
+
     default:
       return { action };
   }
@@ -51,22 +59,46 @@ export function parseAgentCommand(args) {
 
 export async function agentCreate(client, args) {
   const flags = parseFlags(args);
-  if (!flags.provider || !flags.model || !flags.workspace) {
-    throw new Error('Required: --provider, --model, --workspace');
+  if (!flags.provider || !flags.model || !flags.name) {
+    throw new Error('Required: --provider, --model, --name');
   }
   const body = {
     provider_id: flags.provider,
     model_id: flags.model,
-    workspace_root: flags.workspace,
+    name: flags.name,
   };
   if (flags.temperature) body.temperature = parseFloat(flags.temperature);
   if (flags.policy) body.policy_profile = flags.policy;
+  if (flags.persona) body.persona = flags.persona;
 
   const result = await client.request('/v1/agents', 'POST', body);
   if (flags.json === 'true' || flags.json === true) {
     console.log(JSON.stringify(result, null, 2));
   } else {
     console.log(`Agent created: ${result.id}`);
+  }
+  return result;
+}
+
+export async function agentUpdate(client, args) {
+  const flags = parseFlags(args);
+  if (!flags.id) {
+    throw new Error('Required: --id');
+  }
+  const body = {};
+  if (flags.provider) body.provider_id = flags.provider;
+  if (flags.model) body.model_id = flags.model;
+  if (flags.temperature) body.temperature = parseFloat(flags.temperature);
+
+  if (Object.keys(body).length === 0) {
+    throw new Error('Nothing to update. Provide --provider, --model, or --temperature');
+  }
+
+  const result = await client.request(`/v1/agents/${encodeURIComponent(flags.id)}`, 'PATCH', body);
+  if (flags.json === 'true' || flags.json === true) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log(`Agent ${flags.id} updated.`);
   }
   return result;
 }
@@ -87,11 +119,12 @@ export async function runAgent(client, args) {
   const parsed = parseAgentCommand(args);
 
   // Interactive sub-menu when no valid action
-  if (!['create', 'run', 'stop', 'status'].includes(parsed.action) && isInteractive()) {
+  if (!['create', 'run', 'stop', 'status', 'update'].includes(parsed.action) && isInteractive()) {
     const action = await p.select({
       message: 'Agent action',
       options: [
         { value: 'create', label: 'Create agent', hint: 'provision a new agent' },
+        { value: 'update', label: 'Update agent', hint: 'change provider, model, or temperature' },
         { value: 'run',    label: 'Start run',    hint: 'run a task on an agent' },
         { value: 'stop',   label: 'Stop agent',   hint: 'stop a running agent' },
         { value: 'status', label: 'Agent status',  hint: 'check agent status' },
@@ -107,16 +140,27 @@ export async function runAgent(client, args) {
       if ((!parsed.provider_id || !parsed.model_id) && isInteractive()) {
         p.intro('Create Agent');
 
+        const nameInput = await p.text({
+          message: 'Agent name',
+          placeholder: 'my-agent',
+          initialValue: parsed.name || '',
+          validate: (val) => {
+            if (!val) return 'Name is required';
+            if (val.length > 64) return 'Name must be 64 chars or fewer';
+            if (!/^[a-z0-9][a-z0-9-]*$/.test(val)) return 'Lowercase alphanumeric + hyphens, starting with alphanumeric';
+          },
+        });
+        handleCancel(nameInput);
+
         const providerId = parsed.provider_id || await pickProvider(client);
         const modelId = parsed.model_id || await pickModel(client, providerId);
 
-        const defaultWorkspace = join(getMoxxyHome(), 'agents', 'new-agent', 'workspace');
-        const workspace = await p.text({
-          message: 'Workspace root',
-          placeholder: defaultWorkspace,
-          initialValue: parsed.workspace_root || defaultWorkspace,
+        const personaInput = await p.text({
+          message: 'Agent persona (optional)',
+          placeholder: 'You are a helpful coding assistant...',
+          initialValue: parsed.persona || '',
         });
-        handleCancel(workspace);
+        handleCancel(personaInput);
 
         const tempInput = await p.text({
           message: 'Temperature',
@@ -127,29 +171,21 @@ export async function runAgent(client, args) {
         const temperature = tempInput ? parseFloat(tempInput) : 0.7;
 
         const body = {
+          name: nameInput,
           provider_id: providerId,
           model_id: modelId,
-          workspace_root: workspace,
           temperature,
         };
+        if (personaInput) body.persona = personaInput;
 
         const result = await withSpinner('Creating agent...', () =>
           client.request('/v1/agents', 'POST', body), 'Agent created.');
 
-        // Create agent workspace directory
-        if (result.id) {
-          const agentDir = join(getMoxxyHome(), 'agents', result.id);
-          try {
-            mkdirSync(join(agentDir, 'workspace'), { recursive: true });
-            mkdirSync(join(agentDir, 'memory'), { recursive: true });
-          } catch { /* may already exist */ }
-        }
-
         showResult('Agent Created', {
           ID: result.id,
+          Name: nameInput,
           Provider: providerId,
           Model: modelId,
-          Workspace: workspace,
           Status: result.status,
         });
 
@@ -265,8 +301,47 @@ export async function runAgent(client, args) {
       return agentStatus(client, id, { json: parsed.json });
     }
 
+    case 'update': {
+      // Interactive wizard when missing id
+      if (!parsed.id && isInteractive()) {
+        p.intro('Update Agent');
+
+        const agentId = await pickAgent(client, 'Select agent to update');
+        const current = await client.request(`/v1/agents/${encodeURIComponent(agentId)}`, 'GET');
+
+        p.log.info(`Current: ${current.provider_id}/${current.model_id} (temp=${current.temperature ?? 0.7})`);
+
+        const providerId = await pickProvider(client);
+        const modelId = await pickModel(client, providerId);
+
+        const tempInput = await p.text({
+          message: 'Temperature',
+          placeholder: '0.7',
+          initialValue: String(current.temperature ?? 0.7),
+        });
+        handleCancel(tempInput);
+        const temperature = tempInput ? parseFloat(tempInput) : 0.7;
+
+        const body = { provider_id: providerId, model_id: modelId, temperature };
+        const result = await withSpinner('Updating agent...', () =>
+          client.request(`/v1/agents/${encodeURIComponent(agentId)}`, 'PATCH', body), 'Agent updated.');
+
+        showResult('Agent Updated', {
+          ID: agentId,
+          Provider: providerId,
+          Model: modelId,
+          Temperature: temperature,
+          Status: result.status,
+        });
+
+        return result;
+      }
+
+      return agentUpdate(client, args.slice(1));
+    }
+
     default:
-      console.error('Usage: moxxy agent <create|run|stop|status>');
+      console.error('Usage: moxxy agent <create|run|stop|status|update>');
       process.exitCode = 1;
   }
 }

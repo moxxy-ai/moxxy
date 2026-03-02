@@ -150,7 +150,12 @@ mod tests {
     fn test_app_with_rate_limit(config: RateLimitConfig) -> axum::Router {
         crate::state::register_sqlite_vec();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
-        let state = Arc::new(AppState::new(conn));
+        let state = Arc::new(AppState::new(
+            conn,
+            [0u8; 32],
+            moxxy_types::AuthMode::Token,
+            std::path::PathBuf::from("/tmp/moxxy-test"),
+        ));
         create_router(state, Some(config))
     }
 

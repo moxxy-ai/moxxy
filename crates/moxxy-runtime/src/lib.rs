@@ -13,17 +13,21 @@ pub use echo_provider::EchoProvider;
 pub use executor::RunExecutor;
 pub use openai_provider::OpenAIProvider;
 pub use primitives::{
-    BrowseExtractPrimitive, BrowseFetchPrimitive, ChannelMessageSender, ChannelNotifyPrimitive,
-    CliNotifyPrimitive, FsListPrimitive, FsReadPrimitive, FsWritePrimitive, GitCheckoutPrimitive,
-    GitClonePrimitive, GitCommitPrimitive, GitForkPrimitive, GitInitPrimitive,
-    GitPrCreatePrimitive, GitPushPrimitive, GitStatusPrimitive, GitWorktreeAddPrimitive,
-    GitWorktreeListPrimitive, GitWorktreeRemovePrimitive, HeartbeatCreatePrimitive,
-    HeartbeatDeletePrimitive, HeartbeatDisablePrimitive, HeartbeatListPrimitive,
-    HeartbeatUpdatePrimitive, HttpRequestPrimitive, MemoryAppendPrimitive, MemorySearchPrimitive,
-    MemorySummarizePrimitive, ShellExecPrimitive, SkillImportPrimitive, SkillValidatePrimitive,
-    WebhookCreatePrimitive, WebhookListPrimitive, WebhookNotifyPrimitive,
+    AgentListPrimitive, AgentRespondPrimitive, AgentSpawnPrimitive, AgentStatusPrimitive,
+    AgentStopPrimitive, AllowlistAddPrimitive, AllowlistListPrimitive, AllowlistRemovePrimitive,
+    AskChannels, BrowseExtractPrimitive, BrowseFetchPrimitive, ChannelMessageSender,
+    ChannelNotifyPrimitive, CliNotifyPrimitive, FsListPrimitive, FsReadPrimitive,
+    FsWritePrimitive, GitCheckoutPrimitive, GitClonePrimitive, GitCommitPrimitive,
+    GitForkPrimitive, GitInitPrimitive, GitPrCreatePrimitive, GitPushPrimitive, GitStatusPrimitive,
+    GitWorktreeAddPrimitive, GitWorktreeListPrimitive, GitWorktreeRemovePrimitive,
+    HeartbeatCreatePrimitive, HeartbeatDeletePrimitive, HeartbeatDisablePrimitive,
+    HeartbeatListPrimitive, HeartbeatUpdatePrimitive, HttpRequestPrimitive, MemoryAppendPrimitive,
+    MemorySearchPrimitive, MemorySummarizePrimitive, ShellExecPrimitive, SkillImportPrimitive,
+    SkillValidatePrimitive, UserAskPrimitive, VaultDeletePrimitive, VaultGetPrimitive,
+    VaultListPrimitive, VaultSetPrimitive, WebhookCreatePrimitive, WebhookListPrimitive,
+    WebhookNotifyPrimitive, new_ask_channels,
 };
 pub use process::{AgentProcess, AgentProcessConfig};
 pub use provider::{Message, ModelConfig, Provider, ProviderResponse, ToolCall};
-pub use registry::{Primitive, PrimitiveError, PrimitiveRegistry};
+pub use registry::{Primitive, PrimitiveError, PrimitiveRegistry, ToolDefinition};
 pub use sandbox::{SandboxConfig, SandboxProfile, SandboxedCommand};

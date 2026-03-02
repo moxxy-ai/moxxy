@@ -236,19 +236,31 @@ async function installInteractive(client) {
     apiKeyEnv = builtin.api_key_env;
     apiBase = builtin.api_base;
 
-    // Add metadata with api_base to each model
-    models = builtin.models.map(m => ({
-      ...m,
-      metadata: { api_base: apiBase },
+    // Step 2: Select which models to install
+    const CUSTOM_MODEL_VALUE = '__custom_model__';
+
+    const selectedModels = handleCancel(await p.multiselect({
+      message: 'Select models to install',
+      options: [
+        ...builtin.models.map(m => ({
+          value: m.model_id,
+          label: m.display_name,
+          hint: m.model_id,
+        })),
+        { value: CUSTOM_MODEL_VALUE, label: 'Custom model ID', hint: 'enter a model ID manually' },
+      ],
+      required: true,
     }));
 
-    // Option to add a custom model ID
-    const addCustom = handleCancel(await p.confirm({
-      message: 'Add a custom model ID not in the list?',
-      initialValue: false,
-    }));
+    models = builtin.models
+      .filter(m => selectedModels.includes(m.model_id))
+      .map(m => ({
+        ...m,
+        metadata: { api_base: apiBase },
+      }));
 
-    if (addCustom) {
+    // Prompt for custom model details if selected
+    if (selectedModels.includes(CUSTOM_MODEL_VALUE)) {
       const customModelId = handleCancel(await p.text({
         message: 'Custom model ID',
         placeholder: 'e.g. ft:gpt-4o:my-org:custom-suffix',
@@ -293,6 +305,7 @@ async function installInteractive(client) {
             key_name: apiKeyEnv,
             backend_key: `moxxy_provider_${providerId}`,
             policy_label: 'provider-api-key',
+            value: apiKey,
           });
         }, 'API key reference stored.');
 

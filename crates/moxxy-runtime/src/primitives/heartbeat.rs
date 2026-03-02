@@ -22,6 +22,24 @@ impl Primitive for HeartbeatCreatePrimitive {
         "heartbeat.create"
     }
 
+    fn description(&self) -> &str {
+        "Create a recurring heartbeat schedule. Use interval_minutes or cron_expr for scheduling."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "action_type": {"type": "string", "description": "Action to perform: execute_skill, notify_cli, notify_webhook, memory_compact"},
+                "action_payload": {"type": "string", "description": "Payload for the action (e.g., task text or webhook URL)"},
+                "interval_minutes": {"type": "integer", "description": "Run every N minutes (mutually exclusive with cron_expr)"},
+                "cron_expr": {"type": "string", "description": "Cron expression for scheduling (mutually exclusive with interval_minutes)"},
+                "timezone": {"type": "string", "description": "Timezone for cron (default: UTC)"}
+            },
+            "required": ["action_type"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let action_type = params["action_type"]
             .as_str()
@@ -32,6 +50,14 @@ impl Primitive for HeartbeatCreatePrimitive {
         let interval_minutes = params["interval_minutes"].as_i64();
         let cron_expr = params["cron_expr"].as_str();
         let timezone = params["timezone"].as_str().unwrap_or("UTC").to_string();
+
+        tracing::info!(
+            agent_id = %self.agent_id,
+            action_type,
+            has_cron = cron_expr.is_some(),
+            interval = ?interval_minutes,
+            "Creating heartbeat"
+        );
 
         let now = chrono::Utc::now();
 
@@ -119,10 +145,23 @@ impl Primitive for HeartbeatListPrimitive {
         "heartbeat.list"
     }
 
+    fn description(&self) -> &str {
+        "List all active heartbeat schedules for this agent."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {}
+        })
+    }
+
     async fn invoke(
         &self,
         _params: serde_json::Value,
     ) -> Result<serde_json::Value, PrimitiveError> {
+        tracing::debug!(agent_id = %self.agent_id, "Listing heartbeats");
+
         let db = self
             .db
             .lock()
@@ -171,10 +210,26 @@ impl Primitive for HeartbeatDisablePrimitive {
         "heartbeat.disable"
     }
 
+    fn description(&self) -> &str {
+        "Disable an active heartbeat schedule."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "heartbeat_id": {"type": "string", "description": "ID of the heartbeat to disable"}
+            },
+            "required": ["heartbeat_id"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let heartbeat_id = params["heartbeat_id"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'heartbeat_id'".into()))?;
+
+        tracing::info!(heartbeat_id, agent_id = %self.agent_id, "Disabling heartbeat");
 
         let db = self
             .db
@@ -189,6 +244,7 @@ impl Primitive for HeartbeatDisablePrimitive {
             .ok_or_else(|| PrimitiveError::ExecutionFailed("heartbeat not found".into()))?;
 
         if hb.agent_id != self.agent_id {
+            tracing::warn!(heartbeat_id, agent_id = %self.agent_id, owner_agent = %hb.agent_id, "Heartbeat ownership check failed");
             return Err(PrimitiveError::ExecutionFailed(
                 "heartbeat does not belong to this agent".into(),
             ));
@@ -222,10 +278,26 @@ impl Primitive for HeartbeatDeletePrimitive {
         "heartbeat.delete"
     }
 
+    fn description(&self) -> &str {
+        "Permanently delete a heartbeat schedule."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "heartbeat_id": {"type": "string", "description": "ID of the heartbeat to delete"}
+            },
+            "required": ["heartbeat_id"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let heartbeat_id = params["heartbeat_id"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'heartbeat_id'".into()))?;
+
+        tracing::info!(heartbeat_id, agent_id = %self.agent_id, "Deleting heartbeat");
 
         let db = self
             .db
@@ -240,6 +312,7 @@ impl Primitive for HeartbeatDeletePrimitive {
             .ok_or_else(|| PrimitiveError::ExecutionFailed("heartbeat not found".into()))?;
 
         if hb.agent_id != self.agent_id {
+            tracing::warn!(heartbeat_id, agent_id = %self.agent_id, owner_agent = %hb.agent_id, "Heartbeat ownership check failed");
             return Err(PrimitiveError::ExecutionFailed(
                 "heartbeat does not belong to this agent".into(),
             ));
@@ -273,10 +346,32 @@ impl Primitive for HeartbeatUpdatePrimitive {
         "heartbeat.update"
     }
 
+    fn description(&self) -> &str {
+        "Update a heartbeat schedule's action, interval, or cron expression."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "heartbeat_id": {"type": "string", "description": "ID of the heartbeat to update"},
+                "action_type": {"type": "string", "description": "New action type"},
+                "action_payload": {"type": "string", "description": "New action payload"},
+                "interval_minutes": {"type": "integer", "description": "New interval in minutes"},
+                "cron_expr": {"type": "string", "description": "New cron expression"},
+                "timezone": {"type": "string", "description": "New timezone"},
+                "enabled": {"type": "boolean", "description": "Enable or disable the heartbeat"}
+            },
+            "required": ["heartbeat_id"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let heartbeat_id = params["heartbeat_id"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'heartbeat_id'".into()))?;
+
+        tracing::info!(heartbeat_id, agent_id = %self.agent_id, "Updating heartbeat");
 
         let db = self
             .db
@@ -290,6 +385,7 @@ impl Primitive for HeartbeatUpdatePrimitive {
             .ok_or_else(|| PrimitiveError::ExecutionFailed("heartbeat not found".into()))?;
 
         if hb.agent_id != self.agent_id {
+            tracing::warn!(heartbeat_id, agent_id = %self.agent_id, owner_agent = %hb.agent_id, "Heartbeat ownership check failed");
             return Err(PrimitiveError::ExecutionFailed(
                 "heartbeat does not belong to this agent".into(),
             ));
@@ -391,6 +487,10 @@ mod tests {
             "../../../../migrations/0006_heartbeat_cron.sql"
         ))
         .unwrap();
+        conn.execute_batch(include_str!(
+            "../../../../migrations/0008_agent_name_persona.sql"
+        ))
+        .unwrap();
         conn.execute(
             "INSERT INTO providers (id, display_name, manifest_path, enabled, created_at)
              VALUES ('prov-1', 'P1', '/p1', 1, '2025-01-01')",
@@ -398,8 +498,8 @@ mod tests {
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO agents (id, provider_id, model_id, workspace_root, status, depth, spawned_total, temperature, max_subagent_depth, max_subagents_total, created_at, updated_at)
-             VALUES ('agent-1', 'prov-1', 'gpt-4', '/tmp', 'idle', 0, 0, 0.7, 2, 8, '2025-01-01', '2025-01-01')",
+            "INSERT INTO agents (id, provider_id, model_id, workspace_root, status, depth, spawned_total, temperature, max_subagent_depth, max_subagents_total, created_at, updated_at, name)
+             VALUES ('agent-1', 'prov-1', 'gpt-4', '/tmp', 'idle', 0, 0, 0.7, 2, 8, '2025-01-01', '2025-01-01', 'agent-1')",
             params![],
         )
         .unwrap();

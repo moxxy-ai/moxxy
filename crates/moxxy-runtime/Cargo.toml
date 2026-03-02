@@ -25,3 +25,4 @@ scraper = "0.22"
 tempfile = { workspace = true }
 moxxy-test-utils = { path = "../moxxy-test-utils" }
 rusqlite = { workspace = true }
+regex = "1"

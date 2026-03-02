@@ -4,15 +4,17 @@ pub mod channels;
 pub mod errors;
 pub mod events;
 pub mod heartbeat;
+pub mod run_starter;
 pub mod skills;
 pub mod vault;
 
 pub use agents::{AgentStatus, SpawnError};
-pub use auth::{TokenError, TokenScope, TokenStatus};
-pub use channels::{BindingStatus, ChannelError, ChannelStatus, ChannelType};
+pub use auth::{AuthMode, TokenError, TokenScope, TokenStatus};
+pub use channels::{BindingStatus, ChannelError, ChannelStatus, ChannelType, MessageContent};
 pub use errors::{PathPolicyError, StorageError};
 pub use events::{EventEnvelope, EventType};
 pub use heartbeat::{HeartbeatActionType, HeartbeatError};
+pub use run_starter::RunStarter;
 pub use skills::{SkillDocError, SkillStatus};
 pub use vault::VaultError;
 
@@ -39,6 +41,7 @@ mod tests {
             TokenScope::EventsRead,
             TokenScope::ChannelsRead,
             TokenScope::ChannelsWrite,
+            TokenScope::Wildcard,
         ];
         for scope in scopes {
             let json = serde_json::to_string(&scope).unwrap();
@@ -50,7 +53,7 @@ mod tests {
     #[test]
     fn event_type_has_all_30_variants() {
         let all = EventType::all_variants();
-        assert_eq!(all.len(), 30);
+        assert_eq!(all.len(), 36);
     }
 
     #[test]
@@ -86,6 +89,47 @@ mod tests {
         let _ = SkillStatus::Approved;
         let _ = SkillStatus::Rejected;
     }
+
+    #[test]
+    fn auth_mode_default_is_token() {
+        assert_eq!(AuthMode::default(), AuthMode::Token);
+    }
+
+    #[test]
+    fn auth_mode_from_config_str() {
+        assert_eq!(AuthMode::from_config_str("token"), AuthMode::Token);
+        assert_eq!(AuthMode::from_config_str("loopback"), AuthMode::Loopback);
+        assert_eq!(AuthMode::from_config_str("unknown"), AuthMode::Token);
+    }
+
+    #[test]
+    fn auth_mode_is_loopback() {
+        assert!(!AuthMode::Token.is_loopback());
+        assert!(AuthMode::Loopback.is_loopback());
+    }
+
+    #[test]
+    fn auth_mode_display() {
+        assert_eq!(AuthMode::Token.to_string(), "token");
+        assert_eq!(AuthMode::Loopback.to_string(), "loopback");
+    }
+
+    #[test]
+    fn auth_mode_serializes_to_snake_case() {
+        let json = serde_json::to_string(&AuthMode::Token).unwrap();
+        assert_eq!(json, "\"token\"");
+        let json = serde_json::to_string(&AuthMode::Loopback).unwrap();
+        assert_eq!(json, "\"loopback\"");
+    }
+
+    #[test]
+    fn auth_mode_round_trips_through_json() {
+        for mode in [AuthMode::Token, AuthMode::Loopback] {
+            let json = serde_json::to_string(&mode).unwrap();
+            let back: AuthMode = serde_json::from_str(&json).unwrap();
+            assert_eq!(mode, back);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -104,6 +148,7 @@ mod proptests {
             Just(TokenScope::EventsRead),
             Just(TokenScope::ChannelsRead),
             Just(TokenScope::ChannelsWrite),
+            Just(TokenScope::Wildcard),
         ]
     }
 
@@ -148,6 +193,12 @@ mod proptests {
             Just(EventType::ChannelError),
             Just(EventType::MemoryCompactStarted),
             Just(EventType::MemoryCompactCompleted),
+            Just(EventType::UserAskQuestion),
+            Just(EventType::UserAskAnswered),
+            Just(EventType::SubagentAskQuestion),
+            Just(EventType::SubagentFailed),
+            Just(EventType::AgentAlive),
+            Just(EventType::AgentStuck),
         ]
     }
 

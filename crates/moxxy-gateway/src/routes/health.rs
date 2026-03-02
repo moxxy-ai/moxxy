@@ -13,6 +13,10 @@ pub async fn health_check(
         Err(_) => false,
     };
 
+    if !db_ok {
+        tracing::warn!("Health check failed: database unreachable");
+    }
+
     if db_ok {
         Ok(Json(serde_json::json!({
             "status": "healthy",

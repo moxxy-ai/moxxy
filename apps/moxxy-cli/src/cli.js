@@ -2,7 +2,7 @@
 
 import { createApiClient } from './api-client.js';
 import { isInteractive, handleCancel, p } from './ui.js';
-import { runInit } from './commands/init.js';
+import { runInit, readAuthMode } from './commands/init.js';
 import { runAuth } from './commands/auth.js';
 import { runAgent } from './commands/agent.js';
 import { runProvider } from './commands/provider.js';
@@ -13,6 +13,7 @@ import { runEvents } from './commands/events.js';
 import { runGateway } from './commands/gateway.js';
 import { runDoctor } from './commands/doctor.js';
 import { runUninstall } from './commands/uninstall.js';
+import { runUpdate } from './commands/update.js';
 import { runChannel } from './commands/channel.js';
 
 export const LOGO = `
@@ -59,6 +60,8 @@ Usage:
   moxxy gateway status                               Show gateway status
   moxxy gateway logs                                 Tail gateway logs
   moxxy doctor                                       Diagnose installation
+  moxxy update [--check] [--force] [--json]          Check for and install updates
+  moxxy update --rollback                            Restore previous gateway version
   moxxy uninstall                                    Remove all Moxxy data
 
 Environment:
@@ -101,6 +104,9 @@ async function routeCommand(client, command, rest) {
     case 'channel':
       await runChannel(client, rest);
       break;
+    case 'update':
+      await runUpdate(client, rest);
+      break;
     case 'uninstall':
       await runUninstall(client, rest);
       break;
@@ -126,12 +132,13 @@ async function main() {
   }
 
   const baseUrl = process.env.MOXXY_API_URL || 'http://localhost:3000';
+  const authMode = readAuthMode();
   const token = process.env.MOXXY_TOKEN || '';
-  const client = createApiClient(baseUrl, token);
+  const client = createApiClient(baseUrl, token, authMode);
 
   if (!command && isInteractive()) {
     console.log(LOGO);
-    p.intro('moxxy');
+    p.intro();
 
     const selected = await p.select({
       message: 'What would you like to do?',
@@ -148,6 +155,7 @@ async function main() {
         { value: 'events',    label: 'Events',    hint: 'stream live events' },
         { value: 'gateway',   label: 'Gateway',   hint: 'start/stop/manage gateway' },
         { value: 'doctor',    label: 'Doctor',    hint: 'diagnose installation' },
+        { value: 'update',    label: 'Update',    hint: 'check for and install updates' },
         { value: 'uninstall', label: 'Uninstall', hint: 'remove all Moxxy data' },
       ],
     });
@@ -156,7 +164,11 @@ async function main() {
     try {
       await routeCommand(client, selected, []);
     } catch (err) {
-      p.log.error(err.message);
+      if (err.isGatewayDown) {
+        p.log.info(err.message);
+      } else {
+        p.log.error(err.message);
+      }
       process.exitCode = 1;
     }
     return;
@@ -170,7 +182,11 @@ async function main() {
   try {
     await routeCommand(client, command, rest);
   } catch (err) {
-    console.error(`Error: ${err.message}`);
+    if (err.isGatewayDown) {
+      console.log(err.message);
+    } else {
+      console.error(`Error: ${err.message}`);
+    }
     process.exitCode = 1;
   }
 }

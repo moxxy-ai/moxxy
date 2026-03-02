@@ -23,6 +23,28 @@ pub enum BindingStatus {
     Unbound,
 }
 
+/// Structured message content for channel transports.
+/// Each variant allows platform-specific formatting (Markdown for Telegram, embeds for Discord, etc.).
+#[derive(Debug, Clone)]
+pub enum MessageContent {
+    /// Plain text (backwards-compatible).
+    Text(String),
+    /// Tool was invoked.
+    ToolInvocation {
+        name: String,
+        arguments: Option<String>,
+    },
+    /// Tool completed successfully.
+    ToolResult {
+        name: String,
+        result: Option<String>,
+    },
+    /// Tool failed.
+    ToolError { name: String, error: String },
+    /// Run completed.
+    RunCompleted,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ChannelError {
     #[error("channel not found")]

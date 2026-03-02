@@ -22,6 +22,8 @@ pub async fn list_audit_logs(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::EventsRead)?;
 
+    tracing::debug!(agent_id = ?query.agent_id, event_type = ?query.event_type, limit = ?query.limit, "Querying audit logs");
+
     let limit = query.limit.unwrap_or(50).clamp(1, 100);
     let offset = query.offset.unwrap_or(0).max(0);
 

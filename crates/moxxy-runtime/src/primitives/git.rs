@@ -1,17 +1,51 @@
 use async_trait::async_trait;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::process::Command;
 
 use crate::context::PrimitiveContext;
 use crate::registry::{Primitive, PrimitiveError};
 
+/// Resolve the absolute path to the `git` binary once and cache it.
+/// Falls back to common well-known locations when `git` is not on PATH.
+fn git_binary() -> &'static str {
+    static GIT: OnceLock<String> = OnceLock::new();
+    GIT.get_or_init(|| {
+        // First try the bare name via PATH (uses std, not tokio)
+        if let Ok(output) = std::process::Command::new("git")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            && output.success()
+        {
+            return "git".to_string();
+        }
+
+        // Fallback: probe well-known locations
+        for candidate in &[
+            "/usr/bin/git",
+            "/usr/local/bin/git",
+            "/opt/homebrew/bin/git",
+        ] {
+            if std::path::Path::new(candidate).exists() {
+                tracing::info!(path = candidate, "Resolved git binary via fallback path");
+                return (*candidate).to_string();
+            }
+        }
+
+        // Last resort — let the OS try again at invocation time
+        "git".to_string()
+    })
+}
+
 async fn run_git(
     args: &[&str],
     cwd: &str,
     timeout: Duration,
 ) -> Result<(String, String, i32), PrimitiveError> {
-    let child = Command::new("git")
+    let child = Command::new(git_binary())
         .args(args)
         .current_dir(cwd)
         .stdout(std::process::Stdio::piped())
@@ -82,10 +116,29 @@ impl Primitive for GitClonePrimitive {
         "git.clone"
     }
 
+    fn description(&self) -> &str {
+        "Clone a git repository into the workspace. Supports private repos via vault token."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "Repository URL to clone"},
+                "path": {"type": "string", "description": "Local path within workspace to clone into"},
+                "branch": {"type": "string", "description": "Branch to checkout after clone"},
+                "depth": {"type": "integer", "description": "Shallow clone depth"}
+            },
+            "required": ["url"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let url = params["url"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'url' parameter".into()))?;
+
+        tracing::info!(url, "Cloning git repository");
 
         let clone_path = params["path"]
             .as_str()
@@ -180,6 +233,20 @@ impl Primitive for GitInitPrimitive {
         "git.init"
     }
 
+    fn description(&self) -> &str {
+        "Initialize a new git repository in the workspace."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path for the new repository (relative to workspace)"},
+                "default_branch": {"type": "string", "description": "Name of the initial branch"}
+            }
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let init_path = params["path"]
             .as_str()
@@ -187,6 +254,8 @@ impl Primitive for GitInitPrimitive {
             .unwrap_or_else(|| self.workspace_root.clone());
 
         let path_str = init_path.to_string_lossy().to_string();
+
+        tracing::info!(path = %path_str, "Initializing git repository");
 
         // Create directory if it doesn't exist
         if !init_path.exists() {
@@ -251,10 +320,26 @@ impl Primitive for GitStatusPrimitive {
         "git.status"
     }
 
+    fn description(&self) -> &str {
+        "Get the git status of a repository, including modified, staged, and untracked files."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the git repository"}
+            },
+            "required": ["path"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let path = params["path"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'path' parameter".into()))?;
+
+        tracing::debug!(path, "Getting git status");
 
         let (porcelain, _, code) =
             run_git(&["status", "--porcelain"], path, Duration::from_secs(10)).await?;
@@ -315,6 +400,22 @@ impl Primitive for GitCommitPrimitive {
         "git.commit"
     }
 
+    fn description(&self) -> &str {
+        "Stage files and create a git commit. Configures user from vault if available."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the git repository"},
+                "message": {"type": "string", "description": "Commit message"},
+                "files": {"type": "array", "items": {"type": "string"}, "description": "Specific files to stage (stages all if omitted)"}
+            },
+            "required": ["path", "message"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let path = params["path"]
             .as_str()
@@ -322,6 +423,8 @@ impl Primitive for GitCommitPrimitive {
         let message = params["message"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'message' parameter".into()))?;
+
+        tracing::info!(path, message_len = message.len(), "Creating git commit");
 
         // Configure user.name and user.email from vault
         if let Ok(Some(user)) = self.ctx.resolve_secret("github-user") {
@@ -413,6 +516,23 @@ impl Primitive for GitPushPrimitive {
         "git.push"
     }
 
+    fn description(&self) -> &str {
+        "Push commits to a remote repository. Uses vault token for authentication."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the git repository"},
+                "remote": {"type": "string", "description": "Remote name (default: origin)"},
+                "branch": {"type": "string", "description": "Branch to push"},
+                "force": {"type": "boolean", "description": "Force push"}
+            },
+            "required": ["path"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let path = params["path"]
             .as_str()
@@ -420,6 +540,8 @@ impl Primitive for GitPushPrimitive {
         let remote = params["remote"].as_str().unwrap_or("origin");
         let branch = params["branch"].as_str();
         let force = params["force"].as_bool().unwrap_or(false);
+
+        tracing::info!(path, remote, branch = ?branch, force, "Pushing to remote");
 
         // Set up credential helper via token
         if let Ok(Some(token)) = self.ctx.resolve_secret("github-token") {
@@ -486,6 +608,22 @@ impl Primitive for GitCheckoutPrimitive {
         "git.checkout"
     }
 
+    fn description(&self) -> &str {
+        "Checkout a branch in a git repository. Can create a new branch."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the git repository"},
+                "branch": {"type": "string", "description": "Branch name to checkout"},
+                "create": {"type": "boolean", "description": "Create the branch if it doesn't exist"}
+            },
+            "required": ["path", "branch"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let path = params["path"]
             .as_str()
@@ -494,6 +632,8 @@ impl Primitive for GitCheckoutPrimitive {
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'branch' parameter".into()))?;
         let create = params["create"].as_bool().unwrap_or(false);
+
+        tracing::info!(path, branch, create, "Checking out branch");
 
         let args = if create {
             vec!["checkout", "-b", branch]
@@ -535,6 +675,24 @@ impl Primitive for GitPrCreatePrimitive {
         "git.pr_create"
     }
 
+    fn description(&self) -> &str {
+        "Create a GitHub pull request from the current branch."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the git repository"},
+                "title": {"type": "string", "description": "Pull request title"},
+                "body": {"type": "string", "description": "Pull request description"},
+                "base": {"type": "string", "description": "Base branch (default: main)"},
+                "head": {"type": "string", "description": "Head branch (default: current branch)"}
+            },
+            "required": ["path", "title"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let path = params["path"]
             .as_str()
@@ -544,6 +702,8 @@ impl Primitive for GitPrCreatePrimitive {
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'title' parameter".into()))?;
         let body = params["body"].as_str().unwrap_or("");
         let base = params["base"].as_str();
+
+        tracing::info!(path, title, base = ?base, "Creating pull request");
 
         let token = self.ctx.resolve_secret("github-token")?.ok_or_else(|| {
             PrimitiveError::AccessDenied(
@@ -629,6 +789,21 @@ impl Primitive for GitForkPrimitive {
         "git.fork"
     }
 
+    fn description(&self) -> &str {
+        "Fork a GitHub repository via the GitHub API."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "owner": {"type": "string", "description": "Repository owner/organization"},
+                "repo": {"type": "string", "description": "Repository name"}
+            },
+            "required": ["owner", "repo"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let owner = params["owner"]
             .as_str()
@@ -636,6 +811,8 @@ impl Primitive for GitForkPrimitive {
         let repo = params["repo"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'repo' parameter".into()))?;
+
+        tracing::info!(owner, repo, "Forking repository");
 
         let token = self.ctx.resolve_secret("github-token")?.ok_or_else(|| {
             PrimitiveError::AccessDenied(
@@ -695,6 +872,23 @@ impl Primitive for GitWorktreeAddPrimitive {
         "git.worktree_add"
     }
 
+    fn description(&self) -> &str {
+        "Add a new git worktree for a branch, enabling parallel work."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the main git repository"},
+                "branch": {"type": "string", "description": "Branch name for the worktree"},
+                "worktree_path": {"type": "string", "description": "Custom path for the worktree"},
+                "create_branch": {"type": "boolean", "description": "Create the branch (default: true)"}
+            },
+            "required": ["path", "branch"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let repo_path = params["path"]
             .as_str()
@@ -703,6 +897,8 @@ impl Primitive for GitWorktreeAddPrimitive {
         let branch = params["branch"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'branch' parameter".into()))?;
+
+        tracing::info!(repo_path, branch, "Adding git worktree");
 
         // Worktree destination: workspace_root/.worktrees/{branch}
         let worktree_dir = params["worktree_path"]
@@ -766,10 +962,26 @@ impl Primitive for GitWorktreeListPrimitive {
         "git.worktree_list"
     }
 
+    fn description(&self) -> &str {
+        "List all worktrees for a git repository."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the git repository"}
+            },
+            "required": ["path"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let path = params["path"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'path' parameter".into()))?;
+
+        tracing::debug!(path, "Listing git worktrees");
 
         let (stdout, stderr, code) = run_git(
             &["worktree", "list", "--porcelain"],
@@ -843,6 +1055,22 @@ impl Primitive for GitWorktreeRemovePrimitive {
         "git.worktree_remove"
     }
 
+    fn description(&self) -> &str {
+        "Remove a git worktree."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the main git repository"},
+                "worktree_path": {"type": "string", "description": "Path of the worktree to remove"},
+                "force": {"type": "boolean", "description": "Force removal even with uncommitted changes"}
+            },
+            "required": ["path", "worktree_path"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let path = params["path"].as_str().ok_or_else(|| {
             PrimitiveError::InvalidParams("missing 'path' parameter (main repo)".into())
@@ -853,6 +1081,8 @@ impl Primitive for GitWorktreeRemovePrimitive {
         })?;
 
         let force = params["force"].as_bool().unwrap_or(false);
+
+        tracing::info!(path, worktree_path, force, "Removing git worktree");
 
         let mut args = vec!["worktree", "remove", worktree_path];
         if force {

@@ -10,6 +10,10 @@ rusqlite = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+aes-gcm = { workspace = true }
+base64 = { workspace = true }
+rand = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 moxxy-test-utils = { path = "../moxxy-test-utils" }

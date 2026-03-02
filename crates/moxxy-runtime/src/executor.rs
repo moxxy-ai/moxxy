@@ -14,6 +14,8 @@ pub struct RunExecutor {
     allowed_primitives: Vec<String>,
     cancel_token: Option<CancellationToken>,
     run_timeout: Option<Duration>,
+    system_prompt: Option<String>,
+    heartbeat_interval: usize,
 }
 
 impl RunExecutor {
@@ -27,15 +29,22 @@ impl RunExecutor {
             event_bus,
             provider,
             registry,
-            max_iterations: 10,
+            max_iterations: 100_000,
             allowed_primitives,
             cancel_token: None,
             run_timeout: None,
+            system_prompt: None,
+            heartbeat_interval: 10,
         }
     }
 
     pub fn with_max_iterations(mut self, max: usize) -> Self {
         self.max_iterations = max;
+        self
+    }
+
+    pub fn with_heartbeat_interval(mut self, interval: usize) -> Self {
+        self.heartbeat_interval = interval;
         self
     }
 
@@ -46,6 +55,11 @@ impl RunExecutor {
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.run_timeout = Some(timeout);
+        self
+    }
+
+    pub fn with_system_prompt(mut self, prompt: String) -> Self {
+        self.system_prompt = Some(prompt);
         self
     }
 
@@ -102,14 +116,19 @@ impl RunExecutor {
             serde_json::json!({"task": task}),
         );
 
-        let mut conversation: Vec<Message> = vec![Message {
-            role: "user".into(),
-            content: task.to_string(),
-        }];
+        // Compute tool definitions once before the loop
+        let tool_defs = self.registry.tool_definitions(&self.allowed_primitives);
+
+        // Build initial conversation
+        let mut conversation: Vec<Message> = Vec::new();
+        if let Some(ref prompt) = self.system_prompt {
+            conversation.push(Message::system(prompt));
+        }
+        conversation.push(Message::user(task));
 
         let mut final_content = String::new();
 
-        for _iteration in 0..self.max_iterations {
+        for iteration in 0..self.max_iterations {
             // Check cancellation
             if self
                 .cancel_token
@@ -125,6 +144,24 @@ impl RunExecutor {
                 );
                 return Err("Run cancelled".to_string());
             }
+
+            // Emit periodic agent-alive heartbeat
+            if iteration > 0
+                && self.heartbeat_interval > 0
+                && iteration % self.heartbeat_interval == 0
+            {
+                self.emit(
+                    agent_id,
+                    run_id,
+                    &mut sequence,
+                    EventType::AgentAlive,
+                    serde_json::json!({
+                        "iteration": iteration,
+                        "messages_count": conversation.len()
+                    }),
+                );
+            }
+
             self.emit(
                 agent_id,
                 run_id,
@@ -135,7 +172,7 @@ impl RunExecutor {
 
             let response = match self
                 .provider
-                .complete(conversation.clone(), model_config)
+                .complete(conversation.clone(), model_config, &tool_defs)
                 .await
             {
                 Ok(r) => r,
@@ -190,12 +227,22 @@ impl RunExecutor {
                 break;
             }
 
-            conversation.push(Message {
-                role: "assistant".into(),
-                content: response.content,
-            });
+            // Push assistant message with tool_calls metadata
+            conversation.push(Message::assistant_with_tool_calls(
+                &response.content,
+                response.tool_calls.clone(),
+            ));
 
             for tool_call in &response.tool_calls {
+                tracing::info!(
+                    agent_id,
+                    run_id,
+                    tool = %tool_call.name,
+                    call_id = %tool_call.id,
+                    arguments = %tool_call.arguments,
+                    "Primitive invoked"
+                );
+
                 self.emit(
                     agent_id,
                     run_id,
@@ -214,6 +261,18 @@ impl RunExecutor {
                     .await
                 {
                     Ok(result) => {
+                        let result_str =
+                            serde_json::to_string(&result).unwrap_or_default();
+
+                        tracing::info!(
+                            agent_id,
+                            run_id,
+                            tool = %tool_call.name,
+                            call_id = %tool_call.id,
+                            result_len = result_str.len(),
+                            "Primitive completed"
+                        );
+
                         self.emit(
                             agent_id,
                             run_id,
@@ -221,12 +280,22 @@ impl RunExecutor {
                             EventType::PrimitiveCompleted,
                             serde_json::json!({"name": tool_call.name, "result": result}),
                         );
-                        conversation.push(Message {
-                            role: "tool".into(),
-                            content: serde_json::to_string(&result).unwrap_or_default(),
-                        });
+                        conversation.push(Message::tool_result(
+                            &tool_call.id,
+                            &tool_call.name,
+                            result_str,
+                        ));
                     }
                     Err(e) => {
+                        tracing::error!(
+                            agent_id,
+                            run_id,
+                            tool = %tool_call.name,
+                            call_id = %tool_call.id,
+                            error = %e,
+                            "Primitive failed"
+                        );
+
                         self.emit(
                             agent_id,
                             run_id,
@@ -234,10 +303,11 @@ impl RunExecutor {
                             EventType::PrimitiveFailed,
                             serde_json::json!({"name": tool_call.name, "error": e.to_string()}),
                         );
-                        conversation.push(Message {
-                            role: "tool".into(),
-                            content: format!("Error: {}", e),
-                        });
+                        conversation.push(Message::tool_result(
+                            &tool_call.id,
+                            &tool_call.name,
+                            format!("Error: {}", e),
+                        ));
                     }
                 }
             }
@@ -337,6 +407,7 @@ mod tests {
         let mut rx = bus.subscribe();
 
         let provider = Arc::new(EchoProvider::new().with_tool_calls(vec![ToolCall {
+            id: "call_0".into(),
             name: "echo".into(),
             arguments: serde_json::json!({"msg": "hi"}),
         }]));
@@ -385,6 +456,7 @@ mod tests {
 
         // Provider always returns tool calls => would loop forever without max
         let provider = Arc::new(EchoProvider::new().with_tool_calls(vec![ToolCall {
+            id: "call_0".into(),
             name: "echo".into(),
             arguments: serde_json::json!({}),
         }]));
@@ -407,5 +479,116 @@ mod tests {
             }
         }
         assert_eq!(model_request_count, 2);
+    }
+
+    #[tokio::test]
+    async fn execute_with_system_prompt() {
+        let bus = EventBus::new(100);
+        let provider = Arc::new(EchoProvider::new());
+        let registry = PrimitiveRegistry::new();
+
+        let executor = RunExecutor::new(bus, provider, registry, vec![])
+            .with_system_prompt("You are a helpful agent.".into());
+
+        let result = executor
+            .execute("agent-1", "run-1", "hi", &model_config())
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn execute_default_max_iterations_is_high() {
+        let bus = EventBus::new(100);
+        let provider = Arc::new(EchoProvider::new());
+        let registry = PrimitiveRegistry::new();
+
+        let executor = RunExecutor::new(bus, provider, registry, vec![]);
+        assert_eq!(executor.max_iterations, 100_000);
+        assert_eq!(executor.heartbeat_interval, 10);
+    }
+
+    #[tokio::test]
+    async fn agent_alive_emitted_at_heartbeat_interval() {
+        let bus = EventBus::new(1000);
+        let mut rx = bus.subscribe();
+
+        // Provider always returns tool calls => loops until max_iterations
+        let provider = Arc::new(
+            EchoProvider::new()
+                .with_tool_calls(vec![ToolCall {
+                    id: "call_0".into(),
+                    name: "echo".into(),
+                    arguments: serde_json::json!({}),
+                }])
+                .with_always_call_tools(),
+        );
+
+        let mut registry = PrimitiveRegistry::new();
+        registry.register(Box::new(EchoPrimitive));
+
+        let executor = RunExecutor::new(bus, provider, registry, vec!["echo".into()])
+            .with_max_iterations(6)
+            .with_heartbeat_interval(3);
+
+        executor
+            .execute("agent-1", "run-1", "heartbeat test", &model_config())
+            .await
+            .unwrap();
+
+        let mut alive_payloads = vec![];
+        while let Ok(event) = rx.try_recv() {
+            if event.event_type == EventType::AgentAlive {
+                alive_payloads.push(event.payload);
+            }
+        }
+
+        // With max_iterations=6 and interval=3, alive should fire at iteration 3 (not 0)
+        assert_eq!(alive_payloads.len(), 1);
+        assert_eq!(alive_payloads[0]["iteration"], 3);
+    }
+
+    #[tokio::test]
+    async fn full_agentic_loop_with_tool_call_id() {
+        let bus = EventBus::new(100);
+        let mut rx = bus.subscribe();
+
+        // EchoProvider returns one tool call, then on second call (with tool result) returns none
+        let provider = Arc::new(EchoProvider::new().with_tool_calls(vec![ToolCall {
+            id: "call_abc".into(),
+            name: "echo".into(),
+            arguments: serde_json::json!({"msg": "test"}),
+        }]));
+
+        let mut registry = PrimitiveRegistry::new();
+        registry.register(Box::new(EchoPrimitive));
+
+        let executor = RunExecutor::new(bus, provider, registry, vec!["echo".into()])
+            .with_system_prompt("You are a test agent.".into());
+
+        let result = executor
+            .execute("agent-1", "run-1", "do something", &model_config())
+            .await;
+        assert!(result.is_ok());
+
+        // Should have: RunStarted, ModelRequest, ModelResponse, PrimitiveInvoked,
+        // PrimitiveCompleted, ModelRequest (2nd), ModelResponse (2nd),
+        // MessageDelta, MessageFinal, RunCompleted
+        let mut events = vec![];
+        while let Ok(event) = rx.try_recv() {
+            events.push(event.event_type);
+        }
+
+        assert!(events.contains(&EventType::RunStarted));
+        assert!(events.contains(&EventType::PrimitiveInvoked));
+        assert!(events.contains(&EventType::PrimitiveCompleted));
+        assert!(events.contains(&EventType::RunCompleted));
+        // Two model requests (one for initial, one after tool result)
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| **e == EventType::ModelRequest)
+                .count(),
+            2
+        );
     }
 }

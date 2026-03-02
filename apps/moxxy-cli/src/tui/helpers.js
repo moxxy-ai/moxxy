@@ -1,9 +1,7 @@
-import React from 'react';
-
-export const h = React.createElement;
+import chalk from 'chalk';
 
 export const COLORS = {
-  user: 'green',
+  user: '#FF9500',
   assistant: 'white',
   event: 'gray',
   error: 'red',
@@ -17,6 +15,27 @@ export const COLORS = {
     running: 'green',
     stopped: 'gray',
     error: 'red',
+  },
+};
+
+// Chalk style functions matching COLORS
+export const styles = {
+  user: chalk.hex('#FF9500'),
+  assistant: chalk.white,
+  event: chalk.gray,
+  error: chalk.red,
+  warning: chalk.yellow,
+  info: chalk.cyan,
+  dim: chalk.dim,
+  border: chalk.gray,
+  accent: chalk.cyan,
+  bold: chalk.bold,
+  inverse: chalk.inverse,
+  status: {
+    idle: chalk.yellow,
+    running: chalk.green,
+    stopped: chalk.gray,
+    error: chalk.red,
   },
 };
 

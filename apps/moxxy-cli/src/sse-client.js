@@ -36,8 +36,12 @@ export function createSseClient(baseUrl, token, filters) {
 
     async *stream() {
       controller = new AbortController();
+      const headers = {};
+      if (token) {
+        headers['authorization'] = `Bearer ${token}`;
+      }
       const resp = await fetch(url, {
-        headers: { 'authorization': `Bearer ${token}` },
+        headers,
         signal: controller.signal,
       });
 

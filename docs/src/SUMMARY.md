@@ -53,6 +53,10 @@
 - [Path Policies](security/path-policies.md)
 - [Sandboxing](security/sandboxing.md)
 
+# Examples
+
+- [Prompt Scenarios](examples/prompt-scenarios.md)
+
 # Configuration
 
 - [Environment Variables](config/env-vars.md)

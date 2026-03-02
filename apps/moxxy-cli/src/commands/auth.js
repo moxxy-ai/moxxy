@@ -3,10 +3,13 @@
  * Supports both interactive and non-interactive (flag-based) modes.
  */
 import { isInteractive, handleCancel, withSpinner, showResult, p } from '../ui.js';
+import { resetTokens } from './init.js';
 
 const VALID_SCOPES = [
+  '*',
   'agents:read', 'agents:write', 'runs:write',
   'vault:read', 'vault:write', 'tokens:admin', 'events:read',
+  'channels:read', 'channels:write',
 ];
 
 export function parseFlags(args) {
@@ -123,13 +126,69 @@ export async function runAuth(client, args) {
 
       let result;
       if (isInteractive()) {
-        result = await withSpinner('Creating token...', () =>
-          client.request('/v1/auth/tokens', 'POST', payload), 'Token created.');
+        // Try with current token first
+        try {
+          result = await withSpinner('Creating token...', () =>
+            client.request('/v1/auth/tokens', 'POST', payload), 'Token created.');
+        } catch (err) {
+          if (err.status === 401 && isInteractive()) {
+            p.log.warn('Authentication failed. Your token may be missing or invalid.');
+            const recovery = await p.select({
+              message: 'How would you like to proceed?',
+              options: [
+                { value: 'reset', label: 'Reset tokens', hint: 'clear all existing tokens and create a new one' },
+                { value: 'paste', label: 'Paste a token', hint: 'use an existing valid token' },
+                { value: 'abort', label: 'Abort' },
+              ],
+            });
+            handleCancel(recovery);
+
+            if (recovery === 'reset') {
+              const confirm = await p.confirm({
+                message: 'This will revoke ALL existing tokens. Continue?',
+                initialValue: false,
+              });
+              handleCancel(confirm);
+              if (confirm && resetTokens()) {
+                p.log.success('All tokens cleared.');
+                client.token = '';
+                result = await withSpinner('Creating token...', () =>
+                  client.request('/v1/auth/tokens', 'POST', payload), 'Token created.');
+              } else if (confirm) {
+                throw new Error('Could not reset tokens. Is sqlite3 installed?');
+              } else {
+                throw err;
+              }
+            } else if (recovery === 'paste') {
+              const pastedToken = await p.text({
+                message: 'Paste a valid API token',
+                placeholder: 'mox_...',
+              });
+              handleCancel(pastedToken);
+              if (pastedToken) {
+                client.token = pastedToken;
+                result = await withSpinner('Retrying...', () =>
+                  client.request('/v1/auth/tokens', 'POST', payload), 'Token created.');
+              } else {
+                throw err;
+              }
+            } else {
+              throw err;
+            }
+          } else {
+            throw err;
+          }
+        }
         showResult('Your API Token', {
           ID: result.id,
           Token: result.token,
           Scopes: scopes.join(', '),
         });
+        p.note(
+          `# Add to ~/.zshrc or ~/.bashrc:\nexport MOXXY_TOKEN="${result.token}"`,
+          'Save your token'
+        );
+        p.log.warn('This token will not be shown again. Save it now.');
       } else {
         result = await client.request('/v1/auth/tokens', 'POST', payload);
         if (parsed.json) {

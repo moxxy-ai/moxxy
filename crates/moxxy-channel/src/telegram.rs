@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use moxxy_types::ChannelError;
+use moxxy_types::{ChannelError, MessageContent};
 use serde::Deserialize;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -54,26 +54,38 @@ impl TelegramTransport {
         Ok(body.result.unwrap_or_default())
     }
 
-    async fn send_text(&self, chat_id: &str, text: &str) -> Result<(), ChannelError> {
+    async fn send_text(
+        &self,
+        chat_id: &str,
+        text: &str,
+        parse_mode: Option<&str>,
+    ) -> Result<(), ChannelError> {
+        let mut body = serde_json::json!({
+            "chat_id": chat_id,
+            "text": text,
+        });
+        if let Some(mode) = parse_mode {
+            body["parse_mode"] = serde_json::Value::String(mode.to_string());
+        }
+
         let resp = self
             .http_client
             .post(self.api_url("sendMessage"))
-            .json(&serde_json::json!({
-                "chat_id": chat_id,
-                "text": text,
-            }))
+            .json(&body)
             .send()
             .await
             .map_err(|e| ChannelError::TransportError(e.to_string()))?;
 
-        let body: TelegramResponse<serde_json::Value> = resp
+        let resp_body: TelegramResponse<serde_json::Value> = resp
             .json()
             .await
             .map_err(|e| ChannelError::TransportError(e.to_string()))?;
 
-        if !body.ok {
+        if !resp_body.ok {
             return Err(ChannelError::TransportError(
-                body.description.unwrap_or_else(|| "send failed".into()),
+                resp_body
+                    .description
+                    .unwrap_or_else(|| "send failed".into()),
             ));
         }
 
@@ -127,7 +139,29 @@ impl ChannelTransport for TelegramTransport {
     }
 
     async fn send_message(&self, msg: OutgoingMessage) -> Result<(), ChannelError> {
-        self.send_text(&msg.external_chat_id, &msg.text).await
+        let text = self.format_content(&msg.content);
+        let parse_mode = match &msg.content {
+            MessageContent::Text(_) => None,
+            _ => Some("MarkdownV2"),
+        };
+        self.send_text(&msg.external_chat_id, &text, parse_mode)
+            .await
+    }
+
+    fn format_content(&self, content: &MessageContent) -> String {
+        match content {
+            MessageContent::Text(s) => s.clone(),
+            MessageContent::ToolInvocation { name, arguments } => match arguments {
+                Some(args) => format!("⚙ *{name}*\n`{args}`"),
+                None => format!("⚙ *{name}*"),
+            },
+            MessageContent::ToolResult { name, result } => match result {
+                Some(r) => format!("✅ *{name}*\n```\n{r}\n```"),
+                None => format!("✅ *{name}*"),
+            },
+            MessageContent::ToolError { name, error } => format!("❌ *{name}*\n`{error}`"),
+            MessageContent::RunCompleted => "✅ *Run completed*".into(),
+        }
     }
 }
 

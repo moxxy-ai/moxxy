@@ -20,6 +20,20 @@ impl Primitive for FsReadPrimitive {
         "fs.read"
     }
 
+    fn description(&self) -> &str {
+        "Read the contents of a file at the given path within the workspace."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Absolute path to the file to read"}
+            },
+            "required": ["path"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let path_str = params["path"]
             .as_str()
@@ -29,6 +43,8 @@ impl Primitive for FsReadPrimitive {
         self.policy
             .ensure_readable(path)
             .map_err(|e| PrimitiveError::AccessDenied(e.to_string()))?;
+
+        tracing::debug!(path = %path_str, "Reading file");
 
         let content = std::fs::read_to_string(path)
             .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
@@ -53,6 +69,21 @@ impl Primitive for FsWritePrimitive {
         "fs.write"
     }
 
+    fn description(&self) -> &str {
+        "Write content to a file at the given path within the workspace. Creates parent directories if needed."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Absolute path to the file to write"},
+                "content": {"type": "string", "description": "Content to write to the file"}
+            },
+            "required": ["path", "content"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let path_str = params["path"]
             .as_str()
@@ -65,6 +96,8 @@ impl Primitive for FsWritePrimitive {
         self.policy
             .ensure_writable(path)
             .map_err(|e| PrimitiveError::AccessDenied(e.to_string()))?;
+
+        tracing::info!(path = %path_str, content_len = content.len(), "Writing file");
 
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
@@ -94,6 +127,20 @@ impl Primitive for FsListPrimitive {
         "fs.list"
     }
 
+    fn description(&self) -> &str {
+        "List entries in a directory within the workspace."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Absolute path to the directory to list"}
+            },
+            "required": ["path"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let path_str = params["path"]
             .as_str()
@@ -103,6 +150,8 @@ impl Primitive for FsListPrimitive {
         self.policy
             .ensure_readable(path)
             .map_err(|e| PrimitiveError::AccessDenied(e.to_string()))?;
+
+        tracing::debug!(path = %path_str, "Listing directory");
 
         let entries: Vec<String> = std::fs::read_dir(path)
             .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?
@@ -126,7 +175,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let workspace = tmp.path().join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
-        let policy = PathPolicy::new(workspace, None);
+        let policy = PathPolicy::new(workspace, None, None);
         (tmp, policy)
     }
 

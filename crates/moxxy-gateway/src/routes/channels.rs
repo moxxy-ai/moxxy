@@ -4,7 +4,6 @@ use axum::http::StatusCode;
 use moxxy_channel::TelegramTransport;
 use moxxy_storage::{ChannelBindingRow, ChannelRow, VaultSecretRefRow};
 use moxxy_types::TokenScope;
-use moxxy_vault::SecretBackend;
 use std::sync::Arc;
 
 use crate::auth_extractor::{AuthToken, check_scope};
@@ -30,6 +29,8 @@ pub async fn create_channel(
     Json(body): Json<ChannelCreateRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::ChannelsWrite)?;
+
+    tracing::info!(channel_type = %body.channel_type, display_name = %body.display_name, "Creating channel");
 
     let now = chrono::Utc::now().to_rfc3339();
     let channel_id = uuid::Uuid::now_v7().to_string();
@@ -84,6 +85,8 @@ pub async fn create_channel(
         )
     })?;
 
+    tracing::debug!(channel_id = %channel_id, "Bot token stored in vault backend");
+
     // Register transport on running bridge if it's a Telegram channel
     if body.channel_type == "telegram" {
         let transport = Arc::new(TelegramTransport::new(body.bot_token.clone()));
@@ -112,6 +115,7 @@ pub async fn list_channels(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::ChannelsRead)?;
 
+    tracing::debug!("Listing channels");
     let db = state.db.lock().unwrap();
     let channels = db.channels().list_all().map_err(|_| {
         (
@@ -143,6 +147,7 @@ pub async fn get_channel(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::ChannelsRead)?;
 
+    tracing::debug!(channel_id = %id, "Getting channel");
     let db = state.db.lock().unwrap();
     let channel = db
         .channels()
@@ -176,6 +181,7 @@ pub async fn delete_channel(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::ChannelsWrite)?;
 
+    tracing::info!(channel_id = %id, "Deleting channel");
     let db = state.db.lock().unwrap();
     db.channels().delete(&id).map_err(|_| {
         (
@@ -194,6 +200,8 @@ pub async fn pair_channel(
     Json(body): Json<PairRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::ChannelsWrite)?;
+
+    tracing::info!(channel_id = %channel_id, agent_id = %body.agent_id, "Pairing channel");
 
     let db = state.db.lock().unwrap();
 
@@ -257,6 +265,8 @@ pub async fn pair_channel(
         )
     })?;
 
+    tracing::debug!(channel_id = %channel_id, "Pairing code consumed");
+
     // One agent per channel: remove existing binding if any
     let existing_bindings = db
         .channel_bindings()
@@ -305,6 +315,7 @@ pub async fn list_bindings(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::ChannelsRead)?;
 
+    tracing::debug!(channel_id = %channel_id, "Listing channel bindings");
     let db = state.db.lock().unwrap();
     let bindings = db
         .channel_bindings()
@@ -340,6 +351,7 @@ pub async fn unbind(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::ChannelsWrite)?;
 
+    tracing::info!(channel_id = %channel_id, binding_id = %binding_id, "Unbinding channel");
     let db = state.db.lock().unwrap();
     db.channel_bindings().delete(&binding_id).map_err(|_| {
         (

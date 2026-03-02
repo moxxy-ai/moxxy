@@ -13,6 +13,7 @@ pub struct SecretRefCreateRequest {
     pub key_name: String,
     pub backend_key: String,
     pub policy_label: Option<String>,
+    pub value: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -27,6 +28,7 @@ pub async fn list_secrets(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::VaultRead)?;
 
+    tracing::debug!("Listing vault secret refs");
     let db = state.db.lock().unwrap();
     let refs = db.vault_refs().list_all().map_err(|_| {
         (
@@ -58,6 +60,8 @@ pub async fn create_secret_ref(
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::VaultWrite)?;
 
+    tracing::info!(key_name = %body.key_name, has_value = body.value.is_some(), "Creating secret ref");
+
     let now = chrono::Utc::now().to_rfc3339();
     let id = uuid::Uuid::now_v7().to_string();
 
@@ -79,6 +83,22 @@ pub async fn create_secret_ref(
             ),
         )
     })?;
+    drop(db);
+
+    // If a secret value was provided, store it in the vault backend
+    if let Some(ref value) = body.value {
+        state
+            .vault_backend
+            .set_secret(&body.backend_key, value)
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        serde_json::json!({"error": "internal", "message": "Failed to store secret value"}),
+                    ),
+                )
+            })?;
+    }
 
     Ok((
         StatusCode::CREATED,
@@ -98,6 +118,8 @@ pub async fn create_grant(
     Json(body): Json<GrantCreateRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::VaultWrite)?;
+
+    tracing::info!(agent_id = %body.agent_id, secret_ref_id = %body.secret_ref_id, "Creating vault grant");
 
     let now = chrono::Utc::now().to_rfc3339();
     let id = uuid::Uuid::now_v7().to_string();
@@ -135,6 +157,7 @@ pub async fn list_grants(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::VaultRead)?;
 
+    tracing::debug!("Listing vault grants");
     let db = state.db.lock().unwrap();
     let grants = db.vault_grants().list_all().map_err(|_| {
         (
@@ -165,6 +188,8 @@ pub async fn revoke_grant(
     Path(grant_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::VaultWrite)?;
+
+    tracing::info!(grant_id = %grant_id, "Revoking vault grant");
 
     let db = state.db.lock().unwrap();
     db.vault_grants().revoke(&grant_id).map_err(|e| match e {

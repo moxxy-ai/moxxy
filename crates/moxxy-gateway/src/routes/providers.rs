@@ -31,6 +31,8 @@ pub async fn install_provider(
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::AgentsWrite)?;
 
+    tracing::info!(provider_id = %body.id, display_name = %body.display_name, models_count = body.models.len(), "Installing provider");
+
     let now = chrono::Utc::now().to_rfc3339();
 
     let row = ProviderRow {
@@ -89,6 +91,7 @@ pub async fn list_providers(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::AgentsRead)?;
 
+    tracing::debug!("Listing providers");
     let db = state.db.lock().unwrap();
     let providers = db.providers().list_all().map_err(|_| {
         (
@@ -119,6 +122,7 @@ pub async fn list_models(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::AgentsRead)?;
 
+    tracing::debug!(provider_id = %id, "Listing provider models");
     let db = state.db.lock().unwrap();
     let models = db.providers().list_models(&id).map_err(|_| {
         (

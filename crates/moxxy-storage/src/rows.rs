@@ -26,6 +26,8 @@ pub struct AgentRow {
     pub spawned_total: i32,
     pub created_at: String,
     pub updated_at: String,
+    pub name: Option<String>,
+    pub persona: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -182,6 +184,15 @@ pub struct WebhookDeliveryRow {
     pub response_body: Option<String>,
     pub error: Option<String>,
     pub delivered_at: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AllowlistRow {
+    pub id: String,
+    pub agent_id: String,
+    pub list_type: String,
+    pub entry: String,
     pub created_at: String,
 }
 

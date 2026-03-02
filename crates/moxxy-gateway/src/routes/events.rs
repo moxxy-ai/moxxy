@@ -24,6 +24,8 @@ pub async fn event_stream(
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::EventsRead)?;
 
+    tracing::info!(agent_id = ?params.agent_id, run_id = ?params.run_id, "SSE event stream connected");
+
     let mut rx = state.event_bus.subscribe();
 
     let stream = async_stream::stream! {

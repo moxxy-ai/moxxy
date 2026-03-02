@@ -20,10 +20,27 @@ impl Primitive for MemoryAppendPrimitive {
         "memory.append"
     }
 
+    fn description(&self) -> &str {
+        "Append a new entry to the agent's memory journal with optional tags."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "The content to remember"},
+                "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional tags for categorization"}
+            },
+            "required": ["content"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let content = params["content"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'content' parameter".into()))?;
+
+        tracing::info!(content_len = content.len(), "Appending to memory journal");
 
         let tags: Vec<String> = params["tags"]
             .as_array()
@@ -64,10 +81,26 @@ impl Primitive for MemorySearchPrimitive {
         "memory.search"
     }
 
+    fn description(&self) -> &str {
+        "Search the agent's memory entries by keyword query."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query to match against memory entries"}
+            },
+            "required": ["query"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let query = params["query"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'query' parameter".into()))?;
+
+        tracing::debug!(query, "Searching memory");
 
         let query_lower = query.to_lowercase();
         let mut results = Vec::new();
@@ -110,10 +143,23 @@ impl Primitive for MemorySummarizePrimitive {
         "memory.summarize"
     }
 
+    fn description(&self) -> &str {
+        "Produce a summary of all memory entries for this agent."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {}
+        })
+    }
+
     async fn invoke(
         &self,
         _params: serde_json::Value,
     ) -> Result<serde_json::Value, PrimitiveError> {
+        tracing::debug!("Summarizing memory entries");
+
         let mut count: u64 = 0;
         let mut snippets = Vec::new();
 

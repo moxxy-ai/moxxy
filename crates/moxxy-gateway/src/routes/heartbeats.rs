@@ -26,6 +26,14 @@ pub async fn create_heartbeat(
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::AgentsWrite)?;
 
+    tracing::info!(
+        agent_id = %agent_id,
+        action_type = %body.action_type,
+        has_cron = body.cron_expr.is_some(),
+        interval = ?body.interval_minutes,
+        "Creating heartbeat"
+    );
+
     let now = chrono::Utc::now();
     let timezone = body.timezone.as_deref().unwrap_or("UTC").to_string();
 
@@ -127,6 +135,7 @@ pub async fn disable_heartbeat(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::AgentsWrite)?;
 
+    tracing::info!(agent_id = %agent_id, heartbeat_id = %hb_id, "Disabling heartbeat");
     let db = state.db.lock().unwrap();
     db.heartbeats().disable(&hb_id).map_err(|e| match e {
         moxxy_types::StorageError::NotFound => (
@@ -153,6 +162,7 @@ pub async fn list_heartbeats(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::AgentsRead)?;
 
+    tracing::debug!(agent_id = %agent_id, "Listing heartbeats");
     let db = state.db.lock().unwrap();
     let heartbeats = db.heartbeats().find_by_agent(&agent_id).map_err(|_| {
         (

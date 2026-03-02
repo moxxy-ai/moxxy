@@ -1,4 +1,6 @@
 use async_trait::async_trait;
+use moxxy_storage::Database;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::registry::{Primitive, PrimitiveError};
@@ -6,22 +8,38 @@ use crate::registry::{Primitive, PrimitiveError};
 /// Simple HTTP fetch with optional CSS selector extraction.
 /// Uses reqwest directly — no browser needed.
 pub struct BrowseFetchPrimitive {
-    allowed_domains: Vec<String>,
+    db: Arc<Mutex<Database>>,
+    agent_id: String,
     timeout: Duration,
     max_response_bytes: usize,
 }
 
 impl BrowseFetchPrimitive {
-    pub fn new(allowed_domains: Vec<String>, timeout: Duration, max_response_bytes: usize) -> Self {
+    pub fn new(
+        db: Arc<Mutex<Database>>,
+        agent_id: String,
+        timeout: Duration,
+        max_response_bytes: usize,
+    ) -> Self {
         Self {
-            allowed_domains,
+            db,
+            agent_id,
             timeout,
             max_response_bytes,
         }
     }
 
-    fn is_domain_allowed(&self, domain: &str) -> bool {
-        self.allowed_domains.is_empty() || self.allowed_domains.iter().any(|d| d == domain)
+    fn is_domain_allowed(&self, domain: &str) -> Result<bool, PrimitiveError> {
+        let db = self
+            .db
+            .lock()
+            .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
+        let allowed = db
+            .allowlists()
+            .list_entries(&self.agent_id, "http_domain")
+            .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
+        // Empty allowlist = allow all (for development)
+        Ok(allowed.is_empty() || allowed.iter().any(|d| d == domain))
     }
 
     fn extract_domain(url: &str) -> Option<String> {
@@ -41,6 +59,21 @@ impl Primitive for BrowseFetchPrimitive {
         "browse.fetch"
     }
 
+    fn description(&self) -> &str {
+        "Fetch a web page via HTTP and return its content. Optionally extract text via CSS selector."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "URL to fetch"},
+                "selector": {"type": "string", "description": "Optional CSS selector to extract specific content"}
+            },
+            "required": ["url"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let url = params["url"]
             .as_str()
@@ -49,12 +82,15 @@ impl Primitive for BrowseFetchPrimitive {
         let domain = Self::extract_domain(url)
             .ok_or_else(|| PrimitiveError::InvalidParams("cannot parse domain from URL".into()))?;
 
-        if !self.is_domain_allowed(&domain) {
+        if !self.is_domain_allowed(&domain)? {
+            tracing::warn!(url, %domain, "Browse fetch blocked — domain not in allowlist");
             return Err(PrimitiveError::AccessDenied(format!(
                 "Domain '{}' not in allowlist",
                 domain
             )));
         }
+
+        tracing::info!(url, %domain, "Fetching URL");
 
         let client = reqwest::Client::builder()
             .timeout(self.timeout)
@@ -137,6 +173,21 @@ impl Primitive for BrowseExtractPrimitive {
         "browse.extract"
     }
 
+    fn description(&self) -> &str {
+        "Extract structured data from HTML using CSS selectors. Pure parsing, no network requests."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "html": {"type": "string", "description": "HTML content to parse"},
+                "selectors": {"type": "object", "description": "Map of field names to CSS selectors"}
+            },
+            "required": ["html", "selectors"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let html = params["html"]
             .as_str()
@@ -145,6 +196,8 @@ impl Primitive for BrowseExtractPrimitive {
         let selectors = params["selectors"].as_object().ok_or_else(|| {
             PrimitiveError::InvalidParams("missing 'selectors' object parameter".into())
         })?;
+
+        tracing::debug!(selectors_count = selectors.len(), html_len = html.len(), "Extracting from HTML");
 
         let document = scraper::Html::parse_document(html);
         let mut data = serde_json::Map::new();
@@ -254,11 +307,55 @@ mod tests {
 
     #[tokio::test]
     async fn browse_fetch_blocks_disallowed_domain() {
-        let prim = BrowseFetchPrimitive::new(
-            vec!["allowed.com".into()],
-            Duration::from_secs(5),
-            1024 * 1024,
-        );
+        use moxxy_storage::{AllowlistRow, Database};
+        use moxxy_test_utils::TestDb;
+
+        let test_db = TestDb::new();
+        let db = Database::new(test_db.into_conn());
+        db.providers()
+            .insert(&moxxy_storage::ProviderRow {
+                id: "test-provider".into(),
+                display_name: "Test".into(),
+                manifest_path: "/tmp".into(),
+                signature: None,
+                enabled: true,
+                created_at: chrono::Utc::now().to_rfc3339(),
+            })
+            .unwrap();
+        let agent_id = uuid::Uuid::now_v7().to_string();
+        db.agents()
+            .insert(&moxxy_storage::AgentRow {
+                id: agent_id.clone(),
+                parent_agent_id: None,
+                provider_id: "test-provider".into(),
+                model_id: "test-model".into(),
+                workspace_root: "/tmp".into(),
+                core_mount: None,
+                policy_profile: None,
+                temperature: 0.7,
+                max_subagent_depth: 2,
+                max_subagents_total: 8,
+                status: "idle".into(),
+                depth: 0,
+                spawned_total: 0,
+                created_at: chrono::Utc::now().to_rfc3339(),
+                updated_at: chrono::Utc::now().to_rfc3339(),
+                name: Some("test-agent".into()),
+                persona: None,
+            })
+            .unwrap();
+        db.allowlists()
+            .insert(&AllowlistRow {
+                id: uuid::Uuid::now_v7().to_string(),
+                agent_id: agent_id.clone(),
+                list_type: "http_domain".into(),
+                entry: "allowed.com".into(),
+                created_at: chrono::Utc::now().to_rfc3339(),
+            })
+            .unwrap();
+        let db = Arc::new(Mutex::new(db));
+
+        let prim = BrowseFetchPrimitive::new(db, agent_id, Duration::from_secs(5), 1024 * 1024);
         let result = prim
             .invoke(serde_json::json!({"url": "https://evil.com/page"}))
             .await;
@@ -271,8 +368,47 @@ mod tests {
 
     #[tokio::test]
     async fn browse_fetch_allows_empty_allowlist() {
+        use moxxy_storage::Database;
+        use moxxy_test_utils::TestDb;
+
         // Empty allowlist = allow all (for development)
-        let prim = BrowseFetchPrimitive::new(vec![], Duration::from_secs(5), 1024 * 1024);
-        assert!(prim.is_domain_allowed("anything.com"));
+        let test_db = TestDb::new();
+        let db = Database::new(test_db.into_conn());
+        db.providers()
+            .insert(&moxxy_storage::ProviderRow {
+                id: "test-provider".into(),
+                display_name: "Test".into(),
+                manifest_path: "/tmp".into(),
+                signature: None,
+                enabled: true,
+                created_at: chrono::Utc::now().to_rfc3339(),
+            })
+            .unwrap();
+        let agent_id = uuid::Uuid::now_v7().to_string();
+        db.agents()
+            .insert(&moxxy_storage::AgentRow {
+                id: agent_id.clone(),
+                parent_agent_id: None,
+                provider_id: "test-provider".into(),
+                model_id: "test-model".into(),
+                workspace_root: "/tmp".into(),
+                core_mount: None,
+                policy_profile: None,
+                temperature: 0.7,
+                max_subagent_depth: 2,
+                max_subagents_total: 8,
+                status: "idle".into(),
+                depth: 0,
+                spawned_total: 0,
+                created_at: chrono::Utc::now().to_rfc3339(),
+                updated_at: chrono::Utc::now().to_rfc3339(),
+                name: Some("test-agent".into()),
+                persona: None,
+            })
+            .unwrap();
+        let db = Arc::new(Mutex::new(db));
+
+        let prim = BrowseFetchPrimitive::new(db, agent_id, Duration::from_secs(5), 1024 * 1024);
+        assert!(prim.is_domain_allowed("anything.com").unwrap());
     }
 }

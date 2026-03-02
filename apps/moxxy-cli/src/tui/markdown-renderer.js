@@ -1,78 +1,66 @@
 import { marked } from 'marked';
-import { Box, Text } from 'ink';
-import { h, COLORS } from './helpers.js';
 
 /**
- * Render markdown content as Ink elements.
+ * Render markdown content as an array of plain text strings.
+ * Used for simple text extraction. The TUI chat panel handles
+ * display formatting directly via pi-tui's wrapTextWithAnsi.
+ *
  * @param {string} content - Raw markdown string
- * @returns {Array} Array of React elements
+ * @returns {string[]} Array of text lines
  */
 export function renderMarkdown(content) {
-  if (!content) return [h(Text, null, '')];
+  if (!content) return [''];
 
   const tokens = marked.lexer(content);
-  return tokens.map((token, i) => renderToken(token, i));
+  const lines = [];
+
+  for (const token of tokens) {
+    const tokenLines = renderToken(token);
+    lines.push(...tokenLines);
+  }
+
+  return lines.length > 0 ? lines : [''];
 }
 
-function renderToken(token, key) {
+function renderToken(token) {
   switch (token.type) {
     case 'heading':
-      return h(Box, { key, marginTop: 1 },
-        h(Text, { bold: true, color: COLORS.accent },
-          '#'.repeat(token.depth) + ' ' + renderInlineText(token.text))
-      );
+      return ['#'.repeat(token.depth) + ' ' + stripInline(token.text)];
 
     case 'paragraph':
-      return h(Box, { key, marginTop: 0 },
-        h(Text, { wrap: 'wrap' }, renderInlineText(token.text))
-      );
+      return [stripInline(token.text)];
 
     case 'code':
-      return h(Box, { key, marginTop: 1, marginBottom: 1, borderStyle: 'single', borderColor: COLORS.dim, paddingLeft: 1, paddingRight: 1 },
-        h(Text, { color: COLORS.accent },
-          (token.lang ? `[${token.lang}]\n` : '') + token.text)
-      );
+      return [
+        (token.lang ? `[${token.lang}]` : ''),
+        token.text,
+      ].filter(Boolean);
 
     case 'list':
-      return h(Box, { key, flexDirection: 'column', marginLeft: 2 },
-        ...token.items.map((item, j) => {
-          const bullet = token.ordered ? `${j + 1}. ` : '• ';
-          return h(Box, { key: j },
-            h(Text, { color: COLORS.dim }, bullet),
-            h(Text, { wrap: 'wrap' }, renderInlineText(item.text))
-          );
-        })
-      );
+      return token.items.map((item, j) => {
+        const bullet = token.ordered ? `${j + 1}. ` : '- ';
+        return bullet + stripInline(item.text);
+      });
 
     case 'blockquote':
-      return h(Box, { key, marginLeft: 2, borderStyle: 'single', borderColor: COLORS.dim, borderLeft: true, borderRight: false, borderTop: false, borderBottom: false, paddingLeft: 1 },
-        h(Text, { color: COLORS.dim, italic: true, wrap: 'wrap' }, renderInlineText(token.text || ''))
-      );
+      return ['> ' + stripInline(token.text || '')];
 
     case 'hr':
-      return h(Box, { key },
-        h(Text, { color: COLORS.dim }, '─'.repeat(40))
-      );
+      return ['---'];
 
     case 'space':
-      return h(Box, { key, height: 1 });
+      return [''];
 
     default:
-      return token.raw
-        ? h(Text, { key, wrap: 'wrap' }, token.raw.trim())
-        : null;
+      return token.raw ? [token.raw.trim()] : [];
   }
 }
 
-/**
- * Render inline markdown (bold, italic, code, links) as plain text with markers.
- * Ink Text doesn't support mixed styles in a single element, so we use text markers.
- */
-function renderInlineText(text) {
+function stripInline(text) {
   if (!text) return '';
   return text
-    .replace(/\*\*(.+?)\*\*/g, '$1')    // bold markers (Ink can't mix)
-    .replace(/\*(.+?)\*/g, '$1')          // italic markers
-    .replace(/`(.+?)`/g, '`$1`')         // keep backtick markers
-    .replace(/\[(.+?)\]\((.+?)\)/g, '$1 ($2)'); // links as text (url)
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/`(.+?)`/g, '`$1`')
+    .replace(/\[(.+?)\]\((.+?)\)/g, '$1 ($2)');
 }

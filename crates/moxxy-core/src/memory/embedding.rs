@@ -99,7 +99,7 @@ mod tests {
 
     #[test]
     fn embedding_to_bytes_roundtrip() {
-        let original: Vec<f32> = vec![1.0, -1.0, 0.5, -0.5, 0.0, 3.14];
+        let original: Vec<f32> = vec![1.0, -1.0, 0.5, -0.5, 0.0, 2.71];
         let bytes = embedding_to_bytes(&original);
         let decoded = bytes_to_embedding(&bytes);
         assert_eq!(original, decoded);

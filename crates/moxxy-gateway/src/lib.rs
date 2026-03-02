@@ -54,12 +54,19 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
             "/v1/agents",
             post(routes::agents::create_agent).get(routes::agents::list_agents),
         )
-        .route("/v1/agents/{id}", get(routes::agents::get_agent))
+        .route(
+            "/v1/agents/{id}",
+            get(routes::agents::get_agent).patch(routes::agents::update_agent),
+        )
         .route("/v1/agents/{id}/runs", post(routes::agents::start_run))
         .route("/v1/agents/{id}/stop", post(routes::agents::stop_run))
         .route(
             "/v1/agents/{id}/subagents",
             post(routes::agents::spawn_subagent),
+        )
+        .route(
+            "/v1/agents/{id}/ask-responses/{question_id}",
+            post(routes::agents::respond_to_ask),
         )
         // Memory
         .route(
@@ -154,13 +161,18 @@ mod test_helpers {
     use http::Request;
     use moxxy_core::ApiTokenService;
     use moxxy_storage::{ProviderRow, StoredTokenRow};
-    use moxxy_types::TokenScope;
+    use moxxy_types::{AuthMode, TokenScope};
     use tower::ServiceExt;
 
     pub fn test_app() -> (Router, Arc<AppState>) {
         crate::state::register_sqlite_vec();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
-        let state = Arc::new(AppState::new(conn));
+        let state = Arc::new(AppState::new(
+            conn,
+            [0u8; 32],
+            AuthMode::Token,
+            std::path::PathBuf::from("/tmp/moxxy-test"),
+        ));
         let app = create_router(state.clone(), None);
         (app, state)
     }
@@ -207,7 +219,9 @@ mod test_helpers {
                 provider_id: "test-provider".into(),
                 model_id: "gpt-4".into(),
                 display_name: "GPT-4".into(),
-                metadata_json: Some(r#"{"context_window":8192}"#.into()),
+                metadata_json: Some(
+                    r#"{"context_window":8192,"api_base":"https://api.openai.com/v1"}"#.into(),
+                ),
             })
             .unwrap();
     }
@@ -234,6 +248,8 @@ mod test_helpers {
                 spawned_total: 0,
                 created_at: now.clone(),
                 updated_at: now,
+                name: Some("test-agent".into()),
+                persona: None,
             })
             .unwrap();
         id
@@ -337,14 +353,15 @@ mod auth_tests {
     async fn revoke_sets_status_to_revoked() {
         let (app, state) = test_app();
         let admin_token = create_token_in_db(&state, vec![TokenScope::TokensAdmin]);
-        let db = state.db.lock().unwrap();
-        let tokens = db.tokens().list_all().unwrap();
-        let token_id = tokens[0].id.clone();
-        drop(db);
+        let token_id = {
+            let db = state.db.lock().unwrap();
+            let tokens = db.tokens().list_all().unwrap();
+            tokens[0].id.clone()
+        };
 
         let req = Request::builder()
             .method("DELETE")
-            .uri(&format!("/v1/auth/tokens/{}", token_id))
+            .uri(format!("/v1/auth/tokens/{}", token_id))
             .header("authorization", format!("Bearer {}", admin_token))
             .body(Body::empty())
             .unwrap();
@@ -356,10 +373,11 @@ mod auth_tests {
     async fn revoked_token_cannot_authenticate() {
         let (app, state) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::TokensAdmin]);
-        let db = state.db.lock().unwrap();
-        let tokens = db.tokens().list_all().unwrap();
-        db.tokens().revoke(&tokens[0].id).unwrap();
-        drop(db);
+        {
+            let db = state.db.lock().unwrap();
+            let tokens = db.tokens().list_all().unwrap();
+            db.tokens().revoke(&tokens[0].id).unwrap();
+        }
 
         let req = Request::builder()
             .method("GET")
@@ -390,7 +408,7 @@ mod agent_tests {
         seed_provider(&state);
         // Insert two agents directly (seed_agent also seeds provider, causing conflict)
         let now = chrono::Utc::now().to_rfc3339();
-        for _ in 0..2 {
+        for i in 0..2 {
             let id = uuid::Uuid::now_v7().to_string();
             let db = state.db.lock().unwrap();
             db.agents()
@@ -410,6 +428,8 @@ mod agent_tests {
                     spawned_total: 0,
                     created_at: now.clone(),
                     updated_at: now.clone(),
+                    name: Some(format!("test-agent-{i}")),
+                    persona: None,
                 })
                 .unwrap();
         }
@@ -442,7 +462,7 @@ mod agent_tests {
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
-                r#"{"provider_id":"test-provider","model_id":"gpt-4","workspace_root":"/tmp/ws"}"#,
+                r#"{"name":"test-agent","provider_id":"test-provider","model_id":"gpt-4"}"#,
             ))
             .unwrap();
         let resp = request(&app, req).await;
@@ -463,7 +483,7 @@ mod agent_tests {
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
-                r#"{"provider_id":"test-provider","model_id":"gpt-4","workspace_root":"/tmp/ws"}"#,
+                r#"{"name":"test-agent","provider_id":"test-provider","model_id":"gpt-4"}"#,
             ))
             .unwrap();
         let resp = request(&app, req).await;
@@ -475,7 +495,7 @@ mod agent_tests {
 
         let req = Request::builder()
             .method("GET")
-            .uri(&format!("/v1/agents/{}", agent_id))
+            .uri(format!("/v1/agents/{}", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -493,7 +513,7 @@ mod agent_tests {
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
-                r#"{"provider_id":"p","model_id":"m","workspace_root":"/tmp"}"#,
+                r#"{"name":"test-agent","provider_id":"p","model_id":"m"}"#,
             ))
             .unwrap();
         let resp = request(&app, req).await;
@@ -512,7 +532,7 @@ mod agent_tests {
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
-                r#"{"provider_id":"test-provider","model_id":"gpt-4","workspace_root":"/tmp/ws"}"#,
+                r#"{"name":"test-agent","provider_id":"test-provider","model_id":"gpt-4"}"#,
             ))
             .unwrap();
         let resp = request(&app, req).await;
@@ -524,7 +544,7 @@ mod agent_tests {
 
         let req = Request::builder()
             .method("POST")
-            .uri(&format!("/v1/agents/{}/runs", agent_id))
+            .uri(format!("/v1/agents/{}/runs", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(r#"{"task":"do something"}"#))
@@ -552,7 +572,7 @@ mod agent_tests {
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
-                r#"{"provider_id":"test-provider","model_id":"gpt-4","workspace_root":"/tmp/ws"}"#,
+                r#"{"name":"test-agent","provider_id":"test-provider","model_id":"gpt-4"}"#,
             ))
             .unwrap();
         let resp = request(&app, req).await;
@@ -565,7 +585,7 @@ mod agent_tests {
         // Start run
         let req = Request::builder()
             .method("POST")
-            .uri(&format!("/v1/agents/{}/runs", agent_id))
+            .uri(format!("/v1/agents/{}/runs", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(r#"{"task":"work"}"#))
@@ -575,7 +595,7 @@ mod agent_tests {
         // Stop
         let req = Request::builder()
             .method("POST")
-            .uri(&format!("/v1/agents/{}/stop", agent_id))
+            .uri(format!("/v1/agents/{}/stop", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -597,11 +617,11 @@ mod agent_tests {
 
         let req = Request::builder()
             .method("POST")
-            .uri(&format!("/v1/agents/{}/subagents", agent_id))
+            .uri(format!("/v1/agents/{}/subagents", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
-                r#"{"provider_id":"test-provider","model_id":"gpt-4","workspace_root":"/tmp/sub"}"#,
+                r#"{"provider_id":"test-provider","model_id":"gpt-4"}"#,
             ))
             .unwrap();
         let resp = request(&app, req).await;
@@ -643,6 +663,8 @@ mod agent_tests {
                     spawned_total: 0,
                     created_at: now.clone(),
                     updated_at: now.clone(),
+                    name: Some("test-parent".into()),
+                    persona: None,
                 })
                 .unwrap();
         }
@@ -650,11 +672,11 @@ mod agent_tests {
         // Spawn child at depth 1 (should succeed)
         let req = Request::builder()
             .method("POST")
-            .uri(&format!("/v1/agents/{}/subagents", parent_id))
+            .uri(format!("/v1/agents/{}/subagents", parent_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
-                r#"{"provider_id":"test-provider","model_id":"gpt-4","workspace_root":"/tmp/sub1","max_subagent_depth":1}"#,
+                r#"{"provider_id":"test-provider","model_id":"gpt-4","max_subagent_depth":1}"#,
             ))
             .unwrap();
         let resp = request(&app, req).await;
@@ -668,11 +690,11 @@ mod agent_tests {
         // Spawn grandchild at depth 2 from child whose max_subagent_depth = 1 -> BLOCKED
         let req = Request::builder()
             .method("POST")
-            .uri(&format!("/v1/agents/{}/subagents", child_id))
+            .uri(format!("/v1/agents/{}/subagents", child_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
-                r#"{"provider_id":"test-provider","model_id":"gpt-4","workspace_root":"/tmp/sub2"}"#,
+                r#"{"provider_id":"test-provider","model_id":"gpt-4"}"#,
             ))
             .unwrap();
         let resp = request(&app, req).await;
@@ -707,21 +729,22 @@ mod agent_tests {
                     spawned_total: 0,
                     created_at: now.clone(),
                     updated_at: now.clone(),
+                    name: Some("test-parent".into()),
+                    persona: None,
                 })
                 .unwrap();
         }
 
         // Spawn 2 children (should succeed)
-        for i in 0..2 {
+        for _i in 0..2 {
             let req = Request::builder()
                 .method("POST")
-                .uri(&format!("/v1/agents/{}/subagents", parent_id))
+                .uri(format!("/v1/agents/{}/subagents", parent_id))
                 .header("authorization", format!("Bearer {}", token))
                 .header("content-type", "application/json")
-                .body(Body::from(format!(
-                    r#"{{"provider_id":"test-provider","model_id":"gpt-4","workspace_root":"/tmp/sub{}"}}"#,
-                    i
-                )))
+                .body(Body::from(
+                    r#"{"provider_id":"test-provider","model_id":"gpt-4"}"#,
+                ))
                 .unwrap();
             let resp = request(&app, req).await;
             assert_eq!(resp.status(), StatusCode::CREATED);
@@ -730,11 +753,11 @@ mod agent_tests {
         // Third spawn should be blocked
         let req = Request::builder()
             .method("POST")
-            .uri(&format!("/v1/agents/{}/subagents", parent_id))
+            .uri(format!("/v1/agents/{}/subagents", parent_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
-                r#"{"provider_id":"test-provider","model_id":"gpt-4","workspace_root":"/tmp/sub3"}"#,
+                r#"{"provider_id":"test-provider","model_id":"gpt-4"}"#,
             ))
             .unwrap();
         let resp = request(&app, req).await;
@@ -753,11 +776,11 @@ mod agent_tests {
         // Spawn a subagent
         let req = Request::builder()
             .method("POST")
-            .uri(&format!("/v1/agents/{}/subagents", agent_id))
+            .uri(format!("/v1/agents/{}/subagents", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
-                r#"{"provider_id":"test-provider","model_id":"gpt-4","workspace_root":"/tmp/sub"}"#,
+                r#"{"provider_id":"test-provider","model_id":"gpt-4"}"#,
             ))
             .unwrap();
         let resp = request(&app, req).await;
@@ -767,6 +790,114 @@ mod agent_tests {
         let db = state.db.lock().unwrap();
         let parent = db.agents().find_by_id(&agent_id).unwrap().unwrap();
         assert_eq!(parent.spawned_total, 1);
+    }
+
+    #[tokio::test]
+    async fn update_agent_changes_provider_and_model() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(
+            &state,
+            vec![TokenScope::AgentsWrite, TokenScope::AgentsRead],
+        );
+        let agent_id = seed_agent(&state, &token);
+
+        // Install a second provider
+        {
+            let db = state.db.lock().unwrap();
+            db.providers()
+                .insert(&moxxy_storage::ProviderRow {
+                    id: "new-provider".into(),
+                    display_name: "New Provider".into(),
+                    manifest_path: "/tmp/new.yaml".into(),
+                    signature: None,
+                    enabled: true,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                })
+                .unwrap();
+        }
+
+        let req = Request::builder()
+            .method("PATCH")
+            .uri(format!("/v1/agents/{}", agent_id))
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"provider_id":"new-provider","model_id":"new-model","temperature":1.2}"#,
+            ))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(result["provider_id"], "new-provider");
+        assert_eq!(result["model_id"], "new-model");
+        assert_eq!(result["temperature"], 1.2);
+    }
+
+    #[tokio::test]
+    async fn update_agent_partial_keeps_existing_values() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(
+            &state,
+            vec![TokenScope::AgentsWrite, TokenScope::AgentsRead],
+        );
+        let agent_id = seed_agent(&state, &token);
+
+        // Only update temperature
+        let req = Request::builder()
+            .method("PATCH")
+            .uri(format!("/v1/agents/{}", agent_id))
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"temperature":0.3}"#))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        // Original provider/model should be preserved
+        assert_eq!(result["provider_id"], "test-provider");
+        assert_eq!(result["model_id"], "gpt-4");
+        assert_eq!(result["temperature"], 0.3);
+    }
+
+    #[tokio::test]
+    async fn update_agent_not_found_returns_404() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
+
+        let req = Request::builder()
+            .method("PATCH")
+            .uri("/v1/agents/nonexistent")
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"temperature":0.5}"#))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn update_agent_invalid_temperature_returns_400() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
+        let agent_id = seed_agent(&state, &token);
+
+        let req = Request::builder()
+            .method("PATCH")
+            .uri(format!("/v1/agents/{}", agent_id))
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"temperature":5.0}"#))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 }
 
@@ -902,6 +1033,60 @@ mod provider_tests {
 }
 
 #[cfg(test)]
+mod resolve_provider_tests {
+    use super::test_helpers::*;
+
+    #[test]
+    fn resolve_provider_with_db_and_vault_returns_some() {
+        let (_app, state) = test_app();
+        seed_provider_with_model(&state);
+
+        // Store an API key in the vault
+        state
+            .vault_backend
+            .set_secret("moxxy_provider_test-provider", "sk-test-key-123")
+            .unwrap();
+
+        let provider = state.run_service.resolve_provider("test-provider", "gpt-4");
+        assert!(provider.is_some());
+    }
+
+    #[test]
+    fn resolve_provider_missing_vault_key_returns_none() {
+        let (_app, state) = test_app();
+        seed_provider_with_model(&state);
+
+        // No vault secret stored — resolve should return None
+        let provider = state.run_service.resolve_provider("test-provider", "gpt-4");
+        assert!(provider.is_none());
+    }
+
+    #[test]
+    fn resolve_provider_missing_provider_returns_none() {
+        let (_app, state) = test_app();
+
+        let provider = state.run_service.resolve_provider("nonexistent", "gpt-4");
+        assert!(provider.is_none());
+    }
+
+    #[test]
+    fn resolve_provider_missing_model_returns_none() {
+        let (_app, state) = test_app();
+        seed_provider(&state);
+
+        state
+            .vault_backend
+            .set_secret("moxxy_provider_test-provider", "sk-test-key-123")
+            .unwrap();
+
+        let provider = state
+            .run_service
+            .resolve_provider("test-provider", "nonexistent-model");
+        assert!(provider.is_none());
+    }
+}
+
+#[cfg(test)]
 mod heartbeat_tests {
     use super::test_helpers::*;
     use axum::body::Body;
@@ -917,7 +1102,7 @@ mod heartbeat_tests {
 
         let req = Request::builder()
             .method("POST")
-            .uri(&format!("/v1/agents/{}/heartbeats", agent_id))
+            .uri(format!("/v1/agents/{}/heartbeats", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
@@ -940,7 +1125,7 @@ mod heartbeat_tests {
         // Create heartbeat
         let req = Request::builder()
             .method("POST")
-            .uri(&format!("/v1/agents/{}/heartbeats", agent_id))
+            .uri(format!("/v1/agents/{}/heartbeats", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
@@ -957,7 +1142,7 @@ mod heartbeat_tests {
         // Disable it
         let req = Request::builder()
             .method("DELETE")
-            .uri(&format!("/v1/agents/{}/heartbeats/{}", agent_id, hb_id))
+            .uri(format!("/v1/agents/{}/heartbeats/{}", agent_id, hb_id))
             .header("authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -967,7 +1152,7 @@ mod heartbeat_tests {
         // Verify list is empty
         let req = Request::builder()
             .method("GET")
-            .uri(&format!("/v1/agents/{}/heartbeats", agent_id))
+            .uri(format!("/v1/agents/{}/heartbeats", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -992,7 +1177,7 @@ mod heartbeat_tests {
         // Create heartbeat
         let req = Request::builder()
             .method("POST")
-            .uri(&format!("/v1/agents/{}/heartbeats", agent_id))
+            .uri(format!("/v1/agents/{}/heartbeats", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
@@ -1004,7 +1189,7 @@ mod heartbeat_tests {
         // List
         let req = Request::builder()
             .method("GET")
-            .uri(&format!("/v1/agents/{}/heartbeats", agent_id))
+            .uri(format!("/v1/agents/{}/heartbeats", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1036,7 +1221,7 @@ mod skill_tests {
 
         let req = Request::builder()
             .method("POST")
-            .uri(&format!("/v1/agents/{}/skills/install", agent_id))
+            .uri(format!("/v1/agents/{}/skills/install", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
@@ -1065,7 +1250,7 @@ mod skill_tests {
         // Install a skill
         let req = Request::builder()
             .method("POST")
-            .uri(&format!("/v1/agents/{}/skills/install", agent_id))
+            .uri(format!("/v1/agents/{}/skills/install", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
@@ -1077,7 +1262,7 @@ mod skill_tests {
         // List skills
         let req = Request::builder()
             .method("GET")
-            .uri(&format!("/v1/agents/{}/skills", agent_id))
+            .uri(format!("/v1/agents/{}/skills", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1101,7 +1286,7 @@ mod skill_tests {
         // Install skill
         let req = Request::builder()
             .method("POST")
-            .uri(&format!("/v1/agents/{}/skills/install", agent_id))
+            .uri(format!("/v1/agents/{}/skills/install", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
@@ -1118,7 +1303,7 @@ mod skill_tests {
         // Approve skill
         let req = Request::builder()
             .method("POST")
-            .uri(&format!(
+            .uri(format!(
                 "/v1/agents/{}/skills/approve/{}",
                 agent_id, skill_id
             ))
@@ -1302,7 +1487,7 @@ mod vault_tests {
         // Revoke
         let req = Request::builder()
             .method("DELETE")
-            .uri(&format!("/v1/vault/grants/{}", grant_id))
+            .uri(format!("/v1/vault/grants/{}", grant_id))
             .header("authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1662,7 +1847,7 @@ mod memory_compact_tests {
 
         let req = Request::builder()
             .method("POST")
-            .uri(&format!("/v1/agents/{}/memory/compact", agent_id))
+            .uri(format!("/v1/agents/{}/memory/compact", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();

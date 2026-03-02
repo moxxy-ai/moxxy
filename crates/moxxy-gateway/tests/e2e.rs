@@ -7,24 +7,34 @@ use tokio::net::TcpListener;
 use moxxy_gateway::rate_limit::RateLimitConfig;
 use moxxy_gateway::state::AppState;
 use moxxy_gateway::{create_router, state::register_sqlite_vec};
+use moxxy_types::AuthMode;
 
 struct TestServer {
     addr: SocketAddr,
     client: reqwest::Client,
+    _tmp: tempfile::TempDir,
 }
 
 impl TestServer {
     async fn start() -> Self {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let moxxy_home = tmp.path().to_path_buf();
+        std::fs::create_dir_all(moxxy_home.join("agents")).unwrap();
         register_sqlite_vec();
         let conn = Connection::open_in_memory().unwrap();
-        let state = Arc::new(AppState::new(conn));
+        let state = Arc::new(AppState::new(conn, [0u8; 32], AuthMode::Token, moxxy_home));
         let app = create_router(state, None);
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
         tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await
+            .unwrap();
         });
 
         let client = reqwest::Client::builder()
@@ -32,7 +42,11 @@ impl TestServer {
             .build()
             .unwrap();
 
-        Self { addr, client }
+        Self {
+            addr,
+            client,
+            _tmp: tmp,
+        }
     }
 
     fn url(&self, path: &str) -> String {
@@ -121,7 +135,7 @@ async fn e2e_full_agent_lifecycle() {
             &serde_json::json!({
                 "provider_id": "echo",
                 "model_id": "echo-1",
-                "workspace_root": "/tmp/test-workspace"
+                "name": "lifecycle-agent"
             }),
         )
         .await;
@@ -164,6 +178,186 @@ async fn e2e_full_agent_lifecycle() {
 }
 
 // ---------------------------------------------------------------------------
+// Test: Agent update changes provider and model
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_agent_update_changes_provider_and_model() {
+    let server = TestServer::start().await;
+
+    let (token, _) = server
+        .create_token(&["agents:read", "agents:write"], None)
+        .await;
+
+    // Install two providers
+    server
+        .post(
+            "/v1/providers",
+            &token,
+            &serde_json::json!({
+                "id": "echo",
+                "display_name": "Echo Provider",
+                "models": [{"model_id": "echo-1", "display_name": "Echo 1"}]
+            }),
+        )
+        .await;
+
+    server
+        .post(
+            "/v1/providers",
+            &token,
+            &serde_json::json!({
+                "id": "openai",
+                "display_name": "OpenAI",
+                "models": [{"model_id": "gpt-4o", "display_name": "GPT-4o", "metadata": {"api_base": "https://api.openai.com/v1"}}]
+            }),
+        )
+        .await;
+
+    // Create agent with echo provider
+    let resp = server
+        .post(
+            "/v1/agents",
+            &token,
+            &serde_json::json!({
+                "provider_id": "echo",
+                "model_id": "echo-1",
+                "name": "update-agent"
+            }),
+        )
+        .await;
+    assert_eq!(resp.status().as_u16(), 201);
+    let agent: serde_json::Value = resp.json().await.unwrap();
+    let agent_id = agent["id"].as_str().unwrap();
+
+    // Update agent to use openai provider
+    let resp = server
+        .client
+        .patch(server.url(&format!("/v1/agents/{}", agent_id)))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&serde_json::json!({
+            "provider_id": "openai",
+            "model_id": "gpt-4o",
+            "temperature": 0.9
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 200);
+    let updated: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(updated["provider_id"], "openai");
+    assert_eq!(updated["model_id"], "gpt-4o");
+    assert_eq!(updated["temperature"], 0.9);
+
+    // Verify via GET
+    let resp = server
+        .get(&format!("/v1/agents/{}", agent_id), &token)
+        .await;
+    let agent: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(agent["provider_id"], "openai");
+    assert_eq!(agent["model_id"], "gpt-4o");
+}
+
+// ---------------------------------------------------------------------------
+// Test: Dynamic provider resolution E2E (provider install + vault + agent run)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_dynamic_provider_resolution_with_vault() {
+    let server = TestServer::start().await;
+
+    let (token, _) = server
+        .create_token(
+            &[
+                "agents:read",
+                "agents:write",
+                "runs:write",
+                "vault:read",
+                "vault:write",
+            ],
+            None,
+        )
+        .await;
+
+    // Install provider with api_base in model metadata
+    let resp = server
+        .post(
+            "/v1/providers",
+            &token,
+            &serde_json::json!({
+                "id": "test-llm",
+                "display_name": "Test LLM",
+                "models": [{
+                    "model_id": "test-model-1",
+                    "display_name": "Test Model",
+                    "metadata": {"api_base": "https://api.openai.com/v1"}
+                }]
+            }),
+        )
+        .await;
+    assert_eq!(resp.status().as_u16(), 201);
+
+    // Store API key in vault
+    let resp = server
+        .post(
+            "/v1/vault/secrets",
+            &token,
+            &serde_json::json!({
+                "key_name": "TEST_LLM_API_KEY",
+                "backend_key": "moxxy_provider_test-llm",
+                "policy_label": "provider-api-key",
+                "value": "sk-test-fake-key-12345"
+            }),
+        )
+        .await;
+    assert_eq!(resp.status().as_u16(), 201);
+
+    // Create agent using the provider
+    let resp = server
+        .post(
+            "/v1/agents",
+            &token,
+            &serde_json::json!({
+                "provider_id": "test-llm",
+                "model_id": "test-model-1",
+                "name": "dynamic-agent"
+            }),
+        )
+        .await;
+    assert_eq!(resp.status().as_u16(), 201);
+    let agent: serde_json::Value = resp.json().await.unwrap();
+    let agent_id = agent["id"].as_str().unwrap();
+
+    // Start a run — the dynamic resolver should find the provider via DB + vault
+    // (it will fail the HTTP call since the key is fake, but it won't use EchoProvider)
+    let resp = server
+        .post(
+            &format!("/v1/agents/{}/runs", agent_id),
+            &token,
+            &serde_json::json!({ "task": "Say hello" }),
+        )
+        .await;
+    assert_eq!(resp.status().as_u16(), 200);
+    let run: serde_json::Value = resp.json().await.unwrap();
+    assert!(run["run_id"].as_str().is_some());
+
+    // Wait for run to complete (will error because fake key)
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+    let resp = server
+        .get(&format!("/v1/agents/{}", agent_id), &token)
+        .await;
+    let agent: serde_json::Value = resp.json().await.unwrap();
+    let status = agent["status"].as_str().unwrap();
+    // Agent should be in error state since the fake API key won't work
+    assert!(
+        status == "idle" || status == "error",
+        "Expected idle or error, got {}",
+        status
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Test 2: Auth rejects invalid token
 // ---------------------------------------------------------------------------
 
@@ -193,7 +387,7 @@ async fn e2e_auth_rejects_wrong_scope() {
             &serde_json::json!({
                 "provider_id": "echo",
                 "model_id": "echo-1",
-                "workspace_root": "/tmp"
+                "name": "scope-agent"
             }),
         )
         .await;
@@ -264,7 +458,7 @@ async fn e2e_vault_secret_flow() {
             &serde_json::json!({
                 "provider_id": "echo",
                 "model_id": "echo-1",
-                "workspace_root": "/tmp"
+                "name": "vault-agent"
             }),
         )
         .await;
@@ -321,7 +515,7 @@ async fn e2e_skill_lifecycle() {
             &serde_json::json!({
                 "provider_id": "echo",
                 "model_id": "echo-1",
-                "workspace_root": "/tmp"
+                "name": "skill-agent"
             }),
         )
         .await;
@@ -378,7 +572,12 @@ async fn e2e_skill_lifecycle() {
 async fn e2e_rate_limit_returns_429() {
     register_sqlite_vec();
     let conn = Connection::open_in_memory().unwrap();
-    let state = Arc::new(AppState::new(conn));
+    let state = Arc::new(AppState::new(
+        conn,
+        [0u8; 32],
+        AuthMode::Token,
+        std::path::PathBuf::from("/tmp/moxxy-test"),
+    ));
 
     let config = RateLimitConfig {
         per_second: 1,
@@ -391,7 +590,12 @@ async fn e2e_rate_limit_returns_429() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
     });
 
     let client = reqwest::Client::new();
@@ -429,4 +633,276 @@ async fn e2e_token_list_returns_created_tokens() {
     let tokens: serde_json::Value = resp.json().await.unwrap();
     let arr = tokens.as_array().unwrap();
     assert!(arr.iter().any(|t| t["id"].as_str() == Some(&id)));
+}
+
+// ---------------------------------------------------------------------------
+// Test 9: Loopback mode bypasses auth for localhost
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_loopback_mode_bypasses_auth_for_localhost() {
+    register_sqlite_vec();
+    let conn = Connection::open_in_memory().unwrap();
+    let state = Arc::new(AppState::new(
+        conn,
+        [0u8; 32],
+        AuthMode::Loopback,
+        std::path::PathBuf::from("/tmp/moxxy-test"),
+    ));
+    let app = create_router(state, None);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+
+    let client = reqwest::Client::new();
+
+    // Request without any auth header — should succeed because loopback mode
+    let resp = client
+        .get(format!("http://{}/v1/agents", addr))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status().as_u16(),
+        200,
+        "Loopback mode should bypass auth for localhost"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 10: Loopback mode disabled still requires auth
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_loopback_disabled_still_requires_auth() {
+    register_sqlite_vec();
+    let conn = Connection::open_in_memory().unwrap();
+    let state = Arc::new(AppState::new(
+        conn,
+        [0u8; 32],
+        AuthMode::Token,
+        std::path::PathBuf::from("/tmp/moxxy-test"),
+    ));
+    let app = create_router(state, None);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+
+    let client = reqwest::Client::new();
+
+    // Request without auth header — should be rejected
+    let resp = client
+        .get(format!("http://{}/v1/agents", addr))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status().as_u16(),
+        401,
+        "Without loopback mode, unauthenticated requests should be rejected"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 11: Ask-response endpoint resolves pending question
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_ask_response_resolves_pending_question() {
+    let server = TestServer::start().await;
+
+    let (token, _) = server
+        .create_token(&["agents:read", "agents:write", "runs:write"], None)
+        .await;
+
+    // Create provider + agent
+    server
+        .post(
+            "/v1/providers",
+            &token,
+            &serde_json::json!({
+                "id": "echo",
+                "display_name": "Echo"
+            }),
+        )
+        .await;
+
+    let resp = server
+        .post(
+            "/v1/agents",
+            &token,
+            &serde_json::json!({
+                "provider_id": "echo",
+                "model_id": "echo-1",
+                "name": "ask-agent"
+            }),
+        )
+        .await;
+    assert_eq!(resp.status().as_u16(), 201);
+    let agent: serde_json::Value = resp.json().await.unwrap();
+    let agent_id = agent["id"].as_str().unwrap().to_string();
+
+    // Attempt to answer a non-existent question — should 404
+    let resp = server
+        .post(
+            &format!("/v1/agents/{}/ask-responses/nonexistent-q", agent_id),
+            &token,
+            &serde_json::json!({"answer": "hello"}),
+        )
+        .await;
+    assert_eq!(
+        resp.status().as_u16(),
+        404,
+        "Answering unknown question_id should return 404"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 12: Sub-agent spawn endpoint
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_subagent_spawn() {
+    let server = TestServer::start().await;
+
+    let (token, _) = server
+        .create_token(&["agents:read", "agents:write"], None)
+        .await;
+
+    // Create provider
+    server
+        .post(
+            "/v1/providers",
+            &token,
+            &serde_json::json!({
+                "id": "echo",
+                "display_name": "Echo"
+            }),
+        )
+        .await;
+
+    // Create parent agent
+    let resp = server
+        .post(
+            "/v1/agents",
+            &token,
+            &serde_json::json!({
+                "provider_id": "echo",
+                "model_id": "echo-1",
+                "name": "spawn-parent"
+            }),
+        )
+        .await;
+    assert_eq!(resp.status().as_u16(), 201);
+    let parent: serde_json::Value = resp.json().await.unwrap();
+    let parent_id = parent["id"].as_str().unwrap();
+
+    // Spawn sub-agent
+    let resp = server
+        .post(
+            &format!("/v1/agents/{}/subagents", parent_id),
+            &token,
+            &serde_json::json!({
+                "provider_id": "echo",
+                "model_id": "echo-1"
+            }),
+        )
+        .await;
+    assert_eq!(resp.status().as_u16(), 201);
+    let child: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(child["parent_agent_id"].as_str().unwrap(), parent_id);
+    assert_eq!(child["depth"], 1);
+
+    // Verify child is listed
+    let resp = server.get("/v1/agents", &token).await;
+    let agents: serde_json::Value = resp.json().await.unwrap();
+    let arr = agents.as_array().unwrap();
+    assert_eq!(arr.len(), 2, "Should have parent + child agents");
+}
+
+// ---------------------------------------------------------------------------
+// Test 13: Sub-agent spawn respects lineage limits
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn e2e_subagent_spawn_respects_limits() {
+    let server = TestServer::start().await;
+
+    let (token, _) = server
+        .create_token(&["agents:read", "agents:write"], None)
+        .await;
+
+    server
+        .post(
+            "/v1/providers",
+            &token,
+            &serde_json::json!({
+                "id": "echo",
+                "display_name": "Echo"
+            }),
+        )
+        .await;
+
+    // Create parent agent with max_subagents_total = 1
+    let resp = server
+        .post(
+            "/v1/agents",
+            &token,
+            &serde_json::json!({
+                "provider_id": "echo",
+                "model_id": "echo-1",
+                "name": "limits-parent",
+                "max_subagents_total": 1
+            }),
+        )
+        .await;
+    assert_eq!(resp.status().as_u16(), 201);
+    let parent: serde_json::Value = resp.json().await.unwrap();
+    let parent_id = parent["id"].as_str().unwrap();
+
+    // First spawn should succeed
+    let resp = server
+        .post(
+            &format!("/v1/agents/{}/subagents", parent_id),
+            &token,
+            &serde_json::json!({
+                "provider_id": "echo",
+                "model_id": "echo-1"
+            }),
+        )
+        .await;
+    assert_eq!(resp.status().as_u16(), 201);
+
+    // Second spawn should fail (exceeded max_subagents_total)
+    let resp = server
+        .post(
+            &format!("/v1/agents/{}/subagents", parent_id),
+            &token,
+            &serde_json::json!({
+                "provider_id": "echo",
+                "model_id": "echo-1"
+            }),
+        )
+        .await;
+    assert_eq!(
+        resp.status().as_u16(),
+        403,
+        "Should reject spawn when limit exceeded"
+    );
 }

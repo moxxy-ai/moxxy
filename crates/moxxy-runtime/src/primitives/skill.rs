@@ -23,6 +23,22 @@ impl Primitive for SkillImportPrimitive {
         "skill.import"
     }
 
+    fn description(&self) -> &str {
+        "Import a skill document. The skill starts in quarantine and must be approved."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "Skill document content with YAML frontmatter"},
+                "name": {"type": "string", "description": "Skill name"},
+                "version": {"type": "string", "description": "Skill version"}
+            },
+            "required": ["content"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let content = params["content"]
             .as_str()
@@ -31,6 +47,8 @@ impl Primitive for SkillImportPrimitive {
         let name = params["name"].as_str().unwrap_or("unknown");
 
         let version = params["version"].as_str().unwrap_or("0.0.0");
+
+        tracing::info!(name, version, "Importing skill (quarantine)");
 
         // Validate frontmatter by parsing
         let _doc =
@@ -65,10 +83,26 @@ impl Primitive for SkillValidatePrimitive {
         "skill.validate"
     }
 
+    fn description(&self) -> &str {
+        "Validate a skill document's frontmatter and structure without importing it."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "Skill document content to validate"}
+            },
+            "required": ["content"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let content = params["content"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'content' parameter".into()))?;
+
+        tracing::debug!(content_len = content.len(), "Validating skill document");
 
         let doc =
             SkillDoc::parse(content).map_err(|e| PrimitiveError::InvalidParams(e.to_string()))?;

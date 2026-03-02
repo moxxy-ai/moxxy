@@ -342,6 +342,8 @@ async function verifyStarted() {
 
 // --- Command router ---
 
+export { startGateway, stopGateway, findBinary, paths };
+
 export async function runGateway(client, args) {
   const sub = args[0];
 

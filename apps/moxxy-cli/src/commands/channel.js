@@ -108,7 +108,7 @@ async function listChannels(client, args) {
       return;
     }
     for (const ch of channels) {
-      p.log.info(`${ch.id.substring(0, 8)} | ${ch.channel_type} | ${ch.display_name} | ${ch.status}`);
+      p.log.info(`${ch.id} | ${ch.channel_type} | ${ch.display_name} | ${ch.status}`);
     }
   } catch (err) {
     p.log.error(`Failed to list channels: ${err.message}`);
@@ -218,7 +218,7 @@ async function listBindings(client, args) {
       return;
     }
     for (const b of bindings) {
-      p.log.info(`${b.id.substring(0, 8)} | Agent: ${b.agent_id.substring(0, 8)} | Chat: ${b.external_chat_id} | ${b.status}`);
+      p.log.info(`${b.id} | Agent: ${b.agent_id} | Chat: ${b.external_chat_id} | ${b.status}`);
     }
   } catch (err) {
     p.log.error(`Failed to list bindings: ${err.message}`);

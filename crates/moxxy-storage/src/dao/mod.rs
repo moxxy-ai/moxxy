@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod allowlist;
 pub mod channel;
 pub mod channel_binding;
 pub mod channel_pairing;
@@ -15,6 +16,7 @@ pub mod webhook;
 pub mod webhook_delivery;
 
 pub use agent::AgentDao;
+pub use allowlist::AllowlistDao;
 pub use channel::ChannelDao;
 pub use channel_binding::ChannelBindingDao;
 pub use channel_pairing::ChannelPairingDao;

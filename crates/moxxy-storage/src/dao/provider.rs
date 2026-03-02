@@ -91,6 +91,38 @@ impl<'a> ProviderDao<'a> {
         Ok(())
     }
 
+    pub fn find_model(
+        &self,
+        provider_id: &str,
+        model_id: &str,
+    ) -> Result<Option<ProviderModelRow>, StorageError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT provider_id, model_id, display_name, metadata_json
+                 FROM provider_models WHERE provider_id = ?1 AND model_id = ?2",
+            )
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        let mut rows = stmt
+            .query_map(params![provider_id, model_id], |row| {
+                Ok(ProviderModelRow {
+                    provider_id: row.get(0)?,
+                    model_id: row.get(1)?,
+                    display_name: row.get(2)?,
+                    metadata_json: row.get(3)?,
+                })
+            })
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        match rows.next() {
+            Some(r) => Ok(Some(
+                r.map_err(|e| StorageError::QueryFailed(e.to_string()))?,
+            )),
+            None => Ok(None),
+        }
+    }
+
     pub fn list_models(&self, provider_id: &str) -> Result<Vec<ProviderModelRow>, StorageError> {
         let mut stmt = self
             .conn
@@ -182,6 +214,37 @@ mod tests {
         let dao = ProviderDao { conn: db.conn() };
         let result = dao.delete("nonexistent");
         assert!(matches!(result, Err(StorageError::NotFound)));
+    }
+
+    #[test]
+    fn find_model_returns_match() {
+        let db = TestDb::new();
+        let dao = ProviderDao { conn: db.conn() };
+        let provider = fixture_provider_row();
+        dao.insert(&provider).unwrap();
+
+        let model = ProviderModelRow {
+            provider_id: provider.id.clone(),
+            model_id: "gpt-4".into(),
+            display_name: "GPT-4".into(),
+            metadata_json: Some(r#"{"api_base":"https://api.openai.com/v1"}"#.into()),
+        };
+        dao.insert_model(&model).unwrap();
+
+        let found = dao.find_model(&provider.id, "gpt-4").unwrap().unwrap();
+        assert_eq!(found.model_id, "gpt-4");
+        assert_eq!(found.provider_id, provider.id);
+    }
+
+    #[test]
+    fn find_model_returns_none_for_missing() {
+        let db = TestDb::new();
+        let dao = ProviderDao { conn: db.conn() };
+        let provider = fixture_provider_row();
+        dao.insert(&provider).unwrap();
+
+        let found = dao.find_model(&provider.id, "nonexistent").unwrap();
+        assert!(found.is_none());
     }
 
     #[test]

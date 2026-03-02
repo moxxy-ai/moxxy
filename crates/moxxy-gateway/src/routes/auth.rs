@@ -63,6 +63,10 @@ pub async fn create_token(
     let is_bootstrap = existing_tokens.is_empty();
     drop(db);
 
+    if is_bootstrap {
+        tracing::info!("Bootstrap token creation (no existing tokens)");
+    }
+
     if !is_bootstrap {
         let token = try_extract_token(&state, &parts.headers).ok_or_else(|| {
             (
@@ -75,6 +79,7 @@ pub async fn create_token(
 
     let created_by = body.description.as_deref().unwrap_or("api");
     let ttl = body.ttl_seconds.map(chrono::Duration::seconds);
+    tracing::info!(created_by, scopes_count = body.scopes.len(), has_ttl = ttl.is_some(), "Creating API token");
     let (plaintext, issued) = ApiTokenService::issue(created_by, body.scopes, ttl);
 
     let row = StoredTokenRow {
@@ -116,6 +121,7 @@ pub async fn list_tokens(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::TokensAdmin)?;
 
+    tracing::debug!("Listing API tokens");
     let db = state.db.lock().unwrap();
     let tokens = db.tokens().list_all().map_err(|_| {
         (
@@ -148,6 +154,7 @@ pub async fn revoke_token(
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::TokensAdmin)?;
 
+    tracing::info!(token_id = %id, "Revoking API token");
     let db = state.db.lock().unwrap();
     db.tokens().revoke(&id).map_err(|e| match e {
         moxxy_types::StorageError::NotFound => (

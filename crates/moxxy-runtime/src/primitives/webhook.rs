@@ -20,6 +20,23 @@ impl Primitive for WebhookCreatePrimitive {
         "webhook.create"
     }
 
+    fn description(&self) -> &str {
+        "Create a webhook endpoint that will be called on agent events."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "agent_id": {"type": "string", "description": "Agent ID to attach the webhook to"},
+                "url": {"type": "string", "description": "Webhook callback URL"},
+                "label": {"type": "string", "description": "Human-readable label"},
+                "event_filter": {"type": "string", "description": "Optional event type filter"}
+            },
+            "required": ["agent_id", "url", "label"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let agent_id = params["agent_id"]
             .as_str()
@@ -34,6 +51,8 @@ impl Primitive for WebhookCreatePrimitive {
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'label' parameter".into()))?;
 
         let event_filter = params["event_filter"].as_str().map(|s| s.to_string());
+
+        tracing::info!(agent_id, url, label, event_filter = ?event_filter, "Creating webhook");
 
         let now = chrono::Utc::now().to_rfc3339();
         let id = uuid::Uuid::now_v7().to_string();
@@ -88,10 +107,26 @@ impl Primitive for WebhookListPrimitive {
         "webhook.list"
     }
 
+    fn description(&self) -> &str {
+        "List all webhooks registered for an agent."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "agent_id": {"type": "string", "description": "Agent ID to list webhooks for"}
+            },
+            "required": ["agent_id"]
+        })
+    }
+
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let agent_id = params["agent_id"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'agent_id' parameter".into()))?;
+
+        tracing::debug!(agent_id, "Listing webhooks");
 
         let db = self
             .db
@@ -138,8 +173,8 @@ mod tests {
             .unwrap();
         db.conn()
             .execute(
-                "INSERT INTO agents (id, provider_id, model_id, workspace_root, status, depth, spawned_total, temperature, max_subagent_depth, max_subagents_total, created_at, updated_at)
-                 VALUES ('agent-1', 'prov-1', 'gpt-4', '/tmp', 'idle', 0, 0, 0.7, 2, 8, '2025-01-01', '2025-01-01')",
+                "INSERT INTO agents (id, provider_id, model_id, workspace_root, status, depth, spawned_total, temperature, max_subagent_depth, max_subagents_total, created_at, updated_at, name)
+                 VALUES ('agent-1', 'prov-1', 'gpt-4', '/tmp', 'idle', 0, 0, 0.7, 2, 8, '2025-01-01', '2025-01-01', 'agent-1')",
                 [],
             )
             .unwrap();
@@ -161,9 +196,13 @@ mod tests {
             params![],
         )
         .unwrap();
+        conn.execute_batch(include_str!(
+            "../../../../migrations/0008_agent_name_persona.sql"
+        ))
+        .unwrap();
         conn.execute(
-            "INSERT INTO agents (id, provider_id, model_id, workspace_root, status, depth, spawned_total, temperature, max_subagent_depth, max_subagents_total, created_at, updated_at)
-             VALUES ('agent-1', 'prov-1', 'gpt-4', '/tmp', 'idle', 0, 0, 0.7, 2, 8, '2025-01-01', '2025-01-01')",
+            "INSERT INTO agents (id, provider_id, model_id, workspace_root, status, depth, spawned_total, temperature, max_subagent_depth, max_subagents_total, created_at, updated_at, name)
+             VALUES ('agent-1', 'prov-1', 'gpt-4', '/tmp', 'idle', 0, 0, 0.7, 2, 8, '2025-01-01', '2025-01-01', 'agent-1')",
             params![],
         )
         .unwrap();

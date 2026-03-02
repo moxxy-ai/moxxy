@@ -1,11 +1,25 @@
-use axum::extract::FromRef;
+use axum::extract::{ConnectInfo, FromRef};
 use moxxy_core::ApiTokenService;
 use moxxy_storage::StoredTokenRow;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::state::AppState;
 
 pub struct AuthToken(pub StoredTokenRow);
+
+/// Creates a synthetic token row used when loopback mode bypasses auth.
+fn loopback_token() -> StoredTokenRow {
+    StoredTokenRow {
+        id: "loopback".to_string(),
+        created_by: "system".to_string(),
+        token_hash: String::new(),
+        scopes_json: r#"["*"]"#.to_string(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+        expires_at: None,
+        status: "active".to_string(),
+    }
+}
 
 impl<S: Send + Sync> axum::extract::FromRequestParts<S> for AuthToken
 where
@@ -19,6 +33,14 @@ where
     ) -> Result<Self, Self::Rejection> {
         let app_state = Arc::<AppState>::from_ref(state);
         let path = parts.uri.path().to_string();
+
+        // Loopback bypass: skip auth for localhost connections when enabled
+        if app_state.auth_mode.is_loopback()
+            && let Some(connect_info) = parts.extensions.get::<ConnectInfo<SocketAddr>>()
+            && connect_info.0.ip().is_loopback()
+        {
+            return Ok(AuthToken(loopback_token()));
+        }
 
         let auth_header = parts
             .headers
@@ -104,17 +126,25 @@ pub fn check_scope(
     token: &StoredTokenRow,
     required: &moxxy_types::TokenScope,
 ) -> Result<(), (axum::http::StatusCode, axum::Json<serde_json::Value>)> {
-    let scopes: Vec<moxxy_types::TokenScope> =
-        serde_json::from_str(&token.scopes_json).map_err(|_| {
-            (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                axum::Json(serde_json::json!({
-                    "error": "internal",
-                    "message": "Invalid scope data"
-                })),
-            )
-        })?;
-    if scopes.contains(required) {
+    // Deserialize known scopes, silently skipping any unrecognised strings
+    // so that adding new scope variants never causes a 500 against tokens
+    // written by an older or newer version of the gateway.
+    let raw: Vec<serde_json::Value> = serde_json::from_str(&token.scopes_json).map_err(|e| {
+        tracing::error!(token_id = %token.id, error = %e, "Failed to parse scopes_json");
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            axum::Json(serde_json::json!({
+                "error": "internal",
+                "message": "Invalid scope data"
+            })),
+        )
+    })?;
+    let scopes: Vec<moxxy_types::TokenScope> = raw
+        .into_iter()
+        .filter_map(|v| serde_json::from_value(v).ok())
+        .collect();
+
+    if scopes.contains(required) || scopes.contains(&moxxy_types::TokenScope::Wildcard) {
         Ok(())
     } else {
         Err((

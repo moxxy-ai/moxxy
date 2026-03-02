@@ -27,6 +27,11 @@ impl PrimitiveContext {
         }
     }
 
+    /// Returns the agent ID this context belongs to.
+    pub fn agent_id(&self) -> &str {
+        &self.agent_id
+    }
+
     /// Resolve a secret by key_name. Returns `Ok(Some(value))` if a matching
     /// vault_secret_ref exists AND the agent holds a non-revoked grant for it.
     /// Returns `Ok(None)` if the secret doesn't exist or the agent lacks a grant.
@@ -70,6 +75,170 @@ impl PrimitiveContext {
                 e
             ))),
         }
+    }
+
+    /// Store a secret value in the vault backend.
+    pub fn set_secret(&self, backend_key: &str, value: &str) -> Result<(), PrimitiveError> {
+        self.vault_backend
+            .set_secret(backend_key, value)
+            .map_err(|e| PrimitiveError::ExecutionFailed(format!("vault set_secret: {}", e)))
+    }
+
+    /// Delete a secret value from the vault backend.
+    pub fn delete_secret(&self, backend_key: &str) -> Result<(), PrimitiveError> {
+        self.vault_backend
+            .delete_secret(backend_key)
+            .map_err(|e| PrimitiveError::ExecutionFailed(format!("vault delete_secret: {}", e)))
+    }
+
+    /// Create or update a secret ref in the DB. Returns the secret_ref_id.
+    /// If a ref with the same key_name already exists, updates it.
+    pub fn create_secret_ref(
+        &self,
+        key_name: &str,
+        backend_key: &str,
+        policy_label: Option<&str>,
+    ) -> Result<String, PrimitiveError> {
+        let db = self
+            .db
+            .lock()
+            .map_err(|e| PrimitiveError::ExecutionFailed(format!("DB lock failed: {}", e)))?;
+
+        // Check if ref already exists for this key_name
+        if let Some(existing) = db
+            .vault_refs()
+            .find_by_key_name(key_name)
+            .map_err(|e| PrimitiveError::ExecutionFailed(format!("vault ref lookup: {}", e)))?
+        {
+            return Ok(existing.id);
+        }
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let row = moxxy_storage::VaultSecretRefRow {
+            id: uuid::Uuid::now_v7().to_string(),
+            key_name: key_name.to_string(),
+            backend_key: backend_key.to_string(),
+            policy_label: policy_label.map(|s| s.to_string()),
+            created_at: now.clone(),
+            updated_at: now,
+        };
+        db.vault_refs()
+            .insert(&row)
+            .map_err(|e| PrimitiveError::ExecutionFailed(format!("vault ref insert: {}", e)))?;
+        Ok(row.id)
+    }
+
+    /// Grant an agent access to a secret ref. Idempotent.
+    pub fn grant_access(&self, agent_id: &str, secret_ref_id: &str) -> Result<(), PrimitiveError> {
+        let db = self
+            .db
+            .lock()
+            .map_err(|e| PrimitiveError::ExecutionFailed(format!("DB lock failed: {}", e)))?;
+
+        // Check for existing active grant
+        let grants = db
+            .vault_grants()
+            .find_by_agent(agent_id)
+            .map_err(|e| PrimitiveError::ExecutionFailed(format!("vault grant lookup: {}", e)))?;
+
+        let already_granted = grants
+            .iter()
+            .any(|g| g.secret_ref_id == secret_ref_id && g.revoked_at.is_none());
+
+        if already_granted {
+            return Ok(());
+        }
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let row = moxxy_storage::VaultGrantRow {
+            id: uuid::Uuid::now_v7().to_string(),
+            agent_id: agent_id.to_string(),
+            secret_ref_id: secret_ref_id.to_string(),
+            created_at: now,
+            revoked_at: None,
+        };
+        db.vault_grants()
+            .insert(&row)
+            .map_err(|e| PrimitiveError::ExecutionFailed(format!("vault grant insert: {}", e)))?;
+        Ok(())
+    }
+
+    /// Find a secret ref by key_name.
+    pub fn find_secret_ref(
+        &self,
+        key_name: &str,
+    ) -> Result<Option<moxxy_storage::VaultSecretRefRow>, PrimitiveError> {
+        let db = self
+            .db
+            .lock()
+            .map_err(|e| PrimitiveError::ExecutionFailed(format!("DB lock failed: {}", e)))?;
+        db.vault_refs()
+            .find_by_key_name(key_name)
+            .map_err(|e| PrimitiveError::ExecutionFailed(format!("vault ref lookup: {}", e)))
+    }
+
+    /// Check if an agent has an active grant for a secret ref.
+    pub fn has_grant(&self, agent_id: &str, secret_ref_id: &str) -> Result<bool, PrimitiveError> {
+        let db = self
+            .db
+            .lock()
+            .map_err(|e| PrimitiveError::ExecutionFailed(format!("DB lock failed: {}", e)))?;
+        let grants = db
+            .vault_grants()
+            .find_by_agent(agent_id)
+            .map_err(|e| PrimitiveError::ExecutionFailed(format!("vault grant lookup: {}", e)))?;
+        Ok(grants
+            .iter()
+            .any(|g| g.secret_ref_id == secret_ref_id && g.revoked_at.is_none()))
+    }
+
+    /// Delete a secret ref from the DB.
+    pub fn delete_secret_ref(&self, secret_ref_id: &str) -> Result<(), PrimitiveError> {
+        let db = self
+            .db
+            .lock()
+            .map_err(|e| PrimitiveError::ExecutionFailed(format!("DB lock failed: {}", e)))?;
+        db.vault_refs()
+            .delete(secret_ref_id)
+            .map_err(|e| PrimitiveError::ExecutionFailed(format!("vault ref delete: {}", e)))
+    }
+
+    /// List secrets the agent has active grants for (key_name + policy_label only, no values).
+    pub fn list_agent_secrets(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<serde_json::Value>, PrimitiveError> {
+        let db = self
+            .db
+            .lock()
+            .map_err(|e| PrimitiveError::ExecutionFailed(format!("DB lock failed: {}", e)))?;
+
+        let grants = db
+            .vault_grants()
+            .find_by_agent(agent_id)
+            .map_err(|e| PrimitiveError::ExecutionFailed(format!("vault grant lookup: {}", e)))?;
+
+        let active_ref_ids: Vec<&str> = grants
+            .iter()
+            .filter(|g| g.revoked_at.is_none())
+            .map(|g| g.secret_ref_id.as_str())
+            .collect();
+
+        let mut secrets = Vec::new();
+        for ref_id in active_ref_ids {
+            if let Some(secret_ref) = db
+                .vault_refs()
+                .find_by_id(ref_id)
+                .map_err(|e| PrimitiveError::ExecutionFailed(format!("vault ref lookup: {}", e)))?
+            {
+                secrets.push(serde_json::json!({
+                    "key_name": secret_ref.key_name,
+                    "policy_label": secret_ref.policy_label,
+                }));
+            }
+        }
+
+        Ok(secrets)
     }
 }
 

@@ -71,6 +71,24 @@ impl TestDb {
                 .execute_batch(sql6)
                 .expect("Migration 0006 failed");
         }
+        // Migration 0008: agent name/persona columns
+        let has_agent_name: bool = self
+            .conn
+            .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='agents'")
+            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, String>(0)))
+            .map(|sql| sql.contains("name"))
+            .unwrap_or(false);
+        if !has_agent_name {
+            let sql8 = include_str!("../../../migrations/0008_agent_name_persona.sql");
+            self.conn
+                .execute_batch(sql8)
+                .expect("Migration 0008 failed");
+        }
+        // Migration 0009: agent allowlists
+        let sql9 = include_str!("../../../migrations/0009_agent_allowlists.sql");
+        self.conn
+            .execute_batch(sql9)
+            .expect("Migration 0009 failed");
         self.conn
             .execute_batch(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS memory_vec0 USING vec0(memory_id TEXT, embedding float[384])",
@@ -104,6 +122,7 @@ mod tests {
             .unwrap();
 
         let expected = vec![
+            "agent_allowlists",
             "agents",
             "api_tokens",
             "channel_bindings",

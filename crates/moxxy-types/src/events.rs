@@ -62,6 +62,18 @@ pub enum EventType {
     MemoryCompactStarted,
     #[serde(rename = "memory.compact_completed")]
     MemoryCompactCompleted,
+    #[serde(rename = "user.ask_question")]
+    UserAskQuestion,
+    #[serde(rename = "user.ask_answered")]
+    UserAskAnswered,
+    #[serde(rename = "subagent.ask_question")]
+    SubagentAskQuestion,
+    #[serde(rename = "subagent.failed")]
+    SubagentFailed,
+    #[serde(rename = "agent.alive")]
+    AgentAlive,
+    #[serde(rename = "agent.stuck")]
+    AgentStuck,
 }
 
 impl EventType {
@@ -97,6 +109,12 @@ impl EventType {
             EventType::ChannelError,
             EventType::MemoryCompactStarted,
             EventType::MemoryCompactCompleted,
+            EventType::UserAskQuestion,
+            EventType::UserAskAnswered,
+            EventType::SubagentAskQuestion,
+            EventType::SubagentFailed,
+            EventType::AgentAlive,
+            EventType::AgentStuck,
         ]
     }
 }

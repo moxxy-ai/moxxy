@@ -6,6 +6,7 @@ use crate::host::{WasmHost, WasmInstance};
 use crate::manifest::PluginManifest;
 use moxxy_runtime::PrimitiveError;
 use moxxy_runtime::provider::{Message, ModelConfig, Provider, ProviderResponse};
+use moxxy_runtime::registry::ToolDefinition;
 
 /// A Provider implementation backed by a WASM module.
 /// Creates a fresh WasmInstance per call to prevent state leakage.
@@ -42,6 +43,7 @@ impl Provider for WasmProvider {
         &self,
         messages: Vec<Message>,
         config: &ModelConfig,
+        _tools: &[ToolDefinition],
     ) -> Result<ProviderResponse, PrimitiveError> {
         let messages_json: Vec<serde_json::Value> = messages
             .iter()
@@ -77,8 +79,13 @@ impl Provider for WasmProvider {
             .as_array()
             .map(|arr| {
                 arr.iter()
-                    .filter_map(|tc| {
+                    .enumerate()
+                    .filter_map(|(i, tc)| {
                         Some(moxxy_runtime::ToolCall {
+                            id: tc["id"]
+                                .as_str()
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| format!("call_{i}")),
                             name: tc["name"].as_str()?.to_string(),
                             arguments: tc["arguments"].clone(),
                         })
@@ -169,12 +176,9 @@ mod tests {
             temperature: 0.7,
             max_tokens: 100,
         };
-        let messages = vec![Message {
-            role: "user".into(),
-            content: "hello".into(),
-        }];
+        let messages = vec![Message::user("hello")];
 
-        let resp = provider.complete(messages, &config).await.unwrap();
+        let resp = provider.complete(messages, &config, &[]).await.unwrap();
         assert_eq!(resp.content, "wasm hello");
         assert!(resp.tool_calls.is_empty());
     }
@@ -201,11 +205,8 @@ mod tests {
 
         // Call twice to verify no state leaks between calls
         for _ in 0..2 {
-            let messages = vec![Message {
-                role: "user".into(),
-                content: "test".into(),
-            }];
-            let resp = provider.complete(messages, &config).await.unwrap();
+            let messages = vec![Message::user("test")];
+            let resp = provider.complete(messages, &config, &[]).await.unwrap();
             assert_eq!(resp.content, "wasm hello");
         }
     }

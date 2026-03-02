@@ -38,6 +38,7 @@ impl ChannelTransport for DiscordTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use moxxy_types::MessageContent;
 
     #[test]
     fn discord_transport_name() {
@@ -50,7 +51,7 @@ mod tests {
         let transport = DiscordTransport::new("token".into());
         let msg = OutgoingMessage {
             external_chat_id: "123".into(),
-            text: "hello".into(),
+            content: MessageContent::Text("hello".into()),
         };
         let result = transport.send_message(msg).await;
         assert!(result.is_err());

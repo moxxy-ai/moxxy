@@ -81,4 +81,8 @@ impl Database {
     pub fn conversations(&self) -> ConversationDao<'_> {
         ConversationDao { conn: &self.conn }
     }
+
+    pub fn allowlists(&self) -> AllowlistDao<'_> {
+        AllowlistDao { conn: &self.conn }
+    }
 }

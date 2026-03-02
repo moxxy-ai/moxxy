@@ -24,6 +24,8 @@ pub async fn install_skill(
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::AgentsWrite)?;
 
+    tracing::info!(agent_id = %agent_id, skill_name = %body.name, version = %body.version, "Installing skill");
+
     let now = chrono::Utc::now().to_rfc3339();
     let id = uuid::Uuid::now_v7().to_string();
 
@@ -68,6 +70,7 @@ pub async fn list_skills(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::AgentsRead)?;
 
+    tracing::debug!(agent_id = %agent_id, "Listing skills");
     let db = state.db.lock().unwrap();
     let skills = db.skills().find_by_agent(&agent_id).map_err(|_| {
         (
@@ -100,6 +103,7 @@ pub async fn approve_skill(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::AgentsWrite)?;
 
+    tracing::info!(skill_id = %skill_id, "Approving skill");
     let db = state.db.lock().unwrap();
     db.skills()
         .update_status(&skill_id, "approved")

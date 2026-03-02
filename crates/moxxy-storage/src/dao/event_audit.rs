@@ -122,6 +122,19 @@ impl<'a> EventAuditDao<'a> {
         Ok(())
     }
 
+    pub fn find_latest_ts_for_agent(&self, agent_id: &str) -> Result<Option<i64>, StorageError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT MAX(ts) FROM event_audit WHERE agent_id = ?1")
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        let ts: Option<i64> = stmt
+            .query_row(params![agent_id], |row| row.get(0))
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        Ok(ts)
+    }
+
     fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<EventAuditRow> {
         Ok(EventAuditRow {
             event_id: row.get(0)?,
@@ -233,6 +246,42 @@ mod tests {
         let dao = EventAuditDao { conn: db.conn() };
         let result = dao.delete("nonexistent");
         assert!(matches!(result, Err(StorageError::NotFound)));
+    }
+
+    #[test]
+    fn find_latest_ts_for_agent_returns_max() {
+        let db = TestDb::new();
+        let dao = EventAuditDao { conn: db.conn() };
+        let agent_id = "agent-latest-ts";
+
+        let mut e1 = fixture_event_audit_row();
+        e1.agent_id = Some(agent_id.into());
+        e1.ts = 100;
+
+        let mut e2 = fixture_event_audit_row();
+        e2.event_id = uuid::Uuid::now_v7().to_string();
+        e2.agent_id = Some(agent_id.into());
+        e2.ts = 300;
+
+        let mut e3 = fixture_event_audit_row();
+        e3.event_id = uuid::Uuid::now_v7().to_string();
+        e3.agent_id = Some(agent_id.into());
+        e3.ts = 200;
+
+        dao.insert(&e1).unwrap();
+        dao.insert(&e2).unwrap();
+        dao.insert(&e3).unwrap();
+
+        let latest = dao.find_latest_ts_for_agent(agent_id).unwrap();
+        assert_eq!(latest, Some(300));
+    }
+
+    #[test]
+    fn find_latest_ts_for_agent_returns_none_for_unknown() {
+        let db = TestDb::new();
+        let dao = EventAuditDao { conn: db.conn() };
+        let latest = dao.find_latest_ts_for_agent("unknown-agent").unwrap();
+        assert_eq!(latest, None);
     }
 
     #[test]

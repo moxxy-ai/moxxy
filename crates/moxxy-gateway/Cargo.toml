@@ -33,6 +33,8 @@ thiserror = { workspace = true }
 cron = { workspace = true }
 rusqlite = { workspace = true }
 sqlite-vec = { workspace = true }
+rand = { workspace = true }
+hex = { workspace = true }
 tower_governor = "0.8"
 governor = "0.10"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
@@ -43,3 +45,4 @@ http = { workspace = true }
 moxxy-test-utils = { path = "../moxxy-test-utils" }
 futures-util = { workspace = true }
 tokio = { workspace = true }
+tempfile = { workspace = true }

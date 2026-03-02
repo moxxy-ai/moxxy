@@ -22,6 +22,8 @@ pub async fn search_memory(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::AgentsRead)?;
 
+    tracing::debug!(agent_id = %agent_id, query = ?params.q, tags = ?params.tags, "Searching memory");
+
     let db = state.db.lock().unwrap();
 
     // Verify agent exists
@@ -101,6 +103,8 @@ pub async fn compact_memory(
     Path(agent_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::AgentsWrite)?;
+
+    tracing::info!(agent_id = %agent_id, "Starting memory compaction");
 
     let (records, workspace_root) = {
         let db = state.db.lock().unwrap();

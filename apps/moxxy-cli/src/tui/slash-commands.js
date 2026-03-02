@@ -5,6 +5,7 @@ export const SLASH_COMMANDS = [
   { name: '/help',      description: 'Show available commands',  aliases: [] },
   { name: '/status',    description: 'Show agent status',        aliases: [] },
   { name: '/model',     description: 'Show current model info',  aliases: [] },
+  { name: '/select',    description: 'Toggle select mode (Ctrl+Y)', aliases: ['/copy'] },
   { name: '/tab new',   description: 'Open a new agent tab',    aliases: [] },
   { name: '/tab close', description: 'Close current tab',       aliases: ['/close'] },
   { name: '/tab list',  description: 'List open tabs',          aliases: [] },

@@ -40,6 +40,8 @@ pub fn fixture_agent_row() -> AgentRow {
         spawned_total: 0,
         created_at: chrono::Utc::now().to_rfc3339(),
         updated_at: chrono::Utc::now().to_rfc3339(),
+        name: Some("test-agent".into()),
+        persona: None,
     }
 }
 
@@ -178,6 +180,16 @@ pub fn fixture_webhook_row() -> WebhookRow {
         timeout_seconds: 10,
         created_at: chrono::Utc::now().to_rfc3339(),
         updated_at: chrono::Utc::now().to_rfc3339(),
+    }
+}
+
+pub fn fixture_allowlist_row(agent_id: &str, list_type: &str, entry: &str) -> AllowlistRow {
+    AllowlistRow {
+        id: uuid::Uuid::now_v7().to_string(),
+        agent_id: agent_id.into(),
+        list_type: list_type.into(),
+        entry: entry.into(),
+        created_at: chrono::Utc::now().to_rfc3339(),
     }
 }
 
