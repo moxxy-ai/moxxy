@@ -1,0 +1,190 @@
+use rusqlite::{Connection, params};
+use moxxy_types::StorageError;
+use crate::rows::EventAuditRow;
+
+pub struct EventAuditDao<'a> {
+    pub conn: &'a Connection,
+}
+
+impl<'a> EventAuditDao<'a> {
+    pub fn insert(&self, row: &EventAuditRow) -> Result<(), StorageError> {
+        self.conn
+            .execute(
+                "INSERT INTO event_audit (event_id, ts, agent_id, run_id, parent_run_id,
+                 sequence, event_type, payload_json, redactions_json, sensitive, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![
+                    row.event_id,
+                    row.ts,
+                    row.agent_id,
+                    row.run_id,
+                    row.parent_run_id,
+                    row.sequence,
+                    row.event_type,
+                    row.payload_json,
+                    row.redactions_json,
+                    row.sensitive,
+                    row.created_at,
+                ],
+            )
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn find_by_id(&self, event_id: &str) -> Result<Option<EventAuditRow>, StorageError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT event_id, ts, agent_id, run_id, parent_run_id,
+                 sequence, event_type, payload_json, redactions_json, sensitive, created_at
+                 FROM event_audit WHERE event_id = ?1",
+            )
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        let mut rows = stmt
+            .query_map(params![event_id], Self::map_row)
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        match rows.next() {
+            Some(r) => Ok(Some(r.map_err(|e| StorageError::QueryFailed(e.to_string()))?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn find_by_agent(&self, agent_id: &str) -> Result<Vec<EventAuditRow>, StorageError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT event_id, ts, agent_id, run_id, parent_run_id,
+                 sequence, event_type, payload_json, redactions_json, sensitive, created_at
+                 FROM event_audit WHERE agent_id = ?1 ORDER BY ts ASC",
+            )
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        let rows = stmt
+            .query_map(params![agent_id], Self::map_row)
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))
+    }
+
+    pub fn list_all(&self) -> Result<Vec<EventAuditRow>, StorageError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT event_id, ts, agent_id, run_id, parent_run_id,
+                 sequence, event_type, payload_json, redactions_json, sensitive, created_at
+                 FROM event_audit ORDER BY ts ASC",
+            )
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        let rows = stmt
+            .query_map([], Self::map_row)
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))
+    }
+
+    fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<EventAuditRow> {
+        Ok(EventAuditRow {
+            event_id: row.get(0)?,
+            ts: row.get(1)?,
+            agent_id: row.get(2)?,
+            run_id: row.get(3)?,
+            parent_run_id: row.get(4)?,
+            sequence: row.get(5)?,
+            event_type: row.get(6)?,
+            payload_json: row.get(7)?,
+            redactions_json: row.get(8)?,
+            sensitive: row.get(9)?,
+            created_at: row.get(10)?,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use moxxy_test_utils::TestDb;
+    use crate::fixtures::*;
+
+    #[test]
+    fn insert_and_find_by_id() {
+        let db = TestDb::new();
+        let dao = EventAuditDao { conn: db.conn() };
+        let event = fixture_event_audit_row();
+        dao.insert(&event).unwrap();
+        let found = dao.find_by_id(&event.event_id).unwrap().unwrap();
+        assert_eq!(found.event_id, event.event_id);
+        assert_eq!(found.event_type, event.event_type);
+    }
+
+    #[test]
+    fn find_returns_none_for_missing() {
+        let db = TestDb::new();
+        let dao = EventAuditDao { conn: db.conn() };
+        let found = dao.find_by_id("nonexistent").unwrap();
+        assert!(found.is_none());
+    }
+
+    #[test]
+    fn find_by_agent() {
+        let db = TestDb::new();
+        let dao = EventAuditDao { conn: db.conn() };
+        let event = fixture_event_audit_row();
+        dao.insert(&event).unwrap();
+        let agent_id = event.agent_id.as_ref().unwrap();
+        let found = dao.find_by_agent(agent_id).unwrap();
+        assert_eq!(found.len(), 1);
+    }
+
+    #[test]
+    fn list_all() {
+        let db = TestDb::new();
+        let dao = EventAuditDao { conn: db.conn() };
+        let e1 = fixture_event_audit_row();
+        let mut e2 = fixture_event_audit_row();
+        e2.event_id = uuid::Uuid::now_v7().to_string();
+        e2.ts = e1.ts + 1;
+        dao.insert(&e1).unwrap();
+        dao.insert(&e2).unwrap();
+        let all = dao.list_all().unwrap();
+        assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn sensitive_flag_persists() {
+        let db = TestDb::new();
+        let dao = EventAuditDao { conn: db.conn() };
+        let mut event = fixture_event_audit_row();
+        event.sensitive = true;
+        dao.insert(&event).unwrap();
+        let found = dao.find_by_id(&event.event_id).unwrap().unwrap();
+        assert!(found.sensitive);
+    }
+
+    #[test]
+    fn find_by_agent_orders_by_ts() {
+        let db = TestDb::new();
+        let dao = EventAuditDao { conn: db.conn() };
+        let agent_id = "agent-order-test".to_string();
+
+        let mut e1 = fixture_event_audit_row();
+        e1.agent_id = Some(agent_id.clone());
+        e1.ts = 200;
+
+        let mut e2 = fixture_event_audit_row();
+        e2.event_id = uuid::Uuid::now_v7().to_string();
+        e2.agent_id = Some(agent_id.clone());
+        e2.ts = 100;
+
+        dao.insert(&e1).unwrap();
+        dao.insert(&e2).unwrap();
+
+        let found = dao.find_by_agent(&agent_id).unwrap();
+        assert_eq!(found.len(), 2);
+        assert!(found[0].ts <= found[1].ts);
+    }
+}
