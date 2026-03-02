@@ -142,11 +142,9 @@ impl Primitive for BrowseExtractPrimitive {
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'html' parameter".into()))?;
 
-        let selectors = params["selectors"]
-            .as_object()
-            .ok_or_else(|| {
-                PrimitiveError::InvalidParams("missing 'selectors' object parameter".into())
-            })?;
+        let selectors = params["selectors"].as_object().ok_or_else(|| {
+            PrimitiveError::InvalidParams("missing 'selectors' object parameter".into())
+        })?;
 
         let document = scraper::Html::parse_document(html);
         let mut data = serde_json::Map::new();

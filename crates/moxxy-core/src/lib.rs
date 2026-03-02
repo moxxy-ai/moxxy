@@ -10,6 +10,9 @@ pub use agents::AgentLineage;
 pub use auth::{ApiTokenService, IssuedToken};
 pub use events::{EventBus, RedactionEngine};
 pub use heartbeat::{HeartbeatRule, HeartbeatScheduler};
-pub use memory::{MemoryJournal, MemoryRecord};
+pub use memory::{
+    EmbeddingError, EmbeddingService, MemoryJournal, MemoryRecord, MockEmbeddingService,
+    bytes_to_embedding, embedding_to_bytes,
+};
 pub use security::PathPolicy;
 pub use skills::SkillDoc;

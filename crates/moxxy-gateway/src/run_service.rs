@@ -197,10 +197,14 @@ impl RunService {
             workspace_path.clone(),
         )));
         registry.register(Box::new(moxxy_runtime::GitStatusPrimitive::new()));
-        registry.register(Box::new(moxxy_runtime::GitCommitPrimitive::new(ctx.clone())));
+        registry.register(Box::new(moxxy_runtime::GitCommitPrimitive::new(
+            ctx.clone(),
+        )));
         registry.register(Box::new(moxxy_runtime::GitPushPrimitive::new(ctx.clone())));
         registry.register(Box::new(moxxy_runtime::GitCheckoutPrimitive::new()));
-        registry.register(Box::new(moxxy_runtime::GitPrCreatePrimitive::new(ctx.clone())));
+        registry.register(Box::new(moxxy_runtime::GitPrCreatePrimitive::new(
+            ctx.clone(),
+        )));
         registry.register(Box::new(moxxy_runtime::GitForkPrimitive::new(ctx)));
         registry.register(Box::new(moxxy_runtime::GitWorktreeAddPrimitive::new(
             workspace_path,

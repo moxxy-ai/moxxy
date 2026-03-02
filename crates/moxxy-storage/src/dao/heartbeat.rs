@@ -11,8 +11,8 @@ impl<'a> HeartbeatDao<'a> {
         self.conn
             .execute(
                 "INSERT INTO heartbeats (id, agent_id, interval_minutes, action_type, action_payload,
-                 enabled, next_run_at, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                 enabled, next_run_at, cron_expr, timezone, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     row.id,
                     row.agent_id,
@@ -21,6 +21,8 @@ impl<'a> HeartbeatDao<'a> {
                     row.action_payload,
                     row.enabled,
                     row.next_run_at,
+                    row.cron_expr,
+                    row.timezone,
                     row.created_at,
                     row.updated_at,
                 ],
@@ -34,7 +36,7 @@ impl<'a> HeartbeatDao<'a> {
             .conn
             .prepare(
                 "SELECT id, agent_id, interval_minutes, action_type, action_payload,
-                 enabled, next_run_at, created_at, updated_at
+                 enabled, next_run_at, cron_expr, timezone, created_at, updated_at
                  FROM heartbeats WHERE id = ?1",
             )
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
@@ -56,7 +58,7 @@ impl<'a> HeartbeatDao<'a> {
             .conn
             .prepare(
                 "SELECT id, agent_id, interval_minutes, action_type, action_payload,
-                 enabled, next_run_at, created_at, updated_at
+                 enabled, next_run_at, cron_expr, timezone, created_at, updated_at
                  FROM heartbeats WHERE agent_id = ?1",
             )
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
@@ -74,7 +76,7 @@ impl<'a> HeartbeatDao<'a> {
             .conn
             .prepare(
                 "SELECT id, agent_id, interval_minutes, action_type, action_payload,
-                 enabled, next_run_at, created_at, updated_at
+                 enabled, next_run_at, cron_expr, timezone, created_at, updated_at
                  FROM heartbeats WHERE enabled = 1 AND next_run_at <= ?1",
             )
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
@@ -92,7 +94,7 @@ impl<'a> HeartbeatDao<'a> {
             .conn
             .prepare(
                 "SELECT id, agent_id, interval_minutes, action_type, action_payload,
-                 enabled, next_run_at, created_at, updated_at
+                 enabled, next_run_at, cron_expr, timezone, created_at, updated_at
                  FROM heartbeats",
             )
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
@@ -110,13 +112,15 @@ impl<'a> HeartbeatDao<'a> {
             .conn
             .execute(
                 "UPDATE heartbeats SET interval_minutes = ?1, action_type = ?2, action_payload = ?3,
-                 enabled = ?4, next_run_at = ?5, updated_at = ?6 WHERE id = ?7",
+                 enabled = ?4, next_run_at = ?5, cron_expr = ?6, timezone = ?7, updated_at = ?8 WHERE id = ?9",
                 params![
                     row.interval_minutes,
                     row.action_type,
                     row.action_payload,
                     row.enabled,
                     row.next_run_at,
+                    row.cron_expr,
+                    row.timezone,
                     row.updated_at,
                     row.id,
                 ],
@@ -154,8 +158,10 @@ impl<'a> HeartbeatDao<'a> {
             action_payload: row.get(4)?,
             enabled: row.get(5)?,
             next_run_at: row.get(6)?,
-            created_at: row.get(7)?,
-            updated_at: row.get(8)?,
+            cron_expr: row.get(7)?,
+            timezone: row.get(8)?,
+            created_at: row.get(9)?,
+            updated_at: row.get(10)?,
         })
     }
 }
@@ -302,5 +308,21 @@ mod tests {
 
         let found = dao.find_by_id(&hb.id).unwrap().unwrap();
         assert_eq!(found.interval_minutes, 30);
+    }
+
+    #[test]
+    fn insert_and_find_with_cron_expr() {
+        let db = TestDb::new();
+        let agent_id = seed_agent(&db);
+        let dao = HeartbeatDao { conn: db.conn() };
+        let mut hb = fixture_heartbeat_row();
+        hb.agent_id = agent_id;
+        hb.cron_expr = Some("0 0 9 * * *".into());
+        hb.timezone = "Europe/Warsaw".into();
+        hb.interval_minutes = 1;
+        dao.insert(&hb).unwrap();
+        let found = dao.find_by_id(&hb.id).unwrap().unwrap();
+        assert_eq!(found.cron_expr, Some("0 0 9 * * *".into()));
+        assert_eq!(found.timezone, "Europe/Warsaw");
     }
 }

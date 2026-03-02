@@ -11,7 +11,13 @@ impl Default for TestDb {
 }
 
 impl TestDb {
+    #[allow(clippy::missing_transmute_annotations)]
     pub fn new() -> Self {
+        unsafe {
+            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+                sqlite_vec::sqlite3_vec_init as *const (),
+            )));
+        }
         let conn = Connection::open_in_memory().expect("Failed to create in-memory SQLite");
         let db = Self { conn };
         db.run_migrations();
@@ -39,6 +45,37 @@ impl TestDb {
         self.conn
             .execute_batch(sql4)
             .expect("Migration 0004 failed");
+        // Migration 0006: heartbeat cron columns
+        let has_cron: bool = self
+            .conn
+            .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='heartbeats'")
+            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, String>(0)))
+            .map(|sql| sql.contains("cron_expr"))
+            .unwrap_or(false);
+        if !has_cron {
+            let sql6 = include_str!("../../../migrations/0006_heartbeat_cron.sql");
+            self.conn
+                .execute_batch(sql6)
+                .expect("Migration 0006 failed");
+        }
+        // Migration 0005: ALTER TABLE is not idempotent, so check if column exists first
+        let has_status: bool = self
+            .conn
+            .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memory_index'")
+            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, String>(0)))
+            .map(|sql| sql.contains("status"))
+            .unwrap_or(false);
+        if !has_status {
+            let sql5 = include_str!("../../../migrations/0005_memory_vec0.sql");
+            self.conn
+                .execute_batch(sql5)
+                .expect("Migration 0005 failed");
+        }
+        self.conn
+            .execute_batch(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS memory_vec0 USING vec0(memory_id TEXT, embedding float[384])",
+            )
+            .expect("Failed to create memory_vec0");
     }
 
     pub fn conn(&self) -> &Connection {
@@ -95,6 +132,20 @@ mod tests {
     }
 
     #[test]
+    fn test_db_has_memory_vec0_virtual_table() {
+        let db = TestDb::new();
+        let count: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='memory_vec0'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
     fn test_db_migration_is_idempotent() {
         let db = TestDb::new();
         db.run_migrations();
@@ -106,7 +157,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert!(count >= 17);
+        assert!(count >= 18);
     }
 
     #[test]

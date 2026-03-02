@@ -52,6 +52,8 @@ pub fn fixture_heartbeat_row() -> HeartbeatRow {
         action_payload: None,
         enabled: true,
         next_run_at: chrono::Utc::now().to_rfc3339(),
+        cron_expr: None,
+        timezone: "UTC".into(),
         created_at: chrono::Utc::now().to_rfc3339(),
         updated_at: chrono::Utc::now().to_rfc3339(),
     }
@@ -80,6 +82,7 @@ pub fn fixture_memory_index_row() -> MemoryIndexRow {
         tags_json: Some(r#"["test","note"]"#.into()),
         chunk_hash: Some("abc123".into()),
         embedding_id: None,
+        status: "active".into(),
         created_at: chrono::Utc::now().to_rfc3339(),
         updated_at: chrono::Utc::now().to_rfc3339(),
     }

@@ -125,9 +125,12 @@ impl Primitive for GitClonePrimitive {
             args.push(&depth_arg);
         }
 
-        let (stdout, stderr, code) =
-            run_git(&args, self.workspace_root.to_str().unwrap_or("."), Duration::from_secs(120))
-                .await?;
+        let (stdout, stderr, code) = run_git(
+            &args,
+            self.workspace_root.to_str().unwrap_or("."),
+            Duration::from_secs(120),
+        )
+        .await?;
 
         if code != 0 {
             return Err(PrimitiveError::ExecutionFailed(format!(
@@ -137,13 +140,9 @@ impl Primitive for GitClonePrimitive {
         }
 
         // Get commit hash
-        let (hash_out, _, _) = run_git(
-            &["rev-parse", "HEAD"],
-            &path_str,
-            Duration::from_secs(5),
-        )
-        .await
-        .unwrap_or_default();
+        let (hash_out, _, _) = run_git(&["rev-parse", "HEAD"], &path_str, Duration::from_secs(5))
+            .await
+            .unwrap_or_default();
 
         // Get branch
         let (branch_out, _, _) = run_git(
@@ -204,8 +203,7 @@ impl Primitive for GitInitPrimitive {
             args.push(&branch_arg);
         }
 
-        let (stdout, stderr, code) =
-            run_git(&args, &path_str, Duration::from_secs(10)).await?;
+        let (stdout, stderr, code) = run_git(&args, &path_str, Duration::from_secs(10)).await?;
 
         if code != 0 {
             return Err(PrimitiveError::ExecutionFailed(format!(
@@ -262,9 +260,7 @@ impl Primitive for GitStatusPrimitive {
             run_git(&["status", "--porcelain"], path, Duration::from_secs(10)).await?;
 
         if code != 0 {
-            return Err(PrimitiveError::ExecutionFailed(
-                "git status failed".into(),
-            ));
+            return Err(PrimitiveError::ExecutionFailed("git status failed".into()));
         }
 
         let mut modified = vec![];
@@ -287,13 +283,10 @@ impl Primitive for GitStatusPrimitive {
             }
         }
 
-        let (branch_out, _, _) = run_git(
-            &["branch", "--show-current"],
-            path,
-            Duration::from_secs(5),
-        )
-        .await
-        .unwrap_or_default();
+        let (branch_out, _, _) =
+            run_git(&["branch", "--show-current"], path, Duration::from_secs(5))
+                .await
+                .unwrap_or_default();
 
         Ok(serde_json::json!({
             "branch": branch_out.trim(),
@@ -359,8 +352,7 @@ impl Primitive for GitCommitPrimitive {
             .unwrap_or_default();
 
         if files.is_empty() {
-            let (_, stderr, code) =
-                run_git(&["add", "-A"], path, Duration::from_secs(30)).await?;
+            let (_, stderr, code) = run_git(&["add", "-A"], path, Duration::from_secs(30)).await?;
             if code != 0 {
                 return Err(PrimitiveError::ExecutionFailed(format!(
                     "git add failed: {}",
@@ -391,13 +383,9 @@ impl Primitive for GitCommitPrimitive {
         }
 
         // Get commit hash
-        let (hash_out, _, _) = run_git(
-            &["rev-parse", "HEAD"],
-            path,
-            Duration::from_secs(5),
-        )
-        .await
-        .unwrap_or_default();
+        let (hash_out, _, _) = run_git(&["rev-parse", "HEAD"], path, Duration::from_secs(5))
+            .await
+            .unwrap_or_default();
 
         Ok(serde_json::json!({
             "commit_hash": hash_out.trim(),
@@ -436,13 +424,10 @@ impl Primitive for GitPushPrimitive {
         // Set up credential helper via token
         if let Ok(Some(token)) = self.ctx.resolve_secret("github-token") {
             // Get current remote URL and inject token
-            let (remote_url, _, _) = run_git(
-                &["remote", "get-url", remote],
-                path,
-                Duration::from_secs(5),
-            )
-            .await
-            .unwrap_or_default();
+            let (remote_url, _, _) =
+                run_git(&["remote", "get-url", remote], path, Duration::from_secs(5))
+                    .await
+                    .unwrap_or_default();
 
             let auth_url = inject_token_into_url(remote_url.trim(), &token);
             let _ = run_git(
@@ -461,8 +446,7 @@ impl Primitive for GitPushPrimitive {
             args.push("--force");
         }
 
-        let (stdout, stderr, code) =
-            run_git(&args, path, Duration::from_secs(60)).await?;
+        let (stdout, stderr, code) = run_git(&args, path, Duration::from_secs(60)).await?;
 
         if code != 0 {
             return Err(PrimitiveError::ExecutionFailed(format!(
@@ -561,14 +545,11 @@ impl Primitive for GitPrCreatePrimitive {
         let body = params["body"].as_str().unwrap_or("");
         let base = params["base"].as_str();
 
-        let token = self
-            .ctx
-            .resolve_secret("github-token")?
-            .ok_or_else(|| {
-                PrimitiveError::AccessDenied(
-                    "github-token not found in vault or agent lacks grant".into(),
-                )
-            })?;
+        let token = self.ctx.resolve_secret("github-token")?.ok_or_else(|| {
+            PrimitiveError::AccessDenied(
+                "github-token not found in vault or agent lacks grant".into(),
+            )
+        })?;
 
         // Get remote URL to infer owner/repo
         let (remote_url, _, _) = run_git(
@@ -583,15 +564,9 @@ impl Primitive for GitPrCreatePrimitive {
         })?;
 
         // Get current branch as head
-        let (branch_out, _, _) = run_git(
-            &["branch", "--show-current"],
-            path,
-            Duration::from_secs(5),
-        )
-        .await?;
-        let head = params["head"]
-            .as_str()
-            .unwrap_or(branch_out.trim());
+        let (branch_out, _, _) =
+            run_git(&["branch", "--show-current"], path, Duration::from_secs(5)).await?;
+        let head = params["head"].as_str().unwrap_or(branch_out.trim());
 
         let base_branch = base.unwrap_or("main");
 
@@ -662,14 +637,11 @@ impl Primitive for GitForkPrimitive {
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'repo' parameter".into()))?;
 
-        let token = self
-            .ctx
-            .resolve_secret("github-token")?
-            .ok_or_else(|| {
-                PrimitiveError::AccessDenied(
-                    "github-token not found in vault or agent lacks grant".into(),
-                )
-            })?;
+        let token = self.ctx.resolve_secret("github-token")?.ok_or_else(|| {
+            PrimitiveError::AccessDenied(
+                "github-token not found in vault or agent lacks grant".into(),
+            )
+        })?;
 
         let client = reqwest::Client::new();
         let api_url = format!("https://api.github.com/repos/{}/{}/forks", owner, repo);
@@ -743,10 +715,7 @@ impl Primitive for GitWorktreeAddPrimitive {
         // Create parent directory if needed
         if let Some(parent) = worktree_dir.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                PrimitiveError::ExecutionFailed(format!(
-                    "Failed to create worktree parent: {}",
-                    e
-                ))
+                PrimitiveError::ExecutionFailed(format!("Failed to create worktree parent: {}", e))
             })?;
         }
 
@@ -758,8 +727,7 @@ impl Primitive for GitWorktreeAddPrimitive {
             vec!["worktree", "add", &worktree_str, branch]
         };
 
-        let (stdout, stderr, code) =
-            run_git(&args, repo_path, Duration::from_secs(30)).await?;
+        let (stdout, stderr, code) = run_git(&args, repo_path, Duration::from_secs(30)).await?;
 
         if code != 0 {
             return Err(PrimitiveError::ExecutionFailed(format!(
@@ -803,8 +771,12 @@ impl Primitive for GitWorktreeListPrimitive {
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'path' parameter".into()))?;
 
-        let (stdout, stderr, code) =
-            run_git(&["worktree", "list", "--porcelain"], path, Duration::from_secs(10)).await?;
+        let (stdout, stderr, code) = run_git(
+            &["worktree", "list", "--porcelain"],
+            path,
+            Duration::from_secs(10),
+        )
+        .await?;
 
         if code != 0 {
             return Err(PrimitiveError::ExecutionFailed(format!(
@@ -831,7 +803,10 @@ impl Primitive for GitWorktreeListPrimitive {
             } else if let Some(head) = line.strip_prefix("HEAD ") {
                 current.insert("head".into(), serde_json::Value::String(head.to_string()));
             } else if let Some(branch) = line.strip_prefix("branch ") {
-                current.insert("branch".into(), serde_json::Value::String(branch.to_string()));
+                current.insert(
+                    "branch".into(),
+                    serde_json::Value::String(branch.to_string()),
+                );
             } else if line == "bare" {
                 current.insert("bare".into(), serde_json::Value::Bool(true));
             } else if line == "detached" {
@@ -869,13 +844,13 @@ impl Primitive for GitWorktreeRemovePrimitive {
     }
 
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
-        let path = params["path"]
-            .as_str()
-            .ok_or_else(|| PrimitiveError::InvalidParams("missing 'path' parameter (main repo)".into()))?;
+        let path = params["path"].as_str().ok_or_else(|| {
+            PrimitiveError::InvalidParams("missing 'path' parameter (main repo)".into())
+        })?;
 
-        let worktree_path = params["worktree_path"]
-            .as_str()
-            .ok_or_else(|| PrimitiveError::InvalidParams("missing 'worktree_path' parameter".into()))?;
+        let worktree_path = params["worktree_path"].as_str().ok_or_else(|| {
+            PrimitiveError::InvalidParams("missing 'worktree_path' parameter".into())
+        })?;
 
         let force = params["force"].as_bool().unwrap_or(false);
 
@@ -884,8 +859,7 @@ impl Primitive for GitWorktreeRemovePrimitive {
             args.push("--force");
         }
 
-        let (stdout, stderr, code) =
-            run_git(&args, path, Duration::from_secs(30)).await?;
+        let (stdout, stderr, code) = run_git(&args, path, Duration::from_secs(30)).await?;
 
         if code != 0 {
             return Err(PrimitiveError::ExecutionFailed(format!(
@@ -921,24 +895,21 @@ mod tests {
 
     #[test]
     fn parse_remote_https() {
-        let (owner, repo) =
-            parse_remote_url("https://github.com/octocat/hello-world.git").unwrap();
+        let (owner, repo) = parse_remote_url("https://github.com/octocat/hello-world.git").unwrap();
         assert_eq!(owner, "octocat");
         assert_eq!(repo, "hello-world");
     }
 
     #[test]
     fn parse_remote_ssh() {
-        let (owner, repo) =
-            parse_remote_url("git@github.com:octocat/hello-world.git").unwrap();
+        let (owner, repo) = parse_remote_url("git@github.com:octocat/hello-world.git").unwrap();
         assert_eq!(owner, "octocat");
         assert_eq!(repo, "hello-world");
     }
 
     #[test]
     fn parse_remote_no_git_suffix() {
-        let (owner, repo) =
-            parse_remote_url("https://github.com/org/project").unwrap();
+        let (owner, repo) = parse_remote_url("https://github.com/org/project").unwrap();
         assert_eq!(owner, "org");
         assert_eq!(repo, "project");
     }
@@ -952,8 +923,14 @@ mod tests {
     async fn git_init_creates_repo() {
         let tmp = tempfile::tempdir().unwrap();
         let prim = GitInitPrimitive::new(tmp.path().to_path_buf());
-        let result = prim.invoke(serde_json::json!({"path": "my-project"})).await.unwrap();
-        assert_eq!(result["path"], tmp.path().join("my-project").to_string_lossy().to_string());
+        let result = prim
+            .invoke(serde_json::json!({"path": "my-project"}))
+            .await
+            .unwrap();
+        assert_eq!(
+            result["path"],
+            tmp.path().join("my-project").to_string_lossy().to_string()
+        );
         // Verify .git directory was created
         assert!(tmp.path().join("my-project/.git").exists());
     }
@@ -996,15 +973,29 @@ mod tests {
         std::fs::create_dir_all(&repo_path).unwrap();
 
         // Init a repo with an initial commit (worktree requires at least one commit)
-        run_git(&["init"], repo_path.to_str().unwrap(), Duration::from_secs(5))
-            .await
-            .unwrap();
-        std::fs::write(repo_path.join("README.md"), "# Test").unwrap();
-        run_git(&["add", "."], repo_path.to_str().unwrap(), Duration::from_secs(5))
-            .await
-            .unwrap();
         run_git(
-            &["commit", "-m", "initial", "--author", "Test <test@test.com>"],
+            &["init"],
+            repo_path.to_str().unwrap(),
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
+        std::fs::write(repo_path.join("README.md"), "# Test").unwrap();
+        run_git(
+            &["add", "."],
+            repo_path.to_str().unwrap(),
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
+        run_git(
+            &[
+                "commit",
+                "-m",
+                "initial",
+                "--author",
+                "Test <test@test.com>",
+            ],
             repo_path.to_str().unwrap(),
             Duration::from_secs(5),
         )
@@ -1042,13 +1033,21 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let repo_path = tmp.path().join("repo");
         std::fs::create_dir_all(&repo_path).unwrap();
-        run_git(&["init"], repo_path.to_str().unwrap(), Duration::from_secs(5))
-            .await
-            .unwrap();
+        run_git(
+            &["init"],
+            repo_path.to_str().unwrap(),
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
         std::fs::write(repo_path.join("f.txt"), "x").unwrap();
-        run_git(&["add", "."], repo_path.to_str().unwrap(), Duration::from_secs(5))
-            .await
-            .unwrap();
+        run_git(
+            &["add", "."],
+            repo_path.to_str().unwrap(),
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
         run_git(
             &["commit", "-m", "init", "--author", "T <t@t.com>"],
             repo_path.to_str().unwrap(),

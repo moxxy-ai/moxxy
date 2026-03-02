@@ -1,4 +1,4 @@
-use moxxy_gateway::{create_router, state::AppState};
+use moxxy_gateway::{create_router, rate_limit::RateLimitConfig, state::AppState};
 use rusqlite::Connection;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -37,6 +37,7 @@ async fn main() {
     let port = std::env::var("MOXXY_PORT").unwrap_or_else(|_| "3000".into());
     let addr = format!("{host}:{port}");
 
+    moxxy_gateway::state::register_sqlite_vec();
     let conn = Connection::open(&db_path).expect("Failed to open SQLite database");
     let state = Arc::new(AppState::new(conn));
     state.spawn_event_persistence();
@@ -108,11 +109,14 @@ async fn main() {
         *state.channel_bridge.lock().unwrap() = Some(bridge);
 
         if !channels.is_empty() {
-            tracing::info!("Channel bridge started with {} active channels", channels.len());
+            tracing::info!(
+                "Channel bridge started with {} active channels",
+                channels.len()
+            );
         }
     }
 
-    let app = create_router(state);
+    let app = create_router(state, Some(RateLimitConfig::from_env()));
 
     let listener = tokio::net::TcpListener::bind(&addr)
         .await

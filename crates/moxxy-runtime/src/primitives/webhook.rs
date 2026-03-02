@@ -57,9 +57,9 @@ impl Primitive for WebhookCreatePrimitive {
             .lock()
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("DB lock error: {}", e)))?;
 
-        db.webhooks()
-            .insert(&row)
-            .map_err(|e| PrimitiveError::ExecutionFailed(format!("Failed to create webhook: {}", e)))?;
+        db.webhooks().insert(&row).map_err(|e| {
+            PrimitiveError::ExecutionFailed(format!("Failed to create webhook: {}", e))
+        })?;
 
         Ok(serde_json::json!({
             "id": id,
@@ -151,8 +151,10 @@ mod tests {
             .unwrap();
         conn.execute_batch(include_str!("../../../../migrations/0003_webhooks.sql"))
             .unwrap();
-        conn.execute_batch(include_str!("../../../../migrations/0004_conversation_log.sql"))
-            .unwrap();
+        conn.execute_batch(include_str!(
+            "../../../../migrations/0004_conversation_log.sql"
+        ))
+        .unwrap();
         conn.execute(
             "INSERT INTO providers (id, display_name, manifest_path, enabled, created_at)
              VALUES ('prov-1', 'P1', '/p1', 1, '2025-01-01')",

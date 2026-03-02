@@ -28,8 +28,13 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+chrono-tz = { workspace = true }
 thiserror = { workspace = true }
+cron = { workspace = true }
 rusqlite = { workspace = true }
+sqlite-vec = { workspace = true }
+tower_governor = "0.8"
+governor = "0.10"
 
 [dev-dependencies]
 tower = { workspace = true }

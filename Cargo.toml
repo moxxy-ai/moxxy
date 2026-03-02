@@ -31,7 +31,9 @@ hex = "0.4"
 
 # Time/IDs
 chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
 uuid = { version = "1", features = ["v7", "serde"] }
+cron = "0.15"
 
 # Async
 tokio = { version = "1", features = ["full"] }
@@ -50,6 +52,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Storage
 rusqlite = { version = "0.32", features = ["bundled"] }
+sqlite-vec = "0.1"
+
+# Async traits
+async-trait = "0.1"
 
 # Vault
 keyring = "3"

@@ -10,6 +10,16 @@ use std::sync::{Arc, Mutex};
 
 use crate::run_service::RunService;
 
+/// Registers the sqlite-vec extension globally. Must be called before opening any connection.
+#[allow(clippy::missing_transmute_annotations)]
+pub fn register_sqlite_vec() {
+    unsafe {
+        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+            sqlite_vec::sqlite3_vec_init as *const (),
+        )));
+    }
+}
+
 pub struct AppState {
     pub db: Arc<Mutex<Database>>,
     pub event_bus: EventBus,
@@ -47,6 +57,34 @@ impl AppState {
         // Run conversation log migration
         let sql4 = include_str!("../../../migrations/0004_conversation_log.sql");
         conn.execute_batch(sql4).expect("Migration 0004 failed");
+
+        // Run heartbeat cron migration (ALTER TABLE is not idempotent, check first)
+        let has_cron: bool = conn
+            .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='heartbeats'")
+            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, String>(0)))
+            .map(|sql| sql.contains("cron_expr"))
+            .unwrap_or(false);
+        if !has_cron {
+            let sql6 = include_str!("../../../migrations/0006_heartbeat_cron.sql");
+            conn.execute_batch(sql6).expect("Migration 0006 failed");
+        }
+
+        // Run memory vec0 migration (ALTER TABLE is not idempotent, check first)
+        let has_status: bool = conn
+            .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memory_index'")
+            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, String>(0)))
+            .map(|sql| sql.contains("status"))
+            .unwrap_or(false);
+        if !has_status {
+            let sql5 = include_str!("../../../migrations/0005_memory_vec0.sql");
+            conn.execute_batch(sql5).expect("Migration 0005 failed");
+        }
+
+        // Create vec0 virtual table (requires sqlite-vec extension)
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS memory_vec0 USING vec0(memory_id TEXT, embedding float[384])",
+        )
+        .expect("Failed to create memory_vec0");
 
         let mut providers: HashMap<String, Arc<dyn Provider>> = HashMap::new();
         providers.insert("echo".into(), Arc::new(EchoProvider::new()));
@@ -137,10 +175,11 @@ impl AppState {
     }
 
     /// Spawns a background task that checks for due heartbeat rules every 30 seconds
-    /// and emits the appropriate events.
+    /// and dispatches the appropriate actions.
     pub fn spawn_heartbeat_loop(&self) {
         let db = self.db.clone();
         let event_bus = self.event_bus.clone();
+        let run_service = self.run_service.clone();
 
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
@@ -171,25 +210,97 @@ impl AppState {
                         }),
                     ));
 
-                    // Emit completion event
-                    event_bus.emit(EventEnvelope::new(
-                        rule.agent_id.clone(),
-                        None,
-                        None,
-                        0,
-                        EventType::HeartbeatCompleted,
-                        serde_json::json!({
-                            "heartbeat_id": rule.id,
-                            "message": rule.action_payload.as_deref().unwrap_or("Heartbeat check"),
-                        }),
-                    ));
+                    // Dispatch based on action_type
+                    match rule.action_type.as_str() {
+                        "execute_skill" => {
+                            let task = rule
+                                .action_payload
+                                .as_deref()
+                                .unwrap_or("run scheduled skill");
+                            match run_service.do_start_run(&rule.agent_id, task).await {
+                                Ok(run_id) => {
+                                    event_bus.emit(EventEnvelope::new(
+                                        rule.agent_id.clone(),
+                                        Some(run_id.clone()),
+                                        None,
+                                        0,
+                                        EventType::HeartbeatCompleted,
+                                        serde_json::json!({
+                                            "heartbeat_id": rule.id,
+                                            "run_id": run_id,
+                                            "message": "Scheduled run started",
+                                        }),
+                                    ));
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "Heartbeat {} failed to start run for agent {}: {}",
+                                        rule.id,
+                                        rule.agent_id,
+                                        e
+                                    );
+                                    event_bus.emit(EventEnvelope::new(
+                                        rule.agent_id.clone(),
+                                        None,
+                                        None,
+                                        0,
+                                        EventType::HeartbeatFailed,
+                                        serde_json::json!({
+                                            "heartbeat_id": rule.id,
+                                            "error": e,
+                                        }),
+                                    ));
+                                }
+                            }
+                        }
+                        "notify_cli" => {
+                            event_bus.emit(EventEnvelope::new(
+                                rule.agent_id.clone(),
+                                None,
+                                None,
+                                0,
+                                EventType::HeartbeatCompleted,
+                                serde_json::json!({
+                                    "heartbeat_id": rule.id,
+                                    "message": rule.action_payload.as_deref().unwrap_or("Heartbeat check"),
+                                }),
+                            ));
+                        }
+                        "notify_webhook" => {
+                            event_bus.emit(EventEnvelope::new(
+                                rule.agent_id.clone(),
+                                None,
+                                None,
+                                0,
+                                EventType::HeartbeatCompleted,
+                                serde_json::json!({
+                                    "heartbeat_id": rule.id,
+                                    "message": rule.action_payload.as_deref().unwrap_or("Webhook notification"),
+                                }),
+                            ));
+                        }
+                        _ => {
+                            tracing::warn!("Unknown heartbeat action_type: {}", rule.action_type);
+                        }
+                    }
 
-                    // Advance next_run_at
-                    let new_next_run = HeartbeatScheduler::advance_next_run(
-                        &rule.next_run_at,
-                        rule.interval_minutes,
-                        now,
-                    );
+                    // Advance next_run_at (prefer cron if set, else interval)
+                    let new_next_run = if let Some(cron_expr) = &rule.cron_expr {
+                        HeartbeatScheduler::compute_next_cron_run(cron_expr, &rule.timezone, now)
+                            .unwrap_or_else(|_| {
+                                HeartbeatScheduler::advance_next_run(
+                                    &rule.next_run_at,
+                                    rule.interval_minutes,
+                                    now,
+                                )
+                            })
+                    } else {
+                        HeartbeatScheduler::advance_next_run(
+                            &rule.next_run_at,
+                            rule.interval_minutes,
+                            now,
+                        )
+                    };
                     let mut updated = rule.clone();
                     updated.next_run_at = new_next_run;
                     updated.updated_at = now.to_rfc3339();

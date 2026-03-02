@@ -12,6 +12,10 @@ pub enum HeartbeatActionType {
 pub enum HeartbeatError {
     #[error("invalid interval")]
     InvalidInterval,
+    #[error("invalid cron expression: {0}")]
+    InvalidCronExpr(String),
+    #[error("invalid timezone: {0}")]
+    InvalidTimezone(String),
     #[error("rule not found")]
     RuleNotFound,
     #[error("execution failed: {0}")]

@@ -55,6 +55,8 @@ pub struct HeartbeatRow {
     pub action_payload: Option<String>,
     pub enabled: bool,
     pub next_run_at: String,
+    pub cron_expr: Option<String>,
+    pub timezone: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -81,6 +83,7 @@ pub struct MemoryIndexRow {
     pub tags_json: Option<String>,
     pub chunk_hash: Option<String>,
     pub embedding_id: Option<String>,
+    pub status: String,
     pub created_at: String,
     pub updated_at: String,
 }

@@ -13,11 +13,10 @@ pub use executor::RunExecutor;
 pub use openai_provider::OpenAIProvider;
 pub use primitives::{
     BrowseExtractPrimitive, BrowseFetchPrimitive, ChannelMessageSender, ChannelNotifyPrimitive,
-    CliNotifyPrimitive, FsListPrimitive, FsReadPrimitive, FsWritePrimitive,
-    GitCheckoutPrimitive, GitClonePrimitive, GitCommitPrimitive, GitForkPrimitive,
-    GitInitPrimitive, GitPrCreatePrimitive, GitPushPrimitive, GitStatusPrimitive,
-    GitWorktreeAddPrimitive, GitWorktreeListPrimitive, GitWorktreeRemovePrimitive,
-    HttpRequestPrimitive,
+    CliNotifyPrimitive, FsListPrimitive, FsReadPrimitive, FsWritePrimitive, GitCheckoutPrimitive,
+    GitClonePrimitive, GitCommitPrimitive, GitForkPrimitive, GitInitPrimitive,
+    GitPrCreatePrimitive, GitPushPrimitive, GitStatusPrimitive, GitWorktreeAddPrimitive,
+    GitWorktreeListPrimitive, GitWorktreeRemovePrimitive, HttpRequestPrimitive,
     MemoryAppendPrimitive, MemorySearchPrimitive, MemorySummarizePrimitive, ShellExecPrimitive,
     SkillImportPrimitive, SkillValidatePrimitive, WebhookCreatePrimitive, WebhookListPrimitive,
     WebhookNotifyPrimitive,

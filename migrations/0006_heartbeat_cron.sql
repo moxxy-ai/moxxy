@@ -1,0 +1,2 @@
+ALTER TABLE heartbeats ADD COLUMN cron_expr TEXT;
+ALTER TABLE heartbeats ADD COLUMN timezone TEXT NOT NULL DEFAULT 'UTC';

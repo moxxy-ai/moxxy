@@ -20,7 +20,11 @@ pub trait RunStarter: Send + Sync {
 pub trait ChannelSender: Send + Sync {
     /// Send a message to all active channel bindings for an agent.
     /// Returns the number of channels notified.
-    async fn send_to_agent_channels(&self, agent_id: &str, message: &str) -> Result<u32, ChannelError>;
+    async fn send_to_agent_channels(
+        &self,
+        agent_id: &str,
+        message: &str,
+    ) -> Result<u32, ChannelError>;
     /// Send a message to a specific channel's bound chat.
     async fn send_to_channel(&self, channel_id: &str, message: &str) -> Result<(), ChannelError>;
 }
@@ -52,12 +56,23 @@ impl ChannelBridge {
     }
 
     /// Register a transport before start(). Not thread-safe for concurrent writes.
-    pub fn register_transport_mut(&mut self, channel_id: String, transport: Arc<dyn ChannelTransport>) {
-        self.transports.get_mut().unwrap().insert(channel_id, transport);
+    pub fn register_transport_mut(
+        &mut self,
+        channel_id: String,
+        transport: Arc<dyn ChannelTransport>,
+    ) {
+        self.transports
+            .get_mut()
+            .unwrap()
+            .insert(channel_id, transport);
     }
 
     /// Add a transport at runtime (after start). Spawns receiving + processing tasks.
-    pub fn add_transport(self: &Arc<Self>, channel_id: String, transport: Arc<dyn ChannelTransport>) {
+    pub fn add_transport(
+        self: &Arc<Self>,
+        channel_id: String,
+        transport: Arc<dyn ChannelTransport>,
+    ) {
         {
             let mut transports = self.transports.write().unwrap();
             transports.insert(channel_id.clone(), transport.clone());
@@ -65,7 +80,11 @@ impl ChannelBridge {
         self.spawn_transport_tasks(channel_id, transport);
     }
 
-    fn spawn_transport_tasks(self: &Arc<Self>, channel_id: String, transport: Arc<dyn ChannelTransport>) {
+    fn spawn_transport_tasks(
+        self: &Arc<Self>,
+        channel_id: String,
+        transport: Arc<dyn ChannelTransport>,
+    ) {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<IncomingMessage>(256);
         let shutdown = self.shutdown.clone();
         let transport_clone = transport.clone();
@@ -99,7 +118,10 @@ impl ChannelBridge {
     pub fn start(self: Arc<Self>) {
         let channel_ids: Vec<(String, Arc<dyn ChannelTransport>)> = {
             let transports = self.transports.read().unwrap();
-            transports.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+            transports
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect()
         };
 
         for (channel_id, transport) in channel_ids {
@@ -324,9 +346,16 @@ impl ChannelBridge {
 
 #[async_trait::async_trait]
 impl ChannelSender for ChannelBridge {
-    async fn send_to_agent_channels(&self, agent_id: &str, message: &str) -> Result<u32, ChannelError> {
+    async fn send_to_agent_channels(
+        &self,
+        agent_id: &str,
+        message: &str,
+    ) -> Result<u32, ChannelError> {
         let bindings = {
-            let db = self.db.lock().map_err(|e| ChannelError::StorageError(e.to_string()))?;
+            let db = self
+                .db
+                .lock()
+                .map_err(|e| ChannelError::StorageError(e.to_string()))?;
             db.channel_bindings()
                 .find_by_agent(agent_id)
                 .map_err(|e| ChannelError::StorageError(e.to_string()))?
@@ -335,12 +364,17 @@ impl ChannelSender for ChannelBridge {
         let mut sent = 0u32;
         // Collect transports to send to (clone Arcs to avoid holding RwLock across await)
         let to_send: Vec<(Arc<dyn ChannelTransport>, String)> = {
-            let transports = self.transports.read().map_err(|e| ChannelError::StorageError(e.to_string()))?;
+            let transports = self
+                .transports
+                .read()
+                .map_err(|e| ChannelError::StorageError(e.to_string()))?;
             bindings
                 .iter()
                 .filter(|b| b.status == "active")
                 .filter_map(|b| {
-                    transports.get(&b.channel_id).map(|t| (t.clone(), b.external_chat_id.clone()))
+                    transports
+                        .get(&b.channel_id)
+                        .map(|t| (t.clone(), b.external_chat_id.clone()))
                 })
                 .collect()
         };
@@ -358,16 +392,26 @@ impl ChannelSender for ChannelBridge {
 
     async fn send_to_channel(&self, channel_id: &str, message: &str) -> Result<(), ChannelError> {
         let (transport, chat_id) = {
-            let db = self.db.lock().map_err(|e| ChannelError::StorageError(e.to_string()))?;
-            let binding = db.channel_bindings()
+            let db = self
+                .db
+                .lock()
+                .map_err(|e| ChannelError::StorageError(e.to_string()))?;
+            let binding = db
+                .channel_bindings()
                 .find_by_channel(channel_id)
                 .map_err(|e| ChannelError::StorageError(e.to_string()))?
                 .into_iter()
                 .next()
                 .ok_or(ChannelError::BindingNotFound)?;
 
-            let transports = self.transports.read().map_err(|e| ChannelError::StorageError(e.to_string()))?;
-            let transport = transports.get(channel_id).ok_or(ChannelError::NotFound)?.clone();
+            let transports = self
+                .transports
+                .read()
+                .map_err(|e| ChannelError::StorageError(e.to_string()))?;
+            let transport = transports
+                .get(channel_id)
+                .ok_or(ChannelError::NotFound)?
+                .clone();
             (transport, binding.external_chat_id)
         };
 

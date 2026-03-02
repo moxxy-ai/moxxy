@@ -84,6 +84,7 @@ pub async fn search_memory(
                 "markdown_path": r.markdown_path,
                 "tags": r.tags_json,
                 "chunk_hash": r.chunk_hash,
+                "status": r.status,
                 "created_at": r.created_at,
                 "updated_at": r.updated_at,
             })

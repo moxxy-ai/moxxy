@@ -40,7 +40,9 @@ impl Primitive for ChannelNotifyPrimitive {
             self.sender
                 .send_to_channel(channel_id, message)
                 .await
-                .map_err(|e| PrimitiveError::ExecutionFailed(format!("Channel send failed: {}", e)))?;
+                .map_err(|e| {
+                    PrimitiveError::ExecutionFailed(format!("Channel send failed: {}", e))
+                })?;
 
             Ok(serde_json::json!({
                 "delivered": true,
@@ -53,7 +55,9 @@ impl Primitive for ChannelNotifyPrimitive {
                 .sender
                 .send_to_agent_channels(&self.agent_id, message)
                 .await
-                .map_err(|e| PrimitiveError::ExecutionFailed(format!("Channel send failed: {}", e)))?;
+                .map_err(|e| {
+                    PrimitiveError::ExecutionFailed(format!("Channel send failed: {}", e))
+                })?;
 
             Ok(serde_json::json!({
                 "delivered": count > 0,
@@ -82,7 +86,11 @@ mod tests {
 
     #[async_trait]
     impl ChannelMessageSender for MockChannelSender {
-        async fn send_to_agent_channels(&self, _agent_id: &str, _message: &str) -> Result<u32, String> {
+        async fn send_to_agent_channels(
+            &self,
+            _agent_id: &str,
+            _message: &str,
+        ) -> Result<u32, String> {
             let count = self.send_count.fetch_add(1, Ordering::SeqCst) + 1;
             Ok(count)
         }

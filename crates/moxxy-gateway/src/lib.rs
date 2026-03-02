@@ -1,4 +1,5 @@
 pub mod auth_extractor;
+pub mod rate_limit;
 pub mod routes;
 pub mod run_service;
 pub mod state;
@@ -6,20 +7,33 @@ pub mod state;
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, post};
+use rate_limit::RateLimitConfig;
 use state::AppState;
 use std::sync::Arc;
+use tower_governor::GovernorLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-pub fn create_router(state: Arc<AppState>) -> Router {
+pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitConfig>) -> Router {
+    let config = rate_limit_config.unwrap_or_else(RateLimitConfig::permissive);
+    let governor_conf = config.into_governor_config();
+    let governor_layer = GovernorLayer::new(governor_conf);
+
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
 
-    Router::new()
-        // Health (unauthenticated)
+    // Health route is exempt from rate limiting
+    let health_router = Router::new()
         .route("/v1/health", get(routes::health::health_check))
+        .layer(cors.clone())
+        .layer(TraceLayer::new_for_http())
+        .layer(DefaultBodyLimit::max(1024 * 1024))
+        .with_state(state.clone());
+
+    // All other routes are rate limited
+    let api_router = Router::new()
         // Auth
         .route(
             "/v1/auth/tokens",
@@ -106,11 +120,13 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/v1/channels/{id}/bindings/{bid}",
             delete(routes::channels::unbind),
         )
-        // Layers
+        .layer(governor_layer)
         .layer(cors)
         .layer(TraceLayer::new_for_http())
-        .layer(DefaultBodyLimit::max(1024 * 1024)) // 1MB global default
-        .with_state(state)
+        .layer(DefaultBodyLimit::max(1024 * 1024))
+        .with_state(state);
+
+    health_router.merge(api_router)
 }
 
 #[cfg(test)]
@@ -125,9 +141,10 @@ mod test_helpers {
     use tower::ServiceExt;
 
     pub fn test_app() -> (Router, Arc<AppState>) {
+        crate::state::register_sqlite_vec();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         let state = Arc::new(AppState::new(conn));
-        let app = create_router(state.clone());
+        let app = create_router(state.clone(), None);
         (app, state)
     }
 

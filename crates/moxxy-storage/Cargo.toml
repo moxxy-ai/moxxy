@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 moxxy-types = { path = "../moxxy-types" }
 rusqlite = { workspace = true }
+sqlite-vec = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
