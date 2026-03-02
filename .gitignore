@@ -5,3 +5,6 @@ Cargo.lock
 .DS_Store
 node_modules/
 apps/moxxy-cli/node_modules/
+*.db
+*.db-shm
+*.db-wal
