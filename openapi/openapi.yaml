@@ -1,0 +1,455 @@
+openapi: 3.1.0
+info:
+  title: Moxxy Agentic Framework API
+  version: 0.1.0
+  description: Local-first agentic framework REST API
+
+servers:
+  - url: http://localhost:3000
+    description: Local development
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: "mox_*"
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      required: [error, message]
+
+    TokenCreate:
+      type: object
+      properties:
+        scopes:
+          type: array
+          items:
+            type: string
+            enum: [agents:read, agents:write, runs:write, vault:read, vault:write, tokens:admin, events:read]
+        ttl_seconds:
+          type: integer
+          nullable: true
+        description:
+          type: string
+      required: [scopes]
+
+    TokenResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        token:
+          type: string
+          description: Only returned on creation
+        scopes:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+        expires_at:
+          type: string
+          nullable: true
+        status:
+          type: string
+
+    AgentCreate:
+      type: object
+      properties:
+        provider_id:
+          type: string
+        model_id:
+          type: string
+        workspace_root:
+          type: string
+        policy_profile:
+          type: string
+          nullable: true
+        temperature:
+          type: number
+        max_subagent_depth:
+          type: integer
+        max_subagents_total:
+          type: integer
+      required: [provider_id, model_id, workspace_root]
+
+    AgentResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        provider_id:
+          type: string
+        model_id:
+          type: string
+        status:
+          type: string
+        workspace_root:
+          type: string
+        created_at:
+          type: string
+
+    RunStart:
+      type: object
+      properties:
+        task:
+          type: string
+      required: [task]
+
+    HeartbeatCreate:
+      type: object
+      properties:
+        interval_minutes:
+          type: integer
+          minimum: 1
+        action_type:
+          type: string
+          enum: [notify_cli, notify_webhook, execute_skill]
+        action_payload:
+          type: string
+          nullable: true
+      required: [interval_minutes, action_type]
+
+    SkillInstall:
+      type: object
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        source:
+          type: string
+        content:
+          type: string
+      required: [name, version, content]
+
+    SecretRefCreate:
+      type: object
+      properties:
+        key_name:
+          type: string
+        backend_key:
+          type: string
+        policy_label:
+          type: string
+          nullable: true
+      required: [key_name, backend_key]
+
+    GrantCreate:
+      type: object
+      properties:
+        agent_id:
+          type: string
+        secret_ref_id:
+          type: string
+      required: [agent_id, secret_ref_id]
+
+    EventEnvelope:
+      type: object
+      properties:
+        event_id:
+          type: string
+        ts:
+          type: integer
+        agent_id:
+          type: string
+        run_id:
+          type: string
+          nullable: true
+        event_type:
+          type: string
+        payload:
+          type: object
+        sensitive:
+          type: boolean
+
+paths:
+  /v1/auth/tokens:
+    post:
+      tags: [Auth]
+      summary: Create API token
+      description: First token can be created without auth (bootstrap). Subsequent tokens require tokens:admin scope.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenCreate'
+      responses:
+        '201':
+          description: Token created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      tags: [Auth]
+      summary: List tokens
+      responses:
+        '200':
+          description: Token list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TokenResponse'
+
+  /v1/auth/tokens/{id}:
+    delete:
+      tags: [Auth]
+      summary: Revoke token
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Token revoked
+        '404':
+          description: Not found
+
+  /v1/providers:
+    get:
+      tags: [Providers]
+      summary: List providers
+      responses:
+        '200':
+          description: Provider list
+
+  /v1/providers/{id}/models:
+    get:
+      tags: [Providers]
+      summary: List models for provider
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Model list
+
+  /v1/agents:
+    post:
+      tags: [Agents]
+      summary: Create agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentCreate'
+      responses:
+        '201':
+          description: Agent created
+
+  /v1/agents/{id}:
+    get:
+      tags: [Agents]
+      summary: Get agent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Agent details
+
+  /v1/agents/{id}/runs:
+    post:
+      tags: [Agents]
+      summary: Start agent run
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunStart'
+      responses:
+        '200':
+          description: Run started
+
+  /v1/agents/{id}/stop:
+    post:
+      tags: [Agents]
+      summary: Stop agent run
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Run stopped
+
+  /v1/agents/{id}/subagents:
+    post:
+      tags: [Agents]
+      summary: Spawn sub-agent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          description: Sub-agent created
+
+  /v1/agents/{id}/heartbeats:
+    post:
+      tags: [Heartbeats]
+      summary: Create heartbeat rule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HeartbeatCreate'
+      responses:
+        '201':
+          description: Heartbeat created
+    get:
+      tags: [Heartbeats]
+      summary: List heartbeats for agent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Heartbeat list
+
+  /v1/agents/{id}/skills/install:
+    post:
+      tags: [Skills]
+      summary: Install skill
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkillInstall'
+      responses:
+        '201':
+          description: Skill installed (quarantined)
+
+  /v1/agents/{id}/skills/approve/{skill_id}:
+    post:
+      tags: [Skills]
+      summary: Approve quarantined skill
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: skill_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Skill approved
+
+  /v1/vault/secrets:
+    post:
+      tags: [Vault]
+      summary: Create secret reference
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecretRefCreate'
+      responses:
+        '201':
+          description: Secret ref created
+
+  /v1/vault/grants:
+    post:
+      tags: [Vault]
+      summary: Grant agent access to secret
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GrantCreate'
+      responses:
+        '201':
+          description: Grant created
+
+  /v1/events/stream:
+    get:
+      tags: [Events]
+      summary: SSE event stream
+      parameters:
+        - name: agent_id
+          in: query
+          schema:
+            type: string
+        - name: run_id
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/EventEnvelope'
+
+tags:
+  - name: Auth
+  - name: Providers
+  - name: Agents
+  - name: Heartbeats
+  - name: Skills
+  - name: Vault
+  - name: Events
