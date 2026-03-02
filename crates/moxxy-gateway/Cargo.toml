@@ -3,7 +3,12 @@ name = "moxxy-gateway"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "moxxy-gateway"
+path = "src/main.rs"
+
 [dependencies]
+tracing-subscriber = { workspace = true }
 moxxy-types = { path = "../moxxy-types" }
 moxxy-storage = { path = "../moxxy-storage" }
 moxxy-core = { path = "../moxxy-core" }
