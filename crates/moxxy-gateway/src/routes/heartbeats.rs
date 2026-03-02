@@ -62,6 +62,32 @@ pub async fn create_heartbeat(
     ))
 }
 
+pub async fn disable_heartbeat(
+    State(state): State<Arc<AppState>>,
+    auth: AuthToken,
+    Path((agent_id, hb_id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    check_scope(&auth.0, &TokenScope::AgentsWrite)?;
+
+    let db = state.db.lock().unwrap();
+    db.heartbeats().disable(&hb_id).map_err(|e| match e {
+        moxxy_types::StorageError::NotFound => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "not_found", "message": "Heartbeat not found"})),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal", "message": "Database error"})),
+        ),
+    })?;
+
+    Ok(Json(serde_json::json!({
+        "message": "Heartbeat disabled",
+        "agent_id": agent_id,
+        "heartbeat_id": hb_id
+    })))
+}
+
 pub async fn list_heartbeats(
     State(state): State<Arc<AppState>>,
     auth: AuthToken,
@@ -79,6 +105,7 @@ pub async fn list_heartbeats(
 
     let result: Vec<serde_json::Value> = heartbeats
         .iter()
+        .filter(|h| h.enabled)
         .map(|h| {
             serde_json::json!({
                 "id": h.id,

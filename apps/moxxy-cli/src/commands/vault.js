@@ -107,11 +107,73 @@ export async function runVault(client, args) {
       return result;
     }
 
-    case 'revoke':
-    case 'list':
-      console.error(`Vault ${action} not yet implemented.`);
-      process.exitCode = 1;
+    case 'list': {
+      if (isInteractive()) {
+        const secrets = await withSpinner('Fetching secrets...', () =>
+          client.listSecrets(), 'Secrets loaded.');
+        const grants = await withSpinner('Fetching grants...', () =>
+          client.listGrants(), 'Grants loaded.');
+
+        if (Array.isArray(secrets) && secrets.length > 0) {
+          p.log.info('\u2500\u2500 Secrets \u2500\u2500');
+          for (const s of secrets) {
+            p.log.info(`  ${s.key_name}  (${s.id.slice(0, 12)})  backend=${s.backend_key}`);
+          }
+        } else {
+          p.log.warn('No secrets found.');
+        }
+
+        if (Array.isArray(grants) && grants.length > 0) {
+          p.log.info('\u2500\u2500 Grants \u2500\u2500');
+          for (const g of grants) {
+            const status = g.revoked_at ? 'revoked' : 'active';
+            p.log.info(`  agent=${g.agent_id.slice(0, 12)} secret=${g.secret_ref_id.slice(0, 12)}  [${status}]`);
+          }
+        } else {
+          p.log.info('No grants found.');
+        }
+      } else {
+        const secrets = await client.listSecrets();
+        const grants = await client.listGrants();
+        console.log(JSON.stringify({ secrets, grants }, null, 2));
+      }
       break;
+    }
+
+    case 'revoke': {
+      let grantId = flags.id || flags.grant;
+
+      if (!grantId && isInteractive()) {
+        const grants = await withSpinner('Fetching grants...', () =>
+          client.listGrants(), 'Grants loaded.');
+
+        const active = (grants || []).filter(g => !g.revoked_at);
+        if (active.length === 0) {
+          p.log.warn('No active grants to revoke.');
+          return;
+        }
+
+        grantId = handleCancel(await p.select({
+          message: 'Select grant to revoke',
+          options: active.map(g => ({
+            value: g.id,
+            label: `agent=${g.agent_id.slice(0, 12)} secret=${g.secret_ref_id.slice(0, 12)}`,
+            hint: g.id.slice(0, 12),
+          })),
+        }));
+      }
+
+      if (!grantId) throw new Error('Required: --id');
+
+      if (isInteractive()) {
+        await withSpinner('Revoking grant...', () =>
+          client.revokeGrant(grantId), 'Grant revoked.');
+      } else {
+        await client.revokeGrant(grantId);
+        console.log(`Grant ${grantId} revoked.`);
+      }
+      break;
+    }
 
     default:
       console.error('Usage: moxxy vault <add|grant|revoke|list>');

@@ -41,7 +41,15 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/v1/agents/{id}/heartbeats",
             post(routes::heartbeats::create_heartbeat).get(routes::heartbeats::list_heartbeats),
         )
+        .route(
+            "/v1/agents/{id}/heartbeats/{hb_id}",
+            delete(routes::heartbeats::disable_heartbeat),
+        )
         // Skills
+        .route(
+            "/v1/agents/{id}/skills",
+            get(routes::skills::list_skills),
+        )
         .route(
             "/v1/agents/{id}/skills/install",
             post(routes::skills::install_skill),
@@ -55,7 +63,14 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/v1/vault/secrets",
             post(routes::vault::create_secret_ref).get(routes::vault::list_secrets),
         )
-        .route("/v1/vault/grants", post(routes::vault::create_grant))
+        .route(
+            "/v1/vault/grants",
+            post(routes::vault::create_grant).get(routes::vault::list_grants),
+        )
+        .route(
+            "/v1/vault/grants/{id}",
+            delete(routes::vault::revoke_grant),
+        )
         // Events
         .route("/v1/events/stream", get(routes::events::event_stream))
         .with_state(state)
@@ -686,6 +701,49 @@ mod heartbeat_tests {
     }
 
     #[tokio::test]
+    async fn disable_heartbeat_removes_rule() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite, TokenScope::AgentsRead]);
+        let agent_id = seed_agent(&state, &token);
+
+        // Create heartbeat
+        let req = Request::builder()
+            .method("POST")
+            .uri(&format!("/v1/agents/{}/heartbeats", agent_id))
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"interval_minutes":5,"action_type":"notify_cli"}"#))
+            .unwrap();
+        let resp = request(&app, req).await;
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let hb_id = created["id"].as_str().unwrap();
+
+        // Disable it
+        let req = Request::builder()
+            .method("DELETE")
+            .uri(&format!("/v1/agents/{}/heartbeats/{}", agent_id, hb_id))
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Verify list is empty
+        let req = Request::builder()
+            .method("GET")
+            .uri(&format!("/v1/agents/{}/heartbeats", agent_id))
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let heartbeats = result.as_array().unwrap();
+        assert_eq!(heartbeats.len(), 0);
+    }
+
+    #[tokio::test]
     async fn list_heartbeats_for_agent() {
         let (app, state) = test_app();
         let token = create_token_in_db(
@@ -756,6 +814,38 @@ mod skill_tests {
             .unwrap();
         let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(result["status"], "quarantined");
+    }
+
+    #[tokio::test]
+    async fn list_skills_for_agent() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite, TokenScope::AgentsRead]);
+        let agent_id = seed_agent(&state, &token);
+
+        // Install a skill
+        let req = Request::builder()
+            .method("POST")
+            .uri(&format!("/v1/agents/{}/skills/install", agent_id))
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"name":"test-skill","version":"1.0.0","content":"fn run(){}"}"#))
+            .unwrap();
+        request(&app, req).await;
+
+        // List skills
+        let req = Request::builder()
+            .method("GET")
+            .uri(&format!("/v1/agents/{}/skills", agent_id))
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let skills = result.as_array().unwrap();
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0]["name"], "test-skill");
     }
 
     #[tokio::test]
@@ -887,6 +977,69 @@ mod vault_tests {
         let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(result["agent_id"], agent_id);
         assert_eq!(result["secret_ref_id"], secret_id);
+    }
+
+    #[tokio::test]
+    async fn list_grants_returns_all() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::VaultWrite, TokenScope::VaultRead, TokenScope::AgentsWrite]);
+        let agent_id = seed_agent(&state, &token);
+        let secret_id = seed_secret_ref(&state);
+
+        // Create grant
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/vault/grants")
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(format!(r#"{{"agent_id":"{}","secret_ref_id":"{}"}}"#, agent_id, secret_id)))
+            .unwrap();
+        request(&app, req).await;
+
+        // List grants
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/vault/grants")
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let grants = result.as_array().unwrap();
+        assert_eq!(grants.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn revoke_grant_succeeds() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::VaultWrite, TokenScope::VaultRead, TokenScope::AgentsWrite]);
+        let agent_id = seed_agent(&state, &token);
+        let secret_id = seed_secret_ref(&state);
+
+        // Create grant
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/vault/grants")
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(format!(r#"{{"agent_id":"{}","secret_ref_id":"{}"}}"#, agent_id, secret_id)))
+            .unwrap();
+        let resp = request(&app, req).await;
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let grant_id = created["id"].as_str().unwrap();
+
+        // Revoke
+        let req = Request::builder()
+            .method("DELETE")
+            .uri(&format!("/v1/vault/grants/{}", grant_id))
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
     }
 }
 

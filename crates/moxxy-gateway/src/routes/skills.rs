@@ -61,6 +61,38 @@ pub async fn install_skill(
     ))
 }
 
+pub async fn list_skills(
+    State(state): State<Arc<AppState>>,
+    auth: AuthToken,
+    Path(agent_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    check_scope(&auth.0, &TokenScope::AgentsRead)?;
+
+    let db = state.db.lock().unwrap();
+    let skills = db.skills().find_by_agent(&agent_id).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal", "message": "Database error"})),
+        )
+    })?;
+
+    let result: Vec<serde_json::Value> = skills
+        .iter()
+        .map(|s| {
+            serde_json::json!({
+                "id": s.id,
+                "name": s.name,
+                "version": s.version,
+                "status": s.status,
+                "installed_at": s.installed_at,
+                "approved_at": s.approved_at
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!(result)))
+}
+
 pub async fn approve_skill(
     State(state): State<Arc<AppState>>,
     auth: AuthToken,

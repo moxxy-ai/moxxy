@@ -104,6 +104,22 @@ export class ApiClient {
     return this.request('/v1/vault/secrets', 'GET');
   }
 
+  async listSkills(agentId) {
+    return this.request(`/v1/agents/${encodeURIComponent(agentId)}/skills`, 'GET');
+  }
+
+  async disableHeartbeat(agentId, heartbeatId) {
+    return this.request(`/v1/agents/${encodeURIComponent(agentId)}/heartbeats/${encodeURIComponent(heartbeatId)}`, 'DELETE');
+  }
+
+  async listGrants() {
+    return this.request('/v1/vault/grants', 'GET');
+  }
+
+  async revokeGrant(grantId) {
+    return this.request(`/v1/vault/grants/${encodeURIComponent(grantId)}`, 'DELETE');
+  }
+
   async installProvider(id, displayName, models) {
     return this.request('/v1/providers', 'POST', {
       id,

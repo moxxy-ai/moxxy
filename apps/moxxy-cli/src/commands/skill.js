@@ -98,9 +98,30 @@ export async function runSkill(client, args) {
     }
 
     case 'list': {
-      console.error('Skill list not yet implemented.');
-      process.exitCode = 1;
-      break;
+      let agentId = flags.agent;
+      if (!agentId && isInteractive()) {
+        agentId = await pickAgent(client, 'Select agent to list skills');
+      }
+      if (!agentId) throw new Error('Required: --agent');
+
+      const skills = isInteractive()
+        ? await withSpinner('Fetching skills...', () =>
+            client.listSkills(agentId), 'Skills loaded.')
+        : await client.listSkills(agentId);
+
+      if (isInteractive()) {
+        if (Array.isArray(skills) && skills.length > 0) {
+          for (const s of skills) {
+            const status = s.status === 'approved' ? '\u2705' : s.status === 'quarantined' ? '\u23f3' : '\u274c';
+            p.log.info(`${status} ${s.name} v${s.version}  (${s.id})  [${s.status}]`);
+          }
+        } else {
+          p.log.warn('No skills found for this agent.');
+        }
+      } else {
+        console.log(JSON.stringify(skills, null, 2));
+      }
+      return skills;
     }
 
     default:

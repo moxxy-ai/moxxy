@@ -98,8 +98,41 @@ export async function runHeartbeat(client, args) {
     }
 
     case 'disable': {
-      console.error('Heartbeat disable not yet implemented.');
-      process.exitCode = 1;
+      let agentId = flags.agent;
+      let heartbeatId = flags.id;
+
+      if ((!agentId || !heartbeatId) && isInteractive()) {
+        if (!agentId) agentId = await pickAgent(client, 'Select agent');
+
+        if (!heartbeatId) {
+          const heartbeats = await withSpinner('Fetching heartbeats...', () =>
+            client.request(`/v1/agents/${encodeURIComponent(agentId)}/heartbeats`, 'GET'), 'Loaded.');
+
+          if (!heartbeats || heartbeats.length === 0) {
+            p.log.warn('No heartbeats found for this agent.');
+            return;
+          }
+
+          heartbeatId = handleCancel(await p.select({
+            message: 'Select heartbeat to disable',
+            options: heartbeats.map(h => ({
+              value: h.id,
+              label: `${h.action_type} every ${h.interval_minutes}m`,
+              hint: h.id.slice(0, 12),
+            })),
+          }));
+        }
+      }
+
+      if (!agentId || !heartbeatId) throw new Error('Required: --agent, --id');
+
+      if (isInteractive()) {
+        await withSpinner('Disabling heartbeat...', () =>
+          client.disableHeartbeat(agentId, heartbeatId), 'Heartbeat disabled.');
+      } else {
+        await client.disableHeartbeat(agentId, heartbeatId);
+        console.log(`Heartbeat ${heartbeatId} disabled.`);
+      }
       break;
     }
 
