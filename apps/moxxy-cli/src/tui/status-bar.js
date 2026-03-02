@@ -68,6 +68,8 @@ export class StatusBar {
 
     if (this.selectMode) {
       parts.push(chalk.bgYellow.black(' SELECT ') + chalk.dim(' Esc to exit'));
+    } else if (this.agent && this.agent.status === 'running') {
+      parts.push(chalk.dim('Ctrl+X to stop'));
     }
 
     const content = parts.join(chalk.dim(' \u2502 '));

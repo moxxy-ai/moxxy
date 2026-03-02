@@ -2,6 +2,8 @@ use async_trait::async_trait;
 use moxxy_types::{ChannelError, MessageContent};
 use tokio_util::sync::CancellationToken;
 
+use crate::commands::CommandDefinition;
+
 /// A message received from an external chat platform.
 #[derive(Debug, Clone)]
 pub struct IncomingMessage {
@@ -35,6 +37,12 @@ pub trait ChannelTransport: Send + Sync {
 
     /// Send a message to the platform.
     async fn send_message(&self, msg: OutgoingMessage) -> Result<(), ChannelError>;
+
+    /// Register slash commands with the platform's menu system.
+    /// Default: no-op (platforms that don't support menus can skip this).
+    async fn register_commands(&self, _commands: &[CommandDefinition]) -> Result<(), ChannelError> {
+        Ok(())
+    }
 
     /// Format structured message content for this platform. Default: plain text.
     fn format_content(&self, content: &MessageContent) -> String {

@@ -223,7 +223,8 @@ mod tests {
     #[tokio::test]
     async fn http_request_allowed_domain_succeeds() {
         let (db, agent_id) = setup_db(&["example.com"]);
-        let prim = HttpRequestPrimitive::new(db.clone(), agent_id, Duration::from_secs(5), 1024 * 1024);
+        let prim =
+            HttpRequestPrimitive::new(db.clone(), agent_id, Duration::from_secs(5), 1024 * 1024);
         let allowed = prim.load_allowed_domains().unwrap();
         assert!(allowed.contains(&"example.com".to_string()));
     }

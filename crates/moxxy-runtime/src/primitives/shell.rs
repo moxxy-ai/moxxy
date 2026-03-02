@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use moxxy_storage::Database;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::process::Command;
@@ -13,6 +14,7 @@ pub struct ShellExecPrimitive {
     timeout: Duration,
     max_output_bytes: usize,
     sandbox_config: Option<SandboxConfig>,
+    working_dir: Option<PathBuf>,
 }
 
 impl ShellExecPrimitive {
@@ -28,11 +30,17 @@ impl ShellExecPrimitive {
             timeout,
             max_output_bytes,
             sandbox_config: None,
+            working_dir: None,
         }
     }
 
     pub fn with_sandbox(mut self, config: SandboxConfig) -> Self {
         self.sandbox_config = Some(config);
+        self
+    }
+
+    pub fn with_working_dir(mut self, dir: PathBuf) -> Self {
+        self.working_dir = Some(dir);
         self
     }
 }
@@ -108,10 +116,16 @@ impl Primitive for ShellExecPrimitive {
             (command.to_string(), args.clone())
         };
 
-        let child = Command::new(&exec_cmd)
-            .args(&exec_args)
+        let mut cmd = Command::new(&exec_cmd);
+        cmd.args(&exec_args)
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+
+        if let Some(ref dir) = self.working_dir {
+            cmd.current_dir(dir);
+        }
+
+        let child = cmd
             .spawn()
             .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
 
@@ -267,9 +281,8 @@ mod tests {
             workspace_root: PathBuf::from("/tmp"),
         };
         let (db, agent_id) = setup_db(&["echo"]);
-        let prim =
-            ShellExecPrimitive::new(db, agent_id, Duration::from_secs(5), 1024 * 1024)
-                .with_sandbox(config);
+        let prim = ShellExecPrimitive::new(db, agent_id, Duration::from_secs(5), 1024 * 1024)
+            .with_sandbox(config);
         let result = prim
             .invoke(serde_json::json!({"command": "echo", "args": ["sandbox-none"]}))
             .await

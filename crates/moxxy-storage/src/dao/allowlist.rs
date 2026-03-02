@@ -11,17 +11,21 @@ impl<'a> AllowlistDao<'a> {
         let result = self.conn.execute(
             "INSERT INTO agent_allowlists (id, agent_id, list_type, entry, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![row.id, row.agent_id, row.list_type, row.entry, row.created_at],
+            params![
+                row.id,
+                row.agent_id,
+                row.list_type,
+                row.entry,
+                row.created_at
+            ],
         );
 
         match result {
             Ok(_) => Ok(()),
-            Err(e) if e.to_string().contains("UNIQUE") => {
-                Err(StorageError::DuplicateKey(format!(
-                    "allowlist entry '{}' already exists for agent '{}' type '{}'",
-                    row.entry, row.agent_id, row.list_type
-                )))
-            }
+            Err(e) if e.to_string().contains("UNIQUE") => Err(StorageError::DuplicateKey(format!(
+                "allowlist entry '{}' already exists for agent '{}' type '{}'",
+                row.entry, row.agent_id, row.list_type
+            ))),
             Err(e) => Err(StorageError::QueryFailed(e.to_string())),
         }
     }
@@ -54,9 +58,7 @@ impl<'a> AllowlistDao<'a> {
     ) -> Result<Vec<String>, StorageError> {
         let mut stmt = self
             .conn
-            .prepare(
-                "SELECT entry FROM agent_allowlists WHERE agent_id = ?1 AND list_type = ?2",
-            )
+            .prepare("SELECT entry FROM agent_allowlists WHERE agent_id = ?1 AND list_type = ?2")
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
 
         let rows = stmt
@@ -147,10 +149,21 @@ mod tests {
                  status, depth, spawned_total, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
                 params![
-                    agent.id, agent.parent_agent_id, agent.provider_id, agent.model_id,
-                    agent.workspace_root, agent.core_mount, agent.policy_profile, agent.temperature,
-                    agent.max_subagent_depth, agent.max_subagents_total, agent.status, agent.depth,
-                    agent.spawned_total, agent.created_at, agent.updated_at,
+                    agent.id,
+                    agent.parent_agent_id,
+                    agent.provider_id,
+                    agent.model_id,
+                    agent.workspace_root,
+                    agent.core_mount,
+                    agent.policy_profile,
+                    agent.temperature,
+                    agent.max_subagent_depth,
+                    agent.max_subagents_total,
+                    agent.status,
+                    agent.depth,
+                    agent.spawned_total,
+                    agent.created_at,
+                    agent.updated_at,
                 ],
             )
             .unwrap();
@@ -196,14 +209,24 @@ mod tests {
         let agent_id = seed_agent(&db);
         let dao = AllowlistDao { conn: db.conn() };
 
-        dao.insert(&fixture_allowlist_row(&agent_id, "shell_command", "ls")).unwrap();
-        dao.insert(&fixture_allowlist_row(&agent_id, "http_domain", "example.com")).unwrap();
+        dao.insert(&fixture_allowlist_row(&agent_id, "shell_command", "ls"))
+            .unwrap();
+        dao.insert(&fixture_allowlist_row(
+            &agent_id,
+            "http_domain",
+            "example.com",
+        ))
+        .unwrap();
 
-        let shell = dao.list_by_agent_and_type(&agent_id, "shell_command").unwrap();
+        let shell = dao
+            .list_by_agent_and_type(&agent_id, "shell_command")
+            .unwrap();
         assert_eq!(shell.len(), 1);
         assert_eq!(shell[0].entry, "ls");
 
-        let http = dao.list_by_agent_and_type(&agent_id, "http_domain").unwrap();
+        let http = dao
+            .list_by_agent_and_type(&agent_id, "http_domain")
+            .unwrap();
         assert_eq!(http.len(), 1);
         assert_eq!(http[0].entry, "example.com");
     }
@@ -214,8 +237,10 @@ mod tests {
         let agent_id = seed_agent(&db);
         let dao = AllowlistDao { conn: db.conn() };
 
-        dao.insert(&fixture_allowlist_row(&agent_id, "shell_command", "ls")).unwrap();
-        dao.insert(&fixture_allowlist_row(&agent_id, "shell_command", "cat")).unwrap();
+        dao.insert(&fixture_allowlist_row(&agent_id, "shell_command", "ls"))
+            .unwrap();
+        dao.insert(&fixture_allowlist_row(&agent_id, "shell_command", "cat"))
+            .unwrap();
 
         dao.delete_entry(&agent_id, "shell_command", "ls").unwrap();
 
@@ -230,8 +255,14 @@ mod tests {
         let agent_id = seed_agent(&db);
         let dao = AllowlistDao { conn: db.conn() };
 
-        dao.insert(&fixture_allowlist_row(&agent_id, "shell_command", "ls")).unwrap();
-        dao.insert(&fixture_allowlist_row(&agent_id, "http_domain", "example.com")).unwrap();
+        dao.insert(&fixture_allowlist_row(&agent_id, "shell_command", "ls"))
+            .unwrap();
+        dao.insert(&fixture_allowlist_row(
+            &agent_id,
+            "http_domain",
+            "example.com",
+        ))
+        .unwrap();
 
         dao.delete_all_for_agent(&agent_id).unwrap();
 
@@ -247,9 +278,16 @@ mod tests {
         let source_id = seed_agent(&db);
         let dao = AllowlistDao { conn: db.conn() };
 
-        dao.insert(&fixture_allowlist_row(&source_id, "shell_command", "ls")).unwrap();
-        dao.insert(&fixture_allowlist_row(&source_id, "shell_command", "cat")).unwrap();
-        dao.insert(&fixture_allowlist_row(&source_id, "http_domain", "example.com")).unwrap();
+        dao.insert(&fixture_allowlist_row(&source_id, "shell_command", "ls"))
+            .unwrap();
+        dao.insert(&fixture_allowlist_row(&source_id, "shell_command", "cat"))
+            .unwrap();
+        dao.insert(&fixture_allowlist_row(
+            &source_id,
+            "http_domain",
+            "example.com",
+        ))
+        .unwrap();
 
         // Create a second agent for the target
         let target_id = uuid::Uuid::now_v7().to_string();
@@ -260,10 +298,21 @@ mod tests {
                  status, depth, spawned_total, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
                 params![
-                    target_id, Option::<String>::None, "test-provider", "test-model",
-                    "/tmp/workspace", Option::<String>::None, Option::<String>::None,
-                    0.7, 2, 8, "idle", 1, 0,
-                    chrono::Utc::now().to_rfc3339(), chrono::Utc::now().to_rfc3339(),
+                    target_id,
+                    Option::<String>::None,
+                    "test-provider",
+                    "test-model",
+                    "/tmp/workspace",
+                    Option::<String>::None,
+                    Option::<String>::None,
+                    0.7,
+                    2,
+                    8,
+                    "idle",
+                    1,
+                    0,
+                    chrono::Utc::now().to_rfc3339(),
+                    chrono::Utc::now().to_rfc3339(),
                 ],
             )
             .unwrap();

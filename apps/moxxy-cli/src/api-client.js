@@ -114,6 +114,10 @@ export class ApiClient {
     return this.request(`/v1/agents/${encodeURIComponent(agentId)}/stop`, 'POST');
   }
 
+  async deleteAgent(agentId) {
+    return this.request(`/v1/agents/${encodeURIComponent(agentId)}`, 'DELETE');
+  }
+
   eventStreamUrl(filters = {}) {
     const url = new URL('/v1/events/stream', this.baseUrl);
     for (const [k, v] of Object.entries(filters)) {
@@ -138,8 +142,20 @@ export class ApiClient {
     return this.request('/v1/vault/secrets', 'GET');
   }
 
+  async createSecret(body) {
+    return this.request('/v1/vault/secrets', 'POST', body);
+  }
+
+  async deleteSecret(id) {
+    return this.request(`/v1/vault/secrets/${encodeURIComponent(id)}`, 'DELETE');
+  }
+
   async listSkills(agentId) {
     return this.request(`/v1/agents/${encodeURIComponent(agentId)}/skills`, 'GET');
+  }
+
+  async deleteSkill(agentId, skillId) {
+    return this.request(`/v1/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(skillId)}`, 'DELETE');
   }
 
   async disableHeartbeat(agentId, heartbeatId) {

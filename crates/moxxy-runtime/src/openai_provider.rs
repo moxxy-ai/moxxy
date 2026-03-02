@@ -219,10 +219,7 @@ fn parse_api_error(body: &str) -> (String, Option<String>) {
 }
 
 impl OpenAIProvider {
-    async fn send_request(
-        &self,
-        body: &ChatRequest,
-    ) -> Result<ProviderResponse, PrimitiveError> {
+    async fn send_request(&self, body: &ChatRequest) -> Result<ProviderResponse, PrimitiveError> {
         let url = format!("{}/chat/completions", self.api_base);
 
         let response = self

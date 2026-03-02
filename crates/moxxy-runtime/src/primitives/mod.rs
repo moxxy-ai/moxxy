@@ -15,7 +15,8 @@ pub mod vault;
 pub mod webhook;
 
 pub use agent::{
-    AgentListPrimitive, AgentSpawnPrimitive, AgentStatusPrimitive, AgentStopPrimitive,
+    AgentDismissPrimitive, AgentListPrimitive, AgentSpawnPrimitive, AgentStatusPrimitive,
+    AgentStopPrimitive,
 };
 pub use allowlist::{AllowlistAddPrimitive, AllowlistListPrimitive, AllowlistRemovePrimitive};
 pub use ask::{AgentRespondPrimitive, AskChannels, UserAskPrimitive, new_ask_channels};

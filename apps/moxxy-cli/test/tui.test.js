@@ -133,3 +133,44 @@ describe('tab slash commands', () => {
     assert.ok(tabCmds.length >= 3);
   });
 });
+
+describe('vault slash commands', () => {
+  it('matchCommands returns vault subcommands for /vault', () => {
+    const matches = matchCommands('/vault');
+    const names = matches.map(m => m.name);
+    assert.ok(names.includes('/vault list'));
+    assert.ok(names.includes('/vault set'));
+    assert.ok(names.includes('/vault remove'));
+  });
+
+  it('matchCommands matches /vault delete alias', () => {
+    const matches = matchCommands('/vault delete');
+    assert.ok(matches.length >= 1);
+    assert.ok(matches.some(m => m.name === '/vault remove'));
+  });
+
+  it('SLASH_COMMANDS includes vault entries', () => {
+    const vaultCmds = SLASH_COMMANDS.filter(c => c.name.startsWith('/vault'));
+    assert.ok(vaultCmds.length >= 3);
+  });
+});
+
+describe('model slash commands', () => {
+  it('matchCommands matches /model l to /model list', () => {
+    const matches = matchCommands('/model l');
+    assert.ok(matches.some(m => m.name === '/model list'));
+  });
+
+  it('matchCommands returns model subcommands for /model', () => {
+    const matches = matchCommands('/model');
+    const names = matches.map(m => m.name);
+    assert.ok(names.includes('/model'));
+    assert.ok(names.includes('/model list'));
+    assert.ok(names.includes('/model switch'));
+  });
+
+  it('SLASH_COMMANDS includes model entries', () => {
+    const modelCmds = SLASH_COMMANDS.filter(c => c.name.startsWith('/model'));
+    assert.ok(modelCmds.length >= 3);
+  });
+});

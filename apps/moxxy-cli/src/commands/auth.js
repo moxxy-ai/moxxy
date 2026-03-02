@@ -21,7 +21,7 @@ export function parseFlags(args) {
       const eqIdx = rest.indexOf('=');
       if (eqIdx !== -1) {
         flags[rest.slice(0, eqIdx)] = rest.slice(eqIdx + 1);
-      } else if (i + 1 < args.length && !args[i + 1].startsWith('--')) {
+      } else if (i + 1 < args.length) {
         flags[rest] = args[i + 1];
         i++;
       } else {

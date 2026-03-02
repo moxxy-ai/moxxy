@@ -209,12 +209,15 @@ impl RunService {
         )));
 
         // Shell primitive (DB-backed allowlist, 30s timeout, 1MB output cap)
-        registry.register(Box::new(moxxy_runtime::ShellExecPrimitive::new(
-            self.db.clone(),
-            agent.id.clone(),
-            std::time::Duration::from_secs(30),
-            1024 * 1024,
-        )));
+        registry.register(Box::new(
+            moxxy_runtime::ShellExecPrimitive::new(
+                self.db.clone(),
+                agent.id.clone(),
+                std::time::Duration::from_secs(30),
+                1024 * 1024,
+            )
+            .with_working_dir(workspace_path.clone()),
+        ));
 
         // HTTP primitive (DB-backed domain allowlist)
         registry.register(Box::new(moxxy_runtime::HttpRequestPrimitive::new(
@@ -356,6 +359,11 @@ impl RunService {
             agent.id.clone(),
         )));
 
+        registry.register(Box::new(moxxy_runtime::AgentDismissPrimitive::new(
+            self.db.clone(),
+            agent.id.clone(),
+        )));
+
         if let Some(starter) = self.run_starter.lock().ok().and_then(|g| g.clone()) {
             registry.register(Box::new(moxxy_runtime::AgentSpawnPrimitive::new(
                 self.db.clone(),
@@ -414,72 +422,147 @@ impl RunService {
             }
             let agent_home_display = agent_home.display();
             system_prompt.push_str(&format!(
-                "You are a Moxxy agent (id: {agent_id_owned}). Home: {agent_home_display}.\n\n"
+                "You are a Moxxy agent (id: {agent_id_owned}).\n\
+                 Your workspace directory is: {agent_home_display}\n\
+                 IMPORTANT: All file operations (reads, writes, screenshots, shell output files, \
+                 git operations, etc.) MUST use paths within your workspace directory. \
+                 Never create, read, or write files outside of {agent_home_display}. \
+                 Use relative paths or paths prefixed with {agent_home_display}/ for every file operation. \
+                 Shell commands also execute with your workspace as the working directory.\n\n"
             ));
 
             // Group tools by category with descriptions
-            type Category = (&'static str, &'static str, &'static [(&'static str, &'static str)]);
+            type Category = (
+                &'static str,
+                &'static str,
+                &'static [(&'static str, &'static str)],
+            );
             system_prompt.push_str("Your capabilities:\n");
             let categories: &[Category] = &[
-                ("browse", "Web browsing", &[
-                    ("browse.fetch", "fetch web pages and extract content"),
-                    ("browse.extract", "parse HTML with CSS selectors"),
-                ]),
-                ("fs", "Files (workspace-scoped)", &[
-                    ("fs.read", "read files"),
-                    ("fs.write", "write files"),
-                    ("fs.list", "list directory contents"),
-                ]),
-                ("shell", "Shell", &[
-                    ("shell.exec", "run terminal commands"),
-                ]),
-                ("http", "HTTP", &[
-                    ("http.request", "call APIs and fetch URLs"),
-                ]),
-                ("memory", "Memory", &[
-                    ("memory.append", "store information"),
-                    ("memory.search", "recall stored information"),
-                    ("memory.summarize", "summarize memory contents"),
-                ]),
-                ("git", "Git", &[
-                    ("git.init", "init"), ("git.clone", "clone"), ("git.status", "status"),
-                    ("git.commit", "commit"), ("git.push", "push"), ("git.checkout", "checkout"),
-                    ("git.pr_create", "create PRs"), ("git.fork", "fork repos"),
-                    ("git.worktree_add", "add worktree"), ("git.worktree_list", "list worktrees"),
-                    ("git.worktree_remove", "remove worktree"),
-                ]),
-                ("vault", "Secrets", &[
-                    ("vault.set", "store"), ("vault.get", "retrieve"),
-                    ("vault.delete", "delete"), ("vault.list", "list"),
-                ]),
-                ("heartbeat", "Scheduling", &[
-                    ("heartbeat.create", "create"), ("heartbeat.list", "list"),
-                    ("heartbeat.update", "update"), ("heartbeat.disable", "disable"),
-                    ("heartbeat.delete", "delete"),
-                ]),
-                ("agent", "Sub-agents", &[
-                    ("agent.spawn", "spawn"), ("agent.status", "check status"),
-                    ("agent.list", "list"), ("agent.stop", "stop"),
-                ]),
-                ("ask", "Interactive", &[
-                    ("user.ask", "ask user for input"), ("agent.respond", "respond to questions"),
-                ]),
-                ("skill", "Skills", &[
-                    ("skill.import", "import"), ("skill.validate", "validate"),
-                ]),
-                ("notify", "Notifications", &[
-                    ("notify.webhook", "send webhooks"), ("notify.cli", "notify CLI"),
-                ]),
-                ("channel", "Channels", &[
-                    ("channel.notify", "send messages to channels"),
-                ]),
-                ("webhook", "Webhook management", &[
-                    ("webhook.create", "create endpoints"), ("webhook.list", "list endpoints"),
-                ]),
-                ("allowlist", "Allowlists", &[
-                    ("allowlist.list", "list entries"), ("allowlist.add", "add entries"),
-                    ("allowlist.remove", "remove entries"),
-                ]),
+                (
+                    "browse",
+                    "Web browsing",
+                    &[
+                        ("browse.fetch", "fetch web pages and extract content"),
+                        ("browse.extract", "parse HTML with CSS selectors"),
+                    ],
+                ),
+                (
+                    "fs",
+                    "Files (workspace-scoped)",
+                    &[
+                        ("fs.read", "read files"),
+                        ("fs.write", "write files"),
+                        ("fs.list", "list directory contents"),
+                    ],
+                ),
+                ("shell", "Shell", &[("shell.exec", "run terminal commands")]),
+                (
+                    "http",
+                    "HTTP",
+                    &[("http.request", "call APIs and fetch URLs")],
+                ),
+                (
+                    "memory",
+                    "Memory",
+                    &[
+                        ("memory.append", "store information"),
+                        ("memory.search", "recall stored information"),
+                        ("memory.summarize", "summarize memory contents"),
+                    ],
+                ),
+                (
+                    "git",
+                    "Git",
+                    &[
+                        ("git.init", "init"),
+                        ("git.clone", "clone"),
+                        ("git.status", "status"),
+                        ("git.commit", "commit"),
+                        ("git.push", "push"),
+                        ("git.checkout", "checkout"),
+                        ("git.pr_create", "create PRs"),
+                        ("git.fork", "fork repos"),
+                        ("git.worktree_add", "add worktree"),
+                        ("git.worktree_list", "list worktrees"),
+                        ("git.worktree_remove", "remove worktree"),
+                    ],
+                ),
+                (
+                    "vault",
+                    "Secrets",
+                    &[
+                        ("vault.set", "store"),
+                        ("vault.get", "retrieve"),
+                        ("vault.delete", "delete"),
+                        ("vault.list", "list"),
+                    ],
+                ),
+                (
+                    "heartbeat",
+                    "Scheduling",
+                    &[
+                        ("heartbeat.create", "create"),
+                        ("heartbeat.list", "list"),
+                        ("heartbeat.update", "update"),
+                        ("heartbeat.disable", "disable"),
+                        ("heartbeat.delete", "delete"),
+                    ],
+                ),
+                (
+                    "agent",
+                    "Sub-agents",
+                    &[
+                        ("agent.spawn", "spawn"),
+                        ("agent.status", "check status"),
+                        ("agent.list", "list"),
+                        ("agent.stop", "stop"),
+                        ("agent.dismiss", "dismiss completed sub-agent"),
+                    ],
+                ),
+                (
+                    "ask",
+                    "Interactive",
+                    &[
+                        ("user.ask", "ask user for input"),
+                        ("agent.respond", "respond to questions"),
+                    ],
+                ),
+                (
+                    "skill",
+                    "Skills",
+                    &[("skill.import", "import"), ("skill.validate", "validate")],
+                ),
+                (
+                    "notify",
+                    "Notifications",
+                    &[
+                        ("notify.webhook", "send webhooks"),
+                        ("notify.cli", "notify CLI"),
+                    ],
+                ),
+                (
+                    "channel",
+                    "Channels",
+                    &[("channel.notify", "send messages to channels")],
+                ),
+                (
+                    "webhook",
+                    "Webhook management",
+                    &[
+                        ("webhook.create", "create endpoints"),
+                        ("webhook.list", "list endpoints"),
+                    ],
+                ),
+                (
+                    "allowlist",
+                    "Allowlists",
+                    &[
+                        ("allowlist.list", "list entries"),
+                        ("allowlist.add", "add entries"),
+                        ("allowlist.remove", "remove entries"),
+                    ],
+                ),
             ];
 
             for (_, label, tools) in categories {
@@ -491,10 +574,7 @@ impl RunService {
                 if available.is_empty() {
                     continue;
                 }
-                system_prompt.push_str(&format!(
-                    "- {label}: {}\n",
-                    available.join(", ")
-                ));
+                system_prompt.push_str(&format!("- {label}: {}\n", available.join(", ")));
             }
 
             system_prompt.push_str(
@@ -502,6 +582,7 @@ impl RunService {
                  - Proactively use your tools. If asked to look something up, fetch a URL, or find information — use browse.fetch or http.request.\n\
                  - Read files before modifying them.\n\
                  - If a tool fails, analyze the error and try alternatives.\n\
+                 - NEVER use paths outside your workspace. Use relative paths (e.g., \"output.png\", \"src/index.html\") or full paths starting with your workspace directory. Do NOT use ~/Desktop, /tmp, /Users, or any other location.\n\
                  - Always provide a final text summary of what you did and what you found.",
             );
 
@@ -555,7 +636,11 @@ impl RunService {
 
     /// Resolve a pending ask question by sending the answer to the waiting primitive.
     pub fn resolve_ask(&self, question_id: &str, answer: &str) -> Result<(), String> {
-        tracing::info!(question_id, answer_len = answer.len(), "Resolving ask question");
+        tracing::info!(
+            question_id,
+            answer_len = answer.len(),
+            "Resolving ask question"
+        );
         let sender = {
             let mut channels = self
                 .ask_channels

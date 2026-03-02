@@ -141,6 +141,22 @@ impl<'a> AgentDao<'a> {
         Ok(())
     }
 
+    pub fn decrement_spawned_total(&self, id: &str) -> Result<(), StorageError> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let affected = self
+            .conn
+            .execute(
+                "UPDATE agents SET spawned_total = MAX(spawned_total - 1, 0), updated_at = ?1 WHERE id = ?2",
+                params![now, id],
+            )
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        if affected == 0 {
+            return Err(StorageError::NotFound);
+        }
+        Ok(())
+    }
+
     pub fn update_config(
         &self,
         id: &str,
@@ -418,6 +434,34 @@ mod tests {
         let db = TestDb::new();
         let dao = AgentDao { conn: db.conn() };
         let result = dao.increment_spawned_total("nonexistent");
+        assert!(matches!(result, Err(StorageError::NotFound)));
+    }
+
+    #[test]
+    fn decrement_spawned_total() {
+        let db = TestDb::new();
+        insert_provider_for_agent(&db);
+        let dao = AgentDao { conn: db.conn() };
+        let agent = fixture_agent_row();
+        dao.insert(&agent).unwrap();
+        dao.increment_spawned_total(&agent.id).unwrap();
+        dao.increment_spawned_total(&agent.id).unwrap();
+        assert_eq!(dao.find_by_id(&agent.id).unwrap().unwrap().spawned_total, 2);
+
+        dao.decrement_spawned_total(&agent.id).unwrap();
+        assert_eq!(dao.find_by_id(&agent.id).unwrap().unwrap().spawned_total, 1);
+
+        // Floor at 0
+        dao.decrement_spawned_total(&agent.id).unwrap();
+        dao.decrement_spawned_total(&agent.id).unwrap();
+        assert_eq!(dao.find_by_id(&agent.id).unwrap().unwrap().spawned_total, 0);
+    }
+
+    #[test]
+    fn decrement_spawned_total_nonexistent_returns_not_found() {
+        let db = TestDb::new();
+        let dao = AgentDao { conn: db.conn() };
+        let result = dao.decrement_spawned_total("nonexistent");
         assert!(matches!(result, Err(StorageError::NotFound)));
     }
 

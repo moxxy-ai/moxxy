@@ -91,6 +91,10 @@ export class App {
 
     // Select mode (disables mouse capture for native terminal selection)
     this._selectMode = false;
+
+    // Two-step command state
+    this._pendingVaultSet = null;   // { keyName }
+    this._pendingModelSwitch = null; // { step: 'provider'|'model', providers?, providerId?, models? }
   }
 
   async start() {
@@ -104,6 +108,11 @@ export class App {
     this.tui.addInputListener((data) => {
       if (matchesKey(data, 'ctrl+c')) {
         this.stop();
+        return { consume: true };
+      }
+      // Ctrl+X — stop running agent
+      if (matchesKey(data, 'ctrl+x')) {
+        this._stopAgent();
         return { consume: true };
       }
       // Ctrl+Y — toggle select mode (native terminal text selection)
@@ -242,11 +251,91 @@ export class App {
     }, 5000);
   }
 
+  async _stopAgent() {
+    if (this.agent && this.agent.status === 'running') {
+      try {
+        await this.client.stopAgent(this.agent.id);
+        this.agent.status = 'idle';
+        this.statusBar.setAgent(this.agent);
+        this.tui.requestRender(true);
+        this.eventsHandler.addSystemMessage('Agent stopped.');
+      } catch (err) {
+        this.eventsHandler.addSystemMessage(`Error: ${err.message}`);
+      }
+    }
+  }
+
   async _handleSubmit(text) {
     // Normalize: autocomplete can produce "//quit" when it inserts "/quit"
     // on top of the "/" trigger the user already typed.
     const task = text.trim().replace(/^\/{2,}/, '/');
     if (!task) return;
+
+    // Two-step command: vault set (capture secret value)
+    if (this._pendingVaultSet) {
+      const { keyName } = this._pendingVaultSet;
+      this._pendingVaultSet = null;
+      try {
+        await this.client.createSecret({ key_name: keyName, backend_key: keyName, value: task });
+        this.eventsHandler.addSystemMessage(`Secret "${keyName}" stored.`);
+      } catch (err) {
+        this.eventsHandler.addSystemMessage(`Error: ${err.message}`);
+      }
+      return;
+    }
+
+    // Two-step command: model switch
+    if (this._pendingModelSwitch) {
+      const pending = this._pendingModelSwitch;
+      const num = parseInt(task, 10);
+
+      if (pending.step === 'provider') {
+        if (isNaN(num) || num < 1 || num > pending.providers.length) {
+          this.eventsHandler.addSystemMessage('Invalid selection. Cancelled.');
+          this._pendingModelSwitch = null;
+          return;
+        }
+        const provider = pending.providers[num - 1];
+        try {
+          const models = await this.client.listModels(provider.id);
+          if (!models || models.length === 0) {
+            this.eventsHandler.addSystemMessage(`No models for ${provider.id}.`);
+            this._pendingModelSwitch = null;
+            return;
+          }
+          const lines = models.map((m, i) => `  ${i + 1}. ${m.display_name || m.model_id}`);
+          this.eventsHandler.addSystemMessage(`Models for ${provider.display_name || provider.id}:\n${lines.join('\n')}\nEnter number to select:`);
+          this._pendingModelSwitch = { step: 'model', providerId: provider.id, models };
+        } catch (err) {
+          this.eventsHandler.addSystemMessage(`Error: ${err.message}`);
+          this._pendingModelSwitch = null;
+        }
+        return;
+      }
+
+      if (pending.step === 'model') {
+        this._pendingModelSwitch = null;
+        if (isNaN(num) || num < 1 || num > pending.models.length) {
+          this.eventsHandler.addSystemMessage('Invalid selection. Cancelled.');
+          return;
+        }
+        const model = pending.models[num - 1];
+        try {
+          await this.client.updateAgent(this.agentId, {
+            provider_id: pending.providerId,
+            model_id: model.model_id,
+          });
+          this.agent.provider_id = pending.providerId;
+          this.agent.model_id = model.model_id;
+          this.statusBar.setAgent(this.agent);
+          this.tui.requestRender(true);
+          this.eventsHandler.addSystemMessage(`Switched to ${pending.providerId}/${model.model_id}.`);
+        } catch (err) {
+          this.eventsHandler.addSystemMessage(`Error: ${err.message}`);
+        }
+        return;
+      }
+    }
 
     // Handle slash commands
     if (task === '/quit' || task === '/exit') {
@@ -254,17 +343,7 @@ export class App {
       return;
     }
     if (task === '/stop') {
-      if (this.agent) {
-        try {
-          await this.client.stopAgent(this.agent.id);
-          this.agent.status = 'idle';
-          this.statusBar.setAgent(this.agent);
-          this.tui.requestRender(true);
-          this.eventsHandler.addSystemMessage('Agent stopped.');
-        } catch (err) {
-          this.eventsHandler.addSystemMessage(`Error: ${err.message}`);
-        }
-      }
+      await this._stopAgent();
       return;
     }
     if (task === '/clear') {
@@ -272,8 +351,11 @@ export class App {
       return;
     }
     if (task === '/help') {
-      const helpText = 'Commands: ' + SLASH_COMMANDS.map(c => c.name).join(', ');
-      this.eventsHandler.addSystemMessage(helpText);
+      const lines = [
+        'Commands: ' + SLASH_COMMANDS.map(c => c.name).join(', '),
+        'Shortcuts: Ctrl+X stop agent | Ctrl+Y select mode | Ctrl+C exit',
+      ];
+      this.eventsHandler.addSystemMessage(lines.join('\n'));
       return;
     }
     if (task === '/status') {
@@ -285,6 +367,90 @@ export class App {
     }
     if (task === '/select' || task === '/copy') {
       this._toggleSelectMode();
+      return;
+    }
+
+    // Vault commands
+    if (task === '/vault list') {
+      try {
+        const secrets = await this.client.listSecrets();
+        if (!secrets || secrets.length === 0) {
+          this.eventsHandler.addSystemMessage('No vault secrets found.');
+        } else {
+          const lines = secrets.map(s =>
+            `  ${s.key_name} (${s.backend_key}) [${s.policy_label || 'default'}]`
+          );
+          this.eventsHandler.addSystemMessage('Vault secrets:\n' + lines.join('\n'));
+        }
+      } catch (err) {
+        this.eventsHandler.addSystemMessage(`Error: ${err.message}`);
+      }
+      return;
+    }
+    if (task.startsWith('/vault set')) {
+      const keyName = task.slice('/vault set'.length).trim();
+      if (!keyName) {
+        this.eventsHandler.addSystemMessage('Usage: /vault set <key_name>');
+        return;
+      }
+      this._pendingVaultSet = { keyName };
+      this.eventsHandler.addSystemMessage(`Enter the secret value for "${keyName}":`);
+      return;
+    }
+    if (task.startsWith('/vault remove') || task.startsWith('/vault delete')) {
+      const keyName = task.replace(/^\/vault (remove|delete)/, '').trim();
+      if (!keyName) {
+        this.eventsHandler.addSystemMessage('Usage: /vault remove <key_name>');
+        return;
+      }
+      try {
+        const secrets = await this.client.listSecrets();
+        const match = secrets.find(s => s.key_name === keyName);
+        if (!match) {
+          this.eventsHandler.addSystemMessage(`Secret "${keyName}" not found.`);
+          return;
+        }
+        await this.client.deleteSecret(match.id);
+        this.eventsHandler.addSystemMessage(`Secret "${keyName}" removed.`);
+      } catch (err) {
+        this.eventsHandler.addSystemMessage(`Error: ${err.message}`);
+      }
+      return;
+    }
+
+    // Model commands
+    if (task === '/model list') {
+      try {
+        const providers = await this.client.listProviders();
+        if (!providers || providers.length === 0) {
+          this.eventsHandler.addSystemMessage('No providers found.');
+          return;
+        }
+        const sections = [];
+        for (const p of providers) {
+          const models = await this.client.listModels(p.id);
+          const modelLines = (models || []).map(m => `    ${m.display_name || m.model_id}`);
+          sections.push(`  ${p.display_name || p.id}:\n${modelLines.join('\n') || '    (none)'}`);
+        }
+        this.eventsHandler.addSystemMessage('Available models:\n' + sections.join('\n'));
+      } catch (err) {
+        this.eventsHandler.addSystemMessage(`Error: ${err.message}`);
+      }
+      return;
+    }
+    if (task === '/model switch') {
+      try {
+        const providers = await this.client.listProviders();
+        if (!providers || providers.length === 0) {
+          this.eventsHandler.addSystemMessage('No providers found.');
+          return;
+        }
+        const lines = providers.map((p, i) => `  ${i + 1}. ${p.display_name || p.id}`);
+        this.eventsHandler.addSystemMessage('Select a provider:\n' + lines.join('\n') + '\nEnter number:');
+        this._pendingModelSwitch = { step: 'provider', providers };
+      } catch (err) {
+        this.eventsHandler.addSystemMessage(`Error: ${err.message}`);
+      }
       return;
     }
     if (task === '/model') {

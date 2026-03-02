@@ -227,11 +227,26 @@ pub async fn create_agent(
 
     // Seed default shell command allowlist
     for cmd in &[
-        "ls", "cat", "grep", "find", "echo", "wc",
+        "ls",
+        "cat",
+        "grep",
+        "find",
+        "echo",
+        "wc",
         // OS X computer-control commands
-        "osascript", "screencapture", "open", "pbcopy", "pbpaste",
-        "defaults", "pmset", "say", "networksetup", "system_profiler",
-        "mdls", "mdfind", "killall",
+        "osascript",
+        "screencapture",
+        "open",
+        "pbcopy",
+        "pbpaste",
+        "defaults",
+        "pmset",
+        "say",
+        "networksetup",
+        "system_profiler",
+        "mdls",
+        "mdfind",
+        "killall",
     ] {
         let _ = db.allowlists().insert(&AllowlistRow {
             id: uuid::Uuid::now_v7().to_string(),
@@ -489,6 +504,33 @@ pub struct SubagentSpawnRequest {
     pub max_subagent_depth: i32,
     #[serde(default = "default_max_total")]
     pub max_subagents_total: i32,
+}
+
+pub async fn delete_agent(
+    State(state): State<Arc<AppState>>,
+    auth: AuthToken,
+    Path(id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    check_scope(&auth.0, &TokenScope::AgentsWrite)?;
+
+    tracing::info!(agent_id = %id, "Deleting agent");
+
+    // Stop any active run first
+    let _ = state.run_service.do_stop_agent(&id);
+
+    let db = state.db.lock().unwrap();
+    db.agents().delete(&id).map_err(|e| match e {
+        moxxy_types::StorageError::NotFound => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "not_found", "message": "Agent not found"})),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal", "message": "Database error"})),
+        ),
+    })?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn spawn_subagent(

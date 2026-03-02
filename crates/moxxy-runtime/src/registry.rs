@@ -77,13 +77,10 @@ impl PrimitiveRegistry {
                 name
             )));
         }
-        let primitive = self
-            .primitives
-            .get(name)
-            .ok_or_else(|| {
-                tracing::warn!(primitive = name, "Primitive not found in registry");
-                PrimitiveError::NotFound(name.to_string())
-            })?;
+        let primitive = self.primitives.get(name).ok_or_else(|| {
+            tracing::warn!(primitive = name, "Primitive not found in registry");
+            PrimitiveError::NotFound(name.to_string())
+        })?;
         tracing::debug!(primitive = name, "Dispatching primitive invoke");
         primitive.invoke(params).await
     }

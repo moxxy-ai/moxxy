@@ -23,11 +23,7 @@ impl PairingService {
         let now = chrono::Utc::now();
         let expires_at = now + chrono::Duration::minutes(5);
 
-        tracing::info!(
-            channel_id,
-            external_chat_id,
-            "Generating pairing code"
-        );
+        tracing::info!(channel_id, external_chat_id, "Generating pairing code");
 
         let row = ChannelPairingCodeRow {
             id: uuid::Uuid::now_v7().to_string(),

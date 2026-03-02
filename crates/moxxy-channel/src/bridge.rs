@@ -1,8 +1,10 @@
+use crate::commands::{self, CommandContext, CommandRegistry};
 use crate::pairing::PairingService;
 use crate::transport::{ChannelTransport, IncomingMessage, OutgoingMessage};
 use moxxy_core::EventBus;
 use moxxy_storage::Database;
 use moxxy_types::{ChannelError, EventType, MessageContent, RunStarter};
+use moxxy_vault::SecretBackend;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -28,7 +30,9 @@ pub trait ChannelSender: Send + Sync {
 pub struct ChannelBridge {
     db: Arc<Mutex<Database>>,
     event_bus: EventBus,
-    pairing_service: PairingService,
+    pairing_service: Arc<PairingService>,
+    vault_backend: Arc<dyn SecretBackend + Send + Sync>,
+    commands: CommandRegistry,
     transports: RwLock<HashMap<String, Arc<dyn ChannelTransport>>>,
     shutdown: CancellationToken,
     run_starter: Arc<dyn RunStarter>,
@@ -39,16 +43,25 @@ impl ChannelBridge {
         db: Arc<Mutex<Database>>,
         event_bus: EventBus,
         run_starter: Arc<dyn RunStarter>,
+        vault_backend: Arc<dyn SecretBackend + Send + Sync>,
     ) -> Self {
-        let pairing_service = PairingService::new(db.clone());
+        let pairing_service = Arc::new(PairingService::new(db.clone()));
+        let commands = commands::build_default_registry();
         Self {
             db,
             event_bus,
             pairing_service,
+            vault_backend,
+            commands,
             transports: RwLock::new(HashMap::new()),
             shutdown: CancellationToken::new(),
             run_starter,
         }
+    }
+
+    /// Return all command definitions (for platform menu registration).
+    pub fn command_definitions(&self) -> Vec<commands::CommandDefinition> {
+        self.commands.all_definitions()
     }
 
     /// Register a transport before start(). Not thread-safe for concurrent writes.
@@ -85,6 +98,15 @@ impl ChannelBridge {
         let shutdown = self.shutdown.clone();
         let transport_clone = transport.clone();
         let channel_id_clone = channel_id.clone();
+
+        // Fire-and-forget: register commands with the platform
+        let defs = self.commands.all_definitions();
+        let transport_for_reg = transport.clone();
+        tokio::spawn(async move {
+            if let Err(e) = transport_for_reg.register_commands(&defs).await {
+                tracing::warn!("Failed to register commands with transport: {}", e);
+            }
+        });
 
         // Spawn the transport receiver
         tokio::spawn(async move {
@@ -164,7 +186,10 @@ impl ChannelBridge {
             let _ = transport
                 .send_message(OutgoingMessage {
                     external_chat_id: msg.external_chat_id.clone(),
-                    content: MessageContent::Text("This chat is not paired to an agent. Send /start to get a pairing code.".into()),
+                    content: MessageContent::Text(
+                        "This chat is not paired to an agent. Send /start to get a pairing code."
+                            .into(),
+                    ),
                 })
                 .await;
             return;
@@ -220,24 +245,62 @@ impl ChannelBridge {
         transport: &Arc<dyn ChannelTransport>,
         msg: &IncomingMessage,
     ) {
-        let command = msg.text.split_whitespace().next().unwrap_or("");
-        let response_text = match command {
-            "/start" => {
-                match self
-                    .pairing_service
-                    .generate_code(channel_id, &msg.external_chat_id)
-                {
-                    Ok(code) => format!(
-                        "Your pairing code is: {}\n\nEnter this code in the Moxxy CLI within 5 minutes:\n  moxxy channel pair --code {} --agent <agent-id>",
-                        code, code
-                    ),
-                    Err(e) => format!("Failed to generate pairing code: {}", e),
+        let full_command = msg.text.split_whitespace().next().unwrap_or("");
+        // Strip leading '/' and any @bot_name suffix (e.g. "/start@mybot")
+        let command_name = full_command
+            .trim_start_matches('/')
+            .split('@')
+            .next()
+            .unwrap_or("");
+        let args = msg
+            .text
+            .strip_prefix(full_command)
+            .unwrap_or("")
+            .trim_start();
+
+        let response_text = match self.commands.get(command_name) {
+            Some(handler) => {
+                // Resolve binding — lock is scoped so it's dropped before any await
+                let binding_result = {
+                    let db = self.db.lock().ok();
+                    db.and_then(|db| {
+                        db.channel_bindings()
+                            .find_by_channel(channel_id)
+                            .ok()
+                            .and_then(|v| v.into_iter().find(|b| b.status == "active"))
+                    })
+                };
+                let agent_id = binding_result.map(|b| b.agent_id);
+
+                // Enforce binding requirement
+                if handler.requires_binding() && agent_id.is_none() {
+                    let _ = transport
+                        .send_message(OutgoingMessage {
+                            external_chat_id: msg.external_chat_id.clone(),
+                            content: MessageContent::Text(
+                                "This chat is not paired to an agent. Send /start to pair.".into(),
+                            ),
+                        })
+                        .await;
+                    return;
+                }
+
+                let ctx = CommandContext {
+                    db: &self.db,
+                    vault_backend: &self.vault_backend,
+                    run_starter: &self.run_starter,
+                    pairing_service: &self.pairing_service,
+                    agent_id,
+                    channel_id,
+                    external_chat_id: &msg.external_chat_id,
+                };
+
+                match handler.execute(&ctx, args).await {
+                    Ok(text) => text,
+                    Err(e) => format!("Command error: {}", e),
                 }
             }
-            "/status" => self.get_status_text(channel_id, &msg.external_chat_id),
-            "/stop" => self.stop_agent_run(channel_id, &msg.external_chat_id).await,
-            "/help" => "Available commands:\n/start - Get a pairing code\n/status - Check agent status\n/stop - Stop current run\n/help - Show this help".into(),
-            _ => "Unknown command. Type /help to see available commands.".into(),
+            None => "Unknown command. Type /help to see available commands.".into(),
         };
 
         let _ = transport
@@ -246,57 +309,6 @@ impl ChannelBridge {
                 content: MessageContent::Text(response_text),
             })
             .await;
-    }
-
-    fn get_status_text(&self, channel_id: &str, _external_chat_id: &str) -> String {
-        let db = match self.db.lock() {
-            Ok(db) => db,
-            Err(_) => return "Failed to check status.".into(),
-        };
-
-        let binding = db
-            .channel_bindings()
-            .find_by_channel(channel_id)
-            .ok()
-            .and_then(|v| v.into_iter().next());
-
-        match binding {
-            Some(b) => {
-                let status = self
-                    .run_starter
-                    .agent_status(&b.agent_id)
-                    .ok()
-                    .flatten()
-                    .unwrap_or_else(|| "unknown".into());
-                format!(
-                    "Agent: {}\nStatus: {}\nBinding: active",
-                    &b.agent_id[..8.min(b.agent_id.len())],
-                    status
-                )
-            }
-            None => "This chat is not paired to an agent. Send /start to pair.".into(),
-        }
-    }
-
-    async fn stop_agent_run(&self, channel_id: &str, _external_chat_id: &str) -> String {
-        let binding = {
-            let db = match self.db.lock() {
-                Ok(db) => db,
-                Err(_) => return "Failed to stop agent.".into(),
-            };
-            db.channel_bindings()
-                .find_by_channel(channel_id)
-                .ok()
-                .and_then(|v| v.into_iter().next())
-        };
-
-        match binding {
-            Some(b) => match self.run_starter.stop_agent(&b.agent_id).await {
-                Ok(()) => "Agent stopped.".into(),
-                Err(e) => format!("Failed to stop agent: {}", e),
-            },
-            None => "This chat is not paired to an agent.".into(),
-        }
     }
 
     /// Convert an event envelope into structured `MessageContent`, if applicable.
@@ -546,7 +558,9 @@ mod tests {
         let db = setup_db();
         let event_bus = EventBus::new(64);
         let run_starter = Arc::new(MockRunStarter);
-        let bridge = ChannelBridge::new(db, event_bus, run_starter);
+        let vault: Arc<dyn SecretBackend + Send + Sync> =
+            Arc::new(moxxy_vault::InMemoryBackend::new());
+        let bridge = ChannelBridge::new(db, event_bus, run_starter, vault);
         assert!(bridge.transports.read().unwrap().is_empty());
     }
 
@@ -555,11 +569,31 @@ mod tests {
         let db = setup_db();
         let event_bus = EventBus::new(64);
         let run_starter = Arc::new(MockRunStarter);
-        let mut bridge = ChannelBridge::new(db, event_bus, run_starter);
+        let vault: Arc<dyn SecretBackend + Send + Sync> =
+            Arc::new(moxxy_vault::InMemoryBackend::new());
+        let mut bridge = ChannelBridge::new(db, event_bus, run_starter, vault);
         bridge.register_transport_mut(
             "ch1".into(),
             Arc::new(crate::discord::DiscordTransport::new("token".into())),
         );
         assert_eq!(bridge.transports.read().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn bridge_has_all_command_definitions() {
+        let db = setup_db();
+        let event_bus = EventBus::new(64);
+        let run_starter = Arc::new(MockRunStarter);
+        let vault: Arc<dyn SecretBackend + Send + Sync> =
+            Arc::new(moxxy_vault::InMemoryBackend::new());
+        let bridge = ChannelBridge::new(db, event_bus, run_starter, vault);
+        let defs = bridge.command_definitions();
+        let commands: Vec<&str> = defs.iter().map(|d| d.command.as_str()).collect();
+        assert!(commands.contains(&"start"));
+        assert!(commands.contains(&"status"));
+        assert!(commands.contains(&"stop"));
+        assert!(commands.contains(&"help"));
+        assert!(commands.contains(&"model"));
+        assert!(commands.contains(&"vault"));
     }
 }

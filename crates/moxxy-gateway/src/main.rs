@@ -126,6 +126,7 @@ async fn main() {
             state.db.clone(),
             state.event_bus.clone(),
             state.run_service.clone(),
+            state.vault_backend.clone(),
         );
 
         // Load active channels and resolve bot tokens from vault

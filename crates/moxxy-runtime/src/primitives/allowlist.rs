@@ -318,7 +318,10 @@ mod tests {
 
         // Verify it's in DB
         let d = db.lock().unwrap();
-        let entries = d.allowlists().list_entries(&agent_id, "http_domain").unwrap();
+        let entries = d
+            .allowlists()
+            .list_entries(&agent_id, "http_domain")
+            .unwrap();
         assert!(entries.contains(&"example.com".to_string()));
     }
 
@@ -373,7 +376,10 @@ mod tests {
 
         // Verify it's gone
         let d = db.lock().unwrap();
-        let entries = d.allowlists().list_entries(&agent_id, "shell_command").unwrap();
+        let entries = d
+            .allowlists()
+            .list_entries(&agent_id, "shell_command")
+            .unwrap();
         assert!(entries.is_empty());
     }
 

@@ -96,6 +96,29 @@ pub async fn list_skills(
     Ok(Json(serde_json::json!(result)))
 }
 
+pub async fn delete_skill(
+    State(state): State<Arc<AppState>>,
+    auth: AuthToken,
+    Path((_agent_id, skill_id)): Path<(String, String)>,
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    check_scope(&auth.0, &TokenScope::AgentsWrite)?;
+
+    tracing::info!(skill_id = %skill_id, "Deleting skill");
+    let db = state.db.lock().unwrap();
+    db.skills().delete(&skill_id).map_err(|e| match e {
+        moxxy_types::StorageError::NotFound => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "not_found", "message": "Skill not found"})),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal", "message": "Database error"})),
+        ),
+    })?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn approve_skill(
     State(state): State<Arc<AppState>>,
     auth: AuthToken,

@@ -1,20 +1,21 @@
 /**
- * Skill commands: import/approve/list.
+ * Skill commands: import/approve/remove/list.
  */
 import { parseFlags } from './auth.js';
-import { isInteractive, handleCancel, withSpinner, showResult, pickAgent, p } from '../ui.js';
+import { isInteractive, handleCancel, withSpinner, showResult, pickAgent, pickSkill, p } from '../ui.js';
 
 export async function runSkill(client, args) {
   let [action, ...rest] = args;
   const flags = parseFlags(rest);
 
   // Interactive sub-menu when no valid action
-  if (!['import', 'approve', 'list'].includes(action) && isInteractive()) {
+  if (!['import', 'approve', 'remove', 'list'].includes(action) && isInteractive()) {
     action = await p.select({
       message: 'Skill action',
       options: [
         { value: 'import',  label: 'Import skill',  hint: 'install a skill on an agent' },
         { value: 'approve', label: 'Approve skill', hint: 'approve a pending skill' },
+        { value: 'remove',  label: 'Remove skill',  hint: 'remove a skill from an agent' },
         { value: 'list',    label: 'List skills',   hint: 'list agent skills' },
       ],
     });
@@ -89,11 +90,57 @@ export async function runSkill(client, args) {
     }
 
     case 'approve': {
-      const agentId = flags.agent;
-      const skillId = flags.skill;
+      let agentId = flags.agent;
+      let skillId = flags.skill;
+
+      if ((!agentId || !skillId) && isInteractive()) {
+        if (!agentId) {
+          agentId = await pickAgent(client, 'Select agent');
+        }
+        if (!skillId) {
+          skillId = await pickSkill(client, agentId, 'Select skill to approve');
+        }
+      }
+
       if (!agentId || !skillId) throw new Error('Required: --agent, --skill');
-      const result = await client.request(`/v1/agents/${encodeURIComponent(agentId)}/skills/approve/${encodeURIComponent(skillId)}`, 'POST');
-      console.log(`Skill ${skillId} approved.`);
+      const result = await withSpinner('Approving skill...', () =>
+        client.request(`/v1/agents/${encodeURIComponent(agentId)}/skills/approve/${encodeURIComponent(skillId)}`, 'POST'), 'Skill approved.');
+      if (!isInteractive()) {
+        console.log(`Skill ${skillId} approved.`);
+      }
+      return result;
+    }
+
+    case 'remove': {
+      let agentId = flags.agent;
+      let skillId = flags.skill;
+
+      if ((!agentId || !skillId) && isInteractive()) {
+        if (!agentId) {
+          agentId = await pickAgent(client, 'Select agent');
+        }
+        if (!skillId) {
+          skillId = await pickSkill(client, agentId, 'Select skill to remove');
+        }
+
+        const confirmed = await p.confirm({
+          message: 'Remove this skill?',
+          initialValue: false,
+        });
+        handleCancel(confirmed);
+        if (!confirmed) {
+          p.log.info('Cancelled.');
+          return;
+        }
+      }
+
+      if (!agentId || !skillId) throw new Error('Required: --agent, --skill');
+      const result = await client.deleteSkill(agentId, skillId);
+      if (isInteractive()) {
+        p.log.success(`Skill ${skillId} removed.`);
+      } else {
+        console.log(`Skill ${skillId} removed.`);
+      }
       return result;
     }
 
@@ -125,7 +172,7 @@ export async function runSkill(client, args) {
     }
 
     default:
-      console.error('Usage: moxxy skill <import|approve|list>');
+      console.error('Usage: moxxy skill <import|approve|remove|list>');
       process.exitCode = 1;
   }
 }

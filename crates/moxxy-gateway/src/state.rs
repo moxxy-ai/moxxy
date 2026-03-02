@@ -101,6 +101,10 @@ impl AppState {
             conn.execute_batch(sql8).expect("Migration 0008 failed");
         }
 
+        // Run agent allowlists migration
+        let sql9 = include_str!("../../../migrations/0009_agent_allowlists.sql");
+        conn.execute_batch(sql9).expect("Migration 0009 failed");
+
         // Create vec0 virtual table (requires sqlite-vec extension)
         conn.execute_batch(
             "CREATE VIRTUAL TABLE IF NOT EXISTS memory_vec0 USING vec0(memory_id TEXT, embedding float[384])",

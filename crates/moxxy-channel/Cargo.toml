@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 moxxy-types = { path = "../moxxy-types" }
 moxxy-storage = { path = "../moxxy-storage" }
+moxxy-vault = { path = "../moxxy-vault" }
 moxxy-core = { path = "../moxxy-core" }
 tokio = { workspace = true }
 serde = { workspace = true }

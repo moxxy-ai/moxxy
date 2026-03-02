@@ -74,6 +74,24 @@ export async function pickModel(client, providerId) {
   return handleCancel(selected);
 }
 
+export async function pickSkill(client, agentId, message = 'Select a skill') {
+  const skills = await withSpinner('Fetching skills...', () => client.listSkills(agentId), 'Skills loaded.');
+  if (!skills || skills.length === 0) {
+    p.log.warn('No skills found for this agent.');
+    process.exit(1);
+  }
+  const statusIcon = (s) => s === 'approved' ? '\u2705' : s === 'quarantined' ? '\u23f3' : '\u274c';
+  const selected = await p.select({
+    message,
+    options: skills.map(s => ({
+      value: s.id,
+      label: `${statusIcon(s.status)} ${s.name} v${s.version}`,
+      hint: `[${s.status}] ${s.id.slice(0, 12)}`,
+    })),
+  });
+  return handleCancel(selected);
+}
+
 export function showResult(title, data) {
   const lines = Object.entries(data)
     .filter(([, v]) => v !== undefined && v !== null)

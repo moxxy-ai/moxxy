@@ -56,7 +56,9 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
         )
         .route(
             "/v1/agents/{id}",
-            get(routes::agents::get_agent).patch(routes::agents::update_agent),
+            get(routes::agents::get_agent)
+                .patch(routes::agents::update_agent)
+                .delete(routes::agents::delete_agent),
         )
         .route("/v1/agents/{id}/runs", post(routes::agents::start_run))
         .route("/v1/agents/{id}/stop", post(routes::agents::stop_run))
@@ -96,10 +98,18 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
             "/v1/agents/{id}/skills/approve/{skill_id}",
             post(routes::skills::approve_skill),
         )
+        .route(
+            "/v1/agents/{id}/skills/{skill_id}",
+            delete(routes::skills::delete_skill),
+        )
         // Vault
         .route(
             "/v1/vault/secrets",
             post(routes::vault::create_secret_ref).get(routes::vault::list_secrets),
+        )
+        .route(
+            "/v1/vault/secrets/{id}",
+            delete(routes::vault::delete_secret_ref),
         )
         .route(
             "/v1/vault/grants",
@@ -899,6 +909,50 @@ mod agent_tests {
         let resp = request(&app, req).await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
+
+    #[tokio::test]
+    async fn delete_agent_removes_it() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(
+            &state,
+            vec![TokenScope::AgentsWrite, TokenScope::AgentsRead],
+        );
+        let agent_id = seed_agent(&state, &token);
+
+        let req = Request::builder()
+            .method("DELETE")
+            .uri(format!("/v1/agents/{}", agent_id))
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+        // Verify it's gone
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!("/v1/agents/{}", agent_id))
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn delete_nonexistent_agent_returns_404() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
+
+        let req = Request::builder()
+            .method("DELETE")
+            .uri("/v1/agents/nonexistent")
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
 }
 
 #[cfg(test)]
@@ -1319,6 +1373,74 @@ mod skill_tests {
         let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(result["status"], "approved");
     }
+
+    #[tokio::test]
+    async fn delete_skill_removes_it() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(
+            &state,
+            vec![TokenScope::AgentsWrite, TokenScope::AgentsRead],
+        );
+        let agent_id = seed_agent(&state, &token);
+
+        // Install a skill
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/agents/{}/skills/install", agent_id))
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"name":"test-skill","version":"1.0.0","content":"fn run(){}"}"#,
+            ))
+            .unwrap();
+        let resp = request(&app, req).await;
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let installed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let skill_id = installed["id"].as_str().unwrap();
+
+        // Delete skill
+        let req = Request::builder()
+            .method("DELETE")
+            .uri(format!("/v1/agents/{}/skills/{}", agent_id, skill_id))
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+        // Verify it's gone
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!("/v1/agents/{}/skills", agent_id))
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let skills = result.as_array().unwrap();
+        assert_eq!(skills.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn delete_nonexistent_skill_returns_404() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
+        let agent_id = seed_agent(&state, &token);
+
+        let req = Request::builder()
+            .method("DELETE")
+            .uri(format!("/v1/agents/{}/skills/nonexistent", agent_id))
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
 }
 
 #[cfg(test)]
@@ -1450,6 +1572,51 @@ mod vault_tests {
         let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let grants = result.as_array().unwrap();
         assert_eq!(grants.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn delete_secret_ref_returns_200() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::VaultWrite, TokenScope::VaultRead]);
+        let secret_id = seed_secret_ref(&state);
+
+        let req = Request::builder()
+            .method("DELETE")
+            .uri(format!("/v1/vault/secrets/{}", secret_id))
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Verify it's gone
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/vault/secrets")
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(result.as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn delete_nonexistent_secret_ref_returns_404() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::VaultWrite]);
+
+        let req = Request::builder()
+            .method("DELETE")
+            .uri("/v1/vault/secrets/nonexistent")
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

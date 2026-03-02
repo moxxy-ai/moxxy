@@ -423,6 +423,94 @@ impl Primitive for AgentStopPrimitive {
     }
 }
 
+/// Primitive that lets a parent agent dismiss (delete) a completed sub-agent.
+/// The orchestrator calls this after confirming the sub-agent's work is done.
+pub struct AgentDismissPrimitive {
+    db: Arc<Mutex<Database>>,
+    parent_agent_id: String,
+}
+
+impl AgentDismissPrimitive {
+    pub fn new(db: Arc<Mutex<Database>>, parent_agent_id: String) -> Self {
+        Self {
+            db,
+            parent_agent_id,
+        }
+    }
+}
+
+#[async_trait]
+impl Primitive for AgentDismissPrimitive {
+    fn name(&self) -> &str {
+        "agent.dismiss"
+    }
+
+    fn description(&self) -> &str {
+        "Dismiss a completed sub-agent, removing it permanently. Use after confirming the sub-agent's work is done."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "sub_agent_id": {
+                    "type": "string",
+                    "description": "The ID of the sub-agent to dismiss"
+                }
+            },
+            "required": ["sub_agent_id"]
+        })
+    }
+
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
+        let sub_agent_id = params
+            .get("sub_agent_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| PrimitiveError::InvalidParams("missing 'sub_agent_id'".into()))?;
+
+        tracing::info!(sub_agent_id, parent_agent_id = %self.parent_agent_id, "Dismissing sub-agent");
+
+        let db = self
+            .db
+            .lock()
+            .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
+
+        let agent = db
+            .agents()
+            .find_by_id(sub_agent_id)
+            .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?
+            .ok_or_else(|| PrimitiveError::NotFound(format!("sub-agent '{sub_agent_id}'")))?;
+
+        // Security: verify this is actually a child of the requesting agent
+        if agent.parent_agent_id.as_deref() != Some(&self.parent_agent_id) {
+            return Err(PrimitiveError::AccessDenied(format!(
+                "agent '{sub_agent_id}' is not a child of '{}'",
+                self.parent_agent_id
+            )));
+        }
+
+        // Refuse to dismiss a running agent
+        if agent.status == "running" {
+            return Err(PrimitiveError::ExecutionFailed(format!(
+                "sub-agent '{sub_agent_id}' is still running; stop it first"
+            )));
+        }
+
+        db.agents()
+            .delete(sub_agent_id)
+            .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
+
+        db.agents()
+            .decrement_spawned_total(&self.parent_agent_id)
+            .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
+
+        Ok(serde_json::json!({
+            "sub_agent_id": sub_agent_id,
+            "status": "dismissed",
+        }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -715,6 +803,107 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(result.unwrap()["status"], "stopped");
         assert!(run_starter.stopped.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn agent_dismiss_deletes_idle_child() {
+        let db = Arc::new(Mutex::new(test_database()));
+        {
+            let d = db.lock().unwrap();
+            insert_parent(&d);
+            insert_child(&d, "child-1", "parent-1");
+            // Mark child as idle (completed)
+            d.agents().update_status("child-1", "idle").unwrap();
+            d.agents().increment_spawned_total("parent-1").unwrap();
+        }
+
+        let prim = AgentDismissPrimitive::new(db.clone(), "parent-1".into());
+
+        let result = prim
+            .invoke(serde_json::json!({
+                "sub_agent_id": "child-1",
+            }))
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap()["status"], "dismissed");
+
+        // Verify child is deleted
+        let d = db.lock().unwrap();
+        let found = d.agents().find_by_id("child-1").unwrap();
+        assert!(found.is_none());
+        // spawned_total decremented
+        let parent = d.agents().find_by_id("parent-1").unwrap().unwrap();
+        assert_eq!(parent.spawned_total, 0);
+    }
+
+    #[tokio::test]
+    async fn agent_dismiss_rejects_running_child() {
+        let db = Arc::new(Mutex::new(test_database()));
+        {
+            let d = db.lock().unwrap();
+            insert_parent(&d);
+            insert_child(&d, "child-1", "parent-1");
+            // child-1 is "running" by default from insert_child
+        }
+
+        let prim = AgentDismissPrimitive::new(db, "parent-1".into());
+
+        let result = prim
+            .invoke(serde_json::json!({
+                "sub_agent_id": "child-1",
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            PrimitiveError::ExecutionFailed(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn agent_dismiss_rejects_non_child() {
+        let db = Arc::new(Mutex::new(test_database()));
+        {
+            let d = db.lock().unwrap();
+            insert_parent(&d);
+            let now = chrono::Utc::now().to_rfc3339();
+            let other = AgentRow {
+                id: "not-my-child".into(),
+                parent_agent_id: None,
+                provider_id: "openai".into(),
+                model_id: "gpt-4".into(),
+                workspace_root: "/tmp".into(),
+                core_mount: None,
+                policy_profile: None,
+                temperature: 0.7,
+                max_subagent_depth: 2,
+                max_subagents_total: 8,
+                status: "idle".into(),
+                depth: 0,
+                spawned_total: 0,
+                created_at: now.clone(),
+                updated_at: now,
+                name: Some("not-my-child".into()),
+                persona: None,
+            };
+            d.agents().insert(&other).unwrap();
+        }
+
+        let prim = AgentDismissPrimitive::new(db, "parent-1".into());
+
+        let result = prim
+            .invoke(serde_json::json!({
+                "sub_agent_id": "not-my-child",
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            PrimitiveError::AccessDenied(_)
+        ));
     }
 
     #[tokio::test]

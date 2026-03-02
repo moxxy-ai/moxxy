@@ -52,6 +52,12 @@ export function parseAgentCommand(args) {
         json: flags.json === true || flags.json === 'true',
       };
 
+    case 'delete':
+      return {
+        action: 'delete',
+        id: flags.id,
+      };
+
     default:
       return { action };
   }
@@ -119,7 +125,7 @@ export async function runAgent(client, args) {
   const parsed = parseAgentCommand(args);
 
   // Interactive sub-menu when no valid action
-  if (!['create', 'run', 'stop', 'status', 'update'].includes(parsed.action) && isInteractive()) {
+  if (!['create', 'run', 'stop', 'status', 'update', 'delete'].includes(parsed.action) && isInteractive()) {
     const action = await p.select({
       message: 'Agent action',
       options: [
@@ -128,6 +134,7 @@ export async function runAgent(client, args) {
         { value: 'run',    label: 'Start run',    hint: 'run a task on an agent' },
         { value: 'stop',   label: 'Stop agent',   hint: 'stop a running agent' },
         { value: 'status', label: 'Agent status',  hint: 'check agent status' },
+        { value: 'delete', label: 'Delete agent', hint: 'permanently remove an agent' },
       ],
     });
     handleCancel(action);
@@ -340,8 +347,36 @@ export async function runAgent(client, args) {
       return agentUpdate(client, args.slice(1));
     }
 
+    case 'delete': {
+      let id = parsed.id;
+
+      if (!id && isInteractive()) {
+        id = await pickAgent(client, 'Select agent to delete');
+
+        const confirmed = await p.confirm({
+          message: 'Permanently delete this agent and all its data?',
+          initialValue: false,
+        });
+        handleCancel(confirmed);
+        if (!confirmed) {
+          p.log.info('Cancelled.');
+          return;
+        }
+      }
+
+      if (!id) throw new Error('Required: --id');
+
+      await client.deleteAgent(id);
+      if (isInteractive()) {
+        p.log.success(`Agent ${id} deleted.`);
+      } else {
+        console.log(`Agent ${id} deleted.`);
+      }
+      break;
+    }
+
     default:
-      console.error('Usage: moxxy agent <create|run|stop|status|update>');
+      console.error('Usage: moxxy agent <create|run|stop|status|update|delete>');
       process.exitCode = 1;
   }
 }

@@ -197,7 +197,11 @@ impl Primitive for BrowseExtractPrimitive {
             PrimitiveError::InvalidParams("missing 'selectors' object parameter".into())
         })?;
 
-        tracing::debug!(selectors_count = selectors.len(), html_len = html.len(), "Extracting from HTML");
+        tracing::debug!(
+            selectors_count = selectors.len(),
+            html_len = html.len(),
+            "Extracting from HTML"
+        );
 
         let document = scraper::Html::parse_document(html);
         let mut data = serde_json::Map::new();

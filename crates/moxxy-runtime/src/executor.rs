@@ -261,8 +261,7 @@ impl RunExecutor {
                     .await
                 {
                     Ok(result) => {
-                        let result_str =
-                            serde_json::to_string(&result).unwrap_or_default();
+                        let result_str = serde_json::to_string(&result).unwrap_or_default();
 
                         tracing::info!(
                             agent_id,

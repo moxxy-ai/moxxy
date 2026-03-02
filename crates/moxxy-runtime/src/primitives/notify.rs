@@ -77,7 +77,11 @@ impl Primitive for WebhookNotifyPrimitive {
         let domain = Self::extract_domain(url);
 
         if !self.is_domain_allowed(domain)? {
-            tracing::warn!(url, domain, "Webhook notify blocked — domain not in allowlist");
+            tracing::warn!(
+                url,
+                domain,
+                "Webhook notify blocked — domain not in allowlist"
+            );
             return Err(PrimitiveError::AccessDenied(format!(
                 "Domain '{}' not in allowlist",
                 domain

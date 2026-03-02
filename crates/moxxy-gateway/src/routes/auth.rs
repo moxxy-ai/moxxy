@@ -79,7 +79,12 @@ pub async fn create_token(
 
     let created_by = body.description.as_deref().unwrap_or("api");
     let ttl = body.ttl_seconds.map(chrono::Duration::seconds);
-    tracing::info!(created_by, scopes_count = body.scopes.len(), has_ttl = ttl.is_some(), "Creating API token");
+    tracing::info!(
+        created_by,
+        scopes_count = body.scopes.len(),
+        has_ttl = ttl.is_some(),
+        "Creating API token"
+    );
     let (plaintext, issued) = ApiTokenService::issue(created_by, body.scopes, ttl);
 
     let row = StoredTokenRow {

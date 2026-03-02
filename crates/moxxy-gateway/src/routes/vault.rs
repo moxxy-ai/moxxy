@@ -182,6 +182,49 @@ pub async fn list_grants(
     Ok(Json(serde_json::json!(result)))
 }
 
+pub async fn delete_secret_ref(
+    State(state): State<Arc<AppState>>,
+    auth: AuthToken,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    check_scope(&auth.0, &TokenScope::VaultWrite)?;
+
+    tracing::info!(id = %id, "Deleting vault secret ref");
+
+    let db = state.db.lock().unwrap();
+    let secret_ref = db.vault_refs().find_by_id(&id).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal", "message": "Database error"})),
+        )
+    })?;
+
+    let secret_ref = secret_ref.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "not_found", "message": "Secret ref not found"})),
+        )
+    })?;
+
+    // Delete from vault backend (ignore errors if key doesn't exist in backend)
+    let _ = state.vault_backend.delete_secret(&secret_ref.backend_key);
+
+    // Delete from DB
+    db.vault_refs().delete(&id).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                serde_json::json!({"error": "internal", "message": "Failed to delete secret ref"}),
+            ),
+        )
+    })?;
+
+    Ok(Json(serde_json::json!({
+        "message": "Secret ref deleted",
+        "id": id
+    })))
+}
+
 pub async fn revoke_grant(
     State(state): State<Arc<AppState>>,
     auth: AuthToken,

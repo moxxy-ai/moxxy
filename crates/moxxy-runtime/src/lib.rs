@@ -13,11 +13,11 @@ pub use echo_provider::EchoProvider;
 pub use executor::RunExecutor;
 pub use openai_provider::OpenAIProvider;
 pub use primitives::{
-    AgentListPrimitive, AgentRespondPrimitive, AgentSpawnPrimitive, AgentStatusPrimitive,
-    AgentStopPrimitive, AllowlistAddPrimitive, AllowlistListPrimitive, AllowlistRemovePrimitive,
-    AskChannels, BrowseExtractPrimitive, BrowseFetchPrimitive, ChannelMessageSender,
-    ChannelNotifyPrimitive, CliNotifyPrimitive, FsListPrimitive, FsReadPrimitive,
-    FsWritePrimitive, GitCheckoutPrimitive, GitClonePrimitive, GitCommitPrimitive,
+    AgentDismissPrimitive, AgentListPrimitive, AgentRespondPrimitive, AgentSpawnPrimitive,
+    AgentStatusPrimitive, AgentStopPrimitive, AllowlistAddPrimitive, AllowlistListPrimitive,
+    AllowlistRemovePrimitive, AskChannels, BrowseExtractPrimitive, BrowseFetchPrimitive,
+    ChannelMessageSender, ChannelNotifyPrimitive, CliNotifyPrimitive, FsListPrimitive,
+    FsReadPrimitive, FsWritePrimitive, GitCheckoutPrimitive, GitClonePrimitive, GitCommitPrimitive,
     GitForkPrimitive, GitInitPrimitive, GitPrCreatePrimitive, GitPushPrimitive, GitStatusPrimitive,
     GitWorktreeAddPrimitive, GitWorktreeListPrimitive, GitWorktreeRemovePrimitive,
     HeartbeatCreatePrimitive, HeartbeatDeletePrimitive, HeartbeatDisablePrimitive,

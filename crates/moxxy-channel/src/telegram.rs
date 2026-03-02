@@ -4,6 +4,7 @@ use serde::Deserialize;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
+use crate::commands::CommandDefinition;
 use crate::transport::{ChannelTransport, IncomingMessage, OutgoingMessage};
 
 pub struct TelegramTransport {
@@ -146,6 +147,45 @@ impl ChannelTransport for TelegramTransport {
         };
         self.send_text(&msg.external_chat_id, &text, parse_mode)
             .await
+    }
+
+    async fn register_commands(&self, commands: &[CommandDefinition]) -> Result<(), ChannelError> {
+        let bot_commands: Vec<serde_json::Value> = commands
+            .iter()
+            .map(|c| {
+                serde_json::json!({
+                    "command": c.command,
+                    "description": c.description,
+                })
+            })
+            .collect();
+
+        let body = serde_json::json!({ "commands": bot_commands });
+
+        let resp = self
+            .http_client
+            .post(self.api_url("setMyCommands"))
+            .json(&body)
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| ChannelError::TransportError(e.to_string()))?;
+
+        let resp_body: TelegramResponse<serde_json::Value> = resp
+            .json()
+            .await
+            .map_err(|e| ChannelError::TransportError(e.to_string()))?;
+
+        if !resp_body.ok {
+            return Err(ChannelError::TransportError(
+                resp_body
+                    .description
+                    .unwrap_or_else(|| "setMyCommands failed".into()),
+            ));
+        }
+
+        tracing::info!("Telegram: registered {} bot commands", commands.len());
+        Ok(())
     }
 
     fn format_content(&self, content: &MessageContent) -> String {
