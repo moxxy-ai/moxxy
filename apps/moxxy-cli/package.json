@@ -1,0 +1,16 @@
+{
+  "name": "moxxy-cli",
+  "version": "0.1.0",
+  "description": "Moxxy Agentic Framework CLI",
+  "type": "module",
+  "bin": {
+    "moxxy": "./src/main.js"
+  },
+  "scripts": {
+    "test": "node --test test/**/*.test.js",
+    "start": "node src/main.js"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
