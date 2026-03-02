@@ -1,4 +1,5 @@
 import { p, handleCancel, withSpinner, showResult } from '../ui.js';
+import { LOGO } from '../cli.js';
 import { VALID_SCOPES } from './auth.js';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -9,6 +10,7 @@ export function getMoxxyHome() {
 }
 
 export async function runInit(client, args) {
+  console.log(LOGO);
   p.intro('Welcome to Moxxy');
 
   // Step 0: Create ~/.moxxy directory structure
