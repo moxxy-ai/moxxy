@@ -22,7 +22,7 @@ export function parseFlags(args) {
         flags[rest] = args[i + 1];
         i++;
       } else {
-        flags[rest] = 'true';
+        flags[rest] = true;
       }
     }
   }
