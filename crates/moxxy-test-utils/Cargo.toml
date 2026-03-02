@@ -1,0 +1,10 @@
+[package]
+name = "moxxy-test-utils"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+moxxy-types = { path = "../moxxy-types" }
+rusqlite = { workspace = true }
+tempfile = { workspace = true }
+proptest = { workspace = true }

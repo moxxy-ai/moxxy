@@ -1,0 +1,10 @@
+[package]
+name = "moxxy-vault"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+moxxy-types = { path = "../moxxy-types" }
+moxxy-storage = { path = "../moxxy-storage" }
+keyring = { workspace = true }
+thiserror = { workspace = true }
