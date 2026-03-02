@@ -12,6 +12,7 @@ tracing-subscriber = { workspace = true }
 moxxy-types = { path = "../moxxy-types" }
 moxxy-storage = { path = "../moxxy-storage" }
 moxxy-core = { path = "../moxxy-core" }
+moxxy-runtime = { path = "../moxxy-runtime" }
 axum = { workspace = true }
 tower-http = { workspace = true }
 tokio = { workspace = true }

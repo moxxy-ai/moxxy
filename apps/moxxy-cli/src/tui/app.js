@@ -1,26 +1,48 @@
 import { Box, Text, useApp } from 'ink';
-import { useState, useCallback } from 'react';
-import { h, COLORS } from './helpers.js';
+import { useCallback } from 'react';
+import { h, COLORS, shortId } from './helpers.js';
 import { useTerminal } from './use-terminal.js';
 import { useAgent } from './use-agent.js';
 import { useEvents } from './use-events.js';
 import { ChatPanel } from './chat-panel.js';
 import { InfoPanel } from './info-panel.js';
 import { InputBar } from './input-bar.js';
+import { SLASH_COMMANDS } from './slash-commands.js';
 
 export function App({ client, agentId }) {
   const { exit } = useApp();
   const { columns, rows } = useTerminal();
   const { agent, loading, error: agentError, startRun, stopAgent } = useAgent(client, agentId);
-  const { messages, stats, connected, addUserMessage } = useEvents(client, agent?.id);
+  const { messages, stats, connected, addUserMessage, addSystemMessage, clearMessages } = useEvents(client, agent?.id);
 
   const handleSubmit = useCallback(async (task) => {
     if (task === '/quit' || task === '/exit') { exit(); return; }
     if (task === '/stop') { await stopAgent(); return; }
+    if (task === '/clear') { clearMessages(); return; }
+    if (task === '/help') {
+      addSystemMessage(
+        'Commands: ' + SLASH_COMMANDS.map(c => c.name).join(', ')
+      );
+      return;
+    }
+    if (task === '/status') {
+      const status = agent
+        ? `Agent ${shortId(agent.id)}: ${agent.status} | Provider: ${agent.provider_id} | Model: ${agent.model_id} | SSE: ${connected ? 'connected' : 'disconnected'}`
+        : 'No agent connected';
+      addSystemMessage(status);
+      return;
+    }
+    if (task === '/model') {
+      const info = agent
+        ? `Model: ${agent.model_id} via ${agent.provider_id}`
+        : 'No agent connected';
+      addSystemMessage(info);
+      return;
+    }
 
     addUserMessage(task);
     await startRun(task);
-  }, [addUserMessage, startRun, stopAgent, exit]);
+  }, [addUserMessage, addSystemMessage, clearMessages, startRun, stopAgent, exit, agent, connected]);
 
   const chatHeight = Math.max(5, rows - 5);
 

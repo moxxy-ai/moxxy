@@ -2,6 +2,7 @@ use async_trait::async_trait;
 
 use crate::registry::PrimitiveError;
 
+#[derive(Clone)]
 pub struct Message {
     pub role: String,
     pub content: String,
@@ -17,6 +18,7 @@ pub struct ProviderResponse {
     pub tool_calls: Vec<ToolCall>,
 }
 
+#[derive(Clone)]
 pub struct ToolCall {
     pub name: String,
     pub arguments: serde_json::Value,

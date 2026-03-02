@@ -36,6 +36,12 @@ export function Message({ type, content, eventType, payload, streaming }) {
     );
   }
 
+  if (type === 'system') {
+    return h(Box, null,
+      h(Text, { color: COLORS.info }, content),
+    );
+  }
+
   if (type === 'event') {
     const summary = eventSummary(eventType, payload || {});
     const isError = eventType?.includes('failed') || eventType?.includes('violation') || eventType?.includes('denied');

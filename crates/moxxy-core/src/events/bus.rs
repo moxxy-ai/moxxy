@@ -5,6 +5,14 @@ pub struct EventBus {
     sender: broadcast::Sender<EventEnvelope>,
 }
 
+impl Clone for EventBus {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+        }
+    }
+}
+
 impl EventBus {
     pub fn new(capacity: usize) -> Self {
         let (sender, _) = broadcast::channel(capacity);
@@ -45,6 +53,26 @@ mod tests {
         let received1 = rx1.recv().await.unwrap();
         let received2 = rx2.recv().await.unwrap();
         assert_eq!(received1.event_id, received2.event_id);
+    }
+
+    #[test]
+    fn event_bus_clone_shares_channel() {
+        let bus = EventBus::new(100);
+        let bus2 = bus.clone();
+        let mut rx = bus.subscribe();
+
+        let envelope = EventEnvelope::new(
+            "agent-1".into(),
+            None,
+            None,
+            1,
+            EventType::RunStarted,
+            serde_json::json!({}),
+        );
+        bus2.emit(envelope);
+
+        let received = rx.try_recv().unwrap();
+        assert_eq!(received.event_type, EventType::RunStarted);
     }
 
     #[test]

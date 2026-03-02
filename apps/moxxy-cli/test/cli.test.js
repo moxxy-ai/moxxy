@@ -5,6 +5,7 @@ import { parseAuthCommand, buildTokenPayload } from '../src/commands/auth.js';
 import { parseAgentCommand } from '../src/commands/agent.js';
 import { buildSseUrl, parseSseEvent, createSseClient } from '../src/sse-client.js';
 import { isInteractive, handleCancel } from '../src/ui.js';
+import { matchCommands, isSlashCommand, SLASH_COMMANDS } from '../src/tui/slash-commands.js';
 
 // API Client tests
 describe('api-client', () => {
@@ -160,5 +161,38 @@ describe('api-client new methods', () => {
   it('has listSecrets method', () => {
     const client = createApiClient('http://localhost:3000', 'tok');
     assert.equal(typeof client.listSecrets, 'function');
+  });
+});
+
+// Slash command tests
+describe('slash commands', () => {
+  it('matchCommands returns all on /', () => {
+    const matches = matchCommands('/');
+    assert.equal(matches.length, SLASH_COMMANDS.length);
+  });
+
+  it('matchCommands filters by prefix', () => {
+    const matches = matchCommands('/st');
+    const names = matches.map(m => m.name);
+    assert.ok(names.includes('/stop'));
+    assert.ok(names.includes('/status'));
+    assert.equal(matches.length, 2);
+  });
+
+  it('matchCommands returns empty for non-slash', () => {
+    assert.equal(matchCommands('hello').length, 0);
+  });
+
+  it('matchCommands matches aliases', () => {
+    const matches = matchCommands('/ex');
+    const names = matches.map(m => m.name);
+    assert.ok(names.includes('/quit'));
+  });
+
+  it('isSlashCommand detects slash prefix', () => {
+    assert.equal(isSlashCommand('/quit'), true);
+    assert.equal(isSlashCommand('/'), true);
+    assert.equal(isSlashCommand('hello'), false);
+    assert.equal(isSlashCommand(''), false);
   });
 });

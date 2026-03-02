@@ -159,35 +159,85 @@ pub async fn start_run(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::RunsWrite)?;
 
-    let db = state.db.lock().unwrap();
-    let agent = db
-        .agents()
-        .find_by_id(&id)
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "internal", "message": "Database error"})),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "not_found", "message": "Agent not found"})),
-            )
-        })?;
+    let agent = {
+        let db = state.db.lock().unwrap();
+        let agent = db
+            .agents()
+            .find_by_id(&id)
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "internal", "message": "Database error"})),
+                )
+            })?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({"error": "not_found", "message": "Agent not found"})),
+                )
+            })?;
 
-    db.agents()
-        .update_status(&agent.id, "running")
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    serde_json::json!({"error": "internal", "message": "Failed to update status"}),
-                ),
-            )
-        })?;
+        db.agents()
+            .update_status(&agent.id, "running")
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        serde_json::json!({"error": "internal", "message": "Failed to update status"}),
+                    ),
+                )
+            })?;
+        agent
+    };
 
     let run_id = uuid::Uuid::now_v7().to_string();
+    let task = body.task.clone();
+
+    // Resolve provider (fall back to echo for unknown providers)
+    let provider = state
+        .get_provider(&agent.provider_id)
+        .unwrap_or_else(|| Arc::new(moxxy_runtime::EchoProvider::new()));
+
+    // Build primitive registry scoped to agent workspace
+    let policy = moxxy_core::PathPolicy::new(
+        std::path::PathBuf::from(&agent.workspace_root),
+        None,
+    );
+    let mut registry = moxxy_runtime::PrimitiveRegistry::new();
+    registry.register(Box::new(moxxy_runtime::FsReadPrimitive::new(policy.clone())));
+    registry.register(Box::new(moxxy_runtime::FsWritePrimitive::new(policy.clone())));
+    registry.register(Box::new(moxxy_runtime::FsListPrimitive::new(policy)));
+
+    let allowed_primitives: Vec<String> =
+        registry.list().iter().map(|s| s.to_string()).collect();
+
+    let event_bus = state.event_bus.clone();
+    let agent_id = agent.id.clone();
+    let run_id_clone = run_id.clone();
+    let db = state.db.clone();
+    let temperature = agent.temperature;
+
+    tokio::spawn(async move {
+        let executor = moxxy_runtime::RunExecutor::new(
+            event_bus,
+            provider,
+            registry,
+            allowed_primitives,
+        );
+        let model_config = moxxy_runtime::ModelConfig {
+            temperature,
+            max_tokens: 4096,
+        };
+
+        let result = executor
+            .execute(&agent_id, &run_id_clone, &task, &model_config)
+            .await;
+
+        if let Ok(db) = db.lock() {
+            let new_status = if result.is_ok() { "idle" } else { "error" };
+            let _ = db.agents().update_status(&agent_id, new_status);
+        }
+    });
 
     Ok(Json(serde_json::json!({
         "agent_id": agent.id,

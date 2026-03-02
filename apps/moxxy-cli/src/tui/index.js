@@ -36,7 +36,7 @@ export async function startTui(client, args) {
 
   const { waitUntilExit } = render(
     h(App, { client, agentId }),
-    { exitOnCtrlC: true, patchConsole: true }
+    { exitOnCtrlC: true, patchConsole: true, fullScreen: true }
   );
 
   await waitUntilExit();

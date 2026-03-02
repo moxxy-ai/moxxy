@@ -111,5 +111,14 @@ export function useEvents(client, agentId) {
     setMessages(prev => [...prev, { type: 'user', content, ts: Date.now() }]);
   }, []);
 
-  return { messages, stats, connected, addUserMessage };
+  const addSystemMessage = useCallback((content) => {
+    setMessages(prev => [...prev, { type: 'system', content, ts: Date.now() }]);
+  }, []);
+
+  const clearMessages = useCallback(() => {
+    setMessages([]);
+    assistantBufferRef.current = '';
+  }, []);
+
+  return { messages, stats, connected, addUserMessage, addSystemMessage, clearMessages };
 }
