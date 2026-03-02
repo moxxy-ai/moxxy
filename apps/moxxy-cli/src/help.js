@@ -73,10 +73,19 @@ Manage LLM providers.
 
 Actions:
   install   Add a built-in or custom provider
+  login     OAuth/subscription login (currently openai-codex)
   list      Show installed providers
 
 Options:
   --id <id>          Provider ID for install (e.g. openai, anthropic, xai)
+  --method <m>       Login method for OAuth providers: browser | headless
+  --no-browser       Do not auto-open browser (print URL only)
+  --originator <id>  Advanced: override OAuth originator (default: Codex Desktop)
+  --allowed_workspace_id <id>  Advanced: constrain browser OAuth to a workspace/org id
+  --organization_id <id>       Advanced: pass explicit organization id in OAuth URL
+  --project_id <id>            Advanced: pass explicit project id in OAuth URL
+  --api_key <key>              Fallback: manually provide OpenAI API key if OAuth issuance fails
+  (automatic fallback)         If API-key issuance fails, uses ChatGPT OAuth session mode
   --model <id>       Custom model ID to add
   --name <name>      Display name (custom providers)
   --api_base <url>   API base URL (custom providers)
@@ -85,6 +94,7 @@ Options:
 Built-in providers:
   anthropic   Anthropic (Claude models)
   openai      OpenAI (GPT models)
+  openai-codex OpenAI subscription OAuth login
   xai         xAI (Grok models)
   google      Google (Gemini models)
   deepseek    DeepSeek
@@ -92,6 +102,9 @@ Built-in providers:
 Examples:
   moxxy provider list
   moxxy provider install --id openai
+  moxxy provider login --id openai-codex --method browser
+  moxxy provider login --id openai-codex --method headless --no-browser
+  moxxy provider login --id openai-codex --method browser --api_key sk-...
   moxxy provider install --id anthropic --model claude-sonnet-4-20250514`,
 
   skill: `Usage: moxxy skill <action> [options]

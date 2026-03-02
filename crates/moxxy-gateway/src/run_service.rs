@@ -89,19 +89,31 @@ impl RunService {
             return None;
         }
 
-        // Look up model to get api_base from metadata_json
+        // Look up model metadata (api_base + optional provider-specific headers)
         let model_row = db.providers().find_model(provider_id, model_id).ok()??;
-        let api_base = model_row
+        let metadata = model_row
             .metadata_json
             .as_deref()
             .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
-            .and_then(|v| v.get("api_base").and_then(|b| b.as_str().map(String::from)))?;
+            .unwrap_or_else(|| serde_json::json!({}));
+        let api_base = metadata
+            .get("api_base")
+            .and_then(|b| b.as_str().map(String::from))?;
+        let chatgpt_account_id = metadata
+            .get("chatgpt_account_id")
+            .and_then(|v| v.as_str())
+            .map(String::from);
 
         // Get API key from vault
         let vault_key = format!("moxxy_provider_{}", provider_id);
         let api_key = self.vault_backend.get_secret(&vault_key).ok()?;
 
-        Some(Arc::new(OpenAIProvider::new(api_base, api_key, model_id)))
+        Some(Arc::new(OpenAIProvider::new(
+            api_base,
+            api_key,
+            model_id,
+            chatgpt_account_id,
+        )))
     }
 
     /// Set the channel message sender. Called after the ChannelBridge is created.

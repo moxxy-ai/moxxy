@@ -4,6 +4,907 @@
  */
 import { parseFlags } from './auth.js';
 import { isInteractive, handleCancel, withSpinner, showResult, p } from '../ui.js';
+import { spawn } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
+import { createServer } from 'node:http';
+
+const OPENAI_API_BASE = 'https://api.openai.com/v1';
+const OPENAI_CODEX_PROVIDER_ID = 'openai-codex';
+const OPENAI_CODEX_DISPLAY_NAME = 'OpenAI (Codex OAuth)';
+const OPENAI_CODEX_ISSUER = 'https://auth.openai.com';
+const OPENAI_CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
+const OPENAI_CODEX_DEVICE_CODE_ENDPOINT = `${OPENAI_CODEX_ISSUER}/api/accounts/deviceauth/usercode`;
+const OPENAI_CODEX_DEVICE_TOKEN_ENDPOINT = `${OPENAI_CODEX_ISSUER}/api/accounts/deviceauth/token`;
+const OPENAI_CODEX_TOKEN_ENDPOINT = `${OPENAI_CODEX_ISSUER}/oauth/token`;
+const OPENAI_CODEX_AUTHORIZE_ENDPOINT = `${OPENAI_CODEX_ISSUER}/oauth/authorize`;
+const OPENAI_CODEX_DEVICE_VERIFY_URL = `${OPENAI_CODEX_ISSUER}/codex/device`;
+const OPENAI_CODEX_DEVICE_CALLBACK_REDIRECT_URI = `${OPENAI_CODEX_ISSUER}/deviceauth/callback`;
+const OPENAI_CODEX_BROWSER_CALLBACK_PATH = '/auth/callback';
+const OPENAI_CODEX_BROWSER_CALLBACK_PORT = 1455;
+const OPENAI_CODEX_SCOPE = 'openid profile email offline_access';
+const OPENAI_CODEX_ORIGINATOR = 'Codex Desktop';
+const OPENAI_CODEX_SECRET_KEY_NAME = 'OPENAI_CODEX_API_KEY';
+const OPENAI_CODEX_BACKEND_KEY = `moxxy_provider_${OPENAI_CODEX_PROVIDER_ID}`;
+const OPENAI_CODEX_CHATGPT_API_BASE = 'https://chatgpt.com/backend-api/codex';
+const OPENAI_CODEX_OAUTH_SESSION_MODE = 'chatgpt_oauth_session';
+const OPENAI_CODEX_MODEL_IDS = [
+  'gpt-5.3-codex',
+  'gpt-5.2-codex',
+  'gpt-5.1-codex',
+  'gpt-5.1-codex-mini',
+  'gpt-5.1-codex-max',
+  'gpt-5.2',
+  'gpt-4.1',
+  'gpt-4.1-mini',
+  'gpt-4.1-nano',
+  'o3',
+  'o4-mini',
+  'gpt-4o',
+  'gpt-4o-mini',
+];
+
+export function buildCodexDeviceCodeBody(clientId) {
+  return {
+    client_id: clientId,
+  };
+}
+
+export function buildCodexAuthorizationCodeExchangeBody({
+  code,
+  redirectUri,
+  clientId,
+  codeVerifier,
+}) {
+  return new URLSearchParams({
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: redirectUri,
+    client_id: clientId,
+    code_verifier: codeVerifier,
+  }).toString();
+}
+
+export function buildCodexApiKeyExchangeBody({ clientId, idToken }) {
+  return new URLSearchParams({
+    grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+    client_id: clientId,
+    requested_token: 'openai-api-key',
+    subject_token: idToken,
+    subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
+  }).toString();
+}
+
+export function buildPkceCodeChallenge(codeVerifier) {
+  return createHash('sha256').update(codeVerifier).digest('base64url');
+}
+
+export function buildCodexBrowserAuthorizeUrl({
+  clientId,
+  redirectUri,
+  codeChallenge,
+  state,
+  originator = OPENAI_CODEX_ORIGINATOR,
+  allowedWorkspaceId,
+  organizationId,
+  projectId,
+}) {
+  const url = new URL(OPENAI_CODEX_AUTHORIZE_ENDPOINT);
+  url.searchParams.set('response_type', 'code');
+  url.searchParams.set('client_id', clientId);
+  url.searchParams.set('redirect_uri', redirectUri);
+  url.searchParams.set('scope', OPENAI_CODEX_SCOPE);
+  url.searchParams.set('code_challenge', codeChallenge);
+  url.searchParams.set('code_challenge_method', 'S256');
+  url.searchParams.set('id_token_add_organizations', 'true');
+  url.searchParams.set('codex_cli_simplified_flow', 'true');
+  url.searchParams.set('state', state);
+  url.searchParams.set('originator', originator);
+  if (allowedWorkspaceId) {
+    url.searchParams.set('allowed_workspace_id', allowedWorkspaceId);
+  }
+  if (organizationId) {
+    url.searchParams.set('organization_id', organizationId);
+  }
+  if (projectId) {
+    url.searchParams.set('project_id', projectId);
+  }
+  return url.toString();
+}
+
+function parseJsonSafe(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function toInlineText(value) {
+  if (typeof value !== 'string') return '';
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+export function formatOpenAiOAuthError(prefix, status, payload, rawText = '') {
+  const nestedError = payload?.error && typeof payload.error === 'object' ? payload.error : null;
+  const code = toInlineText(
+    nestedError?.code ||
+    payload?.code ||
+    (typeof payload?.error === 'string' ? payload.error : '')
+  );
+  const description = toInlineText(
+    nestedError?.message ||
+    nestedError?.error_description ||
+    payload?.error_description ||
+    payload?.message ||
+    payload?.detail ||
+    payload?.error_summary ||
+    ''
+  );
+  const fallbackText = toInlineText(rawText);
+
+  const parts = [];
+  if (code) parts.push(code);
+  if (description) parts.push(description);
+  if (!code && !description && fallbackText) {
+    parts.push(fallbackText.slice(0, 220));
+  }
+
+  let message = `${prefix} (${status})`;
+  if (parts.length > 0) {
+    message += `: ${parts.join(' - ')}`;
+  }
+
+  if (prefix === 'OpenAI API key token-exchange failed' && status === 401) {
+    const missingOrg = code === 'invalid_subject_token' || description.includes('organization_id');
+    if (missingOrg) {
+      message += '. Retry with browser OAuth (--method browser). If OpenCode works but this step fails, it usually means OpenCode is using ChatGPT backend tokens while Moxxy requires API-key issuance linked to an API organization.';
+    } else if (!description) {
+      message += '. The OpenAI account may not be eligible for OAuth API-key issuance yet (API org/project or billing setup may be missing).';
+    }
+  }
+
+  return message;
+}
+
+function toBool(v) {
+  return v === true || v === 'true';
+}
+
+function parseJwtPayload(token) {
+  if (typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length < 2) return null;
+
+  const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+  const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+
+  try {
+    const json = Buffer.from(padded, 'base64').toString('utf8');
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+function extractOpenAiAuthClaims(idToken) {
+  const payload = parseJwtPayload(idToken);
+  const claims = payload?.['https://api.openai.com/auth'];
+  if (claims && typeof claims === 'object') {
+    return claims;
+  }
+  return null;
+}
+
+function extractCodexAccountIdFromClaims(claims) {
+  if (!claims || typeof claims !== 'object') return '';
+  const rootAccount = typeof claims.chatgpt_account_id === 'string' ? claims.chatgpt_account_id.trim() : '';
+  if (rootAccount) return rootAccount;
+
+  const apiAuth = claims['https://api.openai.com/auth'];
+  const apiAuthAccount = typeof apiAuth?.chatgpt_account_id === 'string' ? apiAuth.chatgpt_account_id.trim() : '';
+  if (apiAuthAccount) return apiAuthAccount;
+
+  const firstOrgId = typeof apiAuth?.organizations?.[0]?.id === 'string' ? apiAuth.organizations[0].id.trim() : '';
+  if (firstOrgId) return firstOrgId;
+
+  return '';
+}
+
+export function extractCodexAccountIdFromTokens(tokens) {
+  const fromIdToken = extractCodexAccountIdFromClaims(parseJwtPayload(tokens?.id_token));
+  if (fromIdToken) return fromIdToken;
+  return extractCodexAccountIdFromClaims(parseJwtPayload(tokens?.access_token));
+}
+
+function toPositiveInt(value, fallback = 0) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.trunc(n);
+}
+
+export function buildOpenAiCodexSessionSecret({
+  accessToken,
+  refreshToken,
+  expiresAtMs,
+  accountId,
+}) {
+  const out = {
+    mode: OPENAI_CODEX_OAUTH_SESSION_MODE,
+    issuer: OPENAI_CODEX_ISSUER,
+    client_id: OPENAI_CODEX_CLIENT_ID,
+    access_token: String(accessToken || '').trim(),
+    refresh_token: String(refreshToken || '').trim(),
+    expires_at: toPositiveInt(expiresAtMs, 0),
+  };
+  const account = String(accountId || '').trim();
+  if (account) {
+    out.account_id = account;
+  }
+  return JSON.stringify(out);
+}
+
+export function buildOpenAiCodexSessionModels(accountId = '') {
+  const account = String(accountId || '').trim();
+  return OPENAI_CODEX_MODEL_IDS.map(modelId => ({
+    model_id: modelId,
+    display_name: modelId,
+    metadata: {
+      api_base: OPENAI_CODEX_CHATGPT_API_BASE,
+      ...(account ? { chatgpt_account_id: account } : {}),
+    },
+  }));
+}
+
+function listOrganizationCandidates(apiAuthClaims) {
+  const orgs = Array.isArray(apiAuthClaims?.organizations) ? apiAuthClaims.organizations : [];
+  const out = [];
+  for (const org of orgs) {
+    const id = typeof org?.id === 'string' ? org.id.trim() : '';
+    if (!id) continue;
+    out.push({
+      id,
+      title: typeof org?.title === 'string' ? org.title.trim() : '',
+      is_default: org?.is_default === true,
+    });
+  }
+  return out;
+}
+
+function isMissingOrganizationIdError(err) {
+  const msg = String(err?.message || '');
+  return msg.includes('invalid_subject_token') && msg.includes('organization_id');
+}
+
+function toInt(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.trunc(n) : fallback;
+}
+
+function resolveOpenAiAuthMethod(flags) {
+  const raw = String(flags.method || flags.auth_method || '').trim().toLowerCase();
+  if (raw === 'browser' || raw === 'headless') {
+    return raw;
+  }
+  if (toBool(flags.browser)) {
+    return 'browser';
+  }
+  if (toBool(flags.headless)) {
+    return 'headless';
+  }
+  if (toBool(flags.no_browser) || toBool(flags.noBrowser)) {
+    return 'headless';
+  }
+  return null;
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function tryOpenUrl(url) {
+  let cmd;
+  let args;
+
+  if (process.platform === 'darwin') {
+    cmd = 'open';
+    args = [url];
+  } else if (process.platform === 'win32') {
+    cmd = 'cmd';
+    args = ['/c', 'start', '', url];
+  } else {
+    cmd = 'xdg-open';
+    args = [url];
+  }
+
+  try {
+    const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function createCodeVerifier() {
+  return randomBytes(48).toString('base64url');
+}
+
+function createStateToken() {
+  return randomBytes(24).toString('base64url');
+}
+
+function respondHtml(res, statusCode, bodyHtml) {
+  res.statusCode = statusCode;
+  res.setHeader('content-type', 'text/html; charset=utf-8');
+  res.end(bodyHtml);
+}
+
+function createAuthCallbackHtml(success, message) {
+  const title = success ? 'OpenAI authorization complete' : 'OpenAI authorization failed';
+  const escaped = String(message || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head><body><h1>${title}</h1><p>${escaped}</p><script>window.close()</script></body></html>`;
+}
+
+async function bindServer(server, port, host) {
+  return await new Promise((resolve, reject) => {
+    const onError = (err) => {
+      server.off('listening', onListening);
+      reject(err);
+    };
+    const onListening = () => {
+      server.off('error', onError);
+      resolve();
+    };
+    server.once('error', onError);
+    server.once('listening', onListening);
+    server.listen(port, host);
+  });
+}
+
+async function startBrowserOAuthCallbackServer({ expectedState, timeoutMs, preferredPort }) {
+  const host = '127.0.0.1';
+  let finish;
+  let fail;
+  let isDone = false;
+  let timeoutId;
+
+  const done = (fn, value) => {
+    if (isDone) return;
+    isDone = true;
+    if (timeoutId) clearTimeout(timeoutId);
+    fn(value);
+  };
+
+  const server = createServer((req, res) => {
+    const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    if (url.pathname !== OPENAI_CODEX_BROWSER_CALLBACK_PATH) {
+      res.statusCode = 404;
+      res.end('Not found');
+      return;
+    }
+
+    const returnedState = url.searchParams.get('state') || '';
+    const code = url.searchParams.get('code') || '';
+    const error = url.searchParams.get('error') || '';
+    const errorDescription = url.searchParams.get('error_description') || '';
+
+    if (returnedState !== expectedState) {
+      respondHtml(res, 400, createAuthCallbackHtml(false, 'Invalid OAuth state'));
+      done(fail, new Error('OpenAI browser OAuth callback rejected: state mismatch'));
+      return;
+    }
+
+    if (error) {
+      const msg = [error, errorDescription].filter(Boolean).join(' - ');
+      respondHtml(res, 400, createAuthCallbackHtml(false, msg || 'Authorization failed'));
+      done(fail, new Error(`OpenAI browser OAuth callback failed: ${msg || error}`));
+      return;
+    }
+
+    if (!code) {
+      respondHtml(res, 400, createAuthCallbackHtml(false, 'Missing authorization code'));
+      done(fail, new Error('OpenAI browser OAuth callback missing authorization code'));
+      return;
+    }
+
+    respondHtml(res, 200, createAuthCallbackHtml(true, 'You can return to Moxxy.'));
+    done(finish, { authorization_code: code });
+  });
+
+  try {
+    await bindServer(server, preferredPort, host);
+  } catch (err) {
+    if (err?.code !== 'EADDRINUSE') {
+      throw err;
+    }
+    await bindServer(server, 0, host);
+  }
+
+  const addr = server.address();
+  if (!addr || typeof addr === 'string') {
+    server.close();
+    throw new Error('Could not determine local OAuth callback port');
+  }
+
+  const resultPromise = new Promise((resolve, reject) => {
+    finish = resolve;
+    fail = reject;
+  });
+
+  timeoutId = setTimeout(() => {
+    done(fail, new Error('Timed out waiting for browser authorization callback'));
+  }, Math.max(15_000, timeoutMs));
+
+  const close = async () => {
+    await new Promise((resolve) => server.close(() => resolve()));
+  };
+
+  return {
+    redirectUri: `http://localhost:${addr.port}${OPENAI_CODEX_BROWSER_CALLBACK_PATH}`,
+    waitForAuthorizationCode: () => resultPromise,
+    close,
+  };
+}
+
+async function requestCodexDeviceCode() {
+  const resp = await fetch(OPENAI_CODEX_DEVICE_CODE_ENDPOINT, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(buildCodexDeviceCodeBody(OPENAI_CODEX_CLIENT_ID)),
+  });
+
+  const text = await resp.text();
+  const json = parseJsonSafe(text);
+  if (!resp.ok || !json?.device_auth_id || !json?.user_code) {
+    throw new Error(formatOpenAiOAuthError('OpenAI OAuth device-code request failed', resp.status, json, text));
+  }
+  return json;
+}
+
+async function pollCodexAuthorizationCode(deviceAuthId, userCode, intervalSeconds, expiresInSeconds) {
+  const deadline = Date.now() + (Math.max(30, expiresInSeconds) * 1000);
+  let pollIntervalMs = Math.max(1, intervalSeconds) * 1000;
+
+  while (Date.now() < deadline) {
+    await sleep(pollIntervalMs);
+
+    const resp = await fetch(OPENAI_CODEX_DEVICE_TOKEN_ENDPOINT, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        device_auth_id: deviceAuthId,
+        user_code: userCode,
+      }),
+    });
+
+    const text = await resp.text();
+    const json = parseJsonSafe(text) || {};
+    if (resp.ok && json.authorization_code && json.code_verifier) {
+      return json;
+    }
+
+    const code = json.error;
+    if (code === 'authorization_pending' || resp.status === 403 || resp.status === 404) {
+      continue;
+    }
+    if (code === 'slow_down') {
+      pollIntervalMs += 5000;
+      continue;
+    }
+    if (code === 'expired_token') {
+      throw new Error('OpenAI OAuth session expired before authorization was completed');
+    }
+    if (code === 'access_denied') {
+      throw new Error('OpenAI OAuth authorization was denied');
+    }
+
+    throw new Error(formatOpenAiOAuthError('OpenAI OAuth device token poll failed', resp.status, json, text));
+  }
+
+  throw new Error('Timed out waiting for OpenAI OAuth authorization');
+}
+
+async function exchangeCodexIdToken({
+  authorizationCode,
+  codeVerifier,
+  redirectUri = OPENAI_CODEX_DEVICE_CALLBACK_REDIRECT_URI,
+}) {
+  const resp = await fetch(OPENAI_CODEX_TOKEN_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+    },
+    body: buildCodexAuthorizationCodeExchangeBody({
+      code: authorizationCode,
+      redirectUri,
+      clientId: OPENAI_CODEX_CLIENT_ID,
+      codeVerifier,
+    }),
+  });
+
+  const text = await resp.text();
+  const json = parseJsonSafe(text);
+  if (!resp.ok || !json?.id_token) {
+    throw new Error(formatOpenAiOAuthError('OpenAI OAuth code exchange failed', resp.status, json, text));
+  }
+
+  return json;
+}
+
+async function exchangeCodexApiKey(idToken) {
+  const resp = await fetch(OPENAI_CODEX_TOKEN_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+    },
+    body: buildCodexApiKeyExchangeBody({
+      clientId: OPENAI_CODEX_CLIENT_ID,
+      idToken,
+    }),
+  });
+  const text = await resp.text();
+  const json = parseJsonSafe(text);
+  if (!resp.ok || !json?.access_token) {
+    throw new Error(formatOpenAiOAuthError('OpenAI API key token-exchange failed', resp.status, json, text));
+  }
+  return json.access_token;
+}
+
+export function parseOpenAiModels(payload) {
+  const rows = Array.isArray(payload?.data) ? payload.data : [];
+  const unique = new Set();
+  for (const row of rows) {
+    const id = typeof row?.id === 'string' ? row.id.trim() : '';
+    if (id) unique.add(id);
+  }
+
+  return Array.from(unique)
+    .sort((a, b) => a.localeCompare(b))
+    .map(id => ({
+      model_id: id,
+      display_name: id,
+      metadata: { api_base: OPENAI_API_BASE },
+    }));
+}
+
+async function fetchOpenAiModels(apiKey) {
+  const resp = await fetch(`${OPENAI_API_BASE}/models`, {
+    headers: { authorization: `Bearer ${apiKey}` },
+  });
+  const text = await resp.text();
+  const json = parseJsonSafe(text);
+  if (!resp.ok || !json) {
+    throw new Error(`Fetching OpenAI models failed (${resp.status})`);
+  }
+  const models = parseOpenAiModels(json);
+  if (models.length === 0) {
+    throw new Error('OpenAI model list is empty');
+  }
+  return models;
+}
+
+async function upsertProviderSecret(client, keyName, backendKey, value) {
+  const existing = await client.listSecrets();
+  for (const secret of existing || []) {
+    if (secret.key_name === keyName || secret.backend_key === backendKey) {
+      await client.deleteSecret(secret.id);
+    }
+  }
+
+  return client.createSecret({
+    key_name: keyName,
+    backend_key: backendKey,
+    policy_label: 'provider-api-key',
+    value,
+  });
+}
+
+async function finalizeOpenAiCodexProviderInstall(client, flags, secretValue, opts = {}) {
+  await withSpinner(
+    'Storing provider key in vault...',
+    () => upsertProviderSecret(client, OPENAI_CODEX_SECRET_KEY_NAME, OPENAI_CODEX_BACKEND_KEY, secretValue),
+    'Provider key stored in vault.'
+  );
+
+  const predefinedModels = Array.isArray(opts.models) ? opts.models : null;
+  const models = predefinedModels
+    ? predefinedModels
+    : await withSpinner(
+      'Syncing models from OpenAI...',
+      () => fetchOpenAiModels(secretValue),
+      'Model sync completed.'
+    );
+
+  if (!Array.isArray(models) || models.length === 0) {
+    throw new Error('OpenAI model list is empty');
+  }
+
+  const provider = await withSpinner(
+    'Installing OpenAI Codex provider...',
+    () => client.installProvider(OPENAI_CODEX_PROVIDER_ID, OPENAI_CODEX_DISPLAY_NAME, models),
+    'OpenAI Codex provider installed.'
+  );
+
+  const result = {
+    provider_id: OPENAI_CODEX_PROVIDER_ID,
+    provider: provider,
+    models_count: models.length,
+  };
+
+  if (toBool(flags.json)) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    showResult('Provider Connected', {
+      Provider: OPENAI_CODEX_DISPLAY_NAME,
+      ID: OPENAI_CODEX_PROVIDER_ID,
+      Models: models.length,
+      Secret: OPENAI_CODEX_SECRET_KEY_NAME,
+    });
+  }
+
+  return result;
+}
+
+async function finalizeOpenAiCodexLogin(client, flags, oauthTokens) {
+  const idToken = String(oauthTokens?.id_token || '').trim();
+  if (!idToken) {
+    throw new Error('OpenAI OAuth code exchange did not return id_token');
+  }
+
+  const apiKey = await withSpinner(
+    'Exchanging OAuth token for API key...',
+    () => exchangeCodexApiKey(idToken),
+    'Provider key ready.'
+  );
+
+  return finalizeOpenAiCodexProviderInstall(client, flags, apiKey);
+}
+
+async function maybeFinalizeWithCodexSession(client, flags, oauthTokens) {
+  const accessToken = String(oauthTokens?.access_token || '').trim();
+  const refreshToken = String(oauthTokens?.refresh_token || '').trim();
+  if (!accessToken || !refreshToken) {
+    return null;
+  }
+
+  const expiresInSec = toPositiveInt(oauthTokens?.expires_in, 3600);
+  const expiresAtMs = Date.now() + (Math.max(60, expiresInSec) * 1000);
+  const accountId = extractCodexAccountIdFromTokens(oauthTokens);
+  const secretValue = buildOpenAiCodexSessionSecret({
+    accessToken,
+    refreshToken,
+    expiresAtMs,
+    accountId,
+  });
+  const models = buildOpenAiCodexSessionModels(accountId);
+
+  p.log.warn('Falling back to ChatGPT OAuth session mode (OpenCode-compatible).');
+  return finalizeOpenAiCodexProviderInstall(client, flags, secretValue, { models });
+}
+
+async function loginOpenAiCodexHeadless(flags) {
+  const noBrowser = toBool(flags.no_browser) || toBool(flags.noBrowser);
+
+  const device = await withSpinner(
+    'Starting OpenAI OAuth flow...',
+    () => requestCodexDeviceCode(),
+    'OpenAI authorization started.'
+  );
+
+  const verifyUrl = OPENAI_CODEX_DEVICE_VERIFY_URL;
+  if (!noBrowser && verifyUrl) {
+    tryOpenUrl(verifyUrl);
+  }
+
+  p.note(
+    [
+      'Log in to OpenAI and approve access.',
+      verifyUrl ? `Open this URL: ${verifyUrl}` : '',
+      device.user_code ? `Verification code: ${device.user_code}` : '',
+    ].filter(Boolean).join('\n'),
+    'OpenAI OAuth'
+  );
+
+  const authorization = await withSpinner(
+    'Waiting for OpenAI authorization...',
+    () => pollCodexAuthorizationCode(
+      device.device_auth_id,
+      device.user_code,
+      toInt(device.interval, 5),
+      toInt(device.expires_in, 900)
+    ),
+    'OpenAI authorization completed.'
+  );
+
+  return await withSpinner(
+    'Finalizing OpenAI authorization...',
+    () => exchangeCodexIdToken({
+      authorizationCode: authorization.authorization_code,
+      codeVerifier: authorization.code_verifier,
+      redirectUri: OPENAI_CODEX_DEVICE_CALLBACK_REDIRECT_URI,
+    }),
+    'Authorization finalized.'
+  );
+}
+
+async function loginOpenAiCodexBrowser(flags) {
+  const timeoutMs = Math.max(30_000, toInt(flags.timeout_ms, toInt(flags.timeout_seconds, 180) * 1000));
+  const preferredPort = Math.max(1, toInt(flags.port, OPENAI_CODEX_BROWSER_CALLBACK_PORT));
+  const noBrowser = toBool(flags.no_browser) || toBool(flags.noBrowser);
+  const originator = String(flags.originator || OPENAI_CODEX_ORIGINATOR).trim() || OPENAI_CODEX_ORIGINATOR;
+  const allowedWorkspaceId = String(flags.allowed_workspace_id || flags.allowedWorkspaceId || '').trim() || '';
+  const organizationId = String(flags.organization_id || flags.organizationId || '').trim() || '';
+  const projectId = String(flags.project_id || flags.projectId || '').trim() || '';
+  const state = createStateToken();
+  const codeVerifier = createCodeVerifier();
+  const codeChallenge = buildPkceCodeChallenge(codeVerifier);
+  const callbackServer = await withSpinner(
+    'Preparing browser OAuth callback...',
+    () => startBrowserOAuthCallbackServer({ expectedState: state, timeoutMs, preferredPort }),
+    'Browser callback ready.'
+  );
+
+  let authorizationCode;
+  try {
+    const authorizeUrl = buildCodexBrowserAuthorizeUrl({
+      clientId: OPENAI_CODEX_CLIENT_ID,
+      redirectUri: callbackServer.redirectUri,
+      codeChallenge,
+      state,
+      originator,
+      allowedWorkspaceId: allowedWorkspaceId || undefined,
+      organizationId: organizationId || undefined,
+      projectId: projectId || undefined,
+    });
+
+    if (!noBrowser) {
+      tryOpenUrl(authorizeUrl);
+    }
+
+    p.note(
+      [
+        'Log in to OpenAI and approve access.',
+        `Open this URL: ${authorizeUrl}`,
+        `Callback URL: ${callbackServer.redirectUri}`,
+      ].join('\n'),
+      'OpenAI OAuth (Browser)'
+    );
+
+    const result = await withSpinner(
+      'Waiting for browser authorization...',
+      () => callbackServer.waitForAuthorizationCode(),
+      'OpenAI authorization completed.'
+    );
+    authorizationCode = result.authorization_code;
+  } finally {
+    await callbackServer.close();
+  }
+
+  return await withSpinner(
+    'Finalizing OpenAI authorization...',
+    () => exchangeCodexIdToken({
+      authorizationCode,
+      codeVerifier,
+      redirectUri: callbackServer.redirectUri,
+    }),
+    'Authorization finalized.'
+  );
+}
+
+async function maybeFinalizeWithManualApiKey(client, flags) {
+  const argApiKey = String(flags.api_key || flags['api-key'] || '').trim();
+  if (argApiKey) {
+    p.log.warn('Using manual OpenAI API key from CLI flag fallback.');
+    return await finalizeOpenAiCodexProviderInstall(client, flags, argApiKey);
+  }
+
+  if (!isInteractive()) {
+    return null;
+  }
+
+  const useManual = handleCancel(await p.confirm({
+    message: 'OAuth API key issuance failed. Provide OpenAI API key manually to finish provider setup?',
+    initialValue: false,
+  }));
+  if (!useManual) {
+    return null;
+  }
+
+  const manualApiKey = handleCancel(await p.password({
+    message: 'OpenAI API key',
+    validate: (v) => { if (!v.trim()) return 'Required'; },
+  }));
+
+  p.log.warn('Using manual OpenAI API key fallback.');
+  return await finalizeOpenAiCodexProviderInstall(client, flags, manualApiKey.trim());
+}
+
+async function loginOpenAiCodex(client, flags) {
+  let method = resolveOpenAiAuthMethod(flags);
+  if (!method && isInteractive()) {
+    method = handleCancel(await p.select({
+      message: 'Select OpenAI auth method',
+      options: [
+        { value: 'browser', label: 'ChatGPT Pro/Plus (browser)', hint: 'recommended: full OAuth link with callback' },
+        { value: 'headless', label: 'ChatGPT Pro/Plus (headless)', hint: 'device-code flow with verification code' },
+      ],
+    }));
+  }
+  if (!method) {
+    method = 'browser';
+  }
+
+  const oauthTokens = method === 'headless'
+    ? await loginOpenAiCodexHeadless(flags)
+    : await loginOpenAiCodexBrowser(flags);
+
+  try {
+    return await finalizeOpenAiCodexLogin(client, flags, oauthTokens);
+  } catch (err) {
+    if (!isMissingOrganizationIdError(err)) {
+      throw err;
+    }
+
+    let sessionTokens = oauthTokens;
+    const apiAuthClaims = extractOpenAiAuthClaims(oauthTokens?.id_token);
+    const organizations = listOrganizationCandidates(apiAuthClaims);
+    const alreadyScoped = Boolean(flags.allowed_workspace_id || flags.allowedWorkspaceId || flags.organization_id || flags.organizationId);
+
+    if (!alreadyScoped && organizations.length > 0) {
+      let selectedOrg = organizations.find(o => o.is_default)?.id || organizations[0].id;
+
+      if (isInteractive() && organizations.length > 1) {
+        const chosen = await p.select({
+          message: 'Select OpenAI organization for API key issuance',
+          options: organizations.map(org => ({
+            value: org.id,
+            label: org.title ? `${org.title} (${org.id})` : org.id,
+            hint: org.is_default ? 'default' : undefined,
+          })),
+        });
+        selectedOrg = handleCancel(chosen);
+      }
+
+      p.log.warn(`Retrying browser OAuth with selected organization: ${selectedOrg}`);
+      const retryOauthTokens = await loginOpenAiCodexBrowser({
+        ...flags,
+        method: 'browser',
+        allowed_workspace_id: selectedOrg,
+        organization_id: selectedOrg,
+      });
+      sessionTokens = retryOauthTokens;
+      try {
+        return await finalizeOpenAiCodexLogin(client, flags, retryOauthTokens);
+      } catch (retryErr) {
+        if (!isMissingOrganizationIdError(retryErr)) {
+          throw retryErr;
+        }
+      }
+    }
+
+    const sessionFallback = await maybeFinalizeWithCodexSession(client, flags, sessionTokens);
+    if (sessionFallback) {
+      return sessionFallback;
+    }
+
+    const platformUrl = 'https://platform.openai.com/';
+    p.note(
+      `OpenAI returned an ID token without organization_id. Complete API organization/project setup at ${platformUrl} and retry provider login.`,
+      'OpenAI Setup'
+    );
+
+    const manualFallback = await maybeFinalizeWithManualApiKey(client, flags);
+    if (manualFallback) {
+      return manualFallback;
+    }
+
+    throw err;
+  }
+}
 
 // ── Built-in Provider Catalog ────────────────────────────────────────────────
 
@@ -26,7 +927,24 @@ export const BUILTIN_PROVIDERS = [
     id: 'openai',
     display_name: 'OpenAI',
     api_key_env: 'OPENAI_API_KEY',
-    api_base: 'https://api.openai.com/v1',
+    api_base: OPENAI_API_BASE,
+    models: [
+      { model_id: 'gpt-5.2', display_name: 'GPT-5.2' },
+      { model_id: 'gpt-4.1', display_name: 'GPT-4.1' },
+      { model_id: 'gpt-4.1-mini', display_name: 'GPT-4.1 Mini' },
+      { model_id: 'gpt-4.1-nano', display_name: 'GPT-4.1 Nano' },
+      { model_id: 'o3', display_name: 'o3' },
+      { model_id: 'o4-mini', display_name: 'o4-mini' },
+      { model_id: 'gpt-4o', display_name: 'GPT-4o' },
+      { model_id: 'gpt-4o-mini', display_name: 'GPT-4o Mini' },
+    ],
+  },
+  {
+    id: OPENAI_CODEX_PROVIDER_ID,
+    display_name: OPENAI_CODEX_DISPLAY_NAME,
+    api_key_env: OPENAI_CODEX_SECRET_KEY_NAME,
+    api_base: OPENAI_API_BASE,
+    oauth_login: true,
     models: [
       { model_id: 'gpt-5.2', display_name: 'GPT-5.2' },
       { model_id: 'gpt-4.1', display_name: 'GPT-4.1' },
@@ -109,6 +1027,7 @@ export async function runProvider(client, args) {
       message: 'Provider action',
       options: [
         { value: 'install', label: 'Install provider', hint: 'add a built-in or custom provider' },
+        { value: 'login', label: 'Login provider', hint: 'OAuth/subscription login for supported providers' },
         { value: 'list',    label: 'List providers',    hint: 'show installed providers' },
       ],
     });
@@ -143,14 +1062,28 @@ export async function runProvider(client, args) {
       return await installNonInteractive(client, flags);
     }
 
+    case 'login': {
+      return await loginProvider(client, flags);
+    }
+
     default:
       if (!action) {
-        console.error('Usage: moxxy provider <install|list>');
+        console.error('Usage: moxxy provider <install|login|list>');
       } else {
         console.error(`Unknown provider action: ${action}`);
       }
       process.exitCode = 1;
   }
+}
+
+async function loginProvider(client, flags) {
+  const providerId = flags.id || flags.provider || OPENAI_CODEX_PROVIDER_ID;
+
+  if (providerId !== OPENAI_CODEX_PROVIDER_ID) {
+    throw new Error(`Provider login is currently supported only for ${OPENAI_CODEX_PROVIDER_ID}`);
+  }
+
+  return loginOpenAiCodex(client, flags);
 }
 
 // ── Interactive Install Wizard ───────────────────────────────────────────────
@@ -280,51 +1213,57 @@ async function installInteractive(client) {
     }
   }
 
-  // Step 2: API key check
-  const currentKey = process.env[apiKeyEnv];
-  if (currentKey) {
-    const masked = currentKey.slice(0, 8) + '...' + currentKey.slice(-4);
-    p.log.success(`API key found: ${apiKeyEnv} = ${masked}`);
+  const builtin = BUILTIN_PROVIDERS.find(bp => bp.id === providerId);
+
+  if (builtin?.oauth_login) {
+    p.log.info(`This provider uses OAuth login. Run: moxxy provider login --id ${providerId}`);
   } else {
-    p.log.warn(`API key not set: ${apiKeyEnv}`);
+    // Step 2: API key check
+    const currentKey = process.env[apiKeyEnv];
+    if (currentKey) {
+      const masked = currentKey.slice(0, 8) + '...' + currentKey.slice(-4);
+      p.log.success(`API key found: ${apiKeyEnv} = ${masked}`);
+    } else {
+      p.log.warn(`API key not set: ${apiKeyEnv}`);
 
-    const setKey = handleCancel(await p.confirm({
-      message: `Store API key via vault? (You can also set ${apiKeyEnv} in your shell)`,
-      initialValue: false,
-    }));
-
-    if (setKey) {
-      const apiKey = handleCancel(await p.password({
-        message: `Enter your ${displayName} API key`,
-        validate: (v) => { if (!v.trim()) return 'Required'; },
+      const setKey = handleCancel(await p.confirm({
+        message: `Store API key via vault? (You can also set ${apiKeyEnv} in your shell)`,
+        initialValue: false,
       }));
 
-      try {
-        await withSpinner('Storing API key in vault...', async () => {
-          await client.request('/v1/vault/secrets', 'POST', {
-            key_name: apiKeyEnv,
-            backend_key: `moxxy_provider_${providerId}`,
-            policy_label: 'provider-api-key',
-            value: apiKey,
-          });
-        }, 'API key reference stored.');
+      if (setKey) {
+        const apiKey = handleCancel(await p.password({
+          message: `Enter your ${displayName} API key`,
+          validate: (v) => { if (!v.trim()) return 'Required'; },
+        }));
 
-        p.note(
-          `export ${apiKeyEnv}="${apiKey}"`,
-          'Also add to your shell profile for direct access'
-        );
-      } catch (err) {
-        p.log.warn(`Could not store in vault: ${err.message}`);
+        try {
+          await withSpinner('Storing API key in vault...', async () => {
+            await client.request('/v1/vault/secrets', 'POST', {
+              key_name: apiKeyEnv,
+              backend_key: `moxxy_provider_${providerId}`,
+              policy_label: 'provider-api-key',
+              value: apiKey,
+            });
+          }, 'API key reference stored.');
+
+          p.note(
+            `export ${apiKeyEnv}="${apiKey}"`,
+            'Also add to your shell profile for direct access'
+          );
+        } catch (err) {
+          p.log.warn(`Could not store in vault: ${err.message}`);
+          p.note(
+            `export ${apiKeyEnv}="<your-key>"`,
+            'Set this in your shell profile'
+          );
+        }
+      } else {
         p.note(
           `export ${apiKeyEnv}="<your-key>"`,
           'Set this in your shell profile'
         );
       }
-    } else {
-      p.note(
-        `export ${apiKeyEnv}="<your-key>"`,
-        'Set this in your shell profile'
-      );
     }
   }
 
@@ -375,7 +1314,7 @@ async function installNonInteractive(client, flags) {
 
   // Custom provider
   if (!providerId) {
-    throw new Error('Required: --id (provider id). Built-in: openai, anthropic, xai, zai, zai-plan');
+    throw new Error('Required: --id (provider id). Built-in: openai, openai-codex, anthropic, xai, zai, zai-plan');
   }
 
   const displayName = flags.name || flags.display_name || providerId;
