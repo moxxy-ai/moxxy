@@ -212,6 +212,28 @@ impl RunService {
         registry.register(Box::new(moxxy_runtime::GitWorktreeListPrimitive::new()));
         registry.register(Box::new(moxxy_runtime::GitWorktreeRemovePrimitive::new()));
 
+        // Heartbeat management primitives (agents can self-schedule)
+        registry.register(Box::new(moxxy_runtime::HeartbeatCreatePrimitive::new(
+            self.db.clone(),
+            agent.id.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::HeartbeatListPrimitive::new(
+            self.db.clone(),
+            agent.id.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::HeartbeatDisablePrimitive::new(
+            self.db.clone(),
+            agent.id.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::HeartbeatDeletePrimitive::new(
+            self.db.clone(),
+            agent.id.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::HeartbeatUpdatePrimitive::new(
+            self.db.clone(),
+            agent.id.clone(),
+        )));
+
         let allowed_primitives: Vec<String> =
             registry.list().iter().map(|s| s.to_string()).collect();
 

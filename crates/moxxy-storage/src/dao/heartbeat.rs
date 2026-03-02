@@ -133,6 +133,18 @@ impl<'a> HeartbeatDao<'a> {
         Ok(())
     }
 
+    pub fn delete(&self, id: &str) -> Result<(), StorageError> {
+        let affected = self
+            .conn
+            .execute("DELETE FROM heartbeats WHERE id = ?1", params![id])
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        if affected == 0 {
+            return Err(StorageError::NotFound);
+        }
+        Ok(())
+    }
+
     pub fn disable(&self, id: &str) -> Result<(), StorageError> {
         let now = chrono::Utc::now().to_rfc3339();
         let affected = self

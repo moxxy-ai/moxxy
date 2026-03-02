@@ -66,7 +66,7 @@ pub async fn create_heartbeat(
                         Json(serde_json::json!({"error": "bad_request", "message": e.to_string()})),
                     )
                 })?;
-            (0, Some(expr.clone()), next_run)
+            (1, Some(expr.clone()), next_run)
         }
         _ => {
             return Err((

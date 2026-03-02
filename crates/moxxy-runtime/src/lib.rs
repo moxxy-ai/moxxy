@@ -17,10 +17,11 @@ pub use primitives::{
     CliNotifyPrimitive, FsListPrimitive, FsReadPrimitive, FsWritePrimitive, GitCheckoutPrimitive,
     GitClonePrimitive, GitCommitPrimitive, GitForkPrimitive, GitInitPrimitive,
     GitPrCreatePrimitive, GitPushPrimitive, GitStatusPrimitive, GitWorktreeAddPrimitive,
-    GitWorktreeListPrimitive, GitWorktreeRemovePrimitive, HttpRequestPrimitive,
-    MemoryAppendPrimitive, MemorySearchPrimitive, MemorySummarizePrimitive, ShellExecPrimitive,
-    SkillImportPrimitive, SkillValidatePrimitive, WebhookCreatePrimitive, WebhookListPrimitive,
-    WebhookNotifyPrimitive,
+    GitWorktreeListPrimitive, GitWorktreeRemovePrimitive, HeartbeatCreatePrimitive,
+    HeartbeatDeletePrimitive, HeartbeatDisablePrimitive, HeartbeatListPrimitive,
+    HeartbeatUpdatePrimitive, HttpRequestPrimitive, MemoryAppendPrimitive, MemorySearchPrimitive,
+    MemorySummarizePrimitive, ShellExecPrimitive, SkillImportPrimitive, SkillValidatePrimitive,
+    WebhookCreatePrimitive, WebhookListPrimitive, WebhookNotifyPrimitive,
 };
 pub use process::{AgentProcess, AgentProcessConfig};
 pub use provider::{Message, ModelConfig, Provider, ProviderResponse, ToolCall};

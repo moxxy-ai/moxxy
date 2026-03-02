@@ -40,3 +40,6 @@ governor = "0.10"
 tower = { workspace = true }
 http = { workspace = true }
 moxxy-test-utils = { path = "../moxxy-test-utils" }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+futures-util = { workspace = true }
+tokio = { workspace = true }

@@ -2,6 +2,7 @@ pub mod browse;
 pub mod channel_notify;
 pub mod fs;
 pub mod git;
+pub mod heartbeat;
 pub mod http;
 pub mod memory;
 pub mod notify;
@@ -16,6 +17,10 @@ pub use git::{
     GitCheckoutPrimitive, GitClonePrimitive, GitCommitPrimitive, GitForkPrimitive,
     GitInitPrimitive, GitPrCreatePrimitive, GitPushPrimitive, GitStatusPrimitive,
     GitWorktreeAddPrimitive, GitWorktreeListPrimitive, GitWorktreeRemovePrimitive,
+};
+pub use heartbeat::{
+    HeartbeatCreatePrimitive, HeartbeatDeletePrimitive, HeartbeatDisablePrimitive,
+    HeartbeatListPrimitive, HeartbeatUpdatePrimitive,
 };
 pub use http::HttpRequestPrimitive;
 pub use memory::{MemoryAppendPrimitive, MemorySearchPrimitive, MemorySummarizePrimitive};

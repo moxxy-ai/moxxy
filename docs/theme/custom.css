@@ -1,0 +1,15 @@
+:root {
+  --sidebar-width: 280px;
+}
+
+.content {
+  max-width: 900px;
+}
+
+code {
+  font-size: 0.9em;
+}
+
+table {
+  width: 100%;
+}

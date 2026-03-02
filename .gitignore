@@ -9,3 +9,4 @@ apps/moxxy-cli/node_modules/
 *.db-shm
 *.db-wal
 /dist
+docs/book/
