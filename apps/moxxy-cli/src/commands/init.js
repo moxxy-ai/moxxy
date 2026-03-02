@@ -23,10 +23,13 @@ export async function runInit(client, args) {
     client.baseUrl = apiUrl;
   }
 
-  // Step 2: Check gateway connectivity
+  // Step 2: Check gateway connectivity (use unauthenticated probe — any response means reachable)
+  let gatewayReachable = false;
   try {
     await withSpinner('Checking gateway connection...', async () => {
-      await client.request('/v1/providers', 'GET');
+      const resp = await fetch(`${client.baseUrl}/v1/providers`);
+      // Any HTTP response (even 401) means the gateway is running
+      if (resp) gatewayReachable = true;
     }, 'Gateway is reachable.');
   } catch {
     p.log.warn('Gateway is not reachable. Start it with: cargo run -p moxxy-gateway');
