@@ -10,6 +10,7 @@ import { runSkill } from './commands/skill.js';
 import { runHeartbeat } from './commands/heartbeat.js';
 import { runVault } from './commands/vault.js';
 import { runEvents } from './commands/events.js';
+import { runGateway } from './commands/gateway.js';
 
 const HELP = `
 moxxy - Agentic Framework CLI
@@ -17,6 +18,8 @@ moxxy - Agentic Framework CLI
 Usage:
   moxxy                                               Interactive menu
   moxxy init                                          First-time setup wizard
+  moxxy tui [--agent <id>]                            Full-screen chat interface
+  moxxy chat [--agent <id>]                           Alias for tui
   moxxy auth token create [--scopes <s>] [--ttl <n>] [--json]
   moxxy auth token list [--json]
   moxxy auth token revoke <id>
@@ -32,6 +35,11 @@ Usage:
   moxxy vault add --key <k> --backend <b>
   moxxy vault grant --agent <id> --secret <id>
   moxxy events tail [--agent <id>] [--run <id>] [--json]
+  moxxy gateway start                                Start the gateway
+  moxxy gateway stop                                 Stop the gateway
+  moxxy gateway restart                              Restart the gateway
+  moxxy gateway status                               Show gateway status
+  moxxy gateway logs                                 Tail gateway logs
 
 Environment:
   MOXXY_API_URL   API base URL (default: http://localhost:3000)
@@ -64,6 +72,15 @@ async function routeCommand(client, command, rest) {
     case 'events':
       await runEvents(client, rest);
       break;
+    case 'gateway':
+      await runGateway(client, rest);
+      break;
+    case 'tui':
+    case 'chat': {
+      const { startTui } = await import('./tui/index.js');
+      await startTui(client, rest);
+      break;
+    }
     default:
       console.error(`Unknown command: ${command}`);
       console.log(HELP);
@@ -89,6 +106,7 @@ async function main() {
     const selected = await p.select({
       message: 'What would you like to do?',
       options: [
+        { value: 'tui',      label: 'Chat',      hint: 'full-screen TUI' },
         { value: 'init',      label: 'Init',      hint: 'first-time setup' },
         { value: 'auth',      label: 'Auth',      hint: 'manage API tokens' },
         { value: 'agent',     label: 'Agent',     hint: 'create & manage agents' },
@@ -97,6 +115,7 @@ async function main() {
         { value: 'heartbeat', label: 'Heartbeat', hint: 'schedule heartbeat rules' },
         { value: 'vault',     label: 'Vault',     hint: 'manage secrets' },
         { value: 'events',    label: 'Events',    hint: 'stream live events' },
+        { value: 'gateway',   label: 'Gateway',   hint: 'start/stop/manage gateway' },
       ],
     });
     handleCancel(selected);
