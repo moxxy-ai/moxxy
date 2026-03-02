@@ -18,11 +18,14 @@ where
         state: &S,
     ) -> Result<Self, Self::Rejection> {
         let app_state = Arc::<AppState>::from_ref(state);
+        let path = parts.uri.path().to_string();
+
         let auth_header = parts
             .headers
             .get("authorization")
             .and_then(|v| v.to_str().ok())
             .ok_or_else(|| {
+                tracing::warn!(path = %path, "Auth failure: missing authorization header");
                 (
                     axum::http::StatusCode::UNAUTHORIZED,
                     axum::Json(serde_json::json!({
@@ -33,6 +36,7 @@ where
             })?;
 
         let token = auth_header.strip_prefix("Bearer ").ok_or_else(|| {
+            tracing::warn!(path = %path, "Auth failure: invalid authorization format");
             (
                 axum::http::StatusCode::UNAUTHORIZED,
                 axum::Json(serde_json::json!({
@@ -57,6 +61,7 @@ where
                 )
             })?
             .ok_or_else(|| {
+                tracing::warn!(path = %path, "Auth failure: invalid token");
                 (
                     axum::http::StatusCode::UNAUTHORIZED,
                     axum::Json(serde_json::json!({
@@ -67,6 +72,7 @@ where
             })?;
 
         if stored.status == "revoked" {
+            tracing::warn!(path = %path, token_id = %stored.id, "Auth failure: revoked token");
             return Err((
                 axum::http::StatusCode::UNAUTHORIZED,
                 axum::Json(serde_json::json!({
@@ -80,6 +86,7 @@ where
             && let Ok(expires) = exp.parse::<chrono::DateTime<chrono::Utc>>()
             && expires < chrono::Utc::now()
         {
+            tracing::warn!(path = %path, token_id = %stored.id, "Auth failure: expired token");
             return Err((
                 axum::http::StatusCode::UNAUTHORIZED,
                 axum::Json(serde_json::json!({

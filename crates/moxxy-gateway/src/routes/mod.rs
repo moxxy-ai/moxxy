@@ -1,6 +1,9 @@
 pub mod agents;
+pub mod audit;
 pub mod auth;
+pub mod channels;
 pub mod events;
+pub mod health;
 pub mod heartbeats;
 pub mod memory;
 pub mod providers;

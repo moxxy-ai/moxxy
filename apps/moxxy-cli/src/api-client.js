@@ -127,6 +127,34 @@ export class ApiClient {
       models,
     });
   }
+
+  async listChannels() {
+    return this.request('/v1/channels', 'GET');
+  }
+
+  async createChannel(channelType, displayName, botToken, config) {
+    return this.request('/v1/channels', 'POST', {
+      channel_type: channelType,
+      display_name: displayName,
+      bot_token: botToken,
+      config,
+    });
+  }
+
+  async pairChannel(channelId, code, agentId) {
+    return this.request(`/v1/channels/${encodeURIComponent(channelId)}/pair`, 'POST', {
+      code,
+      agent_id: agentId,
+    });
+  }
+
+  async deleteChannel(channelId) {
+    return this.request(`/v1/channels/${encodeURIComponent(channelId)}`, 'DELETE');
+  }
+
+  async listChannelBindings(channelId) {
+    return this.request(`/v1/channels/${encodeURIComponent(channelId)}/bindings`, 'GET');
+  }
 }
 
 export function createApiClient(baseUrl, token) {

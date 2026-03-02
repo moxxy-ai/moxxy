@@ -16,6 +16,10 @@ pub enum TokenScope {
     TokensAdmin,
     #[serde(rename = "events:read")]
     EventsRead,
+    #[serde(rename = "channels:read")]
+    ChannelsRead,
+    #[serde(rename = "channels:write")]
+    ChannelsWrite,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

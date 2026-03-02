@@ -59,7 +59,10 @@ pub async fn install_provider(
             provider_id: body.id.clone(),
             model_id: model.model_id.clone(),
             display_name: model.display_name.clone(),
-            metadata_json: model.metadata.as_ref().map(|m| serde_json::to_string(m).unwrap_or_default()),
+            metadata_json: model
+                .metadata
+                .as_ref()
+                .map(|m| serde_json::to_string(m).unwrap_or_default()),
         };
         db.providers().insert_model(&model_row).map_err(|e| {
             (

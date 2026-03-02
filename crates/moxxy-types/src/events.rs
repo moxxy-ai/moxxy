@@ -52,6 +52,12 @@ pub enum EventType {
     SecurityViolation,
     #[serde(rename = "sandbox.denied")]
     SandboxDenied,
+    #[serde(rename = "channel.message_received")]
+    ChannelMessageReceived,
+    #[serde(rename = "channel.message_sent")]
+    ChannelMessageSent,
+    #[serde(rename = "channel.error")]
+    ChannelError,
 }
 
 impl EventType {
@@ -82,6 +88,9 @@ impl EventType {
             EventType::SubagentCompleted,
             EventType::SecurityViolation,
             EventType::SandboxDenied,
+            EventType::ChannelMessageReceived,
+            EventType::ChannelMessageSent,
+            EventType::ChannelError,
         ]
     }
 }

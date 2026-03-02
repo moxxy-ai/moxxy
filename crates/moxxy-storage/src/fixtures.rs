@@ -106,6 +106,46 @@ pub fn fixture_vault_grant_row() -> VaultGrantRow {
     }
 }
 
+pub fn fixture_channel_row() -> ChannelRow {
+    ChannelRow {
+        id: uuid::Uuid::now_v7().to_string(),
+        channel_type: "telegram".into(),
+        display_name: "Test Telegram Bot".into(),
+        vault_secret_ref_id: "placeholder-secret".into(),
+        status: "pending".into(),
+        config_json: None,
+        created_at: chrono::Utc::now().to_rfc3339(),
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    }
+}
+
+pub fn fixture_channel_binding_row() -> ChannelBindingRow {
+    ChannelBindingRow {
+        id: uuid::Uuid::now_v7().to_string(),
+        channel_id: "placeholder-channel".into(),
+        agent_id: "placeholder-agent".into(),
+        external_chat_id: "123456789".into(),
+        status: "active".into(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    }
+}
+
+pub fn fixture_channel_pairing_code_row() -> ChannelPairingCodeRow {
+    ChannelPairingCodeRow {
+        id: uuid::Uuid::now_v7().to_string(),
+        channel_id: "placeholder-channel".into(),
+        external_chat_id: "123456789".into(),
+        code: format!(
+            "{:06}",
+            rand::Rng::gen_range(&mut rand::thread_rng(), 100000u32..999999)
+        ),
+        expires_at: (chrono::Utc::now() + chrono::Duration::minutes(5)).to_rfc3339(),
+        consumed: false,
+        created_at: chrono::Utc::now().to_rfc3339(),
+    }
+}
+
 pub fn fixture_event_audit_row() -> EventAuditRow {
     EventAuditRow {
         event_id: uuid::Uuid::now_v7().to_string(),
@@ -118,6 +158,37 @@ pub fn fixture_event_audit_row() -> EventAuditRow {
         payload_json: Some(r#"{}"#.into()),
         redactions_json: None,
         sensitive: false,
+        created_at: chrono::Utc::now().to_rfc3339(),
+    }
+}
+
+pub fn fixture_webhook_row() -> WebhookRow {
+    WebhookRow {
+        id: uuid::Uuid::now_v7().to_string(),
+        agent_id: "placeholder-agent".into(),
+        label: "test-webhook".into(),
+        url: "https://example.com/webhook".into(),
+        secret_ref_id: None,
+        event_filter: None,
+        enabled: true,
+        retry_count: 3,
+        timeout_seconds: 10,
+        created_at: chrono::Utc::now().to_rfc3339(),
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    }
+}
+
+pub fn fixture_webhook_delivery_row() -> WebhookDeliveryRow {
+    WebhookDeliveryRow {
+        id: uuid::Uuid::now_v7().to_string(),
+        webhook_id: "placeholder-webhook".into(),
+        event_id: None,
+        status: "pending".into(),
+        attempt: 0,
+        response_status: None,
+        response_body: None,
+        error: None,
+        delivered_at: None,
         created_at: chrono::Utc::now().to_rfc3339(),
     }
 }

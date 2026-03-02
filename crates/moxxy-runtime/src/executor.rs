@@ -3,6 +3,8 @@ use crate::registry::PrimitiveRegistry;
 use moxxy_core::EventBus;
 use moxxy_types::{EventEnvelope, EventType};
 use std::sync::Arc;
+use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 pub struct RunExecutor {
     event_bus: EventBus,
@@ -10,6 +12,8 @@ pub struct RunExecutor {
     registry: PrimitiveRegistry,
     max_iterations: usize,
     allowed_primitives: Vec<String>,
+    cancel_token: Option<CancellationToken>,
+    run_timeout: Option<Duration>,
 }
 
 impl RunExecutor {
@@ -25,6 +29,8 @@ impl RunExecutor {
             registry,
             max_iterations: 10,
             allowed_primitives,
+            cancel_token: None,
+            run_timeout: None,
         }
     }
 
@@ -33,7 +39,53 @@ impl RunExecutor {
         self
     }
 
+    pub fn with_cancel_token(mut self, token: CancellationToken) -> Self {
+        self.cancel_token = Some(token);
+        self
+    }
+
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.run_timeout = Some(timeout);
+        self
+    }
+
     pub async fn execute(
+        &self,
+        agent_id: &str,
+        run_id: &str,
+        task: &str,
+        model_config: &ModelConfig,
+    ) -> Result<String, String> {
+        match self.run_timeout {
+            Some(timeout) => {
+                match tokio::time::timeout(
+                    timeout,
+                    self.execute_inner(agent_id, run_id, task, model_config),
+                )
+                .await
+                {
+                    Ok(result) => result,
+                    Err(_) => {
+                        let mut seq = 0;
+                        self.emit(
+                            agent_id,
+                            run_id,
+                            &mut seq,
+                            EventType::RunFailed,
+                            serde_json::json!({"error": "timeout"}),
+                        );
+                        Err("Run timed out".to_string())
+                    }
+                }
+            }
+            None => {
+                self.execute_inner(agent_id, run_id, task, model_config)
+                    .await
+            }
+        }
+    }
+
+    async fn execute_inner(
         &self,
         agent_id: &str,
         run_id: &str,
@@ -58,6 +110,21 @@ impl RunExecutor {
         let mut final_content = String::new();
 
         for _iteration in 0..self.max_iterations {
+            // Check cancellation
+            if self
+                .cancel_token
+                .as_ref()
+                .is_some_and(|token| token.is_cancelled())
+            {
+                self.emit(
+                    agent_id,
+                    run_id,
+                    &mut sequence,
+                    EventType::RunFailed,
+                    serde_json::json!({"error": "cancelled"}),
+                );
+                return Err("Run cancelled".to_string());
+            }
             self.emit(
                 agent_id,
                 run_id,
@@ -66,7 +133,11 @@ impl RunExecutor {
                 serde_json::json!({"messages_count": conversation.len()}),
             );
 
-            let response = match self.provider.complete(conversation.clone(), model_config).await {
+            let response = match self
+                .provider
+                .complete(conversation.clone(), model_config)
+                .await
+            {
                 Ok(r) => r,
                 Err(e) => {
                     self.emit(

@@ -105,6 +105,40 @@ pub struct VaultGrantRow {
 }
 
 #[derive(Debug, Clone)]
+pub struct ChannelRow {
+    pub id: String,
+    pub channel_type: String,
+    pub display_name: String,
+    pub vault_secret_ref_id: String,
+    pub status: String,
+    pub config_json: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChannelBindingRow {
+    pub id: String,
+    pub channel_id: String,
+    pub agent_id: String,
+    pub external_chat_id: String,
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChannelPairingCodeRow {
+    pub id: String,
+    pub channel_id: String,
+    pub external_chat_id: String,
+    pub code: String,
+    pub expires_at: String,
+    pub consumed: bool,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct EventAuditRow {
     pub event_id: String,
     pub ts: i64,
@@ -116,5 +150,45 @@ pub struct EventAuditRow {
     pub payload_json: Option<String>,
     pub redactions_json: Option<String>,
     pub sensitive: bool,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct WebhookRow {
+    pub id: String,
+    pub agent_id: String,
+    pub label: String,
+    pub url: String,
+    pub secret_ref_id: Option<String>,
+    pub event_filter: Option<String>,
+    pub enabled: bool,
+    pub retry_count: i32,
+    pub timeout_seconds: i32,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct WebhookDeliveryRow {
+    pub id: String,
+    pub webhook_id: String,
+    pub event_id: Option<String>,
+    pub status: String,
+    pub attempt: i32,
+    pub response_status: Option<i32>,
+    pub response_body: Option<String>,
+    pub error: Option<String>,
+    pub delivered_at: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConversationLogRow {
+    pub id: String,
+    pub agent_id: String,
+    pub run_id: String,
+    pub sequence: i64,
+    pub role: String,
+    pub content: String,
     pub created_at: String,
 }

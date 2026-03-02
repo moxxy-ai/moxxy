@@ -1,5 +1,6 @@
 pub mod agents;
 pub mod auth;
+pub mod channels;
 pub mod errors;
 pub mod events;
 pub mod heartbeat;
@@ -9,6 +10,7 @@ pub mod vault;
 
 pub use agents::{AgentStatus, SpawnError};
 pub use auth::{TokenError, TokenScope, TokenStatus};
+pub use channels::{BindingStatus, ChannelError, ChannelStatus, ChannelType};
 pub use errors::{PathPolicyError, StorageError};
 pub use events::{EventEnvelope, EventType};
 pub use heartbeat::{HeartbeatActionType, HeartbeatError};
@@ -36,6 +38,8 @@ mod tests {
             TokenScope::VaultWrite,
             TokenScope::TokensAdmin,
             TokenScope::EventsRead,
+            TokenScope::ChannelsRead,
+            TokenScope::ChannelsWrite,
         ];
         for scope in scopes {
             let json = serde_json::to_string(&scope).unwrap();
@@ -45,9 +49,9 @@ mod tests {
     }
 
     #[test]
-    fn event_type_has_all_25_variants() {
+    fn event_type_has_all_28_variants() {
         let all = EventType::all_variants();
-        assert_eq!(all.len(), 25);
+        assert_eq!(all.len(), 28);
     }
 
     #[test]
@@ -99,6 +103,8 @@ mod proptests {
             Just(TokenScope::VaultWrite),
             Just(TokenScope::TokensAdmin),
             Just(TokenScope::EventsRead),
+            Just(TokenScope::ChannelsRead),
+            Just(TokenScope::ChannelsWrite),
         ]
     }
 
@@ -138,6 +144,9 @@ mod proptests {
             Just(EventType::SubagentCompleted),
             Just(EventType::SecurityViolation),
             Just(EventType::SandboxDenied),
+            Just(EventType::ChannelMessageReceived),
+            Just(EventType::ChannelMessageSent),
+            Just(EventType::ChannelError),
         ]
     }
 

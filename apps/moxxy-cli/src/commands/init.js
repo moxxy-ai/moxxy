@@ -95,5 +95,64 @@ export async function runInit(client, args) {
     }
   }
 
+  // Step 4: Channel setup (optional)
+  const setupChannel = await p.confirm({
+    message: 'Set up a messaging channel (Telegram/Discord)?',
+    initialValue: false,
+  });
+  handleCancel(setupChannel);
+
+  if (setupChannel) {
+    const channelType = await p.select({
+      message: 'Channel type',
+      options: [
+        { value: 'telegram', label: 'Telegram', hint: 'BotFather bot token required' },
+        { value: 'discord', label: 'Discord', hint: 'coming soon (scaffold)' },
+      ],
+    });
+    handleCancel(channelType);
+
+    if (channelType === 'telegram') {
+      p.note(
+        '1. Open Telegram and talk to @BotFather\n' +
+        '2. Send /newbot and follow the prompts\n' +
+        '3. Copy the bot token',
+        'Telegram Bot Setup'
+      );
+
+      const botToken = await p.password({
+        message: 'Paste your Telegram bot token',
+      });
+      handleCancel(botToken);
+
+      const displayName = await p.text({
+        message: 'Display name for this channel',
+        placeholder: 'My Moxxy Bot',
+      });
+      handleCancel(displayName);
+
+      try {
+        const result = await withSpinner('Registering Telegram channel...', () =>
+          client.request('/v1/channels', 'POST', {
+            channel_type: 'telegram',
+            display_name: displayName || 'Telegram Bot',
+            bot_token: botToken,
+          }), 'Channel registered.');
+
+        showResult('Telegram Channel', { ID: result.id, Status: result.status });
+        p.note(
+          '1. Open your Telegram bot and send /start\n' +
+          '2. Copy the 6-digit code\n' +
+          '3. Run: moxxy channel pair --code <code> --agent <agent-id>',
+          'Next: Pair your chat'
+        );
+      } catch (err) {
+        p.log.error(`Failed to register channel: ${err.message}`);
+      }
+    } else {
+      p.log.info('Discord channel support is coming soon.');
+    }
+  }
+
   p.outro('Setup complete. Run moxxy to see available commands.');
 }

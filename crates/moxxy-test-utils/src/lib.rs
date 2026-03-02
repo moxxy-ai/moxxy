@@ -26,11 +26,27 @@ impl TestDb {
 
     pub fn run_migrations(&self) {
         let sql = include_str!("../../../migrations/0001_init.sql");
-        self.conn.execute_batch(sql).expect("Migration failed");
+        self.conn.execute_batch(sql).expect("Migration 0001 failed");
+        let sql2 = include_str!("../../../migrations/0002_channels.sql");
+        self.conn
+            .execute_batch(sql2)
+            .expect("Migration 0002 failed");
+        let sql3 = include_str!("../../../migrations/0003_webhooks.sql");
+        self.conn
+            .execute_batch(sql3)
+            .expect("Migration 0003 failed");
+        let sql4 = include_str!("../../../migrations/0004_conversation_log.sql");
+        self.conn
+            .execute_batch(sql4)
+            .expect("Migration 0004 failed");
     }
 
     pub fn conn(&self) -> &Connection {
         &self.conn
+    }
+
+    pub fn into_conn(self) -> Connection {
+        self.conn
     }
 }
 
@@ -53,6 +69,10 @@ mod tests {
         let expected = vec![
             "agents",
             "api_tokens",
+            "channel_bindings",
+            "channel_pairing_codes",
+            "channels",
+            "conversation_log",
             "event_audit",
             "heartbeats",
             "memory_index",
@@ -62,6 +82,8 @@ mod tests {
             "skills",
             "vault_grants",
             "vault_secret_refs",
+            "webhook_deliveries",
+            "webhooks",
         ];
         for table in &expected {
             assert!(
@@ -84,7 +106,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert!(count >= 11);
+        assert!(count >= 17);
     }
 
     #[test]

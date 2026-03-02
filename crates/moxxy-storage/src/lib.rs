@@ -57,4 +57,28 @@ impl Database {
     pub fn events(&self) -> EventAuditDao<'_> {
         EventAuditDao { conn: &self.conn }
     }
+
+    pub fn channels(&self) -> ChannelDao<'_> {
+        ChannelDao { conn: &self.conn }
+    }
+
+    pub fn channel_bindings(&self) -> ChannelBindingDao<'_> {
+        ChannelBindingDao { conn: &self.conn }
+    }
+
+    pub fn channel_pairing(&self) -> ChannelPairingDao<'_> {
+        ChannelPairingDao { conn: &self.conn }
+    }
+
+    pub fn webhooks(&self) -> WebhookDao<'_> {
+        WebhookDao { conn: &self.conn }
+    }
+
+    pub fn webhook_deliveries(&self) -> WebhookDeliveryDao<'_> {
+        WebhookDeliveryDao { conn: &self.conn }
+    }
+
+    pub fn conversations(&self) -> ConversationDao<'_> {
+        ConversationDao { conn: &self.conn }
+    }
 }

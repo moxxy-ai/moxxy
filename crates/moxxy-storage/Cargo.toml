@@ -13,3 +13,4 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 moxxy-test-utils = { path = "../moxxy-test-utils" }
+rand = { workspace = true }

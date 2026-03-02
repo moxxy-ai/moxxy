@@ -8,6 +8,7 @@ members = [
     "crates/moxxy-vault",
     "crates/moxxy-gateway",
     "crates/moxxy-runtime",
+    "crates/moxxy-channel",
 ]
 
 [workspace.package]
@@ -34,6 +35,7 @@ uuid = { version = "1", features = ["v7", "serde"] }
 
 # Async
 tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 
 # Web
 axum = "0.8"
@@ -44,7 +46,7 @@ async-stream = "0.3"
 
 # Logging
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Storage
 rusqlite = { version = "0.32", features = ["bundled"] }

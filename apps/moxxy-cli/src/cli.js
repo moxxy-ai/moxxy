@@ -13,6 +13,7 @@ import { runEvents } from './commands/events.js';
 import { runGateway } from './commands/gateway.js';
 import { runDoctor } from './commands/doctor.js';
 import { runUninstall } from './commands/uninstall.js';
+import { runChannel } from './commands/channel.js';
 
 export const LOGO = `
   ███╗   ███╗ ██████╗ ██╗  ██╗██╗  ██╗██╗   ██╗
@@ -45,6 +46,12 @@ Usage:
   moxxy heartbeat list --agent <id>
   moxxy vault add --key <k> --backend <b>
   moxxy vault grant --agent <id> --secret <id>
+  moxxy channel create                              Create a channel (Telegram/Discord)
+  moxxy channel list                                List channels
+  moxxy channel pair --code <code> --agent <id>     Pair a chat to an agent
+  moxxy channel delete <id>                         Delete a channel
+  moxxy channel bindings <id>                       List bindings for a channel
+  moxxy channel unbind <channel-id> <binding-id>    Unbind a chat
   moxxy events tail [--agent <id>] [--run <id>] [--json]
   moxxy gateway start                                Start the gateway
   moxxy gateway stop                                 Stop the gateway
@@ -91,6 +98,9 @@ async function routeCommand(client, command, rest) {
     case 'doctor':
       await runDoctor(client, rest);
       break;
+    case 'channel':
+      await runChannel(client, rest);
+      break;
     case 'uninstall':
       await runUninstall(client, rest);
       break;
@@ -134,6 +144,7 @@ async function main() {
         { value: 'skill',     label: 'Skill',     hint: 'import & manage skills' },
         { value: 'heartbeat', label: 'Heartbeat', hint: 'schedule heartbeat rules' },
         { value: 'vault',     label: 'Vault',     hint: 'manage secrets' },
+        { value: 'channel',   label: 'Channel',   hint: 'manage Telegram/Discord channels' },
         { value: 'events',    label: 'Events',    hint: 'stream live events' },
         { value: 'gateway',   label: 'Gateway',   hint: 'start/stop/manage gateway' },
         { value: 'doctor',    label: 'Doctor',    hint: 'diagnose installation' },

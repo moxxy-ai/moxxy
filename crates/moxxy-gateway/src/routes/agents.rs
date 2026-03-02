@@ -32,9 +32,79 @@ fn default_max_total() -> i32 {
     8
 }
 
+type ValidationError = (StatusCode, Json<serde_json::Value>);
+
+impl AgentCreateRequest {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if self.workspace_root.is_empty()
+            || !std::path::Path::new(&self.workspace_root).is_absolute()
+        {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "validation",
+                    "message": "workspace_root must be an absolute path"
+                })),
+            ));
+        }
+        if !(0.0..=2.0).contains(&self.temperature) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "validation",
+                    "message": "temperature must be between 0.0 and 2.0"
+                })),
+            ));
+        }
+        if self.max_subagent_depth < 0 || self.max_subagent_depth > 10 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "validation",
+                    "message": "max_subagent_depth must be between 0 and 10"
+                })),
+            ));
+        }
+        if self.max_subagents_total < 0 || self.max_subagents_total > 100 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "validation",
+                    "message": "max_subagents_total must be between 0 and 100"
+                })),
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(serde::Deserialize)]
 pub struct RunStartRequest {
     pub task: String,
+}
+
+impl RunStartRequest {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if self.task.is_empty() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "validation",
+                    "message": "task must not be empty"
+                })),
+            ));
+        }
+        if self.task.len() > 100 * 1024 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "validation",
+                    "message": "task must not exceed 100KB"
+                })),
+            ));
+        }
+        Ok(())
+    }
 }
 
 pub async fn list_agents(
@@ -74,6 +144,7 @@ pub async fn create_agent(
     Json(body): Json<AgentCreateRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::AgentsWrite)?;
+    body.validate()?;
 
     let now = chrono::Utc::now().to_rfc3339();
     let id = uuid::Uuid::now_v7().to_string();
@@ -158,89 +229,26 @@ pub async fn start_run(
     Json(body): Json<RunStartRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::RunsWrite)?;
+    body.validate()?;
 
-    let agent = {
-        let db = state.db.lock().unwrap();
-        let agent = db
-            .agents()
-            .find_by_id(&id)
-            .map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": "internal", "message": "Database error"})),
-                )
-            })?
-            .ok_or_else(|| {
-                (
-                    StatusCode::NOT_FOUND,
-                    Json(serde_json::json!({"error": "not_found", "message": "Agent not found"})),
-                )
-            })?;
-
-        db.agents()
-            .update_status(&agent.id, "running")
-            .map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        serde_json::json!({"error": "internal", "message": "Failed to update status"}),
-                    ),
-                )
-            })?;
-        agent
-    };
-
-    let run_id = uuid::Uuid::now_v7().to_string();
-    let task = body.task.clone();
-
-    // Resolve provider (fall back to echo for unknown providers)
-    let provider = state
-        .get_provider(&agent.provider_id)
-        .unwrap_or_else(|| Arc::new(moxxy_runtime::EchoProvider::new()));
-
-    // Build primitive registry scoped to agent workspace
-    let policy = moxxy_core::PathPolicy::new(
-        std::path::PathBuf::from(&agent.workspace_root),
-        None,
-    );
-    let mut registry = moxxy_runtime::PrimitiveRegistry::new();
-    registry.register(Box::new(moxxy_runtime::FsReadPrimitive::new(policy.clone())));
-    registry.register(Box::new(moxxy_runtime::FsWritePrimitive::new(policy.clone())));
-    registry.register(Box::new(moxxy_runtime::FsListPrimitive::new(policy)));
-
-    let allowed_primitives: Vec<String> =
-        registry.list().iter().map(|s| s.to_string()).collect();
-
-    let event_bus = state.event_bus.clone();
-    let agent_id = agent.id.clone();
-    let run_id_clone = run_id.clone();
-    let db = state.db.clone();
-    let temperature = agent.temperature;
-
-    tokio::spawn(async move {
-        let executor = moxxy_runtime::RunExecutor::new(
-            event_bus,
-            provider,
-            registry,
-            allowed_primitives,
-        );
-        let model_config = moxxy_runtime::ModelConfig {
-            temperature,
-            max_tokens: 4096,
-        };
-
-        let result = executor
-            .execute(&agent_id, &run_id_clone, &task, &model_config)
-            .await;
-
-        if let Ok(db) = db.lock() {
-            let new_status = if result.is_ok() { "idle" } else { "error" };
-            let _ = db.agents().update_status(&agent_id, new_status);
-        }
-    });
+    let run_id = state
+        .run_service
+        .do_start_run(&id, &body.task)
+        .await
+        .map_err(|e| {
+            let status = if e.contains("not found") {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (
+                status,
+                Json(serde_json::json!({"error": "internal", "message": e})),
+            )
+        })?;
 
     Ok(Json(serde_json::json!({
-        "agent_id": agent.id,
+        "agent_id": id,
         "run_id": run_id,
         "task": body.task,
         "status": "running"
@@ -311,12 +319,38 @@ pub async fn spawn_subagent(
             )
         })?;
 
+    // Enforce lineage limits
+    let lineage = moxxy_core::AgentLineage {
+        root_agent_id: parent
+            .parent_agent_id
+            .clone()
+            .unwrap_or_else(|| parent.id.clone()),
+        current_depth: parent.depth as u32,
+        max_depth: parent.max_subagent_depth as u32,
+        spawned_total: parent.spawned_total as u32,
+        max_total: parent.max_subagents_total as u32,
+    };
+
+    if !lineage.can_spawn() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": "spawn_limit",
+                "message": format!(
+                    "Cannot spawn subagent: depth={}/{}, total={}/{}",
+                    lineage.current_depth, lineage.max_depth,
+                    lineage.spawned_total, lineage.max_total
+                )
+            })),
+        ));
+    }
+
     let now = chrono::Utc::now().to_rfc3339();
     let id = uuid::Uuid::now_v7().to_string();
 
     let row = AgentRow {
         id: id.clone(),
-        parent_agent_id: Some(parent_id),
+        parent_agent_id: Some(parent_id.clone()),
         provider_id: body.provider_id.clone(),
         model_id: body.model_id.clone(),
         workspace_root: body.workspace_root.clone(),
@@ -338,6 +372,18 @@ pub async fn spawn_subagent(
             Json(serde_json::json!({"error": "internal", "message": "Failed to create sub-agent"})),
         )
     })?;
+
+    // Increment parent's spawned_total
+    db.agents()
+        .increment_spawned_total(&parent_id)
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    serde_json::json!({"error": "internal", "message": "Failed to update parent"}),
+                ),
+            )
+        })?;
 
     Ok((
         StatusCode::CREATED,

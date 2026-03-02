@@ -42,10 +42,7 @@ impl Primitive for HttpRequestPrimitive {
         "http.request"
     }
 
-    async fn invoke(
-        &self,
-        params: serde_json::Value,
-    ) -> Result<serde_json::Value, PrimitiveError> {
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let url = params["url"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'url' parameter".into()))?;
@@ -96,16 +93,13 @@ impl Primitive for HttpRequestPrimitive {
             req = req.header("content-type", "application/json").body(b);
         }
 
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_timeout() {
-                    PrimitiveError::Timeout
-                } else {
-                    PrimitiveError::ExecutionFailed(format!("HTTP request failed: {}", e))
-                }
-            })?;
+        let resp = req.send().await.map_err(|e| {
+            if e.is_timeout() {
+                PrimitiveError::Timeout
+            } else {
+                PrimitiveError::ExecutionFailed(format!("HTTP request failed: {}", e))
+            }
+        })?;
 
         let status = resp.status().as_u16();
         let resp_headers: serde_json::Value = serde_json::json!(

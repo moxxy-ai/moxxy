@@ -445,6 +445,117 @@ paths:
               schema:
                 $ref: '#/components/schemas/EventEnvelope'
 
+  /v1/channels:
+    post:
+      summary: Create a channel
+      tags: [Channels]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel_type, display_name, bot_token]
+              properties:
+                channel_type:
+                  type: string
+                  enum: [telegram, discord]
+                display_name:
+                  type: string
+                bot_token:
+                  type: string
+                config:
+                  type: object
+      responses:
+        '201':
+          description: Channel created
+    get:
+      summary: List all channels
+      tags: [Channels]
+      responses:
+        '200':
+          description: List of channels
+
+  /v1/channels/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get channel details
+      tags: [Channels]
+      responses:
+        '200':
+          description: Channel details
+    delete:
+      summary: Delete a channel
+      tags: [Channels]
+      responses:
+        '200':
+          description: Channel deleted
+
+  /v1/channels/{id}/pair:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Pair a chat to an agent using a pairing code
+      tags: [Channels]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, agent_id]
+              properties:
+                code:
+                  type: string
+                  description: 6-digit pairing code from /start command
+                agent_id:
+                  type: string
+      responses:
+        '201':
+          description: Binding created
+
+  /v1/channels/{id}/bindings:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: List bindings for a channel
+      tags: [Channels]
+      responses:
+        '200':
+          description: List of bindings
+
+  /v1/channels/{id}/bindings/{bid}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: bid
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      summary: Unbind a chat from an agent
+      tags: [Channels]
+      responses:
+        '200':
+          description: Binding deleted
+
 tags:
   - name: Auth
   - name: Providers
@@ -453,3 +564,4 @@ tags:
   - name: Skills
   - name: Vault
   - name: Events
+  - name: Channels

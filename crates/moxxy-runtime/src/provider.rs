@@ -13,12 +13,13 @@ pub struct ModelConfig {
     pub max_tokens: u32,
 }
 
+#[derive(Debug)]
 pub struct ProviderResponse {
     pub content: String,
     pub tool_calls: Vec<ToolCall>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ToolCall {
     pub name: String,
     pub arguments: serde_json::Value,

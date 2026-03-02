@@ -141,7 +141,48 @@ export async function runDoctor(client, args) {
     error(`Node.js ${nodeVersion} is too old. Requires >= 22.0.0`);
   }
 
-  // ── 9. API Key Environment Variables ──
+  // ── 9. Git ──
+
+  try {
+    const gitVersion = execSync('git --version 2>/dev/null', { encoding: 'utf-8' }).trim();
+    ok(`Git: ${gitVersion}`);
+  } catch {
+    warning('Git not found. Required for git.* primitives.');
+  }
+
+  // ── 10. Chrome/Chromium ──
+
+  const chromePaths = [
+    process.env.CHROME_PATH,
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+  ].filter(Boolean);
+
+  let chromeFound = false;
+  for (const chromePath of chromePaths) {
+    if (existsSync(chromePath)) {
+      ok(`Chrome/Chromium: ${chromePath}`);
+      chromeFound = true;
+      break;
+    }
+  }
+  if (!chromeFound) {
+    try {
+      const which = execSync('which google-chrome chromium 2>/dev/null', { encoding: 'utf-8' }).trim();
+      if (which) {
+        ok(`Chrome/Chromium: ${which.split('\n')[0]}`);
+        chromeFound = true;
+      }
+    } catch { /* ignore */ }
+  }
+  if (!chromeFound) {
+    warning('Chrome/Chromium not found. Optional for browse.* primitives with JS rendering.');
+  }
+
+  // ── 11. API Key Environment Variables ──
 
   const apiKeys = [
     { env: 'ANTHROPIC_API_KEY', name: 'Anthropic' },

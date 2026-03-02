@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/rust-1.80%2B-orange?logo=rust" alt="Rust 1.80+">
   <img src="https://img.shields.io/badge/node-%3E%3D22-green?logo=node.js" alt="Node.js 22+">
   <img src="https://img.shields.io/badge/edition-2024-blue" alt="Rust Edition 2024">
-  <img src="https://img.shields.io/badge/tests-267%20passing-brightgreen" alt="267 tests passing">
+  <img src="https://img.shields.io/badge/tests-297%20passing-brightgreen" alt="297 tests passing">
   <img src="https://img.shields.io/badge/clippy-zero%20warnings-brightgreen" alt="Clippy clean">
   <img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue" alt="License">
 </p>
@@ -71,8 +71,8 @@ npm install && npm link
 
 ```bash
 moxxy doctor                     # Check everything is working
-cargo test --workspace           # 187 Rust tests
-cd apps/moxxy-cli && npm test    # 37 CLI tests
+cargo test --workspace           # 297 Rust tests
+cd apps/moxxy-cli && npm test    # 42 CLI tests
 ```
 
 ### Building release binaries
@@ -210,7 +210,7 @@ moxxy chat --agent <id>      # Specify agent directly
 | **moxxy-core** | Domain logic — auth, agents, events, heartbeat, skills, security, memory | moxxy-types, sha2, tokio |
 | **moxxy-vault** | Secret backend abstraction, grant-based access policy | moxxy-types, moxxy-storage, keyring |
 | **moxxy-gateway** | Axum REST API, auth middleware, SSE streaming | moxxy-types, moxxy-storage, moxxy-core, axum |
-| **moxxy-runtime** | Primitive system, agent process lifecycle, provider trait | moxxy-types, moxxy-core, tokio |
+| **moxxy-runtime** | 27 primitives (fs, browse, git, memory, shell, http, skill, webhook, notify), agent process, provider trait | moxxy-types, moxxy-core, moxxy-storage, moxxy-vault, tokio |
 
 ### Database Schema
 
@@ -424,6 +424,19 @@ All primitives are registered for every agent run. Skills declare which primitiv
 | `fs.list` | List directory entries (workspace-scoped) |
 | `shell.exec` | Execute allowed commands (`ls`, `cat`, `grep`, `find`, `echo`, `wc`) with 30s timeout, 1MB output cap |
 | `http.request` | HTTP GET/POST/PUT/PATCH/DELETE/HEAD to allowed domains, 30s timeout, 5MB response cap |
+| `browse.fetch` | Fetch web page with optional CSS selector extraction, domain allowlist, 30s timeout, 10MB cap |
+| `browse.extract` | Extract structured data from HTML using CSS selectors (pure parsing, no network) |
+| `git.init` | Initialize a new git repository in the workspace (optional default branch) |
+| `git.clone` | Clone a git repository into workspace (vault-aware token injection for private repos) |
+| `git.status` | Show porcelain status with modified/untracked/staged file lists |
+| `git.commit` | Stage files and commit with message (vault-aware user.name/email config) |
+| `git.push` | Push to remote with optional force flag (vault-aware token injection) |
+| `git.checkout` | Switch or create branches |
+| `git.pr_create` | Create a GitHub pull request via API (requires `github-token` vault grant) |
+| `git.fork` | Fork a GitHub repository via API (requires `github-token` vault grant) |
+| `git.worktree_add` | Create a git worktree for parallel feature work on a new branch |
+| `git.worktree_list` | List all worktrees in a repository (porcelain format) |
+| `git.worktree_remove` | Remove a git worktree (optional force) |
 | `memory.append` | Write timestamped markdown memory entry with tags |
 | `memory.search` | Search memory by content (case-insensitive substring) |
 | `memory.summarize` | Generate memory summary with entry counts |
@@ -491,7 +504,7 @@ Use `fs.list` to discover files, `fs.read` to examine them, and `memory.append` 
                  the skill's allowed_primitives list
 ```
 
-All imported skills start in **quarantine** regardless of content. This is a security measure — skills must be explicitly approved before they can be used. The `allowed_primitives` list acts as a **capability allowlist**: even if all 14 primitives are registered in the runtime, an agent can only invoke primitives declared in its skill.
+All imported skills start in **quarantine** regardless of content. This is a security measure — skills must be explicitly approved before they can be used. The `allowed_primitives` list acts as a **capability allowlist**: even if all 27 primitives are registered in the runtime, an agent can only invoke primitives declared in its skill.
 
 ### Agent-Created Webhooks via Skills
 
@@ -520,6 +533,8 @@ Example skills are provided in [`examples/skills/`](examples/skills/):
 | [`code-review.md`](examples/skills/code-review.md) | fs.read, fs.list, memory.append, shell.exec | Code review assistant with structured output |
 | [`web-scraper.md`](examples/skills/web-scraper.md) | http.request, fs.write, memory.append | Fetch and extract data from web pages |
 | [`webhook-notifier.md`](examples/skills/webhook-notifier.md) | webhook.create, webhook.list, notify.webhook, notify.cli, memory.append | Create webhooks and send notifications |
+| [`web-researcher.md`](examples/skills/web-researcher.md) | browse.fetch, browse.extract, memory.append | Fetch pages, extract content with CSS selectors, save to memory |
+| [`git-workflow.md`](examples/skills/git-workflow.md) | git.init, git.clone, git.status, git.checkout, git.commit, git.push, git.pr_create, git.worktree_*, fs.read, fs.write | Clone repo, branch, edit, commit, push, open PR, parallel worktrees |
 
 ### Creating a Custom Skill
 
@@ -581,6 +596,8 @@ moxxy/
 ├── examples/
 │   └── skills/                   # Example skill definitions
 │       ├── code-review.md
+│       ├── git-workflow.md
+│       ├── web-researcher.md
 │       ├── web-scraper.md
 │       └── webhook-notifier.md
 ├── crates/
@@ -591,7 +608,7 @@ moxxy/
 │   ├── moxxy-vault/              # Secret management (keychain backend)
 │   ├── moxxy-channel/            # Messaging channels (Telegram, Discord)
 │   ├── moxxy-gateway/            # REST + SSE server with audit logging
-│   └── moxxy-runtime/            # 14 primitives, providers, agent process
+│   └── moxxy-runtime/            # 27 primitives, providers, agent process
 └── apps/
     └── moxxy-cli/                # Node.js CLI
         ├── src/
@@ -619,7 +636,7 @@ moxxy/
 The project was built with strict TDD (Red -> Green -> Refactor). Every module has tests written before implementation.
 
 ```bash
-# Run all Rust tests (267 tests)
+# Run all Rust tests (297 tests)
 cargo test --workspace
 
 # Run CLI tests
@@ -647,8 +664,8 @@ cargo test -p moxxy-core -- auth::token::tests::issued_token_has_mox_prefix
 | moxxy-vault | 10 |
 | moxxy-channel | 12 |
 | moxxy-gateway | 43 |
-| moxxy-runtime | 54 |
-| **Rust Total** | **267** |
+| moxxy-runtime | 84 |
+| **Rust Total** | **297** |
 
 ## Contributing
 
@@ -709,7 +726,7 @@ cd apps/moxxy-cli && npm test             # CLI tests pass
 - [x] `~/.moxxy` data directory with agent workspaces
 - [x] Doctor and uninstall commands
 - [x] Cross-platform release build script
-- [x] All 14 primitives registered and wired (fs, memory, shell, http, skill, webhook, notify)
+- [x] All 27 primitives registered and wired (fs, browse, git, memory, shell, http, skill, webhook, notify, channel)
 - [x] Event persistence with RedactionEngine (EventAuditDao)
 - [x] AgentLineage enforcement (depth + total limits on subagent spawning)
 - [x] CORS, request body limits, input validation

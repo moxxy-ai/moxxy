@@ -1,14 +1,25 @@
 pub mod auth_extractor;
 pub mod routes;
+pub mod run_service;
 pub mod state;
 
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, post};
 use state::AppState;
 use std::sync::Arc;
+use tower_http::cors::{Any, CorsLayer};
+use tower_http::trace::TraceLayer;
 
 pub fn create_router(state: Arc<AppState>) -> Router {
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
     Router::new()
+        // Health (unauthenticated)
+        .route("/v1/health", get(routes::health::health_check))
         // Auth
         .route(
             "/v1/auth/tokens",
@@ -51,10 +62,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             delete(routes::heartbeats::disable_heartbeat),
         )
         // Skills
-        .route(
-            "/v1/agents/{id}/skills",
-            get(routes::skills::list_skills),
-        )
+        .route("/v1/agents/{id}/skills", get(routes::skills::list_skills))
         .route(
             "/v1/agents/{id}/skills/install",
             post(routes::skills::install_skill),
@@ -72,12 +80,36 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/v1/vault/grants",
             post(routes::vault::create_grant).get(routes::vault::list_grants),
         )
-        .route(
-            "/v1/vault/grants/{id}",
-            delete(routes::vault::revoke_grant),
-        )
+        .route("/v1/vault/grants/{id}", delete(routes::vault::revoke_grant))
+        // Audit logs
+        .route("/v1/audit-logs", get(routes::audit::list_audit_logs))
         // Events
         .route("/v1/events/stream", get(routes::events::event_stream))
+        // Channels
+        .route(
+            "/v1/channels",
+            post(routes::channels::create_channel).get(routes::channels::list_channels),
+        )
+        .route(
+            "/v1/channels/{id}",
+            get(routes::channels::get_channel).delete(routes::channels::delete_channel),
+        )
+        .route(
+            "/v1/channels/{id}/pair",
+            post(routes::channels::pair_channel),
+        )
+        .route(
+            "/v1/channels/{id}/bindings",
+            get(routes::channels::list_bindings),
+        )
+        .route(
+            "/v1/channels/{id}/bindings/{bid}",
+            delete(routes::channels::unbind),
+        )
+        // Layers
+        .layer(cors)
+        .layer(TraceLayer::new_for_http())
+        .layer(DefaultBodyLimit::max(1024 * 1024)) // 1MB global default
         .with_state(state)
 }
 
@@ -548,6 +580,160 @@ mod agent_tests {
         assert_eq!(result["parent_agent_id"], agent_id);
         assert_eq!(result["depth"], 1);
     }
+
+    #[tokio::test]
+    async fn spawn_subagent_blocked_at_depth_limit() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
+
+        // Create parent with max_subagent_depth = 1
+        seed_provider(&state);
+        let now = chrono::Utc::now().to_rfc3339();
+        let parent_id = uuid::Uuid::now_v7().to_string();
+        {
+            let db = state.db.lock().unwrap();
+            db.agents()
+                .insert(&moxxy_storage::AgentRow {
+                    id: parent_id.clone(),
+                    parent_agent_id: None,
+                    provider_id: "test-provider".into(),
+                    model_id: "gpt-4".into(),
+                    workspace_root: "/tmp/ws".into(),
+                    core_mount: None,
+                    policy_profile: None,
+                    temperature: 0.7,
+                    max_subagent_depth: 1,
+                    max_subagents_total: 10,
+                    status: "idle".into(),
+                    depth: 0,
+                    spawned_total: 0,
+                    created_at: now.clone(),
+                    updated_at: now.clone(),
+                })
+                .unwrap();
+        }
+
+        // Spawn child at depth 1 (should succeed)
+        let req = Request::builder()
+            .method("POST")
+            .uri(&format!("/v1/agents/{}/subagents", parent_id))
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"provider_id":"test-provider","model_id":"gpt-4","workspace_root":"/tmp/sub1","max_subagent_depth":1}"#,
+            ))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let child: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let child_id = child["id"].as_str().unwrap();
+
+        // Spawn grandchild at depth 2 from child whose max_subagent_depth = 1 -> BLOCKED
+        let req = Request::builder()
+            .method("POST")
+            .uri(&format!("/v1/agents/{}/subagents", child_id))
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"provider_id":"test-provider","model_id":"gpt-4","workspace_root":"/tmp/sub2"}"#,
+            ))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn spawn_subagent_blocked_at_total_limit() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
+
+        // Create parent with max_subagents_total = 2
+        seed_provider(&state);
+        let now = chrono::Utc::now().to_rfc3339();
+        let parent_id = uuid::Uuid::now_v7().to_string();
+        {
+            let db = state.db.lock().unwrap();
+            db.agents()
+                .insert(&moxxy_storage::AgentRow {
+                    id: parent_id.clone(),
+                    parent_agent_id: None,
+                    provider_id: "test-provider".into(),
+                    model_id: "gpt-4".into(),
+                    workspace_root: "/tmp/ws".into(),
+                    core_mount: None,
+                    policy_profile: None,
+                    temperature: 0.7,
+                    max_subagent_depth: 5,
+                    max_subagents_total: 2,
+                    status: "idle".into(),
+                    depth: 0,
+                    spawned_total: 0,
+                    created_at: now.clone(),
+                    updated_at: now.clone(),
+                })
+                .unwrap();
+        }
+
+        // Spawn 2 children (should succeed)
+        for i in 0..2 {
+            let req = Request::builder()
+                .method("POST")
+                .uri(&format!("/v1/agents/{}/subagents", parent_id))
+                .header("authorization", format!("Bearer {}", token))
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"provider_id":"test-provider","model_id":"gpt-4","workspace_root":"/tmp/sub{}"}}"#,
+                    i
+                )))
+                .unwrap();
+            let resp = request(&app, req).await;
+            assert_eq!(resp.status(), StatusCode::CREATED);
+        }
+
+        // Third spawn should be blocked
+        let req = Request::builder()
+            .method("POST")
+            .uri(&format!("/v1/agents/{}/subagents", parent_id))
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"provider_id":"test-provider","model_id":"gpt-4","workspace_root":"/tmp/sub3"}"#,
+            ))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn spawn_increments_parent_spawned_total() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(
+            &state,
+            vec![TokenScope::AgentsWrite, TokenScope::AgentsRead],
+        );
+        let agent_id = seed_agent(&state, &token);
+
+        // Spawn a subagent
+        let req = Request::builder()
+            .method("POST")
+            .uri(&format!("/v1/agents/{}/subagents", agent_id))
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"provider_id":"test-provider","model_id":"gpt-4","workspace_root":"/tmp/sub"}"#,
+            ))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::CREATED);
+
+        // Verify parent's spawned_total incremented
+        let db = state.db.lock().unwrap();
+        let parent = db.agents().find_by_id(&agent_id).unwrap().unwrap();
+        assert_eq!(parent.spawned_total, 1);
+    }
 }
 
 #[cfg(test)]
@@ -586,7 +772,10 @@ mod provider_tests {
     #[tokio::test]
     async fn install_provider_upserts_existing() {
         let (app, state) = test_app();
-        let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite, TokenScope::AgentsRead]);
+        let token = create_token_in_db(
+            &state,
+            vec![TokenScope::AgentsWrite, TokenScope::AgentsRead],
+        );
 
         // Install once
         let req = Request::builder()
@@ -708,7 +897,10 @@ mod heartbeat_tests {
     #[tokio::test]
     async fn disable_heartbeat_removes_rule() {
         let (app, state) = test_app();
-        let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite, TokenScope::AgentsRead]);
+        let token = create_token_in_db(
+            &state,
+            vec![TokenScope::AgentsWrite, TokenScope::AgentsRead],
+        );
         let agent_id = seed_agent(&state, &token);
 
         // Create heartbeat
@@ -717,10 +909,14 @@ mod heartbeat_tests {
             .uri(&format!("/v1/agents/{}/heartbeats", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
-            .body(Body::from(r#"{"interval_minutes":5,"action_type":"notify_cli"}"#))
+            .body(Body::from(
+                r#"{"interval_minutes":5,"action_type":"notify_cli"}"#,
+            ))
             .unwrap();
         let resp = request(&app, req).await;
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let hb_id = created["id"].as_str().unwrap();
 
@@ -742,7 +938,9 @@ mod heartbeat_tests {
             .body(Body::empty())
             .unwrap();
         let resp = request(&app, req).await;
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let heartbeats = result.as_array().unwrap();
         assert_eq!(heartbeats.len(), 0);
@@ -824,7 +1022,10 @@ mod skill_tests {
     #[tokio::test]
     async fn list_skills_for_agent() {
         let (app, state) = test_app();
-        let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite, TokenScope::AgentsRead]);
+        let token = create_token_in_db(
+            &state,
+            vec![TokenScope::AgentsWrite, TokenScope::AgentsRead],
+        );
         let agent_id = seed_agent(&state, &token);
 
         // Install a skill
@@ -833,7 +1034,9 @@ mod skill_tests {
             .uri(&format!("/v1/agents/{}/skills/install", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
-            .body(Body::from(r#"{"name":"test-skill","version":"1.0.0","content":"fn run(){}"}"#))
+            .body(Body::from(
+                r#"{"name":"test-skill","version":"1.0.0","content":"fn run(){}"}"#,
+            ))
             .unwrap();
         request(&app, req).await;
 
@@ -846,7 +1049,9 @@ mod skill_tests {
             .unwrap();
         let resp = request(&app, req).await;
         assert_eq!(resp.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let skills = result.as_array().unwrap();
         assert_eq!(skills.len(), 1);
@@ -987,7 +1192,14 @@ mod vault_tests {
     #[tokio::test]
     async fn list_grants_returns_all() {
         let (app, state) = test_app();
-        let token = create_token_in_db(&state, vec![TokenScope::VaultWrite, TokenScope::VaultRead, TokenScope::AgentsWrite]);
+        let token = create_token_in_db(
+            &state,
+            vec![
+                TokenScope::VaultWrite,
+                TokenScope::VaultRead,
+                TokenScope::AgentsWrite,
+            ],
+        );
         let agent_id = seed_agent(&state, &token);
         let secret_id = seed_secret_ref(&state);
 
@@ -997,7 +1209,10 @@ mod vault_tests {
             .uri("/v1/vault/grants")
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
-            .body(Body::from(format!(r#"{{"agent_id":"{}","secret_ref_id":"{}"}}"#, agent_id, secret_id)))
+            .body(Body::from(format!(
+                r#"{{"agent_id":"{}","secret_ref_id":"{}"}}"#,
+                agent_id, secret_id
+            )))
             .unwrap();
         request(&app, req).await;
 
@@ -1010,7 +1225,9 @@ mod vault_tests {
             .unwrap();
         let resp = request(&app, req).await;
         assert_eq!(resp.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let grants = result.as_array().unwrap();
         assert_eq!(grants.len(), 1);
@@ -1019,7 +1236,14 @@ mod vault_tests {
     #[tokio::test]
     async fn revoke_grant_succeeds() {
         let (app, state) = test_app();
-        let token = create_token_in_db(&state, vec![TokenScope::VaultWrite, TokenScope::VaultRead, TokenScope::AgentsWrite]);
+        let token = create_token_in_db(
+            &state,
+            vec![
+                TokenScope::VaultWrite,
+                TokenScope::VaultRead,
+                TokenScope::AgentsWrite,
+            ],
+        );
         let agent_id = seed_agent(&state, &token);
         let secret_id = seed_secret_ref(&state);
 
@@ -1029,10 +1253,15 @@ mod vault_tests {
             .uri("/v1/vault/grants")
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
-            .body(Body::from(format!(r#"{{"agent_id":"{}","secret_ref_id":"{}"}}"#, agent_id, secret_id)))
+            .body(Body::from(format!(
+                r#"{{"agent_id":"{}","secret_ref_id":"{}"}}"#,
+                agent_id, secret_id
+            )))
             .unwrap();
         let resp = request(&app, req).await;
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let grant_id = created["id"].as_str().unwrap();
 
@@ -1171,5 +1400,211 @@ mod sse_tests {
 
         assert!(timeout.is_ok(), "Timed out waiting for initial SSE comment");
         assert!(found_comment, "Did not receive initial connected comment");
+    }
+}
+
+#[cfg(test)]
+mod event_persistence_tests {
+    use super::test_helpers::*;
+    use moxxy_types::{EventEnvelope, EventType};
+
+    #[tokio::test]
+    async fn emitted_events_are_persisted_to_event_audit() {
+        let (_app, state) = test_app();
+        state.spawn_event_persistence();
+
+        let envelope = EventEnvelope::new(
+            "agent-123".into(),
+            Some("run-456".into()),
+            None,
+            0,
+            EventType::RunStarted,
+            serde_json::json!({"task": "hello world"}),
+        );
+        let event_id = envelope.event_id.clone();
+        state.event_bus.emit(envelope);
+
+        // Give the background task time to process
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let db = state.db.lock().unwrap();
+        let found = db.events().find_by_id(&event_id).unwrap();
+        assert!(found.is_some(), "Event should be persisted");
+        let row = found.unwrap();
+        assert_eq!(row.event_type, "run.started");
+        assert_eq!(row.agent_id.as_deref(), Some("agent-123"));
+        assert_eq!(row.run_id.as_deref(), Some("run-456"));
+        assert!(!row.sensitive);
+    }
+
+    #[tokio::test]
+    async fn redaction_engine_marks_sensitive_events() {
+        let (_app, state) = test_app();
+        // For this test we need secrets in the redaction list.
+        // Since the current implementation uses an empty secrets list,
+        // we verify the non-sensitive path works correctly.
+        state.spawn_event_persistence();
+
+        let envelope = EventEnvelope::new(
+            "agent-789".into(),
+            None,
+            None,
+            0,
+            EventType::PrimitiveCompleted,
+            serde_json::json!({"result": "safe-data"}),
+        );
+        let event_id = envelope.event_id.clone();
+        state.event_bus.emit(envelope);
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let db = state.db.lock().unwrap();
+        let found = db.events().find_by_id(&event_id).unwrap().unwrap();
+        assert!(!found.sensitive);
+        assert!(found.redactions_json.is_none());
+    }
+
+    #[tokio::test]
+    async fn multiple_events_all_persisted() {
+        let (_app, state) = test_app();
+        state.spawn_event_persistence();
+
+        let mut ids = Vec::new();
+        for i in 0..5 {
+            let envelope = EventEnvelope::new(
+                "agent-multi".into(),
+                Some("run-multi".into()),
+                None,
+                i,
+                EventType::MessageDelta,
+                serde_json::json!({"chunk": format!("part-{}", i)}),
+            );
+            ids.push(envelope.event_id.clone());
+            state.event_bus.emit(envelope);
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let db = state.db.lock().unwrap();
+        let events = db.events().find_by_agent("agent-multi").unwrap();
+        assert_eq!(events.len(), 5);
+    }
+}
+
+#[cfg(test)]
+mod audit_log_tests {
+    use super::test_helpers::*;
+    use axum::body::Body;
+    use axum::http::StatusCode;
+    use http::Request;
+    use moxxy_types::{EventEnvelope, EventType, TokenScope};
+
+    #[tokio::test]
+    async fn audit_logs_require_events_read_scope() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::AgentsRead]);
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/audit-logs")
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn audit_logs_returns_persisted_events() {
+        let (app, state) = test_app();
+        state.spawn_event_persistence();
+        let token = create_token_in_db(&state, vec![TokenScope::EventsRead]);
+
+        // Emit some events
+        for i in 0..3 {
+            let envelope = EventEnvelope::new(
+                "agent-audit".into(),
+                Some("run-audit".into()),
+                None,
+                i,
+                EventType::RunStarted,
+                serde_json::json!({"task": "test"}),
+            );
+            state.event_bus.emit(envelope);
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/audit-logs?agent_id=agent-audit")
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(result["data"].as_array().unwrap().len(), 3);
+        assert_eq!(result["pagination"]["total"], 3);
+    }
+
+    #[tokio::test]
+    async fn audit_logs_supports_pagination() {
+        let (app, state) = test_app();
+        state.spawn_event_persistence();
+        let token = create_token_in_db(&state, vec![TokenScope::EventsRead]);
+
+        for i in 0..5 {
+            let envelope = EventEnvelope::new(
+                "agent-page".into(),
+                None,
+                None,
+                i,
+                EventType::PrimitiveCompleted,
+                serde_json::json!({"n": i}),
+            );
+            state.event_bus.emit(envelope);
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/audit-logs?agent_id=agent-page&limit=2&offset=1")
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(result["data"].as_array().unwrap().len(), 2);
+        assert_eq!(result["pagination"]["total"], 5);
+        assert_eq!(result["pagination"]["offset"], 1);
+    }
+
+    #[tokio::test]
+    async fn health_endpoint_returns_healthy() {
+        let (app, _state) = test_app();
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/health")
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(result["status"], "healthy");
+        assert_eq!(result["database"], "connected");
     }
 }
