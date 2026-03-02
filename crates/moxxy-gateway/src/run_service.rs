@@ -172,10 +172,12 @@ impl RunService {
             );
         }
 
-        let agent_name = agent.name.as_deref().unwrap_or(&agent.id);
-        let agent_dir = self.moxxy_home.join("agents").join(agent_name);
+        let agent_dir = self.moxxy_home.join("agents").join(&agent.id);
         let agents_dir = self.moxxy_home.join("agents");
-        let workspace_path = agent_dir.clone();
+        let workspace_path = agent_dir.join("workspace");
+        // Ensure agent directories exist
+        std::fs::create_dir_all(&workspace_path).ok();
+        std::fs::create_dir_all(agent_dir.join("memory")).ok();
         let policy = moxxy_core::PathPolicy::new(
             agent_dir.clone(),
             Some(self.moxxy_home.clone()),
@@ -370,6 +372,7 @@ impl RunService {
                 agent.id.clone(),
                 starter.clone(),
                 self.event_bus.clone(),
+                self.moxxy_home.clone(),
             )));
             registry.register(Box::new(moxxy_runtime::AgentStopPrimitive::new(
                 self.db.clone(),
@@ -421,14 +424,18 @@ impl RunService {
                 system_prompt.push_str("\n\n");
             }
             let agent_home_display = agent_home.display();
+            let workspace_display = agent_home.join("workspace").display().to_string();
             system_prompt.push_str(&format!(
                 "You are a Moxxy agent (id: {agent_id_owned}).\n\
-                 Your workspace directory is: {agent_home_display}\n\
-                 IMPORTANT: All file operations (reads, writes, screenshots, shell output files, \
-                 git operations, etc.) MUST use paths within your workspace directory. \
-                 Never create, read, or write files outside of {agent_home_display}. \
-                 Use relative paths or paths prefixed with {agent_home_display}/ for every file operation. \
-                 Shell commands also execute with your workspace as the working directory.\n\n"
+                 Your home directory is: {agent_home_display} (based on your agent ID, not your name).\n\
+                 Your workspace directory is: {workspace_display}\n\n\
+                 IMPORTANT — Path rules:\n\
+                 - All project files, repositories, and generated content MUST be created inside {workspace_display}/.\n\
+                 - When creating a new project, use {workspace_display}/<project_name>/ as the root.\n\
+                 - Memory files are stored in {agent_home_display}/memory/ (managed by memory primitives).\n\
+                 - Never create, read, or write files outside of {agent_home_display}.\n\
+                 - Use absolute paths prefixed with {workspace_display}/ for every file and git operation.\n\
+                 - Shell commands execute with {workspace_display} as the working directory.\n\n"
             ));
 
             // Group tools by category with descriptions
@@ -668,6 +675,31 @@ impl RunService {
         db.agents()
             .update_status(agent_id, "idle")
             .map_err(|e| e.to_string())
+    }
+
+    /// Cancel all active agent runs. Called during graceful shutdown.
+    pub fn shutdown_all(&self) {
+        let tokens: Vec<(String, CancellationToken)> = {
+            let Ok(tokens) = self.run_tokens.lock() else {
+                return;
+            };
+            tokens
+                .iter()
+                .map(|(id, token)| (id.clone(), token.clone()))
+                .collect()
+        };
+
+        if tokens.is_empty() {
+            return;
+        }
+
+        tracing::info!(count = tokens.len(), "Stopping all active agent runs");
+        for (agent_id, token) in &tokens {
+            token.cancel();
+            if let Ok(db) = self.db.lock() {
+                let _ = db.agents().update_status(agent_id, "idle");
+            }
+        }
     }
 
     pub fn do_agent_status(&self, agent_id: &str) -> Result<Option<String>, String> {

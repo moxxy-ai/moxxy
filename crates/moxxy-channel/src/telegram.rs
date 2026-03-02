@@ -55,6 +55,34 @@ impl TelegramTransport {
         Ok(body.result.unwrap_or_default())
     }
 
+    /// Clear any webhook and force Telegram into getUpdates mode.
+    /// Prevents conflicts when restarting with a stale long-poll from a previous process.
+    async fn delete_webhook(&self) -> Result<(), ChannelError> {
+        let resp = self
+            .http_client
+            .post(self.api_url("deleteWebhook"))
+            .json(&serde_json::json!({}))
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| ChannelError::TransportError(e.to_string()))?;
+
+        let body: TelegramResponse<bool> = resp
+            .json()
+            .await
+            .map_err(|e| ChannelError::TransportError(e.to_string()))?;
+
+        if body.ok {
+            tracing::info!("Telegram: webhook cleared, using long polling");
+        } else {
+            tracing::warn!(
+                "Telegram: deleteWebhook returned error: {}",
+                body.description.unwrap_or_default()
+            );
+        }
+        Ok(())
+    }
+
     async fn send_text(
         &self,
         chat_id: &str,
@@ -105,13 +133,23 @@ impl ChannelTransport for TelegramTransport {
         sender: tokio::sync::mpsc::Sender<IncomingMessage>,
         shutdown: CancellationToken,
     ) -> Result<(), ChannelError> {
+        // Clear any existing webhook to avoid conflicts with other instances.
+        // This also resolves the "terminated by other getUpdates request" error
+        // that occurs when a previous process's long-poll is still pending.
+        if let Err(e) = self.delete_webhook().await {
+            tracing::warn!("Failed to clear Telegram webhook on startup: {}", e);
+        }
+
         let mut offset: i64 = 0;
+        let mut conflict_retries: u32 = 0;
+
         loop {
             tokio::select! {
                 _ = shutdown.cancelled() => break,
                 result = self.get_updates(offset, 30) => {
                     match result {
                         Ok(updates) => {
+                            conflict_retries = 0;
                             for update in updates {
                                 offset = update.update_id + 1;
                                 if let Some(msg) = update.message {
@@ -129,6 +167,15 @@ impl ChannelTransport for TelegramTransport {
                                     }
                                 }
                             }
+                        }
+                        Err(ref e) if e.to_string().contains("Conflict") => {
+                            conflict_retries += 1;
+                            tracing::warn!(
+                                retries = conflict_retries,
+                                "Telegram polling conflict — another instance may be running. Retrying in {}s",
+                                conflict_retries.min(30)
+                            );
+                            tokio::time::sleep(Duration::from_secs(conflict_retries.min(30) as u64)).await;
                         }
                         Err(e) => {
                             tracing::warn!("Telegram getUpdates error: {}", e);

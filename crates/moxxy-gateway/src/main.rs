@@ -187,6 +187,33 @@ async fn main() {
         // Enable agent sub-agent spawning by providing the RunStarter
         state.run_service.set_run_starter(state.run_service.clone());
 
+        // Log active bindings for diagnostics
+        {
+            let db = state.db.lock().unwrap();
+            for channel in &channels {
+                let bindings = db
+                    .channel_bindings()
+                    .find_by_channel(&channel.id)
+                    .unwrap_or_default();
+                if bindings.is_empty() {
+                    tracing::warn!(
+                        channel_id = %channel.id,
+                        "Channel has no active bindings"
+                    );
+                } else {
+                    for b in &bindings {
+                        tracing::info!(
+                            channel_id = %b.channel_id,
+                            agent_id = %b.agent_id,
+                            external_chat_id = %b.external_chat_id,
+                            binding_status = %b.status,
+                            "Active channel binding loaded"
+                        );
+                    }
+                }
+            }
+        }
+
         if !channels.is_empty() {
             tracing::info!(
                 "Channel bridge started with {} active channels",
@@ -195,7 +222,7 @@ async fn main() {
         }
     }
 
-    let app = create_router(state, Some(RateLimitConfig::from_env()));
+    let app = create_router(state.clone(), Some(RateLimitConfig::from_env()));
 
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
@@ -213,6 +240,19 @@ async fn main() {
     .with_graceful_shutdown(shutdown_signal())
     .await
     .expect("Server error");
+
+    // Gracefully shut down the channel bridge (stops Telegram polling, etc.)
+    if let Ok(bridge_lock) = state.channel_bridge.lock()
+        && let Some(bridge) = bridge_lock.as_ref()
+    {
+        tracing::info!("Shutting down channel bridge...");
+        bridge.shutdown();
+    }
+
+    // Stop all active agent runs
+    state.run_service.shutdown_all();
+
+    tracing::info!("Gateway shutdown complete.");
 }
 
 async fn shutdown_signal() {

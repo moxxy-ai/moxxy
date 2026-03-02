@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use moxxy_core::{AgentLineage, EventBus};
 use moxxy_storage::Database;
 use moxxy_types::{EventEnvelope, EventType, RunStarter};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use super::ask::AskChannels;
@@ -13,6 +14,7 @@ pub struct AgentSpawnPrimitive {
     parent_agent_id: String,
     run_starter: Arc<dyn RunStarter>,
     event_bus: EventBus,
+    moxxy_home: PathBuf,
 }
 
 impl AgentSpawnPrimitive {
@@ -21,12 +23,14 @@ impl AgentSpawnPrimitive {
         parent_agent_id: String,
         run_starter: Arc<dyn RunStarter>,
         event_bus: EventBus,
+        moxxy_home: PathBuf,
     ) -> Self {
         Self {
             db,
             parent_agent_id,
             run_starter,
             event_bus,
+            moxxy_home,
         }
     }
 }
@@ -120,12 +124,19 @@ impl Primitive for AgentSpawnPrimitive {
         let short_id = &child_id[child_id.len() - 8..]; // last 8 hex chars (random portion of UUIDv7)
         let auto_name = format!("{}-sub-{}", parent_name, short_id);
 
+        // Child gets its own directory keyed by its ID
+        let child_dir = self.moxxy_home.join("agents").join(&child_id);
+        let child_workspace = child_dir.join("workspace");
+        let child_memory = child_dir.join("memory");
+        std::fs::create_dir_all(&child_workspace).ok();
+        std::fs::create_dir_all(&child_memory).ok();
+
         let child = moxxy_storage::AgentRow {
             id: child_id.clone(),
             parent_agent_id: Some(self.parent_agent_id.clone()),
             provider_id: parent.provider_id.clone(),
             model_id: model_id.clone(),
-            workspace_root: parent.workspace_root.clone(),
+            workspace_root: child_dir.to_string_lossy().to_string(),
             core_mount: None,
             policy_profile: parent.policy_profile.clone(),
             temperature: parent.temperature,
@@ -626,7 +637,7 @@ mod tests {
         let run_starter = Arc::new(MockRunStarter::new());
 
         let prim =
-            AgentSpawnPrimitive::new(db.clone(), "parent-1".into(), run_starter.clone(), bus);
+            AgentSpawnPrimitive::new(db.clone(), "parent-1".into(), run_starter.clone(), bus, "/tmp/moxxy".into());
 
         let result = prim
             .invoke(serde_json::json!({
@@ -678,7 +689,7 @@ mod tests {
         let bus = EventBus::new(100);
         let run_starter = Arc::new(MockRunStarter::new());
 
-        let prim = AgentSpawnPrimitive::new(db, "parent-limited".into(), run_starter, bus);
+        let prim = AgentSpawnPrimitive::new(db, "parent-limited".into(), run_starter, bus, "/tmp/moxxy".into());
 
         let result = prim
             .invoke(serde_json::json!({

@@ -180,8 +180,8 @@ pub async fn create_agent(
     let now = chrono::Utc::now().to_rfc3339();
     let id = uuid::Uuid::now_v7().to_string();
 
-    // Compute workspace root from moxxy_home
-    let agent_dir = state.moxxy_home.join("agents").join(&body.name);
+    // Compute workspace root from moxxy_home (keyed by agent ID, not name)
+    let agent_dir = state.moxxy_home.join("agents").join(&id);
     let workspace_root = agent_dir.to_string_lossy().to_string();
 
     // Create agent directories

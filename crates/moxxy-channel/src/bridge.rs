@@ -159,6 +159,7 @@ impl ChannelBridge {
         tracing::info!(
             channel_id,
             external_chat_id = %msg.external_chat_id,
+            sender_id = %msg.sender_id,
             text_len = msg.text.len(),
             "Inbound channel message"
         );
@@ -183,7 +184,14 @@ impl ChannelBridge {
         };
 
         let binding = match binding_lookup {
-            Ok(bindings) => bindings.into_iter().next(),
+            Ok(bindings) => {
+                tracing::info!(
+                    channel_id,
+                    binding_count = bindings.len(),
+                    "Channel binding lookup result"
+                );
+                bindings.into_iter().next()
+            }
             Err(e) => {
                 tracing::error!(channel_id, "Failed to look up channel binding: {}", e);
                 let _ = transport
@@ -199,6 +207,11 @@ impl ChannelBridge {
         };
 
         let Some(binding) = binding else {
+            tracing::warn!(
+                channel_id,
+                external_chat_id = %msg.external_chat_id,
+                "No active binding found for channel — sending 'not paired' response"
+            );
             let _ = transport
                 .send_message(OutgoingMessage {
                     external_chat_id: msg.external_chat_id.clone(),
