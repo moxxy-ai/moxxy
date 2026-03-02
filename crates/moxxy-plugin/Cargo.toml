@@ -1,0 +1,24 @@
+[package]
+name = "moxxy-plugin"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+moxxy-types = { path = "../moxxy-types" }
+moxxy-runtime = { path = "../moxxy-runtime" }
+wasmtime = { workspace = true }
+wasmtime-wasi = { workspace = true }
+ed25519-dalek = { workspace = true, features = ["rand_core"] }
+sha2 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+async-trait = "0.1"
+
+[dev-dependencies]
+wat = { workspace = true }
+tempfile = { workspace = true }
+rand = { workspace = true }

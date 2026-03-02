@@ -1,4 +1,4 @@
-import { Box, Text, useApp } from 'ink';
+import { Box, Text, useApp, useInput } from 'ink';
 import { useCallback } from 'react';
 import { h, COLORS, shortId } from './helpers.js';
 import { useTerminal } from './use-terminal.js';
@@ -8,15 +8,15 @@ import { ChatPanel } from './chat-panel.js';
 import { InfoPanel } from './info-panel.js';
 import { InputBar } from './input-bar.js';
 import { SLASH_COMMANDS } from './slash-commands.js';
+import { useTabs } from './use-tabs.js';
+import { TabBar } from './tab-bar.js';
 
-export function App({ client, agentId }) {
-  const { exit } = useApp();
-  const { columns, rows } = useTerminal();
+function TabSession({ client, agentId, isActive, onSubmit, termRows }) {
   const { agent, loading, error: agentError, startRun, stopAgent } = useAgent(client, agentId);
   const { messages, stats, connected, addUserMessage, addSystemMessage, clearMessages } = useEvents(client, agent?.id);
 
   const handleSubmit = useCallback(async (task) => {
-    if (task === '/quit' || task === '/exit') { exit(); return; }
+    if (task === '/quit' || task === '/exit') { onSubmit(task); return; }
     if (task === '/stop') { await stopAgent(); return; }
     if (task === '/clear') { clearMessages(); return; }
     if (task === '/help') {
@@ -40,26 +40,34 @@ export function App({ client, agentId }) {
       return;
     }
 
+    // Pass tab commands up to the App
+    if (task.startsWith('/tab ') || task === '/close') {
+      onSubmit(task);
+      return;
+    }
+
     addUserMessage(task);
     await startRun(task);
-  }, [addUserMessage, addSystemMessage, clearMessages, startRun, stopAgent, exit, agent, connected]);
+  }, [addUserMessage, addSystemMessage, clearMessages, startRun, stopAgent, onSubmit, agent, connected]);
 
-  const chatHeight = Math.max(5, rows - 5);
+  if (!isActive) return null;
+
+  const chatHeight = Math.max(5, termRows - 5);
 
   if (loading) {
-    return h(Box, { flexDirection: 'column', height: rows, justifyContent: 'center', alignItems: 'center' },
+    return h(Box, { flexDirection: 'column', flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
       h(Text, { color: COLORS.accent }, 'Loading agent...'),
     );
   }
 
   if (agentError && !agent) {
-    return h(Box, { flexDirection: 'column', height: rows, justifyContent: 'center', alignItems: 'center' },
+    return h(Box, { flexDirection: 'column', flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
       h(Text, { color: COLORS.error }, `Error: ${agentError}`),
       h(Text, { color: COLORS.dim }, 'Press Ctrl+C to exit'),
     );
   }
 
-  return h(Box, { flexDirection: 'column', height: rows, width: columns },
+  return h(Box, { flexDirection: 'column', flexGrow: 1 },
     h(Box, { flexGrow: 1 },
       h(ChatPanel, { messages, height: chatHeight }),
       h(InfoPanel, { agent, stats, connected, height: chatHeight }),
@@ -69,5 +77,49 @@ export function App({ client, agentId }) {
       disabled: loading || !agent,
       agentStatus: agent?.status,
     }),
+  );
+}
+
+export function App({ client, agentId }) {
+  const { exit } = useApp();
+  const { columns, rows } = useTerminal();
+  const { tabs, activeIndex, activeTab, addTab, closeTab, switchTab, switchLeft, switchRight } = useTabs(agentId);
+
+  const handleSubmit = useCallback((task) => {
+    if (task === '/quit' || task === '/exit') { exit(); return; }
+    if (task === '/tab new') {
+      addTab(agentId);
+      return;
+    }
+    if (task === '/tab close' || task === '/close') {
+      closeTab(activeIndex);
+      return;
+    }
+    if (task === '/tab list') {
+      return;
+    }
+  }, [exit, addTab, closeTab, activeIndex, agentId]);
+
+  useInput((input, key) => {
+    if (key.ctrl && input >= '1' && input <= '9') {
+      const idx = parseInt(input, 10) - 1;
+      if (idx < tabs.length) {
+        switchTab(idx);
+      }
+    }
+  });
+
+  return h(Box, { flexDirection: 'column', height: rows, width: columns },
+    tabs.length > 1 ? h(TabBar, { tabs, activeIndex }) : null,
+    ...tabs.map((tab, i) =>
+      h(TabSession, {
+        key: tab.id,
+        client,
+        agentId: tab.agentId,
+        isActive: i === activeIndex,
+        onSubmit: handleSubmit,
+        termRows: rows,
+      })
+    ),
   );
 }

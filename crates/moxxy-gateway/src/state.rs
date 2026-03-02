@@ -279,6 +279,19 @@ impl AppState {
                                 }),
                             ));
                         }
+                        "memory_compact" => {
+                            event_bus.emit(EventEnvelope::new(
+                                rule.agent_id.clone(),
+                                None,
+                                None,
+                                0,
+                                EventType::MemoryCompactStarted,
+                                serde_json::json!({
+                                    "heartbeat_id": rule.id,
+                                    "message": "Memory compaction triggered by heartbeat",
+                                }),
+                            ));
+                        }
                         _ => {
                             tracing::warn!("Unknown heartbeat action_type: {}", rule.action_type);
                         }

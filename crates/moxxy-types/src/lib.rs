@@ -49,9 +49,9 @@ mod tests {
     }
 
     #[test]
-    fn event_type_has_all_28_variants() {
+    fn event_type_has_all_30_variants() {
         let all = EventType::all_variants();
-        assert_eq!(all.len(), 28);
+        assert_eq!(all.len(), 30);
     }
 
     #[test]
@@ -147,6 +147,8 @@ mod proptests {
             Just(EventType::ChannelMessageReceived),
             Just(EventType::ChannelMessageSent),
             Just(EventType::ChannelError),
+            Just(EventType::MemoryCompactStarted),
+            Just(EventType::MemoryCompactCompleted),
         ]
     }
 

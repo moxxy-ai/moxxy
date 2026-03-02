@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink';
 import { h, COLORS } from './helpers.js';
+import { renderMarkdown } from './markdown-renderer.js';
 
 function eventSummary(eventType, payload) {
   switch (eventType) {
@@ -27,12 +28,16 @@ export function Message({ type, content, eventType, payload, streaming }) {
   }
 
   if (type === 'assistant') {
+    const renderedContent = !streaming && content
+      ? renderMarkdown(content)
+      : [h(Text, { color: COLORS.assistant, wrap: 'wrap' }, content || '')];
+
     return h(Box, { flexDirection: 'column' },
       h(Box, null,
         h(Text, { color: COLORS.accent, bold: true }, 'Assistant'),
         streaming ? h(Text, { color: COLORS.dim }, ' \u2026') : null,
       ),
-      h(Text, { color: COLORS.assistant, wrap: 'wrap' }, content || ''),
+      ...renderedContent,
     );
   }
 

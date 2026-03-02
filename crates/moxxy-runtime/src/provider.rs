@@ -1,25 +1,27 @@
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 use crate::registry::PrimitiveError;
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: String,
     pub content: String,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ModelConfig {
     pub temperature: f64,
     pub max_tokens: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ProviderResponse {
     pub content: String,
     pub tool_calls: Vec<ToolCall>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ToolCall {
     pub name: String,
     pub arguments: serde_json::Value,

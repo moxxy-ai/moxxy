@@ -58,6 +58,10 @@ pub enum EventType {
     ChannelMessageSent,
     #[serde(rename = "channel.error")]
     ChannelError,
+    #[serde(rename = "memory.compact_started")]
+    MemoryCompactStarted,
+    #[serde(rename = "memory.compact_completed")]
+    MemoryCompactCompleted,
 }
 
 impl EventType {
@@ -91,6 +95,8 @@ impl EventType {
             EventType::ChannelMessageReceived,
             EventType::ChannelMessageSent,
             EventType::ChannelError,
+            EventType::MemoryCompactStarted,
+            EventType::MemoryCompactCompleted,
         ]
     }
 }

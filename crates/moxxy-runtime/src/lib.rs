@@ -6,6 +6,7 @@ pub mod primitives;
 pub mod process;
 pub mod provider;
 pub mod registry;
+pub mod sandbox;
 
 pub use context::PrimitiveContext;
 pub use echo_provider::EchoProvider;
@@ -24,3 +25,4 @@ pub use primitives::{
 pub use process::{AgentProcess, AgentProcessConfig};
 pub use provider::{Message, ModelConfig, Provider, ProviderResponse, ToolCall};
 pub use registry::{Primitive, PrimitiveError, PrimitiveRegistry};
+pub use sandbox::{SandboxConfig, SandboxProfile, SandboxedCommand};

@@ -1,6 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { shortId, formatNumber, makeBar, COLORS, formatTs } from '../src/tui/helpers.js';
+import { renderMarkdown } from '../src/tui/markdown-renderer.js';
+import { matchCommands, SLASH_COMMANDS } from '../src/tui/slash-commands.js';
 
 describe('tui helpers', () => {
   it('shortId truncates to 12 chars', () => {
@@ -63,5 +65,71 @@ describe('tui helpers', () => {
 
   it('formatTs handles null', () => {
     assert.equal(formatTs(null), '');
+  });
+});
+
+describe('markdown renderer', () => {
+  it('renders null content gracefully', () => {
+    const result = renderMarkdown(null);
+    assert.ok(Array.isArray(result));
+    assert.ok(result.length > 0);
+  });
+
+  it('renders empty string gracefully', () => {
+    const result = renderMarkdown('');
+    assert.ok(Array.isArray(result));
+  });
+
+  it('renders a paragraph', () => {
+    const result = renderMarkdown('Hello world');
+    assert.ok(Array.isArray(result));
+    assert.ok(result.length >= 1);
+  });
+
+  it('renders a heading', () => {
+    const result = renderMarkdown('# Title');
+    assert.ok(Array.isArray(result));
+  });
+
+  it('renders code blocks', () => {
+    const result = renderMarkdown('```js\nconsole.log("hi")\n```');
+    assert.ok(Array.isArray(result));
+  });
+
+  it('renders inline code', () => {
+    const result = renderMarkdown('Use `npm install`');
+    assert.ok(Array.isArray(result));
+  });
+
+  it('renders bold text', () => {
+    const result = renderMarkdown('This is **bold**');
+    assert.ok(Array.isArray(result));
+  });
+
+  it('renders italic text', () => {
+    const result = renderMarkdown('This is *italic*');
+    assert.ok(Array.isArray(result));
+  });
+
+  it('renders lists', () => {
+    const result = renderMarkdown('- item 1\n- item 2\n- item 3');
+    assert.ok(Array.isArray(result));
+  });
+});
+
+describe('tab slash commands', () => {
+  it('matchCommands finds /tab commands', () => {
+    const matches = matchCommands('/tab');
+    assert.ok(matches.length >= 3);
+  });
+
+  it('matchCommands finds /close alias', () => {
+    const matches = matchCommands('/close');
+    assert.ok(matches.length >= 1);
+  });
+
+  it('slash commands include tab commands', () => {
+    const tabCmds = SLASH_COMMANDS.filter(c => c.name.startsWith('/tab'));
+    assert.ok(tabCmds.length >= 3);
   });
 });

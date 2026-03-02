@@ -3,11 +3,13 @@ use std::time::Duration;
 use tokio::process::Command;
 
 use crate::registry::{Primitive, PrimitiveError};
+use crate::sandbox::{SandboxConfig, SandboxedCommand};
 
 pub struct ShellExecPrimitive {
     allowed_commands: Vec<String>,
     timeout: Duration,
     max_output_bytes: usize,
+    sandbox_config: Option<SandboxConfig>,
 }
 
 impl ShellExecPrimitive {
@@ -16,7 +18,13 @@ impl ShellExecPrimitive {
             allowed_commands,
             timeout,
             max_output_bytes,
+            sandbox_config: None,
         }
+    }
+
+    pub fn with_sandbox(mut self, config: SandboxConfig) -> Self {
+        self.sandbox_config = Some(config);
+        self
     }
 }
 
@@ -53,8 +61,18 @@ impl Primitive for ShellExecPrimitive {
             })
             .unwrap_or_default();
 
-        let child = Command::new(command)
-            .args(&args)
+        let (exec_cmd, exec_args) = if let Some(ref sandbox_cfg) = self.sandbox_config {
+            if let Some((sb_cmd, sb_args)) = SandboxedCommand::build(sandbox_cfg, command, &args) {
+                (sb_cmd, sb_args)
+            } else {
+                (command.to_string(), args.clone())
+            }
+        } else {
+            (command.to_string(), args.clone())
+        };
+
+        let child = Command::new(&exec_cmd)
+            .args(&exec_args)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()
@@ -151,5 +169,24 @@ mod tests {
             .invoke(serde_json::json!({"command": "", "args": []}))
             .await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn shell_exec_with_sandbox_none_works_normally() {
+        use crate::sandbox::{SandboxConfig, SandboxProfile};
+        use std::path::PathBuf;
+
+        let config = SandboxConfig {
+            profile: SandboxProfile::None,
+            workspace_root: PathBuf::from("/tmp"),
+        };
+        let prim =
+            ShellExecPrimitive::new(vec!["echo".into()], Duration::from_secs(5), 1024 * 1024)
+                .with_sandbox(config);
+        let result = prim
+            .invoke(serde_json::json!({"command": "echo", "args": ["sandbox-none"]}))
+            .await
+            .unwrap();
+        assert!(result["stdout"].as_str().unwrap().contains("sandbox-none"));
     }
 }

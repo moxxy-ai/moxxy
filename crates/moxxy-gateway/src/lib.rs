@@ -66,6 +66,10 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
             "/v1/agents/{id}/memory/search",
             get(routes::memory::search_memory),
         )
+        .route(
+            "/v1/agents/{id}/memory/compact",
+            post(routes::memory::compact_memory),
+        )
         // Heartbeats
         .route(
             "/v1/agents/{id}/heartbeats",
@@ -1623,5 +1627,39 @@ mod audit_log_tests {
         let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(result["status"], "healthy");
         assert_eq!(result["database"], "connected");
+    }
+}
+
+#[cfg(test)]
+mod memory_compact_tests {
+    use super::test_helpers::*;
+    use axum::body::Body;
+    use axum::http::StatusCode;
+    use http::Request;
+    use moxxy_types::TokenScope;
+
+    #[tokio::test]
+    async fn compact_memory_route_exists() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(
+            &state,
+            vec![TokenScope::AgentsRead, TokenScope::AgentsWrite],
+        );
+        let agent_id = seed_agent(&state, &token);
+
+        let req = Request::builder()
+            .method("POST")
+            .uri(&format!("/v1/agents/{}/memory/compact", agent_id))
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(result.get("compacted_groups").is_some());
     }
 }

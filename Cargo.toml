@@ -9,6 +9,7 @@ members = [
     "crates/moxxy-gateway",
     "crates/moxxy-runtime",
     "crates/moxxy-channel",
+    "crates/moxxy-plugin",
 ]
 
 [workspace.package]
@@ -62,6 +63,11 @@ keyring = "3"
 
 # HTTP types
 http = "1"
+
+# WASI
+wasmtime = "29"
+wasmtime-wasi = "29"
+wat = "1"
 
 # Test
 tempfile = "3"
