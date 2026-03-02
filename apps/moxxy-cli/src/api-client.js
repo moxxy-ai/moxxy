@@ -103,6 +103,14 @@ export class ApiClient {
   async listSecrets() {
     return this.request('/v1/vault/secrets', 'GET');
   }
+
+  async installProvider(id, displayName, models) {
+    return this.request('/v1/providers', 'POST', {
+      id,
+      display_name: displayName,
+      models,
+    });
+  }
 }
 
 export function createApiClient(baseUrl, token) {

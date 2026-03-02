@@ -16,7 +16,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         .route("/v1/auth/tokens/{id}", delete(routes::auth::revoke_token))
         // Providers
-        .route("/v1/providers", get(routes::providers::list_providers))
+        .route(
+            "/v1/providers",
+            get(routes::providers::list_providers).post(routes::providers::install_provider),
+        )
         .route(
             "/v1/providers/{id}/models",
             get(routes::providers::list_models),
@@ -534,6 +537,77 @@ mod provider_tests {
     use axum::http::StatusCode;
     use http::Request;
     use moxxy_types::TokenScope;
+
+    #[tokio::test]
+    async fn install_provider_returns_201() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/providers")
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"id":"openai","display_name":"OpenAI","models":[{"model_id":"gpt-4o","display_name":"GPT-4o"}]}"#,
+            ))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::CREATED);
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(result["id"], "openai");
+        assert_eq!(result["models_count"], 1);
+    }
+
+    #[tokio::test]
+    async fn install_provider_upserts_existing() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite, TokenScope::AgentsRead]);
+
+        // Install once
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/providers")
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"id":"openai","display_name":"OpenAI","models":[{"model_id":"gpt-4","display_name":"GPT-4"}]}"#,
+            ))
+            .unwrap();
+        request(&app, req).await;
+
+        // Install again with different models (upsert)
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/providers")
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"id":"openai","display_name":"OpenAI","models":[{"model_id":"gpt-4o","display_name":"GPT-4o"},{"model_id":"o1","display_name":"o1"}]}"#,
+            ))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::CREATED);
+
+        // Verify models were replaced
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/providers/openai/models")
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let models = result.as_array().unwrap();
+        assert_eq!(models.len(), 2);
+    }
 
     #[tokio::test]
     async fn list_providers_returns_installed() {
