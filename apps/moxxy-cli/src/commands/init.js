@@ -1,8 +1,25 @@
 import { p, handleCancel, withSpinner, showResult } from '../ui.js';
 import { VALID_SCOPES } from './auth.js';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
+
+export function getMoxxyHome() {
+  return process.env.MOXXY_HOME || join(homedir(), '.moxxy');
+}
 
 export async function runInit(client, args) {
   p.intro('Welcome to Moxxy');
+
+  // Step 0: Create ~/.moxxy directory structure
+  const moxxyHome = getMoxxyHome();
+  try {
+    mkdirSync(join(moxxyHome, 'agents'), { recursive: true });
+    mkdirSync(join(moxxyHome, 'config'), { recursive: true });
+    p.log.success(`Moxxy home: ${moxxyHome}`);
+  } catch (err) {
+    p.log.warn(`Could not create ${moxxyHome}: ${err.message}`);
+  }
 
   // Step 1: Check/configure API URL
   const useDefault = await p.confirm({

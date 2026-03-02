@@ -14,6 +14,7 @@ export const BUILTIN_PROVIDERS = [
     api_key_env: 'ANTHROPIC_API_KEY',
     api_base: 'https://api.anthropic.com',
     models: [
+      { model_id: 'claude-sonnet-5-20260203', display_name: 'Claude Sonnet 5 "Fennec"' },
       { model_id: 'claude-opus-4-20250514', display_name: 'Claude Opus 4' },
       { model_id: 'claude-sonnet-4-20250514', display_name: 'Claude Sonnet 4' },
       { model_id: 'claude-haiku-4-20250506', display_name: 'Claude Haiku 4' },
@@ -27,6 +28,7 @@ export const BUILTIN_PROVIDERS = [
     api_key_env: 'OPENAI_API_KEY',
     api_base: 'https://api.openai.com/v1',
     models: [
+      { model_id: 'gpt-5.2', display_name: 'GPT-5.2' },
       { model_id: 'gpt-4.1', display_name: 'GPT-4.1' },
       { model_id: 'gpt-4.1-mini', display_name: 'GPT-4.1 Mini' },
       { model_id: 'gpt-4.1-nano', display_name: 'GPT-4.1 Nano' },
@@ -42,10 +44,34 @@ export const BUILTIN_PROVIDERS = [
     api_key_env: 'XAI_API_KEY',
     api_base: 'https://api.x.ai/v1',
     models: [
+      { model_id: 'grok-4', display_name: 'Grok 4' },
       { model_id: 'grok-3', display_name: 'Grok 3' },
       { model_id: 'grok-3-mini', display_name: 'Grok 3 Mini' },
       { model_id: 'grok-3-fast', display_name: 'Grok 3 Fast' },
       { model_id: 'grok-2', display_name: 'Grok 2' },
+    ],
+  },
+  {
+    id: 'google',
+    display_name: 'Google Gemini',
+    api_key_env: 'GOOGLE_API_KEY',
+    api_base: 'https://generativelanguage.googleapis.com/v1beta',
+    models: [
+      { model_id: 'gemini-3.1-pro', display_name: 'Gemini 3.1 Pro' },
+      { model_id: 'gemini-2.5-pro', display_name: 'Gemini 2.5 Pro' },
+      { model_id: 'gemini-2.5-flash', display_name: 'Gemini 2.5 Flash' },
+      { model_id: 'gemini-2.0-flash', display_name: 'Gemini 2.0 Flash' },
+    ],
+  },
+  {
+    id: 'deepseek',
+    display_name: 'DeepSeek',
+    api_key_env: 'DEEPSEEK_API_KEY',
+    api_base: 'https://api.deepseek.com',
+    models: [
+      { model_id: 'deepseek-v4', display_name: 'DeepSeek V4' },
+      { model_id: 'deepseek-r1', display_name: 'DeepSeek R1' },
+      { model_id: 'deepseek-v3', display_name: 'DeepSeek V3' },
     ],
   },
   {

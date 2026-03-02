@@ -2,7 +2,10 @@
  * Agent commands: create/run/stop/status.
  */
 import { parseFlags } from './auth.js';
+import { getMoxxyHome } from './init.js';
 import { isInteractive, handleCancel, withSpinner, showResult, pickAgent, pickProvider, pickModel, p } from '../ui.js';
+import { join } from 'node:path';
+import { mkdirSync } from 'node:fs';
 
 export function parseAgentCommand(args) {
   const [action, ...rest] = args;
@@ -107,10 +110,11 @@ export async function runAgent(client, args) {
         const providerId = parsed.provider_id || await pickProvider(client);
         const modelId = parsed.model_id || await pickModel(client, providerId);
 
+        const defaultWorkspace = join(getMoxxyHome(), 'agents', 'new-agent', 'workspace');
         const workspace = await p.text({
           message: 'Workspace root',
-          placeholder: process.cwd(),
-          initialValue: parsed.workspace_root || process.cwd(),
+          placeholder: defaultWorkspace,
+          initialValue: parsed.workspace_root || defaultWorkspace,
         });
         handleCancel(workspace);
 
@@ -131,6 +135,15 @@ export async function runAgent(client, args) {
 
         const result = await withSpinner('Creating agent...', () =>
           client.request('/v1/agents', 'POST', body), 'Agent created.');
+
+        // Create agent workspace directory
+        if (result.id) {
+          const agentDir = join(getMoxxyHome(), 'agents', result.id);
+          try {
+            mkdirSync(join(agentDir, 'workspace'), { recursive: true });
+            mkdirSync(join(agentDir, 'memory'), { recursive: true });
+          } catch { /* may already exist */ }
+        }
 
         showResult('Agent Created', {
           ID: result.id,
