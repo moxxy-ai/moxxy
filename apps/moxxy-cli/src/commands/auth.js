@@ -2,7 +2,7 @@
  * Auth commands: token create/list/revoke.
  * Supports both interactive and non-interactive (flag-based) modes.
  */
-import * as readline from 'node:readline';
+import { isInteractive, handleCancel, withSpinner, showResult, p } from '../ui.js';
 
 const VALID_SCOPES = [
   'agents:read', 'agents:write', 'runs:write',
@@ -65,30 +65,53 @@ export function buildTokenPayload(scopes, ttl) {
   return payload;
 }
 
-function prompt(question) {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      rl.close();
-      resolve(answer.trim());
-    });
-  });
-}
-
 export async function runAuth(client, args) {
   const parsed = parseAuthCommand(args);
+
+  // Interactive sub-menu when no valid action
+  if (!['create', 'list', 'revoke'].includes(parsed.action) && isInteractive()) {
+    const action = await p.select({
+      message: 'Auth action',
+      options: [
+        { value: 'create', label: 'Create token', hint: 'generate a new API token' },
+        { value: 'list',   label: 'List tokens',  hint: 'show all tokens' },
+        { value: 'revoke', label: 'Revoke token', hint: 'revoke an existing token' },
+      ],
+    });
+    handleCancel(action);
+    parsed.action = action;
+  }
 
   switch (parsed.action) {
     case 'create': {
       let scopes = parsed.scopes;
       let ttl = parsed.ttl;
 
-      if (!scopes) {
-        console.error('Available scopes: ' + VALID_SCOPES.join(', '));
-        const input = await prompt('Scopes (comma-separated): ');
-        scopes = input.split(',').map(s => s.trim()).filter(Boolean);
-        const ttlInput = await prompt('TTL in seconds (empty for none): ');
+      if (!scopes && isInteractive()) {
+        scopes = await p.multiselect({
+          message: 'Select token scopes',
+          options: VALID_SCOPES.map(s => ({ value: s, label: s })),
+          required: true,
+        });
+        handleCancel(scopes);
+
+        const ttlInput = await p.text({
+          message: 'Token TTL in seconds',
+          placeholder: 'leave empty for no expiry',
+        });
+        handleCancel(ttlInput);
         ttl = ttlInput ? parseInt(ttlInput, 10) : undefined;
+
+        const descInput = await p.text({
+          message: 'Token description',
+          placeholder: 'optional',
+        });
+        handleCancel(descInput);
+        parsed.description = descInput || undefined;
+      }
+
+      if (!scopes) {
+        throw new Error('Scopes are required. Use --scopes or run interactively.');
       }
 
       const invalid = scopes.filter(s => !VALID_SCOPES.includes(s));
@@ -96,33 +119,85 @@ export async function runAuth(client, args) {
       if (scopes.length === 0) throw new Error('At least one scope is required');
 
       const payload = buildTokenPayload(scopes, ttl);
-      const result = await client.request('/v1/auth/tokens', 'POST', payload);
+      if (parsed.description) payload.description = parsed.description;
 
-      if (parsed.json) {
-        console.log(JSON.stringify(result, null, 2));
+      let result;
+      if (isInteractive()) {
+        result = await withSpinner('Creating token...', () =>
+          client.request('/v1/auth/tokens', 'POST', payload), 'Token created.');
+        showResult('Your API Token', {
+          ID: result.id,
+          Token: result.token,
+          Scopes: scopes.join(', '),
+        });
       } else {
-        console.log(`Token created: ${result.id}`);
-        if (result.token) console.log(`Secret: ${result.token}`);
+        result = await client.request('/v1/auth/tokens', 'POST', payload);
+        if (parsed.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          console.log(`Token created: ${result.id}`);
+          if (result.token) console.log(`Secret: ${result.token}`);
+        }
       }
       return result;
     }
 
     case 'list': {
-      const tokens = await client.request('/v1/auth/tokens', 'GET');
-      if (parsed.json) {
-        console.log(JSON.stringify(tokens, null, 2));
-      } else {
+      let tokens;
+      if (isInteractive()) {
+        tokens = await withSpinner('Fetching tokens...', () =>
+          client.request('/v1/auth/tokens', 'GET'), 'Tokens loaded.');
         for (const t of (tokens || [])) {
-          console.log(`  ${t.id}  scopes=[${(t.scopes || []).join(',')}]  status=${t.status || 'active'}`);
+          p.log.info(`${t.id}  scopes=[${(t.scopes || []).join(',')}]  status=${t.status || 'active'}`);
+        }
+        if (!tokens || tokens.length === 0) {
+          p.log.warn('No tokens found.');
+        }
+      } else {
+        tokens = await client.request('/v1/auth/tokens', 'GET');
+        if (parsed.json) {
+          console.log(JSON.stringify(tokens, null, 2));
+        } else {
+          for (const t of (tokens || [])) {
+            console.log(`  ${t.id}  scopes=[${(t.scopes || []).join(',')}]  status=${t.status || 'active'}`);
+          }
         }
       }
       return tokens;
     }
 
     case 'revoke': {
-      if (!parsed.id) throw new Error('Usage: moxxy auth token revoke <id>');
-      await client.request(`/v1/auth/tokens/${encodeURIComponent(parsed.id)}`, 'DELETE');
-      console.log(`Token ${parsed.id} revoked.`);
+      let id = parsed.id;
+
+      if (!id && isInteractive()) {
+        const tokens = await withSpinner('Fetching tokens...', () =>
+          client.request('/v1/auth/tokens', 'GET'), 'Tokens loaded.');
+
+        if (!tokens || tokens.length === 0) {
+          p.log.warn('No tokens to revoke.');
+          return;
+        }
+
+        id = await p.select({
+          message: 'Select token to revoke',
+          options: tokens.map(t => ({
+            value: t.id,
+            label: t.id,
+            hint: `scopes=[${(t.scopes || []).join(',')}]`,
+          })),
+        });
+        handleCancel(id);
+      }
+
+      if (!id) throw new Error('Usage: moxxy auth token revoke <id>');
+
+      if (isInteractive()) {
+        await withSpinner('Revoking token...', () =>
+          client.request(`/v1/auth/tokens/${encodeURIComponent(id)}`, 'DELETE'), 'Token revoked.');
+      } else {
+        await client.request(`/v1/auth/tokens/${encodeURIComponent(id)}`, 'DELETE');
+        console.log(`Token ${id} revoked.`);
+      }
       break;
     }
 

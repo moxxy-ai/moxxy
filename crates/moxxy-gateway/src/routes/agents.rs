@@ -37,6 +37,37 @@ pub struct RunStartRequest {
     pub task: String,
 }
 
+pub async fn list_agents(
+    State(state): State<Arc<AppState>>,
+    auth: AuthToken,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    check_scope(&auth.0, &TokenScope::AgentsRead)?;
+
+    let db = state.db.lock().unwrap();
+    let agents = db.agents().list_all().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal", "message": "Database error"})),
+        )
+    })?;
+
+    let result: Vec<serde_json::Value> = agents
+        .iter()
+        .map(|a| {
+            serde_json::json!({
+                "id": a.id,
+                "provider_id": a.provider_id,
+                "model_id": a.model_id,
+                "status": a.status,
+                "workspace_root": a.workspace_root,
+                "created_at": a.created_at
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!(result)))
+}
+
 pub async fn create_agent(
     State(state): State<Arc<AppState>>,
     auth: AuthToken,

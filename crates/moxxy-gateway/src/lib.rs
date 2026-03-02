@@ -22,7 +22,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             get(routes::providers::list_models),
         )
         // Agents
-        .route("/v1/agents", post(routes::agents::create_agent))
+        .route(
+            "/v1/agents",
+            post(routes::agents::create_agent).get(routes::agents::list_agents),
+        )
         .route("/v1/agents/{id}", get(routes::agents::get_agent))
         .route("/v1/agents/{id}/runs", post(routes::agents::start_run))
         .route("/v1/agents/{id}/stop", post(routes::agents::stop_run))
@@ -45,7 +48,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             post(routes::skills::approve_skill),
         )
         // Vault
-        .route("/v1/vault/secrets", post(routes::vault::create_secret_ref))
+        .route(
+            "/v1/vault/secrets",
+            post(routes::vault::create_secret_ref).get(routes::vault::list_secrets),
+        )
         .route("/v1/vault/grants", post(routes::vault::create_grant))
         // Events
         .route("/v1/events/stream", get(routes::events::event_stream))
@@ -151,7 +157,7 @@ mod test_helpers {
         db.vault_refs()
             .insert(&moxxy_storage::VaultSecretRefRow {
                 id: id.clone(),
-                key_name: format!("test-key-{}", &id[..8]),
+                key_name: format!("test-key-{}", id),
                 backend_key: "os_keyring::test_secret".into(),
                 policy_label: None,
                 created_at: now.clone(),
@@ -284,6 +290,57 @@ mod agent_tests {
     use axum::http::StatusCode;
     use http::Request;
     use moxxy_types::TokenScope;
+
+    #[tokio::test]
+    async fn list_agents_returns_all() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(
+            &state,
+            vec![TokenScope::AgentsRead, TokenScope::AgentsWrite],
+        );
+        seed_provider(&state);
+        // Insert two agents directly (seed_agent also seeds provider, causing conflict)
+        let now = chrono::Utc::now().to_rfc3339();
+        for _ in 0..2 {
+            let id = uuid::Uuid::now_v7().to_string();
+            let db = state.db.lock().unwrap();
+            db.agents()
+                .insert(&moxxy_storage::AgentRow {
+                    id,
+                    parent_agent_id: None,
+                    provider_id: "test-provider".into(),
+                    model_id: "gpt-4".into(),
+                    workspace_root: "/tmp/ws".into(),
+                    core_mount: None,
+                    policy_profile: None,
+                    temperature: 0.7,
+                    max_subagent_depth: 2,
+                    max_subagents_total: 8,
+                    status: "idle".into(),
+                    depth: 0,
+                    spawned_total: 0,
+                    created_at: now.clone(),
+                    updated_at: now.clone(),
+                })
+                .unwrap();
+        }
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/agents")
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let agents = result.as_array().unwrap();
+        assert_eq!(agents.len(), 2);
+    }
 
     #[tokio::test]
     async fn create_agent_returns_201() {
@@ -678,6 +735,30 @@ mod vault_tests {
     use axum::http::StatusCode;
     use http::Request;
     use moxxy_types::TokenScope;
+
+    #[tokio::test]
+    async fn list_secrets_returns_all() {
+        let (app, state) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::VaultRead, TokenScope::VaultWrite]);
+        seed_secret_ref(&state);
+        seed_secret_ref(&state);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/vault/secrets")
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let secrets = result.as_array().unwrap();
+        assert_eq!(secrets.len(), 2);
+    }
 
     #[tokio::test]
     async fn create_secret_ref_returns_201() {

@@ -1,30 +1,76 @@
 /**
  * Heartbeat commands: set/list/disable.
  */
-
-function parseFlags(args) {
-  const flags = {};
-  for (let i = 0; i < args.length; i++) {
-    if (args[i].startsWith('--')) {
-      const key = args[i].slice(2);
-      if (i + 1 < args.length && !args[i + 1].startsWith('--')) {
-        flags[key] = args[i + 1];
-        i++;
-      } else {
-        flags[key] = true;
-      }
-    }
-  }
-  return flags;
-}
+import { parseFlags } from './auth.js';
+import { isInteractive, handleCancel, withSpinner, showResult, pickAgent, p } from '../ui.js';
 
 export async function runHeartbeat(client, args) {
-  const [action, ...rest] = args;
+  let [action, ...rest] = args;
   const flags = parseFlags(rest);
+
+  // Interactive sub-menu when no valid action
+  if (!['set', 'list', 'disable'].includes(action) && isInteractive()) {
+    action = await p.select({
+      message: 'Heartbeat action',
+      options: [
+        { value: 'set',     label: 'Set heartbeat',     hint: 'configure heartbeat rule' },
+        { value: 'list',    label: 'List heartbeats',   hint: 'show heartbeat rules' },
+        { value: 'disable', label: 'Disable heartbeat', hint: 'turn off heartbeat' },
+      ],
+    });
+    handleCancel(action);
+  }
 
   switch (action) {
     case 'set': {
-      const agentId = flags.agent;
+      let agentId = flags.agent;
+
+      // Interactive wizard when missing agent
+      if (!agentId && isInteractive()) {
+        agentId = await pickAgent(client, 'Select agent for heartbeat');
+
+        const intervalInput = handleCancel(await p.text({
+          message: 'Interval in minutes',
+          placeholder: '5',
+          initialValue: flags.interval || '5',
+          validate: (val) => { if (!val || isNaN(parseInt(val, 10))) return 'Must be a number'; },
+        }));
+        const interval = parseInt(intervalInput, 10);
+
+        const actionType = handleCancel(await p.select({
+          message: 'Action type',
+          options: [
+            { value: 'notify_cli', label: 'Notify CLI', hint: 'send notification to CLI' },
+            { value: 'webhook',    label: 'Webhook',    hint: 'call external webhook' },
+            { value: 'restart',    label: 'Restart',    hint: 'restart the agent' },
+          ],
+        }));
+
+        const body = {
+          interval_minutes: interval,
+          action_type: actionType,
+        };
+
+        if (actionType === 'webhook') {
+          const payload = handleCancel(await p.text({
+            message: 'Webhook URL or payload',
+            placeholder: 'https://...',
+          }));
+          if (payload) body.action_payload = payload;
+        }
+
+        const result = await withSpinner('Setting heartbeat...', () =>
+          client.request(`/v1/agents/${encodeURIComponent(agentId)}/heartbeats`, 'POST', body), 'Heartbeat configured.');
+
+        showResult('Heartbeat Set', {
+          Agent: agentId,
+          Interval: `${interval} min`,
+          Action: actionType,
+        });
+
+        return result;
+      }
+
       if (!agentId) throw new Error('Required: --agent');
       const body = {
         interval_minutes: parseInt(flags.interval || '5', 10),
@@ -38,6 +84,13 @@ export async function runHeartbeat(client, args) {
 
     case 'list': {
       const agentId = flags.agent;
+      if (!agentId && isInteractive()) {
+        const id = await pickAgent(client, 'Select agent to list heartbeats');
+        const result = await withSpinner('Fetching heartbeats...', () =>
+          client.request(`/v1/agents/${encodeURIComponent(id)}/heartbeats`, 'GET'), 'Heartbeats loaded.');
+        console.log(JSON.stringify(result, null, 2));
+        return result;
+      }
       if (!agentId) throw new Error('Required: --agent');
       const result = await client.request(`/v1/agents/${encodeURIComponent(agentId)}/heartbeats`, 'GET');
       console.log(JSON.stringify(result, null, 2));

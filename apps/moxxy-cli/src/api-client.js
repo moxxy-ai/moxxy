@@ -87,6 +87,22 @@ export class ApiClient {
     }
     return url.toString();
   }
+
+  async listAgents() {
+    return this.request('/v1/agents', 'GET');
+  }
+
+  async listProviders() {
+    return this.request('/v1/providers', 'GET');
+  }
+
+  async listModels(providerId) {
+    return this.request(`/v1/providers/${encodeURIComponent(providerId)}/models`, 'GET');
+  }
+
+  async listSecrets() {
+    return this.request('/v1/vault/secrets', 'GET');
+  }
 }
 
 export function createApiClient(baseUrl, token) {

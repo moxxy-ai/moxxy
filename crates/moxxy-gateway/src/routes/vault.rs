@@ -21,6 +21,36 @@ pub struct GrantCreateRequest {
     pub secret_ref_id: String,
 }
 
+pub async fn list_secrets(
+    State(state): State<Arc<AppState>>,
+    auth: AuthToken,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    check_scope(&auth.0, &TokenScope::VaultRead)?;
+
+    let db = state.db.lock().unwrap();
+    let refs = db.vault_refs().list_all().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal", "message": "Database error"})),
+        )
+    })?;
+
+    let result: Vec<serde_json::Value> = refs
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "id": r.id,
+                "key_name": r.key_name,
+                "backend_key": r.backend_key,
+                "policy_label": r.policy_label,
+                "created_at": r.created_at
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!(result)))
+}
+
 pub async fn create_secret_ref(
     State(state): State<Arc<AppState>>,
     auth: AuthToken,

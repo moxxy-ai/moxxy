@@ -4,6 +4,7 @@ import { createApiClient } from '../src/api-client.js';
 import { parseAuthCommand, buildTokenPayload } from '../src/commands/auth.js';
 import { parseAgentCommand } from '../src/commands/agent.js';
 import { buildSseUrl, parseSseEvent, createSseClient } from '../src/sse-client.js';
+import { isInteractive, handleCancel } from '../src/ui.js';
 
 // API Client tests
 describe('api-client', () => {
@@ -99,5 +100,65 @@ describe('sse-client', () => {
   it('reconnects on connection drop', () => {
     const client = createSseClient('http://localhost:3000', 'tok', {});
     assert.equal(typeof client.reconnect, 'function');
+  });
+});
+
+// UI helpers tests
+describe('ui helpers', () => {
+  it('isInteractive returns false when not TTY', () => {
+    assert.equal(isInteractive(), false);
+  });
+
+  it('handleCancel passes through non-cancel values', () => {
+    assert.equal(handleCancel('hello'), 'hello');
+    assert.equal(handleCancel(42), 42);
+    assert.deepEqual(handleCancel(['a', 'b']), ['a', 'b']);
+  });
+});
+
+// New API client method tests
+describe('api-client new methods', () => {
+  it('builds list agents URL', () => {
+    const client = createApiClient('http://localhost:3000', 'tok');
+    const url = client.buildUrl('/v1/agents');
+    assert.equal(url, 'http://localhost:3000/v1/agents');
+  });
+
+  it('builds list providers URL', () => {
+    const client = createApiClient('http://localhost:3000', 'tok');
+    const url = client.buildUrl('/v1/providers');
+    assert.equal(url, 'http://localhost:3000/v1/providers');
+  });
+
+  it('builds list models URL', () => {
+    const client = createApiClient('http://localhost:3000', 'tok');
+    const url = client.buildUrl('/v1/providers/openai/models');
+    assert.equal(url, 'http://localhost:3000/v1/providers/openai/models');
+  });
+
+  it('builds list secrets URL', () => {
+    const client = createApiClient('http://localhost:3000', 'tok');
+    const url = client.buildUrl('/v1/vault/secrets');
+    assert.equal(url, 'http://localhost:3000/v1/vault/secrets');
+  });
+
+  it('has listAgents method', () => {
+    const client = createApiClient('http://localhost:3000', 'tok');
+    assert.equal(typeof client.listAgents, 'function');
+  });
+
+  it('has listProviders method', () => {
+    const client = createApiClient('http://localhost:3000', 'tok');
+    assert.equal(typeof client.listProviders, 'function');
+  });
+
+  it('has listModels method', () => {
+    const client = createApiClient('http://localhost:3000', 'tok');
+    assert.equal(typeof client.listModels, 'function');
+  });
+
+  it('has listSecrets method', () => {
+    const client = createApiClient('http://localhost:3000', 'tok');
+    assert.equal(typeof client.listSecrets, 'function');
   });
 });
