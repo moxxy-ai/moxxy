@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/rust-1.80%2B-orange?logo=rust" alt="Rust 1.80+">
   <img src="https://img.shields.io/badge/node-%3E%3D22-green?logo=node.js" alt="Node.js 22+">
   <img src="https://img.shields.io/badge/edition-2024-blue" alt="Rust Edition 2024">
-  <img src="https://img.shields.io/badge/tests-224%20passing-brightgreen" alt="224 tests passing">
+  <img src="https://img.shields.io/badge/tests-267%20passing-brightgreen" alt="267 tests passing">
   <img src="https://img.shields.io/badge/clippy-zero%20warnings-brightgreen" alt="Clippy clean">
   <img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue" alt="License">
 </p>
@@ -35,8 +35,12 @@ Moxxy is a local-first agentic framework for building, running, and orchestratin
 - **Sub-agent orchestration** — Hierarchical agent spawning with bounded depth and fan-out limits
 - **Heartbeat scheduling** — Minute-granularity cron with per-agent serialized job queues
 - **Vault secrets** — OS keychain integration with explicit grant-based access control
-- **Full SSE event stream** — 25 event types covering every action, with automatic secret redaction
-- **Scoped API tokens** — SHA-256 hashed PATs with 7 permission scopes, optional TTL, and instant revocation
+- **Custom webhooks** — Agents can create, manage, and trigger webhooks with HMAC signing and delivery tracking
+- **Real LLM providers** — OpenAI-compatible provider supporting OpenAI, Anthropic (proxy), Ollama, and local models
+- **Production audit logging** — Structured request tracing, auth failure logging, and paginated audit log API
+- **Run cancellation & timeout** — CancellationToken-based run stopping with configurable 5-minute timeout
+- **Full SSE event stream** — 28 event types covering every action, with automatic secret redaction and persistence
+- **Scoped API tokens** — SHA-256 hashed PATs with 10 permission scopes, optional TTL, and instant revocation
 - **Contract-first API** — OpenAPI 3.1.0 specification with Axum-powered REST gateway
 
 ## Installation
@@ -210,7 +214,7 @@ moxxy chat --agent <id>      # Specify agent directly
 
 ### Database Schema
 
-11 tables managed via `migrations/0001_init.sql`:
+17 tables managed via 4 migration files:
 
 | Table | Purpose |
 |-------|---------|
@@ -224,7 +228,13 @@ moxxy chat --agent <id>      # Specify agent directly
 | `memory_vec` | Embedding vectors for semantic search |
 | `vault_secret_refs` | Secret reference metadata |
 | `vault_grants` | Agent-to-secret access grants |
-| `event_audit` | Full event audit log |
+| `event_audit` | Full event audit log with redaction |
+| `channels` | Messaging channel configurations |
+| `channel_bindings` | Agent-to-channel bindings |
+| `channel_pairing_codes` | Pairing code for channel setup |
+| `webhooks` | Custom webhook registrations per agent |
+| `webhook_deliveries` | Webhook delivery attempts and status |
+| `conversation_log` | Conversation persistence for run recovery |
 
 ## API Reference
 
@@ -262,15 +272,27 @@ GET    /v1/providers/{id}/models  List available models
 ### Skills
 
 ```
-POST   /v1/agents/{id}/skills/install           Install skill (quarantined)
+POST   /v1/agents/{id}/skills/install             Install skill (quarantined)
+GET    /v1/agents/{id}/skills                     List agent skills
 POST   /v1/agents/{id}/skills/approve/{skill_id}  Approve skill
+```
+
+### Webhooks
+
+```
+POST   /v1/agents/{id}/webhooks                   Create webhook
+GET    /v1/agents/{id}/webhooks                   List agent webhooks
+DELETE /v1/agents/{id}/webhooks/{wh_id}           Delete webhook
+POST   /v1/agents/{id}/webhooks/{wh_id}/test      Test webhook delivery
+GET    /v1/agents/{id}/webhooks/{wh_id}/deliveries  List deliveries
 ```
 
 ### Heartbeats
 
 ```
-POST   /v1/agents/{id}/heartbeats   Create heartbeat rule
-GET    /v1/agents/{id}/heartbeats   List heartbeat rules
+POST   /v1/agents/{id}/heartbeats     Create heartbeat rule
+GET    /v1/agents/{id}/heartbeats     List heartbeat rules
+DELETE /v1/agents/{id}/heartbeats/{id}  Disable heartbeat
 ```
 
 ### Vault
@@ -279,6 +301,15 @@ GET    /v1/agents/{id}/heartbeats   List heartbeat rules
 GET    /v1/vault/secrets        List secret references
 POST   /v1/vault/secrets        Create secret reference
 POST   /v1/vault/grants         Grant agent access to secret
+GET    /v1/vault/grants         List grants
+DELETE /v1/vault/grants/{id}    Revoke grant
+```
+
+### Health & Audit
+
+```
+GET    /v1/health               Health check (no auth required)
+GET    /v1/audit-logs           Paginated audit logs (?agent_id=...&event_type=...&limit=...&offset=...)
 ```
 
 ### Events (SSE)
@@ -384,24 +415,30 @@ All commands launch an **interactive wizard** when run without sufficient flags 
 
 ## Built-in Primitives
 
+All primitives are registered for every agent run. Skills declare which primitives they need via `allowed_primitives` in their YAML frontmatter.
+
 | Primitive | Description |
 |-----------|-------------|
 | `fs.read` | Read file contents (workspace-scoped) |
 | `fs.write` | Write file contents (workspace-scoped) |
 | `fs.list` | List directory entries (workspace-scoped) |
-| `shell.exec` | Execute allowed commands with timeout and output caps |
-| `http.request` | HTTP requests to allowed domains with size limits |
-| `memory.append` | Write timestamped markdown memory entry |
-| `memory.search` | Search memory by content and tags |
+| `shell.exec` | Execute allowed commands (`ls`, `cat`, `grep`, `find`, `echo`, `wc`) with 30s timeout, 1MB output cap |
+| `http.request` | HTTP GET/POST/PUT/PATCH/DELETE/HEAD to allowed domains, 30s timeout, 5MB response cap |
+| `memory.append` | Write timestamped markdown memory entry with tags |
+| `memory.search` | Search memory by content (case-insensitive substring) |
 | `memory.summarize` | Generate memory summary with entry counts |
-| `notify.webhook` | Send webhook POST to allowed domains |
+| `webhook.create` | **Create a webhook registration** for the agent (persisted to DB) |
+| `webhook.list` | **List agent's registered webhooks** |
+| `notify.webhook` | Send webhook POST payload to a URL (domain allowlist enforced) |
 | `notify.cli` | Emit notification event to CLI subscribers |
-| `skill.import` | Import and quarantine a new skill |
-| `skill.validate` | Validate skill frontmatter without importing |
+| `skill.import` | Import and quarantine a new skill document |
+| `skill.validate` | Validate skill YAML frontmatter without importing |
 
-## Skill Format
+## Skills
 
-Skills are Markdown files with YAML frontmatter:
+Skills are the core extensibility mechanism in Moxxy. They are Markdown files with YAML frontmatter that define what an agent can do and which primitives it's allowed to use.
+
+### Skill Format
 
 ```markdown
 ---
@@ -413,22 +450,117 @@ allowed_primitives:
   - fs.read
   - fs.list
   - memory.append
-safety_notes: "Read-only access to workspace files"
+  - shell.exec
+safety_notes: "Read-only access to workspace files. Shell restricted to safe commands."
 ---
 
 # Instructions
 
-Review the code in the workspace for:
+You are a code review assistant. Review code for:
 1. Security vulnerabilities
 2. Performance issues
 3. Code style violations
 
-Write findings to memory for later retrieval.
+Use `fs.list` to discover files, `fs.read` to examine them, and `memory.append` to record findings.
 ```
 
-**Required frontmatter fields:** `id`, `name`, `version`, `inputs_schema`, `allowed_primitives`, `safety_notes`
+### Required Frontmatter Fields
 
-**Import flow:** Source accepted -> Quarantine -> Validate frontmatter -> Emit review event -> Require explicit approval
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Unique skill identifier (e.g., `code-review`) |
+| `name` | string | Human-readable name (e.g., `Code Review`) |
+| `version` | string | Semantic version (e.g., `"1.0"`) |
+| `inputs_schema` | object | JSON schema for skill inputs (`{}` for none) |
+| `allowed_primitives` | list | Primitives this skill is allowed to invoke |
+| `safety_notes` | string | Safety documentation for reviewers |
+
+### Skill Lifecycle
+
+```
+1. Import        POST /v1/agents/{id}/skills/install
+                 → Status: "quarantined"
+
+2. Review        Inspect raw_content, check allowed_primitives,
+                 verify safety_notes
+
+3. Approve       POST /v1/agents/{id}/skills/approve/{skill_id}
+                 → Status: "approved", approved_at set
+
+4. Execute       During agent runs, primitives are checked against
+                 the skill's allowed_primitives list
+```
+
+All imported skills start in **quarantine** regardless of content. This is a security measure — skills must be explicitly approved before they can be used. The `allowed_primitives` list acts as a **capability allowlist**: even if all 14 primitives are registered in the runtime, an agent can only invoke primitives declared in its skill.
+
+### Agent-Created Webhooks via Skills
+
+Agents can create webhooks during runs by using the `webhook.create` primitive. This allows agents to programmatically set up notification endpoints:
+
+```json
+{
+  "name": "webhook.create",
+  "params": {
+    "agent_id": "019cac...",
+    "url": "https://hooks.slack.com/services/T.../B.../xxx",
+    "label": "Slack Notifications",
+    "event_filter": "run.completed,run.failed"
+  }
+}
+```
+
+A skill that needs webhook capabilities should include `webhook.create`, `webhook.list`, and `notify.webhook` in its `allowed_primitives`.
+
+### Example Skills
+
+Example skills are provided in [`examples/skills/`](examples/skills/):
+
+| Skill | Primitives | Description |
+|-------|------------|-------------|
+| [`code-review.md`](examples/skills/code-review.md) | fs.read, fs.list, memory.append, shell.exec | Code review assistant with structured output |
+| [`web-scraper.md`](examples/skills/web-scraper.md) | http.request, fs.write, memory.append | Fetch and extract data from web pages |
+| [`webhook-notifier.md`](examples/skills/webhook-notifier.md) | webhook.create, webhook.list, notify.webhook, notify.cli, memory.append | Create webhooks and send notifications |
+
+### Creating a Custom Skill
+
+1. Create a `.md` file with YAML frontmatter:
+
+```markdown
+---
+id: my-custom-skill
+name: My Custom Skill
+version: "1.0"
+inputs_schema: {}
+allowed_primitives:
+  - fs.read
+  - fs.write
+  - memory.append
+safety_notes: "Read/write access to workspace only."
+---
+
+# Your instructions here
+Describe what the agent should do with these capabilities.
+```
+
+2. Install it:
+
+```bash
+moxxy skill import --agent <agent-id>
+# Or via API:
+curl -X POST http://localhost:3000/v1/agents/{id}/skills/install \
+  -H "Authorization: Bearer $MOXXY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"my-custom-skill","version":"1.0","content":"---\nid: my-custom-skill\n..."}'
+```
+
+3. Approve it:
+
+```bash
+moxxy skill approve --agent <agent-id> --skill <skill-id>
+# Or via API:
+curl -X POST http://localhost:3000/v1/agents/{id}/skills/approve/{skill_id} \
+  -H "Authorization: Bearer $MOXXY_TOKEN"
+```
 
 ## Project Structure
 
@@ -440,17 +572,26 @@ moxxy/
 ├── scripts/
 │   └── build-gateway.sh          # Cross-platform release builder
 ├── migrations/
-│   └── 0001_init.sql             # SQLite schema (11 tables)
+│   ├── 0001_init.sql             # Core schema (11 tables)
+│   ├── 0002_channels.sql         # Channel/binding/pairing tables
+│   ├── 0003_webhooks.sql         # Webhook + delivery tables
+│   └── 0004_conversation_log.sql # Conversation persistence
 ├── openapi/
 │   └── openapi.yaml              # OpenAPI 3.1.0 contract
+├── examples/
+│   └── skills/                   # Example skill definitions
+│       ├── code-review.md
+│       ├── web-scraper.md
+│       └── webhook-notifier.md
 ├── crates/
-│   ├── moxxy-types/              # Shared types and errors
-│   ├── moxxy-test-utils/         # Test fixtures and TestDb
-│   ├── moxxy-storage/            # SQLite DAOs (9 data access objects)
+│   ├── moxxy-types/              # Shared types, enums, errors
+│   ├── moxxy-test-utils/         # TestDb, fixture factories
+│   ├── moxxy-storage/            # SQLite DAOs (15 data access objects)
 │   ├── moxxy-core/               # Domain logic (7 modules)
-│   ├── moxxy-vault/              # Secret management
-│   ├── moxxy-gateway/            # REST + SSE server + binary
-│   └── moxxy-runtime/            # Primitives and agent process
+│   ├── moxxy-vault/              # Secret management (keychain backend)
+│   ├── moxxy-channel/            # Messaging channels (Telegram, Discord)
+│   ├── moxxy-gateway/            # REST + SSE server with audit logging
+│   └── moxxy-runtime/            # 14 primitives, providers, agent process
 └── apps/
     └── moxxy-cli/                # Node.js CLI
         ├── src/
@@ -478,10 +619,10 @@ moxxy/
 The project was built with strict TDD (Red -> Green -> Refactor). Every module has tests written before implementation.
 
 ```bash
-# Run all Rust tests (187 tests)
+# Run all Rust tests (267 tests)
 cargo test --workspace
 
-# Run CLI tests (37 tests)
+# Run CLI tests
 cd apps/moxxy-cli && npm test
 
 # Run with verbose output
@@ -497,17 +638,17 @@ cargo test -p moxxy-core -- auth::token::tests::issued_token_has_mox_prefix
 
 ### Test Coverage by Crate
 
-| Crate | Unit | Integration | Property | Total |
-|-------|-----:|------------:|---------:|------:|
-| moxxy-types | 7 | 0 | 2 | 9 |
-| moxxy-test-utils | 3 | 0 | 0 | 3 |
-| moxxy-storage | 0 | 55 | 0 | 55 |
-| moxxy-core | 27 | 12 | 8 | 47 |
-| moxxy-vault | 0 | 10 | 0 | 10 |
-| moxxy-gateway | 0 | 29 | 0 | 29 |
-| moxxy-runtime | 10 | 24 | 0 | 34 |
-| moxxy-cli | 37 | 0 | 0 | 37 |
-| **Total** | **84** | **130** | **10** | **224** |
+| Crate | Tests |
+|-------|------:|
+| moxxy-types | 9 |
+| moxxy-test-utils | 3 |
+| moxxy-storage | 88 |
+| moxxy-core | 48 |
+| moxxy-vault | 10 |
+| moxxy-channel | 12 |
+| moxxy-gateway | 43 |
+| moxxy-runtime | 54 |
+| **Rust Total** | **267** |
 
 ## Contributing
 
@@ -568,16 +709,28 @@ cd apps/moxxy-cli && npm test             # CLI tests pass
 - [x] `~/.moxxy` data directory with agent workspaces
 - [x] Doctor and uninstall commands
 - [x] Cross-platform release build script
+- [x] All 14 primitives registered and wired (fs, memory, shell, http, skill, webhook, notify)
+- [x] Event persistence with RedactionEngine (EventAuditDao)
+- [x] AgentLineage enforcement (depth + total limits on subagent spawning)
+- [x] CORS, request body limits, input validation
+- [x] Run cancellation (CancellationToken) and 5-minute timeout
+- [x] Health endpoint and graceful shutdown (SIGTERM/SIGINT)
+- [x] Heartbeat background execution loop
+- [x] Production audit logging (TraceLayer, env-filter, auth failure logging)
+- [x] Audit log query endpoint with pagination
+- [x] Custom webhooks (CRUD API + agent primitives + delivery dispatcher)
+- [x] OpenAI-compatible LLM provider
+- [x] Conversation persistence (conversation_log table)
+- [x] Messaging channels (Telegram, Discord scaffolding)
 - [ ] Provider plugin host (WASI-based signed plugin loading)
 - [ ] Process isolation (Linux bubblewrap/namespaces, macOS seatbelt)
 - [ ] Vector search via `sqlite-vec` for semantic memory retrieval
 - [ ] Memory compaction and summarization pipeline
-- [ ] Sub-agent process orchestration with lifecycle management
 - [ ] E2E integration test suite (token -> agent -> run -> SSE)
 - [ ] Markdown rendering in TUI (assistant responses)
-- [ ] TUI command palette and slash commands
+- [x] TUI slash commands (/quit, /stop, /clear, /help, /status, /model) with autocomplete popup
 - [ ] Multi-agent TUI tabs
-- [ ] Metrics and observability (tracing integration)
+- [ ] Rate limiting (governor/tower-governor)
 - [ ] Documentation site
 
 ## License
