@@ -402,6 +402,7 @@ impl RunService {
         let temperature = agent.temperature;
         let agent_persona = agent.persona.clone();
         let agent_home = agent_dir;
+        let parent_agent_id = agent.parent_agent_id.clone();
 
         // Create cancellation token for this run
         let cancel_token = CancellationToken::new();
@@ -518,13 +519,13 @@ impl RunService {
                 ),
                 (
                     "agent",
-                    "Sub-agents",
+                    "Sub-agents (auto-cleaned up when their run completes)",
                     &[
                         ("agent.spawn", "spawn"),
                         ("agent.status", "check status"),
                         ("agent.list", "list"),
                         ("agent.stop", "stop"),
-                        ("agent.dismiss", "dismiss completed sub-agent"),
+                        ("agent.dismiss", "manually dismiss a sub-agent"),
                     ],
                 ),
                 (
@@ -628,8 +629,22 @@ impl RunService {
             }
 
             if let Ok(db) = db.lock() {
-                let new_status = if result.is_ok() { "idle" } else { "error" };
-                let _ = db.agents().update_status(&agent_id_owned, new_status);
+                // Sub-agents are automatically cleaned up after their run completes.
+                // The parent's spawned_total is decremented so it can spawn new ones.
+                if let Some(ref pid) = parent_agent_id {
+                    tracing::info!(
+                        agent_id = %agent_id_owned,
+                        parent_agent_id = %pid,
+                        "Sub-agent run finished, cleaning up"
+                    );
+                    let _ = db.agents().delete(&agent_id_owned);
+                    let _ = db.agents().decrement_spawned_total(pid);
+                    // Remove the sub-agent's filesystem directory
+                    let _ = std::fs::remove_dir_all(&agent_home);
+                } else {
+                    let new_status = if result.is_ok() { "idle" } else { "error" };
+                    let _ = db.agents().update_status(&agent_id_owned, new_status);
+                }
             }
 
             // Clean up cancellation token
@@ -672,9 +687,17 @@ impl RunService {
         }
 
         let db = self.db.lock().map_err(|e| e.to_string())?;
-        db.agents()
-            .update_status(agent_id, "idle")
-            .map_err(|e| e.to_string())
+        // Sub-agents are cleaned up automatically in the spawned task after
+        // cancellation, so only set status for top-level agents here.
+        let agent = db.agents().find_by_id(agent_id).map_err(|e| e.to_string())?;
+        if let Some(a) = agent
+            && a.parent_agent_id.is_none()
+        {
+            db.agents()
+                .update_status(agent_id, "idle")
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
     }
 
     /// Cancel all active agent runs. Called during graceful shutdown.
