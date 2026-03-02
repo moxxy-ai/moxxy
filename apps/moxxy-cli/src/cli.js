@@ -11,6 +11,8 @@ import { runHeartbeat } from './commands/heartbeat.js';
 import { runVault } from './commands/vault.js';
 import { runEvents } from './commands/events.js';
 import { runGateway } from './commands/gateway.js';
+import { runDoctor } from './commands/doctor.js';
+import { runUninstall } from './commands/uninstall.js';
 
 export const LOGO = `
   ███╗   ███╗ ██████╗ ██╗  ██╗██╗  ██╗██╗   ██╗
@@ -49,6 +51,8 @@ Usage:
   moxxy gateway restart                              Restart the gateway
   moxxy gateway status                               Show gateway status
   moxxy gateway logs                                 Tail gateway logs
+  moxxy doctor                                       Diagnose installation
+  moxxy uninstall                                    Remove all Moxxy data
 
 Environment:
   MOXXY_API_URL   API base URL (default: http://localhost:3000)
@@ -83,6 +87,12 @@ async function routeCommand(client, command, rest) {
       break;
     case 'gateway':
       await runGateway(client, rest);
+      break;
+    case 'doctor':
+      await runDoctor(client, rest);
+      break;
+    case 'uninstall':
+      await runUninstall(client, rest);
       break;
     case 'tui':
     case 'chat': {
@@ -126,6 +136,8 @@ async function main() {
         { value: 'vault',     label: 'Vault',     hint: 'manage secrets' },
         { value: 'events',    label: 'Events',    hint: 'stream live events' },
         { value: 'gateway',   label: 'Gateway',   hint: 'start/stop/manage gateway' },
+        { value: 'doctor',    label: 'Doctor',    hint: 'diagnose installation' },
+        { value: 'uninstall', label: 'Uninstall', hint: 'remove all Moxxy data' },
       ],
     });
     handleCancel(selected);
