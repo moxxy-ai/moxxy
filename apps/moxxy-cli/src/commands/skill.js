@@ -171,8 +171,10 @@ export async function runSkill(client, args) {
       return skills;
     }
 
-    default:
-      console.error('Usage: moxxy skill <import|approve|remove|list>');
-      process.exitCode = 1;
+    default: {
+      const { showHelp } = await import('../help.js');
+      showHelp('skill', p);
+      break;
+    }
   }
 }

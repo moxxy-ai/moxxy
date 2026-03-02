@@ -175,8 +175,10 @@ export async function runVault(client, args) {
       break;
     }
 
-    default:
-      console.error('Usage: moxxy vault <add|grant|revoke|list>');
-      process.exitCode = 1;
+    default: {
+      const { showHelp } = await import('../help.js');
+      showHelp('vault', p);
+      break;
+    }
   }
 }

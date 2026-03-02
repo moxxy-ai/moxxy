@@ -82,9 +82,11 @@ impl Primitive for ShellExecPrimitive {
                 .db
                 .lock()
                 .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-            db.allowlists()
+            let db_entries = db
+                .allowlists()
                 .list_entries(&self.agent_id, "shell_command")
-                .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?
+                .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
+            crate::defaults::merge_with_defaults(db_entries, "shell_command")
         };
 
         if !allowed_commands.contains(&command.to_string()) {

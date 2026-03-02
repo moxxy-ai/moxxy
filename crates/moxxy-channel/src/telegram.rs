@@ -115,10 +115,12 @@ impl ChannelTransport for TelegramTransport {
                             for update in updates {
                                 offset = update.update_id + 1;
                                 if let Some(msg) = update.message {
+                                    let sender_id = msg.from.as_ref().map(|u| u.id.to_string()).unwrap_or_default();
+                                    let sender_name = msg.from.as_ref().map(|u| u.first_name.clone()).unwrap_or_default();
                                     let incoming = IncomingMessage {
                                         external_chat_id: msg.chat.id.to_string(),
-                                        sender_id: msg.from.map(|u| u.id.to_string()).unwrap_or_default(),
-                                        sender_name: msg.from_name.unwrap_or_default(),
+                                        sender_id,
+                                        sender_name,
                                         text: msg.text.unwrap_or_default(),
                                         timestamp: msg.date,
                                     };
@@ -136,6 +138,22 @@ impl ChannelTransport for TelegramTransport {
                 }
             }
         }
+        Ok(())
+    }
+
+    async fn send_typing(&self, external_chat_id: &str) -> Result<(), ChannelError> {
+        let body = serde_json::json!({
+            "chat_id": external_chat_id,
+            "action": "typing",
+        });
+
+        let _ = self
+            .http_client
+            .post(self.api_url("sendChatAction"))
+            .json(&body)
+            .send()
+            .await;
+
         Ok(())
     }
 
@@ -225,8 +243,6 @@ struct TelegramMessage {
     #[allow(dead_code)]
     message_id: i64,
     from: Option<TelegramUser>,
-    #[serde(skip)]
-    from_name: Option<String>,
     chat: TelegramChat,
     date: i64,
     text: Option<String>,
@@ -243,16 +259,6 @@ struct TelegramChat {
     id: i64,
 }
 
-// Custom deserialization to extract from_name from the User
-impl TelegramMessage {
-    #[allow(dead_code)]
-    fn sender_name(&self) -> String {
-        self.from
-            .as_ref()
-            .map(|u| u.first_name.clone())
-            .unwrap_or_default()
-    }
-}
 
 #[cfg(test)]
 mod tests {

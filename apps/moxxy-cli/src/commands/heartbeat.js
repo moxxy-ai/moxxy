@@ -136,8 +136,10 @@ export async function runHeartbeat(client, args) {
       break;
     }
 
-    default:
-      console.error('Usage: moxxy heartbeat <set|list|disable>');
-      process.exitCode = 1;
+    default: {
+      const { showHelp } = await import('../help.js');
+      showHelp('heartbeat', p);
+      break;
+    }
   }
 }

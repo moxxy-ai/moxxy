@@ -260,9 +260,11 @@ export async function runAuth(client, args) {
       break;
     }
 
-    default:
-      console.error('Usage: moxxy auth token <create|list|revoke>');
-      process.exitCode = 1;
+    default: {
+      const { showHelp } = await import('../help.js');
+      showHelp('auth', p);
+      break;
+    }
   }
 }
 

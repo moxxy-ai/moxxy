@@ -144,12 +144,8 @@ impl Primitive for GitClonePrimitive {
             .as_str()
             .map(|p| self.workspace_root.join(p))
             .unwrap_or_else(|| {
-                let repo_name = url
-                    .rsplit('/')
-                    .next()
-                    .unwrap_or("repo")
-                    .strip_suffix(".git")
-                    .unwrap_or("repo");
+                let last = url.rsplit('/').next().unwrap_or("repo");
+                let repo_name = last.strip_suffix(".git").unwrap_or(last);
                 self.workspace_root.join(repo_name)
             });
 
@@ -356,15 +352,24 @@ impl Primitive for GitStatusPrimitive {
             if line.len() < 4 {
                 continue;
             }
-            let status = &line[..2];
+            let bytes = line.as_bytes();
+            let x = bytes[0]; // index (staged) status
+            let y = bytes[1]; // worktree status
             let file = line[3..].trim().to_string();
-            match status {
-                "??" => untracked.push(file),
-                s if s.starts_with('M') || s.starts_with('A') || s.starts_with('D') => {
-                    staged.push(file);
-                }
-                s if s.ends_with('M') => modified.push(file),
-                _ => modified.push(file),
+
+            if x == b'?' && y == b'?' {
+                untracked.push(file);
+                continue;
+            }
+
+            // First column: staged changes (M/A/D/R/C)
+            if matches!(x, b'M' | b'A' | b'D' | b'R' | b'C') {
+                staged.push(file.clone());
+            }
+
+            // Second column: unstaged worktree changes
+            if matches!(y, b'M' | b'D') {
+                modified.push(file);
             }
         }
 
@@ -543,24 +548,20 @@ impl Primitive for GitPushPrimitive {
 
         tracing::info!(path, remote, branch = ?branch, force, "Pushing to remote");
 
-        // Set up credential helper via token
-        if let Ok(Some(token)) = self.ctx.resolve_secret("github-token") {
-            // Get current remote URL and inject token
+        // Resolve the push target: use an authenticated URL if a vault token is
+        // available, otherwise fall back to the named remote.  We push to the
+        // URL directly so the token is never persisted in .git/config.
+        let push_target = if let Ok(Some(token)) = self.ctx.resolve_secret("github-token") {
             let (remote_url, _, _) =
                 run_git(&["remote", "get-url", remote], path, Duration::from_secs(5))
                     .await
                     .unwrap_or_default();
+            inject_token_into_url(remote_url.trim(), &token)
+        } else {
+            remote.to_string()
+        };
 
-            let auth_url = inject_token_into_url(remote_url.trim(), &token);
-            let _ = run_git(
-                &["remote", "set-url", remote, &auth_url],
-                path,
-                Duration::from_secs(5),
-            )
-            .await;
-        }
-
-        let mut args = vec!["push", remote];
+        let mut args = vec!["push", &push_target];
         if let Some(b) = branch {
             args.push(b);
         }

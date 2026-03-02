@@ -14,8 +14,8 @@ export async function runEvents(client, args) {
   }
 
   if (action !== 'tail') {
-    console.error('Usage: moxxy events tail [--agent <id>] [--run <id>]');
-    process.exitCode = 1;
+    const { showHelp } = await import('../help.js');
+    showHelp('events', p);
     return;
   }
 

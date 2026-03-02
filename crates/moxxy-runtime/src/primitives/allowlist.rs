@@ -58,7 +58,7 @@ impl Primitive for AllowlistListPrimitive {
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'list_type'".into()))?;
         validate_list_type(list_type)?;
 
-        let entries = {
+        let db_entries = {
             let db = self
                 .db
                 .lock()
@@ -68,10 +68,15 @@ impl Primitive for AllowlistListPrimitive {
                 .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?
         };
 
+        let defaults = crate::defaults::default_entries(list_type);
+        let merged = crate::defaults::merge_with_defaults(db_entries.clone(), list_type);
+
         Ok(serde_json::json!({
             "list_type": list_type,
-            "entries": entries,
-            "count": entries.len(),
+            "entries": merged,
+            "count": merged.len(),
+            "default_count": defaults.len(),
+            "custom_count": db_entries.len(),
         }))
     }
 }
@@ -269,7 +274,7 @@ mod tests {
     #[tokio::test]
     async fn allowlist_list_returns_entries() {
         let (db, agent_id) = setup_db();
-        // Seed some entries
+        // Seed a custom entry not in defaults
         {
             let d = db.lock().unwrap();
             d.allowlists()
@@ -277,7 +282,7 @@ mod tests {
                     id: uuid::Uuid::now_v7().to_string(),
                     agent_id: agent_id.clone(),
                     list_type: "shell_command".into(),
-                    entry: "ls".into(),
+                    entry: "my-custom-tool".into(),
                     created_at: chrono::Utc::now().to_rfc3339(),
                 })
                 .unwrap();
@@ -288,8 +293,14 @@ mod tests {
             .invoke(serde_json::json!({"list_type": "shell_command"}))
             .await
             .unwrap();
-        assert_eq!(result["count"], 1);
-        assert_eq!(result["entries"][0], "ls");
+        let defaults_count = crate::defaults::default_entries("shell_command").len();
+        // Merged = defaults + 1 custom entry
+        assert_eq!(result["count"], defaults_count + 1);
+        assert_eq!(result["custom_count"], 1);
+        assert_eq!(result["default_count"], defaults_count);
+        let entries = result["entries"].as_array().unwrap();
+        assert!(entries.iter().any(|e| e == "my-custom-tool"));
+        assert!(entries.iter().any(|e| e == "ls"));
     }
 
     #[tokio::test]

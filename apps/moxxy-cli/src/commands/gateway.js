@@ -378,8 +378,11 @@ export async function runGateway(client, args) {
         handleCancel(action);
         await runGateway(client, [action]);
       } else {
-        console.error(sub ? `Unknown gateway action: ${sub}` : 'Usage: moxxy gateway <start|stop|restart|status|logs>');
-        process.exitCode = 1;
+        const { showHelp } = await import('../help.js');
+        if (sub) {
+          p.log.error(`Unknown gateway action: ${sub}`);
+        }
+        showHelp('gateway', p);
       }
   }
 }

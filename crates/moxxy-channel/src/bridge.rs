@@ -170,16 +170,32 @@ impl ChannelBridge {
             return;
         }
 
-        // Look up binding (one agent per channel)
-        let binding = {
-            let db = match self.db.lock() {
-                Ok(db) => db,
-                Err(_) => return,
-            };
-            db.channel_bindings()
-                .find_by_channel(channel_id)
-                .ok()
-                .and_then(|v| v.into_iter().next())
+        // Look up binding (one agent per channel).
+        // Lock is scoped so it's dropped before any await.
+        let binding_lookup = {
+            match self.db.lock() {
+                Ok(db) => db.channel_bindings().find_by_channel(channel_id),
+                Err(e) => {
+                    tracing::error!(channel_id, "Failed to acquire db lock: {}", e);
+                    Err(moxxy_types::StorageError::QueryFailed(e.to_string()))
+                }
+            }
+        };
+
+        let binding = match binding_lookup {
+            Ok(bindings) => bindings.into_iter().next(),
+            Err(e) => {
+                tracing::error!(channel_id, "Failed to look up channel binding: {}", e);
+                let _ = transport
+                    .send_message(OutgoingMessage {
+                        external_chat_id: msg.external_chat_id.clone(),
+                        content: MessageContent::Text(
+                            "Internal error, please try again.".into(),
+                        ),
+                    })
+                    .await;
+                return;
+            }
         };
 
         let Some(binding) = binding else {
@@ -219,6 +235,9 @@ impl ChannelBridge {
             }),
         );
         self.event_bus.emit(envelope);
+
+        // Show typing indicator immediately
+        let _ = transport.send_typing(&msg.external_chat_id).await;
 
         // Trigger a run via RunStarter
         match self
@@ -262,13 +281,21 @@ impl ChannelBridge {
             Some(handler) => {
                 // Resolve binding — lock is scoped so it's dropped before any await
                 let binding_result = {
-                    let db = self.db.lock().ok();
-                    db.and_then(|db| {
-                        db.channel_bindings()
+                    match self.db.lock() {
+                        Ok(db) => db
+                            .channel_bindings()
                             .find_by_channel(channel_id)
                             .ok()
-                            .and_then(|v| v.into_iter().find(|b| b.status == "active"))
-                    })
+                            .and_then(|v| v.into_iter().find(|b| b.status == "active")),
+                        Err(e) => {
+                            tracing::error!(
+                                channel_id,
+                                "Failed to acquire db lock for command: {}",
+                                e
+                            );
+                            None
+                        }
+                    }
                 };
                 let agent_id = binding_result.map(|b| b.agent_id);
 
@@ -309,6 +336,43 @@ impl ChannelBridge {
                 content: MessageContent::Text(response_text),
             })
             .await;
+    }
+
+    /// Returns true if this event type should trigger a typing indicator.
+    fn should_send_typing(event_type: &EventType) -> bool {
+        matches!(
+            event_type,
+            EventType::RunStarted | EventType::PrimitiveInvoked
+        )
+    }
+
+    /// Send typing indicator to all channels bound to an agent.
+    async fn send_typing_to_agent_channels(&self, agent_id: &str) {
+        let bindings = {
+            let Ok(db) = self.db.lock() else { return };
+            db.channel_bindings()
+                .find_by_agent(agent_id)
+                .unwrap_or_default()
+        };
+
+        let to_send: Vec<(Arc<dyn ChannelTransport>, String)> = {
+            let Ok(transports) = self.transports.read() else {
+                return;
+            };
+            bindings
+                .iter()
+                .filter(|b| b.status == "active")
+                .filter_map(|b| {
+                    transports
+                        .get(&b.channel_id)
+                        .map(|t| (t.clone(), b.external_chat_id.clone()))
+                })
+                .collect()
+        };
+
+        for (transport, chat_id) in to_send {
+            let _ = transport.send_typing(&chat_id).await;
+        }
     }
 
     /// Convert an event envelope into structured `MessageContent`, if applicable.
@@ -370,7 +434,6 @@ impl ChannelBridge {
                     .to_string();
                 Some(MessageContent::ToolError { name, error })
             }
-            EventType::RunCompleted => Some(MessageContent::RunCompleted),
             _ => None,
         }
     }
@@ -388,6 +451,13 @@ impl ChannelBridge {
                     result = rx.recv() => {
                         match result {
                             Ok(envelope) => {
+                                // Send typing indicator for relevant events
+                                if Self::should_send_typing(&envelope.event_type) {
+                                    bridge
+                                        .send_typing_to_agent_channels(&envelope.agent_id)
+                                        .await;
+                                }
+
                                 let Some(content) = Self::event_to_content(&envelope) else {
                                     continue;
                                 };

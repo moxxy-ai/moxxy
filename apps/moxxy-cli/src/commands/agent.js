@@ -375,8 +375,10 @@ export async function runAgent(client, args) {
       break;
     }
 
-    default:
-      console.error('Usage: moxxy agent <create|run|stop|status|update|delete>');
-      process.exitCode = 1;
+    default: {
+      const { showHelp } = await import('../help.js');
+      showHelp('agent', p);
+      break;
+    }
   }
 }

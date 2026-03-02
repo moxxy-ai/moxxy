@@ -32,9 +32,11 @@ impl HttpRequestPrimitive {
             .db
             .lock()
             .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-        db.allowlists()
+        let db_entries = db
+            .allowlists()
             .list_entries(&self.agent_id, "http_domain")
-            .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))
+            .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
+        Ok(crate::defaults::merge_with_defaults(db_entries, "http_domain"))
     }
 
     fn extract_domain(url: &str) -> Option<String> {

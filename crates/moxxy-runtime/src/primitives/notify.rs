@@ -26,10 +26,11 @@ impl WebhookNotifyPrimitive {
             .db
             .lock()
             .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-        let allowed = db
+        let db_entries = db
             .allowlists()
             .list_entries(&self.agent_id, "http_domain")
             .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
+        let allowed = crate::defaults::merge_with_defaults(db_entries, "http_domain");
         Ok(allowed.iter().any(|d| d == domain))
     }
 

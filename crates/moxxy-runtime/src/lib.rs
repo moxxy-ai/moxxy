@@ -1,4 +1,5 @@
 pub mod context;
+pub mod defaults;
 pub mod echo_provider;
 pub mod executor;
 pub mod openai_provider;

@@ -1,4 +1,5 @@
 import { p, handleCancel, withSpinner, showResult } from '../ui.js';
+import { showHelp } from '../help.js';
 import { parseFlags } from './auth.js';
 
 export async function runChannel(client, args) {
@@ -24,15 +25,7 @@ export async function runChannel(client, args) {
       await unbindChannel(client, rest);
       break;
     default:
-      console.log(`Usage: moxxy channel [create|list|pair|delete|bindings|unbind]
-
-Commands:
-  create                              Create a channel (Telegram/Discord)
-  list                                List all channels
-  pair --code <code> --agent <id>     Pair a chat to an agent
-  delete <id>                         Delete a channel
-  bindings <id>                       List bindings for a channel
-  unbind <channel-id> <binding-id>    Unbind a chat`);
+      showHelp('channel', p);
   }
 }
 
@@ -51,6 +44,28 @@ async function createChannel(client, args) {
     return;
   }
 
+  // Step 1: Select agent to bind
+  let agentId;
+  try {
+    const agents = await client.listAgents();
+    if (agents.length === 0) {
+      p.log.error('No agents found. Create one first: moxxy agent create');
+      return;
+    }
+    agentId = await p.select({
+      message: 'Select agent to bind',
+      options: agents.map(a => ({
+        value: a.id,
+        label: a.name ? `${a.name} (${a.provider_id}/${a.model_id})` : `${a.id.substring(0, 8)} (${a.provider_id}/${a.model_id})`,
+      })),
+    });
+    handleCancel(agentId);
+  } catch (err) {
+    p.log.error(`Failed to list agents: ${err.message}`);
+    return;
+  }
+
+  // Step 2: Get bot token
   p.note(
     '1. Open Telegram and talk to @BotFather\n' +
     '2. Send /newbot and follow the prompts\n' +
@@ -69,8 +84,10 @@ async function createChannel(client, args) {
   });
   handleCancel(displayName);
 
+  // Step 3: Create channel
+  let channel;
   try {
-    const result = await withSpinner('Creating channel...', () =>
+    channel = await withSpinner('Creating channel...', () =>
       client.request('/v1/channels', 'POST', {
         channel_type: channelType,
         display_name: displayName || 'Telegram Bot',
@@ -78,20 +95,47 @@ async function createChannel(client, args) {
       }), 'Channel created.');
 
     showResult('Channel Created', {
-      ID: result.id,
-      Type: result.channel_type,
-      Name: result.display_name,
-      Status: result.status,
+      ID: channel.id,
+      Type: channel.channel_type,
+      Name: channel.display_name,
+      Status: channel.status,
     });
-
-    p.note(
-      '1. Open your Telegram bot and send /start\n' +
-      '2. Copy the 6-digit pairing code\n' +
-      `3. Run: moxxy channel pair --code <code> --agent <agent-id>`,
-      'Next: Pair your chat'
-    );
   } catch (err) {
     p.log.error(`Failed to create channel: ${err.message}`);
+    return;
+  }
+
+  // Step 4: Wait for pairing code
+  p.note(
+    '1. Open your Telegram bot and send /start\n' +
+    '2. Copy the 6-digit pairing code',
+    'Pair your chat'
+  );
+
+  const code = await p.text({
+    message: 'Enter 6-digit pairing code',
+    validate: (v) => {
+      if (!v || v.trim().length === 0) return 'Code is required';
+    },
+  });
+  handleCancel(code);
+
+  // Step 5: Pair
+  try {
+    const result = await withSpinner('Pairing...', () =>
+      client.request(`/v1/channels/${channel.id}/pair`, 'POST', {
+        code: code.trim(),
+        agent_id: agentId,
+      }), 'Paired successfully.');
+
+    showResult('Channel Paired', {
+      'Binding ID': result.id,
+      Channel: result.channel_id,
+      Agent: result.agent_id,
+      'External Chat': result.external_chat_id,
+    });
+  } catch (err) {
+    p.log.error(`Failed to pair: ${err.message}`);
   }
 }
 

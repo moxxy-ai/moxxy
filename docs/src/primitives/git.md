@@ -10,15 +10,15 @@ Initialize a new git repository.
 
 ```json
 {
-  "path": ".",
+  "path": "my-project",
   "default_branch": "main"
 }
 ```
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `path` | string | No | `.` | Directory to initialize (within workspace) |
-| `default_branch` | string | No | `main` | Default branch name |
+| `path` | string | No | workspace root | Directory to initialize (relative to workspace) |
+| `default_branch` | string | No | git default | Initial branch name |
 
 ## git.clone
 
@@ -30,15 +30,17 @@ Clone a repository into the workspace.
 {
   "url": "https://github.com/user/repo.git",
   "path": "repo",
-  "branch": "main"
+  "branch": "main",
+  "depth": 1
 }
 ```
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `url` | string | Yes | -- | Repository URL |
-| `path` | string | No | derived from URL | Target directory |
+| `path` | string | No | derived from URL | Target directory (relative to workspace) |
 | `branch` | string | No | default | Branch to checkout |
+| `depth` | integer | No | full | Shallow clone depth |
 
 **Vault integration**: For private repositories, the agent needs a `github-token` vault grant. The clone primitive injects the token into the URL for HTTPS authentication.
 
@@ -50,9 +52,13 @@ Show the working tree status.
 
 ```json
 {
-  "path": "."
+  "path": "/workspace/my-project"
 }
 ```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `path` | string | Yes | Path to the git repository |
 
 **Result**:
 
@@ -65,6 +71,8 @@ Show the working tree status.
 }
 ```
 
+Note: A file can appear in both `staged` and `modified` if it has staged changes and additional unstaged modifications.
+
 ## git.checkout
 
 Switch or create branches.
@@ -73,6 +81,7 @@ Switch or create branches.
 
 ```json
 {
+  "path": "/workspace/my-project",
   "branch": "feature/new-feature",
   "create": true
 }
@@ -80,30 +89,31 @@ Switch or create branches.
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
+| `path` | string | Yes | -- | Path to the git repository |
 | `branch` | string | Yes | -- | Branch name |
 | `create` | boolean | No | false | Create branch if it does not exist |
 
 ## git.commit
 
-Stage files and create a commit.
+Stage files and create a commit. Stages all files (`git add -A`) when `files` is omitted.
 
 **Parameters**:
 
 ```json
 {
+  "path": "/workspace/my-project",
   "message": "refactor: extract auth middleware",
-  "files": ["src/auth.rs", "src/middleware.rs"],
-  "all": false
+  "files": ["src/auth.rs", "src/middleware.rs"]
 }
 ```
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
+| `path` | string | Yes | -- | Path to the git repository |
 | `message` | string | Yes | -- | Commit message |
-| `files` | string[] | No | `[]` | Files to stage |
-| `all` | boolean | No | false | Stage all modified files |
+| `files` | string[] | No | all files | Specific files to stage (stages all if omitted) |
 
-**Vault integration**: The commit primitive can read `git-user-name` and `git-user-email` from the vault to configure the commit author.
+**Vault integration**: The commit primitive reads `github-user` and `github-email` from the vault to configure `user.name` and `user.email` for the commit.
 
 ## git.push
 
@@ -113,6 +123,7 @@ Push commits to a remote.
 
 ```json
 {
+  "path": "/workspace/my-project",
   "remote": "origin",
   "branch": "feature/auth-refactor",
   "force": false
@@ -121,11 +132,12 @@ Push commits to a remote.
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
+| `path` | string | Yes | -- | Path to the git repository |
 | `remote` | string | No | `origin` | Remote name |
 | `branch` | string | No | current | Branch to push |
 | `force` | boolean | No | false | Force push |
 
-**Vault integration**: For HTTPS remotes, the push primitive injects a `github-token` from the vault for authentication.
+**Vault integration**: For HTTPS remotes, the push primitive resolves `github-token` from the vault and injects it into the push URL for authentication. The token is never persisted in `.git/config`.
 
 ## git.fork
 
@@ -140,18 +152,22 @@ Fork a GitHub repository via the GitHub API.
 }
 ```
 
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `owner` | string | Yes | Repository owner/organization |
+| `repo` | string | Yes | Repository name |
+
 **Vault integration**: Requires a `github-token` vault grant with repo scope.
 
 ## git.pr_create
 
-Create a GitHub pull request.
+Create a GitHub pull request. Infers owner/repo from the `origin` remote URL.
 
 **Parameters**:
 
 ```json
 {
-  "owner": "user",
-  "repo": "my-repo",
+  "path": "/workspace/my-project",
   "title": "refactor: extract auth middleware",
   "body": "This PR extracts the auth middleware into its own module.",
   "head": "feature/auth-refactor",
@@ -159,16 +175,15 @@ Create a GitHub pull request.
 }
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `owner` | string | Yes | Repository owner |
-| `repo` | string | Yes | Repository name |
-| `title` | string | Yes | PR title |
-| `body` | string | No | PR description |
-| `head` | string | Yes | Source branch |
-| `base` | string | Yes | Target branch |
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `path` | string | Yes | -- | Path to the git repository |
+| `title` | string | Yes | -- | PR title |
+| `body` | string | No | empty | PR description |
+| `base` | string | No | `main` | Target branch |
+| `head` | string | No | current branch | Source branch |
 
-**Vault integration**: Requires a `github-token` vault grant.
+**Vault integration**: Requires a `github-token` vault grant. Returns `AccessDenied` if the token is missing.
 
 ## git.worktree_add
 
@@ -178,54 +193,66 @@ Create a git worktree for parallel feature work.
 
 ```json
 {
-  "path": "../worktree-auth",
-  "branch": "feature/auth-refactor"
+  "path": "/workspace/my-project",
+  "branch": "feature/auth-refactor",
+  "worktree_path": "custom/worktree/path",
+  "create_branch": true
+}
+```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `path` | string | Yes | -- | Path to the main git repository |
+| `branch` | string | Yes | -- | Branch name for the worktree |
+| `worktree_path` | string | No | `{workspace}/.worktrees/{branch}` | Custom path for the worktree |
+| `create_branch` | boolean | No | true | Create the branch if it doesn't exist |
+
+## git.worktree_list
+
+List all worktrees for a repository.
+
+**Parameters**:
+
+```json
+{
+  "path": "/workspace/my-project"
 }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `path` | string | Yes | Path for the new worktree |
-| `branch` | string | Yes | Branch for the worktree |
-
-## git.worktree_list
-
-List all worktrees.
-
-**Parameters**:
-
-```json
-{}
-```
+| `path` | string | Yes | Path to the git repository |
 
 **Result**:
 
 ```json
 {
   "worktrees": [
-    {"path": "/home/user/project", "branch": "main", "head": "abc123"},
-    {"path": "/home/user/worktree-auth", "branch": "feature/auth", "head": "def456"}
+    {"path": "/home/user/project", "branch": "refs/heads/main", "head": "abc123"},
+    {"path": "/home/user/.worktrees/feature-auth", "branch": "refs/heads/feature-auth", "head": "def456"}
   ]
 }
 ```
 
 ## git.worktree_remove
 
-Remove a worktree.
+Remove a git worktree.
 
 **Parameters**:
 
 ```json
 {
-  "path": "../worktree-auth",
+  "path": "/workspace/my-project",
+  "worktree_path": "/workspace/.worktrees/feature-auth",
   "force": false
 }
 ```
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `path` | string | Yes | -- | Worktree path |
-| `force` | boolean | No | false | Force removal even with changes |
+| `path` | string | Yes | -- | Path to the main git repository |
+| `worktree_path` | string | Yes | -- | Path of the worktree to remove |
+| `force` | boolean | No | false | Force removal even with uncommitted changes |
 
 ## Example Skill Declaration
 

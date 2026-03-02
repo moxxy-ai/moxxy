@@ -34,12 +34,12 @@ impl BrowseFetchPrimitive {
             .db
             .lock()
             .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-        let allowed = db
+        let db_entries = db
             .allowlists()
             .list_entries(&self.agent_id, "http_domain")
             .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-        // Empty allowlist = allow all (for development)
-        Ok(allowed.is_empty() || allowed.iter().any(|d| d == domain))
+        let allowed = crate::defaults::merge_with_defaults(db_entries, "http_domain");
+        Ok(allowed.iter().any(|d| d == domain))
     }
 
     fn extract_domain(url: &str) -> Option<String> {
@@ -371,11 +371,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn browse_fetch_allows_empty_allowlist() {
+    async fn browse_fetch_allows_default_domains() {
         use moxxy_storage::Database;
         use moxxy_test_utils::TestDb;
 
-        // Empty allowlist = allow all (for development)
+        // With no DB entries, default domains are still allowed
         let test_db = TestDb::new();
         let db = Database::new(test_db.into_conn());
         db.providers()
@@ -413,6 +413,10 @@ mod tests {
         let db = Arc::new(Mutex::new(db));
 
         let prim = BrowseFetchPrimitive::new(db, agent_id, Duration::from_secs(5), 1024 * 1024);
-        assert!(prim.is_domain_allowed("anything.com").unwrap());
+        // Default domains are allowed
+        assert!(prim.is_domain_allowed("github.com").unwrap());
+        assert!(prim.is_domain_allowed("stackoverflow.com").unwrap());
+        // Unknown domains are blocked
+        assert!(!prim.is_domain_allowed("random-unknown.com").unwrap());
     }
 }

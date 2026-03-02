@@ -44,6 +44,11 @@ pub trait ChannelTransport: Send + Sync {
         Ok(())
     }
 
+    /// Send a typing indicator to the chat. Default: no-op.
+    async fn send_typing(&self, _external_chat_id: &str) -> Result<(), ChannelError> {
+        Ok(())
+    }
+
     /// Format structured message content for this platform. Default: plain text.
     fn format_content(&self, content: &MessageContent) -> String {
         match content {
