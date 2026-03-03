@@ -530,6 +530,7 @@ fn parse_codex_response_output(
     Ok(ProviderResponse {
         content,
         tool_calls,
+        usage: None,
     })
 }
 
@@ -613,6 +614,7 @@ fn parse_codex_stream_response(body: &str) -> Result<ProviderResponse, Primitive
     Ok(ProviderResponse {
         content,
         tool_calls,
+        usage: None,
     })
 }
 

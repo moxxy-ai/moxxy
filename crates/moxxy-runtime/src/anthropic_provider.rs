@@ -256,6 +256,7 @@ fn parse_response(resp: AnthropicResponse) -> ProviderResponse {
     ProviderResponse {
         content,
         tool_calls,
+        usage: None,
     }
 }
 
