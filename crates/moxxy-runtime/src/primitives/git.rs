@@ -61,6 +61,17 @@ pub fn augmented_path() -> &'static str {
     })
 }
 
+/// Resolve a user-provided path against the workspace root.
+/// Relative paths are joined to the workspace; absolute paths are returned as-is.
+fn resolve_to_workspace(path: &str, workspace_root: &std::path::Path) -> String {
+    let p = std::path::Path::new(path);
+    if p.is_absolute() {
+        path.to_string()
+    } else {
+        workspace_root.join(p).to_string_lossy().into_owned()
+    }
+}
+
 /// Resolve the absolute path to the `git` binary once and cache it.
 /// Falls back to common well-known locations when `git` is not on PATH.
 fn git_binary() -> &'static str {
@@ -367,17 +378,13 @@ impl Primitive for GitInitPrimitive {
 
 // --- git.status ---
 
-pub struct GitStatusPrimitive;
-
-impl GitStatusPrimitive {
-    pub fn new() -> Self {
-        Self
-    }
+pub struct GitStatusPrimitive {
+    workspace_root: PathBuf,
 }
 
-impl Default for GitStatusPrimitive {
-    fn default() -> Self {
-        Self::new()
+impl GitStatusPrimitive {
+    pub fn new(workspace_root: PathBuf) -> Self {
+        Self { workspace_root }
     }
 }
 
@@ -395,21 +402,22 @@ impl Primitive for GitStatusPrimitive {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Path to the git repository"}
+                "path": {"type": "string", "description": "Path to the git repository. Can be relative (resolved against workspace) or absolute."}
             },
             "required": ["path"]
         })
     }
 
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
-        let path = params["path"]
+        let raw_path = params["path"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'path' parameter".into()))?;
+        let path = resolve_to_workspace(raw_path, &self.workspace_root);
 
-        tracing::debug!(path, "Getting git status");
+        tracing::debug!(path = %path, "Getting git status");
 
         let (porcelain, _, code) =
-            run_git(&["status", "--porcelain"], path, Duration::from_secs(10)).await?;
+            run_git(&["status", "--porcelain"], &path, Duration::from_secs(10)).await?;
 
         if code != 0 {
             return Err(PrimitiveError::ExecutionFailed("git status failed".into()));
@@ -445,7 +453,7 @@ impl Primitive for GitStatusPrimitive {
         }
 
         let (branch_out, _, _) =
-            run_git(&["branch", "--show-current"], path, Duration::from_secs(5))
+            run_git(&["branch", "--show-current"], &path, Duration::from_secs(5))
                 .await
                 .unwrap_or_default();
 
@@ -462,11 +470,15 @@ impl Primitive for GitStatusPrimitive {
 
 pub struct GitCommitPrimitive {
     ctx: PrimitiveContext,
+    workspace_root: PathBuf,
 }
 
 impl GitCommitPrimitive {
-    pub fn new(ctx: PrimitiveContext) -> Self {
-        Self { ctx }
+    pub fn new(ctx: PrimitiveContext, workspace_root: PathBuf) -> Self {
+        Self {
+            ctx,
+            workspace_root,
+        }
     }
 }
 
@@ -484,7 +496,7 @@ impl Primitive for GitCommitPrimitive {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Path to the git repository"},
+                "path": {"type": "string", "description": "Path to the git repository. Can be relative (resolved against workspace) or absolute."},
                 "message": {"type": "string", "description": "Commit message"},
                 "files": {"type": "array", "items": {"type": "string"}, "description": "Specific files to stage (stages all if omitted)"}
             },
@@ -493,20 +505,21 @@ impl Primitive for GitCommitPrimitive {
     }
 
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
-        let path = params["path"]
+        let raw_path = params["path"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'path' parameter".into()))?;
+        let path = resolve_to_workspace(raw_path, &self.workspace_root);
         let message = params["message"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'message' parameter".into()))?;
 
-        tracing::info!(path, message_len = message.len(), "Creating git commit");
+        tracing::info!(path = %path, message_len = message.len(), "Creating git commit");
 
         // Configure user.name and user.email from vault
         if let Ok(Some(user)) = self.ctx.resolve_secret("github-user") {
             let _ = run_git(
                 &["config", "--local", "user.name", &user],
-                path,
+                &path,
                 Duration::from_secs(5),
             )
             .await;
@@ -514,7 +527,7 @@ impl Primitive for GitCommitPrimitive {
         if let Ok(Some(email)) = self.ctx.resolve_secret("github-email") {
             let _ = run_git(
                 &["config", "--local", "user.email", &email],
-                path,
+                &path,
                 Duration::from_secs(5),
             )
             .await;
@@ -531,7 +544,8 @@ impl Primitive for GitCommitPrimitive {
             .unwrap_or_default();
 
         if files.is_empty() {
-            let (_, stderr, code) = run_git(&["add", "-A"], path, Duration::from_secs(30)).await?;
+            let (_, stderr, code) =
+                run_git(&["add", "-A"], &path, Duration::from_secs(30)).await?;
             if code != 0 {
                 return Err(PrimitiveError::ExecutionFailed(format!(
                     "git add failed: {}",
@@ -542,7 +556,7 @@ impl Primitive for GitCommitPrimitive {
             let file_refs: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
             let mut args = vec!["add"];
             args.extend(file_refs);
-            let (_, stderr, code) = run_git(&args, path, Duration::from_secs(30)).await?;
+            let (_, stderr, code) = run_git(&args, &path, Duration::from_secs(30)).await?;
             if code != 0 {
                 return Err(PrimitiveError::ExecutionFailed(format!(
                     "git add failed: {}",
@@ -553,7 +567,7 @@ impl Primitive for GitCommitPrimitive {
 
         // Commit
         let (stdout, stderr, code) =
-            run_git(&["commit", "-m", message], path, Duration::from_secs(30)).await?;
+            run_git(&["commit", "-m", message], &path, Duration::from_secs(30)).await?;
         if code != 0 {
             return Err(PrimitiveError::ExecutionFailed(format!(
                 "git commit failed: {}",
@@ -562,7 +576,7 @@ impl Primitive for GitCommitPrimitive {
         }
 
         // Get commit hash
-        let (hash_out, _, _) = run_git(&["rev-parse", "HEAD"], path, Duration::from_secs(5))
+        let (hash_out, _, _) = run_git(&["rev-parse", "HEAD"], &path, Duration::from_secs(5))
             .await
             .unwrap_or_default();
 
@@ -578,11 +592,15 @@ impl Primitive for GitCommitPrimitive {
 
 pub struct GitPushPrimitive {
     ctx: PrimitiveContext,
+    workspace_root: PathBuf,
 }
 
 impl GitPushPrimitive {
-    pub fn new(ctx: PrimitiveContext) -> Self {
-        Self { ctx }
+    pub fn new(ctx: PrimitiveContext, workspace_root: PathBuf) -> Self {
+        Self {
+            ctx,
+            workspace_root,
+        }
     }
 }
 
@@ -600,7 +618,7 @@ impl Primitive for GitPushPrimitive {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Path to the git repository"},
+                "path": {"type": "string", "description": "Path to the git repository. Can be relative (resolved against workspace) or absolute."},
                 "remote": {"type": "string", "description": "Remote name (default: origin)"},
                 "branch": {"type": "string", "description": "Branch to push"},
                 "force": {"type": "boolean", "description": "Force push"}
@@ -610,14 +628,15 @@ impl Primitive for GitPushPrimitive {
     }
 
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
-        let path = params["path"]
+        let raw_path = params["path"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'path' parameter".into()))?;
+        let path = resolve_to_workspace(raw_path, &self.workspace_root);
         let remote = params["remote"].as_str().unwrap_or("origin");
         let branch = params["branch"].as_str();
         let force = params["force"].as_bool().unwrap_or(false);
 
-        tracing::info!(path, remote, branch = ?branch, force, "Pushing to remote");
+        tracing::info!(path = %path, remote, branch = ?branch, force, "Pushing to remote");
 
         // Resolve the push target: use an authenticated URL if a vault token is
         // available, otherwise ask the user for a token.  We push to the
@@ -630,7 +649,7 @@ impl Primitive for GitPushPrimitive {
             )
             .await?;
         let (remote_url, _, _) =
-            run_git(&["remote", "get-url", remote], path, Duration::from_secs(5))
+            run_git(&["remote", "get-url", remote], &path, Duration::from_secs(5))
                 .await
                 .unwrap_or_default();
         let push_target = inject_token_into_url(remote_url.trim(), &token);
@@ -643,7 +662,7 @@ impl Primitive for GitPushPrimitive {
             args.push("--force");
         }
 
-        let (stdout, stderr, code) = run_git(&args, path, Duration::from_secs(60)).await?;
+        let (stdout, stderr, code) = run_git(&args, &path, Duration::from_secs(60)).await?;
 
         if code != 0 {
             return Err(PrimitiveError::ExecutionFailed(format!(
@@ -663,17 +682,13 @@ impl Primitive for GitPushPrimitive {
 
 // --- git.checkout ---
 
-pub struct GitCheckoutPrimitive;
-
-impl GitCheckoutPrimitive {
-    pub fn new() -> Self {
-        Self
-    }
+pub struct GitCheckoutPrimitive {
+    workspace_root: PathBuf,
 }
 
-impl Default for GitCheckoutPrimitive {
-    fn default() -> Self {
-        Self::new()
+impl GitCheckoutPrimitive {
+    pub fn new(workspace_root: PathBuf) -> Self {
+        Self { workspace_root }
     }
 }
 
@@ -691,7 +706,7 @@ impl Primitive for GitCheckoutPrimitive {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Path to the git repository"},
+                "path": {"type": "string", "description": "Path to the git repository. Can be relative (resolved against workspace) or absolute."},
                 "branch": {"type": "string", "description": "Branch name to checkout"},
                 "create": {"type": "boolean", "description": "Create the branch if it doesn't exist"}
             },
@@ -700,15 +715,16 @@ impl Primitive for GitCheckoutPrimitive {
     }
 
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
-        let path = params["path"]
+        let raw_path = params["path"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'path' parameter".into()))?;
+        let path = resolve_to_workspace(raw_path, &self.workspace_root);
         let branch = params["branch"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'branch' parameter".into()))?;
         let create = params["create"].as_bool().unwrap_or(false);
 
-        tracing::info!(path, branch, create, "Checking out branch");
+        tracing::info!(path = %path, branch, create, "Checking out branch");
 
         let args = if create {
             vec!["checkout", "-b", branch]
@@ -716,7 +732,7 @@ impl Primitive for GitCheckoutPrimitive {
             vec!["checkout", branch]
         };
 
-        let (_, stderr, code) = run_git(&args, path, Duration::from_secs(30)).await?;
+        let (_, stderr, code) = run_git(&args, &path, Duration::from_secs(30)).await?;
 
         if code != 0 {
             return Err(PrimitiveError::ExecutionFailed(format!(
@@ -736,11 +752,15 @@ impl Primitive for GitCheckoutPrimitive {
 
 pub struct GitPrCreatePrimitive {
     ctx: PrimitiveContext,
+    workspace_root: PathBuf,
 }
 
 impl GitPrCreatePrimitive {
-    pub fn new(ctx: PrimitiveContext) -> Self {
-        Self { ctx }
+    pub fn new(ctx: PrimitiveContext, workspace_root: PathBuf) -> Self {
+        Self {
+            ctx,
+            workspace_root,
+        }
     }
 }
 
@@ -758,7 +778,7 @@ impl Primitive for GitPrCreatePrimitive {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Path to the git repository"},
+                "path": {"type": "string", "description": "Path to the git repository. Can be relative (resolved against workspace) or absolute."},
                 "title": {"type": "string", "description": "Pull request title"},
                 "body": {"type": "string", "description": "Pull request description"},
                 "base": {"type": "string", "description": "Base branch (default: main)"},
@@ -769,16 +789,17 @@ impl Primitive for GitPrCreatePrimitive {
     }
 
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
-        let path = params["path"]
+        let raw_path = params["path"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'path' parameter".into()))?;
+        let path = resolve_to_workspace(raw_path, &self.workspace_root);
         let title = params["title"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'title' parameter".into()))?;
         let body = params["body"].as_str().unwrap_or("");
         let base = params["base"].as_str();
 
-        tracing::info!(path, title, base = ?base, "Creating pull request");
+        tracing::info!(path = %path, title, base = ?base, "Creating pull request");
 
         let token = self
             .ctx
@@ -791,7 +812,7 @@ impl Primitive for GitPrCreatePrimitive {
         // Get remote URL to infer owner/repo
         let (remote_url, _, _) = run_git(
             &["remote", "get-url", "origin"],
-            path,
+            &path,
             Duration::from_secs(5),
         )
         .await?;
@@ -802,7 +823,7 @@ impl Primitive for GitPrCreatePrimitive {
 
         // Get current branch as head
         let (branch_out, _, _) =
-            run_git(&["branch", "--show-current"], path, Duration::from_secs(5)).await?;
+            run_git(&["branch", "--show-current"], &path, Duration::from_secs(5)).await?;
         let head = params["head"].as_str().unwrap_or(branch_out.trim());
 
         let base_branch = base.unwrap_or("main");
@@ -959,7 +980,7 @@ impl Primitive for GitWorktreeAddPrimitive {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Path to the main git repository"},
+                "path": {"type": "string", "description": "Path to the main git repository. Can be relative (resolved against workspace) or absolute."},
                 "branch": {"type": "string", "description": "Branch name for the worktree"},
                 "worktree_path": {"type": "string", "description": "Custom path for the worktree"},
                 "create_branch": {"type": "boolean", "description": "Create the branch (default: true)"}
@@ -969,15 +990,16 @@ impl Primitive for GitWorktreeAddPrimitive {
     }
 
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
-        let repo_path = params["path"]
+        let raw_path = params["path"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'path' parameter".into()))?;
+        let repo_path = resolve_to_workspace(raw_path, &self.workspace_root);
 
         let branch = params["branch"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'branch' parameter".into()))?;
 
-        tracing::info!(repo_path, branch, "Adding git worktree");
+        tracing::info!(repo_path = %repo_path, branch, "Adding git worktree");
 
         // Worktree destination: workspace_root/.worktrees/{branch}
         let worktree_dir = params["worktree_path"]
@@ -1002,7 +1024,7 @@ impl Primitive for GitWorktreeAddPrimitive {
             vec!["worktree", "add", &worktree_str, branch]
         };
 
-        let (stdout, stderr, code) = run_git(&args, repo_path, Duration::from_secs(30)).await?;
+        let (stdout, stderr, code) = run_git(&args, &repo_path, Duration::from_secs(30)).await?;
 
         if code != 0 {
             return Err(PrimitiveError::ExecutionFailed(format!(
@@ -1021,17 +1043,13 @@ impl Primitive for GitWorktreeAddPrimitive {
 
 // --- git.worktree_list ---
 
-pub struct GitWorktreeListPrimitive;
-
-impl GitWorktreeListPrimitive {
-    pub fn new() -> Self {
-        Self
-    }
+pub struct GitWorktreeListPrimitive {
+    workspace_root: PathBuf,
 }
 
-impl Default for GitWorktreeListPrimitive {
-    fn default() -> Self {
-        Self::new()
+impl GitWorktreeListPrimitive {
+    pub fn new(workspace_root: PathBuf) -> Self {
+        Self { workspace_root }
     }
 }
 
@@ -1049,22 +1067,23 @@ impl Primitive for GitWorktreeListPrimitive {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Path to the git repository"}
+                "path": {"type": "string", "description": "Path to the git repository. Can be relative (resolved against workspace) or absolute."}
             },
             "required": ["path"]
         })
     }
 
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
-        let path = params["path"]
+        let raw_path = params["path"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'path' parameter".into()))?;
+        let path = resolve_to_workspace(raw_path, &self.workspace_root);
 
-        tracing::debug!(path, "Listing git worktrees");
+        tracing::debug!(path = %path, "Listing git worktrees");
 
         let (stdout, stderr, code) = run_git(
             &["worktree", "list", "--porcelain"],
-            path,
+            &path,
             Duration::from_secs(10),
         )
         .await?;
@@ -1114,17 +1133,13 @@ impl Primitive for GitWorktreeListPrimitive {
 
 // --- git.worktree_remove ---
 
-pub struct GitWorktreeRemovePrimitive;
-
-impl GitWorktreeRemovePrimitive {
-    pub fn new() -> Self {
-        Self
-    }
+pub struct GitWorktreeRemovePrimitive {
+    workspace_root: PathBuf,
 }
 
-impl Default for GitWorktreeRemovePrimitive {
-    fn default() -> Self {
-        Self::new()
+impl GitWorktreeRemovePrimitive {
+    pub fn new(workspace_root: PathBuf) -> Self {
+        Self { workspace_root }
     }
 }
 
@@ -1142,7 +1157,7 @@ impl Primitive for GitWorktreeRemovePrimitive {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Path to the main git repository"},
+                "path": {"type": "string", "description": "Path to the main git repository. Can be relative (resolved against workspace) or absolute."},
                 "worktree_path": {"type": "string", "description": "Path of the worktree to remove"},
                 "force": {"type": "boolean", "description": "Force removal even with uncommitted changes"}
             },
@@ -1151,9 +1166,10 @@ impl Primitive for GitWorktreeRemovePrimitive {
     }
 
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
-        let path = params["path"].as_str().ok_or_else(|| {
+        let raw_path = params["path"].as_str().ok_or_else(|| {
             PrimitiveError::InvalidParams("missing 'path' parameter (main repo)".into())
         })?;
+        let path = resolve_to_workspace(raw_path, &self.workspace_root);
 
         let worktree_path = params["worktree_path"].as_str().ok_or_else(|| {
             PrimitiveError::InvalidParams("missing 'worktree_path' parameter".into())
@@ -1161,14 +1177,14 @@ impl Primitive for GitWorktreeRemovePrimitive {
 
         let force = params["force"].as_bool().unwrap_or(false);
 
-        tracing::info!(path, worktree_path, force, "Removing git worktree");
+        tracing::info!(path = %path, worktree_path, force, "Removing git worktree");
 
         let mut args = vec!["worktree", "remove", worktree_path];
         if force {
             args.push("--force");
         }
 
-        let (stdout, stderr, code) = run_git(&args, path, Duration::from_secs(30)).await?;
+        let (stdout, stderr, code) = run_git(&args, &path, Duration::from_secs(30)).await?;
 
         if code != 0 {
             return Err(PrimitiveError::ExecutionFailed(format!(
@@ -1266,13 +1282,32 @@ mod tests {
 
     #[tokio::test]
     async fn git_status_requires_path() {
-        let prim = GitStatusPrimitive::new();
+        let tmp = tempfile::tempdir().unwrap();
+        let prim = GitStatusPrimitive::new(tmp.path().to_path_buf());
         let result = prim.invoke(serde_json::json!({})).await;
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
             PrimitiveError::InvalidParams(_)
         ));
+    }
+
+    #[tokio::test]
+    async fn git_status_resolves_relative_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let workspace = tmp.path().join("workspace");
+        let repo = workspace.join("my-repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        run_git(&["init"], repo.to_str().unwrap(), Duration::from_secs(5))
+            .await
+            .unwrap();
+
+        let prim = GitStatusPrimitive::new(workspace);
+        let result = prim
+            .invoke(serde_json::json!({"path": "my-repo"}))
+            .await
+            .unwrap();
+        assert!(result["branch"].as_str().is_some());
     }
 
     #[tokio::test]
@@ -1365,7 +1400,7 @@ mod tests {
         .await
         .unwrap();
 
-        let prim = GitWorktreeListPrimitive::new();
+        let prim = GitWorktreeListPrimitive::new(tmp.path().to_path_buf());
         let result = prim
             .invoke(serde_json::json!({"path": repo_path.to_str().unwrap()}))
             .await
@@ -1377,7 +1412,8 @@ mod tests {
 
     #[tokio::test]
     async fn git_worktree_list_requires_path() {
-        let prim = GitWorktreeListPrimitive::new();
+        let tmp = tempfile::tempdir().unwrap();
+        let prim = GitWorktreeListPrimitive::new(tmp.path().to_path_buf());
         let result = prim.invoke(serde_json::json!({})).await;
         assert!(result.is_err());
         assert!(matches!(
@@ -1388,7 +1424,8 @@ mod tests {
 
     #[tokio::test]
     async fn git_worktree_remove_requires_both_paths() {
-        let prim = GitWorktreeRemovePrimitive::new();
+        let tmp = tempfile::tempdir().unwrap();
+        let prim = GitWorktreeRemovePrimitive::new(tmp.path().to_path_buf());
         let result = prim.invoke(serde_json::json!({"path": "/tmp"})).await;
         assert!(result.is_err());
         assert!(matches!(
@@ -1399,12 +1436,31 @@ mod tests {
 
     #[tokio::test]
     async fn git_checkout_requires_path_and_branch() {
-        let prim = GitCheckoutPrimitive::new();
+        let tmp = tempfile::tempdir().unwrap();
+        let prim = GitCheckoutPrimitive::new(tmp.path().to_path_buf());
         let result = prim.invoke(serde_json::json!({"path": "/tmp"})).await;
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
             PrimitiveError::InvalidParams(_)
         ));
+    }
+
+    #[test]
+    fn resolve_to_workspace_joins_relative() {
+        let ws = PathBuf::from("/home/agent/workspace");
+        assert_eq!(
+            resolve_to_workspace("my-project", &ws),
+            "/home/agent/workspace/my-project"
+        );
+    }
+
+    #[test]
+    fn resolve_to_workspace_preserves_absolute() {
+        let ws = PathBuf::from("/home/agent/workspace");
+        assert_eq!(
+            resolve_to_workspace("/some/absolute/path", &ws),
+            "/some/absolute/path"
+        );
     }
 }

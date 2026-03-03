@@ -228,12 +228,12 @@ impl RunService {
             memory_base,
         )));
 
-        // Shell primitive (DB-backed allowlist, 30s timeout, 1MB output cap)
+        // Shell primitive (DB-backed allowlist, 300s max timeout, 1MB output cap)
         registry.register(Box::new(
             moxxy_runtime::ShellExecPrimitive::new(
                 self.db.clone(),
                 agent.id.clone(),
-                std::time::Duration::from_secs(30),
+                std::time::Duration::from_secs(300),
                 1024 * 1024,
             )
             .with_working_dir(workspace_path.clone()),
@@ -287,14 +287,23 @@ impl RunService {
             ctx.clone(),
             workspace_path.clone(),
         )));
-        registry.register(Box::new(moxxy_runtime::GitStatusPrimitive::new()));
+        registry.register(Box::new(moxxy_runtime::GitStatusPrimitive::new(
+            workspace_path.clone(),
+        )));
         registry.register(Box::new(moxxy_runtime::GitCommitPrimitive::new(
             ctx.clone(),
+            workspace_path.clone(),
         )));
-        registry.register(Box::new(moxxy_runtime::GitPushPrimitive::new(ctx.clone())));
-        registry.register(Box::new(moxxy_runtime::GitCheckoutPrimitive::new()));
+        registry.register(Box::new(moxxy_runtime::GitPushPrimitive::new(
+            ctx.clone(),
+            workspace_path.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::GitCheckoutPrimitive::new(
+            workspace_path.clone(),
+        )));
         registry.register(Box::new(moxxy_runtime::GitPrCreatePrimitive::new(
             ctx.clone(),
+            workspace_path.clone(),
         )));
         registry.register(Box::new(moxxy_runtime::GitForkPrimitive::new(ctx.clone())));
 
@@ -327,10 +336,14 @@ impl RunService {
         )));
 
         registry.register(Box::new(moxxy_runtime::GitWorktreeAddPrimitive::new(
+            workspace_path.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::GitWorktreeListPrimitive::new(
+            workspace_path.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::GitWorktreeRemovePrimitive::new(
             workspace_path,
         )));
-        registry.register(Box::new(moxxy_runtime::GitWorktreeListPrimitive::new()));
-        registry.register(Box::new(moxxy_runtime::GitWorktreeRemovePrimitive::new()));
 
         // Heartbeat management primitives (agents can self-schedule)
         registry.register(Box::new(moxxy_runtime::HeartbeatCreatePrimitive::new(

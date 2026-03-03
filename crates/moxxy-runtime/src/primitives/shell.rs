@@ -8,10 +8,12 @@ use tokio::process::Command;
 use crate::registry::{Primitive, PrimitiveError};
 use crate::sandbox::{SandboxConfig, SandboxedCommand};
 
+const DEFAULT_TIMEOUT_SECS: u64 = 30;
+
 pub struct ShellExecPrimitive {
     db: Arc<Mutex<Database>>,
     agent_id: String,
-    timeout: Duration,
+    max_timeout: Duration,
     max_output_bytes: usize,
     sandbox_config: Option<SandboxConfig>,
     working_dir: Option<PathBuf>,
@@ -21,13 +23,13 @@ impl ShellExecPrimitive {
     pub fn new(
         db: Arc<Mutex<Database>>,
         agent_id: String,
-        timeout: Duration,
+        max_timeout: Duration,
         max_output_bytes: usize,
     ) -> Self {
         Self {
             db,
             agent_id,
-            timeout,
+            max_timeout,
             max_output_bytes,
             sandbox_config: None,
             working_dir: None,
@@ -60,7 +62,8 @@ impl Primitive for ShellExecPrimitive {
             "type": "object",
             "properties": {
                 "command": {"type": "string", "description": "The command to run (must be in the allowlist)"},
-                "args": {"type": "array", "items": {"type": "string"}, "description": "Arguments to pass to the command"}
+                "args": {"type": "array", "items": {"type": "string"}, "description": "Arguments to pass to the command"},
+                "timeout_secs": {"type": "integer", "description": "Timeout in seconds (default: 30, max: 300). Use higher values for slow commands like npm install or cargo build."}
             },
             "required": ["command"]
         })
@@ -118,9 +121,18 @@ impl Primitive for ShellExecPrimitive {
             (command.to_string(), args.clone())
         };
 
+        let timeout = {
+            let requested = params
+                .get("timeout_secs")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(DEFAULT_TIMEOUT_SECS);
+            Duration::from_secs(requested.max(1).min(self.max_timeout.as_secs()))
+        };
+
         let mut cmd = Command::new(&exec_cmd);
         cmd.args(&exec_args)
             .env("PATH", super::git::augmented_path())
+            .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
 
@@ -132,7 +144,7 @@ impl Primitive for ShellExecPrimitive {
             .spawn()
             .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
 
-        let output = match tokio::time::timeout(self.timeout, child.wait_with_output()).await {
+        let output = match tokio::time::timeout(timeout, child.wait_with_output()).await {
             Ok(result) => result.map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?,
             Err(_) => {
                 // Process will be killed when dropped
@@ -291,5 +303,42 @@ mod tests {
             .await
             .unwrap();
         assert!(result["stdout"].as_str().unwrap().contains("sandbox-none"));
+    }
+
+    #[tokio::test]
+    async fn shell_exec_timeout_secs_parameter_respected() {
+        let (db, agent_id) = setup_db(&["sleep"]);
+        // max_timeout is 10s, but we request only 1s via the parameter
+        let prim = ShellExecPrimitive::new(db, agent_id, Duration::from_secs(10), 1024);
+        let result = prim
+            .invoke(serde_json::json!({"command": "sleep", "args": ["5"], "timeout_secs": 1}))
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), PrimitiveError::Timeout));
+    }
+
+    #[tokio::test]
+    async fn shell_exec_timeout_secs_clamped_to_max() {
+        let (db, agent_id) = setup_db(&["sleep"]);
+        // max_timeout is 2s; requesting 999s should be clamped to 2s
+        let prim = ShellExecPrimitive::new(db, agent_id, Duration::from_secs(2), 1024);
+        let result = prim
+            .invoke(serde_json::json!({"command": "sleep", "args": ["5"], "timeout_secs": 999}))
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), PrimitiveError::Timeout));
+    }
+
+    #[tokio::test]
+    async fn shell_exec_stdin_is_null() {
+        // `cat` with no args reads from stdin; with stdin null it gets EOF immediately
+        let (db, agent_id) = setup_db(&["cat"]);
+        let prim = ShellExecPrimitive::new(db, agent_id, Duration::from_secs(3), 1024);
+        let result = prim
+            .invoke(serde_json::json!({"command": "cat"}))
+            .await
+            .unwrap();
+        assert_eq!(result["stdout"].as_str().unwrap(), "");
+        assert_eq!(result["exit_code"].as_i64().unwrap(), 0);
     }
 }
