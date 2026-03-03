@@ -176,7 +176,7 @@ Agent Execution Graph (setup):
   |
   +-- heartbeat.create
   |     action_type: "execute_skill"
-  |     action_payload: "Check https://api.myapp.com/health — if status != 200,
+  |     action_payload: "Check https://api.myapp.com/health = if status != 200,
   |                      send alert to Discord webhook wh-health with the status
   |                      code and response body. If healthy, log to memory silently."
   |     interval_minutes: 5
@@ -220,7 +220,7 @@ Recurring check (every 5 min):
 
 ## 4. "Review the auth module and open a PR with fixes"
 
-**What happens:** The agent reads code, identifies issues, writes fixes, and opens a pull request — all in one run.
+**What happens:** The agent reads code, identifies issues, writes fixes, and opens a pull request = all in one run.
 
 ```
 You: Review src/auth/ for security issues. Fix anything you find
@@ -236,7 +236,7 @@ Agent Execution Graph:
   |     path: "src/auth/"
   |     => ["middleware.ts", "jwt.ts", "session.ts", "index.ts"]
   |
-  +-- fs.read  (x4, parallel in LLM's mind — sequential primitive calls)
+  +-- fs.read  (x4, parallel in LLM's mind = sequential primitive calls)
   |     "src/auth/middleware.ts"  -> reads auth middleware
   |     "src/auth/jwt.ts"        -> reads JWT handling
   |     "src/auth/session.ts"    -> reads session management
@@ -257,7 +257,7 @@ Agent Execution Graph:
   |     create: true
   |     => { checked_out: true }
   |
-  +-- fs.write  (x3 — targeted fixes)
+  +-- fs.write  (x3 = targeted fixes)
   |     "src/auth/jwt.ts"        -> adds expiry check in verify()
   |     "src/auth/session.ts"    -> switches to httpOnly cookie
   |     "src/auth/middleware.ts"  -> adds rate limit guard
@@ -277,9 +277,9 @@ Agent Execution Graph:
   +-- git.pr_create
   |     title: "fix(auth): address 3 security issues"
   |     body: "## Security Review Fixes\n\n
-  |            1. **JWT expiry** — `verify()` now rejects expired tokens\n
-  |            2. **Session storage** — moved from localStorage to httpOnly cookie\n
-  |            3. **Rate limiting** — login endpoint now limited to 5 req/min\n\n
+  |            1. **JWT expiry** = `verify()` now rejects expired tokens\n
+  |            2. **Session storage** = moved from localStorage to httpOnly cookie\n
+  |            3. **Rate limiting** = login endpoint now limited to 5 req/min\n\n
   |            Found during automated code review."
   |     head: "fix/auth-security-review"
   |     base: "main"
@@ -293,9 +293,9 @@ Agent Execution Graph:
   +-- message.final
   |     "Done! I found and fixed 3 security issues in src/auth/:
   |
-  |      1. JWT tokens weren't checking expiry — added validation
-  |      2. Session token in localStorage was XSS-vulnerable — moved to httpOnly cookie
-  |      3. Login had no rate limit — added 5 req/min guard
+  |      1. JWT tokens weren't checking expiry = added validation
+  |      2. Session token in localStorage was XSS-vulnerable = moved to httpOnly cookie
+  |      3. Login had no rate limit = added 5 req/min guard
   |
   |      PR: https://github.com/user/repo/pull/42"
   |
@@ -323,7 +323,7 @@ Agent Execution Graph:
 
 [run.started]
   |
-  +-- browse.fetch  (x5 — one per competitor)
+  +-- browse.fetch  (x5 = one per competitor)
   |     "https://linear.app/pricing"        selector: ".pricing-card"
   |     "https://asana.com/pricing"         selector: ".pricing-tier"
   |     "https://www.atlassian.com/..."     selector: ".pricing-table"
@@ -331,7 +331,7 @@ Agent Execution Graph:
   |     "https://shortcut.com/pricing"      selector: ".plan-card"
   |     => (extracts pricing tiers, feature lists)
   |
-  +-- browse.fetch  (x5 — feature/integration pages)
+  +-- browse.fetch  (x5 = feature/integration pages)
   |     "https://linear.app/features"
   |     "https://asana.com/features"
   |     ... etc
@@ -400,7 +400,7 @@ Agent Execution Graph:
   |
   +-- fs.read
   |     path: "package.json"
-  |     => (checks existing test framework — vitest)
+  |     => (checks existing test framework = vitest)
   |
   +-- git.checkout
   |     branch: "add-parser-tests"
@@ -508,7 +508,7 @@ User prompt
     -> Final message returned to user
 ```
 
-The agent decides which primitives to call based on the task. It can chain them across multiple iterations — read files, analyze, write fixes, commit, push, all in a single run.
+The agent decides which primitives to call based on the task. It can chain them across multiple iterations = read files, analyze, write fixes, commit, push, all in a single run.
 
 For recurring tasks, the agent creates **heartbeats** that re-trigger new runs on a schedule (cron or interval). Each triggered run is a fresh execution with its own event stream.
 

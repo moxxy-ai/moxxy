@@ -11,15 +11,28 @@ use crate::registry::{Primitive, PrimitiveError};
 /// Appended to the inherited PATH so binaries like git, node, cargo, etc.
 /// are discoverable even when the gateway runs with a minimal environment
 /// (e.g. launched from launchd, systemd, or a daemon wrapper).
-const EXTRA_PATH_DIRS: &[&str] = &[
-    "/usr/local/bin",
-    "/opt/homebrew/bin",
-    "/opt/homebrew/sbin",
-    "/usr/bin",
-    "/bin",
-    "/usr/sbin",
-    "/sbin",
-];
+#[cfg(unix)]
+fn extra_path_dirs() -> &'static [&'static str] {
+    &[
+        "/usr/local/bin",
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    ]
+}
+
+#[cfg(windows)]
+fn extra_path_dirs() -> &'static [&'static str] {
+    &[
+        r"C:\Program Files\Git\cmd",
+        r"C:\Program Files\Git\bin",
+        r"C:\Program Files\nodejs",
+        r"C:\Program Files\Git\usr\bin",
+    ]
+}
 
 /// Build an augmented PATH string that merges the current PATH with
 /// well-known directories (deduped, original order preserved first).
@@ -27,20 +40,24 @@ pub fn augmented_path() -> &'static str {
     static PATH: OnceLock<String> = OnceLock::new();
     PATH.get_or_init(|| {
         let current = std::env::var("PATH").unwrap_or_default();
-        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
-        let mut parts: Vec<&str> = Vec::new();
+        let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+        let mut parts: Vec<PathBuf> = Vec::new();
 
-        for dir in current.split(':') {
-            if !dir.is_empty() && seen.insert(dir) {
+        for dir in std::env::split_paths(&current) {
+            if seen.insert(dir.clone()) {
                 parts.push(dir);
             }
         }
-        for dir in EXTRA_PATH_DIRS {
-            if seen.insert(dir) {
-                parts.push(dir);
+        for dir in extra_path_dirs() {
+            let p = PathBuf::from(dir);
+            if seen.insert(p.clone()) {
+                parts.push(p);
             }
         }
-        parts.join(":")
+        std::env::join_paths(parts)
+            .expect("Failed to join PATH")
+            .to_string_lossy()
+            .into_owned()
     })
 }
 
@@ -62,18 +79,26 @@ fn git_binary() -> &'static str {
         }
 
         // Fallback: probe well-known locations
-        for candidate in &[
+        #[cfg(unix)]
+        let candidates: &[&str] = &[
             "/usr/bin/git",
             "/usr/local/bin/git",
             "/opt/homebrew/bin/git",
-        ] {
+        ];
+        #[cfg(windows)]
+        let candidates: &[&str] = &[
+            r"C:\Program Files\Git\cmd\git.exe",
+            r"C:\Program Files\Git\bin\git.exe",
+            r"C:\Program Files (x86)\Git\cmd\git.exe",
+        ];
+        for candidate in candidates {
             if std::path::Path::new(candidate).exists() {
                 tracing::info!(path = candidate, "Resolved git binary via fallback path");
                 return (*candidate).to_string();
             }
         }
 
-        // Last resort — let the OS try again at invocation time
+        // Last resort = let the OS try again at invocation time
         "git".to_string()
     })
 }
@@ -87,6 +112,7 @@ async fn run_git(
         .args(args)
         .current_dir(cwd)
         .env("PATH", augmented_path())
+        .env("GIT_TERMINAL_PROMPT", "0")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -188,11 +214,17 @@ impl Primitive for GitClonePrimitive {
                 self.workspace_root.join(repo_name)
             });
 
-        // Inject token for private repos
-        let auth_url = if let Ok(Some(token)) = self.ctx.resolve_secret("github-token") {
-            inject_token_into_url(url, &token)
-        } else {
-            url.to_string()
+        // Inject token for private repos: try vault first, then ask user
+        let auth_url = match self
+            .ctx
+            .resolve_or_ask_secret(
+                "github-token",
+                "A GitHub token is required to clone this repository. Please provide your GitHub personal access token (PAT):",
+            )
+            .await
+        {
+            Ok(token) => inject_token_into_url(url, &token),
+            Err(_) => url.to_string(), // Fall back to unauthenticated clone
         };
 
         let mut args = vec!["clone", &auth_url];
@@ -473,7 +505,7 @@ impl Primitive for GitCommitPrimitive {
         // Configure user.name and user.email from vault
         if let Ok(Some(user)) = self.ctx.resolve_secret("github-user") {
             let _ = run_git(
-                &["config", "user.name", &user],
+                &["config", "--local", "user.name", &user],
                 path,
                 Duration::from_secs(5),
             )
@@ -481,7 +513,7 @@ impl Primitive for GitCommitPrimitive {
         }
         if let Ok(Some(email)) = self.ctx.resolve_secret("github-email") {
             let _ = run_git(
-                &["config", "user.email", &email],
+                &["config", "--local", "user.email", &email],
                 path,
                 Duration::from_secs(5),
             )
@@ -588,17 +620,20 @@ impl Primitive for GitPushPrimitive {
         tracing::info!(path, remote, branch = ?branch, force, "Pushing to remote");
 
         // Resolve the push target: use an authenticated URL if a vault token is
-        // available, otherwise fall back to the named remote.  We push to the
+        // available, otherwise ask the user for a token.  We push to the
         // URL directly so the token is never persisted in .git/config.
-        let push_target = if let Ok(Some(token)) = self.ctx.resolve_secret("github-token") {
-            let (remote_url, _, _) =
-                run_git(&["remote", "get-url", remote], path, Duration::from_secs(5))
-                    .await
-                    .unwrap_or_default();
-            inject_token_into_url(remote_url.trim(), &token)
-        } else {
-            remote.to_string()
-        };
+        let token = self
+            .ctx
+            .resolve_or_ask_secret(
+                "github-token",
+                "A GitHub token is required to push to the remote repository. Please provide your GitHub personal access token (PAT):",
+            )
+            .await?;
+        let (remote_url, _, _) =
+            run_git(&["remote", "get-url", remote], path, Duration::from_secs(5))
+                .await
+                .unwrap_or_default();
+        let push_target = inject_token_into_url(remote_url.trim(), &token);
 
         let mut args = vec!["push", &push_target];
         if let Some(b) = branch {
@@ -745,11 +780,13 @@ impl Primitive for GitPrCreatePrimitive {
 
         tracing::info!(path, title, base = ?base, "Creating pull request");
 
-        let token = self.ctx.resolve_secret("github-token")?.ok_or_else(|| {
-            PrimitiveError::AccessDenied(
-                "github-token not found in vault or agent lacks grant".into(),
+        let token = self
+            .ctx
+            .resolve_or_ask_secret(
+                "github-token",
+                "A GitHub token is required to create a pull request. Please provide your GitHub personal access token (PAT):",
             )
-        })?;
+            .await?;
 
         // Get remote URL to infer owner/repo
         let (remote_url, _, _) = run_git(
@@ -854,11 +891,13 @@ impl Primitive for GitForkPrimitive {
 
         tracing::info!(owner, repo, "Forking repository");
 
-        let token = self.ctx.resolve_secret("github-token")?.ok_or_else(|| {
-            PrimitiveError::AccessDenied(
-                "github-token not found in vault or agent lacks grant".into(),
+        let token = self
+            .ctx
+            .resolve_or_ask_secret(
+                "github-token",
+                "A GitHub token is required to fork a repository. Please provide your GitHub personal access token (PAT):",
             )
-        })?;
+            .await?;
 
         let client = reqwest::Client::new();
         let api_url = format!("https://api.github.com/repos/{}/{}/forks", owner, repo);

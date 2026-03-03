@@ -43,6 +43,16 @@ pub enum MessageContent {
     ToolError { name: String, error: String },
     /// Run completed.
     RunCompleted,
+    /// Run started.
+    RunStarted,
+    /// Run failed.
+    RunFailed { error: String },
+    /// Sub-agent was spawned.
+    SubagentSpawned { name: String, task: Option<String> },
+    /// Sub-agent completed.
+    SubagentCompleted { name: String },
+    /// Sub-agent failed.
+    SubagentFailed { name: String, error: String },
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -110,36 +110,36 @@ export class App {
         this.stop();
         return { consume: true };
       }
-      // Ctrl+X — stop running agent
+      // Ctrl+X = stop running agent
       if (matchesKey(data, 'ctrl+x')) {
         this._stopAgent();
         return { consume: true };
       }
-      // Ctrl+Y — toggle select mode (native terminal text selection)
+      // Ctrl+Y = toggle select mode (native terminal text selection)
       if (matchesKey(data, 'ctrl+y')) {
         this._toggleSelectMode();
         return { consume: true };
       }
-      // Escape — exit select mode if active
+      // Escape = exit select mode if active
       if (this._selectMode && matchesKey(data, 'escape')) {
         this._toggleSelectMode();
         return { consume: true };
       }
-      // Page Up — scroll chat up
+      // Page Up = scroll chat up
       if (data === '\x1b[5~') {
         const pageSize = Math.max(1, this.chatPanel.height - 4);
         this.chatPanel.scrollUp(pageSize);
         this.tui.requestRender();
         return { consume: true };
       }
-      // Page Down — scroll chat down
+      // Page Down = scroll chat down
       if (data === '\x1b[6~') {
         const pageSize = Math.max(1, this.chatPanel.height - 4);
         this.chatPanel.scrollDown(pageSize);
         this.tui.requestRender();
         return { consume: true };
       }
-      // SGR mouse: \x1b[<button;col;row(M|m)  — button 64=wheel up, 65=wheel down
+      // SGR mouse: \x1b[<button;col;row(M|m)  = button 64=wheel up, 65=wheel down
       if (data.startsWith('\x1b[<')) {
         const match = data.match(/^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/);
         if (match) {
@@ -192,7 +192,7 @@ export class App {
     setImmediate(() => {
       try { this.tui.stop(); } catch { /* ignore */ }
       process.stdout.write(DISABLE_MOUSE + EXIT_ALT_SCREEN);
-      // Force-kill via SIGINT — process.exit() can hang when async handles
+      // Force-kill via SIGINT = process.exit() can hang when async handles
       // (SSE fetch, timers) haven't fully unwound yet.
       process.kill(process.pid, 'SIGINT');
     });
@@ -257,6 +257,7 @@ export class App {
         await this.client.stopAgent(this.agent.id);
         this.agent.status = 'idle';
         this.statusBar.setAgent(this.agent);
+        this.eventsHandler._stopThinking();
         this.tui.requestRender(true);
         this.eventsHandler.addSystemMessage('Agent stopped.');
       } catch (err) {

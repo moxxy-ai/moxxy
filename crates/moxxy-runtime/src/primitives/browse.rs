@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::registry::{Primitive, PrimitiveError};
 
 /// Simple HTTP fetch with optional CSS selector extraction.
-/// Uses reqwest directly — no browser needed.
+/// Uses reqwest directly = no browser needed.
 pub struct BrowseFetchPrimitive {
     db: Arc<Mutex<Database>>,
     agent_id: String,
@@ -83,7 +83,7 @@ impl Primitive for BrowseFetchPrimitive {
             .ok_or_else(|| PrimitiveError::InvalidParams("cannot parse domain from URL".into()))?;
 
         if !self.is_domain_allowed(&domain)? {
-            tracing::warn!(url, %domain, "Browse fetch blocked — domain not in allowlist");
+            tracing::warn!(url, %domain, "Browse fetch blocked = domain not in allowlist");
             return Err(PrimitiveError::AccessDenied(format!(
                 "Domain '{}' not in allowlist",
                 domain
@@ -152,7 +152,7 @@ impl Primitive for BrowseFetchPrimitive {
 }
 
 /// Extract structured data from HTML using CSS selectors.
-/// Pure parsing — no network requests.
+/// Pure parsing = no network requests.
 pub struct BrowseExtractPrimitive;
 
 impl BrowseExtractPrimitive {

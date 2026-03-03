@@ -163,12 +163,10 @@ pub struct WebhookRow {
     pub id: String,
     pub agent_id: String,
     pub label: String,
-    pub url: String,
-    pub secret_ref_id: Option<String>,
+    pub token: String,
+    pub secret_ref_id: String,
     pub event_filter: Option<String>,
     pub enabled: bool,
-    pub retry_count: i32,
-    pub timeout_seconds: i32,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -177,13 +175,12 @@ pub struct WebhookRow {
 pub struct WebhookDeliveryRow {
     pub id: String,
     pub webhook_id: String,
-    pub event_id: Option<String>,
-    pub status: String,
-    pub attempt: i32,
-    pub response_status: Option<i32>,
-    pub response_body: Option<String>,
+    pub source_ip: Option<String>,
+    pub headers_json: Option<String>,
+    pub body: Option<String>,
+    pub signature_valid: bool,
+    pub run_id: Option<String>,
     pub error: Option<String>,
-    pub delivered_at: Option<String>,
     pub created_at: String,
 }
 

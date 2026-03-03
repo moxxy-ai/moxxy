@@ -5,9 +5,11 @@
 import { p, handleCancel } from '../ui.js';
 import { LOGO } from '../cli.js';
 import { getMoxxyHome } from './init.js';
+import { shellUnsetInstruction, shellProfileName } from '../platform.js';
 import { existsSync, rmSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { execSync } from 'node:child_process';
+import { platform } from 'node:os';
 
 export async function runUninstall(client, args) {
   console.log(LOGO);
@@ -92,13 +94,28 @@ export async function runUninstall(client, args) {
   if (gatewayRunning) {
     p.log.step('Stopping gateway...');
     try {
-      // Try to find and kill the gateway process
-      const pids = execSync("lsof -ti:3000 2>/dev/null || true", { encoding: 'utf-8' }).trim();
-      if (pids) {
-        for (const pid of pids.split('\n').filter(Boolean)) {
-          try { process.kill(parseInt(pid), 'SIGTERM'); } catch { /* already dead */ }
+      if (platform() === 'win32') {
+        // Windows: use netstat + taskkill
+        const out = execSync('netstat -ano | findstr :3000', { encoding: 'utf-8', stdio: 'pipe' }).trim();
+        const pids = new Set();
+        for (const line of out.split('\n').filter(Boolean)) {
+          const parts = line.trim().split(/\s+/);
+          const pid = parts[parts.length - 1];
+          if (pid && pid !== '0') pids.add(pid);
         }
-        p.log.success('Gateway stopped.');
+        for (const pid of pids) {
+          try { execSync(`taskkill /PID ${pid} /F`, { stdio: 'pipe' }); } catch { /* already dead */ }
+        }
+        if (pids.size > 0) p.log.success('Gateway stopped.');
+      } else {
+        // Unix: use lsof
+        const pids = execSync("lsof -ti:3000 2>/dev/null || true", { encoding: 'utf-8' }).trim();
+        if (pids) {
+          for (const pid of pids.split('\n').filter(Boolean)) {
+            try { process.kill(parseInt(pid), 'SIGTERM'); } catch { /* already dead */ }
+          }
+          p.log.success('Gateway stopped.');
+        }
       }
     } catch {
       p.log.warn('Could not stop gateway automatically. Please stop it manually.');
@@ -124,9 +141,9 @@ export async function runUninstall(client, args) {
 
   const instructions = [];
   if (envVars.length > 0) {
-    instructions.push('Remove these from your shell profile:');
+    instructions.push(`Remove these from ${shellProfileName()}:`);
     for (const v of envVars) {
-      instructions.push(`  unset ${v}`);
+      instructions.push(`  ${shellUnsetInstruction(v)}`);
     }
   }
   instructions.push('');

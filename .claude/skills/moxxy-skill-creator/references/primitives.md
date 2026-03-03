@@ -1,6 +1,6 @@
 # Moxxy Primitives Reference
 
-All 33 primitives available to Moxxy agents, organized by namespace. Use these names in
+All 34 primitives available to Moxxy agents, organized by namespace. Use these names in
 the `allowed_primitives` array of skill frontmatter.
 
 ## Filesystem (`fs.*`)
@@ -10,6 +10,7 @@ the `allowed_primitives` array of skill frontmatter.
 | `fs.read` | Read a file from the agent's workspace |
 | `fs.write` | Write/create a file in the agent's workspace |
 | `fs.list` | List files and directories in the workspace |
+| `fs.remove` | Remove a file or directory from the workspace |
 
 Security: All operations are scoped to the agent's workspace via PathPolicy. No path traversal possible.
 
@@ -142,4 +143,4 @@ Security: `user.ask` blocks the agent until the user responds or timeout (defaul
 | `agent.list` | List child agents |
 | `agent.stop` | Stop an owned agent |
 
-Security: Lineage enforcement — agents can only manage their own children.
+Security: Lineage enforcement = agents can only manage their own children.

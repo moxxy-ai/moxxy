@@ -55,6 +55,7 @@ pub struct RunService {
     vault_backend: Arc<dyn SecretBackend + Send + Sync>,
     pub ask_channels: AskChannels,
     pub moxxy_home: PathBuf,
+    pub base_url: String,
 }
 
 impl RunService {
@@ -63,6 +64,7 @@ impl RunService {
         event_bus: EventBus,
         vault_backend: Arc<dyn SecretBackend + Send + Sync>,
         moxxy_home: PathBuf,
+        base_url: String,
     ) -> Self {
         Self {
             db,
@@ -73,6 +75,7 @@ impl RunService {
             vault_backend,
             ask_channels: moxxy_runtime::new_ask_channels(),
             moxxy_home,
+            base_url,
         }
     }
 
@@ -127,7 +130,7 @@ impl RunService {
 
             if agent.status == "running" {
                 // Check if there is an active run. If not, the agent is stuck
-                // from a previous crash — reset it so a new run can start.
+                // from a previous crash = reset it so a new run can start.
                 let has_active_run = self
                     .run_tokens
                     .lock()
@@ -138,7 +141,7 @@ impl RunService {
                 }
                 tracing::warn!(
                     agent_id,
-                    "Agent stuck in running status with no active run — resetting to idle"
+                    "Agent stuck in running status with no active run = resetting to idle"
                 );
                 db.agents()
                     .update_status(&agent.id, "idle")
@@ -199,7 +202,10 @@ impl RunService {
         registry.register(Box::new(moxxy_runtime::FsWritePrimitive::new(
             policy.clone(),
         )));
-        registry.register(Box::new(moxxy_runtime::FsListPrimitive::new(policy)));
+        registry.register(Box::new(moxxy_runtime::FsListPrimitive::new(
+            policy.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::FsRemovePrimitive::new(policy)));
 
         // Memory primitives
         registry.register(Box::new(moxxy_runtime::MemoryAppendPrimitive::new(journal)));
@@ -234,10 +240,6 @@ impl RunService {
         registry.register(Box::new(moxxy_runtime::SkillValidatePrimitive::new()));
 
         // Notification primitives
-        registry.register(Box::new(moxxy_runtime::WebhookNotifyPrimitive::new(
-            self.db.clone(),
-            agent.id.clone(),
-        )));
         registry.register(Box::new(moxxy_runtime::CliNotifyPrimitive::new(
             event_bus.clone(),
         )));
@@ -250,14 +252,6 @@ impl RunService {
             )));
         }
 
-        // Webhook management primitives (agents can create/list webhooks)
-        registry.register(Box::new(moxxy_runtime::WebhookCreatePrimitive::new(
-            self.db.clone(),
-        )));
-        registry.register(Box::new(moxxy_runtime::WebhookListPrimitive::new(
-            self.db.clone(),
-        )));
-
         // Browse primitives (DB-backed domain allowlist)
         registry.register(Box::new(moxxy_runtime::BrowseFetchPrimitive::new(
             self.db.clone(),
@@ -267,12 +261,13 @@ impl RunService {
         )));
         registry.register(Box::new(moxxy_runtime::BrowseExtractPrimitive::new()));
 
-        // Git primitives (vault-aware via PrimitiveContext)
+        // Git primitives (vault-aware via PrimitiveContext, with ask support for token resolution)
         let ctx = moxxy_runtime::PrimitiveContext::new(
             self.db.clone(),
             agent.id.clone(),
             self.vault_backend.clone(),
-        );
+        )
+        .with_ask_support(self.event_bus.clone(), self.ask_channels.clone());
         registry.register(Box::new(moxxy_runtime::GitInitPrimitive::new(
             workspace_path.clone(),
         )));
@@ -297,7 +292,27 @@ impl RunService {
         registry.register(Box::new(moxxy_runtime::VaultDeletePrimitive::new(
             ctx.clone(),
         )));
-        registry.register(Box::new(moxxy_runtime::VaultListPrimitive::new(ctx)));
+        registry.register(Box::new(moxxy_runtime::VaultListPrimitive::new(
+            ctx.clone(),
+        )));
+
+        // Webhook management primitives (agents can register/list/delete inbound webhooks)
+        registry.register(Box::new(moxxy_runtime::WebhookRegisterPrimitive::new(
+            self.db.clone(),
+            ctx.clone(),
+            agent.id.clone(),
+            self.base_url.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::WebhookListPrimitive::new(
+            self.db.clone(),
+            agent.id.clone(),
+            self.base_url.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::WebhookDeletePrimitive::new(
+            self.db.clone(),
+            ctx,
+            agent.id.clone(),
+        )));
 
         registry.register(Box::new(moxxy_runtime::GitWorktreeAddPrimitive::new(
             workspace_path,
@@ -430,7 +445,7 @@ impl RunService {
                 "You are a Moxxy agent (id: {agent_id_owned}).\n\
                  Your home directory is: {agent_home_display} (based on your agent ID, not your name).\n\
                  Your workspace directory is: {workspace_display}\n\n\
-                 IMPORTANT — Path rules:\n\
+                 IMPORTANT = Path rules:\n\
                  - All project files, repositories, and generated content MUST be created inside {workspace_display}/.\n\
                  - When creating a new project, use {workspace_display}/<project_name>/ as the root.\n\
                  - Memory files are stored in {agent_home_display}/memory/ (managed by memory primitives).\n\
@@ -462,6 +477,7 @@ impl RunService {
                         ("fs.read", "read files"),
                         ("fs.write", "write files"),
                         ("fs.list", "list directory contents"),
+                        ("fs.remove", "remove files and directories"),
                     ],
                 ),
                 ("shell", "Shell", &[("shell.exec", "run terminal commands")]),
@@ -541,14 +557,7 @@ impl RunService {
                     "Skills",
                     &[("skill.import", "import"), ("skill.validate", "validate")],
                 ),
-                (
-                    "notify",
-                    "Notifications",
-                    &[
-                        ("notify.webhook", "send webhooks"),
-                        ("notify.cli", "notify CLI"),
-                    ],
-                ),
+                ("notify", "Notifications", &[("notify.cli", "notify CLI")]),
                 (
                     "channel",
                     "Channels",
@@ -556,10 +565,11 @@ impl RunService {
                 ),
                 (
                     "webhook",
-                    "Webhook management",
+                    "Inbound webhooks",
                     &[
-                        ("webhook.create", "create endpoints"),
+                        ("webhook.register", "register inbound endpoint"),
                         ("webhook.list", "list endpoints"),
+                        ("webhook.delete", "delete endpoint"),
                     ],
                 ),
                 (
@@ -587,13 +597,15 @@ impl RunService {
 
             system_prompt.push_str(
                 "\nGuidelines:\n\
-                 - Proactively use your tools. If asked to look something up, fetch a URL, or find information — use browse.fetch or http.request.\n\
+                 - Proactively use your tools. If asked to look something up, fetch a URL, or find information = use browse.fetch or http.request.\n\
                  - Read files before modifying them.\n\
                  - If a tool fails, analyze the error and try alternatives.\n\
                  - NEVER use paths outside your workspace. Use relative paths (e.g., \"output.png\", \"src/index.html\") or full paths starting with your workspace directory. Do NOT use ~/Desktop, /tmp, /Users, or any other location.\n\
+                 - Git operations that require authentication (push, clone private repos, PR create, fork) will automatically prompt the user for a GitHub token if one is not already stored in the vault. You do NOT need to manually call user.ask for the token = the git primitives handle this automatically.\n\
                  - Always provide a final text summary of what you did and what you found.",
             );
 
+            let event_bus_for_completion = event_bus.clone();
             let executor =
                 moxxy_runtime::RunExecutor::new(event_bus, provider, registry, allowed_primitives)
                     .with_system_prompt(system_prompt)
@@ -632,6 +644,47 @@ impl RunService {
                 // Sub-agents are automatically cleaned up after their run completes.
                 // The parent's spawned_total is decremented so it can spawn new ones.
                 if let Some(ref pid) = parent_agent_id {
+                    // Look up agent name before deleting
+                    let agent_name = db
+                        .agents()
+                        .find_by_id(&agent_id_owned)
+                        .ok()
+                        .flatten()
+                        .and_then(|a| a.name)
+                        .unwrap_or_else(|| agent_id_owned.clone());
+
+                    // Emit completion/failure event on the parent's agent_id
+                    match &result {
+                        Ok(content) => {
+                            event_bus_for_completion.emit(moxxy_types::EventEnvelope::new(
+                                pid.clone(),
+                                None,
+                                None,
+                                0,
+                                moxxy_types::EventType::SubagentCompleted,
+                                serde_json::json!({
+                                    "sub_agent_id": agent_id_owned,
+                                    "name": agent_name,
+                                    "result": content,
+                                }),
+                            ));
+                        }
+                        Err(e) => {
+                            event_bus_for_completion.emit(moxxy_types::EventEnvelope::new(
+                                pid.clone(),
+                                None,
+                                None,
+                                0,
+                                moxxy_types::EventType::SubagentFailed,
+                                serde_json::json!({
+                                    "sub_agent_id": agent_id_owned,
+                                    "name": agent_name,
+                                    "error": e.to_string(),
+                                }),
+                            ));
+                        }
+                    }
+
                     tracing::info!(
                         agent_id = %agent_id_owned,
                         parent_agent_id = %pid,
@@ -689,7 +742,10 @@ impl RunService {
         let db = self.db.lock().map_err(|e| e.to_string())?;
         // Sub-agents are cleaned up automatically in the spawned task after
         // cancellation, so only set status for top-level agents here.
-        let agent = db.agents().find_by_id(agent_id).map_err(|e| e.to_string())?;
+        let agent = db
+            .agents()
+            .find_by_id(agent_id)
+            .map_err(|e| e.to_string())?;
         if let Some(a) = agent
             && a.parent_agent_id.is_none()
         {

@@ -26,11 +26,11 @@ impl PathPolicy {
             .canonicalize()
             .map_err(|e| PathPolicyError::OutsideWorkspace(format!("{}: {}", path.display(), e)))?;
 
-        // 1. workspace_root — always allow (agent's own dir)
+        // 1. workspace_root = always allow (agent's own dir)
         if canonical.starts_with(&self.workspace_root) {
             return Ok(());
         }
-        // 2. core_mount — allow unless under deny_prefix
+        // 2. core_mount = allow unless under deny_prefix
         if let Some(ref core) = self.core_mount
             && canonical.starts_with(core)
         {
@@ -81,11 +81,7 @@ impl PathPolicy {
             match existing_ancestor {
                 Some(ancestor) => {
                     let canonical = ancestor.canonicalize().map_err(|e| {
-                        PathPolicyError::OutsideWorkspace(format!(
-                            "{}: {}",
-                            ancestor.display(),
-                            e
-                        ))
+                        PathPolicyError::OutsideWorkspace(format!("{}: {}", ancestor.display(), e))
                     })?;
                     // Re-append the non-existent suffix in correct order
                     let mut result = canonical;
@@ -102,11 +98,11 @@ impl PathPolicy {
             }
         };
 
-        // 1. workspace_root — always allow (agent's own dir)
+        // 1. workspace_root = always allow (agent's own dir)
         if check_path.starts_with(&self.workspace_root) {
             return Ok(());
         }
-        // 2. core_mount — allow writes unless under deny_prefix
+        // 2. core_mount = allow writes unless under deny_prefix
         if let Some(ref core) = self.core_mount
             && check_path.starts_with(core)
         {
@@ -292,7 +288,7 @@ mod tests {
         std::fs::create_dir_all(&workspace).unwrap();
         let policy = PathPolicy::new(workspace.clone(), None, None);
 
-        // workspace/project/src/main.rs — neither "project" nor "src" exist yet
+        // workspace/project/src/main.rs = neither "project" nor "src" exist yet
         let deep_file = workspace.join("project").join("src").join("main.rs");
         assert!(policy.ensure_writable(&deep_file).is_ok());
     }
@@ -303,7 +299,7 @@ mod tests {
         let workspace = tmp.path().join("workspace");
         let outside = tmp.path().join("outside");
         std::fs::create_dir_all(&workspace).unwrap();
-        // Don't create "outside" — the ancestor walk should resolve to tmp
+        // Don't create "outside" = the ancestor walk should resolve to tmp
         let policy = PathPolicy::new(workspace, None, None);
 
         let deep_file = outside.join("hack").join("file.txt");

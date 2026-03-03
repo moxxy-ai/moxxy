@@ -22,7 +22,13 @@ impl TestServer {
         std::fs::create_dir_all(moxxy_home.join("agents")).unwrap();
         register_sqlite_vec();
         let conn = Connection::open_in_memory().unwrap();
-        let state = Arc::new(AppState::new(conn, [0u8; 32], AuthMode::Token, moxxy_home));
+        let state = Arc::new(AppState::new(
+            conn,
+            [0u8; 32],
+            AuthMode::Token,
+            moxxy_home,
+            "http://127.0.0.1:3000".into(),
+        ));
         let app = create_router(state, None);
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -328,7 +334,7 @@ async fn e2e_dynamic_provider_resolution_with_vault() {
     let agent: serde_json::Value = resp.json().await.unwrap();
     let agent_id = agent["id"].as_str().unwrap();
 
-    // Start a run — the dynamic resolver should find the provider via DB + vault
+    // Start a run = the dynamic resolver should find the provider via DB + vault
     // (it will fail the HTTP call since the key is fake, but it won't use EchoProvider)
     let resp = server
         .post(
@@ -379,7 +385,7 @@ async fn e2e_auth_rejects_wrong_scope() {
     // Create token with only agents:read scope
     let (token, _) = server.create_token(&["agents:read"], None).await;
 
-    // Try to create an agent (requires agents:write) — expect 403
+    // Try to create an agent (requires agents:write) = expect 403
     let resp = server
         .post(
             "/v1/agents",
@@ -577,6 +583,7 @@ async fn e2e_rate_limit_returns_429() {
         [0u8; 32],
         AuthMode::Token,
         std::path::PathBuf::from("/tmp/moxxy-test"),
+        "http://127.0.0.1:3000".into(),
     ));
 
     let config = RateLimitConfig {
@@ -648,6 +655,7 @@ async fn e2e_loopback_mode_bypasses_auth_for_localhost() {
         [0u8; 32],
         AuthMode::Loopback,
         std::path::PathBuf::from("/tmp/moxxy-test"),
+        "http://127.0.0.1:3000".into(),
     ));
     let app = create_router(state, None);
 
@@ -664,7 +672,7 @@ async fn e2e_loopback_mode_bypasses_auth_for_localhost() {
 
     let client = reqwest::Client::new();
 
-    // Request without any auth header — should succeed because loopback mode
+    // Request without any auth header = should succeed because loopback mode
     let resp = client
         .get(format!("http://{}/v1/agents", addr))
         .send()
@@ -690,6 +698,7 @@ async fn e2e_loopback_disabled_still_requires_auth() {
         [0u8; 32],
         AuthMode::Token,
         std::path::PathBuf::from("/tmp/moxxy-test"),
+        "http://127.0.0.1:3000".into(),
     ));
     let app = create_router(state, None);
 
@@ -706,7 +715,7 @@ async fn e2e_loopback_disabled_still_requires_auth() {
 
     let client = reqwest::Client::new();
 
-    // Request without auth header — should be rejected
+    // Request without auth header = should be rejected
     let resp = client
         .get(format!("http://{}/v1/agents", addr))
         .send()
@@ -758,7 +767,7 @@ async fn e2e_ask_response_resolves_pending_question() {
     let agent: serde_json::Value = resp.json().await.unwrap();
     let agent_id = agent["id"].as_str().unwrap().to_string();
 
-    // Attempt to answer a non-existent question — should 404
+    // Attempt to answer a non-existent question = should 404
     let resp = server
         .post(
             &format!("/v1/agents/{}/ask-responses/nonexistent-q", agent_id),

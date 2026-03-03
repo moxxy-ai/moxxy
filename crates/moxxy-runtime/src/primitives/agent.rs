@@ -123,6 +123,7 @@ impl Primitive for AgentSpawnPrimitive {
         let parent_name = parent.name.as_deref().unwrap_or(&parent.id);
         let short_id = &child_id[child_id.len() - 8..]; // last 8 hex chars (random portion of UUIDv7)
         let auto_name = format!("{}-sub-{}", parent_name, short_id);
+        let auto_name_for_event = auto_name.clone();
 
         // Child gets its own directory keyed by its ID
         let child_dir = self.moxxy_home.join("agents").join(&child_id);
@@ -177,6 +178,7 @@ impl Primitive for AgentSpawnPrimitive {
             EventType::SubagentSpawned,
             serde_json::json!({
                 "sub_agent_id": child_id,
+                "name": auto_name_for_event,
                 "task": task,
             }),
         ));
@@ -636,8 +638,13 @@ mod tests {
         let bus = EventBus::new(100);
         let run_starter = Arc::new(MockRunStarter::new());
 
-        let prim =
-            AgentSpawnPrimitive::new(db.clone(), "parent-1".into(), run_starter.clone(), bus, "/tmp/moxxy".into());
+        let prim = AgentSpawnPrimitive::new(
+            db.clone(),
+            "parent-1".into(),
+            run_starter.clone(),
+            bus,
+            "/tmp/moxxy".into(),
+        );
 
         let result = prim
             .invoke(serde_json::json!({
@@ -689,7 +696,13 @@ mod tests {
         let bus = EventBus::new(100);
         let run_starter = Arc::new(MockRunStarter::new());
 
-        let prim = AgentSpawnPrimitive::new(db, "parent-limited".into(), run_starter, bus, "/tmp/moxxy".into());
+        let prim = AgentSpawnPrimitive::new(
+            db,
+            "parent-limited".into(),
+            run_starter,
+            bus,
+            "/tmp/moxxy".into(),
+        );
 
         let result = prim
             .invoke(serde_json::json!({

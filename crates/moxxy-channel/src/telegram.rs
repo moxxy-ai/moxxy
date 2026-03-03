@@ -88,7 +88,7 @@ impl TelegramTransport {
         chat_id: &str,
         text: &str,
         parse_mode: Option<&str>,
-    ) -> Result<(), ChannelError> {
+    ) -> Result<Option<i64>, ChannelError> {
         let mut body = serde_json::json!({
             "chat_id": chat_id,
             "text": text,
@@ -118,8 +118,66 @@ impl TelegramTransport {
             ));
         }
 
+        let message_id = resp_body
+            .result
+            .and_then(|v| v.get("message_id").and_then(|id| id.as_i64()));
+        Ok(message_id)
+    }
+
+    async fn edit_text(
+        &self,
+        chat_id: &str,
+        message_id: i64,
+        text: &str,
+        parse_mode: Option<&str>,
+    ) -> Result<(), ChannelError> {
+        let mut body = serde_json::json!({
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+        });
+        if let Some(mode) = parse_mode {
+            body["parse_mode"] = serde_json::Value::String(mode.to_string());
+        }
+
+        let resp = self
+            .http_client
+            .post(self.api_url("editMessageText"))
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ChannelError::TransportError(e.to_string()))?;
+
+        let resp_body: TelegramResponse<serde_json::Value> = resp
+            .json()
+            .await
+            .map_err(|e| ChannelError::TransportError(e.to_string()))?;
+
+        if !resp_body.ok {
+            let desc = resp_body.description.unwrap_or_default();
+            // "message is not modified" is not a real error = silently ignore
+            if !desc.contains("message is not modified") {
+                return Err(ChannelError::TransportError(desc));
+            }
+        }
+
         Ok(())
     }
+}
+
+/// Escape special characters for Telegram MarkdownV2.
+fn telegram_escape(s: &str) -> String {
+    let special = [
+        '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!',
+    ];
+    let mut result = String::with_capacity(s.len());
+    for c in s.chars() {
+        if special.contains(&c) {
+            result.push('\\');
+        }
+        result.push(c);
+    }
+    result
 }
 
 #[async_trait]
@@ -172,7 +230,7 @@ impl ChannelTransport for TelegramTransport {
                             conflict_retries += 1;
                             tracing::warn!(
                                 retries = conflict_retries,
-                                "Telegram polling conflict — another instance may be running. Retrying in {}s",
+                                "Telegram polling conflict = another instance may be running. Retrying in {}s",
                                 conflict_retries.min(30)
                             );
                             tokio::time::sleep(Duration::from_secs(conflict_retries.min(30) as u64)).await;
@@ -212,6 +270,34 @@ impl ChannelTransport for TelegramTransport {
         };
         self.send_text(&msg.external_chat_id, &text, parse_mode)
             .await
+            .map(|_| ())
+    }
+
+    async fn send_message_returning_id(
+        &self,
+        msg: OutgoingMessage,
+    ) -> Result<Option<String>, ChannelError> {
+        let text = self.format_content(&msg.content);
+        let parse_mode = match &msg.content {
+            MessageContent::Text(_) => None,
+            _ => Some("MarkdownV2"),
+        };
+        let msg_id = self
+            .send_text(&msg.external_chat_id, &text, parse_mode)
+            .await?;
+        Ok(msg_id.map(|id| id.to_string()))
+    }
+
+    async fn edit_message(
+        &self,
+        external_chat_id: &str,
+        message_id: &str,
+        text: &str,
+    ) -> Result<(), ChannelError> {
+        let msg_id: i64 = message_id.parse().map_err(|e: std::num::ParseIntError| {
+            ChannelError::TransportError(format!("invalid message_id: {e}"))
+        })?;
+        self.edit_text(external_chat_id, msg_id, text, None).await
     }
 
     async fn register_commands(&self, commands: &[CommandDefinition]) -> Result<(), ChannelError> {
@@ -266,6 +352,30 @@ impl ChannelTransport for TelegramTransport {
             },
             MessageContent::ToolError { name, error } => format!("❌ *{name}*\n`{error}`"),
             MessageContent::RunCompleted => "✅ *Run completed*".into(),
+            MessageContent::RunStarted => "🔄 *Working\\.\\.\\.*".into(),
+            MessageContent::RunFailed { error } => {
+                let escaped = telegram_escape(error);
+                format!("❌ *Run failed*\n`{escaped}`")
+            }
+            MessageContent::SubagentSpawned { name, task } => {
+                let escaped_name = telegram_escape(name);
+                match task {
+                    Some(t) => {
+                        let escaped_task = telegram_escape(t);
+                        format!("🤖 *{escaped_name}* spawned\n   └ {escaped_task}")
+                    }
+                    None => format!("🤖 *{escaped_name}* spawned"),
+                }
+            }
+            MessageContent::SubagentCompleted { name } => {
+                let escaped = telegram_escape(name);
+                format!("✅ *{escaped}* completed")
+            }
+            MessageContent::SubagentFailed { name, error } => {
+                let escaped_name = telegram_escape(name);
+                let escaped_error = telegram_escape(error);
+                format!("❌ *{escaped_name}* failed\n`{escaped_error}`")
+            }
         }
     }
 }
@@ -305,7 +415,6 @@ struct TelegramUser {
 struct TelegramChat {
     id: i64,
 }
-
 
 #[cfg(test)]
 mod tests {

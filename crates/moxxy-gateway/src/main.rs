@@ -56,8 +56,9 @@ fn moxxy_home() -> PathBuf {
     let home = std::env::var("MOXXY_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
-            let home = std::env::var("HOME").expect("HOME environment variable not set");
-            PathBuf::from(home).join(".moxxy")
+            dirs::home_dir()
+                .expect("Could not determine home directory")
+                .join(".moxxy")
         });
 
     // Create directory structure
@@ -92,12 +93,14 @@ async fn main() {
 
     let vault_key = load_vault_key(&home);
 
-    // Resolve auth mode: env var overrides config file
+    // Resolve auth mode: env var overrides config file.
+    // Default is loopback (no token needed from localhost).
+    // Set MOXXY_LOOPBACK=false to require tokens.
     let auth_mode = if let Ok(val) = std::env::var("MOXXY_LOOPBACK") {
-        if val == "true" || val == "1" {
-            AuthMode::Loopback
-        } else {
+        if val == "false" || val == "0" {
             AuthMode::Token
+        } else {
+            AuthMode::Loopback
         }
     } else {
         let config_path = home.join("config").join("gateway.json");
@@ -113,9 +116,18 @@ async fn main() {
             .unwrap_or_default()
     };
 
+    let base_url =
+        std::env::var("MOXXY_BASE_URL").unwrap_or_else(|_| format!("http://{}:{}", host, port));
+
     moxxy_gateway::state::register_sqlite_vec();
     let conn = Connection::open(&db_path).expect("Failed to open SQLite database");
-    let state = Arc::new(AppState::new(conn, vault_key, auth_mode, home.clone()));
+    let state = Arc::new(AppState::new(
+        conn,
+        vault_key,
+        auth_mode,
+        home.clone(),
+        base_url,
+    ));
     state.spawn_event_persistence();
     state.spawn_heartbeat_loop();
     state.spawn_health_check_loop();

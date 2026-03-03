@@ -7,6 +7,8 @@ use moxxy_types::{ChannelError, EventType, MessageContent, RunStarter};
 use moxxy_vault::SecretBackend;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::Instant;
+use tokio::sync::Mutex as TokioMutex;
 use tokio_util::sync::CancellationToken;
 
 /// Trait for sending messages through channels. Used by ChannelNotifyPrimitive.
@@ -27,6 +29,78 @@ pub trait ChannelSender: Send + Sync {
     ) -> Result<(), ChannelError>;
 }
 
+/// Status of a tool in the progress message.
+#[derive(Debug, Clone)]
+enum ToolStatus {
+    Running,
+    Completed,
+    Failed,
+}
+
+/// Tracks a sub-agent within a run's progress.
+#[derive(Debug, Clone)]
+struct SubAgentProgress {
+    name: String,
+    task: Option<String>,
+    status: Option<String>, // None = running, Some("completed"), Some("failed: ...")
+}
+
+/// Tracks a single progress message for one chat.
+/// The message is sent lazily on the first tool invocation (message_id starts as None).
+#[derive(Debug)]
+struct RunProgress {
+    message_id: Option<String>,
+    external_chat_id: String,
+    tools: Vec<(String, ToolStatus)>,
+    sub_agents: Vec<SubAgentProgress>,
+    last_edit: Instant,
+    dirty: bool,
+    finished: bool,
+}
+
+impl RunProgress {
+    fn render(&self) -> String {
+        if self.finished {
+            return String::new(); // rendered externally
+        }
+        let mut lines = Vec::new();
+        // Table: one row per tool execution
+        if !self.tools.is_empty() {
+            for (i, (name, status)) in self.tools.iter().enumerate() {
+                let num = i + 1;
+                let icon = match status {
+                    ToolStatus::Completed => "✅",
+                    ToolStatus::Running => "⏳",
+                    ToolStatus::Failed => "❌",
+                };
+                lines.push(format!("{num} {icon} {name}"));
+            }
+        }
+        if !self.sub_agents.is_empty() {
+            if !lines.is_empty() {
+                lines.push(String::new());
+            }
+            for sa in &self.sub_agents {
+                match &sa.status {
+                    None => {
+                        lines.push(format!("🤖 {} spawned", sa.name));
+                        if let Some(task) = &sa.task {
+                            lines.push(format!("   └ {task}"));
+                        }
+                    }
+                    Some(s) if s == "completed" => {
+                        lines.push(format!("✅ {} completed", sa.name));
+                    }
+                    Some(s) => {
+                        lines.push(format!("❌ {} {s}", sa.name));
+                    }
+                }
+            }
+        }
+        lines.join("\n")
+    }
+}
+
 pub struct ChannelBridge {
     db: Arc<Mutex<Database>>,
     event_bus: EventBus,
@@ -36,6 +110,7 @@ pub struct ChannelBridge {
     transports: RwLock<HashMap<String, Arc<dyn ChannelTransport>>>,
     shutdown: CancellationToken,
     run_starter: Arc<dyn RunStarter>,
+    progress: TokioMutex<HashMap<(String, String), HashMap<String, RunProgress>>>,
 }
 
 impl ChannelBridge {
@@ -56,6 +131,7 @@ impl ChannelBridge {
             transports: RwLock::new(HashMap::new()),
             shutdown: CancellationToken::new(),
             run_starter,
+            progress: TokioMutex::new(HashMap::new()),
         }
     }
 
@@ -197,9 +273,7 @@ impl ChannelBridge {
                 let _ = transport
                     .send_message(OutgoingMessage {
                         external_chat_id: msg.external_chat_id.clone(),
-                        content: MessageContent::Text(
-                            "Internal error, please try again.".into(),
-                        ),
+                        content: MessageContent::Text("Internal error, please try again.".into()),
                     })
                     .await;
                 return;
@@ -210,7 +284,7 @@ impl ChannelBridge {
             tracing::warn!(
                 channel_id,
                 external_chat_id = %msg.external_chat_id,
-                "No active binding found for channel — sending 'not paired' response"
+                "No active binding found for channel = sending 'not paired' response"
             );
             let _ = transport
                 .send_message(OutgoingMessage {
@@ -294,7 +368,7 @@ impl ChannelBridge {
 
         let response_text = match self.commands.get(command_name) {
             Some(handler) => {
-                // Resolve binding — lock is scoped so it's dropped before any await
+                // Resolve binding = lock is scoped so it's dropped before any await
                 let binding_result = {
                     match self.db.lock() {
                         Ok(db) => db
@@ -390,22 +464,121 @@ impl ChannelBridge {
         }
     }
 
-    /// Convert an event envelope into structured `MessageContent`, if applicable.
-    fn event_to_content(envelope: &moxxy_types::EventEnvelope) -> Option<MessageContent> {
-        match envelope.event_type {
-            EventType::MessageFinal => {
-                let text = envelope
-                    .payload
-                    .get("content")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
+    /// Resolve bindings and transports for an agent.
+    fn resolve_agent_channels(
+        &self,
+        agent_id: &str,
+    ) -> Vec<(Arc<dyn ChannelTransport>, String, String)> {
+        let bindings = {
+            let Ok(db) = self.db.lock() else {
+                return vec![];
+            };
+            db.channel_bindings()
+                .find_by_agent(agent_id)
+                .unwrap_or_default()
+        };
+        let Ok(transports) = self.transports.read() else {
+            return vec![];
+        };
+        bindings
+            .iter()
+            .filter(|b| b.status == "active")
+            .filter_map(|b| {
+                transports
+                    .get(&b.channel_id)
+                    .map(|t| (t.clone(), b.external_chat_id.clone(), b.channel_id.clone()))
+            })
+            .collect()
+    }
+
+    /// Edit all progress messages for a (agent_id, run_id) key, respecting debounce.
+    /// On the first call with content, sends the initial message (lazy creation).
+    async fn flush_progress(&self, agent_id: &str, run_id: &str) {
+        let channels = self.resolve_agent_channels(agent_id);
+        let mut progress = self.progress.lock().await;
+        let key = (agent_id.to_string(), run_id.to_string());
+        let Some(chat_map) = progress.get_mut(&key) else {
+            return;
+        };
+
+        for (transport, _chat_id, channel_id) in &channels {
+            if let Some(rp) = chat_map.get_mut(channel_id) {
+                if !rp.dirty || rp.finished {
+                    continue;
+                }
+                let text = rp.render();
                 if text.is_empty() {
-                    None
-                } else {
-                    Some(MessageContent::Text(text))
+                    continue;
+                }
+                // Lazy: send the initial progress message on first flush
+                if rp.message_id.is_none() {
+                    let msg = OutgoingMessage {
+                        external_chat_id: rp.external_chat_id.clone(),
+                        content: MessageContent::Text(text),
+                    };
+                    if let Ok(Some(msg_id)) = transport.send_message_returning_id(msg).await {
+                        rp.message_id = Some(msg_id);
+                    }
+                    rp.last_edit = Instant::now();
+                    rp.dirty = false;
+                    continue;
+                }
+                let now = Instant::now();
+                let elapsed = now.duration_since(rp.last_edit);
+                if elapsed < std::time::Duration::from_secs(1) {
+                    // Will be flushed on next event or at run completion
+                    continue;
+                }
+                let _ = transport
+                    .edit_message(
+                        &rp.external_chat_id,
+                        rp.message_id.as_ref().unwrap(),
+                        &text,
+                    )
+                    .await;
+                rp.last_edit = now;
+                rp.dirty = false;
+            }
+        }
+    }
+
+    async fn handle_bridge_event(self: &Arc<Self>, envelope: &moxxy_types::EventEnvelope) {
+        let agent_id = &envelope.agent_id;
+        let run_id = match &envelope.run_id {
+            Some(r) => r.clone(),
+            None => return,
+        };
+
+        match envelope.event_type {
+            EventType::RunStarted => {
+                let channels = self.resolve_agent_channels(agent_id);
+                if channels.is_empty() {
+                    return;
+                }
+
+                // Send typing indicator only (progress message sent lazily on first tool)
+                let mut chat_map = HashMap::new();
+                for (transport, chat_id, channel_id) in &channels {
+                    let _ = transport.send_typing(chat_id).await;
+                    chat_map.insert(
+                        channel_id.clone(),
+                        RunProgress {
+                            message_id: None,
+                            external_chat_id: chat_id.clone(),
+                            tools: Vec::new(),
+                            sub_agents: Vec::new(),
+                            last_edit: Instant::now(),
+                            dirty: false,
+                            finished: false,
+                        },
+                    );
+                }
+                if !chat_map.is_empty() {
+                    let mut progress = self.progress.lock().await;
+                    progress.insert((agent_id.to_string(), run_id), chat_map);
                 }
             }
+
             EventType::PrimitiveInvoked => {
                 let name = envelope
                     .payload
@@ -413,13 +586,19 @@ impl ChannelBridge {
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown")
                     .to_string();
-                let arguments = envelope
-                    .payload
-                    .get("arguments")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                Some(MessageContent::ToolInvocation { name, arguments })
+                {
+                    let mut progress = self.progress.lock().await;
+                    let key = (agent_id.to_string(), run_id.clone());
+                    if let Some(chat_map) = progress.get_mut(&key) {
+                        for rp in chat_map.values_mut() {
+                            rp.tools.push((name.clone(), ToolStatus::Running));
+                            rp.dirty = true;
+                        }
+                    }
+                }
+                self.flush_progress(agent_id, &run_id).await;
             }
+
             EventType::PrimitiveCompleted => {
                 let name = envelope
                     .payload
@@ -427,14 +606,99 @@ impl ChannelBridge {
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown")
                     .to_string();
-                let result = envelope
+                {
+                    let mut progress = self.progress.lock().await;
+                    let key = (agent_id.to_string(), run_id.clone());
+                    if let Some(chat_map) = progress.get_mut(&key) {
+                        for rp in chat_map.values_mut() {
+                            if let Some(tool) = rp.tools.iter_mut().rev().find(|(n, _)| *n == name)
+                            {
+                                tool.1 = ToolStatus::Completed;
+                            }
+                            rp.dirty = true;
+                        }
+                    }
+                }
+                self.flush_progress(agent_id, &run_id).await;
+            }
+
+            EventType::PrimitiveFailed => {
+                let name = envelope
                     .payload
-                    .get("result")
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                {
+                    let mut progress = self.progress.lock().await;
+                    let key = (agent_id.to_string(), run_id.clone());
+                    if let Some(chat_map) = progress.get_mut(&key) {
+                        for rp in chat_map.values_mut() {
+                            if let Some(tool) = rp.tools.iter_mut().rev().find(|(n, _)| *n == name)
+                            {
+                                tool.1 = ToolStatus::Failed;
+                            }
+                            rp.dirty = true;
+                        }
+                    }
+                }
+                self.flush_progress(agent_id, &run_id).await;
+            }
+
+            EventType::SubagentSpawned => {
+                let name = envelope
+                    .payload
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let task = envelope
+                    .payload
+                    .get("task")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
-                Some(MessageContent::ToolResult { name, result })
+                {
+                    let mut progress = self.progress.lock().await;
+                    let key = (agent_id.to_string(), run_id.clone());
+                    if let Some(chat_map) = progress.get_mut(&key) {
+                        for rp in chat_map.values_mut() {
+                            rp.sub_agents.push(SubAgentProgress {
+                                name: name.clone(),
+                                task: task.clone(),
+                                status: None,
+                            });
+                            rp.dirty = true;
+                        }
+                    }
+                }
+                self.flush_progress(agent_id, &run_id).await;
             }
-            EventType::PrimitiveFailed => {
+
+            EventType::SubagentCompleted => {
+                let name = envelope
+                    .payload
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                {
+                    let mut progress = self.progress.lock().await;
+                    let key = (agent_id.to_string(), run_id.clone());
+                    if let Some(chat_map) = progress.get_mut(&key) {
+                        for rp in chat_map.values_mut() {
+                            if let Some(sa) =
+                                rp.sub_agents.iter_mut().rev().find(|s| s.name == name)
+                            {
+                                sa.status = Some("completed".to_string());
+                            }
+                            rp.dirty = true;
+                        }
+                    }
+                }
+                self.flush_progress(agent_id, &run_id).await;
+            }
+
+            EventType::SubagentFailed => {
                 let name = envelope
                     .payload
                     .get("name")
@@ -447,9 +711,93 @@ impl ChannelBridge {
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown error")
                     .to_string();
-                Some(MessageContent::ToolError { name, error })
+                {
+                    let mut progress = self.progress.lock().await;
+                    let key = (agent_id.to_string(), run_id.clone());
+                    if let Some(chat_map) = progress.get_mut(&key) {
+                        for rp in chat_map.values_mut() {
+                            if let Some(sa) =
+                                rp.sub_agents.iter_mut().rev().find(|s| s.name == name)
+                            {
+                                sa.status = Some(format!("failed: {error}"));
+                            }
+                            rp.dirty = true;
+                        }
+                    }
+                }
+                self.flush_progress(agent_id, &run_id).await;
             }
-            _ => None,
+
+            EventType::MessageFinal => {
+                // Send the actual answer as a NEW separate message
+                let text = envelope
+                    .payload
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                if text.is_empty() {
+                    return;
+                }
+                let _ = self
+                    .send_to_agent_channels(agent_id, MessageContent::Text(text))
+                    .await;
+            }
+
+            EventType::RunCompleted => {
+                let channels = self.resolve_agent_channels(agent_id);
+                let mut progress = self.progress.lock().await;
+                let key = (agent_id.to_string(), run_id.clone());
+                if let Some(chat_map) = progress.remove(&key) {
+                    for (transport, _chat_id, channel_id) in &channels {
+                        if let Some(rp) = chat_map.get(channel_id) {
+                            if let Some(msg_id) = &rp.message_id {
+                                let _ = transport
+                                    .edit_message(
+                                        &rp.external_chat_id,
+                                        msg_id,
+                                        "✅ Completed",
+                                    )
+                                    .await;
+                            }
+                        }
+                    }
+                }
+            }
+
+            EventType::RunFailed => {
+                let error = envelope
+                    .payload
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown error")
+                    .to_string();
+                let channels = self.resolve_agent_channels(agent_id);
+                let mut progress = self.progress.lock().await;
+                let key = (agent_id.to_string(), run_id.clone());
+                if let Some(chat_map) = progress.remove(&key) {
+                    for (transport, _chat_id, channel_id) in &channels {
+                        if let Some(rp) = chat_map.get(channel_id) {
+                            if let Some(msg_id) = &rp.message_id {
+                                let _ = transport
+                                    .edit_message(
+                                        &rp.external_chat_id,
+                                        msg_id,
+                                        &format!("❌ Failed: {error}"),
+                                    )
+                                    .await;
+                            }
+                        }
+                    }
+                }
+            }
+
+            _ => {
+                // Typing indicators for other events
+                if Self::should_send_typing(&envelope.event_type) {
+                    self.send_typing_to_agent_channels(agent_id).await;
+                }
+            }
         }
     }
 
@@ -466,42 +814,7 @@ impl ChannelBridge {
                     result = rx.recv() => {
                         match result {
                             Ok(envelope) => {
-                                // Send typing indicator for relevant events
-                                if Self::should_send_typing(&envelope.event_type) {
-                                    bridge
-                                        .send_typing_to_agent_channels(&envelope.agent_id)
-                                        .await;
-                                }
-
-                                let Some(content) = Self::event_to_content(&envelope) else {
-                                    continue;
-                                };
-
-                                tracing::info!(
-                                    agent_id = %envelope.agent_id,
-                                    event_type = ?envelope.event_type,
-                                    "Bridge event listener forwarding to channels"
-                                );
-
-                                match bridge
-                                    .send_to_agent_channels(&envelope.agent_id, content)
-                                    .await
-                                {
-                                    Ok(sent) => {
-                                        tracing::info!(
-                                            agent_id = %envelope.agent_id,
-                                            channels_notified = sent,
-                                            "Bridge forwarded event to channels"
-                                        );
-                                    }
-                                    Err(e) => {
-                                        tracing::error!(
-                                            agent_id = %envelope.agent_id,
-                                            error = %e,
-                                            "Bridge failed to forward event"
-                                        );
-                                    }
-                                }
+                                bridge.handle_bridge_event(&envelope).await;
                             }
                             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                             Err(tokio::sync::broadcast::error::RecvError::Closed) => break,

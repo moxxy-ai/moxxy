@@ -58,7 +58,7 @@ function renderMessage(msg, width, agentName) {
   if (msg.type === 'channel') {
     const channel = msg.channel ? msg.channel.charAt(0).toUpperCase() + msg.channel.slice(1) : 'Channel';
     const sender = msg.sender || 'User';
-    const header = styles.info.bold(sender) + styles.dim(` via ${channel}`);
+    const header = styles.user.bold(sender) + styles.dim(` via ${channel}`);
     const content = msg.content || '';
     const lines = wrapTextWithAnsi(content, width);
     return [header, ...lines];
@@ -71,6 +71,34 @@ function renderMessage(msg, width, agentName) {
     const md = new Markdown(content, 0, 0, MD_THEME);
     const lines = md.render(width);
     return [header, ...lines];
+  }
+
+  if (msg.type === 'subagent-spawned') {
+    const header = chalk.magenta.bold(`▶ ${msg.name} spawned`);
+    const lines = [header];
+    if (msg.task) {
+      const taskLines = wrapTextWithAnsi(msg.task, width);
+      lines.push(...taskLines.map(l => chalk.magenta(l)));
+    }
+    return lines;
+  }
+
+  if (msg.type === 'subagent-text') {
+    const name = msg.name || 'Sub-agent';
+    const prefix = chalk.magenta('│ ');
+    const header = prefix + chalk.magenta.bold(name) + (msg.streaming ? styles.dim(' …') : '');
+    const content = msg.content || '';
+    const md = new Markdown(content, 0, 0, MD_THEME);
+    const contentLines = md.render(width - 2);
+    return [header, ...contentLines.map(l => prefix + l)];
+  }
+
+  if (msg.type === 'subagent-done') {
+    if (msg.status === 'completed') {
+      return [chalk.magenta.bold(`✓ ${msg.name} completed`)];
+    }
+    const errorText = msg.error || 'unknown error';
+    return [chalk.magenta.bold(`✗ ${msg.name} failed: `) + chalk.red(errorText)];
   }
 
   if (msg.type === 'ask') {
@@ -87,9 +115,10 @@ function renderMessage(msg, width, agentName) {
   }
 
   if (msg.type === 'tool') {
+    const toolPrefix = msg.subAgent ? `[${msg.subAgent}] ` : '';
     if (msg.status === 'error') {
       // Error: bordered box in error color
-      const header = `\u2717 ${msg.name}`;
+      const header = `\u2717 ${toolPrefix}${msg.name}`;
       const innerW = Math.max(header.length + 4, Math.min(width - 2, 40));
       const topFill = Math.max(0, innerW - header.length - 3);
       const top = styles.error('\u250c ' + header + ' ' + '\u2500'.repeat(topFill) + '\u2510');
@@ -104,7 +133,7 @@ function renderMessage(msg, width, agentName) {
     }
     if (msg.status === 'completed') {
       // Completed: bordered box showing the invocation arguments
-      const header = `\u2713 ${msg.name}`;
+      const header = `\u2713 ${toolPrefix}${msg.name}`;
       const innerW = Math.max(header.length + 4, Math.min(width - 2, 50));
       const topFill = Math.max(0, innerW - header.length - 3);
       const top = styles.dim('\u250c ') + styles.dim(header) + styles.dim(' ' + '\u2500'.repeat(topFill) + '\u2510');
@@ -121,7 +150,7 @@ function renderMessage(msg, width, agentName) {
       return toolLines;
     }
     // Invoked: bordered box with arguments context
-    const header = `\u2699 ${msg.name}`;
+    const header = `\u2699 ${toolPrefix}${msg.name}`;
     const innerW = Math.max(header.length + 4, Math.min(width - 2, 50));
     const topFill = Math.max(0, innerW - header.length - 3);
     const top = styles.dim('\u250c ') + styles.accent(header) + styles.dim(' ' + '\u2500'.repeat(topFill) + '\u2510');

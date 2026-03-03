@@ -25,6 +25,7 @@ serde_yaml = "0.9"
 thiserror = "2"
 
 # Crypto
+hmac = "0.12"
 sha2 = "0.10"
 rand = "0.8"
 ed25519-dalek = "2"

@@ -77,6 +77,14 @@ Environment:
 `.trim();
 
 
+export function clearScreen(contentLines = 25) {
+  if (!isInteractive()) return;
+  process.stdout.write('\x1b[2J\x1b[H');
+  const rows = process.stdout.rows || 24;
+  const pad = Math.max(0, Math.floor((rows - contentLines) / 2));
+  if (pad > 0) process.stdout.write('\n'.repeat(pad));
+}
+
 function hasHelpFlag(args) {
   return args.includes('--help') || args.includes('-h');
 }
@@ -87,6 +95,9 @@ async function routeCommand(client, command, rest) {
     showHelp(helpKey, p);
     return;
   }
+
+  clearScreen();
+  console.log(LOGO);
 
   switch (command) {
     case 'init':
@@ -154,15 +165,13 @@ async function main() {
     return;
   }
 
-  // Clear the terminal for a clean start
-  process.stdout.write('\x1b[2J\x1b[H');
-
   const baseUrl = process.env.MOXXY_API_URL || 'http://localhost:3000';
   const authMode = readAuthMode();
   const token = process.env.MOXXY_TOKEN || '';
   const client = createApiClient(baseUrl, token, authMode);
 
   if (!command && isInteractive()) {
+    clearScreen();
     console.log(LOGO);
     p.intro();
 

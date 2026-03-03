@@ -135,7 +135,7 @@ Modifiers: `command down`, `shift down`, `option down`, `control down`.
 osascript -e 'tell application "System Events" to click at {x, y}'
 ```
 
-**Click a specific UI element (preferred — more reliable than coordinates):**
+**Click a specific UI element (preferred = more reliable than coordinates):**
 ```
 osascript -e '
 tell application "System Events"

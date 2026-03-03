@@ -7,6 +7,7 @@ import { getMoxxyHome } from './init.js';
 import { existsSync, statSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { execSync } from 'node:child_process';
+import { platform } from 'node:os';
 
 export async function runDoctor(client, args) {
   p.intro('Moxxy Doctor');
@@ -124,7 +125,7 @@ export async function runDoctor(client, args) {
   // ── 7. Rust Toolchain ──
 
   try {
-    const rustVersion = execSync('rustc --version 2>/dev/null', { encoding: 'utf-8' }).trim();
+    const rustVersion = execSync('rustc --version', { encoding: 'utf-8', stdio: 'pipe' }).trim();
     ok(`Rust: ${rustVersion}`);
   } catch {
     warning('Rust not found. Required to build/run the gateway.');
@@ -144,7 +145,7 @@ export async function runDoctor(client, args) {
   // ── 9. Git ──
 
   try {
-    const gitVersion = execSync('git --version 2>/dev/null', { encoding: 'utf-8' }).trim();
+    const gitVersion = execSync('git --version', { encoding: 'utf-8', stdio: 'pipe' }).trim();
     ok(`Git: ${gitVersion}`);
   } catch {
     warning('Git not found. Required for git.* primitives.');
@@ -159,6 +160,11 @@ export async function runDoctor(client, args) {
     '/usr/bin/google-chrome-stable',
     '/usr/bin/chromium',
     '/usr/bin/chromium-browser',
+    ...(platform() === 'win32' ? [
+      join(process.env.PROGRAMFILES || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      join(process.env.PROGRAMFILES || '', 'Chromium', 'Application', 'chrome.exe'),
+    ] : []),
   ].filter(Boolean);
 
   let chromeFound = false;
@@ -171,9 +177,12 @@ export async function runDoctor(client, args) {
   }
   if (!chromeFound) {
     try {
-      const which = execSync('which google-chrome chromium 2>/dev/null', { encoding: 'utf-8' }).trim();
-      if (which) {
-        ok(`Chrome/Chromium: ${which.split('\n')[0]}`);
+      const cmd = platform() === 'win32'
+        ? 'where google-chrome chromium 2>nul'
+        : 'which google-chrome chromium';
+      const found = execSync(cmd, { encoding: 'utf-8', stdio: 'pipe' }).trim();
+      if (found) {
+        ok(`Chrome/Chromium: ${found.split('\n')[0]}`);
         chromeFound = true;
       }
     } catch { /* ignore */ }

@@ -22,7 +22,7 @@ pub use allowlist::{AllowlistAddPrimitive, AllowlistListPrimitive, AllowlistRemo
 pub use ask::{AgentRespondPrimitive, AskChannels, UserAskPrimitive, new_ask_channels};
 pub use browse::{BrowseExtractPrimitive, BrowseFetchPrimitive};
 pub use channel_notify::{ChannelMessageSender, ChannelNotifyPrimitive};
-pub use fs::{FsListPrimitive, FsReadPrimitive, FsWritePrimitive};
+pub use fs::{FsListPrimitive, FsReadPrimitive, FsRemovePrimitive, FsWritePrimitive};
 pub use git::{
     GitCheckoutPrimitive, GitClonePrimitive, GitCommitPrimitive, GitForkPrimitive,
     GitInitPrimitive, GitPrCreatePrimitive, GitPushPrimitive, GitStatusPrimitive,
@@ -34,8 +34,8 @@ pub use heartbeat::{
 };
 pub use http::HttpRequestPrimitive;
 pub use memory::{MemoryAppendPrimitive, MemorySearchPrimitive, MemorySummarizePrimitive};
-pub use notify::{CliNotifyPrimitive, WebhookNotifyPrimitive};
+pub use notify::CliNotifyPrimitive;
 pub use shell::ShellExecPrimitive;
 pub use skill::{SkillImportPrimitive, SkillValidatePrimitive};
 pub use vault::{VaultDeletePrimitive, VaultGetPrimitive, VaultListPrimitive, VaultSetPrimitive};
-pub use webhook::{WebhookCreatePrimitive, WebhookListPrimitive};
+pub use webhook::{WebhookDeletePrimitive, WebhookListPrimitive, WebhookRegisterPrimitive};

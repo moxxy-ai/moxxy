@@ -63,6 +63,35 @@ pub trait ChannelTransport: Send + Sync {
             },
             MessageContent::ToolError { name, error } => format!("✗ {name}: {error}"),
             MessageContent::RunCompleted => "Run completed.".into(),
+            MessageContent::RunStarted => "🔄 Working...".into(),
+            MessageContent::RunFailed { error } => format!("❌ Run failed: {error}"),
+            MessageContent::SubagentSpawned { name, task } => match task {
+                Some(t) => format!("🤖 {name} spawned\n   └ {t}"),
+                None => format!("🤖 {name} spawned"),
+            },
+            MessageContent::SubagentCompleted { name } => format!("✅ {name} completed"),
+            MessageContent::SubagentFailed { name, error } => format!("❌ {name} failed: {error}"),
         }
+    }
+
+    /// Send a message and return the platform's message ID (if supported).
+    /// Default: delegates to send_message() and returns None.
+    async fn send_message_returning_id(
+        &self,
+        msg: OutgoingMessage,
+    ) -> Result<Option<String>, ChannelError> {
+        self.send_message(msg).await?;
+        Ok(None)
+    }
+
+    /// Edit an existing message by its platform message ID.
+    /// Default: no-op (platforms that don't support editing can skip this).
+    async fn edit_message(
+        &self,
+        _external_chat_id: &str,
+        _message_id: &str,
+        _text: &str,
+    ) -> Result<(), ChannelError> {
+        Ok(())
     }
 }

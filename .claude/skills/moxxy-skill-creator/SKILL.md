@@ -141,14 +141,14 @@ The skill document parser (`SkillDoc::parse`) enforces:
 - `version` must be a quoted string in YAML
 
 Common validation errors:
-- Unquoted version (`version: 1.0` instead of `version: "1.0"`) — YAML interprets as float
-- Empty `allowed_primitives: []` — rejected at parse time
-- Missing `id` field — required even though CLI also accepts a name flag
+- Unquoted version (`version: 1.0` instead of `version: "1.0"`) = YAML interprets as float
+- Empty `allowed_primitives: []` = rejected at parse time
+- Missing `id` field = required even though CLI also accepts a name flag
 
 ## Additional Resources
 
 ### Reference Files
 
 For detailed information, consult:
-- **`references/primitives.md`** — Complete list of all 33 primitives with descriptions, parameters, and security notes
-- **`references/examples.md`** — Annotated examples of well-structured skills covering common patterns
+- **`references/primitives.md`** = Complete list of all 33 primitives with descriptions, parameters, and security notes
+- **`references/examples.md`** = Annotated examples of well-structured skills covering common patterns

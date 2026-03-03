@@ -3,14 +3,14 @@ use std::fmt;
 
 /// Gateway authentication mode.
 ///
-/// Extensible enum — add new variants as new auth strategies are needed.
+/// Extensible enum = add new variants as new auth strategies are needed.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthMode {
     /// Require a valid API token for every request.
-    #[default]
     Token,
     /// Skip authentication for requests originating from localhost.
+    #[default]
     Loopback,
 }
 
@@ -30,11 +30,11 @@ impl AuthMode {
     }
 
     /// Parse from a config string (e.g. the `auth_mode` field in `gateway.json`).
-    /// Returns `Token` for any unrecognised value.
+    /// Returns `Loopback` for any unrecognised value.
     pub fn from_config_str(s: &str) -> Self {
         match s {
-            "loopback" => Self::Loopback,
-            _ => Self::Token,
+            "token" => Self::Token,
+            _ => Self::Loopback,
         }
     }
 }

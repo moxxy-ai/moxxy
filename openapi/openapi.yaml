@@ -35,7 +35,17 @@ components:
           type: array
           items:
             type: string
-            enum: [agents:read, agents:write, runs:write, vault:read, vault:write, tokens:admin, events:read]
+            enum:
+              - agents:read
+              - agents:write
+              - runs:write
+              - vault:read
+              - vault:write
+              - tokens:admin
+              - events:read
+              - channels:read
+              - channels:write
+              - "*"
         ttl_seconds:
           type: integer
           nullable: true
@@ -62,63 +72,165 @@ components:
           nullable: true
         status:
           type: string
+          enum: [active, revoked]
+
+    ProviderInstall:
+      type: object
+      properties:
+        id:
+          type: string
+        display_name:
+          type: string
+        models:
+          type: array
+          default: []
+          items:
+            $ref: '#/components/schemas/ModelEntry'
+      required: [id, display_name]
+
+    ModelEntry:
+      type: object
+      properties:
+        model_id:
+          type: string
+        display_name:
+          type: string
+        metadata:
+          type: object
+          nullable: true
+      required: [model_id, display_name]
 
     AgentCreate:
+      type: object
+      properties:
+        name:
+          type: string
+          description: 1-64 chars, lowercase alphanumeric + hyphens, starts with alphanumeric
+        provider_id:
+          type: string
+        model_id:
+          type: string
+        persona:
+          type: string
+          nullable: true
+          description: Max 10KB
+        policy_profile:
+          type: string
+          nullable: true
+        temperature:
+          type: number
+          default: 0.7
+          minimum: 0.0
+          maximum: 2.0
+        max_subagent_depth:
+          type: integer
+          default: 2
+          minimum: 0
+          maximum: 10
+        max_subagents_total:
+          type: integer
+          default: 8
+          minimum: 0
+          maximum: 100
+      required: [name, provider_id, model_id]
+
+    AgentUpdate:
       type: object
       properties:
         provider_id:
           type: string
         model_id:
           type: string
-        workspace_root:
-          type: string
-        policy_profile:
-          type: string
-          nullable: true
         temperature:
           type: number
-        max_subagent_depth:
-          type: integer
-        max_subagents_total:
-          type: integer
-      required: [provider_id, model_id, workspace_root]
+          minimum: 0.0
+          maximum: 2.0
+        persona:
+          type: string
 
     AgentResponse:
       type: object
       properties:
         id:
           type: string
+        name:
+          type: string
+          nullable: true
         provider_id:
           type: string
         model_id:
           type: string
         status:
           type: string
-        workspace_root:
+          enum: [idle, running, stopping]
+        persona:
           type: string
+          nullable: true
         created_at:
           type: string
+
+    SubagentSpawn:
+      type: object
+      properties:
+        provider_id:
+          type: string
+        model_id:
+          type: string
+        policy_profile:
+          type: string
+          nullable: true
+        temperature:
+          type: number
+          default: 0.7
+          minimum: 0.0
+          maximum: 2.0
+        max_subagent_depth:
+          type: integer
+          default: 2
+          minimum: 0
+          maximum: 10
+        max_subagents_total:
+          type: integer
+          default: 8
+          minimum: 0
+          maximum: 100
+      required: [provider_id, model_id]
 
     RunStart:
       type: object
       properties:
         task:
           type: string
+          description: Non-empty, max 100KB
       required: [task]
+
+    AskResponse:
+      type: object
+      properties:
+        answer:
+          type: string
+      required: [answer]
 
     HeartbeatCreate:
       type: object
+      description: Exactly one of interval_minutes or cron_expr must be provided.
       properties:
         interval_minutes:
           type: integer
           minimum: 1
+          nullable: true
+        cron_expr:
+          type: string
+          nullable: true
+        timezone:
+          type: string
+          default: UTC
         action_type:
           type: string
-          enum: [notify_cli, notify_webhook, execute_skill]
         action_payload:
           type: string
           nullable: true
-      required: [interval_minutes, action_type]
+      required: [action_type]
 
     SkillInstall:
       type: object
@@ -129,6 +241,7 @@ components:
           type: string
         source:
           type: string
+          nullable: true
         content:
           type: string
       required: [name, version, content]
@@ -143,6 +256,10 @@ components:
         policy_label:
           type: string
           nullable: true
+        value:
+          type: string
+          nullable: true
+          description: Optional secret value to store in the backend
       required: [key_name, backend_key]
 
     GrantCreate:
@@ -157,15 +274,16 @@ components:
     EventEnvelope:
       type: object
       properties:
-        event_id:
-          type: string
-        ts:
-          type: integer
         agent_id:
           type: string
         run_id:
           type: string
           nullable: true
+        parent_run_id:
+          type: string
+          nullable: true
+        sequence:
+          type: integer
         event_type:
           type: string
         payload:
@@ -174,6 +292,106 @@ components:
           type: boolean
 
 paths:
+  /v1/health:
+    get:
+      tags: [Health]
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [healthy]
+                  database:
+                    type: string
+                    enum: [connected]
+                  version:
+                    type: string
+        '503':
+          description: Unhealthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [unhealthy]
+                  database:
+                    type: string
+                    enum: [disconnected]
+
+  /v1/hooks/{token}:
+    post:
+      tags: [Webhooks]
+      summary: Receive inbound webhook
+      description: Unauthenticated endpoint. Uses HMAC-SHA256 signature verification via x-hub-signature-256 header.
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-hub-signature-256
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: x-github-event
+          in: header
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Webhook accepted or filtered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [accepted, filtered]
+                  run_id:
+                    type: string
+                    nullable: true
+                  delivery_id:
+                    type: string
+                  message:
+                    type: string
+        '401':
+          description: Invalid signature
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Unknown webhook token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: Webhook disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /v1/auth/tokens:
     post:
       tags: [Auth]
@@ -234,6 +452,46 @@ paths:
       responses:
         '200':
           description: Provider list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    display_name:
+                      type: string
+                    enabled:
+                      type: boolean
+                    created_at:
+                      type: string
+    post:
+      tags: [Providers]
+      summary: Install provider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderInstall'
+      responses:
+        '201':
+          description: Provider installed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  display_name:
+                    type: string
+                  models_count:
+                    type: integer
+                  enabled:
+                    type: boolean
 
   /v1/providers/{id}/models:
     get:
@@ -248,8 +506,36 @@ paths:
       responses:
         '200':
           description: Model list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    provider_id:
+                      type: string
+                    model_id:
+                      type: string
+                    display_name:
+                      type: string
+                    metadata:
+                      type: object
+                      nullable: true
 
   /v1/agents:
+    get:
+      tags: [Agents]
+      summary: List agents
+      responses:
+        '200':
+          description: Agent list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentResponse'
     post:
       tags: [Agents]
       summary: Create agent
@@ -262,34 +548,90 @@ paths:
       responses:
         '201':
           description: Agent created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResponse'
+        '409':
+          description: Agent name already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /v1/agents/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
     get:
       tags: [Agents]
       summary: Get agent
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
       responses:
         '200':
           description: Agent details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResponse'
+        '404':
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags: [Agents]
+      summary: Update agent config
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentUpdate'
+      responses:
+        '200':
+          description: Agent updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                    nullable: true
+                  provider_id:
+                    type: string
+                  model_id:
+                    type: string
+                  temperature:
+                    type: number
+                  status:
+                    type: string
+                  updated_at:
+                    type: string
+        '404':
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags: [Agents]
       summary: Delete agent
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
       responses:
         '204':
           description: Agent deleted
         '404':
           description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /v1/agents/{id}/runs:
     post:
@@ -310,6 +652,26 @@ paths:
       responses:
         '200':
           description: Run started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_id:
+                    type: string
+                  run_id:
+                    type: string
+                  task:
+                    type: string
+                  status:
+                    type: string
+                    enum: [running]
+        '404':
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /v1/agents/{id}/stop:
     post:
@@ -324,6 +686,63 @@ paths:
       responses:
         '200':
           description: Run stopped
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [idle]
+        '404':
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/agents/{id}/ask-responses/{question_id}:
+    post:
+      tags: [Agents]
+      summary: Respond to agent ask
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: question_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AskResponse'
+      responses:
+        '200':
+          description: Answer delivered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  question_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [answered]
+        '404':
+          description: Question not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /v1/agents/{id}/subagents:
     post:
@@ -335,9 +754,144 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubagentSpawn'
       responses:
         '201':
           description: Sub-agent created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  parent_agent_id:
+                    type: string
+                  provider_id:
+                    type: string
+                  model_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [idle]
+                  depth:
+                    type: integer
+                  created_at:
+                    type: string
+        '403':
+          description: Spawn limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Parent agent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/agents/{id}/memory/search:
+    get:
+      tags: [Memory]
+      summary: Search agent memory
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: tags
+          in: query
+          description: Comma-separated tags
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Memory entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    agent_id:
+                      type: string
+                    markdown_path:
+                      type: string
+                    tags:
+                      type: string
+                      nullable: true
+                    chunk_hash:
+                      type: string
+                    status:
+                      type: string
+                    created_at:
+                      type: string
+                    updated_at:
+                      type: string
+        '404':
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/agents/{id}/memory/compact:
+    post:
+      tags: [Memory]
+      summary: Compact agent memory
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Memory compacted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  compacted_groups:
+                    type: integer
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        group_tag:
+                          type: string
+                        entries_compacted:
+                          type: integer
+                        summary_path:
+                          type: string
+                        archived_count:
+                          type: integer
+                        error:
+                          type: string
+        '404':
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /v1/agents/{id}/heartbeats:
     post:
@@ -358,6 +912,39 @@ paths:
       responses:
         '201':
           description: Heartbeat created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  agent_id:
+                    type: string
+                  interval_minutes:
+                    type: integer
+                  cron_expr:
+                    type: string
+                    nullable: true
+                  timezone:
+                    type: string
+                  action_type:
+                    type: string
+                  action_payload:
+                    type: string
+                    nullable: true
+                  enabled:
+                    type: boolean
+                  next_run_at:
+                    type: string
+                  created_at:
+                    type: string
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     get:
       tags: [Heartbeats]
       summary: List heartbeats for agent
@@ -370,6 +957,106 @@ paths:
       responses:
         '200':
           description: Heartbeat list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    agent_id:
+                      type: string
+                    interval_minutes:
+                      type: integer
+                    cron_expr:
+                      type: string
+                      nullable: true
+                    timezone:
+                      type: string
+                    action_type:
+                      type: string
+                    action_payload:
+                      type: string
+                      nullable: true
+                    enabled:
+                      type: boolean
+                    next_run_at:
+                      type: string
+                    created_at:
+                      type: string
+
+  /v1/agents/{id}/heartbeats/{hb_id}:
+    delete:
+      tags: [Heartbeats]
+      summary: Disable heartbeat
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: hb_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Heartbeat disabled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  agent_id:
+                    type: string
+                  heartbeat_id:
+                    type: string
+        '404':
+          description: Heartbeat not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/agents/{id}/skills:
+    get:
+      tags: [Skills]
+      summary: List skills for agent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Skill list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    version:
+                      type: string
+                    status:
+                      type: string
+                      enum: [quarantined, approved]
+                    installed_at:
+                      type: string
+                    approved_at:
+                      type: string
+                      nullable: true
 
   /v1/agents/{id}/skills/install:
     post:
@@ -390,6 +1077,24 @@ paths:
       responses:
         '201':
           description: Skill installed (quarantined)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  agent_id:
+                    type: string
+                  name:
+                    type: string
+                  version:
+                    type: string
+                  status:
+                    type: string
+                    enum: [quarantined]
+                  installed_at:
+                    type: string
 
   /v1/agents/{id}/skills/approve/{skill_id}:
     post:
@@ -409,6 +1114,28 @@ paths:
       responses:
         '200':
           description: Skill approved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  agent_id:
+                    type: string
+                  name:
+                    type: string
+                  status:
+                    type: string
+                    enum: [approved]
+                  approved_at:
+                    type: string
+        '404':
+          description: Skill not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /v1/agents/{id}/skills/{skill_id}:
     delete:
@@ -430,6 +1157,127 @@ paths:
           description: Skill removed
         '404':
           description: Skill not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/agents/{id}/webhooks:
+    get:
+      tags: [Webhooks]
+      summary: List webhooks for agent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Webhook list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    agent_id:
+                      type: string
+                    label:
+                      type: string
+                    url:
+                      type: string
+                    event_filter:
+                      type: string
+                      nullable: true
+                      description: Comma-separated event types
+                    enabled:
+                      type: boolean
+                    created_at:
+                      type: string
+                    updated_at:
+                      type: string
+
+  /v1/agents/{id}/webhooks/{wh_id}:
+    delete:
+      tags: [Webhooks]
+      summary: Delete webhook
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: wh_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Webhook deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [deleted]
+                  id:
+                    type: string
+        '404':
+          description: Webhook not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/agents/{id}/webhooks/{wh_id}/deliveries:
+    get:
+      tags: [Webhooks]
+      summary: List webhook deliveries
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: wh_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Delivery list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    webhook_id:
+                      type: string
+                    source_ip:
+                      type: string
+                      nullable: true
+                    signature_valid:
+                      type: boolean
+                    run_id:
+                      type: string
+                      nullable: true
+                    error:
+                      type: string
+                      nullable: true
+                    created_at:
+                      type: string
 
   /v1/vault/secrets:
     post:
@@ -444,13 +1292,46 @@ paths:
       responses:
         '201':
           description: Secret ref created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  key_name:
+                    type: string
+                  backend_key:
+                    type: string
+                  policy_label:
+                    type: string
+                    nullable: true
+                  created_at:
+                    type: string
     get:
       tags: [Vault]
       summary: List vault secrets
-      description: Requires vault:read scope.
       responses:
         '200':
           description: List of secret refs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    key_name:
+                      type: string
+                    backend_key:
+                      type: string
+                    policy_label:
+                      type: string
+                      nullable: true
+                    created_at:
+                      type: string
 
   /v1/vault/secrets/{id}:
     parameters:
@@ -462,7 +1343,6 @@ paths:
     delete:
       tags: [Vault]
       summary: Delete a vault secret
-      description: Deletes the secret ref and its value from the backend. Requires vault:write scope.
       responses:
         '200':
           description: Secret deleted
@@ -483,6 +1363,30 @@ paths:
                 $ref: '#/components/schemas/Error'
 
   /v1/vault/grants:
+    get:
+      tags: [Vault]
+      summary: List grants
+      responses:
+        '200':
+          description: Grant list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    agent_id:
+                      type: string
+                    secret_ref_id:
+                      type: string
+                    created_at:
+                      type: string
+                    revoked_at:
+                      type: string
+                      nullable: true
     post:
       tags: [Vault]
       summary: Grant agent access to secret
@@ -495,6 +1399,48 @@ paths:
       responses:
         '201':
           description: Grant created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  agent_id:
+                    type: string
+                  secret_ref_id:
+                    type: string
+                  created_at:
+                    type: string
+
+  /v1/vault/grants/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [Vault]
+      summary: Revoke grant
+      responses:
+        '200':
+          description: Grant revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  grant_id:
+                    type: string
+        '404':
+          description: Grant not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /v1/events/stream:
     get:
@@ -503,10 +1449,12 @@ paths:
       parameters:
         - name: agent_id
           in: query
+          description: Filter to specific agent and its subagents
           schema:
             type: string
         - name: run_id
           in: query
+          description: Filter to specific run
           schema:
             type: string
       responses:
@@ -516,6 +1464,75 @@ paths:
             text/event-stream:
               schema:
                 $ref: '#/components/schemas/EventEnvelope'
+
+  /v1/audit-logs:
+    get:
+      tags: [Audit]
+      summary: Query audit log events
+      parameters:
+        - name: agent_id
+          in: query
+          schema:
+            type: string
+        - name: event_type
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+      responses:
+        '200':
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        event_id:
+                          type: string
+                        ts:
+                          type: string
+                        agent_id:
+                          type: string
+                        run_id:
+                          type: string
+                          nullable: true
+                        sequence:
+                          type: integer
+                        event_type:
+                          type: string
+                        payload:
+                          type: object
+                          nullable: true
+                        sensitive:
+                          type: boolean
+                        created_at:
+                          type: string
+                  pagination:
+                    type: object
+                    properties:
+                      limit:
+                        type: integer
+                      offset:
+                        type: integer
+                      total:
+                        type: integer
 
   /v1/channels:
     post:
@@ -541,12 +1558,45 @@ paths:
       responses:
         '201':
           description: Channel created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  channel_type:
+                    type: string
+                  display_name:
+                    type: string
+                  status:
+                    type: string
+                    enum: [active]
+                  created_at:
+                    type: string
     get:
       summary: List all channels
       tags: [Channels]
       responses:
         '200':
           description: List of channels
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    channel_type:
+                      type: string
+                    display_name:
+                      type: string
+                    status:
+                      type: string
+                    created_at:
+                      type: string
 
   /v1/channels/{id}:
     parameters:
@@ -561,12 +1611,46 @@ paths:
       responses:
         '200':
           description: Channel details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  channel_type:
+                    type: string
+                  display_name:
+                    type: string
+                  status:
+                    type: string
+                  created_at:
+                    type: string
+        '404':
+          description: Channel not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       summary: Delete a channel
       tags: [Channels]
       responses:
         '200':
           description: Channel deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+        '404':
+          description: Channel not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /v1/channels/{id}/pair:
     parameters:
@@ -594,6 +1678,34 @@ paths:
       responses:
         '201':
           description: Binding created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  channel_id:
+                    type: string
+                  agent_id:
+                    type: string
+                  external_chat_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [active]
+        '400':
+          description: Invalid or expired pairing code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Channel not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /v1/channels/{id}/bindings:
     parameters:
@@ -608,6 +1720,25 @@ paths:
       responses:
         '200':
           description: List of bindings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    channel_id:
+                      type: string
+                    agent_id:
+                      type: string
+                    external_chat_id:
+                      type: string
+                    status:
+                      type: string
+                    created_at:
+                      type: string
 
   /v1/channels/{id}/bindings/{bid}:
     parameters:
@@ -627,13 +1758,32 @@ paths:
       responses:
         '200':
           description: Binding deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                  channel_id:
+                    type: string
+        '404':
+          description: Binding not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
 tags:
+  - name: Health
   - name: Auth
   - name: Providers
   - name: Agents
+  - name: Memory
   - name: Heartbeats
   - name: Skills
+  - name: Webhooks
   - name: Vault
   - name: Events
+  - name: Audit
   - name: Channels

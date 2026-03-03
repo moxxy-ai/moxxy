@@ -166,6 +166,71 @@ impl Primitive for FsListPrimitive {
     }
 }
 
+pub struct FsRemovePrimitive {
+    policy: PathPolicy,
+}
+
+impl FsRemovePrimitive {
+    pub fn new(policy: PathPolicy) -> Self {
+        Self { policy }
+    }
+}
+
+#[async_trait]
+impl Primitive for FsRemovePrimitive {
+    fn name(&self) -> &str {
+        "fs.remove"
+    }
+
+    fn description(&self) -> &str {
+        "Remove a file or directory within the workspace."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Absolute path to the file or directory to remove"},
+                "recursive": {"type": "boolean", "description": "If true, remove non-empty directories recursively. Default false."}
+            },
+            "required": ["path"]
+        })
+    }
+
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
+        let path_str = params["path"]
+            .as_str()
+            .ok_or_else(|| PrimitiveError::InvalidParams("missing 'path' parameter".into()))?;
+        let recursive = params["recursive"].as_bool().unwrap_or(false);
+        let path = Path::new(path_str);
+
+        self.policy
+            .ensure_writable(path)
+            .map_err(|e| PrimitiveError::AccessDenied(e.to_string()))?;
+
+        if !path.exists() {
+            return Err(PrimitiveError::NotFound(format!(
+                "path does not exist: {path_str}"
+            )));
+        }
+
+        tracing::info!(path = %path_str, recursive, "Removing path");
+
+        if path.is_dir() {
+            if recursive {
+                std::fs::remove_dir_all(path)
+            } else {
+                std::fs::remove_dir(path)
+            }
+        } else {
+            std::fs::remove_file(path)
+        }
+        .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
+
+        Ok(serde_json::json!({ "removed": path_str }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,5 +325,100 @@ mod tests {
             .invoke(serde_json::json!({"path": tmp.path().to_str().unwrap()}))
             .await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn fs_remove_deletes_file() {
+        let (tmp, policy) = setup();
+        let workspace = tmp.path().join("workspace");
+        let file = workspace.join("doomed.txt");
+        std::fs::write(&file, "bye").unwrap();
+
+        let prim = FsRemovePrimitive::new(policy);
+        let result = prim
+            .invoke(serde_json::json!({"path": file.to_str().unwrap()}))
+            .await
+            .unwrap();
+        assert_eq!(result["removed"].as_str().unwrap(), file.to_str().unwrap());
+        assert!(!file.exists());
+    }
+
+    #[tokio::test]
+    async fn fs_remove_deletes_empty_directory() {
+        let (tmp, policy) = setup();
+        let workspace = tmp.path().join("workspace");
+        let dir = workspace.join("empty_dir");
+        std::fs::create_dir(&dir).unwrap();
+
+        let prim = FsRemovePrimitive::new(policy);
+        prim.invoke(serde_json::json!({"path": dir.to_str().unwrap()}))
+            .await
+            .unwrap();
+        assert!(!dir.exists());
+    }
+
+    #[tokio::test]
+    async fn fs_remove_recursive_deletes_non_empty_directory() {
+        let (tmp, policy) = setup();
+        let workspace = tmp.path().join("workspace");
+        let dir = workspace.join("full_dir");
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("sub").join("file.txt"), "data").unwrap();
+
+        let prim = FsRemovePrimitive::new(policy);
+        prim.invoke(serde_json::json!({"path": dir.to_str().unwrap(), "recursive": true}))
+            .await
+            .unwrap();
+        assert!(!dir.exists());
+    }
+
+    #[tokio::test]
+    async fn fs_remove_non_recursive_fails_on_non_empty_directory() {
+        let (tmp, policy) = setup();
+        let workspace = tmp.path().join("workspace");
+        let dir = workspace.join("full_dir");
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::write(dir.join("file.txt"), "data").unwrap();
+
+        let prim = FsRemovePrimitive::new(policy);
+        let result = prim
+            .invoke(serde_json::json!({"path": dir.to_str().unwrap()}))
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            PrimitiveError::ExecutionFailed(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn fs_remove_blocked_outside_workspace() {
+        let (tmp, policy) = setup();
+        let outside = tmp.path().join("outside.txt");
+        std::fs::write(&outside, "secret").unwrap();
+
+        let prim = FsRemovePrimitive::new(policy);
+        let result = prim
+            .invoke(serde_json::json!({"path": outside.to_str().unwrap()}))
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            PrimitiveError::AccessDenied(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn fs_remove_fails_on_missing_path() {
+        let (tmp, policy) = setup();
+        let workspace = tmp.path().join("workspace");
+        let missing = workspace.join("ghost.txt");
+
+        let prim = FsRemovePrimitive::new(policy);
+        let result = prim
+            .invoke(serde_json::json!({"path": missing.to_str().unwrap()}))
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), PrimitiveError::NotFound(_)));
     }
 }

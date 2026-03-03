@@ -32,6 +32,14 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .with_state(state.clone());
 
+    // Inbound webhook receiver: unauthenticated, uses HMAC verification
+    let hooks_router = Router::new()
+        .route("/v1/hooks/{token}", post(routes::webhooks::receive_webhook))
+        .layer(cors.clone())
+        .layer(TraceLayer::new_for_http())
+        .layer(DefaultBodyLimit::max(1024 * 1024))
+        .with_state(state.clone());
+
     // All other routes are rate limited
     let api_router = Router::new()
         // Auth
@@ -160,7 +168,7 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .with_state(state);
 
-    health_router.merge(api_router)
+    health_router.merge(hooks_router).merge(api_router)
 }
 
 #[cfg(test)]
@@ -182,6 +190,7 @@ mod test_helpers {
             [0u8; 32],
             AuthMode::Token,
             std::path::PathBuf::from("/tmp/moxxy-test"),
+            "http://127.0.0.1:3000".into(),
         ));
         let app = create_router(state.clone(), None);
         (app, state)
@@ -1110,7 +1119,7 @@ mod resolve_provider_tests {
         let (_app, state) = test_app();
         seed_provider_with_model(&state);
 
-        // No vault secret stored — resolve should return None
+        // No vault secret stored = resolve should return None
         let provider = state.run_service.resolve_provider("test-provider", "gpt-4");
         assert!(provider.is_none());
     }

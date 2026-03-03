@@ -151,7 +151,7 @@ impl Primitive for AllowlistAddPrimitive {
         match db.allowlists().insert(&row) {
             Ok(()) => {}
             Err(moxxy_types::StorageError::DuplicateKey(_)) => {
-                // Idempotent — already exists
+                // Idempotent = already exists
             }
             Err(e) => return Err(PrimitiveError::ExecutionFailed(e.to_string())),
         }

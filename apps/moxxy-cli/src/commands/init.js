@@ -1,6 +1,7 @@
 import { p, handleCancel, withSpinner, showResult } from '../ui.js';
 import { LOGO } from '../cli.js';
 import { VALID_SCOPES } from './auth.js';
+import { shellExportInstruction, shellProfileName } from '../platform.js';
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -25,7 +26,7 @@ export function readAuthMode() {
     const config = JSON.parse(raw);
     if (config.auth_mode === 'loopback') return 'loopback';
   } catch {
-    // config missing or unparseable — default to token
+    // config missing or unparseable = default to token
   }
   return 'token';
 }
@@ -79,7 +80,7 @@ export async function runInit(client, args) {
     client.baseUrl = apiUrl;
   }
 
-  // Step 2: Check gateway connectivity (use unauthenticated probe — any response means reachable)
+  // Step 2: Check gateway connectivity (use unauthenticated probe = any response means reachable)
   let gatewayReachable = false;
   try {
     await withSpinner('Checking gateway connection...', async () => {
@@ -139,7 +140,7 @@ export async function runInit(client, args) {
     let result;
     let created = false;
 
-    // Attempt 1: bootstrap (no auth — works when DB has no tokens)
+    // Attempt 1: bootstrap (no auth = works when DB has no tokens)
     client.token = '';
     try {
       result = await withSpinner('Creating token...', () =>
@@ -165,7 +166,7 @@ export async function runInit(client, args) {
       }
     }
 
-    // Attempt 3: recovery menu — paste token or reset
+    // Attempt 3: recovery menu = paste token or reset
     if (!created) {
       p.log.warn('Tokens already exist and your current token is missing or invalid.');
       const recovery = await p.select({
@@ -229,7 +230,7 @@ export async function runInit(client, args) {
       });
 
       p.note(
-        `# Add to ~/.zshrc or ~/.bashrc:\nexport MOXXY_TOKEN="${result.token}"`,
+        `# Add to ${shellProfileName()}:\n${shellExportInstruction('MOXXY_TOKEN', result.token)}`,
         'Save your token'
       );
       p.log.warn('This token will not be shown again. Save it now.');

@@ -10,7 +10,8 @@ const SYSTEMD_UNIT = 'moxxy-gateway.service';
 
 function paths() {
   const home = getMoxxyHome();
-  const bin = join(home, 'bin', 'moxxy-gateway');
+  const binName = platform() === 'win32' ? 'moxxy-gateway.exe' : 'moxxy-gateway';
+  const bin = join(home, 'bin', binName);
   const logDir = join(home, 'logs');
   const logFile = join(logDir, 'gateway.log');
   const pidFile = join(home, 'gateway.pid');
@@ -22,9 +23,10 @@ function findBinary() {
   if (existsSync(bin)) return bin;
 
   // Check PATH
+  const cmd = platform() === 'win32' ? 'where moxxy-gateway' : 'which moxxy-gateway';
   try {
-    const found = execSync('which moxxy-gateway', { encoding: 'utf-8' }).trim();
-    if (found) return found;
+    const found = execSync(cmd, { encoding: 'utf-8', stdio: 'pipe' }).trim();
+    if (found) return found.split('\n')[0]; // `where` on Windows may return multiple lines
   } catch { /* not on PATH */ }
 
   return null;
@@ -307,7 +309,12 @@ async function gatewayLogs() {
 
   p.log.info(`Tailing ${logFile} (Ctrl+C to stop)`);
 
-  const tail = spawn('tail', ['-f', logFile], { stdio: 'inherit' });
+  let tail;
+  if (platform() === 'win32') {
+    tail = spawn('powershell', ['-Command', `Get-Content -Path "${logFile}" -Wait -Tail 50`], { stdio: 'inherit' });
+  } else {
+    tail = spawn('tail', ['-f', logFile], { stdio: 'inherit' });
+  }
 
   await new Promise((resolve) => {
     process.on('SIGINT', () => {

@@ -27,6 +27,7 @@ pub struct AppState {
     pub channel_bridge: Mutex<Option<Arc<ChannelBridge>>>,
     pub auth_mode: AuthMode,
     pub moxxy_home: PathBuf,
+    pub base_url: String,
 }
 
 impl AppState {
@@ -35,6 +36,7 @@ impl AppState {
         vault_key: [u8; 32],
         auth_mode: AuthMode,
         moxxy_home: PathBuf,
+        base_url: String,
     ) -> Self {
         // Run PRAGMAs via query (not execute_batch, which chokes on result-returning PRAGMAs)
         let _: String = conn
@@ -43,7 +45,7 @@ impl AppState {
         conn.execute_batch("PRAGMA foreign_keys = ON")
             .expect("Failed to enable foreign keys");
 
-        // Run DDL (skip PRAGMA lines — already applied above)
+        // Run DDL (skip PRAGMA lines = already applied above)
         let sql = include_str!("../../../migrations/0001_init.sql");
         let ddl: String = sql
             .lines()
@@ -105,6 +107,10 @@ impl AppState {
         let sql9 = include_str!("../../../migrations/0009_agent_allowlists.sql");
         conn.execute_batch(sql9).expect("Migration 0009 failed");
 
+        // Run inbound webhooks migration (drops and recreates webhook tables)
+        let sql10 = include_str!("../../../migrations/0010_inbound_webhooks.sql");
+        conn.execute_batch(sql10).expect("Migration 0010 failed");
+
         // Create vec0 virtual table (requires sqlite-vec extension)
         conn.execute_batch(
             "CREATE VIRTUAL TABLE IF NOT EXISTS memory_vec0 USING vec0(memory_id TEXT, embedding float[384])",
@@ -115,7 +121,7 @@ impl AppState {
         // with the main Arc<Mutex<Database>>
         let db_path = conn.path().map(|p| p.to_string()).unwrap_or_default();
         let vault_conn = if db_path.is_empty() {
-            // In-memory DB (tests) — use the same connection approach
+            // In-memory DB (tests) = use the same connection approach
             Connection::open_in_memory().expect("Failed to open in-memory vault connection")
         } else {
             Connection::open(&db_path).expect("Failed to open vault connection")
@@ -137,6 +143,7 @@ impl AppState {
             event_bus.clone(),
             vault_backend.clone(),
             moxxy_home.clone(),
+            base_url.clone(),
         ));
 
         Self {
@@ -147,6 +154,7 @@ impl AppState {
             channel_bridge: Mutex::new(None),
             auth_mode,
             moxxy_home,
+            base_url,
         }
     }
 
@@ -261,10 +269,10 @@ impl AppState {
                         .is_some_and(|t| t.contains_key(&agent.id));
 
                     if !has_token {
-                        // Agent stuck from crash — no active executor
+                        // Agent stuck from crash = no active executor
                         tracing::warn!(
                             agent_id = %agent.id,
-                            "Health check: agent running with no cancel token — marking as error"
+                            "Health check: agent running with no cancel token = marking as error"
                         );
                         if let Ok(db) = db.lock() {
                             let _ = db.agents().update_status(&agent.id, "error");
@@ -283,7 +291,7 @@ impl AppState {
                         continue;
                     }
 
-                    // Has token — check for event staleness
+                    // Has token = check for event staleness
                     let latest_ts = {
                         let Ok(db) = db.lock() else { continue };
                         db.events()
@@ -297,7 +305,7 @@ impl AppState {
                         tracing::warn!(
                             agent_id = %agent.id,
                             last_event_ms = ts,
-                            "Health check: agent has no events in 5 minutes — cancelling"
+                            "Health check: agent has no events in 5 minutes = cancelling"
                         );
                         // Cancel the run
                         if let Ok(tokens) = run_tokens.lock()

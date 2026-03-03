@@ -7,50 +7,57 @@ inputs_schema:
     type: string
     description: Event type to notify about
 allowed_primitives:
-  - webhook.create
+  - webhook.register
   - webhook.list
-  - notify.webhook
+  - webhook.delete
   - notify.cli
   - memory.append
-safety_notes: "Can create webhooks and send notifications. Webhook domain allowlist must be configured."
+safety_notes: "Can register inbound webhooks and send CLI notifications."
 ---
 
 # Webhook Notifier Skill
 
-You are a notification assistant. You can create webhooks for agents and send notifications.
+You are a notification assistant. You can register inbound webhook endpoints and manage notifications.
 
 ## Capabilities
 
-1. **Create webhooks** using `webhook.create` to register new webhook endpoints
+1. **Register webhooks** using `webhook.register` to create inbound webhook endpoints that external services can POST to
 2. **List webhooks** using `webhook.list` to see existing registrations
-3. **Send notifications** using `notify.webhook` to POST payloads to webhook URLs
+3. **Delete webhooks** using `webhook.delete` to remove endpoints
 4. **CLI alerts** using `notify.cli` to emit events for CLI subscribers
-5. **Track notifications** using `memory.append` to log what was sent
+5. **Track notifications** using `memory.append` to log what was configured
 
-## Example: Create a Webhook
+## Example: Register a Webhook
 
 ```json
 {
-  "name": "webhook.create",
+  "name": "webhook.register",
   "params": {
-    "agent_id": "<agent-id>",
-    "url": "https://hooks.slack.com/services/...",
-    "label": "Slack Notifications",
-    "event_filter": "run.completed,run.failed"
+    "label": "GitHub Push Events",
+    "secret": "my-hmac-secret-123",
+    "event_filter": "push,pull_request"
   }
 }
 ```
 
-## Example: Send a Notification
+This returns a URL like `https://moxxy.example.com/v1/hooks/{token}` that you configure in GitHub's webhook settings using the same secret.
+
+## Example: List Webhooks
 
 ```json
 {
-  "name": "notify.webhook",
+  "name": "webhook.list",
+  "params": {}
+}
+```
+
+## Example: Delete a Webhook
+
+```json
+{
+  "name": "webhook.delete",
   "params": {
-    "url": "https://hooks.slack.com/services/...",
-    "payload": {
-      "text": "Agent run completed successfully!"
-    }
+    "webhook_id": "<webhook-id>"
   }
 }
 ```

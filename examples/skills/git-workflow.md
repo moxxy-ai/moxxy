@@ -48,7 +48,7 @@ You are a git automation assistant. Clone a repo, create a branch, make changes,
 For working on multiple features simultaneously, use git worktrees:
 
 1. **Create worktree** using `git.worktree_add` with a new branch name
-2. **Work in the worktree** — it has its own working directory at `{workspace}/.worktrees/{branch}`
+2. **Work in the worktree** = it has its own working directory at `{workspace}/.worktrees/{branch}`
 3. **List worktrees** using `git.worktree_list` to see all active worktrees
 4. **Clean up** using `git.worktree_remove` when done with a feature branch
 

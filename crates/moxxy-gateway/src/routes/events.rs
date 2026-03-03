@@ -4,7 +4,8 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use moxxy_core::RedactionEngine;
-use moxxy_types::TokenScope;
+use moxxy_types::{EventType, TokenScope};
+use std::collections::HashSet;
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
@@ -34,13 +35,25 @@ pub async fn event_stream(
     let stream = async_stream::stream! {
         yield Ok::<_, Infallible>(Event::default().comment("connected"));
 
+        // Track known sub-agent IDs so their events pass the filter
+        let mut sub_agent_ids: HashSet<String> = HashSet::new();
+
         loop {
             match rx.recv().await {
                 Ok(mut envelope) => {
-                    if let Some(ref filter_agent) = params.agent_id
-                        && &envelope.agent_id != filter_agent {
+                    if let Some(ref filter_agent) = params.agent_id {
+                        let is_parent = &envelope.agent_id == filter_agent;
+                        let is_child = sub_agent_ids.contains(&envelope.agent_id);
+                        if !is_parent && !is_child {
                             continue;
                         }
+                        // Track new sub-agents from SubagentSpawned events on the parent
+                        if is_parent && envelope.event_type == EventType::SubagentSpawned
+                            && let Some(child_id) = envelope.payload.get("sub_agent_id").and_then(|v| v.as_str())
+                        {
+                            sub_agent_ids.insert(child_id.to_string());
+                        }
+                    }
                     if let Some(ref filter_run) = params.run_id {
                         match &envelope.run_id {
                             Some(run_id) if run_id == filter_run => {}

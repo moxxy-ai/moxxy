@@ -2,71 +2,91 @@ use async_trait::async_trait;
 use moxxy_storage::{Database, WebhookRow};
 use std::sync::{Arc, Mutex};
 
+use crate::context::PrimitiveContext;
 use crate::registry::{Primitive, PrimitiveError};
 
-pub struct WebhookCreatePrimitive {
+pub struct WebhookRegisterPrimitive {
     db: Arc<Mutex<Database>>,
+    ctx: PrimitiveContext,
+    agent_id: String,
+    base_url: String,
 }
 
-impl WebhookCreatePrimitive {
-    pub fn new(db: Arc<Mutex<Database>>) -> Self {
-        Self { db }
+impl WebhookRegisterPrimitive {
+    pub fn new(
+        db: Arc<Mutex<Database>>,
+        ctx: PrimitiveContext,
+        agent_id: String,
+        base_url: String,
+    ) -> Self {
+        Self {
+            db,
+            ctx,
+            agent_id,
+            base_url,
+        }
     }
 }
 
 #[async_trait]
-impl Primitive for WebhookCreatePrimitive {
+impl Primitive for WebhookRegisterPrimitive {
     fn name(&self) -> &str {
-        "webhook.create"
+        "webhook.register"
     }
 
     fn description(&self) -> &str {
-        "Create a webhook endpoint that will be called on agent events."
+        "Register an inbound webhook endpoint. External services POST events to the returned URL."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "agent_id": {"type": "string", "description": "Agent ID to attach the webhook to"},
-                "url": {"type": "string", "description": "Webhook callback URL"},
-                "label": {"type": "string", "description": "Human-readable label"},
-                "event_filter": {"type": "string", "description": "Optional event type filter"}
+                "label": {"type": "string", "description": "Human-readable label for this webhook"},
+                "secret": {"type": "string", "description": "Optional HMAC-SHA256 secret. If omitted, one is auto-generated."},
+                "event_filter": {"type": "string", "description": "Optional comma-separated event types to accept (e.g. 'push,pull_request')"}
             },
-            "required": ["agent_id", "url", "label"]
+            "required": ["label"]
         })
     }
 
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
-        let agent_id = params["agent_id"]
-            .as_str()
-            .ok_or_else(|| PrimitiveError::InvalidParams("missing 'agent_id' parameter".into()))?;
-
-        let url = params["url"]
-            .as_str()
-            .ok_or_else(|| PrimitiveError::InvalidParams("missing 'url' parameter".into()))?;
-
         let label = params["label"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'label' parameter".into()))?;
 
+        // Auto-generate secret if not provided
+        let secret = match params["secret"].as_str() {
+            Some(s) => s.to_string(),
+            None => hex::encode(uuid::Uuid::now_v7().as_bytes()),
+        };
+
         let event_filter = params["event_filter"].as_str().map(|s| s.to_string());
 
-        tracing::info!(agent_id, url, label, event_filter = ?event_filter, "Creating webhook");
+        tracing::info!(agent_id = %self.agent_id, label, "Registering inbound webhook");
 
+        let token = uuid::Uuid::now_v7().to_string();
         let now = chrono::Utc::now().to_rfc3339();
         let id = uuid::Uuid::now_v7().to_string();
 
+        // Store the HMAC secret in the vault via PrimitiveContext
+        let backend_key = format!("webhook_secret_{}", id);
+        self.ctx.set_secret(&backend_key, &secret)?;
+        let secret_ref_id = self.ctx.create_secret_ref(
+            &format!("webhook_secret_{}", id),
+            &backend_key,
+            Some("webhook"),
+        )?;
+        self.ctx.grant_access(&self.agent_id, &secret_ref_id)?;
+
         let row = WebhookRow {
             id: id.clone(),
-            agent_id: agent_id.to_string(),
+            agent_id: self.agent_id.clone(),
             label: label.to_string(),
-            url: url.to_string(),
-            secret_ref_id: None,
+            token: token.clone(),
+            secret_ref_id,
             event_filter,
             enabled: true,
-            retry_count: 3,
-            timeout_seconds: 10,
             created_at: now.clone(),
             updated_at: now,
         };
@@ -77,27 +97,36 @@ impl Primitive for WebhookCreatePrimitive {
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("DB lock error: {}", e)))?;
 
         db.webhooks().insert(&row).map_err(|e| {
-            PrimitiveError::ExecutionFailed(format!("Failed to create webhook: {}", e))
+            PrimitiveError::ExecutionFailed(format!("Failed to register webhook: {}", e))
         })?;
+
+        let url = format!("{}/v1/hooks/{}", self.base_url.trim_end_matches('/'), token);
 
         Ok(serde_json::json!({
             "id": id,
-            "agent_id": agent_id,
-            "url": url,
             "label": label,
+            "url": url,
+            "secret": secret,
+            "token": token,
             "enabled": true,
-            "status": "created",
+            "status": "registered",
         }))
     }
 }
 
 pub struct WebhookListPrimitive {
     db: Arc<Mutex<Database>>,
+    agent_id: String,
+    base_url: String,
 }
 
 impl WebhookListPrimitive {
-    pub fn new(db: Arc<Mutex<Database>>) -> Self {
-        Self { db }
+    pub fn new(db: Arc<Mutex<Database>>, agent_id: String, base_url: String) -> Self {
+        Self {
+            db,
+            agent_id,
+            base_url,
+        }
     }
 }
 
@@ -108,25 +137,22 @@ impl Primitive for WebhookListPrimitive {
     }
 
     fn description(&self) -> &str {
-        "List all webhooks registered for an agent."
+        "List all inbound webhooks registered for the current agent."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
-            "properties": {
-                "agent_id": {"type": "string", "description": "Agent ID to list webhooks for"}
-            },
-            "required": ["agent_id"]
+            "properties": {},
+            "required": []
         })
     }
 
-    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
-        let agent_id = params["agent_id"]
-            .as_str()
-            .ok_or_else(|| PrimitiveError::InvalidParams("missing 'agent_id' parameter".into()))?;
-
-        tracing::debug!(agent_id, "Listing webhooks");
+    async fn invoke(
+        &self,
+        _params: serde_json::Value,
+    ) -> Result<serde_json::Value, PrimitiveError> {
+        tracing::debug!(agent_id = %self.agent_id, "Listing inbound webhooks");
 
         let db = self
             .db
@@ -135,18 +161,19 @@ impl Primitive for WebhookListPrimitive {
 
         let webhooks = db
             .webhooks()
-            .find_by_agent(agent_id)
+            .find_by_agent(&self.agent_id)
             .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
 
+        let base = self.base_url.trim_end_matches('/');
         let result: Vec<serde_json::Value> = webhooks
             .iter()
             .map(|w| {
                 serde_json::json!({
                     "id": w.id,
                     "label": w.label,
-                    "url": w.url,
-                    "enabled": w.enabled,
+                    "url": format!("{}/v1/hooks/{}", base, w.token),
                     "event_filter": w.event_filter,
+                    "enabled": w.enabled,
                 })
             })
             .collect();
@@ -155,92 +182,181 @@ impl Primitive for WebhookListPrimitive {
     }
 }
 
+pub struct WebhookDeletePrimitive {
+    db: Arc<Mutex<Database>>,
+    ctx: PrimitiveContext,
+    agent_id: String,
+}
+
+impl WebhookDeletePrimitive {
+    pub fn new(db: Arc<Mutex<Database>>, ctx: PrimitiveContext, agent_id: String) -> Self {
+        Self { db, ctx, agent_id }
+    }
+}
+
+#[async_trait]
+impl Primitive for WebhookDeletePrimitive {
+    fn name(&self) -> &str {
+        "webhook.delete"
+    }
+
+    fn description(&self) -> &str {
+        "Delete an inbound webhook by ID. Cleans up the associated HMAC secret."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "webhook_id": {"type": "string", "description": "ID of the webhook to delete"}
+            },
+            "required": ["webhook_id"]
+        })
+    }
+
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
+        let webhook_id = params["webhook_id"].as_str().ok_or_else(|| {
+            PrimitiveError::InvalidParams("missing 'webhook_id' parameter".into())
+        })?;
+
+        tracing::info!(agent_id = %self.agent_id, webhook_id, "Deleting inbound webhook");
+
+        // Look up webhook and verify ownership
+        let webhook = {
+            let db = self
+                .db
+                .lock()
+                .map_err(|e| PrimitiveError::ExecutionFailed(format!("DB lock error: {}", e)))?;
+
+            db.webhooks()
+                .find_by_id(webhook_id)
+                .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?
+                .ok_or_else(|| {
+                    PrimitiveError::InvalidParams(format!("Webhook '{}' not found", webhook_id))
+                })?
+        };
+
+        if webhook.agent_id != self.agent_id {
+            return Err(PrimitiveError::AccessDenied(
+                "Cannot delete webhooks belonging to another agent".into(),
+            ));
+        }
+
+        // Clean up vault secret
+        let secret_ref_id = webhook.secret_ref_id.clone();
+        if let Ok(Some(secret_ref)) = self
+            .ctx
+            .find_secret_ref(&format!("webhook_secret_{}", webhook_id))
+        {
+            let _ = self.ctx.delete_secret(&secret_ref.backend_key);
+            let _ = self.ctx.delete_secret_ref(&secret_ref_id);
+        }
+
+        // Delete the webhook row
+        let db = self
+            .db
+            .lock()
+            .map_err(|e| PrimitiveError::ExecutionFailed(format!("DB lock error: {}", e)))?;
+
+        db.webhooks().delete(webhook_id).map_err(|e| {
+            PrimitiveError::ExecutionFailed(format!("Failed to delete webhook: {}", e))
+        })?;
+
+        Ok(serde_json::json!({
+            "status": "deleted",
+            "id": webhook_id,
+        }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use moxxy_test_utils::TestDb;
-    use rusqlite::params;
+    use moxxy_vault::InMemoryBackend;
 
-    fn setup_db() -> Arc<Mutex<Database>> {
-        let db = TestDb::new();
-        // Insert required provider + agent
-        db.conn()
-            .execute(
-                "INSERT INTO providers (id, display_name, manifest_path, enabled, created_at)
-                 VALUES ('prov-1', 'P1', '/p1', 1, '2025-01-01')",
-                [],
-            )
+    fn setup_db() -> (Arc<Mutex<Database>>, PrimitiveContext, String) {
+        let test_db = TestDb::new();
+        let db = Database::new(test_db.into_conn());
+        let now = chrono::Utc::now().to_rfc3339();
+
+        db.providers()
+            .insert(&moxxy_storage::ProviderRow {
+                id: "test-provider".into(),
+                display_name: "Test".into(),
+                manifest_path: "/tmp".into(),
+                signature: None,
+                enabled: true,
+                created_at: now.clone(),
+            })
             .unwrap();
-        db.conn()
-            .execute(
-                "INSERT INTO agents (id, provider_id, model_id, workspace_root, status, depth, spawned_total, temperature, max_subagent_depth, max_subagents_total, created_at, updated_at, name)
-                 VALUES ('agent-1', 'prov-1', 'gpt-4', '/tmp', 'idle', 0, 0, 0.7, 2, 8, '2025-01-01', '2025-01-01', 'agent-1')",
-                [],
-            )
+
+        let agent_id = uuid::Uuid::now_v7().to_string();
+        db.agents()
+            .insert(&moxxy_storage::AgentRow {
+                id: agent_id.clone(),
+                parent_agent_id: None,
+                provider_id: "test-provider".into(),
+                model_id: "test-model".into(),
+                workspace_root: "/tmp".into(),
+                core_mount: None,
+                policy_profile: None,
+                temperature: 0.7,
+                max_subagent_depth: 2,
+                max_subagents_total: 8,
+                status: "idle".into(),
+                depth: 0,
+                spawned_total: 0,
+                created_at: now.clone(),
+                updated_at: now,
+                name: Some("test-agent".into()),
+                persona: None,
+            })
             .unwrap();
-        // Extract connection from TestDb and wrap in Database
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        conn.execute_batch(include_str!("../../../../migrations/0001_init.sql"))
-            .unwrap();
-        conn.execute_batch(include_str!("../../../../migrations/0002_channels.sql"))
-            .unwrap();
-        conn.execute_batch(include_str!("../../../../migrations/0003_webhooks.sql"))
-            .unwrap();
-        conn.execute_batch(include_str!(
-            "../../../../migrations/0004_conversation_log.sql"
-        ))
-        .unwrap();
-        conn.execute(
-            "INSERT INTO providers (id, display_name, manifest_path, enabled, created_at)
-             VALUES ('prov-1', 'P1', '/p1', 1, '2025-01-01')",
-            params![],
-        )
-        .unwrap();
-        conn.execute_batch(include_str!(
-            "../../../../migrations/0008_agent_name_persona.sql"
-        ))
-        .unwrap();
-        conn.execute(
-            "INSERT INTO agents (id, provider_id, model_id, workspace_root, status, depth, spawned_total, temperature, max_subagent_depth, max_subagents_total, created_at, updated_at, name)
-             VALUES ('agent-1', 'prov-1', 'gpt-4', '/tmp', 'idle', 0, 0, 0.7, 2, 8, '2025-01-01', '2025-01-01', 'agent-1')",
-            params![],
-        )
-        .unwrap();
-        Arc::new(Mutex::new(Database::new(conn)))
+
+        let db = Arc::new(Mutex::new(db));
+        let backend = Arc::new(InMemoryBackend::new());
+        let ctx = PrimitiveContext::new(db.clone(), agent_id.clone(), backend);
+        (db, ctx, agent_id)
     }
 
     #[tokio::test]
-    async fn webhook_create_stores_webhook() {
-        let db = setup_db();
-        let prim = WebhookCreatePrimitive::new(db.clone());
+    async fn webhook_register_stores_webhook() {
+        let (db, ctx, agent_id) = setup_db();
+        let prim = WebhookRegisterPrimitive::new(
+            db.clone(),
+            ctx,
+            agent_id.clone(),
+            "https://moxxy.example.com".into(),
+        );
         let result = prim
             .invoke(serde_json::json!({
-                "agent_id": "agent-1",
-                "url": "https://hooks.example.com/notify",
-                "label": "My Webhook",
+                "label": "GitHub Events",
+                "secret": "my-hmac-secret",
             }))
             .await
             .unwrap();
 
-        assert_eq!(result["status"], "created");
-        assert_eq!(result["label"], "My Webhook");
-        assert!(result["id"].as_str().is_some());
+        assert_eq!(result["status"], "registered");
+        assert_eq!(result["label"], "GitHub Events");
+        assert!(result["url"].as_str().unwrap().contains("/v1/hooks/"));
+        assert!(result["token"].as_str().is_some());
 
         // Verify in DB
         let db = db.lock().unwrap();
-        let webhooks = db.webhooks().find_by_agent("agent-1").unwrap();
+        let webhooks = db.webhooks().find_by_agent(&agent_id).unwrap();
         assert_eq!(webhooks.len(), 1);
-        assert_eq!(webhooks[0].url, "https://hooks.example.com/notify");
+        assert_eq!(webhooks[0].label, "GitHub Events");
     }
 
     #[tokio::test]
-    async fn webhook_create_requires_url() {
-        let db = setup_db();
-        let prim = WebhookCreatePrimitive::new(db);
+    async fn webhook_register_requires_label() {
+        let (db, ctx, agent_id) = setup_db();
+        let prim =
+            WebhookRegisterPrimitive::new(db, ctx, agent_id, "https://moxxy.example.com".into());
         let result = prim
             .invoke(serde_json::json!({
-                "agent_id": "agent-1",
-                "label": "No URL",
+                "secret": "my-secret",
             }))
             .await;
         assert!(result.is_err());
@@ -251,34 +367,125 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn webhook_register_auto_generates_secret() {
+        let (db, ctx, agent_id) = setup_db();
+        let prim =
+            WebhookRegisterPrimitive::new(db, ctx, agent_id, "https://moxxy.example.com".into());
+        let result = prim
+            .invoke(serde_json::json!({
+                "label": "Auto Secret",
+            }))
+            .await
+            .unwrap();
+        // Secret should be auto-generated and returned
+        assert!(result["secret"].as_str().is_some());
+        assert!(!result["secret"].as_str().unwrap().is_empty());
+        assert_eq!(result["status"], "registered");
+    }
+
+    #[tokio::test]
     async fn webhook_list_returns_agent_webhooks() {
-        let db = setup_db();
+        let (db, ctx, agent_id) = setup_db();
 
-        // Create two webhooks
-        let create = WebhookCreatePrimitive::new(db.clone());
-        create
+        // Register two webhooks
+        let register = WebhookRegisterPrimitive::new(
+            db.clone(),
+            ctx.clone(),
+            agent_id.clone(),
+            "https://moxxy.example.com".into(),
+        );
+        register
             .invoke(serde_json::json!({
-                "agent_id": "agent-1",
-                "url": "https://a.com/hook",
                 "label": "Hook A",
+                "secret": "secret-a",
             }))
             .await
             .unwrap();
-        create
+        let register2 = WebhookRegisterPrimitive::new(
+            db.clone(),
+            ctx,
+            agent_id.clone(),
+            "https://moxxy.example.com".into(),
+        );
+        register2
             .invoke(serde_json::json!({
-                "agent_id": "agent-1",
-                "url": "https://b.com/hook",
                 "label": "Hook B",
+                "secret": "secret-b",
             }))
             .await
             .unwrap();
 
-        let list = WebhookListPrimitive::new(db);
-        let result = list
-            .invoke(serde_json::json!({"agent_id": "agent-1"}))
-            .await
-            .unwrap();
+        let list = WebhookListPrimitive::new(db, agent_id, "https://moxxy.example.com".into());
+        let result = list.invoke(serde_json::json!({})).await.unwrap();
         let webhooks = result["webhooks"].as_array().unwrap();
         assert_eq!(webhooks.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn webhook_delete_removes_webhook() {
+        let (db, ctx, agent_id) = setup_db();
+
+        // Register a webhook
+        let register = WebhookRegisterPrimitive::new(
+            db.clone(),
+            ctx.clone(),
+            agent_id.clone(),
+            "https://moxxy.example.com".into(),
+        );
+        let result = register
+            .invoke(serde_json::json!({
+                "label": "To Delete",
+                "secret": "secret-del",
+            }))
+            .await
+            .unwrap();
+        let webhook_id = result["id"].as_str().unwrap().to_string();
+
+        // Delete it
+        let delete = WebhookDeletePrimitive::new(db.clone(), ctx, agent_id.clone());
+        let del_result = delete
+            .invoke(serde_json::json!({"webhook_id": webhook_id}))
+            .await
+            .unwrap();
+        assert_eq!(del_result["status"], "deleted");
+
+        // Verify gone
+        let db = db.lock().unwrap();
+        let webhooks = db.webhooks().find_by_agent(&agent_id).unwrap();
+        assert_eq!(webhooks.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn webhook_delete_checks_ownership() {
+        let (db, ctx, agent_id) = setup_db();
+
+        // Register a webhook
+        let register = WebhookRegisterPrimitive::new(
+            db.clone(),
+            ctx,
+            agent_id.clone(),
+            "https://moxxy.example.com".into(),
+        );
+        let result = register
+            .invoke(serde_json::json!({
+                "label": "Owned",
+                "secret": "secret-own",
+            }))
+            .await
+            .unwrap();
+        let webhook_id = result["id"].as_str().unwrap().to_string();
+
+        // Try deleting with a different agent
+        let other_backend = Arc::new(InMemoryBackend::new());
+        let other_ctx = PrimitiveContext::new(db.clone(), "other-agent".into(), other_backend);
+        let delete = WebhookDeletePrimitive::new(db, other_ctx, "other-agent".into());
+        let del_result = delete
+            .invoke(serde_json::json!({"webhook_id": webhook_id}))
+            .await;
+        assert!(del_result.is_err());
+        assert!(matches!(
+            del_result.unwrap_err(),
+            PrimitiveError::AccessDenied(_)
+        ));
     }
 }

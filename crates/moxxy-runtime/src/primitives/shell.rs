@@ -90,7 +90,7 @@ impl Primitive for ShellExecPrimitive {
         };
 
         if !allowed_commands.contains(&command.to_string()) {
-            tracing::warn!(command, "Shell exec blocked — command not in allowlist");
+            tracing::warn!(command, "Shell exec blocked = command not in allowlist");
             return Err(PrimitiveError::AccessDenied(format!(
                 "Command '{}' not in allowlist",
                 command

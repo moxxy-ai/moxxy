@@ -19,6 +19,11 @@ const TOOL_ACTIVITY_EVENTS = new Set([
 
 const DELTA_FLUSH_MS = 50;
 const PARAM_TRUNCATE = 80;
+const HIDDEN_TOOL_PREFIXES = ['agent.'];
+
+function isHiddenTool(name) {
+  return HIDDEN_TOOL_PREFIXES.some(p => name.startsWith(p));
+}
 
 function formatValue(v) {
   if (v == null) return 'null';
@@ -56,7 +61,8 @@ export class EventsHandler {
     this._onChange = null; // callback when messages/stats change
     this.thinking = false;
     this._thinkingTimer = null;
-    this.pendingAsk = null; // { questionId, question } — set when agent asks user
+    this.pendingAsk = null; // { questionId, question } = set when agent asks user
+    this._subAgents = new Map(); // agentId -> { name, task, buffer, status }
   }
 
   /** Set callback invoked on any state change. */
@@ -152,15 +158,115 @@ export class EventsHandler {
   }
 
   _flushDelta() {
+    let changed = false;
+
+    // Flush parent assistant buffer
     const content = this._assistantBuffer;
-    if (!content) return;
-    const last = this.messages[this.messages.length - 1];
-    if (last && last.type === 'assistant' && last.streaming) {
-      last.content = content;
-    } else {
-      this.messages.push({ type: 'assistant', content, streaming: true, ts: Date.now() });
+    if (content) {
+      const last = this.messages[this.messages.length - 1];
+      if (last && last.type === 'assistant' && last.streaming) {
+        last.content = content;
+      } else {
+        this.messages.push({ type: 'assistant', content, streaming: true, ts: Date.now() });
+      }
+      changed = true;
     }
-    this._notify();
+
+    // Flush sub-agent buffers
+    for (const [agentId, sub] of this._subAgents) {
+      if (!sub.buffer) continue;
+      const last = this.messages[this.messages.length - 1];
+      if (last && last.type === 'subagent-text' && last.agentId === agentId && last.streaming) {
+        last.content = sub.buffer;
+      } else {
+        this.messages.push({
+          type: 'subagent-text', agentId, name: sub.name,
+          content: sub.buffer, streaming: true, ts: Date.now(),
+        });
+      }
+      changed = true;
+    }
+
+    if (changed) this._notify();
+  }
+
+  _processSubAgentEvent(event) {
+    const type = event.event_type;
+    const payload = event.payload || {};
+    const agentId = event.agent_id;
+    const sub = this._subAgents.get(agentId);
+    if (!sub) return;
+
+    if (type === 'message.delta') {
+      sub.buffer += (payload.content || payload.text || '');
+      if (!this._deltaTimer) {
+        this._deltaTimer = setTimeout(() => {
+          this._deltaTimer = null;
+          this._flushDelta();
+        }, DELTA_FLUSH_MS);
+      }
+      return;
+    }
+
+    if (type === 'message.final') {
+      if (this._deltaTimer) {
+        clearTimeout(this._deltaTimer);
+        this._deltaTimer = null;
+      }
+      const finalContent = payload.content || payload.text || sub.buffer;
+      sub.buffer = '';
+      const last = this.messages[this.messages.length - 1];
+      if (last && last.type === 'subagent-text' && last.agentId === agentId && last.streaming) {
+        last.content = finalContent;
+        last.streaming = false;
+      } else {
+        this.messages.push({
+          type: 'subagent-text', agentId, name: sub.name,
+          content: finalContent, streaming: false, ts: event.ts,
+        });
+      }
+      this._notify();
+      return;
+    }
+
+    if (type === 'primitive.invoked') {
+      if (isHiddenTool(payload.name || '')) return;
+      this.messages.push({
+        type: 'tool', name: payload.name || 'unknown', status: 'invoked',
+        arguments: formatParams(payload.arguments), ts: event.ts,
+        subAgent: sub.name,
+      });
+      this._notify();
+      return;
+    }
+
+    if (type === 'primitive.completed') {
+      if (isHiddenTool(payload.name || '')) return;
+      const last = this.messages[this.messages.length - 1];
+      if (last && last.type === 'tool' && last.name === (payload.name || 'unknown') && last.status === 'invoked' && last.subAgent === sub.name) {
+        last.status = 'completed';
+        last.result = formatParams(payload.result);
+      }
+      this._notify();
+      return;
+    }
+
+    if (type === 'primitive.failed') {
+      if (isHiddenTool(payload.name || '')) return;
+      const last = this.messages[this.messages.length - 1];
+      if (last && last.type === 'tool' && last.name === (payload.name || 'unknown') && last.status === 'invoked' && last.subAgent === sub.name) {
+        last.status = 'error';
+        last.error = payload.error || 'unknown error';
+      }
+      this._notify();
+      return;
+    }
+
+    // Pass other sub-agent events through in debug mode
+    if (this.debug) {
+      this.messages.push({ type: 'event', eventType: type, payload, ts: event.ts });
+      this._notify();
+    }
   }
 
   _processEvent(event) {
@@ -179,6 +285,44 @@ export class EventsHandler {
       this.stats.tokenEstimate += (payload.usage.total_tokens || 0);
     }
 
+    // Register new sub-agents
+    if (type === 'subagent.spawned') {
+      const subId = payload.sub_agent_id;
+      const name = payload.name || subId;
+      const task = payload.task || '';
+      this._subAgents.set(subId, { name, task, buffer: '', status: 'running' });
+      this.messages.push({ type: 'subagent-spawned', agentId: subId, name, task, ts: event.ts });
+      this._notify();
+      return;
+    }
+
+    // Handle sub-agent completion/failure (emitted on parent's agent_id)
+    if (type === 'subagent.completed') {
+      const subId = payload.sub_agent_id;
+      const name = payload.name || subId;
+      const sub = this._subAgents.get(subId);
+      if (sub) sub.status = 'completed';
+      this.messages.push({ type: 'subagent-done', agentId: subId, name, status: 'completed', result: payload.result, ts: event.ts });
+      this._notify();
+      return;
+    }
+
+    if (type === 'subagent.failed') {
+      const subId = payload.sub_agent_id;
+      const name = payload.name || subId;
+      const sub = this._subAgents.get(subId);
+      if (sub) sub.status = 'failed';
+      this.messages.push({ type: 'subagent-done', agentId: subId, name, status: 'failed', error: payload.error, ts: event.ts });
+      this._notify();
+      return;
+    }
+
+    // Route events from sub-agents
+    if (event.agent_id && event.agent_id !== this.agentId && this._subAgents.has(event.agent_id)) {
+      this._processSubAgentEvent(event);
+      return;
+    }
+
     // Show channel messages (from Telegram, Discord, etc.) as user messages
     if (type === 'channel.message_received') {
       const sender = payload.sender_name || 'User';
@@ -193,7 +337,7 @@ export class EventsHandler {
       return;
     }
 
-    // Handle user.ask — agent is asking the user a question
+    // Handle user.ask = agent is asking the user a question
     if (type === 'user.ask_question') {
       if (this.thinking) this._stopThinking();
       const questionId = payload.question_id;
@@ -204,7 +348,7 @@ export class EventsHandler {
       return;
     }
 
-    // Handle user.ask_answered — question was answered, clear pending state
+    // Handle user.ask_answered = question was answered, clear pending state
     if (type === 'user.ask_answered') {
       this.pendingAsk = null;
       this._startThinking();
@@ -249,6 +393,11 @@ export class EventsHandler {
       if (this.thinking) this._stopThinking();
     }
 
+    // Silence errors for hidden tool prefixes (e.g. agent.*)
+    if (type === 'primitive.failed' && isHiddenTool(payload.name || '')) {
+      return;
+    }
+
     // For user-facing error events, show as a friendly system message
     // (raw event format only in debug mode)
     if (!this.debug && FRIENDLY_ERROR_EVENTS.has(type)) {
@@ -262,6 +411,7 @@ export class EventsHandler {
     // Show tool activity events as compact messages
     if (TOOL_ACTIVITY_EVENTS.has(type)) {
       if (type === 'primitive.invoked') {
+        if (isHiddenTool(payload.name || '')) return;
         this.messages.push({
           type: 'tool', name: payload.name || 'unknown', status: 'invoked',
           arguments: formatParams(payload.arguments), ts: event.ts,
@@ -270,6 +420,7 @@ export class EventsHandler {
         return;
       }
       if (type === 'primitive.completed') {
+        if (isHiddenTool(payload.name || '')) return;
         // Update the last tool message for the same primitive if it was just invoked
         const last = this.messages[this.messages.length - 1];
         if (last && last.type === 'tool' && last.name === (payload.name || 'unknown') && last.status === 'invoked') {

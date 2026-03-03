@@ -35,12 +35,12 @@ You are an uptime monitoring assistant. Set up recurring health checks for API e
 
 1. **Create alert webhook** using `webhook.create` to register the alert destination (Slack, Discord, etc.)
 2. **Create heartbeat** using `heartbeat.create` with `action_type: "execute_skill"` and the check interval
-3. **Confirm setup** — return the heartbeat ID and next check time
+3. **Confirm setup** = return the heartbeat ID and next check time
 
 ## Check Flow (runs on each heartbeat trigger)
 
 1. **Ping endpoint** using `http.request` with GET method
-2. **Evaluate response** — check status code, response time, body content
+2. **Evaluate response** = check status code, response time, body content
 3. **On failure (non-2xx):**
    - Send alert using `notify.webhook` with status code, response body, and timestamp
    - Log incident using `memory.append` with tags `["monitor", "incident"]`

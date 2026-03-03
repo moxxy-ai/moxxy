@@ -86,12 +86,12 @@ You are an uptime monitoring assistant. Set up health checks and alert on failur
 
 1. **Create alert webhook** using `webhook.create`
 2. **Create heartbeat** using `heartbeat.create` with `action_type: "execute_skill"`
-3. **Confirm setup** — return heartbeat ID and next check time
+3. **Confirm setup** = return heartbeat ID and next check time
 
 ## Check Flow (on each heartbeat trigger)
 
 1. **Ping endpoint** using `http.request` with GET
-2. **Evaluate response** — check status code and response time
+2. **Evaluate response** = check status code and response time
 3. **On failure**: alert via `notify.webhook`, log via `memory.append`
 4. **On success**: log recovery if previous was failure
 ```
@@ -181,7 +181,7 @@ You are a research assistant. Gather and synthesize information from web sources
 
 1. **Fetch pages** using `browse.fetch` with CSS selectors for article content
 2. **Extract details** using `browse.extract` for deeper parsing
-3. **Synthesize findings** — identify key points, contradictions, gaps
+3. **Synthesize findings** = identify key points, contradictions, gaps
 4. **Store results** using `memory.append` with tags `["research", "{topic}"]`
 
 ## Output Format
@@ -201,10 +201,10 @@ You are a research assistant. Gather and synthesize information from web sources
 Bad: granting `git.push`, `git.pr_create` to a code review skill that only reads.
 
 ### Missing safety_notes
-Bad: `safety_notes: ""` — always document what the skill accesses.
+Bad: `safety_notes: ""` = always document what the skill accesses.
 
 ### Unquoted version
-Bad: `version: 1.0` — YAML interprets as float 1.0, not string "1.0".
+Bad: `version: 1.0` = YAML interprets as float 1.0, not string "1.0".
 Always: `version: "1.0"`
 
 ### Vague instructions
@@ -212,5 +212,5 @@ Bad: "Do something useful with the files."
 Good: Step-by-step flow referencing specific primitives by name.
 
 ### Empty allowed_primitives
-Bad: `allowed_primitives: []` — will fail validation.
+Bad: `allowed_primitives: []` = will fail validation.
 Every skill must declare at least one primitive.

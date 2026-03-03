@@ -51,7 +51,7 @@ You are a news curation assistant. Track topics across multiple sources and deli
    - ArsTechnica: `h2 a` for story links
    - Custom sources: adapt selectors to the site structure
 2. **Extract content** using `browse.extract` if deeper parsing is needed
-3. **Filter by topics** — match headlines against configured topic keywords
+3. **Filter by topics** = match headlines against configured topic keywords
 4. **Rank and select** the top 5-10 most relevant stories
 5. **Deliver digest** using `notify.webhook` with a formatted summary
 6. **Archive** using `memory.append` with tags `["digest", "{date}"]` for history

@@ -53,7 +53,7 @@ mod tests {
     #[test]
     fn event_type_has_all_30_variants() {
         let all = EventType::all_variants();
-        assert_eq!(all.len(), 36);
+        assert_eq!(all.len(), 37);
     }
 
     #[test]
@@ -91,15 +91,15 @@ mod tests {
     }
 
     #[test]
-    fn auth_mode_default_is_token() {
-        assert_eq!(AuthMode::default(), AuthMode::Token);
+    fn auth_mode_default_is_loopback() {
+        assert_eq!(AuthMode::default(), AuthMode::Loopback);
     }
 
     #[test]
     fn auth_mode_from_config_str() {
         assert_eq!(AuthMode::from_config_str("token"), AuthMode::Token);
         assert_eq!(AuthMode::from_config_str("loopback"), AuthMode::Loopback);
-        assert_eq!(AuthMode::from_config_str("unknown"), AuthMode::Token);
+        assert_eq!(AuthMode::from_config_str("unknown"), AuthMode::Loopback);
     }
 
     #[test]
@@ -199,6 +199,7 @@ mod proptests {
             Just(EventType::SubagentFailed),
             Just(EventType::AgentAlive),
             Just(EventType::AgentStuck),
+            Just(EventType::WebhookReceived),
         ]
     }
 

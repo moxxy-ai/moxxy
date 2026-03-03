@@ -36,7 +36,10 @@ impl HttpRequestPrimitive {
             .allowlists()
             .list_entries(&self.agent_id, "http_domain")
             .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-        Ok(crate::defaults::merge_with_defaults(db_entries, "http_domain"))
+        Ok(crate::defaults::merge_with_defaults(
+            db_entries,
+            "http_domain",
+        ))
     }
 
     fn extract_domain(url: &str) -> Option<String> {
@@ -86,7 +89,7 @@ impl Primitive for HttpRequestPrimitive {
 
         let allowed_domains = self.load_allowed_domains()?;
         if !allowed_domains.iter().any(|d| d == &domain) {
-            tracing::warn!(url, %domain, "HTTP request blocked — domain not in allowlist");
+            tracing::warn!(url, %domain, "HTTP request blocked = domain not in allowlist");
             return Err(PrimitiveError::AccessDenied(format!(
                 "Domain '{}' not in allowlist",
                 domain

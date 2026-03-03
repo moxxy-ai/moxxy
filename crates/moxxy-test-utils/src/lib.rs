@@ -89,6 +89,11 @@ impl TestDb {
         self.conn
             .execute_batch(sql9)
             .expect("Migration 0009 failed");
+        // Migration 0010: inbound webhooks (drops and recreates webhook tables)
+        let sql10 = include_str!("../../../migrations/0010_inbound_webhooks.sql");
+        self.conn
+            .execute_batch(sql10)
+            .expect("Migration 0010 failed");
         self.conn
             .execute_batch(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS memory_vec0 USING vec0(memory_id TEXT, embedding float[384])",

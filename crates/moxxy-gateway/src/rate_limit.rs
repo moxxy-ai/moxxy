@@ -155,6 +155,7 @@ mod tests {
             [0u8; 32],
             moxxy_types::AuthMode::Token,
             std::path::PathBuf::from("/tmp/moxxy-test"),
+            "http://127.0.0.1:3000".into(),
         ));
         create_router(state, Some(config))
     }

@@ -172,12 +172,10 @@ pub fn fixture_webhook_row() -> WebhookRow {
         id: uuid::Uuid::now_v7().to_string(),
         agent_id: "placeholder-agent".into(),
         label: "test-webhook".into(),
-        url: "https://example.com/webhook".into(),
-        secret_ref_id: None,
+        token: uuid::Uuid::now_v7().to_string(),
+        secret_ref_id: "placeholder-secret-ref".into(),
         event_filter: None,
         enabled: true,
-        retry_count: 3,
-        timeout_seconds: 10,
         created_at: chrono::Utc::now().to_rfc3339(),
         updated_at: chrono::Utc::now().to_rfc3339(),
     }
@@ -197,13 +195,12 @@ pub fn fixture_webhook_delivery_row() -> WebhookDeliveryRow {
     WebhookDeliveryRow {
         id: uuid::Uuid::now_v7().to_string(),
         webhook_id: "placeholder-webhook".into(),
-        event_id: None,
-        status: "pending".into(),
-        attempt: 0,
-        response_status: None,
-        response_body: None,
+        source_ip: Some("127.0.0.1".into()),
+        headers_json: Some(r#"{"content-type":"application/json"}"#.into()),
+        body: Some(r#"{"action":"opened"}"#.into()),
+        signature_valid: true,
+        run_id: Some("test-run".into()),
         error: None,
-        delivered_at: None,
         created_at: chrono::Utc::now().to_rfc3339(),
     }
 }

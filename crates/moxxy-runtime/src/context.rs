@@ -1,17 +1,23 @@
 use std::sync::{Arc, Mutex};
 
+use moxxy_core::EventBus;
 use moxxy_storage::Database;
+use moxxy_types::{EventEnvelope, EventType};
 use moxxy_vault::SecretBackend;
 
+use crate::primitives::ask::AskChannels;
 use crate::registry::PrimitiveError;
 
 /// Shared context for primitives that need vault access (e.g. git primitives).
 /// Resolves secrets by key_name, checking that the agent has a non-revoked grant.
+/// Optionally supports interactive secret resolution via the user.ask mechanism.
 #[derive(Clone)]
 pub struct PrimitiveContext {
     db: Arc<Mutex<Database>>,
     agent_id: String,
     vault_backend: Arc<dyn SecretBackend + Send + Sync>,
+    event_bus: Option<EventBus>,
+    ask_channels: Option<AskChannels>,
 }
 
 impl PrimitiveContext {
@@ -24,7 +30,16 @@ impl PrimitiveContext {
             db,
             agent_id,
             vault_backend,
+            event_bus: None,
+            ask_channels: None,
         }
+    }
+
+    /// Enable interactive secret resolution via user.ask.
+    pub fn with_ask_support(mut self, event_bus: EventBus, ask_channels: AskChannels) -> Self {
+        self.event_bus = Some(event_bus);
+        self.ask_channels = Some(ask_channels);
+        self
     }
 
     /// Returns the agent ID this context belongs to.
@@ -75,6 +90,102 @@ impl PrimitiveContext {
                 e
             ))),
         }
+    }
+
+    /// Resolve a secret, falling back to user.ask if the secret is missing and
+    /// ask support is configured. On receiving an answer the token is persisted
+    /// in the vault and a grant is created so subsequent calls resolve directly.
+    pub async fn resolve_or_ask_secret(
+        &self,
+        key_name: &str,
+        question: &str,
+    ) -> Result<String, PrimitiveError> {
+        // 1. Try vault first
+        if let Some(value) = self.resolve_secret(key_name)? {
+            return Ok(value);
+        }
+
+        // 2. Fall back to user.ask if wired up
+        let event_bus = self.event_bus.as_ref().ok_or_else(|| {
+            PrimitiveError::AccessDenied(format!(
+                "{key_name} not found in vault and interactive ask is not available"
+            ))
+        })?;
+        let ask_channels = self.ask_channels.as_ref().ok_or_else(|| {
+            PrimitiveError::AccessDenied(format!(
+                "{key_name} not found in vault and interactive ask is not available"
+            ))
+        })?;
+
+        let question_id = uuid::Uuid::now_v7().to_string();
+
+        // Create oneshot channel for the answer
+        let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+        {
+            let mut channels = ask_channels
+                .lock()
+                .map_err(|_| PrimitiveError::ExecutionFailed("lock poisoned".into()))?;
+            channels.insert(question_id.clone(), tx);
+        }
+
+        // Emit the ask event so the CLI/SSE can show the question
+        event_bus.emit(EventEnvelope::new(
+            self.agent_id.clone(),
+            None,
+            None,
+            0,
+            EventType::UserAskQuestion,
+            serde_json::json!({
+                "question_id": question_id,
+                "question": question,
+            }),
+        ));
+
+        // Wait for answer (5 minute timeout)
+        let timeout = std::time::Duration::from_secs(300);
+        let answer = match tokio::time::timeout(timeout, rx).await {
+            Ok(Ok(answer)) => answer,
+            Ok(Err(_)) => {
+                // Channel closed without answer
+                if let Ok(mut ch) = ask_channels.lock() {
+                    ch.remove(&question_id);
+                }
+                return Err(PrimitiveError::ExecutionFailed(
+                    "ask channel closed without response".into(),
+                ));
+            }
+            Err(_) => {
+                // Timeout
+                if let Ok(mut ch) = ask_channels.lock() {
+                    ch.remove(&question_id);
+                }
+                return Err(PrimitiveError::Timeout);
+            }
+        };
+
+        // Emit answered event
+        event_bus.emit(EventEnvelope::new(
+            self.agent_id.clone(),
+            None,
+            None,
+            0,
+            EventType::UserAskAnswered,
+            serde_json::json!({ "question_id": question_id }),
+        ));
+
+        // 3. Persist the token in vault so future calls don't re-ask
+        let backend_key = format!("agent_{}_{}", self.agent_id, key_name);
+        self.set_secret(&backend_key, &answer)?;
+        let ref_id = self.create_secret_ref(key_name, &backend_key, Some("user-provided"))?;
+        self.grant_access(&self.agent_id, &ref_id)?;
+
+        tracing::info!(
+            agent_id = %self.agent_id,
+            key_name,
+            "Secret obtained via user.ask and stored in vault"
+        );
+
+        Ok(answer)
     }
 
     /// Store a secret value in the vault backend.
@@ -341,6 +452,96 @@ mod tests {
 
         let result = ctx.resolve_secret("nonexistent-key").unwrap();
         assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn resolve_or_ask_returns_vault_value_when_available() {
+        let test_db = TestDb::new();
+        let agent_id = "agent-1";
+        seed_agent(&test_db, agent_id);
+        seed_secret_ref(&test_db, "ref-1", "github-token", "bk-github");
+        seed_grant(&test_db, agent_id, "ref-1");
+
+        let backend = Arc::new(InMemoryBackend::new());
+        backend.set_secret("bk-github", "ghp_existing").unwrap();
+
+        let bus = EventBus::new(100);
+        let channels = crate::primitives::ask::new_ask_channels();
+
+        let db = Arc::new(Mutex::new(Database::new(test_db.into_conn())));
+        let ctx =
+            PrimitiveContext::new(db, agent_id.into(), backend).with_ask_support(bus, channels);
+
+        let result = ctx
+            .resolve_or_ask_secret("github-token", "Provide token:")
+            .await
+            .unwrap();
+        assert_eq!(result, "ghp_existing");
+    }
+
+    #[tokio::test]
+    async fn resolve_or_ask_falls_back_to_user_ask() {
+        let test_db = TestDb::new();
+        let agent_id = "agent-1";
+        seed_agent(&test_db, agent_id);
+        // No secret in vault
+
+        let backend = Arc::new(InMemoryBackend::new());
+        let bus = EventBus::new(100);
+        let channels = crate::primitives::ask::new_ask_channels();
+
+        let db = Arc::new(Mutex::new(Database::new(test_db.into_conn())));
+        let ctx = PrimitiveContext::new(db, agent_id.into(), backend.clone())
+            .with_ask_support(bus, channels.clone());
+
+        // Spawn the resolve_or_ask in background
+        let handle = tokio::spawn(async move {
+            ctx.resolve_or_ask_secret("github-token", "Provide your GitHub token:")
+                .await
+        });
+
+        // Wait for the ask channel to be registered
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // Answer the question
+        let question_id = {
+            let ch = channels.lock().unwrap();
+            assert_eq!(ch.len(), 1);
+            ch.keys().next().unwrap().clone()
+        };
+        {
+            let mut ch = channels.lock().unwrap();
+            let tx = ch.remove(&question_id).unwrap();
+            tx.send("ghp_user_provided".to_string()).unwrap();
+        }
+
+        let result = handle.await.unwrap().unwrap();
+        assert_eq!(result, "ghp_user_provided");
+
+        // Verify it was persisted in vault backend
+        let stored = backend.get_secret("agent_agent-1_github-token").unwrap();
+        assert_eq!(stored, "ghp_user_provided");
+    }
+
+    #[tokio::test]
+    async fn resolve_or_ask_errors_without_ask_support() {
+        let test_db = TestDb::new();
+        let agent_id = "agent-1";
+        seed_agent(&test_db, agent_id);
+        // No secret, no ask support
+
+        let backend = Arc::new(InMemoryBackend::new());
+        let db = Arc::new(Mutex::new(Database::new(test_db.into_conn())));
+        let ctx = PrimitiveContext::new(db, agent_id.into(), backend);
+
+        let result = ctx
+            .resolve_or_ask_secret("github-token", "Provide token:")
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            PrimitiveError::AccessDenied(_)
+        ));
     }
 
     #[test]

@@ -6,7 +6,7 @@ use moxxy_vault::SecretBackend;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-/// Metadata for a single slash command — used for /help and platform registration.
+/// Metadata for a single slash command = used for /help and platform registration.
 #[derive(Debug, Clone)]
 pub struct CommandDefinition {
     pub command: String,
@@ -87,7 +87,7 @@ impl CommandRegistry {
 // Built-in handlers
 // ---------------------------------------------------------------------------
 
-/// `/start` — generate a pairing code. Does not require binding.
+/// `/start` = generate a pairing code. Does not require binding.
 pub struct StartHandler;
 
 #[async_trait]
@@ -117,7 +117,7 @@ impl CommandHandler for StartHandler {
     }
 }
 
-/// `/status` — show agent status and binding info.
+/// `/status` = show agent status and binding info.
 pub struct StatusHandler;
 
 #[async_trait]
@@ -150,7 +150,7 @@ impl CommandHandler for StatusHandler {
     }
 }
 
-/// `/stop` — stop the current agent run.
+/// `/stop` = stop the current agent run.
 pub struct StopHandler;
 
 #[async_trait]
@@ -175,7 +175,7 @@ impl CommandHandler for StopHandler {
     }
 }
 
-/// `/help` — list all available commands. Does not require binding.
+/// `/help` = list all available commands. Does not require binding.
 pub struct HelpHandler {
     definitions_list: Vec<CommandDefinition>,
 }
@@ -214,7 +214,7 @@ impl CommandHandler for HelpHandler {
     }
 }
 
-/// `/model` — view or change the agent's AI model.
+/// `/model` = view or change the agent's AI model.
 pub struct ModelHandler;
 
 #[async_trait]
@@ -346,7 +346,7 @@ impl ModelHandler {
     }
 }
 
-/// `/vault` — manage agent secrets.
+/// `/vault` = manage agent secrets.
 pub struct VaultHandler;
 
 #[async_trait]
@@ -415,7 +415,7 @@ impl VaultHandler {
             .lock()
             .map_err(|e| ChannelError::StorageError(e.to_string()))?;
 
-        // Check if ref already exists — update backend, keep ref + grant
+        // Check if ref already exists = update backend, keep ref + grant
         let existing = db
             .vault_refs()
             .find_by_key_name(&key_name)

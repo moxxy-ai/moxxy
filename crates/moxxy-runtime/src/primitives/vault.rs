@@ -114,7 +114,7 @@ impl Primitive for VaultGetPrimitive {
                 "value": value,
             })),
             None => {
-                tracing::warn!(key_name, agent_id = %self.ctx.agent_id(), "Vault access denied — no grant");
+                tracing::warn!(key_name, agent_id = %self.ctx.agent_id(), "Vault access denied = no grant");
                 Err(PrimitiveError::AccessDenied(format!(
                     "no grant for secret '{}'",
                     key_name
@@ -314,7 +314,7 @@ mod tests {
             .await
             .unwrap();
 
-        // Agent-2 tries to get it — should be denied
+        // Agent-2 tries to get it = should be denied
         let ctx2 = PrimitiveContext::new(db, "agent-2".into(), backend);
         let get_prim = VaultGetPrimitive::new(ctx2);
         let result = get_prim
@@ -429,7 +429,7 @@ mod tests {
             .await
             .unwrap();
 
-        // Agent-2 tries to delete — denied
+        // Agent-2 tries to delete = denied
         let ctx2 = PrimitiveContext::new(db, "agent-2".into(), backend);
         let result = VaultDeletePrimitive::new(ctx2)
             .invoke(serde_json::json!({
