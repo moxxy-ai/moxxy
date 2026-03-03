@@ -8,6 +8,7 @@ import {
   buildCodexAuthorizationCodeExchangeBody,
   buildCodexApiKeyExchangeBody,
   buildCodexBrowserAuthorizeUrl,
+  buildScopedRetryFlags,
   buildOpenAiCodexSessionModels,
   buildOpenAiCodexSessionSecret,
   buildPkceCodeChallenge,
@@ -135,6 +136,41 @@ describe('provider oauth helpers', () => {
     });
   });
 
+  it('buildCodexDeviceCodeBody includes optional org/workspace/project selectors', () => {
+    const payload = buildCodexDeviceCodeBody('app_test_123', {
+      allowedWorkspaceId: 'org_123',
+      organizationId: 'org_123',
+      projectId: 'proj_456',
+    });
+    assert.deepEqual(payload, {
+      client_id: 'app_test_123',
+      allowed_workspace_id: 'org_123',
+      organization_id: 'org_123',
+      project_id: 'proj_456',
+    });
+  });
+
+  it('buildScopedRetryFlags preserves selected method and scopes organization', () => {
+    assert.deepEqual(
+      buildScopedRetryFlags({ method: 'headless', no_browser: true }, 'org_123', 'headless'),
+      {
+        method: 'headless',
+        no_browser: true,
+        allowed_workspace_id: 'org_123',
+        organization_id: 'org_123',
+      }
+    );
+
+    assert.deepEqual(
+      buildScopedRetryFlags({ method: 'browser' }, 'org_123', 'browser'),
+      {
+        method: 'browser',
+        allowed_workspace_id: 'org_123',
+        organization_id: 'org_123',
+      }
+    );
+  });
+
   it('buildCodexAuthorizationCodeExchangeBody returns form payload', () => {
     const body = buildCodexAuthorizationCodeExchangeBody({
       code: 'code_123',
@@ -250,7 +286,7 @@ describe('provider oauth helpers', () => {
 
     assert.equal(
       msg,
-      'OpenAI API key token-exchange failed (401): invalid_subject_token - Invalid ID token: missing organization_id. Retry with browser OAuth (--method browser). If OpenCode works but this step fails, it usually means OpenCode is using ChatGPT backend tokens while Moxxy requires API-key issuance linked to an API organization.'
+      'OpenAI API key token-exchange failed (401): invalid_subject_token - Invalid ID token: missing organization_id. Retry OAuth with organization-scoped login (interactive flow will prompt to select organization). If OpenCode works but this step fails, it usually means OpenCode is using ChatGPT backend tokens while Moxxy requires API-key issuance linked to an API organization.'
     );
   });
 
