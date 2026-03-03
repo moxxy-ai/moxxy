@@ -28,7 +28,7 @@ impl Primitive for FsReadPrimitive {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Absolute path to the file to read"}
+                "path": {"type": "string", "description": "Path to the file to read. Can be relative (resolved against workspace) or absolute."}
             },
             "required": ["path"]
         })
@@ -38,15 +38,15 @@ impl Primitive for FsReadPrimitive {
         let path_str = params["path"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'path' parameter".into()))?;
-        let path = Path::new(path_str);
+        let path = self.policy.resolve_path(Path::new(path_str));
 
         self.policy
-            .ensure_readable(path)
+            .ensure_readable(&path)
             .map_err(|e| PrimitiveError::AccessDenied(e.to_string()))?;
 
-        tracing::debug!(path = %path_str, "Reading file");
+        tracing::debug!(path = %path.display(), "Reading file");
 
-        let content = std::fs::read_to_string(path)
+        let content = std::fs::read_to_string(&path)
             .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
 
         Ok(serde_json::json!({ "content": content }))
@@ -77,7 +77,7 @@ impl Primitive for FsWritePrimitive {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Absolute path to the file to write"},
+                "path": {"type": "string", "description": "Path to the file to write. Can be relative (resolved against workspace) or absolute."},
                 "content": {"type": "string", "description": "Content to write to the file"}
             },
             "required": ["path", "content"]
@@ -91,23 +91,23 @@ impl Primitive for FsWritePrimitive {
         let content = params["content"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'content' parameter".into()))?;
-        let path = Path::new(path_str);
+        let path = self.policy.resolve_path(Path::new(path_str));
 
         self.policy
-            .ensure_writable(path)
+            .ensure_writable(&path)
             .map_err(|e| PrimitiveError::AccessDenied(e.to_string()))?;
 
-        tracing::info!(path = %path_str, content_len = content.len(), "Writing file");
+        tracing::info!(path = %path.display(), content_len = content.len(), "Writing file");
 
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
         }
 
-        std::fs::write(path, content)
+        std::fs::write(&path, content)
             .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
 
-        Ok(serde_json::json!({ "written": path_str }))
+        Ok(serde_json::json!({ "written": path.display().to_string() }))
     }
 }
 
@@ -135,7 +135,7 @@ impl Primitive for FsListPrimitive {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Absolute path to the directory to list"}
+                "path": {"type": "string", "description": "Path to the directory to list. Can be relative (resolved against workspace) or absolute."}
             },
             "required": ["path"]
         })
@@ -145,15 +145,15 @@ impl Primitive for FsListPrimitive {
         let path_str = params["path"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'path' parameter".into()))?;
-        let path = Path::new(path_str);
+        let path = self.policy.resolve_path(Path::new(path_str));
 
         self.policy
-            .ensure_readable(path)
+            .ensure_readable(&path)
             .map_err(|e| PrimitiveError::AccessDenied(e.to_string()))?;
 
-        tracing::debug!(path = %path_str, "Listing directory");
+        tracing::debug!(path = %path.display(), "Listing directory");
 
-        let entries: Vec<String> = std::fs::read_dir(path)
+        let entries: Vec<String> = std::fs::read_dir(&path)
             .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?
             .filter_map(|entry| {
                 entry
@@ -190,7 +190,7 @@ impl Primitive for FsRemovePrimitive {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Absolute path to the file or directory to remove"},
+                "path": {"type": "string", "description": "Path to the file or directory to remove. Can be relative (resolved against workspace) or absolute."},
                 "recursive": {"type": "boolean", "description": "If true, remove non-empty directories recursively. Default false."}
             },
             "required": ["path"]
@@ -202,32 +202,33 @@ impl Primitive for FsRemovePrimitive {
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'path' parameter".into()))?;
         let recursive = params["recursive"].as_bool().unwrap_or(false);
-        let path = Path::new(path_str);
+        let path = self.policy.resolve_path(Path::new(path_str));
 
         self.policy
-            .ensure_writable(path)
+            .ensure_writable(&path)
             .map_err(|e| PrimitiveError::AccessDenied(e.to_string()))?;
 
         if !path.exists() {
             return Err(PrimitiveError::NotFound(format!(
-                "path does not exist: {path_str}"
+                "path does not exist: {}",
+                path.display()
             )));
         }
 
-        tracing::info!(path = %path_str, recursive, "Removing path");
+        tracing::info!(path = %path.display(), recursive, "Removing path");
 
         if path.is_dir() {
             if recursive {
-                std::fs::remove_dir_all(path)
+                std::fs::remove_dir_all(&path)
             } else {
-                std::fs::remove_dir(path)
+                std::fs::remove_dir(&path)
             }
         } else {
-            std::fs::remove_file(path)
+            std::fs::remove_file(&path)
         }
         .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
 
-        Ok(serde_json::json!({ "removed": path_str }))
+        Ok(serde_json::json!({ "removed": path.display().to_string() }))
     }
 }
 
@@ -420,5 +421,84 @@ mod tests {
             .await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), PrimitiveError::NotFound(_)));
+    }
+
+    // --- Relative path resolution tests ---
+
+    #[tokio::test]
+    async fn fs_read_resolves_relative_path() {
+        let (tmp, policy) = setup();
+        let workspace = tmp.path().join("workspace");
+        std::fs::write(workspace.join("hello.txt"), "world").unwrap();
+
+        let prim = FsReadPrimitive::new(policy);
+        let result = prim
+            .invoke(serde_json::json!({"path": "hello.txt"}))
+            .await
+            .unwrap();
+        assert_eq!(result["content"].as_str().unwrap(), "world");
+    }
+
+    #[tokio::test]
+    async fn fs_write_resolves_relative_path() {
+        let (tmp, policy) = setup();
+        let workspace = tmp.path().join("workspace");
+
+        let prim = FsWritePrimitive::new(policy);
+        prim.invoke(serde_json::json!({"path": "new_file.txt", "content": "data"}))
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("new_file.txt")).unwrap(),
+            "data"
+        );
+    }
+
+    #[tokio::test]
+    async fn fs_list_resolves_relative_path() {
+        let (tmp, policy) = setup();
+        let workspace = tmp.path().join("workspace");
+        let sub = workspace.join("mydir");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(sub.join("a.txt"), "").unwrap();
+
+        let prim = FsListPrimitive::new(policy);
+        let result = prim
+            .invoke(serde_json::json!({"path": "mydir"}))
+            .await
+            .unwrap();
+        let entries = result["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].as_str().unwrap(), "a.txt");
+    }
+
+    #[tokio::test]
+    async fn fs_remove_resolves_relative_path() {
+        let (tmp, policy) = setup();
+        let workspace = tmp.path().join("workspace");
+        let dir = workspace.join("project_folder");
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src").join("main.rs"), "fn main() {}").unwrap();
+
+        let prim = FsRemovePrimitive::new(policy);
+        prim.invoke(serde_json::json!({"path": "project_folder", "recursive": true}))
+            .await
+            .unwrap();
+        assert!(!dir.exists());
+    }
+
+    #[tokio::test]
+    async fn fs_write_resolves_nested_relative_path() {
+        let (tmp, policy) = setup();
+        let workspace = tmp.path().join("workspace");
+
+        let prim = FsWritePrimitive::new(policy);
+        prim.invoke(serde_json::json!({"path": "project/src/main.rs", "content": "fn main() {}"}))
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("project/src/main.rs")).unwrap(),
+            "fn main() {}"
+        );
     }
 }

@@ -450,7 +450,8 @@ impl RunService {
                  - When creating a new project, use {workspace_display}/<project_name>/ as the root.\n\
                  - Memory files are stored in {agent_home_display}/memory/ (managed by memory primitives).\n\
                  - Never create, read, or write files outside of {agent_home_display}.\n\
-                 - Use absolute paths prefixed with {workspace_display}/ for every file and git operation.\n\
+                 - File primitives (fs.read, fs.write, fs.list, fs.remove) accept both relative and absolute paths. Relative paths are resolved against {workspace_display}/. For example, \"project/src/main.rs\" resolves to \"{workspace_display}/project/src/main.rs\".\n\
+                 - Git operations require absolute paths.\n\
                  - Shell commands execute with {workspace_display} as the working directory.\n\n"
             ));
 
@@ -600,7 +601,7 @@ impl RunService {
                  - Proactively use your tools. If asked to look something up, fetch a URL, or find information = use browse.fetch or http.request.\n\
                  - Read files before modifying them.\n\
                  - If a tool fails, analyze the error and try alternatives.\n\
-                 - NEVER use paths outside your workspace. Use relative paths (e.g., \"output.png\", \"src/index.html\") or full paths starting with your workspace directory. Do NOT use ~/Desktop, /tmp, /Users, or any other location.\n\
+                 - NEVER use paths outside your workspace. For file operations (fs.*), use relative paths like \"output.png\" or \"src/index.html\" = they are automatically resolved against your workspace. Do NOT use ~/Desktop, /tmp, /Users, or any other location.\n\
                  - Git operations that require authentication (push, clone private repos, PR create, fork) will automatically prompt the user for a GitHub token if one is not already stored in the vault. You do NOT need to manually call user.ask for the token = the git primitives handle this automatically.\n\
                  - Always provide a final text summary of what you did and what you found.",
             );

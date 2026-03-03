@@ -21,6 +21,16 @@ impl PathPolicy {
         }
     }
 
+    /// Resolve a path: if relative, join it against the workspace root.
+    /// If already absolute, return as-is.
+    pub fn resolve_path(&self, path: &Path) -> PathBuf {
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.workspace_root.join(path)
+        }
+    }
+
     pub fn ensure_readable(&self, path: &Path) -> Result<(), PathPolicyError> {
         let canonical = path
             .canonicalize()
@@ -291,6 +301,32 @@ mod tests {
         // workspace/project/src/main.rs = neither "project" nor "src" exist yet
         let deep_file = workspace.join("project").join("src").join("main.rs");
         assert!(policy.ensure_writable(&deep_file).is_ok());
+    }
+
+    #[test]
+    fn resolve_path_joins_relative_to_workspace() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let policy = PathPolicy::new(workspace.clone(), None, None);
+
+        let resolved = policy.resolve_path(Path::new("project/src/main.rs"));
+        // Should be workspace-rooted (compare using canonicalized workspace)
+        let canonical_ws = workspace.canonicalize().unwrap();
+        assert!(resolved.starts_with(&canonical_ws));
+        assert!(resolved.ends_with("project/src/main.rs"));
+    }
+
+    #[test]
+    fn resolve_path_preserves_absolute() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let policy = PathPolicy::new(workspace, None, None);
+
+        let abs = Path::new("/some/absolute/path");
+        let resolved = policy.resolve_path(abs);
+        assert_eq!(resolved, abs.to_path_buf());
     }
 
     #[test]
