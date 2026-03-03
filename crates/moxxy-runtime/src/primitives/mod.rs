@@ -6,6 +6,7 @@ pub mod channel_notify;
 pub mod fs;
 pub mod git;
 pub mod heartbeat;
+pub mod hive;
 pub mod http;
 pub mod memory;
 pub mod notify;
@@ -31,6 +32,12 @@ pub use git::{
 pub use heartbeat::{
     HeartbeatCreatePrimitive, HeartbeatDeletePrimitive, HeartbeatDisablePrimitive,
     HeartbeatListPrimitive, HeartbeatUpdatePrimitive,
+};
+pub use hive::{
+    HiveAggregatePrimitive, HiveAssignPrimitive, HiveBoardReadPrimitive, HiveCreatePrimitive,
+    HiveDisbandPrimitive, HiveProposePrimitive, HiveRecruitPrimitive, HiveResolveProposalPrimitive,
+    HiveSignalPrimitive, HiveStore, HiveTaskClaimPrimitive, HiveTaskCompletePrimitive,
+    HiveTaskCreatePrimitive, HiveTaskListPrimitive, HiveVotePrimitive,
 };
 pub use http::HttpRequestPrimitive;
 pub use memory::{MemoryAppendPrimitive, MemorySearchPrimitive, MemorySummarizePrimitive};

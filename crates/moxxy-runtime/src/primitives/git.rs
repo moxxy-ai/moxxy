@@ -548,8 +548,7 @@ impl Primitive for GitCommitPrimitive {
             .unwrap_or_default();
 
         if files.is_empty() {
-            let (_, stderr, code) =
-                run_git(&["add", "-A"], &path, Duration::from_secs(30)).await?;
+            let (_, stderr, code) = run_git(&["add", "-A"], &path, Duration::from_secs(30)).await?;
             if code != 0 {
                 return Err(PrimitiveError::ExecutionFailed(format!(
                     "git add failed: {}",
@@ -652,10 +651,13 @@ impl Primitive for GitPushPrimitive {
                 "A GitHub token is required to push to the remote repository. Please provide your GitHub personal access token (PAT):",
             )
             .await?;
-        let (remote_url, _, _) =
-            run_git(&["remote", "get-url", remote], &path, Duration::from_secs(5))
-                .await
-                .unwrap_or_default();
+        let (remote_url, _, _) = run_git(
+            &["remote", "get-url", remote],
+            &path,
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap_or_default();
         let push_target = inject_token_into_url(remote_url.trim(), &token);
 
         let mut args = vec!["push", &push_target];

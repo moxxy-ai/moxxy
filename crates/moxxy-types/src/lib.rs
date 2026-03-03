@@ -53,7 +53,7 @@ mod tests {
     #[test]
     fn event_type_has_all_30_variants() {
         let all = EventType::all_variants();
-        assert_eq!(all.len(), 37);
+        assert_eq!(all.len(), 45);
     }
 
     #[test]
@@ -200,6 +200,14 @@ mod proptests {
             Just(EventType::AgentAlive),
             Just(EventType::AgentStuck),
             Just(EventType::WebhookReceived),
+            Just(EventType::HiveCreated),
+            Just(EventType::HiveDisbanded),
+            Just(EventType::HiveMemberJoined),
+            Just(EventType::HiveSignalPosted),
+            Just(EventType::HiveTaskCompleted),
+            Just(EventType::HiveProposalCreated),
+            Just(EventType::HiveProposalResolved),
+            Just(EventType::HiveVoteCast),
         ]
     }
 

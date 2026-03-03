@@ -149,7 +149,10 @@ impl RunExecutor {
                         if ev.agent_id == agent_id
                             && matches!(
                                 ev.event_type,
-                                EventType::SubagentCompleted | EventType::SubagentFailed
+                                EventType::SubagentCompleted
+                                    | EventType::SubagentFailed
+                                    | EventType::HiveSignalPosted
+                                    | EventType::HiveProposalCreated
                             ) =>
                     {
                         pending_notifications.push(ev);
@@ -303,7 +306,10 @@ impl RunExecutor {
                                 match result {
                                     Ok(ev) if ev.agent_id == agent_id
                                         && matches!(ev.event_type,
-                                            EventType::SubagentCompleted | EventType::SubagentFailed) =>
+                                            EventType::SubagentCompleted
+                                            | EventType::SubagentFailed
+                                            | EventType::HiveSignalPosted
+                                            | EventType::HiveProposalCreated) =>
                                     {
                                         break Some(ev);
                                     }
@@ -332,16 +338,26 @@ impl RunExecutor {
                     .to_string();
                 active_subagents.remove(&sub_id);
 
-                let notification = if event.event_type == EventType::SubagentCompleted {
-                    let result_text = event.payload["result"]
-                        .as_str()
-                        .unwrap_or("(no output)");
-                    format!("[Sub-agent '{name}' completed]\n{result_text}")
-                } else {
-                    let error = event.payload["error"]
-                        .as_str()
-                        .unwrap_or("unknown error");
-                    format!("[Sub-agent '{name}' failed]\n{error}")
+                let notification = match event.event_type {
+                    EventType::SubagentCompleted => {
+                        let result_text = event.payload["result"].as_str().unwrap_or("(no output)");
+                        format!("[Sub-agent '{name}' completed]\n{result_text}")
+                    }
+                    EventType::SubagentFailed => {
+                        let error = event.payload["error"].as_str().unwrap_or("unknown error");
+                        format!("[Sub-agent '{name}' failed]\n{error}")
+                    }
+                    EventType::HiveSignalPosted => {
+                        let signal_type = event.payload["signal_type"].as_str().unwrap_or("signal");
+                        let author = event.payload["author"].as_str().unwrap_or("unknown");
+                        format!("[Hive signal: {signal_type} from {author}]")
+                    }
+                    EventType::HiveProposalCreated => {
+                        let title = event.payload["title"].as_str().unwrap_or("untitled");
+                        let proposer = event.payload["proposer"].as_str().unwrap_or("unknown");
+                        format!("[Hive proposal: '{title}' by {proposer}]")
+                    }
+                    _ => format!("[Event: {:?}]", event.event_type),
                 };
 
                 self.emit(
@@ -397,8 +413,7 @@ impl RunExecutor {
 
                         // Track sub-agent spawns for wait-on-completion
                         if tool_call.name == "agent.spawn"
-                            && let Some(id) =
-                                result.get("sub_agent_id").and_then(|v| v.as_str())
+                            && let Some(id) = result.get("sub_agent_id").and_then(|v| v.as_str())
                         {
                             active_subagents.insert(id.to_string());
                         }
@@ -741,13 +756,9 @@ mod tests {
         let provider = Arc::new(EchoProvider::new());
         let registry = PrimitiveRegistry::new();
 
-        let history = vec![
-            Message::user("What is 2+2?"),
-            Message::assistant("4"),
-        ];
+        let history = vec![Message::user("What is 2+2?"), Message::assistant("4")];
 
-        let executor = RunExecutor::new(bus, provider, registry, vec![])
-            .with_history(history);
+        let executor = RunExecutor::new(bus, provider, registry, vec![]).with_history(history);
 
         let result = executor
             .execute("agent-1", "run-2", "What about 3+3?", &model_config())
@@ -875,15 +886,18 @@ mod tests {
             ));
         });
 
-        let executor =
-            RunExecutor::new(bus, provider, registry, vec!["agent.spawn".into()])
-                .with_timeout(Duration::from_secs(10));
+        let executor = RunExecutor::new(bus, provider, registry, vec!["agent.spawn".into()])
+            .with_timeout(Duration::from_secs(10));
 
         let result = executor
             .execute("parent-agent", "run-1", "do task", &model_config())
             .await;
 
-        assert!(result.is_ok(), "executor should complete: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "executor should complete: {:?}",
+            result.err()
+        );
         let content = result.unwrap();
         assert!(
             content.contains("Sub-agent"),

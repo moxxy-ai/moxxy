@@ -115,7 +115,13 @@ async fn e2e_full_agent_lifecycle() {
 
     let (token, _) = server
         .create_token(
-            &["agents:read", "agents:write", "runs:write", "events:read", "vault:write"],
+            &[
+                "agents:read",
+                "agents:write",
+                "runs:write",
+                "events:read",
+                "vault:write",
+            ],
             None,
         )
         .await;

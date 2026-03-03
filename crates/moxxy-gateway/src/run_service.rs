@@ -1,7 +1,7 @@
 use moxxy_channel::bridge::{ChannelBridge, ChannelSender};
 use moxxy_core::EventBus;
 use moxxy_runtime::{
-    AskChannels, AnthropicProvider, ChannelMessageSender, OpenAIProvider, Provider,
+    AnthropicProvider, AskChannels, ChannelMessageSender, OpenAIProvider, Provider,
 };
 use moxxy_storage::Database;
 use moxxy_types::{MessageContent, RunStarter};
@@ -114,7 +114,9 @@ impl RunService {
         let api_key = self.vault_backend.get_secret(&vault_key).ok()?;
 
         if provider_id == "anthropic" || api_base.contains("anthropic.com") {
-            Some(Arc::new(AnthropicProvider::new(api_base, api_key, model_id)))
+            Some(Arc::new(AnthropicProvider::new(
+                api_base, api_key, model_id,
+            )))
         } else {
             Some(Arc::new(OpenAIProvider::new(
                 api_base,
@@ -442,8 +444,117 @@ impl RunService {
             registry.register(Box::new(moxxy_runtime::AgentStopPrimitive::new(
                 self.db.clone(),
                 agent.id.clone(),
-                starter,
+                starter.clone(),
             )));
+
+            // Hive primitives — register based on role detection
+            let hive_manifest_path = agent_dir.join(".hive").join("hive.json");
+            let membership_path = agent_dir.join(".hive_membership.json");
+
+            if hive_manifest_path.exists() {
+                // Queen — register all hive primitives except hive.create
+                registry.register(Box::new(moxxy_runtime::HiveRecruitPrimitive::new(
+                    self.db.clone(),
+                    agent.id.clone(),
+                    agent_dir.clone(),
+                    starter.clone(),
+                    event_bus.clone(),
+                    self.moxxy_home.clone(),
+                )));
+                registry.register(Box::new(moxxy_runtime::HiveTaskCreatePrimitive::new(
+                    agent.id.clone(),
+                    agent_dir.clone(),
+                )));
+                registry.register(Box::new(moxxy_runtime::HiveAssignPrimitive::new(
+                    agent.id.clone(),
+                    agent_dir.clone(),
+                )));
+                registry.register(Box::new(moxxy_runtime::HiveAggregatePrimitive::new(
+                    agent.id.clone(),
+                    agent_dir.clone(),
+                )));
+                registry.register(Box::new(moxxy_runtime::HiveResolveProposalPrimitive::new(
+                    agent.id.clone(),
+                    agent_dir.clone(),
+                    event_bus.clone(),
+                )));
+                registry.register(Box::new(moxxy_runtime::HiveDisbandPrimitive::new(
+                    agent.id.clone(),
+                    agent_dir.clone(),
+                    starter,
+                    event_bus.clone(),
+                )));
+                // Queen also gets member primitives
+                registry.register(Box::new(moxxy_runtime::HiveSignalPrimitive::new(
+                    agent.id.clone(),
+                    agent_dir.clone(),
+                    event_bus.clone(),
+                )));
+                registry.register(Box::new(moxxy_runtime::HiveBoardReadPrimitive::new(
+                    agent_dir.clone(),
+                )));
+                registry.register(Box::new(moxxy_runtime::HiveTaskListPrimitive::new(
+                    agent_dir.clone(),
+                )));
+                registry.register(Box::new(moxxy_runtime::HiveTaskClaimPrimitive::new(
+                    agent.id.clone(),
+                    agent_dir.clone(),
+                )));
+                registry.register(Box::new(moxxy_runtime::HiveTaskCompletePrimitive::new(
+                    agent.id.clone(),
+                    agent_dir.clone(),
+                    event_bus.clone(),
+                )));
+                registry.register(Box::new(moxxy_runtime::HiveProposePrimitive::new(
+                    agent.id.clone(),
+                    agent_dir.clone(),
+                    event_bus.clone(),
+                )));
+                registry.register(Box::new(moxxy_runtime::HiveVotePrimitive::new(
+                    agent.id.clone(),
+                    agent_dir.clone(),
+                    event_bus.clone(),
+                )));
+            } else if membership_path.exists() {
+                // Worker/Scout — register member primitives only
+                registry.register(Box::new(moxxy_runtime::HiveSignalPrimitive::new(
+                    agent.id.clone(),
+                    agent_dir.clone(),
+                    event_bus.clone(),
+                )));
+                registry.register(Box::new(moxxy_runtime::HiveBoardReadPrimitive::new(
+                    agent_dir.clone(),
+                )));
+                registry.register(Box::new(moxxy_runtime::HiveTaskListPrimitive::new(
+                    agent_dir.clone(),
+                )));
+                registry.register(Box::new(moxxy_runtime::HiveTaskClaimPrimitive::new(
+                    agent.id.clone(),
+                    agent_dir.clone(),
+                )));
+                registry.register(Box::new(moxxy_runtime::HiveTaskCompletePrimitive::new(
+                    agent.id.clone(),
+                    agent_dir.clone(),
+                    event_bus.clone(),
+                )));
+                registry.register(Box::new(moxxy_runtime::HiveProposePrimitive::new(
+                    agent.id.clone(),
+                    agent_dir.clone(),
+                    event_bus.clone(),
+                )));
+                registry.register(Box::new(moxxy_runtime::HiveVotePrimitive::new(
+                    agent.id.clone(),
+                    agent_dir.clone(),
+                    event_bus.clone(),
+                )));
+            } else {
+                // Not in a hive — only register hive.create
+                registry.register(Box::new(moxxy_runtime::HiveCreatePrimitive::new(
+                    agent.id.clone(),
+                    agent_dir.clone(),
+                    event_bus.clone(),
+                )));
+            }
         }
 
         // Primitive allowlist: read from DB; if empty → all registered (backwards-compatible)
@@ -632,6 +743,26 @@ impl RunService {
                         ("allowlist.remove", "remove entries"),
                     ],
                 ),
+                (
+                    "hive",
+                    "Hive Swarm (multi-agent coordination)",
+                    &[
+                        ("hive.create", "create a hive (you become queen)"),
+                        ("hive.recruit", "recruit a worker into the hive"),
+                        ("hive.task_create", "create a task"),
+                        ("hive.assign", "assign a task to a member"),
+                        ("hive.aggregate", "get full hive snapshot"),
+                        ("hive.resolve_proposal", "resolve a proposal"),
+                        ("hive.disband", "disband the hive"),
+                        ("hive.signal", "post a signal to the board"),
+                        ("hive.board_read", "read signals from the board"),
+                        ("hive.task_list", "list tasks"),
+                        ("hive.task_claim", "claim an unassigned task"),
+                        ("hive.task_complete", "mark task completed"),
+                        ("hive.propose", "create a proposal"),
+                        ("hive.vote", "vote on a proposal"),
+                    ],
+                ),
             ];
 
             for (_, label, tools) in categories {
@@ -789,6 +920,43 @@ impl RunService {
                         "Sub-agent run finished, cleaning up"
                     );
 
+                    // Hive membership cleanup: update queen's manifest
+                    let membership_path = agent_home.join(".hive_membership.json");
+                    if let Ok(data) = std::fs::read_to_string(&membership_path)
+                        && let Ok(membership) = serde_json::from_str::<
+                            moxxy_runtime::primitives::hive::HiveMembership,
+                        >(&data)
+                    {
+                        let hive_path = std::path::PathBuf::from(&membership.hive_path);
+                        let store = moxxy_runtime::HiveStore::new(hive_path);
+                        if let Ok(mut manifest) = store.read_manifest() {
+                            // Mark member as completed/failed
+                            let new_status = if result.is_ok() {
+                                "completed"
+                            } else {
+                                "failed"
+                            };
+                            for m in &mut manifest.members {
+                                if m.agent_id == agent_id_owned {
+                                    m.status = new_status.into();
+                                }
+                            }
+                            let _ = store.write_manifest(&manifest);
+
+                            // Abandon any in-progress tasks
+                            if let Ok(tasks) = store.list_tasks(Some("in_progress")) {
+                                for mut task in tasks {
+                                    if task.assigned_agent_id.as_deref() == Some(&agent_id_owned) {
+                                        task.assigned_agent_id = None;
+                                        task.status = "pending".into();
+                                        task.updated_at = chrono::Utc::now().to_rfc3339();
+                                        let _ = store.write_task(&task);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     let _ = db.agents().delete(&agent_id_owned);
                     let _ = db.agents().decrement_spawned_total(pid);
                     // Remove the sub-agent's filesystem directory
@@ -800,28 +968,28 @@ impl RunService {
                     // Persist STM: store user task + final assistant response
                     if let Ok(ref content) = result {
                         let now = chrono::Utc::now().to_rfc3339();
-                        let _ = db.conversations().insert(
-                            &moxxy_storage::rows::ConversationLogRow {
-                                id: uuid::Uuid::now_v7().to_string(),
-                                agent_id: agent_id_owned.clone(),
-                                run_id: run_id_clone.clone(),
-                                sequence: 0,
-                                role: "user".into(),
-                                content: task.clone(),
-                                created_at: now.clone(),
-                            },
-                        );
-                        let _ = db.conversations().insert(
-                            &moxxy_storage::rows::ConversationLogRow {
-                                id: uuid::Uuid::now_v7().to_string(),
-                                agent_id: agent_id_owned.clone(),
-                                run_id: run_id_clone.clone(),
-                                sequence: 1,
-                                role: "assistant".into(),
-                                content: content.clone(),
-                                created_at: now,
-                            },
-                        );
+                        let _ =
+                            db.conversations()
+                                .insert(&moxxy_storage::rows::ConversationLogRow {
+                                    id: uuid::Uuid::now_v7().to_string(),
+                                    agent_id: agent_id_owned.clone(),
+                                    run_id: run_id_clone.clone(),
+                                    sequence: 0,
+                                    role: "user".into(),
+                                    content: task.clone(),
+                                    created_at: now.clone(),
+                                });
+                        let _ =
+                            db.conversations()
+                                .insert(&moxxy_storage::rows::ConversationLogRow {
+                                    id: uuid::Uuid::now_v7().to_string(),
+                                    agent_id: agent_id_owned.clone(),
+                                    run_id: run_id_clone.clone(),
+                                    sequence: 1,
+                                    role: "assistant".into(),
+                                    content: content.clone(),
+                                    created_at: now,
+                                });
                     }
                 }
             }

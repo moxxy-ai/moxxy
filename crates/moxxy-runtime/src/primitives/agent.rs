@@ -144,12 +144,13 @@ impl Primitive for AgentSpawnPrimitive {
         // If repo_path is provided, try to create a git worktree in the child workspace.
         // This is best-effort: if the path isn't a git repo or git fails, the sub-agent
         // still spawns and can do other work (e.g. news fetching, research).
-        if let Some(repo_path) = params.get("repo_path").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+        if let Some(repo_path) = params
+            .get("repo_path")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        {
             let repo = std::path::Path::new(repo_path);
-            let repo_name = repo
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("repo");
+            let repo_name = repo.file_name().and_then(|n| n.to_str()).unwrap_or("repo");
             let branch = params
                 .get("branch")
                 .and_then(|v| v.as_str())
@@ -1153,9 +1154,13 @@ mod tests {
             .unwrap();
         std::process::Command::new("git")
             .args([
-                "-c", "user.name=test",
-                "-c", "user.email=test@test.com",
-                "commit", "-m", "init",
+                "-c",
+                "user.name=test",
+                "-c",
+                "user.email=test@test.com",
+                "commit",
+                "-m",
+                "init",
             ])
             .current_dir(&repo_dir)
             .output()
@@ -1170,13 +1175,8 @@ mod tests {
         let bus = EventBus::new(100);
         let run_starter = Arc::new(MockRunStarter::new());
 
-        let prim = AgentSpawnPrimitive::new(
-            db.clone(),
-            "parent-1".into(),
-            run_starter,
-            bus,
-            moxxy_home,
-        );
+        let prim =
+            AgentSpawnPrimitive::new(db.clone(), "parent-1".into(), run_starter, bus, moxxy_home);
 
         let result = prim
             .invoke(serde_json::json!({
@@ -1248,7 +1248,11 @@ mod tests {
             .await;
 
         // Should succeed — worktree failure is non-fatal
-        assert!(result.is_ok(), "spawn should not fail when repo_path is invalid: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "spawn should not fail when repo_path is invalid: {:?}",
+            result.err()
+        );
         let val = result.unwrap();
         assert!(val["sub_agent_id"].is_string());
         assert!(run_starter.started.load(Ordering::SeqCst));

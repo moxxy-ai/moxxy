@@ -234,7 +234,10 @@ mod tests {
         let dao = ConversationDao { conn: db.conn() };
 
         // Insert messages across two runs with distinct timestamps
-        for (run, ts) in [("run-a", "2025-01-01T00:00:00Z"), ("run-b", "2025-01-02T00:00:00Z")] {
+        for (run, ts) in [
+            ("run-a", "2025-01-01T00:00:00Z"),
+            ("run-b", "2025-01-02T00:00:00Z"),
+        ] {
             for seq in 0..2 {
                 let role = if seq == 0 { "user" } else { "assistant" };
                 dao.insert(&ConversationLogRow {

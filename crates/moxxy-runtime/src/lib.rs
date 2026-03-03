@@ -25,10 +25,14 @@ pub use primitives::{
     GitStatusPrimitive, GitWorktreeAddPrimitive, GitWorktreeListPrimitive,
     GitWorktreeRemovePrimitive, HeartbeatCreatePrimitive, HeartbeatDeletePrimitive,
     HeartbeatDisablePrimitive, HeartbeatListPrimitive, HeartbeatUpdatePrimitive,
-    HttpRequestPrimitive, MemoryAppendPrimitive, MemorySearchPrimitive, MemorySummarizePrimitive,
-    ShellExecPrimitive, SkillImportPrimitive, SkillValidatePrimitive, UserAskPrimitive,
-    VaultDeletePrimitive, VaultGetPrimitive, VaultListPrimitive, VaultSetPrimitive,
-    WebhookDeletePrimitive, WebhookListPrimitive, WebhookRegisterPrimitive, new_ask_channels,
+    HiveAggregatePrimitive, HiveAssignPrimitive, HiveBoardReadPrimitive, HiveCreatePrimitive,
+    HiveDisbandPrimitive, HiveProposePrimitive, HiveRecruitPrimitive, HiveResolveProposalPrimitive,
+    HiveSignalPrimitive, HiveStore, HiveTaskClaimPrimitive, HiveTaskCompletePrimitive,
+    HiveTaskCreatePrimitive, HiveTaskListPrimitive, HiveVotePrimitive, HttpRequestPrimitive,
+    MemoryAppendPrimitive, MemorySearchPrimitive, MemorySummarizePrimitive, ShellExecPrimitive,
+    SkillImportPrimitive, SkillValidatePrimitive, UserAskPrimitive, VaultDeletePrimitive,
+    VaultGetPrimitive, VaultListPrimitive, VaultSetPrimitive, WebhookDeletePrimitive,
+    WebhookListPrimitive, WebhookRegisterPrimitive, new_ask_channels,
 };
 pub use process::{AgentProcess, AgentProcessConfig};
 pub use provider::{Message, ModelConfig, Provider, ProviderResponse, ToolCall};
