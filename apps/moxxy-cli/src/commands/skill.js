@@ -1,5 +1,5 @@
 /**
- * Skill commands: import/approve/remove/list.
+ * Skill commands: create/remove/list.
  */
 import { parseFlags } from './auth.js';
 import { isInteractive, handleCancel, withSpinner, showResult, pickAgent, pickSkill, p } from '../ui.js';
@@ -9,12 +9,11 @@ export async function runSkill(client, args) {
   const flags = parseFlags(rest);
 
   // Interactive sub-menu when no valid action
-  if (!['import', 'approve', 'remove', 'list'].includes(action) && isInteractive()) {
+  if (!['create', 'remove', 'list'].includes(action) && isInteractive()) {
     action = await p.select({
       message: 'Skill action',
       options: [
-        { value: 'import',  label: 'Import skill',  hint: 'install a skill on an agent' },
-        { value: 'approve', label: 'Approve skill', hint: 'approve a pending skill' },
+        { value: 'create',  label: 'Create skill',  hint: 'install a skill on an agent' },
         { value: 'remove',  label: 'Remove skill',  hint: 'remove a skill from an agent' },
         { value: 'list',    label: 'List skills',   hint: 'list agent skills' },
       ],
@@ -23,91 +22,38 @@ export async function runSkill(client, args) {
   }
 
   switch (action) {
-    case 'import': {
+    case 'create': {
       let agentId = flags.agent;
 
       // Interactive wizard when missing agent
       if (!agentId && isInteractive()) {
         agentId = await pickAgent(client, 'Select agent for skill');
 
-        const name = flags.name || handleCancel(await p.text({
-          message: 'Skill name',
-          placeholder: 'my-skill',
-          validate: (val) => { if (!val) return 'Name is required'; },
-        }));
-
-        const version = flags.version || handleCancel(await p.text({
-          message: 'Skill version',
-          placeholder: '0.1.0',
-          initialValue: '0.1.0',
-        }));
-
         const content = flags.content || handleCancel(await p.text({
-          message: 'Skill content',
+          message: 'Skill content (SKILL.md with YAML frontmatter)',
           placeholder: 'Paste skill content...',
           validate: (val) => { if (!val) return 'Content is required'; },
         }));
 
-        const body = { name, version, content };
-        const result = await withSpinner('Importing skill...', () =>
-          client.request(`/v1/agents/${encodeURIComponent(agentId)}/skills/install`, 'POST', body), 'Skill imported.');
+        const body = { content };
+        const result = await withSpinner('Creating skill...', () =>
+          client.request(`/v1/agents/${encodeURIComponent(agentId)}/skills/install`, 'POST', body), 'Skill created.');
 
-        showResult('Skill Imported', {
+        showResult('Skill Created', {
           Agent: agentId,
-          Name: name,
-          Version: version,
-          ID: result.id || result.skill_id,
+          Name: result.name,
+          Version: result.version,
         });
-
-        const approveNow = await p.confirm({
-          message: 'Approve now?',
-          initialValue: true,
-        });
-        handleCancel(approveNow);
-
-        if (approveNow) {
-          const skillId = result.id || result.skill_id;
-          if (skillId) {
-            await withSpinner('Approving skill...', () =>
-              client.request(`/v1/agents/${encodeURIComponent(agentId)}/skills/approve/${encodeURIComponent(skillId)}`, 'POST'), 'Skill approved.');
-          } else {
-            p.log.warn('Could not determine skill ID for approval.');
-          }
-        }
 
         return result;
       }
 
       if (!agentId) throw new Error('Required: --agent');
       const body = {
-        name: flags.name || 'unnamed',
-        version: flags.version || '0.1.0',
         content: flags.content || '',
       };
       const result = await client.request(`/v1/agents/${encodeURIComponent(agentId)}/skills/install`, 'POST', body);
       console.log(JSON.stringify(result, null, 2));
-      return result;
-    }
-
-    case 'approve': {
-      let agentId = flags.agent;
-      let skillId = flags.skill;
-
-      if ((!agentId || !skillId) && isInteractive()) {
-        if (!agentId) {
-          agentId = await pickAgent(client, 'Select agent');
-        }
-        if (!skillId) {
-          skillId = await pickSkill(client, agentId, 'Select skill to approve');
-        }
-      }
-
-      if (!agentId || !skillId) throw new Error('Required: --agent, --skill');
-      const result = await withSpinner('Approving skill...', () =>
-        client.request(`/v1/agents/${encodeURIComponent(agentId)}/skills/approve/${encodeURIComponent(skillId)}`, 'POST'), 'Skill approved.');
-      if (!isInteractive()) {
-        console.log(`Skill ${skillId} approved.`);
-      }
       return result;
     }
 
@@ -159,8 +105,7 @@ export async function runSkill(client, args) {
       if (isInteractive()) {
         if (Array.isArray(skills) && skills.length > 0) {
           for (const s of skills) {
-            const status = s.status === 'approved' ? '\u2705' : s.status === 'quarantined' ? '\u23f3' : '\u274c';
-            p.log.info(`${status} ${s.name} v${s.version}  (${s.id})  [${s.status}]`);
+            p.log.info(`${s.name} v${s.version}  (${s.slug || s.name})`);
           }
         } else {
           p.log.warn('No skills found for this agent.');

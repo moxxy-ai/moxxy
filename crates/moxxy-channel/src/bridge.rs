@@ -530,11 +530,7 @@ impl ChannelBridge {
                     continue;
                 }
                 let _ = transport
-                    .edit_message(
-                        &rp.external_chat_id,
-                        rp.message_id.as_ref().unwrap(),
-                        &text,
-                    )
+                    .edit_message(&rp.external_chat_id, rp.message_id.as_ref().unwrap(), &text)
                     .await;
                 rp.last_edit = now;
                 rp.dirty = false;
@@ -754,11 +750,7 @@ impl ChannelBridge {
                             && let Some(msg_id) = &rp.message_id
                         {
                             let _ = transport
-                                .edit_message(
-                                    &rp.external_chat_id,
-                                    msg_id,
-                                    "✅ Completed",
-                                )
+                                .edit_message(&rp.external_chat_id, msg_id, "✅ Completed")
                                 .await;
                         }
                     }

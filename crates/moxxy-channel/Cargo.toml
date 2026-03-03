@@ -23,4 +23,5 @@ tokio-util = { version = "0.7", features = ["rt"] }
 [dev-dependencies]
 moxxy-test-utils = { path = "../moxxy-test-utils" }
 rusqlite = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }

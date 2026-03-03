@@ -54,8 +54,8 @@ Usage:
   moxxy agent run --id <id> --task "task" [--json]
   moxxy agent stop --id <id>
   moxxy agent status --id <id> [--json]
-  moxxy skill import --agent <id> --name <n> --content <c>
-  moxxy skill approve --agent <id> --skill <id>
+  moxxy skill create --agent <id> --content <c>
+  moxxy skill list --agent <id>
   moxxy vault add --key <k> --backend <b>
   moxxy vault grant --agent <id> --secret <id>
   moxxy heartbeat set --agent <id> --interval <n> [--action_type <t>]
@@ -187,7 +187,7 @@ async function main() {
         { value: 'auth',      label: 'Auth',      hint: 'manage API tokens' },
         { value: 'provider',  label: 'Provider',  hint: 'list providers' },
         { value: 'agent',     label: 'Agent',     hint: 'create & manage agents' },
-        { value: 'skill',     label: 'Skill',     hint: 'import & manage skills' },
+        { value: 'skill',     label: 'Skill',     hint: 'create & manage skills' },
         { value: 'vault',     label: 'Vault',     hint: 'manage secrets' },
         { value: 'heartbeat', label: 'Heartbeat', hint: 'schedule heartbeat rules' },
         { value: 'channel',   label: 'Channel',   hint: 'manage Telegram/Discord channels' },

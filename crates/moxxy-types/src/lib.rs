@@ -1,3 +1,4 @@
+pub mod agent_config;
 pub mod agents;
 pub mod auth;
 pub mod channels;
@@ -8,6 +9,7 @@ pub mod run_starter;
 pub mod skills;
 pub mod vault;
 
+pub use agent_config::AgentConfig;
 pub use agents::{AgentStatus, SpawnError};
 pub use auth::{AuthMode, TokenError, TokenScope, TokenStatus};
 pub use channels::{BindingStatus, ChannelError, ChannelStatus, ChannelType, MessageContent};
@@ -15,7 +17,7 @@ pub use errors::{PathPolicyError, StorageError};
 pub use events::{EventEnvelope, EventType};
 pub use heartbeat::{HeartbeatActionType, HeartbeatError};
 pub use run_starter::RunStarter;
-pub use skills::{SkillDocError, SkillStatus};
+pub use skills::SkillDocError;
 pub use vault::VaultError;
 
 #[cfg(test)]
@@ -81,13 +83,6 @@ mod tests {
         let action = HeartbeatActionType::NotifyCli;
         let json = serde_json::to_string(&action).unwrap();
         assert_eq!(json, "\"notify_cli\"");
-    }
-
-    #[test]
-    fn skill_status_variants_exist() {
-        let _ = SkillStatus::Quarantined;
-        let _ = SkillStatus::Approved;
-        let _ = SkillStatus::Rejected;
     }
 
     #[test]

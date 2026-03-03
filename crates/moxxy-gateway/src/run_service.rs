@@ -1,10 +1,10 @@
 use moxxy_channel::bridge::{ChannelBridge, ChannelSender};
-use moxxy_core::EventBus;
+use moxxy_core::{EventBus, MockEmbeddingService};
 use moxxy_runtime::{
-    AskChannels, AnthropicProvider, ChannelMessageSender, OpenAIProvider, Provider,
+    AnthropicProvider, AskChannels, ChannelMessageSender, OpenAIProvider, Provider,
 };
 use moxxy_storage::Database;
-use moxxy_types::{MessageContent, RunStarter};
+use moxxy_types::{AgentConfig, MessageContent, RunStarter};
 use moxxy_vault::SecretBackend;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -114,7 +114,9 @@ impl RunService {
         let api_key = self.vault_backend.get_secret(&vault_key).ok()?;
 
         if provider_id == "anthropic" || api_base.contains("anthropic.com") {
-            Some(Arc::new(AnthropicProvider::new(api_base, api_key, model_id)))
+            Some(Arc::new(AnthropicProvider::new(
+                api_base, api_key, model_id,
+            )))
         } else {
             Some(Arc::new(OpenAIProvider::new(
                 api_base,
@@ -172,28 +174,32 @@ impl RunService {
             agent
         };
 
+        // Read config from agent.yaml
+        let agent_dir = self.moxxy_home.join("agents").join(&agent.id);
+        let agent_config = AgentConfig::load(&agent_dir.join("agent.yaml"))
+            .map_err(|e| format!("Failed to read agent.yaml for agent '{}': {}", agent.id, e))?;
+
+        // Read persona from persona.md
+        let agent_persona = std::fs::read_to_string(agent_dir.join("persona.md")).ok();
+
         let run_id = uuid::Uuid::now_v7().to_string();
         let task = task.to_string();
 
         let provider = self
-            .resolve_provider(&agent.provider_id, &agent.model_id)
+            .resolve_provider(&agent_config.provider_id, &agent_config.model_id)
             .or_else(|| {
                 // Sub-agents may have an invalid model_id (e.g. LLM hallucinated the name).
                 // Fall back to the parent's model if resolution fails.
                 if let Some(ref parent_id) = agent.parent_agent_id {
-                    let db = self.db.lock().ok()?;
-                    let parent = db.providers().find_model(
-                        &agent.provider_id,
-                        &db.agents().find_by_id(parent_id).ok()??.model_id,
-                    ).ok()??;
-                    drop(db);
+                    let parent_dir = self.moxxy_home.join("agents").join(parent_id);
+                    let parent_config = AgentConfig::load(&parent_dir.join("agent.yaml")).ok()?;
                     tracing::warn!(
                         agent_id,
-                        failed_model = %agent.model_id,
-                        fallback_model = %parent.model_id,
+                        failed_model = %agent_config.model_id,
+                        fallback_model = %parent_config.model_id,
                         "Sub-agent model resolution failed, falling back to parent's model"
                     );
-                    self.resolve_provider(&agent.provider_id, &parent.model_id)
+                    self.resolve_provider(&agent_config.provider_id, &parent_config.model_id)
                 } else {
                     None
                 }
@@ -202,37 +208,28 @@ impl RunService {
                 format!(
                     "Could not resolve provider '{}' with model '{}'. \
                      Check that the provider is installed, enabled, and has a valid API key/secret in the vault.",
-                    agent.provider_id, agent.model_id
+                    agent_config.provider_id, agent_config.model_id
                 )
             })?;
 
         tracing::info!(
             agent_id,
-            provider_id = %agent.provider_id,
+            provider_id = %agent_config.provider_id,
             "Using registered provider"
         );
 
-        let agent_dir = self.moxxy_home.join("agents").join(&agent.id);
-        let agents_dir = self.moxxy_home.join("agents");
         let workspace_path = agent_dir.join("workspace");
-        // Ensure agent directories exist
+        // Ensure workspace directory exists
         std::fs::create_dir_all(&workspace_path).ok();
-        std::fs::create_dir_all(agent_dir.join("memory")).ok();
-        let policy = moxxy_core::PathPolicy::new(
-            agent_dir.clone(),
-            Some(self.moxxy_home.clone()),
-            Some(agents_dir),
-        );
 
-        // Memory directory: {agent_dir}/memory
-        let memory_base = agent_dir.join("memory");
-        let journal = moxxy_core::MemoryJournal::new(memory_base.clone());
+        // PathPolicy: workspace-only isolation
+        let policy = moxxy_core::PathPolicy::new(workspace_path.clone(), None, None);
 
         let event_bus = self.event_bus.clone();
 
         let mut registry = moxxy_runtime::PrimitiveRegistry::new();
 
-        // Filesystem primitives
+        // Filesystem primitives (workspace-scoped only)
         registry.register(Box::new(moxxy_runtime::FsReadPrimitive::new(
             policy.clone(),
         )));
@@ -244,13 +241,52 @@ impl RunService {
         )));
         registry.register(Box::new(moxxy_runtime::FsRemovePrimitive::new(policy)));
 
-        // Memory primitives
-        registry.register(Box::new(moxxy_runtime::MemoryAppendPrimitive::new(journal)));
-        registry.register(Box::new(moxxy_runtime::MemorySearchPrimitive::new(
-            memory_base.clone(),
+        // STM primitives (memory.yaml)
+        let stm_path = agent_dir.join("memory.yaml");
+        registry.register(Box::new(moxxy_runtime::MemoryStmReadPrimitive::new(
+            stm_path.clone(),
         )));
-        registry.register(Box::new(moxxy_runtime::MemorySummarizePrimitive::new(
-            memory_base,
+        registry.register(Box::new(moxxy_runtime::MemoryStmWritePrimitive::new(
+            stm_path,
+        )));
+
+        // LTM primitives (vector DB backed)
+        let embedding_svc: Arc<dyn moxxy_core::EmbeddingService> =
+            Arc::new(MockEmbeddingService::new());
+        registry.register(Box::new(moxxy_runtime::MemoryStorePrimitive::new(
+            self.db.clone(),
+            agent.id.clone(),
+            embedding_svc.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::MemoryRecallPrimitive::new(
+            self.db.clone(),
+            agent.id.clone(),
+            embedding_svc,
+        )));
+
+        // Agent self-config primitives
+        registry.register(Box::new(moxxy_runtime::AgentSelfGetPrimitive::new(
+            agent_dir.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::AgentSelfUpdatePrimitive::new(
+            self.db.clone(),
+            agent.id.clone(),
+            agent_dir.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::AgentSelfPersonaReadPrimitive::new(
+            agent_dir.clone(),
+        )));
+        registry.register(Box::new(
+            moxxy_runtime::AgentSelfPersonaWritePrimitive::new(agent_dir.clone()),
+        ));
+
+        // Global config primitives
+        let config_path = self.moxxy_home.join("config").join("gateway.json");
+        registry.register(Box::new(moxxy_runtime::ConfigGetPrimitive::new(
+            config_path.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::ConfigSetPrimitive::new(
+            config_path,
         )));
 
         // Shell primitive (DB-backed allowlist, 300s max timeout, 1MB output cap)
@@ -273,8 +309,32 @@ impl RunService {
         )));
 
         // Skill primitives
-        registry.register(Box::new(moxxy_runtime::SkillImportPrimitive::new()));
+        let agent_skills_dir = agent_dir.join("skills");
+        std::fs::create_dir_all(&agent_skills_dir).ok();
+        registry.register(Box::new(moxxy_runtime::SkillCreatePrimitive::new(
+            agent_skills_dir.clone(),
+            self.moxxy_home.clone(),
+            agent_dir.clone(),
+        )));
         registry.register(Box::new(moxxy_runtime::SkillValidatePrimitive::new()));
+        registry.register(Box::new(moxxy_runtime::SkillListPrimitive::new(
+            agent_dir.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::SkillFindPrimitive::new(
+            self.moxxy_home.clone(),
+            agent_dir.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::SkillGetPrimitive::new(
+            self.moxxy_home.clone(),
+            agent_dir.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::SkillExecutePrimitive::new(
+            self.moxxy_home.clone(),
+            agent_dir.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::SkillRemovePrimitive::new(
+            agent_skills_dir,
+        )));
 
         // Notification primitives
         registry.register(Box::new(moxxy_runtime::CliNotifyPrimitive::new(
@@ -370,25 +430,26 @@ impl RunService {
             workspace_path,
         )));
 
-        // Heartbeat management primitives (agents can self-schedule)
+        // Heartbeat management primitives (agents can self-schedule, file-backed)
+        let hb_path = agent_dir.join("heartbeat.md");
         registry.register(Box::new(moxxy_runtime::HeartbeatCreatePrimitive::new(
-            self.db.clone(),
+            hb_path.clone(),
             agent.id.clone(),
         )));
         registry.register(Box::new(moxxy_runtime::HeartbeatListPrimitive::new(
-            self.db.clone(),
+            hb_path.clone(),
             agent.id.clone(),
         )));
         registry.register(Box::new(moxxy_runtime::HeartbeatDisablePrimitive::new(
-            self.db.clone(),
+            hb_path.clone(),
             agent.id.clone(),
         )));
         registry.register(Box::new(moxxy_runtime::HeartbeatDeletePrimitive::new(
-            self.db.clone(),
+            hb_path.clone(),
             agent.id.clone(),
         )));
         registry.register(Box::new(moxxy_runtime::HeartbeatUpdatePrimitive::new(
-            self.db.clone(),
+            hb_path,
             agent.id.clone(),
         )));
 
@@ -464,10 +525,10 @@ impl RunService {
         let agent_id_owned = agent.id.clone();
         let run_id_clone = run_id.clone();
         let db = self.db.clone();
-        let temperature = agent.temperature;
-        let agent_persona = agent.persona.clone();
+        let temperature = agent_config.temperature;
         let agent_home = agent_dir;
         let parent_agent_id = agent.parent_agent_id.clone();
+        let moxxy_home_for_prompt = self.moxxy_home.clone();
 
         // Create cancellation token for this run
         let cancel_token = CancellationToken::new();
@@ -483,9 +544,11 @@ impl RunService {
                 "Run executor starting"
             );
 
-            // Build system prompt from agent config
+            // Build system prompt from persona.md
             let mut system_prompt = String::new();
-            if let Some(ref persona) = agent_persona {
+            if let Some(ref persona) = agent_persona
+                && !persona.trim().is_empty()
+            {
                 system_prompt.push_str(persona);
                 system_prompt.push_str("\n\n");
             }
@@ -498,9 +561,10 @@ impl RunService {
                  IMPORTANT = Path rules:\n\
                  - All project files, repositories, and generated content MUST be created inside {workspace_display}/.\n\
                  - When creating a new project, use {workspace_display}/<project_name>/ as the root.\n\
-                 - Memory files are stored in {agent_home_display}/memory/ (managed by memory primitives).\n\
-                 - Never create, read, or write files outside of {agent_home_display}.\n\
-                 - File primitives (fs.read, fs.write, fs.list, fs.remove) accept both relative and absolute paths. Relative paths are resolved against {workspace_display}/. For example, \"project/src/main.rs\" resolves to \"{workspace_display}/project/src/main.rs\".\n\
+                 - File primitives (fs.read, fs.write, fs.list, fs.remove) are strictly scoped to {workspace_display}/. Files outside this directory are inaccessible.\n\
+                 - Use memory.stm_read/stm_write for short-term working memory (key-value pairs in memory.yaml).\n\
+                 - Use memory.store/recall for long-term memory (semantic vector search).\n\
+                 - Use agent.self.get/update to read/modify your own configuration.\n\
                  - Git operations require absolute paths.\n\
                  - Shell commands execute with {workspace_display} as the working directory.\n\n"
             ));
@@ -541,9 +605,10 @@ impl RunService {
                     "memory",
                     "Memory",
                     &[
-                        ("memory.append", "store information"),
-                        ("memory.search", "recall stored information"),
-                        ("memory.summarize", "summarize memory contents"),
+                        ("memory.stm_read", "read short-term memory"),
+                        ("memory.stm_write", "write short-term memory"),
+                        ("memory.store", "store in long-term memory"),
+                        ("memory.recall", "recall from long-term memory"),
                     ],
                 ),
                 (
@@ -596,6 +661,24 @@ impl RunService {
                     ],
                 ),
                 (
+                    "agent.self",
+                    "Self-configuration",
+                    &[
+                        ("agent.self.get", "read own config"),
+                        ("agent.self.update", "update own config"),
+                        ("agent.self.persona_read", "read persona"),
+                        ("agent.self.persona_write", "write persona"),
+                    ],
+                ),
+                (
+                    "config",
+                    "Global config",
+                    &[
+                        ("config.get", "read config"),
+                        ("config.set", "write config"),
+                    ],
+                ),
+                (
                     "ask",
                     "Interactive",
                     &[
@@ -606,7 +689,15 @@ impl RunService {
                 (
                     "skill",
                     "Skills",
-                    &[("skill.import", "import"), ("skill.validate", "validate")],
+                    &[
+                        ("skill.create", "create skill"),
+                        ("skill.validate", "validate skill"),
+                        ("skill.list", "list agent skills"),
+                        ("skill.find", "search skills by query"),
+                        ("skill.get", "load full skill content"),
+                        ("skill.execute", "execute a skill"),
+                        ("skill.remove", "remove agent skill"),
+                    ],
                 ),
                 ("notify", "Notifications", &[("notify.cli", "notify CLI")]),
                 (
@@ -646,9 +737,35 @@ impl RunService {
                 system_prompt.push_str(&format!("- {label}: {}\n", available.join(", ")));
             }
 
+            // Skill usage instructions
+            system_prompt.push_str(
+                "\n## Skill Usage\n\n\
+                 When you receive a task, ALWAYS follow this order WITHOUT pausing or asking for confirmation:\n\
+                 1. Use skill.find to search for a skill that matches the task\n\
+                 2. If a matching skill is found, IMMEDIATELY call skill.execute(name, inputs) with all available inputs — do NOT stop to describe what you plan to do\n\
+                 3. Follow the returned instructions to complete the task using the allowed primitives\n\
+                 4. Only if no suitable skill is found, proceed normally using your available primitives\n\
+                 \n\
+                 CRITICAL: Execute skills immediately. Do NOT ask \"shall I run this?\" or describe your plan — just run it. The user asked you to do the task, not to explain how you would do it.\n\n",
+            );
+
+            // Inject loaded skill documents into the system prompt
+            let loaded_skills =
+                moxxy_core::SkillLoader::load_all(&moxxy_home_for_prompt, &agent_home);
+            if !loaded_skills.is_empty() {
+                system_prompt.push_str("## Available Skills\n\n");
+                for skill in &loaded_skills {
+                    system_prompt.push_str(&format!(
+                        "### {} (v{})\n{}\n{}\n\n",
+                        skill.doc.name, skill.doc.version, skill.doc.description, skill.doc.body
+                    ));
+                }
+            }
+
             system_prompt.push_str(
                 "\nGuidelines:\n\
                  - You are an autonomous agent. For every task, you MUST use your tools to accomplish it. Do NOT just describe or plan what you would do = actually execute it step by step using tool calls.\n\
+                 - NEVER ask for confirmation before executing. When the user gives you a task, execute it immediately. Do NOT say \"I'll do X\" and wait = just do X.\n\
                  - For complex or multi-step tasks, break them down and work through each step iteratively. Call tools, read their results, then decide the next action. You can run many iterations.\n\
                  - Proactively use your tools. If asked to look something up, fetch a URL, or find information = use browse.fetch or http.request.\n\
                  - Read files before modifying them.\n\
@@ -800,28 +917,28 @@ impl RunService {
                     // Persist STM: store user task + final assistant response
                     if let Ok(ref content) = result {
                         let now = chrono::Utc::now().to_rfc3339();
-                        let _ = db.conversations().insert(
-                            &moxxy_storage::rows::ConversationLogRow {
-                                id: uuid::Uuid::now_v7().to_string(),
-                                agent_id: agent_id_owned.clone(),
-                                run_id: run_id_clone.clone(),
-                                sequence: 0,
-                                role: "user".into(),
-                                content: task.clone(),
-                                created_at: now.clone(),
-                            },
-                        );
-                        let _ = db.conversations().insert(
-                            &moxxy_storage::rows::ConversationLogRow {
-                                id: uuid::Uuid::now_v7().to_string(),
-                                agent_id: agent_id_owned.clone(),
-                                run_id: run_id_clone.clone(),
-                                sequence: 1,
-                                role: "assistant".into(),
-                                content: content.clone(),
-                                created_at: now,
-                            },
-                        );
+                        let _ =
+                            db.conversations()
+                                .insert(&moxxy_storage::rows::ConversationLogRow {
+                                    id: uuid::Uuid::now_v7().to_string(),
+                                    agent_id: agent_id_owned.clone(),
+                                    run_id: run_id_clone.clone(),
+                                    sequence: 0,
+                                    role: "user".into(),
+                                    content: task.clone(),
+                                    created_at: now.clone(),
+                                });
+                        let _ =
+                            db.conversations()
+                                .insert(&moxxy_storage::rows::ConversationLogRow {
+                                    id: uuid::Uuid::now_v7().to_string(),
+                                    agent_id: agent_id_owned.clone(),
+                                    run_id: run_id_clone.clone(),
+                                    sequence: 1,
+                                    role: "assistant".into(),
+                                    content: content.clone(),
+                                    created_at: now,
+                                });
                     }
                 }
             }
@@ -907,6 +1024,49 @@ impl RunService {
         }
     }
 
+    pub fn do_reset_session(&self, agent_id: &str) -> Result<(), String> {
+        tracing::info!(agent_id, "Resetting agent session");
+
+        // 1. Stop any active run
+        self.do_stop_agent(agent_id)?;
+
+        // 2. Delete all conversation history
+        {
+            let db = self.db.lock().map_err(|e| e.to_string())?;
+            db.conversations()
+                .delete_all_by_agent(agent_id)
+                .map_err(|e| e.to_string())?;
+        }
+
+        // 3. Archive LTM entries
+        {
+            let db = self.db.lock().map_err(|e| e.to_string())?;
+            db.memory()
+                .archive_all_by_agent(agent_id)
+                .map_err(|e| e.to_string())?;
+        }
+
+        // 4. Clear STM file (memory.yaml)
+        let stm_path = self
+            .moxxy_home
+            .join("agents")
+            .join(agent_id)
+            .join("memory.yaml");
+        if stm_path.exists() {
+            std::fs::write(&stm_path, "").map_err(|e| e.to_string())?;
+        }
+
+        // 5. Reset agent status to idle
+        {
+            let db = self.db.lock().map_err(|e| e.to_string())?;
+            db.agents()
+                .update_status(agent_id, "idle")
+                .map_err(|e| e.to_string())?;
+        }
+
+        Ok(())
+    }
+
     pub fn do_agent_status(&self, agent_id: &str) -> Result<Option<String>, String> {
         let db = self.db.lock().map_err(|e| e.to_string())?;
         let agent = db
@@ -929,5 +1089,9 @@ impl RunStarter for RunService {
 
     fn agent_status(&self, agent_id: &str) -> Result<Option<String>, String> {
         self.do_agent_status(agent_id)
+    }
+
+    async fn reset_session(&self, agent_id: &str) -> Result<(), String> {
+        self.do_reset_session(agent_id)
     }
 }

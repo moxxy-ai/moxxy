@@ -109,24 +109,20 @@ Examples:
 
   skill: `Usage: moxxy skill <action> [options]
 
-Import and manage agent skills.
+Create and manage agent skills.
 
 Actions:
-  import    Install a skill on an agent
-  approve   Approve a quarantined skill
+  create    Create a skill on an agent
   remove    Remove a skill from an agent
   list      List skills for an agent
 
 Options:
   --agent <id>     Agent ID
-  --skill <id>     Skill ID (approve/remove)
-  --name <name>    Skill name (import)
-  --version <v>    Skill version (import, default: 0.1.0)
-  --content <c>    Skill content/markdown (import)
+  --skill <id>     Skill ID (remove)
+  --content <c>    Skill content/markdown (create)
 
 Examples:
-  moxxy skill import --agent <id> --name web-scraper --content "..."
-  moxxy skill approve --agent <id> --skill <skill-id>
+  moxxy skill create --agent <id> --content "..."
   moxxy skill list --agent <id>
   moxxy skill remove --agent <id> --skill <skill-id>`,
 

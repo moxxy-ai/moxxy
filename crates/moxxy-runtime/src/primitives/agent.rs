@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use moxxy_core::{AgentLineage, EventBus};
 use moxxy_storage::Database;
-use moxxy_types::{EventEnvelope, EventType, RunStarter};
+use moxxy_types::{AgentConfig, EventEnvelope, EventType, RunStarter};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -92,6 +92,12 @@ impl Primitive for AgentSpawnPrimitive {
                 })?
         };
 
+        // Read parent's config from agent.yaml
+        let parent_dir = self.moxxy_home.join("agents").join(&parent.id);
+        let parent_config = AgentConfig::load(&parent_dir.join("agent.yaml")).map_err(|e| {
+            PrimitiveError::ExecutionFailed(format!("failed to read parent config: {}", e))
+        })?;
+
         // Enforce lineage limits
         let lineage = AgentLineage {
             root_agent_id: parent
@@ -99,9 +105,9 @@ impl Primitive for AgentSpawnPrimitive {
                 .clone()
                 .unwrap_or_else(|| parent.id.clone()),
             current_depth: parent.depth as u32,
-            max_depth: parent.max_subagent_depth as u32,
+            max_depth: parent_config.max_subagent_depth as u32,
             spawned_total: parent.spawned_total as u32,
-            max_total: parent.max_subagents_total as u32,
+            max_total: parent_config.max_subagents_total as u32,
         };
 
         if !lineage.can_spawn() {
@@ -123,7 +129,7 @@ impl Primitive for AgentSpawnPrimitive {
             .get("model_id")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
-            .unwrap_or(&parent.model_id)
+            .unwrap_or(&parent_config.model_id)
             .to_string();
 
         let now = chrono::Utc::now().to_rfc3339();
@@ -137,19 +143,32 @@ impl Primitive for AgentSpawnPrimitive {
         // Child gets its own directory keyed by its ID
         let child_dir = self.moxxy_home.join("agents").join(&child_id);
         let child_workspace = child_dir.join("workspace");
-        let child_memory = child_dir.join("memory");
         std::fs::create_dir_all(&child_workspace).ok();
-        std::fs::create_dir_all(&child_memory).ok();
+
+        // Write child agent.yaml (inherit from parent, override model_id if provided)
+        let child_config = AgentConfig {
+            name: auto_name.clone(),
+            model_id: model_id.clone(),
+            ..parent_config.clone()
+        };
+        if let Err(e) = child_config.save(&child_dir.join("agent.yaml")) {
+            tracing::warn!(error = %e, "Failed to write child agent.yaml");
+        }
+        // Write empty persona.md, memory.yaml, and heartbeat.md
+        let _ = std::fs::write(child_dir.join("persona.md"), "");
+        let _ = std::fs::write(child_dir.join("memory.yaml"), "");
+        let _ = std::fs::write(child_dir.join("heartbeat.md"), "");
 
         // If repo_path is provided, try to create a git worktree in the child workspace.
         // This is best-effort: if the path isn't a git repo or git fails, the sub-agent
         // still spawns and can do other work (e.g. news fetching, research).
-        if let Some(repo_path) = params.get("repo_path").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+        if let Some(repo_path) = params
+            .get("repo_path")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        {
             let repo = std::path::Path::new(repo_path);
-            let repo_name = repo
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("repo");
+            let repo_name = repo.file_name().and_then(|n| n.to_str()).unwrap_or("repo");
             let branch = params
                 .get("branch")
                 .and_then(|v| v.as_str())
@@ -249,21 +268,13 @@ impl Primitive for AgentSpawnPrimitive {
         let child = moxxy_storage::AgentRow {
             id: child_id.clone(),
             parent_agent_id: Some(self.parent_agent_id.clone()),
-            provider_id: parent.provider_id.clone(),
-            model_id: model_id.clone(),
-            workspace_root: child_dir.to_string_lossy().to_string(),
-            core_mount: None,
-            policy_profile: parent.policy_profile.clone(),
-            temperature: parent.temperature,
-            max_subagent_depth: parent.max_subagent_depth,
-            max_subagents_total: parent.max_subagents_total,
+            name: Some(auto_name),
             status: "idle".into(),
             depth: parent.depth + 1,
             spawned_total: 0,
+            workspace_root: child_dir.to_string_lossy().to_string(),
             created_at: now.clone(),
             updated_at: now,
-            name: Some(auto_name),
-            persona: None,
         };
 
         {
@@ -649,19 +660,7 @@ mod tests {
 
     fn test_database() -> Database {
         let test_db = TestDb::new();
-        let db = Database::new(test_db.into_conn());
-        // Insert a provider to satisfy FK constraints
-        db.providers()
-            .insert(&moxxy_storage::ProviderRow {
-                id: "openai".into(),
-                display_name: "OpenAI".into(),
-                manifest_path: "/tmp/openai.yaml".into(),
-                signature: None,
-                enabled: true,
-                created_at: chrono::Utc::now().to_rfc3339(),
-            })
-            .unwrap();
-        db
+        Database::new(test_db.into_conn())
     }
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -699,21 +698,13 @@ mod tests {
         let row = AgentRow {
             id: "parent-1".into(),
             parent_agent_id: None,
-            provider_id: "openai".into(),
-            model_id: "gpt-4".into(),
-            workspace_root: "/tmp/test".into(),
-            core_mount: None,
-            policy_profile: None,
-            temperature: 0.7,
-            max_subagent_depth: 2,
-            max_subagents_total: 8,
+            name: Some("parent-1".into()),
             status: "running".into(),
             depth: 0,
             spawned_total: 0,
+            workspace_root: "/tmp/test".into(),
             created_at: now.clone(),
             updated_at: now,
-            name: Some("parent-1".into()),
-            persona: None,
         };
         db.agents().insert(&row).unwrap();
         row
@@ -724,21 +715,13 @@ mod tests {
         let row = AgentRow {
             id: child_id.into(),
             parent_agent_id: Some(parent_id.into()),
-            provider_id: "openai".into(),
-            model_id: "gpt-4".into(),
-            workspace_root: "/tmp/test".into(),
-            core_mount: None,
-            policy_profile: None,
-            temperature: 0.7,
-            max_subagent_depth: 2,
-            max_subagents_total: 8,
+            name: None,
             status: "running".into(),
             depth: 1,
             spawned_total: 0,
+            workspace_root: "/tmp/test".into(),
             created_at: now.clone(),
             updated_at: now,
-            name: None,
-            persona: None,
         };
         db.agents().insert(&row).unwrap();
         row
@@ -746,11 +729,27 @@ mod tests {
 
     #[tokio::test]
     async fn agent_spawn_creates_child_and_starts_run() {
+        let tmp = tempfile::tempdir().unwrap();
+        let moxxy_home = tmp.path().to_path_buf();
         let db = Arc::new(Mutex::new(test_database()));
         {
             let d = db.lock().unwrap();
             insert_parent(&d);
         }
+
+        // Write parent agent.yaml
+        let parent_dir = moxxy_home.join("agents").join("parent-1");
+        std::fs::create_dir_all(&parent_dir).unwrap();
+        let parent_config = AgentConfig {
+            name: "parent-1".into(),
+            provider_id: "openai".into(),
+            model_id: "gpt-4".into(),
+            temperature: 0.7,
+            max_subagent_depth: 2,
+            max_subagents_total: 8,
+            policy_profile: None,
+        };
+        parent_config.save(&parent_dir.join("agent.yaml")).unwrap();
 
         let bus = EventBus::new(100);
         let run_starter = Arc::new(MockRunStarter::new());
@@ -760,7 +759,7 @@ mod tests {
             "parent-1".into(),
             run_starter.clone(),
             bus,
-            "/tmp/moxxy".into(),
+            moxxy_home,
         );
 
         let result = prim
@@ -784,6 +783,8 @@ mod tests {
 
     #[tokio::test]
     async fn agent_spawn_respects_lineage_limits() {
+        let tmp = tempfile::tempdir().unwrap();
+        let moxxy_home = tmp.path().to_path_buf();
         let db = Arc::new(Mutex::new(test_database()));
         {
             let d = db.lock().unwrap();
@@ -791,35 +792,36 @@ mod tests {
             let row = AgentRow {
                 id: "parent-limited".into(),
                 parent_agent_id: None,
-                provider_id: "openai".into(),
-                model_id: "gpt-4".into(),
-                workspace_root: "/tmp/test".into(),
-                core_mount: None,
-                policy_profile: None,
-                temperature: 0.7,
-                max_subagent_depth: 0,
-                max_subagents_total: 0,
+                name: Some("parent-limited".into()),
                 status: "running".into(),
                 depth: 0,
                 spawned_total: 0,
+                workspace_root: "/tmp/test".into(),
                 created_at: now.clone(),
                 updated_at: now,
-                name: Some("parent-limited".into()),
-                persona: None,
             };
             d.agents().insert(&row).unwrap();
         }
 
+        // Write parent agent.yaml with zero limits
+        let parent_dir = moxxy_home.join("agents").join("parent-limited");
+        std::fs::create_dir_all(&parent_dir).unwrap();
+        let parent_config = AgentConfig {
+            name: "parent-limited".into(),
+            provider_id: "openai".into(),
+            model_id: "gpt-4".into(),
+            temperature: 0.7,
+            max_subagent_depth: 0,
+            max_subagents_total: 0,
+            policy_profile: None,
+        };
+        parent_config.save(&parent_dir.join("agent.yaml")).unwrap();
+
         let bus = EventBus::new(100);
         let run_starter = Arc::new(MockRunStarter::new());
 
-        let prim = AgentSpawnPrimitive::new(
-            db,
-            "parent-limited".into(),
-            run_starter,
-            bus,
-            "/tmp/moxxy".into(),
-        );
+        let prim =
+            AgentSpawnPrimitive::new(db, "parent-limited".into(), run_starter, bus, moxxy_home);
 
         let result = prim
             .invoke(serde_json::json!({
@@ -869,21 +871,13 @@ mod tests {
             let other = AgentRow {
                 id: "other-agent".into(),
                 parent_agent_id: None,
-                provider_id: "openai".into(),
-                model_id: "gpt-4".into(),
-                workspace_root: "/tmp".into(),
-                core_mount: None,
-                policy_profile: None,
-                temperature: 0.7,
-                max_subagent_depth: 2,
-                max_subagents_total: 8,
+                name: None,
                 status: "idle".into(),
                 depth: 1,
                 spawned_total: 0,
+                workspace_root: "/tmp".into(),
                 created_at: now.clone(),
                 updated_at: now,
-                name: None,
-                persona: None,
             };
             d.agents().insert(&other).unwrap();
         }
@@ -1013,21 +1007,13 @@ mod tests {
             let other = AgentRow {
                 id: "not-my-child".into(),
                 parent_agent_id: None,
-                provider_id: "openai".into(),
-                model_id: "gpt-4".into(),
-                workspace_root: "/tmp".into(),
-                core_mount: None,
-                policy_profile: None,
-                temperature: 0.7,
-                max_subagent_depth: 2,
-                max_subagents_total: 8,
+                name: Some("not-my-child".into()),
                 status: "idle".into(),
                 depth: 0,
                 spawned_total: 0,
+                workspace_root: "/tmp".into(),
                 created_at: now.clone(),
                 updated_at: now,
-                name: Some("not-my-child".into()),
-                persona: None,
             };
             d.agents().insert(&other).unwrap();
         }
@@ -1057,21 +1043,13 @@ mod tests {
             let other = AgentRow {
                 id: "not-my-child".into(),
                 parent_agent_id: None,
-                provider_id: "openai".into(),
-                model_id: "gpt-4".into(),
-                workspace_root: "/tmp".into(),
-                core_mount: None,
-                policy_profile: None,
-                temperature: 0.7,
-                max_subagent_depth: 2,
-                max_subagents_total: 8,
+                name: None,
                 status: "idle".into(),
                 depth: 0,
                 spawned_total: 0,
+                workspace_root: "/tmp".into(),
                 created_at: now.clone(),
                 updated_at: now,
-                name: None,
-                persona: None,
             };
             d.agents().insert(&other).unwrap();
         }
@@ -1095,11 +1073,26 @@ mod tests {
     #[tokio::test]
     async fn agent_spawn_empty_model_id_inherits_parent() {
         let tmp = tempfile::tempdir().unwrap();
+        let moxxy_home = tmp.path().to_path_buf();
         let db = Arc::new(Mutex::new(test_database()));
         {
             let d = db.lock().unwrap();
             insert_parent(&d);
         }
+
+        // Write parent agent.yaml so spawn can load it
+        let parent_dir = moxxy_home.join("agents").join("parent-1");
+        std::fs::create_dir_all(&parent_dir).unwrap();
+        let parent_config = AgentConfig {
+            name: "parent-1".into(),
+            provider_id: "openai".into(),
+            model_id: "gpt-4".into(),
+            temperature: 0.7,
+            max_subagent_depth: 2,
+            max_subagents_total: 8,
+            policy_profile: None,
+        };
+        parent_config.save(&parent_dir.join("agent.yaml")).unwrap();
 
         let bus = EventBus::new(100);
         let run_starter = Arc::new(MockRunStarter::new());
@@ -1109,7 +1102,7 @@ mod tests {
             "parent-1".into(),
             run_starter,
             bus,
-            tmp.path().to_path_buf(),
+            moxxy_home.clone(),
         );
 
         let result = prim
@@ -1123,10 +1116,11 @@ mod tests {
         let val = result.unwrap();
         let child_id = val["sub_agent_id"].as_str().unwrap();
 
-        // Verify child inherited parent's model_id, not empty string
-        let d = db.lock().unwrap();
-        let child = d.agents().find_by_id(child_id).unwrap().unwrap();
-        assert_eq!(child.model_id, "gpt-4");
+        // Verify child inherited parent's model_id in its agent.yaml, not empty string
+        let child_config =
+            AgentConfig::load(&moxxy_home.join("agents").join(child_id).join("agent.yaml"))
+                .unwrap();
+        assert_eq!(child_config.model_id, "gpt-4");
     }
 
     #[tokio::test]
@@ -1153,9 +1147,13 @@ mod tests {
             .unwrap();
         std::process::Command::new("git")
             .args([
-                "-c", "user.name=test",
-                "-c", "user.email=test@test.com",
-                "commit", "-m", "init",
+                "-c",
+                "user.name=test",
+                "-c",
+                "user.email=test@test.com",
+                "commit",
+                "-m",
+                "init",
             ])
             .current_dir(&repo_dir)
             .output()
@@ -1167,16 +1165,25 @@ mod tests {
             insert_parent(&d);
         }
 
+        // Write parent agent.yaml
+        let parent_dir = moxxy_home.join("agents").join("parent-1");
+        std::fs::create_dir_all(&parent_dir).unwrap();
+        let parent_config = AgentConfig {
+            name: "parent-1".into(),
+            provider_id: "openai".into(),
+            model_id: "gpt-4".into(),
+            temperature: 0.7,
+            max_subagent_depth: 2,
+            max_subagents_total: 8,
+            policy_profile: None,
+        };
+        parent_config.save(&parent_dir.join("agent.yaml")).unwrap();
+
         let bus = EventBus::new(100);
         let run_starter = Arc::new(MockRunStarter::new());
 
-        let prim = AgentSpawnPrimitive::new(
-            db.clone(),
-            "parent-1".into(),
-            run_starter,
-            bus,
-            moxxy_home,
-        );
+        let prim =
+            AgentSpawnPrimitive::new(db.clone(), "parent-1".into(), run_starter, bus, moxxy_home);
 
         let result = prim
             .invoke(serde_json::json!({
@@ -1229,6 +1236,20 @@ mod tests {
             insert_parent(&d);
         }
 
+        // Write parent agent.yaml
+        let parent_dir = moxxy_home.join("agents").join("parent-1");
+        std::fs::create_dir_all(&parent_dir).unwrap();
+        let parent_config = AgentConfig {
+            name: "parent-1".into(),
+            provider_id: "openai".into(),
+            model_id: "gpt-4".into(),
+            temperature: 0.7,
+            max_subagent_depth: 2,
+            max_subagents_total: 8,
+            policy_profile: None,
+        };
+        parent_config.save(&parent_dir.join("agent.yaml")).unwrap();
+
         let bus = EventBus::new(100);
         let run_starter = Arc::new(MockRunStarter::new());
 
@@ -1248,7 +1269,11 @@ mod tests {
             .await;
 
         // Should succeed — worktree failure is non-fatal
-        assert!(result.is_ok(), "spawn should not fail when repo_path is invalid: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "spawn should not fail when repo_path is invalid: {:?}",
+            result.err()
+        );
         let val = result.unwrap();
         assert!(val["sub_agent_id"].is_string());
         assert!(run_starter.started.load(Ordering::SeqCst));

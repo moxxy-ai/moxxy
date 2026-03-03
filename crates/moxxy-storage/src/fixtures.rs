@@ -27,52 +27,13 @@ pub fn fixture_agent_row() -> AgentRow {
     AgentRow {
         id: uuid::Uuid::now_v7().to_string(),
         parent_agent_id: None,
-        provider_id: "test-provider".into(),
-        model_id: "test-model".into(),
-        workspace_root: "/tmp/workspace".into(),
-        core_mount: None,
-        policy_profile: None,
-        temperature: 0.7,
-        max_subagent_depth: 2,
-        max_subagents_total: 8,
+        name: Some("test-agent".into()),
         status: "idle".into(),
         depth: 0,
         spawned_total: 0,
+        workspace_root: "/tmp/workspace".into(),
         created_at: chrono::Utc::now().to_rfc3339(),
         updated_at: chrono::Utc::now().to_rfc3339(),
-        name: Some("test-agent".into()),
-        persona: None,
-    }
-}
-
-pub fn fixture_heartbeat_row() -> HeartbeatRow {
-    HeartbeatRow {
-        id: uuid::Uuid::now_v7().to_string(),
-        agent_id: "placeholder-agent".into(),
-        interval_minutes: 5,
-        action_type: "notify_cli".into(),
-        action_payload: None,
-        enabled: true,
-        next_run_at: chrono::Utc::now().to_rfc3339(),
-        cron_expr: None,
-        timezone: "UTC".into(),
-        created_at: chrono::Utc::now().to_rfc3339(),
-        updated_at: chrono::Utc::now().to_rfc3339(),
-    }
-}
-
-pub fn fixture_skill_row() -> SkillRow {
-    SkillRow {
-        id: uuid::Uuid::now_v7().to_string(),
-        agent_id: "placeholder-agent".into(),
-        name: "test-skill".into(),
-        version: "1.0.0".into(),
-        source: Some("https://example.com/skill".into()),
-        status: "quarantined".into(),
-        raw_content: Some("# Test Skill\nDoes things.".into()),
-        metadata_json: None,
-        installed_at: chrono::Utc::now().to_rfc3339(),
-        approved_at: None,
     }
 }
 
@@ -87,6 +48,7 @@ pub fn fixture_memory_index_row() -> MemoryIndexRow {
         status: "active".into(),
         created_at: chrono::Utc::now().to_rfc3339(),
         updated_at: chrono::Utc::now().to_rfc3339(),
+        content: None,
     }
 }
 

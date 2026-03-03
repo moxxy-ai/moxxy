@@ -1,5 +1,8 @@
 use moxxy_channel::ChannelBridge;
-use moxxy_core::{EventBus, HeartbeatScheduler, RedactionEngine};
+use moxxy_core::{
+    EventBus, HeartbeatEntry, HeartbeatScheduler, RedactionEngine, heartbeat_path,
+    mutate_heartbeat_file, read_heartbeat_file,
+};
 use moxxy_storage::{Database, EventAuditRow};
 use moxxy_types::{AuthMode, EventEnvelope, EventType};
 use moxxy_vault::{SecretBackend, SqliteBackend};
@@ -110,6 +113,101 @@ impl AppState {
         // Run inbound webhooks migration (drops and recreates webhook tables)
         let sql10 = include_str!("../../../migrations/0010_inbound_webhooks.sql");
         conn.execute_batch(sql10).expect("Migration 0010 failed");
+
+        // Run slim agents migration (table recreation — idempotent via IF NOT EXISTS pattern)
+        let has_provider_id: bool = conn
+            .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='agents'")
+            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, String>(0)))
+            .map(|sql| sql.contains("provider_id"))
+            .unwrap_or(false);
+        if has_provider_id {
+            let sql11 = include_str!("../../../migrations/0011_slim_agents.sql");
+            conn.execute_batch(sql11).expect("Migration 0011 failed");
+        }
+
+        // Run memory content migration (add content column to memory_index)
+        let has_content: bool = conn
+            .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memory_index'")
+            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, String>(0)))
+            .map(|sql| sql.contains("content"))
+            .unwrap_or(false);
+        if !has_content {
+            let sql12 = include_str!("../../../migrations/0012_memory_content.sql");
+            conn.execute_batch(sql12).expect("Migration 0012 failed");
+        }
+
+        // Run drop skills migration (skills are now filesystem-backed)
+        let sql13 = include_str!("../../../migrations/0013_drop_skills.sql");
+        conn.execute_batch(sql13).expect("Migration 0013 failed");
+
+        // Migrate heartbeats from SQLite to file-based storage, then drop the table
+        let has_heartbeats_table: bool = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='heartbeats'")
+            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, String>(0)))
+            .is_ok();
+        if has_heartbeats_table {
+            // Read all existing heartbeat rows and group by agent_id
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, agent_id, interval_minutes, action_type, action_payload,
+                     enabled, next_run_at, cron_expr, timezone, created_at, updated_at
+                     FROM heartbeats",
+                )
+                .ok();
+            if let Some(ref mut stmt) = stmt {
+                let rows: Vec<(String, HeartbeatEntry)> = stmt
+                    .query_map([], |row| {
+                        let agent_id: String = row.get(1)?;
+                        let interval_minutes: i32 = row.get(2)?;
+                        let cron_expr: Option<String> = row.get(7)?;
+                        let entry = HeartbeatEntry {
+                            id: row.get(0)?,
+                            action_type: row.get(3)?,
+                            action_payload: row.get(4)?,
+                            interval_minutes: if cron_expr.is_some() {
+                                None
+                            } else {
+                                Some(interval_minutes)
+                            },
+                            cron_expr,
+                            timezone: row.get(8)?,
+                            enabled: row.get(5)?,
+                            next_run_at: row.get(6)?,
+                            created_at: row.get(9)?,
+                            updated_at: row.get(10)?,
+                        };
+                        Ok((agent_id, entry))
+                    })
+                    .ok()
+                    .map(|iter| iter.filter_map(|r| r.ok()).collect())
+                    .unwrap_or_default();
+
+                // Group by agent_id and write to files
+                let mut grouped: std::collections::HashMap<String, Vec<HeartbeatEntry>> =
+                    std::collections::HashMap::new();
+                for (agent_id, entry) in rows {
+                    grouped.entry(agent_id).or_default().push(entry);
+                }
+                for (agent_id, entries) in grouped {
+                    let path = heartbeat_path(&moxxy_home, &agent_id);
+                    let file = moxxy_core::HeartbeatFile {
+                        entries,
+                        notes: String::new(),
+                    };
+                    if let Err(e) = moxxy_core::write_heartbeat_file(&path, &file) {
+                        tracing::warn!(
+                            agent_id = %agent_id,
+                            error = %e,
+                            "Failed to migrate heartbeats to file"
+                        );
+                    }
+                }
+            }
+
+            // Drop the heartbeats table
+            let sql14 = include_str!("../../../migrations/0014_drop_heartbeats.sql");
+            conn.execute_batch(sql14).expect("Migration 0014 failed");
+        }
 
         // Create vec0 virtual table (requires sqlite-vec extension)
         conn.execute_batch(
@@ -340,53 +438,69 @@ impl AppState {
         let db = self.db.clone();
         let event_bus = self.event_bus.clone();
         let run_service = self.run_service.clone();
+        let moxxy_home = self.moxxy_home.clone();
 
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
             loop {
                 interval.tick().await;
                 let now = chrono::Utc::now();
-                let now_str = now.to_rfc3339();
 
-                let due_rules = {
+                // Collect agent IDs from DB
+                let agent_ids: Vec<String> = {
                     let Ok(db) = db.lock() else { continue };
-                    match db.heartbeats().find_due_rules(&now_str) {
-                        Ok(rules) => rules,
+                    match db.agents().list_all() {
+                        Ok(agents) => agents.into_iter().map(|a| a.id).collect(),
                         Err(_) => continue,
                     }
                 };
 
-                for rule in &due_rules {
+                // Collect due entries across all agents
+                let mut due_entries: Vec<(String, HeartbeatEntry)> = Vec::new();
+                for agent_id in &agent_ids {
+                    let path = heartbeat_path(&moxxy_home, agent_id);
+                    let Ok(file) = read_heartbeat_file(&path) else {
+                        continue;
+                    };
+                    for entry in &file.entries {
+                        let rule = moxxy_core::HeartbeatRule::from(entry);
+                        if HeartbeatScheduler::due_rules(&[rule], now).len() == 1 {
+                            due_entries.push((agent_id.clone(), entry.clone()));
+                        }
+                    }
+                }
+
+                for (agent_id, entry) in &due_entries {
                     // Emit heartbeat.triggered event
                     event_bus.emit(EventEnvelope::new(
-                        rule.agent_id.clone(),
+                        agent_id.clone(),
                         None,
                         None,
                         0,
                         EventType::HeartbeatTriggered,
                         serde_json::json!({
-                            "heartbeat_id": rule.id,
-                            "action_type": rule.action_type,
+                            "heartbeat_id": entry.id,
+                            "action_type": entry.action_type,
                         }),
                     ));
 
                     // Dispatch based on action_type
-                    match rule.action_type.as_str() {
+                    match entry.action_type.as_str() {
                         "execute_skill" => {
-                            let task = rule
+                            let task = entry
                                 .action_payload
                                 .as_deref()
                                 .unwrap_or("run scheduled skill");
-                            match run_service.do_start_run(&rule.agent_id, task).await {
+                            match run_service.do_start_run(agent_id, task).await {
                                 Ok(run_id) => {
                                     event_bus.emit(EventEnvelope::new(
-                                        rule.agent_id.clone(),
+                                        agent_id.clone(),
                                         Some(run_id.clone()),
                                         None,
                                         0,
                                         EventType::HeartbeatCompleted,
                                         serde_json::json!({
-                                            "heartbeat_id": rule.id,
+                                            "heartbeat_id": entry.id,
                                             "run_id": run_id,
                                             "message": "Scheduled run started",
                                         }),
@@ -395,18 +509,18 @@ impl AppState {
                                 Err(e) => {
                                     tracing::warn!(
                                         "Heartbeat {} failed to start run for agent {}: {}",
-                                        rule.id,
-                                        rule.agent_id,
+                                        entry.id,
+                                        agent_id,
                                         e
                                     );
                                     event_bus.emit(EventEnvelope::new(
-                                        rule.agent_id.clone(),
+                                        agent_id.clone(),
                                         None,
                                         None,
                                         0,
                                         EventType::HeartbeatFailed,
                                         serde_json::json!({
-                                            "heartbeat_id": rule.id,
+                                            "heartbeat_id": entry.id,
                                             "error": e,
                                         }),
                                     ));
@@ -415,21 +529,21 @@ impl AppState {
                         }
                         "notify_cli" => {
                             event_bus.emit(EventEnvelope::new(
-                                rule.agent_id.clone(),
+                                agent_id.clone(),
                                 None,
                                 None,
                                 0,
                                 EventType::HeartbeatCompleted,
                                 serde_json::json!({
-                                    "heartbeat_id": rule.id,
-                                    "message": rule.action_payload.as_deref().unwrap_or("Heartbeat check"),
+                                    "heartbeat_id": entry.id,
+                                    "message": entry.action_payload.as_deref().unwrap_or("Heartbeat check"),
                                 }),
                             ));
                         }
                         "notify_webhook" => {
-                            if let Some(url) = rule.action_payload.as_deref() {
-                                let agent_id = rule.agent_id.clone();
-                                let heartbeat_id = rule.id.clone();
+                            if let Some(url) = entry.action_payload.as_deref() {
+                                let agent_id = agent_id.clone();
+                                let heartbeat_id = entry.id.clone();
                                 let url = url.to_string();
                                 let eb = event_bus.clone();
                                 tokio::spawn(async move {
@@ -486,13 +600,13 @@ impl AppState {
                             } else {
                                 tracing::warn!(
                                     "Heartbeat {} notify_webhook has no URL in action_payload",
-                                    rule.id
+                                    entry.id
                                 );
                             }
                         }
                         "memory_compact" => {
-                            let agent_id = rule.agent_id.clone();
-                            let heartbeat_id = rule.id.clone();
+                            let agent_id = agent_id.clone();
+                            let heartbeat_id = entry.id.clone();
                             let db_ref = db.clone();
                             let eb = event_bus.clone();
                             eb.emit(EventEnvelope::new(
@@ -576,33 +690,39 @@ impl AppState {
                             });
                         }
                         _ => {
-                            tracing::warn!("Unknown heartbeat action_type: {}", rule.action_type);
+                            tracing::warn!("Unknown heartbeat action_type: {}", entry.action_type);
                         }
                     }
 
-                    // Advance next_run_at (prefer cron if set, else interval)
-                    let new_next_run = if let Some(cron_expr) = &rule.cron_expr {
-                        HeartbeatScheduler::compute_next_cron_run(cron_expr, &rule.timezone, now)
-                            .unwrap_or_else(|_| {
+                    // Advance next_run_at via file mutation
+                    let entry_id = entry.id.clone();
+                    let entry_cron = entry.cron_expr.clone();
+                    let entry_tz = entry.timezone.clone();
+                    let entry_interval = entry.interval_minutes.unwrap_or(1);
+                    let entry_next = entry.next_run_at.clone();
+                    let path = heartbeat_path(&moxxy_home, agent_id);
+                    let _ = mutate_heartbeat_file(&path, |f| {
+                        if let Some(e) = f.entries.iter_mut().find(|e| e.id == entry_id) {
+                            let new_next_run = if let Some(cron_expr) = &entry_cron {
+                                HeartbeatScheduler::compute_next_cron_run(cron_expr, &entry_tz, now)
+                                    .unwrap_or_else(|_| {
+                                        HeartbeatScheduler::advance_next_run(
+                                            &entry_next,
+                                            entry_interval,
+                                            now,
+                                        )
+                                    })
+                            } else {
                                 HeartbeatScheduler::advance_next_run(
-                                    &rule.next_run_at,
-                                    rule.interval_minutes,
+                                    &entry_next,
+                                    entry_interval,
                                     now,
                                 )
-                            })
-                    } else {
-                        HeartbeatScheduler::advance_next_run(
-                            &rule.next_run_at,
-                            rule.interval_minutes,
-                            now,
-                        )
-                    };
-                    let mut updated = rule.clone();
-                    updated.next_run_at = new_next_run;
-                    updated.updated_at = now.to_rfc3339();
-                    if let Ok(db) = db.lock() {
-                        let _ = db.heartbeats().update(&updated);
-                    }
+                            };
+                            e.next_run_at = new_next_run;
+                            e.updated_at = now.to_rfc3339();
+                        }
+                    });
                 }
             }
         });

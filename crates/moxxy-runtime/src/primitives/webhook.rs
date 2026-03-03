@@ -280,37 +280,18 @@ mod tests {
         let db = Database::new(test_db.into_conn());
         let now = chrono::Utc::now().to_rfc3339();
 
-        db.providers()
-            .insert(&moxxy_storage::ProviderRow {
-                id: "test-provider".into(),
-                display_name: "Test".into(),
-                manifest_path: "/tmp".into(),
-                signature: None,
-                enabled: true,
-                created_at: now.clone(),
-            })
-            .unwrap();
-
         let agent_id = uuid::Uuid::now_v7().to_string();
         db.agents()
             .insert(&moxxy_storage::AgentRow {
                 id: agent_id.clone(),
                 parent_agent_id: None,
-                provider_id: "test-provider".into(),
-                model_id: "test-model".into(),
-                workspace_root: "/tmp".into(),
-                core_mount: None,
-                policy_profile: None,
-                temperature: 0.7,
-                max_subagent_depth: 2,
-                max_subagents_total: 8,
+                name: Some("test-agent".into()),
                 status: "idle".into(),
                 depth: 0,
                 spawned_total: 0,
+                workspace_root: "/tmp".into(),
                 created_at: now.clone(),
                 updated_at: now,
-                name: Some("test-agent".into()),
-                persona: None,
             })
             .unwrap();
 

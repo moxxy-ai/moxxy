@@ -85,6 +85,17 @@ impl<'a> ConversationDao<'a> {
         Ok(())
     }
 
+    pub fn delete_all_by_agent(&self, agent_id: &str) -> Result<u64, StorageError> {
+        let affected = self
+            .conn
+            .execute(
+                "DELETE FROM conversation_log WHERE agent_id = ?1",
+                params![agent_id],
+            )
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+        Ok(affected as u64)
+    }
+
     fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConversationLogRow> {
         Ok(ConversationLogRow {
             id: row.get(0)?,
@@ -101,51 +112,14 @@ impl<'a> ConversationDao<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dao::AgentDao;
+    use crate::fixtures::*;
     use moxxy_test_utils::TestDb;
 
     fn seed_agent(db: &TestDb) -> String {
-        use crate::fixtures::*;
-        let provider = fixture_provider_row();
-        db.conn()
-            .execute(
-                "INSERT INTO providers (id, display_name, manifest_path, signature, enabled, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    provider.id,
-                    provider.display_name,
-                    provider.manifest_path,
-                    provider.signature,
-                    provider.enabled,
-                    provider.created_at,
-                ],
-            )
-            .unwrap();
         let agent = fixture_agent_row();
-        db.conn()
-            .execute(
-                "INSERT INTO agents (id, parent_agent_id, provider_id, model_id, workspace_root,
-                 core_mount, policy_profile, temperature, max_subagent_depth, max_subagents_total,
-                 status, depth, spawned_total, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
-                params![
-                    agent.id,
-                    agent.parent_agent_id,
-                    agent.provider_id,
-                    agent.model_id,
-                    agent.workspace_root,
-                    agent.core_mount,
-                    agent.policy_profile,
-                    agent.temperature,
-                    agent.max_subagent_depth,
-                    agent.max_subagents_total,
-                    agent.status,
-                    agent.depth,
-                    agent.spawned_total,
-                    agent.created_at,
-                    agent.updated_at,
-                ],
-            )
-            .unwrap();
+        let dao = AgentDao { conn: db.conn() };
+        dao.insert(&agent).unwrap();
         agent.id
     }
 
@@ -234,7 +208,10 @@ mod tests {
         let dao = ConversationDao { conn: db.conn() };
 
         // Insert messages across two runs with distinct timestamps
-        for (run, ts) in [("run-a", "2025-01-01T00:00:00Z"), ("run-b", "2025-01-02T00:00:00Z")] {
+        for (run, ts) in [
+            ("run-a", "2025-01-01T00:00:00Z"),
+            ("run-b", "2025-01-02T00:00:00Z"),
+        ] {
             for seq in 0..2 {
                 let role = if seq == 0 { "user" } else { "assistant" };
                 dao.insert(&ConversationLogRow {
@@ -294,35 +271,84 @@ mod tests {
     }
 
     fn seed_second_agent(db: &TestDb) -> String {
-        use crate::fixtures::*;
         let mut agent = fixture_agent_row();
         agent.id = uuid::Uuid::now_v7().to_string();
-        db.conn()
-            .execute(
-                "INSERT INTO agents (id, parent_agent_id, provider_id, model_id, workspace_root,
-                 core_mount, policy_profile, temperature, max_subagent_depth, max_subagents_total,
-                 status, depth, spawned_total, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
-                params![
-                    agent.id,
-                    agent.parent_agent_id,
-                    agent.provider_id,
-                    agent.model_id,
-                    agent.workspace_root,
-                    agent.core_mount,
-                    agent.policy_profile,
-                    agent.temperature,
-                    agent.max_subagent_depth,
-                    agent.max_subagents_total,
-                    agent.status,
-                    agent.depth,
-                    agent.spawned_total,
-                    agent.created_at,
-                    agent.updated_at,
-                ],
-            )
-            .unwrap();
+        agent.name = Some("test-agent-2".into());
+        let dao = AgentDao { conn: db.conn() };
+        dao.insert(&agent).unwrap();
         agent.id
+    }
+
+    #[test]
+    fn delete_all_by_agent_clears_across_runs() {
+        let db = TestDb::new();
+        let agent_id = seed_agent(&db);
+        let dao = ConversationDao { conn: db.conn() };
+
+        for run in ["run-1", "run-2", "run-3"] {
+            dao.insert(&ConversationLogRow {
+                id: uuid::Uuid::now_v7().to_string(),
+                agent_id: agent_id.clone(),
+                run_id: run.into(),
+                sequence: 0,
+                role: "user".into(),
+                content: format!("msg-{run}"),
+                created_at: chrono::Utc::now().to_rfc3339(),
+            })
+            .unwrap();
+        }
+
+        let count = dao.delete_all_by_agent(&agent_id).unwrap();
+        assert_eq!(count, 3);
+
+        let found = dao.find_recent_by_agent(&agent_id, 100).unwrap();
+        assert!(found.is_empty());
+    }
+
+    #[test]
+    fn delete_all_by_agent_isolates_agents() {
+        let db = TestDb::new();
+        let agent_a = seed_agent(&db);
+        let agent_b = seed_second_agent(&db);
+        let dao = ConversationDao { conn: db.conn() };
+
+        dao.insert(&ConversationLogRow {
+            id: uuid::Uuid::now_v7().to_string(),
+            agent_id: agent_a.clone(),
+            run_id: "run-1".into(),
+            sequence: 0,
+            role: "user".into(),
+            content: "a-msg".into(),
+            created_at: "2025-01-01T00:00:00Z".into(),
+        })
+        .unwrap();
+
+        dao.insert(&ConversationLogRow {
+            id: uuid::Uuid::now_v7().to_string(),
+            agent_id: agent_b.clone(),
+            run_id: "run-2".into(),
+            sequence: 0,
+            role: "user".into(),
+            content: "b-msg".into(),
+            created_at: "2025-01-01T00:00:00Z".into(),
+        })
+        .unwrap();
+
+        let count = dao.delete_all_by_agent(&agent_a).unwrap();
+        assert_eq!(count, 1);
+
+        // Agent B's data is untouched
+        let found = dao.find_recent_by_agent(&agent_b, 10).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].content, "b-msg");
+    }
+
+    #[test]
+    fn delete_all_by_agent_returns_zero_for_clean_agent() {
+        let db = TestDb::new();
+        let dao = ConversationDao { conn: db.conn() };
+        let count = dao.delete_all_by_agent("nonexistent").unwrap();
+        assert_eq!(count, 0);
     }
 
     #[test]

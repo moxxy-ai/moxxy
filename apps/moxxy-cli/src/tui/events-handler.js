@@ -20,6 +20,7 @@ const TOOL_ACTIVITY_EVENTS = new Set([
 const DELTA_FLUSH_MS = 50;
 const PARAM_TRUNCATE = 80;
 const HIDDEN_TOOL_PREFIXES = ['agent.'];
+const MAX_MESSAGES = 500;
 
 function isHiddenTool(name) {
   return HIDDEN_TOOL_PREFIXES.some(p => name.startsWith(p));
@@ -103,6 +104,11 @@ export class EventsHandler {
     this._thinkingTimer = null;
     this.pendingAsk = null; // { questionId, question } = set when agent asks user
     this._subAgents = new Map(); // agentId -> { name, task, buffer, status }
+    this._messageVersion = 0;
+  }
+
+  get messageVersion() {
+    return this._messageVersion;
   }
 
   /** Set callback invoked on any state change. */
@@ -112,6 +118,15 @@ export class EventsHandler {
 
   _notify() {
     if (this._onChange) this._onChange();
+  }
+
+  /** Bump message version, trim old messages, then notify. */
+  _notifyMsgChange() {
+    this._messageVersion++;
+    if (this.messages.length > MAX_MESSAGES) {
+      this.messages.splice(0, this.messages.length - MAX_MESSAGES);
+    }
+    this._notify();
   }
 
   async connect() {
@@ -176,18 +191,18 @@ export class EventsHandler {
     this._assistantBuffer = '';
     this.messages.push({ type: 'user', content, ts: Date.now() });
     this._startThinking();
-    this._notify();
+    this._notifyMsgChange();
   }
 
   addSystemMessage(content) {
     this.messages.push({ type: 'system', content, ts: Date.now() });
-    this._notify();
+    this._notifyMsgChange();
   }
 
   clearMessages() {
     this.messages = [];
     this._assistantBuffer = '';
-    this._notify();
+    this._notifyMsgChange();
   }
 
   _isConnectionError(err) {
@@ -227,7 +242,7 @@ export class EventsHandler {
       changed = true;
     }
 
-    if (changed) this._notify();
+    if (changed) this._notifyMsgChange();
   }
 
   _processSubAgentEvent(event) {
@@ -265,7 +280,7 @@ export class EventsHandler {
           content: finalContent, streaming: false, ts: event.ts,
         });
       }
-      this._notify();
+      this._notifyMsgChange();
       return;
     }
 
@@ -276,7 +291,7 @@ export class EventsHandler {
         arguments: formatParams(payload.arguments), ts: event.ts,
         subAgent: sub.name,
       });
-      this._notify();
+      this._notifyMsgChange();
       return;
     }
 
@@ -287,7 +302,7 @@ export class EventsHandler {
         last.status = 'completed';
         last.result = formatParams(payload.result);
       }
-      this._notify();
+      this._notifyMsgChange();
       return;
     }
 
@@ -298,14 +313,14 @@ export class EventsHandler {
         last.status = 'error';
         last.error = payload.error || 'unknown error';
       }
-      this._notify();
+      this._notifyMsgChange();
       return;
     }
 
     // Pass other sub-agent events through in debug mode
     if (this.debug) {
       this.messages.push({ type: 'event', eventType: type, payload, ts: event.ts });
-      this._notify();
+      this._notifyMsgChange();
     }
   }
 
@@ -346,7 +361,7 @@ export class EventsHandler {
       const task = payload.task || '';
       this._subAgents.set(subId, { name, task, buffer: '', status: 'running' });
       this.messages.push({ type: 'subagent-spawned', agentId: subId, name, task, ts: event.ts });
-      this._notify();
+      this._notifyMsgChange();
       return;
     }
 
@@ -354,20 +369,18 @@ export class EventsHandler {
     if (type === 'subagent.completed') {
       const subId = payload.sub_agent_id;
       const name = payload.name || subId;
-      const sub = this._subAgents.get(subId);
-      if (sub) sub.status = 'completed';
       this.messages.push({ type: 'subagent-done', agentId: subId, name, status: 'completed', result: payload.result, ts: event.ts });
-      this._notify();
+      this._subAgents.delete(subId);
+      this._notifyMsgChange();
       return;
     }
 
     if (type === 'subagent.failed') {
       const subId = payload.sub_agent_id;
       const name = payload.name || subId;
-      const sub = this._subAgents.get(subId);
-      if (sub) sub.status = 'failed';
       this.messages.push({ type: 'subagent-done', agentId: subId, name, status: 'failed', error: payload.error, ts: event.ts });
-      this._notify();
+      this._subAgents.delete(subId);
+      this._notifyMsgChange();
       return;
     }
 
@@ -387,7 +400,7 @@ export class EventsHandler {
         type: 'channel', sender, channel, content: task, ts: event.ts,
       });
       this._startThinking();
-      this._notify();
+      this._notifyMsgChange();
       return;
     }
 
@@ -398,7 +411,7 @@ export class EventsHandler {
       const question = payload.question || 'The agent is asking for input.';
       this.pendingAsk = { questionId, question };
       this.messages.push({ type: 'ask', question, questionId, ts: event.ts });
-      this._notify();
+      this._notifyMsgChange();
       return;
     }
 
@@ -438,7 +451,7 @@ export class EventsHandler {
       } else {
         this.messages.push({ type: 'assistant', content: finalContent, streaming: false, ts: event.ts });
       }
-      this._notify();
+      this._notifyMsgChange();
       return;
     }
 
@@ -458,7 +471,7 @@ export class EventsHandler {
       const detail = payload.error || payload.message || 'Unknown error';
       const label = type === 'run.failed' ? 'Run failed' : 'Tool error';
       this.messages.push({ type: 'system', content: `${label}: ${detail}`, ts: event.ts });
-      this._notify();
+      this._notifyMsgChange();
       return;
     }
 
@@ -470,7 +483,7 @@ export class EventsHandler {
           type: 'tool', name: payload.name || 'unknown', status: 'invoked',
           arguments: formatParams(payload.arguments), ts: event.ts,
         });
-        this._notify();
+        this._notifyMsgChange();
         return;
       }
       if (type === 'primitive.completed') {
@@ -481,7 +494,7 @@ export class EventsHandler {
           last.status = 'completed';
           last.result = formatParams(payload.result);
         }
-        this._notify();
+        this._notifyMsgChange();
         return;
       }
     }
@@ -493,7 +506,7 @@ export class EventsHandler {
       if (last && last.type === 'tool' && last.name === (payload.name || 'unknown') && last.status === 'invoked') {
         last.status = 'error';
         last.error = payload.error || 'unknown error';
-        this._notify();
+        this._notifyMsgChange();
         return;
       }
     }
@@ -501,7 +514,7 @@ export class EventsHandler {
     // Show error events always; show all events in debug mode
     if (ERROR_EVENTS.has(type) || this.debug) {
       this.messages.push({ type: 'event', eventType: type, payload, ts: event.ts });
-      this._notify();
+      this._notifyMsgChange();
     }
   }
 }

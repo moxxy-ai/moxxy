@@ -70,6 +70,7 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
         )
         .route("/v1/agents/{id}/runs", post(routes::agents::start_run))
         .route("/v1/agents/{id}/stop", post(routes::agents::stop_run))
+        .route("/v1/agents/{id}/reset", post(routes::agents::reset_session))
         .route(
             "/v1/agents/{id}/subagents",
             post(routes::agents::spawn_subagent),
@@ -101,10 +102,6 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
         .route(
             "/v1/agents/{id}/skills/install",
             post(routes::skills::install_skill),
-        )
-        .route(
-            "/v1/agents/{id}/skills/approve/{skill_id}",
-            post(routes::skills::approve_skill),
         )
         .route(
             "/v1/agents/{id}/skills/{skill_id}",
@@ -249,26 +246,33 @@ mod test_helpers {
         seed_provider(state);
         let now = chrono::Utc::now().to_rfc3339();
         let id = uuid::Uuid::now_v7().to_string();
+
+        // Write agent.yaml so config-based lookups (lineage limits, etc.) work
+        let agent_dir = state.moxxy_home.join("agents").join(&id);
+        std::fs::create_dir_all(agent_dir.join("workspace")).ok();
+        let config = moxxy_types::AgentConfig {
+            name: "test-agent".into(),
+            provider_id: "test-provider".into(),
+            model_id: "gpt-4".into(),
+            temperature: 0.7,
+            max_subagent_depth: 2,
+            max_subagents_total: 8,
+            policy_profile: None,
+        };
+        config.save(&agent_dir.join("agent.yaml")).ok();
+
         let db = state.db.lock().unwrap();
         db.agents()
             .insert(&moxxy_storage::AgentRow {
                 id: id.clone(),
                 parent_agent_id: None,
-                provider_id: "test-provider".into(),
-                model_id: "gpt-4".into(),
-                workspace_root: "/tmp/ws".into(),
-                core_mount: None,
-                policy_profile: None,
-                temperature: 0.7,
-                max_subagent_depth: 2,
-                max_subagents_total: 8,
+                name: Some("test-agent".into()),
                 status: "idle".into(),
                 depth: 0,
                 spawned_total: 0,
+                workspace_root: agent_dir.to_string_lossy().into(),
                 created_at: now.clone(),
                 updated_at: now,
-                name: Some("test-agent".into()),
-                persona: None,
             })
             .unwrap();
         id
@@ -434,21 +438,13 @@ mod agent_tests {
                 .insert(&moxxy_storage::AgentRow {
                     id,
                     parent_agent_id: None,
-                    provider_id: "test-provider".into(),
-                    model_id: "gpt-4".into(),
-                    workspace_root: "/tmp/ws".into(),
-                    core_mount: None,
-                    policy_profile: None,
-                    temperature: 0.7,
-                    max_subagent_depth: 2,
-                    max_subagents_total: 8,
+                    name: Some(format!("test-agent-{i}")),
                     status: "idle".into(),
                     depth: 0,
                     spawned_total: 0,
+                    workspace_root: "/tmp/ws".into(),
                     created_at: now.clone(),
                     updated_at: now.clone(),
-                    name: Some(format!("test-agent-{i}")),
-                    persona: None,
                 })
                 .unwrap();
         }
@@ -668,26 +664,32 @@ mod agent_tests {
         let now = chrono::Utc::now().to_rfc3339();
         let parent_id = uuid::Uuid::now_v7().to_string();
         {
+            // Write agent.yaml with lineage limits
+            let agent_dir = state.moxxy_home.join("agents").join(&parent_id);
+            std::fs::create_dir_all(agent_dir.join("workspace")).ok();
+            let config = moxxy_types::AgentConfig {
+                name: "test-parent".into(),
+                provider_id: "test-provider".into(),
+                model_id: "gpt-4".into(),
+                temperature: 0.7,
+                max_subagent_depth: 1,
+                max_subagents_total: 10,
+                policy_profile: None,
+            };
+            config.save(&agent_dir.join("agent.yaml")).ok();
+
             let db = state.db.lock().unwrap();
             db.agents()
                 .insert(&moxxy_storage::AgentRow {
                     id: parent_id.clone(),
                     parent_agent_id: None,
-                    provider_id: "test-provider".into(),
-                    model_id: "gpt-4".into(),
-                    workspace_root: "/tmp/ws".into(),
-                    core_mount: None,
-                    policy_profile: None,
-                    temperature: 0.7,
-                    max_subagent_depth: 1,
-                    max_subagents_total: 10,
+                    name: Some("test-parent".into()),
                     status: "idle".into(),
                     depth: 0,
                     spawned_total: 0,
+                    workspace_root: "/tmp/ws".into(),
                     created_at: now.clone(),
                     updated_at: now.clone(),
-                    name: Some("test-parent".into()),
-                    persona: None,
                 })
                 .unwrap();
         }
@@ -734,26 +736,32 @@ mod agent_tests {
         let now = chrono::Utc::now().to_rfc3339();
         let parent_id = uuid::Uuid::now_v7().to_string();
         {
+            // Write agent.yaml with lineage limits
+            let agent_dir = state.moxxy_home.join("agents").join(&parent_id);
+            std::fs::create_dir_all(agent_dir.join("workspace")).ok();
+            let config = moxxy_types::AgentConfig {
+                name: "test-parent".into(),
+                provider_id: "test-provider".into(),
+                model_id: "gpt-4".into(),
+                temperature: 0.7,
+                max_subagent_depth: 5,
+                max_subagents_total: 2,
+                policy_profile: None,
+            };
+            config.save(&agent_dir.join("agent.yaml")).ok();
+
             let db = state.db.lock().unwrap();
             db.agents()
                 .insert(&moxxy_storage::AgentRow {
                     id: parent_id.clone(),
                     parent_agent_id: None,
-                    provider_id: "test-provider".into(),
-                    model_id: "gpt-4".into(),
-                    workspace_root: "/tmp/ws".into(),
-                    core_mount: None,
-                    policy_profile: None,
-                    temperature: 0.7,
-                    max_subagent_depth: 5,
-                    max_subagents_total: 2,
+                    name: Some("test-parent".into()),
                     status: "idle".into(),
                     depth: 0,
                     spawned_total: 0,
+                    workspace_root: "/tmp/ws".into(),
                     created_at: now.clone(),
                     updated_at: now.clone(),
-                    name: Some("test-parent".into()),
-                    persona: None,
                 })
                 .unwrap();
         }
@@ -1280,19 +1288,26 @@ mod skill_tests {
     use http::Request;
     use moxxy_types::TokenScope;
 
+    fn valid_skill_md(name: &str) -> String {
+        format!(
+            "---\nname: Skill {name}\ndescription: A skill called {name}\nauthor: tester\nversion: \"1.0\"\n---\n# {name}\nBody"
+        )
+    }
+
     #[tokio::test]
-    async fn install_skill_quarantines_by_default() {
+    async fn install_skill_writes_to_disk() {
         let (app, state) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
         let agent_id = seed_agent(&state, &token);
 
+        let content = valid_skill_md("test-skill");
         let req = Request::builder()
             .method("POST")
             .uri(format!("/v1/agents/{}/skills/install", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
-                r#"{"name":"test-skill","version":"1.0.0","content":"function run() {}"}"#,
+                serde_json::json!({"content": content}).to_string(),
             ))
             .unwrap();
         let resp = request(&app, req).await;
@@ -1302,7 +1317,18 @@ mod skill_tests {
             .await
             .unwrap();
         let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(result["status"], "quarantined");
+        assert_eq!(result["slug"], "skill-test-skill");
+        assert_eq!(result["source"], "agent");
+
+        // Verify file was written
+        let skill_path = state
+            .moxxy_home
+            .join("agents")
+            .join(&agent_id)
+            .join("skills")
+            .join("skill-test-skill")
+            .join("SKILL.md");
+        assert!(skill_path.exists());
     }
 
     #[tokio::test]
@@ -1314,14 +1340,15 @@ mod skill_tests {
         );
         let agent_id = seed_agent(&state, &token);
 
-        // Install a skill
+        // Install a skill via API
+        let content = valid_skill_md("test-skill");
         let req = Request::builder()
             .method("POST")
             .uri(format!("/v1/agents/{}/skills/install", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
-                r#"{"name":"test-skill","version":"1.0.0","content":"fn run(){}"}"#,
+                serde_json::json!({"content": content}).to_string(),
             ))
             .unwrap();
         request(&app, req).await;
@@ -1341,50 +1368,9 @@ mod skill_tests {
         let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let skills = result.as_array().unwrap();
         assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0]["name"], "test-skill");
-    }
-
-    #[tokio::test]
-    async fn approve_skill_transitions_status() {
-        let (app, state) = test_app();
-        let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
-        let agent_id = seed_agent(&state, &token);
-
-        // Install skill
-        let req = Request::builder()
-            .method("POST")
-            .uri(format!("/v1/agents/{}/skills/install", agent_id))
-            .header("authorization", format!("Bearer {}", token))
-            .header("content-type", "application/json")
-            .body(Body::from(
-                r#"{"name":"test-skill","version":"1.0.0","content":"function run() {}"}"#,
-            ))
-            .unwrap();
-        let resp = request(&app, req).await;
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let installed: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let skill_id = installed["id"].as_str().unwrap();
-
-        // Approve skill
-        let req = Request::builder()
-            .method("POST")
-            .uri(format!(
-                "/v1/agents/{}/skills/approve/{}",
-                agent_id, skill_id
-            ))
-            .header("authorization", format!("Bearer {}", token))
-            .body(Body::empty())
-            .unwrap();
-        let resp = request(&app, req).await;
-        assert_eq!(resp.status(), StatusCode::OK);
-
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(result["status"], "approved");
+        assert_eq!(skills[0]["name"], "Skill test-skill");
+        assert_eq!(skills[0]["slug"], "skill-test-skill");
+        assert_eq!(skills[0]["source"], "agent");
     }
 
     #[tokio::test]
@@ -1397,26 +1383,22 @@ mod skill_tests {
         let agent_id = seed_agent(&state, &token);
 
         // Install a skill
+        let content = valid_skill_md("del-skill");
         let req = Request::builder()
             .method("POST")
             .uri(format!("/v1/agents/{}/skills/install", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
-                r#"{"name":"test-skill","version":"1.0.0","content":"fn run(){}"}"#,
+                serde_json::json!({"content": content}).to_string(),
             ))
             .unwrap();
-        let resp = request(&app, req).await;
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let installed: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let skill_id = installed["id"].as_str().unwrap();
+        request(&app, req).await;
 
-        // Delete skill
+        // Delete skill (slug is "skill-del-skill" from name "Skill del-skill")
         let req = Request::builder()
             .method("DELETE")
-            .uri(format!("/v1/agents/{}/skills/{}", agent_id, skill_id))
+            .uri(format!("/v1/agents/{}/skills/skill-del-skill", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();

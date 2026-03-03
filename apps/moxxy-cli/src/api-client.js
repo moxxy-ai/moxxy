@@ -114,6 +114,10 @@ export class ApiClient {
     return this.request(`/v1/agents/${encodeURIComponent(agentId)}/stop`, 'POST');
   }
 
+  async resetSession(agentId) {
+    return this.request(`/v1/agents/${encodeURIComponent(agentId)}/reset`, 'POST');
+  }
+
   async deleteAgent(agentId) {
     return this.request(`/v1/agents/${encodeURIComponent(agentId)}`, 'DELETE');
   }

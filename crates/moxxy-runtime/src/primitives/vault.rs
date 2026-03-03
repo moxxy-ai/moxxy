@@ -246,18 +246,9 @@ mod tests {
         let now = chrono::Utc::now().to_rfc3339();
         db.conn()
             .execute(
-                "INSERT OR IGNORE INTO providers (id, display_name, manifest_path, enabled, created_at)
-                 VALUES ('test-provider', 'Test', '/tmp/p.yaml', 1, ?1)",
-                params![now],
-            )
-            .unwrap();
-        db.conn()
-            .execute(
-                "INSERT OR IGNORE INTO agents (id, provider_id, model_id, workspace_root,
-                 temperature, max_subagent_depth, max_subagents_total, status, depth, spawned_total,
+                "INSERT OR IGNORE INTO agents (id, name, workspace_root, status, depth, spawned_total,
                  created_at, updated_at)
-                 VALUES (?1, 'test-provider', 'test-model', '/tmp/ws',
-                 0.7, 2, 8, 'idle', 0, 0, ?2, ?2)",
+                 VALUES (?1, ?1, '/tmp/ws', 'idle', 0, 0, ?2, ?2)",
                 params![agent_id, now],
             )
             .unwrap();

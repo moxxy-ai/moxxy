@@ -346,18 +346,19 @@ impl AnthropicProvider {
             })
     }
 
-    async fn resolve_auth(
-        &self,
-    ) -> Result<reqwest::header::HeaderMap, PrimitiveError> {
+    async fn resolve_auth(&self) -> Result<reqwest::header::HeaderMap, PrimitiveError> {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert("anthropic-version", "2023-06-01".parse().unwrap());
         headers.insert("content-type", "application/json".parse().unwrap());
 
         match &self.auth {
             AnthropicAuth::ApiKey(key) => {
-                headers.insert("x-api-key", key.parse().map_err(|_| {
-                    PrimitiveError::ExecutionFailed("invalid API key header value".into())
-                })?);
+                headers.insert(
+                    "x-api-key",
+                    key.parse().map_err(|_| {
+                        PrimitiveError::ExecutionFailed("invalid API key header value".into())
+                    })?,
+                );
             }
             AnthropicAuth::OAuthSession(state) => {
                 let (needs_refresh, refresh_token, client_id) = {
@@ -581,10 +582,7 @@ mod tests {
 
     #[test]
     fn convert_messages_extracts_system() {
-        let messages = vec![
-            Message::system("You are helpful."),
-            Message::user("Hello"),
-        ];
+        let messages = vec![Message::system("You are helpful."), Message::user("Hello")];
         let (system, msgs) = convert_messages(messages);
         assert_eq!(system.as_deref(), Some("You are helpful."));
         assert_eq!(msgs.len(), 1);
@@ -797,7 +795,8 @@ mod tests {
 
     #[test]
     fn parse_api_error_structured() {
-        let body = r#"{"type":"error","error":{"type":"rate_limit_error","message":"Too many requests"}}"#;
+        let body =
+            r#"{"type":"error","error":{"type":"rate_limit_error","message":"Too many requests"}}"#;
         let msg = parse_api_error(body);
         assert_eq!(msg, "rate_limit_error: Too many requests");
     }

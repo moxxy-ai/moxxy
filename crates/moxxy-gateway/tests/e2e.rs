@@ -115,7 +115,13 @@ async fn e2e_full_agent_lifecycle() {
 
     let (token, _) = server
         .create_token(
-            &["agents:read", "agents:write", "runs:write", "events:read", "vault:write"],
+            &[
+                "agents:read",
+                "agents:write",
+                "runs:write",
+                "events:read",
+                "vault:write",
+            ],
             None,
         )
         .await;
@@ -550,46 +556,51 @@ async fn e2e_skill_lifecycle() {
     let agent: serde_json::Value = resp.json().await.unwrap();
     let agent_id = agent["id"].as_str().unwrap();
 
-    // Install skill (quarantined by default)
+    // Create skill with valid SKILL.md content
+    let skill_content = "---\nname: Test Skill\ndescription: A test skill for e2e\nauthor: tester\nversion: \"1.0.0\"\n---\n# Test Skill\nDoes things.";
     let resp = server
         .post(
             &format!("/v1/agents/{}/skills/install", agent_id),
             &token,
             &serde_json::json!({
-                "name": "test-skill",
-                "version": "1.0.0",
-                "source": "https://example.com/skill",
-                "content": "# Test Skill\nDoes things."
+                "content": skill_content
             }),
         )
         .await;
     assert_eq!(resp.status().as_u16(), 201);
     let skill: serde_json::Value = resp.json().await.unwrap();
-    let skill_id = skill["id"].as_str().unwrap();
-    assert_eq!(skill["status"].as_str().unwrap(), "quarantined");
+    assert_eq!(skill["slug"].as_str().unwrap(), "test-skill");
+    assert_eq!(skill["source"].as_str().unwrap(), "agent");
 
-    // Approve skill
-    let resp = server
-        .post(
-            &format!("/v1/agents/{}/skills/approve/{}", agent_id, skill_id),
-            &token,
-            &serde_json::json!({}),
-        )
-        .await;
-    assert!(resp.status().is_success());
-
-    // List skills - verify approved
+    // List skills - verify skill appears with source=agent
     let resp = server
         .get(&format!("/v1/agents/{}/skills", agent_id), &token)
         .await;
     assert_eq!(resp.status().as_u16(), 200);
     let skills: serde_json::Value = resp.json().await.unwrap();
     let skills_arr = skills.as_array().unwrap();
-    assert!(
-        skills_arr
-            .iter()
-            .any(|s| s["status"].as_str() == Some("approved"))
-    );
+    assert_eq!(skills_arr.len(), 1);
+    assert_eq!(skills_arr[0]["source"].as_str().unwrap(), "agent");
+    assert_eq!(skills_arr[0]["slug"].as_str().unwrap(), "test-skill");
+
+    // Delete skill
+    let resp = server
+        .client
+        .delete(server.url(&format!("/v1/agents/{}/skills/test-skill", agent_id)))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 204);
+
+    // List skills - verify empty
+    let resp = server
+        .get(&format!("/v1/agents/{}/skills", agent_id), &token)
+        .await;
+    assert_eq!(resp.status().as_u16(), 200);
+    let skills: serde_json::Value = resp.json().await.unwrap();
+    let skills_arr = skills.as_array().unwrap();
+    assert_eq!(skills_arr.len(), 0);
 }
 
 // ---------------------------------------------------------------------------

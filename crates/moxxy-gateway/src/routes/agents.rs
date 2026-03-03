@@ -2,13 +2,11 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use moxxy_storage::{AgentRow, AllowlistRow};
-use moxxy_types::TokenScope;
+use moxxy_types::{AgentConfig, TokenScope};
 use std::sync::Arc;
 
 use crate::auth_extractor::{AuthToken, check_scope};
 use crate::state::AppState;
-
-// Tracing is used via the tracing::info!/warn!/error! macros throughout this module.
 
 #[derive(serde::Deserialize)]
 pub struct AgentCreateRequest {
@@ -148,11 +146,14 @@ pub async fn list_agents(
     let result: Vec<serde_json::Value> = agents
         .iter()
         .map(|a| {
+            // Read config from agent.yaml if available
+            let agent_dir = state.moxxy_home.join("agents").join(&a.id);
+            let config = AgentConfig::load(&agent_dir.join("agent.yaml")).ok();
             serde_json::json!({
                 "id": a.id,
                 "name": a.name,
-                "provider_id": a.provider_id,
-                "model_id": a.model_id,
+                "provider_id": config.as_ref().map(|c| c.provider_id.as_str()),
+                "model_id": config.as_ref().map(|c| c.model_id.as_str()),
                 "status": a.status,
                 "created_at": a.created_at
             })
@@ -186,28 +187,45 @@ pub async fn create_agent(
 
     // Create agent directories
     let workspace_dir = agent_dir.join("workspace");
-    let memory_dir = agent_dir.join("memory");
     std::fs::create_dir_all(&workspace_dir).ok();
-    std::fs::create_dir_all(&memory_dir).ok();
+
+    // Write agent.yaml
+    let agent_config = AgentConfig {
+        name: body.name.clone(),
+        provider_id: body.provider_id.clone(),
+        model_id: body.model_id.clone(),
+        temperature: body.temperature,
+        max_subagent_depth: body.max_subagent_depth,
+        max_subagents_total: body.max_subagents_total,
+        policy_profile: body.policy_profile.clone(),
+    };
+    agent_config.save(&agent_dir.join("agent.yaml")).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal", "message": format!("Failed to write agent.yaml: {e}")})),
+        )
+    })?;
+
+    // Write persona.md
+    std::fs::write(
+        agent_dir.join("persona.md"),
+        body.persona.as_deref().unwrap_or(""),
+    )
+    .ok();
+
+    // Write empty memory.yaml
+    std::fs::write(agent_dir.join("memory.yaml"), "").ok();
 
     let row = AgentRow {
         id: id.clone(),
         parent_agent_id: None,
-        provider_id: body.provider_id.clone(),
-        model_id: body.model_id.clone(),
-        workspace_root,
-        core_mount: None,
-        policy_profile: body.policy_profile.clone(),
-        temperature: body.temperature,
-        max_subagent_depth: body.max_subagent_depth,
-        max_subagents_total: body.max_subagents_total,
+        name: Some(body.name.clone()),
         status: "idle".into(),
         depth: 0,
         spawned_total: 0,
+        workspace_root,
         created_at: now.clone(),
         updated_at: now.clone(),
-        name: Some(body.name.clone()),
-        persona: body.persona.clone(),
     };
 
     let db = state.db.lock().unwrap();
@@ -273,6 +291,7 @@ pub async fn create_agent(
 
 #[derive(serde::Deserialize)]
 pub struct AgentUpdateRequest {
+    pub name: Option<String>,
     pub provider_id: Option<String>,
     pub model_id: Option<String>,
     #[serde(default)]
@@ -282,6 +301,17 @@ pub struct AgentUpdateRequest {
 
 impl AgentUpdateRequest {
     fn validate(&self) -> Result<(), ValidationError> {
+        if let Some(ref name) = self.name
+            && !is_valid_agent_name(name)
+        {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "validation",
+                    "message": "name must be 1-64 chars, lowercase alphanumeric + hyphens"
+                })),
+            ));
+        }
         if let Some(t) = self.temperature
             && !(0.0..=2.0).contains(&t)
         {
@@ -306,43 +336,90 @@ pub async fn update_agent(
     check_scope(&auth.0, &TokenScope::AgentsWrite)?;
     body.validate()?;
 
-    let db = state.db.lock().unwrap();
-    let agent = db
-        .agents()
-        .find_by_id(&id)
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "internal", "message": "Database error"})),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "not_found", "message": "Agent not found"})),
-            )
-        })?;
+    // Verify agent exists in DB
+    {
+        let db = state.db.lock().unwrap();
+        db.agents()
+            .find_by_id(&id)
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "internal", "message": "Database error"})),
+                )
+            })?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({"error": "not_found", "message": "Agent not found"})),
+                )
+            })?;
+    }
 
-    let new_provider = body.provider_id.as_deref().unwrap_or(&agent.provider_id);
-    let new_model = body.model_id.as_deref().unwrap_or(&agent.model_id);
-    let new_temperature = body.temperature.unwrap_or(agent.temperature);
+    let agent_dir = state.moxxy_home.join("agents").join(&id);
+    let config_path = agent_dir.join("agent.yaml");
 
-    db.agents()
-        .update_config(&id, new_provider, new_model, new_temperature)
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "internal", "message": "Failed to update agent"})),
-            )
-        })?;
+    // Read current config from file
+    let mut config = AgentConfig::load(&config_path).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal", "message": format!("Failed to read agent.yaml: {e}")})),
+        )
+    })?;
+
+    // Merge updates
+    if let Some(ref name) = body.name {
+        config.name = name.clone();
+    }
+    if let Some(ref provider_id) = body.provider_id {
+        config.provider_id = provider_id.clone();
+    }
+    if let Some(ref model_id) = body.model_id {
+        config.model_id = model_id.clone();
+    }
+    if let Some(temp) = body.temperature {
+        config.temperature = temp;
+    }
+
+    // Write back
+    config.save(&config_path).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal", "message": format!("Failed to write agent.yaml: {e}")})),
+        )
+    })?;
+
+    // If name changed, update DB too (for uniqueness index)
+    if let Some(ref name) = body.name {
+        let db = state.db.lock().unwrap();
+        db.agents()
+            .update_name(&id, name)
+            .map_err(|e| {
+                if e.to_string().contains("UNIQUE") || e.to_string().contains("Duplicate") {
+                    (
+                        StatusCode::CONFLICT,
+                        Json(serde_json::json!({"error": "conflict", "message": format!("Agent name '{}' already exists", name)})),
+                    )
+                } else {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"error": "internal", "message": "Failed to update agent name"})),
+                    )
+                }
+            })?;
+    }
+
+    // If persona provided, write persona.md
+    if let Some(ref persona) = body.persona {
+        std::fs::write(agent_dir.join("persona.md"), persona).ok();
+    }
 
     Ok(Json(serde_json::json!({
         "id": id,
-        "name": agent.name,
-        "provider_id": new_provider,
-        "model_id": new_model,
-        "temperature": new_temperature,
-        "status": agent.status,
+        "name": config.name,
+        "provider_id": config.provider_id,
+        "model_id": config.model_id,
+        "temperature": config.temperature,
+        "status": "updated",
         "updated_at": chrono::Utc::now().to_rfc3339()
     })))
 }
@@ -371,13 +448,18 @@ pub async fn get_agent(
             )
         })?;
 
+    // Read config from agent.yaml
+    let agent_dir = state.moxxy_home.join("agents").join(&id);
+    let config = AgentConfig::load(&agent_dir.join("agent.yaml")).ok();
+    let persona = std::fs::read_to_string(agent_dir.join("persona.md")).ok();
+
     Ok(Json(serde_json::json!({
         "id": agent.id,
         "name": agent.name,
-        "provider_id": agent.provider_id,
-        "model_id": agent.model_id,
+        "provider_id": config.as_ref().map(|c| c.provider_id.as_str()),
+        "model_id": config.as_ref().map(|c| c.model_id.as_str()),
         "status": agent.status,
-        "persona": agent.persona,
+        "persona": persona,
         "created_at": agent.created_at
     })))
 }
@@ -506,6 +588,47 @@ pub struct SubagentSpawnRequest {
     pub max_subagents_total: i32,
 }
 
+pub async fn reset_session(
+    State(state): State<Arc<AppState>>,
+    auth: AuthToken,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    check_scope(&auth.0, &TokenScope::RunsWrite)?;
+
+    tracing::info!(agent_id = %id, "Resetting agent session");
+
+    // Verify agent exists
+    {
+        let db = state.db.lock().unwrap();
+        db.agents()
+            .find_by_id(&id)
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "internal", "message": "Database error"})),
+                )
+            })?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({"error": "not_found", "message": "Agent not found"})),
+                )
+            })?;
+    }
+
+    state.run_service.do_reset_session(&id).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal", "message": e})),
+        )
+    })?;
+
+    Ok(Json(serde_json::json!({
+        "agent_id": id,
+        "status": "reset"
+    })))
+}
+
 pub async fn delete_agent(
     State(state): State<Arc<AppState>>,
     auth: AuthToken,
@@ -562,6 +685,15 @@ pub async fn spawn_subagent(
             )
         })?;
 
+    // Read parent's config from agent.yaml to get lineage limits
+    let parent_dir = state.moxxy_home.join("agents").join(&parent.id);
+    let parent_config = AgentConfig::load(&parent_dir.join("agent.yaml")).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal", "message": format!("Failed to read parent config: {e}")})),
+        )
+    })?;
+
     // Enforce lineage limits
     let lineage = moxxy_core::AgentLineage {
         root_agent_id: parent
@@ -569,9 +701,9 @@ pub async fn spawn_subagent(
             .clone()
             .unwrap_or_else(|| parent.id.clone()),
         current_depth: parent.depth as u32,
-        max_depth: parent.max_subagent_depth as u32,
+        max_depth: parent_config.max_subagent_depth as u32,
         spawned_total: parent.spawned_total as u32,
-        max_total: parent.max_subagents_total as u32,
+        max_total: parent_config.max_subagents_total as u32,
     };
 
     if !lineage.can_spawn() {
@@ -601,33 +733,40 @@ pub async fn spawn_subagent(
 
     // Auto-generate name from parent name + short UUID
     let parent_name = parent.name.as_deref().unwrap_or(&parent.id);
-    let short_id = &id[id.len() - 8..]; // last 8 hex chars (random portion of UUIDv7)
+    let short_id = &id[id.len() - 8..];
     let auto_name = format!("{}-sub-{}", parent_name, short_id);
-    let agent_dir = state.moxxy_home.join("agents").join(&auto_name);
+    let agent_dir = state.moxxy_home.join("agents").join(&id);
     let workspace_root = agent_dir.to_string_lossy().to_string();
 
     // Create agent directories
     std::fs::create_dir_all(agent_dir.join("workspace")).ok();
-    std::fs::create_dir_all(agent_dir.join("memory")).ok();
+
+    // Write agent.yaml (inherit from parent config but use request overrides)
+    let child_config = AgentConfig {
+        name: auto_name.clone(),
+        provider_id: body.provider_id.clone(),
+        model_id: body.model_id.clone(),
+        temperature: body.temperature,
+        max_subagent_depth: body.max_subagent_depth,
+        max_subagents_total: body.max_subagents_total,
+        policy_profile: body.policy_profile.clone(),
+    };
+    child_config.save(&agent_dir.join("agent.yaml")).ok();
+
+    // Write empty persona.md and memory.yaml
+    std::fs::write(agent_dir.join("persona.md"), "").ok();
+    std::fs::write(agent_dir.join("memory.yaml"), "").ok();
 
     let row = AgentRow {
         id: id.clone(),
         parent_agent_id: Some(parent_id.clone()),
-        provider_id: body.provider_id.clone(),
-        model_id: body.model_id.clone(),
-        workspace_root,
-        core_mount: None,
-        policy_profile: body.policy_profile.clone(),
-        temperature: body.temperature,
-        max_subagent_depth: body.max_subagent_depth,
-        max_subagents_total: body.max_subagents_total,
+        name: Some(auto_name.clone()),
         status: "idle".into(),
         depth: parent.depth + 1,
         spawned_total: 0,
+        workspace_root,
         created_at: now.clone(),
         updated_at: now.clone(),
-        name: Some(auto_name.clone()),
-        persona: None,
     };
 
     db.agents().insert(&row).map_err(|_| {

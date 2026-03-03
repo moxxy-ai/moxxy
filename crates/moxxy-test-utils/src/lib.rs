@@ -94,6 +94,37 @@ impl TestDb {
         self.conn
             .execute_batch(sql10)
             .expect("Migration 0010 failed");
+        // Migration 0011: slim agents (drop provider_id, model_id, etc.)
+        let has_provider_id: bool = self
+            .conn
+            .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='agents'")
+            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, String>(0)))
+            .map(|sql| sql.contains("provider_id"))
+            .unwrap_or(false);
+        if has_provider_id {
+            let sql11 = include_str!("../../../migrations/0011_slim_agents.sql");
+            self.conn
+                .execute_batch(sql11)
+                .expect("Migration 0011 failed");
+        }
+        // Migration 0012: memory content column
+        let has_memory_content: bool = self
+            .conn
+            .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memory_index'")
+            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, String>(0)))
+            .map(|sql| sql.contains("content"))
+            .unwrap_or(false);
+        if !has_memory_content {
+            let sql12 = include_str!("../../../migrations/0012_memory_content.sql");
+            self.conn
+                .execute_batch(sql12)
+                .expect("Migration 0012 failed");
+        }
+        // Migration 0013: drop skills table (skills are now filesystem-backed)
+        let sql13 = include_str!("../../../migrations/0013_drop_skills.sql");
+        self.conn
+            .execute_batch(sql13)
+            .expect("Migration 0013 failed");
         self.conn
             .execute_batch(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS memory_vec0 USING vec0(memory_id TEXT, embedding float[384])",
@@ -140,7 +171,6 @@ mod tests {
             "memory_vec",
             "provider_models",
             "providers",
-            "skills",
             "vault_grants",
             "vault_secret_refs",
             "webhook_deliveries",

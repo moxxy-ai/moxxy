@@ -1,7 +1,7 @@
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use moxxy_storage::SkillRow;
+use moxxy_core::{SkillDoc, SkillLoader, SkillSource};
 use moxxy_types::TokenScope;
 use std::sync::Arc;
 
@@ -10,9 +10,6 @@ use crate::state::AppState;
 
 #[derive(serde::Deserialize)]
 pub struct SkillInstallRequest {
-    pub name: String,
-    pub version: String,
-    pub source: Option<String>,
     pub content: String,
 }
 
@@ -24,41 +21,51 @@ pub async fn install_skill(
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::AgentsWrite)?;
 
-    tracing::info!(agent_id = %agent_id, skill_name = %body.name, version = %body.version, "Installing skill");
-
-    let now = chrono::Utc::now().to_rfc3339();
-    let id = uuid::Uuid::now_v7().to_string();
-
-    let row = SkillRow {
-        id: id.clone(),
-        agent_id: agent_id.clone(),
-        name: body.name.clone(),
-        version: body.version.clone(),
-        source: body.source.clone(),
-        status: "quarantined".into(),
-        raw_content: Some(body.content.clone()),
-        metadata_json: None,
-        installed_at: now.clone(),
-        approved_at: None,
-    };
-
-    let db = state.db.lock().unwrap();
-    db.skills().insert(&row).map_err(|_| {
+    let doc = SkillDoc::parse(&body.content).map_err(|e| {
         (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "internal", "message": "Failed to install skill"})),
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid_skill", "message": e.to_string()})),
         )
     })?;
+
+    let slug = doc.slug();
+    let agent_skills_dir = state
+        .moxxy_home
+        .join("agents")
+        .join(&agent_id)
+        .join("skills")
+        .join(&slug);
+
+    std::fs::create_dir_all(&agent_skills_dir).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal", "message": format!("Failed to create skill dir: {e}")})),
+        )
+    })?;
+
+    std::fs::write(agent_skills_dir.join("SKILL.md"), &body.content).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal", "message": format!("Failed to write SKILL.md: {e}")})),
+        )
+    })?;
+
+    tracing::info!(
+        agent_id = %agent_id,
+        slug = %slug,
+        skill_name = %doc.name,
+        version = %doc.version,
+        "Skill created"
+    );
 
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({
-            "id": id,
+            "slug": slug,
             "agent_id": agent_id,
-            "name": body.name,
-            "version": body.version,
-            "status": "quarantined",
-            "installed_at": now
+            "name": doc.name,
+            "version": doc.version,
+            "source": "agent"
         })),
     ))
 }
@@ -71,24 +78,22 @@ pub async fn list_skills(
     check_scope(&auth.0, &TokenScope::AgentsRead)?;
 
     tracing::debug!(agent_id = %agent_id, "Listing skills");
-    let db = state.db.lock().unwrap();
-    let skills = db.skills().find_by_agent(&agent_id).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "internal", "message": "Database error"})),
-        )
-    })?;
+    let agent_dir = state.moxxy_home.join("agents").join(&agent_id);
+    let skills = SkillLoader::load_all(&state.moxxy_home, &agent_dir);
 
     let result: Vec<serde_json::Value> = skills
         .iter()
         .map(|s| {
+            let source = match s.source {
+                SkillSource::Builtin => "builtin",
+                SkillSource::Agent => "agent",
+            };
             serde_json::json!({
-                "id": s.id,
-                "name": s.name,
-                "version": s.version,
-                "status": s.status,
-                "installed_at": s.installed_at,
-                "approved_at": s.approved_at
+                "slug": s.doc.slug(),
+                "name": s.doc.name,
+                "description": s.doc.description,
+                "version": s.doc.version,
+                "source": source,
             })
         })
         .collect();
@@ -99,67 +104,46 @@ pub async fn list_skills(
 pub async fn delete_skill(
     State(state): State<Arc<AppState>>,
     auth: AuthToken,
-    Path((_agent_id, skill_id)): Path<(String, String)>,
+    Path((agent_id, skill_id)): Path<(String, String)>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     check_scope(&auth.0, &TokenScope::AgentsWrite)?;
 
-    tracing::info!(skill_id = %skill_id, "Deleting skill");
-    let db = state.db.lock().unwrap();
-    db.skills().delete(&skill_id).map_err(|e| match e {
-        moxxy_types::StorageError::NotFound => (
+    // Check if this is a built-in skill
+    let builtin_path = state
+        .moxxy_home
+        .join("skills")
+        .join(&skill_id)
+        .join("SKILL.md");
+    if builtin_path.exists() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                serde_json::json!({"error": "forbidden", "message": "Cannot delete a built-in skill"}),
+            ),
+        ));
+    }
+
+    let agent_skill_dir = state
+        .moxxy_home
+        .join("agents")
+        .join(&agent_id)
+        .join("skills")
+        .join(&skill_id);
+
+    if !agent_skill_dir.exists() {
+        return Err((
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "not_found", "message": "Skill not found"})),
-        ),
-        _ => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "internal", "message": "Database error"})),
-        ),
-    })?;
+        ));
+    }
 
-    Ok(StatusCode::NO_CONTENT)
-}
-
-pub async fn approve_skill(
-    State(state): State<Arc<AppState>>,
-    auth: AuthToken,
-    Path((_agent_id, skill_id)): Path<(String, String)>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    check_scope(&auth.0, &TokenScope::AgentsWrite)?;
-
-    tracing::info!(skill_id = %skill_id, "Approving skill");
-    let db = state.db.lock().unwrap();
-    db.skills()
-        .update_status(&skill_id, "approved")
-        .map_err(|e| match e {
-            moxxy_types::StorageError::NotFound => (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "not_found", "message": "Skill not found"})),
-            ),
-            _ => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "internal", "message": "Database error"})),
-            ),
-        })?;
-
-    let skill = db.skills().find_by_id(&skill_id).map_err(|_| {
+    std::fs::remove_dir_all(&agent_skill_dir).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "internal", "message": "Database error"})),
+            Json(serde_json::json!({"error": "internal", "message": format!("Failed to delete skill: {e}")})),
         )
     })?;
 
-    if let Some(s) = skill {
-        Ok(Json(serde_json::json!({
-            "id": s.id,
-            "agent_id": s.agent_id,
-            "name": s.name,
-            "status": s.status,
-            "approved_at": s.approved_at
-        })))
-    } else {
-        Err((
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "not_found", "message": "Skill not found"})),
-        ))
-    }
+    tracing::info!(skill_id = %skill_id, agent_id = %agent_id, "Skill deleted");
+    Ok(StatusCode::NO_CONTENT)
 }

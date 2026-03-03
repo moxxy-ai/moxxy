@@ -222,10 +222,13 @@ export class ChatPanel {
     this._allLinesWidth = 0;
     this._cache = null;
     this._cacheWidth = 0;
+    this._perMsgCache = []; // per-message rendered lines cache
+    this._perMsgCacheWidth = 0;
   }
 
   setMessages(messages) {
     this.messages = messages;
+    // Don't reset _perMsgCache — per-message validation handles staleness
     this._allLines = null;
     this._cache = null;
   }
@@ -233,6 +236,7 @@ export class ChatPanel {
   setAgentName(name) {
     if (this.agentName !== name) {
       this.agentName = name;
+      this._perMsgCache = []; // agent name affects assistant message rendering
       this._allLines = null;
       this._cache = null;
     }
@@ -246,27 +250,63 @@ export class ChatPanel {
   }
 
   setThinking(thinking) {
+    if (this.thinking === thinking) return; // no-op avoids unnecessary invalidation
     this.thinking = thinking;
-    // Always invalidate when thinking so the spinner animates
+    // Don't reset _perMsgCache — only the spinner line changes
     this._allLines = null;
     this._cache = null;
   }
 
   invalidate() {
+    this._perMsgCache = [];
     this._allLines = null;
     this._cache = null;
   }
 
-  /** Render all messages into a flat array of terminal lines (cached by width). */
+  /** Check if a per-message cache entry is still valid. */
+  _isMsgCacheValid(cached, msg) {
+    if (msg.type === 'assistant' || msg.type === 'subagent-text') {
+      return cached.contentLen === (msg.content?.length ?? 0) && cached.streaming === msg.streaming;
+    }
+    if (msg.type === 'tool') {
+      return cached.status === msg.status;
+    }
+    return true; // immutable message types
+  }
+
+  /** Render all messages into a flat array of terminal lines with per-message caching. */
   _renderAllLines(width) {
-    if (this._allLines && this._allLinesWidth === width && !this.thinking) return this._allLines;
+    // Reset per-message cache on width change
+    if (this._perMsgCacheWidth !== width) {
+      this._perMsgCache = [];
+      this._perMsgCacheWidth = width;
+    }
+
     const lines = [];
     for (let i = 0; i < this.messages.length; i++) {
+      const msg = this.messages[i];
       // Skip blank line between consecutive tool messages for compact display
-      const isToolAfterTool = i > 0 && this.messages[i].type === 'tool' && this.messages[i - 1].type === 'tool';
+      const isToolAfterTool = i > 0 && msg.type === 'tool' && this.messages[i - 1].type === 'tool';
       if (i > 0 && !isToolAfterTool) lines.push(''); // blank line between messages
-      lines.push(...renderMessage(this.messages[i], width, this.agentName));
+
+      const cached = this._perMsgCache[i];
+      if (cached && cached.msg === msg && this._isMsgCacheValid(cached, msg)) {
+        lines.push(...cached.lines);
+      } else {
+        const rendered = renderMessage(msg, width, this.agentName);
+        this._perMsgCache[i] = {
+          msg,
+          lines: rendered,
+          contentLen: msg.content?.length ?? 0,
+          streaming: msg.streaming,
+          status: msg.status,
+        };
+        lines.push(...rendered);
+      }
     }
+    // Trim cache if messages were removed (e.g. cap or clear)
+    this._perMsgCache.length = this.messages.length;
+
     // Animated thinking indicator while waiting for agent response
     if (this.thinking) {
       const frame = SPINNER_FRAMES[Math.floor(Date.now() / 120) % SPINNER_FRAMES.length];

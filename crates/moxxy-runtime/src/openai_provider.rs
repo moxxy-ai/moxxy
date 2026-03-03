@@ -1467,7 +1467,7 @@ mod tests {
             "webhook.list",
             "notify.webhook",
             "notify.cli",
-            "skill.import",
+            "skill.create",
             "skill.validate",
             "channel.notify",
             "heartbeat.create",

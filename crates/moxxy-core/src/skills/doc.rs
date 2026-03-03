@@ -2,8 +2,9 @@ use moxxy_types::SkillDocError;
 
 #[derive(Debug)]
 pub struct SkillDoc {
-    pub id: String,
     pub name: String,
+    pub description: String,
+    pub author: String,
     pub version: String,
     pub inputs_schema: serde_json::Value,
     pub allowed_primitives: Vec<String>,
@@ -12,6 +13,25 @@ pub struct SkillDoc {
 }
 
 impl SkillDoc {
+    /// Derive a slug from the name: lowercase, spaces/special chars → `-`.
+    pub fn slug(&self) -> String {
+        self.name
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c } else { '-' })
+            .collect::<String>()
+            .split('-')
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("-")
+    }
+
+    pub fn load_from_file(path: &std::path::Path) -> Result<Self, SkillDocError> {
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| SkillDocError::InvalidFrontmatter(format!("cannot read file: {e}")))?;
+        Self::parse(&content)
+    }
+
     pub fn parse(input: &str) -> Result<Self, SkillDocError> {
         // Find frontmatter delimiters
         if !input.starts_with("---") {
@@ -36,16 +56,22 @@ impl SkillDoc {
         let frontmatter: serde_yaml::Value = serde_yaml::from_str(frontmatter_str)
             .map_err(|e| SkillDocError::InvalidFrontmatter(e.to_string()))?;
 
-        let id = frontmatter
-            .get("id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| SkillDocError::MissingField("id".to_string()))?
-            .to_string();
-
         let name = frontmatter
             .get("name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| SkillDocError::MissingField("name".to_string()))?
+            .to_string();
+
+        let description = frontmatter
+            .get("description")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| SkillDocError::MissingField("description".to_string()))?
+            .to_string();
+
+        let author = frontmatter
+            .get("author")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| SkillDocError::MissingField("author".to_string()))?
             .to_string();
 
         let version = frontmatter
@@ -72,12 +98,6 @@ impl SkillDoc {
             })
             .unwrap_or_default();
 
-        if allowed_primitives.is_empty() {
-            return Err(SkillDocError::InvalidPrimitive(
-                "allowed_primitives must not be empty".to_string(),
-            ));
-        }
-
         let safety_notes = frontmatter
             .get("safety_notes")
             .and_then(|v| v.as_str())
@@ -85,8 +105,9 @@ impl SkillDoc {
             .to_string();
 
         Ok(SkillDoc {
-            id,
             name,
+            description,
+            author,
             version,
             inputs_schema: inputs_schema_json,
             allowed_primitives,
@@ -103,8 +124,9 @@ mod tests {
     #[test]
     fn parses_valid_yaml_frontmatter_and_markdown_body() {
         let input = r#"---
-id: my-skill
 name: My Skill
+description: A useful skill for testing
+author: tester
 version: "1.0"
 inputs_schema: {}
 allowed_primitives:
@@ -115,20 +137,34 @@ safety_notes: "Safe skill"
 # Instructions
 Do something useful."#;
         let doc = SkillDoc::parse(input).unwrap();
-        assert_eq!(doc.id, "my-skill");
         assert_eq!(doc.name, "My Skill");
+        assert_eq!(doc.description, "A useful skill for testing");
+        assert_eq!(doc.author, "tester");
         assert_eq!(doc.version, "1.0");
         assert!(doc.body.contains("# Instructions"));
     }
 
     #[test]
-    fn rejects_missing_id() {
+    fn slug_derived_from_name() {
+        let input =
+            "---\nname: My Cool Skill!\ndescription: test\nauthor: me\nversion: \"1.0\"\n---\nbody";
+        let doc = SkillDoc::parse(input).unwrap();
+        assert_eq!(doc.slug(), "my-cool-skill");
+    }
+
+    #[test]
+    fn slug_handles_simple_name() {
+        let input = "---\nname: deploy\ndescription: test\nauthor: me\nversion: \"1.0\"\n---\nbody";
+        let doc = SkillDoc::parse(input).unwrap();
+        assert_eq!(doc.slug(), "deploy");
+    }
+
+    #[test]
+    fn rejects_missing_name() {
         let input = r#"---
-name: My Skill
+description: test
+author: me
 version: "1.0"
-inputs_schema: {}
-allowed_primitives: [fs.read]
-safety_notes: "safe"
 ---
 body"#;
         let err = SkillDoc::parse(input).unwrap_err();
@@ -136,13 +172,23 @@ body"#;
     }
 
     #[test]
-    fn rejects_missing_name() {
+    fn rejects_missing_description() {
         let input = r#"---
-id: my-skill
+name: My Skill
+author: me
 version: "1.0"
-inputs_schema: {}
-allowed_primitives: [fs.read]
-safety_notes: "safe"
+---
+body"#;
+        let err = SkillDoc::parse(input).unwrap_err();
+        assert!(matches!(err, SkillDocError::MissingField(_)));
+    }
+
+    #[test]
+    fn rejects_missing_author() {
+        let input = r#"---
+name: My Skill
+description: test
+version: "1.0"
 ---
 body"#;
         let err = SkillDoc::parse(input).unwrap_err();
@@ -152,11 +198,9 @@ body"#;
     #[test]
     fn rejects_missing_version() {
         let input = r#"---
-id: my-skill
 name: My Skill
-inputs_schema: {}
-allowed_primitives: [fs.read]
-safety_notes: "safe"
+description: test
+author: me
 ---
 body"#;
         let err = SkillDoc::parse(input).unwrap_err();
@@ -164,18 +208,25 @@ body"#;
     }
 
     #[test]
-    fn rejects_empty_allowed_primitives() {
+    fn empty_allowed_primitives_succeeds() {
         let input = r#"---
-id: my-skill
 name: My Skill
+description: test
+author: me
 version: "1.0"
-inputs_schema: {}
 allowed_primitives: []
-safety_notes: "safe"
 ---
 body"#;
-        let err = SkillDoc::parse(input).unwrap_err();
-        assert!(matches!(err, SkillDocError::InvalidPrimitive(_)));
+        let doc = SkillDoc::parse(input).unwrap();
+        assert!(doc.allowed_primitives.is_empty());
+    }
+
+    #[test]
+    fn omitted_allowed_primitives_defaults_to_empty() {
+        let input =
+            "---\nname: My Skill\ndescription: test\nauthor: me\nversion: \"1.0\"\n---\nbody";
+        let doc = SkillDoc::parse(input).unwrap();
+        assert!(doc.allowed_primitives.is_empty());
     }
 
     #[test]
@@ -187,7 +238,7 @@ body"#;
 
     #[test]
     fn preserves_body_whitespace() {
-        let input = "---\nid: s\nname: S\nversion: \"1\"\ninputs_schema: {}\nallowed_primitives: [fs.read]\nsafety_notes: safe\n---\n  indented\n    more indented";
+        let input = "---\nname: S\ndescription: d\nauthor: a\nversion: \"1\"\n---\n  indented\n    more indented";
         let doc = SkillDoc::parse(input).unwrap();
         assert!(doc.body.contains("  indented"));
         assert!(doc.body.contains("    more indented"));
