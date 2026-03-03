@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import { shortId, formatNumber, makeBar, COLORS, formatTs } from '../src/tui/helpers.js';
 import { renderMarkdown } from '../src/tui/markdown-renderer.js';
 import { matchCommands, SLASH_COMMANDS } from '../src/tui/slash-commands.js';
+<<<<<<< Updated upstream
 import { StatusBar, computeContextUtilization } from '../src/tui/status-bar.js';
+=======
+import { StatusBar } from '../src/tui/status-bar.js';
+>>>>>>> Stashed changes
 import { EventsHandler } from '../src/tui/events-handler.js';
 
 function stripAnsi(s) {
@@ -182,7 +186,11 @@ describe('model slash commands', () => {
 });
 
 describe('status bar', () => {
+<<<<<<< Updated upstream
   it('renders token and context usage as percentage when context window is known', () => {
+=======
+  it('renders token and context usage on the top line', () => {
+>>>>>>> Stashed changes
     const bar = new StatusBar();
     bar.setAgent({
       id: '019cb068-9930-7000-8000-123456789abc',
@@ -194,8 +202,13 @@ describe('status bar', () => {
     bar.setContextWindow(8192);
     bar.setStats({
       eventCount: 6,
+<<<<<<< Updated upstream
       tokenEstimate: 1915,
       contextTokens: 1896,
+=======
+      tokenEstimate: 1234,
+      contextTokens: 512,
+>>>>>>> Stashed changes
       skills: {},
       primitives: {},
     });
@@ -204,6 +217,7 @@ describe('status bar', () => {
     const mid = stripAnsi(lines[1]);
     assert.ok(mid.includes('Ev:6'));
     assert.ok(mid.includes('Tok:'));
+<<<<<<< Updated upstream
     assert.ok(mid.includes('Ctx:1,896/8,192 (23%)'));
   });
 
@@ -268,6 +282,10 @@ describe('status bar', () => {
       percent: 0,
       band: 'low',
     });
+=======
+    assert.ok(mid.includes('Ctx:'));
+    assert.ok(mid.includes('/'));
+>>>>>>> Stashed changes
   });
 });
 
@@ -300,6 +318,7 @@ describe('events handler stats', () => {
     assert.equal(h.stats.tokenEstimate, 250);
     assert.equal(h.stats.contextTokens, 80);
   });
+<<<<<<< Updated upstream
 
   it('reads usage nested under payload.response.usage', () => {
     const h = new EventsHandler({}, 'agent-1');
@@ -336,4 +355,6 @@ describe('events handler stats', () => {
     assert.equal(h.stats.tokenEstimate, 50);
     assert.equal(h.stats.contextTokens, 40);
   });
+=======
+>>>>>>> Stashed changes
 });

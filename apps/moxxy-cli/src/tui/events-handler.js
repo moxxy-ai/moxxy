@@ -322,11 +322,19 @@ export class EventsHandler {
       this.stats.primitives[payload.name] = (this.stats.primitives[payload.name] || 0) + 1;
     }
     if (type === 'model.response') {
+<<<<<<< Updated upstream
       const usage = extractUsage(payload);
       if (usage) {
         const promptTokens = usage.promptTokens;
         const completionTokens = usage.completionTokens;
         const totalTokens = usage.totalTokens;
+=======
+      const usage = payload.usage;
+      if (usage) {
+        const promptTokens = usage.prompt_tokens || usage.input_tokens || 0;
+        const completionTokens = usage.completion_tokens || usage.output_tokens || 0;
+        const totalTokens = usage.total_tokens || (promptTokens + completionTokens);
+>>>>>>> Stashed changes
 
         this.stats.tokenEstimate += totalTokens;
         this.stats.contextTokens = promptTokens || Math.max(0, totalTokens - completionTokens);
@@ -337,6 +345,7 @@ export class EventsHandler {
           this.stats.tokenEstimate += Math.ceil(contentLength / 4);
         }
       }
+<<<<<<< Updated upstream
     }
 
     // Register new sub-agents
@@ -375,6 +384,8 @@ export class EventsHandler {
     if (event.agent_id && event.agent_id !== this.agentId && this._subAgents.has(event.agent_id)) {
       this._processSubAgentEvent(event);
       return;
+=======
+>>>>>>> Stashed changes
     }
 
     // Show channel messages (from Telegram, Discord, etc.) as user messages

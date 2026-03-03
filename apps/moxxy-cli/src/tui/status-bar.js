@@ -99,11 +99,18 @@ export class StatusBar {
     parts.push(chalk.dim(`Tok:${formatNumber(this.stats.tokenEstimate || 0)}`));
 
     const contextTokens = this.stats.contextTokens || 0;
+<<<<<<< Updated upstream
     const utilization = computeContextUtilization(contextTokens, this.contextWindow);
     if (utilization.hasWindow) {
       const base = chalk.dim(`Ctx:${formatNumber(contextTokens)}/${formatNumber(this.contextWindow)}`);
       const percent = colorizeContextPercent(`(${utilization.percent}%)`, utilization.band);
       parts.push(`${base} ${percent}`);
+=======
+    if (this.contextWindow > 0) {
+      parts.push(chalk.dim(`Ctx:${formatNumber(contextTokens)}/${formatNumber(this.contextWindow)}`));
+    } else {
+      parts.push(chalk.dim(`Ctx:${formatNumber(contextTokens)}`));
+>>>>>>> Stashed changes
     }
 
     if (this.selectMode) {
