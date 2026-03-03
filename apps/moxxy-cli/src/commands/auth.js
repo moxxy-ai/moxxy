@@ -12,6 +12,8 @@ const VALID_SCOPES = [
   'channels:read', 'channels:write',
 ];
 
+const MULTI_VALUE_FLAGS = new Set(['model']);
+
 export function parseFlags(args) {
   const flags = {};
   for (let i = 0; i < args.length; i++) {
@@ -19,13 +21,25 @@ export function parseFlags(args) {
     if (arg.startsWith('--')) {
       const rest = arg.slice(2);
       const eqIdx = rest.indexOf('=');
+      let key, value;
       if (eqIdx !== -1) {
-        flags[rest.slice(0, eqIdx)] = rest.slice(eqIdx + 1);
+        key = rest.slice(0, eqIdx);
+        value = rest.slice(eqIdx + 1);
       } else if (i + 1 < args.length) {
-        flags[rest] = args[i + 1];
+        key = rest;
+        value = args[i + 1];
         i++;
       } else {
-        flags[rest] = true;
+        key = rest;
+        value = true;
+      }
+      if (MULTI_VALUE_FLAGS.has(key) && value !== true) {
+        if (!Array.isArray(flags[key])) {
+          flags[key] = flags[key] !== undefined ? [flags[key]] : [];
+        }
+        flags[key].push(value);
+      } else {
+        flags[key] = value;
       }
     }
   }

@@ -4,6 +4,11 @@
 import { parseFlags } from './auth.js';
 import { isInteractive, handleCancel, withSpinner, showResult, pickAgent, pickProvider, pickModel, p } from '../ui.js';
 
+function firstModel(flag) {
+  if (Array.isArray(flag)) return flag[0];
+  return flag;
+}
+
 export function parseAgentCommand(args) {
   const [action, ...rest] = args;
   const flags = parseFlags(rest);
@@ -13,7 +18,7 @@ export function parseAgentCommand(args) {
       return {
         action: 'create',
         provider_id: flags.provider,
-        model_id: flags.model,
+        model_id: firstModel(flags.model),
         name: flags.name,
         persona: flags.persona,
         temperature: flags.temperature ? parseFloat(flags.temperature) : undefined,
@@ -47,7 +52,7 @@ export function parseAgentCommand(args) {
         action: 'update',
         id: flags.id,
         provider_id: flags.provider,
-        model_id: flags.model,
+        model_id: firstModel(flags.model),
         temperature: flags.temperature ? parseFloat(flags.temperature) : undefined,
         json: flags.json === true || flags.json === 'true',
       };
@@ -70,7 +75,7 @@ export async function agentCreate(client, args) {
   }
   const body = {
     provider_id: flags.provider,
-    model_id: flags.model,
+    model_id: firstModel(flags.model),
     name: flags.name,
   };
   if (flags.temperature) body.temperature = parseFloat(flags.temperature);
@@ -93,7 +98,7 @@ export async function agentUpdate(client, args) {
   }
   const body = {};
   if (flags.provider) body.provider_id = flags.provider;
-  if (flags.model) body.model_id = flags.model;
+  if (flags.model) body.model_id = firstModel(flags.model);
   if (flags.temperature) body.temperature = parseFloat(flags.temperature);
 
   if (Object.keys(body).length === 0) {

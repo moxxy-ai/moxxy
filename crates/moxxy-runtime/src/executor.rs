@@ -16,6 +16,7 @@ pub struct RunExecutor {
     run_timeout: Option<Duration>,
     system_prompt: Option<String>,
     heartbeat_interval: usize,
+    history: Vec<Message>,
 }
 
 impl RunExecutor {
@@ -35,6 +36,7 @@ impl RunExecutor {
             run_timeout: None,
             system_prompt: None,
             heartbeat_interval: 10,
+            history: Vec::new(),
         }
     }
 
@@ -60,6 +62,11 @@ impl RunExecutor {
 
     pub fn with_system_prompt(mut self, prompt: String) -> Self {
         self.system_prompt = Some(prompt);
+        self
+    }
+
+    pub fn with_history(mut self, messages: Vec<Message>) -> Self {
+        self.history = messages;
         self
     }
 
@@ -124,6 +131,8 @@ impl RunExecutor {
         if let Some(ref prompt) = self.system_prompt {
             conversation.push(Message::system(prompt));
         }
+        // Inject STM history (prior user/assistant pairs) before current task
+        conversation.extend(self.history.iter().cloned());
         conversation.push(Message::user(task));
 
         let mut final_content = String::new();
@@ -601,6 +610,53 @@ mod tests {
         // With max_iterations=6 and interval=3, alive should fire at iteration 3 (not 0)
         assert_eq!(alive_payloads.len(), 1);
         assert_eq!(alive_payloads[0]["iteration"], 3);
+    }
+
+    #[tokio::test]
+    async fn execute_with_history_includes_prior_messages() {
+        let bus = EventBus::new(100);
+        let provider = Arc::new(EchoProvider::new());
+        let registry = PrimitiveRegistry::new();
+
+        let history = vec![
+            Message::user("What is 2+2?"),
+            Message::assistant("4"),
+        ];
+
+        let executor = RunExecutor::new(bus, provider, registry, vec![])
+            .with_history(history);
+
+        let result = executor
+            .execute("agent-1", "run-2", "What about 3+3?", &model_config())
+            .await;
+        assert!(result.is_ok());
+        // EchoProvider echoes the last user message, which is the current task
+        assert!(result.unwrap().contains("3+3"));
+    }
+
+    #[tokio::test]
+    async fn execute_with_empty_history_behaves_same_as_no_history() {
+        let bus1 = EventBus::new(100);
+        let bus2 = EventBus::new(100);
+        let provider1 = Arc::new(EchoProvider::new());
+        let provider2 = Arc::new(EchoProvider::new());
+
+        // Without history
+        let executor1 = RunExecutor::new(bus1, provider1, PrimitiveRegistry::new(), vec![]);
+        let result1 = executor1
+            .execute("agent-1", "run-1", "hello", &model_config())
+            .await
+            .unwrap();
+
+        // With empty history
+        let executor2 = RunExecutor::new(bus2, provider2, PrimitiveRegistry::new(), vec![])
+            .with_history(vec![]);
+        let result2 = executor2
+            .execute("agent-1", "run-1", "hello", &model_config())
+            .await
+            .unwrap();
+
+        assert_eq!(result1, result2);
     }
 
     #[tokio::test]

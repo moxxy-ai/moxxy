@@ -1,3 +1,4 @@
+pub mod anthropic_provider;
 pub mod context;
 pub mod defaults;
 pub mod echo_provider;
@@ -9,6 +10,7 @@ pub mod provider;
 pub mod registry;
 pub mod sandbox;
 
+pub use anthropic_provider::AnthropicProvider;
 pub use context::PrimitiveContext;
 pub use echo_provider::EchoProvider;
 pub use executor::RunExecutor;

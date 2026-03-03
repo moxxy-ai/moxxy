@@ -27,6 +27,17 @@ const OPENAI_CODEX_SECRET_KEY_NAME = 'OPENAI_CODEX_API_KEY';
 const OPENAI_CODEX_BACKEND_KEY = `moxxy_provider_${OPENAI_CODEX_PROVIDER_ID}`;
 const OPENAI_CODEX_CHATGPT_API_BASE = 'https://chatgpt.com/backend-api/codex';
 const OPENAI_CODEX_OAUTH_SESSION_MODE = 'chatgpt_oauth_session';
+
+const ANTHROPIC_PROVIDER_ID = 'anthropic';
+const ANTHROPIC_SECRET_KEY_NAME = 'ANTHROPIC_API_KEY';
+const ANTHROPIC_BACKEND_KEY = `moxxy_provider_${ANTHROPIC_PROVIDER_ID}`;
+const ANTHROPIC_API_BASE = 'https://api.anthropic.com';
+const ANTHROPIC_OAUTH_AUTHORIZE_URL = 'https://claude.ai/oauth/authorize';
+const ANTHROPIC_OAUTH_TOKEN_ENDPOINT = 'https://console.anthropic.com/v1/oauth/token';
+const ANTHROPIC_OAUTH_REDIRECT_URI = 'https://console.anthropic.com/oauth/code/callback';
+const ANTHROPIC_OAUTH_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+const ANTHROPIC_OAUTH_SCOPE = 'org:create_api_key user:profile user:inference';
+const ANTHROPIC_OAUTH_SESSION_MODE = 'anthropic_oauth_session';
 const OPENAI_CODEX_MODEL_IDS = [
   'gpt-5.3-codex',
   'gpt-5.2-codex',
@@ -869,7 +880,7 @@ async function loginOpenAiCodex(client, flags) {
         selectedOrg = handleCancel(chosen);
       }
 
-      p.log.warn(`Retrying browser OAuth with selected organization: ${selectedOrg}`);
+      p.log.warn(`Retrying OAuth with selected organization: ${selectedOrg}`);
       const retryOauthTokens = await loginOpenAiCodexBrowser({
         ...flags,
         method: 'browser',
@@ -906,6 +917,264 @@ async function loginOpenAiCodex(client, flags) {
   }
 }
 
+// ── Anthropic Login ───────────────────────────────────────────────────────────
+
+export function buildAnthropicSessionSecret({ accessToken, refreshToken, expiresAtMs }) {
+  return JSON.stringify({
+    mode: ANTHROPIC_OAUTH_SESSION_MODE,
+    client_id: ANTHROPIC_OAUTH_CLIENT_ID,
+    access_token: String(accessToken || '').trim(),
+    refresh_token: String(refreshToken || '').trim(),
+    expires_at: toPositiveInt(expiresAtMs, 0),
+  });
+}
+
+async function exchangeAnthropicAuthCode({ authorizationCode, codeVerifier, redirectUri }) {
+  // Auth code comes as {code}#{state} — split on #
+  const hashIdx = authorizationCode.indexOf('#');
+  const code = hashIdx >= 0 ? authorizationCode.slice(0, hashIdx) : authorizationCode;
+  const state = hashIdx >= 0 ? authorizationCode.slice(hashIdx + 1) : '';
+
+  const resp = await fetch(ANTHROPIC_OAUTH_TOKEN_ENDPOINT, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      grant_type: 'authorization_code',
+      code,
+      state,
+      client_id: ANTHROPIC_OAUTH_CLIENT_ID,
+      redirect_uri: redirectUri,
+      code_verifier: codeVerifier,
+    }),
+  });
+
+  const text = await resp.text();
+  const json = parseJsonSafe(text);
+  if (!resp.ok || !json?.access_token) {
+    const msg = json?.error_description || json?.error || text;
+    throw new Error(`Anthropic OAuth code exchange failed (${resp.status}): ${msg}`);
+  }
+  return json;
+}
+
+function extractAnthropicAuthCodeFromInput(rawInput, expectedState) {
+  const input = rawInput.trim();
+
+  // Try parsing as a full callback URL first
+  try {
+    const url = new URL(input);
+    const code = url.searchParams.get('code') || '';
+    const returnedState = url.searchParams.get('state') || '';
+    if (code) {
+      if (expectedState && returnedState && returnedState !== expectedState) {
+        throw new Error('Anthropic OAuth state mismatch — possible CSRF. Please retry.');
+      }
+      return `${code}#${returnedState}`;
+    }
+  } catch {
+    // Not a URL — try as raw code
+  }
+
+  // Accept raw {code}#{state} or just {code}
+  if (input) return input;
+  throw new Error('Could not extract authorization code from input');
+}
+
+async function loginAnthropicOAuth(client, flags) {
+  const noBrowser = toBool(flags.no_browser) || toBool(flags.noBrowser);
+  const state = createStateToken();
+  const codeVerifier = createCodeVerifier();
+  const codeChallenge = buildPkceCodeChallenge(codeVerifier);
+  const redirectUri = ANTHROPIC_OAUTH_REDIRECT_URI;
+
+  const authorizeUrl = new URL(ANTHROPIC_OAUTH_AUTHORIZE_URL);
+  authorizeUrl.searchParams.set('response_type', 'code');
+  authorizeUrl.searchParams.set('client_id', ANTHROPIC_OAUTH_CLIENT_ID);
+  authorizeUrl.searchParams.set('code_challenge', codeChallenge);
+  authorizeUrl.searchParams.set('code_challenge_method', 'S256');
+  authorizeUrl.searchParams.set('redirect_uri', redirectUri);
+  authorizeUrl.searchParams.set('scope', ANTHROPIC_OAUTH_SCOPE);
+  authorizeUrl.searchParams.set('state', state);
+
+  if (!noBrowser) {
+    tryOpenUrl(authorizeUrl.toString());
+  }
+
+  p.note(
+    [
+      'Log in to Anthropic and approve access.',
+      `Open this URL: ${authorizeUrl.toString()}`,
+      '',
+      'After approving, copy the authorization code shown on the page',
+      '(or the full callback URL from your browser address bar) and paste it below.',
+    ].join('\n'),
+    'Anthropic OAuth (Claude Plan)'
+  );
+
+  if (!isInteractive()) {
+    throw new Error('Anthropic OAuth login requires interactive mode. Use --method api-key for non-interactive.');
+  }
+
+  const callbackInput = handleCancel(await p.text({
+    message: 'Paste authorization code or callback URL',
+    validate: (v) => { if (!v.trim()) return 'Required'; },
+  }));
+
+  const authorizationCode = extractAnthropicAuthCodeFromInput(callbackInput, state);
+
+  const tokens = await withSpinner(
+    'Exchanging authorization code...',
+    () => exchangeAnthropicAuthCode({
+      authorizationCode,
+      codeVerifier,
+      redirectUri,
+    }),
+    'Token exchange completed.'
+  );
+
+  const expiresInSec = toPositiveInt(tokens.expires_in, 28800);
+  const expiresAtMs = Date.now() + (Math.max(60, expiresInSec) * 1000);
+  const secretValue = buildAnthropicSessionSecret({
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token,
+    expiresAtMs,
+  });
+
+  await withSpinner(
+    'Storing provider key in vault...',
+    () => upsertProviderSecret(client, ANTHROPIC_SECRET_KEY_NAME, ANTHROPIC_BACKEND_KEY, secretValue),
+    'Provider key stored in vault.'
+  );
+
+  const builtin = BUILTIN_PROVIDERS.find(bp => bp.id === ANTHROPIC_PROVIDER_ID);
+  const models = builtin.models.map(m => ({
+    ...m,
+    metadata: { api_base: ANTHROPIC_API_BASE },
+  }));
+
+  const provider = await withSpinner(
+    'Installing Anthropic provider...',
+    () => client.installProvider(ANTHROPIC_PROVIDER_ID, builtin.display_name, models),
+    'Anthropic provider installed.'
+  );
+
+  const result = {
+    provider_id: ANTHROPIC_PROVIDER_ID,
+    provider,
+    models_count: models.length,
+  };
+
+  if (toBool(flags.json)) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    showResult('Provider Connected', {
+      Provider: builtin.display_name,
+      ID: ANTHROPIC_PROVIDER_ID,
+      Models: models.length,
+      Secret: ANTHROPIC_SECRET_KEY_NAME,
+      Auth: 'Claude Plan (OAuth)',
+    });
+  }
+
+  return result;
+}
+
+async function loginAnthropicApiKey(client, flags) {
+  const argApiKey = String(flags.api_key || flags['api-key'] || '').trim();
+  let apiKey = argApiKey;
+
+  if (!apiKey) {
+    if (!isInteractive()) {
+      throw new Error('Anthropic login requires --api-key in non-interactive mode');
+    }
+
+    p.note(
+      'Get your API key at: https://console.anthropic.com/settings/keys',
+      'Anthropic API Key'
+    );
+
+    apiKey = handleCancel(await p.password({
+      message: 'Anthropic API key',
+      validate: (v) => { if (!v.trim()) return 'Required'; },
+    }));
+    apiKey = apiKey.trim();
+  }
+
+  // Validate by calling the models endpoint
+  await withSpinner('Validating API key...', async () => {
+    const resp = await fetch(`${ANTHROPIC_API_BASE}/v1/models`, {
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      const json = parseJsonSafe(text);
+      const msg = json?.error?.message || text;
+      throw new Error(`Anthropic API key validation failed (${resp.status}): ${msg}`);
+    }
+  }, 'API key is valid.');
+
+  await withSpinner(
+    'Storing provider key in vault...',
+    () => upsertProviderSecret(client, ANTHROPIC_SECRET_KEY_NAME, ANTHROPIC_BACKEND_KEY, apiKey),
+    'Provider key stored in vault.'
+  );
+
+  const builtin = BUILTIN_PROVIDERS.find(bp => bp.id === ANTHROPIC_PROVIDER_ID);
+  const models = builtin.models.map(m => ({
+    ...m,
+    metadata: { api_base: ANTHROPIC_API_BASE },
+  }));
+
+  const provider = await withSpinner(
+    'Installing Anthropic provider...',
+    () => client.installProvider(ANTHROPIC_PROVIDER_ID, builtin.display_name, models),
+    'Anthropic provider installed.'
+  );
+
+  const result = {
+    provider_id: ANTHROPIC_PROVIDER_ID,
+    provider,
+    models_count: models.length,
+  };
+
+  if (toBool(flags.json)) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    showResult('Provider Connected', {
+      Provider: builtin.display_name,
+      ID: ANTHROPIC_PROVIDER_ID,
+      Models: models.length,
+      Secret: ANTHROPIC_SECRET_KEY_NAME,
+    });
+  }
+
+  return result;
+}
+
+async function loginAnthropic(client, flags) {
+  let method = String(flags.method || '').trim().toLowerCase();
+
+  // --api-key flag → direct API key flow
+  if (flags.api_key || flags['api-key']) method = 'api-key';
+
+  if (!method && isInteractive()) {
+    method = handleCancel(await p.select({
+      message: 'Select Anthropic auth method',
+      options: [
+        { value: 'oauth', label: 'Claude Plan (OAuth)', hint: 'recommended: Pro/Max subscription' },
+        { value: 'api-key', label: 'API Key', hint: 'from console.anthropic.com' },
+      ],
+    }));
+  }
+  if (!method) method = 'oauth';
+
+  if (method === 'api-key') return loginAnthropicApiKey(client, flags);
+  return loginAnthropicOAuth(client, flags);
+}
+
 // ── Built-in Provider Catalog ────────────────────────────────────────────────
 
 export const BUILTIN_PROVIDERS = [
@@ -914,6 +1183,8 @@ export const BUILTIN_PROVIDERS = [
     display_name: 'Anthropic',
     api_key_env: 'ANTHROPIC_API_KEY',
     api_base: 'https://api.anthropic.com',
+    api_key_login: true,
+    oauth_login: true,
     models: [
       { model_id: 'claude-sonnet-5-20260203', display_name: 'Claude Sonnet 5 "Fennec"' },
       { model_id: 'claude-opus-4-20250514', display_name: 'Claude Opus 4' },
@@ -1077,13 +1348,26 @@ export async function runProvider(client, args) {
 }
 
 async function loginProvider(client, flags) {
-  const providerId = flags.id || flags.provider || OPENAI_CODEX_PROVIDER_ID;
+  let providerId = flags.id || flags.provider;
 
-  if (providerId !== OPENAI_CODEX_PROVIDER_ID) {
-    throw new Error(`Provider login is currently supported only for ${OPENAI_CODEX_PROVIDER_ID}`);
+  if (!providerId && isInteractive()) {
+    providerId = handleCancel(await p.select({
+      message: 'Select provider to log in',
+      options: [
+        { value: OPENAI_CODEX_PROVIDER_ID, label: 'OpenAI (Codex OAuth)', hint: 'ChatGPT Pro/Plus OAuth' },
+        { value: ANTHROPIC_PROVIDER_ID, label: 'Anthropic', hint: 'Claude plan (OAuth) or API key' },
+      ],
+    }));
   }
 
-  return loginOpenAiCodex(client, flags);
+  if (!providerId) {
+    providerId = OPENAI_CODEX_PROVIDER_ID;
+  }
+
+  if (providerId === ANTHROPIC_PROVIDER_ID) return loginAnthropic(client, flags);
+  if (providerId === OPENAI_CODEX_PROVIDER_ID) return loginOpenAiCodex(client, flags);
+
+  throw new Error(`Provider login supported for: ${ANTHROPIC_PROVIDER_ID}, ${OPENAI_CODEX_PROVIDER_ID}`);
 }
 
 // ── Interactive Install Wizard ───────────────────────────────────────────────
@@ -1215,55 +1499,63 @@ async function installInteractive(client) {
 
   const builtin = BUILTIN_PROVIDERS.find(bp => bp.id === providerId);
 
-  if (builtin?.oauth_login) {
-    p.log.info(`This provider uses OAuth login. Run: moxxy provider login --id ${providerId}`);
-  } else {
-    // Step 2: API key check
-    const currentKey = process.env[apiKeyEnv];
-    if (currentKey) {
-      const masked = currentKey.slice(0, 8) + '...' + currentKey.slice(-4);
-      p.log.success(`API key found: ${apiKeyEnv} = ${masked}`);
-    } else {
-      p.log.warn(`API key not set: ${apiKeyEnv}`);
+  if (builtin?.oauth_login || builtin?.api_key_login) {
+    // Providers with dedicated login: delegate to the login flow which handles
+    // OAuth/API-key auth, vault storage, and provider installation in one step.
+    const flags = {};
+    if (providerId === ANTHROPIC_PROVIDER_ID) return loginAnthropic(client, flags);
+    if (providerId === OPENAI_CODEX_PROVIDER_ID) return loginOpenAiCodex(client, flags);
 
-      const setKey = handleCancel(await p.confirm({
-        message: `Store API key via vault? (You can also set ${apiKeyEnv} in your shell)`,
-        initialValue: false,
+    // Fallback for future login-enabled providers
+    p.log.info(`Run: moxxy provider login --id ${providerId}`);
+    return;
+  }
+
+  // Step 2: API key check
+  const currentKey = process.env[apiKeyEnv];
+  if (currentKey) {
+    const masked = currentKey.slice(0, 8) + '...' + currentKey.slice(-4);
+    p.log.success(`API key found: ${apiKeyEnv} = ${masked}`);
+  } else {
+    p.log.warn(`API key not set: ${apiKeyEnv}`);
+
+    const setKey = handleCancel(await p.confirm({
+      message: `Store API key via vault? (You can also set ${apiKeyEnv} in your shell)`,
+      initialValue: false,
+    }));
+
+    if (setKey) {
+      const apiKey = handleCancel(await p.password({
+        message: `Enter your ${displayName} API key`,
+        validate: (v) => { if (!v.trim()) return 'Required'; },
       }));
 
-      if (setKey) {
-        const apiKey = handleCancel(await p.password({
-          message: `Enter your ${displayName} API key`,
-          validate: (v) => { if (!v.trim()) return 'Required'; },
-        }));
+      try {
+        await withSpinner('Storing API key in vault...', async () => {
+          await client.request('/v1/vault/secrets', 'POST', {
+            key_name: apiKeyEnv,
+            backend_key: `moxxy_provider_${providerId}`,
+            policy_label: 'provider-api-key',
+            value: apiKey,
+          });
+        }, 'API key reference stored.');
 
-        try {
-          await withSpinner('Storing API key in vault...', async () => {
-            await client.request('/v1/vault/secrets', 'POST', {
-              key_name: apiKeyEnv,
-              backend_key: `moxxy_provider_${providerId}`,
-              policy_label: 'provider-api-key',
-              value: apiKey,
-            });
-          }, 'API key reference stored.');
-
-          p.note(
-            `export ${apiKeyEnv}="${apiKey}"`,
-            'Also add to your shell profile for direct access'
-          );
-        } catch (err) {
-          p.log.warn(`Could not store in vault: ${err.message}`);
-          p.note(
-            `export ${apiKeyEnv}="<your-key>"`,
-            'Set this in your shell profile'
-          );
-        }
-      } else {
+        p.note(
+          `export ${apiKeyEnv}="${apiKey}"`,
+          'Also add to your shell profile for direct access'
+        );
+      } catch (err) {
+        p.log.warn(`Could not store in vault: ${err.message}`);
         p.note(
           `export ${apiKeyEnv}="<your-key>"`,
           'Set this in your shell profile'
         );
       }
+    } else {
+      p.note(
+        `export ${apiKeyEnv}="<your-key>"`,
+        'Set this in your shell profile'
+      );
     }
   }
 
@@ -1292,19 +1584,25 @@ async function installNonInteractive(client, flags) {
   // Check if it's a built-in provider
   const builtin = BUILTIN_PROVIDERS.find(bp => bp.id === providerId);
 
+  // Normalize --model to an array (parseFlags collects repeated --model flags)
+  const extraModels = Array.isArray(flags.model) ? flags.model : (flags.model ? [flags.model] : []);
+
   if (builtin) {
+    const builtinIds = new Set(builtin.models.map(m => m.model_id));
     const models = builtin.models.map(m => ({
       ...m,
       metadata: { api_base: builtin.api_base },
     }));
 
-    // Add custom model if specified
-    if (flags.model) {
-      models.push({
-        model_id: flags.model,
-        display_name: flags.model,
-        metadata: { api_base: builtin.api_base, custom: true },
-      });
+    // Add custom models that aren't already in the builtin catalog
+    for (const modelId of extraModels) {
+      if (!builtinIds.has(modelId)) {
+        models.push({
+          model_id: modelId,
+          display_name: modelId,
+          metadata: { api_base: builtin.api_base, custom: true },
+        });
+      }
     }
 
     const result = await client.installProvider(builtin.id, builtin.display_name, models);
@@ -1321,10 +1619,10 @@ async function installNonInteractive(client, flags) {
   const apiBase = flags.api_base || flags.url;
   const models = [];
 
-  if (flags.model) {
+  for (const modelId of extraModels) {
     models.push({
-      model_id: flags.model,
-      display_name: flags.model_name || flags.model,
+      model_id: modelId,
+      display_name: flags.model_name || modelId,
       metadata: apiBase ? { api_base: apiBase } : undefined,
     });
   }

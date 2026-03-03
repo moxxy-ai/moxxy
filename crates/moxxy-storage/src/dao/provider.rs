@@ -11,7 +11,12 @@ impl<'a> ProviderDao<'a> {
         self.conn
             .execute(
                 "INSERT INTO providers (id, display_name, manifest_path, signature, enabled, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(id) DO UPDATE SET
+                    display_name = excluded.display_name,
+                    manifest_path = excluded.manifest_path,
+                    signature = excluded.signature,
+                    enabled = excluded.enabled",
                 params![
                     row.id,
                     row.display_name,
@@ -78,7 +83,7 @@ impl<'a> ProviderDao<'a> {
     pub fn insert_model(&self, row: &ProviderModelRow) -> Result<(), StorageError> {
         self.conn
             .execute(
-                "INSERT INTO provider_models (provider_id, model_id, display_name, metadata_json)
+                "INSERT OR REPLACE INTO provider_models (provider_id, model_id, display_name, metadata_json)
                  VALUES (?1, ?2, ?3, ?4)",
                 params![
                     row.provider_id,
@@ -265,5 +270,72 @@ mod tests {
         let models = dao.list_models(&provider.id).unwrap();
         assert_eq!(models.len(), 1);
         assert_eq!(models[0].model_id, "gpt-4");
+    }
+
+    #[test]
+    fn insert_model_upserts_on_duplicate() {
+        let db = TestDb::new();
+        let dao = ProviderDao { conn: db.conn() };
+        let provider = fixture_provider_row();
+        dao.insert(&provider).unwrap();
+
+        let model = ProviderModelRow {
+            provider_id: provider.id.clone(),
+            model_id: "gpt-4o".into(),
+            display_name: "GPT-4o".into(),
+            metadata_json: Some(r#"{"api_base":"https://api.openai.com/v1"}"#.into()),
+        };
+        dao.insert_model(&model).unwrap();
+
+        // Insert same (provider_id, model_id) with different metadata — should upsert
+        let updated = ProviderModelRow {
+            provider_id: provider.id.clone(),
+            model_id: "gpt-4o".into(),
+            display_name: "GPT-4o Updated".into(),
+            metadata_json: Some(r#"{"api_base":"https://api.openai.com/v1","custom":true}"#.into()),
+        };
+        dao.insert_model(&updated).unwrap();
+
+        let models = dao.list_models(&provider.id).unwrap();
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].display_name, "GPT-4o Updated");
+    }
+
+    #[test]
+    fn two_providers_same_model_id() {
+        let db = TestDb::new();
+        let dao = ProviderDao { conn: db.conn() };
+
+        let mut p1 = fixture_provider_row();
+        p1.id = "openai".into();
+        dao.insert(&p1).unwrap();
+
+        let mut p2 = fixture_provider_row();
+        p2.id = "openai-codex".into();
+        dao.insert(&p2).unwrap();
+
+        // Same model_id under different providers
+        dao.insert_model(&ProviderModelRow {
+            provider_id: "openai".into(),
+            model_id: "gpt-4o".into(),
+            display_name: "GPT-4o".into(),
+            metadata_json: None,
+        })
+        .unwrap();
+
+        dao.insert_model(&ProviderModelRow {
+            provider_id: "openai-codex".into(),
+            model_id: "gpt-4o".into(),
+            display_name: "GPT-4o".into(),
+            metadata_json: None,
+        })
+        .unwrap();
+
+        let m1 = dao.list_models("openai").unwrap();
+        let m2 = dao.list_models("openai-codex").unwrap();
+        assert_eq!(m1.len(), 1);
+        assert_eq!(m2.len(), 1);
+        assert_eq!(m1[0].provider_id, "openai");
+        assert_eq!(m2[0].provider_id, "openai-codex");
     }
 }

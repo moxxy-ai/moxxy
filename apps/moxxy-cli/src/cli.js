@@ -18,11 +18,12 @@ import { runUninstall } from './commands/uninstall.js';
 import { COMMAND_HELP, showHelp } from './help.js';
 import chalk from 'chalk';
 import { createRequire } from 'node:module';
+import { cursorTo, clearScreenDown } from 'node:readline';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json');
 
-export const LOGO = `
+export const LOGO = `\n\n\n\n\n
   ███╗   ███╗ ██████╗ ██╗  ██╗██╗  ██╗██╗   ██╗
   ████╗ ████║██╔═══██╗╚██╗██╔╝╚██╗██╔╝╚██╗ ██╔╝
   ██╔████╔██║██║   ██║ ╚███╔╝  ╚███╔╝  ╚████╔╝
@@ -79,12 +80,13 @@ Environment:
 `.trim();
 
 
-export function clearScreen(contentLines = 25) {
+export function clearScreen() {
   if (!isInteractive()) return;
-  process.stdout.write('\x1b[2J\x1b[H');
-  const rows = process.stdout.rows || 24;
-  const pad = Math.max(0, Math.floor((rows - contentLines) / 2));
-  if (pad > 0) process.stdout.write('\n'.repeat(pad));
+  const rows = process.stdout.rows - 2;
+  const blank = rows > 0 ? '\n'.repeat(rows) : '';
+  console.log(blank);
+  cursorTo(process.stdout, 0, 0);
+  clearScreenDown(process.stdout);
 }
 
 function hasHelpFlag(args) {

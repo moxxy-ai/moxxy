@@ -58,6 +58,8 @@ struct ChatRequest {
     max_completion_tokens: u32,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<OpenAIToolDef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -300,6 +302,13 @@ impl CodexMessageContent {
             text: text.into(),
         }
     }
+
+    fn output_text(text: impl Into<String>) -> Self {
+        Self {
+            content_type: "output_text".into(),
+            text: text.into(),
+        }
+    }
 }
 
 fn convert_codex_input(messages: &[Message]) -> Vec<CodexInputItem> {
@@ -314,7 +323,7 @@ fn convert_codex_input(messages: &[Message]) -> Vec<CodexInputItem> {
                 if !text.is_empty() {
                     input.push(CodexInputItem::Message {
                         role: "assistant".into(),
-                        content: vec![CodexMessageContent::input_text(text)],
+                        content: vec![CodexMessageContent::output_text(text)],
                     });
                 }
 
@@ -835,12 +844,19 @@ impl Provider for OpenAIProvider {
             Some(config.temperature)
         };
 
+        let tool_choice = if !openai_tools.is_empty() {
+            Some("auto".to_string())
+        } else {
+            None
+        };
+
         let mut body = ChatRequest {
             model: self.model.clone(),
             messages: chat_messages,
             temperature,
             max_completion_tokens: config.max_tokens,
             tools: openai_tools,
+            tool_choice,
         };
         let mut json_body = serde_json::to_value(&body).map_err(|e| {
             PrimitiveError::ExecutionFailed(format!("failed to serialize chat request: {e}"))
@@ -1307,9 +1323,11 @@ mod tests {
             temperature: Some(0.7),
             max_completion_tokens: 100,
             tools: vec![],
+            tool_choice: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(!json.contains("tools"));
+        assert!(!json.contains("tool_choice"));
     }
 
     #[test]
@@ -1325,11 +1343,13 @@ mod tests {
             temperature: Some(0.7),
             max_completion_tokens: 100,
             tools: vec![convert_tool_def(&td)],
+            tool_choice: Some("auto".into()),
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("tools"));
         assert!(json.contains("fs__read"));
         assert!(!json.contains("fs.read"));
+        assert!(json.contains("tool_choice"));
     }
 
     #[test]
@@ -1356,6 +1376,7 @@ mod tests {
             temperature: None,
             max_completion_tokens: 100,
             tools: vec![],
+            tool_choice: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(!json.contains("temperature"));

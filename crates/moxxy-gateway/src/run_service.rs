@@ -1,6 +1,8 @@
 use moxxy_channel::bridge::{ChannelBridge, ChannelSender};
 use moxxy_core::EventBus;
-use moxxy_runtime::{AskChannels, ChannelMessageSender, EchoProvider, OpenAIProvider, Provider};
+use moxxy_runtime::{
+    AskChannels, AnthropicProvider, ChannelMessageSender, EchoProvider, OpenAIProvider, Provider,
+};
 use moxxy_storage::Database;
 use moxxy_types::{MessageContent, RunStarter};
 use moxxy_vault::SecretBackend;
@@ -111,12 +113,16 @@ impl RunService {
         let vault_key = format!("moxxy_provider_{}", provider_id);
         let api_key = self.vault_backend.get_secret(&vault_key).ok()?;
 
-        Some(Arc::new(OpenAIProvider::new(
-            api_base,
-            api_key,
-            model_id,
-            chatgpt_account_id,
-        )))
+        if provider_id == "anthropic" || api_base.contains("anthropic.com") {
+            Some(Arc::new(AnthropicProvider::new(api_base, api_key, model_id)))
+        } else {
+            Some(Arc::new(OpenAIProvider::new(
+                api_base,
+                api_key,
+                model_id,
+                chatgpt_account_id,
+            )))
+        }
     }
 
     /// Set the channel message sender. Called after the ChannelBridge is created.
@@ -623,18 +629,41 @@ impl RunService {
 
             system_prompt.push_str(
                 "\nGuidelines:\n\
+                 - You are an autonomous agent. For every task, you MUST use your tools to accomplish it. Do NOT just describe or plan what you would do = actually execute it step by step using tool calls.\n\
+                 - For complex or multi-step tasks, break them down and work through each step iteratively. Call tools, read their results, then decide the next action. You can run many iterations.\n\
                  - Proactively use your tools. If asked to look something up, fetch a URL, or find information = use browse.fetch or http.request.\n\
                  - Read files before modifying them.\n\
                  - If a tool fails, analyze the error and try alternatives.\n\
                  - NEVER use paths outside your workspace. For file operations (fs.*), use relative paths like \"output.png\" or \"src/index.html\" = they are automatically resolved against your workspace. Do NOT use ~/Desktop, /tmp, /Users, or any other location.\n\
                  - Git operations that require authentication (push, clone private repos, PR create, fork) will automatically prompt the user for a GitHub token if one is not already stored in the vault. You do NOT need to manually call user.ask for the token = the git primitives handle this automatically.\n\
-                 - Always provide a final text summary of what you did and what you found.",
+                 - When you have completed ALL the work, provide a concise text summary of what you accomplished and the results.",
             );
+
+            // Load STM history for top-level agents (sub-agents are ephemeral)
+            let history_messages: Vec<moxxy_runtime::Message> = if parent_agent_id.is_none() {
+                db.lock()
+                    .ok()
+                    .and_then(|db| {
+                        db.conversations()
+                            .find_recent_by_agent(&agent_id_owned, 20)
+                            .ok()
+                    })
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|row| match row.role.as_str() {
+                        "assistant" => moxxy_runtime::Message::assistant(row.content),
+                        _ => moxxy_runtime::Message::user(row.content),
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
 
             let event_bus_for_completion = event_bus.clone();
             let executor =
                 moxxy_runtime::RunExecutor::new(event_bus, provider, registry, allowed_primitives)
                     .with_system_prompt(system_prompt)
+                    .with_history(history_messages)
                     .with_cancel_token(cancel_token)
                     .with_timeout(std::time::Duration::from_secs(300));
 
@@ -723,6 +752,33 @@ impl RunService {
                 } else {
                     let new_status = if result.is_ok() { "idle" } else { "error" };
                     let _ = db.agents().update_status(&agent_id_owned, new_status);
+
+                    // Persist STM: store user task + final assistant response
+                    if let Ok(ref content) = result {
+                        let now = chrono::Utc::now().to_rfc3339();
+                        let _ = db.conversations().insert(
+                            &moxxy_storage::rows::ConversationLogRow {
+                                id: uuid::Uuid::now_v7().to_string(),
+                                agent_id: agent_id_owned.clone(),
+                                run_id: run_id_clone.clone(),
+                                sequence: 0,
+                                role: "user".into(),
+                                content: task.clone(),
+                                created_at: now.clone(),
+                            },
+                        );
+                        let _ = db.conversations().insert(
+                            &moxxy_storage::rows::ConversationLogRow {
+                                id: uuid::Uuid::now_v7().to_string(),
+                                agent_id: agent_id_owned.clone(),
+                                run_id: run_id_clone.clone(),
+                                sequence: 1,
+                                role: "assistant".into(),
+                                content: content.clone(),
+                                created_at: now,
+                            },
+                        );
+                    }
                 }
             }
 

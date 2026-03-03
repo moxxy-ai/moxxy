@@ -416,11 +416,15 @@ impl Primitive for GitStatusPrimitive {
 
         tracing::debug!(path = %path, "Getting git status");
 
-        let (porcelain, _, code) =
+        let (porcelain, stderr, code) =
             run_git(&["status", "--porcelain"], &path, Duration::from_secs(10)).await?;
 
         if code != 0 {
-            return Err(PrimitiveError::ExecutionFailed("git status failed".into()));
+            return Err(PrimitiveError::ExecutionFailed(format!(
+                "git status failed (exit {}): {}",
+                code,
+                stderr.trim()
+            )));
         }
 
         let mut modified = vec![];
