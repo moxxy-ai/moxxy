@@ -47,6 +47,8 @@ Usage:
   moxxy auth token list [--json]
   moxxy auth token revoke <id>
   moxxy provider list
+  moxxy provider install --id <provider-id>
+  moxxy provider login --id openai-codex --method browser|headless
   moxxy agent create --provider <p> --model <m> --workspace <w> [--json]
   moxxy agent run --id <id> --task "task" [--json]
   moxxy agent stop --id <id>

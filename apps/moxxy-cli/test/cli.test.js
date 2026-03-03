@@ -3,6 +3,18 @@ import assert from 'node:assert/strict';
 import { createApiClient } from '../src/api-client.js';
 import { parseAuthCommand, buildTokenPayload } from '../src/commands/auth.js';
 import { parseAgentCommand } from '../src/commands/agent.js';
+import {
+  buildCodexDeviceCodeBody,
+  buildCodexAuthorizationCodeExchangeBody,
+  buildCodexApiKeyExchangeBody,
+  buildCodexBrowserAuthorizeUrl,
+  buildOpenAiCodexSessionModels,
+  buildOpenAiCodexSessionSecret,
+  buildPkceCodeChallenge,
+  extractCodexAccountIdFromTokens,
+  formatOpenAiOAuthError,
+  parseOpenAiModels,
+} from '../src/commands/provider.js';
 import { buildSseUrl, parseSseEvent, createSseClient } from '../src/sse-client.js';
 import { isInteractive, handleCancel } from '../src/ui.js';
 import { matchCommands, isSlashCommand, SLASH_COMMANDS } from '../src/tui/slash-commands.js';
@@ -112,6 +124,194 @@ describe('agent commands', () => {
     assert.equal(parsed.provider_id, undefined);
     assert.equal(parsed.model_id, undefined);
     assert.equal(parsed.temperature, 1.0);
+  });
+});
+
+describe('provider oauth helpers', () => {
+  it('buildCodexDeviceCodeBody returns oauth device-code payload', () => {
+    const payload = buildCodexDeviceCodeBody('app_test_123');
+    assert.deepEqual(payload, {
+      client_id: 'app_test_123',
+    });
+  });
+
+  it('buildCodexAuthorizationCodeExchangeBody returns form payload', () => {
+    const body = buildCodexAuthorizationCodeExchangeBody({
+      code: 'code_123',
+      redirectUri: 'https://auth.openai.com/deviceauth/callback',
+      clientId: 'app_test_123',
+      codeVerifier: 'verifier_123',
+    });
+
+    assert.equal(
+      body,
+      'grant_type=authorization_code&code=code_123&redirect_uri=https%3A%2F%2Fauth.openai.com%2Fdeviceauth%2Fcallback&client_id=app_test_123&code_verifier=verifier_123'
+    );
+  });
+
+  it('buildCodexApiKeyExchangeBody returns token-exchange form payload', () => {
+    const body = buildCodexApiKeyExchangeBody({
+      clientId: 'app_test_123',
+      idToken: 'id_token_abc',
+    });
+
+    assert.equal(
+      body,
+      'grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange&client_id=app_test_123&requested_token=openai-api-key&subject_token=id_token_abc&subject_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Aid_token'
+    );
+  });
+
+  it('buildPkceCodeChallenge follows S256 base64url encoding', () => {
+    const verifier = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk';
+    const challenge = buildPkceCodeChallenge(verifier);
+    assert.equal(challenge, 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM');
+  });
+
+  it('buildCodexBrowserAuthorizeUrl includes organization token claim flag', () => {
+    const url = buildCodexBrowserAuthorizeUrl({
+      clientId: 'app_test_123',
+      redirectUri: 'http://localhost:1455/auth/callback',
+      codeChallenge: 'challenge_123',
+      state: 'state_123',
+      originator: 'Codex Desktop',
+    });
+    const parsed = new URL(url);
+
+    assert.equal(parsed.origin + parsed.pathname, 'https://auth.openai.com/oauth/authorize');
+    assert.equal(parsed.searchParams.get('response_type'), 'code');
+    assert.equal(parsed.searchParams.get('client_id'), 'app_test_123');
+    assert.equal(parsed.searchParams.get('redirect_uri'), 'http://localhost:1455/auth/callback');
+    assert.equal(parsed.searchParams.get('scope'), 'openid profile email offline_access');
+    assert.equal(parsed.searchParams.get('code_challenge'), 'challenge_123');
+    assert.equal(parsed.searchParams.get('code_challenge_method'), 'S256');
+    assert.equal(parsed.searchParams.get('id_token_add_organizations'), 'true');
+    assert.equal(parsed.searchParams.get('codex_cli_simplified_flow'), 'true');
+    assert.equal(parsed.searchParams.get('state'), 'state_123');
+    assert.equal(parsed.searchParams.get('originator'), 'Codex Desktop');
+  });
+
+  it('buildCodexBrowserAuthorizeUrl uses Codex Desktop as default originator', () => {
+    const url = buildCodexBrowserAuthorizeUrl({
+      clientId: 'app_test_123',
+      redirectUri: 'http://localhost:1455/auth/callback',
+      codeChallenge: 'challenge_123',
+      state: 'state_123',
+    });
+    const parsed = new URL(url);
+    assert.equal(parsed.searchParams.get('originator'), 'Codex Desktop');
+  });
+
+  it('buildCodexBrowserAuthorizeUrl includes optional workspace/org/project selectors', () => {
+    const url = buildCodexBrowserAuthorizeUrl({
+      clientId: 'app_test_123',
+      redirectUri: 'http://localhost:1455/auth/callback',
+      codeChallenge: 'challenge_123',
+      state: 'state_123',
+      allowedWorkspaceId: 'org_123',
+      organizationId: 'org_123',
+      projectId: 'proj_456',
+    });
+    const parsed = new URL(url);
+    assert.equal(parsed.searchParams.get('allowed_workspace_id'), 'org_123');
+    assert.equal(parsed.searchParams.get('organization_id'), 'org_123');
+    assert.equal(parsed.searchParams.get('project_id'), 'proj_456');
+  });
+
+  it('formatOpenAiOAuthError includes backend details', () => {
+    const msg = formatOpenAiOAuthError('OpenAI API key token-exchange failed', 401, {
+      error: 'invalid_grant',
+      error_description: 'Account is not eligible',
+    });
+
+    assert.equal(
+      msg,
+      'OpenAI API key token-exchange failed (401): invalid_grant - Account is not eligible'
+    );
+  });
+
+  it('formatOpenAiOAuthError adds eligibility hint for API key exchange 401', () => {
+    const msg = formatOpenAiOAuthError('OpenAI API key token-exchange failed', 401, {
+      error: 'invalid_grant',
+    });
+
+    assert.equal(
+      msg,
+      'OpenAI API key token-exchange failed (401): invalid_grant. The OpenAI account may not be eligible for OAuth API-key issuance yet (API org/project or billing setup may be missing).'
+    );
+  });
+
+  it('formatOpenAiOAuthError parses nested OpenAI error object and suggests browser mode', () => {
+    const msg = formatOpenAiOAuthError('OpenAI API key token-exchange failed', 401, {
+      error: {
+        message: 'Invalid ID token: missing organization_id',
+        code: 'invalid_subject_token',
+      },
+    });
+
+    assert.equal(
+      msg,
+      'OpenAI API key token-exchange failed (401): invalid_subject_token - Invalid ID token: missing organization_id. Retry with browser OAuth (--method browser). If OpenCode works but this step fails, it usually means OpenCode is using ChatGPT backend tokens while Moxxy requires API-key issuance linked to an API organization.'
+    );
+  });
+
+  it('parseOpenAiModels returns sorted unique model list', () => {
+    const parsed = parseOpenAiModels({
+      data: [
+        { id: 'gpt-4o' },
+        { id: 'o4-mini' },
+        { id: 'gpt-4o' },
+        { id: '' },
+        {},
+      ],
+    });
+
+    assert.deepEqual(parsed, [
+      { model_id: 'gpt-4o', display_name: 'gpt-4o', metadata: { api_base: 'https://api.openai.com/v1' } },
+      { model_id: 'o4-mini', display_name: 'o4-mini', metadata: { api_base: 'https://api.openai.com/v1' } },
+    ]);
+  });
+
+  it('extractCodexAccountIdFromTokens reads chatgpt account from id token claims', () => {
+    const payload = Buffer.from(JSON.stringify({
+      chatgpt_account_id: 'acct_123',
+      'https://api.openai.com/auth': {
+        organizations: [{ id: 'org_abc' }],
+      },
+    })).toString('base64url');
+    const fakeJwt = `aaa.${payload}.bbb`;
+
+    assert.equal(
+      extractCodexAccountIdFromTokens({ id_token: fakeJwt }),
+      'acct_123'
+    );
+  });
+
+  it('buildOpenAiCodexSessionSecret stores oauth session fields', () => {
+    const secret = buildOpenAiCodexSessionSecret({
+      accessToken: 'access_123',
+      refreshToken: 'refresh_456',
+      expiresAtMs: 1_700_000_000_000,
+      accountId: 'acct_123',
+    });
+    const parsed = JSON.parse(secret);
+
+    assert.deepEqual(parsed, {
+      mode: 'chatgpt_oauth_session',
+      issuer: 'https://auth.openai.com',
+      client_id: 'app_EMoamEEZ73f0CkXaXp7hrann',
+      access_token: 'access_123',
+      refresh_token: 'refresh_456',
+      expires_at: 1_700_000_000_000,
+      account_id: 'acct_123',
+    });
+  });
+
+  it('buildOpenAiCodexSessionModels includes codex endpoint and account id metadata', () => {
+    const models = buildOpenAiCodexSessionModels('acct_123');
+    const codex = models.find(m => m.model_id === 'gpt-5.3-codex');
+    assert.ok(codex);
+    assert.equal(codex.metadata.api_base, 'https://chatgpt.com/backend-api/codex');
+    assert.equal(codex.metadata.chatgpt_account_id, 'acct_123');
   });
 });
 
