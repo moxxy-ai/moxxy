@@ -97,6 +97,7 @@ impl Provider for WasmProvider {
         Ok(ProviderResponse {
             content,
             tool_calls,
+            usage: None,
         })
     }
 }
