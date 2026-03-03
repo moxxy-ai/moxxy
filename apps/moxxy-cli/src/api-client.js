@@ -13,13 +13,21 @@ function gatewayDownError() {
   return error;
 }
 
+function normalizeBaseUrl(baseUrl) {
+  const raw = (baseUrl || '').trim();
+  if (!raw) return 'http://localhost:3000';
+  const withoutTrailingSlash = raw.replace(/\/+$/, '');
+  const withoutV1Suffix = withoutTrailingSlash.replace(/\/v1$/i, '');
+  return withoutV1Suffix || withoutTrailingSlash;
+}
+
 /**
  * Moxxy API client.
  * Uses native fetch with bearer token injection.
  */
 export class ApiClient {
   constructor(baseUrl, token, authMode = 'token') {
-    this.baseUrl = baseUrl;
+    this.baseUrl = normalizeBaseUrl(baseUrl);
     this.token = token;
     this.authMode = authMode;
   }
@@ -63,6 +71,8 @@ export class ApiClient {
         msg += '\nMOXXY_TOKEN is not set. Run `moxxy init` to create a token, or set it with:\n  export MOXXY_TOKEN="<your-token>"';
       } else if (resp.status === 401) {
         msg += '\nYour token may be expired or revoked. Create a new one with: moxxy auth token create';
+      } else if (resp.status === 404) {
+        msg += `\nEndpoint not found (${path}). Verify MOXXY_API_URL points to a Moxxy gateway with /v1 routes.`;
       }
       const error = new Error(msg);
       error.status = resp.status;

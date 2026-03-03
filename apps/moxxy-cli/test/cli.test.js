@@ -8,6 +8,7 @@ import {
   buildCodexAuthorizationCodeExchangeBody,
   buildCodexApiKeyExchangeBody,
   buildCodexBrowserAuthorizeUrl,
+  buildScopedRetryFlags,
   buildOpenAiCodexSessionModels,
   buildOpenAiCodexSessionSecret,
   buildPkceCodeChallenge,
@@ -34,6 +35,18 @@ describe('api-client', () => {
     assert.equal(url, 'http://localhost:3000/v1/agents');
   });
 
+  it('build url avoids duplicated /v1 when base already ends with /v1', () => {
+    const client = createApiClient('http://localhost:3000/v1', 'tok');
+    const url = client.buildUrl('/v1/agents');
+    assert.equal(url, 'http://localhost:3000/v1/agents');
+  });
+
+  it('build url avoids duplicated /v1 when base ends with /v1/', () => {
+    const client = createApiClient('http://localhost:3000/v1/', 'tok');
+    const url = client.buildUrl('/v1/providers');
+    assert.equal(url, 'http://localhost:3000/v1/providers');
+  });
+
   it('request throws on error response', async () => {
     const client = createApiClient('http://127.0.0.1:19876', 'tok');
     await assert.rejects(() => client.request('/v1/agents', 'GET'));
@@ -49,6 +62,32 @@ describe('api-client', () => {
       assert.equal(err.isGatewayDown, true);
       assert.ok(err.message.includes('Gateway is not running'));
       assert.ok(err.message.includes('moxxy gateway start'));
+    }
+  });
+
+  it('request appends endpoint hint on 404', async () => {
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () => new Response(
+        JSON.stringify({ message: 'Not Found' }),
+        {
+          status: 404,
+          headers: { 'content-type': 'application/json' },
+        }
+      );
+
+      const client = createApiClient('http://localhost:3000', 'tok');
+      await assert.rejects(
+        () => client.request('/v1/agents', 'GET'),
+        (err) => {
+          assert.equal(err.status, 404);
+          assert.ok(err.message.includes('Endpoint not found (/v1/agents)'));
+          assert.ok(err.message.includes('MOXXY_API_URL'));
+          return true;
+        }
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
     }
   });
 });
@@ -133,6 +172,41 @@ describe('provider oauth helpers', () => {
     assert.deepEqual(payload, {
       client_id: 'app_test_123',
     });
+  });
+
+  it('buildCodexDeviceCodeBody includes optional org/workspace/project selectors', () => {
+    const payload = buildCodexDeviceCodeBody('app_test_123', {
+      allowedWorkspaceId: 'org_123',
+      organizationId: 'org_123',
+      projectId: 'proj_456',
+    });
+    assert.deepEqual(payload, {
+      client_id: 'app_test_123',
+      allowed_workspace_id: 'org_123',
+      organization_id: 'org_123',
+      project_id: 'proj_456',
+    });
+  });
+
+  it('buildScopedRetryFlags preserves selected method and scopes organization', () => {
+    assert.deepEqual(
+      buildScopedRetryFlags({ method: 'headless', no_browser: true }, 'org_123', 'headless'),
+      {
+        method: 'headless',
+        no_browser: true,
+        allowed_workspace_id: 'org_123',
+        organization_id: 'org_123',
+      }
+    );
+
+    assert.deepEqual(
+      buildScopedRetryFlags({ method: 'browser' }, 'org_123', 'browser'),
+      {
+        method: 'browser',
+        allowed_workspace_id: 'org_123',
+        organization_id: 'org_123',
+      }
+    );
   });
 
   it('buildCodexAuthorizationCodeExchangeBody returns form payload', () => {
@@ -250,7 +324,7 @@ describe('provider oauth helpers', () => {
 
     assert.equal(
       msg,
-      'OpenAI API key token-exchange failed (401): invalid_subject_token - Invalid ID token: missing organization_id. Retry with browser OAuth (--method browser). If OpenCode works but this step fails, it usually means OpenCode is using ChatGPT backend tokens while Moxxy requires API-key issuance linked to an API organization.'
+      'OpenAI API key token-exchange failed (401): invalid_subject_token - Invalid ID token: missing organization_id. Retry OAuth with organization-scoped login (interactive flow will prompt to select organization). If OpenCode works but this step fails, it usually means OpenCode is using ChatGPT backend tokens while Moxxy requires API-key issuance linked to an API organization.'
     );
   });
 
