@@ -35,6 +35,18 @@ describe('api-client', () => {
     assert.equal(url, 'http://localhost:3000/v1/agents');
   });
 
+  it('build url avoids duplicated /v1 when base already ends with /v1', () => {
+    const client = createApiClient('http://localhost:3000/v1', 'tok');
+    const url = client.buildUrl('/v1/agents');
+    assert.equal(url, 'http://localhost:3000/v1/agents');
+  });
+
+  it('build url avoids duplicated /v1 when base ends with /v1/', () => {
+    const client = createApiClient('http://localhost:3000/v1/', 'tok');
+    const url = client.buildUrl('/v1/providers');
+    assert.equal(url, 'http://localhost:3000/v1/providers');
+  });
+
   it('request throws on error response', async () => {
     const client = createApiClient('http://127.0.0.1:19876', 'tok');
     await assert.rejects(() => client.request('/v1/agents', 'GET'));
@@ -50,6 +62,32 @@ describe('api-client', () => {
       assert.equal(err.isGatewayDown, true);
       assert.ok(err.message.includes('Gateway is not running'));
       assert.ok(err.message.includes('moxxy gateway start'));
+    }
+  });
+
+  it('request appends endpoint hint on 404', async () => {
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () => new Response(
+        JSON.stringify({ message: 'Not Found' }),
+        {
+          status: 404,
+          headers: { 'content-type': 'application/json' },
+        }
+      );
+
+      const client = createApiClient('http://localhost:3000', 'tok');
+      await assert.rejects(
+        () => client.request('/v1/agents', 'GET'),
+        (err) => {
+          assert.equal(err.status, 404);
+          assert.ok(err.message.includes('Endpoint not found (/v1/agents)'));
+          assert.ok(err.message.includes('MOXXY_API_URL'));
+          return true;
+        }
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
     }
   });
 });
