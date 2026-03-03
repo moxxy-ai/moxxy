@@ -488,15 +488,22 @@ impl Primitive for HiveRecruitPrimitive {
                 .ok_or_else(|| PrimitiveError::NotFound("queen agent".into()))?
         };
 
+        // Read parent config from agent.yaml
+        let parent_dir = self.moxxy_home.join("agents").join(&parent.id);
+        let parent_config =
+            moxxy_types::AgentConfig::load(&parent_dir.join("agent.yaml")).map_err(|e| {
+                PrimitiveError::ExecutionFailed(format!("failed to read parent config: {}", e))
+            })?;
+
         let lineage = AgentLineage {
             root_agent_id: parent
                 .parent_agent_id
                 .clone()
                 .unwrap_or_else(|| parent.id.clone()),
             current_depth: parent.depth as u32,
-            max_depth: parent.max_subagent_depth as u32,
+            max_depth: parent_config.max_subagent_depth as u32,
             spawned_total: parent.spawned_total as u32,
-            max_total: parent.max_subagents_total as u32,
+            max_total: parent_config.max_subagents_total as u32,
         };
 
         if !lineage.can_spawn() {
@@ -510,7 +517,7 @@ impl Primitive for HiveRecruitPrimitive {
             .get("model_id")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
-            .unwrap_or(&parent.model_id)
+            .unwrap_or(&parent_config.model_id)
             .to_string();
 
         let now = chrono::Utc::now().to_rfc3339();
@@ -524,24 +531,29 @@ impl Primitive for HiveRecruitPrimitive {
         std::fs::create_dir_all(&child_workspace).ok();
         std::fs::create_dir_all(child_dir.join("memory")).ok();
 
+        // Write child agent.yaml
+        let child_config = moxxy_types::AgentConfig {
+            name: auto_name.clone(),
+            model_id: model_id.clone(),
+            ..parent_config.clone()
+        };
+        if let Err(e) = child_config.save(&child_dir.join("agent.yaml")) {
+            tracing::warn!(error = %e, "Failed to write child agent.yaml");
+        }
+        let _ = std::fs::write(child_dir.join("persona.md"), "");
+        let _ = std::fs::write(child_dir.join("memory.yaml"), "");
+        let _ = std::fs::write(child_dir.join("heartbeat.md"), "");
+
         let child = moxxy_storage::AgentRow {
             id: child_id.clone(),
             parent_agent_id: Some(self.agent_id.clone()),
-            provider_id: parent.provider_id.clone(),
-            model_id,
             workspace_root: child_dir.to_string_lossy().to_string(),
-            core_mount: None,
-            policy_profile: parent.policy_profile.clone(),
-            temperature: parent.temperature,
-            max_subagent_depth: parent.max_subagent_depth,
-            max_subagents_total: parent.max_subagents_total,
             status: "idle".into(),
             depth: parent.depth + 1,
             spawned_total: 0,
             created_at: now.clone(),
             updated_at: now.clone(),
             name: Some(auto_name.clone()),
-            persona: None,
         };
 
         {
@@ -1676,21 +1688,13 @@ mod tests {
         let row = moxxy_storage::AgentRow {
             id: "queen-1".into(),
             parent_agent_id: None,
-            provider_id: "openai".into(),
-            model_id: "gpt-4".into(),
             workspace_root: "/tmp/test".into(),
-            core_mount: None,
-            policy_profile: None,
-            temperature: 0.7,
-            max_subagent_depth: 2,
-            max_subagents_total: 8,
             status: "running".into(),
             depth: 0,
             spawned_total: 0,
             created_at: now.clone(),
             updated_at: now,
             name: Some("queen-1".into()),
-            persona: None,
         };
         db.agents().insert(&row).unwrap();
         row
@@ -1770,6 +1774,20 @@ mod tests {
         let moxxy_home = tmp.path().to_path_buf();
         let queen_dir = moxxy_home.join("agents").join("queen-1");
         std::fs::create_dir_all(&queen_dir).unwrap();
+
+        // Write queen's agent.yaml
+        let queen_config = moxxy_types::AgentConfig {
+            name: "queen-1".into(),
+            provider_id: "openai".into(),
+            model_id: "gpt-4".into(),
+            temperature: 0.7,
+            max_subagent_depth: 2,
+            max_subagents_total: 8,
+            policy_profile: None,
+        };
+        queen_config
+            .save(&queen_dir.join("agent.yaml"))
+            .unwrap();
 
         let db = Arc::new(Mutex::new(test_database()));
         {
