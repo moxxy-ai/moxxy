@@ -71,6 +71,7 @@ impl Provider for EchoProvider {
         Ok(ProviderResponse {
             content,
             tool_calls,
+            usage: None,
         })
     }
 }

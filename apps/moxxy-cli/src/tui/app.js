@@ -95,6 +95,7 @@ export class App {
     // Two-step command state
     this._pendingVaultSet = null;   // { keyName }
     this._pendingModelSwitch = null; // { step: 'provider'|'model', providers?, providerId?, models? }
+    this._modelMetaKey = null;
   }
 
   async start() {
@@ -222,6 +223,7 @@ export class App {
       this.agent = await this.client.getAgent(this.agentId);
       this.statusBar.setAgent(this.agent);
       this.chatPanel.setAgentName(this.agent.name || null);
+      await this._syncModelContextWindow();
       this.error = null;
       this._startPolling();
     } catch (err) {
@@ -242,13 +244,57 @@ export class App {
       if (!this.agent || this.agent.status !== 'running') return;
       try {
         const prevStatus = this.agent.status;
+        const prevModelKey = `${this.agent.provider_id}/${this.agent.model_id}`;
         this.agent = await this.client.getAgent(this.agentId);
         this.statusBar.setAgent(this.agent);
         this.chatPanel.setAgentName(this.agent.name || null);
+        const nextModelKey = `${this.agent.provider_id}/${this.agent.model_id}`;
+        if (prevModelKey !== nextModelKey) {
+          await this._syncModelContextWindow(true);
+        }
         // Force full redraw when agent status changes to avoid stale status lines
         this.tui.requestRender(prevStatus !== this.agent.status);
       } catch { /* ignore polling errors */ }
     }, 5000);
+  }
+
+  _parsePositiveInt(value) {
+    const n = typeof value === 'string' ? Number.parseInt(value, 10) : Number(value);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  }
+
+  _readContextWindow(metadata) {
+    if (!metadata || typeof metadata !== 'object') return 0;
+    const candidates = [
+      metadata.context_window,
+      metadata.contextWindow,
+      metadata.max_context_tokens,
+      metadata.max_input_tokens,
+      metadata.input_token_limit,
+    ];
+    for (const value of candidates) {
+      const parsed = this._parsePositiveInt(value);
+      if (parsed > 0) return parsed;
+    }
+    return 0;
+  }
+
+  async _syncModelContextWindow(force = false) {
+    if (!this.agent?.provider_id || !this.agent?.model_id) return;
+    const key = `${this.agent.provider_id}/${this.agent.model_id}`;
+    if (!force && this._modelMetaKey === key) return;
+
+    try {
+      const models = await this.client.listModels(this.agent.provider_id);
+      const selected = (models || []).find(m => m.model_id === this.agent.model_id);
+      const contextWindow = this._readContextWindow(selected?.metadata);
+      this.statusBar.setContextWindow(contextWindow);
+      this._modelMetaKey = key;
+      this.tui.requestRender();
+    } catch {
+      this.statusBar.setContextWindow(0);
+      this._modelMetaKey = null;
+    }
   }
 
   async _stopAgent() {
@@ -342,6 +388,7 @@ export class App {
           this.agent.provider_id = pending.providerId;
           this.agent.model_id = model.model_id;
           this.statusBar.setAgent(this.agent);
+          await this._syncModelContextWindow(true);
           this.tui.requestRender(true);
           this.eventsHandler.addSystemMessage(`Switched to ${pending.providerId}/${model.model_id}.`);
         } catch (err) {

@@ -3,6 +3,12 @@ import assert from 'node:assert/strict';
 import { shortId, formatNumber, makeBar, COLORS, formatTs } from '../src/tui/helpers.js';
 import { renderMarkdown } from '../src/tui/markdown-renderer.js';
 import { matchCommands, SLASH_COMMANDS } from '../src/tui/slash-commands.js';
+import { StatusBar, computeContextUtilization } from '../src/tui/status-bar.js';
+import { EventsHandler } from '../src/tui/events-handler.js';
+
+function stripAnsi(s) {
+  return String(s || '').replace(/\x1b\[[0-9;]*m/g, '');
+}
 
 describe('tui helpers', () => {
   it('shortId truncates to 12 chars', () => {
@@ -172,5 +178,162 @@ describe('model slash commands', () => {
   it('SLASH_COMMANDS includes model entries', () => {
     const modelCmds = SLASH_COMMANDS.filter(c => c.name.startsWith('/model'));
     assert.ok(modelCmds.length >= 3);
+  });
+});
+
+describe('status bar', () => {
+  it('renders token and context usage as percentage when context window is known', () => {
+    const bar = new StatusBar();
+    bar.setAgent({
+      id: '019cb068-9930-7000-8000-123456789abc',
+      status: 'idle',
+      provider_id: 'openai',
+      model_id: 'gpt-4o-mini',
+    });
+    bar.setConnected(true);
+    bar.setContextWindow(8192);
+    bar.setStats({
+      eventCount: 6,
+      tokenEstimate: 1915,
+      contextTokens: 1896,
+      skills: {},
+      primitives: {},
+    });
+
+    const lines = bar.render(120);
+    const mid = stripAnsi(lines[1]);
+    assert.ok(mid.includes('Ev:6'));
+    assert.ok(mid.includes('Tok:'));
+    assert.ok(mid.includes('Ctx:1,896/8,192 (23%)'));
+  });
+
+  it('hides context segment when context window is unknown', () => {
+    const bar = new StatusBar();
+    bar.setAgent({
+      id: '019cb068-9930-7000-8000-123456789abc',
+      status: 'idle',
+      provider_id: 'openai',
+      model_id: 'gpt-4o-mini',
+    });
+    bar.setConnected(true);
+    bar.setContextWindow(0);
+    bar.setStats({
+      eventCount: 1,
+      tokenEstimate: 100,
+      contextTokens: 1896,
+      skills: {},
+      primitives: {},
+    });
+
+    const lines = bar.render(120);
+    const mid = stripAnsi(lines[1]);
+    assert.ok(mid.includes('Tok:100'));
+    assert.ok(!mid.includes('Ctx:'));
+    assert.ok(!mid.includes('%'));
+  });
+
+  it('computes utilization thresholds and clamps to 0..100', () => {
+    assert.deepEqual(computeContextUtilization(600, 1000), {
+      hasWindow: true,
+      percent: 60,
+      band: 'low',
+    });
+    assert.deepEqual(computeContextUtilization(610, 1000), {
+      hasWindow: true,
+      percent: 61,
+      band: 'medium',
+    });
+    assert.deepEqual(computeContextUtilization(800, 1000), {
+      hasWindow: true,
+      percent: 80,
+      band: 'medium',
+    });
+    assert.deepEqual(computeContextUtilization(810, 1000), {
+      hasWindow: true,
+      percent: 81,
+      band: 'high',
+    });
+    assert.deepEqual(computeContextUtilization(-100, 1000), {
+      hasWindow: true,
+      percent: 0,
+      band: 'low',
+    });
+    assert.deepEqual(computeContextUtilization(5000, 1000), {
+      hasWindow: true,
+      percent: 100,
+      band: 'high',
+    });
+    assert.deepEqual(computeContextUtilization(500, 0), {
+      hasWindow: false,
+      percent: 0,
+      band: 'low',
+    });
+  });
+});
+
+describe('events handler stats', () => {
+  it('accumulates usage tokens and latest context tokens from model.response', () => {
+    const h = new EventsHandler({}, 'agent-1');
+
+    h._processEvent({
+      event_type: 'model.response',
+      payload: {
+        usage: {
+          prompt_tokens: 120,
+          completion_tokens: 30,
+          total_tokens: 150,
+        },
+      },
+    });
+
+    h._processEvent({
+      event_type: 'model.response',
+      payload: {
+        usage: {
+          input_tokens: 80,
+          output_tokens: 20,
+          total_tokens: 100,
+        },
+      },
+    });
+
+    assert.equal(h.stats.tokenEstimate, 250);
+    assert.equal(h.stats.contextTokens, 80);
+  });
+
+  it('reads usage nested under payload.response.usage', () => {
+    const h = new EventsHandler({}, 'agent-1');
+
+    h._processEvent({
+      event_type: 'model.response',
+      payload: {
+        response: {
+          usage: {
+            input_tokens: 60,
+            output_tokens: 15,
+            total_tokens: 75,
+          },
+        },
+      },
+    });
+
+    assert.equal(h.stats.tokenEstimate, 75);
+    assert.equal(h.stats.contextTokens, 60);
+  });
+
+  it('reads usage when tokens are on payload top-level', () => {
+    const h = new EventsHandler({}, 'agent-1');
+
+    h._processEvent({
+      event_type: 'model.response',
+      payload: {
+        prompt_tokens: 40,
+        completion_tokens: 10,
+        total_tokens: 50,
+      },
+    });
+
+    assert.equal(h.stats.tokenEstimate, 50);
+    assert.equal(h.stats.contextTokens, 40);
   });
 });

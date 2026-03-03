@@ -2,6 +2,30 @@ import chalk from 'chalk';
 import { shortId, formatNumber, styles } from './helpers.js';
 import { truncateToWidth, visibleWidth } from '@mariozechner/pi-tui';
 
+function clamp(min, value, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+export function computeContextUtilization(contextTokens, contextWindow) {
+  const windowSize = Number(contextWindow) || 0;
+  if (windowSize <= 0) {
+    return { hasWindow: false, percent: 0, band: 'low' };
+  }
+
+  const tokens = Number(contextTokens) || 0;
+  const percent = clamp(0, Math.round((tokens / windowSize) * 100), 100);
+
+  if (percent <= 60) return { hasWindow: true, percent, band: 'low' };
+  if (percent <= 80) return { hasWindow: true, percent, band: 'medium' };
+  return { hasWindow: true, percent, band: 'high' };
+}
+
+function colorizeContextPercent(text, band) {
+  if (band === 'medium') return chalk.hex('#FF9500')(text);
+  if (band === 'high') return chalk.red(text);
+  return chalk.green(text);
+}
+
 /**
  * Status bar component displaying agent info, connection status, and stats.
  * Renders as 1 bordered line.
@@ -11,7 +35,14 @@ export class StatusBar {
     this.agent = null;
     this.connected = false;
     this.selectMode = false;
-    this.stats = { eventCount: 0, tokenEstimate: 0, skills: {}, primitives: {} };
+    this.stats = {
+      eventCount: 0,
+      tokenEstimate: 0,
+      contextTokens: 0,
+      skills: {},
+      primitives: {},
+    };
+    this.contextWindow = 0;
     this._cache = null;
     this._cacheWidth = 0;
   }
@@ -33,6 +64,11 @@ export class StatusBar {
 
   setStats(stats) {
     this.stats = stats;
+    this._cache = null;
+  }
+
+  setContextWindow(contextWindow) {
+    this.contextWindow = contextWindow || 0;
     this._cache = null;
   }
 
@@ -59,11 +95,15 @@ export class StatusBar {
     const sseColor = this.connected ? styles.info : styles.error;
     parts.push(sseColor(this.connected ? 'SSE \u2713' : 'SSE \u2717'));
 
-    if (this.stats.eventCount > 0) {
-      parts.push(chalk.dim(`Ev:${formatNumber(this.stats.eventCount)}`));
-    }
-    if (this.stats.tokenEstimate > 0) {
-      parts.push(chalk.dim(`Tok:${formatNumber(this.stats.tokenEstimate)}`));
+    if (this.stats.eventCount > 0) parts.push(chalk.dim(`Ev:${formatNumber(this.stats.eventCount)}`));
+    parts.push(chalk.dim(`Tok:${formatNumber(this.stats.tokenEstimate || 0)}`));
+
+    const contextTokens = this.stats.contextTokens || 0;
+    const utilization = computeContextUtilization(contextTokens, this.contextWindow);
+    if (utilization.hasWindow) {
+      const base = chalk.dim(`Ctx:${formatNumber(contextTokens)}/${formatNumber(this.contextWindow)}`);
+      const percent = colorizeContextPercent(`(${utilization.percent}%)`, utilization.band);
+      parts.push(`${base} ${percent}`);
     }
 
     if (this.selectMode) {

@@ -188,15 +188,23 @@ impl RunExecutor {
                 }
             };
 
+            let mut model_response_payload = serde_json::json!({
+                "content_length": response.content.len(),
+                "tool_calls_count": response.tool_calls.len()
+            });
+            if let Some(usage) = &response.usage
+                && let Ok(serialized_usage) = serde_json::to_value(usage)
+                && let Some(map) = model_response_payload.as_object_mut()
+            {
+                map.insert("usage".to_string(), serialized_usage);
+            }
+
             self.emit(
                 agent_id,
                 run_id,
                 &mut sequence,
                 EventType::ModelResponse,
-                serde_json::json!({
-                    "content_length": response.content.len(),
-                    "tool_calls_count": response.tool_calls.len()
-                }),
+                model_response_payload,
             );
 
             if !response.content.is_empty() {
@@ -348,7 +356,7 @@ impl RunExecutor {
 mod tests {
     use super::*;
     use crate::echo_provider::EchoProvider;
-    use crate::provider::ToolCall;
+    use crate::provider::{ProviderResponse, TokenUsage, ToolCall};
     use crate::registry::{Primitive, PrimitiveError};
     use async_trait::async_trait;
 
@@ -364,6 +372,30 @@ mod tests {
             params: serde_json::Value,
         ) -> Result<serde_json::Value, PrimitiveError> {
             Ok(params)
+        }
+    }
+
+    struct UsageProvider;
+
+    #[async_trait]
+    impl Provider for UsageProvider {
+        async fn complete(
+            &self,
+            _messages: Vec<Message>,
+            _config: &ModelConfig,
+            _tools: &[crate::registry::ToolDefinition],
+        ) -> Result<ProviderResponse, PrimitiveError> {
+            Ok(ProviderResponse {
+                content: "ok".into(),
+                tool_calls: vec![],
+                usage: Some(TokenUsage {
+                    prompt_tokens: Some(42),
+                    completion_tokens: Some(8),
+                    total_tokens: Some(50),
+                    input_tokens: None,
+                    output_tokens: None,
+                }),
+            })
         }
     }
 
@@ -446,6 +478,31 @@ mod tests {
             assert_eq!(event.agent_id, "my-agent");
             assert_eq!(event.run_id, Some("my-run".into()));
         }
+    }
+
+    #[tokio::test]
+    async fn model_response_event_includes_usage_when_provider_reports_it() {
+        let bus = EventBus::new(100);
+        let mut rx = bus.subscribe();
+        let provider = Arc::new(UsageProvider);
+        let registry = PrimitiveRegistry::new();
+
+        let executor = RunExecutor::new(bus, provider, registry, vec![]);
+        executor
+            .execute("agent-usage", "run-usage", "count tokens", &model_config())
+            .await
+            .unwrap();
+
+        let mut seen_usage = false;
+        while let Ok(event) = rx.try_recv() {
+            if event.event_type == EventType::ModelResponse {
+                assert_eq!(event.payload["usage"]["prompt_tokens"], 42);
+                assert_eq!(event.payload["usage"]["completion_tokens"], 8);
+                assert_eq!(event.payload["usage"]["total_tokens"], 50);
+                seen_usage = true;
+            }
+        }
+        assert!(seen_usage);
     }
 
     #[tokio::test]

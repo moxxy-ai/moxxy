@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::provider::{Message, ModelConfig, Provider, ProviderResponse, ToolCall};
+use crate::provider::{Message, ModelConfig, Provider, ProviderResponse, TokenUsage, ToolCall};
 use crate::registry::{PrimitiveError, ToolDefinition};
 
 const OPENAI_OAUTH_TOKEN_ENDPOINT: &str = "https://auth.openai.com/oauth/token";
@@ -153,6 +153,22 @@ struct OpenAIFunctionCallOut {
 #[derive(Deserialize)]
 struct ChatResponse {
     choices: Vec<Choice>,
+    #[serde(default)]
+    usage: Option<ChatUsage>,
+}
+
+#[derive(Deserialize)]
+struct ChatUsage {
+    #[serde(default)]
+    prompt_tokens: Option<u32>,
+    #[serde(default)]
+    completion_tokens: Option<u32>,
+    #[serde(default)]
+    total_tokens: Option<u32>,
+    #[serde(default)]
+    input_tokens: Option<u32>,
+    #[serde(default)]
+    output_tokens: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -347,6 +363,14 @@ fn convert_codex_input(messages: &[Message]) -> Vec<CodexInputItem> {
 
 /// Parse a raw `ChatResponse` into a `ProviderResponse`.
 fn parse_chat_response(resp: ChatResponse) -> Result<ProviderResponse, PrimitiveError> {
+    let usage = resp.usage.map(|u| TokenUsage {
+        prompt_tokens: u.prompt_tokens,
+        completion_tokens: u.completion_tokens,
+        total_tokens: u.total_tokens,
+        input_tokens: u.input_tokens,
+        output_tokens: u.output_tokens,
+    });
+
     let choice = resp
         .choices
         .into_iter()
@@ -380,6 +404,7 @@ fn parse_chat_response(resp: ChatResponse) -> Result<ProviderResponse, Primitive
     Ok(ProviderResponse {
         content,
         tool_calls,
+        usage,
     })
 }
 
@@ -1037,11 +1062,13 @@ mod tests {
                     tool_calls: None,
                 },
             }],
+            usage: None,
         };
 
         let result = parse_chat_response(resp).unwrap();
         assert_eq!(result.content, "Hello, world!");
         assert!(result.tool_calls.is_empty());
+        assert!(result.usage.is_none());
     }
 
     #[test]
@@ -1053,11 +1080,13 @@ mod tests {
                     tool_calls: None,
                 },
             }],
+            usage: None,
         };
 
         let result = parse_chat_response(resp).unwrap();
         assert_eq!(result.content, "");
         assert!(result.tool_calls.is_empty());
+        assert!(result.usage.is_none());
     }
 
     #[test]
@@ -1084,6 +1113,7 @@ mod tests {
                     ]),
                 },
             }],
+            usage: None,
         };
 
         let result = parse_chat_response(resp).unwrap();
@@ -1101,7 +1131,10 @@ mod tests {
 
     #[test]
     fn parse_response_errors_on_empty_choices() {
-        let resp = ChatResponse { choices: vec![] };
+        let resp = ChatResponse {
+            choices: vec![],
+            usage: None,
+        };
 
         let result = parse_chat_response(resp);
         assert!(result.is_err());
@@ -1125,6 +1158,7 @@ mod tests {
                     }]),
                 },
             }],
+            usage: None,
         };
 
         let result = parse_chat_response(resp);
@@ -1180,6 +1214,15 @@ mod tests {
         assert_eq!(result.tool_calls[0].name, "get_weather");
         assert_eq!(result.tool_calls[0].arguments["location"], "San Francisco");
         assert_eq!(result.tool_calls[0].arguments["unit"], "celsius");
+        assert_eq!(
+            result.usage.as_ref().and_then(|u| u.prompt_tokens),
+            Some(50)
+        );
+        assert_eq!(
+            result.usage.as_ref().and_then(|u| u.completion_tokens),
+            Some(30)
+        );
+        assert_eq!(result.usage.as_ref().and_then(|u| u.total_tokens), Some(80));
     }
 
     #[test]
@@ -1211,6 +1254,7 @@ mod tests {
 
         assert_eq!(result.content, "Hello! How can I help you today?");
         assert!(result.tool_calls.is_empty());
+        assert_eq!(result.usage.as_ref().and_then(|u| u.total_tokens), Some(18));
     }
 
     #[test]
@@ -1228,6 +1272,7 @@ mod tests {
                     }]),
                 },
             }],
+            usage: None,
         };
         let result = parse_chat_response(resp).unwrap();
         assert_eq!(result.tool_calls[0].id, "call_xyz_789");
@@ -1248,6 +1293,7 @@ mod tests {
                     }]),
                 },
             }],
+            usage: None,
         };
         let result = parse_chat_response(resp).unwrap();
         assert_eq!(result.tool_calls[0].id, "call_0");

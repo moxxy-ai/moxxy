@@ -25,6 +25,40 @@ function isHiddenTool(name) {
   return HIDDEN_TOOL_PREFIXES.some(p => name.startsWith(p));
 }
 
+function toTokenNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+function normalizeUsage(rawUsage) {
+  if (!rawUsage || typeof rawUsage !== 'object') return null;
+
+  const promptTokens = toTokenNumber(rawUsage.prompt_tokens || rawUsage.input_tokens);
+  const completionTokens = toTokenNumber(rawUsage.completion_tokens || rawUsage.output_tokens);
+  const totalTokens = toTokenNumber(rawUsage.total_tokens) || (promptTokens + completionTokens);
+
+  if (promptTokens === 0 && completionTokens === 0 && totalTokens === 0) {
+    return null;
+  }
+
+  return { promptTokens, completionTokens, totalTokens };
+}
+
+function extractUsage(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+
+  const nested = normalizeUsage(payload.usage);
+  if (nested) return nested;
+
+  const responseNested = normalizeUsage(payload.response?.usage);
+  if (responseNested) return responseNested;
+
+  const topLevel = normalizeUsage(payload);
+  if (topLevel) return topLevel;
+
+  return null;
+}
+
 function formatValue(v) {
   if (v == null) return 'null';
   if (typeof v === 'string') return v.length > PARAM_TRUNCATE ? v.slice(0, PARAM_TRUNCATE) + '…' : v;
@@ -52,7 +86,13 @@ export class EventsHandler {
     this.agentId = agentId;
     this.debug = debug;
     this.messages = [];
-    this.stats = { eventCount: 0, tokenEstimate: 0, skills: {}, primitives: {} };
+    this.stats = {
+      eventCount: 0,
+      tokenEstimate: 0,
+      contextTokens: 0,
+      skills: {},
+      primitives: {},
+    };
     this.connected = false;
     this._assistantBuffer = '';
     this._deltaTimer = null;
@@ -281,8 +321,22 @@ export class EventsHandler {
     if (type === 'primitive.invoked' && payload.name) {
       this.stats.primitives[payload.name] = (this.stats.primitives[payload.name] || 0) + 1;
     }
-    if (type === 'model.response' && payload.usage) {
-      this.stats.tokenEstimate += (payload.usage.total_tokens || 0);
+    if (type === 'model.response') {
+      const usage = extractUsage(payload);
+      if (usage) {
+        const promptTokens = usage.promptTokens;
+        const completionTokens = usage.completionTokens;
+        const totalTokens = usage.totalTokens;
+
+        this.stats.tokenEstimate += totalTokens;
+        this.stats.contextTokens = promptTokens || Math.max(0, totalTokens - completionTokens);
+      } else {
+        // Fallback estimate when provider does not report usage in payload.
+        const contentLength = payload.content_length || 0;
+        if (contentLength > 0) {
+          this.stats.tokenEstimate += Math.ceil(contentLength / 4);
+        }
+      }
     }
 
     // Register new sub-agents

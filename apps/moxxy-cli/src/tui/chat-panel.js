@@ -23,6 +23,28 @@ const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', 
 const PADDING_X = 5; // horizontal inset (each side)
 const PADDING_Y = 2;  // vertical inset (blank lines, each side)
 
+function toTokenNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+function readTotalTokens(payload) {
+  if (!payload || typeof payload !== 'object') return 0;
+
+  const fromUsage = toTokenNumber(payload.usage?.total_tokens);
+  if (fromUsage > 0) return fromUsage;
+
+  const fromResponseUsage = toTokenNumber(payload.response?.usage?.total_tokens);
+  if (fromResponseUsage > 0) return fromResponseUsage;
+
+  const fromTopLevel = toTokenNumber(payload.total_tokens);
+  if (fromTopLevel > 0) return fromTopLevel;
+
+  const prompt = toTokenNumber(payload.prompt_tokens || payload.input_tokens);
+  const completion = toTokenNumber(payload.completion_tokens || payload.output_tokens);
+  return prompt + completion;
+}
+
 function eventSummary(eventType, payload) {
   switch (eventType) {
     case 'run.started': return payload.task ? `Task: ${payload.task}` : 'Run started';
@@ -37,7 +59,7 @@ function eventSummary(eventType, payload) {
     case 'security.violation': return payload.reason || 'Security violation';
     case 'sandbox.denied': return payload.reason || 'Sandbox denied';
     case 'model.response': {
-      const tokens = payload.usage?.total_tokens;
+      const tokens = readTotalTokens(payload);
       return tokens ? `${tokens} tokens` : '';
     }
     default: return '';
