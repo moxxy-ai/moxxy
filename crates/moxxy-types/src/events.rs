@@ -76,6 +76,22 @@ pub enum EventType {
     AgentStuck,
     #[serde(rename = "webhook.received")]
     WebhookReceived,
+    #[serde(rename = "hive.created")]
+    HiveCreated,
+    #[serde(rename = "hive.disbanded")]
+    HiveDisbanded,
+    #[serde(rename = "hive.member_joined")]
+    HiveMemberJoined,
+    #[serde(rename = "hive.signal_posted")]
+    HiveSignalPosted,
+    #[serde(rename = "hive.task_completed")]
+    HiveTaskCompleted,
+    #[serde(rename = "hive.proposal_created")]
+    HiveProposalCreated,
+    #[serde(rename = "hive.proposal_resolved")]
+    HiveProposalResolved,
+    #[serde(rename = "hive.vote_cast")]
+    HiveVoteCast,
 }
 
 impl EventType {
@@ -118,6 +134,14 @@ impl EventType {
             EventType::AgentAlive,
             EventType::AgentStuck,
             EventType::WebhookReceived,
+            EventType::HiveCreated,
+            EventType::HiveDisbanded,
+            EventType::HiveMemberJoined,
+            EventType::HiveSignalPosted,
+            EventType::HiveTaskCompleted,
+            EventType::HiveProposalCreated,
+            EventType::HiveProposalResolved,
+            EventType::HiveVoteCast,
         ]
     }
 }

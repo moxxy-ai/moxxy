@@ -149,7 +149,10 @@ impl RunExecutor {
                         if ev.agent_id == agent_id
                             && matches!(
                                 ev.event_type,
-                                EventType::SubagentCompleted | EventType::SubagentFailed
+                                EventType::SubagentCompleted
+                                    | EventType::SubagentFailed
+                                    | EventType::HiveSignalPosted
+                                    | EventType::HiveProposalCreated
                             ) =>
                     {
                         pending_notifications.push(ev);
@@ -303,7 +306,10 @@ impl RunExecutor {
                                 match result {
                                     Ok(ev) if ev.agent_id == agent_id
                                         && matches!(ev.event_type,
-                                            EventType::SubagentCompleted | EventType::SubagentFailed) =>
+                                            EventType::SubagentCompleted
+                                            | EventType::SubagentFailed
+                                            | EventType::HiveSignalPosted
+                                            | EventType::HiveProposalCreated) =>
                                     {
                                         break Some(ev);
                                     }
@@ -332,12 +338,26 @@ impl RunExecutor {
                     .to_string();
                 active_subagents.remove(&sub_id);
 
-                let notification = if event.event_type == EventType::SubagentCompleted {
-                    let result_text = event.payload["result"].as_str().unwrap_or("(no output)");
-                    format!("[Sub-agent '{name}' completed]\n{result_text}")
-                } else {
-                    let error = event.payload["error"].as_str().unwrap_or("unknown error");
-                    format!("[Sub-agent '{name}' failed]\n{error}")
+                let notification = match event.event_type {
+                    EventType::SubagentCompleted => {
+                        let result_text = event.payload["result"].as_str().unwrap_or("(no output)");
+                        format!("[Sub-agent '{name}' completed]\n{result_text}")
+                    }
+                    EventType::SubagentFailed => {
+                        let error = event.payload["error"].as_str().unwrap_or("unknown error");
+                        format!("[Sub-agent '{name}' failed]\n{error}")
+                    }
+                    EventType::HiveSignalPosted => {
+                        let signal_type = event.payload["signal_type"].as_str().unwrap_or("signal");
+                        let author = event.payload["author"].as_str().unwrap_or("unknown");
+                        format!("[Hive signal: {signal_type} from {author}]")
+                    }
+                    EventType::HiveProposalCreated => {
+                        let title = event.payload["title"].as_str().unwrap_or("untitled");
+                        let proposer = event.payload["proposer"].as_str().unwrap_or("unknown");
+                        format!("[Hive proposal: '{title}' by {proposer}]")
+                    }
+                    _ => format!("[Event: {:?}]", event.event_type),
                 };
 
                 self.emit(

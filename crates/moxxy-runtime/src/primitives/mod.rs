@@ -8,6 +8,7 @@ pub mod config;
 pub mod fs;
 pub mod git;
 pub mod heartbeat;
+pub mod hive;
 pub mod http;
 pub mod memory_ltm;
 pub mod memory_stm;
@@ -39,6 +40,12 @@ pub use git::{
 pub use heartbeat::{
     HeartbeatCreatePrimitive, HeartbeatDeletePrimitive, HeartbeatDisablePrimitive,
     HeartbeatListPrimitive, HeartbeatUpdatePrimitive,
+};
+pub use hive::{
+    HiveAggregatePrimitive, HiveAssignPrimitive, HiveBoardReadPrimitive, HiveCreatePrimitive,
+    HiveDisbandPrimitive, HiveProposePrimitive, HiveRecruitPrimitive, HiveResolveProposalPrimitive,
+    HiveSignalPrimitive, HiveStore, HiveTaskClaimPrimitive, HiveTaskCompletePrimitive,
+    HiveTaskCreatePrimitive, HiveTaskListPrimitive, HiveVotePrimitive,
 };
 pub use http::HttpRequestPrimitive;
 pub use memory_ltm::{MemoryRecallPrimitive, MemoryStorePrimitive};
