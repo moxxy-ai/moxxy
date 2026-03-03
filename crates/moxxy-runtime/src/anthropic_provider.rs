@@ -395,10 +395,10 @@ impl AnthropicProvider {
                         PrimitiveError::ExecutionFailed("OAuth session lock poisoned".into())
                     })?;
                     locked.access_token = refreshed.access_token;
-                    if let Some(next_refresh) = refreshed.refresh_token {
-                        if !next_refresh.trim().is_empty() {
-                            locked.refresh_token = next_refresh;
-                        }
+                    if let Some(next_refresh) = refreshed.refresh_token
+                        && !next_refresh.trim().is_empty()
+                    {
+                        locked.refresh_token = next_refresh;
                     }
                     locked.expires_at = expires_at;
                 }

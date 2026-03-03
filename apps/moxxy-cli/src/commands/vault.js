@@ -9,11 +9,12 @@ export async function runVault(client, args) {
   const flags = parseFlags(rest);
 
   // Interactive sub-menu when no valid action
-  if (!['add', 'grant', 'revoke', 'list'].includes(action) && isInteractive()) {
+  if (!['add', 'remove', 'grant', 'revoke', 'list'].includes(action) && isInteractive()) {
     action = await p.select({
       message: 'Vault action',
       options: [
         { value: 'add',    label: 'Add secret',    hint: 'register a new secret' },
+        { value: 'remove', label: 'Remove secret',  hint: 'delete a secret from the vault' },
         { value: 'grant',  label: 'Grant access',  hint: 'grant agent access to a secret' },
         { value: 'revoke', label: 'Revoke access', hint: 'revoke agent secret access' },
         { value: 'list',   label: 'List secrets',  hint: 'show all secrets' },
@@ -92,6 +93,40 @@ export async function runVault(client, args) {
       const result = await client.request('/v1/vault/secrets', 'POST', body);
       console.log(JSON.stringify(result, null, 2));
       return result;
+    }
+
+    case 'remove': {
+      let secretId = flags.id || flags.secret;
+
+      if (!secretId && isInteractive()) {
+        const secrets = await withSpinner('Fetching secrets...', () =>
+          client.listSecrets(), 'Secrets loaded.');
+
+        if (!Array.isArray(secrets) || secrets.length === 0) {
+          p.log.warn('No secrets to remove.');
+          return;
+        }
+
+        secretId = handleCancel(await p.select({
+          message: 'Select secret to remove',
+          options: secrets.map(s => ({
+            value: s.id,
+            label: s.key_name,
+            hint: `${s.id.slice(0, 12)}  backend=${s.backend_key}`,
+          })),
+        }));
+      }
+
+      if (!secretId) throw new Error('Required: --id');
+
+      if (isInteractive()) {
+        await withSpinner('Removing secret...', () =>
+          client.deleteSecret(secretId), 'Secret removed.');
+      } else {
+        await client.deleteSecret(secretId);
+        console.log(`Secret ${secretId} removed.`);
+      }
+      break;
     }
 
     case 'grant': {

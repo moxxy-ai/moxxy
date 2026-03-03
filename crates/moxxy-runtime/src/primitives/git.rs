@@ -74,7 +74,7 @@ fn resolve_to_workspace(path: &str, workspace_root: &std::path::Path) -> String 
 
 /// Resolve the absolute path to the `git` binary once and cache it.
 /// Falls back to common well-known locations when `git` is not on PATH.
-fn git_binary() -> &'static str {
+pub(crate) fn git_binary() -> &'static str {
     static GIT: OnceLock<String> = OnceLock::new();
     GIT.get_or_init(|| {
         // First try the bare name via PATH (uses std, not tokio)

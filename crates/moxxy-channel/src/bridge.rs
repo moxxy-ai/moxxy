@@ -750,16 +750,16 @@ impl ChannelBridge {
                 let key = (agent_id.to_string(), run_id.clone());
                 if let Some(chat_map) = progress.remove(&key) {
                     for (transport, _chat_id, channel_id) in &channels {
-                        if let Some(rp) = chat_map.get(channel_id) {
-                            if let Some(msg_id) = &rp.message_id {
-                                let _ = transport
-                                    .edit_message(
-                                        &rp.external_chat_id,
-                                        msg_id,
-                                        "✅ Completed",
-                                    )
-                                    .await;
-                            }
+                        if let Some(rp) = chat_map.get(channel_id)
+                            && let Some(msg_id) = &rp.message_id
+                        {
+                            let _ = transport
+                                .edit_message(
+                                    &rp.external_chat_id,
+                                    msg_id,
+                                    "✅ Completed",
+                                )
+                                .await;
                         }
                     }
                 }
@@ -777,16 +777,16 @@ impl ChannelBridge {
                 let key = (agent_id.to_string(), run_id.clone());
                 if let Some(chat_map) = progress.remove(&key) {
                     for (transport, _chat_id, channel_id) in &channels {
-                        if let Some(rp) = chat_map.get(channel_id) {
-                            if let Some(msg_id) = &rp.message_id {
-                                let _ = transport
-                                    .edit_message(
-                                        &rp.external_chat_id,
-                                        msg_id,
-                                        &format!("❌ Failed: {error}"),
-                                    )
-                                    .await;
-                            }
+                        if let Some(rp) = chat_map.get(channel_id)
+                            && let Some(msg_id) = &rp.message_id
+                        {
+                            let _ = transport
+                                .edit_message(
+                                    &rp.external_chat_id,
+                                    msg_id,
+                                    &format!("❌ Failed: {error}"),
+                                )
+                                .await;
                         }
                     }
                 }

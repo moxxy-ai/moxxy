@@ -725,10 +725,10 @@ impl OpenAIProvider {
                         PrimitiveError::ExecutionFailed("OAuth session lock poisoned".into())
                     })?;
                     locked.access_token = refreshed.access_token;
-                    if let Some(next_refresh) = refreshed.refresh_token {
-                        if !next_refresh.trim().is_empty() {
-                            locked.refresh_token = next_refresh;
-                        }
+                    if let Some(next_refresh) = refreshed.refresh_token
+                        && !next_refresh.trim().is_empty()
+                    {
+                        locked.refresh_token = next_refresh;
                     }
                     locked.expires_at = expires_at;
                 }
@@ -739,7 +739,7 @@ impl OpenAIProvider {
                 let account = self
                     .chatgpt_account_id
                     .clone()
-                    .or_else(|| account_id)
+                    .or(account_id)
                     .or_else(|| locked.account_id.clone());
                 Ok((locked.access_token.clone(), account))
             }
@@ -755,10 +755,10 @@ impl OpenAIProvider {
         let (bearer, chatgpt_account_id) = self.resolve_bearer_auth().await?;
 
         let mut request = self.client.post(&url).bearer_auth(&bearer);
-        if let Some(account_id) = chatgpt_account_id {
-            if !account_id.trim().is_empty() {
-                request = request.header("ChatGPT-Account-Id", account_id);
-            }
+        if let Some(account_id) = chatgpt_account_id
+            && !account_id.trim().is_empty()
+        {
+            request = request.header("ChatGPT-Account-Id", account_id);
         }
         if is_codex {
             request = request.header("accept", "text/event-stream");

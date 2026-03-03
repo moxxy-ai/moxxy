@@ -42,7 +42,7 @@ impl Primitive for AgentSpawnPrimitive {
     }
 
     fn description(&self) -> &str {
-        "Spawn a sub-agent to work on a subtask. The sub-agent inherits the parent's provider, model, and workspace."
+        "Spawn a sub-agent to work on a subtask. The sub-agent inherits the parent's provider, model, and workspace. Optionally provide repo_path to give the sub-agent a git worktree for isolated branch work."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -56,6 +56,14 @@ impl Primitive for AgentSpawnPrimitive {
                 "model_id": {
                     "type": "string",
                     "description": "Optional model override for the sub-agent"
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Absolute path to a git repo to create a worktree from. The worktree is placed in the sub-agent's workspace under the repo name."
+                },
+                "branch": {
+                    "type": "string",
+                    "description": "Branch name for the worktree. Auto-generated as 'sub-<id>' if omitted."
                 }
             },
             "required": ["task"]
@@ -114,6 +122,7 @@ impl Primitive for AgentSpawnPrimitive {
         let model_id = params
             .get("model_id")
             .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
             .unwrap_or(&parent.model_id)
             .to_string();
 
@@ -131,6 +140,111 @@ impl Primitive for AgentSpawnPrimitive {
         let child_memory = child_dir.join("memory");
         std::fs::create_dir_all(&child_workspace).ok();
         std::fs::create_dir_all(&child_memory).ok();
+
+        // If repo_path is provided, try to create a git worktree in the child workspace.
+        // This is best-effort: if the path isn't a git repo or git fails, the sub-agent
+        // still spawns and can do other work (e.g. news fetching, research).
+        if let Some(repo_path) = params.get("repo_path").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+            let repo = std::path::Path::new(repo_path);
+            let repo_name = repo
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("repo");
+            let branch = params
+                .get("branch")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+                .unwrap_or_else(|| format!("sub-{}", short_id));
+
+            let worktree_dest = child_workspace.join(repo_name);
+            let git = super::git::git_binary();
+            let aug_path = super::git::augmented_path();
+
+            // Prune stale worktrees first (e.g. from previous agents whose dirs were deleted).
+            // This prevents "already checked out at ..." errors for branches that point to
+            // non-existent worktree directories.
+            let _ = tokio::process::Command::new(git)
+                .args(["worktree", "prune"])
+                .current_dir(repo_path)
+                .env("PATH", aug_path)
+                .output()
+                .await;
+
+            // Try creating a new branch first; if it already exists, use it as-is
+            match tokio::process::Command::new(git)
+                .args(["worktree", "add", "-b", &branch])
+                .arg(&worktree_dest)
+                .current_dir(repo_path)
+                .env("PATH", aug_path)
+                .output()
+                .await
+            {
+                Ok(output) if output.status.success() => {
+                    tracing::info!(
+                        repo_path,
+                        branch = %branch,
+                        dest = %worktree_dest.display(),
+                        "Created git worktree for sub-agent"
+                    );
+                }
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    if stderr.contains("already exists") || stderr.contains("already checked out") {
+                        // Branch exists from a previous run — try reusing it
+                        match tokio::process::Command::new(git)
+                            .args(["worktree", "add"])
+                            .arg(&worktree_dest)
+                            .arg(&branch)
+                            .current_dir(repo_path)
+                            .env("PATH", aug_path)
+                            .output()
+                            .await
+                        {
+                            Ok(retry) if retry.status.success() => {
+                                tracing::info!(
+                                    repo_path,
+                                    branch = %branch,
+                                    dest = %worktree_dest.display(),
+                                    "Reused existing branch for sub-agent worktree"
+                                );
+                            }
+                            Ok(retry) => {
+                                let retry_stderr = String::from_utf8_lossy(&retry.stderr);
+                                tracing::warn!(
+                                    repo_path,
+                                    branch = %branch,
+                                    error = %retry_stderr,
+                                    "Failed to create git worktree (retry), sub-agent will work without it"
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    repo_path,
+                                    branch = %branch,
+                                    error = %e,
+                                    "Failed to run git for worktree (retry), sub-agent will work without it"
+                                );
+                            }
+                        }
+                    } else {
+                        tracing::warn!(
+                            repo_path,
+                            branch = %branch,
+                            error = %stderr,
+                            "Failed to create git worktree, sub-agent will work without it"
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        repo_path,
+                        error = %e,
+                        "Git not available or repo_path invalid, sub-agent will work without worktree"
+                    );
+                }
+            }
+        }
 
         let child = moxxy_storage::AgentRow {
             id: child_id.clone(),
@@ -163,8 +277,11 @@ impl Primitive for AgentSpawnPrimitive {
             db.agents()
                 .increment_spawned_total(&self.parent_agent_id)
                 .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-            // Inherit parent's allowlists
+            // Inherit parent's allowlists and vault grants
             db.allowlists()
+                .copy_from_agent(&self.parent_agent_id, &child_id)
+                .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
+            db.vault_grants()
                 .copy_from_agent(&self.parent_agent_id, &child_id)
                 .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
         }
@@ -973,5 +1090,167 @@ mod tests {
             result.unwrap_err(),
             PrimitiveError::AccessDenied(_)
         ));
+    }
+
+    #[tokio::test]
+    async fn agent_spawn_empty_model_id_inherits_parent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Arc::new(Mutex::new(test_database()));
+        {
+            let d = db.lock().unwrap();
+            insert_parent(&d);
+        }
+
+        let bus = EventBus::new(100);
+        let run_starter = Arc::new(MockRunStarter::new());
+
+        let prim = AgentSpawnPrimitive::new(
+            db.clone(),
+            "parent-1".into(),
+            run_starter,
+            bus,
+            tmp.path().to_path_buf(),
+        );
+
+        let result = prim
+            .invoke(serde_json::json!({
+                "task": "test task",
+                "model_id": "",
+            }))
+            .await;
+
+        assert!(result.is_ok());
+        let val = result.unwrap();
+        let child_id = val["sub_agent_id"].as_str().unwrap();
+
+        // Verify child inherited parent's model_id, not empty string
+        let d = db.lock().unwrap();
+        let child = d.agents().find_by_id(child_id).unwrap().unwrap();
+        assert_eq!(child.model_id, "gpt-4");
+    }
+
+    #[tokio::test]
+    async fn agent_spawn_creates_worktree() {
+        let tmp = tempfile::tempdir().unwrap();
+        let moxxy_home = tmp.path().join("moxxy");
+
+        // Create a git repo to use as the source
+        let repo_dir = tmp.path().join("my-repo");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+        let init_output = std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&repo_dir)
+            .output()
+            .unwrap();
+        assert!(init_output.status.success(), "git init failed");
+
+        // Need at least one commit for worktree to work
+        std::fs::write(repo_dir.join("README.md"), "# Test").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(&repo_dir)
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args([
+                "-c", "user.name=test",
+                "-c", "user.email=test@test.com",
+                "commit", "-m", "init",
+            ])
+            .current_dir(&repo_dir)
+            .output()
+            .unwrap();
+
+        let db = Arc::new(Mutex::new(test_database()));
+        {
+            let d = db.lock().unwrap();
+            insert_parent(&d);
+        }
+
+        let bus = EventBus::new(100);
+        let run_starter = Arc::new(MockRunStarter::new());
+
+        let prim = AgentSpawnPrimitive::new(
+            db.clone(),
+            "parent-1".into(),
+            run_starter,
+            bus,
+            moxxy_home,
+        );
+
+        let result = prim
+            .invoke(serde_json::json!({
+                "task": "work on feature",
+                "repo_path": repo_dir.to_str().unwrap(),
+                "branch": "feature-test",
+            }))
+            .await;
+
+        assert!(result.is_ok(), "spawn failed: {:?}", result.err());
+        let val = result.unwrap();
+        let child_id = val["sub_agent_id"].as_str().unwrap();
+
+        // Verify worktree was created in child workspace
+        let child_workspace = tmp
+            .path()
+            .join("moxxy/agents")
+            .join(child_id)
+            .join("workspace/my-repo");
+        assert!(child_workspace.exists(), "worktree directory should exist");
+        assert!(
+            child_workspace.join(".git").is_file(),
+            ".git should be a file (worktree marker)"
+        );
+        assert!(
+            child_workspace.join("README.md").exists(),
+            "README.md should be present from main branch"
+        );
+
+        // Clean up worktree
+        let _ = std::process::Command::new("git")
+            .args(["worktree", "remove", "--force"])
+            .arg(&child_workspace)
+            .current_dir(&repo_dir)
+            .output();
+    }
+
+    #[tokio::test]
+    async fn agent_spawn_succeeds_with_invalid_repo_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let moxxy_home = tmp.path().join("moxxy");
+
+        // Point repo_path to a plain directory (not a git repo)
+        let not_a_repo = tmp.path().join("not-a-repo");
+        std::fs::create_dir_all(&not_a_repo).unwrap();
+
+        let db = Arc::new(Mutex::new(test_database()));
+        {
+            let d = db.lock().unwrap();
+            insert_parent(&d);
+        }
+
+        let bus = EventBus::new(100);
+        let run_starter = Arc::new(MockRunStarter::new());
+
+        let prim = AgentSpawnPrimitive::new(
+            db.clone(),
+            "parent-1".into(),
+            run_starter.clone(),
+            bus,
+            moxxy_home,
+        );
+
+        let result = prim
+            .invoke(serde_json::json!({
+                "task": "fetch news",
+                "repo_path": not_a_repo.to_str().unwrap(),
+            }))
+            .await;
+
+        // Should succeed — worktree failure is non-fatal
+        assert!(result.is_ok(), "spawn should not fail when repo_path is invalid: {:?}", result.err());
+        let val = result.unwrap();
+        assert!(val["sub_agent_id"].is_string());
+        assert!(run_starter.started.load(Ordering::SeqCst));
     }
 }

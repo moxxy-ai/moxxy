@@ -544,7 +544,11 @@ mod agent_tests {
         let (app, state) = test_app();
         let token =
             create_token_in_db(&state, vec![TokenScope::AgentsWrite, TokenScope::RunsWrite]);
-        seed_provider(&state);
+        seed_provider_with_model(&state);
+        state
+            .vault_backend
+            .set_secret("moxxy_provider_test-provider", "sk-test-key-123")
+            .unwrap();
         let req = Request::builder()
             .method("POST")
             .uri("/v1/agents")

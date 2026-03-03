@@ -1,7 +1,7 @@
 use moxxy_channel::bridge::{ChannelBridge, ChannelSender};
 use moxxy_core::EventBus;
 use moxxy_runtime::{
-    AskChannels, AnthropicProvider, ChannelMessageSender, EchoProvider, OpenAIProvider, Provider,
+    AskChannels, AnthropicProvider, ChannelMessageSender, OpenAIProvider, Provider,
 };
 use moxxy_storage::Database;
 use moxxy_types::{MessageContent, RunStarter};
@@ -175,23 +175,42 @@ impl RunService {
         let run_id = uuid::Uuid::now_v7().to_string();
         let task = task.to_string();
 
-        let provider = self.resolve_provider(&agent.provider_id, &agent.model_id);
-        let using_echo = provider.is_none();
-        let provider = provider.unwrap_or_else(|| Arc::new(EchoProvider::new()));
+        let provider = self
+            .resolve_provider(&agent.provider_id, &agent.model_id)
+            .or_else(|| {
+                // Sub-agents may have an invalid model_id (e.g. LLM hallucinated the name).
+                // Fall back to the parent's model if resolution fails.
+                if let Some(ref parent_id) = agent.parent_agent_id {
+                    let db = self.db.lock().ok()?;
+                    let parent = db.providers().find_model(
+                        &agent.provider_id,
+                        &db.agents().find_by_id(parent_id).ok()??.model_id,
+                    ).ok()??;
+                    drop(db);
+                    tracing::warn!(
+                        agent_id,
+                        failed_model = %agent.model_id,
+                        fallback_model = %parent.model_id,
+                        "Sub-agent model resolution failed, falling back to parent's model"
+                    );
+                    self.resolve_provider(&agent.provider_id, &parent.model_id)
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| {
+                format!(
+                    "Could not resolve provider '{}' with model '{}'. \
+                     Check that the provider is installed, enabled, and has a valid API key/secret in the vault.",
+                    agent.provider_id, agent.model_id
+                )
+            })?;
 
-        if using_echo {
-            tracing::warn!(
-                agent_id,
-                provider_id = %agent.provider_id,
-                "Provider not found, falling back to EchoProvider"
-            );
-        } else {
-            tracing::info!(
-                agent_id,
-                provider_id = %agent.provider_id,
-                "Using registered provider"
-            );
-        }
+        tracing::info!(
+            agent_id,
+            provider_id = %agent.provider_id,
+            "Using registered provider"
+        );
 
         let agent_dir = self.moxxy_home.join("agents").join(&agent.id);
         let agents_dir = self.moxxy_home.join("agents");
@@ -567,9 +586,9 @@ impl RunService {
                 ),
                 (
                     "agent",
-                    "Sub-agents (auto-cleaned up when their run completes)",
+                    "Sub-agents (auto-cleaned up when their run completes). agent.spawn accepts optional repo_path to create a git worktree for isolated branch work",
                     &[
-                        ("agent.spawn", "spawn"),
+                        ("agent.spawn", "spawn (with optional git worktree)"),
                         ("agent.status", "check status"),
                         ("agent.list", "list"),
                         ("agent.stop", "stop"),
@@ -695,6 +714,30 @@ impl RunService {
                 }
             }
 
+            // Clean up git worktrees before acquiring the DB lock.
+            // Worktrees are identified by a `.git` *file* (not directory)
+            // that points back to the main repo's git dir.
+            if parent_agent_id.is_some() {
+                let ws = agent_home.join("workspace");
+                if let Ok(entries) = std::fs::read_dir(&ws) {
+                    for entry in entries.flatten() {
+                        let git_file = entry.path().join(".git");
+                        if git_file.is_file() {
+                            let worktree_path = entry.path();
+                            tracing::debug!(
+                                worktree = %worktree_path.display(),
+                                "Removing git worktree for sub-agent"
+                            );
+                            let _ = tokio::process::Command::new("git")
+                                .args(["worktree", "remove", "--force"])
+                                .arg(&worktree_path)
+                                .output()
+                                .await;
+                        }
+                    }
+                }
+            }
+
             if let Ok(db) = db.lock() {
                 // Sub-agents are automatically cleaned up after their run completes.
                 // The parent's spawned_total is decremented so it can spawn new ones.
@@ -745,6 +788,7 @@ impl RunService {
                         parent_agent_id = %pid,
                         "Sub-agent run finished, cleaning up"
                     );
+
                     let _ = db.agents().delete(&agent_id_owned);
                     let _ = db.agents().decrement_spawned_total(pid);
                     // Remove the sub-agent's filesystem directory

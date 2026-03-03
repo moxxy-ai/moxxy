@@ -78,6 +78,25 @@ impl<'a> VaultGrantDao<'a> {
         Ok(())
     }
 
+    /// Copy all active (non-revoked) grants from one agent to another.
+    /// Used when spawning sub-agents so they inherit the parent's secret access.
+    pub fn copy_from_agent(
+        &self,
+        source_agent_id: &str,
+        target_agent_id: &str,
+    ) -> Result<(), StorageError> {
+        self.conn
+            .execute(
+                "INSERT OR IGNORE INTO vault_grants (id, agent_id, secret_ref_id, created_at, revoked_at)
+                 SELECT lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-' || hex(randomblob(2)) || '-' || hex(randomblob(2)) || '-' || hex(randomblob(6))),
+                        ?2, secret_ref_id, datetime('now'), NULL
+                 FROM vault_grants WHERE agent_id = ?1 AND revoked_at IS NULL",
+                params![source_agent_id, target_agent_id],
+            )
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+        Ok(())
+    }
+
     pub fn list_all(&self) -> Result<Vec<VaultGrantRow>, StorageError> {
         let mut stmt = self
             .conn
@@ -234,5 +253,80 @@ mod tests {
         let dao = VaultGrantDao { conn: db.conn() };
         let result = dao.revoke("nonexistent");
         assert!(matches!(result, Err(StorageError::NotFound)));
+    }
+
+    #[test]
+    fn copy_from_agent_copies_active_grants() {
+        let db = TestDb::new();
+        let (agent_id, secret_id) = seed_agent_and_secret(&db);
+        let dao = VaultGrantDao { conn: db.conn() };
+
+        // Create an active grant for the source agent
+        let mut grant = fixture_vault_grant_row();
+        grant.agent_id = agent_id.clone();
+        grant.secret_ref_id = secret_id.clone();
+        dao.insert(&grant).unwrap();
+
+        // Revoke it so we can verify revoked grants are NOT copied
+        dao.revoke(&grant.id).unwrap();
+
+        // Create a second secret ref + active grant to verify copying works
+        let now = chrono::Utc::now().to_rfc3339();
+        db.conn()
+            .execute(
+                "INSERT INTO vault_secret_refs (id, key_name, backend_key, policy_label, created_at, updated_at)
+                 VALUES ('secret-2', 'other-key', 'backend-other', 'default', ?1, ?1)",
+                params![now],
+            )
+            .unwrap();
+        let active_grant = VaultGrantRow {
+            id: "grant-active".into(),
+            agent_id: agent_id.clone(),
+            secret_ref_id: "secret-2".into(),
+            created_at: now.clone(),
+            revoked_at: None,
+        };
+        dao.insert(&active_grant).unwrap();
+
+        // Insert target agent
+        let target_agent = crate::AgentRow {
+            id: "child-agent".into(),
+            parent_agent_id: Some(agent_id.clone()),
+            ..fixture_agent_row()
+        };
+        db.conn()
+            .execute(
+                "INSERT INTO agents (id, parent_agent_id, provider_id, model_id, workspace_root,
+                 core_mount, policy_profile, temperature, max_subagent_depth, max_subagents_total,
+                 status, depth, spawned_total, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                params![
+                    target_agent.id,
+                    target_agent.parent_agent_id,
+                    target_agent.provider_id,
+                    target_agent.model_id,
+                    target_agent.workspace_root,
+                    target_agent.core_mount,
+                    target_agent.policy_profile,
+                    target_agent.temperature,
+                    target_agent.max_subagent_depth,
+                    target_agent.max_subagents_total,
+                    target_agent.status,
+                    target_agent.depth,
+                    target_agent.spawned_total,
+                    target_agent.created_at,
+                    target_agent.updated_at,
+                ],
+            )
+            .unwrap();
+
+        // Copy grants from parent to child
+        dao.copy_from_agent(&agent_id, "child-agent").unwrap();
+
+        // Target should have exactly 1 grant (only the active one, not the revoked)
+        let target_grants = dao.find_by_agent("child-agent").unwrap();
+        assert_eq!(target_grants.len(), 1);
+        assert_eq!(target_grants[0].secret_ref_id, "secret-2");
+        assert!(target_grants[0].revoked_at.is_none());
     }
 }

@@ -115,19 +115,41 @@ async fn e2e_full_agent_lifecycle() {
 
     let (token, _) = server
         .create_token(
-            &["agents:read", "agents:write", "runs:write", "events:read"],
+            &["agents:read", "agents:write", "runs:write", "events:read", "vault:write"],
             None,
         )
         .await;
 
-    // Install a provider
+    // Install a provider with a model that has api_base metadata
     let resp = server
         .post(
             "/v1/providers",
             &token,
             &serde_json::json!({
                 "id": "echo",
-                "display_name": "Echo Provider"
+                "display_name": "Echo Provider",
+                "models": [
+                    {
+                        "model_id": "echo-1",
+                        "display_name": "Echo 1",
+                        "metadata": { "api_base": "https://api.openai.com/v1" }
+                    }
+                ]
+            }),
+        )
+        .await;
+    assert_eq!(resp.status().as_u16(), 201);
+
+    // Store a dummy API key in the vault so provider resolution succeeds
+    let resp = server
+        .post(
+            "/v1/vault/secrets",
+            &token,
+            &serde_json::json!({
+                "key_name": "ECHO_API_KEY",
+                "backend_key": "moxxy_provider_echo",
+                "policy_label": "provider-api-key",
+                "value": "sk-echo-test-key"
             }),
         )
         .await;

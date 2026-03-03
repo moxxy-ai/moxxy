@@ -2,6 +2,7 @@ use crate::provider::{Message, ModelConfig, Provider};
 use crate::registry::PrimitiveRegistry;
 use moxxy_core::EventBus;
 use moxxy_types::{EventEnvelope, EventType};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -114,6 +115,9 @@ impl RunExecutor {
         model_config: &ModelConfig,
     ) -> Result<String, String> {
         let mut sequence: u64 = 0;
+        let mut active_subagents: HashSet<String> = HashSet::new();
+        let mut event_rx = self.event_bus.subscribe();
+        let mut pending_notifications: Vec<EventEnvelope> = Vec::new();
 
         self.emit(
             agent_id,
@@ -138,6 +142,24 @@ impl RunExecutor {
         let mut final_content = String::new();
 
         for iteration in 0..self.max_iterations {
+            // Drain event bus to prevent buffer overflow and collect sub-agent notifications
+            loop {
+                match event_rx.try_recv() {
+                    Ok(ev)
+                        if ev.agent_id == agent_id
+                            && matches!(
+                                ev.event_type,
+                                EventType::SubagentCompleted | EventType::SubagentFailed
+                            ) =>
+                    {
+                        pending_notifications.push(ev);
+                    }
+                    Ok(_) => {}
+                    Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => continue,
+                    Err(_) => break,
+                }
+            }
+
             // Check cancellation
             if self
                 .cancel_token
@@ -241,7 +263,100 @@ impl RunExecutor {
             }
 
             if response.tool_calls.is_empty() {
-                break;
+                if active_subagents.is_empty() {
+                    break;
+                }
+
+                // Active sub-agents exist — wait for one to complete before continuing
+                self.emit(
+                    agent_id,
+                    run_id,
+                    &mut sequence,
+                    EventType::AgentAlive,
+                    serde_json::json!({
+                        "waiting_for_subagents": active_subagents.len(),
+                        "iteration": iteration,
+                    }),
+                );
+
+                let maybe_event = if let Some(ev) = pending_notifications.pop() {
+                    Some(ev)
+                } else {
+                    // Block until a sub-agent event arrives
+                    loop {
+                        tokio::select! {
+                            _ = async {
+                                if let Some(ref token) = self.cancel_token {
+                                    token.cancelled().await;
+                                } else {
+                                    std::future::pending::<()>().await;
+                                }
+                            } => {
+                                self.emit(
+                                    agent_id, run_id, &mut sequence,
+                                    EventType::RunFailed,
+                                    serde_json::json!({"error": "cancelled"}),
+                                );
+                                return Err("Run cancelled".to_string());
+                            }
+                            result = event_rx.recv() => {
+                                match result {
+                                    Ok(ev) if ev.agent_id == agent_id
+                                        && matches!(ev.event_type,
+                                            EventType::SubagentCompleted | EventType::SubagentFailed) =>
+                                    {
+                                        break Some(ev);
+                                    }
+                                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                                        break None;
+                                    }
+                                    _ => continue,
+                                }
+                            }
+                        }
+                    }
+                };
+
+                let Some(event) = maybe_event else {
+                    // Event bus closed — cannot wait for sub-agents
+                    break;
+                };
+
+                let sub_id = event.payload["sub_agent_id"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string();
+                let name = event.payload["name"]
+                    .as_str()
+                    .unwrap_or(&sub_id)
+                    .to_string();
+                active_subagents.remove(&sub_id);
+
+                let notification = if event.event_type == EventType::SubagentCompleted {
+                    let result_text = event.payload["result"]
+                        .as_str()
+                        .unwrap_or("(no output)");
+                    format!("[Sub-agent '{name}' completed]\n{result_text}")
+                } else {
+                    let error = event.payload["error"]
+                        .as_str()
+                        .unwrap_or("unknown error");
+                    format!("[Sub-agent '{name}' failed]\n{error}")
+                };
+
+                self.emit(
+                    agent_id,
+                    run_id,
+                    &mut sequence,
+                    EventType::AgentAlive,
+                    serde_json::json!({
+                        "subagent_notification": sub_id,
+                        "event_type": format!("{:?}", event.event_type),
+                    }),
+                );
+
+                conversation.push(Message::user(&notification));
+                continue;
             }
 
             // Push assistant message with tool_calls metadata
@@ -279,6 +394,14 @@ impl RunExecutor {
                 {
                     Ok(result) => {
                         let result_str = serde_json::to_string(&result).unwrap_or_default();
+
+                        // Track sub-agent spawns for wait-on-completion
+                        if tool_call.name == "agent.spawn"
+                            && let Some(id) =
+                                result.get("sub_agent_id").and_then(|v| v.as_str())
+                        {
+                            active_subagents.insert(id.to_string());
+                        }
 
                         tracing::info!(
                             agent_id,
@@ -701,6 +824,85 @@ mod tests {
                 .filter(|e| **e == EventType::ModelRequest)
                 .count(),
             2
+        );
+    }
+
+    #[tokio::test]
+    async fn executor_waits_for_subagent_completion() {
+        let bus = EventBus::new(100);
+        let bus_clone = bus.clone();
+        let mut rx = bus.subscribe();
+
+        // Provider returns agent.spawn tool call first, then echoes (no tools)
+        let provider = Arc::new(EchoProvider::new().with_tool_calls(vec![ToolCall {
+            id: "call_spawn".into(),
+            name: "agent.spawn".into(),
+            arguments: serde_json::json!({"task": "subtask"}),
+        }]));
+
+        // Fake agent.spawn primitive that returns a sub_agent_id
+        struct FakeSpawnPrimitive;
+        #[async_trait]
+        impl Primitive for FakeSpawnPrimitive {
+            fn name(&self) -> &str {
+                "agent.spawn"
+            }
+            async fn invoke(
+                &self,
+                _params: serde_json::Value,
+            ) -> Result<serde_json::Value, PrimitiveError> {
+                Ok(serde_json::json!({"sub_agent_id": "sub-1", "run_id": "run-sub"}))
+            }
+        }
+
+        let mut registry = PrimitiveRegistry::new();
+        registry.register(Box::new(FakeSpawnPrimitive));
+
+        // Emit SubagentCompleted after a short delay (simulates sub-agent finishing)
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            bus_clone.emit(EventEnvelope::new(
+                "parent-agent".into(),
+                None,
+                None,
+                0,
+                EventType::SubagentCompleted,
+                serde_json::json!({
+                    "sub_agent_id": "sub-1",
+                    "name": "sub-agent-1",
+                    "result": "subtask done",
+                }),
+            ));
+        });
+
+        let executor =
+            RunExecutor::new(bus, provider, registry, vec!["agent.spawn".into()])
+                .with_timeout(Duration::from_secs(10));
+
+        let result = executor
+            .execute("parent-agent", "run-1", "do task", &model_config())
+            .await;
+
+        assert!(result.is_ok(), "executor should complete: {:?}", result.err());
+        let content = result.unwrap();
+        assert!(
+            content.contains("Sub-agent"),
+            "final content should reference sub-agent notification: {content}"
+        );
+
+        // Should have at least 3 model requests:
+        // 1. initial task
+        // 2. after agent.spawn tool result (returns no tools → enters wait)
+        // 3. after sub-agent notification injected
+        let mut model_requests = 0;
+        while let Ok(event) = rx.try_recv() {
+            if event.event_type == EventType::ModelRequest {
+                model_requests += 1;
+            }
+        }
+        assert!(
+            model_requests >= 3,
+            "expected at least 3 model requests, got {model_requests}"
         );
     }
 }
