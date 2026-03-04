@@ -1,3 +1,5 @@
+pub mod agent_registry;
+pub mod agent_store;
 pub mod agents;
 pub mod auth;
 pub mod events;
@@ -6,6 +8,8 @@ pub mod memory;
 pub mod security;
 pub mod skills;
 
+pub use agent_registry::AgentRegistry;
+pub use agent_store::AgentStore;
 pub use agents::AgentLineage;
 pub use auth::{ApiTokenService, IssuedToken};
 pub use events::{EventBus, RedactionEngine};

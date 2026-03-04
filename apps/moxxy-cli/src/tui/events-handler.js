@@ -371,6 +371,78 @@ export class EventsHandler {
       return;
     }
 
+    // Handle hive events (task lifecycle, signals, proposals, votes, members)
+    if (type === 'hive.task_created') {
+      const title = payload.title || 'untitled';
+      const priority = payload.priority || 0;
+      this.messages.push({
+        type: 'hive-event', subtype: 'task-created',
+        content: `Task "${title}" created (priority ${priority})`, ts: event.ts,
+      });
+      this._notify();
+      return;
+    }
+    if (type === 'hive.task_claimed') {
+      const taskId = payload.task_id || 'unknown';
+      const worker = payload.agent_id || 'unknown';
+      this.messages.push({
+        type: 'hive-event', subtype: 'task-claimed',
+        content: `Task "${taskId}" claimed by ${worker}`, ts: event.ts,
+      });
+      this._notify();
+      return;
+    }
+    if (type === 'hive.task_completed') {
+      const taskId = payload.task_id || 'unknown';
+      const worker = payload.agent_id || 'unknown';
+      this.messages.push({
+        type: 'hive-event', subtype: 'task-completed',
+        content: `Task "${taskId}" completed by ${worker}`, ts: event.ts,
+      });
+      this._notify();
+      return;
+    }
+    if (type === 'hive.signal_posted') {
+      const signalType = payload.signal_type || 'signal';
+      const author = payload.author || 'unknown';
+      this.messages.push({
+        type: 'hive-event', subtype: 'signal',
+        content: `Signal: ${signalType} from ${author}`, ts: event.ts,
+      });
+      this._notify();
+      return;
+    }
+    if (type === 'hive.proposal_created') {
+      const title = payload.title || 'untitled';
+      const proposer = payload.proposer || 'unknown';
+      this.messages.push({
+        type: 'hive-event', subtype: 'proposal',
+        content: `Proposal: "${title}" by ${proposer}`, ts: event.ts,
+      });
+      this._notify();
+      return;
+    }
+    if (type === 'hive.vote_cast') {
+      const voter = payload.voter || 'unknown';
+      const vote = payload.vote || 'unknown';
+      this.messages.push({
+        type: 'hive-event', subtype: 'vote',
+        content: `Vote: ${vote} by ${voter}`, ts: event.ts,
+      });
+      this._notify();
+      return;
+    }
+    if (type === 'hive.member_joined') {
+      const member = payload.agent_id || 'unknown';
+      const role = payload.role || 'member';
+      this.messages.push({
+        type: 'hive-event', subtype: 'member-joined',
+        content: `${member} joined as ${role}`, ts: event.ts,
+      });
+      this._notify();
+      return;
+    }
+
     // Route events from sub-agents
     if (event.agent_id && event.agent_id !== this.agentId && this._subAgents.has(event.agent_id)) {
       this._processSubAgentEvent(event);

@@ -1,5 +1,6 @@
 import { p, handleCancel, withSpinner, showResult } from '../ui.js';
 import { VALID_SCOPES } from './auth.js';
+import { BUILTIN_PROVIDERS, ANTHROPIC_PROVIDER_ID, OPENAI_CODEX_PROVIDER_ID, loginAnthropic, loginOpenAiCodex } from './provider.js';
 import { shellExportInstruction, shellProfileName } from '../platform.js';
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -50,6 +51,11 @@ export async function runInit(client, args) {
   p.intro('Welcome to Moxxy');
 
   // Step 0: Create ~/.moxxy directory structure
+  p.note(
+    'The ~/.moxxy directory stores agent configs, secrets, and metadata.\n' +
+    'It will be created automatically if it doesn\'t exist.',
+    'Home Directory'
+  );
   const moxxyHome = getMoxxyHome();
   try {
     mkdirSync(join(moxxyHome, 'agents'), { recursive: true });
@@ -60,6 +66,11 @@ export async function runInit(client, args) {
   }
 
   // Step 1: Check/configure API URL
+  p.note(
+    'The gateway is the backend service that manages agents, routing,\n' +
+    'and tool execution. It must be running for agents to work.',
+    'Gateway Connection'
+  );
   const useDefault = await p.confirm({
     message: `Use gateway at ${client.baseUrl}?`,
     initialValue: true,
@@ -92,6 +103,11 @@ export async function runInit(client, args) {
   }
 
   // Step 2.5: Auth mode selection
+  p.note(
+    'Token mode requires an API token for every request (more secure).\n' +
+    'Loopback mode skips auth for localhost requests (easier for local dev).',
+    'Authentication'
+  );
   const authMode = await p.select({
     message: 'Authorization mode?',
     options: [
@@ -120,6 +136,11 @@ export async function runInit(client, args) {
 
   // Step 3: Token bootstrap (skip if loopback mode)
   if (authMode !== 'loopback') {
+  p.note(
+    'API tokens authenticate CLI requests to the gateway.\n' +
+    'A wildcard (*) token grants full access to all endpoints.',
+    'API Token'
+  );
   const createToken = await p.confirm({
     message: 'Create an API token?',
     initialValue: true,
@@ -236,7 +257,295 @@ export async function runInit(client, args) {
   }
   } // end authMode !== 'loopback'
 
-  // Step 4: Channel setup (optional)
+  // Step 4: Provider installation (optional)
+  let installedProviderId = null;
+
+  p.note(
+    'Providers connect Moxxy to LLM services like Anthropic, OpenAI, or Google.\n' +
+    'You need at least one provider installed before creating agents.',
+    'Provider Setup'
+  );
+
+  const installProvider = await p.confirm({
+    message: 'Install an LLM provider?',
+    initialValue: true,
+  });
+  handleCancel(installProvider);
+
+  if (installProvider) {
+    if (authMode === 'token' && !client.token) {
+      p.log.warn('Provider install requires a token in token mode. Skipping.');
+      p.log.info('Create a token first, then run: moxxy provider install');
+    } else {
+      const providerChoice = await p.select({
+        message: 'Select a provider to install',
+        options: [
+          ...BUILTIN_PROVIDERS.map(bp => ({
+            value: bp.id,
+            label: bp.display_name,
+            hint: `${bp.models.length} models`,
+          })),
+          { value: '__skip__', label: 'Skip', hint: 'install a provider later' },
+        ],
+      });
+      handleCancel(providerChoice);
+
+      if (providerChoice !== '__skip__') {
+        const builtin = BUILTIN_PROVIDERS.find(bp => bp.id === providerChoice);
+
+        // Providers with dedicated login flows (OAuth / validated API key)
+        if (builtin.oauth_login || builtin.api_key_login) {
+          try {
+            const flags = {};
+            let result;
+            if (providerChoice === ANTHROPIC_PROVIDER_ID) {
+              result = await loginAnthropic(client, flags);
+            } else if (providerChoice === OPENAI_CODEX_PROVIDER_ID) {
+              result = await loginOpenAiCodex(client, flags);
+            }
+            if (result?.provider_id) {
+              installedProviderId = result.provider_id;
+            }
+          } catch (err) {
+            p.log.error(`Failed to install provider: ${err.message}`);
+          }
+        } else {
+          // Generic provider flow (no special login)
+          const CUSTOM_MODEL_VALUE = '__custom_model__';
+          const selectedModels = handleCancel(await p.multiselect({
+            message: 'Select models to install',
+            options: [
+              ...builtin.models.map(m => ({
+                value: m.model_id,
+                label: m.display_name,
+                hint: m.model_id,
+              })),
+              { value: CUSTOM_MODEL_VALUE, label: 'Custom model ID', hint: 'enter a model ID manually' },
+            ],
+            required: true,
+          }));
+
+          const models = builtin.models
+            .filter(m => selectedModels.includes(m.model_id))
+            .map(m => ({
+              ...m,
+              metadata: { api_base: builtin.api_base },
+            }));
+
+          // Handle custom model
+          if (selectedModels.includes(CUSTOM_MODEL_VALUE)) {
+            const customModelId = handleCancel(await p.text({
+              message: 'Custom model ID',
+              placeholder: 'e.g. ft:gpt-4o:my-org:custom-suffix',
+              validate: (v) => { if (!v.trim()) return 'Required'; },
+            }));
+
+            const customModelName = handleCancel(await p.text({
+              message: 'Display name for this model',
+              initialValue: customModelId,
+            }));
+
+            models.push({
+              model_id: customModelId,
+              display_name: customModelName || customModelId,
+              metadata: { api_base: builtin.api_base, custom: true },
+            });
+          }
+
+          // API key check
+          const currentKey = process.env[builtin.api_key_env];
+          if (currentKey) {
+            const masked = currentKey.slice(0, 8) + '...' + currentKey.slice(-4);
+            p.log.success(`API key found: ${builtin.api_key_env} = ${masked}`);
+          } else {
+            p.log.warn(`API key not set: ${builtin.api_key_env}`);
+
+            const setKey = handleCancel(await p.confirm({
+              message: `Store API key via vault? (You can also set ${builtin.api_key_env} in your shell)`,
+              initialValue: false,
+            }));
+
+            if (setKey) {
+              const apiKey = handleCancel(await p.password({
+                message: `Enter your ${builtin.display_name} API key`,
+                validate: (v) => { if (!v.trim()) return 'Required'; },
+              }));
+
+              try {
+                await withSpinner('Storing API key in vault...', async () => {
+                  await client.request('/v1/vault/secrets', 'POST', {
+                    key_name: builtin.api_key_env,
+                    backend_key: `moxxy_provider_${builtin.id}`,
+                    policy_label: 'provider-api-key',
+                    value: apiKey,
+                  });
+                }, 'API key reference stored.');
+              } catch (err) {
+                p.log.warn(`Could not store in vault: ${err.message}`);
+                p.note(
+                  `export ${builtin.api_key_env}="<your-key>"`,
+                  'Set this in your shell profile'
+                );
+              }
+            } else {
+              p.note(
+                `export ${builtin.api_key_env}="<your-key>"`,
+                'Set this in your shell profile'
+              );
+            }
+          }
+
+          // Install provider
+          try {
+            await withSpinner(`Installing ${builtin.display_name}...`, () =>
+              client.installProvider(builtin.id, builtin.display_name, models),
+              `${builtin.display_name} installed.`
+            );
+
+            installedProviderId = builtin.id;
+
+            showResult('Provider Installed', {
+              ID: builtin.id,
+              Name: builtin.display_name,
+              Models: models.map(m => m.model_id).join(', '),
+              'API Key Env': builtin.api_key_env,
+            });
+          } catch (err) {
+            p.log.error(`Failed to install provider: ${err.message}`);
+          }
+        }
+      }
+    }
+  }
+
+  // Step 5: Agent creation (optional)
+  p.note(
+    'Agents are LLM-powered workers that use tools and skills to complete tasks.\n' +
+    'Each agent is bound to a provider and model.',
+    'Your First Agent'
+  );
+
+  const createAgent = await p.confirm({
+    message: 'Create your first agent?',
+    initialValue: true,
+  });
+  handleCancel(createAgent);
+
+  if (createAgent) {
+    if (authMode === 'token' && !client.token) {
+      p.log.warn('Agent creation requires a token in token mode. Skipping.');
+      p.log.info('Create a token first, then run: moxxy agent create');
+    } else {
+      // Check for available providers
+      let agentProviderId = installedProviderId;
+
+      if (!agentProviderId) {
+        try {
+          const providers = await withSpinner('Fetching providers...', () =>
+            client.listProviders(), 'Providers loaded.');
+          if (!providers || providers.length === 0) {
+            p.log.warn('No providers installed. Install one first with: moxxy provider install');
+            agentProviderId = null;
+          } else {
+            agentProviderId = handleCancel(await p.select({
+              message: 'Select a provider',
+              options: providers.map(pr => ({
+                value: pr.id,
+                label: pr.display_name || pr.id,
+              })),
+            }));
+          }
+        } catch (err) {
+          p.log.warn(`Could not list providers: ${err.message}`);
+        }
+      }
+
+      if (agentProviderId) {
+        // Agent name
+        const agentName = handleCancel(await p.text({
+          message: 'Agent name',
+          placeholder: 'my-agent',
+          validate: (v) => {
+            if (!v || v.trim().length === 0) return 'Required';
+            if (v.length > 64) return 'Max 64 characters';
+            if (!/^[a-z][a-z0-9-]*$/.test(v)) return 'Lowercase alphanumeric and hyphens, must start with a letter';
+          },
+        }));
+
+        // Model selection (live from API)
+        let agentModelId;
+        try {
+          const models = await withSpinner('Fetching models...', () =>
+            client.listModels(agentProviderId), 'Models loaded.');
+
+          const CUSTOM_MODEL_VALUE = '__custom_model__';
+          const modelOptions = [
+            ...(models || []).map(m => ({
+              value: m.model_id,
+              label: m.display_name || m.model_id,
+              hint: m.model_id,
+            })),
+            { value: CUSTOM_MODEL_VALUE, label: 'Custom model ID', hint: 'enter a model ID manually' },
+          ];
+
+          const modelChoice = handleCancel(await p.select({
+            message: 'Select a model',
+            options: modelOptions,
+          }));
+
+          if (modelChoice === CUSTOM_MODEL_VALUE) {
+            agentModelId = handleCancel(await p.text({
+              message: 'Custom model ID',
+              placeholder: 'e.g. claude-sonnet-4-20250514',
+              validate: (v) => { if (!v.trim()) return 'Required'; },
+            }));
+          } else {
+            agentModelId = modelChoice;
+          }
+        } catch (err) {
+          p.log.warn(`Could not fetch models: ${err.message}`);
+          agentModelId = handleCancel(await p.text({
+            message: 'Model ID',
+            placeholder: 'e.g. claude-sonnet-4-20250514',
+            validate: (v) => { if (!v.trim()) return 'Required'; },
+          }));
+        }
+
+        // Persona (optional)
+        const persona = handleCancel(await p.text({
+          message: 'Persona (optional)',
+          placeholder: 'e.g. A helpful coding assistant',
+        }));
+
+        // Create the agent
+        try {
+          const opts = {};
+          if (persona && persona.trim()) opts.persona = persona.trim();
+
+          const agentResult = await withSpinner('Creating agent...', () =>
+            client.createAgent(agentProviderId, agentModelId, agentName, opts),
+            'Agent created.'
+          );
+
+          showResult('Agent Created', {
+            Name: agentResult.name,
+            Provider: agentResult.provider_id,
+            Model: agentResult.model_id,
+            Status: agentResult.status,
+          });
+        } catch (err) {
+          p.log.error(`Failed to create agent: ${err.message}`);
+        }
+      }
+    }
+  }
+
+  // Step 6: Channel setup (optional)
+  p.note(
+    'Channels enable agent communication via Telegram or Discord.\n' +
+    'You can set up channels later with: moxxy channel create',
+    'Channels'
+  );
   const setupChannel = await p.confirm({
     message: 'Set up a messaging channel (Telegram/Discord)?',
     initialValue: false,
@@ -310,8 +619,8 @@ export async function runInit(client, args) {
             agentId = await p.select({
               message: 'Select agent to bind',
               options: agents.map(a => ({
-                value: a.id,
-                label: `${a.id.substring(0, 8)} (${a.provider_id}/${a.model_id})`,
+                value: a.name,
+                label: `${a.name} (${a.provider_id}/${a.model_id})`,
               })),
             });
             handleCancel(agentId);

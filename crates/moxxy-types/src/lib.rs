@@ -8,13 +8,13 @@ pub mod run_starter;
 pub mod skills;
 pub mod vault;
 
-pub use agents::{AgentStatus, SpawnError};
+pub use agents::{AgentConfig, AgentRuntime, AgentStatus, AgentType, HiveRole, SpawnError};
 pub use auth::{AuthMode, TokenError, TokenScope, TokenStatus};
 pub use channels::{BindingStatus, ChannelError, ChannelStatus, ChannelType, MessageContent};
 pub use errors::{PathPolicyError, StorageError};
 pub use events::{EventEnvelope, EventType};
 pub use heartbeat::{HeartbeatActionType, HeartbeatError};
-pub use run_starter::RunStarter;
+pub use run_starter::{ChildInfo, RunStarter, SpawnOpts, SpawnResult};
 pub use skills::{SkillDocError, SkillStatus};
 pub use vault::VaultError;
 
@@ -53,7 +53,7 @@ mod tests {
     #[test]
     fn event_type_has_all_30_variants() {
         let all = EventType::all_variants();
-        assert_eq!(all.len(), 45);
+        assert_eq!(all.len(), 48);
     }
 
     #[test]
@@ -208,6 +208,8 @@ mod proptests {
             Just(EventType::HiveProposalCreated),
             Just(EventType::HiveProposalResolved),
             Just(EventType::HiveVoteCast),
+            Just(EventType::HiveTaskCreated),
+            Just(EventType::HiveTaskClaimed),
         ]
     }
 

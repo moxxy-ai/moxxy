@@ -84,6 +84,10 @@ pub enum EventType {
     HiveMemberJoined,
     #[serde(rename = "hive.signal_posted")]
     HiveSignalPosted,
+    #[serde(rename = "hive.task_created")]
+    HiveTaskCreated,
+    #[serde(rename = "hive.task_claimed")]
+    HiveTaskClaimed,
     #[serde(rename = "hive.task_completed")]
     HiveTaskCompleted,
     #[serde(rename = "hive.proposal_created")]
@@ -92,6 +96,8 @@ pub enum EventType {
     HiveProposalResolved,
     #[serde(rename = "hive.vote_cast")]
     HiveVoteCast,
+    #[serde(rename = "task.analyzed")]
+    TaskAnalyzed,
 }
 
 impl EventType {
@@ -138,10 +144,13 @@ impl EventType {
             EventType::HiveDisbanded,
             EventType::HiveMemberJoined,
             EventType::HiveSignalPosted,
+            EventType::HiveTaskCreated,
+            EventType::HiveTaskClaimed,
             EventType::HiveTaskCompleted,
             EventType::HiveProposalCreated,
             EventType::HiveProposalResolved,
             EventType::HiveVoteCast,
+            EventType::TaskAnalyzed,
         ]
     }
 }

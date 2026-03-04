@@ -86,7 +86,7 @@ export async function agentCreate(client, args) {
   if (flags.json === 'true' || flags.json === true) {
     console.log(JSON.stringify(result, null, 2));
   } else {
-    console.log(`Agent created: ${result.id}`);
+    console.log(`Agent created: ${result.name}`);
   }
   return result;
 }
@@ -120,7 +120,7 @@ export async function agentStatus(client, id, opts = {}) {
   if (opts.json) {
     console.log(JSON.stringify(result, null, 2));
   } else {
-    console.log(`Agent: ${result.id}`);
+    console.log(`Agent: ${result.name}`);
     console.log(`  Status: ${result.status}`);
   }
   return result;
@@ -194,8 +194,7 @@ export async function runAgent(client, args) {
           client.request('/v1/agents', 'POST', body), 'Agent created.');
 
         showResult('Agent Created', {
-          ID: result.id,
-          Name: nameInput,
+          Name: result.name,
           Provider: providerId,
           Model: modelId,
           Status: result.status,
@@ -215,7 +214,7 @@ export async function runAgent(client, args) {
           handleCancel(task);
 
           await withSpinner('Starting run...', () =>
-            client.request(`/v1/agents/${encodeURIComponent(result.id)}/runs`, 'POST', { task }), 'Run started.');
+            client.request(`/v1/agents/${encodeURIComponent(result.name)}/runs`, 'POST', { task }), 'Run started.');
         }
 
         return result;
@@ -302,7 +301,7 @@ export async function runAgent(client, args) {
           client.request(`/v1/agents/${encodeURIComponent(id)}`, 'GET'), 'Status loaded.');
 
         showResult('Agent Status', {
-          ID: result.id,
+          Name: result.name,
           Status: result.status,
           Provider: result.provider_id,
           Model: result.model_id,

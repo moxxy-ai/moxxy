@@ -85,7 +85,7 @@ export class StatusBar {
     if (this.agent) {
       const statusColor = styles.status[this.agent.status] || styles.dim;
       const dot = this.agent.status === 'running' ? '\u25CF' : '\u25CB';
-      parts.push(styles.accent(`Agent ${shortId(this.agent.id)}`));
+      parts.push(styles.accent(`Agent ${this.agent.name}`));
       parts.push(statusColor(`${dot} ${this.agent.status}`));
       parts.push(chalk.dim(`${this.agent.provider_id}/${this.agent.model_id}`));
     } else {

@@ -1,11 +1,13 @@
 use moxxy_types::PathPolicyError;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub struct PathPolicy {
     workspace_root: PathBuf,
     core_mount: Option<PathBuf>,
     deny_prefix: Option<PathBuf>,
+    cwd: Arc<Mutex<PathBuf>>,
 }
 
 impl PathPolicy {
@@ -14,21 +16,41 @@ impl PathPolicy {
         core_mount: Option<PathBuf>,
         deny_prefix: Option<PathBuf>,
     ) -> Self {
+        let canonical = workspace_root
+            .canonicalize()
+            .unwrap_or(workspace_root.clone());
         Self {
-            workspace_root: workspace_root.canonicalize().unwrap_or(workspace_root),
+            cwd: Arc::new(Mutex::new(canonical.clone())),
+            workspace_root: canonical,
             core_mount: core_mount.map(|p| p.canonicalize().unwrap_or(p)),
             deny_prefix: deny_prefix.map(|p| p.canonicalize().unwrap_or(p)),
         }
     }
 
-    /// Resolve a path: if relative, join it against the workspace root.
+    /// Resolve a path: if relative, join it against the current working directory.
     /// If already absolute, return as-is.
     pub fn resolve_path(&self, path: &Path) -> PathBuf {
         if path.is_absolute() {
             path.to_path_buf()
         } else {
-            self.workspace_root.join(path)
+            let cwd = self.cwd.lock().unwrap();
+            cwd.join(path)
         }
+    }
+
+    /// Returns the shared current working directory handle.
+    pub fn cwd(&self) -> Arc<Mutex<PathBuf>> {
+        self.cwd.clone()
+    }
+
+    /// Update the current working directory.
+    pub fn set_cwd(&self, path: PathBuf) {
+        *self.cwd.lock().unwrap() = path;
+    }
+
+    /// Returns the workspace root.
+    pub fn workspace_root(&self) -> &Path {
+        &self.workspace_root
     }
 
     pub fn ensure_readable(&self, path: &Path) -> Result<(), PathPolicyError> {

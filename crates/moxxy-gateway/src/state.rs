@@ -1,7 +1,7 @@
 use moxxy_channel::ChannelBridge;
-use moxxy_core::{EventBus, HeartbeatScheduler, RedactionEngine};
+use moxxy_core::{AgentRegistry, AgentStore, EventBus, HeartbeatScheduler, RedactionEngine};
 use moxxy_storage::{Database, EventAuditRow};
-use moxxy_types::{AuthMode, EventEnvelope, EventType};
+use moxxy_types::{AgentRuntime, AgentStatus, AgentType, AuthMode, EventEnvelope, EventType};
 use moxxy_vault::{SecretBackend, SqliteBackend};
 use rusqlite::Connection;
 use std::path::PathBuf;
@@ -21,6 +21,7 @@ pub fn register_sqlite_vec() {
 
 pub struct AppState {
     pub db: Arc<Mutex<Database>>,
+    pub registry: AgentRegistry,
     pub event_bus: EventBus,
     pub run_service: Arc<RunService>,
     pub vault_backend: Arc<dyn SecretBackend + Send + Sync>,
@@ -134,12 +135,35 @@ impl AppState {
         let db = Arc::new(Mutex::new(Database::new(conn)));
         let event_bus = EventBus::new(1024);
 
+        // Build in-memory agent registry from YAML files on disk
+        let registry = AgentRegistry::new();
+        for name in AgentStore::list(&moxxy_home) {
+            if let Ok(config) = AgentStore::load(&moxxy_home, &name) {
+                let persona = AgentStore::load_persona(&moxxy_home, &name);
+                let runtime = AgentRuntime {
+                    name: name.clone(),
+                    agent_type: AgentType::Agent,
+                    config,
+                    status: AgentStatus::Idle,
+                    parent_name: None,
+                    hive_role: None,
+                    depth: 0,
+                    spawned_count: 0,
+                    persona,
+                };
+                if let Err(e) = registry.register(runtime) {
+                    tracing::warn!(agent = %name, error = %e, "Failed to register agent from YAML");
+                }
+            }
+        }
+
         let vault_backend: Arc<dyn SecretBackend + Send + Sync> = Arc::new(SqliteBackend::new(
             Arc::new(Mutex::new(vault_conn)),
             vault_key,
         ));
         let run_service = Arc::new(RunService::new(
             db.clone(),
+            registry.clone(),
             event_bus.clone(),
             vault_backend.clone(),
             moxxy_home.clone(),
@@ -148,6 +172,7 @@ impl AppState {
 
         Self {
             db,
+            registry,
             event_bus,
             run_service,
             vault_backend,
@@ -243,6 +268,7 @@ impl AppState {
     /// - It is in "running" status with a token but no event in 5 minutes
     pub fn spawn_health_check_loop(&self) {
         let db = self.db.clone();
+        let registry = self.registry.clone();
         let event_bus = self.event_bus.clone();
         let run_tokens = self.run_service.run_tokens.clone();
 
@@ -251,13 +277,7 @@ impl AppState {
             loop {
                 interval.tick().await;
 
-                let running_agents = {
-                    let Ok(db) = db.lock() else { continue };
-                    match db.agents().find_by_status("running") {
-                        Ok(agents) => agents,
-                        Err(_) => continue,
-                    }
-                };
+                let running_agents = registry.find_by_status(AgentStatus::Running);
 
                 let now_ms = chrono::Utc::now().timestamp_millis();
                 let stale_threshold_ms = 5 * 60 * 1000; // 5 minutes
@@ -266,19 +286,17 @@ impl AppState {
                     let has_token = run_tokens
                         .lock()
                         .ok()
-                        .is_some_and(|t| t.contains_key(&agent.id));
+                        .is_some_and(|t| t.contains_key(&agent.name));
 
                     if !has_token {
                         // Agent stuck from crash = no active executor
                         tracing::warn!(
-                            agent_id = %agent.id,
+                            agent_name = %agent.name,
                             "Health check: agent running with no cancel token = marking as error"
                         );
-                        if let Ok(db) = db.lock() {
-                            let _ = db.agents().update_status(&agent.id, "error");
-                        }
+                        registry.update_status(&agent.name, AgentStatus::Error);
                         event_bus.emit(EventEnvelope::new(
-                            agent.id.clone(),
+                            agent.name.clone(),
                             None,
                             None,
                             0,
@@ -295,7 +313,7 @@ impl AppState {
                     let latest_ts = {
                         let Ok(db) = db.lock() else { continue };
                         db.events()
-                            .find_latest_ts_for_agent(&agent.id)
+                            .find_latest_ts_for_agent(&agent.name)
                             .unwrap_or(None)
                     };
 
@@ -303,21 +321,19 @@ impl AppState {
                         && now_ms - ts > stale_threshold_ms
                     {
                         tracing::warn!(
-                            agent_id = %agent.id,
+                            agent_name = %agent.name,
                             last_event_ms = ts,
                             "Health check: agent has no events in 5 minutes = cancelling"
                         );
                         // Cancel the run
                         if let Ok(tokens) = run_tokens.lock()
-                            && let Some(token) = tokens.get(&agent.id)
+                            && let Some(token) = tokens.get(&agent.name)
                         {
                             token.cancel();
                         }
-                        if let Ok(db) = db.lock() {
-                            let _ = db.agents().update_status(&agent.id, "error");
-                        }
+                        registry.update_status(&agent.name, AgentStatus::Error);
                         event_bus.emit(EventEnvelope::new(
-                            agent.id.clone(),
+                            agent.name.clone(),
                             None,
                             None,
                             0,

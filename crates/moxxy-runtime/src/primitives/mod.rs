@@ -23,7 +23,7 @@ pub use allowlist::{AllowlistAddPrimitive, AllowlistListPrimitive, AllowlistRemo
 pub use ask::{AgentRespondPrimitive, AskChannels, UserAskPrimitive, new_ask_channels};
 pub use browse::{BrowseExtractPrimitive, BrowseFetchPrimitive};
 pub use channel_notify::{ChannelMessageSender, ChannelNotifyPrimitive};
-pub use fs::{FsListPrimitive, FsReadPrimitive, FsRemovePrimitive, FsWritePrimitive};
+pub use fs::{FsCdPrimitive, FsListPrimitive, FsReadPrimitive, FsRemovePrimitive, FsWritePrimitive};
 pub use git::{
     GitCheckoutPrimitive, GitClonePrimitive, GitCommitPrimitive, GitForkPrimitive,
     GitInitPrimitive, GitPrCreatePrimitive, GitPushPrimitive, GitStatusPrimitive,
@@ -35,9 +35,9 @@ pub use heartbeat::{
 };
 pub use hive::{
     HiveAggregatePrimitive, HiveAssignPrimitive, HiveBoardReadPrimitive, HiveCreatePrimitive,
-    HiveDisbandPrimitive, HiveProposePrimitive, HiveRecruitPrimitive, HiveResolveProposalPrimitive,
-    HiveSignalPrimitive, HiveStore, HiveTaskClaimPrimitive, HiveTaskCompletePrimitive,
-    HiveTaskCreatePrimitive, HiveTaskListPrimitive, HiveVotePrimitive,
+    HiveDisbandPrimitive, HiveManifest, HiveMember, HiveProposePrimitive, HiveRecruitPrimitive,
+    HiveResolveProposalPrimitive, HiveSignalPrimitive, HiveStore, HiveTaskClaimPrimitive,
+    HiveTaskCompletePrimitive, HiveTaskCreatePrimitive, HiveTaskListPrimitive, HiveVotePrimitive,
 };
 pub use http::HttpRequestPrimitive;
 pub use memory::{MemoryAppendPrimitive, MemorySearchPrimitive, MemorySummarizePrimitive};

@@ -175,7 +175,7 @@ async fn e2e_full_agent_lifecycle() {
         .await;
     assert_eq!(resp.status().as_u16(), 201);
     let agent: serde_json::Value = resp.json().await.unwrap();
-    let agent_id = agent["id"].as_str().unwrap();
+    let agent_id = agent["name"].as_str().unwrap();
 
     // Verify agent is idle
     let resp = server
@@ -262,7 +262,7 @@ async fn e2e_agent_update_changes_provider_and_model() {
         .await;
     assert_eq!(resp.status().as_u16(), 201);
     let agent: serde_json::Value = resp.json().await.unwrap();
-    let agent_id = agent["id"].as_str().unwrap();
+    let agent_id = agent["name"].as_str().unwrap();
 
     // Update agent to use openai provider
     let resp = server
@@ -360,7 +360,7 @@ async fn e2e_dynamic_provider_resolution_with_vault() {
         .await;
     assert_eq!(resp.status().as_u16(), 201);
     let agent: serde_json::Value = resp.json().await.unwrap();
-    let agent_id = agent["id"].as_str().unwrap();
+    let agent_id = agent["name"].as_str().unwrap();
 
     // Start a run = the dynamic resolver should find the provider via DB + vault
     // (it will fail the HTTP call since the key is fake, but it won't use EchoProvider)
@@ -497,7 +497,7 @@ async fn e2e_vault_secret_flow() {
         )
         .await;
     let agent: serde_json::Value = resp.json().await.unwrap();
-    let agent_id = agent["id"].as_str().unwrap();
+    let agent_id = agent["name"].as_str().unwrap();
 
     // Create grant
     let resp = server
@@ -554,7 +554,7 @@ async fn e2e_skill_lifecycle() {
         )
         .await;
     let agent: serde_json::Value = resp.json().await.unwrap();
-    let agent_id = agent["id"].as_str().unwrap();
+    let agent_id = agent["name"].as_str().unwrap();
 
     // Install skill (quarantined by default)
     let resp = server
@@ -793,7 +793,7 @@ async fn e2e_ask_response_resolves_pending_question() {
         .await;
     assert_eq!(resp.status().as_u16(), 201);
     let agent: serde_json::Value = resp.json().await.unwrap();
-    let agent_id = agent["id"].as_str().unwrap().to_string();
+    let agent_id = agent["name"].as_str().unwrap().to_string();
 
     // Attempt to answer a non-existent question = should 404
     let resp = server
@@ -810,136 +810,6 @@ async fn e2e_ask_response_resolves_pending_question() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Test 12: Sub-agent spawn endpoint
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn e2e_subagent_spawn() {
-    let server = TestServer::start().await;
-
-    let (token, _) = server
-        .create_token(&["agents:read", "agents:write"], None)
-        .await;
-
-    // Create provider
-    server
-        .post(
-            "/v1/providers",
-            &token,
-            &serde_json::json!({
-                "id": "echo",
-                "display_name": "Echo"
-            }),
-        )
-        .await;
-
-    // Create parent agent
-    let resp = server
-        .post(
-            "/v1/agents",
-            &token,
-            &serde_json::json!({
-                "provider_id": "echo",
-                "model_id": "echo-1",
-                "name": "spawn-parent"
-            }),
-        )
-        .await;
-    assert_eq!(resp.status().as_u16(), 201);
-    let parent: serde_json::Value = resp.json().await.unwrap();
-    let parent_id = parent["id"].as_str().unwrap();
-
-    // Spawn sub-agent
-    let resp = server
-        .post(
-            &format!("/v1/agents/{}/subagents", parent_id),
-            &token,
-            &serde_json::json!({
-                "provider_id": "echo",
-                "model_id": "echo-1"
-            }),
-        )
-        .await;
-    assert_eq!(resp.status().as_u16(), 201);
-    let child: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(child["parent_agent_id"].as_str().unwrap(), parent_id);
-    assert_eq!(child["depth"], 1);
-
-    // Verify child is listed
-    let resp = server.get("/v1/agents", &token).await;
-    let agents: serde_json::Value = resp.json().await.unwrap();
-    let arr = agents.as_array().unwrap();
-    assert_eq!(arr.len(), 2, "Should have parent + child agents");
-}
-
-// ---------------------------------------------------------------------------
-// Test 13: Sub-agent spawn respects lineage limits
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn e2e_subagent_spawn_respects_limits() {
-    let server = TestServer::start().await;
-
-    let (token, _) = server
-        .create_token(&["agents:read", "agents:write"], None)
-        .await;
-
-    server
-        .post(
-            "/v1/providers",
-            &token,
-            &serde_json::json!({
-                "id": "echo",
-                "display_name": "Echo"
-            }),
-        )
-        .await;
-
-    // Create parent agent with max_subagents_total = 1
-    let resp = server
-        .post(
-            "/v1/agents",
-            &token,
-            &serde_json::json!({
-                "provider_id": "echo",
-                "model_id": "echo-1",
-                "name": "limits-parent",
-                "max_subagents_total": 1
-            }),
-        )
-        .await;
-    assert_eq!(resp.status().as_u16(), 201);
-    let parent: serde_json::Value = resp.json().await.unwrap();
-    let parent_id = parent["id"].as_str().unwrap();
-
-    // First spawn should succeed
-    let resp = server
-        .post(
-            &format!("/v1/agents/{}/subagents", parent_id),
-            &token,
-            &serde_json::json!({
-                "provider_id": "echo",
-                "model_id": "echo-1"
-            }),
-        )
-        .await;
-    assert_eq!(resp.status().as_u16(), 201);
-
-    // Second spawn should fail (exceeded max_subagents_total)
-    let resp = server
-        .post(
-            &format!("/v1/agents/{}/subagents", parent_id),
-            &token,
-            &serde_json::json!({
-                "provider_id": "echo",
-                "model_id": "echo-1"
-            }),
-        )
-        .await;
-    assert_eq!(
-        resp.status().as_u16(),
-        403,
-        "Should reject spawn when limit exceeded"
-    );
-}
+// Sub-agent spawn tests removed — subagent creation is now internal via
+// RunStarter::spawn_child (called by agent.spawn / hive.recruit primitives),
+// not via a REST endpoint.

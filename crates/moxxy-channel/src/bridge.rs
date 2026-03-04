@@ -932,6 +932,20 @@ mod tests {
         fn agent_status(&self, _agent_id: &str) -> Result<Option<String>, String> {
             Ok(Some("idle".into()))
         }
+        async fn spawn_child(
+            &self,
+            _: &str,
+            _: &str,
+            _: moxxy_types::SpawnOpts,
+        ) -> Result<moxxy_types::SpawnResult, String> {
+            unimplemented!()
+        }
+        fn list_children(&self, _: &str) -> Result<Vec<moxxy_types::ChildInfo>, String> {
+            Ok(vec![])
+        }
+        fn dismiss_child(&self, _: &str, _: &str) -> Result<(), String> {
+            Ok(())
+        }
     }
 
     fn setup_db() -> Arc<Mutex<Database>> {

@@ -1,8 +1,10 @@
+pub mod agent_kind;
 pub mod auth_extractor;
 pub mod rate_limit;
 pub mod routes;
 pub mod run_service;
 pub mod state;
+pub mod task_analyzer;
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
@@ -63,19 +65,15 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
             post(routes::agents::create_agent).get(routes::agents::list_agents),
         )
         .route(
-            "/v1/agents/{id}",
+            "/v1/agents/{name}",
             get(routes::agents::get_agent)
                 .patch(routes::agents::update_agent)
                 .delete(routes::agents::delete_agent),
         )
-        .route("/v1/agents/{id}/runs", post(routes::agents::start_run))
-        .route("/v1/agents/{id}/stop", post(routes::agents::stop_run))
+        .route("/v1/agents/{name}/runs", post(routes::agents::start_run))
+        .route("/v1/agents/{name}/stop", post(routes::agents::stop_run))
         .route(
-            "/v1/agents/{id}/subagents",
-            post(routes::agents::spawn_subagent),
-        )
-        .route(
-            "/v1/agents/{id}/ask-responses/{question_id}",
+            "/v1/agents/{name}/ask-responses/{question_id}",
             post(routes::agents::respond_to_ask),
         )
         // Memory
@@ -182,18 +180,20 @@ mod test_helpers {
     use moxxy_types::{AuthMode, TokenScope};
     use tower::ServiceExt;
 
-    pub fn test_app() -> (Router, Arc<AppState>) {
+    pub fn test_app() -> (Router, Arc<AppState>, tempfile::TempDir) {
         crate::state::register_sqlite_vec();
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("agents")).unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         let state = Arc::new(AppState::new(
             conn,
             [0u8; 32],
             AuthMode::Token,
-            std::path::PathBuf::from("/tmp/moxxy-test"),
+            tmp.path().to_path_buf(),
             "http://127.0.0.1:3000".into(),
         ));
         let app = create_router(state.clone(), None);
-        (app, state)
+        (app, state, tmp)
     }
 
     pub async fn request(app: &Router, req: Request<Body>) -> axum::response::Response {
@@ -245,18 +245,50 @@ mod test_helpers {
             .unwrap();
     }
 
+    /// Seed a test agent using the registry + YAML store. Returns the agent name.
     pub fn seed_agent(state: &AppState, _token: &str) -> String {
         seed_provider(state);
+        let name = "test-agent".to_string();
+        let config = moxxy_types::AgentConfig {
+            provider: "test-provider".into(),
+            model: "gpt-4".into(),
+            temperature: 0.7,
+            max_subagent_depth: 2,
+            max_subagents_total: 8,
+            policy_profile: None,
+            core_mount: None,
+        };
+        // Create on disk + register
+        let _ = moxxy_core::AgentStore::create(&state.moxxy_home, &name, &config);
+        let runtime = moxxy_types::AgentRuntime {
+            name: name.clone(),
+            agent_type: moxxy_types::AgentType::Agent,
+            config,
+            status: moxxy_types::AgentStatus::Idle,
+            parent_name: None,
+            hive_role: None,
+            depth: 0,
+            spawned_count: 0,
+            persona: None,
+        };
+        let _ = state.registry.register(runtime);
+
+        // Insert minimal row into agents table for FK compatibility
         let now = chrono::Utc::now().to_rfc3339();
-        let id = uuid::Uuid::now_v7().to_string();
-        let db = state.db.lock().unwrap();
-        db.agents()
-            .insert(&moxxy_storage::AgentRow {
-                id: id.clone(),
+        {
+            let db = state.db.lock().unwrap();
+            let _ = db.agents().insert(&moxxy_storage::AgentRow {
+                id: name.clone(),
                 parent_agent_id: None,
                 provider_id: "test-provider".into(),
                 model_id: "gpt-4".into(),
-                workspace_root: "/tmp/ws".into(),
+                workspace_root: state
+                    .moxxy_home
+                    .join("agents")
+                    .join(&name)
+                    .join("workspace")
+                    .to_string_lossy()
+                    .to_string(),
                 core_mount: None,
                 policy_profile: None,
                 temperature: 0.7,
@@ -267,11 +299,12 @@ mod test_helpers {
                 spawned_total: 0,
                 created_at: now.clone(),
                 updated_at: now,
-                name: Some("test-agent".into()),
+                name: Some(name.clone()),
                 persona: None,
-            })
-            .unwrap();
-        id
+            });
+        }
+
+        name
     }
 
     pub fn seed_secret_ref(state: &AppState) -> String {
@@ -302,7 +335,7 @@ mod auth_tests {
 
     #[tokio::test]
     async fn bootstrap_token_creation_without_auth() {
-        let (app, _state) = test_app();
+        let (app, _state, _tmp) = test_app(); // _tmp keeps tempdir alive
         let req = Request::builder()
             .method("POST")
             .uri("/v1/auth/tokens")
@@ -315,7 +348,7 @@ mod auth_tests {
 
     #[tokio::test]
     async fn second_token_requires_tokens_admin() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let _token = create_token_in_db(&state, vec![TokenScope::AgentsRead]);
         let req = Request::builder()
             .method("POST")
@@ -329,7 +362,7 @@ mod auth_tests {
 
     #[tokio::test]
     async fn second_token_with_admin_auth_succeeds() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::TokensAdmin]);
         let req = Request::builder()
             .method("POST")
@@ -344,7 +377,7 @@ mod auth_tests {
 
     #[tokio::test]
     async fn list_tokens_requires_auth() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::TokensAdmin]);
         let req = Request::builder()
             .method("GET")
@@ -358,7 +391,7 @@ mod auth_tests {
 
     #[tokio::test]
     async fn list_tokens_without_auth_returns_401() {
-        let (app, _state) = test_app();
+        let (app, _state, _tmp) = test_app(); // _tmp keeps tempdir alive
         let req = Request::builder()
             .method("GET")
             .uri("/v1/auth/tokens")
@@ -370,7 +403,7 @@ mod auth_tests {
 
     #[tokio::test]
     async fn revoke_sets_status_to_revoked() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let admin_token = create_token_in_db(&state, vec![TokenScope::TokensAdmin]);
         let token_id = {
             let db = state.db.lock().unwrap();
@@ -390,7 +423,7 @@ mod auth_tests {
 
     #[tokio::test]
     async fn revoked_token_cannot_authenticate() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::TokensAdmin]);
         {
             let db = state.db.lock().unwrap();
@@ -419,38 +452,38 @@ mod agent_tests {
 
     #[tokio::test]
     async fn list_agents_returns_all() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(
             &state,
             vec![TokenScope::AgentsRead, TokenScope::AgentsWrite],
         );
         seed_provider(&state);
-        // Insert two agents directly (seed_agent also seeds provider, causing conflict)
-        let now = chrono::Utc::now().to_rfc3339();
+
+        // Register two agents via registry + YAML store
         for i in 0..2 {
-            let id = uuid::Uuid::now_v7().to_string();
-            let db = state.db.lock().unwrap();
-            db.agents()
-                .insert(&moxxy_storage::AgentRow {
-                    id,
-                    parent_agent_id: None,
-                    provider_id: "test-provider".into(),
-                    model_id: "gpt-4".into(),
-                    workspace_root: "/tmp/ws".into(),
-                    core_mount: None,
-                    policy_profile: None,
-                    temperature: 0.7,
-                    max_subagent_depth: 2,
-                    max_subagents_total: 8,
-                    status: "idle".into(),
-                    depth: 0,
-                    spawned_total: 0,
-                    created_at: now.clone(),
-                    updated_at: now.clone(),
-                    name: Some(format!("test-agent-{i}")),
-                    persona: None,
-                })
-                .unwrap();
+            let name = format!("test-agent-{i}");
+            let config = moxxy_types::AgentConfig {
+                provider: "test-provider".into(),
+                model: "gpt-4".into(),
+                temperature: 0.7,
+                max_subagent_depth: 2,
+                max_subagents_total: 8,
+                policy_profile: None,
+                core_mount: None,
+            };
+            let _ = moxxy_core::AgentStore::create(&state.moxxy_home, &name, &config);
+            let runtime = moxxy_types::AgentRuntime {
+                name: name.clone(),
+                agent_type: moxxy_types::AgentType::Agent,
+                config,
+                status: moxxy_types::AgentStatus::Idle,
+                parent_name: None,
+                hive_role: None,
+                depth: 0,
+                spawned_count: 0,
+                persona: None,
+            };
+            let _ = state.registry.register(runtime);
         }
 
         let req = Request::builder()
@@ -472,7 +505,7 @@ mod agent_tests {
 
     #[tokio::test]
     async fn create_agent_returns_201() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
         seed_provider(&state);
         let req = Request::builder()
@@ -490,7 +523,7 @@ mod agent_tests {
 
     #[tokio::test]
     async fn get_agent_returns_created_data() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(
             &state,
             vec![TokenScope::AgentsWrite, TokenScope::AgentsRead],
@@ -506,15 +539,11 @@ mod agent_tests {
             ))
             .unwrap();
         let resp = request(&app, req).await;
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let agent_id = created["id"].as_str().unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
 
         let req = Request::builder()
             .method("GET")
-            .uri(format!("/v1/agents/{}", agent_id))
+            .uri("/v1/agents/test-agent")
             .header("authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -524,7 +553,7 @@ mod agent_tests {
 
     #[tokio::test]
     async fn create_requires_agents_write_scope() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::AgentsRead]);
         let req = Request::builder()
             .method("POST")
@@ -541,7 +570,7 @@ mod agent_tests {
 
     #[tokio::test]
     async fn start_run_transitions_status() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token =
             create_token_in_db(&state, vec![TokenScope::AgentsWrite, TokenScope::RunsWrite]);
         seed_provider_with_model(&state);
@@ -559,15 +588,11 @@ mod agent_tests {
             ))
             .unwrap();
         let resp = request(&app, req).await;
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let agent_id = created["id"].as_str().unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
 
         let req = Request::builder()
             .method("POST")
-            .uri(format!("/v1/agents/{}/runs", agent_id))
+            .uri("/v1/agents/test-agent/runs")
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(r#"{"task":"do something"}"#))
@@ -584,41 +609,15 @@ mod agent_tests {
 
     #[tokio::test]
     async fn stop_run_transitions_status() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token =
             create_token_in_db(&state, vec![TokenScope::AgentsWrite, TokenScope::RunsWrite]);
-        seed_provider(&state);
-        // Create agent
-        let req = Request::builder()
-            .method("POST")
-            .uri("/v1/agents")
-            .header("authorization", format!("Bearer {}", token))
-            .header("content-type", "application/json")
-            .body(Body::from(
-                r#"{"name":"test-agent","provider_id":"test-provider","model_id":"gpt-4"}"#,
-            ))
-            .unwrap();
-        let resp = request(&app, req).await;
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let agent_id = created["id"].as_str().unwrap();
+        let agent_name = seed_agent(&state, &token);
 
-        // Start run
+        // Stop (agent is idle, but stop should still succeed)
         let req = Request::builder()
             .method("POST")
-            .uri(format!("/v1/agents/{}/runs", agent_id))
-            .header("authorization", format!("Bearer {}", token))
-            .header("content-type", "application/json")
-            .body(Body::from(r#"{"task":"work"}"#))
-            .unwrap();
-        request(&app, req).await;
-
-        // Stop
-        let req = Request::builder()
-            .method("POST")
-            .uri(format!("/v1/agents/{}/stop", agent_id))
+            .uri(format!("/v1/agents/{}/stop", agent_name))
             .header("authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -633,215 +632,17 @@ mod agent_tests {
     }
 
     #[tokio::test]
-    async fn spawn_subagent_sets_parent() {
-        let (app, state) = test_app();
-        let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
-        let agent_id = seed_agent(&state, &token);
-
-        let req = Request::builder()
-            .method("POST")
-            .uri(format!("/v1/agents/{}/subagents", agent_id))
-            .header("authorization", format!("Bearer {}", token))
-            .header("content-type", "application/json")
-            .body(Body::from(
-                r#"{"provider_id":"test-provider","model_id":"gpt-4"}"#,
-            ))
-            .unwrap();
-        let resp = request(&app, req).await;
-        assert_eq!(resp.status(), StatusCode::CREATED);
-
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(result["parent_agent_id"], agent_id);
-        assert_eq!(result["depth"], 1);
-    }
-
-    #[tokio::test]
-    async fn spawn_subagent_blocked_at_depth_limit() {
-        let (app, state) = test_app();
-        let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
-
-        // Create parent with max_subagent_depth = 1
-        seed_provider(&state);
-        let now = chrono::Utc::now().to_rfc3339();
-        let parent_id = uuid::Uuid::now_v7().to_string();
-        {
-            let db = state.db.lock().unwrap();
-            db.agents()
-                .insert(&moxxy_storage::AgentRow {
-                    id: parent_id.clone(),
-                    parent_agent_id: None,
-                    provider_id: "test-provider".into(),
-                    model_id: "gpt-4".into(),
-                    workspace_root: "/tmp/ws".into(),
-                    core_mount: None,
-                    policy_profile: None,
-                    temperature: 0.7,
-                    max_subagent_depth: 1,
-                    max_subagents_total: 10,
-                    status: "idle".into(),
-                    depth: 0,
-                    spawned_total: 0,
-                    created_at: now.clone(),
-                    updated_at: now.clone(),
-                    name: Some("test-parent".into()),
-                    persona: None,
-                })
-                .unwrap();
-        }
-
-        // Spawn child at depth 1 (should succeed)
-        let req = Request::builder()
-            .method("POST")
-            .uri(format!("/v1/agents/{}/subagents", parent_id))
-            .header("authorization", format!("Bearer {}", token))
-            .header("content-type", "application/json")
-            .body(Body::from(
-                r#"{"provider_id":"test-provider","model_id":"gpt-4","max_subagent_depth":1}"#,
-            ))
-            .unwrap();
-        let resp = request(&app, req).await;
-        assert_eq!(resp.status(), StatusCode::CREATED);
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let child: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let child_id = child["id"].as_str().unwrap();
-
-        // Spawn grandchild at depth 2 from child whose max_subagent_depth = 1 -> BLOCKED
-        let req = Request::builder()
-            .method("POST")
-            .uri(format!("/v1/agents/{}/subagents", child_id))
-            .header("authorization", format!("Bearer {}", token))
-            .header("content-type", "application/json")
-            .body(Body::from(
-                r#"{"provider_id":"test-provider","model_id":"gpt-4"}"#,
-            ))
-            .unwrap();
-        let resp = request(&app, req).await;
-        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
-    }
-
-    #[tokio::test]
-    async fn spawn_subagent_blocked_at_total_limit() {
-        let (app, state) = test_app();
-        let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
-
-        // Create parent with max_subagents_total = 2
-        seed_provider(&state);
-        let now = chrono::Utc::now().to_rfc3339();
-        let parent_id = uuid::Uuid::now_v7().to_string();
-        {
-            let db = state.db.lock().unwrap();
-            db.agents()
-                .insert(&moxxy_storage::AgentRow {
-                    id: parent_id.clone(),
-                    parent_agent_id: None,
-                    provider_id: "test-provider".into(),
-                    model_id: "gpt-4".into(),
-                    workspace_root: "/tmp/ws".into(),
-                    core_mount: None,
-                    policy_profile: None,
-                    temperature: 0.7,
-                    max_subagent_depth: 5,
-                    max_subagents_total: 2,
-                    status: "idle".into(),
-                    depth: 0,
-                    spawned_total: 0,
-                    created_at: now.clone(),
-                    updated_at: now.clone(),
-                    name: Some("test-parent".into()),
-                    persona: None,
-                })
-                .unwrap();
-        }
-
-        // Spawn 2 children (should succeed)
-        for _i in 0..2 {
-            let req = Request::builder()
-                .method("POST")
-                .uri(format!("/v1/agents/{}/subagents", parent_id))
-                .header("authorization", format!("Bearer {}", token))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    r#"{"provider_id":"test-provider","model_id":"gpt-4"}"#,
-                ))
-                .unwrap();
-            let resp = request(&app, req).await;
-            assert_eq!(resp.status(), StatusCode::CREATED);
-        }
-
-        // Third spawn should be blocked
-        let req = Request::builder()
-            .method("POST")
-            .uri(format!("/v1/agents/{}/subagents", parent_id))
-            .header("authorization", format!("Bearer {}", token))
-            .header("content-type", "application/json")
-            .body(Body::from(
-                r#"{"provider_id":"test-provider","model_id":"gpt-4"}"#,
-            ))
-            .unwrap();
-        let resp = request(&app, req).await;
-        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
-    }
-
-    #[tokio::test]
-    async fn spawn_increments_parent_spawned_total() {
-        let (app, state) = test_app();
-        let token = create_token_in_db(
-            &state,
-            vec![TokenScope::AgentsWrite, TokenScope::AgentsRead],
-        );
-        let agent_id = seed_agent(&state, &token);
-
-        // Spawn a subagent
-        let req = Request::builder()
-            .method("POST")
-            .uri(format!("/v1/agents/{}/subagents", agent_id))
-            .header("authorization", format!("Bearer {}", token))
-            .header("content-type", "application/json")
-            .body(Body::from(
-                r#"{"provider_id":"test-provider","model_id":"gpt-4"}"#,
-            ))
-            .unwrap();
-        let resp = request(&app, req).await;
-        assert_eq!(resp.status(), StatusCode::CREATED);
-
-        // Verify parent's spawned_total incremented
-        let db = state.db.lock().unwrap();
-        let parent = db.agents().find_by_id(&agent_id).unwrap().unwrap();
-        assert_eq!(parent.spawned_total, 1);
-    }
-
-    #[tokio::test]
     async fn update_agent_changes_provider_and_model() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(
             &state,
             vec![TokenScope::AgentsWrite, TokenScope::AgentsRead],
         );
-        let agent_id = seed_agent(&state, &token);
-
-        // Install a second provider
-        {
-            let db = state.db.lock().unwrap();
-            db.providers()
-                .insert(&moxxy_storage::ProviderRow {
-                    id: "new-provider".into(),
-                    display_name: "New Provider".into(),
-                    manifest_path: "/tmp/new.yaml".into(),
-                    signature: None,
-                    enabled: true,
-                    created_at: chrono::Utc::now().to_rfc3339(),
-                })
-                .unwrap();
-        }
+        let agent_name = seed_agent(&state, &token);
 
         let req = Request::builder()
             .method("PATCH")
-            .uri(format!("/v1/agents/{}", agent_id))
+            .uri(format!("/v1/agents/{}", agent_name))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
@@ -862,17 +663,17 @@ mod agent_tests {
 
     #[tokio::test]
     async fn update_agent_partial_keeps_existing_values() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(
             &state,
             vec![TokenScope::AgentsWrite, TokenScope::AgentsRead],
         );
-        let agent_id = seed_agent(&state, &token);
+        let agent_name = seed_agent(&state, &token);
 
         // Only update temperature
         let req = Request::builder()
             .method("PATCH")
-            .uri(format!("/v1/agents/{}", agent_id))
+            .uri(format!("/v1/agents/{}", agent_name))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(r#"{"temperature":0.3}"#))
@@ -892,7 +693,7 @@ mod agent_tests {
 
     #[tokio::test]
     async fn update_agent_not_found_returns_404() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
 
         let req = Request::builder()
@@ -908,13 +709,13 @@ mod agent_tests {
 
     #[tokio::test]
     async fn update_agent_invalid_temperature_returns_400() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
-        let agent_id = seed_agent(&state, &token);
+        let agent_name = seed_agent(&state, &token);
 
         let req = Request::builder()
             .method("PATCH")
-            .uri(format!("/v1/agents/{}", agent_id))
+            .uri(format!("/v1/agents/{}", agent_name))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(r#"{"temperature":5.0}"#))
@@ -925,26 +726,29 @@ mod agent_tests {
 
     #[tokio::test]
     async fn delete_agent_removes_it() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(
             &state,
             vec![TokenScope::AgentsWrite, TokenScope::AgentsRead],
         );
-        let agent_id = seed_agent(&state, &token);
+        let agent_name = seed_agent(&state, &token);
 
         let req = Request::builder()
             .method("DELETE")
-            .uri(format!("/v1/agents/{}", agent_id))
+            .uri(format!("/v1/agents/{}", agent_name))
             .header("authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
         let resp = request(&app, req).await;
         assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 
-        // Verify it's gone
+        // Verify it's gone from registry
+        assert!(state.registry.get(&agent_name).is_none());
+
+        // Verify GET returns 404
         let req = Request::builder()
             .method("GET")
-            .uri(format!("/v1/agents/{}", agent_id))
+            .uri(format!("/v1/agents/{}", agent_name))
             .header("authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -954,7 +758,7 @@ mod agent_tests {
 
     #[tokio::test]
     async fn delete_nonexistent_agent_returns_404() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
 
         let req = Request::builder()
@@ -978,7 +782,7 @@ mod provider_tests {
 
     #[tokio::test]
     async fn install_provider_returns_201() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
 
         let req = Request::builder()
@@ -1003,7 +807,7 @@ mod provider_tests {
 
     #[tokio::test]
     async fn install_provider_upserts_existing() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(
             &state,
             vec![TokenScope::AgentsWrite, TokenScope::AgentsRead],
@@ -1052,7 +856,7 @@ mod provider_tests {
 
     #[tokio::test]
     async fn list_providers_returns_installed() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::AgentsRead]);
         seed_provider_with_model(&state);
 
@@ -1076,7 +880,7 @@ mod provider_tests {
 
     #[tokio::test]
     async fn list_models_for_provider() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::AgentsRead]);
         seed_provider_with_model(&state);
 
@@ -1105,7 +909,7 @@ mod resolve_provider_tests {
 
     #[test]
     fn resolve_provider_with_db_and_vault_returns_some() {
-        let (_app, state) = test_app();
+        let (_app, state, _tmp) = test_app();
         seed_provider_with_model(&state);
 
         // Store an API key in the vault
@@ -1120,7 +924,7 @@ mod resolve_provider_tests {
 
     #[test]
     fn resolve_provider_missing_vault_key_returns_none() {
-        let (_app, state) = test_app();
+        let (_app, state, _tmp) = test_app();
         seed_provider_with_model(&state);
 
         // No vault secret stored = resolve should return None
@@ -1130,7 +934,7 @@ mod resolve_provider_tests {
 
     #[test]
     fn resolve_provider_missing_provider_returns_none() {
-        let (_app, state) = test_app();
+        let (_app, state, _tmp) = test_app();
 
         let provider = state.run_service.resolve_provider("nonexistent", "gpt-4");
         assert!(provider.is_none());
@@ -1138,7 +942,7 @@ mod resolve_provider_tests {
 
     #[test]
     fn resolve_provider_missing_model_returns_none() {
-        let (_app, state) = test_app();
+        let (_app, state, _tmp) = test_app();
         seed_provider(&state);
 
         state
@@ -1163,7 +967,7 @@ mod heartbeat_tests {
 
     #[tokio::test]
     async fn create_heartbeat_returns_201() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
         let agent_id = seed_agent(&state, &token);
 
@@ -1182,7 +986,7 @@ mod heartbeat_tests {
 
     #[tokio::test]
     async fn disable_heartbeat_removes_rule() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(
             &state,
             vec![TokenScope::AgentsWrite, TokenScope::AgentsRead],
@@ -1234,7 +1038,7 @@ mod heartbeat_tests {
 
     #[tokio::test]
     async fn list_heartbeats_for_agent() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(
             &state,
             vec![TokenScope::AgentsWrite, TokenScope::AgentsRead],
@@ -1282,7 +1086,7 @@ mod skill_tests {
 
     #[tokio::test]
     async fn install_skill_quarantines_by_default() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
         let agent_id = seed_agent(&state, &token);
 
@@ -1307,7 +1111,7 @@ mod skill_tests {
 
     #[tokio::test]
     async fn list_skills_for_agent() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(
             &state,
             vec![TokenScope::AgentsWrite, TokenScope::AgentsRead],
@@ -1346,7 +1150,7 @@ mod skill_tests {
 
     #[tokio::test]
     async fn approve_skill_transitions_status() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
         let agent_id = seed_agent(&state, &token);
 
@@ -1389,7 +1193,7 @@ mod skill_tests {
 
     #[tokio::test]
     async fn delete_skill_removes_it() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(
             &state,
             vec![TokenScope::AgentsWrite, TokenScope::AgentsRead],
@@ -1441,7 +1245,7 @@ mod skill_tests {
 
     #[tokio::test]
     async fn delete_nonexistent_skill_returns_404() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
         let agent_id = seed_agent(&state, &token);
 
@@ -1466,7 +1270,7 @@ mod vault_tests {
 
     #[tokio::test]
     async fn list_secrets_returns_all() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::VaultRead, TokenScope::VaultWrite]);
         seed_secret_ref(&state);
         seed_secret_ref(&state);
@@ -1490,7 +1294,7 @@ mod vault_tests {
 
     #[tokio::test]
     async fn create_secret_ref_returns_201() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::VaultWrite]);
 
         let req = Request::builder()
@@ -1514,7 +1318,7 @@ mod vault_tests {
 
     #[tokio::test]
     async fn grant_access_to_agent() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(
             &state,
             vec![TokenScope::VaultWrite, TokenScope::AgentsWrite],
@@ -1545,7 +1349,7 @@ mod vault_tests {
 
     #[tokio::test]
     async fn list_grants_returns_all() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(
             &state,
             vec![
@@ -1589,7 +1393,7 @@ mod vault_tests {
 
     #[tokio::test]
     async fn delete_secret_ref_returns_200() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::VaultWrite, TokenScope::VaultRead]);
         let secret_id = seed_secret_ref(&state);
 
@@ -1619,7 +1423,7 @@ mod vault_tests {
 
     #[tokio::test]
     async fn delete_nonexistent_secret_ref_returns_404() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::VaultWrite]);
 
         let req = Request::builder()
@@ -1634,7 +1438,7 @@ mod vault_tests {
 
     #[tokio::test]
     async fn revoke_grant_succeeds() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(
             &state,
             vec![
@@ -1686,7 +1490,7 @@ mod sse_tests {
 
     #[tokio::test]
     async fn sse_returns_event_stream_content_type() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::EventsRead]);
 
         let req = Request::builder()
@@ -1708,7 +1512,7 @@ mod sse_tests {
 
     #[tokio::test]
     async fn sse_requires_events_read_scope() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::AgentsRead]);
 
         let req = Request::builder()
@@ -1725,7 +1529,7 @@ mod sse_tests {
     async fn sse_delivers_emitted_events() {
         use futures_util::StreamExt;
 
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::EventsRead]);
 
         let req = Request::builder()
@@ -1772,7 +1576,7 @@ mod sse_tests {
     async fn sse_sends_initial_comment() {
         use futures_util::StreamExt;
 
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::EventsRead]);
 
         let req = Request::builder()
@@ -1809,7 +1613,7 @@ mod event_persistence_tests {
 
     #[tokio::test]
     async fn emitted_events_are_persisted_to_event_audit() {
-        let (_app, state) = test_app();
+        let (_app, state, _tmp) = test_app();
         state.spawn_event_persistence();
 
         let envelope = EventEnvelope::new(
@@ -1838,7 +1642,7 @@ mod event_persistence_tests {
 
     #[tokio::test]
     async fn redaction_engine_marks_sensitive_events() {
-        let (_app, state) = test_app();
+        let (_app, state, _tmp) = test_app();
         // For this test we need secrets in the redaction list.
         // Since the current implementation uses an empty secrets list,
         // we verify the non-sensitive path works correctly.
@@ -1865,7 +1669,7 @@ mod event_persistence_tests {
 
     #[tokio::test]
     async fn multiple_events_all_persisted() {
-        let (_app, state) = test_app();
+        let (_app, state, _tmp) = test_app();
         state.spawn_event_persistence();
 
         let mut ids = Vec::new();
@@ -1900,7 +1704,7 @@ mod audit_log_tests {
 
     #[tokio::test]
     async fn audit_logs_require_events_read_scope() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(&state, vec![TokenScope::AgentsRead]);
         let req = Request::builder()
             .method("GET")
@@ -1914,7 +1718,7 @@ mod audit_log_tests {
 
     #[tokio::test]
     async fn audit_logs_returns_persisted_events() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         state.spawn_event_persistence();
         let token = create_token_in_db(&state, vec![TokenScope::EventsRead]);
 
@@ -1952,7 +1756,7 @@ mod audit_log_tests {
 
     #[tokio::test]
     async fn audit_logs_supports_pagination() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         state.spawn_event_persistence();
         let token = create_token_in_db(&state, vec![TokenScope::EventsRead]);
 
@@ -1990,7 +1794,7 @@ mod audit_log_tests {
 
     #[tokio::test]
     async fn health_endpoint_returns_healthy() {
-        let (app, _state) = test_app();
+        let (app, _state, _tmp) = test_app(); // _tmp keeps tempdir alive
         let req = Request::builder()
             .method("GET")
             .uri("/v1/health")
@@ -2018,7 +1822,7 @@ mod memory_compact_tests {
 
     #[tokio::test]
     async fn compact_memory_route_exists() {
-        let (app, state) = test_app();
+        let (app, state, _tmp) = test_app();
         let token = create_token_in_db(
             &state,
             vec![TokenScope::AgentsRead, TokenScope::AgentsWrite],

@@ -17,8 +17,8 @@ export async function startTui(client, args) {
         return;
       }
       if (agents.length === 1) {
-        agentId = agents[0].id;
-        console.log(`Auto-selected agent: ${agentId.slice(0, 12)}`);
+        agentId = agents[0].name;
+        console.log(`Auto-selected agent: ${agentId}`);
       } else if (isInteractive()) {
         agentId = await pickAgent(client, 'Select agent for chat');
       } else {

@@ -232,6 +232,64 @@ impl Primitive for FsRemovePrimitive {
     }
 }
 
+pub struct FsCdPrimitive {
+    policy: PathPolicy,
+}
+
+impl FsCdPrimitive {
+    pub fn new(policy: PathPolicy) -> Self {
+        Self { policy }
+    }
+}
+
+#[async_trait]
+impl Primitive for FsCdPrimitive {
+    fn name(&self) -> &str {
+        "fs.cd"
+    }
+
+    fn description(&self) -> &str {
+        "Change the current working directory within the workspace. Affects path resolution for all subsequent file and shell operations."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Directory to change to. Can be relative (resolved against current working directory) or absolute. Use '..' to go up one level."}
+            },
+            "required": ["path"]
+        })
+    }
+
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
+        let path_str = params["path"]
+            .as_str()
+            .ok_or_else(|| PrimitiveError::InvalidParams("missing 'path' parameter".into()))?;
+        let path = self.policy.resolve_path(Path::new(path_str));
+
+        self.policy
+            .ensure_readable(&path)
+            .map_err(|e| PrimitiveError::AccessDenied(e.to_string()))?;
+
+        let canonical = path
+            .canonicalize()
+            .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
+
+        if !canonical.is_dir() {
+            return Err(PrimitiveError::InvalidParams(format!(
+                "not a directory: {}",
+                canonical.display()
+            )));
+        }
+
+        tracing::info!(path = %canonical.display(), "Changing working directory");
+        self.policy.set_cwd(canonical.clone());
+
+        Ok(serde_json::json!({ "cwd": canonical.display().to_string() }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -500,5 +558,156 @@ mod tests {
             std::fs::read_to_string(workspace.join("project/src/main.rs")).unwrap(),
             "fn main() {}"
         );
+    }
+
+    // --- fs.cd tests ---
+
+    #[tokio::test]
+    async fn fs_cd_changes_working_directory() {
+        let (tmp, policy) = setup();
+        let workspace = tmp.path().join("workspace");
+        let sub = workspace.join("subdir");
+        std::fs::create_dir(&sub).unwrap();
+
+        let prim = FsCdPrimitive::new(policy.clone());
+        let result = prim
+            .invoke(serde_json::json!({"path": "subdir"}))
+            .await
+            .unwrap();
+        let cwd = result["cwd"].as_str().unwrap();
+        assert!(cwd.ends_with("subdir"));
+
+        // Verify resolve_path now resolves relative to subdir
+        let resolved = policy.resolve_path(Path::new("file.txt"));
+        assert!(resolved.ends_with("subdir/file.txt"));
+    }
+
+    #[tokio::test]
+    async fn fs_cd_with_absolute_path() {
+        let (tmp, policy) = setup();
+        let workspace = tmp.path().join("workspace");
+        let sub = workspace.join("abs_dir");
+        std::fs::create_dir(&sub).unwrap();
+
+        let prim = FsCdPrimitive::new(policy.clone());
+        prim.invoke(serde_json::json!({"path": sub.to_str().unwrap()}))
+            .await
+            .unwrap();
+
+        let resolved = policy.resolve_path(Path::new("test.txt"));
+        assert!(resolved.ends_with("abs_dir/test.txt"));
+    }
+
+    #[tokio::test]
+    async fn fs_cd_blocked_outside_workspace() {
+        let (tmp, policy) = setup();
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir(&outside).unwrap();
+
+        let prim = FsCdPrimitive::new(policy);
+        let result = prim
+            .invoke(serde_json::json!({"path": outside.to_str().unwrap()}))
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            PrimitiveError::AccessDenied(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn fs_cd_fails_on_file() {
+        let (tmp, policy) = setup();
+        let workspace = tmp.path().join("workspace");
+        let file = workspace.join("not_a_dir.txt");
+        std::fs::write(&file, "content").unwrap();
+
+        let prim = FsCdPrimitive::new(policy);
+        let result = prim
+            .invoke(serde_json::json!({"path": "not_a_dir.txt"}))
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            PrimitiveError::InvalidParams(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn fs_cd_fails_on_nonexistent() {
+        let (_tmp, policy) = setup();
+
+        let prim = FsCdPrimitive::new(policy);
+        let result = prim
+            .invoke(serde_json::json!({"path": "ghost_dir"}))
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn fs_cd_parent_navigation() {
+        let (tmp, policy) = setup();
+        let workspace = tmp.path().join("workspace");
+        let sub = workspace.join("a").join("b");
+        std::fs::create_dir_all(&sub).unwrap();
+
+        let prim = FsCdPrimitive::new(policy.clone());
+
+        // cd into a/b
+        prim.invoke(serde_json::json!({"path": "a/b"}))
+            .await
+            .unwrap();
+
+        // cd .. (back to a)
+        let result = prim
+            .invoke(serde_json::json!({"path": ".."}))
+            .await
+            .unwrap();
+        let cwd = result["cwd"].as_str().unwrap();
+        assert!(cwd.ends_with("/a"));
+    }
+
+    #[tokio::test]
+    async fn fs_cd_affects_other_primitives() {
+        let (tmp, policy) = setup();
+        let workspace = tmp.path().join("workspace");
+        let sub = workspace.join("project");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(sub.join("readme.txt"), "hello from project").unwrap();
+
+        // cd into project
+        let cd = FsCdPrimitive::new(policy.clone());
+        cd.invoke(serde_json::json!({"path": "project"}))
+            .await
+            .unwrap();
+
+        // Now fs.read with a relative path should resolve inside project/
+        let read = FsReadPrimitive::new(policy);
+        let result = read
+            .invoke(serde_json::json!({"path": "readme.txt"}))
+            .await
+            .unwrap();
+        assert_eq!(result["content"].as_str().unwrap(), "hello from project");
+    }
+
+    #[tokio::test]
+    async fn fs_cd_blocks_traversal_outside_workspace() {
+        let (tmp, policy) = setup();
+        let workspace = tmp.path().join("workspace");
+        let sub = workspace.join("nested");
+        std::fs::create_dir(&sub).unwrap();
+
+        let prim = FsCdPrimitive::new(policy);
+
+        // cd into nested, then try ../.. to escape workspace
+        prim.invoke(serde_json::json!({"path": "nested"}))
+            .await
+            .unwrap();
+        let result = prim.invoke(serde_json::json!({"path": "../.."})).await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            PrimitiveError::AccessDenied(_)
+        ));
     }
 }

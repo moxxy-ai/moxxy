@@ -16,7 +16,7 @@ pub struct ShellExecPrimitive {
     max_timeout: Duration,
     max_output_bytes: usize,
     sandbox_config: Option<SandboxConfig>,
-    working_dir: Option<PathBuf>,
+    working_dir: Option<Arc<Mutex<PathBuf>>>,
 }
 
 impl ShellExecPrimitive {
@@ -41,7 +41,7 @@ impl ShellExecPrimitive {
         self
     }
 
-    pub fn with_working_dir(mut self, dir: PathBuf) -> Self {
+    pub fn with_working_dir(mut self, dir: Arc<Mutex<PathBuf>>) -> Self {
         self.working_dir = Some(dir);
         self
     }
@@ -137,7 +137,8 @@ impl Primitive for ShellExecPrimitive {
             .stderr(std::process::Stdio::piped());
 
         if let Some(ref dir) = self.working_dir {
-            cmd.current_dir(dir);
+            let cwd = dir.lock().unwrap().clone();
+            cmd.current_dir(cwd);
         }
 
         let child = cmd

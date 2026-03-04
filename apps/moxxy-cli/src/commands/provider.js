@@ -9,7 +9,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 
 const OPENAI_API_BASE = 'https://api.openai.com/v1';
-const OPENAI_CODEX_PROVIDER_ID = 'openai-codex';
+export const OPENAI_CODEX_PROVIDER_ID = 'openai-codex';
 const OPENAI_CODEX_DISPLAY_NAME = 'OpenAI (Codex OAuth)';
 const OPENAI_CODEX_ISSUER = 'https://auth.openai.com';
 const OPENAI_CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
@@ -28,7 +28,7 @@ const OPENAI_CODEX_BACKEND_KEY = `moxxy_provider_${OPENAI_CODEX_PROVIDER_ID}`;
 const OPENAI_CODEX_CHATGPT_API_BASE = 'https://chatgpt.com/backend-api/codex';
 const OPENAI_CODEX_OAUTH_SESSION_MODE = 'chatgpt_oauth_session';
 
-const ANTHROPIC_PROVIDER_ID = 'anthropic';
+export const ANTHROPIC_PROVIDER_ID = 'anthropic';
 const ANTHROPIC_SECRET_KEY_NAME = 'ANTHROPIC_API_KEY';
 const ANTHROPIC_BACKEND_KEY = `moxxy_provider_${ANTHROPIC_PROVIDER_ID}`;
 const ANTHROPIC_API_BASE = 'https://api.anthropic.com';
@@ -834,7 +834,7 @@ async function maybeFinalizeWithManualApiKey(client, flags) {
   return await finalizeOpenAiCodexProviderInstall(client, flags, manualApiKey.trim());
 }
 
-async function loginOpenAiCodex(client, flags) {
+export async function loginOpenAiCodex(client, flags) {
   let method = resolveOpenAiAuthMethod(flags);
   if (!method && isInteractive()) {
     method = handleCancel(await p.select({
@@ -1154,7 +1154,7 @@ async function loginAnthropicApiKey(client, flags) {
   return result;
 }
 
-async function loginAnthropic(client, flags) {
+export async function loginAnthropic(client, flags) {
   let method = String(flags.method || '').trim().toLowerCase();
 
   // --api-key flag → direct API key flow

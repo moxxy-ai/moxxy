@@ -123,6 +123,16 @@ function renderMessage(msg, width, agentName) {
     return [chalk.magenta.bold(`✗ ${msg.name} failed: `) + chalk.red(errorText)];
   }
 
+  if (msg.type === 'hive-event') {
+    const icons = {
+      'task-created': '\u271A', 'task-claimed': '\u25B6', 'task-completed': '\u2713',
+      'signal': '\u25C6', 'proposal': '\u25AA', 'vote': '\u25AA', 'member-joined': '\u25B6',
+    };
+    const icon = icons[msg.subtype] || '\u2B21';
+    const header = chalk.yellow.bold(`${icon} Hive: `) + chalk.yellow(msg.content || '');
+    return [header];
+  }
+
   if (msg.type === 'ask') {
     const header = styles.warning.bold('? Agent needs your input');
     const question = msg.question || '';

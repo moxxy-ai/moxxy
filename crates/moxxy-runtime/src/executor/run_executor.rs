@@ -7,6 +7,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
+use super::agent_listener::AgentEventListener;
+use super::hive_listener::HiveEventListener;
+use super::listener::EventListener;
+
 pub struct RunExecutor {
     event_bus: EventBus,
     provider: Arc<dyn Provider>,
@@ -18,6 +22,7 @@ pub struct RunExecutor {
     system_prompt: Option<String>,
     heartbeat_interval: usize,
     history: Vec<Message>,
+    listeners: Vec<Box<dyn EventListener>>,
 }
 
 impl RunExecutor {
@@ -38,6 +43,10 @@ impl RunExecutor {
             system_prompt: None,
             heartbeat_interval: 10,
             history: Vec::new(),
+            listeners: vec![
+                Box::new(AgentEventListener::new()),
+                Box::new(HiveEventListener::new()),
+            ],
         }
     }
 
@@ -71,8 +80,18 @@ impl RunExecutor {
         self
     }
 
+    pub fn with_listener(mut self, listener: Box<dyn EventListener>) -> Self {
+        self.listeners.push(listener);
+        self
+    }
+
+    pub fn without_default_listeners(mut self) -> Self {
+        self.listeners.clear();
+        self
+    }
+
     pub async fn execute(
-        &self,
+        &mut self,
         agent_id: &str,
         run_id: &str,
         task: &str,
@@ -108,16 +127,22 @@ impl RunExecutor {
     }
 
     async fn execute_inner(
-        &self,
+        &mut self,
         agent_id: &str,
         run_id: &str,
         task: &str,
         model_config: &ModelConfig,
     ) -> Result<String, String> {
         let mut sequence: u64 = 0;
-        let mut active_subagents: HashSet<String> = HashSet::new();
         let mut event_rx = self.event_bus.subscribe();
         let mut pending_notifications: Vec<EventEnvelope> = Vec::new();
+
+        // Compute interest set from all listeners once before the loop
+        let interest_set: HashSet<EventType> = self
+            .listeners
+            .iter()
+            .flat_map(|l| l.interests().iter().copied())
+            .collect();
 
         self.emit(
             agent_id,
@@ -142,19 +167,10 @@ impl RunExecutor {
         let mut final_content = String::new();
 
         for iteration in 0..self.max_iterations {
-            // Drain event bus to prevent buffer overflow and collect sub-agent notifications
+            // Drain event bus to prevent buffer overflow and collect notifications
             loop {
                 match event_rx.try_recv() {
-                    Ok(ev)
-                        if ev.agent_id == agent_id
-                            && matches!(
-                                ev.event_type,
-                                EventType::SubagentCompleted
-                                    | EventType::SubagentFailed
-                                    | EventType::HiveSignalPosted
-                                    | EventType::HiveProposalCreated
-                            ) =>
-                    {
+                    Ok(ev) if ev.agent_id == agent_id && interest_set.contains(&ev.event_type) => {
                         pending_notifications.push(ev);
                     }
                     Ok(_) => {}
@@ -266,18 +282,18 @@ impl RunExecutor {
             }
 
             if response.tool_calls.is_empty() {
-                if active_subagents.is_empty() {
+                if !self.listeners.iter().any(|l| l.has_pending_work()) {
                     break;
                 }
 
-                // Active sub-agents exist — wait for one to complete before continuing
+                // Active listeners have pending work — wait for an event before continuing
                 self.emit(
                     agent_id,
                     run_id,
                     &mut sequence,
                     EventType::AgentAlive,
                     serde_json::json!({
-                        "waiting_for_subagents": active_subagents.len(),
+                        "waiting_for_events": true,
                         "iteration": iteration,
                     }),
                 );
@@ -285,7 +301,7 @@ impl RunExecutor {
                 let maybe_event = if let Some(ev) = pending_notifications.pop() {
                     Some(ev)
                 } else {
-                    // Block until a sub-agent event arrives
+                    // Block until a relevant event arrives
                     loop {
                         tokio::select! {
                             _ = async {
@@ -305,11 +321,7 @@ impl RunExecutor {
                             result = event_rx.recv() => {
                                 match result {
                                     Ok(ev) if ev.agent_id == agent_id
-                                        && matches!(ev.event_type,
-                                            EventType::SubagentCompleted
-                                            | EventType::SubagentFailed
-                                            | EventType::HiveSignalPosted
-                                            | EventType::HiveProposalCreated) =>
+                                        && interest_set.contains(&ev.event_type) =>
                                     {
                                         break Some(ev);
                                     }
@@ -324,41 +336,13 @@ impl RunExecutor {
                 };
 
                 let Some(event) = maybe_event else {
-                    // Event bus closed — cannot wait for sub-agents
+                    // Event bus closed — cannot wait for events
                     break;
                 };
 
-                let sub_id = event.payload["sub_agent_id"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_string();
-                let name = event.payload["name"]
-                    .as_str()
-                    .unwrap_or(&sub_id)
-                    .to_string();
-                active_subagents.remove(&sub_id);
-
-                let notification = match event.event_type {
-                    EventType::SubagentCompleted => {
-                        let result_text = event.payload["result"].as_str().unwrap_or("(no output)");
-                        format!("[Sub-agent '{name}' completed]\n{result_text}")
-                    }
-                    EventType::SubagentFailed => {
-                        let error = event.payload["error"].as_str().unwrap_or("unknown error");
-                        format!("[Sub-agent '{name}' failed]\n{error}")
-                    }
-                    EventType::HiveSignalPosted => {
-                        let signal_type = event.payload["signal_type"].as_str().unwrap_or("signal");
-                        let author = event.payload["author"].as_str().unwrap_or("unknown");
-                        format!("[Hive signal: {signal_type} from {author}]")
-                    }
-                    EventType::HiveProposalCreated => {
-                        let title = event.payload["title"].as_str().unwrap_or("untitled");
-                        let proposer = event.payload["proposer"].as_str().unwrap_or("unknown");
-                        format!("[Hive proposal: '{title}' by {proposer}]")
-                    }
-                    _ => format!("[Event: {:?}]", event.event_type),
-                };
+                // Dispatch event to matching listener
+                let notification =
+                    Self::dispatch_to_listeners(&mut self.listeners, &event, &interest_set);
 
                 self.emit(
                     agent_id,
@@ -366,12 +350,14 @@ impl RunExecutor {
                     &mut sequence,
                     EventType::AgentAlive,
                     serde_json::json!({
-                        "subagent_notification": sub_id,
+                        "event_notification": true,
                         "event_type": format!("{:?}", event.event_type),
                     }),
                 );
 
-                conversation.push(Message::user(&notification));
+                if let Some(text) = notification {
+                    conversation.push(Message::user(&text));
+                }
                 continue;
             }
 
@@ -411,11 +397,9 @@ impl RunExecutor {
                     Ok(result) => {
                         let result_str = serde_json::to_string(&result).unwrap_or_default();
 
-                        // Track sub-agent spawns for wait-on-completion
-                        if tool_call.name == "agent.spawn"
-                            && let Some(id) = result.get("sub_agent_id").and_then(|v| v.as_str())
-                        {
-                            active_subagents.insert(id.to_string());
+                        // Notify all listeners of the tool result
+                        for listener in &mut self.listeners {
+                            listener.on_tool_result(&tool_call.name, &result);
                         }
 
                         tracing::info!(
@@ -476,6 +460,25 @@ impl RunExecutor {
         );
 
         Ok(final_content)
+    }
+
+    /// Dispatch an event to the first listener whose interests match.
+    /// Returns the notification text if the listener produced one.
+    fn dispatch_to_listeners(
+        listeners: &mut [Box<dyn EventListener>],
+        event: &EventEnvelope,
+        interest_set: &HashSet<EventType>,
+    ) -> Option<String> {
+        if !interest_set.contains(&event.event_type) {
+            return None;
+        }
+        for listener in listeners.iter_mut() {
+            if listener.interests().contains(&event.event_type) {
+                let action = listener.handle(event);
+                return action.notification;
+            }
+        }
+        None
     }
 
     fn emit(
@@ -560,7 +563,7 @@ mod tests {
         let provider = Arc::new(EchoProvider::new());
         let registry = PrimitiveRegistry::new();
 
-        let executor = RunExecutor::new(bus, provider, registry, vec![]);
+        let mut executor = RunExecutor::new(bus, provider, registry, vec![]);
         let result = executor
             .execute("agent-1", "run-1", "hello", &model_config())
             .await;
@@ -593,7 +596,7 @@ mod tests {
         let mut registry = PrimitiveRegistry::new();
         registry.register(Box::new(EchoPrimitive));
 
-        let executor = RunExecutor::new(bus, provider, registry, vec!["echo".into()]);
+        let mut executor = RunExecutor::new(bus, provider, registry, vec!["echo".into()]);
         let result = executor
             .execute("agent-1", "run-1", "test tool", &model_config())
             .await;
@@ -615,7 +618,7 @@ mod tests {
         let provider = Arc::new(EchoProvider::new());
         let registry = PrimitiveRegistry::new();
 
-        let executor = RunExecutor::new(bus, provider, registry, vec![]);
+        let mut executor = RunExecutor::new(bus, provider, registry, vec![]);
         executor
             .execute("my-agent", "my-run", "task", &model_config())
             .await
@@ -634,7 +637,7 @@ mod tests {
         let provider = Arc::new(UsageProvider);
         let registry = PrimitiveRegistry::new();
 
-        let executor = RunExecutor::new(bus, provider, registry, vec![]);
+        let mut executor = RunExecutor::new(bus, provider, registry, vec![]);
         executor
             .execute("agent-usage", "run-usage", "count tokens", &model_config())
             .await
@@ -667,7 +670,7 @@ mod tests {
         let mut registry = PrimitiveRegistry::new();
         registry.register(Box::new(EchoPrimitive));
 
-        let executor =
+        let mut executor =
             RunExecutor::new(bus, provider, registry, vec!["echo".into()]).with_max_iterations(2);
 
         let result = executor
@@ -690,7 +693,7 @@ mod tests {
         let provider = Arc::new(EchoProvider::new());
         let registry = PrimitiveRegistry::new();
 
-        let executor = RunExecutor::new(bus, provider, registry, vec![])
+        let mut executor = RunExecutor::new(bus, provider, registry, vec![])
             .with_system_prompt("You are a helpful agent.".into());
 
         let result = executor
@@ -729,7 +732,7 @@ mod tests {
         let mut registry = PrimitiveRegistry::new();
         registry.register(Box::new(EchoPrimitive));
 
-        let executor = RunExecutor::new(bus, provider, registry, vec!["echo".into()])
+        let mut executor = RunExecutor::new(bus, provider, registry, vec!["echo".into()])
             .with_max_iterations(6)
             .with_heartbeat_interval(3);
 
@@ -758,7 +761,7 @@ mod tests {
 
         let history = vec![Message::user("What is 2+2?"), Message::assistant("4")];
 
-        let executor = RunExecutor::new(bus, provider, registry, vec![]).with_history(history);
+        let mut executor = RunExecutor::new(bus, provider, registry, vec![]).with_history(history);
 
         let result = executor
             .execute("agent-1", "run-2", "What about 3+3?", &model_config())
@@ -776,14 +779,14 @@ mod tests {
         let provider2 = Arc::new(EchoProvider::new());
 
         // Without history
-        let executor1 = RunExecutor::new(bus1, provider1, PrimitiveRegistry::new(), vec![]);
+        let mut executor1 = RunExecutor::new(bus1, provider1, PrimitiveRegistry::new(), vec![]);
         let result1 = executor1
             .execute("agent-1", "run-1", "hello", &model_config())
             .await
             .unwrap();
 
         // With empty history
-        let executor2 = RunExecutor::new(bus2, provider2, PrimitiveRegistry::new(), vec![])
+        let mut executor2 = RunExecutor::new(bus2, provider2, PrimitiveRegistry::new(), vec![])
             .with_history(vec![]);
         let result2 = executor2
             .execute("agent-1", "run-1", "hello", &model_config())
@@ -808,7 +811,7 @@ mod tests {
         let mut registry = PrimitiveRegistry::new();
         registry.register(Box::new(EchoPrimitive));
 
-        let executor = RunExecutor::new(bus, provider, registry, vec!["echo".into()])
+        let mut executor = RunExecutor::new(bus, provider, registry, vec!["echo".into()])
             .with_system_prompt("You are a test agent.".into());
 
         let result = executor
@@ -886,7 +889,7 @@ mod tests {
             ));
         });
 
-        let executor = RunExecutor::new(bus, provider, registry, vec!["agent.spawn".into()])
+        let mut executor = RunExecutor::new(bus, provider, registry, vec!["agent.spawn".into()])
             .with_timeout(Duration::from_secs(10));
 
         let result = executor
@@ -918,5 +921,247 @@ mod tests {
             model_requests >= 3,
             "expected at least 3 model requests, got {model_requests}"
         );
+    }
+
+    #[tokio::test]
+    async fn executor_waits_for_hive_recruit_completion() {
+        let bus = EventBus::new(100);
+        let bus_clone = bus.clone();
+        let mut rx = bus.subscribe();
+
+        // Provider returns hive.recruit tool call first, then echoes (no tools)
+        let provider = Arc::new(EchoProvider::new().with_tool_calls(vec![ToolCall {
+            id: "call_recruit".into(),
+            name: "hive.recruit".into(),
+            arguments: serde_json::json!({"task": "research", "role": "worker"}),
+        }]));
+
+        // Fake hive.recruit primitive that returns a sub_agent_id
+        struct FakeRecruitPrimitive;
+        #[async_trait]
+        impl Primitive for FakeRecruitPrimitive {
+            fn name(&self) -> &str {
+                "hive.recruit"
+            }
+            async fn invoke(
+                &self,
+                _params: serde_json::Value,
+            ) -> Result<serde_json::Value, PrimitiveError> {
+                Ok(
+                    serde_json::json!({"sub_agent_id": "worker-1", "run_id": "run-w1", "role": "worker"}),
+                )
+            }
+        }
+
+        let mut registry = PrimitiveRegistry::new();
+        registry.register(Box::new(FakeRecruitPrimitive));
+
+        // Emit SubagentCompleted after a short delay (simulates worker finishing)
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            bus_clone.emit(EventEnvelope::new(
+                "queen-agent".into(),
+                None,
+                None,
+                0,
+                EventType::SubagentCompleted,
+                serde_json::json!({
+                    "sub_agent_id": "worker-1",
+                    "name": "worker-1",
+                    "result": "research done",
+                }),
+            ));
+        });
+
+        let mut executor = RunExecutor::new(bus, provider, registry, vec!["hive.recruit".into()])
+            .with_timeout(Duration::from_secs(10));
+
+        let result = executor
+            .execute("queen-agent", "run-1", "coordinate hive", &model_config())
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "executor should complete: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        assert!(
+            content.contains("Sub-agent"),
+            "final content should reference sub-agent notification: {content}"
+        );
+
+        let mut model_requests = 0;
+        while let Ok(event) = rx.try_recv() {
+            if event.event_type == EventType::ModelRequest {
+                model_requests += 1;
+            }
+        }
+        assert!(
+            model_requests >= 3,
+            "expected at least 3 model requests, got {model_requests}"
+        );
+    }
+
+    #[tokio::test]
+    async fn executor_wakes_on_hive_task_completed() {
+        let bus = EventBus::new(100);
+        let bus_clone = bus.clone();
+        let mut rx = bus.subscribe();
+
+        // Provider returns hive.recruit tool call first, then echoes (no tools)
+        let provider = Arc::new(EchoProvider::new().with_tool_calls(vec![ToolCall {
+            id: "call_recruit".into(),
+            name: "hive.recruit".into(),
+            arguments: serde_json::json!({"task": "work", "role": "worker"}),
+        }]));
+
+        struct FakeRecruitPrimitive;
+        #[async_trait]
+        impl Primitive for FakeRecruitPrimitive {
+            fn name(&self) -> &str {
+                "hive.recruit"
+            }
+            async fn invoke(
+                &self,
+                _params: serde_json::Value,
+            ) -> Result<serde_json::Value, PrimitiveError> {
+                Ok(
+                    serde_json::json!({"sub_agent_id": "worker-2", "run_id": "run-w2", "role": "worker"}),
+                )
+            }
+        }
+
+        let mut registry = PrimitiveRegistry::new();
+        registry.register(Box::new(FakeRecruitPrimitive));
+
+        // Emit HiveTaskCompleted first, then SubagentCompleted
+        let bus_clone2 = bus_clone.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            // HiveTaskCompleted wakes the queen mid-wait (worker is still alive)
+            bus_clone.emit(EventEnvelope::new(
+                "queen-agent".into(),
+                None,
+                None,
+                0,
+                EventType::HiveTaskCompleted,
+                serde_json::json!({
+                    "hive_id": "hive-1",
+                    "task_id": "task-42",
+                    "agent_id": "worker-2",
+                }),
+            ));
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            // SubagentCompleted ends the wait
+            bus_clone2.emit(EventEnvelope::new(
+                "queen-agent".into(),
+                None,
+                None,
+                0,
+                EventType::SubagentCompleted,
+                serde_json::json!({
+                    "sub_agent_id": "worker-2",
+                    "name": "worker-2",
+                    "result": "all tasks done",
+                }),
+            ));
+        });
+
+        let mut executor = RunExecutor::new(bus, provider, registry, vec!["hive.recruit".into()])
+            .with_timeout(Duration::from_secs(10));
+
+        let result = executor
+            .execute("queen-agent", "run-1", "coordinate hive", &model_config())
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "executor should complete: {:?}",
+            result.err()
+        );
+        let content = result.unwrap();
+        // The queen should have seen the hive task notification
+        assert!(
+            content.contains("Hive task") || content.contains("Sub-agent"),
+            "final content should reference hive task or sub-agent notification: {content}"
+        );
+
+        // Should have at least 4 model requests:
+        // 1. initial task
+        // 2. after hive.recruit tool result (enters wait)
+        // 3. after HiveTaskCompleted notification
+        // 4. after SubagentCompleted notification
+        let mut model_requests = 0;
+        while let Ok(event) = rx.try_recv() {
+            if event.event_type == EventType::ModelRequest {
+                model_requests += 1;
+            }
+        }
+        assert!(
+            model_requests >= 4,
+            "expected at least 4 model requests, got {model_requests}"
+        );
+    }
+
+    #[tokio::test]
+    async fn custom_listener_receives_events() {
+        use super::super::listener::{EventAction, EventListener};
+
+        struct MockListener {
+            handled: std::sync::Arc<std::sync::Mutex<Vec<EventType>>>,
+        }
+
+        impl EventListener for MockListener {
+            fn name(&self) -> &str {
+                "mock"
+            }
+            fn interests(&self) -> &[EventType] {
+                &[EventType::SubagentCompleted]
+            }
+            fn handle(&mut self, event: &EventEnvelope) -> EventAction {
+                self.handled.lock().unwrap().push(event.event_type);
+                EventAction {
+                    notification: Some("[mock handled]".to_string()),
+                }
+            }
+            fn has_pending_work(&self) -> bool {
+                false
+            }
+        }
+
+        let bus = EventBus::new(100);
+        let provider = Arc::new(EchoProvider::new());
+        let registry = PrimitiveRegistry::new();
+
+        let handled = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mock = MockListener {
+            handled: handled.clone(),
+        };
+
+        let mut executor = RunExecutor::new(bus, provider, registry, vec![])
+            .without_default_listeners()
+            .with_listener(Box::new(mock));
+
+        // No tool calls, no pending work → exits immediately
+        let result = executor
+            .execute("agent-1", "run-1", "test", &model_config())
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn executor_without_listeners_exits_immediately() {
+        let bus = EventBus::new(100);
+        let provider = Arc::new(EchoProvider::new());
+        let registry = PrimitiveRegistry::new();
+
+        let mut executor =
+            RunExecutor::new(bus, provider, registry, vec![]).without_default_listeners();
+
+        let result = executor
+            .execute("agent-1", "run-1", "test", &model_config())
+            .await;
+        assert!(result.is_ok());
     }
 }

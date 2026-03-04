@@ -13,26 +13,29 @@ pub mod sandbox;
 pub use anthropic_provider::AnthropicProvider;
 pub use context::PrimitiveContext;
 pub use echo_provider::EchoProvider;
-pub use executor::RunExecutor;
+pub use executor::{
+    AgentEventListener, EventAction, EventListener, Executor, HiveEventListener, RunExecutor,
+};
 pub use openai_provider::OpenAIProvider;
 pub use primitives::{
     AgentDismissPrimitive, AgentListPrimitive, AgentRespondPrimitive, AgentSpawnPrimitive,
     AgentStatusPrimitive, AgentStopPrimitive, AllowlistAddPrimitive, AllowlistListPrimitive,
     AllowlistRemovePrimitive, AskChannels, BrowseExtractPrimitive, BrowseFetchPrimitive,
-    ChannelMessageSender, ChannelNotifyPrimitive, CliNotifyPrimitive, FsListPrimitive,
-    FsReadPrimitive, FsRemovePrimitive, FsWritePrimitive, GitCheckoutPrimitive, GitClonePrimitive,
+    ChannelMessageSender, ChannelNotifyPrimitive, CliNotifyPrimitive, FsCdPrimitive,
+    FsListPrimitive, FsReadPrimitive, FsRemovePrimitive, FsWritePrimitive, GitCheckoutPrimitive,
+    GitClonePrimitive,
     GitCommitPrimitive, GitForkPrimitive, GitInitPrimitive, GitPrCreatePrimitive, GitPushPrimitive,
     GitStatusPrimitive, GitWorktreeAddPrimitive, GitWorktreeListPrimitive,
     GitWorktreeRemovePrimitive, HeartbeatCreatePrimitive, HeartbeatDeletePrimitive,
     HeartbeatDisablePrimitive, HeartbeatListPrimitive, HeartbeatUpdatePrimitive,
     HiveAggregatePrimitive, HiveAssignPrimitive, HiveBoardReadPrimitive, HiveCreatePrimitive,
-    HiveDisbandPrimitive, HiveProposePrimitive, HiveRecruitPrimitive, HiveResolveProposalPrimitive,
-    HiveSignalPrimitive, HiveStore, HiveTaskClaimPrimitive, HiveTaskCompletePrimitive,
-    HiveTaskCreatePrimitive, HiveTaskListPrimitive, HiveVotePrimitive, HttpRequestPrimitive,
-    MemoryAppendPrimitive, MemorySearchPrimitive, MemorySummarizePrimitive, ShellExecPrimitive,
-    SkillImportPrimitive, SkillValidatePrimitive, UserAskPrimitive, VaultDeletePrimitive,
-    VaultGetPrimitive, VaultListPrimitive, VaultSetPrimitive, WebhookDeletePrimitive,
-    WebhookListPrimitive, WebhookRegisterPrimitive, new_ask_channels,
+    HiveDisbandPrimitive, HiveManifest, HiveMember, HiveProposePrimitive, HiveRecruitPrimitive,
+    HiveResolveProposalPrimitive, HiveSignalPrimitive, HiveStore, HiveTaskClaimPrimitive,
+    HiveTaskCompletePrimitive, HiveTaskCreatePrimitive, HiveTaskListPrimitive, HiveVotePrimitive,
+    HttpRequestPrimitive, MemoryAppendPrimitive, MemorySearchPrimitive, MemorySummarizePrimitive,
+    ShellExecPrimitive, SkillImportPrimitive, SkillValidatePrimitive, UserAskPrimitive,
+    VaultDeletePrimitive, VaultGetPrimitive, VaultListPrimitive, VaultSetPrimitive,
+    WebhookDeletePrimitive, WebhookListPrimitive, WebhookRegisterPrimitive, new_ask_channels,
 };
 pub use process::{AgentProcess, AgentProcessConfig};
 pub use provider::{Message, ModelConfig, Provider, ProviderResponse, ToolCall};

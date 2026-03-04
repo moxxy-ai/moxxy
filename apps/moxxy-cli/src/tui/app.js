@@ -192,7 +192,7 @@ export class App {
     // Schedule teardown on next tick so pi-tui's input handler can finish
     setImmediate(() => {
       try { this.tui.stop(); } catch { /* ignore */ }
-      process.stdout.write(DISABLE_MOUSE + EXIT_ALT_SCREEN);
+      process.stdout.write(DISABLE_MOUSE + EXIT_ALT_SCREEN + '\x1b[2J\x1b[H');
       // Force-kill via SIGINT = process.exit() can hang when async handles
       // (SSE fetch, timers) haven't fully unwound yet.
       process.kill(process.pid, 'SIGINT');
@@ -300,7 +300,7 @@ export class App {
   async _stopAgent() {
     if (this.agent && this.agent.status === 'running') {
       try {
-        await this.client.stopAgent(this.agent.id);
+        await this.client.stopAgent(this.agent.name);
         this.agent.status = 'idle';
         this.statusBar.setAgent(this.agent);
         this.eventsHandler._stopThinking();
@@ -421,7 +421,7 @@ export class App {
     }
     if (task === '/status') {
       const status = this.agent
-        ? `Agent ${shortId(this.agent.id)}: ${this.agent.status} | Provider: ${this.agent.provider_id} | Model: ${this.agent.model_id} | SSE: ${this.eventsHandler.connected ? 'connected' : 'disconnected'}`
+        ? `Agent ${this.agent.name}: ${this.agent.status} | Provider: ${this.agent.provider_id} | Model: ${this.agent.model_id} | SSE: ${this.eventsHandler.connected ? 'connected' : 'disconnected'}`
         : 'No agent connected';
       this.eventsHandler.addSystemMessage(status);
       return;
@@ -526,7 +526,7 @@ export class App {
     this.eventsHandler.addUserMessage(task);
     if (this.agent) {
       try {
-        await this.client.startRun(this.agent.id, task);
+        await this.client.startRun(this.agent.name, task);
         this.agent.status = 'running';
         this.statusBar.setAgent(this.agent);
         this.tui.requestRender(true);

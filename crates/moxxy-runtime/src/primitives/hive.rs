@@ -1,10 +1,9 @@
 use async_trait::async_trait;
-use moxxy_core::{AgentLineage, EventBus};
-use moxxy_storage::Database;
+use moxxy_core::EventBus;
 use moxxy_types::{EventEnvelope, EventType, RunStarter};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::registry::{Primitive, PrimitiveError};
 
@@ -280,15 +279,15 @@ impl HiveStore {
 /// hive.create — Creates a new hive with the calling agent as queen.
 pub struct HiveCreatePrimitive {
     agent_id: String,
-    agent_dir: PathBuf,
+    workspace_dir: PathBuf,
     event_bus: EventBus,
 }
 
 impl HiveCreatePrimitive {
-    pub fn new(agent_id: String, agent_dir: PathBuf, event_bus: EventBus) -> Self {
+    pub fn new(agent_id: String, workspace_dir: PathBuf, event_bus: EventBus) -> Self {
         Self {
             agent_id,
-            agent_dir,
+            workspace_dir,
             event_bus,
         }
     }
@@ -332,7 +331,7 @@ impl Primitive for HiveCreatePrimitive {
             .and_then(|v| v.as_str())
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'strategy'".into()))?;
 
-        let hive_dir = self.agent_dir.join(".hive");
+        let hive_dir = self.workspace_dir.join(".hive");
         if hive_dir.join("hive.json").exists() {
             return Err(PrimitiveError::ExecutionFailed(
                 "this agent already has a hive".into(),
@@ -384,32 +383,26 @@ impl Primitive for HiveCreatePrimitive {
     }
 }
 
-/// hive.recruit — Queen spawns a worker and writes membership file.
+/// hive.recruit — Queen spawns a worker via RunStarter::spawn_child.
 pub struct HiveRecruitPrimitive {
-    db: Arc<Mutex<Database>>,
     agent_id: String,
-    agent_dir: PathBuf,
+    workspace_dir: PathBuf,
     run_starter: Arc<dyn RunStarter>,
     event_bus: EventBus,
-    moxxy_home: PathBuf,
 }
 
 impl HiveRecruitPrimitive {
     pub fn new(
-        db: Arc<Mutex<Database>>,
         agent_id: String,
-        agent_dir: PathBuf,
+        workspace_dir: PathBuf,
         run_starter: Arc<dyn RunStarter>,
         event_bus: EventBus,
-        moxxy_home: PathBuf,
     ) -> Self {
         Self {
-            db,
             agent_id,
-            agent_dir,
+            workspace_dir,
             run_starter,
             event_bus,
-            moxxy_home,
         }
     }
 }
@@ -466,7 +459,7 @@ impl Primitive for HiveRecruitPrimitive {
             .and_then(|v| v.as_str())
             .map(String::from);
 
-        let hive_dir = self.agent_dir.join(".hive");
+        let hive_dir = self.workspace_dir.join(".hive");
         let store = HiveStore::new(hive_dir.clone());
         let mut manifest = store.read_manifest()?;
 
@@ -476,129 +469,55 @@ impl Primitive for HiveRecruitPrimitive {
             ));
         }
 
-        // Spawn sub-agent via the same mechanism as agent.spawn
-        let parent = {
-            let db = self
-                .db
-                .lock()
-                .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-            db.agents()
-                .find_by_id(&self.agent_id)
-                .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?
-                .ok_or_else(|| PrimitiveError::NotFound("queen agent".into()))?
-        };
-
-        let lineage = AgentLineage {
-            root_agent_id: parent
-                .parent_agent_id
-                .clone()
-                .unwrap_or_else(|| parent.id.clone()),
-            current_depth: parent.depth as u32,
-            max_depth: parent.max_subagent_depth as u32,
-            spawned_total: parent.spawned_total as u32,
-            max_total: parent.max_subagents_total as u32,
-        };
-
-        if !lineage.can_spawn() {
-            return Err(PrimitiveError::AccessDenied(format!(
-                "spawn limit reached: depth={}/{}, total={}/{}",
-                lineage.current_depth, lineage.max_depth, lineage.spawned_total, lineage.max_total
-            )));
-        }
-
         let model_id = params
             .get("model_id")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
-            .unwrap_or(&parent.model_id)
-            .to_string();
+            .map(String::from);
 
-        let now = chrono::Utc::now().to_rfc3339();
-        let child_id = uuid::Uuid::now_v7().to_string();
-        let parent_name = parent.name.as_deref().unwrap_or(&parent.id);
-        let short_id = &child_id[child_id.len() - 8..];
-        let auto_name = format!("{parent_name}-{role}-{short_id}");
-
-        let child_dir = self.moxxy_home.join("agents").join(&child_id);
-        let child_workspace = child_dir.join("workspace");
-        std::fs::create_dir_all(&child_workspace).ok();
-        std::fs::create_dir_all(child_dir.join("memory")).ok();
-
-        let child = moxxy_storage::AgentRow {
-            id: child_id.clone(),
-            parent_agent_id: Some(self.agent_id.clone()),
-            provider_id: parent.provider_id.clone(),
-            model_id,
-            workspace_root: child_dir.to_string_lossy().to_string(),
-            core_mount: None,
-            policy_profile: parent.policy_profile.clone(),
-            temperature: parent.temperature,
-            max_subagent_depth: parent.max_subagent_depth,
-            max_subagents_total: parent.max_subagents_total,
-            status: "idle".into(),
-            depth: parent.depth + 1,
-            spawned_total: 0,
-            created_at: now.clone(),
-            updated_at: now.clone(),
-            name: Some(auto_name.clone()),
-            persona: None,
+        let hive_role = match role.as_str() {
+            "scout" => moxxy_types::HiveRole::Scout,
+            _ => moxxy_types::HiveRole::Worker,
         };
 
-        {
-            let db = self
-                .db
-                .lock()
-                .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-            db.agents()
-                .insert(&child)
-                .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-            db.agents()
-                .increment_spawned_total(&self.agent_id)
-                .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-            db.allowlists()
-                .copy_from_agent(&self.agent_id, &child_id)
-                .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-            db.vault_grants()
-                .copy_from_agent(&self.agent_id, &child_id)
-                .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-        }
+        // Build contextualized task with hive instructions
+        let specialty_note = specialty
+            .as_deref()
+            .map(|s| format!(" Specialty: {s}."))
+            .unwrap_or_default();
+        let contextualized_task = format!(
+            "[Hive Worker] You are a hive {role} agent.{specialty_note}\n\
+             Workflow: hive.task_list → pick a non-blocked pending task → hive.task_claim → do work → hive.task_complete.\n\
+             If a task is blocked (dependencies not yet completed), pick another task or wait.\n\
+             Use your workspace for all file operations — it is already set up for you.\n\n\
+             Task from queen: {task}"
+        );
 
-        // Write membership file in child's agent dir
-        let membership = HiveMembership {
-            hive_id: manifest.id.clone(),
-            hive_path: hive_dir.display().to_string(),
-            role: role.clone(),
-            specialty: specialty.clone(),
-        };
-        let membership_path = child_dir.join(".hive_membership.json");
-        let membership_data = serde_json::to_string_pretty(&membership)
-            .map_err(|e| PrimitiveError::ExecutionFailed(format!("serialize membership: {e}")))?;
-        std::fs::write(&membership_path, membership_data)
-            .map_err(|e| PrimitiveError::ExecutionFailed(format!("write membership: {e}")))?;
+        // Spawn via RunStarter
+        let result = self
+            .run_starter
+            .spawn_child(
+                &self.agent_id,
+                &contextualized_task,
+                moxxy_types::SpawnOpts {
+                    agent_type: moxxy_types::AgentType::HiveWorker,
+                    model_id,
+                    hive_role: Some(hive_role),
+                },
+            )
+            .await
+            .map_err(PrimitiveError::ExecutionFailed)?;
 
         // Update manifest with new member
         manifest.members.push(HiveMember {
-            agent_id: child_id.clone(),
+            agent_id: result.child_name.clone(),
             role: role.clone(),
             specialty: specialty.clone(),
             status: "active".into(),
         });
         store.write_manifest(&manifest)?;
 
-        // Emit events
-        self.event_bus.emit(EventEnvelope::new(
-            self.agent_id.clone(),
-            None,
-            None,
-            0,
-            EventType::SubagentSpawned,
-            serde_json::json!({
-                "sub_agent_id": child_id,
-                "name": auto_name,
-                "task": task,
-            }),
-        ));
-
+        // Emit hive-specific event (no generic SubagentSpawned to avoid TUI duplication)
         self.event_bus.emit(EventEnvelope::new(
             self.agent_id.clone(),
             None,
@@ -607,22 +526,14 @@ impl Primitive for HiveRecruitPrimitive {
             EventType::HiveMemberJoined,
             serde_json::json!({
                 "hive_id": manifest.id,
-                "agent_id": child_id,
+                "child_name": result.child_name,
                 "role": role,
             }),
         ));
 
-        // Start the worker's run
-        let run_id = self
-            .run_starter
-            .start_run(&child_id, &task)
-            .await
-            .map_err(PrimitiveError::ExecutionFailed)?;
-
         Ok(serde_json::json!({
-            "sub_agent_id": child_id,
-            "name": auto_name,
-            "run_id": run_id,
+            "child_name": result.child_name,
+            "run_id": result.run_id,
             "role": role,
         }))
     }
@@ -631,14 +542,16 @@ impl Primitive for HiveRecruitPrimitive {
 /// hive.task_create — Queen creates a task file.
 pub struct HiveTaskCreatePrimitive {
     agent_id: String,
-    agent_dir: PathBuf,
+    workspace_dir: PathBuf,
+    event_bus: EventBus,
 }
 
 impl HiveTaskCreatePrimitive {
-    pub fn new(agent_id: String, agent_dir: PathBuf) -> Self {
+    pub fn new(agent_id: String, workspace_dir: PathBuf, event_bus: EventBus) -> Self {
         Self {
             agent_id,
-            agent_dir,
+            workspace_dir,
+            event_bus,
         }
     }
 }
@@ -698,7 +611,7 @@ impl Primitive for HiveTaskCreatePrimitive {
                     .collect()
             });
 
-        let hive_dir = self.agent_dir.join(".hive");
+        let hive_dir = self.workspace_dir.join(".hive");
         let store = HiveStore::new(hive_dir);
         let manifest = store.read_manifest()?;
 
@@ -727,6 +640,20 @@ impl Primitive for HiveTaskCreatePrimitive {
 
         store.add_task(&task)?;
 
+        self.event_bus.emit(EventEnvelope::new(
+            self.agent_id.clone(),
+            None,
+            None,
+            0,
+            EventType::HiveTaskCreated,
+            serde_json::json!({
+                "hive_id": manifest.id,
+                "task_id": task_id,
+                "title": title,
+                "priority": priority,
+            }),
+        ));
+
         Ok(serde_json::json!({
             "task_id": task_id,
             "status": "created",
@@ -737,14 +664,14 @@ impl Primitive for HiveTaskCreatePrimitive {
 /// hive.assign — Queen assigns a task to a specific member.
 pub struct HiveAssignPrimitive {
     agent_id: String,
-    agent_dir: PathBuf,
+    workspace_dir: PathBuf,
 }
 
 impl HiveAssignPrimitive {
-    pub fn new(agent_id: String, agent_dir: PathBuf) -> Self {
+    pub fn new(agent_id: String, workspace_dir: PathBuf) -> Self {
         Self {
             agent_id,
-            agent_dir,
+            workspace_dir,
         }
     }
 }
@@ -780,7 +707,7 @@ impl Primitive for HiveAssignPrimitive {
             .and_then(|v| v.as_str())
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'agent_id'".into()))?;
 
-        let hive_dir = self.agent_dir.join(".hive");
+        let hive_dir = self.workspace_dir.join(".hive");
         let store = HiveStore::new(hive_dir);
         let manifest = store.read_manifest()?;
 
@@ -813,14 +740,14 @@ impl Primitive for HiveAssignPrimitive {
 /// hive.aggregate — Queen reads all state (tasks, signals, proposals) as a snapshot.
 pub struct HiveAggregatePrimitive {
     agent_id: String,
-    agent_dir: PathBuf,
+    workspace_dir: PathBuf,
 }
 
 impl HiveAggregatePrimitive {
-    pub fn new(agent_id: String, agent_dir: PathBuf) -> Self {
+    pub fn new(agent_id: String, workspace_dir: PathBuf) -> Self {
         Self {
             agent_id,
-            agent_dir,
+            workspace_dir,
         }
     }
 }
@@ -846,7 +773,7 @@ impl Primitive for HiveAggregatePrimitive {
         &self,
         _params: serde_json::Value,
     ) -> Result<serde_json::Value, PrimitiveError> {
-        let hive_dir = self.agent_dir.join(".hive");
+        let hive_dir = self.workspace_dir.join(".hive");
         let store = HiveStore::new(hive_dir);
         let manifest = store.read_manifest()?;
 
@@ -872,15 +799,15 @@ impl Primitive for HiveAggregatePrimitive {
 /// hive.resolve_proposal — Queen resolves an open proposal.
 pub struct HiveResolveProposalPrimitive {
     agent_id: String,
-    agent_dir: PathBuf,
+    workspace_dir: PathBuf,
     event_bus: EventBus,
 }
 
 impl HiveResolveProposalPrimitive {
-    pub fn new(agent_id: String, agent_dir: PathBuf, event_bus: EventBus) -> Self {
+    pub fn new(agent_id: String, workspace_dir: PathBuf, event_bus: EventBus) -> Self {
         Self {
             agent_id,
-            agent_dir,
+            workspace_dir,
             event_bus,
         }
     }
@@ -926,7 +853,7 @@ impl Primitive for HiveResolveProposalPrimitive {
             .and_then(|v| v.as_str())
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'resolution'".into()))?;
 
-        let hive_dir = self.agent_dir.join(".hive");
+        let hive_dir = self.workspace_dir.join(".hive");
         let store = HiveStore::new(hive_dir);
         let manifest = store.read_manifest()?;
 
@@ -966,7 +893,7 @@ impl Primitive for HiveResolveProposalPrimitive {
 /// hive.disband — Queen disbands the hive, stopping all workers.
 pub struct HiveDisbandPrimitive {
     agent_id: String,
-    agent_dir: PathBuf,
+    workspace_dir: PathBuf,
     run_starter: Arc<dyn RunStarter>,
     event_bus: EventBus,
 }
@@ -974,13 +901,13 @@ pub struct HiveDisbandPrimitive {
 impl HiveDisbandPrimitive {
     pub fn new(
         agent_id: String,
-        agent_dir: PathBuf,
+        workspace_dir: PathBuf,
         run_starter: Arc<dyn RunStarter>,
         event_bus: EventBus,
     ) -> Self {
         Self {
             agent_id,
-            agent_dir,
+            workspace_dir,
             run_starter,
             event_bus,
         }
@@ -1008,7 +935,7 @@ impl Primitive for HiveDisbandPrimitive {
         &self,
         _params: serde_json::Value,
     ) -> Result<serde_json::Value, PrimitiveError> {
-        let hive_dir = self.agent_dir.join(".hive");
+        let hive_dir = self.workspace_dir.join(".hive");
         let store = HiveStore::new(hive_dir);
         let mut manifest = store.read_manifest()?;
 
@@ -1050,18 +977,10 @@ impl Primitive for HiveDisbandPrimitive {
 // ──────────────────── Member Primitives (all members) ────────────────────
 
 /// Helper to resolve the hive path from either .hive/ (queen) or .hive_membership.json (worker).
-fn resolve_hive_dir(agent_dir: &std::path::Path) -> Result<PathBuf, PrimitiveError> {
-    let hive_dir = agent_dir.join(".hive");
+fn resolve_hive_dir(workspace_dir: &std::path::Path) -> Result<PathBuf, PrimitiveError> {
+    let hive_dir = workspace_dir.join(".hive");
     if hive_dir.join("hive.json").exists() {
         return Ok(hive_dir);
-    }
-    let membership_path = agent_dir.join(".hive_membership.json");
-    if membership_path.exists() {
-        let data = std::fs::read_to_string(&membership_path)
-            .map_err(|e| PrimitiveError::ExecutionFailed(format!("read membership: {e}")))?;
-        let membership: HiveMembership = serde_json::from_str(&data)
-            .map_err(|e| PrimitiveError::ExecutionFailed(format!("parse membership: {e}")))?;
-        return Ok(PathBuf::from(membership.hive_path));
     }
     Err(PrimitiveError::ExecutionFailed(
         "agent is not part of a hive".into(),
@@ -1071,15 +990,15 @@ fn resolve_hive_dir(agent_dir: &std::path::Path) -> Result<PathBuf, PrimitiveErr
 /// hive.signal — Post a signal to the hive board.
 pub struct HiveSignalPrimitive {
     agent_id: String,
-    agent_dir: PathBuf,
+    workspace_dir: PathBuf,
     event_bus: EventBus,
 }
 
 impl HiveSignalPrimitive {
-    pub fn new(agent_id: String, agent_dir: PathBuf, event_bus: EventBus) -> Self {
+    pub fn new(agent_id: String, workspace_dir: PathBuf, event_bus: EventBus) -> Self {
         Self {
             agent_id,
-            agent_dir,
+            workspace_dir,
             event_bus,
         }
     }
@@ -1148,7 +1067,7 @@ impl Primitive for HiveSignalPrimitive {
             .and_then(|v| v.as_str())
             .map(String::from);
 
-        let hive_dir = resolve_hive_dir(&self.agent_dir)?;
+        let hive_dir = resolve_hive_dir(&self.workspace_dir)?;
         let store = HiveStore::new(hive_dir);
         let manifest = store.read_manifest()?;
 
@@ -1190,12 +1109,12 @@ impl Primitive for HiveSignalPrimitive {
 
 /// hive.board_read — Read signals from the hive board.
 pub struct HiveBoardReadPrimitive {
-    agent_dir: PathBuf,
+    workspace_dir: PathBuf,
 }
 
 impl HiveBoardReadPrimitive {
-    pub fn new(agent_dir: PathBuf) -> Self {
-        Self { agent_dir }
+    pub fn new(workspace_dir: PathBuf) -> Self {
+        Self { workspace_dir }
     }
 }
 
@@ -1228,7 +1147,7 @@ impl Primitive for HiveBoardReadPrimitive {
             .and_then(|v| v.as_u64())
             .map(|v| v as usize);
 
-        let hive_dir = resolve_hive_dir(&self.agent_dir)?;
+        let hive_dir = resolve_hive_dir(&self.workspace_dir)?;
         let store = HiveStore::new(hive_dir);
         let signals = store.read_signals(signal_type, tag, limit)?;
 
@@ -1241,12 +1160,12 @@ impl Primitive for HiveBoardReadPrimitive {
 
 /// hive.task_list — List tasks from the hive.
 pub struct HiveTaskListPrimitive {
-    agent_dir: PathBuf,
+    workspace_dir: PathBuf,
 }
 
 impl HiveTaskListPrimitive {
-    pub fn new(agent_dir: PathBuf) -> Self {
-        Self { agent_dir }
+    pub fn new(workspace_dir: PathBuf) -> Self {
+        Self { workspace_dir }
     }
 }
 
@@ -1272,13 +1191,41 @@ impl Primitive for HiveTaskListPrimitive {
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let status = params.get("status").and_then(|v| v.as_str());
 
-        let hive_dir = resolve_hive_dir(&self.agent_dir)?;
+        let hive_dir = resolve_hive_dir(&self.workspace_dir)?;
         let store = HiveStore::new(hive_dir);
         let tasks = store.list_tasks(status)?;
 
+        // Build set of completed task IDs to compute blocked status
+        let all_tasks = store.list_tasks(None)?;
+        let completed_ids: std::collections::HashSet<&str> = all_tasks
+            .iter()
+            .filter(|t| t.status == "completed")
+            .map(|t| t.id.as_str())
+            .collect();
+
+        let enriched: Vec<serde_json::Value> = tasks
+            .iter()
+            .map(|t| {
+                let blocked = t
+                    .depends_on
+                    .as_ref()
+                    .is_some_and(|deps| deps.iter().any(|d| !completed_ids.contains(d.as_str())));
+                let mut val = serde_json::to_value(t).unwrap();
+                val.as_object_mut()
+                    .unwrap()
+                    .insert("blocked".into(), blocked.into());
+                val
+            })
+            .collect();
+        let claimable_count = enriched
+            .iter()
+            .filter(|v| v["status"] == "pending" && v["blocked"] == false)
+            .count();
+
         Ok(serde_json::json!({
-            "tasks": tasks,
-            "count": tasks.len(),
+            "tasks": enriched,
+            "count": enriched.len(),
+            "claimable_count": claimable_count,
         }))
     }
 }
@@ -1286,14 +1233,16 @@ impl Primitive for HiveTaskListPrimitive {
 /// hive.task_claim — A member claims an unassigned task.
 pub struct HiveTaskClaimPrimitive {
     agent_id: String,
-    agent_dir: PathBuf,
+    workspace_dir: PathBuf,
+    event_bus: EventBus,
 }
 
 impl HiveTaskClaimPrimitive {
-    pub fn new(agent_id: String, agent_dir: PathBuf) -> Self {
+    pub fn new(agent_id: String, workspace_dir: PathBuf, event_bus: EventBus) -> Self {
         Self {
             agent_id,
-            agent_dir,
+            workspace_dir,
+            event_bus,
         }
     }
 }
@@ -1324,7 +1273,7 @@ impl Primitive for HiveTaskClaimPrimitive {
             .and_then(|v| v.as_str())
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'task_id'".into()))?;
 
-        let hive_dir = resolve_hive_dir(&self.agent_dir)?;
+        let hive_dir = resolve_hive_dir(&self.workspace_dir)?;
         let store = HiveStore::new(hive_dir);
         let mut task = store.read_task(task_id)?;
 
@@ -1334,10 +1283,46 @@ impl Primitive for HiveTaskClaimPrimitive {
             ));
         }
 
+        // Enforce dependency ordering: all depends_on tasks must be completed
+        if let Some(deps) = &task.depends_on {
+            let mut blockers = Vec::new();
+            for dep_id in deps {
+                match store.read_task(dep_id) {
+                    Ok(dep_task) if dep_task.status != "completed" => {
+                        blockers.push(format!("{dep_id} ({})", dep_task.status));
+                    }
+                    Err(_) => {
+                        blockers.push(format!("{dep_id} (not found)"));
+                    }
+                    _ => {} // completed — OK
+                }
+            }
+            if !blockers.is_empty() {
+                return Err(PrimitiveError::ExecutionFailed(format!(
+                    "task blocked by incomplete dependencies: {}",
+                    blockers.join(", ")
+                )));
+            }
+        }
+
         task.assigned_agent_id = Some(self.agent_id.clone());
         task.status = "in_progress".into();
         task.updated_at = chrono::Utc::now().to_rfc3339();
         store.write_task(&task)?;
+
+        let manifest = store.read_manifest()?;
+        self.event_bus.emit(EventEnvelope::new(
+            manifest.queen_agent_id,
+            None,
+            None,
+            0,
+            EventType::HiveTaskClaimed,
+            serde_json::json!({
+                "hive_id": manifest.id,
+                "task_id": task_id,
+                "agent_id": self.agent_id,
+            }),
+        ));
 
         Ok(serde_json::json!({
             "task_id": task_id,
@@ -1350,15 +1335,15 @@ impl Primitive for HiveTaskClaimPrimitive {
 /// hive.task_complete — Mark a task as completed with a result summary.
 pub struct HiveTaskCompletePrimitive {
     agent_id: String,
-    agent_dir: PathBuf,
+    workspace_dir: PathBuf,
     event_bus: EventBus,
 }
 
 impl HiveTaskCompletePrimitive {
-    pub fn new(agent_id: String, agent_dir: PathBuf, event_bus: EventBus) -> Self {
+    pub fn new(agent_id: String, workspace_dir: PathBuf, event_bus: EventBus) -> Self {
         Self {
             agent_id,
-            agent_dir,
+            workspace_dir,
             event_bus,
         }
     }
@@ -1395,7 +1380,7 @@ impl Primitive for HiveTaskCompletePrimitive {
             .and_then(|v| v.as_str())
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'result_summary'".into()))?;
 
-        let hive_dir = resolve_hive_dir(&self.agent_dir)?;
+        let hive_dir = resolve_hive_dir(&self.workspace_dir)?;
         let store = HiveStore::new(hive_dir);
         let manifest = store.read_manifest()?;
         let mut task = store.read_task(task_id)?;
@@ -1428,15 +1413,15 @@ impl Primitive for HiveTaskCompletePrimitive {
 /// hive.propose — Create a proposal for the hive to vote on.
 pub struct HiveProposePrimitive {
     agent_id: String,
-    agent_dir: PathBuf,
+    workspace_dir: PathBuf,
     event_bus: EventBus,
 }
 
 impl HiveProposePrimitive {
-    pub fn new(agent_id: String, agent_dir: PathBuf, event_bus: EventBus) -> Self {
+    pub fn new(agent_id: String, workspace_dir: PathBuf, event_bus: EventBus) -> Self {
         Self {
             agent_id,
-            agent_dir,
+            workspace_dir,
             event_bus,
         }
     }
@@ -1484,7 +1469,7 @@ impl Primitive for HiveProposePrimitive {
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'quorum_required'".into()))?
             as i32;
 
-        let hive_dir = resolve_hive_dir(&self.agent_dir)?;
+        let hive_dir = resolve_hive_dir(&self.workspace_dir)?;
         let store = HiveStore::new(hive_dir);
         let manifest = store.read_manifest()?;
 
@@ -1532,15 +1517,15 @@ impl Primitive for HiveProposePrimitive {
 /// hive.vote — Cast a vote on a proposal.
 pub struct HiveVotePrimitive {
     agent_id: String,
-    agent_dir: PathBuf,
+    workspace_dir: PathBuf,
     event_bus: EventBus,
 }
 
 impl HiveVotePrimitive {
-    pub fn new(agent_id: String, agent_dir: PathBuf, event_bus: EventBus) -> Self {
+    pub fn new(agent_id: String, workspace_dir: PathBuf, event_bus: EventBus) -> Self {
         Self {
             agent_id,
-            agent_dir,
+            workspace_dir,
             event_bus,
         }
     }
@@ -1593,7 +1578,7 @@ impl Primitive for HiveVotePrimitive {
             .and_then(|v| v.as_str())
             .map(String::from);
 
-        let hive_dir = resolve_hive_dir(&self.agent_dir)?;
+        let hive_dir = resolve_hive_dir(&self.workspace_dir)?;
         let store = HiveStore::new(hive_dir);
         let manifest = store.read_manifest()?;
         let mut proposal = store.read_proposal(proposal_id)?;
@@ -1652,55 +1637,24 @@ impl Primitive for HiveVotePrimitive {
 mod tests {
     use super::*;
     use moxxy_core::EventBus;
-    use moxxy_storage::Database;
-    use moxxy_test_utils::TestDb;
+    use moxxy_types::{ChildInfo, SpawnOpts, SpawnResult};
 
-    fn test_database() -> Database {
-        let test_db = TestDb::new();
-        let db = Database::new(test_db.into_conn());
-        db.providers()
-            .insert(&moxxy_storage::ProviderRow {
-                id: "openai".into(),
-                display_name: "OpenAI".into(),
-                manifest_path: "/tmp/openai.yaml".into(),
-                signature: None,
-                enabled: true,
-                created_at: chrono::Utc::now().to_rfc3339(),
-            })
-            .unwrap();
-        db
+    struct MockRunStarter {
+        captured_task: Arc<std::sync::Mutex<Option<String>>>,
     }
 
-    fn insert_queen(db: &Database) -> moxxy_storage::AgentRow {
-        let now = chrono::Utc::now().to_rfc3339();
-        let row = moxxy_storage::AgentRow {
-            id: "queen-1".into(),
-            parent_agent_id: None,
-            provider_id: "openai".into(),
-            model_id: "gpt-4".into(),
-            workspace_root: "/tmp/test".into(),
-            core_mount: None,
-            policy_profile: None,
-            temperature: 0.7,
-            max_subagent_depth: 2,
-            max_subagents_total: 8,
-            status: "running".into(),
-            depth: 0,
-            spawned_total: 0,
-            created_at: now.clone(),
-            updated_at: now,
-            name: Some("queen-1".into()),
-            persona: None,
-        };
-        db.agents().insert(&row).unwrap();
-        row
+    impl MockRunStarter {
+        fn new() -> Self {
+            Self {
+                captured_task: Arc::new(std::sync::Mutex::new(None)),
+            }
+        }
     }
-
-    struct MockRunStarter;
 
     #[async_trait]
     impl RunStarter for MockRunStarter {
-        async fn start_run(&self, _agent_id: &str, _task: &str) -> Result<String, String> {
+        async fn start_run(&self, _agent_id: &str, task: &str) -> Result<String, String> {
+            *self.captured_task.lock().unwrap() = Some(task.to_string());
             Ok("run-mock".into())
         }
         async fn stop_agent(&self, _agent_id: &str) -> Result<(), String> {
@@ -1708,6 +1662,24 @@ mod tests {
         }
         fn agent_status(&self, _agent_id: &str) -> Result<Option<String>, String> {
             Ok(Some("idle".into()))
+        }
+        async fn spawn_child(
+            &self,
+            _parent_name: &str,
+            task: &str,
+            _opts: SpawnOpts,
+        ) -> Result<SpawnResult, String> {
+            *self.captured_task.lock().unwrap() = Some(task.to_string());
+            Ok(SpawnResult {
+                child_name: "queen-1-worker-abc12345".into(),
+                run_id: "run-mock".into(),
+            })
+        }
+        fn list_children(&self, _parent_name: &str) -> Result<Vec<ChildInfo>, String> {
+            Ok(Vec::new())
+        }
+        fn dismiss_child(&self, _parent_name: &str, _child_name: &str) -> Result<(), String> {
+            Ok(())
         }
     }
 
@@ -1767,18 +1739,10 @@ mod tests {
     #[tokio::test]
     async fn hive_recruit_spawns_worker_and_updates_manifest() {
         let tmp = tempfile::tempdir().unwrap();
-        let moxxy_home = tmp.path().to_path_buf();
-        let queen_dir = moxxy_home.join("agents").join("queen-1");
-        std::fs::create_dir_all(&queen_dir).unwrap();
-
-        let db = Arc::new(Mutex::new(test_database()));
-        {
-            let d = db.lock().unwrap();
-            insert_queen(&d);
-        }
+        let queen_dir = tmp.path().to_path_buf();
 
         let bus = EventBus::new(100);
-        let run_starter = Arc::new(MockRunStarter);
+        let run_starter = Arc::new(MockRunStarter::new());
 
         // First create a hive
         let create_prim =
@@ -1792,14 +1756,8 @@ mod tests {
             .unwrap();
 
         // Now recruit
-        let recruit_prim = HiveRecruitPrimitive::new(
-            db.clone(),
-            "queen-1".into(),
-            queen_dir.clone(),
-            run_starter,
-            bus,
-            moxxy_home.clone(),
-        );
+        let recruit_prim =
+            HiveRecruitPrimitive::new("queen-1".into(), queen_dir.clone(), run_starter, bus);
 
         let result = recruit_prim
             .invoke(serde_json::json!({
@@ -1811,27 +1769,70 @@ mod tests {
 
         assert!(result.is_ok(), "recruit failed: {:?}", result.err());
         let val = result.unwrap();
-        assert!(val["sub_agent_id"].is_string());
+        assert!(val["child_name"].is_string());
         assert_eq!(val["run_id"], "run-mock");
         assert_eq!(val["role"], "worker");
 
-        // Verify manifest updated
+        // Verify manifest updated with the new member
         let store = HiveStore::new(queen_dir.join(".hive"));
         let manifest = store.read_manifest().unwrap();
         assert_eq!(manifest.members.len(), 2);
+        assert_eq!(manifest.members[1].role, "worker");
+        assert_eq!(manifest.members[1].specialty.as_deref(), Some("research"));
+    }
 
-        // Verify membership file written
-        let child_id = val["sub_agent_id"].as_str().unwrap();
-        let membership_path = moxxy_home
-            .join("agents")
-            .join(child_id)
-            .join(".hive_membership.json");
-        assert!(membership_path.exists());
+    #[tokio::test]
+    async fn hive_recruit_prepends_context_to_task() {
+        let tmp = tempfile::tempdir().unwrap();
+        let queen_dir = tmp.path().to_path_buf();
 
-        let data = std::fs::read_to_string(&membership_path).unwrap();
-        let membership: HiveMembership = serde_json::from_str(&data).unwrap();
-        assert_eq!(membership.role, "worker");
-        assert_eq!(membership.specialty.as_deref(), Some("research"));
+        let bus = EventBus::new(100);
+        let run_starter = Arc::new(MockRunStarter::new());
+        let captured = run_starter.captured_task.clone();
+
+        let create_prim =
+            HiveCreatePrimitive::new("queen-1".into(), queen_dir.clone(), bus.clone());
+        create_prim
+            .invoke(serde_json::json!({
+                "name": "test-hive",
+                "strategy": "consensus"
+            }))
+            .await
+            .unwrap();
+
+        let recruit_prim =
+            HiveRecruitPrimitive::new("queen-1".into(), queen_dir.clone(), run_starter, bus);
+
+        recruit_prim
+            .invoke(serde_json::json!({
+                "task": "research AI papers",
+                "role": "scout",
+                "specialty": "research"
+            }))
+            .await
+            .unwrap();
+
+        let task_sent = captured
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("task should be captured");
+        assert!(
+            task_sent.contains("[Hive Worker]"),
+            "task should have hive context prefix: {task_sent}"
+        );
+        assert!(
+            task_sent.contains("hive scout agent"),
+            "task should mention role: {task_sent}"
+        );
+        assert!(
+            task_sent.contains("Specialty: research"),
+            "task should mention specialty: {task_sent}"
+        );
+        assert!(
+            task_sent.contains("research AI papers"),
+            "task should contain original task: {task_sent}"
+        );
     }
 
     #[tokio::test]
@@ -1852,7 +1853,8 @@ mod tests {
             .unwrap();
 
         // Create task
-        let task_create = HiveTaskCreatePrimitive::new("queen-1".into(), agent_dir.clone());
+        let task_create =
+            HiveTaskCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
         let result = task_create
             .invoke(serde_json::json!({
                 "title": "Implement feature X",
@@ -1870,7 +1872,8 @@ mod tests {
         assert_eq!(listed["count"], 1);
 
         // Claim task
-        let task_claim = HiveTaskClaimPrimitive::new("worker-1".into(), agent_dir.clone());
+        let task_claim =
+            HiveTaskClaimPrimitive::new("worker-1".into(), agent_dir.clone(), bus.clone());
         let claimed = task_claim
             .invoke(serde_json::json!({ "task_id": task_id }))
             .await;
@@ -1903,6 +1906,7 @@ mod tests {
     async fn hive_assign_task() {
         let tmp = tempfile::tempdir().unwrap();
         let agent_dir = tmp.path().to_path_buf();
+        let bus = EventBus::new(100);
 
         // Create hive with a member
         let hive_dir = agent_dir.join(".hive");
@@ -1933,7 +1937,8 @@ mod tests {
         store.write_manifest(&manifest).unwrap();
 
         // Create task
-        let task_create = HiveTaskCreatePrimitive::new("queen-1".into(), agent_dir.clone());
+        let task_create =
+            HiveTaskCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
         let task_result = task_create
             .invoke(serde_json::json!({
                 "title": "Do work",
@@ -2117,7 +2122,8 @@ mod tests {
             .unwrap();
 
         // Add some data
-        let task_create = HiveTaskCreatePrimitive::new("queen-1".into(), agent_dir.clone());
+        let task_create =
+            HiveTaskCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
         task_create
             .invoke(serde_json::json!({
                 "title": "Task 1",
@@ -2153,7 +2159,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let agent_dir = tmp.path().to_path_buf();
         let bus = EventBus::new(100);
-        let run_starter = Arc::new(MockRunStarter);
+        let run_starter = Arc::new(MockRunStarter::new());
 
         // Create hive with a worker
         let hive_dir = agent_dir.join(".hive");
@@ -2251,7 +2257,8 @@ mod tests {
         let bus = EventBus::new(100);
 
         // Create hive and task
-        let create_prim = HiveCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus);
+        let create_prim =
+            HiveCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
         create_prim
             .invoke(serde_json::json!({
                 "name": "test-hive",
@@ -2260,7 +2267,8 @@ mod tests {
             .await
             .unwrap();
 
-        let task_create = HiveTaskCreatePrimitive::new("queen-1".into(), agent_dir.clone());
+        let task_create =
+            HiveTaskCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
         let task_result = task_create
             .invoke(serde_json::json!({
                 "title": "Task",
@@ -2273,14 +2281,14 @@ mod tests {
         let task_id = task_result["task_id"].as_str().unwrap().to_string();
 
         // First claim succeeds
-        let claim1 = HiveTaskClaimPrimitive::new("worker-1".into(), agent_dir.clone());
+        let claim1 = HiveTaskClaimPrimitive::new("worker-1".into(), agent_dir.clone(), bus.clone());
         claim1
             .invoke(serde_json::json!({ "task_id": task_id }))
             .await
             .unwrap();
 
         // Second claim fails
-        let claim2 = HiveTaskClaimPrimitive::new("worker-2".into(), agent_dir);
+        let claim2 = HiveTaskClaimPrimitive::new("worker-2".into(), agent_dir, bus);
         let result = claim2
             .invoke(serde_json::json!({ "task_id": task_id }))
             .await;
@@ -2288,15 +2296,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resolve_hive_dir_from_membership() {
+    async fn resolve_hive_dir_from_workspace() {
         let tmp = tempfile::tempdir().unwrap();
-        let worker_dir = tmp.path().join("worker");
-        std::fs::create_dir_all(&worker_dir).unwrap();
+        let workspace = tmp.path().to_path_buf();
 
-        let queen_hive = tmp.path().join("queen").join(".hive");
-        std::fs::create_dir_all(&queen_hive).unwrap();
+        // Create .hive directory inside the workspace (shared by queen and workers)
+        let hive_dir = workspace.join(".hive");
+        std::fs::create_dir_all(&hive_dir).unwrap();
 
-        // Write a minimal manifest in the queen's hive
         let manifest = HiveManifest {
             id: "hive-1".into(),
             queen_agent_id: "queen-1".into(),
@@ -2306,22 +2313,12 @@ mod tests {
             members: vec![],
             created_at: chrono::Utc::now().to_rfc3339(),
         };
-        let store = HiveStore::new(queen_hive.clone());
+        let store = HiveStore::new(hive_dir.clone());
         store.write_manifest(&manifest).unwrap();
 
-        // Write membership file
-        let membership = HiveMembership {
-            hive_id: "hive-1".into(),
-            hive_path: queen_hive.display().to_string(),
-            role: "worker".into(),
-            specialty: None,
-        };
-        let data = serde_json::to_string_pretty(&membership).unwrap();
-        std::fs::write(worker_dir.join(".hive_membership.json"), data).unwrap();
-
-        // Resolve should point to queen's hive
-        let resolved = resolve_hive_dir(&worker_dir).unwrap();
-        assert_eq!(resolved, queen_hive);
+        // Workers resolve .hive from the same workspace directory
+        let resolved = resolve_hive_dir(&workspace).unwrap();
+        assert_eq!(resolved, hive_dir);
     }
 
     #[tokio::test]
@@ -2342,9 +2339,11 @@ mod tests {
             created_at: chrono::Utc::now().to_rfc3339(),
         };
         HiveStore::new(hive_dir).write_manifest(&manifest).unwrap();
+        let bus = EventBus::new(10);
 
         // task_create as non-queen
-        let task_create = HiveTaskCreatePrimitive::new("worker-1".into(), agent_dir.clone());
+        let task_create =
+            HiveTaskCreatePrimitive::new("worker-1".into(), agent_dir.clone(), bus.clone());
         let result = task_create
             .invoke(serde_json::json!({
                 "title": "T",
@@ -2401,7 +2400,7 @@ mod tests {
         let disband = HiveDisbandPrimitive::new(
             "worker-1".into(),
             agent_dir,
-            Arc::new(MockRunStarter),
+            Arc::new(MockRunStarter::new()),
             EventBus::new(10),
         );
         let result = disband.invoke(serde_json::json!({})).await;
@@ -2409,5 +2408,211 @@ mod tests {
             result.unwrap_err(),
             PrimitiveError::AccessDenied(_)
         ));
+    }
+
+    #[tokio::test]
+    async fn hive_task_claim_rejects_blocked_task() {
+        let tmp = tempfile::tempdir().unwrap();
+        let agent_dir = tmp.path().to_path_buf();
+        let bus = EventBus::new(100);
+
+        // Create hive
+        let create_prim =
+            HiveCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
+        create_prim
+            .invoke(serde_json::json!({
+                "name": "test-hive",
+                "strategy": "consensus"
+            }))
+            .await
+            .unwrap();
+
+        // Create task A (foundation)
+        let task_create =
+            HiveTaskCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
+        let a_result = task_create
+            .invoke(serde_json::json!({
+                "title": "Set up project",
+                "description": "Foundation task",
+                "task_type": "work",
+                "priority": 10
+            }))
+            .await
+            .unwrap();
+        let task_a_id = a_result["task_id"].as_str().unwrap().to_string();
+
+        // Create task B depending on A
+        let b_result = task_create
+            .invoke(serde_json::json!({
+                "title": "Build auth module",
+                "description": "Depends on foundation",
+                "task_type": "work",
+                "priority": 8,
+                "depends_on": [task_a_id]
+            }))
+            .await
+            .unwrap();
+        let task_b_id = b_result["task_id"].as_str().unwrap().to_string();
+
+        // Claiming B should fail because A is not completed
+        let claim = HiveTaskClaimPrimitive::new("worker-1".into(), agent_dir.clone(), bus.clone());
+        let result = claim
+            .invoke(serde_json::json!({ "task_id": task_b_id }))
+            .await;
+        assert!(result.is_err());
+        let err_msg = format!("{:?}", result.unwrap_err());
+        assert!(
+            err_msg.contains("blocked by incomplete dependencies"),
+            "error should mention blocked deps: {err_msg}"
+        );
+        assert!(
+            err_msg.contains(&task_a_id),
+            "error should list the blocking task ID: {err_msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn hive_task_claim_allows_after_deps_completed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let agent_dir = tmp.path().to_path_buf();
+        let bus = EventBus::new(100);
+
+        // Create hive
+        let create_prim =
+            HiveCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
+        create_prim
+            .invoke(serde_json::json!({
+                "name": "test-hive",
+                "strategy": "consensus"
+            }))
+            .await
+            .unwrap();
+
+        let task_create =
+            HiveTaskCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
+
+        // Create A, then B depending on A
+        let a_result = task_create
+            .invoke(serde_json::json!({
+                "title": "Foundation",
+                "description": "Do first",
+                "task_type": "work",
+                "priority": 10
+            }))
+            .await
+            .unwrap();
+        let task_a_id = a_result["task_id"].as_str().unwrap().to_string();
+
+        let b_result = task_create
+            .invoke(serde_json::json!({
+                "title": "Dependent",
+                "description": "Needs A",
+                "task_type": "work",
+                "priority": 8,
+                "depends_on": [task_a_id]
+            }))
+            .await
+            .unwrap();
+        let task_b_id = b_result["task_id"].as_str().unwrap().to_string();
+
+        // Claim and complete A
+        let claim_a =
+            HiveTaskClaimPrimitive::new("worker-1".into(), agent_dir.clone(), bus.clone());
+        claim_a
+            .invoke(serde_json::json!({ "task_id": task_a_id }))
+            .await
+            .unwrap();
+        let complete_a =
+            HiveTaskCompletePrimitive::new("worker-1".into(), agent_dir.clone(), bus.clone());
+        complete_a
+            .invoke(serde_json::json!({
+                "task_id": task_a_id,
+                "result_summary": "Done"
+            }))
+            .await
+            .unwrap();
+
+        // Now claiming B should succeed
+        let claim_b = HiveTaskClaimPrimitive::new("worker-2".into(), agent_dir, bus);
+        let result = claim_b
+            .invoke(serde_json::json!({ "task_id": task_b_id }))
+            .await;
+        assert!(result.is_ok(), "claim B should succeed after A completed");
+        assert_eq!(result.unwrap()["status"], "in_progress");
+    }
+
+    #[tokio::test]
+    async fn hive_task_list_shows_blocked_status() {
+        let tmp = tempfile::tempdir().unwrap();
+        let agent_dir = tmp.path().to_path_buf();
+        let bus = EventBus::new(100);
+
+        // Create hive
+        let create_prim =
+            HiveCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
+        create_prim
+            .invoke(serde_json::json!({
+                "name": "test-hive",
+                "strategy": "consensus"
+            }))
+            .await
+            .unwrap();
+
+        let task_create =
+            HiveTaskCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
+
+        // Create independent task (no deps)
+        task_create
+            .invoke(serde_json::json!({
+                "title": "Independent",
+                "description": "No deps",
+                "task_type": "work",
+                "priority": 5
+            }))
+            .await
+            .unwrap();
+
+        // Create A
+        let a_result = task_create
+            .invoke(serde_json::json!({
+                "title": "Foundation",
+                "description": "Do first",
+                "task_type": "work",
+                "priority": 10
+            }))
+            .await
+            .unwrap();
+        let task_a_id = a_result["task_id"].as_str().unwrap().to_string();
+
+        // Create B depending on A
+        task_create
+            .invoke(serde_json::json!({
+                "title": "Blocked task",
+                "description": "Needs A",
+                "task_type": "work",
+                "priority": 8,
+                "depends_on": [task_a_id]
+            }))
+            .await
+            .unwrap();
+
+        // List all tasks
+        let task_list = HiveTaskListPrimitive::new(agent_dir);
+        let listed = task_list.invoke(serde_json::json!({})).await.unwrap();
+
+        assert_eq!(listed["count"], 3);
+        // claimable_count should be 2 (independent + foundation, not blocked one)
+        assert_eq!(listed["claimable_count"], 2);
+
+        let tasks = listed["tasks"].as_array().unwrap();
+        // Find the blocked task and verify its blocked field
+        let blocked_task = tasks.iter().find(|t| t["title"] == "Blocked task").unwrap();
+        assert_eq!(blocked_task["blocked"], true);
+
+        let independent = tasks.iter().find(|t| t["title"] == "Independent").unwrap();
+        assert_eq!(independent["blocked"], false);
+
+        let foundation = tasks.iter().find(|t| t["title"] == "Foundation").unwrap();
+        assert_eq!(foundation["blocked"], false);
     }
 }
