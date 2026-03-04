@@ -12,27 +12,15 @@ mod tests {
     use moxxy_test_utils::TestDb;
     use rusqlite::params;
 
-    /// Seed a provider + agent row so FK constraints on vault_grants are satisfied.
-    /// Returns the agent_id.
+    /// Seed an agent row so FK constraints on vault_grants are satisfied.
     fn seed_agent(db: &TestDb, agent_id: &str) {
         let now = chrono::Utc::now().to_rfc3339();
-        // Provider (idempotent via INSERT OR IGNORE)
+        let name = format!("test-agent-{}", agent_id);
         db.conn()
             .execute(
-                "INSERT OR IGNORE INTO providers (id, display_name, manifest_path, enabled, created_at)
-                 VALUES ('test-provider', 'Test', '/tmp/p.yaml', 1, ?1)",
-                params![now],
-            )
-            .unwrap();
-        // Agent
-        db.conn()
-            .execute(
-                "INSERT OR IGNORE INTO agents (id, provider_id, model_id, workspace_root,
-                 temperature, max_subagent_depth, max_subagents_total, status, depth, spawned_total,
-                 created_at, updated_at)
-                 VALUES (?1, 'test-provider', 'test-model', '/tmp/ws',
-                 0.7, 2, 8, 'idle', 0, 0, ?2, ?2)",
-                params![agent_id, now],
+                "INSERT OR IGNORE INTO agents (id, name, workspace_root, status, depth, spawned_total, created_at, updated_at)
+                 VALUES (?1, ?2, '/tmp/ws', 'idle', 0, 0, ?3, ?3)",
+                params![agent_id, name, now],
             )
             .unwrap();
     }

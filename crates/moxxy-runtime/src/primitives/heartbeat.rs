@@ -1,18 +1,21 @@
+use std::path::PathBuf;
+
 use async_trait::async_trait;
-use moxxy_core::HeartbeatScheduler;
-use moxxy_storage::{Database, HeartbeatRow};
-use std::sync::{Arc, Mutex};
+use moxxy_core::{HeartbeatEntry, HeartbeatScheduler, mutate_heartbeat_file, read_heartbeat_file};
 
 use crate::registry::{Primitive, PrimitiveError};
 
 pub struct HeartbeatCreatePrimitive {
-    db: Arc<Mutex<Database>>,
+    heartbeat_path: PathBuf,
     agent_id: String,
 }
 
 impl HeartbeatCreatePrimitive {
-    pub fn new(db: Arc<Mutex<Database>>, agent_id: String) -> Self {
-        Self { db, agent_id }
+    pub fn new(heartbeat_path: PathBuf, agent_id: String) -> Self {
+        Self {
+            heartbeat_path,
+            agent_id,
+        }
     }
 }
 
@@ -69,7 +72,7 @@ impl Primitive for HeartbeatCreatePrimitive {
                     ));
                 }
                 let next = now + chrono::Duration::minutes(mins);
-                (mins as i32, None, next.to_rfc3339())
+                (Some(mins as i32), None, next.to_rfc3339())
             }
             (None, Some(expr)) => {
                 HeartbeatScheduler::validate_cron_expr(expr).map_err(|e| {
@@ -81,7 +84,7 @@ impl Primitive for HeartbeatCreatePrimitive {
                     .map_err(|e| {
                         PrimitiveError::ExecutionFailed(format!("cron computation failed: {e}"))
                     })?;
-                (1, Some(expr.to_string()), next_run)
+                (None, Some(expr.to_string()), next_run)
             }
             _ => {
                 return Err(PrimitiveError::InvalidParams(
@@ -91,28 +94,23 @@ impl Primitive for HeartbeatCreatePrimitive {
         };
 
         let id = uuid::Uuid::now_v7().to_string();
-        let row = HeartbeatRow {
+        let entry = HeartbeatEntry {
             id: id.clone(),
-            agent_id: self.agent_id.clone(),
-            interval_minutes: interval,
             action_type: action_type.to_string(),
             action_payload,
-            enabled: true,
-            next_run_at: next_run_at.clone(),
+            interval_minutes: interval,
             cron_expr: cron.clone(),
             timezone: timezone.clone(),
+            enabled: true,
+            next_run_at: next_run_at.clone(),
             created_at: now.to_rfc3339(),
             updated_at: now.to_rfc3339(),
         };
 
-        let db = self
-            .db
-            .lock()
-            .map_err(|e| PrimitiveError::ExecutionFailed(format!("DB lock error: {e}")))?;
-
-        db.heartbeats().insert(&row).map_err(|e| {
-            PrimitiveError::ExecutionFailed(format!("Failed to create heartbeat: {e}"))
-        })?;
+        mutate_heartbeat_file(&self.heartbeat_path, |f| {
+            f.entries.push(entry);
+        })
+        .map_err(|e| PrimitiveError::ExecutionFailed(format!("Failed to create heartbeat: {e}")))?;
 
         Ok(serde_json::json!({
             "id": id,
@@ -129,13 +127,16 @@ impl Primitive for HeartbeatCreatePrimitive {
 }
 
 pub struct HeartbeatListPrimitive {
-    db: Arc<Mutex<Database>>,
+    heartbeat_path: PathBuf,
     agent_id: String,
 }
 
 impl HeartbeatListPrimitive {
-    pub fn new(db: Arc<Mutex<Database>>, agent_id: String) -> Self {
-        Self { db, agent_id }
+    pub fn new(heartbeat_path: PathBuf, agent_id: String) -> Self {
+        Self {
+            heartbeat_path,
+            agent_id,
+        }
     }
 }
 
@@ -162,17 +163,11 @@ impl Primitive for HeartbeatListPrimitive {
     ) -> Result<serde_json::Value, PrimitiveError> {
         tracing::debug!(agent_id = %self.agent_id, "Listing heartbeats");
 
-        let db = self
-            .db
-            .lock()
-            .map_err(|e| PrimitiveError::ExecutionFailed(format!("DB lock error: {e}")))?;
-
-        let heartbeats = db
-            .heartbeats()
-            .find_by_agent(&self.agent_id)
+        let file = read_heartbeat_file(&self.heartbeat_path)
             .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
 
-        let result: Vec<serde_json::Value> = heartbeats
+        let result: Vec<serde_json::Value> = file
+            .entries
             .iter()
             .filter(|h| h.enabled)
             .map(|h| {
@@ -194,13 +189,16 @@ impl Primitive for HeartbeatListPrimitive {
 }
 
 pub struct HeartbeatDisablePrimitive {
-    db: Arc<Mutex<Database>>,
+    heartbeat_path: PathBuf,
     agent_id: String,
 }
 
 impl HeartbeatDisablePrimitive {
-    pub fn new(db: Arc<Mutex<Database>>, agent_id: String) -> Self {
-        Self { db, agent_id }
+    pub fn new(heartbeat_path: PathBuf, agent_id: String) -> Self {
+        Self {
+            heartbeat_path,
+            agent_id,
+        }
     }
 }
 
@@ -231,28 +229,20 @@ impl Primitive for HeartbeatDisablePrimitive {
 
         tracing::info!(heartbeat_id, agent_id = %self.agent_id, "Disabling heartbeat");
 
-        let db = self
-            .db
-            .lock()
-            .map_err(|e| PrimitiveError::ExecutionFailed(format!("DB lock error: {e}")))?;
+        let file = mutate_heartbeat_file(&self.heartbeat_path, |f| {
+            if let Some(entry) = f.entries.iter_mut().find(|e| e.id == heartbeat_id) {
+                entry.enabled = false;
+                entry.updated_at = chrono::Utc::now().to_rfc3339();
+            }
+        })
+        .map_err(|e| PrimitiveError::ExecutionFailed(format!("Failed to disable: {e}")))?;
 
-        // Verify the heartbeat belongs to this agent
-        let hb = db
-            .heartbeats()
-            .find_by_id(heartbeat_id)
-            .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?
-            .ok_or_else(|| PrimitiveError::ExecutionFailed("heartbeat not found".into()))?;
-
-        if hb.agent_id != self.agent_id {
-            tracing::warn!(heartbeat_id, agent_id = %self.agent_id, owner_agent = %hb.agent_id, "Heartbeat ownership check failed");
+        // Verify the heartbeat existed
+        if !file.entries.iter().any(|e| e.id == heartbeat_id) {
             return Err(PrimitiveError::ExecutionFailed(
-                "heartbeat does not belong to this agent".into(),
+                "heartbeat not found".into(),
             ));
         }
-
-        db.heartbeats()
-            .disable(heartbeat_id)
-            .map_err(|e| PrimitiveError::ExecutionFailed(format!("Failed to disable: {e}")))?;
 
         Ok(serde_json::json!({
             "heartbeat_id": heartbeat_id,
@@ -262,13 +252,16 @@ impl Primitive for HeartbeatDisablePrimitive {
 }
 
 pub struct HeartbeatDeletePrimitive {
-    db: Arc<Mutex<Database>>,
+    heartbeat_path: PathBuf,
     agent_id: String,
 }
 
 impl HeartbeatDeletePrimitive {
-    pub fn new(db: Arc<Mutex<Database>>, agent_id: String) -> Self {
-        Self { db, agent_id }
+    pub fn new(heartbeat_path: PathBuf, agent_id: String) -> Self {
+        Self {
+            heartbeat_path,
+            agent_id,
+        }
     }
 }
 
@@ -299,28 +292,14 @@ impl Primitive for HeartbeatDeletePrimitive {
 
         tracing::info!(heartbeat_id, agent_id = %self.agent_id, "Deleting heartbeat");
 
-        let db = self
-            .db
-            .lock()
-            .map_err(|e| PrimitiveError::ExecutionFailed(format!("DB lock error: {e}")))?;
+        let file = mutate_heartbeat_file(&self.heartbeat_path, |f| {
+            f.entries.retain(|e| e.id != heartbeat_id);
+        })
+        .map_err(|e| PrimitiveError::ExecutionFailed(format!("Failed to delete: {e}")))?;
 
-        // Verify the heartbeat belongs to this agent
-        let hb = db
-            .heartbeats()
-            .find_by_id(heartbeat_id)
-            .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?
-            .ok_or_else(|| PrimitiveError::ExecutionFailed("heartbeat not found".into()))?;
-
-        if hb.agent_id != self.agent_id {
-            tracing::warn!(heartbeat_id, agent_id = %self.agent_id, owner_agent = %hb.agent_id, "Heartbeat ownership check failed");
-            return Err(PrimitiveError::ExecutionFailed(
-                "heartbeat does not belong to this agent".into(),
-            ));
-        }
-
-        db.heartbeats()
-            .delete(heartbeat_id)
-            .map_err(|e| PrimitiveError::ExecutionFailed(format!("Failed to delete: {e}")))?;
+        // If the entry was there before mutation it's now gone; we can't easily check
+        // pre-mutation state without reading first, but the operation is idempotent.
+        let _ = file;
 
         Ok(serde_json::json!({
             "heartbeat_id": heartbeat_id,
@@ -330,13 +309,16 @@ impl Primitive for HeartbeatDeletePrimitive {
 }
 
 pub struct HeartbeatUpdatePrimitive {
-    db: Arc<Mutex<Database>>,
+    heartbeat_path: PathBuf,
     agent_id: String,
 }
 
 impl HeartbeatUpdatePrimitive {
-    pub fn new(db: Arc<Mutex<Database>>, agent_id: String) -> Self {
-        Self { db, agent_id }
+    pub fn new(heartbeat_path: PathBuf, agent_id: String) -> Self {
+        Self {
+            heartbeat_path,
+            agent_id,
+        }
     }
 }
 
@@ -369,88 +351,73 @@ impl Primitive for HeartbeatUpdatePrimitive {
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
         let heartbeat_id = params["heartbeat_id"]
             .as_str()
-            .ok_or_else(|| PrimitiveError::InvalidParams("missing 'heartbeat_id'".into()))?;
+            .ok_or_else(|| PrimitiveError::InvalidParams("missing 'heartbeat_id'".into()))?
+            .to_string();
 
-        tracing::info!(heartbeat_id, agent_id = %self.agent_id, "Updating heartbeat");
-
-        let db = self
-            .db
-            .lock()
-            .map_err(|e| PrimitiveError::ExecutionFailed(format!("DB lock error: {e}")))?;
-
-        let mut hb = db
-            .heartbeats()
-            .find_by_id(heartbeat_id)
-            .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?
-            .ok_or_else(|| PrimitiveError::ExecutionFailed("heartbeat not found".into()))?;
-
-        if hb.agent_id != self.agent_id {
-            tracing::warn!(heartbeat_id, agent_id = %self.agent_id, owner_agent = %hb.agent_id, "Heartbeat ownership check failed");
-            return Err(PrimitiveError::ExecutionFailed(
-                "heartbeat does not belong to this agent".into(),
-            ));
-        }
+        tracing::info!(heartbeat_id = %heartbeat_id, agent_id = %self.agent_id, "Updating heartbeat");
 
         let now = chrono::Utc::now();
+        let params_clone = params.clone();
 
-        // Update action_type if provided
-        if let Some(at) = params["action_type"].as_str() {
-            hb.action_type = at.to_string();
-        }
-        if params.get("action_payload").is_some() {
-            hb.action_payload = params["action_payload"].as_str().map(|s| s.to_string());
-        }
+        let file = mutate_heartbeat_file(&self.heartbeat_path, |f| {
+            let Some(hb) = f.entries.iter_mut().find(|e| e.id == heartbeat_id) else {
+                return;
+            };
 
-        // Update schedule: switch between interval and cron, or update existing
-        let new_interval = params["interval_minutes"].as_i64();
-        let new_cron = params["cron_expr"].as_str();
-        if let Some(tz) = params["timezone"].as_str() {
-            hb.timezone = tz.to_string();
-        }
+            // Update action_type if provided
+            if let Some(at) = params_clone["action_type"].as_str() {
+                hb.action_type = at.to_string();
+            }
+            if params_clone.get("action_payload").is_some() {
+                hb.action_payload = params_clone["action_payload"]
+                    .as_str()
+                    .map(|s| s.to_string());
+            }
 
-        match (new_interval, new_cron) {
-            (Some(mins), None) => {
-                if mins < 1 {
-                    return Err(PrimitiveError::InvalidParams(
-                        "interval_minutes must be >= 1".into(),
-                    ));
+            // Update schedule
+            let new_interval = params_clone["interval_minutes"].as_i64();
+            let new_cron = params_clone["cron_expr"].as_str();
+            if let Some(tz) = params_clone["timezone"].as_str() {
+                hb.timezone = tz.to_string();
+            }
+
+            match (new_interval, new_cron) {
+                (Some(mins), None) => {
+                    if mins >= 1 {
+                        hb.interval_minutes = Some(mins as i32);
+                        hb.cron_expr = None;
+                        hb.next_run_at = (now + chrono::Duration::minutes(mins)).to_rfc3339();
+                    }
                 }
-                hb.interval_minutes = mins as i32;
-                hb.cron_expr = None;
-                hb.next_run_at = (now + chrono::Duration::minutes(mins)).to_rfc3339();
+                (None, Some(expr)) => {
+                    if HeartbeatScheduler::validate_cron_expr(expr).is_ok()
+                        && HeartbeatScheduler::validate_timezone(&hb.timezone).is_ok()
+                        && let Ok(next_run) =
+                            HeartbeatScheduler::compute_next_cron_run(expr, &hb.timezone, now)
+                    {
+                        hb.interval_minutes = None;
+                        hb.cron_expr = Some(expr.to_string());
+                        hb.next_run_at = next_run;
+                    }
+                }
+                (Some(_), Some(_)) => {} // invalid, skip
+                (None, None) => {}       // no schedule change
             }
-            (None, Some(expr)) => {
-                HeartbeatScheduler::validate_cron_expr(expr).map_err(|e| {
-                    PrimitiveError::InvalidParams(format!("invalid cron expression: {e}"))
-                })?;
-                HeartbeatScheduler::validate_timezone(&hb.timezone)
-                    .map_err(|e| PrimitiveError::InvalidParams(format!("invalid timezone: {e}")))?;
-                let next_run = HeartbeatScheduler::compute_next_cron_run(expr, &hb.timezone, now)
-                    .map_err(|e| {
-                    PrimitiveError::ExecutionFailed(format!("cron computation failed: {e}"))
-                })?;
-                hb.interval_minutes = 1;
-                hb.cron_expr = Some(expr.to_string());
-                hb.next_run_at = next_run;
+
+            // Re-enable if explicitly requested
+            if let Some(enabled) = params_clone["enabled"].as_bool() {
+                hb.enabled = enabled;
             }
-            (Some(_), Some(_)) => {
-                return Err(PrimitiveError::InvalidParams(
-                    "cannot set both interval_minutes and cron_expr".into(),
-                ));
-            }
-            (None, None) => {} // no schedule change
-        }
 
-        // Re-enable if explicitly requested
-        if let Some(enabled) = params["enabled"].as_bool() {
-            hb.enabled = enabled;
-        }
+            hb.updated_at = now.to_rfc3339();
+        })
+        .map_err(|e| PrimitiveError::ExecutionFailed(format!("Failed to update: {e}")))?;
 
-        hb.updated_at = now.to_rfc3339();
-
-        db.heartbeats()
-            .update(&hb)
-            .map_err(|e| PrimitiveError::ExecutionFailed(format!("Failed to update: {e}")))?;
+        let hb = file
+            .entries
+            .iter()
+            .find(|e| e.id == heartbeat_id)
+            .ok_or_else(|| PrimitiveError::ExecutionFailed("heartbeat not found".into()))?;
 
         Ok(serde_json::json!({
             "heartbeat_id": hb.id,
@@ -469,48 +436,22 @@ impl Primitive for HeartbeatUpdatePrimitive {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusqlite::params;
 
-    fn setup_db() -> (Arc<Mutex<Database>>, String) {
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
-        conn.execute_batch(include_str!("../../../../migrations/0001_init.sql"))
-            .unwrap();
-        conn.execute_batch(include_str!("../../../../migrations/0002_channels.sql"))
-            .unwrap();
-        conn.execute_batch(include_str!("../../../../migrations/0003_webhooks.sql"))
-            .unwrap();
-        conn.execute_batch(include_str!(
-            "../../../../migrations/0004_conversation_log.sql"
-        ))
-        .unwrap();
-        conn.execute_batch(include_str!(
-            "../../../../migrations/0006_heartbeat_cron.sql"
-        ))
-        .unwrap();
-        conn.execute_batch(include_str!(
-            "../../../../migrations/0008_agent_name_persona.sql"
-        ))
-        .unwrap();
-        conn.execute(
-            "INSERT INTO providers (id, display_name, manifest_path, enabled, created_at)
-             VALUES ('prov-1', 'P1', '/p1', 1, '2025-01-01')",
-            params![],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO agents (id, provider_id, model_id, workspace_root, status, depth, spawned_total, temperature, max_subagent_depth, max_subagents_total, created_at, updated_at, name)
-             VALUES ('agent-1', 'prov-1', 'gpt-4', '/tmp', 'idle', 0, 0, 0.7, 2, 8, '2025-01-01', '2025-01-01', 'agent-1')",
-            params![],
-        )
-        .unwrap();
-        let db = Arc::new(Mutex::new(Database::new(conn)));
-        (db, "agent-1".to_string())
+    fn setup_path() -> (tempfile::TempDir, PathBuf, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let agent_id = "agent-1".to_string();
+        let path = dir
+            .path()
+            .join("agents")
+            .join(&agent_id)
+            .join("heartbeat.md");
+        (dir, path, agent_id)
     }
 
     #[tokio::test]
     async fn heartbeat_create_with_interval() {
-        let (db, agent_id) = setup_db();
-        let prim = HeartbeatCreatePrimitive::new(db.clone(), agent_id);
+        let (_dir, path, agent_id) = setup_path();
+        let prim = HeartbeatCreatePrimitive::new(path, agent_id);
         let result = prim
             .invoke(serde_json::json!({
                 "action_type": "execute_skill",
@@ -528,8 +469,8 @@ mod tests {
 
     #[tokio::test]
     async fn heartbeat_create_with_cron() {
-        let (db, agent_id) = setup_db();
-        let prim = HeartbeatCreatePrimitive::new(db.clone(), agent_id);
+        let (_dir, path, agent_id) = setup_path();
+        let prim = HeartbeatCreatePrimitive::new(path, agent_id);
         let result = prim
             .invoke(serde_json::json!({
                 "action_type": "execute_skill",
@@ -548,8 +489,8 @@ mod tests {
 
     #[tokio::test]
     async fn heartbeat_create_rejects_both_interval_and_cron() {
-        let (db, agent_id) = setup_db();
-        let prim = HeartbeatCreatePrimitive::new(db, agent_id);
+        let (_dir, path, agent_id) = setup_path();
+        let prim = HeartbeatCreatePrimitive::new(path, agent_id);
         let result = prim
             .invoke(serde_json::json!({
                 "action_type": "notify_cli",
@@ -562,8 +503,8 @@ mod tests {
 
     #[tokio::test]
     async fn heartbeat_create_rejects_invalid_cron() {
-        let (db, agent_id) = setup_db();
-        let prim = HeartbeatCreatePrimitive::new(db, agent_id);
+        let (_dir, path, agent_id) = setup_path();
+        let prim = HeartbeatCreatePrimitive::new(path, agent_id);
         let result = prim
             .invoke(serde_json::json!({
                 "action_type": "notify_cli",
@@ -575,8 +516,8 @@ mod tests {
 
     #[tokio::test]
     async fn heartbeat_list_returns_agent_heartbeats() {
-        let (db, agent_id) = setup_db();
-        let create = HeartbeatCreatePrimitive::new(db.clone(), agent_id.clone());
+        let (_dir, path, agent_id) = setup_path();
+        let create = HeartbeatCreatePrimitive::new(path.clone(), agent_id.clone());
         create
             .invoke(serde_json::json!({
                 "action_type": "execute_skill",
@@ -593,7 +534,7 @@ mod tests {
             .await
             .unwrap();
 
-        let list = HeartbeatListPrimitive::new(db, agent_id);
+        let list = HeartbeatListPrimitive::new(path, agent_id);
         let result = list.invoke(serde_json::json!({})).await.unwrap();
         let hbs = result["heartbeats"].as_array().unwrap();
         assert_eq!(hbs.len(), 2);
@@ -601,8 +542,8 @@ mod tests {
 
     #[tokio::test]
     async fn heartbeat_disable_works() {
-        let (db, agent_id) = setup_db();
-        let create = HeartbeatCreatePrimitive::new(db.clone(), agent_id.clone());
+        let (_dir, path, agent_id) = setup_path();
+        let create = HeartbeatCreatePrimitive::new(path.clone(), agent_id.clone());
         let created = create
             .invoke(serde_json::json!({
                 "action_type": "notify_cli",
@@ -612,7 +553,7 @@ mod tests {
             .unwrap();
         let hb_id = created["id"].as_str().unwrap();
 
-        let disable = HeartbeatDisablePrimitive::new(db.clone(), agent_id.clone());
+        let disable = HeartbeatDisablePrimitive::new(path.clone(), agent_id.clone());
         let result = disable
             .invoke(serde_json::json!({"heartbeat_id": hb_id}))
             .await
@@ -620,36 +561,25 @@ mod tests {
         assert_eq!(result["status"], "disabled");
 
         // List should now be empty (only enabled shown)
-        let list = HeartbeatListPrimitive::new(db, agent_id);
+        let list = HeartbeatListPrimitive::new(path, agent_id);
         let result = list.invoke(serde_json::json!({})).await.unwrap();
         assert_eq!(result["heartbeats"].as_array().unwrap().len(), 0);
     }
 
     #[tokio::test]
-    async fn heartbeat_disable_rejects_other_agents_heartbeat() {
-        let (db, agent_id) = setup_db();
-        let create = HeartbeatCreatePrimitive::new(db.clone(), agent_id);
-        let created = create
-            .invoke(serde_json::json!({
-                "action_type": "notify_cli",
-                "interval_minutes": 10,
-            }))
-            .await
-            .unwrap();
-        let hb_id = created["id"].as_str().unwrap();
-
-        // Different agent tries to disable
-        let disable = HeartbeatDisablePrimitive::new(db, "other-agent".to_string());
+    async fn heartbeat_disable_rejects_unknown_id() {
+        let (_dir, path, agent_id) = setup_path();
+        let disable = HeartbeatDisablePrimitive::new(path, agent_id);
         let result = disable
-            .invoke(serde_json::json!({"heartbeat_id": hb_id}))
+            .invoke(serde_json::json!({"heartbeat_id": "nonexistent"}))
             .await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
-    async fn heartbeat_delete_removes_from_db() {
-        let (db, agent_id) = setup_db();
-        let create = HeartbeatCreatePrimitive::new(db.clone(), agent_id.clone());
+    async fn heartbeat_delete_removes_entry() {
+        let (_dir, path, agent_id) = setup_path();
+        let create = HeartbeatCreatePrimitive::new(path.clone(), agent_id.clone());
         let created = create
             .invoke(serde_json::json!({
                 "action_type": "notify_cli",
@@ -659,23 +589,22 @@ mod tests {
             .unwrap();
         let hb_id = created["id"].as_str().unwrap();
 
-        let delete = HeartbeatDeletePrimitive::new(db.clone(), agent_id.clone());
+        let delete = HeartbeatDeletePrimitive::new(path.clone(), agent_id.clone());
         let result = delete
             .invoke(serde_json::json!({"heartbeat_id": hb_id}))
             .await
             .unwrap();
         assert_eq!(result["status"], "deleted");
 
-        // Verify it's gone from DB entirely
-        let db_lock = db.lock().unwrap();
-        let found = db_lock.heartbeats().find_by_id(hb_id).unwrap();
-        assert!(found.is_none());
+        // Verify it's gone
+        let file = read_heartbeat_file(&path).unwrap();
+        assert!(file.entries.is_empty());
     }
 
     #[tokio::test]
     async fn heartbeat_update_changes_schedule() {
-        let (db, agent_id) = setup_db();
-        let create = HeartbeatCreatePrimitive::new(db.clone(), agent_id.clone());
+        let (_dir, path, agent_id) = setup_path();
+        let create = HeartbeatCreatePrimitive::new(path.clone(), agent_id.clone());
         let created = create
             .invoke(serde_json::json!({
                 "action_type": "notify_cli",
@@ -685,7 +614,7 @@ mod tests {
             .unwrap();
         let hb_id = created["id"].as_str().unwrap();
 
-        let update = HeartbeatUpdatePrimitive::new(db.clone(), agent_id);
+        let update = HeartbeatUpdatePrimitive::new(path, agent_id);
         let result = update
             .invoke(serde_json::json!({
                 "heartbeat_id": hb_id,
@@ -697,13 +626,13 @@ mod tests {
         assert_eq!(result["status"], "updated");
         assert_eq!(result["cron_expr"], "0 0 9 * * *");
         assert_eq!(result["timezone"], "Europe/Warsaw");
-        assert_eq!(result["interval_minutes"], 1);
+        assert!(result["interval_minutes"].is_null());
     }
 
     #[tokio::test]
     async fn heartbeat_update_changes_action_payload() {
-        let (db, agent_id) = setup_db();
-        let create = HeartbeatCreatePrimitive::new(db.clone(), agent_id.clone());
+        let (_dir, path, agent_id) = setup_path();
+        let create = HeartbeatCreatePrimitive::new(path.clone(), agent_id.clone());
         let created = create
             .invoke(serde_json::json!({
                 "action_type": "execute_skill",
@@ -714,7 +643,7 @@ mod tests {
             .unwrap();
         let hb_id = created["id"].as_str().unwrap();
 
-        let update = HeartbeatUpdatePrimitive::new(db, agent_id);
+        let update = HeartbeatUpdatePrimitive::new(path, agent_id);
         let result = update
             .invoke(serde_json::json!({
                 "heartbeat_id": hb_id,

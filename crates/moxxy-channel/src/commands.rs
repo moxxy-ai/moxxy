@@ -674,15 +674,10 @@ mod tests {
         )
         .unwrap();
 
-        // Seed provider + agent
+        // Seed agent
         conn.execute(
-            "INSERT INTO providers (id, display_name, manifest_path, enabled, created_at) VALUES ('p1', 'Provider One', '/p1', 1, '2025-01-01')",
-            [],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO agents (id, provider_id, model_id, workspace_root, temperature, status, depth, spawned_total, created_at, updated_at)
-             VALUES ('agent-1', 'p1', 'gpt-4', '/tmp', 0.7, 'idle', 0, 0, '2025-01-01', '2025-01-01')",
+            "INSERT INTO agents (id, name, workspace_root, status, depth, spawned_total, created_at, updated_at)
+             VALUES ('agent-1', 'agent-1', '/tmp', 'idle', 0, 0, '2025-01-01', '2025-01-01')",
             [],
         )
         .unwrap();

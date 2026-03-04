@@ -54,10 +54,18 @@ const OPENAI_CODEX_MODEL_IDS = [
   'gpt-4o-mini',
 ];
 
-export function buildCodexDeviceCodeBody(clientId) {
-  return {
+export function buildCodexDeviceCodeBody(clientId, opts = {}) {
+  const allowedWorkspaceId = String(opts.allowedWorkspaceId || '').trim();
+  const organizationId = String(opts.organizationId || '').trim();
+  const projectId = String(opts.projectId || '').trim();
+
+  const body = {
     client_id: clientId,
   };
+  if (allowedWorkspaceId) body.allowed_workspace_id = allowedWorkspaceId;
+  if (organizationId) body.organization_id = organizationId;
+  if (projectId) body.project_id = projectId;
+  return body;
 }
 
 export function buildCodexAuthorizationCodeExchangeBody({
@@ -168,7 +176,7 @@ export function formatOpenAiOAuthError(prefix, status, payload, rawText = '') {
   if (prefix === 'OpenAI API key token-exchange failed' && status === 401) {
     const missingOrg = code === 'invalid_subject_token' || description.includes('organization_id');
     if (missingOrg) {
-      message += '. Retry with browser OAuth (--method browser). If OpenCode works but this step fails, it usually means OpenCode is using ChatGPT backend tokens while Moxxy requires API-key issuance linked to an API organization.';
+      message += '. Retry OAuth with organization-scoped login (interactive flow will prompt to select organization). If OpenCode works but this step fails, it usually means OpenCode is using ChatGPT backend tokens while Moxxy requires API-key issuance linked to an API organization.';
     } else if (!description) {
       message += '. The OpenAI account may not be eligible for OAuth API-key issuance yet (API org/project or billing setup may be missing).';
     }
@@ -306,6 +314,23 @@ function resolveOpenAiAuthMethod(flags) {
     return 'headless';
   }
   return null;
+}
+
+function buildOrgScopeFromFlags(flags) {
+  return {
+    allowedWorkspaceId: String(flags.allowed_workspace_id || flags.allowedWorkspaceId || '').trim() || '',
+    organizationId: String(flags.organization_id || flags.organizationId || '').trim() || '',
+    projectId: String(flags.project_id || flags.projectId || '').trim() || '',
+  };
+}
+
+export function buildScopedRetryFlags(flags, selectedOrg, method) {
+  return {
+    ...flags,
+    method,
+    allowed_workspace_id: selectedOrg,
+    organization_id: selectedOrg,
+  };
 }
 
 function sleep(ms) {
@@ -461,11 +486,11 @@ async function startBrowserOAuthCallbackServer({ expectedState, timeoutMs, prefe
   };
 }
 
-async function requestCodexDeviceCode() {
+async function requestCodexDeviceCode(opts = {}) {
   const resp = await fetch(OPENAI_CODEX_DEVICE_CODE_ENDPOINT, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(buildCodexDeviceCodeBody(OPENAI_CODEX_CLIENT_ID)),
+    body: JSON.stringify(buildCodexDeviceCodeBody(OPENAI_CODEX_CLIENT_ID, opts)),
   });
 
   const text = await resp.text();
@@ -699,10 +724,11 @@ async function maybeFinalizeWithCodexSession(client, flags, oauthTokens) {
 
 async function loginOpenAiCodexHeadless(flags) {
   const noBrowser = toBool(flags.no_browser) || toBool(flags.noBrowser);
+  const scope = buildOrgScopeFromFlags(flags);
 
   const device = await withSpinner(
     'Starting OpenAI OAuth flow...',
-    () => requestCodexDeviceCode(),
+    () => requestCodexDeviceCode(scope),
     'OpenAI authorization started.'
   );
 
@@ -740,6 +766,12 @@ async function loginOpenAiCodexHeadless(flags) {
     }),
     'Authorization finalized.'
   );
+}
+
+async function loginOpenAiCodexByMethod(method, flags) {
+  return method === 'headless'
+    ? loginOpenAiCodexHeadless(flags)
+    : loginOpenAiCodexBrowser(flags);
 }
 
 async function loginOpenAiCodexBrowser(flags) {
@@ -849,9 +881,7 @@ export async function loginOpenAiCodex(client, flags) {
     method = 'browser';
   }
 
-  const oauthTokens = method === 'headless'
-    ? await loginOpenAiCodexHeadless(flags)
-    : await loginOpenAiCodexBrowser(flags);
+  const oauthTokens = await loginOpenAiCodexByMethod(method, flags);
 
   try {
     return await finalizeOpenAiCodexLogin(client, flags, oauthTokens);
@@ -881,12 +911,8 @@ export async function loginOpenAiCodex(client, flags) {
       }
 
       p.log.warn(`Retrying OAuth with selected organization: ${selectedOrg}`);
-      const retryOauthTokens = await loginOpenAiCodexBrowser({
-        ...flags,
-        method: 'browser',
-        allowed_workspace_id: selectedOrg,
-        organization_id: selectedOrg,
-      });
+      const retryFlags = buildScopedRetryFlags(flags, selectedOrg, method);
+      const retryOauthTokens = await loginOpenAiCodexByMethod(method, retryFlags);
       sessionTokens = retryOauthTokens;
       try {
         return await finalizeOpenAiCodexLogin(client, flags, retryOauthTokens);

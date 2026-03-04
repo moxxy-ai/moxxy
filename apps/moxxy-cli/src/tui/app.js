@@ -79,7 +79,12 @@ export class App {
       this._lastConnected = this.eventsHandler.connected;
       this.statusBar.setConnected(this.eventsHandler.connected);
       this.statusBar.setStats(this.eventsHandler.stats);
-      this.chatPanel.setMessages(this.eventsHandler.messages);
+      // Only push messages to chat panel when they actually changed
+      const msgVersion = this.eventsHandler.messageVersion;
+      if (this._lastMsgVersion !== msgVersion) {
+        this._lastMsgVersion = msgVersion;
+        this.chatPanel.setMessages(this.eventsHandler.messages);
+      }
       this.chatPanel.setThinking(this.eventsHandler.thinking);
       // Force full redraw on connection change to avoid stale status lines
       this.tui.requestRender(connectionChanged);
@@ -88,6 +93,7 @@ export class App {
     // Agent polling interval
     this._pollInterval = null;
     this._stopping = false;
+    this._lastMsgVersion = -1;
 
     // Select mode (disables mouse capture for native terminal selection)
     this._selectMode = false;
@@ -408,6 +414,21 @@ export class App {
     }
     if (task === '/stop') {
       await this._stopAgent();
+      return;
+    }
+    if (task === '/new' || task === '/reset') {
+      try {
+        await this.client.resetSession(this.agentId);
+        this.eventsHandler.clearMessages();
+        this.eventsHandler.addSystemMessage('Session reset. Starting fresh.');
+        if (this.agent) {
+          this.agent.status = 'idle';
+          this.statusBar.setAgent(this.agent);
+        }
+        this.tui.requestRender(true);
+      } catch (err) {
+        this.eventsHandler.addSystemMessage(`Error: ${err.message}`);
+      }
       return;
     }
     if (task === '/clear') {

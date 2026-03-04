@@ -20,4 +20,8 @@ pub enum HeartbeatError {
     RuleNotFound,
     #[error("execution failed: {0}")]
     ExecutionFailed(String),
+    #[error("file I/O error: {0}")]
+    FileIo(String),
+    #[error("parse error: {0}")]
+    ParseError(String),
 }

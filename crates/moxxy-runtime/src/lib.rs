@@ -18,12 +18,13 @@ pub use executor::{
 };
 pub use openai_provider::OpenAIProvider;
 pub use primitives::{
-    AgentDismissPrimitive, AgentListPrimitive, AgentRespondPrimitive, AgentSpawnPrimitive,
-    AgentStatusPrimitive, AgentStopPrimitive, AllowlistAddPrimitive, AllowlistListPrimitive,
-    AllowlistRemovePrimitive, AskChannels, BrowseExtractPrimitive, BrowseFetchPrimitive,
-    ChannelMessageSender, ChannelNotifyPrimitive, CliNotifyPrimitive, FsCdPrimitive,
-    FsListPrimitive, FsReadPrimitive, FsRemovePrimitive, FsWritePrimitive, GitCheckoutPrimitive,
-    GitClonePrimitive,
+    AgentDismissPrimitive, AgentListPrimitive, AgentRespondPrimitive, AgentSelfGetPrimitive,
+    AgentSelfPersonaReadPrimitive, AgentSelfPersonaWritePrimitive, AgentSelfUpdatePrimitive,
+    AgentSpawnPrimitive, AgentStatusPrimitive, AgentStopPrimitive, AllowlistAddPrimitive,
+    AllowlistListPrimitive, AllowlistRemovePrimitive, AskChannels, BrowseExtractPrimitive,
+    BrowseFetchPrimitive, ChannelMessageSender, ChannelNotifyPrimitive, CliNotifyPrimitive,
+    ConfigGetPrimitive, ConfigSetPrimitive, FsCdPrimitive, FsListPrimitive, FsReadPrimitive,
+    FsRemovePrimitive, FsWritePrimitive, GitCheckoutPrimitive, GitClonePrimitive,
     GitCommitPrimitive, GitForkPrimitive, GitInitPrimitive, GitPrCreatePrimitive, GitPushPrimitive,
     GitStatusPrimitive, GitWorktreeAddPrimitive, GitWorktreeListPrimitive,
     GitWorktreeRemovePrimitive, HeartbeatCreatePrimitive, HeartbeatDeletePrimitive,
@@ -32,10 +33,12 @@ pub use primitives::{
     HiveDisbandPrimitive, HiveManifest, HiveMember, HiveProposePrimitive, HiveRecruitPrimitive,
     HiveResolveProposalPrimitive, HiveSignalPrimitive, HiveStore, HiveTaskClaimPrimitive,
     HiveTaskCompletePrimitive, HiveTaskCreatePrimitive, HiveTaskListPrimitive, HiveVotePrimitive,
-    HttpRequestPrimitive, MemoryAppendPrimitive, MemorySearchPrimitive, MemorySummarizePrimitive,
-    ShellExecPrimitive, SkillImportPrimitive, SkillValidatePrimitive, UserAskPrimitive,
-    VaultDeletePrimitive, VaultGetPrimitive, VaultListPrimitive, VaultSetPrimitive,
-    WebhookDeletePrimitive, WebhookListPrimitive, WebhookRegisterPrimitive, new_ask_channels,
+    HttpRequestPrimitive, MemoryRecallPrimitive, MemoryStmReadPrimitive, MemoryStmWritePrimitive,
+    MemoryStorePrimitive, ShellExecPrimitive, SkillCreatePrimitive, SkillExecutePrimitive,
+    SkillFindPrimitive, SkillGetPrimitive, SkillListPrimitive, SkillRemovePrimitive,
+    SkillValidatePrimitive, UserAskPrimitive, VaultDeletePrimitive, VaultGetPrimitive,
+    VaultListPrimitive, VaultSetPrimitive, WebhookDeletePrimitive, WebhookListPrimitive,
+    WebhookRegisterPrimitive, new_ask_channels,
 };
 pub use process::{AgentProcess, AgentProcessConfig};
 pub use provider::{Message, ModelConfig, Provider, ProviderResponse, ToolCall};

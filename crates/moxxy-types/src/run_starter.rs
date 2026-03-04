@@ -30,6 +30,11 @@ pub trait RunStarter: Send + Sync {
     async fn stop_agent(&self, agent_id: &str) -> Result<(), String>;
     fn agent_status(&self, agent_id: &str) -> Result<Option<String>, String>;
 
+    async fn reset_session(&self, agent_id: &str) -> Result<(), String> {
+        let _ = agent_id;
+        Err("reset_session not supported".into())
+    }
+
     /// Spawn a child agent (Ephemeral or HiveWorker) under the given parent.
     async fn spawn_child(
         &self,

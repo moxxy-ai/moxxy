@@ -15,7 +15,7 @@ pub use errors::{PathPolicyError, StorageError};
 pub use events::{EventEnvelope, EventType};
 pub use heartbeat::{HeartbeatActionType, HeartbeatError};
 pub use run_starter::{ChildInfo, RunStarter, SpawnOpts, SpawnResult};
-pub use skills::{SkillDocError, SkillStatus};
+pub use skills::SkillDocError;
 pub use vault::VaultError;
 
 #[cfg(test)]
@@ -81,13 +81,6 @@ mod tests {
         let action = HeartbeatActionType::NotifyCli;
         let json = serde_json::to_string(&action).unwrap();
         assert_eq!(json, "\"notify_cli\"");
-    }
-
-    #[test]
-    fn skill_status_variants_exist() {
-        let _ = SkillStatus::Quarantined;
-        let _ = SkillStatus::Approved;
-        let _ = SkillStatus::Rejected;
     }
 
     #[test]

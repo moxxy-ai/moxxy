@@ -13,21 +13,13 @@ pub struct StoredTokenRow {
 pub struct AgentRow {
     pub id: String,
     pub parent_agent_id: Option<String>,
-    pub provider_id: String,
-    pub model_id: String,
-    pub workspace_root: String,
-    pub core_mount: Option<String>,
-    pub policy_profile: Option<String>,
-    pub temperature: f64,
-    pub max_subagent_depth: i32,
-    pub max_subagents_total: i32,
+    pub name: Option<String>,
     pub status: String,
     pub depth: i32,
     pub spawned_total: i32,
+    pub workspace_root: String,
     pub created_at: String,
     pub updated_at: String,
-    pub name: Option<String>,
-    pub persona: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -49,35 +41,6 @@ pub struct ProviderModelRow {
 }
 
 #[derive(Debug, Clone)]
-pub struct HeartbeatRow {
-    pub id: String,
-    pub agent_id: String,
-    pub interval_minutes: i32,
-    pub action_type: String,
-    pub action_payload: Option<String>,
-    pub enabled: bool,
-    pub next_run_at: String,
-    pub cron_expr: Option<String>,
-    pub timezone: String,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct SkillRow {
-    pub id: String,
-    pub agent_id: String,
-    pub name: String,
-    pub version: String,
-    pub source: Option<String>,
-    pub status: String,
-    pub raw_content: Option<String>,
-    pub metadata_json: Option<String>,
-    pub installed_at: String,
-    pub approved_at: Option<String>,
-}
-
-#[derive(Debug, Clone)]
 pub struct MemoryIndexRow {
     pub id: String,
     pub agent_id: String,
@@ -88,6 +51,7 @@ pub struct MemoryIndexRow {
     pub status: String,
     pub created_at: String,
     pub updated_at: String,
+    pub content: Option<String>,
 }
 
 #[derive(Debug, Clone)]

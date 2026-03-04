@@ -1061,7 +1061,7 @@ paths:
   /v1/agents/{id}/skills/install:
     post:
       tags: [Skills]
-      summary: Install skill
+      summary: Create skill
       parameters:
         - name: id
           in: path

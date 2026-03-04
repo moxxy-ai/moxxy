@@ -34,14 +34,6 @@ impl Database {
         ProviderDao { conn: &self.conn }
     }
 
-    pub fn heartbeats(&self) -> HeartbeatDao<'_> {
-        HeartbeatDao { conn: &self.conn }
-    }
-
-    pub fn skills(&self) -> SkillDao<'_> {
-        SkillDao { conn: &self.conn }
-    }
-
     pub fn memory(&self) -> MemoryDao<'_> {
         MemoryDao { conn: &self.conn }
     }

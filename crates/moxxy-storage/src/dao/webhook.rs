@@ -121,49 +121,15 @@ impl<'a> WebhookDao<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dao::AgentDao;
     use crate::fixtures::*;
     use moxxy_test_utils::TestDb;
     use rusqlite::params;
 
     fn seed_agent(db: &TestDb) -> String {
-        let provider = fixture_provider_row();
-        db.conn()
-            .execute(
-                "INSERT INTO providers (id, display_name, manifest_path, signature, enabled, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    provider.id, provider.display_name, provider.manifest_path,
-                    provider.signature, provider.enabled, provider.created_at,
-                ],
-            )
-            .unwrap();
-
         let agent = fixture_agent_row();
-        db.conn()
-            .execute(
-                "INSERT INTO agents (id, parent_agent_id, provider_id, model_id, workspace_root,
-                 core_mount, policy_profile, temperature, max_subagent_depth, max_subagents_total,
-                 status, depth, spawned_total, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
-                params![
-                    agent.id,
-                    agent.parent_agent_id,
-                    agent.provider_id,
-                    agent.model_id,
-                    agent.workspace_root,
-                    agent.core_mount,
-                    agent.policy_profile,
-                    agent.temperature,
-                    agent.max_subagent_depth,
-                    agent.max_subagents_total,
-                    agent.status,
-                    agent.depth,
-                    agent.spawned_total,
-                    agent.created_at,
-                    agent.updated_at,
-                ],
-            )
-            .unwrap();
+        let dao = AgentDao { conn: db.conn() };
+        dao.insert(&agent).unwrap();
         agent.id
     }
 

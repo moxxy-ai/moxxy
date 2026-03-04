@@ -1,8 +1,9 @@
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use moxxy_core::HeartbeatScheduler;
-use moxxy_storage::HeartbeatRow;
+use moxxy_core::{
+    HeartbeatEntry, HeartbeatScheduler, heartbeat_path, mutate_heartbeat_file, read_heartbeat_file,
+};
 use moxxy_types::TokenScope;
 use std::sync::Arc;
 
@@ -50,7 +51,7 @@ pub async fn create_heartbeat(
                 ));
             }
             let next = now + chrono::Duration::minutes(*mins as i64);
-            (*mins, None, next.to_rfc3339())
+            (Some(*mins), None, next.to_rfc3339())
         }
         (None, Some(expr)) => {
             // Validate cron expression
@@ -74,7 +75,7 @@ pub async fn create_heartbeat(
                         Json(serde_json::json!({"error": "bad_request", "message": e.to_string()})),
                     )
                 })?;
-            (1, Some(expr.clone()), next_run)
+            (None, Some(expr.clone()), next_run)
         }
         _ => {
             return Err((
@@ -89,25 +90,27 @@ pub async fn create_heartbeat(
 
     let id = uuid::Uuid::now_v7().to_string();
 
-    let row = HeartbeatRow {
+    let entry = HeartbeatEntry {
         id: id.clone(),
-        agent_id: agent_id.clone(),
-        interval_minutes,
         action_type: body.action_type.clone(),
         action_payload: body.action_payload.clone(),
-        enabled: true,
-        next_run_at: next_run_at.clone(),
+        interval_minutes,
         cron_expr: cron_expr.clone(),
         timezone: timezone.clone(),
+        enabled: true,
+        next_run_at: next_run_at.clone(),
         created_at: now.to_rfc3339(),
         updated_at: now.to_rfc3339(),
     };
 
-    let db = state.db.lock().unwrap();
-    db.heartbeats().insert(&row).map_err(|_| {
+    let path = heartbeat_path(&state.moxxy_home, &agent_id);
+    mutate_heartbeat_file(&path, |f| {
+        f.entries.push(entry);
+    })
+    .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "internal", "message": "Failed to create heartbeat"})),
+            Json(serde_json::json!({"error": "internal", "message": format!("Failed to create heartbeat: {e}")})),
         )
     })?;
 
@@ -136,17 +139,28 @@ pub async fn disable_heartbeat(
     check_scope(&auth.0, &TokenScope::AgentsWrite)?;
 
     tracing::info!(agent_id = %agent_id, heartbeat_id = %hb_id, "Disabling heartbeat");
-    let db = state.db.lock().unwrap();
-    db.heartbeats().disable(&hb_id).map_err(|e| match e {
-        moxxy_types::StorageError::NotFound => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "not_found", "message": "Heartbeat not found"})),
-        ),
-        _ => (
+
+    let path = heartbeat_path(&state.moxxy_home, &agent_id);
+    let hb_id_clone = hb_id.clone();
+    let file = mutate_heartbeat_file(&path, |f| {
+        if let Some(entry) = f.entries.iter_mut().find(|e| e.id == hb_id_clone) {
+            entry.enabled = false;
+            entry.updated_at = chrono::Utc::now().to_rfc3339();
+        }
+    })
+    .map_err(|_| {
+        (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": "internal", "message": "Database error"})),
-        ),
+        )
     })?;
+
+    if !file.entries.iter().any(|e| e.id == hb_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "not_found", "message": "Heartbeat not found"})),
+        ));
+    }
 
     Ok(Json(serde_json::json!({
         "message": "Heartbeat disabled",
@@ -163,21 +177,23 @@ pub async fn list_heartbeats(
     check_scope(&auth.0, &TokenScope::AgentsRead)?;
 
     tracing::debug!(agent_id = %agent_id, "Listing heartbeats");
-    let db = state.db.lock().unwrap();
-    let heartbeats = db.heartbeats().find_by_agent(&agent_id).map_err(|_| {
+
+    let path = heartbeat_path(&state.moxxy_home, &agent_id);
+    let file = read_heartbeat_file(&path).map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "internal", "message": "Database error"})),
+            Json(serde_json::json!({"error": "internal", "message": "File read error"})),
         )
     })?;
 
-    let result: Vec<serde_json::Value> = heartbeats
+    let result: Vec<serde_json::Value> = file
+        .entries
         .iter()
         .filter(|h| h.enabled)
         .map(|h| {
             serde_json::json!({
                 "id": h.id,
-                "agent_id": h.agent_id,
+                "agent_id": agent_id,
                 "interval_minutes": h.interval_minutes,
                 "cron_expr": h.cron_expr,
                 "timezone": h.timezone,

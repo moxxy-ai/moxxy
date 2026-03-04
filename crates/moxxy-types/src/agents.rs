@@ -60,6 +60,20 @@ pub struct AgentConfig {
     pub core_mount: Option<String>,
 }
 
+impl AgentConfig {
+    pub fn load(path: &std::path::Path) -> Result<Self, String> {
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| format!("failed to read {:?}: {}", path, e))?;
+        serde_yaml::from_str(&content).map_err(|e| format!("failed to parse {:?}: {}", path, e))
+    }
+
+    pub fn save(&self, path: &std::path::Path) -> Result<(), String> {
+        let content = serde_yaml::to_string(self)
+            .map_err(|e| format!("failed to serialize config: {}", e))?;
+        std::fs::write(path, content).map_err(|e| format!("failed to write {:?}: {}", path, e))
+    }
+}
+
 /// Distinguishes how an agent was created and its lifecycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

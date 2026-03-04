@@ -11,8 +11,8 @@ impl<'a> MemoryDao<'a> {
         self.conn
             .execute(
                 "INSERT INTO memory_index (id, agent_id, markdown_path, tags_json, chunk_hash,
-                 embedding_id, status, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                 embedding_id, status, created_at, updated_at, content)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     row.id,
                     row.agent_id,
@@ -23,6 +23,7 @@ impl<'a> MemoryDao<'a> {
                     row.status,
                     row.created_at,
                     row.updated_at,
+                    row.content,
                 ],
             )
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
@@ -34,7 +35,7 @@ impl<'a> MemoryDao<'a> {
             .conn
             .prepare(
                 "SELECT id, agent_id, markdown_path, tags_json, chunk_hash,
-                 embedding_id, status, created_at, updated_at
+                 embedding_id, status, created_at, updated_at, content
                  FROM memory_index WHERE id = ?1",
             )
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
@@ -56,7 +57,7 @@ impl<'a> MemoryDao<'a> {
             .conn
             .prepare(
                 "SELECT id, agent_id, markdown_path, tags_json, chunk_hash,
-                 embedding_id, status, created_at, updated_at
+                 embedding_id, status, created_at, updated_at, content
                  FROM memory_index WHERE agent_id = ?1",
             )
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
@@ -74,7 +75,7 @@ impl<'a> MemoryDao<'a> {
             .conn
             .prepare(
                 "SELECT id, agent_id, markdown_path, tags_json, chunk_hash,
-                 embedding_id, status, created_at, updated_at
+                 embedding_id, status, created_at, updated_at, content
                  FROM memory_index",
             )
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
@@ -134,7 +135,7 @@ impl<'a> MemoryDao<'a> {
             .conn
             .prepare(
                 "SELECT mi.id, mi.agent_id, mi.markdown_path, mi.tags_json, mi.chunk_hash,
-                 mi.embedding_id, mi.status, mi.created_at, mi.updated_at, v.distance
+                 mi.embedding_id, mi.status, mi.created_at, mi.updated_at, mi.content, v.distance
                  FROM (
                      SELECT memory_id, distance
                      FROM memory_vec0
@@ -161,8 +162,9 @@ impl<'a> MemoryDao<'a> {
                         status: row.get(6)?,
                         created_at: row.get(7)?,
                         updated_at: row.get(8)?,
+                        content: row.get(9)?,
                     };
-                    let distance: f64 = row.get(9)?;
+                    let distance: f64 = row.get(10)?;
                     Ok((mem, distance))
                 },
             )
@@ -170,6 +172,17 @@ impl<'a> MemoryDao<'a> {
 
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|e| StorageError::QueryFailed(e.to_string()))
+    }
+
+    pub fn archive_all_by_agent(&self, agent_id: &str) -> Result<u64, StorageError> {
+        let affected = self
+            .conn
+            .execute(
+                "UPDATE memory_index SET status = 'archived', updated_at = ?1 WHERE agent_id = ?2 AND status = 'active'",
+                params![chrono::Utc::now().to_rfc3339(), agent_id],
+            )
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+        Ok(affected as u64)
     }
 
     pub fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
@@ -219,6 +232,7 @@ impl<'a> MemoryDao<'a> {
             status: row.get(6)?,
             created_at: row.get(7)?,
             updated_at: row.get(8)?,
+            content: row.get(9)?,
         })
     }
 }
@@ -226,48 +240,14 @@ impl<'a> MemoryDao<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dao::AgentDao;
     use crate::fixtures::*;
     use moxxy_test_utils::TestDb;
 
     fn seed_agent(db: &TestDb) -> String {
-        let provider = fixture_provider_row();
-        db.conn()
-            .execute(
-                "INSERT INTO providers (id, display_name, manifest_path, signature, enabled, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    provider.id, provider.display_name, provider.manifest_path,
-                    provider.signature, provider.enabled, provider.created_at,
-                ],
-            )
-            .unwrap();
-
         let agent = fixture_agent_row();
-        db.conn()
-            .execute(
-                "INSERT INTO agents (id, parent_agent_id, provider_id, model_id, workspace_root,
-                 core_mount, policy_profile, temperature, max_subagent_depth, max_subagents_total,
-                 status, depth, spawned_total, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
-                params![
-                    agent.id,
-                    agent.parent_agent_id,
-                    agent.provider_id,
-                    agent.model_id,
-                    agent.workspace_root,
-                    agent.core_mount,
-                    agent.policy_profile,
-                    agent.temperature,
-                    agent.max_subagent_depth,
-                    agent.max_subagents_total,
-                    agent.status,
-                    agent.depth,
-                    agent.spawned_total,
-                    agent.created_at,
-                    agent.updated_at,
-                ],
-            )
-            .unwrap();
+        let dao = AgentDao { conn: db.conn() };
+        dao.insert(&agent).unwrap();
         agent.id
     }
 
@@ -443,5 +423,97 @@ mod tests {
         // After deleting embedding, search should return no results
         let results = dao.search_similar(&agent_id, &embedding, 10).unwrap();
         assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn archive_all_by_agent_archives_active_entries() {
+        let db = TestDb::new();
+        let agent_id = seed_agent(&db);
+        let dao = MemoryDao { conn: db.conn() };
+
+        for _ in 0..3 {
+            let mut mem = fixture_memory_index_row();
+            mem.agent_id = agent_id.clone();
+            dao.insert(&mem).unwrap();
+        }
+
+        let count = dao.archive_all_by_agent(&agent_id).unwrap();
+        assert_eq!(count, 3);
+
+        // All entries should now be archived
+        let all = dao.find_by_agent(&agent_id).unwrap();
+        assert!(all.iter().all(|m| m.status == "archived"));
+    }
+
+    #[test]
+    fn archive_all_by_agent_skips_already_archived() {
+        let db = TestDb::new();
+        let agent_id = seed_agent(&db);
+        let dao = MemoryDao { conn: db.conn() };
+
+        let mut active = fixture_memory_index_row();
+        active.agent_id = agent_id.clone();
+        dao.insert(&active).unwrap();
+
+        let mut archived = fixture_memory_index_row();
+        archived.agent_id = agent_id.clone();
+        archived.status = "archived".into();
+        dao.insert(&archived).unwrap();
+
+        let count = dao.archive_all_by_agent(&agent_id).unwrap();
+        assert_eq!(count, 1); // Only the active one
+    }
+
+    #[test]
+    fn archive_all_by_agent_isolates_agents() {
+        let db = TestDb::new();
+        let agent_a = seed_agent(&db);
+        let dao = MemoryDao { conn: db.conn() };
+
+        // Create agent B
+        let mut agent_b_row = fixture_agent_row();
+        agent_b_row.id = uuid::Uuid::now_v7().to_string();
+        agent_b_row.name = Some("agent-b".into());
+        let agent_dao = crate::dao::AgentDao { conn: db.conn() };
+        agent_dao.insert(&agent_b_row).unwrap();
+        let agent_b = agent_b_row.id;
+
+        let mut mem_a = fixture_memory_index_row();
+        mem_a.agent_id = agent_a.clone();
+        dao.insert(&mem_a).unwrap();
+
+        let mut mem_b = fixture_memory_index_row();
+        mem_b.agent_id = agent_b.clone();
+        dao.insert(&mem_b).unwrap();
+
+        dao.archive_all_by_agent(&agent_a).unwrap();
+
+        // Agent B's entry should still be active
+        let found = dao.find_by_id(&mem_b.id).unwrap().unwrap();
+        assert_eq!(found.status, "active");
+    }
+
+    #[test]
+    fn archive_all_by_agent_returns_zero_for_clean_agent() {
+        let db = TestDb::new();
+        let dao = MemoryDao { conn: db.conn() };
+        let count = dao.archive_all_by_agent("nonexistent").unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn insert_with_content() {
+        let db = TestDb::new();
+        let agent_id = seed_agent(&db);
+        let dao = MemoryDao { conn: db.conn() };
+
+        let mut mem = fixture_memory_index_row();
+        mem.agent_id = agent_id;
+        mem.content = Some("This is inline LTM content".into());
+        mem.markdown_path = String::new();
+        dao.insert(&mem).unwrap();
+
+        let found = dao.find_by_id(&mem.id).unwrap().unwrap();
+        assert_eq!(found.content.as_deref(), Some("This is inline LTM content"));
     }
 }

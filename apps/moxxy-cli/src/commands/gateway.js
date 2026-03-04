@@ -8,6 +8,14 @@ import { homedir, platform } from 'node:os';
 const PLIST_LABEL = 'ai.moxxy.gateway';
 const SYSTEMD_UNIT = 'moxxy-gateway.service';
 
+function normalizeApiUrl(apiUrl) {
+  const raw = (apiUrl || '').trim();
+  if (!raw) return 'http://localhost:3000';
+  const withoutTrailingSlash = raw.replace(/\/+$/, '');
+  const withoutV1Suffix = withoutTrailingSlash.replace(/\/v1$/i, '');
+  return withoutV1Suffix || withoutTrailingSlash;
+}
+
 function paths() {
   const home = getMoxxyHome();
   const binName = platform() === 'win32' ? 'moxxy-gateway.exe' : 'moxxy-gateway';
@@ -232,6 +240,30 @@ async function restartGateway() {
   await startGateway();
 }
 
+async function probeGatewayHealth(apiUrl, timeoutMs = 2000) {
+  const normalizedApiUrl = normalizeApiUrl(apiUrl);
+  try {
+    const resp = await fetch(`${normalizedApiUrl}/v1/health`, { signal: AbortSignal.timeout(timeoutMs) });
+    const text = await resp.text().catch(() => '');
+    let payload = null;
+    try {
+      payload = text ? JSON.parse(text) : null;
+    } catch { /* ignore non-json health body */ }
+
+    const isHealthy = resp.ok && payload?.status === 'healthy';
+    if (isHealthy) {
+      return { ok: true, status: resp.status, reason: '' };
+    }
+
+    const reason = payload?.message
+      || payload?.status
+      || (resp.status === 404 ? 'endpoint /v1/health not found' : `HTTP ${resp.status}`);
+    return { ok: false, status: resp.status, reason };
+  } catch (err) {
+    return { ok: false, status: 0, reason: err?.message || 'not reachable' };
+  }
+}
+
 async function gatewayStatus() {
   const os = platform();
   let serviceRunning = false;
@@ -271,13 +303,8 @@ async function gatewayStatus() {
     }
   }
 
-  // Health check
-  let healthy = false;
-  const apiUrl = process.env.MOXXY_API_URL || 'http://localhost:3000';
-  try {
-    const resp = await fetch(`${apiUrl}/v1/providers`, { signal: AbortSignal.timeout(2000) });
-    if (resp) healthy = true;
-  } catch { /* not reachable */ }
+  const apiUrl = normalizeApiUrl(process.env.MOXXY_API_URL || 'http://localhost:3000');
+  const health = await probeGatewayHealth(apiUrl);
 
   if (serviceRunning) {
     p.log.success(`Gateway is running${pid ? ` (PID ${pid})` : ''}`);
@@ -285,10 +312,10 @@ async function gatewayStatus() {
     p.log.warn('Gateway is not running.');
   }
 
-  if (healthy) {
+  if (health.ok) {
     p.log.success(`Health check: reachable at ${apiUrl}`);
   } else {
-    p.log.warn(`Health check: not reachable at ${apiUrl}`);
+    p.log.warn(`Health check: not healthy at ${apiUrl}${health.reason ? ` (${health.reason})` : ''}`);
   }
 
   const binary = findBinary();
@@ -328,21 +355,27 @@ async function gatewayLogs() {
 // --- Verify health after start ---
 
 async function verifyStarted() {
-  const apiUrl = process.env.MOXXY_API_URL || 'http://localhost:3000';
+  const apiUrl = normalizeApiUrl(process.env.MOXXY_API_URL || 'http://localhost:3000');
   let ok = false;
+  let lastReason = '';
 
   for (let i = 0; i < 10; i++) {
     await new Promise(r => setTimeout(r, 500));
-    try {
-      const resp = await fetch(`${apiUrl}/v1/providers`, { signal: AbortSignal.timeout(1000) });
-      if (resp) { ok = true; break; }
-    } catch { /* retry */ }
+    const health = await probeGatewayHealth(apiUrl, 1000);
+    if (health.ok) {
+      ok = true;
+      break;
+    }
+    lastReason = health.reason || '';
   }
 
   if (ok) {
     p.log.success(`Gateway started and listening at ${apiUrl}`);
   } else {
     p.log.warn('Gateway process started but health check failed.');
+    if (lastReason) {
+      p.log.warn(`Last health probe error: ${lastReason}`);
+    }
     p.log.info('Check logs with: moxxy gateway logs');
   }
 }

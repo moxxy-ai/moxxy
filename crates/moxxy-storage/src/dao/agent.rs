@@ -10,28 +10,19 @@ impl<'a> AgentDao<'a> {
     pub fn insert(&self, row: &AgentRow) -> Result<(), StorageError> {
         self.conn
             .execute(
-                "INSERT INTO agents (id, parent_agent_id, provider_id, model_id, workspace_root,
-                 core_mount, policy_profile, temperature, max_subagent_depth, max_subagents_total,
-                 status, depth, spawned_total, created_at, updated_at, name, persona)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                "INSERT INTO agents (id, parent_agent_id, name, status, depth, spawned_total,
+                 workspace_root, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     row.id,
                     row.parent_agent_id,
-                    row.provider_id,
-                    row.model_id,
-                    row.workspace_root,
-                    row.core_mount,
-                    row.policy_profile,
-                    row.temperature,
-                    row.max_subagent_depth,
-                    row.max_subagents_total,
+                    row.name,
                     row.status,
                     row.depth,
                     row.spawned_total,
+                    row.workspace_root,
                     row.created_at,
                     row.updated_at,
-                    row.name,
-                    row.persona,
                 ],
             )
             .map_err(|e| {
@@ -48,9 +39,8 @@ impl<'a> AgentDao<'a> {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, parent_agent_id, provider_id, model_id, workspace_root,
-                 core_mount, policy_profile, temperature, max_subagent_depth, max_subagents_total,
-                 status, depth, spawned_total, created_at, updated_at, name, persona
+                "SELECT id, parent_agent_id, name, status, depth, spawned_total,
+                 workspace_root, created_at, updated_at
                  FROM agents WHERE id = ?1",
             )
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
@@ -71,9 +61,8 @@ impl<'a> AgentDao<'a> {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, parent_agent_id, provider_id, model_id, workspace_root,
-                 core_mount, policy_profile, temperature, max_subagent_depth, max_subagents_total,
-                 status, depth, spawned_total, created_at, updated_at, name, persona
+                "SELECT id, parent_agent_id, name, status, depth, spawned_total,
+                 workspace_root, created_at, updated_at
                  FROM agents WHERE name = ?1",
             )
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
@@ -94,9 +83,8 @@ impl<'a> AgentDao<'a> {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, parent_agent_id, provider_id, model_id, workspace_root,
-                 core_mount, policy_profile, temperature, max_subagent_depth, max_subagents_total,
-                 status, depth, spawned_total, created_at, updated_at, name, persona
+                "SELECT id, parent_agent_id, name, status, depth, spawned_total,
+                 workspace_root, created_at, updated_at
                  FROM agents",
             )
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
@@ -118,6 +106,28 @@ impl<'a> AgentDao<'a> {
                 params![status, now, id],
             )
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        if affected == 0 {
+            return Err(StorageError::NotFound);
+        }
+        Ok(())
+    }
+
+    pub fn update_name(&self, id: &str, name: &str) -> Result<(), StorageError> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let affected = self
+            .conn
+            .execute(
+                "UPDATE agents SET name = ?1, updated_at = ?2 WHERE id = ?3",
+                params![name, now, id],
+            )
+            .map_err(|e| {
+                if e.to_string().contains("UNIQUE constraint failed") {
+                    StorageError::DuplicateKey(e.to_string())
+                } else {
+                    StorageError::QueryFailed(e.to_string())
+                }
+            })?;
 
         if affected == 0 {
             return Err(StorageError::NotFound);
@@ -157,28 +167,6 @@ impl<'a> AgentDao<'a> {
         Ok(())
     }
 
-    pub fn update_config(
-        &self,
-        id: &str,
-        provider_id: &str,
-        model_id: &str,
-        temperature: f64,
-    ) -> Result<(), StorageError> {
-        let now = chrono::Utc::now().to_rfc3339();
-        let affected = self
-            .conn
-            .execute(
-                "UPDATE agents SET provider_id = ?1, model_id = ?2, temperature = ?3, updated_at = ?4 WHERE id = ?5",
-                params![provider_id, model_id, temperature, now, id],
-            )
-            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
-
-        if affected == 0 {
-            return Err(StorageError::NotFound);
-        }
-        Ok(())
-    }
-
     pub fn delete(&self, id: &str) -> Result<(), StorageError> {
         let affected = self
             .conn
@@ -195,9 +183,8 @@ impl<'a> AgentDao<'a> {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, parent_agent_id, provider_id, model_id, workspace_root,
-                 core_mount, policy_profile, temperature, max_subagent_depth, max_subagents_total,
-                 status, depth, spawned_total, created_at, updated_at, name, persona
+                "SELECT id, parent_agent_id, name, status, depth, spawned_total,
+                 workspace_root, created_at, updated_at
                  FROM agents WHERE status = ?1",
             )
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
@@ -214,9 +201,8 @@ impl<'a> AgentDao<'a> {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, parent_agent_id, provider_id, model_id, workspace_root,
-                 core_mount, policy_profile, temperature, max_subagent_depth, max_subagents_total,
-                 status, depth, spawned_total, created_at, updated_at, name, persona
+                "SELECT id, parent_agent_id, name, status, depth, spawned_total,
+                 workspace_root, created_at, updated_at
                  FROM agents WHERE parent_agent_id = ?1",
             )
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
@@ -233,21 +219,13 @@ impl<'a> AgentDao<'a> {
         Ok(AgentRow {
             id: row.get(0)?,
             parent_agent_id: row.get(1)?,
-            provider_id: row.get(2)?,
-            model_id: row.get(3)?,
-            workspace_root: row.get(4)?,
-            core_mount: row.get(5)?,
-            policy_profile: row.get(6)?,
-            temperature: row.get(7)?,
-            max_subagent_depth: row.get(8)?,
-            max_subagents_total: row.get(9)?,
-            status: row.get(10)?,
-            depth: row.get(11)?,
-            spawned_total: row.get(12)?,
-            created_at: row.get(13)?,
-            updated_at: row.get(14)?,
-            name: row.get(15)?,
-            persona: row.get(16)?,
+            name: row.get(2)?,
+            status: row.get(3)?,
+            depth: row.get(4)?,
+            spawned_total: row.get(5)?,
+            workspace_root: row.get(6)?,
+            created_at: row.get(7)?,
+            updated_at: row.get(8)?,
         })
     }
 }
@@ -258,34 +236,14 @@ mod tests {
     use crate::fixtures::*;
     use moxxy_test_utils::TestDb;
 
-    fn insert_provider_for_agent(db: &TestDb) {
-        let provider = fixture_provider_row();
-        db.conn()
-            .execute(
-                "INSERT INTO providers (id, display_name, manifest_path, signature, enabled, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    provider.id,
-                    provider.display_name,
-                    provider.manifest_path,
-                    provider.signature,
-                    provider.enabled,
-                    provider.created_at,
-                ],
-            )
-            .unwrap();
-    }
-
     #[test]
     fn insert_and_find_by_id() {
         let db = TestDb::new();
-        insert_provider_for_agent(&db);
         let dao = AgentDao { conn: db.conn() };
         let agent = fixture_agent_row();
         dao.insert(&agent).unwrap();
         let found = dao.find_by_id(&agent.id).unwrap().unwrap();
         assert_eq!(found.id, agent.id);
-        assert_eq!(found.provider_id, agent.provider_id);
         assert_eq!(found.status, "idle");
     }
 
@@ -300,7 +258,6 @@ mod tests {
     #[test]
     fn list_returns_all() {
         let db = TestDb::new();
-        insert_provider_for_agent(&db);
         let dao = AgentDao { conn: db.conn() };
         let a1 = fixture_agent_row();
         let mut a2 = fixture_agent_row();
@@ -315,7 +272,6 @@ mod tests {
     #[test]
     fn update_status() {
         let db = TestDb::new();
-        insert_provider_for_agent(&db);
         let dao = AgentDao { conn: db.conn() };
         let agent = fixture_agent_row();
         dao.insert(&agent).unwrap();
@@ -327,7 +283,6 @@ mod tests {
     #[test]
     fn delete_agent() {
         let db = TestDb::new();
-        insert_provider_for_agent(&db);
         let dao = AgentDao { conn: db.conn() };
         let agent = fixture_agent_row();
         dao.insert(&agent).unwrap();
@@ -347,7 +302,6 @@ mod tests {
     #[test]
     fn increment_spawned_total() {
         let db = TestDb::new();
-        insert_provider_for_agent(&db);
         let dao = AgentDao { conn: db.conn() };
         let agent = fixture_agent_row();
         dao.insert(&agent).unwrap();
@@ -363,7 +317,6 @@ mod tests {
     #[test]
     fn find_by_status() {
         let db = TestDb::new();
-        insert_provider_for_agent(&db);
         let dao = AgentDao { conn: db.conn() };
         let agent = fixture_agent_row();
         dao.insert(&agent).unwrap();
@@ -380,7 +333,6 @@ mod tests {
     #[test]
     fn find_by_parent() {
         let db = TestDb::new();
-        insert_provider_for_agent(&db);
         let dao = AgentDao { conn: db.conn() };
         let parent = fixture_agent_row();
         dao.insert(&parent).unwrap();
@@ -398,38 +350,6 @@ mod tests {
     }
 
     #[test]
-    fn update_config_changes_provider_and_model() {
-        let db = TestDb::new();
-        insert_provider_for_agent(&db);
-        // Insert a second provider for the update target
-        db.conn()
-            .execute(
-                "INSERT INTO providers (id, display_name, manifest_path, signature, enabled, created_at)
-                 VALUES ('new-provider', 'New Provider', '/tmp/new.yaml', NULL, 1, '2024-01-01T00:00:00Z')",
-                [],
-            )
-            .unwrap();
-        let dao = AgentDao { conn: db.conn() };
-        let agent = fixture_agent_row();
-        dao.insert(&agent).unwrap();
-
-        dao.update_config(&agent.id, "new-provider", "new-model", 1.0)
-            .unwrap();
-        let found = dao.find_by_id(&agent.id).unwrap().unwrap();
-        assert_eq!(found.provider_id, "new-provider");
-        assert_eq!(found.model_id, "new-model");
-        assert!((found.temperature - 1.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn update_config_nonexistent_returns_not_found() {
-        let db = TestDb::new();
-        let dao = AgentDao { conn: db.conn() };
-        let result = dao.update_config("nonexistent", "p", "m", 0.5);
-        assert!(matches!(result, Err(StorageError::NotFound)));
-    }
-
-    #[test]
     fn increment_spawned_total_nonexistent_returns_not_found() {
         let db = TestDb::new();
         let dao = AgentDao { conn: db.conn() };
@@ -440,7 +360,6 @@ mod tests {
     #[test]
     fn decrement_spawned_total() {
         let db = TestDb::new();
-        insert_provider_for_agent(&db);
         let dao = AgentDao { conn: db.conn() };
         let agent = fixture_agent_row();
         dao.insert(&agent).unwrap();
@@ -468,7 +387,6 @@ mod tests {
     #[test]
     fn find_by_name_works() {
         let db = TestDb::new();
-        insert_provider_for_agent(&db);
         let dao = AgentDao { conn: db.conn() };
         let agent = fixture_agent_row();
         dao.insert(&agent).unwrap();
@@ -488,7 +406,6 @@ mod tests {
     #[test]
     fn duplicate_name_insert_fails() {
         let db = TestDb::new();
-        insert_provider_for_agent(&db);
         let dao = AgentDao { conn: db.conn() };
         let a1 = fixture_agent_row();
         dao.insert(&a1).unwrap();
@@ -497,6 +414,34 @@ mod tests {
         a2.id = uuid::Uuid::now_v7().to_string();
         // Same name as a1 → should fail
         let result = dao.insert(&a2);
+        assert!(matches!(result, Err(StorageError::DuplicateKey(_))));
+    }
+
+    #[test]
+    fn update_name_works() {
+        let db = TestDb::new();
+        let dao = AgentDao { conn: db.conn() };
+        let agent = fixture_agent_row();
+        dao.insert(&agent).unwrap();
+
+        dao.update_name(&agent.id, "new-name").unwrap();
+        let found = dao.find_by_id(&agent.id).unwrap().unwrap();
+        assert_eq!(found.name.as_deref(), Some("new-name"));
+    }
+
+    #[test]
+    fn update_name_duplicate_fails() {
+        let db = TestDb::new();
+        let dao = AgentDao { conn: db.conn() };
+        let a1 = fixture_agent_row();
+        dao.insert(&a1).unwrap();
+
+        let mut a2 = fixture_agent_row();
+        a2.id = uuid::Uuid::now_v7().to_string();
+        a2.name = Some("other-agent".into());
+        dao.insert(&a2).unwrap();
+
+        let result = dao.update_name(&a2.id, "test-agent");
         assert!(matches!(result, Err(StorageError::DuplicateKey(_))));
     }
 }
