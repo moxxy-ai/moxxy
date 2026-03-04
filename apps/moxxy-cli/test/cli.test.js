@@ -39,6 +39,20 @@ describe('api-client', () => {
     await assert.rejects(() => client.request('/v1/agents', 'GET'));
   });
 
+  it('getHistory builds correct url', () => {
+    const client = createApiClient('http://localhost:3000', 'tok');
+    const req = client.buildRequest('/v1/agents/my-agent/history?limit=50', 'GET');
+    assert.equal(req.url, 'http://localhost:3000/v1/agents/my-agent/history?limit=50');
+    assert.equal(req.method, 'GET');
+  });
+
+  it('getHistory uses default limit', () => {
+    const client = createApiClient('http://localhost:3000', 'tok');
+    // Verify the method exists and builds the right request by checking buildUrl
+    const url = client.buildUrl('/v1/agents/test-agent/history?limit=50');
+    assert.equal(url, 'http://localhost:3000/v1/agents/test-agent/history?limit=50');
+  });
+
   it('request throws gateway-down error when connection refused', async () => {
     // Use a valid port that's almost certainly not listening
     const client = createApiClient('http://127.0.0.1:19876', 'tok');

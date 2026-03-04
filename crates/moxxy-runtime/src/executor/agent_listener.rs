@@ -36,25 +36,22 @@ impl EventListener for AgentEventListener {
     }
 
     fn handle(&mut self, event: &EventEnvelope) -> EventAction {
-        let sub_id = event.payload["sub_agent_id"]
+        // Events use "child_name" as the identifier
+        let child_name = event.payload["child_name"]
             .as_str()
             .unwrap_or("")
-            .to_string();
-        let name = event.payload["name"]
-            .as_str()
-            .unwrap_or(&sub_id)
             .to_string();
 
         let notification = match event.event_type {
             EventType::SubagentCompleted => {
-                self.active_subagents.remove(&sub_id);
+                self.active_subagents.remove(&child_name);
                 let result_text = event.payload["result"].as_str().unwrap_or("(no output)");
-                format!("[Sub-agent '{name}' completed]\n{result_text}")
+                format!("[Sub-agent '{child_name}' completed]\n{result_text}")
             }
             EventType::SubagentFailed => {
-                self.active_subagents.remove(&sub_id);
+                self.active_subagents.remove(&child_name);
                 let error = event.payload["error"].as_str().unwrap_or("unknown error");
-                format!("[Sub-agent '{name}' failed]\n{error}")
+                format!("[Sub-agent '{child_name}' failed]\n{error}")
             }
             _ => format!("[Event: {:?}]", event.event_type),
         };
@@ -69,10 +66,11 @@ impl EventListener for AgentEventListener {
     }
 
     fn on_tool_result(&mut self, tool_name: &str, result: &serde_json::Value) {
-        if (tool_name == "agent.spawn" || tool_name == "hive.recruit")
-            && let Some(id) = result.get("sub_agent_id").and_then(|v| v.as_str())
-        {
-            self.active_subagents.insert(id.to_string());
+        if tool_name == "agent.spawn" || tool_name == "hive.recruit" {
+            // Both agent.spawn and hive.recruit return "child_name"
+            if let Some(id) = result.get("child_name").and_then(|v| v.as_str()) {
+                self.active_subagents.insert(id.to_string());
+            }
         }
     }
 }
@@ -93,7 +91,7 @@ mod tests {
 
         listener.on_tool_result(
             "agent.spawn",
-            &serde_json::json!({"sub_agent_id": "sub-1", "run_id": "run-1"}),
+            &serde_json::json!({"child_name": "sub-1", "run_id": "run-1"}),
         );
 
         assert!(listener.has_pending_work());
@@ -105,7 +103,7 @@ mod tests {
 
         listener.on_tool_result(
             "hive.recruit",
-            &serde_json::json!({"sub_agent_id": "worker-1", "run_id": "run-w1"}),
+            &serde_json::json!({"child_name": "worker-1", "run_id": "run-w1"}),
         );
 
         assert!(listener.has_pending_work());
@@ -123,14 +121,13 @@ mod tests {
     #[test]
     fn handle_subagent_completed_removes_and_formats() {
         let mut listener = AgentEventListener::new();
-        listener.on_tool_result("agent.spawn", &serde_json::json!({"sub_agent_id": "sub-1"}));
+        listener.on_tool_result("agent.spawn", &serde_json::json!({"child_name": "researcher"}));
         assert!(listener.has_pending_work());
 
         let event = make_event(
             EventType::SubagentCompleted,
             serde_json::json!({
-                "sub_agent_id": "sub-1",
-                "name": "researcher",
+                "child_name": "researcher",
                 "result": "found 3 results",
             }),
         );
@@ -145,13 +142,12 @@ mod tests {
     #[test]
     fn handle_subagent_failed_removes_and_formats() {
         let mut listener = AgentEventListener::new();
-        listener.on_tool_result("agent.spawn", &serde_json::json!({"sub_agent_id": "sub-2"}));
+        listener.on_tool_result("agent.spawn", &serde_json::json!({"child_name": "worker"}));
 
         let event = make_event(
             EventType::SubagentFailed,
             serde_json::json!({
-                "sub_agent_id": "sub-2",
-                "name": "worker",
+                "child_name": "worker",
                 "error": "connection refused",
             }),
         );

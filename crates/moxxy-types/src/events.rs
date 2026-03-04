@@ -74,6 +74,8 @@ pub enum EventType {
     AgentAlive,
     #[serde(rename = "agent.stuck")]
     AgentStuck,
+    #[serde(rename = "agent.nudged")]
+    AgentNudged,
     #[serde(rename = "webhook.received")]
     WebhookReceived,
     #[serde(rename = "hive.created")]
@@ -139,6 +141,7 @@ impl EventType {
             EventType::SubagentFailed,
             EventType::AgentAlive,
             EventType::AgentStuck,
+            EventType::AgentNudged,
             EventType::WebhookReceived,
             EventType::HiveCreated,
             EventType::HiveDisbanded,

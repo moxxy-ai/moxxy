@@ -420,9 +420,6 @@ impl RunService {
             self.ask_channels.clone(),
         )));
 
-        // Track whether the analyzer suggests hive workers (set inside the match block below)
-        let mut suggested_workers: Option<u32> = None;
-
         // Agent management primitives (using RunStarter trait)
         if let Some(starter) = self.run_starter.lock().ok().and_then(|g| g.clone()) {
             registry.register(Box::new(moxxy_runtime::AgentSpawnPrimitive::new(
@@ -476,36 +473,11 @@ impl RunService {
                         &event_bus,
                     );
                 }
-                _ if hive_manifest_path.exists() => {
-                    // Queen (resumed run) — register all hive primitives
-                    register_hive_queen_primitives(
-                        &mut registry,
-                        agent_name,
-                        workspace_dir,
-                        starter,
-                        &event_bus,
-                    );
-                }
-                _ if runtime.agent_type == AgentType::Agent => {
-                    // Top-level agent: run analyzer to decide hive vs single
-                    let analysis =
-                        crate::task_analyzer::analyze_task_complexity(&provider, &task).await;
-
-                    event_bus.emit(moxxy_types::EventEnvelope::new(
-                        agent_name.to_string(),
-                        Some(run_id.clone()),
-                        None,
-                        0,
-                        moxxy_types::EventType::TaskAnalyzed,
-                        serde_json::json!({
-                            "needs_hive": analysis.needs_hive,
-                            "suggested_workers": analysis.suggested_workers,
-                            "reasoning": analysis.reasoning,
-                        }),
-                    ));
-
-                    if analysis.needs_hive {
-                        // Auto-create hive manifest
+                AgentType::Agent => {
+                    // Top-level agent: always register hive queen primitives so the
+                    // agent can decide at runtime whether to use hive or work directly.
+                    // Create hive manifest if it doesn't exist yet.
+                    if !hive_manifest_path.exists() {
                         let hive_dir = workspace_dir.join(".hive");
                         std::fs::create_dir_all(&hive_dir)
                             .map_err(|e| format!("Failed to create .hive dir: {e}"))?;
@@ -527,27 +499,15 @@ impl RunService {
                         store
                             .write_manifest(&manifest)
                             .map_err(|e| format!("Failed to write hive manifest: {e}"))?;
-
-                        event_bus.emit(moxxy_types::EventEnvelope::new(
-                            agent_name.to_string(),
-                            Some(run_id.clone()),
-                            None,
-                            0,
-                            moxxy_types::EventType::HiveCreated,
-                            serde_json::json!({ "hive_id": manifest.id }),
-                        ));
-
-                        suggested_workers = Some(analysis.suggested_workers);
-
-                        register_hive_queen_primitives(
-                            &mut registry,
-                            agent_name,
-                            workspace_dir,
-                            starter,
-                            &event_bus,
-                        );
                     }
-                    // If single: no hive primitives registered at all
+
+                    register_hive_queen_primitives(
+                        &mut registry,
+                        agent_name,
+                        workspace_dir,
+                        starter,
+                        &event_bus,
+                    );
                 }
                 _ => {
                     // Ephemeral sub-agents: no hive primitives
@@ -788,23 +748,27 @@ impl RunService {
             let has_task_claim = allowed_primitives.iter().any(|p| p == "hive.task_claim");
             if has_recruit {
                 system_prompt.push_str(
-                    "\n## Hive Queen Workflow (MANDATORY)\n\
-                     You are the hive queen. You MUST recruit workers — do NOT do the work yourself. Your role is coordination only.\n\
-                     1. hive.task_create to define tasks — use depends_on for ordering (foundation tasks before dependent work)\n\
-                     2. hive.recruit to spawn workers — call this for EACH task. Workers are fully functional agents that will execute the work. This tool works reliably.\n\
+                    "\n## Task Complexity Decision\n\
+                     Before starting work, decide whether this task is SIMPLE or COMPLEX:\n\n\
+                     **SIMPLE tasks** — do the work yourself directly, no hive needed:\n\
+                     - Quick questions, lookups, single-file edits, small scripts\n\
+                     - Tasks with one clear deliverable\n\
+                     - Anything you can finish in a few tool calls\n\n\
+                     **COMPLEX tasks** — use hive to parallelize with worker agents:\n\
+                     - Building a project with multiple independent modules/components\n\
+                     - Tasks requiring 3+ distinct workstreams (e.g. frontend + backend + tests)\n\
+                     - Large-scale generation (multiple files, multiple features)\n\
+                     - Research across many topics simultaneously\n\n\
+                     ## Hive Workflow (for COMPLEX tasks only)\n\
+                     When you decide a task is complex, become the hive queen:\n\
+                     1. hive.task_create to define tasks — use depends_on for ordering\n\
+                     2. hive.recruit to spawn workers for each task. Workers are fully functional agents. This tool works reliably — use it.\n\
                      3. Stay active — do NOT produce final text until all workers finish\n\
-                     4. You'll receive [Hive task ...] and [Sub-agent ...] notifications automatically\n\
+                     4. You'll receive [Sub-agent ...] notifications automatically when workers complete\n\
                      5. hive.aggregate for full snapshot when done\n\
                      6. Synthesize results, then hive.disband\n\n\
-                     IMPORTANT: Do NOT skip recruiting. Do NOT do the implementation yourself. Do NOT claim workers cannot be spawned — hive.recruit is a working tool available to you. Call it.\n",
+                     IMPORTANT: When using hive, do NOT do implementation work yourself — delegate to workers. Do NOT claim workers cannot be spawned.\n",
                 );
-                if let Some(workers) = suggested_workers {
-                    system_prompt.push_str(&format!(
-                        "\nThe task has been analyzed and {} parallel workers are suggested. \
-                         Create tasks first with hive.task_create, then recruit workers with hive.recruit. You MUST recruit at least {} workers.\n",
-                        workers, workers
-                    ));
-                }
             } else if has_task_claim {
                 system_prompt.push_str(
                     "\n## Hive Worker Workflow\n\

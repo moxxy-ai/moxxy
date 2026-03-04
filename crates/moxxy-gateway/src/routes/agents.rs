@@ -1,5 +1,5 @@
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use moxxy_core::AgentStore;
 use moxxy_storage::AllowlistRow;
@@ -546,4 +546,52 @@ pub async fn delete_agent(
     })?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(serde::Deserialize)]
+pub struct HistoryQuery {
+    pub limit: Option<u32>,
+}
+
+pub async fn get_history(
+    State(state): State<Arc<AppState>>,
+    auth: AuthToken,
+    Path(name): Path<String>,
+    Query(query): Query<HistoryQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    check_scope(&auth.0, &TokenScope::AgentsRead)?;
+
+    let limit = query.limit.unwrap_or(50).min(200);
+
+    let db = state.db.lock().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal", "message": e.to_string()})),
+        )
+    })?;
+
+    let rows = db
+        .conversations()
+        .find_recent_by_agent(&name, limit)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal", "message": e.to_string()})),
+            )
+        })?;
+
+    let messages: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "id": r.id,
+                "run_id": r.run_id,
+                "role": r.role,
+                "content": r.content,
+                "created_at": r.created_at,
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({ "messages": messages })))
 }

@@ -21,6 +21,7 @@ pub struct RunExecutor {
     run_timeout: Option<Duration>,
     system_prompt: Option<String>,
     heartbeat_interval: usize,
+    max_nudges: usize,
     history: Vec<Message>,
     listeners: Vec<Box<dyn EventListener>>,
 }
@@ -42,6 +43,7 @@ impl RunExecutor {
             run_timeout: None,
             system_prompt: None,
             heartbeat_interval: 10,
+            max_nudges: 2,
             history: Vec::new(),
             listeners: vec![
                 Box::new(AgentEventListener::new()),
@@ -57,6 +59,11 @@ impl RunExecutor {
 
     pub fn with_heartbeat_interval(mut self, interval: usize) -> Self {
         self.heartbeat_interval = interval;
+        self
+    }
+
+    pub fn with_max_nudges(mut self, max: usize) -> Self {
+        self.max_nudges = max;
         self
     }
 
@@ -165,6 +172,7 @@ impl RunExecutor {
         conversation.push(Message::user(task));
 
         let mut final_content = String::new();
+        let mut nudge_count: usize = 0;
 
         for iteration in 0..self.max_iterations {
             // Drain event bus to prevent buffer overflow and collect notifications
@@ -283,6 +291,23 @@ impl RunExecutor {
 
             if response.tool_calls.is_empty() {
                 if !self.listeners.iter().any(|l| l.has_pending_work()) {
+                    if nudge_count < self.max_nudges {
+                        nudge_count += 1;
+                        self.emit(
+                            agent_id,
+                            run_id,
+                            &mut sequence,
+                            EventType::AgentNudged,
+                            serde_json::json!({"nudge_count": nudge_count}),
+                        );
+                        if !response.content.is_empty() {
+                            conversation.push(Message::assistant(&response.content));
+                        }
+                        conversation.push(Message::user(
+                            "You have tools available to accomplish this task. Do not end your turn without using them. Review the available tools and take action to complete the task."
+                        ));
+                        continue;
+                    }
                     break;
                 }
 
@@ -449,6 +474,7 @@ impl RunExecutor {
                     }
                 }
             }
+            nudge_count = 0;
         }
 
         self.emit(
@@ -812,7 +838,8 @@ mod tests {
         registry.register(Box::new(EchoPrimitive));
 
         let mut executor = RunExecutor::new(bus, provider, registry, vec!["echo".into()])
-            .with_system_prompt("You are a test agent.".into());
+            .with_system_prompt("You are a test agent.".into())
+            .with_max_nudges(0);
 
         let result = executor
             .execute("agent-1", "run-1", "do something", &model_config())
@@ -854,7 +881,7 @@ mod tests {
             arguments: serde_json::json!({"task": "subtask"}),
         }]));
 
-        // Fake agent.spawn primitive that returns a sub_agent_id
+        // Fake agent.spawn primitive that returns a child_name
         struct FakeSpawnPrimitive;
         #[async_trait]
         impl Primitive for FakeSpawnPrimitive {
@@ -865,7 +892,7 @@ mod tests {
                 &self,
                 _params: serde_json::Value,
             ) -> Result<serde_json::Value, PrimitiveError> {
-                Ok(serde_json::json!({"sub_agent_id": "sub-1", "run_id": "run-sub"}))
+                Ok(serde_json::json!({"child_name": "sub-1", "run_id": "run-sub"}))
             }
         }
 
@@ -882,8 +909,7 @@ mod tests {
                 0,
                 EventType::SubagentCompleted,
                 serde_json::json!({
-                    "sub_agent_id": "sub-1",
-                    "name": "sub-agent-1",
+                    "child_name": "sub-1",
                     "result": "subtask done",
                 }),
             ));
@@ -936,7 +962,7 @@ mod tests {
             arguments: serde_json::json!({"task": "research", "role": "worker"}),
         }]));
 
-        // Fake hive.recruit primitive that returns a sub_agent_id
+        // Fake hive.recruit primitive that returns a child_name
         struct FakeRecruitPrimitive;
         #[async_trait]
         impl Primitive for FakeRecruitPrimitive {
@@ -948,7 +974,7 @@ mod tests {
                 _params: serde_json::Value,
             ) -> Result<serde_json::Value, PrimitiveError> {
                 Ok(
-                    serde_json::json!({"sub_agent_id": "worker-1", "run_id": "run-w1", "role": "worker"}),
+                    serde_json::json!({"child_name": "worker-1", "run_id": "run-w1", "role": "worker"}),
                 )
             }
         }
@@ -966,8 +992,7 @@ mod tests {
                 0,
                 EventType::SubagentCompleted,
                 serde_json::json!({
-                    "sub_agent_id": "worker-1",
-                    "name": "worker-1",
+                    "child_name": "worker-1",
                     "result": "research done",
                 }),
             ));
@@ -1016,9 +1041,9 @@ mod tests {
             arguments: serde_json::json!({"task": "work", "role": "worker"}),
         }]));
 
-        struct FakeRecruitPrimitive;
+        struct FakeRecruitPrimitive2;
         #[async_trait]
-        impl Primitive for FakeRecruitPrimitive {
+        impl Primitive for FakeRecruitPrimitive2 {
             fn name(&self) -> &str {
                 "hive.recruit"
             }
@@ -1027,13 +1052,13 @@ mod tests {
                 _params: serde_json::Value,
             ) -> Result<serde_json::Value, PrimitiveError> {
                 Ok(
-                    serde_json::json!({"sub_agent_id": "worker-2", "run_id": "run-w2", "role": "worker"}),
+                    serde_json::json!({"child_name": "worker-2", "run_id": "run-w2", "role": "worker"}),
                 )
             }
         }
 
         let mut registry = PrimitiveRegistry::new();
-        registry.register(Box::new(FakeRecruitPrimitive));
+        registry.register(Box::new(FakeRecruitPrimitive2));
 
         // Emit HiveTaskCompleted first, then SubagentCompleted
         let bus_clone2 = bus_clone.clone();
@@ -1061,8 +1086,7 @@ mod tests {
                 0,
                 EventType::SubagentCompleted,
                 serde_json::json!({
-                    "sub_agent_id": "worker-2",
-                    "name": "worker-2",
+                    "child_name": "worker-2",
                     "result": "all tasks done",
                 }),
             ));
@@ -1163,5 +1187,167 @@ mod tests {
             .execute("agent-1", "run-1", "test", &model_config())
             .await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn execute_nudges_before_breaking() {
+        let bus = EventBus::new(100);
+        let mut rx = bus.subscribe();
+        let provider = Arc::new(EchoProvider::new());
+        let registry = PrimitiveRegistry::new();
+
+        let mut executor =
+            RunExecutor::new(bus, provider, registry, vec![]).with_max_nudges(1);
+
+        let result = executor
+            .execute("agent-1", "run-1", "hello", &model_config())
+            .await;
+        assert!(result.is_ok());
+
+        let mut model_request_count = 0;
+        let mut nudge_count = 0;
+        while let Ok(event) = rx.try_recv() {
+            if event.event_type == EventType::ModelRequest {
+                model_request_count += 1;
+            }
+            if event.event_type == EventType::AgentNudged {
+                nudge_count += 1;
+            }
+        }
+        // 1 initial + 1 after nudge = 2 model requests
+        assert_eq!(model_request_count, 2);
+        assert_eq!(nudge_count, 1);
+    }
+
+    #[tokio::test]
+    async fn execute_default_nudges_is_two() {
+        let bus = EventBus::new(100);
+        let mut rx = bus.subscribe();
+        let provider = Arc::new(EchoProvider::new());
+        let registry = PrimitiveRegistry::new();
+
+        let mut executor = RunExecutor::new(bus, provider, registry, vec![]);
+        assert_eq!(executor.max_nudges, 2);
+
+        let result = executor
+            .execute("agent-1", "run-1", "hello", &model_config())
+            .await;
+        assert!(result.is_ok());
+
+        let mut model_request_count = 0;
+        while let Ok(event) = rx.try_recv() {
+            if event.event_type == EventType::ModelRequest {
+                model_request_count += 1;
+            }
+        }
+        // 1 initial + 2 nudges = 3 model requests
+        assert_eq!(model_request_count, 3);
+    }
+
+    #[tokio::test]
+    async fn execute_zero_nudges_breaks_immediately() {
+        let bus = EventBus::new(100);
+        let mut rx = bus.subscribe();
+        let provider = Arc::new(EchoProvider::new());
+        let registry = PrimitiveRegistry::new();
+
+        let mut executor =
+            RunExecutor::new(bus, provider, registry, vec![]).with_max_nudges(0);
+
+        let result = executor
+            .execute("agent-1", "run-1", "hello", &model_config())
+            .await;
+        assert!(result.is_ok());
+
+        let mut model_request_count = 0;
+        let mut nudge_count = 0;
+        while let Ok(event) = rx.try_recv() {
+            if event.event_type == EventType::ModelRequest {
+                model_request_count += 1;
+            }
+            if event.event_type == EventType::AgentNudged {
+                nudge_count += 1;
+            }
+        }
+        assert_eq!(model_request_count, 1);
+        assert_eq!(nudge_count, 0);
+    }
+
+    #[tokio::test]
+    async fn nudge_count_resets_after_tool_use() {
+        let bus = EventBus::new(100);
+        let mut rx = bus.subscribe();
+
+        // Custom provider: call 1 returns tool call, call 2 returns no tools (nudge),
+        // call 3 returns no tools (break since max_nudges=1)
+        struct AlternatingProvider {
+            call_count: std::sync::Mutex<usize>,
+        }
+
+        #[async_trait]
+        impl Provider for AlternatingProvider {
+            async fn complete(
+                &self,
+                _messages: Vec<Message>,
+                _config: &ModelConfig,
+                _tools: &[crate::registry::ToolDefinition],
+            ) -> Result<ProviderResponse, PrimitiveError> {
+                let mut count = self.call_count.lock().unwrap();
+                *count += 1;
+                let current = *count;
+                drop(count);
+
+                if current == 1 {
+                    // First call: return a tool call
+                    Ok(ProviderResponse {
+                        content: String::new(),
+                        tool_calls: vec![ToolCall {
+                            id: "call_0".into(),
+                            name: "echo".into(),
+                            arguments: serde_json::json!({}),
+                        }],
+                        usage: None,
+                    })
+                } else {
+                    // Subsequent calls: no tools
+                    Ok(ProviderResponse {
+                        content: "done".into(),
+                        tool_calls: vec![],
+                        usage: None,
+                    })
+                }
+            }
+        }
+
+        let provider = Arc::new(AlternatingProvider {
+            call_count: std::sync::Mutex::new(0),
+        });
+
+        let mut registry = PrimitiveRegistry::new();
+        registry.register(Box::new(EchoPrimitive));
+
+        let mut executor =
+            RunExecutor::new(bus, provider, registry, vec!["echo".into()]).with_max_nudges(1);
+
+        let result = executor
+            .execute("agent-1", "run-1", "test", &model_config())
+            .await;
+        assert!(result.is_ok());
+
+        let mut model_request_count = 0;
+        let mut nudge_count = 0;
+        while let Ok(event) = rx.try_recv() {
+            if event.event_type == EventType::ModelRequest {
+                model_request_count += 1;
+            }
+            if event.event_type == EventType::AgentNudged {
+                nudge_count += 1;
+            }
+        }
+        // Call 1: tool call (nudge_count resets to 0 after tool use)
+        // Call 2: no tools → nudge (nudge_count=1)
+        // Call 3: no tools → break (nudge_count >= max_nudges)
+        assert_eq!(model_request_count, 3);
+        assert_eq!(nudge_count, 1);
     }
 }

@@ -126,6 +126,10 @@ export class ApiClient {
     return url.toString();
   }
 
+  async getHistory(agentId, limit = 50) {
+    return this.request(`/v1/agents/${encodeURIComponent(agentId)}/history?limit=${limit}`, 'GET');
+  }
+
   async listAgents() {
     return this.request('/v1/agents', 'GET');
   }

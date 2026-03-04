@@ -114,6 +114,21 @@ export class EventsHandler {
     if (this._onChange) this._onChange();
   }
 
+  async loadHistory(client, agentId) {
+    try {
+      const data = await client.getHistory(agentId);
+      const msgs = (data.messages || []).map(m => ({
+        type: m.role === 'user' ? 'user' : 'assistant',
+        content: m.content,
+        ts: Date.parse(m.created_at),
+      }));
+      this.messages = [...msgs, ...this.messages];
+      this._notify();
+    } catch {
+      // Silently ignore history load failures
+    }
+  }
+
   async connect() {
     if (!this.agentId) return;
     this._active = true;
@@ -198,8 +213,6 @@ export class EventsHandler {
   }
 
   _flushDelta() {
-    let changed = false;
-
     // Flush parent assistant buffer
     const content = this._assistantBuffer;
     if (content) {
@@ -209,25 +222,8 @@ export class EventsHandler {
       } else {
         this.messages.push({ type: 'assistant', content, streaming: true, ts: Date.now() });
       }
-      changed = true;
+      this._notify();
     }
-
-    // Flush sub-agent buffers
-    for (const [agentId, sub] of this._subAgents) {
-      if (!sub.buffer) continue;
-      const last = this.messages[this.messages.length - 1];
-      if (last && last.type === 'subagent-text' && last.agentId === agentId && last.streaming) {
-        last.content = sub.buffer;
-      } else {
-        this.messages.push({
-          type: 'subagent-text', agentId, name: sub.name,
-          content: sub.buffer, streaming: true, ts: Date.now(),
-        });
-      }
-      changed = true;
-    }
-
-    if (changed) this._notify();
   }
 
   _processSubAgentEvent(event) {
@@ -237,72 +233,29 @@ export class EventsHandler {
     const sub = this._subAgents.get(agentId);
     if (!sub) return;
 
+    // Track sub-agent text internally but don't render in chat.
+    // Hive events (task created/claimed/completed) are shown instead.
     if (type === 'message.delta') {
       sub.buffer += (payload.content || payload.text || '');
-      if (!this._deltaTimer) {
-        this._deltaTimer = setTimeout(() => {
-          this._deltaTimer = null;
-          this._flushDelta();
-        }, DELTA_FLUSH_MS);
-      }
       return;
     }
 
     if (type === 'message.final') {
-      if (this._deltaTimer) {
-        clearTimeout(this._deltaTimer);
-        this._deltaTimer = null;
-      }
-      const finalContent = payload.content || payload.text || sub.buffer;
       sub.buffer = '';
-      const last = this.messages[this.messages.length - 1];
-      if (last && last.type === 'subagent-text' && last.agentId === agentId && last.streaming) {
-        last.content = finalContent;
-        last.streaming = false;
-      } else {
-        this.messages.push({
-          type: 'subagent-text', agentId, name: sub.name,
-          content: finalContent, streaming: false, ts: event.ts,
-        });
-      }
-      this._notify();
       return;
     }
 
-    if (type === 'primitive.invoked') {
-      if (isHiddenTool(payload.name || '')) return;
-      this.messages.push({
-        type: 'tool', name: payload.name || 'unknown', status: 'invoked',
-        arguments: formatParams(payload.arguments), ts: event.ts,
-        subAgent: sub.name,
-      });
-      this._notify();
+    // Track stats for sub-agent primitives but don't render in chat
+    if (type === 'primitive.invoked' && payload.name) {
+      this.stats.primitives[payload.name] = (this.stats.primitives[payload.name] || 0) + 1;
       return;
     }
 
-    if (type === 'primitive.completed') {
-      if (isHiddenTool(payload.name || '')) return;
-      const last = this.messages[this.messages.length - 1];
-      if (last && last.type === 'tool' && last.name === (payload.name || 'unknown') && last.status === 'invoked' && last.subAgent === sub.name) {
-        last.status = 'completed';
-        last.result = formatParams(payload.result);
-      }
-      this._notify();
+    if (type === 'primitive.completed' || type === 'primitive.failed') {
       return;
     }
 
-    if (type === 'primitive.failed') {
-      if (isHiddenTool(payload.name || '')) return;
-      const last = this.messages[this.messages.length - 1];
-      if (last && last.type === 'tool' && last.name === (payload.name || 'unknown') && last.status === 'invoked' && last.subAgent === sub.name) {
-        last.status = 'error';
-        last.error = payload.error || 'unknown error';
-      }
-      this._notify();
-      return;
-    }
-
-    // Pass other sub-agent events through in debug mode
+    // Pass other sub-agent events through in debug mode only
     if (this.debug) {
       this.messages.push({ type: 'event', eventType: type, payload, ts: event.ts });
       this._notify();
@@ -339,35 +292,27 @@ export class EventsHandler {
       }
     }
 
-    // Register new sub-agents
+    // Register new sub-agents (track internally, no chat message — hive events cover this)
     if (type === 'subagent.spawned') {
-      const subId = payload.sub_agent_id;
-      const name = payload.name || subId;
+      const subId = payload.sub_agent_id || payload.child_name;
+      const name = payload.name || payload.child_name || subId;
       const task = payload.task || '';
       this._subAgents.set(subId, { name, task, buffer: '', status: 'running' });
-      this.messages.push({ type: 'subagent-spawned', agentId: subId, name, task, ts: event.ts });
-      this._notify();
       return;
     }
 
-    // Handle sub-agent completion/failure (emitted on parent's agent_id)
+    // Handle sub-agent completion/failure (track internally, no chat message)
     if (type === 'subagent.completed') {
-      const subId = payload.sub_agent_id;
-      const name = payload.name || subId;
+      const subId = payload.sub_agent_id || payload.child_name;
       const sub = this._subAgents.get(subId);
       if (sub) sub.status = 'completed';
-      this.messages.push({ type: 'subagent-done', agentId: subId, name, status: 'completed', result: payload.result, ts: event.ts });
-      this._notify();
       return;
     }
 
     if (type === 'subagent.failed') {
-      const subId = payload.sub_agent_id;
-      const name = payload.name || subId;
+      const subId = payload.sub_agent_id || payload.child_name;
       const sub = this._subAgents.get(subId);
       if (sub) sub.status = 'failed';
-      this.messages.push({ type: 'subagent-done', agentId: subId, name, status: 'failed', error: payload.error, ts: event.ts });
-      this._notify();
       return;
     }
 

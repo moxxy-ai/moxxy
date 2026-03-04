@@ -168,6 +168,9 @@ export class App {
     // Load agent
     await this._loadAgent();
 
+    // Load conversation history before connecting SSE
+    await this.eventsHandler.loadHistory(this.client, this.agentId);
+
     // Connect SSE
     this.eventsHandler.connect(); // runs in background (async)
 

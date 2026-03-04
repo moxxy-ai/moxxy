@@ -73,6 +73,10 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
         .route("/v1/agents/{name}/runs", post(routes::agents::start_run))
         .route("/v1/agents/{name}/stop", post(routes::agents::stop_run))
         .route(
+            "/v1/agents/{name}/history",
+            get(routes::agents::get_history),
+        )
+        .route(
             "/v1/agents/{name}/ask-responses/{question_id}",
             post(routes::agents::respond_to_ask),
         )
@@ -769,6 +773,124 @@ mod agent_tests {
             .unwrap();
         let resp = request(&app, req).await;
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+}
+
+#[cfg(test)]
+mod history_tests {
+    use super::test_helpers::*;
+    use axum::body::Body;
+    use axum::http::StatusCode;
+    use http::Request;
+    use moxxy_types::TokenScope;
+
+    #[tokio::test]
+    async fn get_history_returns_conversation_messages() {
+        let (app, state, _tmp) = test_app();
+        let token = create_token_in_db(
+            &state,
+            vec![TokenScope::AgentsRead, TokenScope::AgentsWrite],
+        );
+        let agent_name = seed_agent(&state, &token);
+
+        // Insert conversation rows directly
+        {
+            let db = state.db.lock().unwrap();
+            for (seq, role, content) in [
+                (0, "user", "Hello"),
+                (1, "assistant", "Hi there!"),
+                (2, "user", "How are you?"),
+            ] {
+                db.conversations()
+                    .insert(&moxxy_storage::ConversationLogRow {
+                        id: uuid::Uuid::now_v7().to_string(),
+                        agent_id: agent_name.clone(),
+                        run_id: "run-1".into(),
+                        sequence: seq,
+                        role: role.into(),
+                        content: content.into(),
+                        created_at: format!("2025-01-01T00:00:0{}Z", seq),
+                    })
+                    .unwrap();
+            }
+        }
+
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!("/v1/agents/{}/history", agent_name))
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let messages = result["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0]["role"], "user");
+        assert_eq!(messages[0]["content"], "Hello");
+        assert_eq!(messages[1]["role"], "assistant");
+        assert_eq!(messages[1]["content"], "Hi there!");
+        assert_eq!(messages[2]["role"], "user");
+        assert_eq!(messages[2]["content"], "How are you?");
+    }
+
+    #[tokio::test]
+    async fn get_history_respects_limit() {
+        let (app, state, _tmp) = test_app();
+        let token = create_token_in_db(
+            &state,
+            vec![TokenScope::AgentsRead, TokenScope::AgentsWrite],
+        );
+        let agent_name = seed_agent(&state, &token);
+
+        {
+            let db = state.db.lock().unwrap();
+            for i in 0..5 {
+                db.conversations()
+                    .insert(&moxxy_storage::ConversationLogRow {
+                        id: uuid::Uuid::now_v7().to_string(),
+                        agent_id: agent_name.clone(),
+                        run_id: "run-1".into(),
+                        sequence: i,
+                        role: "user".into(),
+                        content: format!("msg-{i}"),
+                        created_at: format!("2025-01-01T00:00:0{}Z", i),
+                    })
+                    .unwrap();
+            }
+        }
+
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!("/v1/agents/{}/history?limit=2", agent_name))
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let messages = result["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn get_history_requires_auth() {
+        let (app, _state, _tmp) = test_app();
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/agents/test-agent/history")
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
 }
 
