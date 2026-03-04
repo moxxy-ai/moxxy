@@ -139,6 +139,7 @@ async fn main() {
             state.event_bus.clone(),
             state.run_service.clone(),
             state.vault_backend.clone(),
+            state.moxxy_home.clone(),
         );
 
         // Load active channels and resolve bot tokens from vault

@@ -1,5 +1,5 @@
 use moxxy_channel::bridge::{ChannelBridge, ChannelSender};
-use moxxy_core::{AgentRegistry, EventBus};
+use moxxy_core::{AgentRegistry, EmbeddingService, EventBus};
 use moxxy_runtime::{
     AnthropicProvider, AskChannels, ChannelMessageSender, OpenAIProvider, Provider,
 };
@@ -64,6 +64,7 @@ pub struct RunService {
     pub ask_channels: AskChannels,
     pub moxxy_home: PathBuf,
     pub base_url: String,
+    embedding_svc: Arc<dyn EmbeddingService>,
 }
 
 impl RunService {
@@ -74,6 +75,7 @@ impl RunService {
         vault_backend: Arc<dyn SecretBackend + Send + Sync>,
         moxxy_home: PathBuf,
         base_url: String,
+        embedding_svc: Arc<dyn EmbeddingService>,
     ) -> Self {
         Self {
             db,
@@ -86,6 +88,7 @@ impl RunService {
             ask_channels: moxxy_runtime::new_ask_channels(),
             moxxy_home,
             base_url,
+            embedding_svc,
         }
     }
 
@@ -227,7 +230,6 @@ impl RunService {
             Some(agents_dir),
         );
 
-        let journal = moxxy_core::MemoryJournal::new(paths.memory_dir.clone());
         let event_bus = self.event_bus.clone();
 
         let mut registry = moxxy_runtime::PrimitiveRegistry::new();
@@ -249,13 +251,23 @@ impl RunService {
             policy.clone(),
         )));
 
-        // Memory primitives
-        registry.register(Box::new(moxxy_runtime::MemoryAppendPrimitive::new(journal)));
-        registry.register(Box::new(moxxy_runtime::MemorySearchPrimitive::new(
-            paths.memory_dir.clone(),
+        // Memory primitives (LTM: DB-backed with embeddings, STM: file-based YAML)
+        registry.register(Box::new(moxxy_runtime::MemoryStorePrimitive::new(
+            self.db.clone(),
+            agent_name.to_string(),
+            self.embedding_svc.clone(),
         )));
-        registry.register(Box::new(moxxy_runtime::MemorySummarizePrimitive::new(
-            paths.memory_dir,
+        registry.register(Box::new(moxxy_runtime::MemoryRecallPrimitive::new(
+            self.db.clone(),
+            agent_name.to_string(),
+            self.embedding_svc.clone(),
+        )));
+        let stm_path = paths.memory_dir.join("stm.yaml");
+        registry.register(Box::new(moxxy_runtime::MemoryStmReadPrimitive::new(
+            stm_path.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::MemoryStmWritePrimitive::new(
+            stm_path,
         )));
 
         // Resolve the "host" agent name for DB lookups (allowlists, etc.)
@@ -290,8 +302,31 @@ impl RunService {
         )));
 
         // Skill primitives
-        registry.register(Box::new(moxxy_runtime::SkillImportPrimitive::new()));
+        let agent_skills_dir = paths.agent_dir.join("skills");
+        registry.register(Box::new(moxxy_runtime::SkillCreatePrimitive::new(
+            agent_skills_dir.clone(),
+            self.moxxy_home.clone(),
+            paths.agent_dir.clone(),
+        )));
         registry.register(Box::new(moxxy_runtime::SkillValidatePrimitive::new()));
+        registry.register(Box::new(moxxy_runtime::SkillListPrimitive::new(
+            paths.agent_dir.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::SkillFindPrimitive::new(
+            self.moxxy_home.clone(),
+            paths.agent_dir.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::SkillGetPrimitive::new(
+            self.moxxy_home.clone(),
+            paths.agent_dir.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::SkillExecutePrimitive::new(
+            self.moxxy_home.clone(),
+            paths.agent_dir.clone(),
+        )));
+        registry.register(Box::new(moxxy_runtime::SkillRemovePrimitive::new(
+            agent_skills_dir,
+        )));
 
         // Notification primitives
         registry.register(Box::new(moxxy_runtime::CliNotifyPrimitive::new(
@@ -388,25 +423,26 @@ impl RunService {
             paths.workspace.clone(),
         )));
 
-        // Heartbeat management primitives (agents can self-schedule)
+        // Heartbeat management primitives (file-based, agents can self-schedule)
+        let heartbeat_path = moxxy_core::heartbeat_path(&self.moxxy_home, &host_agent_name);
         registry.register(Box::new(moxxy_runtime::HeartbeatCreatePrimitive::new(
-            self.db.clone(),
+            heartbeat_path.clone(),
             host_agent_name.clone(),
         )));
         registry.register(Box::new(moxxy_runtime::HeartbeatListPrimitive::new(
-            self.db.clone(),
+            heartbeat_path.clone(),
             host_agent_name.clone(),
         )));
         registry.register(Box::new(moxxy_runtime::HeartbeatDisablePrimitive::new(
-            self.db.clone(),
+            heartbeat_path.clone(),
             host_agent_name.clone(),
         )));
         registry.register(Box::new(moxxy_runtime::HeartbeatDeletePrimitive::new(
-            self.db.clone(),
+            heartbeat_path.clone(),
             host_agent_name.clone(),
         )));
         registry.register(Box::new(moxxy_runtime::HeartbeatUpdatePrimitive::new(
-            self.db.clone(),
+            heartbeat_path,
             host_agent_name.clone(),
         )));
 
@@ -618,9 +654,10 @@ impl RunService {
                     "memory",
                     "Memory",
                     &[
-                        ("memory.append", "store information"),
-                        ("memory.search", "recall stored information"),
-                        ("memory.summarize", "summarize memory contents"),
+                        ("memory.store", "store information (long-term)"),
+                        ("memory.recall", "recall stored information (long-term)"),
+                        ("memory.stm_read", "read short-term memory"),
+                        ("memory.stm_write", "write short-term memory"),
                     ],
                 ),
                 (
@@ -683,7 +720,15 @@ impl RunService {
                 (
                     "skill",
                     "Skills",
-                    &[("skill.import", "import"), ("skill.validate", "validate")],
+                    &[
+                        ("skill.create", "create/install a skill"),
+                        ("skill.validate", "validate skill content"),
+                        ("skill.list", "list installed skills"),
+                        ("skill.find", "find skills in registry"),
+                        ("skill.get", "get skill details"),
+                        ("skill.execute", "execute a skill"),
+                        ("skill.remove", "remove a skill"),
+                    ],
                 ),
                 ("notify", "Notifications", &[("notify.cli", "notify CLI")]),
                 (

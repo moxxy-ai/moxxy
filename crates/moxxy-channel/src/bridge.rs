@@ -111,6 +111,7 @@ pub struct ChannelBridge {
     shutdown: CancellationToken,
     run_starter: Arc<dyn RunStarter>,
     progress: TokioMutex<HashMap<(String, String), HashMap<String, RunProgress>>>,
+    moxxy_home: std::path::PathBuf,
 }
 
 impl ChannelBridge {
@@ -119,6 +120,7 @@ impl ChannelBridge {
         event_bus: EventBus,
         run_starter: Arc<dyn RunStarter>,
         vault_backend: Arc<dyn SecretBackend + Send + Sync>,
+        moxxy_home: std::path::PathBuf,
     ) -> Self {
         let pairing_service = Arc::new(PairingService::new(db.clone()));
         let commands = commands::build_default_registry();
@@ -132,6 +134,7 @@ impl ChannelBridge {
             shutdown: CancellationToken::new(),
             run_starter,
             progress: TokioMutex::new(HashMap::new()),
+            moxxy_home,
         }
     }
 
@@ -409,6 +412,7 @@ impl ChannelBridge {
                     agent_id,
                     channel_id,
                     external_chat_id: &msg.external_chat_id,
+                    moxxy_home: &self.moxxy_home,
                 };
 
                 match handler.execute(&ctx, args).await {
@@ -964,7 +968,7 @@ mod tests {
         let run_starter = Arc::new(MockRunStarter);
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
-        let bridge = ChannelBridge::new(db, event_bus, run_starter, vault);
+        let bridge = ChannelBridge::new(db, event_bus, run_starter, vault, "/tmp/moxxy-test".into());
         assert!(bridge.transports.read().unwrap().is_empty());
     }
 
@@ -975,7 +979,7 @@ mod tests {
         let run_starter = Arc::new(MockRunStarter);
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
-        let mut bridge = ChannelBridge::new(db, event_bus, run_starter, vault);
+        let mut bridge = ChannelBridge::new(db, event_bus, run_starter, vault, "/tmp/moxxy-test".into());
         bridge.register_transport_mut(
             "ch1".into(),
             Arc::new(crate::discord::DiscordTransport::new("token".into())),
@@ -990,7 +994,7 @@ mod tests {
         let run_starter = Arc::new(MockRunStarter);
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
-        let bridge = ChannelBridge::new(db, event_bus, run_starter, vault);
+        let bridge = ChannelBridge::new(db, event_bus, run_starter, vault, "/tmp/moxxy-test".into());
         let defs = bridge.command_definitions();
         let commands: Vec<&str> = defs.iter().map(|d| d.command.as_str()).collect();
         assert!(commands.contains(&"start"));

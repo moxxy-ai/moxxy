@@ -231,8 +231,10 @@ pub async fn create_agent(
         let _ = db.agents().insert(&moxxy_storage::AgentRow {
             id: body.name.clone(),
             parent_agent_id: None,
-            provider_id: body.provider_id.clone(),
-            model_id: body.model_id.clone(),
+            name: Some(body.name.clone()),
+            status: "idle".into(),
+            depth: 0,
+            spawned_total: 0,
             workspace_root: state
                 .moxxy_home
                 .join("agents")
@@ -240,18 +242,8 @@ pub async fn create_agent(
                 .join("workspace")
                 .to_string_lossy()
                 .to_string(),
-            core_mount: None,
-            policy_profile: body.policy_profile.clone(),
-            temperature: body.temperature,
-            max_subagent_depth: body.max_subagent_depth,
-            max_subagents_total: body.max_subagents_total,
-            status: "idle".into(),
-            depth: 0,
-            spawned_total: 0,
             created_at: now.clone(),
             updated_at: now.clone(),
-            name: Some(body.name.clone()),
-            persona: body.persona.clone(),
         });
     }
 

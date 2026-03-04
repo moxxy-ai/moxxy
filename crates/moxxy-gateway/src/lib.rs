@@ -105,10 +105,6 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
             post(routes::skills::install_skill),
         )
         .route(
-            "/v1/agents/{id}/skills/approve/{skill_id}",
-            post(routes::skills::approve_skill),
-        )
-        .route(
             "/v1/agents/{id}/skills/{skill_id}",
             delete(routes::skills::delete_skill),
         )
@@ -284,8 +280,10 @@ mod test_helpers {
             let _ = db.agents().insert(&moxxy_storage::AgentRow {
                 id: name.clone(),
                 parent_agent_id: None,
-                provider_id: "test-provider".into(),
-                model_id: "gpt-4".into(),
+                name: Some(name.clone()),
+                status: "idle".into(),
+                depth: 0,
+                spawned_total: 0,
                 workspace_root: state
                     .moxxy_home
                     .join("agents")
@@ -293,18 +291,8 @@ mod test_helpers {
                     .join("workspace")
                     .to_string_lossy()
                     .to_string(),
-                core_mount: None,
-                policy_profile: None,
-                temperature: 0.7,
-                max_subagent_depth: 2,
-                max_subagents_total: 8,
-                status: "idle".into(),
-                depth: 0,
-                spawned_total: 0,
                 created_at: now.clone(),
                 updated_at: now,
-                name: Some(name.clone()),
-                persona: None,
             });
         }
 
@@ -1212,13 +1200,14 @@ mod skill_tests {
         let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
         let agent_id = seed_agent(&state, &token);
 
+        let skill_content = "---\nname: test-skill\ndescription: test\nauthor: tester\nversion: \"1.0.0\"\n---\nfunction run() {}";
         let req = Request::builder()
             .method("POST")
             .uri(format!("/v1/agents/{}/skills/install", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
-                r#"{"name":"test-skill","version":"1.0.0","content":"function run() {}"}"#,
+                serde_json::json!({"content": skill_content}).to_string(),
             ))
             .unwrap();
         let resp = request(&app, req).await;
@@ -1228,7 +1217,7 @@ mod skill_tests {
             .await
             .unwrap();
         let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(result["status"], "quarantined");
+        assert_eq!(result["slug"], "test-skill");
     }
 
     #[tokio::test]
@@ -1241,13 +1230,14 @@ mod skill_tests {
         let agent_id = seed_agent(&state, &token);
 
         // Install a skill
+        let skill_content = "---\nname: test-skill\ndescription: test\nauthor: tester\nversion: \"1.0.0\"\n---\nfn run(){}";
         let req = Request::builder()
             .method("POST")
             .uri(format!("/v1/agents/{}/skills/install", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
-                r#"{"name":"test-skill","version":"1.0.0","content":"fn run(){}"}"#,
+                serde_json::json!({"content": skill_content}).to_string(),
             ))
             .unwrap();
         request(&app, req).await;
@@ -1271,49 +1261,6 @@ mod skill_tests {
     }
 
     #[tokio::test]
-    async fn approve_skill_transitions_status() {
-        let (app, state, _tmp) = test_app();
-        let token = create_token_in_db(&state, vec![TokenScope::AgentsWrite]);
-        let agent_id = seed_agent(&state, &token);
-
-        // Install skill
-        let req = Request::builder()
-            .method("POST")
-            .uri(format!("/v1/agents/{}/skills/install", agent_id))
-            .header("authorization", format!("Bearer {}", token))
-            .header("content-type", "application/json")
-            .body(Body::from(
-                r#"{"name":"test-skill","version":"1.0.0","content":"function run() {}"}"#,
-            ))
-            .unwrap();
-        let resp = request(&app, req).await;
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let installed: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let skill_id = installed["id"].as_str().unwrap();
-
-        // Approve skill
-        let req = Request::builder()
-            .method("POST")
-            .uri(format!(
-                "/v1/agents/{}/skills/approve/{}",
-                agent_id, skill_id
-            ))
-            .header("authorization", format!("Bearer {}", token))
-            .body(Body::empty())
-            .unwrap();
-        let resp = request(&app, req).await;
-        assert_eq!(resp.status(), StatusCode::OK);
-
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(result["status"], "approved");
-    }
-
-    #[tokio::test]
     async fn delete_skill_removes_it() {
         let (app, state, _tmp) = test_app();
         let token = create_token_in_db(
@@ -1323,13 +1270,14 @@ mod skill_tests {
         let agent_id = seed_agent(&state, &token);
 
         // Install a skill
+        let skill_content = "---\nname: test-skill\ndescription: test\nauthor: tester\nversion: \"1.0.0\"\n---\nfn run(){}";
         let req = Request::builder()
             .method("POST")
             .uri(format!("/v1/agents/{}/skills/install", agent_id))
             .header("authorization", format!("Bearer {}", token))
             .header("content-type", "application/json")
             .body(Body::from(
-                r#"{"name":"test-skill","version":"1.0.0","content":"fn run(){}"}"#,
+                serde_json::json!({"content": skill_content}).to_string(),
             ))
             .unwrap();
         let resp = request(&app, req).await;
@@ -1337,7 +1285,7 @@ mod skill_tests {
             .await
             .unwrap();
         let installed: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let skill_id = installed["id"].as_str().unwrap();
+        let skill_id = installed["slug"].as_str().unwrap();
 
         // Delete skill
         let req = Request::builder()

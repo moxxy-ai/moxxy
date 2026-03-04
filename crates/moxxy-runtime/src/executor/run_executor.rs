@@ -787,7 +787,9 @@ mod tests {
 
         let history = vec![Message::user("What is 2+2?"), Message::assistant("4")];
 
-        let mut executor = RunExecutor::new(bus, provider, registry, vec![]).with_history(history);
+        let mut executor = RunExecutor::new(bus, provider, registry, vec![])
+            .with_history(history)
+            .with_max_nudges(0);
 
         let result = executor
             .execute("agent-1", "run-2", "What about 3+3?", &model_config())
@@ -916,7 +918,8 @@ mod tests {
         });
 
         let mut executor = RunExecutor::new(bus, provider, registry, vec!["agent.spawn".into()])
-            .with_timeout(Duration::from_secs(10));
+            .with_timeout(Duration::from_secs(10))
+            .with_max_nudges(0);
 
         let result = executor
             .execute("parent-agent", "run-1", "do task", &model_config())
@@ -999,7 +1002,8 @@ mod tests {
         });
 
         let mut executor = RunExecutor::new(bus, provider, registry, vec!["hive.recruit".into()])
-            .with_timeout(Duration::from_secs(10));
+            .with_timeout(Duration::from_secs(10))
+            .with_max_nudges(0);
 
         let result = executor
             .execute("queen-agent", "run-1", "coordinate hive", &model_config())
@@ -1093,7 +1097,8 @@ mod tests {
         });
 
         let mut executor = RunExecutor::new(bus, provider, registry, vec!["hive.recruit".into()])
-            .with_timeout(Duration::from_secs(10));
+            .with_timeout(Duration::from_secs(10))
+            .with_max_nudges(0);
 
         let result = executor
             .execute("queen-agent", "run-1", "coordinate hive", &model_config())
