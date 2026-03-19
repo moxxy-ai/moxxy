@@ -119,9 +119,10 @@ fn origin_to_role(origin: &str) -> &'static str {
     match origin {
         "USER" | "WEB_UI" | "TELEGRAM" | "MOBILE_APP" | "LOCAL_TUI" => "user",
         "ASSISTANT" => "assistant",
+        "SWARM_DELEGATION" => "user", // Delegation tasks are user messages
         _ if origin.starts_with("TELEGRAM_") => "user",
         _ if origin.starts_with("DISCORD_") => "user",
-        _ => "system", // SYSTEM, SYSTEM_CRON, MAC_POLLER, WEBHOOK_*, SWARM_DELEGATION, etc.
+        _ => "system", // SYSTEM, SYSTEM_CRON, MAC_POLLER, WEBHOOK_*, etc.
     }
 }
 
