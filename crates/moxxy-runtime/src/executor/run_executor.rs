@@ -47,6 +47,7 @@ pub struct RunExecutor {
     history: Vec<Message>,
     listeners: Vec<Box<dyn EventListener>>,
     stuck_detector: Option<StuckDetector>,
+    stm_path: Option<std::path::PathBuf>,
 }
 
 impl RunExecutor {
@@ -74,6 +75,7 @@ impl RunExecutor {
                 Box::new(HiveEventListener::new()),
             ],
             stuck_detector: Some(StuckDetector::new()),
+            stm_path: None,
         }
     }
 
@@ -144,6 +146,28 @@ impl RunExecutor {
     pub fn without_default_listeners(mut self) -> Self {
         self.listeners.clear();
         self
+    }
+
+    pub fn with_stm_path(mut self, path: std::path::PathBuf) -> Self {
+        self.stm_path = Some(path);
+        self
+    }
+
+    fn load_stm(&self, path: &std::path::Path) -> std::collections::BTreeMap<String, String> {
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) if !c.trim().is_empty() => c,
+            _ => return std::collections::BTreeMap::new(),
+        };
+        serde_yaml::from_str(&content).unwrap_or_default()
+    }
+
+    fn save_stm(
+        &self,
+        path: &std::path::Path,
+        map: &std::collections::BTreeMap<String, String>,
+    ) -> Result<(), String> {
+        let content = serde_yaml::to_string(map).map_err(|e| e.to_string())?;
+        std::fs::write(path, content).map_err(|e| e.to_string())
     }
 
     pub async fn execute(
@@ -377,8 +401,7 @@ impl RunExecutor {
             // Reset activity timer - model responded
             last_activity = tokio::time::Instant::now();
 
-            // Emit final content — always emit MessageFinal if we streamed deltas
-            // so the TUI clears the "typing..." indicator.
+            // Emit content events
             if !response.content.is_empty() || streamed_any {
                 let preview: String = response.content.chars().take(200).collect();
                 tracing::info!(
@@ -388,6 +411,23 @@ impl RunExecutor {
                     preview = %preview,
                     "Agent thought"
                 );
+
+                // For non-streaming providers (no TextDelta emitted), emit
+                // chunked MessageDelta events so the TUI renders progressively.
+                if !streamed_any && !response.content.is_empty() {
+                    let chunk_size = 80;
+                    let chars: Vec<char> = response.content.chars().collect();
+                    for chunk in chars.chunks(chunk_size) {
+                        let text: String = chunk.iter().collect();
+                        self.emit(
+                            agent_id,
+                            run_id,
+                            &mut sequence,
+                            EventType::MessageDelta,
+                            serde_json::json!({"content": text}),
+                        );
+                    }
+                }
 
                 self.emit(
                     agent_id,
@@ -683,6 +723,29 @@ impl RunExecutor {
                         break;
                     }
                 }
+            }
+        }
+
+        // Auto-persist STM with the last user message and final response.
+        // This replaces the old memory.stm_write tool — models can't spam it.
+        if let Some(ref stm_path) = self.stm_path {
+            let last_user = conversation
+                .iter()
+                .rev()
+                .find(|m| m.role == "user" && !m.content.starts_with("Please either use"))
+                .map(|m| m.content.clone());
+
+            let mut stm = self.load_stm(stm_path);
+            if let Some(msg) = last_user {
+                stm.insert("last_user_message".into(), msg);
+            }
+            if !final_content.is_empty() {
+                // Truncate long responses to keep STM compact
+                let summary: String = final_content.chars().take(500).collect();
+                stm.insert("last_response".into(), summary);
+            }
+            if let Err(e) = self.save_stm(stm_path, &stm) {
+                tracing::warn!(error = %e, "Failed to auto-persist STM");
             }
         }
 

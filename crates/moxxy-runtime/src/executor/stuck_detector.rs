@@ -15,6 +15,7 @@ pub struct StuckDetector {
     recent_tool_calls: VecDeque<(String, serde_json::Value)>,
     empty_count: usize,
     monologue_count: usize,
+    tool_recovery_count: usize,
     enabled: bool,
 }
 
@@ -33,6 +34,7 @@ impl StuckDetector {
             recent_tool_calls: VecDeque::with_capacity(10),
             empty_count: 0,
             monologue_count: 0,
+            tool_recovery_count: 0,
             enabled: true,
         }
     }
@@ -98,6 +100,14 @@ impl StuckDetector {
             .count();
 
         if repeated >= self.max_repeated_tool_calls {
+            self.tool_recovery_count += 1;
+            if self.tool_recovery_count >= 3 {
+                return StuckAction::Abort(format!(
+                    "Agent stuck: `{name}` called with identical arguments repeatedly \
+                     despite multiple recovery attempts",
+                ));
+            }
+            self.recent_tool_calls.clear();
             return StuckAction::InjectRecovery(format!(
                 "You have called `{name}` with identical arguments {} times in a row. \
                  Try a different approach or different parameters.",
@@ -111,6 +121,7 @@ impl StuckDetector {
     pub fn reset(&mut self) {
         self.empty_count = 0;
         self.monologue_count = 0;
+        self.tool_recovery_count = 0;
         self.recent_tool_calls.clear();
     }
 }
@@ -221,6 +232,28 @@ mod tests {
         assert!(matches!(
             detector.observe_response(&empty_response()),
             StuckAction::Continue
+        ));
+    }
+
+    #[test]
+    fn repeated_tool_calls_escalate_to_abort() {
+        let mut detector = StuckDetector::new();
+        let args = serde_json::json!({"path": "/tmp/test"});
+
+        // First round: 3 identical calls → InjectRecovery
+        for _ in 0..3 {
+            detector.observe_tool_call("fs.read", &args);
+        }
+        // Second round: 3 more → InjectRecovery again
+        for _ in 0..3 {
+            detector.observe_tool_call("fs.read", &args);
+        }
+        // Third round: 3 more → Abort
+        detector.observe_tool_call("fs.read", &args);
+        detector.observe_tool_call("fs.read", &args);
+        assert!(matches!(
+            detector.observe_tool_call("fs.read", &args),
+            StuckAction::Abort(_)
         ));
     }
 

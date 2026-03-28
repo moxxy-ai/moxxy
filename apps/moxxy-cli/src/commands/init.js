@@ -97,13 +97,13 @@ async function installGatewayBinary(moxxyHome) {
   const binName = platform() === 'win32' ? 'moxxy-gateway.exe' : 'moxxy-gateway';
   const binPath = join(binDir, binName);
 
-  if (existsSync(binPath)) {
+  // MOXXY_GATEWAY_URL overrides GitHub releases (for local dev / custom builds)
+  const overrideUrl = process.env.MOXXY_GATEWAY_URL;
+
+  if (existsSync(binPath) && !overrideUrl) {
     p.log.success(`Gateway binary already installed: ${binPath}`);
     return true;
   }
-
-  // MOXXY_GATEWAY_URL overrides GitHub releases (for local dev / custom builds)
-  const overrideUrl = process.env.MOXXY_GATEWAY_URL;
 
   mkdirSync(binDir, { recursive: true });
   const tmpPath = binPath + '.download';

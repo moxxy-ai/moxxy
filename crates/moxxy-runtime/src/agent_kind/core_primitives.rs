@@ -11,7 +11,7 @@ use crate::{
     GitStatusPrimitive, GitWorktreeAddPrimitive, GitWorktreeListPrimitive,
     GitWorktreeRemovePrimitive, HeartbeatCreatePrimitive, HeartbeatDeletePrimitive,
     HeartbeatDisablePrimitive, HeartbeatListPrimitive, HeartbeatUpdatePrimitive,
-    HttpRequestPrimitive, MemoryRecallPrimitive, MemoryStmReadPrimitive, MemoryStmWritePrimitive,
+    HttpRequestPrimitive, MemoryRecallPrimitive, MemoryStmReadPrimitive,
     MemoryStorePrimitive, PrimitiveContext, PrimitiveRegistry, ShellExecPrimitive,
     SkillCreatePrimitive, SkillExecutePrimitive, SkillFindPrimitive, SkillGetPrimitive,
     SkillListPrimitive, SkillRemovePrimitive, SkillValidatePrimitive, UserAskPrimitive,
@@ -51,8 +51,9 @@ pub fn register_core_primitives(
         ctx.embedding_svc.clone(),
     )));
     let stm_path = setup.paths.memory_dir.join("stm.yaml");
-    registry.register(Box::new(MemoryStmReadPrimitive::new(stm_path.clone())));
-    registry.register(Box::new(MemoryStmWritePrimitive::new(stm_path)));
+    registry.register(Box::new(MemoryStmReadPrimitive::new(stm_path)));
+    // NOTE: memory.stm_write is NOT registered as a tool. STM is auto-persisted
+    // by the executor at the end of each run to prevent models from spamming writes.
 
     // Allowlist path (YAML-backed, per-agent)
     let allowlist_path = moxxy_core::allowlist_path(&setup.paths.agent_dir);

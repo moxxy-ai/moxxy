@@ -95,8 +95,7 @@ pub fn build_capabilities_prompt(
             &[
                 ("memory.store", "store information (long-term)"),
                 ("memory.recall", "recall stored information (long-term)"),
-                ("memory.stm_read", "read short-term memory"),
-                ("memory.stm_write", "write short-term memory"),
+                ("memory.stm_read", "read short-term memory (auto-persisted at end of run)"),
             ],
         ),
         (
@@ -278,11 +277,10 @@ pub fn build_guidelines_prompt() -> String {
      - NEVER hallucinate file contents, command outputs, or results. Every fact you state must come from an actual tool call response in this conversation.\n\
      - When you have completed ALL the work, provide a concise but specific summary of what you accomplished: list files created/modified, commands run, and key results. Every claim must correspond to a tool call you actually made.\n\
      - REMEMBER: The user can see your tool call history. If you claim \"Created src/app/page.tsx\" but there is no fs.write call for that file, the user will know you are lying. Always double-check your own tool call history before making claims.\n\n\
-     CRITICAL - Short-Term Memory (STM):\n\
-     - Your STM is auto-loaded into this prompt from stm.yaml. It contains key-value pairs you saved in previous runs.\n\
-     - Before finishing a run, use memory.stm_write to persist any important context you'll need next time: current task state, decisions made, user preferences, what was accomplished, and what remains.\n\
-     - Use descriptive keys (e.g. \"current_project\", \"last_action\", \"user_request\", \"open_tasks\").\n\
-     - STM is your primary mechanism for maintaining context across runs. Always update it."
+     Short-Term Memory (STM):\n\
+     - Your STM is auto-loaded into this prompt from stm.yaml. It contains key-value pairs from previous runs.\n\
+     - STM is automatically persisted at the end of each run (last user message and your response). You do not need to write to it manually.\n\
+     - Use memory.stm_read if you need to check previously stored context."
     .to_string()
 }
 
@@ -523,7 +521,7 @@ mod tests {
     fn guidelines_prompt_mentions_stm() {
         let prompt = build_guidelines_prompt();
         assert!(prompt.contains("Short-Term Memory"));
-        assert!(prompt.contains("memory.stm_write"));
+        assert!(prompt.contains("auto-persisted"));
     }
 
     #[test]

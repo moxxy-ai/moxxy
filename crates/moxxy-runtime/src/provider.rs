@@ -88,7 +88,7 @@ pub enum ToolChoice {
 
 impl Default for ToolChoice {
     fn default() -> Self {
-        ToolChoice::Any
+        ToolChoice::Auto
     }
 }
 

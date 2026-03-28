@@ -505,6 +505,12 @@ impl RunService {
             );
 
             let event_bus_for_completion = event_bus.clone();
+            let stm_path = moxxy_home
+                .join("agents")
+                .join(&agent_name_owned)
+                .join("memory")
+                .join("stm.yaml");
+
             let mut executor = moxxy_runtime::RunExecutor::new(
                 event_bus,
                 provider,
@@ -515,12 +521,13 @@ impl RunService {
             .with_system_prompt(prepared.system_prompt)
             .with_history(prepared.history)
             .with_cancel_token(cancel_token)
-            .with_timeout(std::time::Duration::from_secs(300));
+            .with_timeout(std::time::Duration::from_secs(300))
+            .with_stm_path(stm_path);
 
             let model_config = moxxy_runtime::ModelConfig {
                 temperature,
                 max_tokens: 4096,
-                tool_choice: moxxy_runtime::ToolChoice::Any,
+                tool_choice: moxxy_runtime::ToolChoice::Auto,
             };
 
             let result = executor
