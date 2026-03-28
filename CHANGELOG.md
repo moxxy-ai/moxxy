@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.16.0](https://github.com/moxxy-ai/moxxy/compare/v0.15.0...v0.16.0) (2026-03-28)
+
+
+### Features
+
+* ollama provider implemenation with helper ([#96](https://github.com/moxxy-ai/moxxy/issues/96)) ([f6837a5](https://github.com/moxxy-ai/moxxy/commit/f6837a56a039fdef3d150fd86b5373ce493c5451))
+
+
+### Bug Fixes
+
+* PR Anchovy-JH build problem ([#98](https://github.com/moxxy-ai/moxxy/issues/98)) ([0dfa484](https://github.com/moxxy-ai/moxxy/commit/0dfa48448806c349ea1fd83a8fdca0e4d0616240))
+
 ## [0.15.0](https://github.com/moxxy-ai/moxxy/compare/v0.14.0...v0.15.0) (2026-02-26)
 
 
