@@ -233,6 +233,8 @@ React 19 SPA with Vite + Tailwind CSS.
 - `useLogs` hook connects to SSE `/api/logs` endpoint
 - Components fetch data via `fetch()` calls to `apiBase`
 
+**Provider behavior:** Built-in providers are loaded from `src/core/llm/providers.json`. Ollama is treated as a first-class local provider using its OpenAI-compatible endpoint at `http://localhost:11434/v1/chat/completions`; when the local server is reachable, `/api/providers` and onboarding resolve the currently installed model list dynamically from `/v1/models`.
+
 **Styling conventions:**
 - Background: `bg-[#111927]/90`
 - Borders: `border border-[#1e304f]`

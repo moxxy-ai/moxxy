@@ -50,6 +50,7 @@ const COMMANDS: &[CommandInfo] = &[
     },
 ];
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum StreamEvent {
     Activity(String),
     Response(String),
@@ -68,6 +69,49 @@ enum MessageRole {
 struct DisplayMessage {
     role: MessageRole,
     content: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ModelOption {
+    provider_id: String,
+    provider_name: String,
+    model_id: String,
+    model_name: String,
+    deployment: Option<String>,
+    is_current: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ModelProvider {
+    provider_id: String,
+    provider_name: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ModelPickerEntry {
+    Section(String),
+    Model(ModelOption),
+    Custom {
+        provider_id: String,
+        provider_name: String,
+        is_current: bool,
+        current_model_id: Option<String>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ModelPickerFocus {
+    Search,
+    List,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ModelPickerMode {
+    Browse,
+    CustomInput {
+        provider_id: String,
+        provider_name: String,
+    },
 }
 
 pub struct CliInterface {
@@ -97,6 +141,19 @@ pub struct CliInterface {
     cmd_output_visible: bool,
     session_last_id: i64,
     last_session_poll: Instant,
+
+    // Model picker state
+    model_picker_visible: bool,
+    model_picker_query: String,
+    model_picker_focus: ModelPickerFocus,
+    model_picker_selected: usize,
+    model_picker_scroll: u16,
+    model_picker_providers: Vec<ModelProvider>,
+    model_picker_models: Vec<ModelOption>,
+    model_picker_entries: Vec<ModelPickerEntry>,
+    model_picker_status: Option<String>,
+    model_picker_mode: ModelPickerMode,
+    model_picker_custom_input: String,
 }
 
 impl CliInterface {
@@ -128,6 +185,17 @@ impl CliInterface {
             cmd_output_visible: false,
             session_last_id: 0,
             last_session_poll: Instant::now(),
+            model_picker_visible: false,
+            model_picker_query: String::new(),
+            model_picker_focus: ModelPickerFocus::List,
+            model_picker_selected: 0,
+            model_picker_scroll: 0,
+            model_picker_providers: vec![],
+            model_picker_models: vec![],
+            model_picker_entries: vec![],
+            model_picker_status: None,
+            model_picker_mode: ModelPickerMode::Browse,
+            model_picker_custom_input: String::new(),
         }
     }
 

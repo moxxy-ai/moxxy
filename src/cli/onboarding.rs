@@ -2,7 +2,7 @@ use anyhow::Result;
 use console::style;
 
 use crate::core::llm::generic_provider::GenericProvider;
-use crate::core::llm::registry::ProviderRegistry;
+use crate::core::llm::registry::{ProviderRegistry, resolve_provider_models};
 use crate::core::terminal::{
     self, GuideSection, bordered_info, bordered_render_config, bordered_step, bordered_success,
     close_section, guide_bar, print_error, print_success,
@@ -70,6 +70,7 @@ pub async fn run_onboarding() -> Result<()> {
     let provider_def = registry
         .get_provider(provider_choice)
         .expect("Selected provider not found in registry");
+    let available_models = resolve_provider_models(provider_def).await.models;
 
     // --- Step 2: Model Selection ---
     GuideSection::new("Step 2 · Model Selection")
@@ -79,15 +80,23 @@ pub async fn run_onboarding() -> Result<()> {
         .open();
 
     let final_model = {
-        let mut model_options: Vec<String> = provider_def
-            .models
-            .iter()
-            .map(|m| format!("{} ({})", m.name, m.id))
-            .collect();
+        let format_model_label = |model: &crate::core::llm::registry::ModelDef| {
+            let prefix = match model.deployment {
+                Some(crate::core::llm::registry::ModelDeployment::Local) => "[Local] ",
+                Some(crate::core::llm::registry::ModelDeployment::Cloud) => "[Cloud] ",
+                None => "",
+            };
+            format!("{}{} ({})", prefix, model.name, model.id)
+        };
+
+        let mut model_options: Vec<String> =
+            provider_def.models.iter().map(format_model_label).collect();
+        if !available_models.is_empty() {
+            model_options = available_models.iter().map(format_model_label).collect();
+        }
         model_options.push("Custom model ID...".to_string());
 
-        let default_idx = provider_def
-            .models
+        let default_idx = available_models
             .iter()
             .position(|m| m.id == provider_def.default_model)
             .unwrap_or(0);
@@ -106,38 +115,48 @@ pub async fn run_onboarding() -> Result<()> {
                 .prompt()?
         } else {
             let idx = model_options.iter().position(|o| o == choice).unwrap();
-            provider_def.models[idx].id.clone()
+            available_models[idx].id.clone()
         }
     };
     guide_bar();
     close_section();
 
     // --- Step 3: API Key ---
-    GuideSection::new("Step 3 · API Key")
-        .text("Your API key authenticates requests to the AI provider.")
-        .text("It is stored locally in an encrypted vault and never sent")
-        .text("anywhere except the provider's API.")
-        .blank()
-        .text(&format!(
-            "Get your key from the {} developer dashboard.",
-            style(&provider_def.name).bold()
-        ))
-        .open();
+    let llm_api_key = if provider_def.auth.requires_secret() {
+        GuideSection::new("Step 3 · API Key")
+            .text("Your API key authenticates requests to the AI provider.")
+            .text("It is stored locally in an encrypted vault and never sent")
+            .text("anywhere except the provider's API.")
+            .blank()
+            .text(&format!(
+                "Get your key from the {} developer dashboard.",
+                style(&provider_def.name).bold()
+            ))
+            .open();
 
-    let llm_api_key = inquire::Password::new(&format!("API key for {}:", provider_def.name))
-        .without_confirmation()
-        .with_help_message("Stored locally in the agent's encrypted vault")
-        .with_render_config(bordered_render_config())
-        .prompt()?;
-    guide_bar();
-    close_section();
+        let key = inquire::Password::new(&format!("API key for {}:", provider_def.name))
+            .without_confirmation()
+            .with_help_message("Stored locally in the agent's encrypted vault")
+            .with_render_config(bordered_render_config())
+            .prompt()?;
+        guide_bar();
+        close_section();
+        key
+    } else {
+        GuideSection::new("Step 3 · API Access")
+            .text("This provider does not require an API key for local access.")
+            .text("moxxy will connect directly to your local server.")
+            .print();
+        println!();
+        String::new()
+    };
 
     // Save LLM configuration
     vault
         .set_secret("llm_default_provider", &provider_def.id)
         .await?;
     vault.set_secret("llm_default_model", &final_model).await?;
-    if !llm_api_key.is_empty() {
+    if provider_def.auth.requires_secret() && !llm_api_key.is_empty() {
         vault
             .set_secret(&provider_def.auth.vault_key, &llm_api_key)
             .await?;

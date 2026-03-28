@@ -132,18 +132,20 @@ async fn validate_spawn_profiles_against_vault(
             ));
         }
 
-        let key = provider_def.auth.vault_key.as_str();
-        let has_key = vault
-            .get_secret(key)
-            .await
-            .map_err(|e| format!("Failed reading vault key '{}': {}", key, e))?
-            .is_some();
+        if provider_def.auth.requires_secret() {
+            let key = provider_def.auth.vault_key.as_str();
+            let has_key = vault
+                .get_secret(key)
+                .await
+                .map_err(|e| format!("Failed reading vault key '{}': {}", key, e))?
+                .is_some();
 
-        if !has_key {
-            return Err(format!(
-                "Missing required vault key '{}' for provider '{}'",
-                key, provider_def.id
-            ));
+            if !has_key {
+                return Err(format!(
+                    "Missing required vault key '{}' for provider '{}'",
+                    key, provider_def.id
+                ));
+            }
         }
     }
 

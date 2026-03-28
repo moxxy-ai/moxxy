@@ -138,17 +138,31 @@ pub async fn chat_stream_endpoint(
                     .send(serde_json::json!({ "type": "done" }).to_string())
                     .await;
             } else {
-                let _ = crate::core::brain::AutonomousBrain::execute_react_loop(
+                match crate::core::brain::AutonomousBrain::execute_react_loop(
                     &prompt,
                     "USER",
                     llms,
                     mem,
                     skills,
-                    Some(tx),
+                    Some(tx.clone()),
                     verbose_reasoning,
                     &agent_name,
                 )
-                .await;
+                .await
+                {
+                    Ok(_) => {}
+                    Err(e) => {
+                        let _ = tx
+                            .send(
+                                serde_json::json!({ "type": "error", "message": e.to_string() })
+                                    .to_string(),
+                            )
+                            .await;
+                        let _ = tx
+                            .send(serde_json::json!({ "type": "done" }).to_string())
+                            .await;
+                    }
+                }
             }
         });
 

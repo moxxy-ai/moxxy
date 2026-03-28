@@ -88,9 +88,10 @@ export interface ProviderInfo {
   name: string;
   default_model: string;
   custom?: boolean;
+  supports_live_models?: boolean;
   vault_key: string;
   base_url: string;
-  models: { id: string; name: string }[];
+  models: { id: string; name: string; deployment?: 'local' | 'cloud' }[];
 }
 
 export interface OrchestratorConfig {
