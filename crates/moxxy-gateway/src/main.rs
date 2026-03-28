@@ -63,6 +63,7 @@ fn moxxy_home() -> PathBuf {
 
     // Create directory structure
     std::fs::create_dir_all(home.join("agents")).expect("Failed to create ~/.moxxy/agents");
+    std::fs::create_dir_all(home.join("channels")).expect("Failed to create ~/.moxxy/channels");
     std::fs::create_dir_all(home.join("config")).expect("Failed to create ~/.moxxy/config");
 
     home
@@ -103,10 +104,10 @@ async fn main() {
             AuthMode::Loopback
         }
     } else {
-        let config_path = home.join("config").join("gateway.json");
+        let config_path = home.join("config").join("gateway.yaml");
         std::fs::read_to_string(&config_path)
             .ok()
-            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|s| serde_yaml::from_str::<serde_yaml::Value>(&s).ok())
             .and_then(|v| {
                 v.get("auth_mode")
                     .and_then(|m| m.as_str())
@@ -131,6 +132,7 @@ async fn main() {
     state.spawn_event_persistence();
     state.spawn_heartbeat_loop();
     state.spawn_health_check_loop();
+    state.spawn_drain_loop();
 
     // Start channel bridge
     {
@@ -142,18 +144,15 @@ async fn main() {
             state.moxxy_home.clone(),
         );
 
-        // Load active channels and resolve bot tokens from vault
-        let channels = {
-            let db = state.db.lock().unwrap();
-            db.channels().list_active().unwrap_or_default()
-        };
+        // Load active channels from YAML and resolve bot tokens from vault
+        let channels = moxxy_core::ChannelStore::list_active(&home);
 
-        for channel in &channels {
-            // Resolve bot token: channel -> vault_secret_ref -> backend_key -> vault_backend
+        for (channel_id, doc) in &channels {
+            // Resolve bot token: channel doc -> vault_secret_ref -> backend_key -> vault_backend
             let bot_token = {
                 let db = state.db.lock().unwrap();
                 db.vault_refs()
-                    .find_by_id(&channel.vault_secret_ref_id)
+                    .find_by_id(&doc.vault_secret_ref_id)
                     .ok()
                     .flatten()
                     .and_then(|secret_ref| {
@@ -161,24 +160,24 @@ async fn main() {
                     })
             };
 
-            match (channel.channel_type.as_str(), bot_token) {
+            match (doc.channel_type.as_str(), bot_token) {
                 ("telegram", Some(token)) => {
                     let transport = Arc::new(moxxy_channel::TelegramTransport::new(token));
-                    bridge.register_transport_mut(channel.id.clone(), transport);
+                    bridge.register_transport_mut(channel_id.clone(), transport);
                     tracing::info!(
                         "Telegram channel loaded: {} ({})",
-                        channel.display_name,
-                        channel.id
+                        doc.display_name,
+                        channel_id
                     );
                 }
                 ("telegram", None) => {
                     tracing::warn!(
                         "Telegram channel {} has no bot token in vault, skipping",
-                        channel.id
+                        channel_id
                     );
                 }
                 ("discord", _) => {
-                    tracing::info!("Discord channel {} registered (scaffold only)", channel.id);
+                    tracing::info!("Discord channel {} registered (scaffold only)", channel_id);
                 }
                 (other, _) => {
                     tracing::warn!("Unknown channel type: {}", other);
@@ -201,28 +200,23 @@ async fn main() {
         state.run_service.set_run_starter(state.run_service.clone());
 
         // Log active bindings for diagnostics
-        {
-            let db = state.db.lock().unwrap();
-            for channel in &channels {
-                let bindings = db
-                    .channel_bindings()
-                    .find_by_channel(&channel.id)
-                    .unwrap_or_default();
-                if bindings.is_empty() {
-                    tracing::warn!(
-                        channel_id = %channel.id,
-                        "Channel has no active bindings"
+        for (channel_id, _doc) in &channels {
+            let bindings =
+                moxxy_core::ChannelStore::find_bindings_by_channel(&home, channel_id);
+            if bindings.is_empty() {
+                tracing::warn!(
+                    channel_id = %channel_id,
+                    "Channel has no active bindings"
+                );
+            } else {
+                for (chat_id, entry) in &bindings {
+                    tracing::info!(
+                        channel_id = %channel_id,
+                        agent_name = %entry.agent_name,
+                        external_chat_id = %chat_id,
+                        binding_status = %entry.status,
+                        "Active channel binding loaded"
                     );
-                } else {
-                    for b in &bindings {
-                        tracing::info!(
-                            channel_id = %b.channel_id,
-                            agent_id = %b.agent_id,
-                            external_chat_id = %b.external_chat_id,
-                            binding_status = %b.status,
-                            "Active channel binding loaded"
-                        );
-                    }
                 }
             }
         }
@@ -245,6 +239,21 @@ async fn main() {
     tracing::info!("Moxxy gateway listening on http://{addr}");
     tracing::info!("Database: {db_path}");
     tracing::info!("Auth mode: {auth_mode}");
+
+    if auth_mode == AuthMode::Loopback {
+        tracing::warn!(
+            "Auth mode is LOOPBACK - any process on localhost can access the API without a token. \
+             Set MOXXY_LOOPBACK=false to require tokens."
+        );
+    }
+
+    match std::env::var("MOXXY_CORS_ORIGINS") {
+        Ok(ref origins) => tracing::info!("CORS origins: {origins}"),
+        Err(_) => tracing::info!(
+            "CORS origins: localhost defaults (http://localhost:3000, http://127.0.0.1:3000, \
+             http://localhost:5173, http://127.0.0.1:5173)"
+        ),
+    }
 
     axum::serve(
         listener,

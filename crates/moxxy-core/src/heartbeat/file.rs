@@ -79,7 +79,7 @@ pub fn read_heartbeat_file(path: &Path) -> Result<HeartbeatFile, HeartbeatError>
 fn parse_heartbeat_content(content: &str) -> Result<HeartbeatFile, HeartbeatError> {
     // Check for YAML frontmatter delimiters
     if !content.starts_with("---\n") && !content.starts_with("---\r\n") {
-        // No frontmatter — treat entire content as notes
+        // No frontmatter - treat entire content as notes
         return Ok(HeartbeatFile {
             entries: vec![],
             notes: content.to_string(),
@@ -114,7 +114,7 @@ fn parse_heartbeat_content(content: &str) -> Result<HeartbeatFile, HeartbeatErro
             (yaml, notes.to_string())
         }
         None => {
-            // No closing delimiter — treat everything after opening as YAML
+            // No closing delimiter - treat everything after opening as YAML
             (after_open, String::new())
         }
     };

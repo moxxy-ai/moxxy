@@ -121,7 +121,10 @@ mod tests {
     #[test]
     fn handle_subagent_completed_removes_and_formats() {
         let mut listener = AgentEventListener::new();
-        listener.on_tool_result("agent.spawn", &serde_json::json!({"child_name": "researcher"}));
+        listener.on_tool_result(
+            "agent.spawn",
+            &serde_json::json!({"child_name": "researcher"}),
+        );
         assert!(listener.has_pending_work());
 
         let event = make_event(

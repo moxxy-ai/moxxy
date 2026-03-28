@@ -21,14 +21,50 @@
 
 ## Requirements
 
-- **Node.js** 22 or later
-- A running **Moxxy gateway** (the Rust backend = see [full setup](https://github.com/moxxy-ai/moxxy#getting-started))
+- **Bun** 1.2+ (for development / building from source)
+- A running **Moxxy gateway** (the Rust backend - see [full setup](https://github.com/moxxy-ai/moxxy#getting-started))
 
 ## Install
 
+The recommended way is the one-liner installer which downloads pre-built binaries (no runtime needed):
+
 ```bash
-npm install -g moxxy-cli
+curl -fsSL https://moxxy.ai/install.sh | sh
 ```
+
+Or install from source with Bun:
+
+```bash
+cd apps/moxxy-cli
+bun install
+bun run build
+# binary is at dist/moxxy
+```
+
+## Building Pre-built Binaries
+
+The CLI can be compiled into standalone binaries for each platform using `bun build --compile`. No runtime is needed to run the resulting binary.
+
+### Current platform
+
+```bash
+bun run build          # → dist/moxxy
+```
+
+### Cross-platform targets
+
+```bash
+# Individual targets
+bun run build:darwin-arm64     # → dist/moxxy-cli-darwin-arm64   (macOS Apple Silicon)
+bun run build:darwin-x86_64    # → dist/moxxy-cli-darwin-x86_64  (macOS Intel)
+bun run build:linux-arm64      # → dist/moxxy-cli-linux-arm64    (Linux ARM64)
+bun run build:linux-x86_64     # → dist/moxxy-cli-linux-x86_64   (Linux x86_64)
+
+# All platforms at once
+bun run build:all
+```
+
+Bun's `--compile --target` flag handles cross-compilation - you can build all platforms from a single machine.
 
 ## Quick Start
 

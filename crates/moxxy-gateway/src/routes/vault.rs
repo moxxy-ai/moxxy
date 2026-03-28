@@ -75,17 +75,24 @@ pub async fn create_secret_ref(
     };
 
     let db = state.db.lock().unwrap();
-    db.vault_refs().insert(&row).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                serde_json::json!({"error": "internal", "message": "Failed to create secret ref"}),
-            ),
-        )
-    })?;
+    let (final_id, status) = match db.vault_refs().insert(&row) {
+        Ok(()) => (id, StatusCode::CREATED),
+        Err(_) => {
+            // Likely UNIQUE constraint on key_name - find existing and treat as upsert
+            match db.vault_refs().find_by_key_name(&body.key_name) {
+                Ok(Some(existing)) => (existing.id.clone(), StatusCode::OK),
+                _ => {
+                    return Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"error": "internal", "message": "Failed to create secret ref"})),
+                    ));
+                }
+            }
+        }
+    };
     drop(db);
 
-    // If a secret value was provided, store it in the vault backend
+    // Store or update the secret value in the vault backend
     if let Some(ref value) = body.value {
         state
             .vault_backend
@@ -101,9 +108,9 @@ pub async fn create_secret_ref(
     }
 
     Ok((
-        StatusCode::CREATED,
+        status,
         Json(serde_json::json!({
-            "id": id,
+            "id": final_id,
             "key_name": body.key_name,
             "backend_key": body.backend_key,
             "policy_label": body.policy_label,
@@ -133,17 +140,32 @@ pub async fn create_grant(
     };
 
     let db = state.db.lock().unwrap();
-    db.vault_grants().insert(&row).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "internal", "message": "Failed to create grant"})),
-        )
-    })?;
+    let (final_id, status) = match db.vault_grants().insert(&row) {
+        Ok(()) => (id, StatusCode::CREATED),
+        Err(_) => {
+            // UNIQUE(agent_id, secret_ref_id) conflict - find existing grant and re-activate if revoked
+            match db.vault_grants().find_by_agent_and_secret(&body.agent_id, &body.secret_ref_id) {
+                Ok(Some(existing)) => {
+                    if existing.revoked_at.is_some() {
+                        let _ = db.vault_grants().unrevoke(&existing.id);
+                        tracing::info!(grant_id = %existing.id, "Re-activated revoked vault grant");
+                    }
+                    (existing.id.clone(), StatusCode::OK)
+                }
+                _ => {
+                    return Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"error": "internal", "message": "Failed to create grant"})),
+                    ));
+                }
+            }
+        }
+    };
 
     Ok((
-        StatusCode::CREATED,
+        status,
         Json(serde_json::json!({
-            "id": id,
+            "id": final_id,
             "agent_id": body.agent_id,
             "secret_ref_id": body.secret_ref_id,
             "created_at": now

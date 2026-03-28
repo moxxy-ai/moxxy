@@ -1,7 +1,7 @@
 use crate::commands::{self, CommandContext, CommandRegistry};
 use crate::pairing::PairingService;
 use crate::transport::{ChannelTransport, IncomingMessage, OutgoingMessage};
-use moxxy_core::EventBus;
+use moxxy_core::{ChannelStore, EventBus};
 use moxxy_storage::Database;
 use moxxy_types::{ChannelError, EventType, MessageContent, RunStarter};
 use moxxy_vault::SecretBackend;
@@ -122,7 +122,7 @@ impl ChannelBridge {
         vault_backend: Arc<dyn SecretBackend + Send + Sync>,
         moxxy_home: std::path::PathBuf,
     ) -> Self {
-        let pairing_service = Arc::new(PairingService::new(db.clone()));
+        let pairing_service = Arc::new(PairingService::new(&moxxy_home));
         let commands = commands::build_default_registry();
         Self {
             db,
@@ -250,70 +250,36 @@ impl ChannelBridge {
             return;
         }
 
-        // Look up binding (one agent per channel).
-        // Lock is scoped so it's dropped before any await.
-        let binding_lookup = {
-            match self.db.lock() {
-                Ok(db) => db.channel_bindings().find_by_channel(channel_id),
-                Err(e) => {
-                    tracing::error!(channel_id, "Failed to acquire db lock: {}", e);
-                    Err(moxxy_types::StorageError::QueryFailed(e.to_string()))
-                }
-            }
-        };
+        // Look up binding from YAML file
+        let bindings = ChannelStore::find_bindings_by_channel(&self.moxxy_home, channel_id);
 
-        let binding = match binding_lookup {
-            Ok(bindings) => {
-                tracing::info!(
+        let binding = match bindings.into_iter().next() {
+            Some(b) => b,
+            None => {
+                tracing::warn!(
                     channel_id,
-                    binding_count = bindings.len(),
-                    "Channel binding lookup result"
+                    external_chat_id = %msg.external_chat_id,
+                    "No active binding found for channel = sending 'not paired' response"
                 );
-                bindings.into_iter().next()
-            }
-            Err(e) => {
-                tracing::error!(channel_id, "Failed to look up channel binding: {}", e);
                 let _ = transport
                     .send_message(OutgoingMessage {
                         external_chat_id: msg.external_chat_id.clone(),
-                        content: MessageContent::Text("Internal error, please try again.".into()),
+                        content: MessageContent::Text(
+                            "This chat is not paired to an agent. Send /start to get a pairing code."
+                                .into(),
+                        ),
                     })
                     .await;
                 return;
             }
         };
 
-        let Some(binding) = binding else {
-            tracing::warn!(
-                channel_id,
-                external_chat_id = %msg.external_chat_id,
-                "No active binding found for channel = sending 'not paired' response"
-            );
-            let _ = transport
-                .send_message(OutgoingMessage {
-                    external_chat_id: msg.external_chat_id.clone(),
-                    content: MessageContent::Text(
-                        "This chat is not paired to an agent. Send /start to get a pairing code."
-                            .into(),
-                    ),
-                })
-                .await;
-            return;
-        };
-
-        if binding.status != "active" {
-            let _ = transport
-                .send_message(OutgoingMessage {
-                    external_chat_id: msg.external_chat_id.clone(),
-                    content: MessageContent::Text("This binding is not active.".into()),
-                })
-                .await;
-            return;
-        }
+        let (external_chat_id, entry) = binding;
+        let agent_name = &entry.agent_name;
 
         // Emit channel.message_received event
         let envelope = moxxy_types::EventEnvelope::new(
-            binding.agent_id.clone(),
+            agent_name.clone(),
             None,
             None,
             0,
@@ -321,7 +287,7 @@ impl ChannelBridge {
             serde_json::json!({
                 "channel_id": channel_id,
                 "channel_type": transport.transport_name(),
-                "external_chat_id": msg.external_chat_id,
+                "external_chat_id": external_chat_id,
                 "sender_name": msg.sender_name,
                 "task": msg.text,
             }),
@@ -334,12 +300,12 @@ impl ChannelBridge {
         // Trigger a run via RunStarter
         match self
             .run_starter
-            .start_run(&binding.agent_id, &msg.text)
+            .start_run(agent_name, &msg.text)
             .await
         {
             Ok(_run_id) => {}
             Err(e) => {
-                tracing::error!("Failed to start run for agent {}: {}", binding.agent_id, e);
+                tracing::error!("Failed to start run for agent {}: {}", agent_name, e);
                 let _ = transport
                     .send_message(OutgoingMessage {
                         external_chat_id: msg.external_chat_id.clone(),
@@ -371,28 +337,16 @@ impl ChannelBridge {
 
         let response_text = match self.commands.get(command_name) {
             Some(handler) => {
-                // Resolve binding = lock is scoped so it's dropped before any await
-                let binding_result = {
-                    match self.db.lock() {
-                        Ok(db) => db
-                            .channel_bindings()
-                            .find_by_channel(channel_id)
-                            .ok()
-                            .and_then(|v| v.into_iter().find(|b| b.status == "active")),
-                        Err(e) => {
-                            tracing::error!(
-                                channel_id,
-                                "Failed to acquire db lock for command: {}",
-                                e
-                            );
-                            None
-                        }
-                    }
-                };
-                let agent_id = binding_result.map(|b| b.agent_id);
+                // Resolve binding from YAML
+                let bindings =
+                    ChannelStore::find_bindings_by_channel(&self.moxxy_home, channel_id);
+                let agent_name = bindings
+                    .into_iter()
+                    .next()
+                    .map(|(_, entry)| entry.agent_name);
 
                 // Enforce binding requirement
-                if handler.requires_binding() && agent_id.is_none() {
+                if handler.requires_binding() && agent_name.is_none() {
                     let _ = transport
                         .send_message(OutgoingMessage {
                             external_chat_id: msg.external_chat_id.clone(),
@@ -409,7 +363,7 @@ impl ChannelBridge {
                     vault_backend: &self.vault_backend,
                     run_starter: &self.run_starter,
                     pairing_service: &self.pairing_service,
-                    agent_id,
+                    agent_id: agent_name,
                     channel_id,
                     external_chat_id: &msg.external_chat_id,
                     moxxy_home: &self.moxxy_home,
@@ -440,57 +394,47 @@ impl ChannelBridge {
     }
 
     /// Send typing indicator to all channels bound to an agent.
-    async fn send_typing_to_agent_channels(&self, agent_id: &str) {
-        let bindings = {
-            let Ok(db) = self.db.lock() else { return };
-            db.channel_bindings()
-                .find_by_agent(agent_id)
-                .unwrap_or_default()
-        };
-
-        let to_send: Vec<(Arc<dyn ChannelTransport>, String)> = {
-            let Ok(transports) = self.transports.read() else {
-                return;
-            };
-            bindings
-                .iter()
-                .filter(|b| b.status == "active")
-                .filter_map(|b| {
-                    transports
-                        .get(&b.channel_id)
-                        .map(|t| (t.clone(), b.external_chat_id.clone()))
-                })
-                .collect()
-        };
-
+    async fn send_typing_to_agent_channels(&self, agent_name: &str) {
+        let to_send = self.resolve_agent_transports(agent_name);
         for (transport, chat_id) in to_send {
             let _ = transport.send_typing(&chat_id).await;
         }
     }
 
-    /// Resolve bindings and transports for an agent.
-    fn resolve_agent_channels(
+    /// Resolve transports and chat IDs for an agent's active bindings.
+    fn resolve_agent_transports(
         &self,
-        agent_id: &str,
-    ) -> Vec<(Arc<dyn ChannelTransport>, String, String)> {
-        let bindings = {
-            let Ok(db) = self.db.lock() else {
-                return vec![];
-            };
-            db.channel_bindings()
-                .find_by_agent(agent_id)
-                .unwrap_or_default()
-        };
+        agent_name: &str,
+    ) -> Vec<(Arc<dyn ChannelTransport>, String)> {
+        let bindings = ChannelStore::find_bindings_by_agent(&self.moxxy_home, agent_name);
         let Ok(transports) = self.transports.read() else {
             return vec![];
         };
         bindings
             .iter()
-            .filter(|b| b.status == "active")
-            .filter_map(|b| {
+            .filter_map(|(channel_id, chat_id, _)| {
                 transports
-                    .get(&b.channel_id)
-                    .map(|t| (t.clone(), b.external_chat_id.clone(), b.channel_id.clone()))
+                    .get(channel_id)
+                    .map(|t| (t.clone(), chat_id.clone()))
+            })
+            .collect()
+    }
+
+    /// Resolve bindings and transports for an agent (includes channel_id).
+    fn resolve_agent_channels(
+        &self,
+        agent_name: &str,
+    ) -> Vec<(Arc<dyn ChannelTransport>, String, String)> {
+        let bindings = ChannelStore::find_bindings_by_agent(&self.moxxy_home, agent_name);
+        let Ok(transports) = self.transports.read() else {
+            return vec![];
+        };
+        bindings
+            .iter()
+            .filter_map(|(channel_id, chat_id, _)| {
+                transports
+                    .get(channel_id)
+                    .map(|t| (t.clone(), chat_id.clone(), channel_id.clone()))
             })
             .collect()
     }
@@ -830,39 +774,14 @@ impl ChannelBridge {
 impl ChannelSender for ChannelBridge {
     async fn send_to_agent_channels(
         &self,
-        agent_id: &str,
+        agent_name: &str,
         content: MessageContent,
     ) -> Result<u32, ChannelError> {
-        let bindings = {
-            let db = self
-                .db
-                .lock()
-                .map_err(|e| ChannelError::StorageError(e.to_string()))?;
-            db.channel_bindings()
-                .find_by_agent(agent_id)
-                .map_err(|e| ChannelError::StorageError(e.to_string()))?
-        };
-
+        let to_send = self.resolve_agent_transports(agent_name);
         let mut sent = 0u32;
-        // Collect transports to send to (clone Arcs to avoid holding RwLock across await)
-        let to_send: Vec<(Arc<dyn ChannelTransport>, String)> = {
-            let transports = self
-                .transports
-                .read()
-                .map_err(|e| ChannelError::StorageError(e.to_string()))?;
-            bindings
-                .iter()
-                .filter(|b| b.status == "active")
-                .filter_map(|b| {
-                    transports
-                        .get(&b.channel_id)
-                        .map(|t| (t.clone(), b.external_chat_id.clone()))
-                })
-                .collect()
-        };
         for (transport, chat_id) in to_send {
             tracing::info!(
-                agent_id,
+                agent_name,
                 external_chat_id = %chat_id,
                 "Outbound channel message"
             );
@@ -882,28 +801,21 @@ impl ChannelSender for ChannelBridge {
         channel_id: &str,
         content: MessageContent,
     ) -> Result<(), ChannelError> {
-        let (transport, chat_id) = {
-            let db = self
-                .db
-                .lock()
-                .map_err(|e| ChannelError::StorageError(e.to_string()))?;
-            let binding = db
-                .channel_bindings()
-                .find_by_channel(channel_id)
-                .map_err(|e| ChannelError::StorageError(e.to_string()))?
-                .into_iter()
-                .next()
-                .ok_or(ChannelError::BindingNotFound)?;
+        let bindings = ChannelStore::find_bindings_by_channel(&self.moxxy_home, channel_id);
+        let (chat_id, _) = bindings
+            .into_iter()
+            .next()
+            .ok_or(ChannelError::BindingNotFound)?;
 
+        let transport = {
             let transports = self
                 .transports
                 .read()
                 .map_err(|e| ChannelError::StorageError(e.to_string()))?;
-            let transport = transports
+            transports
                 .get(channel_id)
                 .ok_or(ChannelError::NotFound)?
-                .clone();
-            (transport, binding.external_chat_id)
+                .clone()
         };
 
         tracing::info!(
@@ -956,8 +868,6 @@ mod tests {
         let conn = rusqlite::Connection::open_in_memory().expect("Failed to open in-memory db");
         conn.execute_batch(include_str!("../../../migrations/0001_init.sql"))
             .unwrap();
-        conn.execute_batch(include_str!("../../../migrations/0002_channels.sql"))
-            .unwrap();
         Arc::new(Mutex::new(Database::new(conn)))
     }
 
@@ -968,7 +878,8 @@ mod tests {
         let run_starter = Arc::new(MockRunStarter);
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
-        let bridge = ChannelBridge::new(db, event_bus, run_starter, vault, "/tmp/moxxy-test".into());
+        let bridge =
+            ChannelBridge::new(db, event_bus, run_starter, vault, "/tmp/moxxy-test".into());
         assert!(bridge.transports.read().unwrap().is_empty());
     }
 
@@ -979,7 +890,8 @@ mod tests {
         let run_starter = Arc::new(MockRunStarter);
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
-        let mut bridge = ChannelBridge::new(db, event_bus, run_starter, vault, "/tmp/moxxy-test".into());
+        let mut bridge =
+            ChannelBridge::new(db, event_bus, run_starter, vault, "/tmp/moxxy-test".into());
         bridge.register_transport_mut(
             "ch1".into(),
             Arc::new(crate::discord::DiscordTransport::new("token".into())),
@@ -994,7 +906,8 @@ mod tests {
         let run_starter = Arc::new(MockRunStarter);
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
-        let bridge = ChannelBridge::new(db, event_bus, run_starter, vault, "/tmp/moxxy-test".into());
+        let bridge =
+            ChannelBridge::new(db, event_bus, run_starter, vault, "/tmp/moxxy-test".into());
         let defs = bridge.command_definitions();
         let commands: Vec<&str> = defs.iter().map(|d| d.command.as_str()).collect();
         assert!(commands.contains(&"start"));

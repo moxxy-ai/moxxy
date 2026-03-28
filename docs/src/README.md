@@ -8,10 +8,10 @@ Moxxy is a framework for building, running, and orchestrating AI agents with str
 
 - **Pluggable providers** -- Any OpenAI-compatible LLM endpoint, plus built-in catalogs for Anthropic, OpenAI, xAI, Google Gemini, and DeepSeek
 - **Skill-based agents** -- Markdown skills with YAML frontmatter, declared primitive allowlists, and quarantine-before-approval security
-- **27 built-in primitives** -- Filesystem, shell, HTTP, memory, git, web browsing, webhooks, channels, and skill management
+- **85 built-in primitives** -- Filesystem, shell, HTTP, memory, git, web browsing, webhooks, channels, skills, vault, agents, hive, MCP, and more
 - **Per-agent isolation** -- Separate workspace, memory store, runtime sandbox, and scoped secrets per agent
 - **Sub-agent orchestration** -- Hierarchical spawning with bounded depth and fan-out limits
-- **Full SSE event stream** -- 30 event types covering every action, with automatic secret redaction and persistence
+- **Full SSE event stream** -- 60 event types covering every action, with automatic secret redaction and persistence
 - **Scoped API tokens** -- SHA-256 hashed PATs with 9 permission scopes, optional TTL, and instant revocation
 - **Full-screen TUI** -- Split-pane chat interface with real-time event streaming, agent info panel, and slash commands
 - **WASI plugin host** -- Run provider plugins in sandboxed WebAssembly with fuel/memory limits and signature verification
@@ -61,8 +61,9 @@ Moxxy is a framework for building, running, and orchestrating AI agents with str
 | `moxxy-core` | Auth, events, memory, heartbeat, security, skills |
 | `moxxy-vault` | Secret backend abstraction, grant-based access |
 | `moxxy-gateway` | Axum REST API, auth middleware, SSE streaming |
-| `moxxy-runtime` | Provider trait, Primitive trait, 27 primitives |
+| `moxxy-runtime` | Provider trait, Primitive trait, 85 primitives |
 | `moxxy-channel` | Channel bridges, Telegram/Discord transports |
+| `moxxy-mcp` | MCP client, stdio/SSE/streamable HTTP transports |
 | `moxxy-plugin` | WASI plugin hosting, signature verification |
 
 ## Getting Started

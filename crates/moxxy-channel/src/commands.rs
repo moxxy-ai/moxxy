@@ -176,6 +176,47 @@ impl CommandHandler for StopHandler {
     }
 }
 
+/// `/new` = reset session and start fresh.
+pub struct NewHandler;
+
+#[async_trait]
+impl CommandHandler for NewHandler {
+    fn definitions(&self) -> Vec<CommandDefinition> {
+        vec![CommandDefinition {
+            command: "new".into(),
+            description: "Reset session and start fresh".into(),
+        }]
+    }
+
+    async fn execute(&self, ctx: &CommandContext<'_>, _args: &str) -> Result<String, ChannelError> {
+        let agent_id = match &ctx.agent_id {
+            Some(id) => id,
+            None => return Ok("This chat is not paired to an agent.".into()),
+        };
+
+        // Stop any active run
+        let _ = ctx.run_starter.stop_agent(agent_id).await;
+
+        // Clear STM file
+        let stm_path = ctx
+            .moxxy_home
+            .join("agents")
+            .join(agent_id)
+            .join("memory")
+            .join("stm.yaml");
+        if stm_path.exists() {
+            let _ = std::fs::remove_file(&stm_path);
+        }
+
+        // Clear conversation history
+        if let Ok(db) = ctx.db.lock() {
+            let _ = db.conversations().delete_all_by_agent(agent_id);
+        }
+
+        Ok("Session reset. Starting fresh.".into())
+    }
+}
+
 /// `/help` = list all available commands. Does not require binding.
 pub struct HelpHandler {
     definitions_list: Vec<CommandDefinition>,
@@ -252,19 +293,7 @@ impl CommandHandler for ModelHandler {
 
 impl ModelHandler {
     fn get_model(&self, ctx: &CommandContext<'_>, agent_id: &str) -> Result<String, ChannelError> {
-        // Look up agent name from DB, then load config from YAML
-        let db = ctx
-            .db
-            .lock()
-            .map_err(|e| ChannelError::StorageError(e.to_string()))?;
-        let agent = db
-            .agents()
-            .find_by_id(agent_id)
-            .map_err(|e| ChannelError::StorageError(e.to_string()))?
-            .ok_or_else(|| ChannelError::StorageError("Agent not found".into()))?;
-        let name = agent.name.as_deref().unwrap_or(agent_id);
-
-        match moxxy_core::AgentStore::load(ctx.moxxy_home, name) {
+        match moxxy_core::AgentStore::load(ctx.moxxy_home, agent_id) {
             Ok(config) => Ok(format!(
                 "Provider: {}\nModel: {}\nTemperature: {}",
                 config.provider, config.model, config.temperature
@@ -274,35 +303,24 @@ impl ModelHandler {
     }
 
     fn list_models(&self, ctx: &CommandContext<'_>) -> Result<String, ChannelError> {
-        let db = ctx
-            .db
-            .lock()
-            .map_err(|e| ChannelError::StorageError(e.to_string()))?;
-        let providers = db
-            .providers()
-            .list_all()
-            .map_err(|e| ChannelError::StorageError(e.to_string()))?;
+        let loaded = moxxy_core::ProviderLoader::load_all(ctx.moxxy_home);
 
-        if providers.is_empty() {
+        if loaded.is_empty() {
             return Ok("No providers registered.".into());
         }
 
         let mut lines = vec!["Available models:".to_string()];
-        for provider in &providers {
-            let models = db
-                .providers()
-                .list_models(&provider.id)
-                .map_err(|e| ChannelError::StorageError(e.to_string()))?;
-            if models.is_empty() {
+        for provider in &loaded {
+            if provider.doc.models.is_empty() {
                 lines.push(format!(
                     "  {} ({}): no models",
-                    provider.display_name, provider.id
+                    provider.doc.display_name, provider.doc.id
                 ));
             } else {
-                for model in &models {
+                for model in &provider.doc.models {
                     lines.push(format!(
                         "  {} / {} ({})",
-                        provider.id, model.model_id, model.display_name
+                        provider.doc.id, model.id, model.display_name
                     ));
                 }
             }
@@ -317,38 +335,21 @@ impl ModelHandler {
         provider_id: &str,
         model_id: &str,
     ) -> Result<String, ChannelError> {
-        // Look up agent name from DB, then update YAML config
-        let name = {
-            let db = ctx
-                .db
-                .lock()
-                .map_err(|e| ChannelError::StorageError(e.to_string()))?;
+        // Validate provider exists on filesystem
+        if moxxy_core::ProviderLoader::load(ctx.moxxy_home, provider_id).is_none() {
+            return Ok(format!(
+                "Provider '{}' not found. Use /model list to see available providers.",
+                provider_id
+            ));
+        }
 
-            // Validate provider exists
-            let provider = db
-                .providers()
-                .find_by_id(provider_id)
-                .map_err(|e| ChannelError::StorageError(e.to_string()))?;
-            if provider.is_none() {
-                return Ok(format!(
-                    "Provider '{}' not found. Use /model list to see available providers.",
-                    provider_id
-                ));
-            }
+        let name = agent_id;
 
-            let agent = db
-                .agents()
-                .find_by_id(agent_id)
-                .map_err(|e| ChannelError::StorageError(e.to_string()))?
-                .ok_or_else(|| ChannelError::StorageError("Agent not found".into()))?;
-            agent.name.unwrap_or_else(|| agent_id.to_string())
-        };
-
-        let mut config = moxxy_core::AgentStore::load(ctx.moxxy_home, &name)
+        let mut config = moxxy_core::AgentStore::load(ctx.moxxy_home, name)
             .map_err(|e| ChannelError::StorageError(e.to_string()))?;
         config.provider = provider_id.to_string();
         config.model = model_id.to_string();
-        moxxy_core::AgentStore::save(ctx.moxxy_home, &name, &config)
+        moxxy_core::AgentStore::save(ctx.moxxy_home, name, &config)
             .map_err(|e| ChannelError::StorageError(e.to_string()))?;
 
         Ok(format!(
@@ -601,12 +602,14 @@ pub fn build_default_registry() -> CommandRegistry {
     let start = Arc::new(StartHandler);
     let status = Arc::new(StatusHandler);
     let stop = Arc::new(StopHandler);
+    let new = Arc::new(NewHandler);
     let model = Arc::new(ModelHandler);
     let vault = Arc::new(VaultHandler);
 
     registry.register(start);
     registry.register(status);
     registry.register(stop);
+    registry.register(new);
     registry.register(model);
     registry.register(vault);
 
@@ -657,45 +660,51 @@ mod tests {
         }
     }
 
-    fn setup_db() -> Arc<Mutex<Database>> {
+    /// Test context that owns a tempdir, db, and all required refs.
+    struct TestEnv {
+        _tmp: tempfile::TempDir,
+        moxxy_home: std::path::PathBuf,
+        db: Arc<Mutex<Database>>,
+    }
+
+    fn setup_env() -> TestEnv {
+        let tmp = tempfile::tempdir().unwrap();
+        let moxxy_home = tmp.path().to_path_buf();
+
+        // Create channel on disk
+        let doc = moxxy_core::ChannelDoc {
+            channel_type: "telegram".into(),
+            display_name: "Test Bot".into(),
+            vault_secret_ref_id: "secret-1".into(),
+            status: "active".into(),
+            config: None,
+            created_at: "2025-01-01".into(),
+            updated_at: "2025-01-01".into(),
+        };
+        moxxy_core::ChannelStore::create(&moxxy_home, "ch1", &doc).unwrap();
+
+        // Create binding on disk
+        let mut bindings = moxxy_core::BindingsFile::default();
+        bindings.0.insert(
+            "12345".into(),
+            moxxy_core::BindingEntry {
+                agent_name: "agent-1".into(),
+                status: "active".into(),
+                created_at: "2025-01-01".into(),
+            },
+        );
+        moxxy_core::ChannelStore::save_bindings(&moxxy_home, "ch1", &bindings).unwrap();
+
+        // Create agent directory for config tests
+        let agent_dir = moxxy_home.join("agents").join("agent-1");
+        std::fs::create_dir_all(&agent_dir).unwrap();
+
+        // DB is still needed for vault and conversations
         let conn = rusqlite::Connection::open_in_memory().expect("Failed to open in-memory db");
         conn.execute_batch(include_str!("../../../migrations/0001_init.sql"))
             .unwrap();
-        conn.execute_batch(include_str!("../../../migrations/0002_channels.sql"))
-            .unwrap();
-        conn.execute_batch(include_str!("../../../migrations/0007_vault_secrets.sql"))
-            .unwrap();
-        conn.execute_batch(include_str!(
-            "../../../migrations/0008_agent_name_persona.sql"
-        ))
-        .unwrap();
-        conn.execute_batch(include_str!("../../../migrations/0011_slim_agents.sql"))
-            .unwrap();
 
-        // Seed vault ref for channel FK
-        conn.execute(
-            "INSERT INTO vault_secret_refs (id, key_name, backend_key, policy_label, created_at, updated_at)
-             VALUES ('secret-1', 'channel:ch1:bot_token', 'keyring://test', 'default', '2025-01-01', '2025-01-01')",
-            [],
-        )
-        .unwrap();
-
-        // Seed channel
-        conn.execute(
-            "INSERT INTO channels (id, channel_type, display_name, vault_secret_ref_id, status, created_at, updated_at)
-             VALUES ('ch1', 'telegram', 'Test Bot', 'secret-1', 'active', '2025-01-01', '2025-01-01')",
-            [],
-        )
-        .unwrap();
-
-        // Seed provider
-        conn.execute(
-            "INSERT INTO providers (id, display_name, manifest_path, enabled, created_at) VALUES ('p1', 'Provider One', '/p1', 1, '2025-01-01')",
-            [],
-        )
-        .unwrap();
-
-        // Seed agent
+        // Seed agent row (still needed for some legacy operations)
         conn.execute(
             "INSERT INTO agents (id, name, workspace_root, status, depth, spawned_total, created_at, updated_at)
              VALUES ('agent-1', 'agent-1', '/tmp', 'idle', 0, 0, '2025-01-01', '2025-01-01')",
@@ -703,33 +712,26 @@ mod tests {
         )
         .unwrap();
 
-        // Seed binding
-        conn.execute(
-            "INSERT INTO channel_bindings (id, channel_id, agent_id, external_chat_id, status, created_at, updated_at)
-             VALUES ('bind-1', 'ch1', 'agent-1', '12345', 'active', '2025-01-01', '2025-01-01')",
-            [],
-        )
-        .unwrap();
-
-        Arc::new(Mutex::new(Database::new(conn)))
+        let db = Arc::new(Mutex::new(Database::new(conn)));
+        TestEnv { _tmp: tmp, moxxy_home, db }
     }
 
     fn make_ctx<'a>(
-        db: &'a Arc<Mutex<Database>>,
+        env: &'a TestEnv,
         vault: &'a Arc<dyn SecretBackend + Send + Sync>,
         run_starter: &'a Arc<dyn RunStarter>,
         pairing: &'a Arc<PairingService>,
         agent_id: Option<String>,
     ) -> CommandContext<'a> {
         CommandContext {
-            db,
+            db: &env.db,
             vault_backend: vault,
             run_starter,
             pairing_service: pairing,
             agent_id,
             channel_id: "ch1",
             external_chat_id: "12345",
-            moxxy_home: std::path::Path::new("/tmp/moxxy-test"),
+            moxxy_home: &env.moxxy_home,
         }
     }
 
@@ -741,6 +743,7 @@ mod tests {
         assert!(registry.get("start").is_some());
         assert!(registry.get("status").is_some());
         assert!(registry.get("stop").is_some());
+        assert!(registry.get("new").is_some());
         assert!(registry.get("help").is_some());
         assert!(registry.get("model").is_some());
         assert!(registry.get("vault").is_some());
@@ -751,7 +754,7 @@ mod tests {
     fn all_definitions_sorted() {
         let registry = build_default_registry();
         let defs = registry.all_definitions();
-        assert!(defs.len() >= 6);
+        assert!(defs.len() >= 7);
         for i in 1..defs.len() {
             assert!(defs[i - 1].command <= defs[i].command);
         }
@@ -761,12 +764,12 @@ mod tests {
 
     #[tokio::test]
     async fn start_handler_generates_pairing_code() {
-        let db = setup_db();
+        let env = setup_env();
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
         let run_starter: Arc<dyn RunStarter> = Arc::new(MockRunStarter);
-        let pairing = Arc::new(PairingService::new(db.clone()));
-        let ctx = make_ctx(&db, &vault, &run_starter, &pairing, None);
+        let pairing = Arc::new(PairingService::new(&env.moxxy_home));
+        let ctx = make_ctx(&env, &vault, &run_starter, &pairing, None);
 
         let handler = StartHandler;
         let result = handler.execute(&ctx, "").await.unwrap();
@@ -778,12 +781,12 @@ mod tests {
 
     #[tokio::test]
     async fn status_handler_shows_agent_status() {
-        let db = setup_db();
+        let env = setup_env();
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
         let run_starter: Arc<dyn RunStarter> = Arc::new(MockRunStarter);
-        let pairing = Arc::new(PairingService::new(db.clone()));
-        let ctx = make_ctx(&db, &vault, &run_starter, &pairing, Some("agent-1".into()));
+        let pairing = Arc::new(PairingService::new(&env.moxxy_home));
+        let ctx = make_ctx(&env, &vault, &run_starter, &pairing, Some("agent-1".into()));
 
         let handler = StatusHandler;
         let result = handler.execute(&ctx, "").await.unwrap();
@@ -793,12 +796,12 @@ mod tests {
 
     #[tokio::test]
     async fn status_handler_unpaired() {
-        let db = setup_db();
+        let env = setup_env();
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
         let run_starter: Arc<dyn RunStarter> = Arc::new(MockRunStarter);
-        let pairing = Arc::new(PairingService::new(db.clone()));
-        let ctx = make_ctx(&db, &vault, &run_starter, &pairing, None);
+        let pairing = Arc::new(PairingService::new(&env.moxxy_home));
+        let ctx = make_ctx(&env, &vault, &run_starter, &pairing, None);
 
         let handler = StatusHandler;
         let result = handler.execute(&ctx, "").await.unwrap();
@@ -809,28 +812,100 @@ mod tests {
 
     #[tokio::test]
     async fn stop_handler_stops_agent() {
-        let db = setup_db();
+        let env = setup_env();
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
         let run_starter: Arc<dyn RunStarter> = Arc::new(MockRunStarter);
-        let pairing = Arc::new(PairingService::new(db.clone()));
-        let ctx = make_ctx(&db, &vault, &run_starter, &pairing, Some("agent-1".into()));
+        let pairing = Arc::new(PairingService::new(&env.moxxy_home));
+        let ctx = make_ctx(&env, &vault, &run_starter, &pairing, Some("agent-1".into()));
 
         let handler = StopHandler;
         let result = handler.execute(&ctx, "").await.unwrap();
         assert_eq!(result, "Agent stopped.");
     }
 
+    // --- NewHandler tests ---
+
+    #[tokio::test]
+    async fn new_handler_resets_session() {
+        let env = setup_env();
+
+        // Create STM file
+        let stm_dir = env.moxxy_home.join("agents").join("agent-1").join("memory");
+        std::fs::create_dir_all(&stm_dir).unwrap();
+        std::fs::write(stm_dir.join("stm.yaml"), "test: data").unwrap();
+
+        // Seed a conversation
+        {
+            let guard = env.db.lock().unwrap();
+            guard
+                .conn()
+                .execute(
+                    "INSERT INTO conversation_log (id, agent_id, run_id, sequence, role, content, created_at) VALUES ('c1', 'agent-1', 'run-1', 0, 'user', 'hello', '2025-01-01')",
+                    [],
+                )
+                .unwrap();
+        }
+
+        let vault: Arc<dyn SecretBackend + Send + Sync> =
+            Arc::new(moxxy_vault::InMemoryBackend::new());
+        let run_starter: Arc<dyn RunStarter> = Arc::new(MockRunStarter);
+        let pairing = Arc::new(PairingService::new(&env.moxxy_home));
+        let ctx = CommandContext {
+            db: &env.db,
+            vault_backend: &vault,
+            run_starter: &run_starter,
+            pairing_service: &pairing,
+            agent_id: Some("agent-1".into()),
+            channel_id: "ch1",
+            external_chat_id: "12345",
+            moxxy_home: &env.moxxy_home,
+        };
+
+        let handler = NewHandler;
+        let result = handler.execute(&ctx, "").await.unwrap();
+        assert!(result.contains("Session reset"));
+
+        // STM file should be deleted
+        assert!(!stm_dir.join("stm.yaml").exists());
+
+        // Conversations should be cleared
+        let guard = env.db.lock().unwrap();
+        let count: i64 = guard
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM conversation_log WHERE agent_id = 'agent-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn new_handler_unpaired() {
+        let env = setup_env();
+        let vault: Arc<dyn SecretBackend + Send + Sync> =
+            Arc::new(moxxy_vault::InMemoryBackend::new());
+        let run_starter: Arc<dyn RunStarter> = Arc::new(MockRunStarter);
+        let pairing = Arc::new(PairingService::new(&env.moxxy_home));
+        let ctx = make_ctx(&env, &vault, &run_starter, &pairing, None);
+
+        let handler = NewHandler;
+        let result = handler.execute(&ctx, "").await.unwrap();
+        assert!(result.contains("not paired"));
+    }
+
     // --- HelpHandler tests ---
 
     #[tokio::test]
     async fn help_handler_lists_all_commands() {
-        let db = setup_db();
+        let env = setup_env();
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
         let run_starter: Arc<dyn RunStarter> = Arc::new(MockRunStarter);
-        let pairing = Arc::new(PairingService::new(db.clone()));
-        let ctx = make_ctx(&db, &vault, &run_starter, &pairing, None);
+        let pairing = Arc::new(PairingService::new(&env.moxxy_home));
+        let ctx = make_ctx(&env, &vault, &run_starter, &pairing, None);
 
         let registry = build_default_registry();
         let handler = registry.get("help").unwrap();
@@ -838,6 +913,7 @@ mod tests {
         assert!(result.contains("/start"));
         assert!(result.contains("/status"));
         assert!(result.contains("/stop"));
+        assert!(result.contains("/new"));
         assert!(result.contains("/help"));
         assert!(result.contains("/model"));
         assert!(result.contains("/vault"));
@@ -845,6 +921,23 @@ mod tests {
     }
 
     // --- ModelHandler tests ---
+
+    fn setup_provider_yaml(moxxy_home: &std::path::Path) {
+        let doc = moxxy_core::ProviderDoc {
+            id: "p1".into(),
+            display_name: "Provider One".into(),
+            enabled: true,
+            secret_ref: None,
+            api_base: None,
+            models: vec![moxxy_core::ProviderModelEntry {
+                id: "gpt-4".into(),
+                display_name: "GPT-4".into(),
+                api_base: Some("https://api.openai.com/v1".into()),
+                chatgpt_account_id: None,
+            }],
+        };
+        moxxy_core::ProviderStore::create(moxxy_home, &doc).unwrap();
+    }
 
     fn setup_agent_yaml(moxxy_home: &std::path::Path) {
         let agent_dir = moxxy_home.join("agents").join("agent-1");
@@ -857,23 +950,41 @@ mod tests {
             max_subagents_total: 8,
             policy_profile: None,
             core_mount: None,
+            template: None,
         };
         config.save(&agent_dir.join("agent.yaml")).unwrap();
+    }
+
+    fn make_db() -> Arc<Mutex<Database>> {
+        let conn = rusqlite::Connection::open_in_memory().expect("Failed to open in-memory db");
+        conn.execute_batch(include_str!("../../../migrations/0001_init.sql"))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO agents (id, name, workspace_root, status, depth, spawned_total, created_at, updated_at)
+             VALUES ('agent-1', 'agent-1', '/tmp', 'idle', 0, 0, '2025-01-01', '2025-01-01')",
+            [],
+        ).unwrap();
+        Arc::new(Mutex::new(Database::new(conn)))
     }
 
     #[tokio::test]
     async fn model_get_shows_current_model() {
         let tmp = tempfile::tempdir().unwrap();
         setup_agent_yaml(tmp.path());
-        let db = setup_db();
+        let db = make_db();
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
         let run_starter: Arc<dyn RunStarter> = Arc::new(MockRunStarter);
-        let pairing = Arc::new(PairingService::new(db.clone()));
+        let pairing = Arc::new(PairingService::new(tmp.path()));
         let ctx = CommandContext {
-            db: &db, vault_backend: &vault, run_starter: &run_starter,
-            pairing_service: &pairing, agent_id: Some("agent-1".into()),
-            channel_id: "ch1", external_chat_id: "12345", moxxy_home: tmp.path(),
+            db: &db,
+            vault_backend: &vault,
+            run_starter: &run_starter,
+            pairing_service: &pairing,
+            agent_id: Some("agent-1".into()),
+            channel_id: "ch1",
+            external_chat_id: "12345",
+            moxxy_home: tmp.path(),
         };
 
         let handler = ModelHandler;
@@ -887,15 +998,20 @@ mod tests {
     async fn model_get_explicit() {
         let tmp = tempfile::tempdir().unwrap();
         setup_agent_yaml(tmp.path());
-        let db = setup_db();
+        let db = make_db();
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
         let run_starter: Arc<dyn RunStarter> = Arc::new(MockRunStarter);
-        let pairing = Arc::new(PairingService::new(db.clone()));
+        let pairing = Arc::new(PairingService::new(tmp.path()));
         let ctx = CommandContext {
-            db: &db, vault_backend: &vault, run_starter: &run_starter,
-            pairing_service: &pairing, agent_id: Some("agent-1".into()),
-            channel_id: "ch1", external_chat_id: "12345", moxxy_home: tmp.path(),
+            db: &db,
+            vault_backend: &vault,
+            run_starter: &run_starter,
+            pairing_service: &pairing,
+            agent_id: Some("agent-1".into()),
+            channel_id: "ch1",
+            external_chat_id: "12345",
+            moxxy_home: tmp.path(),
         };
 
         let handler = ModelHandler;
@@ -906,12 +1022,23 @@ mod tests {
 
     #[tokio::test]
     async fn model_list_shows_providers() {
-        let db = setup_db();
+        let tmp = tempfile::tempdir().unwrap();
+        setup_provider_yaml(tmp.path());
+        let db = make_db();
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
         let run_starter: Arc<dyn RunStarter> = Arc::new(MockRunStarter);
-        let pairing = Arc::new(PairingService::new(db.clone()));
-        let ctx = make_ctx(&db, &vault, &run_starter, &pairing, Some("agent-1".into()));
+        let pairing = Arc::new(PairingService::new(tmp.path()));
+        let ctx = CommandContext {
+            db: &db,
+            vault_backend: &vault,
+            run_starter: &run_starter,
+            pairing_service: &pairing,
+            agent_id: Some("agent-1".into()),
+            channel_id: "ch1",
+            external_chat_id: "12345",
+            moxxy_home: tmp.path(),
+        };
 
         let handler = ModelHandler;
         let result = handler.execute(&ctx, "list").await.unwrap();
@@ -922,6 +1049,9 @@ mod tests {
     async fn model_set_updates_config() {
         let tmp = tempfile::tempdir().unwrap();
         let moxxy_home = tmp.path();
+
+        // Seed provider on filesystem
+        setup_provider_yaml(moxxy_home);
 
         // Create agent directory + YAML
         let agent_dir = moxxy_home.join("agents").join("agent-1");
@@ -934,14 +1064,15 @@ mod tests {
             max_subagents_total: 8,
             policy_profile: None,
             core_mount: None,
+            template: None,
         };
         config.save(&agent_dir.join("agent.yaml")).unwrap();
 
-        let db = setup_db();
+        let db = make_db();
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
         let run_starter: Arc<dyn RunStarter> = Arc::new(MockRunStarter);
-        let pairing = Arc::new(PairingService::new(db.clone()));
+        let pairing = Arc::new(PairingService::new(moxxy_home));
         let ctx = CommandContext {
             db: &db,
             vault_backend: &vault,
@@ -969,15 +1100,20 @@ mod tests {
     async fn model_set_rejects_unknown_provider() {
         let tmp = tempfile::tempdir().unwrap();
         setup_agent_yaml(tmp.path());
-        let db = setup_db();
+        let db = make_db();
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
         let run_starter: Arc<dyn RunStarter> = Arc::new(MockRunStarter);
-        let pairing = Arc::new(PairingService::new(db.clone()));
+        let pairing = Arc::new(PairingService::new(tmp.path()));
         let ctx = CommandContext {
-            db: &db, vault_backend: &vault, run_starter: &run_starter,
-            pairing_service: &pairing, agent_id: Some("agent-1".into()),
-            channel_id: "ch1", external_chat_id: "12345", moxxy_home: tmp.path(),
+            db: &db,
+            vault_backend: &vault,
+            run_starter: &run_starter,
+            pairing_service: &pairing,
+            agent_id: Some("agent-1".into()),
+            channel_id: "ch1",
+            external_chat_id: "12345",
+            moxxy_home: tmp.path(),
         };
 
         let handler = ModelHandler;
@@ -992,12 +1128,12 @@ mod tests {
 
     #[tokio::test]
     async fn vault_set_and_has() {
-        let db = setup_db();
+        let env = setup_env();
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
         let run_starter: Arc<dyn RunStarter> = Arc::new(MockRunStarter);
-        let pairing = Arc::new(PairingService::new(db.clone()));
-        let ctx = make_ctx(&db, &vault, &run_starter, &pairing, Some("agent-1".into()));
+        let pairing = Arc::new(PairingService::new(&env.moxxy_home));
+        let ctx = make_ctx(&env, &vault, &run_starter, &pairing, Some("agent-1".into()));
 
         let handler = VaultHandler;
 
@@ -1013,12 +1149,12 @@ mod tests {
 
     #[tokio::test]
     async fn vault_set_and_list() {
-        let db = setup_db();
+        let env = setup_env();
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
         let run_starter: Arc<dyn RunStarter> = Arc::new(MockRunStarter);
-        let pairing = Arc::new(PairingService::new(db.clone()));
-        let ctx = make_ctx(&db, &vault, &run_starter, &pairing, Some("agent-1".into()));
+        let pairing = Arc::new(PairingService::new(&env.moxxy_home));
+        let ctx = make_ctx(&env, &vault, &run_starter, &pairing, Some("agent-1".into()));
 
         let handler = VaultHandler;
 
@@ -1036,12 +1172,12 @@ mod tests {
 
     #[tokio::test]
     async fn vault_remove() {
-        let db = setup_db();
+        let env = setup_env();
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
         let run_starter: Arc<dyn RunStarter> = Arc::new(MockRunStarter);
-        let pairing = Arc::new(PairingService::new(db.clone()));
-        let ctx = make_ctx(&db, &vault, &run_starter, &pairing, Some("agent-1".into()));
+        let pairing = Arc::new(PairingService::new(&env.moxxy_home));
+        let ctx = make_ctx(&env, &vault, &run_starter, &pairing, Some("agent-1".into()));
 
         let handler = VaultHandler;
         handler
@@ -1058,12 +1194,12 @@ mod tests {
 
     #[tokio::test]
     async fn vault_remove_nonexistent() {
-        let db = setup_db();
+        let env = setup_env();
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
         let run_starter: Arc<dyn RunStarter> = Arc::new(MockRunStarter);
-        let pairing = Arc::new(PairingService::new(db.clone()));
-        let ctx = make_ctx(&db, &vault, &run_starter, &pairing, Some("agent-1".into()));
+        let pairing = Arc::new(PairingService::new(&env.moxxy_home));
+        let ctx = make_ctx(&env, &vault, &run_starter, &pairing, Some("agent-1".into()));
 
         let handler = VaultHandler;
         let result = handler.execute(&ctx, "remove nope").await.unwrap();
@@ -1072,12 +1208,12 @@ mod tests {
 
     #[tokio::test]
     async fn vault_list_empty() {
-        let db = setup_db();
+        let env = setup_env();
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
         let run_starter: Arc<dyn RunStarter> = Arc::new(MockRunStarter);
-        let pairing = Arc::new(PairingService::new(db.clone()));
-        let ctx = make_ctx(&db, &vault, &run_starter, &pairing, Some("agent-1".into()));
+        let pairing = Arc::new(PairingService::new(&env.moxxy_home));
+        let ctx = make_ctx(&env, &vault, &run_starter, &pairing, Some("agent-1".into()));
 
         let handler = VaultHandler;
         let result = handler.execute(&ctx, "list").await.unwrap();
@@ -1092,12 +1228,12 @@ mod tests {
 
     #[tokio::test]
     async fn vault_set_with_multi_word_value() {
-        let db = setup_db();
+        let env = setup_env();
         let vault: Arc<dyn SecretBackend + Send + Sync> =
             Arc::new(moxxy_vault::InMemoryBackend::new());
         let run_starter: Arc<dyn RunStarter> = Arc::new(MockRunStarter);
-        let pairing = Arc::new(PairingService::new(db.clone()));
-        let ctx = make_ctx(&db, &vault, &run_starter, &pairing, Some("agent-1".into()));
+        let pairing = Arc::new(PairingService::new(&env.moxxy_home));
+        let ctx = make_ctx(&env, &vault, &run_starter, &pairing, Some("agent-1".into()));
 
         let handler = VaultHandler;
         let result = handler
@@ -1118,6 +1254,7 @@ mod tests {
         assert!(!StartHandler.requires_binding());
         assert!(StatusHandler.requires_binding());
         assert!(StopHandler.requires_binding());
+        assert!(NewHandler.requires_binding());
         assert!(ModelHandler.requires_binding());
         assert!(VaultHandler.requires_binding());
     }

@@ -1,4 +1,6 @@
+pub mod agent_kind;
 pub mod anthropic_provider;
+pub mod claude_cli_provider;
 pub mod context;
 pub mod defaults;
 pub mod echo_provider;
@@ -7,10 +9,13 @@ pub mod openai_provider;
 pub mod primitives;
 pub mod process;
 pub mod provider;
+pub mod provider_factory;
 pub mod registry;
 pub mod sandbox;
+pub mod url_policy;
 
 pub use anthropic_provider::AnthropicProvider;
+pub use claude_cli_provider::ClaudeCliProvider;
 pub use context::PrimitiveContext;
 pub use echo_provider::EchoProvider;
 pub use executor::{
@@ -21,7 +26,8 @@ pub use primitives::{
     AgentDismissPrimitive, AgentListPrimitive, AgentRespondPrimitive, AgentSelfGetPrimitive,
     AgentSelfPersonaReadPrimitive, AgentSelfPersonaWritePrimitive, AgentSelfUpdatePrimitive,
     AgentSpawnPrimitive, AgentStatusPrimitive, AgentStopPrimitive, AllowlistAddPrimitive,
-    AllowlistListPrimitive, AllowlistRemovePrimitive, AskChannels, BrowseExtractPrimitive,
+    AllowlistDenyPrimitive, AllowlistListPrimitive, AllowlistRemovePrimitive,
+    AllowlistUndenyPrimitive, AskChannels, BrowseExtractPrimitive,
     BrowseFetchPrimitive, ChannelMessageSender, ChannelNotifyPrimitive, CliNotifyPrimitive,
     ConfigGetPrimitive, ConfigSetPrimitive, FsCdPrimitive, FsListPrimitive, FsReadPrimitive,
     FsRemovePrimitive, FsWritePrimitive, GitCheckoutPrimitive, GitClonePrimitive,
@@ -32,15 +38,21 @@ pub use primitives::{
     HiveAggregatePrimitive, HiveAssignPrimitive, HiveBoardReadPrimitive, HiveCreatePrimitive,
     HiveDisbandPrimitive, HiveManifest, HiveMember, HiveProposePrimitive, HiveRecruitPrimitive,
     HiveResolveProposalPrimitive, HiveSignalPrimitive, HiveStore, HiveTaskClaimPrimitive,
-    HiveTaskCompletePrimitive, HiveTaskCreatePrimitive, HiveTaskListPrimitive, HiveVotePrimitive,
-    HttpRequestPrimitive, MemoryRecallPrimitive, MemoryStmReadPrimitive, MemoryStmWritePrimitive,
-    MemoryStorePrimitive, ShellExecPrimitive, SkillCreatePrimitive, SkillExecutePrimitive,
-    SkillFindPrimitive, SkillGetPrimitive, SkillListPrimitive, SkillRemovePrimitive,
-    SkillValidatePrimitive, UserAskPrimitive, VaultDeletePrimitive, VaultGetPrimitive,
-    VaultListPrimitive, VaultSetPrimitive, WebhookDeletePrimitive, WebhookListPrimitive,
-    WebhookRegisterPrimitive, new_ask_channels,
+    HiveTaskCompletePrimitive, HiveTaskCreatePrimitive, HiveTaskFailPrimitive,
+    HiveTaskListPrimitive, HiveTaskReviewPrimitive, HiveVotePrimitive, HttpRequestPrimitive, McpConnectPrimitive,
+    McpDisconnectPrimitive, McpListPrimitive, McpToolPrimitive, MemoryRecallPrimitive,
+    MemoryStmReadPrimitive, MemoryStmWritePrimitive, MemoryStorePrimitive, ShellExecPrimitive,
+    SkillCreatePrimitive, SkillExecutePrimitive, SkillFindPrimitive, SkillGetPrimitive,
+    SkillListPrimitive, SkillRemovePrimitive, SkillValidatePrimitive, UserAskPrimitive,
+    VaultDeletePrimitive, VaultGetPrimitive, VaultListPrimitive, VaultSetPrimitive,
+    WebhookDeletePrimitive, WebhookListPrimitive, WebhookListenChannels, WebhookListenPrimitive,
+    WebhookRegisterPrimitive, WebhookRotatePrimitive, WebhookUpdatePrimitive, new_ask_channels,
+    new_webhook_listen_channels, ReplyPrimitive, REPLY_PRIMITIVE_NAME,
 };
 pub use process::{AgentProcess, AgentProcessConfig};
-pub use provider::{Message, ModelConfig, Provider, ProviderResponse, ToolCall};
+pub use provider::{
+    Message, ModelConfig, Provider, ProviderResponse, StreamEvent, ToolCall, ToolChoice,
+};
+pub use provider_factory::{ProviderConfig, create_provider};
 pub use registry::{Primitive, PrimitiveError, PrimitiveRegistry, ToolDefinition};
 pub use sandbox::{SandboxConfig, SandboxProfile, SandboxedCommand};

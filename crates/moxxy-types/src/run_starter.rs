@@ -21,6 +21,8 @@ pub struct ChildInfo {
     pub agent_type: AgentType,
     pub hive_role: Option<HiveRole>,
     pub depth: u32,
+    /// The child's final output (populated when status is idle/error).
+    pub last_result: Option<String>,
 }
 
 /// Trait for triggering agent runs. Implemented by the gateway's RunService.

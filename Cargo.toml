@@ -10,6 +10,7 @@ members = [
     "crates/moxxy-runtime",
     "crates/moxxy-channel",
     "crates/moxxy-plugin",
+    "crates/moxxy-mcp",
 ]
 
 [workspace.package]
@@ -66,6 +67,7 @@ keyring = "3"
 
 # HTTP types
 http = "1"
+reqwest-eventsource = "0.6"
 
 # WASI
 wasmtime = "29"

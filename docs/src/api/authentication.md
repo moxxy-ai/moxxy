@@ -98,9 +98,9 @@ Sets the token status to `revoked`. Revoked tokens are immediately rejected by t
 
 | Scope | Description | Required for |
 |-------|-------------|-------------|
-| `agents:read` | Read agent state and metadata | `GET /v1/agents`, `GET /v1/agents/{id}` |
-| `agents:write` | Create agents, spawn sub-agents | `POST /v1/agents`, `POST /v1/agents/{id}/subagents` |
-| `runs:write` | Start and stop agent runs | `POST /v1/agents/{id}/runs`, `POST /v1/agents/{id}/stop` |
+| `agents:read` | Read agent state and metadata | `GET /v1/agents`, `GET /v1/agents/{name}` |
+| `agents:write` | Create agents, manage agent config | `POST /v1/agents`, `PATCH /v1/agents/{name}`, `DELETE /v1/agents/{name}` |
+| `runs:write` | Start and stop agent runs | `POST /v1/agents/{name}/runs`, `POST /v1/agents/{name}/stop` |
 | `vault:read` | List secret references and grants | `GET /v1/vault/secrets`, `GET /v1/vault/grants` |
 | `vault:write` | Create/delete secrets and grants | `POST /v1/vault/secrets`, `POST /v1/vault/grants` |
 | `tokens:admin` | Manage API tokens | `POST /v1/auth/tokens`, `DELETE /v1/auth/tokens/{id}` |

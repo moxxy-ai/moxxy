@@ -85,12 +85,32 @@ POST /v1/agents
 ### Get Agent
 
 ```
-GET /v1/agents/{id}
+GET /v1/agents/{name}
 ```
 
 **Required scope**: `agents:read`
 
 Returns full agent details including status, configuration, and sub-agent metadata (depth, spawned_total).
+
+### Update Agent
+
+```
+PATCH /v1/agents/{name}
+```
+
+**Required scope**: `agents:write`
+
+Updates agent configuration fields.
+
+### Delete Agent
+
+```
+DELETE /v1/agents/{name}
+```
+
+**Required scope**: `agents:write`
+
+Deletes the agent.
 
 ### List Agents
 
@@ -102,20 +122,14 @@ GET /v1/agents
 
 Returns all agents.
 
-### Spawn Sub-Agent
+### Sub-Agent Spawning
 
-```
-POST /v1/agents/{id}/subagents
-```
-
-**Required scope**: `agents:write`
-
-Creates a child agent linked to the parent. The child inherits the parent's provider and model but gets its own workspace. The `AgentLineage` service enforces:
+Sub-agents are spawned at runtime via the `agent.spawn` primitive (not through a REST endpoint). The `AgentLineage` service enforces:
 
 - **Depth limit**: child depth < parent's `max_subagent_depth`
 - **Total limit**: parent's `spawned_total` < parent's `max_subagents_total`
 
-If either limit is exceeded, the request fails with a `SpawnError`.
+If either limit is exceeded, the spawn fails with a `SpawnError`.
 
 **Events emitted**: `subagent.spawned`
 

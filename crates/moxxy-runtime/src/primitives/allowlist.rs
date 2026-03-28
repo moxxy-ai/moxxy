@@ -1,6 +1,5 @@
 use async_trait::async_trait;
-use moxxy_storage::{AllowlistRow, Database};
-use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
 
 use crate::registry::{Primitive, PrimitiveError};
 
@@ -18,13 +17,12 @@ fn validate_list_type(list_type: &str) -> Result<(), PrimitiveError> {
 }
 
 pub struct AllowlistListPrimitive {
-    db: Arc<Mutex<Database>>,
-    agent_id: String,
+    allowlist_path: PathBuf,
 }
 
 impl AllowlistListPrimitive {
-    pub fn new(db: Arc<Mutex<Database>>, agent_id: String) -> Self {
-        Self { db, agent_id }
+    pub fn new(allowlist_path: PathBuf) -> Self {
+        Self { allowlist_path }
     }
 }
 
@@ -58,37 +56,36 @@ impl Primitive for AllowlistListPrimitive {
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'list_type'".into()))?;
         validate_list_type(list_type)?;
 
-        let db_entries = {
-            let db = self
-                .db
-                .lock()
-                .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-            db.allowlists()
-                .list_entries(&self.agent_id, list_type)
-                .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?
-        };
+        let file = moxxy_core::AllowlistFile::load(&self.allowlist_path);
+        let custom_entries = file.allows(list_type);
+        let denied_entries = file.denials(list_type);
 
         let defaults = crate::defaults::default_entries(list_type);
-        let merged = crate::defaults::merge_with_defaults(db_entries.clone(), list_type);
+        let merged = crate::defaults::merge_with_defaults_and_denials(
+            custom_entries.clone(),
+            denied_entries.clone(),
+            list_type,
+        );
 
         Ok(serde_json::json!({
             "list_type": list_type,
             "entries": merged,
             "count": merged.len(),
             "default_count": defaults.len(),
-            "custom_count": db_entries.len(),
+            "custom_count": custom_entries.len(),
+            "denied_entries": denied_entries,
+            "denied_count": denied_entries.len(),
         }))
     }
 }
 
 pub struct AllowlistAddPrimitive {
-    db: Arc<Mutex<Database>>,
-    agent_id: String,
+    allowlist_path: PathBuf,
 }
 
 impl AllowlistAddPrimitive {
-    pub fn new(db: Arc<Mutex<Database>>, agent_id: String) -> Self {
-        Self { db, agent_id }
+    pub fn new(allowlist_path: PathBuf) -> Self {
+        Self { allowlist_path }
     }
 }
 
@@ -135,26 +132,10 @@ impl Primitive for AllowlistAddPrimitive {
             ));
         }
 
-        let row = AllowlistRow {
-            id: uuid::Uuid::now_v7().to_string(),
-            agent_id: self.agent_id.clone(),
-            list_type: list_type.into(),
-            entry: entry.into(),
-            created_at: chrono::Utc::now().to_rfc3339(),
-        };
-
-        let db = self
-            .db
-            .lock()
-            .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-
-        match db.allowlists().insert(&row) {
-            Ok(()) => {}
-            Err(moxxy_types::StorageError::DuplicateKey(_)) => {
-                // Idempotent = already exists
-            }
-            Err(e) => return Err(PrimitiveError::ExecutionFailed(e.to_string())),
-        }
+        let mut file = moxxy_core::AllowlistFile::load(&self.allowlist_path);
+        file.add_allow(list_type, entry.to_string());
+        file.save(&self.allowlist_path)
+            .map_err(PrimitiveError::ExecutionFailed)?;
 
         Ok(serde_json::json!({
             "status": "added",
@@ -165,13 +146,12 @@ impl Primitive for AllowlistAddPrimitive {
 }
 
 pub struct AllowlistRemovePrimitive {
-    db: Arc<Mutex<Database>>,
-    agent_id: String,
+    allowlist_path: PathBuf,
 }
 
 impl AllowlistRemovePrimitive {
-    pub fn new(db: Arc<Mutex<Database>>, agent_id: String) -> Self {
-        Self { db, agent_id }
+    pub fn new(allowlist_path: PathBuf) -> Self {
+        Self { allowlist_path }
     }
 }
 
@@ -212,13 +192,10 @@ impl Primitive for AllowlistRemovePrimitive {
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'entry'".into()))?;
         validate_list_type(list_type)?;
 
-        let db = self
-            .db
-            .lock()
-            .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-        db.allowlists()
-            .delete_entry(&self.agent_id, list_type, entry)
-            .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
+        let mut file = moxxy_core::AllowlistFile::load(&self.allowlist_path);
+        file.remove_allow(list_type, entry);
+        file.save(&self.allowlist_path)
+            .map_err(PrimitiveError::ExecutionFailed)?;
 
         Ok(serde_json::json!({
             "status": "removed",
@@ -228,49 +205,154 @@ impl Primitive for AllowlistRemovePrimitive {
     }
 }
 
+pub struct AllowlistDenyPrimitive {
+    allowlist_path: PathBuf,
+}
+
+impl AllowlistDenyPrimitive {
+    pub fn new(allowlist_path: PathBuf) -> Self {
+        Self { allowlist_path }
+    }
+}
+
+#[async_trait]
+impl Primitive for AllowlistDenyPrimitive {
+    fn name(&self) -> &str {
+        "allowlist.deny"
+    }
+
+    fn description(&self) -> &str {
+        "Deny an entry, removing it from the effective allowlist even if it is a default."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "list_type": {
+                    "type": "string",
+                    "description": "Type of list: shell_command, http_domain, or primitive",
+                    "enum": ["shell_command", "http_domain", "primitive"]
+                },
+                "entry": {
+                    "type": "string",
+                    "description": "The entry to deny (command name, domain, or primitive name)"
+                }
+            },
+            "required": ["list_type", "entry"]
+        })
+    }
+
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
+        let list_type = params["list_type"]
+            .as_str()
+            .ok_or_else(|| PrimitiveError::InvalidParams("missing 'list_type'".into()))?;
+        let entry = params["entry"]
+            .as_str()
+            .ok_or_else(|| PrimitiveError::InvalidParams("missing 'entry'".into()))?;
+        validate_list_type(list_type)?;
+
+        if entry.is_empty() {
+            return Err(PrimitiveError::InvalidParams(
+                "entry must not be empty".into(),
+            ));
+        }
+
+        let mut file = moxxy_core::AllowlistFile::load(&self.allowlist_path);
+        file.add_deny(list_type, entry.to_string());
+        file.save(&self.allowlist_path)
+            .map_err(PrimitiveError::ExecutionFailed)?;
+
+        Ok(serde_json::json!({
+            "status": "denied",
+            "list_type": list_type,
+            "entry": entry,
+        }))
+    }
+}
+
+pub struct AllowlistUndenyPrimitive {
+    allowlist_path: PathBuf,
+}
+
+impl AllowlistUndenyPrimitive {
+    pub fn new(allowlist_path: PathBuf) -> Self {
+        Self { allowlist_path }
+    }
+}
+
+#[async_trait]
+impl Primitive for AllowlistUndenyPrimitive {
+    fn name(&self) -> &str {
+        "allowlist.undeny"
+    }
+
+    fn description(&self) -> &str {
+        "Remove a deny entry, restoring the entry to the effective allowlist."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "list_type": {
+                    "type": "string",
+                    "description": "Type of list: shell_command, http_domain, or primitive",
+                    "enum": ["shell_command", "http_domain", "primitive"]
+                },
+                "entry": {
+                    "type": "string",
+                    "description": "The entry to un-deny"
+                }
+            },
+            "required": ["list_type", "entry"]
+        })
+    }
+
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
+        let list_type = params["list_type"]
+            .as_str()
+            .ok_or_else(|| PrimitiveError::InvalidParams("missing 'list_type'".into()))?;
+        let entry = params["entry"]
+            .as_str()
+            .ok_or_else(|| PrimitiveError::InvalidParams("missing 'entry'".into()))?;
+        validate_list_type(list_type)?;
+
+        let mut file = moxxy_core::AllowlistFile::load(&self.allowlist_path);
+        file.remove_deny(list_type, entry);
+        file.save(&self.allowlist_path)
+            .map_err(PrimitiveError::ExecutionFailed)?;
+
+        Ok(serde_json::json!({
+            "status": "undenied",
+            "list_type": list_type,
+            "entry": entry,
+        }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moxxy_test_utils::TestDb;
+    use tempfile::TempDir;
 
-    fn setup_db() -> (Arc<Mutex<Database>>, String) {
-        let test_db = TestDb::new();
-        let db = Database::new(test_db.into_conn());
-        let agent_id = uuid::Uuid::now_v7().to_string();
-        db.agents()
-            .insert(&moxxy_storage::AgentRow {
-                id: agent_id.clone(),
-                parent_agent_id: None,
-                name: Some("test-agent".into()),
-                status: "idle".into(),
-                depth: 0,
-                spawned_total: 0,
-                workspace_root: "/tmp".into(),
-                created_at: chrono::Utc::now().to_rfc3339(),
-                updated_at: chrono::Utc::now().to_rfc3339(),
-            })
-            .unwrap();
-        (Arc::new(Mutex::new(db)), agent_id)
+    fn setup() -> (TempDir, PathBuf) {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("allowlists.yaml");
+        // Start with an empty file
+        std::fs::write(&path, "").unwrap();
+        (tmp, path)
     }
 
     #[tokio::test]
     async fn allowlist_list_returns_entries() {
-        let (db, agent_id) = setup_db();
-        // Seed a custom entry not in defaults
-        {
-            let d = db.lock().unwrap();
-            d.allowlists()
-                .insert(&AllowlistRow {
-                    id: uuid::Uuid::now_v7().to_string(),
-                    agent_id: agent_id.clone(),
-                    list_type: "shell_command".into(),
-                    entry: "my-custom-tool".into(),
-                    created_at: chrono::Utc::now().to_rfc3339(),
-                })
-                .unwrap();
-        }
+        let (_tmp, path) = setup();
+        // Seed a custom entry
+        let mut file = moxxy_core::AllowlistFile::default();
+        file.add_allow("shell_command", "my-custom-tool".into());
+        file.save(&path).unwrap();
 
-        let prim = AllowlistListPrimitive::new(db, agent_id);
+        let prim = AllowlistListPrimitive::new(path);
         let result = prim
             .invoke(serde_json::json!({"list_type": "shell_command"}))
             .await
@@ -287,8 +369,8 @@ mod tests {
 
     #[tokio::test]
     async fn allowlist_list_rejects_invalid_type() {
-        let (db, agent_id) = setup_db();
-        let prim = AllowlistListPrimitive::new(db, agent_id);
+        let (_tmp, path) = setup();
+        let prim = AllowlistListPrimitive::new(path);
         let result = prim
             .invoke(serde_json::json!({"list_type": "invalid"}))
             .await;
@@ -301,27 +383,23 @@ mod tests {
 
     #[tokio::test]
     async fn allowlist_add_inserts_entry() {
-        let (db, agent_id) = setup_db();
-        let prim = AllowlistAddPrimitive::new(db.clone(), agent_id.clone());
+        let (_tmp, path) = setup();
+        let prim = AllowlistAddPrimitive::new(path.clone());
         let result = prim
             .invoke(serde_json::json!({"list_type": "http_domain", "entry": "example.com"}))
             .await
             .unwrap();
         assert_eq!(result["status"], "added");
 
-        // Verify it's in DB
-        let d = db.lock().unwrap();
-        let entries = d
-            .allowlists()
-            .list_entries(&agent_id, "http_domain")
-            .unwrap();
-        assert!(entries.contains(&"example.com".to_string()));
+        // Verify it's in the file
+        let file = moxxy_core::AllowlistFile::load(&path);
+        assert!(file.allows("http_domain").contains(&"example.com".to_string()));
     }
 
     #[tokio::test]
     async fn allowlist_add_is_idempotent() {
-        let (db, agent_id) = setup_db();
-        let prim = AllowlistAddPrimitive::new(db, agent_id);
+        let (_tmp, path) = setup();
+        let prim = AllowlistAddPrimitive::new(path);
         prim.invoke(serde_json::json!({"list_type": "shell_command", "entry": "ls"}))
             .await
             .unwrap();
@@ -335,8 +413,8 @@ mod tests {
 
     #[tokio::test]
     async fn allowlist_add_rejects_empty_entry() {
-        let (db, agent_id) = setup_db();
-        let prim = AllowlistAddPrimitive::new(db, agent_id);
+        let (_tmp, path) = setup();
+        let prim = AllowlistAddPrimitive::new(path);
         let result = prim
             .invoke(serde_json::json!({"list_type": "shell_command", "entry": ""}))
             .await;
@@ -345,22 +423,13 @@ mod tests {
 
     #[tokio::test]
     async fn allowlist_remove_deletes_entry() {
-        let (db, agent_id) = setup_db();
+        let (_tmp, path) = setup();
         // Seed an entry
-        {
-            let d = db.lock().unwrap();
-            d.allowlists()
-                .insert(&AllowlistRow {
-                    id: uuid::Uuid::now_v7().to_string(),
-                    agent_id: agent_id.clone(),
-                    list_type: "shell_command".into(),
-                    entry: "ls".into(),
-                    created_at: chrono::Utc::now().to_rfc3339(),
-                })
-                .unwrap();
-        }
+        let mut file = moxxy_core::AllowlistFile::default();
+        file.add_allow("shell_command", "ls".into());
+        file.save(&path).unwrap();
 
-        let prim = AllowlistRemovePrimitive::new(db.clone(), agent_id.clone());
+        let prim = AllowlistRemovePrimitive::new(path.clone());
         let result = prim
             .invoke(serde_json::json!({"list_type": "shell_command", "entry": "ls"}))
             .await
@@ -368,22 +437,102 @@ mod tests {
         assert_eq!(result["status"], "removed");
 
         // Verify it's gone
-        let d = db.lock().unwrap();
-        let entries = d
-            .allowlists()
-            .list_entries(&agent_id, "shell_command")
-            .unwrap();
-        assert!(entries.is_empty());
+        let file = moxxy_core::AllowlistFile::load(&path);
+        assert!(file.allows("shell_command").is_empty());
     }
 
     #[tokio::test]
     async fn allowlist_remove_nonexistent_succeeds() {
-        let (db, agent_id) = setup_db();
-        let prim = AllowlistRemovePrimitive::new(db, agent_id);
+        let (_tmp, path) = setup();
+        let prim = AllowlistRemovePrimitive::new(path);
         let result = prim
             .invoke(serde_json::json!({"list_type": "shell_command", "entry": "nonexistent"}))
             .await
             .unwrap();
         assert_eq!(result["status"], "removed");
+    }
+
+    #[tokio::test]
+    async fn allowlist_deny_inserts_entry() {
+        let (_tmp, path) = setup();
+        let prim = AllowlistDenyPrimitive::new(path.clone());
+        let result = prim
+            .invoke(serde_json::json!({"list_type": "shell_command", "entry": "curl"}))
+            .await
+            .unwrap();
+        assert_eq!(result["status"], "denied");
+
+        // Verify it's in the file
+        let file = moxxy_core::AllowlistFile::load(&path);
+        assert!(file.denials("shell_command").contains(&"curl".to_string()));
+    }
+
+    #[tokio::test]
+    async fn allowlist_deny_is_idempotent() {
+        let (_tmp, path) = setup();
+        let prim = AllowlistDenyPrimitive::new(path);
+        prim.invoke(serde_json::json!({"list_type": "shell_command", "entry": "curl"}))
+            .await
+            .unwrap();
+        let result = prim
+            .invoke(serde_json::json!({"list_type": "shell_command", "entry": "curl"}))
+            .await
+            .unwrap();
+        assert_eq!(result["status"], "denied");
+    }
+
+    #[tokio::test]
+    async fn allowlist_deny_rejects_empty_entry() {
+        let (_tmp, path) = setup();
+        let prim = AllowlistDenyPrimitive::new(path);
+        let result = prim
+            .invoke(serde_json::json!({"list_type": "shell_command", "entry": ""}))
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn allowlist_undeny_removes_entry() {
+        let (_tmp, path) = setup();
+        // First deny
+        let deny_prim = AllowlistDenyPrimitive::new(path.clone());
+        deny_prim
+            .invoke(serde_json::json!({"list_type": "shell_command", "entry": "curl"}))
+            .await
+            .unwrap();
+
+        // Then undeny
+        let undeny_prim = AllowlistUndenyPrimitive::new(path.clone());
+        let result = undeny_prim
+            .invoke(serde_json::json!({"list_type": "shell_command", "entry": "curl"}))
+            .await
+            .unwrap();
+        assert_eq!(result["status"], "undenied");
+
+        // Verify it's gone
+        let file = moxxy_core::AllowlistFile::load(&path);
+        assert!(file.denials("shell_command").is_empty());
+    }
+
+    #[tokio::test]
+    async fn allowlist_list_includes_denied_entries() {
+        let (_tmp, path) = setup();
+        // Deny a default command
+        let mut file = moxxy_core::AllowlistFile::default();
+        file.add_deny("shell_command", "git".into());
+        file.save(&path).unwrap();
+
+        let prim = AllowlistListPrimitive::new(path);
+        let result = prim
+            .invoke(serde_json::json!({"list_type": "shell_command"}))
+            .await
+            .unwrap();
+        // "git" should not appear in entries (denied)
+        let entries = result["entries"].as_array().unwrap();
+        assert!(!entries.iter().any(|e| e == "git"));
+        // But should appear in denied_entries
+        let denied = result["denied_entries"].as_array().unwrap();
+        assert!(denied.iter().any(|e| e == "git"));
+        assert_eq!(result["denied_count"], 1);
     }
 }

@@ -11,7 +11,20 @@ pub struct TaskAnalysis {
 /// Classify whether a task needs hive swarm (multi-agent) or can be handled by a single agent.
 /// Makes a single lightweight LLM call with a structured prompt.
 /// Falls back to single-agent on any error.
+///
+/// If the task already contains explicit agent orchestration instructions (e.g.
+/// `agent.spawn`), the hive bootstrap is skipped to avoid conflicting directives.
 pub async fn analyze_task_complexity(provider: &Arc<dyn Provider>, task: &str) -> TaskAnalysis {
+    // Skip hive analysis when the user already specified an orchestration strategy.
+    if task_has_explicit_orchestration(task) {
+        tracing::info!("Task contains explicit orchestration keywords, skipping hive analysis");
+        return TaskAnalysis {
+            needs_hive: false,
+            suggested_workers: 0,
+            reasoning: "explicit orchestration in task".into(),
+        };
+    }
+
     let prompt = format!(
         "Classify this task. Reply with EXACTLY one line in this format:\n\
          SINGLE | <reason>\n\
@@ -27,6 +40,7 @@ pub async fn analyze_task_complexity(provider: &Arc<dyn Provider>, task: &str) -
     let config = ModelConfig {
         temperature: 0.0,
         max_tokens: 100,
+        tool_choice: moxxy_runtime::ToolChoice::Auto,
     };
 
     let result = tokio::time::timeout(
@@ -86,9 +100,49 @@ fn parse_analysis(content: &str) -> TaskAnalysis {
     }
 }
 
+/// Returns true when the task text already contains explicit orchestration
+/// keywords (e.g. `agent.spawn`, `agent.list`, `sub-agent`). In that case the
+/// user has specified how they want parallelism to work and we should NOT
+/// inject a conflicting hive bootstrap.
+fn task_has_explicit_orchestration(task: &str) -> bool {
+    let lower = task.to_ascii_lowercase();
+    lower.contains("agent.spawn")
+        || lower.contains("agent.list")
+        || lower.contains("agent.status")
+        || lower.contains("sub-agent")
+        || lower.contains("sub_agent")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_orchestration_detected() {
+        assert!(task_has_explicit_orchestration(
+            "Use agent.spawn to create workers"
+        ));
+        assert!(task_has_explicit_orchestration(
+            "Spawn a sub-agent for each task"
+        ));
+        assert!(task_has_explicit_orchestration(
+            "check agent.status after spawning"
+        ));
+        assert!(task_has_explicit_orchestration(
+            "use AGENT.SPAWN to delegate"
+        ));
+    }
+
+    #[test]
+    fn no_explicit_orchestration() {
+        assert!(!task_has_explicit_orchestration(
+            "Build a REST API with auth"
+        ));
+        assert!(!task_has_explicit_orchestration(
+            "Create a frontend and backend"
+        ));
+        assert!(!task_has_explicit_orchestration("Analyze CSV data"));
+    }
 
     #[test]
     fn parse_single_task() {

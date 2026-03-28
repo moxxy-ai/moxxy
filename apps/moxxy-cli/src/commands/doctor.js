@@ -132,14 +132,21 @@ export async function runDoctor(client, args) {
     p.log.info('  Install: https://rustup.rs');
   }
 
-  // ── 8. Node.js Version ──
+  // ── 8. Node.js Runtime ──
 
-  const nodeVersion = process.version;
-  const nodeMajor = parseInt(nodeVersion.slice(1));
-  if (nodeMajor >= 22) {
-    ok(`Node.js: ${nodeVersion}`);
-  } else {
-    error(`Node.js ${nodeVersion} is too old. Requires >= 22.0.0`);
+  try {
+    const nodeVersion = execSync('node --version', { encoding: 'utf-8', stdio: 'pipe' }).trim();
+    const parts = nodeVersion.replace(/^v/, '').split('.').map(Number);
+    const nodeOk = parts[0] >= 18;
+    if (nodeOk) {
+      ok(`Node.js: ${nodeVersion}`);
+    } else {
+      error(`Node.js ${nodeVersion} is too old. Requires >= 18.0.0`);
+      p.log.info('  Update: https://nodejs.org');
+    }
+  } catch {
+    error('Node.js not found. Required to run the CLI.');
+    p.log.info('  Install: https://nodejs.org');
   }
 
   // ── 9. Git ──

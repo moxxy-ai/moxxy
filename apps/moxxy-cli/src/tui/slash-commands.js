@@ -11,10 +11,13 @@ export const SLASH_COMMANDS = [
   { name: '/vault list',   description: 'List vault secrets',          aliases: [] },
   { name: '/vault set',    description: 'Set a vault secret',          aliases: [] },
   { name: '/vault remove', description: 'Remove a vault secret',       aliases: ['/vault delete'] },
-  { name: '/select',       description: 'Toggle select mode (Ctrl+Y)', aliases: ['/copy'] },
-  { name: '/tab new',      description: 'Open a new agent tab',        aliases: [] },
-  { name: '/tab close',    description: 'Close current tab',           aliases: ['/close'] },
-  { name: '/tab list',     description: 'List open tabs',              aliases: [] },
+  { name: '/mcp list',     description: 'List MCP servers and tools',   aliases: [] },
+  { name: '/mcp add',      description: 'Add an MCP server',           aliases: [] },
+  { name: '/mcp remove',   description: 'Remove an MCP server',        aliases: [] },
+  { name: '/mcp test',     description: 'Test MCP server connection',   aliases: [] },
+  { name: '/template list',   description: 'List available templates',    aliases: [] },
+  { name: '/template assign',description: 'Assign a template to agent', aliases: [] },
+  { name: '/template clear', description: 'Clear agent template',       aliases: [] },
 ];
 
 export function matchCommands(input) {

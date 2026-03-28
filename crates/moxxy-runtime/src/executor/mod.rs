@@ -2,6 +2,7 @@ pub mod agent_listener;
 pub mod hive_listener;
 pub mod listener;
 pub mod run_executor;
+pub mod stuck_detector;
 
 pub use agent_listener::AgentEventListener;
 pub use hive_listener::HiveEventListener;

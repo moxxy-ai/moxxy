@@ -1,18 +1,19 @@
 import { p, handleCancel, withSpinner, showResult } from '../ui.js';
 import { VALID_SCOPES } from './auth.js';
-import { BUILTIN_PROVIDERS, ANTHROPIC_PROVIDER_ID, OPENAI_CODEX_PROVIDER_ID, loginAnthropic, loginOpenAiCodex } from './provider.js';
+import { BUILTIN_PROVIDERS, ANTHROPIC_PROVIDER_ID, OPENAI_CODEX_PROVIDER_ID, loginAnthropic, loginOpenAiCodex, checkProviderCredentials } from './provider.js';
 import { shellExportInstruction, shellProfileName } from '../platform.js';
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { mkdirSync, existsSync, readFileSync, writeFileSync, chmodSync, copyFileSync, createWriteStream } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { homedir, platform, arch } from 'node:os';
 import { execSync } from 'node:child_process';
+import { pipeline } from 'node:stream/promises';
 
 export function getMoxxyHome() {
   return process.env.MOXXY_HOME || join(homedir(), '.moxxy');
 }
 
 /**
- * Read the auth_mode from ~/.moxxy/config/gateway.json.
+ * Read the auth_mode from ~/.moxxy/config/gateway.yaml.
  * Returns 'token' | 'loopback'.
  * Env var MOXXY_LOOPBACK=true overrides the config file.
  */
@@ -20,11 +21,11 @@ export function readAuthMode() {
   if (process.env.MOXXY_LOOPBACK === 'true' || process.env.MOXXY_LOOPBACK === '1') {
     return 'loopback';
   }
-  const configPath = join(getMoxxyHome(), 'config', 'gateway.json');
+  const configPath = join(getMoxxyHome(), 'config', 'gateway.yaml');
   try {
     const raw = readFileSync(configPath, 'utf-8');
-    const config = JSON.parse(raw);
-    if (config.auth_mode === 'loopback') return 'loopback';
+    const match = raw.match(/^auth_mode:\s*(.+)$/m);
+    if (match && match[1].trim() === 'loopback') return 'loopback';
   } catch {
     // config missing or unparseable = default to token
   }
@@ -47,6 +48,121 @@ export function resetTokens() {
   }
 }
 
+function detectGatewayPlatform() {
+  const osMap = { darwin: 'darwin', linux: 'linux' };
+  const archMap = { arm64: 'arm64', x64: 'x86_64' };
+  const os = osMap[platform()] || platform();
+  const cpuArch = archMap[arch()] || arch();
+  const binaryName = `moxxy-gateway-${os}-${cpuArch}`;
+  return { os, arch: cpuArch, binaryName };
+}
+
+const GITHUB_REPO = process.env.MOXXY_GITHUB_REPO || 'moxxy-ai/moxxy';
+const GITHUB_API = 'https://api.github.com';
+
+async function fetchLatestReleaseAssetUrl(binaryName) {
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  const headers = { 'Accept': 'application/vnd.github+json', 'User-Agent': 'moxxy-cli' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const url = `${GITHUB_API}/repos/${GITHUB_REPO}/releases/latest`;
+  const resp = await fetch(url, { headers, signal: AbortSignal.timeout(10000) });
+
+  if (resp.status === 403) {
+    const remaining = resp.headers.get('x-ratelimit-remaining');
+    if (remaining === '0') {
+      throw new Error('GitHub API rate limit exceeded. Set GITHUB_TOKEN env var to increase the limit.');
+    }
+    throw new Error(`GitHub API returned 403: ${resp.statusText}`);
+  }
+  if (resp.status === 404) {
+    throw new Error('No releases found.');
+  }
+  if (!resp.ok) {
+    throw new Error(`GitHub API error: ${resp.status} ${resp.statusText}`);
+  }
+
+  const release = await resp.json();
+  const asset = release.assets.find(a => a.name === binaryName);
+  if (!asset) {
+    const available = release.assets.map(a => a.name).join(', ');
+    throw new Error(`No binary for this platform (${binaryName}). Available: ${available}`);
+  }
+  return { url: asset.browser_download_url, version: release.tag_name };
+}
+
+async function installGatewayBinary(moxxyHome) {
+  const { binaryName } = detectGatewayPlatform();
+  const binDir = join(moxxyHome, 'bin');
+  const binName = platform() === 'win32' ? 'moxxy-gateway.exe' : 'moxxy-gateway';
+  const binPath = join(binDir, binName);
+
+  if (existsSync(binPath)) {
+    p.log.success(`Gateway binary already installed: ${binPath}`);
+    return true;
+  }
+
+  // MOXXY_GATEWAY_URL overrides GitHub releases (for local dev / custom builds)
+  const overrideUrl = process.env.MOXXY_GATEWAY_URL;
+
+  mkdirSync(binDir, { recursive: true });
+  const tmpPath = binPath + '.download';
+
+  try {
+    let downloadUrl;
+    let version;
+
+    const isLocalPath = overrideUrl && !overrideUrl.startsWith('http://') && !overrideUrl.startsWith('https://');
+
+    if (isLocalPath) {
+      const srcPath = resolve(overrideUrl);
+      if (!existsSync(srcPath)) {
+        throw new Error(`Local binary not found: ${srcPath}`);
+      }
+      p.log.info(`Copying local gateway binary: ${srcPath}`);
+      copyFileSync(srcPath, binPath);
+      chmodSync(binPath, 0o755);
+      p.log.success(`Gateway installed: ${binPath}`);
+    } else {
+      if (overrideUrl) {
+        downloadUrl = overrideUrl;
+        p.log.info(`Using custom gateway URL: ${overrideUrl}`);
+      } else {
+        const release = await withSpinner('Fetching latest release...', () =>
+          fetchLatestReleaseAssetUrl(binaryName), 'Release found.');
+        downloadUrl = release.url;
+        version = release.version;
+      }
+
+      const headers = { 'User-Agent': 'moxxy-cli', 'Accept': 'application/octet-stream' };
+      if (!overrideUrl) {
+        const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      await withSpinner(`Downloading gateway${version ? ` ${version}` : ''} (${binaryName})...`, async () => {
+        const resp = await fetch(downloadUrl, { headers, signal: AbortSignal.timeout(120000) });
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+        }
+        const fileStream = createWriteStream(tmpPath);
+        await pipeline(resp.body, fileStream);
+      }, 'Gateway downloaded.');
+
+      const { renameSync } = await import('node:fs');
+      renameSync(tmpPath, binPath);
+      chmodSync(binPath, 0o755);
+      p.log.success(`Gateway installed: ${binPath}`);
+    }
+    return true;
+  } catch (err) {
+    // Clean up partial download
+    try { const { unlinkSync } = await import('node:fs'); unlinkSync(tmpPath); } catch { /* ignore */ }
+    p.log.error(`Failed to download gateway: ${err.message}`);
+    return false;
+  }
+}
+
 export async function runInit(client, args) {
   p.intro('Welcome to Moxxy');
 
@@ -65,10 +181,18 @@ export async function runInit(client, args) {
     p.log.warn(`Could not create ${moxxyHome}: ${err.message}`);
   }
 
-  // Step 1: Check/configure API URL
+  // Step 1: Install gateway binary
   p.note(
     'The gateway is the backend service that manages agents, routing,\n' +
-    'and tool execution. It must be running for agents to work.',
+    'and tool execution. It will be downloaded and installed automatically.',
+    'Gateway Installation'
+  );
+  const gatewayInstalled = await installGatewayBinary(moxxyHome);
+
+  // Step 1.5: Check/configure API URL
+  p.note(
+    'The gateway listens on a local port.\n' +
+    'The default is http://localhost:3000.',
     'Gateway Connection'
   );
   const useDefault = await p.confirm({
@@ -89,17 +213,37 @@ export async function runInit(client, args) {
     client.baseUrl = apiUrl;
   }
 
-  // Step 2: Check gateway connectivity (use unauthenticated probe = any response means reachable)
+  // Step 2: Start gateway and check connectivity
   let gatewayReachable = false;
-  try {
-    await withSpinner('Checking gateway connection...', async () => {
-      const resp = await fetch(`${client.baseUrl}/v1/providers`);
-      // Any HTTP response (even 401) means the gateway is running
-      if (resp) gatewayReachable = true;
-    }, 'Gateway is reachable.');
-  } catch {
-    p.log.warn('Gateway is not reachable. Start it with: cargo run -p moxxy-gateway');
-    p.log.info('You can continue setup and connect later.');
+  if (gatewayInstalled) {
+    const startIt = await p.confirm({
+      message: 'Start the gateway now?',
+      initialValue: true,
+    });
+    handleCancel(startIt);
+
+    if (startIt) {
+      try {
+        const { startGateway } = await import('./gateway.js');
+        await startGateway();
+        gatewayReachable = true;
+      } catch (err) {
+        p.log.warn(`Could not start gateway: ${err.message}`);
+        p.log.info('You can start it later with: moxxy gateway start');
+      }
+    }
+  }
+
+  if (!gatewayReachable) {
+    try {
+      await withSpinner('Checking gateway connection...', async () => {
+        const resp = await fetch(`${client.baseUrl}/v1/providers`);
+        if (resp) gatewayReachable = true;
+      }, 'Gateway is reachable.');
+    } catch {
+      p.log.warn('Gateway is not reachable. Start it with: moxxy gateway start');
+      p.log.info('You can continue setup and connect later.');
+    }
   }
 
   // Step 2.5: Auth mode selection
@@ -118,9 +262,9 @@ export async function runInit(client, args) {
   handleCancel(authMode);
 
   // Persist auth mode to config
-  const configPath = join(moxxyHome, 'config', 'gateway.json');
+  const configPath = join(moxxyHome, 'config', 'gateway.yaml');
   try {
-    writeFileSync(configPath, JSON.stringify({ auth_mode: authMode }, null, 2) + '\n');
+    writeFileSync(configPath, `auth_mode: ${authMode}\n`);
     p.log.success(`Auth mode set to: ${authMode}`);
   } catch (err) {
     p.log.warn(`Could not write ${configPath}: ${err.message}`);
@@ -329,7 +473,7 @@ export async function runInit(client, args) {
             .filter(m => selectedModels.includes(m.model_id))
             .map(m => ({
               ...m,
-              metadata: { api_base: builtin.api_base },
+              metadata: builtin.api_base ? { api_base: builtin.api_base } : {},
             }));
 
           // Handle custom model
@@ -348,52 +492,13 @@ export async function runInit(client, args) {
             models.push({
               model_id: customModelId,
               display_name: customModelName || customModelId,
-              metadata: { api_base: builtin.api_base, custom: true },
+              metadata: builtin.api_base ? { api_base: builtin.api_base, custom: true } : { custom: true },
             });
           }
 
-          // API key check
-          const currentKey = process.env[builtin.api_key_env];
-          if (currentKey) {
-            const masked = currentKey.slice(0, 8) + '...' + currentKey.slice(-4);
-            p.log.success(`API key found: ${builtin.api_key_env} = ${masked}`);
-          } else {
-            p.log.warn(`API key not set: ${builtin.api_key_env}`);
-
-            const setKey = handleCancel(await p.confirm({
-              message: `Store API key via vault? (You can also set ${builtin.api_key_env} in your shell)`,
-              initialValue: false,
-            }));
-
-            if (setKey) {
-              const apiKey = handleCancel(await p.password({
-                message: `Enter your ${builtin.display_name} API key`,
-                validate: (v) => { if (!v.trim()) return 'Required'; },
-              }));
-
-              try {
-                await withSpinner('Storing API key in vault...', async () => {
-                  await client.request('/v1/vault/secrets', 'POST', {
-                    key_name: builtin.api_key_env,
-                    backend_key: `moxxy_provider_${builtin.id}`,
-                    policy_label: 'provider-api-key',
-                    value: apiKey,
-                  });
-                }, 'API key reference stored.');
-              } catch (err) {
-                p.log.warn(`Could not store in vault: ${err.message}`);
-                p.note(
-                  `export ${builtin.api_key_env}="<your-key>"`,
-                  'Set this in your shell profile'
-                );
-              }
-            } else {
-              p.note(
-                `export ${builtin.api_key_env}="<your-key>"`,
-                'Set this in your shell profile'
-              );
-            }
-          }
+          // Verify credentials (binary check for CLI providers, API key for others)
+          const credOk = await checkProviderCredentials(builtin, client);
+          if (!credOk) return;
 
           // Install provider
           try {
@@ -404,12 +509,14 @@ export async function runInit(client, args) {
 
             installedProviderId = builtin.id;
 
-            showResult('Provider Installed', {
+            const resultInfo = {
               ID: builtin.id,
               Name: builtin.display_name,
               Models: models.map(m => m.model_id).join(', '),
-              'API Key Env': builtin.api_key_env,
-            });
+            };
+            if (builtin.api_key_env) resultInfo['API Key Env'] = builtin.api_key_env;
+            if (builtin.cli_binary) resultInfo['CLI Binary'] = builtin.cli_binary;
+            showResult('Provider Installed', resultInfo);
           } catch (err) {
             p.log.error(`Failed to install provider: ${err.message}`);
           }

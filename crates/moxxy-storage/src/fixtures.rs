@@ -12,17 +12,6 @@ pub fn fixture_stored_token() -> StoredTokenRow {
     }
 }
 
-pub fn fixture_provider_row() -> ProviderRow {
-    ProviderRow {
-        id: "test-provider".into(),
-        display_name: "Test Provider".into(),
-        manifest_path: "/tmp/provider.yaml".into(),
-        signature: None,
-        enabled: true,
-        created_at: chrono::Utc::now().to_rfc3339(),
-    }
-}
-
 pub fn fixture_agent_row() -> AgentRow {
     AgentRow {
         id: uuid::Uuid::now_v7().to_string(),
@@ -126,20 +115,6 @@ pub fn fixture_event_audit_row() -> EventAuditRow {
         redactions_json: None,
         sensitive: false,
         created_at: chrono::Utc::now().to_rfc3339(),
-    }
-}
-
-pub fn fixture_webhook_row() -> WebhookRow {
-    WebhookRow {
-        id: uuid::Uuid::now_v7().to_string(),
-        agent_id: "placeholder-agent".into(),
-        label: "test-webhook".into(),
-        token: uuid::Uuid::now_v7().to_string(),
-        secret_ref_id: "placeholder-secret-ref".into(),
-        event_filter: None,
-        enabled: true,
-        created_at: chrono::Utc::now().to_rfc3339(),
-        updated_at: chrono::Utc::now().to_rfc3339(),
     }
 }
 

@@ -2,11 +2,12 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use moxxy_core::AgentStore;
-use moxxy_storage::AllowlistRow;
+use moxxy_core::AllowlistFile;
 use moxxy_types::{AgentConfig, AgentRuntime, AgentStatus, AgentType, TokenScope};
 use std::sync::Arc;
 
 use crate::auth_extractor::{AuthToken, check_scope};
+use crate::run_service::{QueuedRun, StartRunOutcome};
 use crate::state::AppState;
 
 #[derive(serde::Deserialize)]
@@ -146,6 +147,7 @@ pub async fn list_agents(
                 "provider_id": a.config.provider,
                 "model_id": a.config.model,
                 "status": a.status.to_string(),
+                "template": a.config.template,
             })
         })
         .collect();
@@ -176,6 +178,7 @@ pub async fn create_agent(
         max_subagents_total: body.max_subagents_total,
         policy_profile: body.policy_profile.clone(),
         core_mount: None,
+        template: None,
     };
 
     // Create agent directory + YAML config
@@ -214,6 +217,7 @@ pub async fn create_agent(
         depth: 0,
         spawned_count: 0,
         persona: body.persona.clone(),
+        last_result: None,
     };
     state.registry.register(runtime).map_err(|e| {
         // Clean up filesystem if registry fails
@@ -247,15 +251,67 @@ pub async fn create_agent(
         });
     }
 
-    // Seed default shell command allowlist
-    if let Ok(db) = state.db.lock() {
+    // Seed default shell command allowlist (YAML-backed)
+    {
+        let agent_dir = state.moxxy_home.join("agents").join(&body.name);
+        let al_path = moxxy_core::allowlist_path(&agent_dir);
+        let mut al_file = AllowlistFile::default();
         for cmd in &[
+            // Core POSIX utilities
             "ls",
             "cat",
             "grep",
             "find",
             "echo",
             "wc",
+            "head",
+            "tail",
+            "sort",
+            "uniq",
+            "cut",
+            "tr",
+            "sed",
+            "awk",
+            "diff",
+            "tee",
+            "xargs",
+            "mkdir",
+            "cp",
+            "mv",
+            "touch",
+            "date",
+            "basename",
+            "dirname",
+            "realpath",
+            // Scripting runtimes (for data processing)
+            "python3",
+            "python",
+            "node",
+            "deno",
+            "bun",
+            "ruby",
+            "bash",
+            "sh",
+            // Build / package tools
+            "npm",
+            "npx",
+            "pip",
+            "pip3",
+            "cargo",
+            "make",
+            "cmake",
+            "go",
+            // Common dev tools
+            "git",
+            "curl",
+            "wget",
+            "jq",
+            "tar",
+            "zip",
+            "unzip",
+            "gzip",
+            "gunzip",
+            // macOS-specific
             "osascript",
             "screencapture",
             "open",
@@ -270,14 +326,9 @@ pub async fn create_agent(
             "mdfind",
             "killall",
         ] {
-            let _ = db.allowlists().insert(&AllowlistRow {
-                id: uuid::Uuid::now_v7().to_string(),
-                agent_id: body.name.clone(),
-                list_type: "shell_command".into(),
-                entry: cmd.to_string(),
-                created_at: now.clone(),
-            });
+            al_file.add_allow("shell_command", cmd.to_string());
         }
+        let _ = al_file.save(&al_path);
     }
 
     Ok((
@@ -375,6 +426,7 @@ pub async fn update_agent(
         depth: 0,
         spawned_count: runtime.spawned_count,
         persona: body.persona.clone().or(runtime.persona.clone()),
+        last_result: runtime.last_result.clone(),
     };
     let _ = state.registry.register(updated);
 
@@ -407,6 +459,7 @@ pub async fn get_agent(
         "model_id": runtime.config.model,
         "status": runtime.status.to_string(),
         "persona": runtime.persona,
+        "template": runtime.config.template,
     })))
 }
 
@@ -421,9 +474,14 @@ pub async fn start_run(
 
     tracing::info!(agent_name = %name, task_len = body.task.len(), "Starting run");
 
-    let run_id = state
+    let outcome = state
         .run_service
-        .do_start_run(&name, &body.task)
+        .start_or_queue_run(QueuedRun {
+            agent_name: name.clone(),
+            task: body.task.clone(),
+            source: "api".into(),
+            metadata: serde_json::json!({}),
+        })
         .await
         .map_err(|e| {
             let status = if e.contains("not found") {
@@ -437,12 +495,27 @@ pub async fn start_run(
             )
         })?;
 
-    Ok(Json(serde_json::json!({
-        "agent_name": name,
-        "run_id": run_id,
-        "task": body.task,
-        "status": "running"
-    })))
+    match outcome {
+        StartRunOutcome::Started { run_id } => Ok(Json(serde_json::json!({
+            "agent_name": name,
+            "run_id": run_id,
+            "task": body.task,
+            "status": "running"
+        }))),
+        StartRunOutcome::Queued { position } => Ok(Json(serde_json::json!({
+            "agent_name": name,
+            "task": body.task,
+            "status": "queued",
+            "queue_position": position
+        }))),
+        StartRunOutcome::QueueFull => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "queue_full",
+                "message": "Agent is busy and run queue is full"
+            })),
+        )),
+    }
 }
 
 pub async fn stop_run(
@@ -506,6 +579,48 @@ pub async fn respond_to_ask(
     Ok(Json(serde_json::json!({
         "question_id": question_id,
         "status": "answered"
+    })))
+}
+
+pub async fn reset_session(
+    State(state): State<Arc<AppState>>,
+    auth: AuthToken,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    check_scope(&auth.0, &TokenScope::RunsWrite)?;
+
+    tracing::info!(agent_name = %name, "Resetting agent session");
+
+    // Verify agent exists
+    state.registry.get(&name).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "not_found", "message": "Agent not found"})),
+        )
+    })?;
+
+    // Stop any active run
+    let _ = state.run_service.do_stop_agent(&name);
+
+    // Clear STM file
+    let stm_path = state
+        .moxxy_home
+        .join("agents")
+        .join(&name)
+        .join("memory")
+        .join("stm.yaml");
+    if stm_path.exists() {
+        let _ = std::fs::remove_file(&stm_path);
+    }
+
+    // Clear conversation history
+    if let Ok(db) = state.db.lock() {
+        let _ = db.conversations().delete_all_by_agent(&name);
+    }
+
+    Ok(Json(serde_json::json!({
+        "agent_name": name,
+        "status": "reset"
     })))
 }
 

@@ -1,5 +1,7 @@
 use async_trait::async_trait;
+use futures_util::Stream;
 use serde::{Deserialize, Serialize};
+use std::pin::Pin;
 
 use crate::registry::{PrimitiveError, ToolDefinition};
 
@@ -74,10 +76,28 @@ impl Message {
     }
 }
 
+/// Controls whether the model is forced to call a tool.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolChoice {
+    /// Model decides whether to call tools (default API behaviour).
+    Auto,
+    /// Model MUST call at least one tool every turn.
+    Any,
+}
+
+impl Default for ToolChoice {
+    fn default() -> Self {
+        ToolChoice::Any
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ModelConfig {
     pub temperature: f64,
     pub max_tokens: u32,
+    #[serde(default)]
+    pub tool_choice: ToolChoice,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -109,6 +129,25 @@ pub struct ToolCall {
     pub arguments: serde_json::Value,
 }
 
+#[derive(Debug)]
+pub enum StreamEvent {
+    TextDelta(String),
+    ToolCallStart {
+        id: String,
+        name: String,
+    },
+    ToolCallArgumentsDelta {
+        id: String,
+        chunk: String,
+    },
+    ToolCallEnd {
+        id: String,
+        arguments: serde_json::Value,
+    },
+    Usage(TokenUsage),
+    Done(ProviderResponse),
+}
+
 #[async_trait]
 pub trait Provider: Send + Sync {
     async fn complete(
@@ -117,6 +156,18 @@ pub trait Provider: Send + Sync {
         config: &ModelConfig,
         tools: &[ToolDefinition],
     ) -> Result<ProviderResponse, PrimitiveError>;
+
+    async fn complete_stream(
+        &self,
+        messages: Vec<Message>,
+        config: &ModelConfig,
+        tools: &[ToolDefinition],
+    ) -> Result<Pin<Box<dyn Stream<Item = StreamEvent> + Send>>, PrimitiveError> {
+        let response = self.complete(messages, config, tools).await?;
+        Ok(Box::pin(futures_util::stream::once(std::future::ready(
+            StreamEvent::Done(response),
+        ))))
+    }
 }
 
 #[cfg(test)]
@@ -147,6 +198,7 @@ mod tests {
         let config = ModelConfig {
             temperature: 0.7,
             max_tokens: 1000,
+            tool_choice: ToolChoice::Auto,
         };
         let resp = provider.complete(vec![], &config, &[]).await.unwrap();
         assert_eq!(resp.content, "Hello from mock");

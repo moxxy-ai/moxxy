@@ -1,13 +1,22 @@
 use moxxy_channel::ChannelBridge;
-use moxxy_core::{AgentRegistry, AgentStore, EventBus, HeartbeatScheduler, RedactionEngine};
+use moxxy_core::{
+    AgentRegistry, AgentStore, EventBus, HeartbeatActionContext, HeartbeatActionRegistry,
+    HeartbeatScheduler, LoadedWebhook, RedactionEngine, WebhookLoader,
+};
+use moxxy_runtime::WebhookListenChannels;
 use moxxy_storage::{Database, EventAuditRow};
 use moxxy_types::{AgentRuntime, AgentStatus, AgentType, AuthMode, EventEnvelope, EventType};
 use moxxy_vault::{SecretBackend, SqliteBackend};
 use rusqlite::Connection;
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
-use crate::run_service::RunService;
+use crate::heartbeat_actions::{
+    ExecuteSkillAction, MemoryCompactAction, NotifyChannelAction, NotifyCliAction,
+    NotifyWebhookAction,
+};
+use crate::run_service::{self, RunService};
 
 /// Registers the sqlite-vec extension globally. Must be called before opening any connection.
 #[allow(clippy::missing_transmute_annotations)]
@@ -19,16 +28,25 @@ pub fn register_sqlite_vec() {
     }
 }
 
+/// Tracks pairing brute-force attempts: channel_id → (count, window_start).
+pub type PairingAttempts = Arc<Mutex<HashMap<String, (u32, chrono::DateTime<chrono::Utc>)>>>;
+
 pub struct AppState {
     pub db: Arc<Mutex<Database>>,
     pub registry: AgentRegistry,
     pub event_bus: EventBus,
     pub run_service: Arc<RunService>,
     pub vault_backend: Arc<dyn SecretBackend + Send + Sync>,
-    pub channel_bridge: Mutex<Option<Arc<ChannelBridge>>>,
+    pub channel_bridge: Arc<Mutex<Option<Arc<ChannelBridge>>>>,
     pub auth_mode: AuthMode,
     pub moxxy_home: PathBuf,
     pub base_url: String,
+    /// In-memory index of webhook configs, keyed by token.
+    pub webhook_index: Arc<RwLock<HashMap<String, LoadedWebhook>>>,
+    pub webhook_listen_channels: WebhookListenChannels,
+    pub pairing_attempts: PairingAttempts,
+    /// Drain receiver - must be consumed by `spawn_drain_loop` after the runtime starts.
+    pub drain_rx: Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<String>>>,
 }
 
 impl AppState {
@@ -53,100 +71,7 @@ impl AppState {
             .filter(|l| !l.trim_start().starts_with("PRAGMA"))
             .collect::<Vec<_>>()
             .join("\n");
-        conn.execute_batch(&ddl).expect("Migration 0001 failed");
-
-        // Run channels migration
-        let sql2 = include_str!("../../../migrations/0002_channels.sql");
-        conn.execute_batch(sql2).expect("Migration 0002 failed");
-
-        // Run webhooks migration
-        let sql3 = include_str!("../../../migrations/0003_webhooks.sql");
-        conn.execute_batch(sql3).expect("Migration 0003 failed");
-
-        // Run conversation log migration
-        let sql4 = include_str!("../../../migrations/0004_conversation_log.sql");
-        conn.execute_batch(sql4).expect("Migration 0004 failed");
-
-        // Run heartbeat cron migration (ALTER TABLE is not idempotent, check first)
-        let has_cron: bool = conn
-            .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='heartbeats'")
-            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, String>(0)))
-            .map(|sql| sql.contains("cron_expr"))
-            .unwrap_or(false);
-        if !has_cron {
-            let sql6 = include_str!("../../../migrations/0006_heartbeat_cron.sql");
-            conn.execute_batch(sql6).expect("Migration 0006 failed");
-        }
-
-        // Run memory vec0 migration (ALTER TABLE is not idempotent, check first)
-        let has_status: bool = conn
-            .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memory_index'")
-            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, String>(0)))
-            .map(|sql| sql.contains("status"))
-            .unwrap_or(false);
-        if !has_status {
-            let sql5 = include_str!("../../../migrations/0005_memory_vec0.sql");
-            conn.execute_batch(sql5).expect("Migration 0005 failed");
-        }
-
-        // Run vault secrets migration
-        let sql7 = include_str!("../../../migrations/0007_vault_secrets.sql");
-        conn.execute_batch(sql7).expect("Migration 0007 failed");
-
-        // Run agent name/persona migration (ALTER TABLE is not idempotent, check first)
-        let has_agent_name: bool = conn
-            .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='agents'")
-            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, String>(0)))
-            .map(|sql| sql.contains("name"))
-            .unwrap_or(false);
-        if !has_agent_name {
-            let sql8 = include_str!("../../../migrations/0008_agent_name_persona.sql");
-            conn.execute_batch(sql8).expect("Migration 0008 failed");
-        }
-
-        // Run agent allowlists migration
-        let sql9 = include_str!("../../../migrations/0009_agent_allowlists.sql");
-        conn.execute_batch(sql9).expect("Migration 0009 failed");
-
-        // Run inbound webhooks migration (drops and recreates webhook tables)
-        let sql10 = include_str!("../../../migrations/0010_inbound_webhooks.sql");
-        conn.execute_batch(sql10).expect("Migration 0010 failed");
-
-        // Run slim agents migration (remove config fields from agents table)
-        let has_provider_id: bool = conn
-            .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='agents'")
-            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, String>(0)))
-            .map(|sql| sql.contains("provider_id"))
-            .unwrap_or(false);
-        if has_provider_id {
-            let sql11 = include_str!("../../../migrations/0011_slim_agents.sql");
-            conn.execute_batch(sql11).expect("Migration 0011 failed");
-        }
-
-        // Run memory content migration (add content column to memory_index)
-        let has_content: bool = conn
-            .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memory_index'")
-            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, String>(0)))
-            .map(|sql| sql.contains("content"))
-            .unwrap_or(false);
-        if !has_content {
-            let sql12 = include_str!("../../../migrations/0012_memory_content.sql");
-            conn.execute_batch(sql12).expect("Migration 0012 failed");
-        }
-
-        // Run drop skills migration (skills are now filesystem-backed)
-        let sql13 = include_str!("../../../migrations/0013_drop_skills.sql");
-        conn.execute_batch(sql13).expect("Migration 0013 failed");
-
-        // Run drop heartbeats migration (heartbeats are now file-based)
-        let has_heartbeats_table: bool = conn
-            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='heartbeats'")
-            .and_then(|mut stmt| stmt.query_row([], |row| row.get::<_, String>(0)))
-            .is_ok();
-        if has_heartbeats_table {
-            let sql14 = include_str!("../../../migrations/0014_drop_heartbeats.sql");
-            conn.execute_batch(sql14).expect("Migration 0014 failed");
-        }
+        conn.execute_batch(&ddl).expect("Migration failed");
 
         // Create vec0 virtual table (requires sqlite-vec extension)
         conn.execute_batch(
@@ -163,9 +88,16 @@ impl AppState {
         } else {
             Connection::open(&db_path).expect("Failed to open vault connection")
         };
-        // Run vault migration on the second connection too
+        // Run vault_secrets DDL on the second connection too
         vault_conn
-            .execute_batch(sql7)
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS vault_secrets (
+                    backend_key TEXT PRIMARY KEY,
+                    secret_value TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )",
+            )
             .expect("Vault migration on second connection failed");
 
         let db = Arc::new(Mutex::new(Database::new(conn)));
@@ -186,6 +118,7 @@ impl AppState {
                     depth: 0,
                     spawned_count: 0,
                     persona,
+                    last_result: None,
                 };
                 if let Err(e) = registry.register(runtime) {
                     tracing::warn!(agent = %name, error = %e, "Failed to register agent from YAML");
@@ -193,13 +126,43 @@ impl AppState {
             }
         }
 
+        // Seed built-in templates (idempotent)
+        moxxy_core::TemplateStore::seed_builtins(&moxxy_home);
+
+        // Build in-memory webhook index from filesystem YAML files
+        let all_webhooks = WebhookLoader::load_all(&moxxy_home);
+        let mut wh_index = HashMap::new();
+        for wh in all_webhooks {
+            wh_index.insert(wh.doc.token.clone(), wh);
+        }
+        let webhook_index = Arc::new(RwLock::new(wh_index));
+
         let vault_backend: Arc<dyn SecretBackend + Send + Sync> = Arc::new(SqliteBackend::new(
             Arc::new(Mutex::new(vault_conn)),
             vault_key,
         ));
         let embedding_svc: Arc<dyn moxxy_core::EmbeddingService> =
             Arc::new(moxxy_core::MockEmbeddingService::new());
-        let run_service = Arc::new(RunService::new(
+
+        // Build the agent kind registry with default kinds
+        let kind_registry = {
+            use moxxy_runtime::agent_kind::{
+                AgentKindRegistry, EphemeralAgentKind, HiveWorkerAgentKind, StandardAgentKind,
+            };
+            let registry = AgentKindRegistry::new();
+            registry
+                .register(Box::new(StandardAgentKind))
+                .expect("register standard kind");
+            registry
+                .register(Box::new(EphemeralAgentKind))
+                .expect("register ephemeral kind");
+            registry
+                .register(Box::new(HiveWorkerAgentKind))
+                .expect("register hive_worker kind");
+            Arc::new(registry)
+        };
+
+        let (run_service_inner, drain_rx) = RunService::new_with_drain(
             db.clone(),
             registry.clone(),
             event_bus.clone(),
@@ -207,7 +170,14 @@ impl AppState {
             moxxy_home.clone(),
             base_url.clone(),
             embedding_svc,
-        ));
+            kind_registry,
+            webhook_index.clone(),
+        );
+        let run_service = Arc::new(run_service_inner);
+
+        let webhook_listen_channels = run_service.webhook_listen_channels.clone();
+
+        let channel_bridge: Arc<Mutex<Option<Arc<ChannelBridge>>>> = Arc::new(Mutex::new(None));
 
         Self {
             db,
@@ -215,10 +185,27 @@ impl AppState {
             event_bus,
             run_service,
             vault_backend,
-            channel_bridge: Mutex::new(None),
+            channel_bridge,
             auth_mode,
             moxxy_home,
             base_url,
+            webhook_index,
+            webhook_listen_channels,
+            pairing_attempts: Arc::new(Mutex::new(HashMap::new())) as PairingAttempts,
+            drain_rx: Mutex::new(Some(drain_rx)),
+        }
+    }
+
+    /// Spawn the drain loop that processes queued runs when agents become idle.
+    /// Must be called after the Tokio runtime is available.
+    pub fn spawn_drain_loop(self: &Arc<Self>) {
+        let drain_rx = self
+            .drain_rx
+            .lock()
+            .ok()
+            .and_then(|mut g| g.take());
+        if let Some(rx) = drain_rx {
+            run_service::spawn_drain_loop(self.run_service.clone(), rx);
         }
     }
 
@@ -322,12 +309,16 @@ impl AppState {
                 let stale_threshold_ms = 5 * 60 * 1000; // 5 minutes
 
                 for agent in &running_agents {
-                    let has_token = run_tokens
+                    let run_handle = run_tokens
                         .lock()
                         .ok()
-                        .is_some_and(|t| t.contains_key(&agent.name));
+                        .and_then(|t| {
+                            t.get(&agent.name).map(|h| {
+                                (h.token.clone(), h.started_at_ms)
+                            })
+                        });
 
-                    if !has_token {
+                    let Some((token, started_at_ms)) = run_handle else {
                         // Agent stuck from crash = no active executor
                         tracing::warn!(
                             agent_name = %agent.name,
@@ -345,6 +336,13 @@ impl AppState {
                                 "message": "Agent running with no active executor"
                             }),
                         ));
+                        continue;
+                    };
+
+                    // Skip staleness check if the run hasn't been active
+                    // long enough - it can't be stale yet and old events from
+                    // a previous run would cause a false positive.
+                    if now_ms - started_at_ms < stale_threshold_ms {
                         continue;
                     }
 
@@ -364,12 +362,7 @@ impl AppState {
                             last_event_ms = ts,
                             "Health check: agent has no events in 5 minutes = cancelling"
                         );
-                        // Cancel the run
-                        if let Ok(tokens) = run_tokens.lock()
-                            && let Some(token) = tokens.get(&agent.name)
-                        {
-                            token.cancel();
-                        }
+                        token.cancel();
                         registry.update_status(&agent.name, AgentStatus::Error);
                         event_bus.emit(EventEnvelope::new(
                             agent.name.clone(),
@@ -395,43 +388,76 @@ impl AppState {
     /// Heartbeats are stored as per-agent markdown files on disk
     /// (`~/.moxxy/agents/{name}/heartbeat.md`).
     pub fn spawn_heartbeat_loop(&self) {
-        let db = self.db.clone();
+        let action_registry = self.build_heartbeat_action_registry();
         let event_bus = self.event_bus.clone();
-        let run_service = self.run_service.clone();
         let moxxy_home = self.moxxy_home.clone();
-        let registry = self.registry.clone();
+        let agent_registry = self.registry.clone();
 
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+            tracing::info!("Heartbeat loop started (30s tick)");
             loop {
                 interval.tick().await;
                 let now = chrono::Utc::now();
-                let now_str = now.to_rfc3339();
 
                 // Collect due heartbeat entries from all registered agents' files
-                let agent_names: Vec<String> =
-                    registry.list().iter().map(|a| a.name.clone()).collect();
+                let agent_names: Vec<String> = agent_registry
+                    .list()
+                    .iter()
+                    .map(|a| a.name.clone())
+                    .collect();
 
                 // Collect (agent_id, entry) pairs for due entries
                 let mut due_entries: Vec<(String, moxxy_core::HeartbeatEntry)> = Vec::new();
+                let mut total_entries = 0usize;
                 for agent_name in &agent_names {
                     let hb_path = moxxy_core::heartbeat_path(&moxxy_home, agent_name);
                     let file = match moxxy_core::read_heartbeat_file(&hb_path) {
                         Ok(f) => f,
-                        Err(_) => continue,
+                        Err(e) => {
+                            tracing::debug!(agent=%agent_name, error=%e, "Failed to read heartbeat file");
+                            continue;
+                        }
                     };
                     for entry in &file.entries {
                         if !entry.enabled {
                             continue;
                         }
-                        // Check if entry is due: next_run_at <= now
-                        if entry.next_run_at <= now_str {
+                        total_entries += 1;
+                        // Parse next_run_at as DateTime for reliable comparison
+                        let is_due = entry
+                            .next_run_at
+                            .parse::<chrono::DateTime<chrono::Utc>>()
+                            .map(|next| next <= now)
+                            .unwrap_or(false);
+                        if is_due {
                             due_entries.push((agent_name.clone(), entry.clone()));
+                        } else {
+                            tracing::debug!(
+                                agent=%agent_name, heartbeat_id=%entry.id,
+                                next_run_at=%entry.next_run_at,
+                                "Heartbeat not yet due"
+                            );
                         }
                     }
                 }
 
+                if total_entries > 0 || !due_entries.is_empty() {
+                    tracing::info!(
+                        agents = agent_names.len(),
+                        total_entries,
+                        due = due_entries.len(),
+                        "Heartbeat tick"
+                    );
+                }
+
                 for (agent_id, entry) in &due_entries {
+                    tracing::info!(
+                        agent=%agent_id, heartbeat_id=%entry.id,
+                        action_type=%entry.action_type,
+                        next_run_at=%entry.next_run_at,
+                        "Firing heartbeat"
+                    );
                     // Emit heartbeat.triggered event
                     event_bus.emit(EventEnvelope::new(
                         agent_id.clone(),
@@ -445,212 +471,39 @@ impl AppState {
                         }),
                     ));
 
-                    // Dispatch based on action_type
-                    match entry.action_type.as_str() {
-                        "execute_skill" => {
-                            let task = entry
-                                .action_payload
-                                .as_deref()
-                                .unwrap_or("run scheduled skill");
-                            match run_service.do_start_run(agent_id, task).await {
-                                Ok(run_id) => {
-                                    event_bus.emit(EventEnvelope::new(
-                                        agent_id.clone(),
-                                        Some(run_id.clone()),
-                                        None,
-                                        0,
-                                        EventType::HeartbeatCompleted,
-                                        serde_json::json!({
-                                            "heartbeat_id": entry.id,
-                                            "run_id": run_id,
-                                            "message": "Scheduled run started",
-                                        }),
-                                    ));
-                                }
-                                Err(e) => {
-                                    tracing::warn!(
-                                        "Heartbeat {} failed to start run for agent {}: {}",
-                                        entry.id,
-                                        agent_id,
-                                        e
-                                    );
-                                    event_bus.emit(EventEnvelope::new(
-                                        agent_id.clone(),
-                                        None,
-                                        None,
-                                        0,
-                                        EventType::HeartbeatFailed,
-                                        serde_json::json!({
-                                            "heartbeat_id": entry.id,
-                                            "error": e,
-                                        }),
-                                    ));
-                                }
+                    // Dispatch via the action registry
+                    let ctx = HeartbeatActionContext {
+                        agent_id: agent_id.clone(),
+                        entry: entry.clone(),
+                    };
+                    match action_registry.get(&entry.action_type) {
+                        Some(action) => match action.execute(&ctx).await {
+                            Ok(result) => {
+                                event_bus.emit(EventEnvelope::new(
+                                    agent_id.clone(),
+                                    None,
+                                    None,
+                                    0,
+                                    EventType::HeartbeatCompleted,
+                                    result.payload,
+                                ));
                             }
-                        }
-                        "notify_cli" => {
-                            event_bus.emit(EventEnvelope::new(
-                                agent_id.clone(),
-                                None,
-                                None,
-                                0,
-                                EventType::HeartbeatCompleted,
-                                serde_json::json!({
-                                    "heartbeat_id": entry.id,
-                                    "message": entry.action_payload.as_deref().unwrap_or("Heartbeat check"),
-                                }),
-                            ));
-                        }
-                        "notify_webhook" => {
-                            if let Some(ref url) = entry.action_payload {
-                                let agent_id = agent_id.clone();
-                                let heartbeat_id = entry.id.clone();
-                                let url = url.clone();
-                                let eb = event_bus.clone();
-                                tokio::spawn(async move {
-                                    let payload = serde_json::json!({
-                                        "heartbeat_id": heartbeat_id,
-                                        "agent_id": agent_id,
-                                        "timestamp": chrono::Utc::now().to_rfc3339(),
-                                    });
-                                    let client = reqwest::Client::new();
-                                    let result = client
-                                        .post(&url)
-                                        .json(&payload)
-                                        .timeout(std::time::Duration::from_secs(10))
-                                        .send()
-                                        .await;
-                                    match result {
-                                        Ok(resp) => {
-                                            let status_code = resp.status().as_u16();
-                                            eb.emit(EventEnvelope::new(
-                                                agent_id,
-                                                None,
-                                                None,
-                                                0,
-                                                EventType::HeartbeatCompleted,
-                                                serde_json::json!({
-                                                    "heartbeat_id": heartbeat_id,
-                                                    "webhook_url": url,
-                                                    "status": status_code,
-                                                }),
-                                            ));
-                                        }
-                                        Err(e) => {
-                                            let err_msg = e.to_string();
-                                            tracing::warn!(
-                                                "Heartbeat {} webhook POST to {} failed: {}",
-                                                heartbeat_id,
-                                                url,
-                                                err_msg
-                                            );
-                                            eb.emit(EventEnvelope::new(
-                                                agent_id,
-                                                None,
-                                                None,
-                                                0,
-                                                EventType::HeartbeatFailed,
-                                                serde_json::json!({
-                                                    "heartbeat_id": heartbeat_id,
-                                                    "error": err_msg,
-                                                }),
-                                            ));
-                                        }
-                                    }
-                                });
-                            } else {
-                                tracing::warn!(
-                                    "Heartbeat {} notify_webhook has no URL in action_payload",
-                                    entry.id
-                                );
+                            Err(e) => {
+                                tracing::warn!("{}", e);
+                                event_bus.emit(EventEnvelope::new(
+                                    agent_id.clone(),
+                                    None,
+                                    None,
+                                    0,
+                                    EventType::HeartbeatFailed,
+                                    serde_json::json!({
+                                        "heartbeat_id": entry.id,
+                                        "error": e.message,
+                                    }),
+                                ));
                             }
-                        }
-                        "memory_compact" => {
-                            let agent_id = agent_id.clone();
-                            let heartbeat_id = entry.id.clone();
-                            let db_ref = db.clone();
-                            let eb = event_bus.clone();
-                            eb.emit(EventEnvelope::new(
-                                agent_id.clone(),
-                                None,
-                                None,
-                                0,
-                                EventType::MemoryCompactStarted,
-                                serde_json::json!({
-                                    "heartbeat_id": heartbeat_id,
-                                    "message": "Memory compaction triggered by heartbeat",
-                                }),
-                            ));
-                            tokio::spawn(async move {
-                                let workspace_root = {
-                                    let db = db_ref.lock().unwrap();
-                                    db.agents()
-                                        .find_by_id(&agent_id)
-                                        .ok()
-                                        .flatten()
-                                        .map(|a| a.workspace_root)
-                                };
-                                if let Some(root) = workspace_root {
-                                    let workspace = std::path::PathBuf::from(&root);
-                                    let memory_dir = workspace.join(".moxxy").join("memory");
-                                    let archive_dir = workspace.join(".moxxy").join("archive");
-                                    let records = {
-                                        let db = db_ref.lock().unwrap();
-                                        db.memory().find_by_agent(&agent_id).unwrap_or_default()
-                                    };
-                                    let eligible: Vec<moxxy_core::EligibleEntry> = records
-                                        .iter()
-                                        .filter(|r| r.status == "active")
-                                        .map(|r| moxxy_core::EligibleEntry {
-                                            id: r.id.clone(),
-                                            agent_id: r.agent_id.clone(),
-                                            markdown_path: r.markdown_path.clone(),
-                                            tags_json: r.tags_json.clone(),
-                                            created_at: r.created_at.clone(),
-                                            status: r.status.clone(),
-                                        })
-                                        .collect();
-                                    let compactor = moxxy_core::MemoryCompactor::new(
-                                        moxxy_core::CompactionConfig::default(),
-                                    );
-                                    let groups =
-                                        compactor.find_eligible(&eligible, chrono::Utc::now());
-                                    let mut compacted = 0usize;
-                                    for (_tag, entries) in &groups {
-                                        if let Ok(result) = compactor
-                                            .compact_group(
-                                                entries,
-                                                _tag,
-                                                &memory_dir,
-                                                &archive_dir,
-                                                None,
-                                            )
-                                            .await
-                                        {
-                                            compacted += result.entries_compacted;
-                                            let db = db_ref.lock().unwrap();
-                                            for entry in entries {
-                                                let _ = db
-                                                    .memory()
-                                                    .update_status(&entry.id, "archived");
-                                            }
-                                        }
-                                    }
-                                    eb.emit(EventEnvelope::new(
-                                        agent_id,
-                                        None,
-                                        None,
-                                        0,
-                                        EventType::MemoryCompactCompleted,
-                                        serde_json::json!({
-                                            "heartbeat_id": heartbeat_id,
-                                            "entries_compacted": compacted,
-                                        }),
-                                    ));
-                                }
-                            });
-                        }
-                        _ => {
+                        },
+                        None => {
                             tracing::warn!("Unknown heartbeat action_type: {}", entry.action_type);
                         }
                     }
@@ -675,14 +528,40 @@ impl AppState {
                     };
                     let hb_path = moxxy_core::heartbeat_path(&moxxy_home, agent_id);
                     let entry_id = entry.id.clone();
-                    let _ = moxxy_core::mutate_heartbeat_file(&hb_path, |f| {
+                    tracing::info!(
+                        agent=%agent_id, heartbeat_id=%entry_id,
+                        new_next_run=%new_next_run,
+                        "Advanced heartbeat next_run_at"
+                    );
+                    if let Err(e) = moxxy_core::mutate_heartbeat_file(&hb_path, |f| {
                         if let Some(e) = f.entries.iter_mut().find(|e| e.id == entry_id) {
                             e.next_run_at = new_next_run.clone();
                             e.updated_at = now.to_rfc3339();
                         }
-                    });
+                    }) {
+                        tracing::warn!(
+                            agent=%agent_id, heartbeat_id=%entry.id,
+                            error=%e, "Failed to update heartbeat next_run_at"
+                        );
+                    }
                 }
             }
         });
+    }
+
+    /// Builds the heartbeat action registry with all known action types.
+    fn build_heartbeat_action_registry(&self) -> HeartbeatActionRegistry {
+        let mut registry = HeartbeatActionRegistry::new();
+        registry.register(Box::new(ExecuteSkillAction::new(self.run_service.clone())));
+        registry.register(Box::new(NotifyCliAction));
+        registry.register(Box::new(NotifyChannelAction::new(
+            self.channel_bridge.clone(),
+        )));
+        registry.register(Box::new(NotifyWebhookAction::new(self.event_bus.clone())));
+        registry.register(Box::new(MemoryCompactAction::new(
+            self.db.clone(),
+            self.event_bus.clone(),
+        )));
+        registry
     }
 }

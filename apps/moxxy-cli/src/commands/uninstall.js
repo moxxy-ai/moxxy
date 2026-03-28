@@ -1,6 +1,6 @@
 /**
  * Uninstall command: remove all Moxxy data from the system.
- * Removes ~/.moxxy (database, agents, config) but does NOT remove the npm package.
+ * Removes ~/.moxxy (database, agents, config) but does NOT remove the CLI package.
  */
 import { p, handleCancel } from '../ui.js';
 import { LOGO } from '../cli.js';
@@ -148,7 +148,7 @@ export async function runUninstall(client, args) {
   }
   instructions.push('');
   instructions.push('To remove the CLI itself:');
-  instructions.push('  npm uninstall -g moxxy-cli');
+  instructions.push('  npm remove -g moxxy-cli');
 
   p.note(instructions.join('\n'), 'Manual cleanup');
 

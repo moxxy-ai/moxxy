@@ -7,7 +7,7 @@ A run represents a single task execution by an agent. The agent receives a task 
 ### Start Run
 
 ```
-POST /v1/agents/{id}/runs
+POST /v1/agents/{name}/runs
 ```
 
 **Required scope**: `runs:write`
@@ -24,7 +24,7 @@ POST /v1/agents/{id}/runs
 |-------|------|----------|-------------|
 | `task` | string | Yes | The task description for the agent |
 
-**Response** (200 OK):
+**Response** (200 OK) -- started immediately:
 
 ```json
 {
@@ -34,16 +34,35 @@ POST /v1/agents/{id}/runs
 }
 ```
 
+**Response** (200 OK) -- queued:
+
+```json
+{
+  "agent_id": "019cac12-...",
+  "status": "queued",
+  "queue_position": 3
+}
+```
+
+**Response** (503 Service Unavailable) -- queue full:
+
+```json
+{
+  "error": "queue_full"
+}
+```
+
 **Preconditions**:
 - Agent must exist
-- Agent status must be `idle` (cannot start a run on an already-running agent)
+- If agent is idle, the run starts immediately
+- If agent is running, the run is queued
 
-**Events emitted**: `run.started`
+**Events emitted**: `run.started`, `run.queued`
 
 ### Stop Run
 
 ```
-POST /v1/agents/{id}/stop
+POST /v1/agents/{name}/stop
 ```
 
 **Required scope**: `runs:write`
@@ -92,11 +111,27 @@ If an error occurs at any point:
 - Agent status is set to `error`
 - `run.failed` event is emitted with error details
 
+## Run Queue
+
+When a run request arrives and the agent is already running, the task is queued instead of being rejected.
+
+- The queue is **per-agent**, **bounded at 50 entries**, and held **in-memory**.
+- When the current run completes, the next queued run starts automatically.
+- Queuing works for all run sources: API calls, webhooks, and heartbeats.
+- If the queue is full (50 entries), the server returns **503 Service Unavailable** with `{"error": "queue_full"}`.
+
+**Events**:
+
+| Event | When |
+|-------|------|
+| `run.queued` | A run request was added to the queue |
+| `run.dequeued` | A queued run was picked up and is about to start |
+
 ## Cancellation
 
 Runs can be cancelled in two ways:
 
-1. **Explicit stop**: `POST /v1/agents/{id}/stop` sets the cancellation token
+1. **Explicit stop**: `POST /v1/agents/{name}/stop` sets the cancellation token
 2. **Timeout**: A 5-minute default timeout triggers automatic cancellation
 
 The cancellation token is checked:

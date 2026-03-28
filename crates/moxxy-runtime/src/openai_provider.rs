@@ -4,7 +4,9 @@ use std::collections::HashSet;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::provider::{Message, ModelConfig, Provider, ProviderResponse, TokenUsage, ToolCall};
+use crate::provider::{
+    Message, ModelConfig, Provider, ProviderResponse, TokenUsage, ToolCall, ToolChoice,
+};
 use crate::registry::{PrimitiveError, ToolDefinition};
 
 const OPENAI_OAUTH_TOKEN_ENDPOINT: &str = "https://auth.openai.com/oauth/token";
@@ -73,6 +75,8 @@ struct CodexRequest {
     max_output_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<CodexToolDef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -822,6 +826,14 @@ impl Provider for OpenAIProvider {
 
         if is_codex {
             let codex_tools: Vec<CodexToolDef> = tools.iter().map(convert_codex_tool_def).collect();
+            let tool_choice = if !codex_tools.is_empty() {
+                Some(match config.tool_choice {
+                    ToolChoice::Any => "required".to_string(),
+                    ToolChoice::Auto => "auto".to_string(),
+                })
+            } else {
+                None
+            };
             let body = CodexRequest {
                 model: self.model.clone(),
                 instructions: build_codex_instructions(&messages),
@@ -830,6 +842,7 @@ impl Provider for OpenAIProvider {
                 stream: true,
                 max_output_tokens: None,
                 tools: codex_tools,
+                tool_choice,
             };
             let json_body = serde_json::to_value(body).map_err(|e| {
                 PrimitiveError::ExecutionFailed(format!("failed to serialize codex request: {e}"))
@@ -847,7 +860,10 @@ impl Provider for OpenAIProvider {
         };
 
         let tool_choice = if !openai_tools.is_empty() {
-            Some("auto".to_string())
+            Some(match config.tool_choice {
+                ToolChoice::Any => "required".to_string(),
+                ToolChoice::Auto => "auto".to_string(),
+            })
         } else {
             None
         };
@@ -997,6 +1013,7 @@ mod tests {
             stream: true,
             max_output_tokens: None,
             tools: vec![convert_codex_tool_def(&td)],
+            tool_choice: Some("auto".into()),
         };
         let json = serde_json::to_value(&body).unwrap();
         assert_eq!(
@@ -1012,6 +1029,10 @@ mod tests {
             Some("fs__read")
         );
         assert!(json["tools"][0].get("function").is_none());
+        assert_eq!(
+            json.get("tool_choice").and_then(|v| v.as_str()),
+            Some("auto")
+        );
     }
 
     #[test]

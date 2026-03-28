@@ -1,6 +1,6 @@
 # Crate Overview
 
-Moxxy is organized as a Rust workspace with 9 crates, each with a clear responsibility boundary. Crate dependencies flow strictly downward -- no circular dependencies exist.
+Moxxy is organized as a Rust workspace with 10 crates, each with a clear responsibility boundary. Crate dependencies flow strictly downward -- no circular dependencies exist.
 
 ## Dependency Graph
 
@@ -9,9 +9,9 @@ Moxxy is organized as a Rust workspace with 9 crates, each with a clear responsi
                    /      |      \
                   /       |       \
          moxxy-core  moxxy-vault  moxxy-runtime
-              |    \      |       /    |
-              |     \     |      /     |
-         moxxy-storage   moxxy-channel |
+              |    \      |       /    |     \
+              |     \     |      /     |      \
+         moxxy-storage   moxxy-channel |    moxxy-mcp
               |                        |
               |                   moxxy-plugin
               |
@@ -28,7 +28,7 @@ Moxxy is organized as a Rust workspace with 9 crates, each with a clear responsi
 
 This is the leaf crate with no workspace dependencies. It defines the core vocabulary used across all other crates:
 
-- `EventType` -- 30 event type variants with dot-notation serialization (e.g., `run.started`)
+- `EventType` -- 60 event type variants with dot-notation serialization (e.g., `run.started`)
 - `EventEnvelope` -- The standard event wrapper with UUID v7 IDs and millisecond timestamps
 - `TokenScope` -- 9 permission scopes (`agents:read`, `agents:write`, `runs:write`, etc.)
 - `TokenStatus` -- Active / Revoked states
@@ -54,7 +54,7 @@ Dependencies: `rusqlite`, `moxxy-types`
 
 Wraps rusqlite with a `Database` struct that provides typed DAO (Data Access Object) accessors. Contains:
 
-- **16 DAOs**: `TokenDao`, `AgentDao`, `ProviderDao`, `HeartbeatDao`, `SkillDao`, `MemoryDao`, `VaultRefDao`, `VaultGrantDao`, `EventAuditDao`, `ChannelDao`, `ChannelBindingDao`, `ChannelPairingDao`, `WebhookDao`, `WebhookDeliveryDao`, `ConversationDao`
+- **12 DAOs**: `TokenDao`, `AgentDao`, `MemoryDao`, `VaultRefDao`, `VaultGrantDao`, `EventAuditDao`, `ChannelDao`, `ChannelBindingDao`, `ChannelPairingDao`, `WebhookDeliveryDao`, `ConversationDao`, `AllowlistDao`
 - **17 row types** in `rows.rs`: One struct per table, mirroring the SQL schema exactly
 - **Fixtures** (`fixtures.rs`): Test data factories used in storage-layer tests
 
@@ -122,35 +122,46 @@ The main entry point for the REST API and SSE event stream. Key components:
 - `run_service` -- Orchestrates run lifecycle: start, stop, event emission
 - Route modules: `auth`, `agents`, `providers`, `heartbeats`, `skills`, `vault`, `events`, `channels`, `webhooks`, `health`, `audit`
 
-The gateway also spawns two background tasks:
+The gateway also spawns four background tasks:
 - **Event persistence** -- Subscribes to EventBus and writes every event to `event_audit` after applying RedactionEngine
 - **Heartbeat loop** -- Polls for due heartbeat rules every 30 seconds and dispatches actions
+- **Health check loop** -- Periodically verifies system component health
+- **Run queue drain loop** -- Processes queued runs and dispatches them for execution
 
 Dependencies: `moxxy-types`, `moxxy-storage`, `moxxy-core`, `moxxy-vault`, `moxxy-runtime`, `moxxy-channel`, `axum`, `tower-http`, `tower-governor`
 
 ### moxxy-runtime
 
-**Agent execution engine with 27 primitives.**
+**Agent execution engine with 85 primitives.**
 
 Contains the `Provider` trait (LLM abstraction), `Primitive` trait (tool abstraction), and `PrimitiveRegistry` (dispatch with allowlist enforcement).
 
 **Provider implementations:**
-- `EchoProvider` -- Returns input as output (testing)
+- `AnthropicProvider` -- Anthropic Claude API endpoint
 - `OpenAIProvider` -- Any OpenAI-compatible API endpoint
 
 **Primitive categories:**
 
 | Category | Primitives |
 |----------|-----------|
-| Filesystem | `fs.read`, `fs.write`, `fs.list` |
+| Filesystem | `fs.read`, `fs.write`, `fs.list`, `fs.remove`, `fs.cd` |
 | Shell | `shell.exec` |
 | HTTP | `http.request` |
-| Memory | `memory.append`, `memory.search`, `memory.summarize` |
+| Memory | `memory.store`, `memory.recall`, `memory.stm_read`, `memory.stm_write` |
 | Git | `git.init`, `git.clone`, `git.status`, `git.checkout`, `git.commit`, `git.push`, `git.fork`, `git.pr_create`, `git.worktree_add`, `git.worktree_list`, `git.worktree_remove` |
 | Browse | `browse.fetch`, `browse.extract` |
-| Skills | `skill.import`, `skill.validate` |
-| Webhooks | `webhook.create`, `webhook.list`, `notify.webhook` |
-| Notifications | `notify.cli`, `channel.notify` |
+| Skills | `skill.create`, `skill.validate`, `skill.list`, `skill.find`, `skill.get`, `skill.execute`, `skill.remove` |
+| Webhooks | `webhook.register`, `webhook.list`, `webhook.delete`, `webhook.update`, `webhook.rotate`, `webhook.listen` |
+| Notifications | `notify.cli`, `notify.channel` |
+| Heartbeat | `heartbeat.create`, `heartbeat.list`, `heartbeat.disable`, `heartbeat.delete`, `heartbeat.update` |
+| Vault | `vault.set`, `vault.get`, `vault.delete`, `vault.list` |
+| Ask | `user.ask`, `agent.respond` |
+| Agent | `agent.spawn`, `agent.status`, `agent.list`, `agent.stop`, `agent.dismiss` |
+| Agent.self | `agent.self.get`, `agent.self.update`, `agent.self.persona_read`, `agent.self.persona_write` |
+| Allowlist | `allowlist.list`, `allowlist.add`, `allowlist.remove`, `allowlist.deny`, `allowlist.undeny` |
+| Config | `config.get`, `config.set` |
+| MCP | `mcp.list`, `mcp.connect`, `mcp.disconnect` |
+| Hive | `hive.create`, `hive.recruit`, `hive.task_create`, `hive.assign`, `hive.aggregate`, `hive.resolve_proposal`, `hive.disband`, `hive.signal`, `hive.board_read`, `hive.task_list`, `hive.task_claim`, `hive.task_complete`, `hive.task_fail`, `hive.task_review`, `hive.propose`, `hive.vote` |
 
 **Other components:**
 - `SandboxProfile` -- Strict / Standard / None sandboxing for shell commands
@@ -189,3 +200,15 @@ Hosts provider plugins as WebAssembly modules using Wasmtime:
 - `PluginRegistry` -- Manages loaded plugins
 
 Dependencies: `wasmtime`, `wasmtime-wasi`, `ed25519-dalek`, `serde_yaml`
+
+### moxxy-mcp
+
+**Model Context Protocol integration.**
+
+Provides MCP client support for connecting to external tool servers:
+
+- `McpManager` -- Manages multiple MCP server connections
+- `McpClient` -- Individual server connection (stdio, SSE, streamable_http transports)
+- Dynamic tool discovery and invocation via `mcp.<server_id>.<tool_name>` primitives
+
+Dependencies: `moxxy-types`, `tokio`, `serde_json`

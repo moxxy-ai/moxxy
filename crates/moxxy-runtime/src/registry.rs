@@ -1,6 +1,9 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+
+use crate::primitives::REPLY_PRIMITIVE_NAME;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PrimitiveError {
@@ -16,6 +19,22 @@ pub enum PrimitiveError {
     SizeLimitExceeded,
     #[error("not found: {0}")]
     NotFound(String),
+}
+
+impl PrimitiveError {
+    pub fn is_transient(&self) -> bool {
+        match self {
+            PrimitiveError::ExecutionFailed(msg) => {
+                msg.contains("429")
+                    || msg.contains("500")
+                    || msg.contains("503")
+                    || msg.contains("rate_limit")
+                    || msg.contains("overloaded")
+            }
+            PrimitiveError::Timeout => true,
+            _ => false,
+        }
+    }
 }
 
 #[async_trait]
@@ -42,8 +61,9 @@ pub struct ToolDefinition {
     pub parameters: serde_json::Value,
 }
 
+#[derive(Clone)]
 pub struct PrimitiveRegistry {
-    primitives: HashMap<String, Box<dyn Primitive>>,
+    primitives: Arc<RwLock<HashMap<String, Arc<dyn Primitive>>>>,
 }
 
 impl Default for PrimitiveRegistry {
@@ -55,13 +75,20 @@ impl Default for PrimitiveRegistry {
 impl PrimitiveRegistry {
     pub fn new() -> Self {
         Self {
-            primitives: HashMap::new(),
+            primitives: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
-    pub fn register(&mut self, primitive: Box<dyn Primitive>) {
+    pub fn register(&self, primitive: Box<dyn Primitive>) {
         let name = primitive.name().to_string();
-        self.primitives.insert(name, primitive);
+        self.primitives
+            .write()
+            .unwrap()
+            .insert(name, Arc::from(primitive));
+    }
+
+    pub fn deregister(&self, name: &str) -> bool {
+        self.primitives.write().unwrap().remove(name).is_some()
     }
 
     pub async fn invoke(
@@ -70,14 +97,19 @@ impl PrimitiveRegistry {
         params: serde_json::Value,
         allowed: &[String],
     ) -> Result<serde_json::Value, PrimitiveError> {
-        if !allowed.contains(&name.to_string()) {
+        if name != REPLY_PRIMITIVE_NAME && !allowed.contains(&name.to_string()) {
             tracing::warn!(primitive = name, "Primitive blocked by allowlist");
             return Err(PrimitiveError::AccessDenied(format!(
                 "Primitive '{}' not in allowlist",
                 name
             )));
         }
-        let primitive = self.primitives.get(name).ok_or_else(|| {
+        // Clone the Arc to avoid holding the RwLock guard across await.
+        let primitive = {
+            let primitives = self.primitives.read().unwrap();
+            primitives.get(name).cloned()
+        };
+        let primitive = primitive.ok_or_else(|| {
             tracing::warn!(primitive = name, "Primitive not found in registry");
             PrimitiveError::NotFound(name.to_string())
         })?;
@@ -85,15 +117,18 @@ impl PrimitiveRegistry {
         primitive.invoke(params).await
     }
 
-    pub fn list(&self) -> Vec<&str> {
-        self.primitives.keys().map(|s| s.as_str()).collect()
+    pub fn list(&self) -> Vec<String> {
+        self.primitives.read().unwrap().keys().cloned().collect()
     }
 
     /// Returns tool definitions for all primitives in the allowlist.
+    /// The `reply` primitive is always included regardless of allowlist.
     pub fn tool_definitions(&self, allowed: &[String]) -> Vec<ToolDefinition> {
         self.primitives
+            .read()
+            .unwrap()
             .iter()
-            .filter(|(name, _)| allowed.contains(name))
+            .filter(|(name, _)| name.as_str() == REPLY_PRIMITIVE_NAME || allowed.contains(name))
             .map(|(_, prim)| ToolDefinition {
                 name: prim.name().to_string(),
                 description: prim.description().to_string(),
@@ -136,7 +171,7 @@ mod tests {
 
     #[tokio::test]
     async fn registry_register_and_invoke() {
-        let mut registry = PrimitiveRegistry::new();
+        let registry = PrimitiveRegistry::new();
         registry.register(Box::new(EchoPrimitive));
         let result = registry
             .invoke("echo", serde_json::json!({"msg": "hi"}), &["echo".into()])
@@ -147,7 +182,7 @@ mod tests {
 
     #[tokio::test]
     async fn registry_blocks_disallowed_primitive() {
-        let mut registry = PrimitiveRegistry::new();
+        let registry = PrimitiveRegistry::new();
         registry.register(Box::new(EchoPrimitive));
         let result = registry.invoke("echo", serde_json::json!({}), &[]).await;
         assert!(result.is_err());
@@ -169,15 +204,15 @@ mod tests {
 
     #[test]
     fn registry_list_returns_registered_names() {
-        let mut registry = PrimitiveRegistry::new();
+        let registry = PrimitiveRegistry::new();
         registry.register(Box::new(EchoPrimitive));
         let names = registry.list();
-        assert!(names.contains(&"echo"));
+        assert!(names.contains(&"echo".to_string()));
     }
 
     #[test]
     fn tool_definitions_returns_correct_count() {
-        let mut registry = PrimitiveRegistry::new();
+        let registry = PrimitiveRegistry::new();
         registry.register(Box::new(EchoPrimitive));
         let defs = registry.tool_definitions(&["echo".into()]);
         assert_eq!(defs.len(), 1);
@@ -188,7 +223,7 @@ mod tests {
 
     #[test]
     fn tool_definitions_respects_allowlist() {
-        let mut registry = PrimitiveRegistry::new();
+        let registry = PrimitiveRegistry::new();
         registry.register(Box::new(EchoPrimitive));
         let defs = registry.tool_definitions(&[]); // empty allowlist
         assert_eq!(defs.len(), 0);
@@ -204,5 +239,38 @@ mod tests {
         let json = serde_json::to_string(&def).unwrap();
         assert!(json.contains("test"));
         assert!(json.contains("A test tool"));
+    }
+
+    #[test]
+    fn is_transient_detects_rate_limit() {
+        let err = PrimitiveError::ExecutionFailed("HTTP 429 rate_limit exceeded".into());
+        assert!(err.is_transient());
+
+        let err = PrimitiveError::ExecutionFailed("503 service overloaded".into());
+        assert!(err.is_transient());
+
+        let err = PrimitiveError::ExecutionFailed("500 internal server error".into());
+        assert!(err.is_transient());
+
+        let err = PrimitiveError::Timeout;
+        assert!(err.is_transient());
+    }
+
+    #[test]
+    fn is_transient_returns_false_for_access_denied() {
+        let err = PrimitiveError::AccessDenied("forbidden".into());
+        assert!(!err.is_transient());
+
+        let err = PrimitiveError::InvalidParams("bad input".into());
+        assert!(!err.is_transient());
+
+        let err = PrimitiveError::NotFound("missing".into());
+        assert!(!err.is_transient());
+
+        let err = PrimitiveError::SizeLimitExceeded;
+        assert!(!err.is_transient());
+
+        let err = PrimitiveError::ExecutionFailed("permission denied".into());
+        assert!(!err.is_transient());
     }
 }

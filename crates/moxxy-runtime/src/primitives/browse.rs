@@ -1,6 +1,5 @@
 use async_trait::async_trait;
-use moxxy_storage::Database;
-use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::registry::{Primitive, PrimitiveError};
@@ -8,48 +7,31 @@ use crate::registry::{Primitive, PrimitiveError};
 /// Simple HTTP fetch with optional CSS selector extraction.
 /// Uses reqwest directly = no browser needed.
 pub struct BrowseFetchPrimitive {
-    db: Arc<Mutex<Database>>,
-    agent_id: String,
+    allowlist_path: PathBuf,
     timeout: Duration,
     max_response_bytes: usize,
 }
 
 impl BrowseFetchPrimitive {
     pub fn new(
-        db: Arc<Mutex<Database>>,
-        agent_id: String,
+        allowlist_path: PathBuf,
         timeout: Duration,
         max_response_bytes: usize,
     ) -> Self {
         Self {
-            db,
-            agent_id,
+            allowlist_path,
             timeout,
             max_response_bytes,
         }
     }
 
-    fn is_domain_allowed(&self, domain: &str) -> Result<bool, PrimitiveError> {
-        let db = self
-            .db
-            .lock()
-            .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-        let db_entries = db
-            .allowlists()
-            .list_entries(&self.agent_id, "http_domain")
-            .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-        let allowed = crate::defaults::merge_with_defaults(db_entries, "http_domain");
-        Ok(allowed.iter().any(|d| d == domain))
-    }
-
-    fn extract_domain(url: &str) -> Option<String> {
-        let without_scheme = url
-            .strip_prefix("https://")
-            .or_else(|| url.strip_prefix("http://"))
-            .unwrap_or(url);
-        let domain = without_scheme.split('/').next()?;
-        let domain = domain.split(':').next()?;
-        Some(domain.to_string())
+    fn is_domain_allowed(&self, domain: &str) -> bool {
+        let file = moxxy_core::AllowlistFile::load(&self.allowlist_path);
+        let allows = file.allows("http_domain");
+        let denials = file.denials("http_domain");
+        let allowed =
+            crate::defaults::merge_with_defaults_and_denials(allows, denials, "http_domain");
+        crate::url_policy::is_domain_allowed(domain, &allowed)
     }
 }
 
@@ -79,10 +61,10 @@ impl Primitive for BrowseFetchPrimitive {
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'url' parameter".into()))?;
 
-        let domain = Self::extract_domain(url)
+        let domain = crate::url_policy::extract_host(url)
             .ok_or_else(|| PrimitiveError::InvalidParams("cannot parse domain from URL".into()))?;
 
-        if !self.is_domain_allowed(&domain)? {
+        if !self.is_domain_allowed(&domain) {
             tracing::warn!(url, %domain, "Browse fetch blocked = domain not in allowlist");
             return Err(PrimitiveError::AccessDenied(format!(
                 "Domain '{}' not in allowlist",
@@ -311,37 +293,13 @@ mod tests {
 
     #[tokio::test]
     async fn browse_fetch_blocks_disallowed_domain() {
-        use moxxy_storage::{AllowlistRow, Database};
-        use moxxy_test_utils::TestDb;
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("allowlists.yaml");
+        let mut file = moxxy_core::AllowlistFile::default();
+        file.add_allow("http_domain", "allowed.com".into());
+        file.save(&path).unwrap();
 
-        let test_db = TestDb::new();
-        let db = Database::new(test_db.into_conn());
-        let agent_id = uuid::Uuid::now_v7().to_string();
-        db.agents()
-            .insert(&moxxy_storage::AgentRow {
-                id: agent_id.clone(),
-                parent_agent_id: None,
-                name: Some("test-agent".into()),
-                status: "idle".into(),
-                depth: 0,
-                spawned_total: 0,
-                workspace_root: "/tmp".into(),
-                created_at: chrono::Utc::now().to_rfc3339(),
-                updated_at: chrono::Utc::now().to_rfc3339(),
-            })
-            .unwrap();
-        db.allowlists()
-            .insert(&AllowlistRow {
-                id: uuid::Uuid::now_v7().to_string(),
-                agent_id: agent_id.clone(),
-                list_type: "http_domain".into(),
-                entry: "allowed.com".into(),
-                created_at: chrono::Utc::now().to_rfc3339(),
-            })
-            .unwrap();
-        let db = Arc::new(Mutex::new(db));
-
-        let prim = BrowseFetchPrimitive::new(db, agent_id, Duration::from_secs(5), 1024 * 1024);
+        let prim = BrowseFetchPrimitive::new(path, Duration::from_secs(5), 1024 * 1024);
         let result = prim
             .invoke(serde_json::json!({"url": "https://evil.com/page"}))
             .await;
@@ -354,33 +312,16 @@ mod tests {
 
     #[tokio::test]
     async fn browse_fetch_allows_default_domains() {
-        use moxxy_storage::Database;
-        use moxxy_test_utils::TestDb;
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("allowlists.yaml");
+        // Empty file = only defaults
+        std::fs::write(&path, "").unwrap();
 
-        // With no DB entries, default domains are still allowed
-        let test_db = TestDb::new();
-        let db = Database::new(test_db.into_conn());
-        let agent_id = uuid::Uuid::now_v7().to_string();
-        db.agents()
-            .insert(&moxxy_storage::AgentRow {
-                id: agent_id.clone(),
-                parent_agent_id: None,
-                name: Some("test-agent".into()),
-                status: "idle".into(),
-                depth: 0,
-                spawned_total: 0,
-                workspace_root: "/tmp".into(),
-                created_at: chrono::Utc::now().to_rfc3339(),
-                updated_at: chrono::Utc::now().to_rfc3339(),
-            })
-            .unwrap();
-        let db = Arc::new(Mutex::new(db));
-
-        let prim = BrowseFetchPrimitive::new(db, agent_id, Duration::from_secs(5), 1024 * 1024);
+        let prim = BrowseFetchPrimitive::new(path, Duration::from_secs(5), 1024 * 1024);
         // Default domains are allowed
-        assert!(prim.is_domain_allowed("github.com").unwrap());
-        assert!(prim.is_domain_allowed("stackoverflow.com").unwrap());
+        assert!(prim.is_domain_allowed("github.com"));
+        assert!(prim.is_domain_allowed("stackoverflow.com"));
         // Unknown domains are blocked
-        assert!(!prim.is_domain_allowed("random-unknown.com").unwrap());
+        assert!(!prim.is_domain_allowed("random-unknown.com"));
     }
 }

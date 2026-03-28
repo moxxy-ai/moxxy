@@ -47,6 +47,8 @@ impl AgentStore {
             .map_err(|e| format!("create workspace dir: {e}"))?;
         std::fs::create_dir_all(agent_dir.join("memory"))
             .map_err(|e| format!("create memory dir: {e}"))?;
+        std::fs::create_dir_all(agent_dir.join("webhooks"))
+            .map_err(|e| format!("create webhooks dir: {e}"))?;
         Self::save(moxxy_home, name, config)
     }
 
@@ -89,6 +91,7 @@ mod tests {
             max_subagents_total: 8,
             policy_profile: None,
             core_mount: None,
+            template: None,
         }
     }
 

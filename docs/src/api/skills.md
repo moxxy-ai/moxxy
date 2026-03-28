@@ -46,14 +46,12 @@ You are a code review assistant. Review code for:
 2. Review        Inspect raw_content, allowed_primitives,
                  and safety_notes
 
-3. Approve       POST /v1/agents/{id}/skills/approve/{skill_id}
-                 Status: "approved"
-
-4. Execute       During runs, primitives are checked against
+3. Execute       During runs, primitives are checked against
                  the skill's allowed_primitives list
-```
 
-Skills can also be rejected, setting their status to `rejected`.
+4. Delete        DELETE /v1/agents/{id}/skills/{skill_id}
+                 Removes the skill
+```
 
 ## Endpoints
 
@@ -97,25 +95,15 @@ GET /v1/agents/{id}/skills
 
 Returns all skills for the agent, including their status.
 
-### Approve Skill
+### Delete Skill
 
 ```
-POST /v1/agents/{id}/skills/approve/{skill_id}
-```
-
-**Required scope**: `agents:write`
-
-Sets the skill status to `approved` and records `approved_at`. The skill's `allowed_primitives` become active for the agent's runs.
-
-### Reject Skill
-
-```
-POST /v1/agents/{id}/skills/reject/{skill_id}
+DELETE /v1/agents/{id}/skills/{skill_id}
 ```
 
 **Required scope**: `agents:write`
 
-Sets the skill status to `rejected`.
+Deletes the skill from the agent.
 
 ## Primitive Allowlist Enforcement
 
@@ -126,7 +114,7 @@ During a run, when the LLM requests a tool call, the runtime checks:
 
 If either check fails, the call is rejected with `PrimitiveError::AccessDenied`.
 
-This means that even though all 27 primitives are registered globally, each skill can only use the subset it declares. A `code-review` skill with `[fs.read, fs.list]` cannot invoke `fs.write` or `shell.exec`.
+This means that even though all 85 primitives are registered globally, each skill can only use the subset it declares. A `code-review` skill with `[fs.read, fs.list]` cannot invoke `fs.write` or `shell.exec`.
 
 ## Events
 

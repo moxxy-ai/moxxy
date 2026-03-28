@@ -60,8 +60,18 @@ pub struct HiveTask {
     pub status: String,
     pub depends_on: Option<Vec<String>>,
     pub result_summary: Option<String>,
+    #[serde(default)]
+    pub attempt_count: u32,
+    #[serde(default = "default_max_retries")]
+    pub max_retries: u32,
+    #[serde(default)]
+    pub failure_reason: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+fn default_max_retries() -> u32 {
+    3
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -101,16 +111,16 @@ impl HiveStore {
     }
 
     pub fn read_manifest(&self) -> Result<HiveManifest, PrimitiveError> {
-        let path = self.hive_path.join("hive.json");
+        let path = self.hive_path.join("hive.yaml");
         let data = std::fs::read_to_string(&path)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("read manifest: {e}")))?;
-        serde_json::from_str(&data)
+        serde_yaml::from_str(&data)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("parse manifest: {e}")))
     }
 
     pub fn write_manifest(&self, manifest: &HiveManifest) -> Result<(), PrimitiveError> {
-        let path = self.hive_path.join("hive.json");
-        let data = serde_json::to_string_pretty(manifest)
+        let path = self.hive_path.join("hive.yaml");
+        let data = serde_yaml::to_string(manifest)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("serialize manifest: {e}")))?;
         std::fs::write(&path, data)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("write manifest: {e}")))
@@ -120,8 +130,8 @@ impl HiveStore {
         let dir = self.hive_path.join("board");
         std::fs::create_dir_all(&dir)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("create board dir: {e}")))?;
-        let path = dir.join(format!("{}.json", signal.id));
-        let data = serde_json::to_string_pretty(signal)
+        let path = dir.join(format!("{}.yaml", signal.id));
+        let data = serde_yaml::to_string(signal)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("serialize signal: {e}")))?;
         std::fs::write(&path, data)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("write signal: {e}")))
@@ -141,12 +151,12 @@ impl HiveStore {
         let entries = std::fs::read_dir(&dir)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("read board dir: {e}")))?;
         for entry in entries.flatten() {
-            if entry.path().extension().and_then(|e| e.to_str()) != Some("json") {
+            if entry.path().extension().and_then(|e| e.to_str()) != Some("yaml") {
                 continue;
             }
             let data = std::fs::read_to_string(entry.path())
                 .map_err(|e| PrimitiveError::ExecutionFailed(format!("read signal: {e}")))?;
-            let signal: HiveSignal = serde_json::from_str(&data)
+            let signal: HiveSignal = serde_yaml::from_str(&data)
                 .map_err(|e| PrimitiveError::ExecutionFailed(format!("parse signal: {e}")))?;
             if let Some(st) = signal_type
                 && signal.signal_type != st
@@ -171,18 +181,18 @@ impl HiveStore {
         let dir = self.hive_path.join("tasks");
         std::fs::create_dir_all(&dir)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("create tasks dir: {e}")))?;
-        let path = dir.join(format!("{}.json", task.id));
-        let data = serde_json::to_string_pretty(task)
+        let path = dir.join(format!("{}.yaml", task.id));
+        let data = serde_yaml::to_string(task)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("serialize task: {e}")))?;
         std::fs::write(&path, data)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("write task: {e}")))
     }
 
     pub fn read_task(&self, task_id: &str) -> Result<HiveTask, PrimitiveError> {
-        let path = self.hive_path.join("tasks").join(format!("{task_id}.json"));
+        let path = self.hive_path.join("tasks").join(format!("{task_id}.yaml"));
         let data = std::fs::read_to_string(&path)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("read task: {e}")))?;
-        serde_json::from_str(&data)
+        serde_yaml::from_str(&data)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("parse task: {e}")))
     }
 
@@ -199,12 +209,12 @@ impl HiveStore {
         let entries = std::fs::read_dir(&dir)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("read tasks dir: {e}")))?;
         for entry in entries.flatten() {
-            if entry.path().extension().and_then(|e| e.to_str()) != Some("json") {
+            if entry.path().extension().and_then(|e| e.to_str()) != Some("yaml") {
                 continue;
             }
             let data = std::fs::read_to_string(entry.path())
                 .map_err(|e| PrimitiveError::ExecutionFailed(format!("read task: {e}")))?;
-            let task: HiveTask = serde_json::from_str(&data)
+            let task: HiveTask = serde_yaml::from_str(&data)
                 .map_err(|e| PrimitiveError::ExecutionFailed(format!("parse task: {e}")))?;
             if let Some(s) = status
                 && task.status != s
@@ -221,8 +231,8 @@ impl HiveStore {
         let dir = self.hive_path.join("proposals");
         std::fs::create_dir_all(&dir)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("create proposals dir: {e}")))?;
-        let path = dir.join(format!("{}.json", proposal.id));
-        let data = serde_json::to_string_pretty(proposal)
+        let path = dir.join(format!("{}.yaml", proposal.id));
+        let data = serde_yaml::to_string(proposal)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("serialize proposal: {e}")))?;
         std::fs::write(&path, data)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("write proposal: {e}")))
@@ -232,10 +242,10 @@ impl HiveStore {
         let path = self
             .hive_path
             .join("proposals")
-            .join(format!("{proposal_id}.json"));
+            .join(format!("{proposal_id}.yaml"));
         let data = std::fs::read_to_string(&path)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("read proposal: {e}")))?;
-        serde_json::from_str(&data)
+        serde_yaml::from_str(&data)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("parse proposal: {e}")))
     }
 
@@ -255,12 +265,12 @@ impl HiveStore {
         let entries = std::fs::read_dir(&dir)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("read proposals dir: {e}")))?;
         for entry in entries.flatten() {
-            if entry.path().extension().and_then(|e| e.to_str()) != Some("json") {
+            if entry.path().extension().and_then(|e| e.to_str()) != Some("yaml") {
                 continue;
             }
             let data = std::fs::read_to_string(entry.path())
                 .map_err(|e| PrimitiveError::ExecutionFailed(format!("read proposal: {e}")))?;
-            let proposal: HiveProposal = serde_json::from_str(&data)
+            let proposal: HiveProposal = serde_yaml::from_str(&data)
                 .map_err(|e| PrimitiveError::ExecutionFailed(format!("parse proposal: {e}")))?;
             if let Some(s) = status
                 && proposal.status != s
@@ -276,7 +286,7 @@ impl HiveStore {
 
 // ──────────────────────────── Primitives ────────────────────────────
 
-/// hive.create — Creates a new hive with the calling agent as queen.
+/// hive.create - Creates a new hive with the calling agent as queen.
 pub struct HiveCreatePrimitive {
     agent_id: String,
     workspace_dir: PathBuf,
@@ -332,7 +342,7 @@ impl Primitive for HiveCreatePrimitive {
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'strategy'".into()))?;
 
         let hive_dir = self.workspace_dir.join(".hive");
-        if hive_dir.join("hive.json").exists() {
+        if hive_dir.join("hive.yaml").exists() {
             return Err(PrimitiveError::ExecutionFailed(
                 "this agent already has a hive".into(),
             ));
@@ -383,7 +393,7 @@ impl Primitive for HiveCreatePrimitive {
     }
 }
 
-/// hive.recruit — Queen spawns a worker via RunStarter::spawn_child.
+/// hive.recruit - Queen spawns a worker via RunStarter::spawn_child.
 pub struct HiveRecruitPrimitive {
     agent_id: String,
     workspace_dir: PathBuf,
@@ -480,16 +490,36 @@ impl Primitive for HiveRecruitPrimitive {
             _ => moxxy_types::HiveRole::Worker,
         };
 
-        // Build contextualized task with hive instructions
+        // Build contextualized task with hive instructions and workspace context
         let specialty_note = specialty
             .as_deref()
             .map(|s| format!(" Specialty: {s}."))
             .unwrap_or_default();
+
+        // List workspace root to give workers initial context
+        let workspace_listing = std::fs::read_dir(&self.workspace_dir)
+            .ok()
+            .map(|entries| {
+                let items: Vec<String> = entries
+                    .flatten()
+                    .filter_map(|e| e.file_name().into_string().ok())
+                    .take(20)
+                    .collect();
+                if items.is_empty() {
+                    String::new()
+                } else {
+                    format!("\nWorkspace contents: {}\n", items.join(", "))
+                }
+            })
+            .unwrap_or_default();
+
         let contextualized_task = format!(
             "[Hive Worker] You are a hive {role} agent.{specialty_note}\n\
              Workflow: hive.task_list → pick a non-blocked pending task → hive.task_claim → do work → hive.task_complete.\n\
              If a task is blocked (dependencies not yet completed), pick another task or wait.\n\
-             Use your workspace for all file operations — it is already set up for you.\n\n\
+             After completing a task, ALWAYS check hive.task_list for more unclaimed tasks - keep working until no tasks remain.\n\
+             Use your workspace for all file operations - it is already set up for you.\n\
+             {workspace_listing}\n\
              Task from queen: {task}"
         );
 
@@ -539,7 +569,7 @@ impl Primitive for HiveRecruitPrimitive {
     }
 }
 
-/// hive.task_create — Queen creates a task file.
+/// hive.task_create - Queen creates a task file.
 pub struct HiveTaskCreatePrimitive {
     agent_id: String,
     workspace_dir: PathBuf,
@@ -578,7 +608,8 @@ impl Primitive for HiveTaskCreatePrimitive {
                     "type": "array",
                     "items": { "type": "string" },
                     "description": "Task IDs this depends on"
-                }
+                },
+                "max_retries": { "type": "integer", "description": "Max retry attempts before permanent failure (default 3)" }
             },
             "required": ["title", "description", "task_type", "priority"]
         })
@@ -610,6 +641,11 @@ impl Primitive for HiveTaskCreatePrimitive {
                     .filter_map(|v| v.as_str().map(String::from))
                     .collect()
             });
+        let max_retries = params
+            .get("max_retries")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32)
+            .unwrap_or(default_max_retries());
 
         let hive_dir = self.workspace_dir.join(".hive");
         let store = HiveStore::new(hive_dir);
@@ -634,6 +670,9 @@ impl Primitive for HiveTaskCreatePrimitive {
             status: "pending".into(),
             depends_on,
             result_summary: None,
+            attempt_count: 0,
+            max_retries,
+            failure_reason: None,
             created_at: now.clone(),
             updated_at: now,
         };
@@ -661,7 +700,7 @@ impl Primitive for HiveTaskCreatePrimitive {
     }
 }
 
-/// hive.assign — Queen assigns a task to a specific member.
+/// hive.assign - Queen assigns a task to a specific member.
 pub struct HiveAssignPrimitive {
     agent_id: String,
     workspace_dir: PathBuf,
@@ -737,7 +776,7 @@ impl Primitive for HiveAssignPrimitive {
     }
 }
 
-/// hive.aggregate — Queen reads all state (tasks, signals, proposals) as a snapshot.
+/// hive.aggregate - Queen reads all state (tasks, signals, proposals) as a snapshot.
 pub struct HiveAggregatePrimitive {
     agent_id: String,
     workspace_dir: PathBuf,
@@ -796,7 +835,7 @@ impl Primitive for HiveAggregatePrimitive {
     }
 }
 
-/// hive.resolve_proposal — Queen resolves an open proposal.
+/// hive.resolve_proposal - Queen resolves an open proposal.
 pub struct HiveResolveProposalPrimitive {
     agent_id: String,
     workspace_dir: PathBuf,
@@ -890,7 +929,7 @@ impl Primitive for HiveResolveProposalPrimitive {
     }
 }
 
-/// hive.disband — Queen disbands the hive, stopping all workers.
+/// hive.disband - Queen disbands the hive, stopping all workers.
 pub struct HiveDisbandPrimitive {
     agent_id: String,
     workspace_dir: PathBuf,
@@ -976,10 +1015,11 @@ impl Primitive for HiveDisbandPrimitive {
 
 // ──────────────────── Member Primitives (all members) ────────────────────
 
-/// Helper to resolve the hive path from either .hive/ (queen) or .hive_membership.json (worker).
+/// Helper to resolve the hive path from the workspace's `.hive/` directory.
+/// Both queen and worker agents share the same workspace, so both resolve to the same `.hive/` dir.
 fn resolve_hive_dir(workspace_dir: &std::path::Path) -> Result<PathBuf, PrimitiveError> {
     let hive_dir = workspace_dir.join(".hive");
-    if hive_dir.join("hive.json").exists() {
+    if hive_dir.join("hive.yaml").exists() {
         return Ok(hive_dir);
     }
     Err(PrimitiveError::ExecutionFailed(
@@ -987,7 +1027,7 @@ fn resolve_hive_dir(workspace_dir: &std::path::Path) -> Result<PathBuf, Primitiv
     ))
 }
 
-/// hive.signal — Post a signal to the hive board.
+/// hive.signal - Post a signal to the hive board.
 pub struct HiveSignalPrimitive {
     agent_id: String,
     workspace_dir: PathBuf,
@@ -1107,7 +1147,7 @@ impl Primitive for HiveSignalPrimitive {
     }
 }
 
-/// hive.board_read — Read signals from the hive board.
+/// hive.board_read - Read signals from the hive board.
 pub struct HiveBoardReadPrimitive {
     workspace_dir: PathBuf,
 }
@@ -1158,7 +1198,7 @@ impl Primitive for HiveBoardReadPrimitive {
     }
 }
 
-/// hive.task_list — List tasks from the hive.
+/// hive.task_list - List tasks from the hive.
 pub struct HiveTaskListPrimitive {
     workspace_dir: PathBuf,
 }
@@ -1230,7 +1270,7 @@ impl Primitive for HiveTaskListPrimitive {
     }
 }
 
-/// hive.task_claim — A member claims an unassigned task.
+/// hive.task_claim - A member claims an unassigned task.
 pub struct HiveTaskClaimPrimitive {
     agent_id: String,
     workspace_dir: PathBuf,
@@ -1277,9 +1317,9 @@ impl Primitive for HiveTaskClaimPrimitive {
         let store = HiveStore::new(hive_dir);
         let mut task = store.read_task(task_id)?;
 
-        if task.assigned_agent_id.is_some() && task.status != "pending" {
+        if task.status != "pending" {
             return Err(PrimitiveError::ExecutionFailed(
-                "task is already assigned".into(),
+                format!("task cannot be claimed (status: {})", task.status),
             ));
         }
 
@@ -1294,7 +1334,7 @@ impl Primitive for HiveTaskClaimPrimitive {
                     Err(_) => {
                         blockers.push(format!("{dep_id} (not found)"));
                     }
-                    _ => {} // completed — OK
+                    _ => {} // completed - OK
                 }
             }
             if !blockers.is_empty() {
@@ -1307,6 +1347,7 @@ impl Primitive for HiveTaskClaimPrimitive {
 
         task.assigned_agent_id = Some(self.agent_id.clone());
         task.status = "in_progress".into();
+        task.attempt_count += 1;
         task.updated_at = chrono::Utc::now().to_rfc3339();
         store.write_task(&task)?;
 
@@ -1332,7 +1373,7 @@ impl Primitive for HiveTaskClaimPrimitive {
     }
 }
 
-/// hive.task_complete — Mark a task as completed with a result summary.
+/// hive.task_complete - Mark a task as completed with a result summary.
 pub struct HiveTaskCompletePrimitive {
     agent_id: String,
     workspace_dir: PathBuf,
@@ -1385,6 +1426,13 @@ impl Primitive for HiveTaskCompletePrimitive {
         let manifest = store.read_manifest()?;
         let mut task = store.read_task(task_id)?;
 
+        if task.assigned_agent_id.as_deref() != Some(&self.agent_id) {
+            return Err(PrimitiveError::AccessDenied(
+                format!("only the assigned agent can complete this task (assigned: {:?}, you: {})",
+                    task.assigned_agent_id, self.agent_id),
+            ));
+        }
+
         task.status = "completed".into();
         task.result_summary = Some(result_summary.to_string());
         task.updated_at = chrono::Utc::now().to_rfc3339();
@@ -1410,7 +1458,177 @@ impl Primitive for HiveTaskCompletePrimitive {
     }
 }
 
-/// hive.propose — Create a proposal for the hive to vote on.
+/// hive.task_fail - Worker explicitly marks a task as failed.
+/// If retries remain (attempt_count < max_retries), resets to "pending" so another worker can try.
+/// Otherwise marks the task as permanently "failed".
+pub struct HiveTaskFailPrimitive {
+    agent_id: String,
+    workspace_dir: PathBuf,
+    event_bus: EventBus,
+}
+
+impl HiveTaskFailPrimitive {
+    pub fn new(agent_id: String, workspace_dir: PathBuf, event_bus: EventBus) -> Self {
+        Self {
+            agent_id,
+            workspace_dir,
+            event_bus,
+        }
+    }
+}
+
+#[async_trait]
+impl Primitive for HiveTaskFailPrimitive {
+    fn name(&self) -> &str {
+        "hive.task_fail"
+    }
+
+    fn description(&self) -> &str {
+        "Mark a task as failed. If retries remain, the task returns to pending for another worker."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "task_id": { "type": "string" },
+                "reason": { "type": "string", "description": "Why the task failed" }
+            },
+            "required": ["task_id", "reason"]
+        })
+    }
+
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
+        let task_id = params
+            .get("task_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| PrimitiveError::InvalidParams("missing 'task_id'".into()))?;
+        let reason = params
+            .get("reason")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| PrimitiveError::InvalidParams("missing 'reason'".into()))?;
+
+        let hive_dir = resolve_hive_dir(&self.workspace_dir)?;
+        let store = HiveStore::new(hive_dir);
+        let manifest = store.read_manifest()?;
+        let mut task = store.read_task(task_id)?;
+
+        if task.assigned_agent_id.as_deref() != Some(&self.agent_id) {
+            return Err(PrimitiveError::AccessDenied(
+                format!("only the assigned agent can fail this task (assigned: {:?}, you: {})",
+                    task.assigned_agent_id, self.agent_id),
+            ));
+        }
+
+        task.failure_reason = Some(reason.to_string());
+        task.assigned_agent_id = None;
+        task.updated_at = chrono::Utc::now().to_rfc3339();
+
+        let retries_exhausted = task.attempt_count >= task.max_retries;
+        if retries_exhausted {
+            task.status = "failed".into();
+        } else {
+            task.status = "pending".into();
+        }
+        store.write_task(&task)?;
+
+        self.event_bus.emit(EventEnvelope::new(
+            manifest.queen_agent_id,
+            None,
+            None,
+            0,
+            EventType::HiveTaskFailed,
+            serde_json::json!({
+                "hive_id": manifest.id,
+                "task_id": task_id,
+                "agent_id": self.agent_id,
+                "reason": reason,
+                "attempt_count": task.attempt_count,
+                "max_retries": task.max_retries,
+                "retries_exhausted": retries_exhausted,
+            }),
+        ));
+
+        Ok(serde_json::json!({
+            "task_id": task_id,
+            "status": task.status,
+            "attempt_count": task.attempt_count,
+            "max_retries": task.max_retries,
+            "retries_exhausted": retries_exhausted,
+        }))
+    }
+}
+
+/// hive.task_review - Queen reviews a completed task's details and result.
+pub struct HiveTaskReviewPrimitive {
+    agent_id: String,
+    workspace_dir: PathBuf,
+}
+
+impl HiveTaskReviewPrimitive {
+    pub fn new(agent_id: String, workspace_dir: PathBuf) -> Self {
+        Self {
+            agent_id,
+            workspace_dir,
+        }
+    }
+}
+
+#[async_trait]
+impl Primitive for HiveTaskReviewPrimitive {
+    fn name(&self) -> &str {
+        "hive.task_review"
+    }
+
+    fn description(&self) -> &str {
+        "Review a completed task's details, result summary, and assigned worker."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "task_id": { "type": "string", "description": "The task ID to review" }
+            },
+            "required": ["task_id"]
+        })
+    }
+
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
+        let task_id = params
+            .get("task_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| PrimitiveError::InvalidParams("missing 'task_id'".into()))?;
+
+        let hive_dir = self.workspace_dir.join(".hive");
+        let store = HiveStore::new(hive_dir);
+        let manifest = store.read_manifest()?;
+
+        if manifest.queen_agent_id != self.agent_id {
+            return Err(PrimitiveError::AccessDenied(
+                "only the queen can review tasks".into(),
+            ));
+        }
+
+        let task = store.read_task(task_id)?;
+
+        Ok(serde_json::json!({
+            "task_id": task.id,
+            "title": task.title,
+            "description": task.description,
+            "task_type": task.task_type,
+            "priority": task.priority,
+            "status": task.status,
+            "assigned_agent_id": task.assigned_agent_id,
+            "result_summary": task.result_summary,
+            "depends_on": task.depends_on,
+            "created_at": task.created_at,
+            "updated_at": task.updated_at,
+        }))
+    }
+}
+
+/// hive.propose - Create a proposal for the hive to vote on.
 pub struct HiveProposePrimitive {
     agent_id: String,
     workspace_dir: PathBuf,
@@ -1514,7 +1732,7 @@ impl Primitive for HiveProposePrimitive {
     }
 }
 
-/// hive.vote — Cast a vote on a proposal.
+/// hive.vote - Cast a vote on a proposal.
 pub struct HiveVotePrimitive {
     agent_id: String,
     workspace_dir: PathBuf,
@@ -2614,5 +2832,314 @@ mod tests {
 
         let foundation = tasks.iter().find(|t| t["title"] == "Foundation").unwrap();
         assert_eq!(foundation["blocked"], false);
+    }
+
+    #[tokio::test]
+    async fn hive_task_claim_rejects_completed_task() {
+        let tmp = tempfile::tempdir().unwrap();
+        let agent_dir = tmp.path().to_path_buf();
+        let bus = EventBus::new(100);
+
+        let create_prim =
+            HiveCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
+        create_prim
+            .invoke(serde_json::json!({
+                "name": "test-hive",
+                "strategy": "consensus"
+            }))
+            .await
+            .unwrap();
+
+        let task_create =
+            HiveTaskCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
+        let task_result = task_create
+            .invoke(serde_json::json!({
+                "title": "Task",
+                "description": "D",
+                "task_type": "work",
+                "priority": 5
+            }))
+            .await
+            .unwrap();
+        let task_id = task_result["task_id"].as_str().unwrap().to_string();
+
+        // Claim and complete the task
+        let claim = HiveTaskClaimPrimitive::new("worker-1".into(), agent_dir.clone(), bus.clone());
+        claim
+            .invoke(serde_json::json!({ "task_id": task_id }))
+            .await
+            .unwrap();
+
+        let complete =
+            HiveTaskCompletePrimitive::new("worker-1".into(), agent_dir.clone(), bus.clone());
+        complete
+            .invoke(serde_json::json!({ "task_id": task_id, "result_summary": "done" }))
+            .await
+            .unwrap();
+
+        // Re-claiming a completed task should fail
+        let claim2 = HiveTaskClaimPrimitive::new("worker-2".into(), agent_dir, bus);
+        let result = claim2
+            .invoke(serde_json::json!({ "task_id": task_id }))
+            .await;
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("cannot be claimed"), "expected 'cannot be claimed', got: {err_msg}");
+    }
+
+    #[tokio::test]
+    async fn hive_task_complete_rejects_non_owner() {
+        let tmp = tempfile::tempdir().unwrap();
+        let agent_dir = tmp.path().to_path_buf();
+        let bus = EventBus::new(100);
+
+        let create_prim =
+            HiveCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
+        create_prim
+            .invoke(serde_json::json!({
+                "name": "test-hive",
+                "strategy": "consensus"
+            }))
+            .await
+            .unwrap();
+
+        let task_create =
+            HiveTaskCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
+        let task_result = task_create
+            .invoke(serde_json::json!({
+                "title": "Task",
+                "description": "D",
+                "task_type": "work",
+                "priority": 5
+            }))
+            .await
+            .unwrap();
+        let task_id = task_result["task_id"].as_str().unwrap().to_string();
+
+        // Claim as worker-1
+        let claim = HiveTaskClaimPrimitive::new("worker-1".into(), agent_dir.clone(), bus.clone());
+        claim
+            .invoke(serde_json::json!({ "task_id": task_id }))
+            .await
+            .unwrap();
+
+        // Try to complete as worker-2 - should fail with AccessDenied
+        let complete =
+            HiveTaskCompletePrimitive::new("worker-2".into(), agent_dir, bus);
+        let result = complete
+            .invoke(serde_json::json!({ "task_id": task_id, "result_summary": "done" }))
+            .await;
+        assert!(matches!(result, Err(PrimitiveError::AccessDenied(_))));
+    }
+
+    #[tokio::test]
+    async fn hive_task_complete_rejects_unclaimed_task() {
+        let tmp = tempfile::tempdir().unwrap();
+        let agent_dir = tmp.path().to_path_buf();
+        let bus = EventBus::new(100);
+
+        let create_prim =
+            HiveCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
+        create_prim
+            .invoke(serde_json::json!({
+                "name": "test-hive",
+                "strategy": "consensus"
+            }))
+            .await
+            .unwrap();
+
+        let task_create =
+            HiveTaskCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
+        let task_result = task_create
+            .invoke(serde_json::json!({
+                "title": "Task",
+                "description": "D",
+                "task_type": "work",
+                "priority": 5
+            }))
+            .await
+            .unwrap();
+        let task_id = task_result["task_id"].as_str().unwrap().to_string();
+
+        // Try to complete a pending (unclaimed) task - should fail with AccessDenied
+        let complete =
+            HiveTaskCompletePrimitive::new("worker-1".into(), agent_dir, bus);
+        let result = complete
+            .invoke(serde_json::json!({ "task_id": task_id, "result_summary": "done" }))
+            .await;
+        assert!(matches!(result, Err(PrimitiveError::AccessDenied(_))));
+    }
+
+    #[tokio::test]
+    async fn hive_task_fail_retries_then_permanent_failure() {
+        let tmp = tempfile::tempdir().unwrap();
+        let agent_dir = tmp.path().to_path_buf();
+        let bus = EventBus::new(100);
+
+        let create_prim =
+            HiveCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
+        create_prim
+            .invoke(serde_json::json!({
+                "name": "test-hive",
+                "strategy": "consensus"
+            }))
+            .await
+            .unwrap();
+
+        // Create task with max_retries=2
+        let task_create =
+            HiveTaskCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
+        let task_result = task_create
+            .invoke(serde_json::json!({
+                "title": "Flaky task",
+                "description": "D",
+                "task_type": "work",
+                "priority": 5,
+                "max_retries": 2
+            }))
+            .await
+            .unwrap();
+        let task_id = task_result["task_id"].as_str().unwrap().to_string();
+
+        // Attempt 1: claim and fail → should go back to pending
+        let claim1 = HiveTaskClaimPrimitive::new("worker-1".into(), agent_dir.clone(), bus.clone());
+        claim1
+            .invoke(serde_json::json!({ "task_id": task_id }))
+            .await
+            .unwrap();
+
+        let fail1 = HiveTaskFailPrimitive::new("worker-1".into(), agent_dir.clone(), bus.clone());
+        let r1 = fail1
+            .invoke(serde_json::json!({ "task_id": task_id, "reason": "timeout" }))
+            .await
+            .unwrap();
+        assert_eq!(r1["status"], "pending");
+        assert_eq!(r1["attempt_count"], 1);
+        assert_eq!(r1["retries_exhausted"], false);
+
+        // Attempt 2: claim and fail → retries exhausted, should be "failed"
+        let claim2 = HiveTaskClaimPrimitive::new("worker-2".into(), agent_dir.clone(), bus.clone());
+        claim2
+            .invoke(serde_json::json!({ "task_id": task_id }))
+            .await
+            .unwrap();
+
+        let fail2 = HiveTaskFailPrimitive::new("worker-2".into(), agent_dir.clone(), bus.clone());
+        let r2 = fail2
+            .invoke(serde_json::json!({ "task_id": task_id, "reason": "still broken" }))
+            .await
+            .unwrap();
+        assert_eq!(r2["status"], "failed");
+        assert_eq!(r2["attempt_count"], 2);
+        assert_eq!(r2["retries_exhausted"], true);
+
+        // Task should no longer be claimable
+        let claim3 = HiveTaskClaimPrimitive::new("worker-3".into(), agent_dir, bus);
+        let err = claim3
+            .invoke(serde_json::json!({ "task_id": task_id }))
+            .await;
+        assert!(err.is_err());
+    }
+
+    #[tokio::test]
+    async fn hive_task_fail_rejects_non_owner() {
+        let tmp = tempfile::tempdir().unwrap();
+        let agent_dir = tmp.path().to_path_buf();
+        let bus = EventBus::new(100);
+
+        let create_prim =
+            HiveCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
+        create_prim
+            .invoke(serde_json::json!({
+                "name": "test-hive",
+                "strategy": "consensus"
+            }))
+            .await
+            .unwrap();
+
+        let task_create =
+            HiveTaskCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
+        let task_result = task_create
+            .invoke(serde_json::json!({
+                "title": "Task",
+                "description": "D",
+                "task_type": "work",
+                "priority": 5
+            }))
+            .await
+            .unwrap();
+        let task_id = task_result["task_id"].as_str().unwrap().to_string();
+
+        // Claim as worker-1
+        let claim = HiveTaskClaimPrimitive::new("worker-1".into(), agent_dir.clone(), bus.clone());
+        claim
+            .invoke(serde_json::json!({ "task_id": task_id }))
+            .await
+            .unwrap();
+
+        // Fail as worker-2 → AccessDenied
+        let fail = HiveTaskFailPrimitive::new("worker-2".into(), agent_dir, bus);
+        let result = fail
+            .invoke(serde_json::json!({ "task_id": task_id, "reason": "nope" }))
+            .await;
+        assert!(matches!(result, Err(PrimitiveError::AccessDenied(_))));
+    }
+
+    #[tokio::test]
+    async fn hive_task_claim_increments_attempt_count() {
+        let tmp = tempfile::tempdir().unwrap();
+        let agent_dir = tmp.path().to_path_buf();
+        let bus = EventBus::new(100);
+
+        let create_prim =
+            HiveCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
+        create_prim
+            .invoke(serde_json::json!({
+                "name": "test-hive",
+                "strategy": "consensus"
+            }))
+            .await
+            .unwrap();
+
+        let task_create =
+            HiveTaskCreatePrimitive::new("queen-1".into(), agent_dir.clone(), bus.clone());
+        let task_result = task_create
+            .invoke(serde_json::json!({
+                "title": "Task",
+                "description": "D",
+                "task_type": "work",
+                "priority": 5,
+                "max_retries": 5
+            }))
+            .await
+            .unwrap();
+        let task_id = task_result["task_id"].as_str().unwrap().to_string();
+
+        // Claim → fail → claim again, verify attempt_count increments
+        let claim = HiveTaskClaimPrimitive::new("worker-1".into(), agent_dir.clone(), bus.clone());
+        claim
+            .invoke(serde_json::json!({ "task_id": task_id }))
+            .await
+            .unwrap();
+
+        let store = HiveStore::new(agent_dir.join(".hive"));
+        let task = store.read_task(&task_id).unwrap();
+        assert_eq!(task.attempt_count, 1);
+
+        // Fail to reset to pending
+        let fail = HiveTaskFailPrimitive::new("worker-1".into(), agent_dir.clone(), bus.clone());
+        fail.invoke(serde_json::json!({ "task_id": task_id, "reason": "oops" }))
+            .await
+            .unwrap();
+
+        // Re-claim
+        let claim2 = HiveTaskClaimPrimitive::new("worker-2".into(), agent_dir.clone(), bus);
+        claim2
+            .invoke(serde_json::json!({ "task_id": task_id }))
+            .await
+            .unwrap();
+
+        let task = store.read_task(&task_id).unwrap();
+        assert_eq!(task.attempt_count, 2);
     }
 }

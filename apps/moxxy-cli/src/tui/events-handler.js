@@ -4,6 +4,7 @@ import { createSseClient } from '../sse-client.js';
 const ERROR_EVENTS = new Set([
   'run.failed', 'primitive.failed', 'skill.failed',
   'security.violation', 'sandbox.denied',
+  'mcp.connection_failed', 'mcp.tool_failed',
 ]);
 
 // Error events that should be shown as user-friendly system messages
@@ -103,6 +104,10 @@ export class EventsHandler {
     this._thinkingTimer = null;
     this.pendingAsk = null; // { questionId, question } = set when agent asks user
     this._subAgents = new Map(); // agentId -> { name, task, buffer, status }
+    this._hiveStatus = null; // aggregated hive status tracker
+    this._version = 0;
+    this.messageVersion = 0;
+    this._snapshot = null; // cached for useSyncExternalStore referential stability
   }
 
   /** Set callback invoked on any state change. */
@@ -111,7 +116,33 @@ export class EventsHandler {
   }
 
   _notify() {
+    this._version++;
+    // Rebuild cached snapshot so getSnapshot() returns a new reference
+    this._snapshot = {
+      messages: this.messages,
+      stats: { ...this.stats },
+      connected: this.connected,
+      thinking: this.thinking,
+      pendingAsk: this.pendingAsk,
+      version: this._version,
+      messageVersion: this.messageVersion,
+    };
     if (this._onChange) this._onChange();
+  }
+
+  getSnapshot() {
+    if (!this._snapshot) {
+      this._snapshot = {
+        messages: this.messages,
+        stats: { ...this.stats },
+        connected: this.connected,
+        thinking: this.thinking,
+        pendingAsk: this.pendingAsk,
+        version: this._version,
+        messageVersion: this.messageVersion,
+      };
+    }
+    return this._snapshot;
   }
 
   async loadHistory(client, agentId) {
@@ -123,6 +154,7 @@ export class EventsHandler {
         ts: Date.parse(m.created_at),
       }));
       this.messages = [...msgs, ...this.messages];
+      this.messageVersion++;
       this._notify();
     } catch {
       // Silently ignore history load failures
@@ -191,17 +223,20 @@ export class EventsHandler {
     this._assistantBuffer = '';
     this.messages.push({ type: 'user', content, ts: Date.now() });
     this._startThinking();
+    this.messageVersion++;
     this._notify();
   }
 
   addSystemMessage(content) {
     this.messages.push({ type: 'system', content, ts: Date.now() });
+    this.messageVersion++;
     this._notify();
   }
 
   clearMessages() {
     this.messages = [];
     this._assistantBuffer = '';
+    this.messageVersion++;
     this._notify();
   }
 
@@ -222,6 +257,7 @@ export class EventsHandler {
       } else {
         this.messages.push({ type: 'assistant', content, streaming: true, ts: Date.now() });
       }
+      this.messageVersion++;
       this._notify();
     }
   }
@@ -258,8 +294,75 @@ export class EventsHandler {
     // Pass other sub-agent events through in debug mode only
     if (this.debug) {
       this.messages.push({ type: 'event', eventType: type, payload, ts: event.ts });
+      this.messageVersion++;
       this._notify();
     }
+  }
+
+  _updateHiveStatus(type, payload, ts) {
+    if (!this._hiveStatus) {
+      this._hiveStatus = {
+        totalTasks: 0, completedTasks: 0, inProgressTasks: 0,
+        workers: 0, recentEvents: [],
+      };
+    }
+    const hs = this._hiveStatus;
+
+    // Build a short description for the recent events log
+    let desc = '';
+    if (type === 'hive.task_created') {
+      hs.totalTasks++;
+      desc = `Task "${payload.title || 'untitled'}" created`;
+    } else if (type === 'hive.task_claimed') {
+      hs.inProgressTasks++;
+      desc = `Task claimed by ${payload.agent_id || 'worker'}`;
+    } else if (type === 'hive.task_completed') {
+      hs.completedTasks++;
+      hs.inProgressTasks = Math.max(0, hs.inProgressTasks - 1);
+      desc = `Task completed by ${payload.agent_id || 'worker'}`;
+    } else if (type === 'hive.member_joined') {
+      hs.workers++;
+      desc = `${payload.agent_id || 'worker'} joined as ${payload.role || 'worker'}`;
+    } else if (type === 'hive.signal_posted') {
+      desc = `Signal: ${payload.signal_type || 'info'} from ${payload.author || 'agent'}`;
+    } else if (type === 'hive.proposal_created') {
+      desc = `Proposal: "${payload.title || 'untitled'}"`;
+    } else if (type === 'hive.vote_cast') {
+      desc = `Vote: ${payload.vote || '?'} by ${payload.voter || 'agent'}`;
+    } else if (type === 'hive.disbanded') {
+      desc = 'Hive disbanded';
+    } else {
+      desc = type.replace('hive.', '');
+    }
+
+    // Keep only last 3 events
+    hs.recentEvents.push(desc);
+    if (hs.recentEvents.length > 3) hs.recentEvents.shift();
+
+    // In debug mode, also add individual hive-event messages
+    if (this.debug) {
+      this.messages.push({ type: 'hive-event', subtype: type.replace('hive.', ''), content: desc, ts });
+    }
+
+    // Find or create the single hive-status message
+    const existingIdx = this.messages.findIndex(m => m.type === 'hive-status');
+    const statusMsg = {
+      type: 'hive-status',
+      totalTasks: hs.totalTasks,
+      completedTasks: hs.completedTasks,
+      inProgressTasks: hs.inProgressTasks,
+      workers: hs.workers,
+      recentEvents: [...hs.recentEvents],
+      ts,
+    };
+
+    if (existingIdx >= 0) {
+      this.messages[existingIdx] = statusMsg;
+    } else {
+      this.messages.push(statusMsg);
+    }
+    this.messageVersion++;
+    this._notify();
   }
 
   _processEvent(event) {
@@ -292,98 +395,144 @@ export class EventsHandler {
       }
     }
 
-    // Register new sub-agents (track internally, no chat message — hive events cover this)
+    // Register new sub-agents and show in chat
     if (type === 'subagent.spawned') {
       const subId = payload.sub_agent_id || payload.child_name;
       const name = payload.name || payload.child_name || subId;
       const task = payload.task || '';
       this._subAgents.set(subId, { name, task, buffer: '', status: 'running' });
+      this.messages.push({
+        type: 'tool', name: `agent.spawn → ${name}`, status: 'invoked',
+        arguments: task ? `task: ${task.length > PARAM_TRUNCATE ? task.slice(0, PARAM_TRUNCATE) + '…' : task}` : null,
+        ts: event.ts,
+      });
+      this.messageVersion++;
+      this._notify();
       return;
     }
 
-    // Handle sub-agent completion/failure (track internally, no chat message)
+    // Handle sub-agent completion
     if (type === 'subagent.completed') {
       const subId = payload.sub_agent_id || payload.child_name;
       const sub = this._subAgents.get(subId);
-      if (sub) sub.status = 'completed';
+      if (sub) {
+        sub.status = 'completed';
+        // Update matching invoked message to completed
+        for (let i = this.messages.length - 1; i >= 0; i--) {
+          const m = this.messages[i];
+          if (m.type === 'tool' && m.name === `agent.spawn → ${sub.name}` && m.status === 'invoked') {
+            m.status = 'completed';
+            break;
+          }
+        }
+        this.messageVersion++;
+        this._notify();
+      }
       return;
     }
 
     if (type === 'subagent.failed') {
       const subId = payload.sub_agent_id || payload.child_name;
       const sub = this._subAgents.get(subId);
-      if (sub) sub.status = 'failed';
+      if (sub) {
+        sub.status = 'failed';
+        // Update matching invoked message to error
+        for (let i = this.messages.length - 1; i >= 0; i--) {
+          const m = this.messages[i];
+          if (m.type === 'tool' && m.name === `agent.spawn → ${sub.name}` && m.status === 'invoked') {
+            m.status = 'error';
+            m.error = payload.error || 'sub-agent failed';
+            break;
+          }
+        }
+        this.messageVersion++;
+        this._notify();
+      }
       return;
     }
 
-    // Handle hive events (task lifecycle, signals, proposals, votes, members)
-    if (type === 'hive.task_created') {
-      const title = payload.title || 'untitled';
-      const priority = payload.priority || 0;
-      this.messages.push({
-        type: 'hive-event', subtype: 'task-created',
-        content: `Task "${title}" created (priority ${priority})`, ts: event.ts,
-      });
+    // Handle hive events via aggregated status tracker
+    if (type.startsWith('hive.')) {
+      this._updateHiveStatus(type, payload, event.ts);
+      return;
+    }
+
+    // Handle heartbeat events - show as system notifications in chat
+    if (type === 'heartbeat.completed') {
+      const msg = payload.message || 'Heartbeat fired';
+      const hbId = payload.heartbeat_id ? ` (${payload.heartbeat_id.slice(0, 8)})` : '';
+      this.messages.push({ type: 'system', content: `Heartbeat${hbId}: ${msg}`, ts: event.ts });
+      this.messageVersion++;
       this._notify();
       return;
     }
-    if (type === 'hive.task_claimed') {
-      const taskId = payload.task_id || 'unknown';
-      const worker = payload.agent_id || 'unknown';
-      this.messages.push({
-        type: 'hive-event', subtype: 'task-claimed',
-        content: `Task "${taskId}" claimed by ${worker}`, ts: event.ts,
-      });
+    if (type === 'heartbeat.triggered' || type === 'heartbeat.failed') {
+      if (this.debug) {
+        const detail = type === 'heartbeat.failed' ? (payload.error || 'failed') : `action=${payload.action_type}`;
+        this.messages.push({ type: 'event', eventType: type, payload, ts: event.ts });
+        this.messageVersion++;
+        this._notify();
+      }
+      return;
+    }
+
+    // MCP events
+    if (type === 'mcp.connected') {
+      this.messages.push({ type: 'system', content: `MCP server connected: ${payload.server_id || 'unknown'}`, ts: event.ts });
+      this.messageVersion++;
       this._notify();
       return;
     }
-    if (type === 'hive.task_completed') {
-      const taskId = payload.task_id || 'unknown';
-      const worker = payload.agent_id || 'unknown';
-      this.messages.push({
-        type: 'hive-event', subtype: 'task-completed',
-        content: `Task "${taskId}" completed by ${worker}`, ts: event.ts,
-      });
+    if (type === 'mcp.disconnected') {
+      this.messages.push({ type: 'system', content: `MCP server disconnected: ${payload.server_id || 'unknown'}`, ts: event.ts });
+      this.messageVersion++;
       this._notify();
       return;
     }
-    if (type === 'hive.signal_posted') {
-      const signalType = payload.signal_type || 'signal';
-      const author = payload.author || 'unknown';
-      this.messages.push({
-        type: 'hive-event', subtype: 'signal',
-        content: `Signal: ${signalType} from ${author}`, ts: event.ts,
-      });
+    if (type === 'mcp.connection_failed') {
+      const error = payload.error ? `: ${payload.error}` : '';
+      this.messages.push({ type: 'system', content: `MCP connection failed: ${payload.server_id || 'unknown'}${error}`, ts: event.ts });
+      this.messageVersion++;
       this._notify();
       return;
     }
-    if (type === 'hive.proposal_created') {
-      const title = payload.title || 'untitled';
-      const proposer = payload.proposer || 'unknown';
+    if (type === 'mcp.tool_invoked') {
       this.messages.push({
-        type: 'hive-event', subtype: 'proposal',
-        content: `Proposal: "${title}" by ${proposer}`, ts: event.ts,
+        type: 'tool', name: `mcp:${payload.server_id || '?'}/${payload.name || 'unknown'}`, status: 'invoked',
+        arguments: formatParams(payload.arguments),
+        rawArguments: payload.arguments,
+        ts: event.ts,
       });
+      this.messageVersion++;
       this._notify();
       return;
     }
-    if (type === 'hive.vote_cast') {
-      const voter = payload.voter || 'unknown';
-      const vote = payload.vote || 'unknown';
-      this.messages.push({
-        type: 'hive-event', subtype: 'vote',
-        content: `Vote: ${vote} by ${voter}`, ts: event.ts,
-      });
+    if (type === 'mcp.tool_completed') {
+      const toolName = `mcp:${payload.server_id || '?'}/${payload.name || 'unknown'}`;
+      const last = this.messages[this.messages.length - 1];
+      if (last && last.type === 'tool' && last.name === toolName && last.status === 'invoked') {
+        last.status = 'completed';
+        last.result = formatParams(payload.result);
+        last.rawResult = payload.result;
+      }
+      this.messageVersion++;
       this._notify();
       return;
     }
-    if (type === 'hive.member_joined') {
-      const member = payload.agent_id || 'unknown';
-      const role = payload.role || 'member';
-      this.messages.push({
-        type: 'hive-event', subtype: 'member-joined',
-        content: `${member} joined as ${role}`, ts: event.ts,
-      });
+    if (type === 'mcp.tool_failed') {
+      const toolName = `mcp:${payload.server_id || '?'}/${payload.name || 'unknown'}`;
+      const last = this.messages[this.messages.length - 1];
+      if (last && last.type === 'tool' && last.name === toolName && last.status === 'invoked') {
+        last.status = 'error';
+        last.error = payload.error || 'unknown error';
+      } else {
+        this.messages.push({
+          type: 'tool', name: toolName, status: 'error',
+          error: payload.error || 'unknown error',
+          ts: event.ts,
+        });
+      }
+      this.messageVersion++;
       this._notify();
       return;
     }
@@ -404,6 +553,7 @@ export class EventsHandler {
         type: 'channel', sender, channel, content: task, ts: event.ts,
       });
       this._startThinking();
+      this.messageVersion++;
       this._notify();
       return;
     }
@@ -415,6 +565,7 @@ export class EventsHandler {
       const question = payload.question || 'The agent is asking for input.';
       this.pendingAsk = { questionId, question };
       this.messages.push({ type: 'ask', question, questionId, ts: event.ts });
+      this.messageVersion++;
       this._notify();
       return;
     }
@@ -455,6 +606,7 @@ export class EventsHandler {
       } else {
         this.messages.push({ type: 'assistant', content: finalContent, streaming: false, ts: event.ts });
       }
+      this.messageVersion++;
       this._notify();
       return;
     }
@@ -475,6 +627,7 @@ export class EventsHandler {
       const detail = payload.error || payload.message || 'Unknown error';
       const label = type === 'run.failed' ? 'Run failed' : 'Tool error';
       this.messages.push({ type: 'system', content: `${label}: ${detail}`, ts: event.ts });
+      this.messageVersion++;
       this._notify();
       return;
     }
@@ -485,8 +638,11 @@ export class EventsHandler {
         if (isHiddenTool(payload.name || '')) return;
         this.messages.push({
           type: 'tool', name: payload.name || 'unknown', status: 'invoked',
-          arguments: formatParams(payload.arguments), ts: event.ts,
+          arguments: formatParams(payload.arguments),
+          rawArguments: payload.arguments,
+          ts: event.ts,
         });
+        this.messageVersion++;
         this._notify();
         return;
       }
@@ -497,10 +653,58 @@ export class EventsHandler {
         if (last && last.type === 'tool' && last.name === (payload.name || 'unknown') && last.status === 'invoked') {
           last.status = 'completed';
           last.result = formatParams(payload.result);
+          last.rawResult = payload.result;
         }
+        this.messageVersion++;
         this._notify();
         return;
       }
+    }
+
+    // Show skill activity events as compact bordered messages
+    if (type === 'skill.invoked') {
+      this.messages.push({
+        type: 'skill', name: payload.name || 'unknown', status: 'running',
+        description: payload.description || '', ts: event.ts,
+      });
+      this.messageVersion++;
+      this._notify();
+      return;
+    }
+    if (type === 'skill.completed') {
+      // Update the last skill message if it matches
+      for (let i = this.messages.length - 1; i >= 0; i--) {
+        const m = this.messages[i];
+        if (m.type === 'skill' && m.name === (payload.name || 'unknown') && m.status === 'running') {
+          m.status = 'completed';
+          break;
+        }
+      }
+      this.messageVersion++;
+      this._notify();
+      return;
+    }
+    if (type === 'skill.failed') {
+      // Update the last skill message if it matches, otherwise show as error
+      let found = false;
+      for (let i = this.messages.length - 1; i >= 0; i--) {
+        const m = this.messages[i];
+        if (m.type === 'skill' && m.name === (payload.name || 'unknown') && m.status === 'running') {
+          m.status = 'error';
+          m.error = payload.error || 'unknown error';
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        this.messages.push({
+          type: 'skill', name: payload.name || 'unknown', status: 'error',
+          error: payload.error || 'unknown error', ts: event.ts,
+        });
+      }
+      this.messageVersion++;
+      this._notify();
+      return;
     }
 
     // Show tool error events
@@ -510,6 +714,7 @@ export class EventsHandler {
       if (last && last.type === 'tool' && last.name === (payload.name || 'unknown') && last.status === 'invoked') {
         last.status = 'error';
         last.error = payload.error || 'unknown error';
+        this.messageVersion++;
         this._notify();
         return;
       }
@@ -518,6 +723,7 @@ export class EventsHandler {
     // Show error events always; show all events in debug mode
     if (ERROR_EVENTS.has(type) || this.debug) {
       this.messages.push({ type: 'event', eventType: type, payload, ts: event.ts });
+      this.messageVersion++;
       this._notify();
     }
   }

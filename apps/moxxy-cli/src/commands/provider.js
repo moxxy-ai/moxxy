@@ -956,7 +956,7 @@ export function buildAnthropicSessionSecret({ accessToken, refreshToken, expires
 }
 
 async function exchangeAnthropicAuthCode({ authorizationCode, codeVerifier, redirectUri }) {
-  // Auth code comes as {code}#{state} — split on #
+  // Auth code comes as {code}#{state} - split on #
   const hashIdx = authorizationCode.indexOf('#');
   const code = hashIdx >= 0 ? authorizationCode.slice(0, hashIdx) : authorizationCode;
   const state = hashIdx >= 0 ? authorizationCode.slice(hashIdx + 1) : '';
@@ -993,12 +993,12 @@ function extractAnthropicAuthCodeFromInput(rawInput, expectedState) {
     const returnedState = url.searchParams.get('state') || '';
     if (code) {
       if (expectedState && returnedState && returnedState !== expectedState) {
-        throw new Error('Anthropic OAuth state mismatch — possible CSRF. Please retry.');
+        throw new Error('Anthropic OAuth state mismatch - possible CSRF. Please retry.');
       }
       return `${code}#${returnedState}`;
     }
   } catch {
-    // Not a URL — try as raw code
+    // Not a URL - try as raw code
   }
 
   // Accept raw {code}#{state} or just {code}
@@ -1201,6 +1201,89 @@ export async function loginAnthropic(client, flags) {
   return loginAnthropicOAuth(client, flags);
 }
 
+// ── Provider Credential Check ──────────────────────────────────────────────
+
+/**
+ * Verify credentials for a provider.  For CLI-based providers this checks the
+ * binary + auth status; for API providers it checks the env-var key and
+ * optionally stores it in the vault.
+ *
+ * Returns `false` if the provider cannot be used (missing binary), `true`
+ * otherwise (warnings are logged but do not block installation).
+ */
+export async function checkProviderCredentials(builtin, client) {
+  if (builtin.cli_binary) {
+    const { execFileSync } = await import('node:child_process');
+    try {
+      const binPath = execFileSync('which', [builtin.cli_binary], { encoding: 'utf8' }).trim();
+      p.log.success(`${builtin.cli_binary} found at: ${binPath}`);
+
+      try {
+        const authOut = execFileSync(binPath, ['auth', 'status', '--json'], { encoding: 'utf8', timeout: 10_000 });
+        const auth = JSON.parse(authOut);
+        if (auth.authenticated || auth.loggedIn) {
+          p.log.success(`Authenticated as: ${auth.email || auth.account || 'unknown'}`);
+        } else {
+          p.log.warn(`${builtin.cli_binary} is not authenticated. Run: ${builtin.cli_binary} auth login`);
+        }
+      } catch {
+        p.log.warn(`Could not check auth status. Make sure you are logged in: ${builtin.cli_binary} auth login`);
+      }
+    } catch {
+      p.log.error(`${builtin.cli_binary} binary not found. Install it first: https://docs.anthropic.com/en/docs/claude-code`);
+      return false;
+    }
+  } else if (builtin.api_key_env) {
+    const currentKey = process.env[builtin.api_key_env];
+    if (currentKey) {
+      const masked = currentKey.slice(0, 8) + '...' + currentKey.slice(-4);
+      p.log.success(`API key found: ${builtin.api_key_env} = ${masked}`);
+    } else {
+      p.log.warn(`API key not set: ${builtin.api_key_env}`);
+
+      const setKey = handleCancel(await p.confirm({
+        message: `Store API key via vault? (You can also set ${builtin.api_key_env} in your shell)`,
+        initialValue: false,
+      }));
+
+      if (setKey) {
+        const apiKey = handleCancel(await p.password({
+          message: `Enter your ${builtin.display_name} API key`,
+          validate: (v) => { if (!v.trim()) return 'Required'; },
+        }));
+
+        try {
+          await withSpinner('Storing API key in vault...', async () => {
+            await client.request('/v1/vault/secrets', 'POST', {
+              key_name: builtin.api_key_env,
+              backend_key: `moxxy_provider_${builtin.id}`,
+              policy_label: 'provider-api-key',
+              value: apiKey,
+            });
+          }, 'API key reference stored.');
+
+          p.note(
+            `export ${builtin.api_key_env}="${apiKey}"`,
+            'Also add to your shell profile for direct access'
+          );
+        } catch (err) {
+          p.log.warn(`Could not store in vault: ${err.message}`);
+          p.note(
+            `export ${builtin.api_key_env}="<your-key>"`,
+            'Set this in your shell profile'
+          );
+        }
+      } else {
+        p.note(
+          `export ${builtin.api_key_env}="<your-key>"`,
+          'Set this in your shell profile'
+        );
+      }
+    }
+  }
+  return true;
+}
+
 // ── Built-in Provider Catalog ────────────────────────────────────────────────
 
 export const BUILTIN_PROVIDERS = [
@@ -1308,6 +1391,16 @@ export const BUILTIN_PROVIDERS = [
     models: [
       { model_id: 'zai-plan-pro', display_name: 'ZAI Plan Pro' },
       { model_id: 'zai-plan-standard', display_name: 'ZAI Plan Standard' },
+    ],
+  },
+  {
+    id: 'claude-cli',
+    display_name: 'Claude Code CLI',
+    cli_binary: 'claude',
+    models: [
+      { model_id: 'opus', display_name: 'Claude Opus' },
+      { model_id: 'sonnet', display_name: 'Claude Sonnet' },
+      { model_id: 'haiku', display_name: 'Claude Haiku' },
     ],
   },
 ];
@@ -1499,7 +1592,7 @@ async function installInteractive(client) {
       .filter(m => selectedModels.includes(m.model_id))
       .map(m => ({
         ...m,
-        metadata: { api_base: apiBase },
+        metadata: apiBase ? { api_base: apiBase } : {},
       }));
 
     // Prompt for custom model details if selected
@@ -1518,7 +1611,7 @@ async function installInteractive(client) {
       models.push({
         model_id: customModelId,
         display_name: customModelName || customModelId,
-        metadata: { api_base: apiBase, custom: true },
+        metadata: apiBase ? { api_base: apiBase, custom: true } : { custom: true },
       });
     }
   }
@@ -1537,53 +1630,12 @@ async function installInteractive(client) {
     return;
   }
 
-  // Step 2: API key check
-  const currentKey = process.env[apiKeyEnv];
-  if (currentKey) {
-    const masked = currentKey.slice(0, 8) + '...' + currentKey.slice(-4);
-    p.log.success(`API key found: ${apiKeyEnv} = ${masked}`);
-  } else {
-    p.log.warn(`API key not set: ${apiKeyEnv}`);
-
-    const setKey = handleCancel(await p.confirm({
-      message: `Store API key via vault? (You can also set ${apiKeyEnv} in your shell)`,
-      initialValue: false,
-    }));
-
-    if (setKey) {
-      const apiKey = handleCancel(await p.password({
-        message: `Enter your ${displayName} API key`,
-        validate: (v) => { if (!v.trim()) return 'Required'; },
-      }));
-
-      try {
-        await withSpinner('Storing API key in vault...', async () => {
-          await client.request('/v1/vault/secrets', 'POST', {
-            key_name: apiKeyEnv,
-            backend_key: `moxxy_provider_${providerId}`,
-            policy_label: 'provider-api-key',
-            value: apiKey,
-          });
-        }, 'API key reference stored.');
-
-        p.note(
-          `export ${apiKeyEnv}="${apiKey}"`,
-          'Also add to your shell profile for direct access'
-        );
-      } catch (err) {
-        p.log.warn(`Could not store in vault: ${err.message}`);
-        p.note(
-          `export ${apiKeyEnv}="<your-key>"`,
-          'Set this in your shell profile'
-        );
-      }
-    } else {
-      p.note(
-        `export ${apiKeyEnv}="<your-key>"`,
-        'Set this in your shell profile'
-      );
-    }
-  }
+  // Verify credentials (binary check for CLI providers, API key for others)
+  const credOk = await checkProviderCredentials(
+    builtin || { id: providerId, display_name: displayName, api_key_env: apiKeyEnv },
+    client,
+  );
+  if (!credOk) return;
 
   // Step 3: Install provider via API
   const result = await withSpinner(`Installing ${displayName}...`, () =>
@@ -1591,12 +1643,14 @@ async function installInteractive(client) {
     `${displayName} installed.`
   );
 
-  showResult('Provider Installed', {
+  const resultInfo = {
     ID: providerId,
     Name: displayName,
     Models: models.map(m => m.model_id).join(', '),
-    'API Key Env': apiKeyEnv,
-  });
+  };
+  if (apiKeyEnv) resultInfo['API Key Env'] = apiKeyEnv;
+  if (builtin?.cli_binary) resultInfo['CLI Binary'] = builtin.cli_binary;
+  showResult('Provider Installed', resultInfo);
 
   p.outro('Provider ready. Create an agent with: moxxy agent create');
   return result;
@@ -1617,7 +1671,7 @@ async function installNonInteractive(client, flags) {
     const builtinIds = new Set(builtin.models.map(m => m.model_id));
     const models = builtin.models.map(m => ({
       ...m,
-      metadata: { api_base: builtin.api_base },
+      metadata: builtin.api_base ? { api_base: builtin.api_base } : {},
     }));
 
     // Add custom models that aren't already in the builtin catalog
@@ -1626,7 +1680,7 @@ async function installNonInteractive(client, flags) {
         models.push({
           model_id: modelId,
           display_name: modelId,
-          metadata: { api_base: builtin.api_base, custom: true },
+          metadata: builtin.api_base ? { api_base: builtin.api_base, custom: true } : { custom: true },
         });
       }
     }
@@ -1638,7 +1692,7 @@ async function installNonInteractive(client, flags) {
 
   // Custom provider
   if (!providerId) {
-    throw new Error('Required: --id (provider id). Built-in: openai, openai-codex, anthropic, xai, zai, zai-plan');
+    throw new Error('Required: --id (provider id). Built-in: openai, openai-codex, anthropic, xai, zai, zai-plan, claude-cli');
   }
 
   const displayName = flags.name || flags.display_name || providerId;

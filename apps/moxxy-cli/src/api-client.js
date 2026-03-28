@@ -4,7 +4,8 @@ function isConnectionError(err) {
   const cause = err.cause;
   if (cause && (cause.code === 'ECONNREFUSED' || cause.code === 'ECONNRESET')) return true;
   const msg = (err.message || '').toLowerCase();
-  return msg.includes('econnrefused') || msg.includes('fetch failed');
+  return msg.includes('econnrefused') || msg.includes('fetch failed')
+    || msg.includes('unable to connect') || msg.includes('connection refused');
 }
 
 function gatewayDownError() {
@@ -230,6 +231,46 @@ export class ApiClient {
 
   async listChannelBindings(channelId) {
     return this.request(`/v1/channels/${encodeURIComponent(channelId)}/bindings`, 'GET');
+  }
+
+  async listMcpServers(agentName) {
+    return this.request(`/v1/agents/${encodeURIComponent(agentName)}/mcp`, 'GET');
+  }
+
+  async addMcpServer(agentName, config) {
+    return this.request(`/v1/agents/${encodeURIComponent(agentName)}/mcp`, 'POST', config);
+  }
+
+  async removeMcpServer(agentName, serverId) {
+    return this.request(`/v1/agents/${encodeURIComponent(agentName)}/mcp/${encodeURIComponent(serverId)}`, 'DELETE');
+  }
+
+  async testMcpServer(agentName, serverId) {
+    return this.request(`/v1/agents/${encodeURIComponent(agentName)}/mcp/${encodeURIComponent(serverId)}/test`, 'POST');
+  }
+
+  async listTemplates() {
+    return this.request('/v1/templates', 'GET');
+  }
+
+  async getTemplate(slug) {
+    return this.request(`/v1/templates/${encodeURIComponent(slug)}`, 'GET');
+  }
+
+  async createTemplate(content) {
+    return this.request('/v1/templates', 'POST', { content });
+  }
+
+  async updateTemplate(slug, content) {
+    return this.request(`/v1/templates/${encodeURIComponent(slug)}`, 'PUT', { content });
+  }
+
+  async deleteTemplate(slug) {
+    return this.request(`/v1/templates/${encodeURIComponent(slug)}`, 'DELETE');
+  }
+
+  async setAgentTemplate(name, template) {
+    return this.request(`/v1/agents/${encodeURIComponent(name)}/template`, 'PATCH', { template });
   }
 }
 

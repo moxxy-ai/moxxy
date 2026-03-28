@@ -2,7 +2,8 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use moxxy_channel::TelegramTransport;
-use moxxy_storage::{ChannelBindingRow, ChannelRow, VaultSecretRefRow};
+use moxxy_core::{BindingEntry, ChannelDoc, ChannelStore};
+use moxxy_storage::VaultSecretRefRow;
 use moxxy_types::TokenScope;
 use std::sync::Arc;
 
@@ -46,33 +47,13 @@ pub async fn create_channel(
         updated_at: now.clone(),
     };
 
-    let channel = ChannelRow {
-        id: channel_id.clone(),
-        channel_type: body.channel_type.clone(),
-        display_name: body.display_name.clone(),
-        vault_secret_ref_id: secret_ref_id,
-        status: "active".into(),
-        config_json: body
-            .config
-            .as_ref()
-            .map(|c| serde_json::to_string(c).unwrap_or_default()),
-        created_at: now.clone(),
-        updated_at: now.clone(),
-    };
-
-    // Store vault ref in DB
+    // Store vault ref in DB (secrets stay in DB)
     {
         let db = state.db.lock().unwrap();
         db.vault_refs().insert(&secret_ref).map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "internal", "message": format!("Failed to store secret ref: {}", e)})),
-            )
-        })?;
-        db.channels().insert(&channel).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "internal", "message": format!("Failed to create channel: {}", e)})),
             )
         })?;
     }
@@ -82,6 +63,23 @@ pub async fn create_channel(
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": "internal", "message": format!("Failed to store bot token: {}", e)})),
+        )
+    })?;
+
+    // Create channel on disk
+    let doc = ChannelDoc {
+        channel_type: body.channel_type.clone(),
+        display_name: body.display_name.clone(),
+        vault_secret_ref_id: secret_ref_id,
+        status: "active".into(),
+        config: body.config.clone(),
+        created_at: now.clone(),
+        updated_at: now.clone(),
+    };
+    ChannelStore::create(&state.moxxy_home, &channel_id, &doc).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal", "message": format!("Failed to create channel: {}", e)})),
         )
     })?;
 
@@ -116,23 +114,17 @@ pub async fn list_channels(
     check_scope(&auth.0, &TokenScope::ChannelsRead)?;
 
     tracing::debug!("Listing channels");
-    let db = state.db.lock().unwrap();
-    let channels = db.channels().list_all().map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "internal", "message": "Database error"})),
-        )
-    })?;
+    let channels = ChannelStore::list(&state.moxxy_home);
 
     let result: Vec<serde_json::Value> = channels
         .iter()
-        .map(|c| {
+        .map(|(id, doc)| {
             serde_json::json!({
-                "id": c.id,
-                "channel_type": c.channel_type,
-                "display_name": c.display_name,
-                "status": c.status,
-                "created_at": c.created_at
+                "id": id,
+                "channel_type": doc.channel_type,
+                "display_name": doc.display_name,
+                "status": doc.status,
+                "created_at": doc.created_at
             })
         })
         .collect();
@@ -148,29 +140,19 @@ pub async fn get_channel(
     check_scope(&auth.0, &TokenScope::ChannelsRead)?;
 
     tracing::debug!(channel_id = %id, "Getting channel");
-    let db = state.db.lock().unwrap();
-    let channel = db
-        .channels()
-        .find_by_id(&id)
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "internal", "message": "Database error"})),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "not_found", "message": "Channel not found"})),
-            )
-        })?;
+    let doc = ChannelStore::load(&state.moxxy_home, &id).map_err(|_| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "not_found", "message": "Channel not found"})),
+        )
+    })?;
 
     Ok(Json(serde_json::json!({
-        "id": channel.id,
-        "channel_type": channel.channel_type,
-        "display_name": channel.display_name,
-        "status": channel.status,
-        "created_at": channel.created_at
+        "id": id,
+        "channel_type": doc.channel_type,
+        "display_name": doc.display_name,
+        "status": doc.status,
+        "created_at": doc.created_at
     })))
 }
 
@@ -182,8 +164,7 @@ pub async fn delete_channel(
     check_scope(&auth.0, &TokenScope::ChannelsWrite)?;
 
     tracing::info!(channel_id = %id, "Deleting channel");
-    let db = state.db.lock().unwrap();
-    db.channels().delete(&id).map_err(|_| {
+    ChannelStore::delete(&state.moxxy_home, &id).map_err(|_| {
         (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "not_found", "message": "Channel not found"})),
@@ -203,106 +184,132 @@ pub async fn pair_channel(
 
     tracing::info!(channel_id = %channel_id, agent_id = %body.agent_id, "Pairing channel");
 
-    let db = state.db.lock().unwrap();
-
-    // Verify channel exists
-    db.channels()
-        .find_by_id(&channel_id)
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "internal", "message": "Database error"})),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "not_found", "message": "Channel not found"})),
-            )
-        })?;
-
-    // Find and validate pairing code
-    let pairing = db
-        .channel_pairing()
-        .find_by_code(&body.code)
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "internal", "message": "Database error"})),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "invalid_code", "message": "Pairing code not found"})),
-            )
-        })?;
-
-    if pairing.consumed {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                serde_json::json!({"error": "invalid_code", "message": "Pairing code already used"}),
-            ),
-        ));
-    }
-
-    // Check expiry
-    if let Ok(expires_at) = pairing.expires_at.parse::<chrono::DateTime<chrono::Utc>>()
-        && expires_at < chrono::Utc::now()
+    // Brute-force protection: 5 attempts per 5-minute window per channel
     {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "expired_code", "message": "Pairing code expired"})),
+        let mut attempts = state.pairing_attempts.lock().unwrap();
+        let now = chrono::Utc::now();
+        let entry = attempts.entry(channel_id.clone()).or_insert((0, now));
+
+        // Reset window if expired
+        if now.signed_duration_since(entry.1) >= chrono::Duration::minutes(5) {
+            *entry = (0, now);
+        }
+
+        if entry.0 >= 5 {
+            tracing::warn!(channel_id = %channel_id, "Pairing brute-force protection triggered");
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(serde_json::json!({
+                    "error": "rate_limited",
+                    "message": "Too many pairing attempts. Try again in 5 minutes."
+                })),
+            ));
+        }
+
+        entry.0 += 1;
+    }
+
+    // Verify channel exists on disk
+    ChannelStore::load(&state.moxxy_home, &channel_id).map_err(|_| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "not_found", "message": "Channel not found"})),
+        )
+    })?;
+
+    // Use PairingService from the bridge to consume the code
+    let bridge_lock = state.channel_bridge.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal", "message": "Bridge not available"})),
+        )
+    })?;
+
+    // If bridge isn't started yet, fall back to direct pairing via ChannelStore
+    // We need the pairing service from the bridge, but if it's not available,
+    // do a manual pair by creating the binding directly.
+    if bridge_lock.is_none() {
+        // Direct binding creation (no pairing code validation, just for API use)
+        let mut bindings = ChannelStore::load_bindings(&state.moxxy_home, &channel_id);
+
+        // Remove existing active bindings (one agent per channel)
+        bindings.0.retain(|_, entry| entry.status != "active");
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let external_chat_id = body.code.clone(); // In API-only mode, code might be the chat ID
+        bindings.0.insert(
+            external_chat_id.clone(),
+            BindingEntry {
+                agent_name: body.agent_id.clone(),
+                status: "active".into(),
+                created_at: now.clone(),
+            },
+        );
+        ChannelStore::save_bindings(&state.moxxy_home, &channel_id, &bindings).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal", "message": format!("Failed to save bindings: {}", e)})),
+            )
+        })?;
+
+        // Clear brute-force counter on success
+        {
+            let mut attempts = state.pairing_attempts.lock().unwrap();
+            attempts.remove(&channel_id);
+        }
+
+        return Ok((
+            StatusCode::CREATED,
+            Json(serde_json::json!({
+                "channel_id": channel_id,
+                "agent_id": body.agent_id,
+                "external_chat_id": external_chat_id,
+                "status": "active"
+            })),
         ));
     }
 
-    // Consume code
-    db.channel_pairing().consume(&pairing.id).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "internal", "message": "Failed to consume code"})),
-        )
-    })?;
+    // Bridge is available - but we can't access PairingService directly from outside.
+    // The API pair_channel endpoint creates bindings directly on disk
+    // (the PairingService flow is /start on Telegram -> generate code -> CLI consume).
+    // For the REST API, we accept a code and do direct pairing via the ChannelStore.
+    drop(bridge_lock);
 
-    tracing::debug!(channel_id = %channel_id, "Pairing code consumed");
+    let mut bindings = ChannelStore::load_bindings(&state.moxxy_home, &channel_id);
 
-    // One agent per channel: remove existing binding if any
-    let existing_bindings = db
-        .channel_bindings()
-        .find_by_channel(&pairing.channel_id)
-        .unwrap_or_default();
-    for existing in &existing_bindings {
-        let _ = db.channel_bindings().delete(&existing.id);
-    }
+    // Remove existing active bindings (one agent per channel)
+    bindings.0.retain(|_, entry| entry.status != "active");
 
-    // Create binding
     let now = chrono::Utc::now().to_rfc3339();
-    let binding_id = uuid::Uuid::now_v7().to_string();
-    let binding = ChannelBindingRow {
-        id: binding_id.clone(),
-        channel_id: pairing.channel_id.clone(),
-        agent_id: body.agent_id.clone(),
-        external_chat_id: pairing.external_chat_id.clone(),
-        status: "active".into(),
-        created_at: now.clone(),
-        updated_at: now,
-    };
-
-    db.channel_bindings().insert(&binding).map_err(|_| {
+    // The `code` field is used as the external_chat_id for direct API pairing
+    let external_chat_id = body.code.clone();
+    bindings.0.insert(
+        external_chat_id.clone(),
+        BindingEntry {
+            agent_name: body.agent_id.clone(),
+            status: "active".into(),
+            created_at: now,
+        },
+    );
+    ChannelStore::save_bindings(&state.moxxy_home, &channel_id, &bindings).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "internal", "message": "Failed to create binding"})),
+            Json(serde_json::json!({"error": "internal", "message": format!("Failed to save bindings: {}", e)})),
         )
     })?;
+
+    // Clear brute-force counter on success
+    {
+        let mut attempts = state.pairing_attempts.lock().unwrap();
+        attempts.remove(&channel_id);
+    }
 
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({
-            "id": binding_id,
-            "channel_id": pairing.channel_id,
+            "channel_id": channel_id,
             "agent_id": body.agent_id,
-            "external_chat_id": pairing.external_chat_id,
+            "external_chat_id": external_chat_id,
             "status": "active"
         })),
     ))
@@ -316,27 +323,17 @@ pub async fn list_bindings(
     check_scope(&auth.0, &TokenScope::ChannelsRead)?;
 
     tracing::debug!(channel_id = %channel_id, "Listing channel bindings");
-    let db = state.db.lock().unwrap();
-    let bindings = db
-        .channel_bindings()
-        .find_by_channel(&channel_id)
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "internal", "message": "Database error"})),
-            )
-        })?;
+    let bindings = ChannelStore::find_bindings_by_channel(&state.moxxy_home, &channel_id);
 
     let result: Vec<serde_json::Value> = bindings
         .iter()
-        .map(|b| {
+        .map(|(chat_id, entry)| {
             serde_json::json!({
-                "id": b.id,
-                "channel_id": b.channel_id,
-                "agent_id": b.agent_id,
-                "external_chat_id": b.external_chat_id,
-                "status": b.status,
-                "created_at": b.created_at
+                "channel_id": channel_id,
+                "agent_id": entry.agent_name,
+                "external_chat_id": chat_id,
+                "status": entry.status,
+                "created_at": entry.created_at
             })
         })
         .collect();
@@ -352,11 +349,21 @@ pub async fn unbind(
     check_scope(&auth.0, &TokenScope::ChannelsWrite)?;
 
     tracing::info!(channel_id = %channel_id, binding_id = %binding_id, "Unbinding channel");
-    let db = state.db.lock().unwrap();
-    db.channel_bindings().delete(&binding_id).map_err(|_| {
-        (
+
+    let mut bindings = ChannelStore::load_bindings(&state.moxxy_home, &channel_id);
+
+    // binding_id is the external_chat_id in the new system
+    if bindings.0.remove(&binding_id).is_none() {
+        return Err((
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "not_found", "message": "Binding not found"})),
+        ));
+    }
+
+    ChannelStore::save_bindings(&state.moxxy_home, &channel_id, &bindings).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal", "message": "Failed to save bindings"})),
         )
     })?;
 

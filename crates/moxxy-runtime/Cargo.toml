@@ -8,6 +8,7 @@ moxxy-types = { path = "../moxxy-types" }
 moxxy-core = { path = "../moxxy-core" }
 moxxy-storage = { path = "../moxxy-storage" }
 moxxy-vault = { path = "../moxxy-vault" }
+moxxy-mcp = { path = "../moxxy-mcp" }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 serde = { workspace = true }
@@ -19,8 +20,11 @@ uuid = { workspace = true }
 hex = { workspace = true }
 chrono = { workspace = true }
 async-trait = "0.1"
+async-stream = { workspace = true }
+futures-util = { workspace = true }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 scraper = "0.22"
+url = "2"
 
 [dev-dependencies]
 tempfile = { workspace = true }

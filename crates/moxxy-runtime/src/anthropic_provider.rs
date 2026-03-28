@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::provider::{Message, ModelConfig, Provider, ProviderResponse, ToolCall};
+use crate::provider::{Message, ModelConfig, Provider, ProviderResponse, ToolCall, ToolChoice};
 use crate::registry::{PrimitiveError, ToolDefinition};
 
 const ANTHROPIC_OAUTH_SESSION_MODE: &str = "anthropic_oauth_session";
@@ -46,6 +46,12 @@ struct AnthropicOAuthRefreshResponse {
 // ── Request types ──────────────────────────────────────────────────
 
 #[derive(Serialize)]
+struct AnthropicToolChoiceParam {
+    #[serde(rename = "type")]
+    choice_type: String,
+}
+
+#[derive(Serialize)]
 struct AnthropicRequest {
     model: String,
     max_tokens: u32,
@@ -56,6 +62,8 @@ struct AnthropicRequest {
     temperature: Option<f64>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<AnthropicToolDef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<AnthropicToolChoiceParam>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -432,6 +440,18 @@ impl Provider for AnthropicProvider {
         let (system, anthropic_messages) = convert_messages(messages);
         let anthropic_tools: Vec<AnthropicToolDef> = tools.iter().map(convert_tool_def).collect();
 
+        let tool_choice = if !anthropic_tools.is_empty() {
+            let choice_type = match config.tool_choice {
+                ToolChoice::Any => "any",
+                ToolChoice::Auto => "auto",
+            };
+            Some(AnthropicToolChoiceParam {
+                choice_type: choice_type.into(),
+            })
+        } else {
+            None
+        };
+
         let body = AnthropicRequest {
             model: self.model.clone(),
             max_tokens: config.max_tokens,
@@ -439,6 +459,7 @@ impl Provider for AnthropicProvider {
             system,
             temperature: Some(config.temperature),
             tools: anthropic_tools,
+            tool_choice,
         };
 
         let url = format!("{}/v1/messages", self.api_base.trim_end_matches('/'));
@@ -757,7 +778,7 @@ mod tests {
             parameters: serde_json::json!({}),
         };
         let anthropic_td = convert_tool_def(&td);
-        // Anthropic supports dots in tool names — no translation needed
+        // Anthropic supports dots in tool names - no translation needed
         assert_eq!(anthropic_td.name, "git.pr_create");
     }
 
@@ -850,6 +871,9 @@ mod tests {
             system: Some("Be helpful.".into()),
             temperature: Some(0.7),
             tools: vec![convert_tool_def(&td)],
+            tool_choice: Some(AnthropicToolChoiceParam {
+                choice_type: "any".into(),
+            }),
         };
         let json = serde_json::to_value(&body).unwrap();
         assert_eq!(json["model"], "claude-sonnet-4-20250514");
@@ -860,6 +884,7 @@ mod tests {
         assert!(json["tools"][0].get("input_schema").is_some());
         // Anthropic uses input_schema, not parameters
         assert!(json["tools"][0].get("parameters").is_none());
+        assert_eq!(json["tool_choice"]["type"], "any");
     }
 
     #[test]
@@ -871,9 +896,11 @@ mod tests {
             system: None,
             temperature: Some(0.7),
             tools: vec![],
+            tool_choice: None,
         };
         let json = serde_json::to_string(&body).unwrap();
         assert!(!json.contains("system"));
         assert!(!json.contains("tools"));
+        assert!(!json.contains("tool_choice"));
     }
 }

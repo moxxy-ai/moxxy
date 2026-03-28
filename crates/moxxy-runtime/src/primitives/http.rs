@@ -1,58 +1,33 @@
 use async_trait::async_trait;
-use moxxy_storage::Database;
-use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::registry::{Primitive, PrimitiveError};
 
 pub struct HttpRequestPrimitive {
-    db: Arc<Mutex<Database>>,
-    agent_id: String,
+    allowlist_path: PathBuf,
     pub timeout: Duration,
     pub max_response_bytes: usize,
 }
 
 impl HttpRequestPrimitive {
     pub fn new(
-        db: Arc<Mutex<Database>>,
-        agent_id: String,
+        allowlist_path: PathBuf,
         timeout: Duration,
         max_response_bytes: usize,
     ) -> Self {
         Self {
-            db,
-            agent_id,
+            allowlist_path,
             timeout,
             max_response_bytes,
         }
     }
 
-    fn load_allowed_domains(&self) -> Result<Vec<String>, PrimitiveError> {
-        let db = self
-            .db
-            .lock()
-            .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-        let db_entries = db
-            .allowlists()
-            .list_entries(&self.agent_id, "http_domain")
-            .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-        Ok(crate::defaults::merge_with_defaults(
-            db_entries,
-            "http_domain",
-        ))
-    }
-
-    fn extract_domain(url: &str) -> Option<String> {
-        let without_scheme = if let Some(rest) = url.strip_prefix("https://") {
-            rest
-        } else if let Some(rest) = url.strip_prefix("http://") {
-            rest
-        } else {
-            url
-        };
-        let domain = without_scheme.split('/').next()?;
-        let domain = domain.split(':').next()?;
-        Some(domain.to_string())
+    fn load_allowed_domains(&self) -> Vec<String> {
+        let file = moxxy_core::AllowlistFile::load(&self.allowlist_path);
+        let allows = file.allows("http_domain");
+        let denials = file.denials("http_domain");
+        crate::defaults::merge_with_defaults_and_denials(allows, denials, "http_domain")
     }
 }
 
@@ -84,11 +59,11 @@ impl Primitive for HttpRequestPrimitive {
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'url' parameter".into()))?;
 
-        let domain = Self::extract_domain(url)
+        let domain = crate::url_policy::extract_host(url)
             .ok_or_else(|| PrimitiveError::InvalidParams("cannot parse domain from URL".into()))?;
 
-        let allowed_domains = self.load_allowed_domains()?;
-        if !allowed_domains.iter().any(|d| d == &domain) {
+        let allowed_domains = self.load_allowed_domains();
+        if !crate::url_policy::is_domain_allowed(&domain, &allowed_domains) {
             tracing::warn!(url, %domain, "HTTP request blocked = domain not in allowlist");
             return Err(PrimitiveError::AccessDenied(format!(
                 "Domain '{}' not in allowlist",
@@ -173,53 +148,31 @@ impl Primitive for HttpRequestPrimitive {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moxxy_storage::{AllowlistRow, Database};
-    use moxxy_test_utils::TestDb;
 
-    fn setup_db(domains: &[&str]) -> (Arc<Mutex<Database>>, String) {
-        let test_db = TestDb::new();
-        let db = Database::new(test_db.into_conn());
-        let agent_id = uuid::Uuid::now_v7().to_string();
-        db.agents()
-            .insert(&moxxy_storage::AgentRow {
-                id: agent_id.clone(),
-                parent_agent_id: None,
-                name: Some("test-agent".into()),
-                status: "idle".into(),
-                depth: 0,
-                spawned_total: 0,
-                workspace_root: "/tmp".into(),
-                created_at: chrono::Utc::now().to_rfc3339(),
-                updated_at: chrono::Utc::now().to_rfc3339(),
-            })
-            .unwrap();
+    fn setup_allowlist(domains: &[&str]) -> PathBuf {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("allowlists.yaml");
+        let mut file = moxxy_core::AllowlistFile::default();
         for domain in domains {
-            db.allowlists()
-                .insert(&AllowlistRow {
-                    id: uuid::Uuid::now_v7().to_string(),
-                    agent_id: agent_id.clone(),
-                    list_type: "http_domain".into(),
-                    entry: domain.to_string(),
-                    created_at: chrono::Utc::now().to_rfc3339(),
-                })
-                .unwrap();
+            file.add_allow("http_domain", domain.to_string());
         }
-        (Arc::new(Mutex::new(db)), agent_id)
+        file.save(&path).unwrap();
+        std::mem::forget(tmp);
+        path
     }
 
     #[tokio::test]
     async fn http_request_allowed_domain_succeeds() {
-        let (db, agent_id) = setup_db(&["example.com"]);
-        let prim =
-            HttpRequestPrimitive::new(db.clone(), agent_id, Duration::from_secs(5), 1024 * 1024);
-        let allowed = prim.load_allowed_domains().unwrap();
+        let path = setup_allowlist(&["example.com"]);
+        let prim = HttpRequestPrimitive::new(path, Duration::from_secs(5), 1024 * 1024);
+        let allowed = prim.load_allowed_domains();
         assert!(allowed.contains(&"example.com".to_string()));
     }
 
     #[tokio::test]
     async fn http_request_blocked_domain_fails() {
-        let (db, agent_id) = setup_db(&["example.com"]);
-        let prim = HttpRequestPrimitive::new(db, agent_id, Duration::from_secs(5), 1024 * 1024);
+        let path = setup_allowlist(&["example.com"]);
+        let prim = HttpRequestPrimitive::new(path, Duration::from_secs(5), 1024 * 1024);
         let result = prim
             .invoke(serde_json::json!({
                 "url": "https://evil.com/steal",
@@ -235,30 +188,30 @@ mod tests {
 
     #[tokio::test]
     async fn http_request_enforces_timeout() {
-        let (db, agent_id) = setup_db(&["httpbin.org"]);
-        let prim = HttpRequestPrimitive::new(db, agent_id, Duration::from_millis(1), 1024);
+        let path = setup_allowlist(&["httpbin.org"]);
+        let prim = HttpRequestPrimitive::new(path, Duration::from_millis(1), 1024);
         assert_eq!(prim.timeout.as_millis(), 1);
     }
 
     #[tokio::test]
     async fn http_request_enforces_size_limit() {
-        let (db, agent_id) = setup_db(&[]);
-        let prim = HttpRequestPrimitive::new(db, agent_id, Duration::from_secs(5), 100);
+        let path = setup_allowlist(&[]);
+        let prim = HttpRequestPrimitive::new(path, Duration::from_secs(5), 100);
         assert_eq!(prim.max_response_bytes, 100);
     }
 
     #[test]
-    fn extract_domain_parses_https_url() {
+    fn extract_host_parses_https_url() {
         assert_eq!(
-            HttpRequestPrimitive::extract_domain("https://example.com/path"),
+            crate::url_policy::extract_host("https://example.com/path"),
             Some("example.com".into())
         );
     }
 
     #[test]
-    fn extract_domain_parses_url_with_port() {
+    fn extract_host_parses_url_with_port() {
         assert_eq!(
-            HttpRequestPrimitive::extract_domain("http://localhost:8080/api"),
+            crate::url_policy::extract_host("http://localhost:8080/api"),
             Some("localhost".into())
         );
     }

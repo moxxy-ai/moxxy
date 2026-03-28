@@ -38,7 +38,7 @@ pub struct EventEnvelope {
     pub run_id: Option<String>, // Associated run (if any)
     pub parent_run_id: Option<String>,  // Parent run for sub-agents
     pub sequence: u64,          // Monotonic sequence within a run
-    pub event_type: EventType,  // One of 30 variants
+    pub event_type: EventType,  // One of 60 variants
     pub payload: Value,         // Event-specific JSON data
     pub redactions: Vec<String>,// JSON paths that were redacted
     pub sensitive: bool,        // True if redactions were applied
@@ -49,13 +49,15 @@ IDs use UUID v7 for time-ordered uniqueness. Timestamps are millisecond-precisio
 
 ## Event Types
 
-All 30 event types use dot-notation serialization:
+All 60 event types use dot-notation serialization:
 
 | Category | Event Type | Description |
 |----------|-----------|-------------|
 | **Run** | `run.started` | Agent run has begun |
 | | `run.completed` | Run finished successfully |
 | | `run.failed` | Run encountered a fatal error |
+| | `run.queued` | Run added to the execution queue |
+| | `run.dequeued` | Run removed from the queue and starting |
 | **Message** | `message.delta` | Streaming token chunk from LLM |
 | | `message.final` | Complete LLM response |
 | **Model** | `model.request` | Request sent to LLM provider |
@@ -78,11 +80,39 @@ All 30 event types use dot-notation serialization:
 | | `heartbeat.failed` | Heartbeat action failed |
 | **Sub-agent** | `subagent.spawned` | Child agent created |
 | | `subagent.completed` | Child agent finished |
+| | `subagent.failed` | Child agent failed |
+| | `subagent.ask_question` | Child agent asked a question to parent |
 | **Security** | `security.violation` | Security policy violated |
 | | `sandbox.denied` | Sandbox blocked an operation |
 | **Channel** | `channel.message_received` | Inbound message from external channel |
 | | `channel.message_sent` | Outbound message to external channel |
 | | `channel.error` | Channel transport error |
+| **User** | `user.ask_question` | Agent asked the user a question |
+| | `user.ask_answered` | User answered an agent's question |
+| **Agent** | `agent.alive` | Agent heartbeat alive signal |
+| | `agent.stuck` | Agent detected as stuck |
+| | `agent.nudged` | Agent was nudged to resume |
+| **Webhook** | `webhook.received` | Inbound webhook received |
+| | `webhook.action_completed` | Webhook action completed successfully |
+| | `webhook.action_failed` | Webhook action failed |
+| **Hive** | `hive.created` | Hive was created |
+| | `hive.disbanded` | Hive was disbanded |
+| | `hive.member_joined` | Agent joined a hive |
+| | `hive.signal_posted` | Signal posted to hive |
+| | `hive.task_created` | Task created in hive |
+| | `hive.task_claimed` | Task claimed by a hive member |
+| | `hive.task_completed` | Hive task completed |
+| | `hive.task_failed` | Hive task failed |
+| | `hive.proposal_created` | Proposal created in hive |
+| | `hive.proposal_resolved` | Hive proposal resolved |
+| | `hive.vote_cast` | Vote cast on a hive proposal |
+| **Task** | `task.analyzed` | Task analysis completed |
+| **MCP** | `mcp.connected` | MCP server connection established |
+| | `mcp.disconnected` | MCP server disconnected |
+| | `mcp.connection_failed` | MCP server connection failed |
+| | `mcp.tool_invoked` | MCP tool invocation started |
+| | `mcp.tool_completed` | MCP tool invocation completed |
+| | `mcp.tool_failed` | MCP tool invocation failed |
 
 ## RedactionEngine
 

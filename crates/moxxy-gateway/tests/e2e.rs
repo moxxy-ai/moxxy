@@ -815,6 +815,6 @@ async fn e2e_ask_response_resolves_pending_question() {
     );
 }
 
-// Sub-agent spawn tests removed — subagent creation is now internal via
+// Sub-agent spawn tests removed - subagent creation is now internal via
 // RunStarter::spawn_child (called by agent.spawn / hive.recruit primitives),
 // not via a REST endpoint.

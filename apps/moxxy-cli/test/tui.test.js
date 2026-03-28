@@ -3,12 +3,8 @@ import assert from 'node:assert/strict';
 import { shortId, formatNumber, makeBar, COLORS, formatTs } from '../src/tui/helpers.js';
 import { renderMarkdown } from '../src/tui/markdown-renderer.js';
 import { matchCommands, SLASH_COMMANDS } from '../src/tui/slash-commands.js';
-import { StatusBar, computeContextUtilization } from '../src/tui/status-bar.js';
+import { computeContextUtilization } from '../src/tui/components/header.jsx';
 import { EventsHandler } from '../src/tui/events-handler.js';
-
-function stripAnsi(s) {
-  return String(s || '').replace(/\x1b\[[0-9;]*m/g, '');
-}
 
 describe('tui helpers', () => {
   it('shortId truncates to 12 chars', () => {
@@ -181,57 +177,7 @@ describe('model slash commands', () => {
   });
 });
 
-describe('status bar', () => {
-  it('renders token and context usage as percentage when context window is known', () => {
-    const bar = new StatusBar();
-    bar.setAgent({
-      id: '019cb068-9930-7000-8000-123456789abc',
-      status: 'idle',
-      provider_id: 'openai',
-      model_id: 'gpt-4o-mini',
-    });
-    bar.setConnected(true);
-    bar.setContextWindow(8192);
-    bar.setStats({
-      eventCount: 6,
-      tokenEstimate: 1915,
-      contextTokens: 1896,
-      skills: {},
-      primitives: {},
-    });
-
-    const lines = bar.render(120);
-    const mid = stripAnsi(lines[1]);
-    assert.ok(mid.includes('Ev:6'));
-    assert.ok(mid.includes('Tok:'));
-    assert.ok(mid.includes('Ctx:1,896/8,192 (23%)'));
-  });
-
-  it('hides context segment when context window is unknown', () => {
-    const bar = new StatusBar();
-    bar.setAgent({
-      id: '019cb068-9930-7000-8000-123456789abc',
-      status: 'idle',
-      provider_id: 'openai',
-      model_id: 'gpt-4o-mini',
-    });
-    bar.setConnected(true);
-    bar.setContextWindow(0);
-    bar.setStats({
-      eventCount: 1,
-      tokenEstimate: 100,
-      contextTokens: 1896,
-      skills: {},
-      primitives: {},
-    });
-
-    const lines = bar.render(120);
-    const mid = stripAnsi(lines[1]);
-    assert.ok(mid.includes('Tok:100'));
-    assert.ok(!mid.includes('Ctx:'));
-    assert.ok(!mid.includes('%'));
-  });
-
+describe('context utilization', () => {
   it('computes utilization thresholds and clamps to 0..100', () => {
     assert.deepEqual(computeContextUtilization(600, 1000), {
       hasWindow: true,

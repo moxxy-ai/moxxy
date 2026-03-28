@@ -24,6 +24,56 @@ pub struct SandboxConfig {
     pub workspace_root: PathBuf,
 }
 
+impl SandboxConfig {
+    /// Build a SandboxConfig from a policy profile string.
+    /// - None -> Standard (sandbox ON by default)
+    /// - "strict" -> Strict
+    /// - "standard" -> Standard
+    /// - "none" -> None (explicit opt-out)
+    /// - Unknown -> warn + fallback to Standard
+    pub fn from_policy_profile(profile: Option<&str>, workspace_root: std::path::PathBuf) -> Self {
+        let sandbox_profile = match profile {
+            None => SandboxProfile::Standard,
+            Some("strict") => SandboxProfile::Strict,
+            Some("standard") => SandboxProfile::Standard,
+            Some("none") => SandboxProfile::None,
+            Some(unknown) => {
+                tracing::warn!(
+                    profile = unknown,
+                    "Unknown sandbox policy profile, falling back to Standard"
+                );
+                SandboxProfile::Standard
+            }
+        };
+        Self {
+            profile: sandbox_profile,
+            workspace_root,
+        }
+    }
+}
+
+/// Check if the platform sandbox binary is available on PATH.
+pub fn is_sandbox_available() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("which")
+            .arg("sandbox-exec")
+            .output()
+            .is_ok_and(|o| o.status.success())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("which")
+            .arg("bwrap")
+            .output()
+            .is_ok_and(|o| o.status.success())
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        false
+    }
+}
+
 pub struct SandboxedCommand;
 
 impl SandboxedCommand {
@@ -41,15 +91,41 @@ impl SandboxedCommand {
         }
     }
 
+    /// Resolve symlinks in the workspace path (e.g. /tmp -> /private/tmp on macOS)
+    /// so sandbox profiles match the canonical path the OS actually sees.
+    fn canonical_workspace(workspace_root: &std::path::Path) -> String {
+        workspace_root
+            .canonicalize()
+            .unwrap_or_else(|_| workspace_root.to_path_buf())
+            .display()
+            .to_string()
+    }
+
     #[cfg(target_os = "macos")]
     fn build_strict(
         config: &SandboxConfig,
         command: &str,
         args: &[String],
     ) -> Option<(String, Vec<String>)> {
+        let ws = Self::canonical_workspace(&config.workspace_root);
         let profile = format!(
-            "(version 1)(deny default)(allow process-exec)(allow file-read* (subpath \"{}\"))(allow file-read* (subpath \"/usr\"))(allow file-read* (subpath \"/System\"))(allow file-read* (subpath \"/Library\"))(allow sysctl-read)",
-            config.workspace_root.display()
+            "(version 1)\
+             (deny default)\
+             (allow process-exec)\
+             (allow process-fork)\
+             (allow file-read* (subpath \"{ws}\"))\
+             (allow file-read* (subpath \"/usr\"))\
+             (allow file-read* (subpath \"/bin\"))\
+             (allow file-read* (subpath \"/sbin\"))\
+             (allow file-read* (subpath \"/private\"))\
+             (allow file-read* (subpath \"/opt\"))\
+             (allow file-read* (subpath \"/System\"))\
+             (allow file-read* (subpath \"/Library\"))\
+             (allow file-read* (subpath \"/var\"))\
+             (allow file-read* (subpath \"/dev\"))\
+             (allow file-read* (subpath \"/Applications\"))\
+             (allow file-read* (subpath \"/tmp\"))\
+             (allow sysctl-read)"
         );
         let mut sb_args = vec!["-p".into(), profile, command.into()];
         sb_args.extend(args.iter().cloned());
@@ -62,9 +138,27 @@ impl SandboxedCommand {
         command: &str,
         args: &[String],
     ) -> Option<(String, Vec<String>)> {
+        let ws = Self::canonical_workspace(&config.workspace_root);
         let profile = format!(
-            "(version 1)(deny default)(allow process-exec)(allow file-read* (subpath \"{ws}\"))(allow file-write* (subpath \"{ws}\"))(allow file-read* (subpath \"/usr\"))(allow file-read* (subpath \"/System\"))(allow file-read* (subpath \"/Library\"))(allow network-outbound)(allow sysctl-read)",
-            ws = config.workspace_root.display()
+            "(version 1)\
+             (deny default)\
+             (allow process-exec)\
+             (allow process-fork)\
+             (allow file-read* (subpath \"{ws}\"))\
+             (allow file-write* (subpath \"{ws}\"))\
+             (allow file-read* (subpath \"/usr\"))\
+             (allow file-read* (subpath \"/bin\"))\
+             (allow file-read* (subpath \"/sbin\"))\
+             (allow file-read* (subpath \"/private\"))\
+             (allow file-read* (subpath \"/opt\"))\
+             (allow file-read* (subpath \"/System\"))\
+             (allow file-read* (subpath \"/Library\"))\
+             (allow file-read* (subpath \"/var\"))\
+             (allow file-read* (subpath \"/dev\"))\
+             (allow file-read* (subpath \"/Applications\"))\
+             (allow file-read* (subpath \"/tmp\"))\
+             (allow network-outbound)\
+             (allow sysctl-read)"
         );
         let mut sb_args = vec!["-p".into(), profile, command.into()];
         sb_args.extend(args.iter().cloned());
@@ -218,7 +312,10 @@ mod tests {
         assert_eq!(cmd, "sandbox-exec");
         assert_eq!(args[0], "-p");
         assert!(args[1].contains("deny default"));
-        assert!(args[1].contains("/tmp/workspace"));
+        // Canonicalized: /tmp -> /private/tmp on macOS
+        assert!(
+            args[1].contains("/tmp/workspace") || args[1].contains("/private/tmp/workspace")
+        );
         // Strict should NOT allow network-outbound
         assert!(!args[1].contains("network-outbound"));
         assert_eq!(args[2], "ls");
@@ -274,5 +371,51 @@ mod tests {
         assert!(!args.contains(&"--unshare-net".to_string()));
         // Standard should use --bind (rw) instead of --ro-bind for workspace
         assert!(args.contains(&"--bind".to_string()));
+    }
+
+    #[test]
+    fn from_policy_profile_none_defaults_to_standard() {
+        let config = SandboxConfig::from_policy_profile(None, PathBuf::from("/tmp"));
+        assert_eq!(config.profile, SandboxProfile::Standard);
+    }
+
+    #[test]
+    fn from_policy_profile_explicit_values() {
+        let strict = SandboxConfig::from_policy_profile(Some("strict"), PathBuf::from("/tmp"));
+        assert_eq!(strict.profile, SandboxProfile::Strict);
+
+        let standard = SandboxConfig::from_policy_profile(Some("standard"), PathBuf::from("/tmp"));
+        assert_eq!(standard.profile, SandboxProfile::Standard);
+
+        let none = SandboxConfig::from_policy_profile(Some("none"), PathBuf::from("/tmp"));
+        assert_eq!(none.profile, SandboxProfile::None);
+    }
+
+    #[test]
+    fn from_policy_profile_unknown_falls_back_to_standard() {
+        let config = SandboxConfig::from_policy_profile(Some("foobar"), PathBuf::from("/tmp"));
+        assert_eq!(config.profile, SandboxProfile::Standard);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn sandbox_available_on_macos() {
+        // sandbox-exec should be available on macOS
+        assert!(is_sandbox_available());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn canonical_workspace_resolves_symlinks() {
+        // /tmp on macOS is a symlink to /private/tmp
+        let result = SandboxedCommand::canonical_workspace(std::path::Path::new("/tmp"));
+        assert_eq!(result, "/private/tmp");
+    }
+
+    #[test]
+    fn canonical_workspace_falls_back_for_nonexistent() {
+        let result =
+            SandboxedCommand::canonical_workspace(std::path::Path::new("/nonexistent/path"));
+        assert_eq!(result, "/nonexistent/path");
     }
 }

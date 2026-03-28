@@ -54,30 +54,63 @@ impl PathPolicy {
     }
 
     pub fn ensure_readable(&self, path: &Path) -> Result<(), PathPolicyError> {
-        let canonical = path
-            .canonicalize()
-            .map_err(|e| PathPolicyError::OutsideWorkspace(format!("{}: {}", path.display(), e)))?;
+        let check_path = if path.exists() {
+            path.canonicalize()
+                .map_err(|e| PathPolicyError::OutsideWorkspace(format!("{}: {}", path.display(), e)))?
+        } else {
+            // Path doesn't exist yet - walk up to the nearest existing ancestor,
+            // canonicalize it, then re-append the missing suffix so we can still
+            // check whether the path *would be* inside the workspace.
+            let mut current = path.to_path_buf();
+            let mut suffix_parts: Vec<std::ffi::OsString> = Vec::new();
+
+            while !current.exists() {
+                if let Some(name) = current.file_name() {
+                    suffix_parts.push(name.to_os_string());
+                } else {
+                    break;
+                }
+                match current.parent() {
+                    Some(p) if p != current => current = p.to_path_buf(),
+                    _ => break,
+                }
+            }
+
+            if current.exists() {
+                let mut result = current.canonicalize().map_err(|e| {
+                    PathPolicyError::OutsideWorkspace(format!("{}: {}", current.display(), e))
+                })?;
+                for part in suffix_parts.into_iter().rev() {
+                    result = result.join(part);
+                }
+                result
+            } else {
+                return Err(PathPolicyError::OutsideWorkspace(
+                    path.display().to_string(),
+                ));
+            }
+        };
 
         // 1. workspace_root = always allow (agent's own dir)
-        if canonical.starts_with(&self.workspace_root) {
+        if check_path.starts_with(&self.workspace_root) {
             return Ok(());
         }
         // 2. core_mount = allow unless under deny_prefix
         if let Some(ref core) = self.core_mount
-            && canonical.starts_with(core)
+            && check_path.starts_with(core)
         {
             if let Some(ref deny) = self.deny_prefix
-                && canonical.starts_with(deny)
+                && check_path.starts_with(deny)
             {
                 return Err(PathPolicyError::OutsideWorkspace(
-                    canonical.display().to_string(),
+                    check_path.display().to_string(),
                 ));
             }
             return Ok(());
         }
         // 3. Outside both → block
         Err(PathPolicyError::OutsideWorkspace(
-            canonical.display().to_string(),
+            check_path.display().to_string(),
         ))
     }
 
@@ -307,7 +340,7 @@ mod tests {
 
         let policy = PathPolicy::new(agent_dir, Some(moxxy_home.clone()), Some(agents_dir));
 
-        let file = config_dir.join("gateway.json");
+        let file = config_dir.join("gateway.yaml");
         std::fs::write(&file, "{}").unwrap();
         assert!(policy.ensure_readable(&file).is_ok());
         assert!(policy.ensure_writable(&file).is_ok());
@@ -349,6 +382,30 @@ mod tests {
         let abs = Path::new("/some/absolute/path");
         let resolved = policy.resolve_path(abs);
         assert_eq!(resolved, abs.to_path_buf());
+    }
+
+    #[test]
+    fn allows_read_check_for_nonexistent_subdir_in_workspace() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let policy = PathPolicy::new(workspace.clone(), None, None);
+
+        // workspace/my-project doesn't exist yet, but is inside workspace
+        let subdir = workspace.join("my-project");
+        assert!(policy.ensure_readable(&subdir).is_ok());
+    }
+
+    #[test]
+    fn blocks_read_check_for_nonexistent_dir_outside_workspace() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path().join("workspace");
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let policy = PathPolicy::new(workspace, None, None);
+
+        let deep_file = outside.join("hack").join("file.txt");
+        assert!(policy.ensure_readable(&deep_file).is_err());
     }
 
     #[test]

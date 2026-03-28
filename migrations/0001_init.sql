@@ -13,76 +13,21 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_api_tokens_status ON api_tokens(status);
 
-CREATE TABLE IF NOT EXISTS providers (
-    id TEXT PRIMARY KEY NOT NULL,
-    display_name TEXT NOT NULL,
-    manifest_path TEXT NOT NULL,
-    signature TEXT,
-    enabled INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS provider_models (
-    provider_id TEXT NOT NULL,
-    model_id TEXT NOT NULL,
-    display_name TEXT NOT NULL,
-    metadata_json TEXT,
-    PRIMARY KEY (provider_id, model_id),
-    FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
-);
-
 CREATE TABLE IF NOT EXISTS agents (
     id TEXT PRIMARY KEY NOT NULL,
     parent_agent_id TEXT,
-    provider_id TEXT NOT NULL,
-    model_id TEXT NOT NULL,
-    workspace_root TEXT NOT NULL,
-    core_mount TEXT,
-    policy_profile TEXT,
-    temperature REAL DEFAULT 0.7,
-    max_subagent_depth INTEGER DEFAULT 2,
-    max_subagents_total INTEGER DEFAULT 8,
+    name TEXT,
     status TEXT NOT NULL DEFAULT 'idle',
     depth INTEGER NOT NULL DEFAULT 0,
     spawned_total INTEGER NOT NULL DEFAULT 0,
+    workspace_root TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    FOREIGN KEY (provider_id) REFERENCES providers(id),
     FOREIGN KEY (parent_agent_id) REFERENCES agents(id)
 );
 CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
 CREATE INDEX IF NOT EXISTS idx_agents_parent ON agents(parent_agent_id);
-
-CREATE TABLE IF NOT EXISTS heartbeats (
-    id TEXT PRIMARY KEY NOT NULL,
-    agent_id TEXT NOT NULL,
-    interval_minutes INTEGER NOT NULL CHECK (interval_minutes >= 1),
-    action_type TEXT NOT NULL,
-    action_payload TEXT,
-    enabled INTEGER NOT NULL DEFAULT 1,
-    next_run_at TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_heartbeats_agent ON heartbeats(agent_id);
-CREATE INDEX IF NOT EXISTS idx_heartbeats_next_run ON heartbeats(next_run_at);
-
-CREATE TABLE IF NOT EXISTS skills (
-    id TEXT PRIMARY KEY NOT NULL,
-    agent_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    version TEXT NOT NULL,
-    source TEXT,
-    status TEXT NOT NULL DEFAULT 'quarantined',
-    raw_content TEXT,
-    metadata_json TEXT,
-    installed_at TEXT NOT NULL,
-    approved_at TEXT,
-    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_skills_agent ON skills(agent_id);
-CREATE INDEX IF NOT EXISTS idx_skills_status ON skills(status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_name ON agents(name);
 
 CREATE TABLE IF NOT EXISTS memory_index (
     id TEXT PRIMARY KEY NOT NULL,
@@ -91,11 +36,14 @@ CREATE TABLE IF NOT EXISTS memory_index (
     tags_json TEXT,
     chunk_hash TEXT,
     embedding_id TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
+    content TEXT,
     FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_memory_agent ON memory_index(agent_id);
+CREATE INDEX IF NOT EXISTS idx_memory_status ON memory_index(status);
 
 CREATE TABLE IF NOT EXISTS memory_vec (
     rowid INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -142,3 +90,102 @@ CREATE TABLE IF NOT EXISTS event_audit (
 CREATE INDEX IF NOT EXISTS idx_event_audit_agent ON event_audit(agent_id);
 CREATE INDEX IF NOT EXISTS idx_event_audit_ts ON event_audit(ts);
 CREATE INDEX IF NOT EXISTS idx_event_audit_type ON event_audit(event_type);
+
+CREATE TABLE IF NOT EXISTS channels (
+    id TEXT PRIMARY KEY NOT NULL,
+    channel_type TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    vault_secret_ref_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    config_json TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (vault_secret_ref_id) REFERENCES vault_secret_refs(id)
+);
+CREATE INDEX IF NOT EXISTS idx_channels_type ON channels(channel_type);
+CREATE INDEX IF NOT EXISTS idx_channels_status ON channels(status);
+
+CREATE TABLE IF NOT EXISTS channel_bindings (
+    id TEXT PRIMARY KEY NOT NULL,
+    channel_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    external_chat_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(channel_id),
+    FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_bindings_channel ON channel_bindings(channel_id);
+CREATE INDEX IF NOT EXISTS idx_bindings_agent ON channel_bindings(agent_id);
+CREATE INDEX IF NOT EXISTS idx_bindings_external ON channel_bindings(channel_id, external_chat_id);
+
+CREATE TABLE IF NOT EXISTS channel_pairing_codes (
+    id TEXT PRIMARY KEY NOT NULL,
+    channel_id TEXT NOT NULL,
+    external_chat_id TEXT NOT NULL,
+    code TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    consumed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_pairing_code ON channel_pairing_codes(code);
+CREATE INDEX IF NOT EXISTS idx_pairing_expires ON channel_pairing_codes(expires_at);
+
+CREATE TABLE IF NOT EXISTS conversation_log (
+    id TEXT PRIMARY KEY NOT NULL,
+    agent_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_conversation_agent_run ON conversation_log(agent_id, run_id, sequence);
+
+CREATE TABLE IF NOT EXISTS vault_secrets (
+    backend_key TEXT PRIMARY KEY,
+    secret_value TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS agent_allowlists (
+    id TEXT PRIMARY KEY NOT NULL,
+    agent_id TEXT NOT NULL,
+    list_type TEXT NOT NULL,
+    entry TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(agent_id, list_type, entry),
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_agent_allowlists_agent_type
+    ON agent_allowlists(agent_id, list_type);
+
+CREATE TABLE IF NOT EXISTS agent_denylists (
+    id TEXT PRIMARY KEY NOT NULL,
+    agent_id TEXT NOT NULL,
+    list_type TEXT NOT NULL,
+    entry TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(agent_id, list_type, entry),
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_agent_denylists_agent_type
+    ON agent_denylists(agent_id, list_type);
+
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    id TEXT PRIMARY KEY NOT NULL,
+    webhook_id TEXT NOT NULL,
+    source_ip TEXT,
+    headers_json TEXT,
+    body TEXT,
+    signature_valid INTEGER NOT NULL DEFAULT 0,
+    run_id TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_deliveries_webhook ON webhook_deliveries(webhook_id, created_at);

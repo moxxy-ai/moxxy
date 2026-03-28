@@ -638,9 +638,7 @@ mod tests {
         let (_tmp, policy) = setup();
 
         let prim = FsCdPrimitive::new(policy);
-        let result = prim
-            .invoke(serde_json::json!({"path": "ghost_dir"}))
-            .await;
+        let result = prim.invoke(serde_json::json!({"path": "ghost_dir"})).await;
         assert!(result.is_err());
     }
 

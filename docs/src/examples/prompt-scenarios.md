@@ -502,7 +502,7 @@ Every prompt follows the same graph pattern:
 ```
 User prompt
   -> POST /v1/agents/{id}/runs { task: "..." }
-    -> RunExecutor loop (max 10 iterations):
+    -> RunExecutor loop:
          LLM thinks -> emits tool_calls -> primitives execute -> results fed back
     -> Events stream in real-time via SSE
     -> Final message returned to user

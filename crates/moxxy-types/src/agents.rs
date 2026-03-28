@@ -58,6 +58,8 @@ pub struct AgentConfig {
     pub policy_profile: Option<String>,
     #[serde(default)]
     pub core_mount: Option<String>,
+    #[serde(default)]
+    pub template: Option<String>,
 }
 
 impl AgentConfig {
@@ -75,7 +77,7 @@ impl AgentConfig {
 }
 
 /// Distinguishes how an agent was created and its lifecycle.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentType {
     /// User-created via API/CLI, YAML-persisted, keeps its directory.
@@ -84,6 +86,20 @@ pub enum AgentType {
     Ephemeral,
     /// Created by `hive.recruit`, in-memory only, auto-removed + hive manifest update.
     HiveWorker,
+    /// A custom agent kind registered at runtime.
+    Custom(String),
+}
+
+impl AgentType {
+    /// Returns the kind name used to look up the `AgentKindDefinition` in the registry.
+    pub fn kind_name(&self) -> &str {
+        match self {
+            AgentType::Agent => "standard",
+            AgentType::Ephemeral => "ephemeral",
+            AgentType::HiveWorker => "hive_worker",
+            AgentType::Custom(name) => name,
+        }
+    }
 }
 
 /// Role within a hive swarm.
@@ -107,4 +123,6 @@ pub struct AgentRuntime {
     pub depth: u32,
     pub spawned_count: u32,
     pub persona: Option<String>,
+    /// Final output of the agent's last completed run (set on completion/error).
+    pub last_result: Option<String>,
 }

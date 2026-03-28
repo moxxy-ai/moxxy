@@ -62,6 +62,8 @@ Every event follows this structure:
 | `run.started` | `{}` | Agent run has begun |
 | `run.completed` | `{}` | Run finished successfully |
 | `run.failed` | `{"error": "..."}` | Run encountered a fatal error |
+| `run.queued` | `{"position": N}` | Run added to the execution queue |
+| `run.dequeued` | `{}` | Run removed from the queue and starting |
 
 ### Messages
 
@@ -124,6 +126,8 @@ Every event follows this structure:
 |-------|---------|-------------|
 | `subagent.spawned` | `{"parent_id": "...", "child_id": "..."}` | Sub-agent created |
 | `subagent.completed` | `{"child_id": "...", "result": "..."}` | Sub-agent finished |
+| `subagent.failed` | `{"child_id": "...", "error": "..."}` | Sub-agent failed |
+| `subagent.ask_question` | `{"child_id": "...", "question": "..."}` | Sub-agent asked a question to parent |
 
 ### Security
 
@@ -139,6 +143,62 @@ Every event follows this structure:
 | `channel.message_received` | `{"channel_id": "...", "content": "..."}` | Inbound message |
 | `channel.message_sent` | `{"channel_id": "...", "content": "..."}` | Outbound message |
 | `channel.error` | `{"channel_id": "...", "error": "..."}` | Transport error |
+
+### User
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `user.ask_question` | `{"question": "...", "run_id": "..."}` | Agent asked the user a question |
+| `user.ask_answered` | `{"answer": "...", "run_id": "..."}` | User answered an agent's question |
+
+### Agent
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `agent.alive` | `{"agent_id": "..."}` | Agent heartbeat alive signal |
+| `agent.stuck` | `{"agent_id": "...", "reason": "..."}` | Agent detected as stuck |
+| `agent.nudged` | `{"agent_id": "..."}` | Agent was nudged to resume |
+
+### Webhooks
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `webhook.received` | `{"webhook_id": "...", "payload": {...}}` | Inbound webhook received |
+| `webhook.action_completed` | `{"webhook_id": "...", "result": "..."}` | Webhook action completed successfully |
+| `webhook.action_failed` | `{"webhook_id": "...", "error": "..."}` | Webhook action failed |
+
+### Hive
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `hive.created` | `{"hive_id": "...", "name": "..."}` | Hive was created |
+| `hive.disbanded` | `{"hive_id": "..."}` | Hive was disbanded |
+| `hive.member_joined` | `{"hive_id": "...", "agent_id": "..."}` | Agent joined a hive |
+| `hive.signal_posted` | `{"hive_id": "...", "signal": "..."}` | Signal posted to hive |
+| `hive.task_created` | `{"hive_id": "...", "task_id": "..."}` | Task created in hive |
+| `hive.task_claimed` | `{"hive_id": "...", "task_id": "...", "agent_id": "..."}` | Task claimed by a hive member |
+| `hive.task_completed` | `{"hive_id": "...", "task_id": "..."}` | Hive task completed |
+| `hive.task_failed` | `{"hive_id": "...", "task_id": "...", "error": "..."}` | Hive task failed |
+| `hive.proposal_created` | `{"hive_id": "...", "proposal_id": "..."}` | Proposal created in hive |
+| `hive.proposal_resolved` | `{"hive_id": "...", "proposal_id": "...", "outcome": "..."}` | Hive proposal resolved |
+| `hive.vote_cast` | `{"hive_id": "...", "proposal_id": "...", "agent_id": "..."}` | Vote cast on a hive proposal |
+
+### Task
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `task.analyzed` | `{"task_id": "...", "result": {...}}` | Task analysis completed |
+
+### MCP
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `mcp.connected` | `{"server": "...", "protocol_version": "..."}` | MCP server connection established |
+| `mcp.disconnected` | `{"server": "...", "reason": "..."}` | MCP server disconnected |
+| `mcp.connection_failed` | `{"server": "...", "error": "..."}` | MCP server connection failed |
+| `mcp.tool_invoked` | `{"server": "...", "tool": "...", "params": {...}}` | MCP tool invocation started |
+| `mcp.tool_completed` | `{"server": "...", "tool": "...", "result": {...}}` | MCP tool invocation completed |
+| `mcp.tool_failed` | `{"server": "...", "tool": "...", "error": "..."}` | MCP tool invocation failed |
 
 ## Audit Log API
 

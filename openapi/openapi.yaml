@@ -114,6 +114,10 @@ components:
           type: string
           nullable: true
           description: Max 10KB
+        template:
+          type: string
+          nullable: true
+          description: Template slug to assign
         policy_profile:
           type: string
           nullable: true
@@ -147,6 +151,10 @@ components:
           maximum: 2.0
         persona:
           type: string
+        template:
+          type: string
+          nullable: true
+          description: Template slug (null to clear)
 
     AgentResponse:
       type: object
@@ -166,6 +174,10 @@ components:
         persona:
           type: string
           nullable: true
+        template:
+          type: string
+          nullable: true
+          description: Assigned template slug
         created_at:
           type: string
 
@@ -290,6 +302,49 @@ components:
           type: object
         sensitive:
           type: boolean
+
+    TemplateCreate:
+      type: object
+      properties:
+        content:
+          type: string
+          description: Full TEMPLATE.md content with YAML frontmatter
+      required: [content]
+
+    TemplateUpdate:
+      type: object
+      properties:
+        content:
+          type: string
+          description: Full TEMPLATE.md content with YAML frontmatter
+      required: [content]
+
+    TemplateResponse:
+      type: object
+      properties:
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        version:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        body:
+          type: string
+          description: Instruction content (post-frontmatter)
+
+    AgentTemplateSet:
+      type: object
+      properties:
+        template:
+          type: string
+          nullable: true
+          description: Template slug to assign, or null to clear
 
 paths:
   /v1/health:
@@ -1534,6 +1589,160 @@ paths:
                       total:
                         type: integer
 
+  /v1/templates:
+    post:
+      tags: [Templates]
+      summary: Create a template
+      description: Create a new template from TEMPLATE.md content with YAML frontmatter.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TemplateCreate'
+      responses:
+        '201':
+          description: Template created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateResponse'
+        '400':
+          description: Invalid frontmatter or missing fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Template with this slug already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      tags: [Templates]
+      summary: List all templates
+      responses:
+        '200':
+          description: Array of templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TemplateResponse'
+
+  /v1/templates/{slug}:
+    parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Templates]
+      summary: Get template by slug
+      responses:
+        '200':
+          description: Template details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateResponse'
+        '404':
+          description: Template not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      tags: [Templates]
+      summary: Update a template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TemplateUpdate'
+      responses:
+        '200':
+          description: Template updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateResponse'
+        '400':
+          description: Invalid content
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Template not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [Templates]
+      summary: Delete a template
+      description: Deletes the template and clears it from any agents that reference it.
+      responses:
+        '200':
+          description: Template deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                  slug:
+                    type: string
+        '404':
+          description: Template not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/agents/{name}/template:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      tags: [Templates, Agents]
+      summary: Set or clear agent template
+      description: Assign a template to an agent or clear the current assignment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentTemplateSet'
+      responses:
+        '200':
+          description: Template assignment updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent:
+                    type: string
+                  template:
+                    type: string
+                    nullable: true
+        '404':
+          description: Agent or template not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /v1/channels:
     post:
       summary: Create a channel
@@ -1779,6 +1988,7 @@ tags:
   - name: Auth
   - name: Providers
   - name: Agents
+  - name: Templates
   - name: Memory
   - name: Heartbeats
   - name: Skills

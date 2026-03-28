@@ -62,6 +62,47 @@ impl<'a> VaultGrantDao<'a> {
             .map_err(|e| StorageError::QueryFailed(e.to_string()))
     }
 
+    pub fn find_by_agent_and_secret(
+        &self,
+        agent_id: &str,
+        secret_ref_id: &str,
+    ) -> Result<Option<VaultGrantRow>, StorageError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, agent_id, secret_ref_id, created_at, revoked_at
+                 FROM vault_grants WHERE agent_id = ?1 AND secret_ref_id = ?2",
+            )
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        let mut rows = stmt
+            .query_map(params![agent_id, secret_ref_id], Self::map_row)
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        match rows.next() {
+            Some(r) => Ok(Some(
+                r.map_err(|e| StorageError::QueryFailed(e.to_string()))?,
+            )),
+            None => Ok(None),
+        }
+    }
+
+    /// Re-activate a revoked grant by clearing revoked_at.
+    pub fn unrevoke(&self, id: &str) -> Result<(), StorageError> {
+        let affected = self
+            .conn
+            .execute(
+                "UPDATE vault_grants SET revoked_at = NULL WHERE id = ?1",
+                params![id],
+            )
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        if affected == 0 {
+            return Err(StorageError::NotFound);
+        }
+        Ok(())
+    }
+
     pub fn revoke(&self, id: &str) -> Result<(), StorageError> {
         let now = chrono::Utc::now().to_rfc3339();
         let affected = self

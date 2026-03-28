@@ -9,7 +9,7 @@ pub struct EventAction {
 
 /// Trait for modular event handling within the executor loop.
 ///
-/// Listeners are sync (no async) — they only inspect payloads and mutate
+/// Listeners are sync (no async) - they only inspect payloads and mutate
 /// in-memory state, never perform I/O. The executor owns them via `&mut self`
 /// and is constructed fresh per run, so no sharing concerns arise.
 pub trait EventListener: Send {

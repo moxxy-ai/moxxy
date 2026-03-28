@@ -33,10 +33,10 @@ impl Primitive for HeartbeatCreatePrimitive {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "action_type": {"type": "string", "description": "Action to perform: execute_skill, notify_cli, notify_webhook, memory_compact"},
+                "action_type": {"type": "string", "description": "Action to perform: execute_skill, notify_cli, notify_channel, notify_webhook, memory_compact. Use notify_channel to send messages to bound channels (Telegram, Discord)."},
                 "action_payload": {"type": "string", "description": "Payload for the action (e.g., task text or webhook URL)"},
-                "interval_minutes": {"type": "integer", "description": "Run every N minutes (mutually exclusive with cron_expr)"},
-                "cron_expr": {"type": "string", "description": "Cron expression for scheduling (mutually exclusive with interval_minutes)"},
+                "interval_minutes": {"type": "integer", "description": "Run every N minutes. Do NOT combine with cron_expr - use one or the other."},
+                "cron_expr": {"type": "string", "description": "Cron expression with 6 fields: 'sec min hour day month weekday' (e.g. '0 */5 * * * *'). Do NOT combine with interval_minutes - use one or the other."},
                 "timezone": {"type": "string", "description": "Timezone for cron (default: UTC)"}
             },
             "required": ["action_type"]
@@ -51,7 +51,23 @@ impl Primitive for HeartbeatCreatePrimitive {
         let action_payload = params["action_payload"].as_str().map(|s| s.to_string());
 
         let interval_minutes = params["interval_minutes"].as_i64();
-        let cron_expr = params["cron_expr"].as_str();
+        // Treat empty strings as None (LLMs sometimes send cron_expr: "")
+        let cron_expr_raw = params["cron_expr"]
+            .as_str()
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.trim().to_string());
+        // Auto-convert standard 5-field cron to 6-field (prepend "0" for seconds).
+        // The `cron` crate requires 6 fields: sec min hour day month weekday.
+        // LLMs typically produce 5-field cron: min hour day month weekday.
+        let cron_expr_normalized = cron_expr_raw.map(|expr| {
+            let field_count = expr.split_whitespace().count();
+            if field_count == 5 {
+                format!("0 {expr}")
+            } else {
+                expr
+            }
+        });
+        let cron_expr = cron_expr_normalized.as_deref();
         let timezone = params["timezone"].as_str().unwrap_or("UTC").to_string();
 
         tracing::info!(
@@ -64,33 +80,30 @@ impl Primitive for HeartbeatCreatePrimitive {
 
         let now = chrono::Utc::now();
 
-        let (interval, cron, next_run_at) = match (interval_minutes, cron_expr) {
-            (Some(mins), None) => {
-                if mins < 1 {
-                    return Err(PrimitiveError::InvalidParams(
-                        "interval_minutes must be >= 1".into(),
-                    ));
-                }
-                let next = now + chrono::Duration::minutes(mins);
-                (Some(mins as i32), None, next.to_rfc3339())
-            }
-            (None, Some(expr)) => {
-                HeartbeatScheduler::validate_cron_expr(expr).map_err(|e| {
-                    PrimitiveError::InvalidParams(format!("invalid cron expression: {e}"))
+        // When both are provided, prefer cron_expr (LLMs often send both despite schema docs)
+        let (interval, cron, next_run_at) = if let Some(expr) = cron_expr {
+            HeartbeatScheduler::validate_cron_expr(expr).map_err(|e| {
+                PrimitiveError::InvalidParams(format!("invalid cron expression: {e}"))
+            })?;
+            HeartbeatScheduler::validate_timezone(&timezone)
+                .map_err(|e| PrimitiveError::InvalidParams(format!("invalid timezone: {e}")))?;
+            let next_run = HeartbeatScheduler::compute_next_cron_run(expr, &timezone, now)
+                .map_err(|e| {
+                    PrimitiveError::ExecutionFailed(format!("cron computation failed: {e}"))
                 })?;
-                HeartbeatScheduler::validate_timezone(&timezone)
-                    .map_err(|e| PrimitiveError::InvalidParams(format!("invalid timezone: {e}")))?;
-                let next_run = HeartbeatScheduler::compute_next_cron_run(expr, &timezone, now)
-                    .map_err(|e| {
-                        PrimitiveError::ExecutionFailed(format!("cron computation failed: {e}"))
-                    })?;
-                (None, Some(expr.to_string()), next_run)
-            }
-            _ => {
+            (None, Some(expr.to_string()), next_run)
+        } else if let Some(mins) = interval_minutes {
+            if mins < 1 {
                 return Err(PrimitiveError::InvalidParams(
-                    "exactly one of 'interval_minutes' or 'cron_expr' must be provided".into(),
+                    "interval_minutes must be >= 1".into(),
                 ));
             }
+            let next = now + chrono::Duration::minutes(mins);
+            (Some(mins as i32), None, next.to_rfc3339())
+        } else {
+            return Err(PrimitiveError::InvalidParams(
+                "one of 'interval_minutes' or 'cron_expr' must be provided".into(),
+            ));
         };
 
         let id = uuid::Uuid::now_v7().to_string();
@@ -488,7 +501,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn heartbeat_create_rejects_both_interval_and_cron() {
+    async fn heartbeat_create_prefers_cron_when_both_provided() {
         let (_dir, path, agent_id) = setup_path();
         let prim = HeartbeatCreatePrimitive::new(path, agent_id);
         let result = prim
@@ -498,7 +511,42 @@ mod tests {
                 "cron_expr": "0 0 9 * * *",
             }))
             .await;
-        assert!(result.is_err());
+        // When both are provided, cron_expr wins (LLMs often send both)
+        let val = result.unwrap();
+        assert_eq!(val["cron_expr"], "0 0 9 * * *");
+        assert!(val["interval_minutes"].is_null());
+    }
+
+    #[tokio::test]
+    async fn heartbeat_create_auto_converts_5_field_cron() {
+        let (_dir, path, agent_id) = setup_path();
+        let prim = HeartbeatCreatePrimitive::new(path, agent_id);
+        let result = prim
+            .invoke(serde_json::json!({
+                "action_type": "notify_cli",
+                "cron_expr": "*/5 * * * *",
+            }))
+            .await;
+        // 5-field "*/5 * * * *" auto-converted to 6-field "0 */5 * * * *"
+        let val = result.unwrap();
+        assert_eq!(val["cron_expr"], "0 */5 * * * *");
+    }
+
+    #[tokio::test]
+    async fn heartbeat_create_ignores_empty_cron_uses_interval() {
+        let (_dir, path, agent_id) = setup_path();
+        let prim = HeartbeatCreatePrimitive::new(path, agent_id);
+        let result = prim
+            .invoke(serde_json::json!({
+                "action_type": "notify_cli",
+                "cron_expr": "",
+                "interval_minutes": 5,
+            }))
+            .await;
+        // Empty cron_expr treated as None, falls back to interval_minutes
+        let val = result.unwrap();
+        assert_eq!(val["interval_minutes"], 5);
+        assert!(val["cron_expr"].is_null());
     }
 
     #[tokio::test]

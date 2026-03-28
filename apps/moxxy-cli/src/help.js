@@ -54,18 +54,18 @@ Options:
   --name <name>        Agent name (create only)
   --persona <text>     Agent persona/system prompt (create only)
   --temperature <n>    Sampling temperature (default: 0.7)
-  --id <id>            Agent ID (run/stop/status/update/delete)
+  --id <name>          Agent name (run/stop/status/update/delete)
   --task <text>        Task description (run only)
   --policy <profile>   Policy profile name (create only)
   --json               Output as JSON
 
 Examples:
   moxxy agent create --name my-agent --provider openai --model gpt-4o
-  moxxy agent run --id <agent-id> --task "Summarize the README"
-  moxxy agent status --id <agent-id> --json
-  moxxy agent stop --id <agent-id>
-  moxxy agent update --id <agent-id> --model gpt-4o-mini
-  moxxy agent delete --id <agent-id>`,
+  moxxy agent run --id my-agent --task "Summarize the README"
+  moxxy agent status --id my-agent --json
+  moxxy agent stop --id my-agent
+  moxxy agent update --id my-agent --model gpt-4o-mini
+  moxxy agent delete --id my-agent`,
 
   provider: `Usage: moxxy provider <action> [options]
 
@@ -125,6 +125,31 @@ Examples:
   moxxy skill create --agent <id> --content "..."
   moxxy skill list --agent <id>
   moxxy skill remove --agent <id> --skill <skill-id>`,
+
+  template: `Usage: moxxy template <action> [options]
+
+Manage agent templates (archetypes).
+
+Actions:
+  list      List all templates
+  get       View template details
+  create    Create a new template
+  update    Update an existing template
+  remove    Delete a template
+  assign    Assign a template to an agent
+
+Options:
+  --slug <slug>      Template slug (get/update/remove)
+  --content <c>      Template content (create/update)
+  --agent <id>       Agent ID (assign)
+  --template <slug>  Template slug (assign)
+
+Examples:
+  moxxy template list
+  moxxy template get builder
+  moxxy template create --content "---\\nname: Custom\\n..."
+  moxxy template assign --agent my-agent --template builder
+  moxxy template remove builder`,
 
   heartbeat: `Usage: moxxy heartbeat <action> [options]
 
@@ -237,7 +262,7 @@ Diagnose the Moxxy installation. Checks:
   - Gateway connectivity and health
   - Authentication
   - Installed providers and agents
-  - Rust toolchain, Node.js version, Git, Chrome
+  - Bun runtime (>= 1.2.0), Rust toolchain, Git, Chrome
   - Provider API keys`,
 
   update: `Usage: moxxy update [options]
@@ -262,8 +287,33 @@ Remove all Moxxy data from the system. This includes:
   - ~/.moxxy directory (database, agents, config)
   - Stops the gateway if running
 
-Does NOT remove the CLI npm package itself. To fully remove:
-  npm uninstall -g moxxy-cli`,
+Does NOT remove the CLI package itself. To fully remove:
+  npm remove -g moxxy-cli`,
+
+  mcp: `Usage: moxxy mcp <action> [options]
+
+Manage MCP (Model Context Protocol) servers for agents.
+
+Actions:
+  list      List MCP servers for an agent
+  add       Register a new MCP server
+  remove    Remove an MCP server
+  test      Test connectivity to an MCP server
+
+Options:
+  --agent <name>       Agent name
+  --id <id>            MCP server ID
+  --transport <type>   Transport type: stdio or sse (add only)
+  --command <cmd>      Command to run (stdio transport)
+  --args <arg>         Command arguments (stdio, repeatable)
+  --url <url>          Server URL (sse transport)
+
+Examples:
+  moxxy mcp list --agent my-agent
+  moxxy mcp add --agent my-agent --id fs-server --transport stdio --command npx --args -y --args @modelcontextprotocol/server-filesystem --args /tmp
+  moxxy mcp add --agent my-agent --id remote --transport sse --url http://localhost:8080/sse
+  moxxy mcp remove --agent my-agent --id fs-server
+  moxxy mcp test --agent my-agent --id fs-server`,
 
   tui: `Usage: moxxy tui [options]
        moxxy chat [options]

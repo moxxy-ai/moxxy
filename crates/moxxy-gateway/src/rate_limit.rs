@@ -20,19 +20,19 @@ impl RateLimitConfig {
             per_second: std::env::var("MOXXY_RATE_LIMIT_PER_SEC")
                 .ok()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(20),
+                .unwrap_or(100),
             burst_size: std::env::var("MOXXY_RATE_LIMIT_BURST")
                 .ok()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(100),
+                .unwrap_or(500),
             token_per_second: std::env::var("MOXXY_RATE_LIMIT_TOKEN_PER_SEC")
                 .ok()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(10),
+                .unwrap_or(50),
             token_burst_size: std::env::var("MOXXY_RATE_LIMIT_TOKEN_BURST")
                 .ok()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(60),
+                .unwrap_or(200),
         }
     }
 
@@ -76,11 +76,26 @@ impl fmt::Display for RateLimitKey {
     }
 }
 
+/// Check if a peer IP is in the trusted proxies list.
+/// Reads from MOXXY_TRUSTED_PROXIES env var (comma-separated IPs).
+/// If not set, no proxies are trusted (x-forwarded-for is ignored).
+fn is_trusted_proxy(ip: &std::net::IpAddr) -> bool {
+    use std::sync::LazyLock;
+    static TRUSTED_PROXIES: LazyLock<Vec<std::net::IpAddr>> = LazyLock::new(|| {
+        std::env::var("MOXXY_TRUSTED_PROXIES")
+            .unwrap_or_default()
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .collect()
+    });
+    TRUSTED_PROXIES.contains(ip)
+}
+
 /// Extracts rate-limiting keys from incoming requests.
 ///
 /// Priority:
 /// 1. Bearer token from the `Authorization` header
-/// 2. IP address from `x-forwarded-for`
+/// 2. Peer IP from ConnectInfo (with x-forwarded-for only if peer is a trusted proxy)
 /// 3. Falls back to "anonymous"
 #[derive(Debug, Clone)]
 pub struct BearerTokenExtractor;
@@ -97,15 +112,23 @@ impl KeyExtractor for BearerTokenExtractor {
             return Ok(RateLimitKey(format!("token:{token}")));
         }
 
-        // Try x-forwarded-for
-        if let Some(forwarded) = req.headers().get("x-forwarded-for")
-            && let Ok(value) = forwarded.to_str()
-            && let Some(ip) = value.split(',').next()
-        {
-            let trimmed = ip.trim();
-            if !trimmed.is_empty() {
-                return Ok(RateLimitKey(format!("ip:{trimmed}")));
+        // Try peer IP from ConnectInfo
+        if let Some(connect_info) = req.extensions().get::<axum::extract::ConnectInfo<std::net::SocketAddr>>() {
+            let peer_ip = connect_info.0.ip();
+
+            // Only trust x-forwarded-for if peer is in trusted proxies list
+            if is_trusted_proxy(&peer_ip)
+                && let Some(forwarded) = req.headers().get("x-forwarded-for")
+                && let Ok(value) = forwarded.to_str()
+                && let Some(ip) = value.split(',').next()
+            {
+                let trimmed = ip.trim();
+                if !trimmed.is_empty() {
+                    return Ok(RateLimitKey(format!("ip:{trimmed}")));
+                }
             }
+
+            return Ok(RateLimitKey(format!("ip:{peer_ip}")));
         }
 
         // Fallback to anonymous

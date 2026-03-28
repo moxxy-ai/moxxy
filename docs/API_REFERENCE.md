@@ -25,9 +25,8 @@ The bootstrap token creation endpoint is the only exception = it requires no aut
 | `vault:write` | Create secrets, manage grants |
 | `tokens:admin` | Create, list, and revoke tokens |
 | `events:read` | Stream SSE events, query audit logs |
-| `heartbeats:read` | List heartbeat rules |
-| `heartbeats:write` | Create, update, delete heartbeats |
-| `skills:write` | Install and approve skills |
+| `channels:read` | List channels and bindings |
+| `channels:write` | Create/delete channels, pair chats |
 
 ---
 
@@ -62,10 +61,13 @@ Response includes the plaintext token (shown once) and the token ID. Tokens are 
 ```
 GET    /v1/agents                   List all agents
 POST   /v1/agents                   Create agent
-GET    /v1/agents/{id}              Get agent details
-POST   /v1/agents/{id}/runs         Start a run
-POST   /v1/agents/{id}/stop         Stop a running agent
-POST   /v1/agents/{id}/subagents    Spawn a sub-agent
+GET    /v1/agents/{name}            Get agent details
+PATCH  /v1/agents/{name}            Update agent
+DELETE /v1/agents/{name}            Delete agent
+POST   /v1/agents/{name}/runs       Start a run
+POST   /v1/agents/{name}/stop       Stop a running agent
+POST   /v1/agents/{name}/reset      Reset agent session
+GET    /v1/agents/{name}/history    Get conversation history
 ```
 
 **Create agent:**
@@ -84,7 +86,7 @@ curl -X POST http://localhost:3000/v1/agents \
 **Start a run:**
 
 ```bash
-curl -X POST http://localhost:3000/v1/agents/{id}/runs \
+curl -X POST http://localhost:3000/v1/agents/{name}/runs \
   -H "Authorization: Bearer $MOXXY_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"task": "Refactor the auth module"}'
@@ -117,11 +119,11 @@ Skills are imported in quarantine and must be explicitly approved before an agen
 ### Webhooks
 
 ```
-POST   /v1/agents/{id}/webhooks                          Create webhook
-GET    /v1/agents/{id}/webhooks                          List agent webhooks
-DELETE /v1/agents/{id}/webhooks/{wh_id}                  Delete webhook
-POST   /v1/agents/{id}/webhooks/{wh_id}/test             Test webhook delivery
-GET    /v1/agents/{id}/webhooks/{wh_id}/deliveries       List deliveries
+GET    /v1/agents/{name}/webhooks                        List agent webhooks
+DELETE /v1/agents/{name}/webhooks/{slug}                 Delete webhook
+GET    /v1/agents/{name}/webhooks/{slug}/deliveries      List deliveries
+POST   /v1/hooks/{token}                                 Receive inbound webhook (HMAC verified, no auth)
+POST   /v1/admin/reload-webhooks                         Reload webhook configurations
 ```
 
 Webhooks support HMAC signing and delivery tracking.
@@ -131,10 +133,33 @@ Webhooks support HMAC signing and delivery tracking.
 ### Heartbeats
 
 ```
-POST   /v1/agents/{id}/heartbeats          Create heartbeat rule (cron syntax)
-GET    /v1/agents/{id}/heartbeats          List heartbeat rules
-PATCH  /v1/agents/{id}/heartbeats/{id}     Update heartbeat
-DELETE /v1/agents/{id}/heartbeats/{id}     Delete heartbeat
+POST   /v1/agents/{id}/heartbeats              Create heartbeat rule (cron syntax)
+GET    /v1/agents/{id}/heartbeats              List heartbeat rules
+DELETE /v1/agents/{id}/heartbeats/{hb_id}      Delete heartbeat
+```
+
+---
+
+### Templates
+
+```
+POST   /v1/templates                    Create template
+GET    /v1/templates                    List templates
+GET    /v1/templates/{slug}             Get template
+PUT    /v1/templates/{slug}             Update template
+DELETE /v1/templates/{slug}             Delete template
+PATCH  /v1/agents/{name}/template       Set agent template
+```
+
+---
+
+### MCP
+
+```
+GET    /v1/agents/{name}/mcp                       List MCP servers
+POST   /v1/agents/{name}/mcp                       Add MCP server
+DELETE /v1/agents/{name}/mcp/{server_id}            Remove MCP server
+POST   /v1/agents/{name}/mcp/{server_id}/test       Test MCP server connection
 ```
 
 ---
@@ -144,6 +169,7 @@ DELETE /v1/agents/{id}/heartbeats/{id}     Delete heartbeat
 ```
 GET    /v1/vault/secrets         List secret references
 POST   /v1/vault/secrets         Create secret reference
+DELETE /v1/vault/secrets/{id}    Delete secret reference
 POST   /v1/vault/grants          Grant agent access to a secret
 GET    /v1/vault/grants          List grants
 DELETE /v1/vault/grants/{id}     Revoke grant
@@ -158,8 +184,11 @@ Secrets are stored in the OS keychain (macOS Keychain, Linux secret-service). Ag
 ```
 POST   /v1/channels                      Register a channel (Telegram, Discord)
 GET    /v1/channels                      List channels
-POST   /v1/channels/{id}/pair            Generate pairing code
-POST   /v1/channels/{id}/bind            Bind agent to channel
+GET    /v1/channels/{id}                 Get channel details
+DELETE /v1/channels/{id}                 Delete channel
+POST   /v1/channels/{id}/pair            Pair channel to agent
+GET    /v1/channels/{id}/bindings        List bindings
+DELETE /v1/channels/{id}/bindings/{bid}  Unbind a chat
 ```
 
 ---
@@ -195,76 +224,56 @@ GET    /v1/events/stream         SSE event stream
 | `agent_id` | Filter events for a specific agent |
 | `run_id` | Filter events for a specific run |
 
-### Event Types (28)
+### Event Types (60)
 
 | Category | Events |
 |---|---|
-| Run lifecycle | `run.started`, `run.completed`, `run.failed` |
+| Run lifecycle | `run.started`, `run.completed`, `run.failed`, `run.queued`, `run.dequeued` |
 | Messages | `message.delta`, `message.final` |
 | Model | `model.request`, `model.response` |
 | Skills | `skill.invoked`, `skill.completed`, `skill.failed` |
 | Primitives | `primitive.invoked`, `primitive.completed`, `primitive.failed` |
-| Memory | `memory.read`, `memory.write` |
+| Memory | `memory.read`, `memory.write`, `memory.compact_started`, `memory.compact_completed` |
 | Vault | `vault.requested`, `vault.granted`, `vault.denied` |
 | Heartbeat | `heartbeat.triggered`, `heartbeat.completed`, `heartbeat.failed` |
-| Sub-agents | `subagent.spawned`, `subagent.completed` |
-| Channels | `channel.message_received`, `channel.message_sent` |
+| Sub-agents | `subagent.spawned`, `subagent.completed`, `subagent.failed`, `subagent.ask_question` |
+| Channels | `channel.message_received`, `channel.message_sent`, `channel.error` |
 | Security | `security.violation`, `sandbox.denied` |
-| Webhooks | `webhook.delivered`, `webhook.failed` |
+| User | `user.ask_question`, `user.ask_answered` |
+| Agent | `agent.alive`, `agent.stuck`, `agent.nudged` |
+| Webhooks | `webhook.received`, `webhook.action_completed`, `webhook.action_failed` |
+| Hive | `hive.created`, `hive.disbanded`, `hive.member_joined`, `hive.signal_posted`, `hive.task_created`, `hive.task_claimed`, `hive.task_completed`, `hive.task_failed`, `hive.proposal_created`, `hive.proposal_resolved`, `hive.vote_cast` |
+| Task | `task.analyzed` |
+| MCP | `mcp.connected`, `mcp.disconnected`, `mcp.connection_failed`, `mcp.tool_invoked`, `mcp.tool_completed`, `mcp.tool_failed` |
 
 All events pass through a `RedactionEngine` that automatically strips secret values from payloads before streaming or persistence.
 
 ---
 
-## Primitives (34)
+## Primitives (85)
 
-These are the tools available to agents at runtime. Skills declare which primitives they require via `allowed_primitives` in their YAML frontmatter.
+These are the tools available to agents at runtime. Skills declare which primitives they require via `allowed_primitives` in their YAML frontmatter. See the [Primitives Overview](src/primitives/overview.md) for the full table.
 
-| Primitive | Description |
+| Category | Primitives |
 |---|---|
-| `fs.read` | Read file contents (workspace-scoped) |
-| `fs.write` | Write file contents (workspace-scoped) |
-| `fs.list` | List directory entries (workspace-scoped) |
-| `shell.exec` | Execute allowed commands with 30s timeout, 1MB output cap |
-| `http.request` | HTTP request to allowed domains, 30s timeout, 5MB cap |
-| `browse.fetch` | Fetch web page with CSS selector extraction |
-| `browse.extract` | Extract data from HTML (no network) |
-| `git.init` | Initialize a git repository |
-| `git.clone` | Clone a repository (vault-aware for private repos) |
-| `git.status` | Porcelain status with file lists |
-| `git.commit` | Stage and commit (vault-aware) |
-| `git.push` | Push to remote (vault-aware) |
-| `git.checkout` | Switch or create branches |
-| `git.pr_create` | Create a GitHub PR via API |
-| `git.fork` | Fork a GitHub repository via API |
-| `git.worktree_add` | Create a git worktree |
-| `git.worktree_list` | List worktrees |
-| `git.worktree_remove` | Remove a worktree |
-| `memory.append` | Write timestamped memory entry with tags |
-| `memory.search` | Search memory by content |
-| `memory.summarize` | Generate memory summary |
-| `webhook.create` | Register a webhook for the agent |
-| `webhook.list` | List agent's webhooks |
-| `notify.webhook` | Send POST to a webhook URL |
-| `notify.cli` | Emit notification event to CLI |
-| `skill.import` | Import and quarantine a skill |
-| `skill.validate` | Validate skill frontmatter |
-| `channel.notify` | Send message via channel bridge |
-| `heartbeat.create` | Create a heartbeat rule |
-| `heartbeat.list` | List heartbeat rules |
-| `heartbeat.disable` | Disable a heartbeat |
-| `heartbeat.delete` | Delete a heartbeat |
-| `heartbeat.update` | Update a heartbeat |
-| `vault.set` | Store a secret |
-| `vault.get` | Retrieve a secret (requires grant) |
-| `vault.delete` | Delete a secret |
-| `vault.list` | List secret references |
-| `ask.user` | Block and wait for user input (oneshot + timeout) |
-| `agent.spawn` | Spawn a sub-agent (lineage enforcement) |
-| `agent.status` | Check sub-agent status (ownership check) |
-| `agent.list` | List sub-agents |
-| `agent.stop` | Stop a sub-agent |
-| `agent.dismiss` | Clean up a stopped sub-agent |
+| Filesystem | `fs.read`, `fs.write`, `fs.list`, `fs.remove`, `fs.cd` |
+| Shell | `shell.exec` |
+| HTTP | `http.request` |
+| Memory | `memory.store`, `memory.recall`, `memory.stm_read`, `memory.stm_write` |
+| Git | `git.init`, `git.clone`, `git.status`, `git.checkout`, `git.commit`, `git.push`, `git.fork`, `git.pr_create`, `git.worktree_add`, `git.worktree_list`, `git.worktree_remove` |
+| Browse | `browse.fetch`, `browse.extract` |
+| Skills | `skill.create`, `skill.validate`, `skill.list`, `skill.find`, `skill.get`, `skill.execute`, `skill.remove` |
+| Webhooks | `webhook.register`, `webhook.list`, `webhook.delete`, `webhook.update`, `webhook.rotate`, `webhook.listen` |
+| Notifications | `notify.cli`, `notify.channel` |
+| Heartbeat | `heartbeat.create`, `heartbeat.list`, `heartbeat.disable`, `heartbeat.delete`, `heartbeat.update` |
+| Vault | `vault.set`, `vault.get`, `vault.delete`, `vault.list` |
+| Ask | `user.ask`, `agent.respond` |
+| Agent | `agent.spawn`, `agent.status`, `agent.list`, `agent.stop`, `agent.dismiss` |
+| Agent.self | `agent.self.get`, `agent.self.update`, `agent.self.persona_read`, `agent.self.persona_write` |
+| Allowlist | `allowlist.list`, `allowlist.add`, `allowlist.remove`, `allowlist.deny`, `allowlist.undeny` |
+| Config | `config.get`, `config.set` |
+| MCP | `mcp.list`, `mcp.connect`, `mcp.disconnect` |
+| Hive | `hive.create`, `hive.recruit`, `hive.task_create`, `hive.assign`, `hive.aggregate`, `hive.resolve_proposal`, `hive.disband`, `hive.signal`, `hive.board_read`, `hive.task_list`, `hive.task_claim`, `hive.task_complete`, `hive.task_fail`, `hive.task_review`, `hive.propose`, `hive.vote` |
 
 ---
 

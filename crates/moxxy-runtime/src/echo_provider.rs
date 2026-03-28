@@ -86,6 +86,7 @@ mod tests {
         let config = ModelConfig {
             temperature: 0.7,
             max_tokens: 100,
+            tool_choice: crate::provider::ToolChoice::Auto,
         };
         let messages = vec![Message::user("hello world")];
         let resp = provider.complete(messages, &config, &[]).await.unwrap();
@@ -99,6 +100,7 @@ mod tests {
         let config = ModelConfig {
             temperature: 0.7,
             max_tokens: 100,
+            tool_choice: crate::provider::ToolChoice::Auto,
         };
         let messages = vec![Message::user("test")];
         let resp = provider.complete(messages, &config, &[]).await.unwrap();
@@ -115,6 +117,7 @@ mod tests {
         let config = ModelConfig {
             temperature: 0.7,
             max_tokens: 100,
+            tool_choice: crate::provider::ToolChoice::Auto,
         };
 
         // First call: has tool_calls
@@ -139,6 +142,7 @@ mod tests {
         let config = ModelConfig {
             temperature: 0.7,
             max_tokens: 100,
+            tool_choice: crate::provider::ToolChoice::Auto,
         };
         let resp = provider.complete(vec![], &config, &[]).await.unwrap();
         assert_eq!(resp.content, "Received: ");

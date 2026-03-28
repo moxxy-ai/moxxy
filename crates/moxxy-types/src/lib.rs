@@ -4,9 +4,13 @@ pub mod channels;
 pub mod errors;
 pub mod events;
 pub mod heartbeat;
+pub mod mcp;
 pub mod run_starter;
 pub mod skills;
+pub mod templates;
 pub mod vault;
+pub mod providers;
+pub mod webhooks;
 
 pub use agents::{AgentConfig, AgentRuntime, AgentStatus, AgentType, HiveRole, SpawnError};
 pub use auth::{AuthMode, TokenError, TokenScope, TokenStatus};
@@ -14,9 +18,13 @@ pub use channels::{BindingStatus, ChannelError, ChannelStatus, ChannelType, Mess
 pub use errors::{PathPolicyError, StorageError};
 pub use events::{EventEnvelope, EventType};
 pub use heartbeat::{HeartbeatActionType, HeartbeatError};
+pub use mcp::{McpConfig, McpServerConfig, McpToolDefinition, McpTransportType};
+pub use providers::ProviderDocError;
 pub use run_starter::{ChildInfo, RunStarter, SpawnOpts, SpawnResult};
 pub use skills::SkillDocError;
+pub use templates::TemplateDocError;
 pub use vault::VaultError;
+pub use webhooks::WebhookDocError;
 
 #[cfg(test)]
 mod tests {
@@ -53,7 +61,7 @@ mod tests {
     #[test]
     fn event_type_has_all_30_variants() {
         let all = EventType::all_variants();
-        assert_eq!(all.len(), 49);
+        assert_eq!(all.len(), 60);
     }
 
     #[test]
@@ -194,16 +202,25 @@ mod proptests {
             Just(EventType::AgentStuck),
             Just(EventType::AgentNudged),
             Just(EventType::WebhookReceived),
+            Just(EventType::WebhookActionCompleted),
+            Just(EventType::WebhookActionFailed),
             Just(EventType::HiveCreated),
             Just(EventType::HiveDisbanded),
             Just(EventType::HiveMemberJoined),
             Just(EventType::HiveSignalPosted),
             Just(EventType::HiveTaskCompleted),
+            Just(EventType::HiveTaskFailed),
             Just(EventType::HiveProposalCreated),
             Just(EventType::HiveProposalResolved),
             Just(EventType::HiveVoteCast),
             Just(EventType::HiveTaskCreated),
             Just(EventType::HiveTaskClaimed),
+            Just(EventType::McpConnected),
+            Just(EventType::McpDisconnected),
+            Just(EventType::McpConnectionFailed),
+            Just(EventType::McpToolInvoked),
+            Just(EventType::McpToolCompleted),
+            Just(EventType::McpToolFailed),
         ]
     }
 

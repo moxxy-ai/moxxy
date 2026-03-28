@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use moxxy_storage::Database;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -11,8 +10,7 @@ use crate::sandbox::{SandboxConfig, SandboxedCommand};
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 
 pub struct ShellExecPrimitive {
-    db: Arc<Mutex<Database>>,
-    agent_id: String,
+    allowlist_path: PathBuf,
     max_timeout: Duration,
     max_output_bytes: usize,
     sandbox_config: Option<SandboxConfig>,
@@ -21,14 +19,12 @@ pub struct ShellExecPrimitive {
 
 impl ShellExecPrimitive {
     pub fn new(
-        db: Arc<Mutex<Database>>,
-        agent_id: String,
+        allowlist_path: PathBuf,
         max_timeout: Duration,
         max_output_bytes: usize,
     ) -> Self {
         Self {
-            db,
-            agent_id,
+            allowlist_path,
             max_timeout,
             max_output_bytes,
             sandbox_config: None,
@@ -80,17 +76,11 @@ impl Primitive for ShellExecPrimitive {
             ));
         }
 
-        let allowed_commands = {
-            let db = self
-                .db
-                .lock()
-                .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-            let db_entries = db
-                .allowlists()
-                .list_entries(&self.agent_id, "shell_command")
-                .map_err(|e| PrimitiveError::ExecutionFailed(e.to_string()))?;
-            crate::defaults::merge_with_defaults(db_entries, "shell_command")
-        };
+        let file = moxxy_core::AllowlistFile::load(&self.allowlist_path);
+        let allows = file.allows("shell_command");
+        let denials = file.denials("shell_command");
+        let allowed_commands =
+            crate::defaults::merge_with_defaults_and_denials(allows, denials, "shell_command");
 
         if !allowed_commands.contains(&command.to_string()) {
             tracing::warn!(command, "Shell exec blocked = command not in allowlist");
@@ -138,7 +128,15 @@ impl Primitive for ShellExecPrimitive {
 
         if let Some(ref dir) = self.working_dir {
             let cwd = dir.lock().unwrap().clone();
-            cmd.current_dir(cwd);
+            // Canonicalize the workspace path so symlinks (e.g. /tmp -> /private/tmp
+            // on macOS) are resolved. This is important for sandbox profiles that
+            // use the canonical path and for consistent cwd behavior.
+            let canonical_cwd = cwd.canonicalize().unwrap_or_else(|_| cwd.clone());
+            cmd.current_dir(&canonical_cwd);
+            // Set PWD so that sub-shells and scripting runtimes (python3, node,
+            // etc.) see the workspace even if they don't inherit the OS cwd.
+            cmd.env("PWD", &canonical_cwd);
+            cmd.env("MOXXY_WORKSPACE", &canonical_cwd);
         }
 
         let child = cmd
@@ -174,44 +172,24 @@ impl Primitive for ShellExecPrimitive {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moxxy_storage::{AllowlistRow, Database};
-    use moxxy_test_utils::TestDb;
 
-    fn setup_db(commands: &[&str]) -> (Arc<Mutex<Database>>, String) {
-        let test_db = TestDb::new();
-        let db = Database::new(test_db.into_conn());
-        let agent_id = uuid::Uuid::now_v7().to_string();
-        db.agents()
-            .insert(&moxxy_storage::AgentRow {
-                id: agent_id.clone(),
-                parent_agent_id: None,
-                name: Some("test-agent".into()),
-                status: "idle".into(),
-                depth: 0,
-                spawned_total: 0,
-                workspace_root: "/tmp".into(),
-                created_at: chrono::Utc::now().to_rfc3339(),
-                updated_at: chrono::Utc::now().to_rfc3339(),
-            })
-            .unwrap();
+    fn setup_allowlist(commands: &[&str]) -> PathBuf {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("allowlists.yaml");
+        let mut file = moxxy_core::AllowlistFile::default();
         for cmd in commands {
-            db.allowlists()
-                .insert(&AllowlistRow {
-                    id: uuid::Uuid::now_v7().to_string(),
-                    agent_id: agent_id.clone(),
-                    list_type: "shell_command".into(),
-                    entry: cmd.to_string(),
-                    created_at: chrono::Utc::now().to_rfc3339(),
-                })
-                .unwrap();
+            file.add_allow("shell_command", cmd.to_string());
         }
-        (Arc::new(Mutex::new(db)), agent_id)
+        file.save(&path).unwrap();
+        // Leak the tempdir so it lives long enough
+        std::mem::forget(tmp);
+        path
     }
 
     #[tokio::test]
     async fn shell_exec_runs_allowed_command() {
-        let (db, agent_id) = setup_db(&["echo", "ls"]);
-        let prim = ShellExecPrimitive::new(db, agent_id, Duration::from_secs(5), 1024 * 1024);
+        let path = setup_allowlist(&["echo", "ls"]);
+        let prim = ShellExecPrimitive::new(path, Duration::from_secs(5), 1024 * 1024);
         let result = prim
             .invoke(serde_json::json!({"command": "echo", "args": ["hello"]}))
             .await
@@ -221,8 +199,8 @@ mod tests {
 
     #[tokio::test]
     async fn shell_exec_blocks_disallowed_command() {
-        let (db, agent_id) = setup_db(&["echo"]);
-        let prim = ShellExecPrimitive::new(db, agent_id, Duration::from_secs(5), 1024 * 1024);
+        let path = setup_allowlist(&["echo"]);
+        let prim = ShellExecPrimitive::new(path, Duration::from_secs(5), 1024 * 1024);
         let result = prim
             .invoke(serde_json::json!({"command": "rm", "args": ["-rf", "/"]}))
             .await;
@@ -235,8 +213,8 @@ mod tests {
 
     #[tokio::test]
     async fn shell_exec_enforces_timeout() {
-        let (db, agent_id) = setup_db(&["sleep"]);
-        let prim = ShellExecPrimitive::new(db, agent_id, Duration::from_millis(100), 1024);
+        let path = setup_allowlist(&["sleep"]);
+        let prim = ShellExecPrimitive::new(path, Duration::from_millis(100), 1024);
         let result = prim
             .invoke(serde_json::json!({"command": "sleep", "args": ["10"]}))
             .await;
@@ -246,8 +224,8 @@ mod tests {
 
     #[tokio::test]
     async fn shell_exec_caps_output_size() {
-        let (db, agent_id) = setup_db(&["yes"]);
-        let prim = ShellExecPrimitive::new(db, agent_id, Duration::from_secs(2), 100);
+        let path = setup_allowlist(&["yes"]);
+        let prim = ShellExecPrimitive::new(path, Duration::from_secs(2), 100);
         let result = prim
             .invoke(serde_json::json!({"command": "yes", "args": []}))
             .await;
@@ -260,8 +238,8 @@ mod tests {
 
     #[tokio::test]
     async fn shell_exec_rejects_empty_command() {
-        let (db, agent_id) = setup_db(&[]);
-        let prim = ShellExecPrimitive::new(db, agent_id, Duration::from_secs(5), 1024);
+        let path = setup_allowlist(&[]);
+        let prim = ShellExecPrimitive::new(path, Duration::from_secs(5), 1024);
         let result = prim
             .invoke(serde_json::json!({"command": "", "args": []}))
             .await;
@@ -271,14 +249,13 @@ mod tests {
     #[tokio::test]
     async fn shell_exec_with_sandbox_none_works_normally() {
         use crate::sandbox::{SandboxConfig, SandboxProfile};
-        use std::path::PathBuf;
 
         let config = SandboxConfig {
             profile: SandboxProfile::None,
             workspace_root: PathBuf::from("/tmp"),
         };
-        let (db, agent_id) = setup_db(&["echo"]);
-        let prim = ShellExecPrimitive::new(db, agent_id, Duration::from_secs(5), 1024 * 1024)
+        let path = setup_allowlist(&["echo"]);
+        let prim = ShellExecPrimitive::new(path, Duration::from_secs(5), 1024 * 1024)
             .with_sandbox(config);
         let result = prim
             .invoke(serde_json::json!({"command": "echo", "args": ["sandbox-none"]}))
@@ -289,9 +266,9 @@ mod tests {
 
     #[tokio::test]
     async fn shell_exec_timeout_secs_parameter_respected() {
-        let (db, agent_id) = setup_db(&["sleep"]);
+        let path = setup_allowlist(&["sleep"]);
         // max_timeout is 10s, but we request only 1s via the parameter
-        let prim = ShellExecPrimitive::new(db, agent_id, Duration::from_secs(10), 1024);
+        let prim = ShellExecPrimitive::new(path, Duration::from_secs(10), 1024);
         let result = prim
             .invoke(serde_json::json!({"command": "sleep", "args": ["5"], "timeout_secs": 1}))
             .await;
@@ -301,9 +278,9 @@ mod tests {
 
     #[tokio::test]
     async fn shell_exec_timeout_secs_clamped_to_max() {
-        let (db, agent_id) = setup_db(&["sleep"]);
+        let path = setup_allowlist(&["sleep"]);
         // max_timeout is 2s; requesting 999s should be clamped to 2s
-        let prim = ShellExecPrimitive::new(db, agent_id, Duration::from_secs(2), 1024);
+        let prim = ShellExecPrimitive::new(path, Duration::from_secs(2), 1024);
         let result = prim
             .invoke(serde_json::json!({"command": "sleep", "args": ["5"], "timeout_secs": 999}))
             .await;
@@ -314,13 +291,65 @@ mod tests {
     #[tokio::test]
     async fn shell_exec_stdin_is_null() {
         // `cat` with no args reads from stdin; with stdin null it gets EOF immediately
-        let (db, agent_id) = setup_db(&["cat"]);
-        let prim = ShellExecPrimitive::new(db, agent_id, Duration::from_secs(3), 1024);
+        let path = setup_allowlist(&["cat"]);
+        let prim = ShellExecPrimitive::new(path, Duration::from_secs(3), 1024);
         let result = prim
             .invoke(serde_json::json!({"command": "cat"}))
             .await
             .unwrap();
         assert_eq!(result["stdout"].as_str().unwrap(), "");
         assert_eq!(result["exit_code"].as_i64().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn shell_exec_runs_in_workspace_cwd() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = tmp.path().to_path_buf();
+        let path = setup_allowlist(&["pwd"]);
+        let prim = ShellExecPrimitive::new(path, Duration::from_secs(5), 1024 * 1024)
+            .with_working_dir(Arc::new(Mutex::new(ws.clone())));
+        let result = prim
+            .invoke(serde_json::json!({"command": "pwd"}))
+            .await
+            .unwrap();
+        let stdout = result["stdout"].as_str().unwrap().trim();
+        // Canonicalize both for comparison (handles /tmp -> /private/tmp on macOS)
+        let canonical_ws = ws.canonicalize().unwrap();
+        let canonical_out = PathBuf::from(stdout).canonicalize().unwrap();
+        assert_eq!(canonical_out, canonical_ws);
+    }
+
+    #[tokio::test]
+    async fn shell_exec_sets_pwd_env_var() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = tmp.path().to_path_buf();
+        let path = setup_allowlist(&["bash"]);
+        let prim = ShellExecPrimitive::new(path, Duration::from_secs(5), 1024 * 1024)
+            .with_working_dir(Arc::new(Mutex::new(ws.clone())));
+        let result = prim
+            .invoke(serde_json::json!({"command": "bash", "args": ["-c", "echo $PWD"]}))
+            .await
+            .unwrap();
+        let stdout = result["stdout"].as_str().unwrap().trim();
+        let canonical_ws = ws.canonicalize().unwrap();
+        assert_eq!(PathBuf::from(stdout), canonical_ws);
+    }
+
+    #[tokio::test]
+    async fn shell_exec_sets_moxxy_workspace_env_var() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = tmp.path().to_path_buf();
+        let path = setup_allowlist(&["bash"]);
+        let prim = ShellExecPrimitive::new(path, Duration::from_secs(5), 1024 * 1024)
+            .with_working_dir(Arc::new(Mutex::new(ws.clone())));
+        let result = prim
+            .invoke(
+                serde_json::json!({"command": "bash", "args": ["-c", "echo $MOXXY_WORKSPACE"]}),
+            )
+            .await
+            .unwrap();
+        let stdout = result["stdout"].as_str().unwrap().trim();
+        let canonical_ws = ws.canonicalize().unwrap();
+        assert_eq!(PathBuf::from(stdout), canonical_ws);
     }
 }

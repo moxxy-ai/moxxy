@@ -13,7 +13,15 @@ pub trait Provider: Send + Sync {
         &self,
         messages: Vec<Message>,
         config: &ModelConfig,
+        tools: &[ToolDefinition],
     ) -> Result<ProviderResponse, PrimitiveError>;
+
+    async fn complete_stream(
+        &self,
+        messages: Vec<Message>,
+        config: &ModelConfig,
+        tools: &[ToolDefinition],
+    ) -> Result<Pin<Box<dyn Stream<Item = StreamEvent> + Send>>, PrimitiveError>;
 }
 ```
 
@@ -21,10 +29,15 @@ pub trait Provider: Send + Sync {
 
 ```rust
 pub struct Message {
-    pub role: String,    // "user", "assistant", "system", "tool"
+    pub role: String,         // "user", "assistant", "system", "tool"
     pub content: String,
+    pub tool_calls: Option<Vec<ToolCall>>,  // For assistant messages with tool calls
+    pub tool_call_id: Option<String>,       // For tool result messages
+    pub name: Option<String>,              // Tool name for tool results
 }
 ```
+
+Constructors: `Message::system()`, `Message::user()`, `Message::assistant()`, `Message::assistant_with_tool_calls()`, `Message::tool_result()`.
 
 ### ModelConfig
 
@@ -32,6 +45,7 @@ pub struct Message {
 pub struct ModelConfig {
     pub temperature: f64,
     pub max_tokens: u32,
+    pub tool_choice: ToolChoice,  // Auto or Any
 }
 ```
 
@@ -41,15 +55,17 @@ pub struct ModelConfig {
 pub struct ProviderResponse {
     pub content: String,
     pub tool_calls: Vec<ToolCall>,
+    pub usage: Option<TokenUsage>,
 }
 
 pub struct ToolCall {
+    pub id: String,                 // Unique call ID for round-tripping
     pub name: String,               // e.g., "fs.read"
     pub arguments: serde_json::Value, // e.g., {"path": "src/main.rs"}
 }
 ```
 
-The `complete()` method sends messages to the LLM and returns the response. If the LLM wants to invoke tools, it returns `ToolCall` entries that the runtime executes as primitives.
+The `complete()` method sends messages and tool schemas to the LLM and returns the response. If the LLM wants to invoke tools, it returns `ToolCall` entries that the runtime executes as primitives. The `complete_stream()` method provides streaming via `StreamEvent`.
 
 ## Built-in Providers
 
@@ -87,7 +103,7 @@ Compatible with:
 
 ```rust
 use async_trait::async_trait;
-use moxxy_runtime::{Provider, Message, ModelConfig, ProviderResponse, PrimitiveError};
+use moxxy_runtime::{Provider, Message, ModelConfig, ProviderResponse, PrimitiveError, ToolDefinition};
 
 pub struct MyProvider {
     api_key: String,
@@ -100,8 +116,10 @@ impl Provider for MyProvider {
         &self,
         messages: Vec<Message>,
         config: &ModelConfig,
+        tools: &[ToolDefinition],
     ) -> Result<ProviderResponse, PrimitiveError> {
         // Call your LLM API here
+        // Send tool schemas from `tools` so the LLM knows which tools are available
         // Parse the response
         // Return ProviderResponse with content and tool_calls
         todo!()

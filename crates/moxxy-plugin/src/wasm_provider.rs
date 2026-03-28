@@ -176,6 +176,7 @@ mod tests {
         let config = ModelConfig {
             temperature: 0.7,
             max_tokens: 100,
+            tool_choice: moxxy_runtime::ToolChoice::Auto,
         };
         let messages = vec![Message::user("hello")];
 
@@ -202,6 +203,7 @@ mod tests {
         let config = ModelConfig {
             temperature: 0.7,
             max_tokens: 100,
+            tool_choice: moxxy_runtime::ToolChoice::Auto,
         };
 
         // Call twice to verify no state leaks between calls

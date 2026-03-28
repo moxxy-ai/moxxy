@@ -175,11 +175,15 @@ impl Primitive for AgentStatusPrimitive {
             .map(|channels| !channels.is_empty())
             .unwrap_or(false);
 
-        Ok(serde_json::json!({
+        let mut response = serde_json::json!({
             "child_name": child_name,
             "status": child.status,
             "has_pending_question": has_pending_question,
-        }))
+        });
+        if let Some(ref result) = child.last_result {
+            response["result"] = serde_json::Value::String(result.clone());
+        }
+        Ok(response)
     }
 }
 
@@ -405,6 +409,7 @@ mod tests {
                 agent_type: AgentType::Ephemeral,
                 hive_role: None,
                 depth: 1,
+                last_result: None,
             });
         }
     }
@@ -438,6 +443,7 @@ mod tests {
                 agent_type: opts.agent_type,
                 hive_role: opts.hive_role,
                 depth: 1,
+                last_result: None,
             });
             self.started.store(true, Ordering::SeqCst);
             Ok(SpawnResult {

@@ -68,65 +68,17 @@ impl<'a> WebhookDeliveryDao<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dao::AgentDao;
     use crate::fixtures::*;
     use moxxy_test_utils::TestDb;
-    use rusqlite::params;
-
-    fn seed_webhook(db: &TestDb) -> String {
-        let agent = fixture_agent_row();
-        let agent_dao = AgentDao { conn: db.conn() };
-        agent_dao.insert(&agent).unwrap();
-
-        let secret_ref = fixture_vault_secret_ref_row();
-        db.conn()
-            .execute(
-                "INSERT INTO vault_secret_refs (id, key_name, backend_key, policy_label, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    secret_ref.id,
-                    secret_ref.key_name,
-                    secret_ref.backend_key,
-                    secret_ref.policy_label,
-                    secret_ref.created_at,
-                    secret_ref.updated_at,
-                ],
-            )
-            .unwrap();
-
-        let mut wh = fixture_webhook_row();
-        wh.agent_id = agent.id;
-        wh.secret_ref_id = secret_ref.id;
-        db.conn()
-            .execute(
-                "INSERT INTO webhooks (id, agent_id, label, token, secret_ref_id, event_filter,
-                 enabled, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                params![
-                    wh.id,
-                    wh.agent_id,
-                    wh.label,
-                    wh.token,
-                    wh.secret_ref_id,
-                    wh.event_filter,
-                    wh.enabled,
-                    wh.created_at,
-                    wh.updated_at,
-                ],
-            )
-            .unwrap();
-        wh.id
-    }
 
     #[test]
     fn insert_and_find_by_webhook() {
         let db = TestDb::new();
-        let webhook_id = seed_webhook(&db);
         let dao = WebhookDeliveryDao { conn: db.conn() };
         let mut delivery = fixture_webhook_delivery_row();
-        delivery.webhook_id = webhook_id.clone();
+        delivery.webhook_id = "wh-token-123".into();
         dao.insert(&delivery).unwrap();
-        let found = dao.find_by_webhook(&webhook_id).unwrap();
+        let found = dao.find_by_webhook("wh-token-123").unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].id, delivery.id);
         assert!(found[0].signature_valid);
@@ -135,16 +87,15 @@ mod tests {
     #[test]
     fn insert_delivery_with_error() {
         let db = TestDb::new();
-        let webhook_id = seed_webhook(&db);
         let dao = WebhookDeliveryDao { conn: db.conn() };
         let mut delivery = fixture_webhook_delivery_row();
-        delivery.webhook_id = webhook_id.clone();
+        delivery.webhook_id = "wh-token-456".into();
         delivery.signature_valid = false;
         delivery.error = Some("invalid signature".into());
         delivery.run_id = None;
         dao.insert(&delivery).unwrap();
 
-        let found = dao.find_by_webhook(&webhook_id).unwrap();
+        let found = dao.find_by_webhook("wh-token-456").unwrap();
         assert_eq!(found.len(), 1);
         assert!(!found[0].signature_valid);
         assert_eq!(found[0].error.as_deref(), Some("invalid signature"));

@@ -1,5 +1,5 @@
-pub mod agent_kind;
 pub mod auth_extractor;
+pub mod heartbeat_actions;
 pub mod rate_limit;
 pub mod routes;
 pub mod run_service;
@@ -16,15 +16,43 @@ use tower_governor::GovernorLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
+fn build_cors_layer() -> CorsLayer {
+    use axum::http::HeaderValue;
+
+    let origins: Vec<HeaderValue> = match std::env::var("MOXXY_CORS_ORIGINS") {
+        Ok(val) => val
+            .split(',')
+            .filter_map(|s| {
+                let trimmed = s.trim();
+                if trimmed.is_empty() {
+                    return None;
+                }
+                trimmed.parse::<HeaderValue>().ok()
+            })
+            .collect(),
+        Err(_) => {
+            // Default to localhost origins
+            vec![
+                "http://localhost:3000".parse().unwrap(),
+                "http://127.0.0.1:3000".parse().unwrap(),
+                "http://localhost:5173".parse().unwrap(),
+                "http://127.0.0.1:5173".parse().unwrap(),
+            ]
+        }
+    };
+
+    CorsLayer::new()
+        .allow_origin(origins)
+        .allow_methods(Any)
+        .allow_headers(Any)
+}
+
 pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitConfig>) -> Router {
     let config = rate_limit_config.unwrap_or_else(RateLimitConfig::permissive);
     let governor_conf = config.into_governor_config();
     let governor_layer = GovernorLayer::new(governor_conf);
 
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let cors = build_cors_layer();
 
     // Health route is exempt from rate limiting
     let health_router = Router::new()
@@ -73,6 +101,10 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
         .route("/v1/agents/{name}/runs", post(routes::agents::start_run))
         .route("/v1/agents/{name}/stop", post(routes::agents::stop_run))
         .route(
+            "/v1/agents/{name}/reset",
+            post(routes::agents::reset_session),
+        )
+        .route(
             "/v1/agents/{name}/history",
             get(routes::agents::get_history),
         )
@@ -108,6 +140,34 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
             "/v1/agents/{id}/skills/{skill_id}",
             delete(routes::skills::delete_skill),
         )
+        // Templates
+        .route(
+            "/v1/templates",
+            post(routes::templates::create_template).get(routes::templates::list_templates),
+        )
+        .route(
+            "/v1/templates/{slug}",
+            get(routes::templates::get_template)
+                .put(routes::templates::update_template)
+                .delete(routes::templates::delete_template),
+        )
+        .route(
+            "/v1/agents/{name}/template",
+            axum::routing::patch(routes::templates::set_agent_template),
+        )
+        // MCP
+        .route(
+            "/v1/agents/{name}/mcp",
+            get(routes::mcp::list_mcp_servers).post(routes::mcp::add_mcp_server),
+        )
+        .route(
+            "/v1/agents/{name}/mcp/{server_id}",
+            delete(routes::mcp::remove_mcp_server),
+        )
+        .route(
+            "/v1/agents/{name}/mcp/{server_id}/test",
+            post(routes::mcp::test_mcp_server),
+        )
         // Vault
         .route(
             "/v1/vault/secrets",
@@ -124,16 +184,20 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
         .route("/v1/vault/grants/{id}", delete(routes::vault::revoke_grant))
         // Webhooks
         .route(
-            "/v1/agents/{id}/webhooks",
+            "/v1/agents/{name}/webhooks",
             get(routes::webhooks::list_webhooks),
         )
         .route(
-            "/v1/agents/{id}/webhooks/{wh_id}",
+            "/v1/agents/{name}/webhooks/{slug}",
             delete(routes::webhooks::delete_webhook),
         )
         .route(
-            "/v1/agents/{id}/webhooks/{wh_id}/deliveries",
+            "/v1/agents/{name}/webhooks/{slug}/deliveries",
             get(routes::webhooks::list_deliveries),
+        )
+        .route(
+            "/v1/admin/reload-webhooks",
+            post(routes::webhooks::reload_webhooks),
         )
         // Audit logs
         .route("/v1/audit-logs", get(routes::audit::list_audit_logs))
@@ -175,8 +239,8 @@ mod test_helpers {
     use axum::Router;
     use axum::body::Body;
     use http::Request;
-    use moxxy_core::ApiTokenService;
-    use moxxy_storage::{ProviderRow, StoredTokenRow};
+    use moxxy_core::{ApiTokenService, ProviderDoc, ProviderModelEntry, ProviderStore};
+    use moxxy_storage::StoredTokenRow;
     use moxxy_types::{AuthMode, TokenScope};
     use tower::ServiceExt;
 
@@ -184,6 +248,7 @@ mod test_helpers {
         crate::state::register_sqlite_vec();
         let tmp = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(tmp.path().join("agents")).unwrap();
+        std::fs::create_dir_all(tmp.path().join("providers")).unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         let state = Arc::new(AppState::new(
             conn,
@@ -217,32 +282,32 @@ mod test_helpers {
     }
 
     pub fn seed_provider(state: &AppState) {
-        let db = state.db.lock().unwrap();
-        db.providers()
-            .insert(&ProviderRow {
-                id: "test-provider".into(),
-                display_name: "Test Provider".into(),
-                manifest_path: "/tmp/manifest.json".into(),
-                signature: None,
-                enabled: true,
-                created_at: chrono::Utc::now().to_rfc3339(),
-            })
-            .unwrap();
+        let doc = ProviderDoc {
+            id: "test-provider".into(),
+            display_name: "Test Provider".into(),
+            enabled: true,
+            secret_ref: None,
+            api_base: None,
+            models: vec![],
+        };
+        ProviderStore::create(&state.moxxy_home, &doc).unwrap();
     }
 
     pub fn seed_provider_with_model(state: &AppState) {
-        seed_provider(state);
-        let db = state.db.lock().unwrap();
-        db.providers()
-            .insert_model(&moxxy_storage::ProviderModelRow {
-                provider_id: "test-provider".into(),
-                model_id: "gpt-4".into(),
+        let doc = ProviderDoc {
+            id: "test-provider".into(),
+            display_name: "Test Provider".into(),
+            enabled: true,
+            secret_ref: None,
+            api_base: None,
+            models: vec![ProviderModelEntry {
+                id: "gpt-4".into(),
                 display_name: "GPT-4".into(),
-                metadata_json: Some(
-                    r#"{"context_window":8192,"api_base":"https://api.openai.com/v1"}"#.into(),
-                ),
-            })
-            .unwrap();
+                api_base: Some("https://api.openai.com/v1".into()),
+                chatgpt_account_id: None,
+            }],
+        };
+        ProviderStore::create(&state.moxxy_home, &doc).unwrap();
     }
 
     /// Seed a test agent using the registry + YAML store. Returns the agent name.
@@ -257,6 +322,7 @@ mod test_helpers {
             max_subagents_total: 8,
             policy_profile: None,
             core_mount: None,
+            template: None,
         };
         // Create on disk + register
         let _ = moxxy_core::AgentStore::create(&state.moxxy_home, &name, &config);
@@ -270,6 +336,7 @@ mod test_helpers {
             depth: 0,
             spawned_count: 0,
             persona: None,
+            last_result: None,
         };
         let _ = state.registry.register(runtime);
 
@@ -462,6 +529,7 @@ mod agent_tests {
                 max_subagents_total: 8,
                 policy_profile: None,
                 core_mount: None,
+                template: None,
             };
             let _ = moxxy_core::AgentStore::create(&state.moxxy_home, &name, &config);
             let runtime = moxxy_types::AgentRuntime {
@@ -474,6 +542,7 @@ mod agent_tests {
                 depth: 0,
                 spawned_count: 0,
                 persona: None,
+                last_result: None,
             };
             let _ = state.registry.register(runtime);
         }
@@ -1913,5 +1982,208 @@ mod memory_compact_tests {
             .unwrap();
         let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(result.get("compacted_groups").is_some());
+    }
+}
+
+#[cfg(test)]
+mod mcp_tests {
+    use super::test_helpers::*;
+    use axum::body::Body;
+    use axum::http::StatusCode;
+    use http::Request;
+    use moxxy_types::TokenScope;
+
+    #[tokio::test]
+    async fn list_mcp_returns_empty_when_no_config() {
+        let (app, state, _tmp) = test_app();
+        let token = create_token_in_db(
+            &state,
+            vec![TokenScope::AgentsRead, TokenScope::AgentsWrite],
+        );
+        let agent_name = seed_agent(&state, &token);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!("/v1/agents/{}/mcp", agent_name))
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let servers = result["servers"].as_array().unwrap();
+        assert!(servers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn add_mcp_server_creates_config_and_returns_201() {
+        let (app, state, _tmp) = test_app();
+        let token = create_token_in_db(
+            &state,
+            vec![TokenScope::AgentsRead, TokenScope::AgentsWrite],
+        );
+        let agent_name = seed_agent(&state, &token);
+
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/agents/{}/mcp", agent_name))
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"id":"my-server","transport":"stdio","command":"echo","args":["hello"]}"#,
+            ))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::CREATED);
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(result["id"], "my-server");
+        assert_eq!(result["transport"], "stdio");
+
+        // Verify it shows up in list
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!("/v1/agents/{}/mcp", agent_name))
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let servers = result["servers"].as_array().unwrap();
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0]["id"], "my-server");
+    }
+
+    #[tokio::test]
+    async fn add_duplicate_mcp_server_returns_conflict() {
+        let (app, state, _tmp) = test_app();
+        let token = create_token_in_db(
+            &state,
+            vec![TokenScope::AgentsRead, TokenScope::AgentsWrite],
+        );
+        let agent_name = seed_agent(&state, &token);
+
+        let body_json = r#"{"id":"dup-server","transport":"stdio","command":"echo","args":[]}"#;
+
+        // First add
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/agents/{}/mcp", agent_name))
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(body_json))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::CREATED);
+
+        // Duplicate add
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/agents/{}/mcp", agent_name))
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(body_json))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn remove_unknown_mcp_server_returns_404() {
+        let (app, state, _tmp) = test_app();
+        let token = create_token_in_db(
+            &state,
+            vec![TokenScope::AgentsRead, TokenScope::AgentsWrite],
+        );
+        let agent_name = seed_agent(&state, &token);
+
+        let req = Request::builder()
+            .method("DELETE")
+            .uri(format!("/v1/agents/{}/mcp/nonexistent", agent_name))
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn remove_mcp_server_succeeds() {
+        let (app, state, _tmp) = test_app();
+        let token = create_token_in_db(
+            &state,
+            vec![TokenScope::AgentsRead, TokenScope::AgentsWrite],
+        );
+        let agent_name = seed_agent(&state, &token);
+
+        // Add a server first
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/agents/{}/mcp", agent_name))
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"id":"to-remove","transport":"stdio","command":"echo","args":[]}"#,
+            ))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::CREATED);
+
+        // Remove it
+        let req = Request::builder()
+            .method("DELETE")
+            .uri(format!("/v1/agents/{}/mcp/to-remove", agent_name))
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Verify it's gone
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!("/v1/agents/{}/mcp", agent_name))
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(result["servers"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn add_mcp_server_validates_input() {
+        let (app, state, _tmp) = test_app();
+        let token = create_token_in_db(
+            &state,
+            vec![TokenScope::AgentsRead, TokenScope::AgentsWrite],
+        );
+        let agent_name = seed_agent(&state, &token);
+
+        // stdio without command
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/agents/{}/mcp", agent_name))
+            .header("authorization", format!("Bearer {}", token))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"id":"bad","transport":"stdio"}"#))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 }

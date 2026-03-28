@@ -47,6 +47,15 @@ impl AgentRegistry {
         }
     }
 
+    /// Store the result of the agent's last run.
+    pub fn set_last_result(&self, name: &str, result: Option<String>) {
+        if let Ok(mut map) = self.inner.write()
+            && let Some(rt) = map.get_mut(name)
+        {
+            rt.last_result = result;
+        }
+    }
+
     /// Increment an agent's spawned_count.
     pub fn increment_spawned(&self, name: &str) {
         if let Ok(mut map) = self.inner.write()
@@ -126,6 +135,7 @@ mod tests {
                 max_subagents_total: 8,
                 policy_profile: None,
                 core_mount: None,
+                template: None,
             },
             status: AgentStatus::Idle,
             parent_name: None,
@@ -133,6 +143,7 @@ mod tests {
             depth: 0,
             spawned_count: 0,
             persona: None,
+            last_result: None,
         }
     }
 

@@ -174,6 +174,30 @@ export async function runAgent(client, args) {
         });
         handleCancel(personaInput);
 
+        // Optional template selection
+        let templateSlug = null;
+        try {
+          const templates = await client.listTemplates();
+          if (templates && templates.length > 0) {
+            const templateOptions = [
+              { value: '__none__', label: 'None', hint: 'no template' },
+              ...templates.map(t => ({
+                value: t.slug,
+                label: t.name,
+                hint: t.description,
+              })),
+            ];
+            const templateChoice = await p.select({
+              message: 'Assign a template? (optional)',
+              options: templateOptions,
+            });
+            handleCancel(templateChoice);
+            if (templateChoice !== '__none__') {
+              templateSlug = templateChoice;
+            }
+          }
+        } catch { /* templates not available, skip */ }
+
         const tempInput = await p.text({
           message: 'Temperature',
           placeholder: '0.7',
@@ -189,6 +213,7 @@ export async function runAgent(client, args) {
           temperature,
         };
         if (personaInput) body.persona = personaInput;
+        if (templateSlug) body.template = templateSlug;
 
         const result = await withSpinner('Creating agent...', () =>
           client.request('/v1/agents', 'POST', body), 'Agent created.');

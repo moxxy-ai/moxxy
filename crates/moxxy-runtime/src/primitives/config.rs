@@ -88,7 +88,7 @@ impl Primitive for ConfigSetPrimitive {
         let mut config = read_config(&self.config_path)?;
         config
             .as_object_mut()
-            .ok_or_else(|| PrimitiveError::ExecutionFailed("config is not a JSON object".into()))?
+            .ok_or_else(|| PrimitiveError::ExecutionFailed("config is not a mapping".into()))?
             .insert(key.to_string(), value.clone());
 
         write_config(&self.config_path, &config)?;
@@ -110,8 +110,10 @@ fn read_config(path: &PathBuf) -> Result<serde_json::Value, PrimitiveError> {
     if content.trim().is_empty() {
         return Ok(serde_json::json!({}));
     }
-    serde_json::from_str(&content)
-        .map_err(|e| PrimitiveError::ExecutionFailed(format!("failed to parse config: {}", e)))
+    let yaml_val: serde_yaml::Value = serde_yaml::from_str(&content)
+        .map_err(|e| PrimitiveError::ExecutionFailed(format!("failed to parse config: {}", e)))?;
+    serde_json::to_value(yaml_val)
+        .map_err(|e| PrimitiveError::ExecutionFailed(format!("failed to convert config: {}", e)))
 }
 
 fn write_config(path: &PathBuf, config: &serde_json::Value) -> Result<(), PrimitiveError> {
@@ -119,7 +121,7 @@ fn write_config(path: &PathBuf, config: &serde_json::Value) -> Result<(), Primit
         std::fs::create_dir_all(parent)
             .map_err(|e| PrimitiveError::ExecutionFailed(format!("failed to create dir: {}", e)))?;
     }
-    let content = serde_json::to_string_pretty(config).map_err(|e| {
+    let content = serde_yaml::to_string(config).map_err(|e| {
         PrimitiveError::ExecutionFailed(format!("failed to serialize config: {}", e))
     })?;
     std::fs::write(path, content)
@@ -134,7 +136,7 @@ mod tests {
     #[tokio::test]
     async fn config_set_and_get() {
         let tmp = TempDir::new().unwrap();
-        let config_path = tmp.path().join("config").join("gateway.json");
+        let config_path = tmp.path().join("config").join("gateway.yaml");
 
         let setter = ConfigSetPrimitive::new(config_path.clone());
         let result = setter
@@ -154,7 +156,7 @@ mod tests {
     #[tokio::test]
     async fn config_get_all() {
         let tmp = TempDir::new().unwrap();
-        let config_path = tmp.path().join("gateway.json");
+        let config_path = tmp.path().join("gateway.yaml");
 
         let setter = ConfigSetPrimitive::new(config_path.clone());
         setter
@@ -176,7 +178,7 @@ mod tests {
     #[tokio::test]
     async fn config_get_missing_key() {
         let tmp = TempDir::new().unwrap();
-        let config_path = tmp.path().join("gateway.json");
+        let config_path = tmp.path().join("gateway.yaml");
 
         let getter = ConfigGetPrimitive::new(config_path);
         let result = getter
@@ -189,7 +191,7 @@ mod tests {
     #[tokio::test]
     async fn config_get_nonexistent_file() {
         let tmp = TempDir::new().unwrap();
-        let config_path = tmp.path().join("does_not_exist.json");
+        let config_path = tmp.path().join("does_not_exist.yaml");
 
         let getter = ConfigGetPrimitive::new(config_path);
         let result = getter.invoke(serde_json::json!({})).await.unwrap();

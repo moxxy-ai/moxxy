@@ -1,0 +1,17 @@
+export const THEME = {
+  primary: 'cyan',
+  accent: '#FF9500',
+  text: 'white',
+  dim: 'gray',
+  border: 'gray',
+  error: 'red',
+  warning: 'yellow',
+  success: 'green',
+  user: '#FF9500',
+  assistant: 'cyan',
+  tool: 'gray',
+  toolError: 'red',
+  contextLow: 'green',
+  contextMed: '#FF9500',
+  contextHigh: 'red',
+};

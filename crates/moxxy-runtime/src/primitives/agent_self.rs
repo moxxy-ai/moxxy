@@ -50,6 +50,7 @@ impl Primitive for AgentSelfGetPrimitive {
                 "max_subagent_depth": config.max_subagent_depth,
                 "max_subagents_total": config.max_subagents_total,
                 "policy_profile": config.policy_profile,
+                "template": config.template,
             },
             "persona": persona,
         }))
@@ -58,11 +59,15 @@ impl Primitive for AgentSelfGetPrimitive {
 
 pub struct AgentSelfUpdatePrimitive {
     agent_dir: PathBuf,
+    moxxy_home: PathBuf,
 }
 
 impl AgentSelfUpdatePrimitive {
-    pub fn new(agent_dir: PathBuf) -> Self {
-        Self { agent_dir }
+    pub fn new(agent_dir: PathBuf, moxxy_home: PathBuf) -> Self {
+        Self {
+            agent_dir,
+            moxxy_home,
+        }
     }
 }
 
@@ -85,7 +90,8 @@ impl Primitive for AgentSelfUpdatePrimitive {
                 "temperature": {"type": "number", "description": "New temperature (0.0-2.0)"},
                 "max_subagent_depth": {"type": "integer", "description": "Max sub-agent depth"},
                 "max_subagents_total": {"type": "integer", "description": "Max total sub-agents"},
-                "policy_profile": {"type": ["string", "null"], "description": "Policy profile name"}
+                "policy_profile": {"type": ["string", "null"], "description": "Policy profile name"},
+                "template": {"type": ["string", "null"], "description": "Template slug to assign (null to clear)"}
             }
         })
     }
@@ -119,6 +125,25 @@ impl Primitive for AgentSelfUpdatePrimitive {
         if let Some(profile) = params.get("policy_profile") {
             config.policy_profile = profile.as_str().map(|s| s.to_string());
         }
+        if let Some(template_val) = params.get("template") {
+            if template_val.is_null() {
+                config.template = None;
+            } else if let Some(slug) = template_val.as_str() {
+                // Validate template exists
+                let template_path = self
+                    .moxxy_home
+                    .join("templates")
+                    .join(slug)
+                    .join("TEMPLATE.md");
+                if !template_path.is_file() {
+                    return Err(PrimitiveError::InvalidParams(format!(
+                        "template '{}' not found",
+                        slug
+                    )));
+                }
+                config.template = Some(slug.to_string());
+            }
+        }
 
         config
             .save(&config_path)
@@ -130,6 +155,7 @@ impl Primitive for AgentSelfUpdatePrimitive {
                 "provider": config.provider,
                 "model": config.model,
                 "temperature": config.temperature,
+                "template": config.template,
             }
         }))
     }
@@ -226,7 +252,8 @@ mod tests {
 
     fn setup() -> (TempDir, PathBuf) {
         let tmp = TempDir::new().unwrap();
-        let agent_dir = tmp.path().to_path_buf();
+        let agent_dir = tmp.path().join("agents").join("test");
+        std::fs::create_dir_all(&agent_dir).unwrap();
 
         let config = AgentConfig {
             provider: "anthropic".into(),
@@ -236,6 +263,7 @@ mod tests {
             max_subagents_total: 8,
             policy_profile: None,
             core_mount: None,
+            template: None,
         };
         config.save(&agent_dir.join("agent.yaml")).unwrap();
         std::fs::write(agent_dir.join("persona.md"), "You are a helpful assistant.").unwrap();
@@ -256,9 +284,9 @@ mod tests {
 
     #[tokio::test]
     async fn self_update_changes_config() {
-        let (_tmp, agent_dir) = setup();
+        let (tmp, agent_dir) = setup();
 
-        let prim = AgentSelfUpdatePrimitive::new(agent_dir.clone());
+        let prim = AgentSelfUpdatePrimitive::new(agent_dir.clone(), tmp.path().to_path_buf());
         let result = prim
             .invoke(serde_json::json!({"temperature": 1.2, "model": "gpt-4"}))
             .await
@@ -273,10 +301,70 @@ mod tests {
 
     #[tokio::test]
     async fn self_update_validates_temperature() {
-        let (_tmp, agent_dir) = setup();
+        let (tmp, agent_dir) = setup();
 
-        let prim = AgentSelfUpdatePrimitive::new(agent_dir);
+        let prim = AgentSelfUpdatePrimitive::new(agent_dir, tmp.path().to_path_buf());
         let result = prim.invoke(serde_json::json!({"temperature": 3.0})).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn self_update_sets_template() {
+        let (tmp, agent_dir) = setup();
+        let moxxy_home = tmp.path().to_path_buf();
+
+        // Create a template on disk
+        let tpl_dir = moxxy_home.join("templates").join("builder");
+        std::fs::create_dir_all(&tpl_dir).unwrap();
+        std::fs::write(
+            tpl_dir.join("TEMPLATE.md"),
+            "---\nname: Builder\ndescription: test\nversion: \"1.0\"\n---\nBody",
+        )
+        .unwrap();
+
+        let prim = AgentSelfUpdatePrimitive::new(agent_dir.clone(), moxxy_home);
+        let result = prim
+            .invoke(serde_json::json!({"template": "builder"}))
+            .await
+            .unwrap();
+        assert_eq!(result["status"], "updated");
+        assert_eq!(result["config"]["template"], "builder");
+
+        // Verify on disk
+        let config = AgentConfig::load(&agent_dir.join("agent.yaml")).unwrap();
+        assert_eq!(config.template.as_deref(), Some("builder"));
+    }
+
+    #[tokio::test]
+    async fn self_update_clears_template() {
+        let (tmp, agent_dir) = setup();
+        let moxxy_home = tmp.path().to_path_buf();
+
+        // Set template first
+        let mut config = AgentConfig::load(&agent_dir.join("agent.yaml")).unwrap();
+        config.template = Some("builder".into());
+        config.save(&agent_dir.join("agent.yaml")).unwrap();
+
+        let prim = AgentSelfUpdatePrimitive::new(agent_dir.clone(), moxxy_home);
+        let result = prim
+            .invoke(serde_json::json!({"template": null}))
+            .await
+            .unwrap();
+        assert_eq!(result["status"], "updated");
+
+        let config = AgentConfig::load(&agent_dir.join("agent.yaml")).unwrap();
+        assert!(config.template.is_none());
+    }
+
+    #[tokio::test]
+    async fn self_update_rejects_invalid_template() {
+        let (tmp, agent_dir) = setup();
+        let moxxy_home = tmp.path().to_path_buf();
+
+        let prim = AgentSelfUpdatePrimitive::new(agent_dir, moxxy_home);
+        let result = prim
+            .invoke(serde_json::json!({"template": "nonexistent"}))
+            .await;
         assert!(result.is_err());
     }
 

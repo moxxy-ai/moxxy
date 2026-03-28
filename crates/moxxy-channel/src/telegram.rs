@@ -165,6 +165,218 @@ impl TelegramTransport {
     }
 }
 
+/// Convert standard markdown (as produced by LLMs) to Telegram HTML.
+///
+/// Supported conversions:
+/// - `**bold**` / `__bold__` → `<b>bold</b>`
+/// - `*italic*` / `_italic_` → `<i>italic</i>`
+/// - `` `inline code` `` → `<code>inline code</code>`
+/// - ```lang\ncode\n``` → `<pre>code</pre>`
+/// - `~~strikethrough~~` → `<s>strikethrough</s>`
+/// - `[text](url)` → `<a href="url">text</a>`
+/// - `# heading` → `<b>heading</b>`
+/// - HTML special chars (`<`, `>`, `&`) are escaped first.
+fn markdown_to_telegram_html(md: &str) -> String {
+    // First, escape HTML entities in the raw markdown
+    let escaped = md
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
+
+    let mut result = String::with_capacity(escaped.len());
+    let lines: Vec<&str> = escaped.lines().collect();
+    let mut i = 0;
+
+    while i < lines.len() {
+        let line = lines[i];
+
+        // Fenced code blocks: ```lang\n...\n```
+        if line.starts_with("```") {
+            i += 1;
+            let mut code_lines = Vec::new();
+            while i < lines.len() && !lines[i].starts_with("```") {
+                code_lines.push(lines[i]);
+                i += 1;
+            }
+            if i < lines.len() {
+                i += 1; // skip closing ```
+            }
+            result.push_str("<pre>");
+            result.push_str(&code_lines.join("\n"));
+            result.push_str("</pre>");
+            result.push('\n');
+            continue;
+        }
+
+        // Headings: # ... → bold
+        if let Some(heading) = line
+            .strip_prefix("### ")
+            .or_else(|| line.strip_prefix("## "))
+            .or_else(|| line.strip_prefix("# "))
+        {
+            result.push_str("<b>");
+            result.push_str(heading.trim());
+            result.push_str("</b>");
+            result.push('\n');
+            i += 1;
+            continue;
+        }
+
+        // Regular line - apply inline formatting
+        result.push_str(&convert_inline_markdown(line));
+        result.push('\n');
+        i += 1;
+    }
+
+    // Remove trailing newline
+    if result.ends_with('\n') {
+        result.pop();
+    }
+    result
+}
+
+/// Convert inline markdown patterns within a single line.
+fn convert_inline_markdown(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let chars: Vec<char> = line.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+
+    while i < len {
+        // Inline code: `...`
+        if chars[i] == '`'
+            && let Some(end) = find_closing(&chars, i + 1, '`')
+        {
+            let inner: String = chars[i + 1..end].iter().collect();
+            out.push_str("<code>");
+            out.push_str(&inner);
+            out.push_str("</code>");
+            i = end + 1;
+            continue;
+        }
+
+        // Links: [text](url)
+        if chars[i] == '['
+            && let Some((text, url, end)) = parse_markdown_link(&chars, i)
+        {
+            out.push_str(&format!("<a href=\"{url}\">{text}</a>"));
+            i = end;
+            continue;
+        }
+
+        // Strikethrough: ~~text~~
+        if i + 1 < len
+            && chars[i] == '~'
+            && chars[i + 1] == '~'
+            && let Some(end) = find_double_closing(&chars, i + 2, '~')
+        {
+            let inner: String = chars[i + 2..end].iter().collect();
+            out.push_str("<s>");
+            out.push_str(&inner);
+            out.push_str("</s>");
+            i = end + 2;
+            continue;
+        }
+
+        // Bold: **text**
+        if i + 1 < len
+            && chars[i] == '*'
+            && chars[i + 1] == '*'
+            && let Some(end) = find_double_closing(&chars, i + 2, '*')
+        {
+            let inner: String = chars[i + 2..end].iter().collect();
+            out.push_str("<b>");
+            out.push_str(&convert_inline_markdown(&inner));
+            out.push_str("</b>");
+            i = end + 2;
+            continue;
+        }
+
+        // Bold: __text__
+        if i + 1 < len
+            && chars[i] == '_'
+            && chars[i + 1] == '_'
+            && let Some(end) = find_double_closing(&chars, i + 2, '_')
+        {
+            let inner: String = chars[i + 2..end].iter().collect();
+            out.push_str("<b>");
+            out.push_str(&convert_inline_markdown(&inner));
+            out.push_str("</b>");
+            i = end + 2;
+            continue;
+        }
+
+        // Italic: *text* (single asterisk, only if not **)
+        if chars[i] == '*'
+            && (i + 1 >= len || chars[i + 1] != '*')
+            && let Some(end) = find_closing_not_double(&chars, i + 1, '*')
+        {
+            let inner: String = chars[i + 1..end].iter().collect();
+            out.push_str("<i>");
+            out.push_str(&convert_inline_markdown(&inner));
+            out.push_str("</i>");
+            i = end + 1;
+            continue;
+        }
+
+        // Italic: _text_ (single underscore, only if not __)
+        if chars[i] == '_'
+            && (i + 1 >= len || chars[i + 1] != '_')
+            && let Some(end) = find_closing_not_double(&chars, i + 1, '_')
+        {
+            let inner: String = chars[i + 1..end].iter().collect();
+            out.push_str("<i>");
+            out.push_str(&convert_inline_markdown(&inner));
+            out.push_str("</i>");
+            i = end + 1;
+            continue;
+        }
+
+        out.push(chars[i]);
+        i += 1;
+    }
+    out
+}
+
+fn find_closing(chars: &[char], start: usize, marker: char) -> Option<usize> {
+    (start..chars.len()).find(|&j| chars[j] == marker)
+}
+
+fn find_double_closing(chars: &[char], start: usize, marker: char) -> Option<usize> {
+    let mut j = start;
+    while j + 1 < chars.len() {
+        if chars[j] == marker && chars[j + 1] == marker {
+            return Some(j);
+        }
+        j += 1;
+    }
+    None
+}
+
+fn find_closing_not_double(chars: &[char], start: usize, marker: char) -> Option<usize> {
+    for j in start..chars.len() {
+        if chars[j] == marker && (j + 1 >= chars.len() || chars[j + 1] != marker) {
+            // Make sure there's actual content
+            if j > start {
+                return Some(j);
+            }
+        }
+    }
+    None
+}
+
+fn parse_markdown_link(chars: &[char], start: usize) -> Option<(String, String, usize)> {
+    // [text](url)
+    let text_end = find_closing(chars, start + 1, ']')?;
+    if text_end + 1 >= chars.len() || chars[text_end + 1] != '(' {
+        return None;
+    }
+    let url_end = find_closing(chars, text_end + 2, ')')?;
+    let text: String = chars[start + 1..text_end].iter().collect();
+    let url: String = chars[text_end + 2..url_end].iter().collect();
+    Some((text, url, url_end + 1))
+}
+
 /// Escape special characters for Telegram MarkdownV2.
 fn telegram_escape(s: &str) -> String {
     let special = [
@@ -265,7 +477,7 @@ impl ChannelTransport for TelegramTransport {
     async fn send_message(&self, msg: OutgoingMessage) -> Result<(), ChannelError> {
         let text = self.format_content(&msg.content);
         let parse_mode = match &msg.content {
-            MessageContent::Text(_) => None,
+            MessageContent::Text(_) => Some("HTML"),
             _ => Some("MarkdownV2"),
         };
         self.send_text(&msg.external_chat_id, &text, parse_mode)
@@ -279,7 +491,7 @@ impl ChannelTransport for TelegramTransport {
     ) -> Result<Option<String>, ChannelError> {
         let text = self.format_content(&msg.content);
         let parse_mode = match &msg.content {
-            MessageContent::Text(_) => None,
+            MessageContent::Text(_) => Some("HTML"),
             _ => Some("MarkdownV2"),
         };
         let msg_id = self
@@ -341,7 +553,7 @@ impl ChannelTransport for TelegramTransport {
 
     fn format_content(&self, content: &MessageContent) -> String {
         match content {
-            MessageContent::Text(s) => s.clone(),
+            MessageContent::Text(s) => markdown_to_telegram_html(s),
             MessageContent::ToolInvocation { name, arguments } => match arguments {
                 Some(args) => format!("⚙ *{name}*\n`{args}`"),
                 None => format!("⚙ *{name}*"),
@@ -461,6 +673,78 @@ mod tests {
         assert_eq!(
             transport.api_url("getUpdates"),
             "https://api.telegram.org/bot123:ABC/getUpdates"
+        );
+    }
+
+    #[test]
+    fn markdown_to_html_bold() {
+        assert_eq!(markdown_to_telegram_html("**hello**"), "<b>hello</b>");
+        assert_eq!(markdown_to_telegram_html("__hello__"), "<b>hello</b>");
+    }
+
+    #[test]
+    fn markdown_to_html_italic() {
+        assert_eq!(markdown_to_telegram_html("*hello*"), "<i>hello</i>");
+        assert_eq!(markdown_to_telegram_html("_hello_"), "<i>hello</i>");
+    }
+
+    #[test]
+    fn markdown_to_html_inline_code() {
+        assert_eq!(markdown_to_telegram_html("`code`"), "<code>code</code>");
+    }
+
+    #[test]
+    fn markdown_to_html_code_block() {
+        let input = "```rust\nfn main() {}\n```";
+        assert_eq!(markdown_to_telegram_html(input), "<pre>fn main() {}</pre>");
+    }
+
+    #[test]
+    fn markdown_to_html_heading() {
+        assert_eq!(markdown_to_telegram_html("# Title"), "<b>Title</b>");
+        assert_eq!(markdown_to_telegram_html("## Subtitle"), "<b>Subtitle</b>");
+        assert_eq!(markdown_to_telegram_html("### Section"), "<b>Section</b>");
+    }
+
+    #[test]
+    fn markdown_to_html_link() {
+        assert_eq!(
+            markdown_to_telegram_html("[click](https://example.com)"),
+            "<a href=\"https://example.com\">click</a>"
+        );
+    }
+
+    #[test]
+    fn markdown_to_html_strikethrough() {
+        assert_eq!(markdown_to_telegram_html("~~deleted~~"), "<s>deleted</s>");
+    }
+
+    #[test]
+    fn markdown_to_html_escapes_html_entities() {
+        assert_eq!(
+            markdown_to_telegram_html("a < b & c > d"),
+            "a &lt; b &amp; c &gt; d"
+        );
+    }
+
+    #[test]
+    fn markdown_to_html_mixed_content() {
+        let input = "Here is **bold** and *italic* with `code`";
+        let expected = "Here is <b>bold</b> and <i>italic</i> with <code>code</code>";
+        assert_eq!(markdown_to_telegram_html(input), expected);
+    }
+
+    #[test]
+    fn markdown_to_html_plain_text_unchanged() {
+        assert_eq!(markdown_to_telegram_html("Hello, world!"), "Hello, world!");
+    }
+
+    #[test]
+    fn markdown_to_html_bold_then_italic() {
+        // LLMs typically produce separate markers, not nested
+        assert_eq!(
+            markdown_to_telegram_html("**bold** and *italic*"),
+            "<b>bold</b> and <i>italic</i>"
         );
     }
 }

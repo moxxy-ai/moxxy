@@ -1,0 +1,10 @@
+#!/bin/sh
+# Resolve symlinks (npm link creates symlinks) to find the real script location
+SOURCE="$0"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [ "${SOURCE%${SOURCE#?}}" != "/" ] && SOURCE="$DIR/$SOURCE"
+done
+CLI_DIR="$(cd "$(dirname "$SOURCE")/.." && pwd)"
+exec node --import "$CLI_DIR/node_modules/tsx/dist/esm/index.mjs" "$CLI_DIR/src/cli.js" "$@"

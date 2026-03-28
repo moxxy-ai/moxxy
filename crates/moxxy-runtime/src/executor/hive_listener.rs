@@ -1,15 +1,22 @@
+use std::collections::HashSet;
+
 use moxxy_types::{EventEnvelope, EventType};
 
 use super::listener::{EventAction, EventListener};
 
 /// Handles hive-specific events (task lifecycle, signals, proposals).
 ///
-/// Stateless — formats notifications only, never blocks the executor.
-pub struct HiveEventListener;
+/// Tracks active hive workers to prevent the queen from exiting
+/// before all workers have finished.
+pub struct HiveEventListener {
+    active_workers: HashSet<String>,
+}
 
 impl HiveEventListener {
     pub fn new() -> Self {
-        Self
+        Self {
+            active_workers: HashSet::new(),
+        }
     }
 }
 
@@ -29,8 +36,11 @@ impl EventListener for HiveEventListener {
             EventType::HiveTaskCreated,
             EventType::HiveTaskClaimed,
             EventType::HiveTaskCompleted,
+            EventType::HiveTaskFailed,
             EventType::HiveSignalPosted,
             EventType::HiveProposalCreated,
+            EventType::SubagentCompleted,
+            EventType::SubagentFailed,
         ]
     }
 
@@ -39,38 +49,70 @@ impl EventListener for HiveEventListener {
             EventType::HiveTaskCreated => {
                 let title = event.payload["title"].as_str().unwrap_or("untitled");
                 let priority = event.payload["priority"].as_i64().unwrap_or(0);
-                format!("[Hive task created: '{title}' (priority {priority})]")
+                Some(format!(
+                    "[Hive task created: '{title}' (priority {priority})]"
+                ))
             }
             EventType::HiveTaskClaimed => {
                 let task_id = event.payload["task_id"].as_str().unwrap_or("unknown");
                 let worker = event.payload["agent_id"].as_str().unwrap_or("unknown");
-                format!("[Hive task '{task_id}' claimed by {worker}]")
+                Some(format!("[Hive task '{task_id}' claimed by {worker}]"))
             }
             EventType::HiveTaskCompleted => {
                 let task_id = event.payload["task_id"].as_str().unwrap_or("unknown");
                 let worker = event.payload["agent_id"].as_str().unwrap_or("unknown");
-                format!("[Hive task '{task_id}' completed by {worker}]")
+                Some(format!("[Hive task '{task_id}' completed by {worker}]"))
+            }
+            EventType::HiveTaskFailed => {
+                let task_id = event.payload["task_id"].as_str().unwrap_or("unknown");
+                let worker = event.payload["agent_id"].as_str().unwrap_or("unknown");
+                let reason = event.payload["reason"].as_str().unwrap_or("unknown");
+                let exhausted = event.payload["retries_exhausted"].as_bool().unwrap_or(false);
+                let suffix = if exhausted { " (retries exhausted)" } else { " (will retry)" };
+                Some(format!("[Hive task '{task_id}' failed by {worker}: {reason}{suffix}]"))
             }
             EventType::HiveSignalPosted => {
                 let signal_type = event.payload["signal_type"].as_str().unwrap_or("signal");
                 let author = event.payload["author"].as_str().unwrap_or("unknown");
-                format!("[Hive signal: {signal_type} from {author}]")
+                Some(format!("[Hive signal: {signal_type} from {author}]"))
             }
             EventType::HiveProposalCreated => {
                 let title = event.payload["title"].as_str().unwrap_or("untitled");
                 let proposer = event.payload["proposer"].as_str().unwrap_or("unknown");
-                format!("[Hive proposal: '{title}' by {proposer}]")
+                Some(format!("[Hive proposal: '{title}' by {proposer}]"))
             }
-            _ => format!("[Event: {:?}]", event.event_type),
+            EventType::SubagentCompleted => {
+                let child = event.payload["child_name"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string();
+                self.active_workers.remove(&child);
+                None // AgentEventListener handles the notification
+            }
+            EventType::SubagentFailed => {
+                let child = event.payload["child_name"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string();
+                self.active_workers.remove(&child);
+                None // AgentEventListener handles the notification
+            }
+            _ => Some(format!("[Event: {:?}]", event.event_type)),
         };
 
-        EventAction {
-            notification: Some(notification),
-        }
+        EventAction { notification }
     }
 
     fn has_pending_work(&self) -> bool {
-        false
+        !self.active_workers.is_empty()
+    }
+
+    fn on_tool_result(&mut self, tool_name: &str, result: &serde_json::Value) {
+        if tool_name == "hive.recruit"
+            && let Some(id) = result.get("child_name").and_then(|v| v.as_str())
+        {
+            self.active_workers.insert(id.to_string());
+        }
     }
 }
 
@@ -171,8 +213,77 @@ mod tests {
     }
 
     #[test]
-    fn has_pending_work_always_false() {
+    fn has_pending_work_empty() {
         let listener = HiveEventListener::new();
+        assert!(!listener.has_pending_work());
+    }
+
+    #[test]
+    fn on_tool_result_tracks_hive_recruit() {
+        let mut listener = HiveEventListener::new();
+        assert!(!listener.has_pending_work());
+
+        listener.on_tool_result(
+            "hive.recruit",
+            &serde_json::json!({"child_name": "worker-1", "run_id": "run-1"}),
+        );
+
+        assert!(listener.has_pending_work());
+    }
+
+    #[test]
+    fn on_tool_result_ignores_other_tools() {
+        let mut listener = HiveEventListener::new();
+
+        listener.on_tool_result("fs.read", &serde_json::json!({"content": "hello"}));
+
+        assert!(!listener.has_pending_work());
+    }
+
+    #[test]
+    fn recruit_then_complete_clears_pending() {
+        let mut listener = HiveEventListener::new();
+
+        listener.on_tool_result(
+            "hive.recruit",
+            &serde_json::json!({"child_name": "worker-1"}),
+        );
+        listener.on_tool_result(
+            "hive.recruit",
+            &serde_json::json!({"child_name": "worker-2"}),
+        );
+        assert!(listener.has_pending_work());
+
+        let event1 = make_event(
+            EventType::SubagentCompleted,
+            serde_json::json!({"child_name": "worker-1", "result": "done"}),
+        );
+        listener.handle(&event1);
+        assert!(listener.has_pending_work()); // worker-2 still active
+
+        let event2 = make_event(
+            EventType::SubagentCompleted,
+            serde_json::json!({"child_name": "worker-2", "result": "done"}),
+        );
+        listener.handle(&event2);
+        assert!(!listener.has_pending_work()); // all done
+    }
+
+    #[test]
+    fn recruit_then_fail_clears_pending() {
+        let mut listener = HiveEventListener::new();
+
+        listener.on_tool_result(
+            "hive.recruit",
+            &serde_json::json!({"child_name": "worker-1"}),
+        );
+        assert!(listener.has_pending_work());
+
+        let event = make_event(
+            EventType::SubagentFailed,
+            serde_json::json!({"child_name": "worker-1", "error": "crash"}),
+        );
+        listener.handle(&event);
         assert!(!listener.has_pending_work());
     }
 
@@ -183,9 +294,12 @@ mod tests {
         assert!(interests.contains(&EventType::HiveTaskCreated));
         assert!(interests.contains(&EventType::HiveTaskClaimed));
         assert!(interests.contains(&EventType::HiveTaskCompleted));
+        assert!(interests.contains(&EventType::HiveTaskFailed));
         assert!(interests.contains(&EventType::HiveSignalPosted));
         assert!(interests.contains(&EventType::HiveProposalCreated));
-        assert_eq!(interests.len(), 5);
+        assert!(interests.contains(&EventType::SubagentCompleted));
+        assert!(interests.contains(&EventType::SubagentFailed));
+        assert_eq!(interests.len(), 8);
     }
 
     #[test]

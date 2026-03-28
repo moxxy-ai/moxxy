@@ -54,7 +54,7 @@ Two endpoints skip the auth extractor:
 
 ## Agent Run Flow
 
-When a run is started via `POST /v1/agents/{id}/runs`:
+When a run is started via `POST /v1/agents/{name}/runs`:
 
 ```
 1. Gateway receives request
@@ -111,7 +111,7 @@ When a run is started via `POST /v1/agents/{id}/runs`:
 
 ### Run Cancellation
 
-A run can be cancelled via `POST /v1/agents/{id}/stop`:
+A run can be cancelled via `POST /v1/agents/{name}/stop`:
 
 - A `CancellationToken` is checked at each iteration of the provider-tool loop
 - If cancelled, the run exits with `run.failed` event
@@ -124,7 +124,7 @@ During a run, an agent can spawn sub-agents:
 ```
 Parent Agent (depth=0)
     |
-    | POST /v1/agents/{id}/subagents
+    | agent.spawn primitive
     v
 AgentLineage check:
     - depth < max_subagent_depth (default 2)

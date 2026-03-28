@@ -55,8 +55,8 @@ async function createChannel(client, args) {
     agentId = await p.select({
       message: 'Select agent to bind',
       options: agents.map(a => ({
-        value: a.id,
-        label: a.name ? `${a.name} (${a.provider_id}/${a.model_id})` : `${a.id.substring(0, 8)} (${a.provider_id}/${a.model_id})`,
+        value: a.name,
+        label: `${a.name} (${a.provider_id}/${a.model_id})`,
       })),
     });
     handleCancel(agentId);
@@ -179,8 +179,8 @@ async function pairChannel(client, args) {
       agentId = await p.select({
         message: 'Select agent to bind',
         options: agents.map(a => ({
-          value: a.id,
-          label: `${a.id.substring(0, 8)} (${a.provider_id}/${a.model_id})`,
+          value: a.name,
+          label: `${a.name} (${a.provider_id}/${a.model_id})`,
         })),
       });
       handleCancel(agentId);

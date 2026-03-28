@@ -29,7 +29,7 @@ impl AuthMode {
         matches!(self, Self::Loopback)
     }
 
-    /// Parse from a config string (e.g. the `auth_mode` field in `gateway.json`).
+    /// Parse from a config string (e.g. the `auth_mode` field in `gateway.yaml`).
     /// Returns `Loopback` for any unrecognised value.
     pub fn from_config_str(s: &str) -> Self {
         match s {

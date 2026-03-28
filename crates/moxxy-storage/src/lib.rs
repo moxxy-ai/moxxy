@@ -30,10 +30,6 @@ impl Database {
         AgentDao { conn: &self.conn }
     }
 
-    pub fn providers(&self) -> ProviderDao<'_> {
-        ProviderDao { conn: &self.conn }
-    }
-
     pub fn memory(&self) -> MemoryDao<'_> {
         MemoryDao { conn: &self.conn }
     }
@@ -60,10 +56,6 @@ impl Database {
 
     pub fn channel_pairing(&self) -> ChannelPairingDao<'_> {
         ChannelPairingDao { conn: &self.conn }
-    }
-
-    pub fn webhooks(&self) -> WebhookDao<'_> {
-        WebhookDao { conn: &self.conn }
     }
 
     pub fn webhook_deliveries(&self) -> WebhookDeliveryDao<'_> {

@@ -182,7 +182,7 @@ impl Primitive for SkillValidatePrimitive {
 }
 
 // ---------------------------------------------------------------------------
-// skill.list — only current agent's skills
+// skill.list - only current agent's skills
 // ---------------------------------------------------------------------------
 
 pub struct SkillListPrimitive {
@@ -235,7 +235,7 @@ impl Primitive for SkillListPrimitive {
 }
 
 // ---------------------------------------------------------------------------
-// skill.find — discover skills by intent
+// skill.find - discover skills by intent
 // ---------------------------------------------------------------------------
 
 pub struct SkillFindPrimitive {
@@ -345,7 +345,7 @@ impl Primitive for SkillFindPrimitive {
 }
 
 // ---------------------------------------------------------------------------
-// skill.get — load full skill content
+// skill.get - load full skill content
 // ---------------------------------------------------------------------------
 
 pub struct SkillGetPrimitive {
@@ -405,7 +405,7 @@ impl Primitive for SkillGetPrimitive {
 }
 
 // ---------------------------------------------------------------------------
-// skill.execute — execute a skill
+// skill.execute - execute a skill
 // ---------------------------------------------------------------------------
 
 pub struct SkillExecutePrimitive {

@@ -76,8 +76,16 @@ pub enum EventType {
     AgentStuck,
     #[serde(rename = "agent.nudged")]
     AgentNudged,
+    #[serde(rename = "run.queued")]
+    RunQueued,
+    #[serde(rename = "run.dequeued")]
+    RunDequeued,
     #[serde(rename = "webhook.received")]
     WebhookReceived,
+    #[serde(rename = "webhook.action_completed")]
+    WebhookActionCompleted,
+    #[serde(rename = "webhook.action_failed")]
+    WebhookActionFailed,
     #[serde(rename = "hive.created")]
     HiveCreated,
     #[serde(rename = "hive.disbanded")]
@@ -92,6 +100,8 @@ pub enum EventType {
     HiveTaskClaimed,
     #[serde(rename = "hive.task_completed")]
     HiveTaskCompleted,
+    #[serde(rename = "hive.task_failed")]
+    HiveTaskFailed,
     #[serde(rename = "hive.proposal_created")]
     HiveProposalCreated,
     #[serde(rename = "hive.proposal_resolved")]
@@ -100,6 +110,18 @@ pub enum EventType {
     HiveVoteCast,
     #[serde(rename = "task.analyzed")]
     TaskAnalyzed,
+    #[serde(rename = "mcp.connected")]
+    McpConnected,
+    #[serde(rename = "mcp.disconnected")]
+    McpDisconnected,
+    #[serde(rename = "mcp.connection_failed")]
+    McpConnectionFailed,
+    #[serde(rename = "mcp.tool_invoked")]
+    McpToolInvoked,
+    #[serde(rename = "mcp.tool_completed")]
+    McpToolCompleted,
+    #[serde(rename = "mcp.tool_failed")]
+    McpToolFailed,
 }
 
 impl EventType {
@@ -142,7 +164,11 @@ impl EventType {
             EventType::AgentAlive,
             EventType::AgentStuck,
             EventType::AgentNudged,
+            EventType::RunQueued,
+            EventType::RunDequeued,
             EventType::WebhookReceived,
+            EventType::WebhookActionCompleted,
+            EventType::WebhookActionFailed,
             EventType::HiveCreated,
             EventType::HiveDisbanded,
             EventType::HiveMemberJoined,
@@ -150,10 +176,17 @@ impl EventType {
             EventType::HiveTaskCreated,
             EventType::HiveTaskClaimed,
             EventType::HiveTaskCompleted,
+            EventType::HiveTaskFailed,
             EventType::HiveProposalCreated,
             EventType::HiveProposalResolved,
             EventType::HiveVoteCast,
             EventType::TaskAnalyzed,
+            EventType::McpConnected,
+            EventType::McpDisconnected,
+            EventType::McpConnectionFailed,
+            EventType::McpToolInvoked,
+            EventType::McpToolCompleted,
+            EventType::McpToolFailed,
         ]
     }
 }

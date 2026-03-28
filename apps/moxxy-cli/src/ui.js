@@ -4,10 +4,16 @@ export function isInteractive() {
   return Boolean(process.stdout.isTTY) && !process.env.CI;
 }
 
+export class CancelledError extends Error {
+  constructor() {
+    super('cancelled');
+    this.name = 'CancelledError';
+  }
+}
+
 export function handleCancel(value) {
   if (p.isCancel(value)) {
-    p.cancel('Operation cancelled.');
-    process.exit(0);
+    throw new CancelledError();
   }
   return value;
 }

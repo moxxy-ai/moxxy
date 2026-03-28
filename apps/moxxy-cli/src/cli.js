@@ -1,27 +1,26 @@
-#!/usr/bin/env node
-
 import { createApiClient } from './api-client.js';
-import { isInteractive, handleCancel, p } from './ui.js';
+import { isInteractive, CancelledError, p } from './ui.js';
 import { runInit, readAuthMode } from './commands/init.js';
 import { runGateway } from './commands/gateway.js';
 import { runAuth } from './commands/auth.js';
 import { runProvider } from './commands/provider.js';
 import { runAgent } from './commands/agent.js';
 import { runSkill } from './commands/skill.js';
+import { runTemplate } from './commands/template.js';
 import { runVault } from './commands/vault.js';
 import { runHeartbeat } from './commands/heartbeat.js';
 import { runChannel } from './commands/channel.js';
+import { runMcp } from './commands/mcp.js';
 import { runEvents } from './commands/events.js';
 import { runDoctor } from './commands/doctor.js';
 import { runUpdate } from './commands/update.js';
 import { runUninstall } from './commands/uninstall.js';
 import { COMMAND_HELP, showHelp } from './help.js';
 import chalk from 'chalk';
-import { createRequire } from 'node:module';
-import { cursorTo, clearScreenDown } from 'node:readline';
+import { createInterface, cursorTo, clearScreenDown } from 'node:readline';
+import pkg from '../package.json' with { type: 'json' };
 
-const require = createRequire(import.meta.url);
-const { version } = require('../package.json');
+const { version } = pkg;
 
 export const LOGO = `\n\n\n\n\n
   ███╗   ███╗ ██████╗ ██╗  ██╗██╗  ██╗██╗   ██╗
@@ -56,6 +55,11 @@ Usage:
   moxxy agent status --id <id> [--json]
   moxxy skill create --agent <id> --content <c>
   moxxy skill list --agent <id>
+  moxxy template list
+  moxxy template get <slug>
+  moxxy template create --content <c>
+  moxxy template remove <slug>
+  moxxy template assign --agent <id> --template <slug>
   moxxy vault add --key <k> --backend <b>
   moxxy vault grant --agent <id> --secret <id>
   moxxy heartbeat set --agent <id> --interval <n> [--action_type <t>]
@@ -66,6 +70,11 @@ Usage:
   moxxy channel delete <id>                         Delete a channel
   moxxy channel bindings <id>                       List bindings for a channel
   moxxy channel unbind <channel-id> <binding-id>    Unbind a chat
+  moxxy mcp list --agent <name>                     List MCP servers
+  moxxy mcp add --agent <name> --id <id> --transport stdio --command <cmd> [--args ...]
+  moxxy mcp add --agent <name> --id <id> --transport sse --url <url>
+  moxxy mcp remove --agent <name> --id <id>         Remove an MCP server
+  moxxy mcp test --agent <name> --id <id>           Test an MCP server
   moxxy tui [--agent <id>]                            Full-screen chat interface
   moxxy chat [--agent <id>]                           Alias for tui
   moxxy events tail [--agent <id>] [--run <id>] [--json]
@@ -87,6 +96,16 @@ export function clearScreen() {
   console.log(blank);
   cursorTo(process.stdout, 0, 0);
   clearScreenDown(process.stdout);
+}
+
+function waitForEnter() {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise(resolve => {
+    rl.question(chalk.dim('\n  Press Enter to continue… '), () => {
+      rl.close();
+      resolve();
+    });
+  });
 }
 
 function hasHelpFlag(args) {
@@ -122,6 +141,9 @@ async function routeCommand(client, command, rest) {
     case 'skill':
       await runSkill(client, rest);
       break;
+    case 'template':
+      await runTemplate(client, rest);
+      break;
     case 'vault':
       await runVault(client, rest);
       break;
@@ -131,9 +153,12 @@ async function routeCommand(client, command, rest) {
     case 'channel':
       await runChannel(client, rest);
       break;
+    case 'mcp':
+      await runMcp(client, rest);
+      break;
     case 'tui':
     case 'chat': {
-      const { startTui } = await import('./tui/index.js');
+      const { startTui } = await import('./tui/index.jsx');
       await startTui(client, rest);
       break;
     }
@@ -175,40 +200,53 @@ async function main() {
   const client = createApiClient(baseUrl, token, authMode);
 
   if (!command && isInteractive()) {
-    clearScreen();
-    console.log(LOGO);
-    p.intro();
+    while (true) {
+      clearScreen();
+      console.log(LOGO);
+      p.intro();
 
-    const selected = await p.select({
-      message: 'What would you like to do?',
-      options: [
-        { value: 'init',      label: 'Init',      hint: 'first-time setup' },
-        { value: 'gateway',   label: 'Gateway',   hint: 'start/stop/manage gateway' },
-        { value: 'auth',      label: 'Auth',      hint: 'manage API tokens' },
-        { value: 'provider',  label: 'Provider',  hint: 'list providers' },
-        { value: 'agent',     label: 'Agent',     hint: 'create & manage agents' },
-        { value: 'skill',     label: 'Skill',     hint: 'create & manage skills' },
-        { value: 'vault',     label: 'Vault',     hint: 'manage secrets' },
-        { value: 'heartbeat', label: 'Heartbeat', hint: 'schedule heartbeat rules' },
-        { value: 'channel',   label: 'Channel',   hint: 'manage Telegram/Discord channels' },
-        { value: 'tui',       label: 'Chat',      hint: 'full-screen TUI' },
-        { value: 'events',    label: 'Events',    hint: 'stream live events' },
-        { value: 'doctor',    label: 'Doctor',    hint: 'diagnose installation' },
-        { value: 'update',    label: 'Update',    hint: 'check for and install updates' },
-        { value: 'uninstall', label: 'Uninstall', hint: 'remove all Moxxy data' },
-      ],
-    });
-    handleCancel(selected);
+      const selected = await p.select({
+        message: 'What would you like to do?',
+        options: [
+          { value: 'init',      label: 'Init',      hint: 'first-time setup' },
+          { value: 'gateway',   label: 'Gateway',   hint: 'start/stop/manage gateway' },
+          { value: 'auth',      label: 'Auth',      hint: 'manage API tokens' },
+          { value: 'provider',  label: 'Provider',  hint: 'list providers' },
+          { value: 'agent',     label: 'Agent',     hint: 'create & manage agents' },
+          { value: 'skill',     label: 'Skill',     hint: 'create & manage skills' },
+          { value: 'template',  label: 'Template',  hint: 'manage agent templates' },
+          { value: 'vault',     label: 'Vault',     hint: 'manage secrets' },
+          { value: 'heartbeat', label: 'Heartbeat', hint: 'schedule heartbeat rules' },
+          { value: 'channel',   label: 'Channel',   hint: 'manage Telegram/Discord channels' },
+          { value: 'mcp',       label: 'MCP',       hint: 'manage MCP servers for agents' },
+          { value: 'tui',       label: 'Chat',      hint: 'full-screen TUI' },
+          { value: 'events',    label: 'Events',    hint: 'stream live events' },
+          { value: 'doctor',    label: 'Doctor',    hint: 'diagnose installation' },
+          { value: 'update',    label: 'Update',    hint: 'check for and install updates' },
+          { value: 'uninstall', label: 'Uninstall', hint: 'remove all Moxxy data' },
+        ],
+      });
 
-    try {
-      await routeCommand(client, selected, []);
-    } catch (err) {
-      if (err.isGatewayDown) {
-        p.log.info(err.message);
-      } else {
-        p.log.error(err.message);
+      if (p.isCancel(selected)) {
+        p.cancel('Goodbye.');
+        break;
       }
-      process.exitCode = 1;
+
+      try {
+        await routeCommand(client, selected, []);
+        await waitForEnter();
+      } catch (err) {
+        if (err instanceof CancelledError) {
+          continue;
+        }
+        if (err.isGatewayDown) {
+          p.log.info(err.message);
+        } else {
+          p.log.error(err.message);
+        }
+        await waitForEnter();
+        process.exitCode = 1;
+      }
     }
     return;
   }
@@ -221,6 +259,9 @@ async function main() {
   try {
     await routeCommand(client, command, rest);
   } catch (err) {
+    if (err instanceof CancelledError) {
+      return;
+    }
     if (err.isGatewayDown) {
       console.log(err.message);
     } else {

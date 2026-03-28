@@ -106,6 +106,8 @@ Path policies are checked in the filesystem primitives:
 | `fs.read` | `ensure_readable(path)` |
 | `fs.write` | `ensure_writable(path)` |
 | `fs.list` | `ensure_readable(path)` |
+| `fs.remove` | `ensure_writable(path)` |
+| `fs.cd` | `ensure_readable(path)` |
 
 The check happens before any I/O system call. If the check fails, no file operation occurs.
 

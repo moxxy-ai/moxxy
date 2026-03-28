@@ -23,24 +23,6 @@ pub struct AgentRow {
 }
 
 #[derive(Debug, Clone)]
-pub struct ProviderRow {
-    pub id: String,
-    pub display_name: String,
-    pub manifest_path: String,
-    pub signature: Option<String>,
-    pub enabled: bool,
-    pub created_at: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct ProviderModelRow {
-    pub provider_id: String,
-    pub model_id: String,
-    pub display_name: String,
-    pub metadata_json: Option<String>,
-}
-
-#[derive(Debug, Clone)]
 pub struct MemoryIndexRow {
     pub id: String,
     pub agent_id: String,
@@ -120,19 +102,6 @@ pub struct EventAuditRow {
     pub redactions_json: Option<String>,
     pub sensitive: bool,
     pub created_at: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct WebhookRow {
-    pub id: String,
-    pub agent_id: String,
-    pub label: String,
-    pub token: String,
-    pub secret_ref_id: String,
-    pub event_filter: Option<String>,
-    pub enabled: bool,
-    pub created_at: String,
-    pub updated_at: String,
 }
 
 #[derive(Debug, Clone)]

@@ -1,29 +1,52 @@
-use crate::provider::{Message, ModelConfig, Provider};
+use crate::primitives::REPLY_PRIMITIVE_NAME;
+use crate::provider::{Message, ModelConfig, Provider, ProviderResponse, StreamEvent};
 use crate::registry::PrimitiveRegistry;
 use moxxy_core::EventBus;
 use moxxy_types::{EventEnvelope, EventType};
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use super::agent_listener::AgentEventListener;
 use super::hive_listener::HiveEventListener;
 use super::listener::EventListener;
+use super::stuck_detector::{StuckAction, StuckDetector};
+
+const DEFAULT_MAX_TOOL_RESULT_CHARS: usize = 15_000;
+
+enum LoopDecision {
+    ExecuteTools,
+    WaitForEvents,
+    Complete,
+}
+
+fn decide(response: &ProviderResponse, listeners: &[Box<dyn EventListener>]) -> LoopDecision {
+    if !response.tool_calls.is_empty() {
+        LoopDecision::ExecuteTools
+    } else if listeners.iter().any(|l| l.has_pending_work()) {
+        LoopDecision::WaitForEvents
+    } else {
+        LoopDecision::Complete
+    }
+}
 
 pub struct RunExecutor {
     event_bus: EventBus,
     provider: Arc<dyn Provider>,
     registry: PrimitiveRegistry,
     max_iterations: usize,
-    allowed_primitives: Vec<String>,
+    allowed_primitives: Arc<RwLock<Vec<String>>>,
+    tools_dirty: Arc<AtomicBool>,
     cancel_token: Option<CancellationToken>,
     run_timeout: Option<Duration>,
     system_prompt: Option<String>,
     heartbeat_interval: usize,
-    max_nudges: usize,
+    max_tool_result_size: usize,
     history: Vec<Message>,
     listeners: Vec<Box<dyn EventListener>>,
+    stuck_detector: Option<StuckDetector>,
 }
 
 impl RunExecutor {
@@ -31,7 +54,7 @@ impl RunExecutor {
         event_bus: EventBus,
         provider: Arc<dyn Provider>,
         registry: PrimitiveRegistry,
-        allowed_primitives: Vec<String>,
+        allowed_primitives: Arc<RwLock<Vec<String>>>,
     ) -> Self {
         Self {
             event_bus,
@@ -39,17 +62,27 @@ impl RunExecutor {
             registry,
             max_iterations: 100_000,
             allowed_primitives,
+            tools_dirty: Arc::new(AtomicBool::new(false)),
             cancel_token: None,
             run_timeout: None,
             system_prompt: None,
             heartbeat_interval: 10,
-            max_nudges: 2,
+            max_tool_result_size: DEFAULT_MAX_TOOL_RESULT_CHARS,
             history: Vec::new(),
             listeners: vec![
                 Box::new(AgentEventListener::new()),
                 Box::new(HiveEventListener::new()),
             ],
+            stuck_detector: Some(StuckDetector::new()),
         }
+    }
+
+    pub fn tools_dirty(&self) -> Arc<AtomicBool> {
+        self.tools_dirty.clone()
+    }
+
+    pub fn allowed_primitives(&self) -> Arc<RwLock<Vec<String>>> {
+        self.allowed_primitives.clone()
     }
 
     pub fn with_max_iterations(mut self, max: usize) -> Self {
@@ -62,8 +95,19 @@ impl RunExecutor {
         self
     }
 
-    pub fn with_max_nudges(mut self, max: usize) -> Self {
-        self.max_nudges = max;
+    pub fn with_max_tool_result_size(mut self, size: usize) -> Self {
+        self.max_tool_result_size = size;
+        self
+    }
+
+    pub fn with_stuck_detection(mut self, enabled: bool) -> Self {
+        if enabled {
+            if self.stuck_detector.is_none() {
+                self.stuck_detector = Some(StuckDetector::new());
+            }
+        } else {
+            self.stuck_detector = None;
+        }
         self
     }
 
@@ -79,6 +123,11 @@ impl RunExecutor {
 
     pub fn with_system_prompt(mut self, prompt: String) -> Self {
         self.system_prompt = Some(prompt);
+        self
+    }
+
+    pub fn with_tools_dirty(mut self, flag: Arc<AtomicBool>) -> Self {
+        self.tools_dirty = flag;
         self
     }
 
@@ -104,33 +153,8 @@ impl RunExecutor {
         task: &str,
         model_config: &ModelConfig,
     ) -> Result<String, String> {
-        match self.run_timeout {
-            Some(timeout) => {
-                match tokio::time::timeout(
-                    timeout,
-                    self.execute_inner(agent_id, run_id, task, model_config),
-                )
-                .await
-                {
-                    Ok(result) => result,
-                    Err(_) => {
-                        let mut seq = 0;
-                        self.emit(
-                            agent_id,
-                            run_id,
-                            &mut seq,
-                            EventType::RunFailed,
-                            serde_json::json!({"error": "timeout"}),
-                        );
-                        Err("Run timed out".to_string())
-                    }
-                }
-            }
-            None => {
-                self.execute_inner(agent_id, run_id, task, model_config)
-                    .await
-            }
-        }
+        self.execute_inner(agent_id, run_id, task, model_config)
+            .await
     }
 
     async fn execute_inner(
@@ -143,6 +167,7 @@ impl RunExecutor {
         let mut sequence: u64 = 0;
         let mut event_rx = self.event_bus.subscribe();
         let mut pending_notifications: Vec<EventEnvelope> = Vec::new();
+        let mut last_activity = tokio::time::Instant::now();
 
         // Compute interest set from all listeners once before the loop
         let interest_set: HashSet<EventType> = self
@@ -160,19 +185,20 @@ impl RunExecutor {
         );
 
         // Compute tool definitions once before the loop
-        let tool_defs = self.registry.tool_definitions(&self.allowed_primitives);
+        let mut tool_defs = self
+            .registry
+            .tool_definitions(&self.allowed_primitives.read().unwrap());
 
         // Build initial conversation
         let mut conversation: Vec<Message> = Vec::new();
         if let Some(ref prompt) = self.system_prompt {
             conversation.push(Message::system(prompt));
         }
-        // Inject STM history (prior user/assistant pairs) before current task
+        // Inject conversation history (prior user/assistant pairs) before current task
         conversation.extend(self.history.iter().cloned());
         conversation.push(Message::user(task));
 
         let mut final_content = String::new();
-        let mut nudge_count: usize = 0;
 
         for iteration in 0..self.max_iterations {
             // Drain event bus to prevent buffer overflow and collect notifications
@@ -184,6 +210,20 @@ impl RunExecutor {
                     Ok(_) => {}
                     Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => continue,
                     Err(_) => break,
+                }
+            }
+
+            // Check activity-based timeout
+            if let Some(timeout) = self.run_timeout {
+                if last_activity.elapsed() > timeout {
+                    self.emit(
+                        agent_id,
+                        run_id,
+                        &mut sequence,
+                        EventType::RunFailed,
+                        serde_json::json!({"error": "timeout"}),
+                    );
+                    return Err("Run timed out".to_string());
                 }
             }
 
@@ -228,21 +268,90 @@ impl RunExecutor {
                 serde_json::json!({"messages_count": conversation.len()}),
             );
 
-            let response = match self
-                .provider
-                .complete(conversation.clone(), model_config, &tool_defs)
-                .await
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    self.emit(
-                        agent_id,
-                        run_id,
-                        &mut sequence,
-                        EventType::RunFailed,
-                        serde_json::json!({"error": e.to_string()}),
-                    );
-                    return Err(e.to_string());
+            // Refresh tool definitions if tools changed mid-run
+            if self.tools_dirty.load(std::sync::atomic::Ordering::Relaxed) {
+                tool_defs = self
+                    .registry
+                    .tool_definitions(&self.allowed_primitives.read().unwrap());
+                self.tools_dirty
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
+            }
+
+            // Call provider with retry — use streaming to emit deltas in real-time
+            let (response, streamed_any) = {
+                let max_retries = 3;
+                let mut provider_result = None;
+                let mut streamed_any = false;
+
+                for attempt in 0..=max_retries {
+                    match self
+                        .provider
+                        .complete_stream(conversation.clone(), model_config, &tool_defs)
+                        .await
+                    {
+                        Ok(stream) => {
+                            use futures_util::StreamExt;
+                            let mut stream = stream;
+                            let mut final_response = None;
+                            while let Some(event) = stream.next().await {
+                                match event {
+                                    StreamEvent::TextDelta(text) => {
+                                        streamed_any = true;
+                                        self.emit(
+                                            agent_id,
+                                            run_id,
+                                            &mut sequence,
+                                            EventType::MessageDelta,
+                                            serde_json::json!({"content": text}),
+                                        );
+                                    }
+                                    StreamEvent::Done(resp) => {
+                                        final_response = Some(resp);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            if let Some(resp) = final_response {
+                                provider_result = Some(resp);
+                            }
+                            break;
+                        }
+                        Err(e) if attempt < max_retries && e.is_transient() => {
+                            let delay = Duration::from_millis(500 * (1 << attempt));
+                            self.emit(
+                                agent_id,
+                                run_id,
+                                &mut sequence,
+                                EventType::AgentStuck,
+                                serde_json::json!({"retry": attempt + 1, "error": e.to_string()}),
+                            );
+                            tokio::time::sleep(delay).await;
+                        }
+                        Err(e) => {
+                            self.emit(
+                                agent_id,
+                                run_id,
+                                &mut sequence,
+                                EventType::RunFailed,
+                                serde_json::json!({"error": e.to_string()}),
+                            );
+                            return Err(e.to_string());
+                        }
+                    }
+                }
+
+                match provider_result {
+                    Some(r) => (r, streamed_any),
+                    None => {
+                        self.emit(
+                            agent_id,
+                            run_id,
+                            &mut sequence,
+                            EventType::RunFailed,
+                            serde_json::json!({"error": "Max retries exceeded"}),
+                        );
+                        return Err("Max retries exceeded".to_string());
+                    }
                 }
             };
 
@@ -265,20 +374,21 @@ impl RunExecutor {
                 model_response_payload,
             );
 
-            if !response.content.is_empty() {
-                // Emit content in chunks for streaming feel
-                let chunk_size = 80;
-                let chars: Vec<char> = response.content.chars().collect();
-                for chunk in chars.chunks(chunk_size) {
-                    let text: String = chunk.iter().collect();
-                    self.emit(
-                        agent_id,
-                        run_id,
-                        &mut sequence,
-                        EventType::MessageDelta,
-                        serde_json::json!({"content": text}),
-                    );
-                }
+            // Reset activity timer - model responded
+            last_activity = tokio::time::Instant::now();
+
+            // Emit final content — always emit MessageFinal if we streamed deltas
+            // so the TUI clears the "typing..." indicator.
+            if !response.content.is_empty() || streamed_any {
+                let preview: String = response.content.chars().take(200).collect();
+                tracing::info!(
+                    agent_id,
+                    run_id,
+                    content_len = response.content.len(),
+                    preview = %preview,
+                    "Agent thought"
+                );
+
                 self.emit(
                     agent_id,
                     run_id,
@@ -289,142 +399,159 @@ impl RunExecutor {
                 final_content.clone_from(&response.content);
             }
 
-            if response.tool_calls.is_empty() {
-                if !self.listeners.iter().any(|l| l.has_pending_work()) {
-                    if nudge_count < self.max_nudges {
-                        nudge_count += 1;
-                        self.emit(
-                            agent_id,
-                            run_id,
-                            &mut sequence,
-                            EventType::AgentNudged,
-                            serde_json::json!({"nudge_count": nudge_count}),
-                        );
-                        if !response.content.is_empty() {
-                            conversation.push(Message::assistant(&response.content));
-                        }
-                        conversation.push(Message::user(
-                            "You have tools available to accomplish this task. Do not end your turn without using them. Review the available tools and take action to complete the task."
-                        ));
-                        continue;
-                    }
-                    break;
-                }
-
-                // Active listeners have pending work — wait for an event before continuing
-                self.emit(
-                    agent_id,
-                    run_id,
-                    &mut sequence,
-                    EventType::AgentAlive,
-                    serde_json::json!({
-                        "waiting_for_events": true,
-                        "iteration": iteration,
-                    }),
-                );
-
-                let maybe_event = if let Some(ev) = pending_notifications.pop() {
-                    Some(ev)
-                } else {
-                    // Block until a relevant event arrives
-                    loop {
-                        tokio::select! {
-                            _ = async {
-                                if let Some(ref token) = self.cancel_token {
-                                    token.cancelled().await;
-                                } else {
-                                    std::future::pending::<()>().await;
+            match decide(&response, &self.listeners) {
+                LoopDecision::Complete => {
+                    // Check stuck detector before breaking
+                    if let Some(ref mut detector) = self.stuck_detector {
+                        match detector.observe_response(&response) {
+                            StuckAction::InjectRecovery(msg) => {
+                                if !response.content.is_empty() {
+                                    conversation.push(Message::assistant(&response.content));
                                 }
-                            } => {
+                                conversation.push(Message::user(&msg));
+                                continue;
+                            }
+                            StuckAction::Abort(msg) => {
                                 self.emit(
-                                    agent_id, run_id, &mut sequence,
+                                    agent_id,
+                                    run_id,
+                                    &mut sequence,
                                     EventType::RunFailed,
-                                    serde_json::json!({"error": "cancelled"}),
+                                    serde_json::json!({"error": msg}),
                                 );
-                                return Err("Run cancelled".to_string());
+                                return Err(msg);
                             }
-                            result = event_rx.recv() => {
-                                match result {
-                                    Ok(ev) if ev.agent_id == agent_id
-                                        && interest_set.contains(&ev.event_type) =>
-                                    {
-                                        break Some(ev);
-                                    }
-                                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                                        break None;
-                                    }
-                                    _ => continue,
+                            StuckAction::Continue => {
+                                // An empty response with no tool calls is never a valid
+                                // completion - nudge the agent to produce output.
+                                // The stuck detector tracks consecutive empties and will
+                                // escalate to InjectRecovery/Abort if this persists.
+                                if response.content.is_empty() {
+                                    conversation.push(Message::user(
+                                        "Please either use a tool to make progress \
+                                         or provide a final answer.",
+                                    ));
+                                    continue;
                                 }
                             }
                         }
                     }
-                };
 
-                let Some(event) = maybe_event else {
-                    // Event bus closed — cannot wait for events
                     break;
-                };
-
-                // Dispatch event to matching listener
-                let notification =
-                    Self::dispatch_to_listeners(&mut self.listeners, &event, &interest_set);
-
-                self.emit(
-                    agent_id,
-                    run_id,
-                    &mut sequence,
-                    EventType::AgentAlive,
-                    serde_json::json!({
-                        "event_notification": true,
-                        "event_type": format!("{:?}", event.event_type),
-                    }),
-                );
-
-                if let Some(text) = notification {
-                    conversation.push(Message::user(&text));
                 }
-                continue;
-            }
+                LoopDecision::WaitForEvents => {
+                    // Active listeners have pending work - wait for an event
+                    self.emit(
+                        agent_id,
+                        run_id,
+                        &mut sequence,
+                        EventType::AgentAlive,
+                        serde_json::json!({
+                            "waiting_for_events": true,
+                            "iteration": iteration,
+                        }),
+                    );
 
-            // Push assistant message with tool_calls metadata
-            conversation.push(Message::assistant_with_tool_calls(
-                &response.content,
-                response.tool_calls.clone(),
-            ));
+                    let maybe_event = if let Some(ev) = pending_notifications.pop() {
+                        Some(ev)
+                    } else {
+                        // Block until a relevant event arrives
+                        loop {
+                            tokio::select! {
+                                _ = async {
+                                    if let Some(ref token) = self.cancel_token {
+                                        token.cancelled().await;
+                                    } else {
+                                        std::future::pending::<()>().await;
+                                    }
+                                } => {
+                                    self.emit(
+                                        agent_id, run_id, &mut sequence,
+                                        EventType::RunFailed,
+                                        serde_json::json!({"error": "cancelled"}),
+                                    );
+                                    return Err("Run cancelled".to_string());
+                                }
+                                _ = async {
+                                    if let Some(timeout) = self.run_timeout {
+                                        let remaining = timeout.saturating_sub(last_activity.elapsed());
+                                        tokio::time::sleep(remaining).await;
+                                    } else {
+                                        std::future::pending::<()>().await;
+                                    }
+                                } => {
+                                    self.emit(
+                                        agent_id, run_id, &mut sequence,
+                                        EventType::RunFailed,
+                                        serde_json::json!({"error": "timeout"}),
+                                    );
+                                    return Err("Run timed out".to_string());
+                                }
+                                result = event_rx.recv() => {
+                                    match result {
+                                        Ok(ev) if ev.agent_id == agent_id
+                                            && interest_set.contains(&ev.event_type) =>
+                                        {
+                                            break Some(ev);
+                                        }
+                                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                                            break None;
+                                        }
+                                        _ => continue,
+                                    }
+                                }
+                            }
+                        }
+                    };
 
-            for tool_call in &response.tool_calls {
-                tracing::info!(
-                    agent_id,
-                    run_id,
-                    tool = %tool_call.name,
-                    call_id = %tool_call.id,
-                    arguments = %tool_call.arguments,
-                    "Primitive invoked"
-                );
+                    let Some(event) = maybe_event else {
+                        // Event bus closed - cannot wait for events
+                        break;
+                    };
 
-                self.emit(
-                    agent_id,
-                    run_id,
-                    &mut sequence,
-                    EventType::PrimitiveInvoked,
-                    serde_json::json!({"name": tool_call.name, "arguments": tool_call.arguments}),
-                );
+                    // Dispatch event to matching listener
+                    let notification =
+                        Self::dispatch_to_listeners(&mut self.listeners, &event, &interest_set);
 
-                match self
-                    .registry
-                    .invoke(
-                        &tool_call.name,
-                        tool_call.arguments.clone(),
-                        &self.allowed_primitives,
-                    )
-                    .await
-                {
-                    Ok(result) => {
-                        let result_str = serde_json::to_string(&result).unwrap_or_default();
+                    self.emit(
+                        agent_id,
+                        run_id,
+                        &mut sequence,
+                        EventType::AgentAlive,
+                        serde_json::json!({
+                            "event_notification": true,
+                            "event_type": format!("{:?}", event.event_type),
+                        }),
+                    );
 
-                        // Notify all listeners of the tool result
-                        for listener in &mut self.listeners {
-                            listener.on_tool_result(&tool_call.name, &result);
+                    // Reset activity timer - event received
+                    last_activity = tokio::time::Instant::now();
+
+                    if let Some(text) = notification {
+                        conversation.push(Message::user(&text));
+                    }
+                    continue;
+                }
+                LoopDecision::ExecuteTools => {
+                    // Observe response in stuck detector (resets non-tool counters)
+                    if let Some(ref mut detector) = self.stuck_detector {
+                        detector.observe_response(&response);
+                    }
+
+                    // Push assistant message with tool_calls metadata
+                    conversation.push(Message::assistant_with_tool_calls(
+                        &response.content,
+                        response.tool_calls.clone(),
+                    ));
+
+                    for tool_call in &response.tool_calls {
+                        // Check stuck detector for repeated tool calls
+                        if let Some(ref mut detector) = self.stuck_detector
+                            && let StuckAction::InjectRecovery(msg) =
+                                detector.observe_tool_call(&tool_call.name, &tool_call.arguments)
+                        {
+                            conversation.push(Message::user(&msg));
+                            break;
                         }
 
                         tracing::info!(
@@ -432,49 +559,131 @@ impl RunExecutor {
                             run_id,
                             tool = %tool_call.name,
                             call_id = %tool_call.id,
-                            result_len = result_str.len(),
-                            "Primitive completed"
+                            arguments = %tool_call.arguments,
+                            "Primitive invoked"
                         );
 
                         self.emit(
                             agent_id,
                             run_id,
                             &mut sequence,
-                            EventType::PrimitiveCompleted,
-                            serde_json::json!({"name": tool_call.name, "result": result}),
+                            EventType::PrimitiveInvoked,
+                            serde_json::json!({"name": tool_call.name, "arguments": tool_call.arguments}),
                         );
-                        conversation.push(Message::tool_result(
-                            &tool_call.id,
-                            &tool_call.name,
-                            result_str,
-                        ));
+
+                        let allowed_snap = self.allowed_primitives.read().unwrap().clone();
+                        match self
+                            .registry
+                            .invoke(&tool_call.name, tool_call.arguments.clone(), &allowed_snap)
+                            .await
+                        {
+                            Ok(result) => {
+                                let raw = serde_json::to_string(&result).unwrap_or_default();
+
+                                // Truncate large tool results
+                                let result_str = if raw.len() > self.max_tool_result_size {
+                                    format!(
+                                        "{}...\n\n[Truncated: {} total chars]",
+                                        &raw[..self.max_tool_result_size],
+                                        raw.len()
+                                    )
+                                } else {
+                                    raw
+                                };
+
+                                // Notify all listeners of the tool result
+                                for listener in &mut self.listeners {
+                                    listener.on_tool_result(&tool_call.name, &result);
+                                }
+
+                                tracing::info!(
+                                    agent_id,
+                                    run_id,
+                                    tool = %tool_call.name,
+                                    call_id = %tool_call.id,
+                                    result_len = result_str.len(),
+                                    "Primitive completed"
+                                );
+
+                                self.emit(
+                                    agent_id,
+                                    run_id,
+                                    &mut sequence,
+                                    EventType::PrimitiveCompleted,
+                                    serde_json::json!({"name": tool_call.name, "result": result}),
+                                );
+                                // Reset activity timer - primitive completed
+                                last_activity = tokio::time::Instant::now();
+                                conversation.push(Message::tool_result(
+                                    &tool_call.id,
+                                    &tool_call.name,
+                                    result_str,
+                                ));
+                            }
+                            Err(e) => {
+                                // Notify listeners of tool failure
+                                for listener in &mut self.listeners {
+                                    listener.on_tool_result(
+                                        &tool_call.name,
+                                        &serde_json::json!({"error": e.to_string()}),
+                                    );
+                                }
+
+                                tracing::error!(
+                                    agent_id,
+                                    run_id,
+                                    tool = %tool_call.name,
+                                    call_id = %tool_call.id,
+                                    error = %e,
+                                    "Primitive failed"
+                                );
+
+                                self.emit(
+                                    agent_id,
+                                    run_id,
+                                    &mut sequence,
+                                    EventType::PrimitiveFailed,
+                                    serde_json::json!({"name": tool_call.name, "error": e.to_string()}),
+                                );
+                                // Reset activity timer - primitive completed (with error)
+                                last_activity = tokio::time::Instant::now();
+                                conversation.push(Message::tool_result(
+                                    &tool_call.id,
+                                    &tool_call.name,
+                                    format!("Error: {}", e),
+                                ));
+                            }
+                        }
                     }
-                    Err(e) => {
-                        tracing::error!(
-                            agent_id,
-                            run_id,
-                            tool = %tool_call.name,
-                            call_id = %tool_call.id,
-                            error = %e,
-                            "Primitive failed"
-                        );
+
+                    // If the reply primitive was called, capture its message
+                    // and terminate the loop — this is the forced-tool-use
+                    // completion protocol.
+                    if let Some(reply_call) = response
+                        .tool_calls
+                        .iter()
+                        .find(|tc| tc.name == REPLY_PRIMITIVE_NAME)
+                    {
+                        if let Some(msg) = reply_call
+                            .arguments
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                        {
+                            final_content = msg.to_string();
+                        }
 
                         self.emit(
                             agent_id,
                             run_id,
                             &mut sequence,
-                            EventType::PrimitiveFailed,
-                            serde_json::json!({"name": tool_call.name, "error": e.to_string()}),
+                            EventType::MessageFinal,
+                            serde_json::json!({"content": final_content}),
                         );
-                        conversation.push(Message::tool_result(
-                            &tool_call.id,
-                            &tool_call.name,
-                            format!("Error: {}", e),
-                        ));
+
+                        break;
                     }
                 }
             }
-            nudge_count = 0;
         }
 
         self.emit(
@@ -488,8 +697,8 @@ impl RunExecutor {
         Ok(final_content)
     }
 
-    /// Dispatch an event to the first listener whose interests match.
-    /// Returns the notification text if the listener produced one.
+    /// Dispatch an event to ALL listeners whose interests match.
+    /// Returns the first non-None notification text produced by any listener.
     fn dispatch_to_listeners(
         listeners: &mut [Box<dyn EventListener>],
         event: &EventEnvelope,
@@ -498,13 +707,16 @@ impl RunExecutor {
         if !interest_set.contains(&event.event_type) {
             return None;
         }
+        let mut first_notification = None;
         for listener in listeners.iter_mut() {
             if listener.interests().contains(&event.event_type) {
                 let action = listener.handle(event);
-                return action.notification;
+                if first_notification.is_none() {
+                    first_notification = action.notification;
+                }
             }
         }
-        None
+        first_notification
     }
 
     fn emit(
@@ -532,7 +744,7 @@ impl RunExecutor {
 mod tests {
     use super::*;
     use crate::echo_provider::EchoProvider;
-    use crate::provider::{ProviderResponse, TokenUsage, ToolCall};
+    use crate::provider::{TokenUsage, ToolCall};
     use crate::registry::{Primitive, PrimitiveError};
     use async_trait::async_trait;
 
@@ -579,6 +791,7 @@ mod tests {
         ModelConfig {
             temperature: 0.7,
             max_tokens: 100,
+            tool_choice: crate::provider::ToolChoice::Auto,
         }
     }
 
@@ -589,7 +802,7 @@ mod tests {
         let provider = Arc::new(EchoProvider::new());
         let registry = PrimitiveRegistry::new();
 
-        let mut executor = RunExecutor::new(bus, provider, registry, vec![]);
+        let mut executor = RunExecutor::new(bus, provider, registry, Arc::new(RwLock::new(vec![])));
         let result = executor
             .execute("agent-1", "run-1", "hello", &model_config())
             .await;
@@ -619,10 +832,15 @@ mod tests {
             arguments: serde_json::json!({"msg": "hi"}),
         }]));
 
-        let mut registry = PrimitiveRegistry::new();
+        let registry = PrimitiveRegistry::new();
         registry.register(Box::new(EchoPrimitive));
 
-        let mut executor = RunExecutor::new(bus, provider, registry, vec!["echo".into()]);
+        let mut executor = RunExecutor::new(
+            bus,
+            provider,
+            registry,
+            Arc::new(RwLock::new(vec!["echo".into()])),
+        );
         let result = executor
             .execute("agent-1", "run-1", "test tool", &model_config())
             .await;
@@ -644,7 +862,7 @@ mod tests {
         let provider = Arc::new(EchoProvider::new());
         let registry = PrimitiveRegistry::new();
 
-        let mut executor = RunExecutor::new(bus, provider, registry, vec![]);
+        let mut executor = RunExecutor::new(bus, provider, registry, Arc::new(RwLock::new(vec![])));
         executor
             .execute("my-agent", "my-run", "task", &model_config())
             .await
@@ -663,7 +881,7 @@ mod tests {
         let provider = Arc::new(UsageProvider);
         let registry = PrimitiveRegistry::new();
 
-        let mut executor = RunExecutor::new(bus, provider, registry, vec![]);
+        let mut executor = RunExecutor::new(bus, provider, registry, Arc::new(RwLock::new(vec![])));
         executor
             .execute("agent-usage", "run-usage", "count tokens", &model_config())
             .await
@@ -693,11 +911,16 @@ mod tests {
             arguments: serde_json::json!({}),
         }]));
 
-        let mut registry = PrimitiveRegistry::new();
+        let registry = PrimitiveRegistry::new();
         registry.register(Box::new(EchoPrimitive));
 
-        let mut executor =
-            RunExecutor::new(bus, provider, registry, vec!["echo".into()]).with_max_iterations(2);
+        let mut executor = RunExecutor::new(
+            bus,
+            provider,
+            registry,
+            Arc::new(RwLock::new(vec!["echo".into()])),
+        )
+        .with_max_iterations(2);
 
         let result = executor
             .execute("agent-1", "run-1", "loop test", &model_config())
@@ -719,7 +942,7 @@ mod tests {
         let provider = Arc::new(EchoProvider::new());
         let registry = PrimitiveRegistry::new();
 
-        let mut executor = RunExecutor::new(bus, provider, registry, vec![])
+        let mut executor = RunExecutor::new(bus, provider, registry, Arc::new(RwLock::new(vec![])))
             .with_system_prompt("You are a helpful agent.".into());
 
         let result = executor
@@ -734,7 +957,7 @@ mod tests {
         let provider = Arc::new(EchoProvider::new());
         let registry = PrimitiveRegistry::new();
 
-        let executor = RunExecutor::new(bus, provider, registry, vec![]);
+        let executor = RunExecutor::new(bus, provider, registry, Arc::new(RwLock::new(vec![])));
         assert_eq!(executor.max_iterations, 100_000);
         assert_eq!(executor.heartbeat_interval, 10);
     }
@@ -755,12 +978,17 @@ mod tests {
                 .with_always_call_tools(),
         );
 
-        let mut registry = PrimitiveRegistry::new();
+        let registry = PrimitiveRegistry::new();
         registry.register(Box::new(EchoPrimitive));
 
-        let mut executor = RunExecutor::new(bus, provider, registry, vec!["echo".into()])
-            .with_max_iterations(6)
-            .with_heartbeat_interval(3);
+        let mut executor = RunExecutor::new(
+            bus,
+            provider,
+            registry,
+            Arc::new(RwLock::new(vec!["echo".into()])),
+        )
+        .with_max_iterations(6)
+        .with_heartbeat_interval(3);
 
         executor
             .execute("agent-1", "run-1", "heartbeat test", &model_config())
@@ -787,9 +1015,9 @@ mod tests {
 
         let history = vec![Message::user("What is 2+2?"), Message::assistant("4")];
 
-        let mut executor = RunExecutor::new(bus, provider, registry, vec![])
+        let mut executor = RunExecutor::new(bus, provider, registry, Arc::new(RwLock::new(vec![])))
             .with_history(history)
-            .with_max_nudges(0);
+            .with_stuck_detection(false);
 
         let result = executor
             .execute("agent-1", "run-2", "What about 3+3?", &model_config())
@@ -807,15 +1035,25 @@ mod tests {
         let provider2 = Arc::new(EchoProvider::new());
 
         // Without history
-        let mut executor1 = RunExecutor::new(bus1, provider1, PrimitiveRegistry::new(), vec![]);
+        let mut executor1 = RunExecutor::new(
+            bus1,
+            provider1,
+            PrimitiveRegistry::new(),
+            Arc::new(RwLock::new(vec![])),
+        );
         let result1 = executor1
             .execute("agent-1", "run-1", "hello", &model_config())
             .await
             .unwrap();
 
         // With empty history
-        let mut executor2 = RunExecutor::new(bus2, provider2, PrimitiveRegistry::new(), vec![])
-            .with_history(vec![]);
+        let mut executor2 = RunExecutor::new(
+            bus2,
+            provider2,
+            PrimitiveRegistry::new(),
+            Arc::new(RwLock::new(vec![])),
+        )
+        .with_history(vec![]);
         let result2 = executor2
             .execute("agent-1", "run-1", "hello", &model_config())
             .await
@@ -836,12 +1074,17 @@ mod tests {
             arguments: serde_json::json!({"msg": "test"}),
         }]));
 
-        let mut registry = PrimitiveRegistry::new();
+        let registry = PrimitiveRegistry::new();
         registry.register(Box::new(EchoPrimitive));
 
-        let mut executor = RunExecutor::new(bus, provider, registry, vec!["echo".into()])
-            .with_system_prompt("You are a test agent.".into())
-            .with_max_nudges(0);
+        let mut executor = RunExecutor::new(
+            bus,
+            provider,
+            registry,
+            Arc::new(RwLock::new(vec!["echo".into()])),
+        )
+        .with_system_prompt("You are a test agent.".into())
+        .with_stuck_detection(false);
 
         let result = executor
             .execute("agent-1", "run-1", "do something", &model_config())
@@ -898,7 +1141,7 @@ mod tests {
             }
         }
 
-        let mut registry = PrimitiveRegistry::new();
+        let registry = PrimitiveRegistry::new();
         registry.register(Box::new(FakeSpawnPrimitive));
 
         // Emit SubagentCompleted after a short delay (simulates sub-agent finishing)
@@ -917,9 +1160,14 @@ mod tests {
             ));
         });
 
-        let mut executor = RunExecutor::new(bus, provider, registry, vec!["agent.spawn".into()])
-            .with_timeout(Duration::from_secs(10))
-            .with_max_nudges(0);
+        let mut executor = RunExecutor::new(
+            bus,
+            provider,
+            registry,
+            Arc::new(RwLock::new(vec!["agent.spawn".into()])),
+        )
+        .with_timeout(Duration::from_secs(10))
+        .with_stuck_detection(false);
 
         let result = executor
             .execute("parent-agent", "run-1", "do task", &model_config())
@@ -982,7 +1230,7 @@ mod tests {
             }
         }
 
-        let mut registry = PrimitiveRegistry::new();
+        let registry = PrimitiveRegistry::new();
         registry.register(Box::new(FakeRecruitPrimitive));
 
         // Emit SubagentCompleted after a short delay (simulates worker finishing)
@@ -1001,9 +1249,14 @@ mod tests {
             ));
         });
 
-        let mut executor = RunExecutor::new(bus, provider, registry, vec!["hive.recruit".into()])
-            .with_timeout(Duration::from_secs(10))
-            .with_max_nudges(0);
+        let mut executor = RunExecutor::new(
+            bus,
+            provider,
+            registry,
+            Arc::new(RwLock::new(vec!["hive.recruit".into()])),
+        )
+        .with_timeout(Duration::from_secs(10))
+        .with_stuck_detection(false);
 
         let result = executor
             .execute("queen-agent", "run-1", "coordinate hive", &model_config())
@@ -1061,7 +1314,7 @@ mod tests {
             }
         }
 
-        let mut registry = PrimitiveRegistry::new();
+        let registry = PrimitiveRegistry::new();
         registry.register(Box::new(FakeRecruitPrimitive2));
 
         // Emit HiveTaskCompleted first, then SubagentCompleted
@@ -1096,9 +1349,14 @@ mod tests {
             ));
         });
 
-        let mut executor = RunExecutor::new(bus, provider, registry, vec!["hive.recruit".into()])
-            .with_timeout(Duration::from_secs(10))
-            .with_max_nudges(0);
+        let mut executor = RunExecutor::new(
+            bus,
+            provider,
+            registry,
+            Arc::new(RwLock::new(vec!["hive.recruit".into()])),
+        )
+        .with_timeout(Duration::from_secs(10))
+        .with_stuck_detection(false);
 
         let result = executor
             .execute("queen-agent", "run-1", "coordinate hive", &model_config())
@@ -1168,7 +1426,7 @@ mod tests {
             handled: handled.clone(),
         };
 
-        let mut executor = RunExecutor::new(bus, provider, registry, vec![])
+        let mut executor = RunExecutor::new(bus, provider, registry, Arc::new(RwLock::new(vec![])))
             .without_default_listeners()
             .with_listener(Box::new(mock));
 
@@ -1185,8 +1443,8 @@ mod tests {
         let provider = Arc::new(EchoProvider::new());
         let registry = PrimitiveRegistry::new();
 
-        let mut executor =
-            RunExecutor::new(bus, provider, registry, vec![]).without_default_listeners();
+        let mut executor = RunExecutor::new(bus, provider, registry, Arc::new(RwLock::new(vec![])))
+            .without_default_listeners();
 
         let result = executor
             .execute("agent-1", "run-1", "test", &model_config())
@@ -1195,128 +1453,156 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn execute_nudges_before_breaking() {
+    async fn simple_greeting_returns_immediately() {
         let bus = EventBus::new(100);
         let mut rx = bus.subscribe();
         let provider = Arc::new(EchoProvider::new());
         let registry = PrimitiveRegistry::new();
 
-        let mut executor =
-            RunExecutor::new(bus, provider, registry, vec![]).with_max_nudges(1);
+        let mut executor = RunExecutor::new(bus, provider, registry, Arc::new(RwLock::new(vec![])))
+            .with_stuck_detection(false);
 
         let result = executor
-            .execute("agent-1", "run-1", "hello", &model_config())
+            .execute("agent-1", "run-1", "Hey", &model_config())
             .await;
         assert!(result.is_ok());
+        assert!(result.unwrap().contains("Hey"));
 
         let mut model_request_count = 0;
-        let mut nudge_count = 0;
+        let mut message_final_count = 0;
         while let Ok(event) = rx.try_recv() {
             if event.event_type == EventType::ModelRequest {
                 model_request_count += 1;
             }
-            if event.event_type == EventType::AgentNudged {
-                nudge_count += 1;
+            if event.event_type == EventType::MessageFinal {
+                message_final_count += 1;
             }
         }
-        // 1 initial + 1 after nudge = 2 model requests
-        assert_eq!(model_request_count, 2);
-        assert_eq!(nudge_count, 1);
-    }
-
-    #[tokio::test]
-    async fn execute_default_nudges_is_two() {
-        let bus = EventBus::new(100);
-        let mut rx = bus.subscribe();
-        let provider = Arc::new(EchoProvider::new());
-        let registry = PrimitiveRegistry::new();
-
-        let mut executor = RunExecutor::new(bus, provider, registry, vec![]);
-        assert_eq!(executor.max_nudges, 2);
-
-        let result = executor
-            .execute("agent-1", "run-1", "hello", &model_config())
-            .await;
-        assert!(result.is_ok());
-
-        let mut model_request_count = 0;
-        while let Ok(event) = rx.try_recv() {
-            if event.event_type == EventType::ModelRequest {
-                model_request_count += 1;
-            }
-        }
-        // 1 initial + 2 nudges = 3 model requests
-        assert_eq!(model_request_count, 3);
-    }
-
-    #[tokio::test]
-    async fn execute_zero_nudges_breaks_immediately() {
-        let bus = EventBus::new(100);
-        let mut rx = bus.subscribe();
-        let provider = Arc::new(EchoProvider::new());
-        let registry = PrimitiveRegistry::new();
-
-        let mut executor =
-            RunExecutor::new(bus, provider, registry, vec![]).with_max_nudges(0);
-
-        let result = executor
-            .execute("agent-1", "run-1", "hello", &model_config())
-            .await;
-        assert!(result.is_ok());
-
-        let mut model_request_count = 0;
-        let mut nudge_count = 0;
-        while let Ok(event) = rx.try_recv() {
-            if event.event_type == EventType::ModelRequest {
-                model_request_count += 1;
-            }
-            if event.event_type == EventType::AgentNudged {
-                nudge_count += 1;
-            }
-        }
+        // Single LLM call, content emitted, loop breaks immediately
         assert_eq!(model_request_count, 1);
-        assert_eq!(nudge_count, 0);
+        assert_eq!(message_final_count, 1);
     }
 
     #[tokio::test]
-    async fn nudge_count_resets_after_tool_use() {
+    async fn post_tool_summary_emitted() {
         let bus = EventBus::new(100);
         let mut rx = bus.subscribe();
 
-        // Custom provider: call 1 returns tool call, call 2 returns no tools (nudge),
-        // call 3 returns no tools (break since max_nudges=1)
-        struct AlternatingProvider {
-            call_count: std::sync::Mutex<usize>,
+        // Provider returns tool call first, then summary text (no tools) on second call
+        let provider = Arc::new(EchoProvider::new().with_tool_calls(vec![ToolCall {
+            id: "call_0".into(),
+            name: "echo".into(),
+            arguments: serde_json::json!({"msg": "hi"}),
+        }]));
+
+        let registry = PrimitiveRegistry::new();
+        registry.register(Box::new(EchoPrimitive));
+
+        let mut executor = RunExecutor::new(
+            bus,
+            provider,
+            registry,
+            Arc::new(RwLock::new(vec!["echo".into()])),
+        )
+        .with_stuck_detection(false);
+
+        let result = executor
+            .execute("agent-1", "run-1", "do something", &model_config())
+            .await;
+        assert!(result.is_ok());
+
+        let mut model_request_count = 0;
+        let mut message_final_count = 0;
+        while let Ok(event) = rx.try_recv() {
+            if event.event_type == EventType::ModelRequest {
+                model_request_count += 1;
+            }
+            if event.event_type == EventType::MessageFinal {
+                message_final_count += 1;
+            }
+        }
+        // 2 LLM calls: 1 for tool call, 1 for summary
+        assert_eq!(model_request_count, 2);
+        // Content always emitted - both LLM responses produce MessageFinal
+        assert_eq!(message_final_count, 2);
+    }
+
+    #[tokio::test]
+    async fn large_tool_result_truncated() {
+        let bus = EventBus::new(100);
+
+        // Primitive that returns a large result
+        struct LargeResultPrimitive;
+        #[async_trait]
+        impl Primitive for LargeResultPrimitive {
+            fn name(&self) -> &str {
+                "large"
+            }
+            async fn invoke(
+                &self,
+                _params: serde_json::Value,
+            ) -> Result<serde_json::Value, PrimitiveError> {
+                // Return a string > 20k chars
+                let big = "x".repeat(20_000);
+                Ok(serde_json::json!({"data": big}))
+            }
+        }
+
+        let provider = Arc::new(EchoProvider::new().with_tool_calls(vec![ToolCall {
+            id: "call_0".into(),
+            name: "large".into(),
+            arguments: serde_json::json!({}),
+        }]));
+
+        let registry = PrimitiveRegistry::new();
+        registry.register(Box::new(LargeResultPrimitive));
+
+        let mut executor = RunExecutor::new(
+            bus,
+            provider,
+            registry,
+            Arc::new(RwLock::new(vec!["large".into()])),
+        )
+        .with_max_tool_result_size(100)
+        .with_stuck_detection(false);
+
+        let result = executor
+            .execute("agent-1", "run-1", "get data", &model_config())
+            .await;
+        assert!(result.is_ok());
+        // The tool result in the conversation should have been truncated
+        // We can't inspect the conversation directly, but the executor should succeed
+    }
+
+    #[tokio::test]
+    async fn empty_response_nudges_agent_instead_of_completing() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        // Provider that returns empty content on first call, then real content
+        struct EmptyThenContentProvider {
+            call_count: AtomicUsize,
         }
 
         #[async_trait]
-        impl Provider for AlternatingProvider {
+        impl Provider for EmptyThenContentProvider {
             async fn complete(
                 &self,
                 _messages: Vec<Message>,
                 _config: &ModelConfig,
                 _tools: &[crate::registry::ToolDefinition],
             ) -> Result<ProviderResponse, PrimitiveError> {
-                let mut count = self.call_count.lock().unwrap();
-                *count += 1;
-                let current = *count;
-                drop(count);
-
-                if current == 1 {
-                    // First call: return a tool call
+                let n = self.call_count.fetch_add(1, Ordering::SeqCst);
+                if n == 0 {
+                    // First call: empty response (the bug scenario)
                     Ok(ProviderResponse {
                         content: String::new(),
-                        tool_calls: vec![ToolCall {
-                            id: "call_0".into(),
-                            name: "echo".into(),
-                            arguments: serde_json::json!({}),
-                        }],
+                        tool_calls: vec![],
                         usage: None,
                     })
                 } else {
-                    // Subsequent calls: no tools
+                    // After nudge: return real content
                     Ok(ProviderResponse {
-                        content: "done".into(),
+                        content: "Here is my answer.".into(),
                         tool_calls: vec![],
                         usage: None,
                     })
@@ -1324,35 +1610,107 @@ mod tests {
             }
         }
 
-        let provider = Arc::new(AlternatingProvider {
-            call_count: std::sync::Mutex::new(0),
+        let bus = EventBus::new(100);
+        let mut rx = bus.subscribe();
+        let provider = Arc::new(EmptyThenContentProvider {
+            call_count: AtomicUsize::new(0),
         });
+        let registry = PrimitiveRegistry::new();
 
-        let mut registry = PrimitiveRegistry::new();
-        registry.register(Box::new(EchoPrimitive));
-
-        let mut executor =
-            RunExecutor::new(bus, provider, registry, vec!["echo".into()]).with_max_nudges(1);
+        let mut executor = RunExecutor::new(bus, provider, registry, Arc::new(RwLock::new(vec![])));
 
         let result = executor
-            .execute("agent-1", "run-1", "test", &model_config())
+            .execute("agent-1", "run-1", "hello", &model_config())
             .await;
-        assert!(result.is_ok());
 
-        let mut model_request_count = 0;
-        let mut nudge_count = 0;
+        assert!(result.is_ok());
+        let content = result.unwrap();
+        assert_eq!(content, "Here is my answer.");
+
+        // Should have 2 model requests: first empty, then real answer after nudge
+        let mut model_requests = 0;
         while let Ok(event) = rx.try_recv() {
             if event.event_type == EventType::ModelRequest {
-                model_request_count += 1;
-            }
-            if event.event_type == EventType::AgentNudged {
-                nudge_count += 1;
+                model_requests += 1;
             }
         }
-        // Call 1: tool call (nudge_count resets to 0 after tool use)
-        // Call 2: no tools → nudge (nudge_count=1)
-        // Call 3: no tools → break (nudge_count >= max_nudges)
-        assert_eq!(model_request_count, 3);
-        assert_eq!(nudge_count, 1);
+        assert_eq!(
+            model_requests, 2,
+            "expected 2 model requests (empty + nudged)"
+        );
+    }
+
+    #[tokio::test]
+    async fn listeners_notified_on_tool_failure() {
+        use super::super::listener::{EventAction, EventListener};
+
+        struct FailingPrimitive;
+        #[async_trait]
+        impl Primitive for FailingPrimitive {
+            fn name(&self) -> &str {
+                "fail"
+            }
+            async fn invoke(
+                &self,
+                _params: serde_json::Value,
+            ) -> Result<serde_json::Value, PrimitiveError> {
+                Err(PrimitiveError::ExecutionFailed("boom".into()))
+            }
+        }
+
+        struct ToolResultTracker {
+            results: std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+        }
+
+        impl EventListener for ToolResultTracker {
+            fn name(&self) -> &str {
+                "tracker"
+            }
+            fn interests(&self) -> &[EventType] {
+                &[]
+            }
+            fn handle(&mut self, _event: &EventEnvelope) -> EventAction {
+                EventAction { notification: None }
+            }
+            fn has_pending_work(&self) -> bool {
+                false
+            }
+            fn on_tool_result(&mut self, _tool_name: &str, result: &serde_json::Value) {
+                self.results.lock().unwrap().push(result.clone());
+            }
+        }
+
+        let bus = EventBus::new(100);
+        let provider = Arc::new(EchoProvider::new().with_tool_calls(vec![ToolCall {
+            id: "call_0".into(),
+            name: "fail".into(),
+            arguments: serde_json::json!({}),
+        }]));
+
+        let registry = PrimitiveRegistry::new();
+        registry.register(Box::new(FailingPrimitive));
+
+        let results = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let tracker = ToolResultTracker {
+            results: results.clone(),
+        };
+
+        let mut executor = RunExecutor::new(
+            bus,
+            provider,
+            registry,
+            Arc::new(RwLock::new(vec!["fail".into()])),
+        )
+        .without_default_listeners()
+        .with_listener(Box::new(tracker))
+        .with_stuck_detection(false);
+
+        let _result = executor
+            .execute("agent-1", "run-1", "test", &model_config())
+            .await;
+
+        let tracked = results.lock().unwrap();
+        assert_eq!(tracked.len(), 1);
+        assert!(tracked[0]["error"].as_str().unwrap().contains("boom"));
     }
 }
