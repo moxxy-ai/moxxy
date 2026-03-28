@@ -10,12 +10,12 @@
 
 <p align="center">
   <a href="https://crates.io/crates/moxxy-gateway"><img src="https://img.shields.io/badge/crates.io-moxxy-orange?style=flat-square&logo=rust&logoColor=white" alt="crates.io"></a>
-  <a href="https://www.npmjs.com/package/moxxy-cli"><img src="https://img.shields.io/npm/v/moxxy-cli?style=flat-square&color=cb3837&logo=npm&logoColor=white&label=npm" alt="npm"></a>
+  <a href="https://www.npmjs.com/package/moxxy/cli"><img src="https://img.shields.io/npm/v/moxxy/cli?style=flat-square&color=cb3837&logo=npm&logoColor=white&label=npm" alt="npm"></a>
   <a href="https://github.com/moxxy-ai/moxxy/actions"><img src="https://img.shields.io/github/actions/workflow/status/moxxy-ai/moxxy/ci.yml?branch=main&style=flat-square&logo=github&label=CI" alt="CI"></a>
   <img src="https://img.shields.io/badge/tests-940%2B%20passing-brightgreen?style=flat-square&logo=checkmarx&logoColor=white" alt="940+ tests passing">
   <img src="https://img.shields.io/badge/rust-1.80%2B-dea584?style=flat-square&logo=rust&logoColor=white" alt="Rust 1.80+">
   <img src="https://img.shields.io/badge/node-%E2%89%A522-5FA04E?style=flat-square&logo=node.js&logoColor=white" alt="Node.js 22+">
-  <a href="#license"><img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue?style=flat-square" alt="License"></a>
+  <a href="#license"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License"></a>
 </p>
 
 <p align="center">

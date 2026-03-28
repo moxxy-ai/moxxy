@@ -104,6 +104,32 @@ jobs:
           name: moxxy-cli-${{ matrix.platform }}
           path: moxxy-cli-${{ matrix.platform }}
 
+  publish-npm:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        working-directory: apps/moxxy-cli
+        run: npm install
+
+      - name: Set version from tag
+        working-directory: apps/moxxy-cli
+        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version
+
+      - name: Publish
+        working-directory: apps/moxxy-cli
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
   release:
     name: Create Release
     needs: [build-gateway, build-cli]
