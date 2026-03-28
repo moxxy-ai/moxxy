@@ -319,7 +319,14 @@ scopes = ["s1"]
         use axum::{Json, Router, routing::post};
         use tokio::sync::oneshot;
 
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+            Ok(listener) => listener,
+            Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+                eprintln!("Skipping OAuth token exchange test: socket bind not permitted");
+                return;
+            }
+            Err(err) => panic!("failed to bind OAuth mock listener: {}", err),
+        };
         let port = listener.local_addr().unwrap().port();
         let token_url = format!("http://127.0.0.1:{}/token", port);
 
