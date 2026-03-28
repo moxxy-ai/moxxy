@@ -3,27 +3,38 @@ use axum::{
     extract::{Path, State},
 };
 
-use crate::core::llm::registry::ProviderRegistry;
+use crate::core::llm::registry::{ProviderRegistry, fetch_live_models};
 
 use super::super::AppState;
 
 pub async fn get_providers_endpoint() -> Json<serde_json::Value> {
     let registry = ProviderRegistry::load();
+    let mut providers_json = Vec::new();
+
+    for provider in &registry.providers {
+        let live_models = fetch_live_models(provider)
+            .await
+            .ok()
+            .flatten()
+            .filter(|models| !models.is_empty())
+            .unwrap_or_else(|| provider.models.clone());
+
+        providers_json.push(serde_json::json!({
+            "id": provider.id,
+            "name": provider.name,
+            "default_model": provider.default_model,
+            "custom": provider.custom,
+            "vault_key": provider.auth.vault_key,
+            "base_url": provider.base_url,
+            "models": live_models.iter().map(|m| {
+                serde_json::json!({ "id": m.id, "name": m.name })
+            }).collect::<Vec<_>>()
+        }));
+    }
+
     Json(serde_json::json!({
         "success": true,
-        "providers": registry.providers.iter().map(|p| {
-            serde_json::json!({
-                "id": p.id,
-                "name": p.name,
-                "default_model": p.default_model,
-                "custom": p.custom,
-                "vault_key": p.auth.vault_key,
-                "base_url": p.base_url,
-                "models": p.models.iter().map(|m| {
-                    serde_json::json!({ "id": m.id, "name": m.name })
-                }).collect::<Vec<_>>()
-            })
-        }).collect::<Vec<_>>()
+        "providers": providers_json
     }))
 }
 

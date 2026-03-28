@@ -50,6 +50,7 @@ const COMMANDS: &[CommandInfo] = &[
     },
 ];
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum StreamEvent {
     Activity(String),
     Response(String),

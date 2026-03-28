@@ -67,7 +67,9 @@ pub async fn init_ephemeral_subsystems(
         .map(|s| (*s).to_string())
         .collect();
     for provider_def in &registry.providers {
-        keys_to_copy.push(provider_def.auth.vault_key.clone());
+        if provider_def.auth.requires_secret() {
+            keys_to_copy.push(provider_def.auth.vault_key.clone());
+        }
     }
     keys_to_copy.sort();
     keys_to_copy.dedup();
@@ -91,11 +93,15 @@ pub async fn init_ephemeral_subsystems(
 
     let mut llm_sys = LlmManager::new();
     for provider_def in &registry.providers {
-        let api_key = vault
-            .get_secret(&provider_def.auth.vault_key)
-            .await
-            .unwrap_or(None)
-            .unwrap_or_default();
+        let api_key = if provider_def.auth.requires_secret() {
+            vault
+                .get_secret(&provider_def.auth.vault_key)
+                .await
+                .unwrap_or(None)
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
         llm_sys.register_provider(Box::new(GenericProvider::new(
             provider_def.clone(),
             api_key,
@@ -188,11 +194,15 @@ pub(super) async fn init_core_subsystems(
     let mut llm_sys = LlmManager::new();
 
     for provider_def in &registry.providers {
-        let api_key = vault
-            .get_secret(&provider_def.auth.vault_key)
-            .await
-            .unwrap_or(None)
-            .unwrap_or_default();
+        let api_key = if provider_def.auth.requires_secret() {
+            vault
+                .get_secret(&provider_def.auth.vault_key)
+                .await
+                .unwrap_or(None)
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
         llm_sys.register_provider(Box::new(GenericProvider::new(
             provider_def.clone(),
             api_key,

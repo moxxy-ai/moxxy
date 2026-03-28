@@ -154,6 +154,7 @@ Each agent lives in `~/.moxxy/agents/<name>/` with:
 | Provider | Models |
 |----------|--------|
 | OpenAI | GPT-4o, GPT-4o-mini, o1, o3-mini |
+| Ollama | Local models via `http://localhost:11434` (OpenAI-compatible API; discovers installed models when available) |
 | Google | Gemini 2.0 Flash, Gemini 2.5 Pro |
 | Z.Ai | Grok |
 

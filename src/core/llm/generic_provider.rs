@@ -176,6 +176,7 @@ impl GenericProvider {
     /// Apply auth and extra headers to a request builder.
     fn apply_auth(&self, mut request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         match self.provider_def.auth.auth_type {
+            AuthType::None => {}
             AuthType::Bearer => {
                 request = request.header("Authorization", format!("Bearer {}", self.api_key));
             }
@@ -455,13 +456,18 @@ impl LlmProvider for GenericProvider {
     }
 
     fn vault_key(&self) -> Option<&str> {
-        Some(&self.provider_def.auth.vault_key)
+        if self.provider_def.auth.requires_secret() {
+            Some(&self.provider_def.auth.vault_key)
+        } else {
+            None
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     #[test]
     fn parses_openai_usage_fields() {
@@ -504,5 +510,36 @@ mod tests {
         assert_eq!(usage.output_tokens, 4);
         assert_eq!(usage.total_tokens, 17);
         assert!(!usage.estimated);
+    }
+
+    #[test]
+    fn apply_auth_skips_authorization_for_no_auth_providers() {
+        let provider = GenericProvider::new(
+            ProviderDef {
+                id: "ollama".to_string(),
+                name: "Ollama".to_string(),
+                api_format: ApiFormat::Openai,
+                base_url: "http://localhost:11434/v1/chat/completions".to_string(),
+                auth: crate::core::llm::registry::AuthConfig {
+                    auth_type: AuthType::None,
+                    param_name: None,
+                    header_name: None,
+                    vault_key: "ollama_api_key".to_string(),
+                },
+                default_model: "gemma3".to_string(),
+                models: vec![],
+                extra_headers: HashMap::new(),
+                custom: false,
+            },
+            "ignored".to_string(),
+        );
+
+        let request = provider
+            .apply_auth(reqwest::Client::new().post(&provider.provider_def.base_url))
+            .build()
+            .expect("request should build");
+
+        assert!(request.headers().get("authorization").is_none());
+        assert_eq!(provider.vault_key(), None);
     }
 }

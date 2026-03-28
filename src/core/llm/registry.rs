@@ -46,9 +46,16 @@ pub struct AuthConfig {
     pub vault_key: String,
 }
 
+impl AuthConfig {
+    pub fn requires_secret(&self) -> bool {
+        self.auth_type != AuthType::None
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthType {
+    None,
     Bearer,
     QueryParam,
     /// Raw header: sends the key as-is in the header specified by `header_name`
@@ -64,6 +71,83 @@ pub struct ModelDef {
 fn custom_providers_path() -> PathBuf {
     use crate::platform::{NativePlatform, Platform};
     NativePlatform::data_dir().join("custom_providers.json")
+}
+
+fn ollama_models_endpoint(provider: &ProviderDef) -> Option<String> {
+    if provider.id != "ollama" {
+        return None;
+    }
+
+    let mut url = reqwest::Url::parse(&provider.base_url)
+        .map_err(|e| warn!("Invalid provider URL: {}", e))
+        .ok()?;
+    url.set_path("/v1/models");
+    url.set_query(None);
+    Some(url.to_string())
+}
+
+fn parse_live_models_response(value: serde_json::Value) -> Result<Vec<ModelDef>, String> {
+    let models = value
+        .get("models")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "Response does not contain a models array".to_string())?;
+
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for model in models {
+        let id = model
+            .get("id")
+            .and_then(|v| v.as_str())
+            .or_else(|| model.get("name").and_then(|v| v.as_str()))
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| "Model entry is missing id/name".to_string())?;
+
+        if !seen.insert(id.to_string()) {
+            continue;
+        }
+
+        let name = model
+            .get("name")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .unwrap_or(id);
+
+        out.push(ModelDef {
+            id: id.to_string(),
+            name: name.to_string(),
+        });
+    }
+
+    Ok(out)
+}
+
+pub async fn fetch_live_models(provider: &ProviderDef) -> Result<Option<Vec<ModelDef>>, String> {
+    let Some(url) = ollama_models_endpoint(provider) else {
+        return Ok(None);
+    };
+
+    let response = reqwest::Client::new()
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to reach live models endpoint: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Live models endpoint returned HTTP {}",
+            response.status()
+        ));
+    }
+
+    let body = response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| format!("Failed to parse live models response: {}", e))?;
+
+    parse_live_models_response(body).map(Some)
 }
 
 impl ProviderRegistry {
@@ -164,5 +248,67 @@ impl ProviderRegistry {
             .map_err(|e| format!("Serialize error: {}", e))?;
         std::fs::write(&custom_path, json)
             .map_err(|e| format!("Failed to write {}: {}", custom_path.display(), e))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_ollama_provider(base_url: String) -> ProviderDef {
+        ProviderDef {
+            id: "ollama".to_string(),
+            name: "Ollama".to_string(),
+            api_format: ApiFormat::Openai,
+            base_url,
+            auth: AuthConfig {
+                auth_type: AuthType::None,
+                param_name: None,
+                header_name: None,
+                vault_key: "ollama_api_key".to_string(),
+            },
+            default_model: "qwen3:8b".to_string(),
+            models: vec![],
+            extra_headers: HashMap::new(),
+            custom: false,
+        }
+    }
+
+    #[test]
+    fn built_in_registry_contains_ollama_provider() {
+        let registry = ProviderRegistry::load();
+        let provider = registry
+            .get_provider("ollama")
+            .expect("ollama provider should exist");
+
+        assert_eq!(provider.id, "ollama");
+        assert_eq!(provider.auth.auth_type, AuthType::None);
+        assert_eq!(
+            provider.base_url,
+            "http://localhost:11434/v1/chat/completions"
+        );
+        assert_eq!(provider.default_model, "qwen3:8b");
+    }
+
+    #[test]
+    fn parse_live_models_response_reads_ollama_openai_models_payload() {
+        let provider =
+            test_ollama_provider("http://localhost:11434/v1/chat/completions".to_string());
+        let endpoint = ollama_models_endpoint(&provider).expect("ollama models endpoint");
+        assert_eq!(endpoint, "http://localhost:11434/v1/models");
+
+        let models = parse_live_models_response(serde_json::json!({
+            "models": [
+                { "id": "gemma3", "name": "Gemma 3" },
+                { "name": "qwen3:8b" }
+            ]
+        }))
+        .expect("models should parse");
+
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].id, "gemma3");
+        assert_eq!(models[0].name, "Gemma 3");
+        assert_eq!(models[1].id, "qwen3:8b");
+        assert_eq!(models[1].name, "qwen3:8b");
     }
 }

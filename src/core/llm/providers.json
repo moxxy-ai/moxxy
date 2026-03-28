@@ -36,6 +36,19 @@
       ]
     },
     {
+      "id": "ollama",
+      "name": "Ollama",
+      "api_format": "openai",
+      "base_url": "http://localhost:11434/v1/chat/completions",
+      "auth": { "type": "none", "vault_key": "ollama_api_key" },
+      "default_model": "qwen3:8b",
+      "models": [
+        { "id": "qwen3:8b", "name": "Qwen 3 8B" },
+        { "id": "gemma3", "name": "Gemma 3" },
+        { "id": "gpt-oss:20b", "name": "GPT OSS 20B" }
+      ]
+    },
+    {
       "id": "google",
       "name": "Google",
       "api_format": "gemini",
