@@ -10,15 +10,15 @@
 
 The project uses Rust edition 2024 (configured in `rust-toolchain.toml`).
 
-## Quick Install (curl)
+## Quick Install (npm)
 
 The fastest path from zero to running:
 
 ```bash
-curl -fsSL https://moxxy.ai/install.sh | sh
+npm install --global @moxxy/cli
 ```
 
-This downloads the correct pre-built gateway binary for your platform and installs the CLI globally.
+Then run `moxxy init` to download the gateway binary and complete setup.
 
 ## Build from Source
 

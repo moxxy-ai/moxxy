@@ -72,7 +72,7 @@ The fastest way to get started:
 
 ```bash
 # Install
-curl -fsSL https://moxxy.ai/install.sh | sh
+npm install --global @moxxy/cli
 
 # Or build from source
 git clone https://github.com/moxxy-ai/moxxy-v4.git

@@ -108,7 +108,7 @@ async function startGateway() {
   const binary = findBinary();
   if (!binary) {
     p.log.error('moxxy-gateway binary not found.');
-    p.log.info('Install it with: curl -fsSL https://moxxy.ai/install.sh | sh');
+    p.log.info('Install it with: moxxy init');
     process.exitCode = 1;
     return;
   }

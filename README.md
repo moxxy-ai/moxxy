@@ -27,7 +27,7 @@
 ---
 
 ```bash
-curl -fsSL https://moxxy.ai/scripts/install.sh | bash
+npm install --global @moxxy/cli
 ```
 
 ---
@@ -74,14 +74,11 @@ Moxxy is a self-hosted runtime for autonomous AI agents. Each agent gets its own
 
 ### Install
 
-**macOS / Linux:**
 ```bash
-curl -fsSL https://moxxy.ai/scripts/install.sh | bash
+npm install --global @moxxy/cli
 ```
 
-The install script downloads the latest release, scaffolds the data directory (`~/.moxxy`), and places the binaries on your PATH.
-
-After installation, run the interactive setup:
+Then run the interactive setup:
 
 ```bash
 moxxy init

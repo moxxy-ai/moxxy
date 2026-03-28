@@ -26,10 +26,8 @@
 
 ## Install
 
-The recommended way is the one-liner installer which downloads pre-built binaries (no runtime needed):
-
 ```bash
-curl -fsSL https://moxxy.ai/install.sh | sh
+npm install --global @moxxy/cli
 ```
 
 Or install from source with Bun:
