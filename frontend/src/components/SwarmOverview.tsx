@@ -71,9 +71,57 @@ export function SwarmOverview({
     }
   }, [providers, providerId]);
 
+  useEffect(() => {
+    if (!apiBase || !providerId) return;
+
+    const provider = providers.find(p => p.id === providerId);
+    if (!provider?.supports_live_models) return;
+
+    let cancelled = false;
+
+    fetch(`${apiBase}/providers/${encodeURIComponent(providerId)}/models/live`)
+      .then(res => res.json())
+      .then(data => {
+        if (cancelled || !data.success || !Array.isArray(data.models) || data.models.length === 0) {
+          return;
+        }
+
+        setProviders(prev =>
+          prev.map(item =>
+            item.id === providerId
+              ? { ...item, models: data.models }
+              : item
+          )
+        );
+
+        setProviderModel(current => {
+          if (current === '__custom__') return current;
+          const exists = data.models.some((model: { id: string }) => model.id === current);
+          if (exists) return current;
+          return data.models[0]?.id || current;
+        });
+      })
+      .catch(() => {
+        // Keep static model list if live discovery fails.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, providerId]);
+
   const selectedProvider = useMemo(
     () => providers.find(p => p.id === providerId) ?? null,
     [providers, providerId]
+  );
+
+  const localModels = useMemo(
+    () => (selectedProvider?.models || []).filter(model => model.deployment !== 'cloud'),
+    [selectedProvider]
+  );
+  const cloudModels = useMemo(
+    () => (selectedProvider?.models || []).filter(model => model.deployment === 'cloud'),
+    [selectedProvider]
   );
 
   const resolvedModel = providerModel === '__custom__' ? providerCustomModel.trim() : providerModel;
@@ -243,13 +291,45 @@ export function SwarmOverview({
                       value={providerModel}
                       onChange={e => setProviderModel(e.target.value)}
                     >
-                      {selectedProvider.models.map(model => (
+                      {localModels.length > 0 && (
+                        <optgroup label="Local">
+                          {localModels.map(model => (
+                            <option key={model.id} value={model.id}>
+                              [Local] {model.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {cloudModels.length > 0 && (
+                        <optgroup label="Cloud">
+                          {cloudModels.map(model => (
+                            <option key={model.id} value={model.id}>
+                              [Cloud] {model.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {localModels.length === 0 && cloudModels.length === 0 && selectedProvider.models.map(model => (
                         <option key={model.id} value={model.id}>
                           {model.name}
                         </option>
                       ))}
                       <option value="__custom__">Custom model ID...</option>
                     </AppSelect>
+                    {selectedProvider.supports_live_models && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
+                        {localModels.length > 0 && (
+                          <span className="rounded border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-emerald-400">
+                            Local: {localModels.length}
+                          </span>
+                        )}
+                        {cloudModels.length > 0 && (
+                          <span className="rounded border border-sky-400/30 bg-sky-400/10 px-2 py-0.5 text-sky-300">
+                            Cloud: {cloudModels.length}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {providerModel === '__custom__' && (
                       <input
                         type="text"

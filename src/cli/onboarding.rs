@@ -2,7 +2,7 @@ use anyhow::Result;
 use console::style;
 
 use crate::core::llm::generic_provider::GenericProvider;
-use crate::core::llm::registry::{ProviderRegistry, fetch_live_models};
+use crate::core::llm::registry::{ProviderRegistry, resolve_provider_models};
 use crate::core::terminal::{
     self, GuideSection, bordered_info, bordered_render_config, bordered_step, bordered_success,
     close_section, guide_bar, print_error, print_success,
@@ -70,12 +70,7 @@ pub async fn run_onboarding() -> Result<()> {
     let provider_def = registry
         .get_provider(provider_choice)
         .expect("Selected provider not found in registry");
-    let available_models = fetch_live_models(provider_def)
-        .await
-        .ok()
-        .flatten()
-        .filter(|models| !models.is_empty())
-        .unwrap_or_else(|| provider_def.models.clone());
+    let available_models = resolve_provider_models(provider_def).await.models;
 
     // --- Step 2: Model Selection ---
     GuideSection::new("Step 2 · Model Selection")
@@ -85,16 +80,19 @@ pub async fn run_onboarding() -> Result<()> {
         .open();
 
     let final_model = {
-        let mut model_options: Vec<String> = provider_def
-            .models
-            .iter()
-            .map(|m| format!("{} ({})", m.name, m.id))
-            .collect();
+        let format_model_label = |model: &crate::core::llm::registry::ModelDef| {
+            let prefix = match model.deployment {
+                Some(crate::core::llm::registry::ModelDeployment::Local) => "[Local] ",
+                Some(crate::core::llm::registry::ModelDeployment::Cloud) => "[Cloud] ",
+                None => "",
+            };
+            format!("{}{} ({})", prefix, model.name, model.id)
+        };
+
+        let mut model_options: Vec<String> =
+            provider_def.models.iter().map(format_model_label).collect();
         if !available_models.is_empty() {
-            model_options = available_models
-                .iter()
-                .map(|m| format!("{} ({})", m.name, m.id))
-                .collect();
+            model_options = available_models.iter().map(format_model_label).collect();
         }
         model_options.push("Custom model ID...".to_string());
 

@@ -1,11 +1,11 @@
 use ratatui::{
-    layout::Rect,
+    layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
-use super::{COMMANDS, CliInterface, CommandInfo, MessageRole};
+use super::{COMMANDS, CliInterface, CommandInfo, MessageRole, ModelPickerEntry, ModelPickerMode};
 
 impl CliInterface {
     pub(super) fn render_messages(&self, area: Rect) -> (Paragraph<'_>, u16) {
@@ -155,6 +155,199 @@ impl CliInterface {
 
         (widget, popup_area)
     }
+
+    pub(super) fn model_picker_area(&self, outer: Rect) -> Rect {
+        let width = outer.width.min(72).max(40);
+        let desired_height = match self.model_picker_mode {
+            ModelPickerMode::Browse => (self.model_picker_entries.len() as u16 + 7).min(22),
+            ModelPickerMode::CustomInput { .. } => 10,
+        };
+        let height = outer.height.min(desired_height.max(10)).max(10);
+
+        let [vertical] = Layout::vertical([Constraint::Length(height)])
+            .flex(ratatui::layout::Flex::Center)
+            .areas(outer);
+        let [horizontal] = Layout::horizontal([Constraint::Length(width)])
+            .flex(ratatui::layout::Flex::Center)
+            .areas(vertical);
+        horizontal
+    }
+
+    pub(super) fn model_picker_block(&self) -> Block<'_> {
+        Block::default()
+            .title(" Select model ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+    }
+
+    pub(super) fn model_picker_browse_areas(&self, area: Rect) -> (Rect, Rect, Rect) {
+        let inner = self.model_picker_block().inner(area);
+        let [search_area, list_area, footer_area] = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .areas(inner);
+        (search_area, list_area, footer_area)
+    }
+
+    pub(super) fn render_model_picker_search(&self) -> Paragraph<'_> {
+        Paragraph::new(Line::from(vec![
+            Span::styled("Search: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                self.model_picker_query.as_str(),
+                Style::default().fg(Color::White),
+            ),
+        ]))
+    }
+
+    pub(super) fn render_model_picker_list(&self, area: Rect) -> Paragraph<'_> {
+        let visible_rows = area.height as usize;
+        let start = self.model_picker_scroll as usize;
+        let end = (start + visible_rows).min(self.model_picker_entries.len());
+        let mut lines = Vec::new();
+
+        for (index, entry) in self
+            .model_picker_entries
+            .iter()
+            .enumerate()
+            .skip(start)
+            .take(end.saturating_sub(start))
+        {
+            match entry {
+                ModelPickerEntry::Section(name) => {
+                    lines.push(Line::from(vec![Span::styled(
+                        format!(" {}", name),
+                        Style::default()
+                            .fg(Color::Magenta)
+                            .add_modifier(Modifier::BOLD),
+                    )]));
+                }
+                ModelPickerEntry::Model(model) => {
+                    let is_selected = self.model_picker_selected == index;
+                    let prefix = if model.is_current { "●" } else { " " };
+                    let deployment = match model.deployment.as_deref() {
+                        Some("local") => "[Local] ",
+                        Some("cloud") => "[Cloud] ",
+                        _ => "",
+                    };
+                    let base_style = if is_selected {
+                        Style::default().fg(Color::Black).bg(Color::Cyan)
+                    } else {
+                        Style::default().fg(Color::White)
+                    };
+                    let badge_style = if is_selected {
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD)
+                    } else if model.deployment.as_deref() == Some("cloud") {
+                        Style::default().fg(Color::Blue)
+                    } else {
+                        Style::default().fg(Color::Green)
+                    };
+
+                    lines.push(Line::from(vec![
+                        Span::styled(format!(" {} ", prefix), base_style),
+                        Span::styled(deployment.to_string(), badge_style),
+                        Span::styled(model.model_name.as_str(), base_style),
+                        Span::styled(
+                            format!("  {}", model.provider_name),
+                            if is_selected {
+                                Style::default().fg(Color::DarkGray).bg(Color::Cyan)
+                            } else {
+                                Style::default().fg(Color::DarkGray)
+                            },
+                        ),
+                    ]));
+                }
+                ModelPickerEntry::Custom {
+                    provider_name,
+                    is_current,
+                    current_model_id,
+                    ..
+                } => {
+                    let is_selected = self.model_picker_selected == index;
+                    let base_style = if is_selected {
+                        Style::default().fg(Color::Black).bg(Color::Cyan)
+                    } else {
+                        Style::default().fg(Color::Yellow)
+                    };
+                    let tail = current_model_id
+                        .as_ref()
+                        .map(|id| format!("  current: {}", id))
+                        .unwrap_or_default();
+                    let prefix = if *is_current { "●" } else { "+" };
+                    lines.push(Line::from(vec![
+                        Span::styled(format!(" {} ", prefix), base_style),
+                        Span::styled("Custom model…", base_style),
+                        Span::styled(
+                            tail,
+                            if is_selected {
+                                Style::default().fg(Color::DarkGray).bg(Color::Cyan)
+                            } else {
+                                Style::default().fg(Color::DarkGray)
+                            },
+                        ),
+                        Span::styled(
+                            format!("  {}", provider_name),
+                            if is_selected {
+                                Style::default().fg(Color::DarkGray).bg(Color::Cyan)
+                            } else {
+                                Style::default().fg(Color::DarkGray)
+                            },
+                        ),
+                    ]));
+                }
+            }
+        }
+
+        Paragraph::new(lines)
+    }
+
+    pub(super) fn render_model_picker_footer(&self) -> Paragraph<'_> {
+        let footer = self.model_picker_status.clone().unwrap_or_else(|| {
+            "Enter select • Esc close • Tab search/list • Type to search".to_string()
+        });
+        Paragraph::new(Line::from(vec![Span::styled(
+            footer,
+            Style::default().fg(Color::DarkGray),
+        )]))
+    }
+
+    pub(super) fn render_model_picker_custom_input(&self) -> Paragraph<'_> {
+        let lines = match &self.model_picker_mode {
+            ModelPickerMode::CustomInput {
+                provider_name,
+                provider_id,
+            } => vec![
+                Line::from(vec![
+                    Span::styled(" Provider: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(provider_name.as_str(), Style::default().fg(Color::White)),
+                    Span::styled(
+                        format!(" ({})", provider_id),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(" Model ID: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        self.model_picker_custom_input.as_str(),
+                        Style::default().fg(Color::White),
+                    ),
+                ]),
+                Line::from(""),
+                Line::from(vec![Span::styled(
+                    "Enter confirms • Esc cancels",
+                    Style::default().fg(Color::DarkGray),
+                )]),
+            ],
+            ModelPickerMode::Browse => vec![],
+        };
+
+        Paragraph::new(lines).block(self.model_picker_block())
+    }
 }
 
 /// Parse basic inline markdown: **bold**, `code`
@@ -205,4 +398,25 @@ pub(super) fn parse_inline_markdown<'a>(text: &'a str, base_style: Style) -> Vec
     }
 
     spans
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::interfaces::cli::{CliInterface, ModelPickerMode};
+
+    #[test]
+    fn model_picker_browse_areas_reserve_footer_outside_list() {
+        let mut cli = CliInterface::new(String::new());
+        cli.model_picker_mode = ModelPickerMode::Browse;
+        let area = Rect::new(0, 0, 60, 16);
+
+        let (search, list, footer) = cli.model_picker_browse_areas(area);
+
+        assert_eq!(search.height, 1);
+        assert_eq!(footer.height, 1);
+        assert!(list.height > 0);
+        assert!(search.y < list.y);
+        assert!(list.y < footer.y);
+    }
 }

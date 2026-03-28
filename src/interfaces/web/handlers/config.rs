@@ -3,38 +3,62 @@ use axum::{
     extract::{Path, State},
 };
 
-use crate::core::llm::registry::{ProviderRegistry, fetch_live_models};
+use crate::core::llm::registry::{ProviderRegistry, resolve_provider_models, supports_live_models};
 
 use super::super::AppState;
 
+fn provider_to_json(provider: &crate::core::llm::registry::ProviderDef) -> serde_json::Value {
+    serde_json::json!({
+        "id": provider.id,
+        "name": provider.name,
+        "default_model": provider.default_model,
+        "custom": provider.custom,
+        "vault_key": provider.auth.vault_key,
+        "base_url": provider.base_url,
+        "supports_live_models": supports_live_models(provider),
+        "models": provider.models.iter().map(|m| {
+            serde_json::json!({
+                "id": m.id,
+                "name": m.name,
+                "deployment": m.deployment.map(|d| d.as_str())
+            })
+        }).collect::<Vec<_>>()
+    })
+}
+
 pub async fn get_providers_endpoint() -> Json<serde_json::Value> {
     let registry = ProviderRegistry::load();
-    let mut providers_json = Vec::new();
-
-    for provider in &registry.providers {
-        let live_models = fetch_live_models(provider)
-            .await
-            .ok()
-            .flatten()
-            .filter(|models| !models.is_empty())
-            .unwrap_or_else(|| provider.models.clone());
-
-        providers_json.push(serde_json::json!({
-            "id": provider.id,
-            "name": provider.name,
-            "default_model": provider.default_model,
-            "custom": provider.custom,
-            "vault_key": provider.auth.vault_key,
-            "base_url": provider.base_url,
-            "models": live_models.iter().map(|m| {
-                serde_json::json!({ "id": m.id, "name": m.name })
-            }).collect::<Vec<_>>()
-        }));
-    }
+    let providers_json: Vec<_> = registry.providers.iter().map(provider_to_json).collect();
 
     Json(serde_json::json!({
         "success": true,
         "providers": providers_json
+    }))
+}
+
+pub async fn get_provider_live_models_endpoint(
+    Path(provider_id): Path<String>,
+) -> Json<serde_json::Value> {
+    let registry = ProviderRegistry::load();
+    let normalized = provider_id.to_lowercase();
+    let Some(provider) = registry.get_provider(&normalized) else {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": "Provider not found"
+        }));
+    };
+
+    let resolved = resolve_provider_models(provider).await;
+    Json(serde_json::json!({
+        "success": true,
+        "models": resolved.models.iter().map(|m| {
+            serde_json::json!({
+                "id": m.id,
+                "name": m.name,
+                "deployment": m.deployment.map(|d| d.as_str())
+            })
+        }).collect::<Vec<_>>(),
+        "source": resolved.source.as_str()
     }))
 }
 

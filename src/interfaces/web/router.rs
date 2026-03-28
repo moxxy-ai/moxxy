@@ -205,6 +205,10 @@ pub fn build_api_router(state: AppState) -> Router {
         .route("/api/memory/swarm", get(memory::get_swarm_memory))
         .route("/api/providers", get(config::get_providers_endpoint))
         .route(
+            "/api/providers/{provider_id}/models/live",
+            get(config::get_provider_live_models_endpoint),
+        )
+        .route(
             "/api/providers/custom",
             get(config::get_custom_providers_endpoint).post(config::add_custom_provider_endpoint),
         )
@@ -711,6 +715,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn get_providers_returns_static_models_with_live_capability_flag() {
+        let state = empty_state();
+        let app = build_api_router(state);
+        let (status, json) = json_request(
+            app,
+            Method::GET,
+            "/api/providers",
+            None,
+            "test-internal-token",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["success"], true);
+        let providers = json["providers"].as_array().expect("providers array");
+        let ollama = providers
+            .iter()
+            .find(|provider| provider["id"] == "ollama")
+            .expect("ollama provider should exist");
+        let openai = providers
+            .iter()
+            .find(|provider| provider["id"] == "openai")
+            .expect("openai provider should exist");
+
+        assert_eq!(ollama["supports_live_models"], true);
+        assert_eq!(openai["supports_live_models"], false);
+        assert!(ollama["models"].as_array().is_some());
+    }
+
+    #[tokio::test]
+    async fn provider_live_models_endpoint_returns_static_fallback_for_unsupported_provider() {
+        let state = empty_state();
+        let app = build_api_router(state);
+        let (status, json) = json_request(
+            app,
+            Method::GET,
+            "/api/providers/openai/models/live",
+            None,
+            "test-internal-token",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["success"], true);
+        assert_eq!(json["source"], "static_fallback");
+        assert!(json["models"].as_array().is_some());
+        assert!(!json["models"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn provider_live_models_endpoint_returns_success_for_ollama() {
+        let state = empty_state();
+        let app = build_api_router(state);
+        let (status, json) = json_request(
+            app,
+            Method::GET,
+            "/api/providers/ollama/models/live",
+            None,
+            "test-internal-token",
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["success"], true);
+        assert!(matches!(
+            json["source"].as_str(),
+            Some("live") | Some("static_fallback")
+        ));
+        assert!(json["models"].as_array().is_some());
+        assert!(!json["models"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn api_route_contract_has_all_expected_paths() {
         let mut paths: Vec<&'static str> = vec![
             "/api/webhooks/default/source",
@@ -754,6 +831,7 @@ mod tests {
             "/api/agents/default/mcp/server_a",
             "/api/memory/swarm",
             "/api/providers",
+            "/api/providers/ollama/models/live",
             "/api/providers/custom",
             "/api/providers/custom/custom_provider",
             "/api/config/global",
@@ -775,9 +853,9 @@ mod tests {
         ]);
 
         let expected_len = if cfg!(target_os = "macos") || cfg!(target_os = "windows") {
-            54
+            55
         } else {
-            53
+            54
         };
         assert_eq!(
             paths.len(),
