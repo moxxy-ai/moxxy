@@ -38,6 +38,8 @@ const ANTHROPIC_OAUTH_REDIRECT_URI = 'https://console.anthropic.com/oauth/code/c
 const ANTHROPIC_OAUTH_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
 const ANTHROPIC_OAUTH_SCOPE = 'org:create_api_key user:profile user:inference';
 const ANTHROPIC_OAUTH_SESSION_MODE = 'anthropic_oauth_session';
+const OLLAMA_PROVIDER_ID = 'ollama';
+const OLLAMA_API_BASE = 'http://127.0.0.1:11434/v1';
 const OPENAI_CODEX_MODEL_IDS = [
   'gpt-5.3-codex',
   'gpt-5.2-codex',
@@ -621,6 +623,123 @@ async function fetchOpenAiModels(apiKey) {
     throw new Error('OpenAI model list is empty');
   }
   return models;
+}
+
+function normalizeOllamaApiBase(apiBase = OLLAMA_API_BASE) {
+  const trimmed = String(apiBase || OLLAMA_API_BASE).trim().replace(/\/+$/, '');
+  if (!trimmed) return OLLAMA_API_BASE;
+  if (trimmed.endsWith('/chat/completions')) {
+    return trimmed.slice(0, -'/chat/completions'.length);
+  }
+  if (trimmed.endsWith('/models')) {
+    return trimmed.slice(0, -'/models'.length);
+  }
+  return trimmed;
+}
+
+function alternateOllamaApiBase(apiBase = OLLAMA_API_BASE) {
+  try {
+    const url = new URL(normalizeOllamaApiBase(apiBase));
+    if (url.hostname === 'localhost') {
+      url.hostname = '127.0.0.1';
+      return url.toString().replace(/\/+$/, '');
+    }
+    if (url.hostname === '127.0.0.1') {
+      url.hostname = 'localhost';
+      return url.toString().replace(/\/+$/, '');
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+export function buildOllamaDiscoveryUrls(apiBase = OLLAMA_API_BASE) {
+  const bases = [normalizeOllamaApiBase(apiBase)];
+  const alternateBase = alternateOllamaApiBase(apiBase);
+  if (alternateBase && !bases.includes(alternateBase)) {
+    bases.push(alternateBase);
+  }
+
+  const urls = [];
+  for (const base of bases) {
+    const openAiUrl = `${base}/models`;
+    if (!urls.includes(openAiUrl)) {
+      urls.push(openAiUrl);
+    }
+
+    const legacyBase = base.endsWith('/v1')
+      ? base.slice(0, -'/v1'.length)
+      : base;
+    const legacyUrl = `${legacyBase}/api/tags`;
+    if (!urls.includes(legacyUrl)) {
+      urls.push(legacyUrl);
+    }
+  }
+
+  return urls;
+}
+
+export function parseOllamaModels(payload, apiBase = OLLAMA_API_BASE) {
+  const normalizedBase = normalizeOllamaApiBase(apiBase);
+  const rows = Array.isArray(payload?.models)
+    ? payload.models
+    : Array.isArray(payload?.data)
+      ? payload.data
+      : [];
+  const unique = new Map();
+
+  for (const row of rows) {
+    const id = typeof row?.id === 'string'
+      ? row.id.trim()
+      : typeof row?.name === 'string'
+        ? row.name.trim()
+        : '';
+    if (!id || unique.has(id)) continue;
+
+    const displayName = typeof row?.name === 'string' && row.name.trim()
+      ? row.name.trim()
+      : id;
+
+    unique.set(id, {
+      model_id: id,
+      display_name: displayName,
+      metadata: { api_base: normalizedBase },
+    });
+  }
+
+  return Array.from(unique.values()).sort((left, right) =>
+    left.display_name.toLowerCase().localeCompare(right.display_name.toLowerCase())
+  );
+}
+
+async function fetchOllamaModels(apiBase = OLLAMA_API_BASE) {
+  for (const url of buildOllamaDiscoveryUrls(apiBase)) {
+    try {
+      const resp = await fetch(url, { signal: AbortSignal.timeout(1000) });
+      if (!resp.ok) continue;
+      const payload = await resp.json();
+      const models = parseOllamaModels(payload, apiBase);
+      if (models.length > 0) return models;
+    } catch {
+      // fall through to the next Ollama discovery endpoint
+    }
+  }
+  return [];
+}
+
+export async function resolveBuiltinProviderModels(builtin) {
+  const fallbackModels = builtin.models.map(model => ({
+    ...model,
+    metadata: builtin.api_base ? { api_base: builtin.api_base } : {},
+  }));
+
+  if (builtin.id !== OLLAMA_PROVIDER_ID) {
+    return fallbackModels;
+  }
+
+  const discovered = await fetchOllamaModels(builtin.api_base);
+  return discovered.length > 0 ? discovered : fallbackModels;
 }
 
 async function upsertProviderSecret(client, keyName, backendKey, value) {
@@ -1233,6 +1352,17 @@ export async function checkProviderCredentials(builtin, client) {
       p.log.error(`${builtin.cli_binary} binary not found. Install it first: https://docs.anthropic.com/en/docs/claude-code`);
       return false;
     }
+  } else if (builtin.id === OLLAMA_PROVIDER_ID) {
+    try {
+      const discovered = await fetchOllamaModels(builtin.api_base);
+      if (discovered.length > 0) {
+        p.log.success(`Local Ollama detected (${discovered.length} models discovered).`);
+      } else {
+        p.log.warn('Could not discover local Ollama models. Static catalog will be used as fallback.');
+      }
+    } catch {
+      p.log.warn('Could not reach local Ollama. Static catalog will be used as fallback.');
+    }
   } else if (builtin.api_key_env) {
     const currentKey = process.env[builtin.api_key_env];
     if (currentKey) {
@@ -1334,6 +1464,16 @@ export const BUILTIN_PROVIDERS = [
       { model_id: 'o4-mini', display_name: 'o4-mini' },
       { model_id: 'gpt-4o', display_name: 'GPT-4o' },
       { model_id: 'gpt-4o-mini', display_name: 'GPT-4o Mini' },
+    ],
+  },
+  {
+    id: OLLAMA_PROVIDER_ID,
+    display_name: 'Ollama',
+    api_base: OLLAMA_API_BASE,
+    models: [
+      { model_id: 'qwen3:8b', display_name: 'Qwen 3 8B' },
+      { model_id: 'gemma3', display_name: 'Gemma 3' },
+      { model_id: 'gpt-oss:20b', display_name: 'GPT OSS 20B' },
     ],
   },
   {
@@ -1571,6 +1711,7 @@ async function installInteractive(client) {
     displayName = builtin.display_name;
     apiKeyEnv = builtin.api_key_env;
     apiBase = builtin.api_base;
+    const availableModels = await resolveBuiltinProviderModels(builtin);
 
     // Step 2: Select which models to install
     const CUSTOM_MODEL_VALUE = '__custom_model__';
@@ -1578,7 +1719,7 @@ async function installInteractive(client) {
     const selectedModels = handleCancel(await p.multiselect({
       message: 'Select models to install',
       options: [
-        ...builtin.models.map(m => ({
+        ...availableModels.map(m => ({
           value: m.model_id,
           label: m.display_name,
           hint: m.model_id,
@@ -1588,11 +1729,11 @@ async function installInteractive(client) {
       required: true,
     }));
 
-    models = builtin.models
+    models = availableModels
       .filter(m => selectedModels.includes(m.model_id))
       .map(m => ({
         ...m,
-        metadata: apiBase ? { api_base: apiBase } : {},
+        metadata: m.metadata || (apiBase ? { api_base: apiBase } : {}),
       }));
 
     // Prompt for custom model details if selected
@@ -1669,14 +1810,12 @@ async function installNonInteractive(client, flags) {
 
   if (builtin) {
     const builtinIds = new Set(builtin.models.map(m => m.model_id));
-    const models = builtin.models.map(m => ({
-      ...m,
-      metadata: builtin.api_base ? { api_base: builtin.api_base } : {},
-    }));
+    const models = await resolveBuiltinProviderModels(builtin);
+    const knownModelIds = new Set(models.map(m => m.model_id));
 
     // Add custom models that aren't already in the builtin catalog
     for (const modelId of extraModels) {
-      if (!builtinIds.has(modelId)) {
+      if (!builtinIds.has(modelId) && !knownModelIds.has(modelId)) {
         models.push({
           model_id: modelId,
           display_name: modelId,
@@ -1692,7 +1831,7 @@ async function installNonInteractive(client, flags) {
 
   // Custom provider
   if (!providerId) {
-    throw new Error('Required: --id (provider id). Built-in: openai, openai-codex, anthropic, xai, zai, zai-plan, claude-cli');
+    throw new Error('Required: --id (provider id). Built-in: openai, openai-codex, anthropic, ollama, xai, zai, zai-plan, claude-cli');
   }
 
   const displayName = flags.name || flags.display_name || providerId;

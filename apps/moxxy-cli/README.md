@@ -178,6 +178,7 @@ The CLI includes a built-in provider catalog:
 | Anthropic | `ANTHROPIC_API_KEY` | API key, OAuth |
 | OpenAI | `OPENAI_API_KEY` | API key |
 | OpenAI Codex | `OPENAI_CODEX_SECRET_KEY` | OAuth (browser/headless) |
+| Ollama | — | Local OpenAI-compatible endpoint, no auth |
 | xAI | `XAI_API_KEY` | API key |
 | Google Gemini | `GOOGLE_API_KEY` | API key |
 | DeepSeek | `DEEPSEEK_API_KEY` | API key |

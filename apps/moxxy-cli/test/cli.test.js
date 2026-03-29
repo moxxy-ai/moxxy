@@ -4,16 +4,19 @@ import { createApiClient } from '../src/api-client.js';
 import { parseAuthCommand, buildTokenPayload } from '../src/commands/auth.js';
 import { parseAgentCommand } from '../src/commands/agent.js';
 import {
+  BUILTIN_PROVIDERS,
   buildCodexDeviceCodeBody,
   buildCodexAuthorizationCodeExchangeBody,
   buildCodexApiKeyExchangeBody,
   buildCodexBrowserAuthorizeUrl,
+  buildOllamaDiscoveryUrls,
   buildScopedRetryFlags,
   buildOpenAiCodexSessionModels,
   buildOpenAiCodexSessionSecret,
   buildPkceCodeChallenge,
   extractCodexAccountIdFromTokens,
   formatOpenAiOAuthError,
+  parseOllamaModels,
   parseOpenAiModels,
 } from '../src/commands/provider.js';
 import { buildSseUrl, parseSseEvent, createSseClient } from '../src/sse-client.js';
@@ -181,6 +184,46 @@ describe('agent commands', () => {
 });
 
 describe('provider oauth helpers', () => {
+  it('includes Ollama as a built-in provider without api-key requirement', () => {
+    const ollama = BUILTIN_PROVIDERS.find(provider => provider.id === 'ollama');
+    assert.ok(ollama);
+    assert.equal(ollama.display_name, 'Ollama');
+    assert.equal(ollama.api_key_env, undefined);
+    assert.equal(ollama.api_base, 'http://127.0.0.1:11434/v1');
+  });
+
+  it('parseOllamaModels reads OpenAI-compatible /v1/models payload', () => {
+    const models = parseOllamaModels({
+      models: [
+        { id: 'gpt-oss:20b', name: 'GPT OSS 20B' },
+        { name: 'gemma3' },
+      ],
+    });
+
+    assert.deepEqual(models, [
+      {
+        model_id: 'gemma3',
+        display_name: 'gemma3',
+        metadata: { api_base: 'http://127.0.0.1:11434/v1' },
+      },
+      {
+        model_id: 'gpt-oss:20b',
+        display_name: 'GPT OSS 20B',
+        metadata: { api_base: 'http://127.0.0.1:11434/v1' },
+      },
+    ]);
+  });
+
+  it('buildOllamaDiscoveryUrls tries both loopback host variants', () => {
+    const urls = buildOllamaDiscoveryUrls('http://localhost:11434/v1');
+    assert.deepEqual(urls, [
+      'http://localhost:11434/v1/models',
+      'http://localhost:11434/api/tags',
+      'http://127.0.0.1:11434/v1/models',
+      'http://127.0.0.1:11434/api/tags',
+    ]);
+  });
+
   it('buildCodexDeviceCodeBody returns oauth device-code payload', () => {
     const payload = buildCodexDeviceCodeBody('app_test_123');
     assert.deepEqual(payload, {

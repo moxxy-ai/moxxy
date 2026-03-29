@@ -49,7 +49,6 @@ pub enum StartRunOutcome {
 
 pub type AgentRunQueue = Arc<Mutex<HashMap<String, VecDeque<QueuedRun>>>>;
 
-
 /// Adapts `ChannelBridge` (which implements `ChannelSender`) to the
 /// `ChannelMessageSender` trait required by `ChannelNotifyPrimitive`.
 pub struct BridgeChannelAdapter {
@@ -179,7 +178,12 @@ impl RunService {
 
     /// Dynamically resolve a provider by looking up the provider + model from
     /// filesystem YAML and retrieving the API key from the vault.
-    pub fn resolve_provider(&self, provider_id: &str, model_id: &str, agent_name: Option<&str>) -> Option<Arc<dyn Provider>> {
+    pub fn resolve_provider(
+        &self,
+        provider_id: &str,
+        model_id: &str,
+        agent_name: Option<&str>,
+    ) -> Option<Arc<dyn Provider>> {
         tracing::debug!(provider_id, model_id, "Resolving provider");
 
         // Load provider YAML from filesystem
@@ -195,7 +199,23 @@ impl RunService {
             return None;
         }
 
-        let model = doc.find_model(model_id);
+        let model = doc.find_model(model_id).cloned().or_else(|| {
+            if provider_id == "ollama" {
+                let api_base = doc
+                    .api_base
+                    .clone()
+                    .or_else(|| doc.models.iter().find_map(|model| model.api_base.clone()))
+                    .unwrap_or_else(|| "http://127.0.0.1:11434/v1".to_string());
+                Some(moxxy_core::ProviderModelEntry {
+                    id: model_id.to_string(),
+                    display_name: model_id.to_string(),
+                    api_base: Some(api_base),
+                    chatgpt_account_id: None,
+                })
+            } else {
+                None
+            }
+        });
         if model.is_none() {
             tracing::warn!(
                 provider_id,
@@ -798,7 +818,10 @@ impl RunService {
 
 /// Spawn a background loop that drains the run queue when agents become idle.
 /// The loop receives agent names via `drain_rx` and starts the next queued run.
-pub fn spawn_drain_loop(run_service: Arc<RunService>, mut drain_rx: mpsc::UnboundedReceiver<String>) {
+pub fn spawn_drain_loop(
+    run_service: Arc<RunService>,
+    mut drain_rx: mpsc::UnboundedReceiver<String>,
+) {
     tokio::spawn(async move {
         while let Some(agent_name) = drain_rx.recv().await {
             let queued = run_service.dequeue_run(&agent_name);
@@ -926,12 +949,10 @@ impl RunStarter for RunService {
 
         // Inherit parent's allowlists file (YAML-backed)
         {
-            let parent_al = moxxy_core::allowlist_path(
-                &self.moxxy_home.join("agents").join(parent_name),
-            );
-            let child_al = moxxy_core::allowlist_path(
-                &self.moxxy_home.join("agents").join(&child_name),
-            );
+            let parent_al =
+                moxxy_core::allowlist_path(&self.moxxy_home.join("agents").join(parent_name));
+            let child_al =
+                moxxy_core::allowlist_path(&self.moxxy_home.join("agents").join(&child_name));
             if parent_al.exists() {
                 let _ = std::fs::copy(&parent_al, &child_al);
             }

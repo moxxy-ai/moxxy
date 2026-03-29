@@ -37,8 +37,17 @@ pub fn create_provider(config: ProviderConfig) -> Option<Arc<dyn Provider>> {
         return Some(Arc::new(provider));
     }
 
-    // API-based providers require api_base and api_key
     let api_base = config.api_base?;
+
+    // Ollama uses an OpenAI-compatible endpoint but does not require auth.
+    if config.provider_id == "ollama" {
+        return Some(Arc::new(OpenAIProvider::new_no_auth(
+            api_base,
+            config.model_id,
+        )));
+    }
+
+    // Other API-based providers require an API key or session secret.
     let api_key = config.api_key?;
 
     if config.provider_id == "anthropic" || api_base.contains("anthropic.com") {
@@ -107,6 +116,19 @@ mod tests {
             model_id: "gpt-4o".into(),
             api_base: Some("https://api.openai.com/v1".into()),
             api_key: Some("sk-test".into()),
+            chatgpt_account_id: None,
+            workspace: None,
+        };
+        assert!(create_provider(config).is_some());
+    }
+
+    #[test]
+    fn create_provider_ollama_without_api_key() {
+        let config = ProviderConfig {
+            provider_id: "ollama".into(),
+            model_id: "gpt-oss:20b".into(),
+            api_base: Some("http://localhost:11434/v1".into()),
+            api_key: None,
             chatgpt_account_id: None,
             workspace: None,
         };

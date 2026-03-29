@@ -1,6 +1,6 @@
 import { p, handleCancel, withSpinner, showResult } from '../ui.js';
 import { VALID_SCOPES } from './auth.js';
-import { BUILTIN_PROVIDERS, ANTHROPIC_PROVIDER_ID, OPENAI_CODEX_PROVIDER_ID, loginAnthropic, loginOpenAiCodex, checkProviderCredentials } from './provider.js';
+import { BUILTIN_PROVIDERS, ANTHROPIC_PROVIDER_ID, OPENAI_CODEX_PROVIDER_ID, loginAnthropic, loginOpenAiCodex, checkProviderCredentials, resolveBuiltinProviderModels } from './provider.js';
 import { shellExportInstruction, shellProfileName } from '../platform.js';
 import { mkdirSync, existsSync, readFileSync, writeFileSync, chmodSync, copyFileSync, createWriteStream } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -455,11 +455,12 @@ export async function runInit(client, args) {
           }
         } else {
           // Generic provider flow (no special login)
+          const availableModels = await resolveBuiltinProviderModels(builtin);
           const CUSTOM_MODEL_VALUE = '__custom_model__';
           const selectedModels = handleCancel(await p.multiselect({
             message: 'Select models to install',
             options: [
-              ...builtin.models.map(m => ({
+              ...availableModels.map(m => ({
                 value: m.model_id,
                 label: m.display_name,
                 hint: m.model_id,
@@ -469,11 +470,11 @@ export async function runInit(client, args) {
             required: true,
           }));
 
-          const models = builtin.models
+          const models = availableModels
             .filter(m => selectedModels.includes(m.model_id))
             .map(m => ({
               ...m,
-              metadata: builtin.api_base ? { api_base: builtin.api_base } : {},
+              metadata: m.metadata || (builtin.api_base ? { api_base: builtin.api_base } : {}),
             }));
 
           // Handle custom model

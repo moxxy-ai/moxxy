@@ -310,6 +310,23 @@ mod test_helpers {
         ProviderStore::create(&state.moxxy_home, &doc).unwrap();
     }
 
+    pub fn seed_ollama_provider(state: &AppState, api_base: &str) {
+        let doc = ProviderDoc {
+            id: "ollama".into(),
+            display_name: "Ollama".into(),
+            enabled: true,
+            secret_ref: None,
+            api_base: None,
+            models: vec![ProviderModelEntry {
+                id: "qwen3:8b".into(),
+                display_name: "Qwen 3 8B".into(),
+                api_base: Some(api_base.into()),
+                chatgpt_account_id: None,
+            }],
+        };
+        ProviderStore::create(&state.moxxy_home, &doc).unwrap();
+    }
+
     /// Seed a test agent using the registry + YAML store. Returns the agent name.
     pub fn seed_agent(state: &AppState, _token: &str) -> String {
         seed_provider(state);
@@ -1097,7 +1114,9 @@ mod resolve_provider_tests {
             .set_secret("moxxy_provider_test-provider", "sk-test-key-123")
             .unwrap();
 
-        let provider = state.run_service.resolve_provider("test-provider", "gpt-4");
+        let provider = state
+            .run_service
+            .resolve_provider("test-provider", "gpt-4", None);
         assert!(provider.is_some());
     }
 
@@ -1107,7 +1126,9 @@ mod resolve_provider_tests {
         seed_provider_with_model(&state);
 
         // No vault secret stored = resolve should return None
-        let provider = state.run_service.resolve_provider("test-provider", "gpt-4");
+        let provider = state
+            .run_service
+            .resolve_provider("test-provider", "gpt-4", None);
         assert!(provider.is_none());
     }
 
@@ -1115,7 +1136,9 @@ mod resolve_provider_tests {
     fn resolve_provider_missing_provider_returns_none() {
         let (_app, state, _tmp) = test_app();
 
-        let provider = state.run_service.resolve_provider("nonexistent", "gpt-4");
+        let provider = state
+            .run_service
+            .resolve_provider("nonexistent", "gpt-4", None);
         assert!(provider.is_none());
     }
 
@@ -1129,10 +1152,22 @@ mod resolve_provider_tests {
             .set_secret("moxxy_provider_test-provider", "sk-test-key-123")
             .unwrap();
 
+        let provider =
+            state
+                .run_service
+                .resolve_provider("test-provider", "nonexistent-model", None);
+        assert!(provider.is_none());
+    }
+
+    #[test]
+    fn resolve_ollama_provider_without_vault_key_and_without_static_model_returns_some() {
+        let (_app, state, _tmp) = test_app();
+        seed_ollama_provider(&state, "http://localhost:11434/v1");
+
         let provider = state
             .run_service
-            .resolve_provider("test-provider", "nonexistent-model");
-        assert!(provider.is_none());
+            .resolve_provider("ollama", "gpt-oss:20b", None);
+        assert!(provider.is_some());
     }
 }
 
