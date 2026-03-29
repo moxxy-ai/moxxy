@@ -77,19 +77,14 @@ impl Message {
 }
 
 /// Controls whether the model is forced to call a tool.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolChoice {
     /// Model decides whether to call tools (default API behaviour).
+    #[default]
     Auto,
     /// Model MUST call at least one tool every turn.
     Any,
-}
-
-impl Default for ToolChoice {
-    fn default() -> Self {
-        ToolChoice::Auto
-    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]

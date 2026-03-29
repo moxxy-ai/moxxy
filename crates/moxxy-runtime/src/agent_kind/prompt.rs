@@ -302,7 +302,7 @@ pub fn build_hive_queen_prompt() -> String {
      - IMPORTANT: You can spawn multiple sub-agents in a single tool-call response for parallel execution\n\n\
      ### 2. Hive workflow (structured coordination)\n\
      Use for complex projects that need task boards, dependency tracking, and reviews:\n\
-     1. `hive.task_create` to define tasks - use depends_on for ordering\n\
+     1. `hive.task_create` to define tasks — give each a short `id` (e.g. \"create-data\", \"build-ui\"). Use these IDs in `depends_on` of later tasks.\n\
      2. `hive.recruit` to spawn workers for each task\n\
      3. Stay active - do NOT produce final text until all workers finish\n\
      4. `hive.aggregate` for full snapshot when done\n\

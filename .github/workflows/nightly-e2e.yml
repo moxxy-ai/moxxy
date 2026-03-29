@@ -1,0 +1,44 @@
+name: Nightly E2E
+
+on:
+  schedule:
+    # Every night at 03:00 UTC
+    - cron: "0 3 * * *"
+  workflow_dispatch: # allow manual triggers
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_LOG: moxxy_gateway=info,moxxy_runtime=info
+
+jobs:
+  e2e:
+    name: E2E Tests (OpenAI)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run single-agent e2e
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: cargo test -p moxxy-gateway --test hive_e2e e2e_single_agent_tool_call -- --nocapture
+
+      - name: Run hive parallel workers e2e
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: cargo test -p moxxy-gateway --test hive_e2e e2e_hive_parallel_workers -- --nocapture
+
+      - name: Run hive task dependencies e2e
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: cargo test -p moxxy-gateway --test hive_e2e e2e_hive_task_dependencies -- --nocapture
+
+      - name: Run hive complex project e2e
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: cargo test -p moxxy-gateway --test hive_e2e e2e_hive_complex_project -- --nocapture

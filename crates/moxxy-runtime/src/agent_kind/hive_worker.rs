@@ -124,21 +124,33 @@ impl AgentKindDefinition for HiveWorkerAgentKind {
                 }
                 let _ = store.write_manifest(&manifest);
 
-                // Abandon any in-progress or assigned tasks, respecting retry limits
+                // Handle tasks still assigned to this worker at exit time
                 for status_filter in &["in_progress", "assigned"] {
                     if let Ok(tasks) = store.list_tasks(Some(status_filter)) {
                         for mut task in tasks {
                             if task.assigned_agent_id.as_deref() == Some(&setup.name) {
-                                task.assigned_agent_id = None;
                                 task.updated_at = chrono::Utc::now().to_rfc3339();
-                                if task.attempt_count >= task.max_retries {
-                                    task.status = "failed".into();
-                                    task.failure_reason = Some(format!(
-                                        "worker {} exited after {} attempts",
-                                        setup.name, task.attempt_count
-                                    ));
+                                if result.is_ok() {
+                                    // Worker exited successfully — auto-complete the task
+                                    task.status = "completed".into();
+                                    if task.result_summary.is_none() {
+                                        task.result_summary = Some(format!(
+                                            "auto-completed: worker {} exited successfully",
+                                            setup.name
+                                        ));
+                                    }
                                 } else {
-                                    task.status = "pending".into();
+                                    // Worker failed — release task for retry or mark failed
+                                    task.assigned_agent_id = None;
+                                    if task.attempt_count >= task.max_retries {
+                                        task.status = "failed".into();
+                                        task.failure_reason = Some(format!(
+                                            "worker {} exited after {} attempts",
+                                            setup.name, task.attempt_count
+                                        ));
+                                    } else {
+                                        task.status = "pending".into();
+                                    }
                                 }
                                 let _ = store.write_task(&task);
                             }

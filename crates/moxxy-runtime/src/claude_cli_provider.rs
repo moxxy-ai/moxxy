@@ -359,15 +359,14 @@ impl Provider for ClaudeCliProvider {
                     "stream_event" => {
                         let inner = &event["event"];
                         let inner_type = inner.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                        if inner_type == "content_block_delta" {
-                            if let Some(text) = inner
+                        if inner_type == "content_block_delta"
+                            && let Some(text) = inner
                                 .get("delta")
                                 .and_then(|d| d.get("text"))
                                 .and_then(|t| t.as_str())
-                            {
-                                full_content.push_str(text);
-                                yield StreamEvent::TextDelta(text.to_string());
-                            }
+                        {
+                            full_content.push_str(text);
+                            yield StreamEvent::TextDelta(text.to_string());
                         }
                     }
                     "result" => {
@@ -399,10 +398,10 @@ impl Provider for ClaudeCliProvider {
                             full_content.clone()
                         };
 
-                        let usage = event.get("usage").and_then(|u| {
+                        let usage = event.get("usage").map(|u| {
                             let input = u.get("input_tokens").and_then(|v| v.as_u64()).map(|v| v as u32);
                             let output = u.get("output_tokens").and_then(|v| v.as_u64()).map(|v| v as u32);
-                            Some(TokenUsage {
+                            TokenUsage {
                                 input_tokens: input,
                                 output_tokens: output,
                                 prompt_tokens: input,
@@ -411,7 +410,7 @@ impl Provider for ClaudeCliProvider {
                                     (Some(i), Some(o)) => Some(i + o),
                                     _ => None,
                                 },
-                            })
+                            }
                         });
 
                         yield StreamEvent::Done(ProviderResponse {

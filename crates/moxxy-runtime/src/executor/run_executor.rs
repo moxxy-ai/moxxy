@@ -238,17 +238,17 @@ impl RunExecutor {
             }
 
             // Check activity-based timeout
-            if let Some(timeout) = self.run_timeout {
-                if last_activity.elapsed() > timeout {
-                    self.emit(
-                        agent_id,
-                        run_id,
-                        &mut sequence,
-                        EventType::RunFailed,
-                        serde_json::json!({"error": "timeout"}),
-                    );
-                    return Err("Run timed out".to_string());
-                }
+            if let Some(timeout) = self.run_timeout
+                && last_activity.elapsed() > timeout
+            {
+                self.emit(
+                    agent_id,
+                    run_id,
+                    &mut sequence,
+                    EventType::RunFailed,
+                    serde_json::json!({"error": "timeout"}),
+                );
+                return Err("Run timed out".to_string());
             }
 
             // Check cancellation

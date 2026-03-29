@@ -600,6 +600,7 @@ impl Primitive for HiveTaskCreatePrimitive {
         serde_json::json!({
             "type": "object",
             "properties": {
+                "id": { "type": "string", "description": "Short human-readable ID for this task (e.g. 'create-data', 'build-frontend'). Use this ID in depends_on of other tasks." },
                 "title": { "type": "string" },
                 "description": { "type": "string" },
                 "task_type": { "type": "string", "description": "e.g. 'work', 'review', 'research'" },
@@ -607,7 +608,7 @@ impl Primitive for HiveTaskCreatePrimitive {
                 "depends_on": {
                     "type": "array",
                     "items": { "type": "string" },
-                    "description": "Task IDs this depends on"
+                    "description": "IDs of tasks this depends on (use the same id you gave those tasks)"
                 },
                 "max_retries": { "type": "integer", "description": "Max retry attempts before permanent failure (default 3)" }
             },
@@ -658,7 +659,13 @@ impl Primitive for HiveTaskCreatePrimitive {
         }
 
         let now = chrono::Utc::now().to_rfc3339();
-        let task_id = uuid::Uuid::now_v7().to_string();
+        // Use the caller-supplied id if provided; fall back to UUID.
+        let task_id = params
+            .get("id")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
 
         let task = HiveTask {
             id: task_id.clone(),
