@@ -149,16 +149,9 @@ The built-in terminal UI provides a split-pane interface with real-time SSE even
 | `/help` | Show available commands |
 | `/status` | Show agent status |
 | `/model` | Open interactive model picker |
-| `/vault list` | List vault secrets |
-| `/vault set` | Set a vault secret |
-| `/vault remove` | Remove a vault secret |
-| `/mcp list` | List MCP servers and tools |
-| `/mcp add` | Add an MCP server |
-| `/mcp remove` | Remove an MCP server |
-| `/mcp test` | Test MCP server connection |
-| `/template list` | List available templates |
-| `/template assign` | Assign a template to agent |
-| `/template clear` | Clear agent template |
+| `/vault` | Open vault actions |
+| `/mcp` | Open MCP actions |
+| `/template` | Open template actions |
 
 ## Environment Variables
 

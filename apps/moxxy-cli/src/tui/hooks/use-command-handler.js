@@ -7,12 +7,22 @@ function reducer(state, action) {
   switch (action.type) {
     case 'vault_set_pending':
       return { type: 'vault_set', keyName: action.keyName };
+    case 'vault_set_key':
+      return { type: 'vault_set_key' };
+    case 'vault_remove_key':
+      return { type: 'vault_remove_key' };
     case 'mcp_add_transport':
       return { type: 'mcp_transport' };
     case 'mcp_add_detail':
       return { type: 'mcp_detail', transport: action.transport };
     case 'mcp_add_id':
       return { type: 'mcp_id', transport: action.transport, detail: action.detail };
+    case 'mcp_remove_id':
+      return { type: 'mcp_remove_id' };
+    case 'mcp_test_id':
+      return { type: 'mcp_test_id' };
+    case 'template_assign_slug':
+      return { type: 'template_assign_slug' };
     case 'reset':
       return INITIAL_STATE;
     default:
@@ -34,6 +44,9 @@ export function useCommandHandler({
   onAgentUpdate,
   onContextSync,
   onOpenModelPicker,
+  onOpenVaultPicker,
+  onOpenMcpPicker,
+  onOpenTemplatePicker,
 }) {
   const [twoStep, dispatch] = useReducer(reducer, INITIAL_STATE);
 
@@ -61,6 +74,40 @@ export function useCommandHandler({
       try {
         await client.createSecret({ key_name: keyName, backend_key: keyName, value: task });
         eventsHandler.addSystemMessage(`Secret "${keyName}" stored.`);
+      } catch (err) {
+        eventsHandler.addSystemMessage(`Error: ${err.message}`);
+      }
+      return;
+    }
+
+    if (twoStep.type === 'vault_set_key') {
+      const keyName = task.trim();
+      if (!keyName) {
+        eventsHandler.addSystemMessage('Secret key name cannot be empty. Cancelled.');
+        dispatch({ type: 'reset' });
+        return;
+      }
+      dispatch({ type: 'vault_set_pending', keyName });
+      eventsHandler.addSystemMessage(`Enter the secret value for "${keyName}":`);
+      return;
+    }
+
+    if (twoStep.type === 'vault_remove_key') {
+      const keyName = task.trim();
+      dispatch({ type: 'reset' });
+      if (!keyName) {
+        eventsHandler.addSystemMessage('Secret key name cannot be empty. Cancelled.');
+        return;
+      }
+      try {
+        const secrets = await client.listSecrets();
+        const match = secrets.find(s => s.key_name === keyName);
+        if (!match) {
+          eventsHandler.addSystemMessage(`Secret "${keyName}" not found.`);
+          return;
+        }
+        await client.deleteSecret(match.id);
+        eventsHandler.addSystemMessage(`Secret "${keyName}" removed.`);
       } catch (err) {
         eventsHandler.addSystemMessage(`Error: ${err.message}`);
       }
@@ -116,6 +163,55 @@ export function useCommandHandler({
       return;
     }
 
+    if (twoStep.type === 'mcp_remove_id') {
+      const serverId = task.trim();
+      dispatch({ type: 'reset' });
+      if (!serverId) {
+        eventsHandler.addSystemMessage('Server ID cannot be empty. Cancelled.');
+        return;
+      }
+      try {
+        await client.removeMcpServer(agentId, serverId);
+        eventsHandler.addSystemMessage(`MCP server "${serverId}" removed.`);
+      } catch (err) {
+        eventsHandler.addSystemMessage(`Error: ${err.message}`);
+      }
+      return;
+    }
+
+    if (twoStep.type === 'mcp_test_id') {
+      const serverId = task.trim();
+      dispatch({ type: 'reset' });
+      if (!serverId) {
+        eventsHandler.addSystemMessage('Server ID cannot be empty. Cancelled.');
+        return;
+      }
+      try {
+        const result = await client.testMcpServer(agentId, serverId);
+        const status = result.success ? 'Connection successful' : `Connection failed: ${result.error || 'unknown error'}`;
+        eventsHandler.addSystemMessage(`MCP test "${serverId}": ${status}`);
+      } catch (err) {
+        eventsHandler.addSystemMessage(`Error: ${err.message}`);
+      }
+      return;
+    }
+
+    if (twoStep.type === 'template_assign_slug') {
+      const slug = task.trim();
+      dispatch({ type: 'reset' });
+      if (!slug) {
+        eventsHandler.addSystemMessage('Template slug cannot be empty. Cancelled.');
+        return;
+      }
+      try {
+        await client.setAgentTemplate(agentId, slug);
+        eventsHandler.addSystemMessage(`Template "${slug}" assigned. Changes take effect on next run.`);
+      } catch (err) {
+        eventsHandler.addSystemMessage(`Error: ${err.message}`);
+      }
+      return;
+    }
+
     // Slash commands
     if (task === '/quit' || task === '/exit') {
       onExit();
@@ -156,6 +252,10 @@ export function useCommandHandler({
       return;
     }
     // Vault commands
+    if (task === '/vault') {
+      await onOpenVaultPicker();
+      return;
+    }
     if (task === '/vault list') {
       try {
         const secrets = await client.listSecrets();
@@ -175,7 +275,8 @@ export function useCommandHandler({
     if (task.startsWith('/vault set')) {
       const keyName = task.slice('/vault set'.length).trim();
       if (!keyName) {
-        eventsHandler.addSystemMessage('Usage: /vault set <key_name>');
+        dispatch({ type: 'vault_set_key' });
+        eventsHandler.addSystemMessage('Enter the secret key name:');
         return;
       }
       dispatch({ type: 'vault_set_pending', keyName });
@@ -185,7 +286,8 @@ export function useCommandHandler({
     if (task.startsWith('/vault remove') || task.startsWith('/vault delete')) {
       const keyName = task.replace(/^\/vault (remove|delete)/, '').trim();
       if (!keyName) {
-        eventsHandler.addSystemMessage('Usage: /vault remove <key_name>');
+        dispatch({ type: 'vault_remove_key' });
+        eventsHandler.addSystemMessage('Enter the secret key name to remove:');
         return;
       }
       try {
@@ -209,6 +311,10 @@ export function useCommandHandler({
     }
 
     // MCP commands
+    if (task === '/mcp') {
+      await onOpenMcpPicker();
+      return;
+    }
     if (task === '/mcp list') {
       try {
         const servers = await client.listMcpServers(agentId);
@@ -236,7 +342,8 @@ export function useCommandHandler({
     if (task.startsWith('/mcp remove')) {
       const serverId = task.slice('/mcp remove'.length).trim();
       if (!serverId) {
-        eventsHandler.addSystemMessage('Usage: /mcp remove <server_id>');
+        dispatch({ type: 'mcp_remove_id' });
+        eventsHandler.addSystemMessage('Enter the MCP server ID to remove:');
         return;
       }
       try {
@@ -250,7 +357,8 @@ export function useCommandHandler({
     if (task.startsWith('/mcp test')) {
       const serverId = task.slice('/mcp test'.length).trim();
       if (!serverId) {
-        eventsHandler.addSystemMessage('Usage: /mcp test <server_id>');
+        dispatch({ type: 'mcp_test_id' });
+        eventsHandler.addSystemMessage('Enter the MCP server ID to test:');
         return;
       }
       try {
@@ -264,6 +372,10 @@ export function useCommandHandler({
     }
 
     // Template commands
+    if (task === '/template') {
+      await onOpenTemplatePicker();
+      return;
+    }
     if (task === '/template list') {
       try {
         const templates = await client.listTemplates();
@@ -283,7 +395,8 @@ export function useCommandHandler({
     if (task.startsWith('/template assign')) {
       const slug = task.slice('/template assign'.length).trim();
       if (!slug) {
-        eventsHandler.addSystemMessage('Usage: /template assign <slug>');
+        dispatch({ type: 'template_assign_slug' });
+        eventsHandler.addSystemMessage('Enter the template slug to assign:');
         return;
       }
       try {
@@ -320,7 +433,7 @@ export function useCommandHandler({
     } else {
       eventsHandler.addSystemMessage('No agent connected. Cannot run task.');
     }
-  }, [client, agent, agentId, eventsHandler, twoStep, onStop, onExit, onAgentUpdate, onContextSync, onOpenModelPicker, dispatch]);
+  }, [client, agent, agentId, eventsHandler, twoStep, onStop, onExit, onAgentUpdate, onContextSync, onOpenModelPicker, onOpenVaultPicker, onOpenMcpPicker, onOpenTemplatePicker, dispatch]);
 
   return { handleSubmit, twoStepState: twoStep };
 }

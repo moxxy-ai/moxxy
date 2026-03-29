@@ -3,6 +3,7 @@ import { Box, useInput, useApp, useStdout } from 'ink';
 import { Header } from './components/header.jsx';
 import { ChatPanel } from './components/chat-panel.jsx';
 import { InputArea } from './components/input-area.jsx';
+import { ActionPicker } from './components/action-picker.jsx';
 import { ModelPicker } from './components/model-picker.jsx';
 import { EventsHandler } from './events-handler.js';
 import { useEventsStore } from './store.js';
@@ -43,10 +44,12 @@ export function App({ client, agentId, debug, onExit }) {
   const [contextWindow, setContextWindow] = useState(0);
   const [scrollOffset, setScrollOffset] = useState(0);
   const [toolsExpanded, setToolsExpanded] = useState(false);
+  const [actionPicker, setActionPicker] = useState(null);
   const [modelPicker, setModelPicker] = useState(null);
   const modelMetaKeyRef = useRef(null);
   const pollRef = useRef(null);
   const agentRef = useRef(null);
+  const handleSubmitRef = useRef(null);
 
   agentRef.current = agent;
 
@@ -65,6 +68,17 @@ export function App({ client, agentId, debug, onExit }) {
   }, []);
 
   const pickerVisibleRows = Math.max(4, Math.min(10, termHeight - 18));
+
+  const openActionPicker = useCallback((title, items) => {
+    if (!items || items.length === 0) return;
+    setActionPicker({
+      title,
+      items,
+      selected: 0,
+      scroll: 0,
+      status: null,
+    });
+  }, []);
 
   // Auto-scroll to bottom when new messages arrive
   const prevMsgVersion = useRef(snapshot.messageVersion);
@@ -229,7 +243,24 @@ export function App({ client, agentId, debug, onExit }) {
     onAgentUpdate: handleAgentUpdate,
     onContextSync: () => syncContextWindow(true),
     onOpenModelPicker: openModelPicker,
+    onOpenVaultPicker: async () => openActionPicker('Vault', [
+      { label: '/vault list', description: 'List vault secrets', command: '/vault list' },
+      { label: '/vault set', description: 'Set a vault secret', command: '/vault set' },
+      { label: '/vault remove', description: 'Remove a vault secret', command: '/vault remove' },
+    ]),
+    onOpenMcpPicker: async () => openActionPicker('MCP', [
+      { label: '/mcp list', description: 'List MCP servers and tools', command: '/mcp list' },
+      { label: '/mcp add', description: 'Add an MCP server', command: '/mcp add' },
+      { label: '/mcp remove', description: 'Remove an MCP server', command: '/mcp remove' },
+      { label: '/mcp test', description: 'Test MCP server connection', command: '/mcp test' },
+    ]),
+    onOpenTemplatePicker: async () => openActionPicker('Template', [
+      { label: '/template list', description: 'List available templates', command: '/template list' },
+      { label: '/template assign', description: 'Assign a template to the agent', command: '/template assign' },
+      { label: '/template clear', description: 'Clear the current template', command: '/template clear' },
+    ]),
   });
+  handleSubmitRef.current = handleSubmit;
 
   // Load agent + connect SSE on mount
   useEffect(() => {
@@ -290,6 +321,75 @@ export function App({ client, agentId, debug, onExit }) {
 
   // Global keybindings
   useInput(async (input, key) => {
+    if (actionPicker) {
+      if (key.escape) {
+        setActionPicker(null);
+        return;
+      }
+
+      if (key.return) {
+        const item = actionPicker.items[actionPicker.selected];
+        if (!item) return;
+        setActionPicker(null);
+        await handleSubmitRef.current(item.command);
+        return;
+      }
+
+      if (key.upArrow) {
+        setActionPicker(prev => {
+          if (!prev) return prev;
+          const selected = Math.max(0, movePickerSelection(prev.items, prev.selected, -1));
+          return {
+            ...prev,
+            selected,
+            scroll: clampPickerScroll(selected, prev.scroll, pickerVisibleRows),
+          };
+        });
+        return;
+      }
+
+      if (key.downArrow) {
+        setActionPicker(prev => {
+          if (!prev) return prev;
+          const selected = Math.min(prev.items.length - 1, movePickerSelection(prev.items, prev.selected, 1));
+          return {
+            ...prev,
+            selected,
+            scroll: clampPickerScroll(selected, prev.scroll, pickerVisibleRows),
+          };
+        });
+        return;
+      }
+
+      if (key.pageUp) {
+        setActionPicker(prev => {
+          if (!prev) return prev;
+          const selected = Math.max(0, prev.selected - pickerVisibleRows);
+          return {
+            ...prev,
+            selected,
+            scroll: clampPickerScroll(selected, prev.scroll, pickerVisibleRows),
+          };
+        });
+        return;
+      }
+
+      if (key.pageDown) {
+        setActionPicker(prev => {
+          if (!prev) return prev;
+          const selected = Math.min(prev.items.length - 1, prev.selected + pickerVisibleRows);
+          return {
+            ...prev,
+            selected,
+            scroll: clampPickerScroll(selected, prev.scroll, pickerVisibleRows),
+          };
+        });
+        return;
+      }
+
+      return;
+    }
+
     if (modelPicker) {
       if (modelPicker.mode === 'browse') {
         if (key.escape) {
@@ -486,6 +586,9 @@ export function App({ client, agentId, debug, onExit }) {
         toolsExpanded={toolsExpanded}
         termHeight={termHeight}
       />
+      {actionPicker && (
+        <ActionPicker picker={actionPicker} termHeight={termHeight} />
+      )}
       {modelPicker && (
         <ModelPicker picker={modelPicker} termHeight={termHeight} />
       )}
@@ -495,7 +598,7 @@ export function App({ client, agentId, debug, onExit }) {
         onStop={handleStop}
         pendingAsk={snapshot.pendingAsk}
         agent={agent}
-        disabled={Boolean(modelPicker)}
+        disabled={Boolean(actionPicker || modelPicker)}
       />
     </Box>
   );

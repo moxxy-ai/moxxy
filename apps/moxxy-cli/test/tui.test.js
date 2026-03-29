@@ -143,23 +143,17 @@ describe('tab slash commands', () => {
 });
 
 describe('vault slash commands', () => {
-  it('matchCommands returns vault subcommands for /vault', () => {
+  it('matchCommands returns only /vault for /vault prefix', () => {
     const matches = matchCommands('/vault');
     const names = matches.map(m => m.name);
-    assert.ok(names.includes('/vault list'));
-    assert.ok(names.includes('/vault set'));
-    assert.ok(names.includes('/vault remove'));
+    assert.ok(names.includes('/vault'));
+    assert.equal(names.filter(name => name.startsWith('/vault')).length, 1);
   });
 
-  it('matchCommands matches /vault delete alias', () => {
-    const matches = matchCommands('/vault delete');
-    assert.ok(matches.length >= 1);
-    assert.ok(matches.some(m => m.name === '/vault remove'));
-  });
-
-  it('SLASH_COMMANDS includes vault entries', () => {
+  it('SLASH_COMMANDS exposes a single vault command', () => {
     const vaultCmds = SLASH_COMMANDS.filter(c => c.name.startsWith('/vault'));
-    assert.ok(vaultCmds.length >= 3);
+    assert.equal(vaultCmds.length, 1);
+    assert.equal(vaultCmds[0].name, '/vault');
   });
 });
 
@@ -175,6 +169,36 @@ describe('model slash commands', () => {
     const modelCmds = SLASH_COMMANDS.filter(c => c.name.startsWith('/model'));
     assert.equal(modelCmds.length, 1);
     assert.equal(modelCmds[0].name, '/model');
+  });
+});
+
+describe('mcp slash commands', () => {
+  it('matchCommands returns only /mcp for /mcp prefix', () => {
+    const matches = matchCommands('/mcp');
+    const names = matches.map(m => m.name);
+    assert.ok(names.includes('/mcp'));
+    assert.equal(names.filter(name => name.startsWith('/mcp')).length, 1);
+  });
+
+  it('SLASH_COMMANDS exposes a single mcp command', () => {
+    const mcpCmds = SLASH_COMMANDS.filter(c => c.name.startsWith('/mcp'));
+    assert.equal(mcpCmds.length, 1);
+    assert.equal(mcpCmds[0].name, '/mcp');
+  });
+});
+
+describe('template slash commands', () => {
+  it('matchCommands returns only /template for /template prefix', () => {
+    const matches = matchCommands('/template');
+    const names = matches.map(m => m.name);
+    assert.ok(names.includes('/template'));
+    assert.equal(names.filter(name => name.startsWith('/template')).length, 1);
+  });
+
+  it('SLASH_COMMANDS exposes a single template command', () => {
+    const templateCmds = SLASH_COMMANDS.filter(c => c.name.startsWith('/template'));
+    assert.equal(templateCmds.length, 1);
+    assert.equal(templateCmds[0].name, '/template');
   });
 });
 

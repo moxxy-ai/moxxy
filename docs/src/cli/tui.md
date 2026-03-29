@@ -63,6 +63,9 @@ Type `/` in the input bar to access slash commands:
 | `/help` | Show available commands |
 | `/status` | Display agent status |
 | `/model` | Open the interactive model picker |
+| `/vault` | Open vault actions |
+| `/mcp` | Open MCP actions |
+| `/template` | Open template actions |
 
 Slash commands show an autocomplete popup as you type. The model picker uses arrow-key navigation, in-list filtering, and Enter-to-select behavior.
 
