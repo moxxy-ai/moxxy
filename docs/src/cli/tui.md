@@ -47,7 +47,8 @@ If no agent is specified and multiple agents exist, the TUI presents a selection
 |-----|--------|
 | `Enter` | Send message / execute command |
 | `Ctrl+C` | Exit the TUI |
-| `Up/Down` | Scroll chat history |
+| `Up/Down` | Navigate command suggestions or picker options |
+| `Shift+Up/Shift+Down` | Scroll chat history |
 | `Tab` | Autocomplete slash commands |
 
 ## Slash Commands
@@ -61,9 +62,9 @@ Type `/` in the input bar to access slash commands:
 | `/clear` | Clear the chat history |
 | `/help` | Show available commands |
 | `/status` | Display agent status |
-| `/model` | Show current model info |
+| `/model` | Open the interactive model picker |
 
-Slash commands show an autocomplete popup as you type.
+Slash commands show an autocomplete popup as you type. The model picker uses arrow-key navigation, in-list filtering, and Enter-to-select behavior.
 
 ## Markdown Rendering
 

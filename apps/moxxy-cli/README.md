@@ -148,9 +148,7 @@ The built-in terminal UI provides a split-pane interface with real-time SSE even
 | `/clear` | Clear chat history |
 | `/help` | Show available commands |
 | `/status` | Show agent status |
-| `/model` | Show current model info |
-| `/model list` | List available models |
-| `/model switch` | Switch provider/model |
+| `/model` | Open interactive model picker |
 | `/vault list` | List vault secrets |
 | `/vault set` | Set a vault secret |
 | `/vault remove` | Remove a vault secret |

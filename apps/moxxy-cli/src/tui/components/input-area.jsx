@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { THEME } from '../theme.js';
 import { matchCommands } from '../slash-commands.js';
+import { resolveAutocompleteSelection } from '../input-utils.js';
 
 function wordBoundaryLeft(text, pos) {
   let i = pos - 1;
@@ -17,9 +18,10 @@ function wordBoundaryRight(text, pos) {
   return i;
 }
 
-export function InputArea({ onSubmit, onExit, onStop, pendingAsk, agent }) {
+export function InputArea({ onSubmit, onExit, onStop, pendingAsk, agent, disabled = false }) {
   const [inputValue, setInputValue] = useState('');
   const [cursor, setCursor] = useState(0);
+  const [selectedMatchIndex, setSelectedMatchIndex] = useState(0);
   // anchor !== null means there's an active selection between anchor and cursor
   const [anchor, setAnchor] = useState(null);
 
@@ -31,6 +33,7 @@ export function InputArea({ onSubmit, onExit, onStop, pendingAsk, agent }) {
   anchorRef.current = anchor;
 
   const matches = inputValue.startsWith('/') ? matchCommands(inputValue) : [];
+  const autocompleteIndex = Math.min(selectedMatchIndex, Math.max(0, matches.length - 1));
 
   const hasSelection = anchor !== null && anchor !== cursor;
   const selStart = hasSelection ? Math.min(anchor, cursor) : cursor;
@@ -59,10 +62,15 @@ export function InputArea({ onSubmit, onExit, onStop, pendingAsk, agent }) {
     }
   }, [onSubmit]);
 
+  useEffect(() => {
+    setSelectedMatchIndex(0);
+  }, [inputValue, matches.length]);
+
   // Raw stdin listener for Option+Backspace (\x1b\x7f)
   useEffect(() => {
     const stream = process.stdin;
     const onData = (data) => {
+      if (disabled) return;
       const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
       if (buf.length === 2 && buf[0] === 0x1b && buf[1] === 0x7f) {
         const val = valRef.current;
@@ -85,9 +93,11 @@ export function InputArea({ onSubmit, onExit, onStop, pendingAsk, agent }) {
     };
     stream.prependListener('data', onData);
     return () => stream.removeListener('data', onData);
-  }, []);
+  }, [disabled]);
 
   useInput((input, key) => {
+    if (disabled) return;
+
     // Ctrl+C
     if (key.ctrl && input === 'c') {
       if (inputValue.length > 0) {
@@ -102,6 +112,14 @@ export function InputArea({ onSubmit, onExit, onStop, pendingAsk, agent }) {
 
     // Enter → submit
     if (key.return && !key.shift) {
+      const selectedCommand = resolveAutocompleteSelection(inputValue, matches, autocompleteIndex);
+      if (selectedCommand) {
+        setInputValue(selectedCommand);
+        setCursor(selectedCommand.length);
+        setAnchor(null);
+        return;
+      }
+
       handleSubmit(inputValue);
       return;
     }
@@ -141,8 +159,9 @@ export function InputArea({ onSubmit, onExit, onStop, pendingAsk, agent }) {
 
     // Tab → autocomplete
     if (key.tab && matches.length > 0) {
-      setInputValue(matches[0].name);
-      setCursor(matches[0].name.length);
+      const selected = matches[autocompleteIndex] || matches[0];
+      setInputValue(selected.name);
+      setCursor(selected.name.length);
       setAnchor(null);
       return;
     }
@@ -244,8 +263,16 @@ export function InputArea({ onSubmit, onExit, onStop, pendingAsk, agent }) {
     // Ignore other control/meta keys
     if (key.ctrl || key.meta || key.escape) return;
 
-    // Up/down arrows - ignore
-    if (key.upArrow || key.downArrow) return;
+    // Up/down arrows - navigate slash command suggestions
+    if (matches.length > 0 && key.upArrow) {
+      setSelectedMatchIndex(prev => Math.max(0, prev - 1));
+      return;
+    }
+
+    if (matches.length > 0 && key.downArrow) {
+      setSelectedMatchIndex(prev => Math.min(matches.length - 1, prev + 1));
+      return;
+    }
 
     // Regular character input
     if (input) {
@@ -302,7 +329,7 @@ export function InputArea({ onSubmit, onExit, onStop, pendingAsk, agent }) {
           {matches.slice(0, 8).map((cmd, i) => (
             <Box key={cmd.name}>
               <Text>
-                {i === 0
+                {i === autocompleteIndex
                   ? <><Text bold color={THEME.primary}>{cmd.name}</Text><Text color={THEME.text}> - {cmd.description}</Text></>
                   : <><Text color={THEME.dim}>{cmd.name}</Text><Text color={THEME.dim}> - {cmd.description}</Text></>
                 }

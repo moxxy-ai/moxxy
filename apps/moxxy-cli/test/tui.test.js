@@ -5,6 +5,12 @@ import { renderMarkdown } from '../src/tui/markdown-renderer.js';
 import { matchCommands, SLASH_COMMANDS } from '../src/tui/slash-commands.js';
 import { computeContextUtilization } from '../src/tui/components/header.jsx';
 import { EventsHandler } from '../src/tui/events-handler.js';
+import {
+  buildModelPickerEntries,
+  clampPickerScroll,
+  movePickerSelection,
+} from '../src/tui/model-picker.js';
+import { resolveAutocompleteSelection } from '../src/tui/input-utils.js';
 
 describe('tui helpers', () => {
   it('shortId truncates to 12 chars', () => {
@@ -158,22 +164,118 @@ describe('vault slash commands', () => {
 });
 
 describe('model slash commands', () => {
-  it('matchCommands matches /model l to /model list', () => {
-    const matches = matchCommands('/model l');
-    assert.ok(matches.some(m => m.name === '/model list'));
-  });
-
-  it('matchCommands returns model subcommands for /model', () => {
+  it('matchCommands returns only /model for /model prefix', () => {
     const matches = matchCommands('/model');
     const names = matches.map(m => m.name);
     assert.ok(names.includes('/model'));
-    assert.ok(names.includes('/model list'));
-    assert.ok(names.includes('/model switch'));
+    assert.equal(names.filter(name => name.startsWith('/model')).length, 1);
   });
 
-  it('SLASH_COMMANDS includes model entries', () => {
+  it('SLASH_COMMANDS exposes a single model command', () => {
     const modelCmds = SLASH_COMMANDS.filter(c => c.name.startsWith('/model'));
-    assert.ok(modelCmds.length >= 3);
+    assert.equal(modelCmds.length, 1);
+    assert.equal(modelCmds[0].name, '/model');
+  });
+});
+
+describe('model picker helpers', () => {
+  const providers = [
+    { id: 'openai', display_name: 'OpenAI' },
+    { id: 'ollama', display_name: 'Ollama' },
+  ];
+
+  const models = [
+    {
+      provider_id: 'openai',
+      provider_name: 'OpenAI',
+      model_id: 'gpt-4o',
+      model_name: 'GPT-4o',
+      deployment: null,
+      is_current: false,
+    },
+    {
+      provider_id: 'ollama',
+      provider_name: 'Ollama',
+      model_id: 'gpt-oss:20b',
+      model_name: 'GPT OSS 20B',
+      deployment: 'local',
+      is_current: true,
+    },
+    {
+      provider_id: 'ollama',
+      provider_name: 'Ollama',
+      model_id: 'glm-5:cloud',
+      model_name: 'GLM-5 Cloud',
+      deployment: 'cloud',
+      is_current: false,
+    },
+  ];
+
+  it('buildModelPickerEntries groups by provider and keeps custom row', () => {
+    const entries = buildModelPickerEntries(providers, models, '', null);
+    assert.equal(entries[0].type, 'section');
+    assert.equal(entries[0].label, 'Ollama');
+    assert.equal(entries[1].type, 'model');
+    assert.equal(entries[1].model_id, 'gpt-oss:20b');
+    assert.equal(entries[2].type, 'model');
+    assert.equal(entries[2].model_id, 'glm-5:cloud');
+    assert.equal(entries[3].type, 'custom');
+    assert.equal(entries[3].provider_id, 'ollama');
+    assert.equal(entries[4].type, 'section');
+    assert.equal(entries[4].label, 'OpenAI');
+    assert.equal(entries[5].type, 'model');
+    assert.equal(entries[5].model_id, 'gpt-4o');
+    assert.equal(entries[6].type, 'custom');
+    assert.equal(entries[6].provider_id, 'openai');
+  });
+
+  it('buildModelPickerEntries filters by query and preserves matching provider custom row', () => {
+    const entries = buildModelPickerEntries(providers, models, 'oss', null);
+    assert.equal(entries.length, 3);
+    assert.equal(entries[0].type, 'section');
+    assert.equal(entries[1].type, 'model');
+    assert.equal(entries[1].model_id, 'gpt-oss:20b');
+    assert.equal(entries[2].type, 'custom');
+  });
+
+  it('movePickerSelection skips section entries', () => {
+    const entries = buildModelPickerEntries(providers, models, '', null);
+    assert.equal(movePickerSelection(entries, 0, 1), 1);
+    assert.equal(movePickerSelection(entries, 3, 1), 5);
+    assert.equal(movePickerSelection(entries, 4, -1), 3);
+  });
+
+  it('clampPickerScroll keeps selected row inside viewport', () => {
+    assert.equal(clampPickerScroll(12, 0, 5), 8);
+    assert.equal(clampPickerScroll(2, 6, 5), 2);
+    assert.equal(clampPickerScroll(3, 1, 5), 1);
+  });
+});
+
+describe('input autocomplete helpers', () => {
+  it('resolveAutocompleteSelection returns highlighted command when prefix is incomplete', () => {
+    const selected = resolveAutocompleteSelection('/mo', [
+      { name: '/model' },
+      { name: '/mcp list' },
+    ], 0);
+
+    assert.equal(selected, '/model');
+  });
+
+  it('resolveAutocompleteSelection returns null when input already matches the selected command', () => {
+    const selected = resolveAutocompleteSelection('/model', [
+      { name: '/model' },
+    ], 0);
+
+    assert.equal(selected, null);
+  });
+
+  it('resolveAutocompleteSelection ignores invalid selection indexes', () => {
+    const selected = resolveAutocompleteSelection('/mo', [
+      { name: '/model' },
+    ], 4);
+
+    assert.equal(selected, null);
   });
 });
 
