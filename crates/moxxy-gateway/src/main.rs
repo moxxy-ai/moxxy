@@ -251,7 +251,8 @@ async fn main() {
         Ok(ref origins) => tracing::info!("CORS origins: {origins}"),
         Err(_) => tracing::info!(
             "CORS origins: localhost defaults (http://localhost:3000, http://127.0.0.1:3000, \
-             http://localhost:5173, http://127.0.0.1:5173)"
+             http://localhost:17900, http://127.0.0.1:17900, \
+             http://localhost:17901, http://127.0.0.1:17901)"
         ),
     }
 

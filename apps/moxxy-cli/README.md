@@ -194,7 +194,7 @@ Plugins are npm packages that extend Moxxy with additional functionality — web
 
 | Plugin | Package | Description |
 |---|---|---|
-| Web Dashboard | `@moxxy/web-plugin` | Browser-based dashboard on port 5173 |
+| Web Dashboard | `@moxxy/web-plugin` | Browser-based dashboard on port 17900 |
 | Virtual Office | `@moxxy/virtual-office-plugin` | Virtual office environment on port 5174 |
 
 ```bash

@@ -113,12 +113,12 @@ describe('plugin-registry', () => {
     writeFileSync(join(pluginDir, 'package.json'), JSON.stringify({
       name: '@moxxy/web-plugin',
       version: '0.1.0',
-      moxxy: { type: 'plugin', port: 5173 },
+      moxxy: { type: 'plugin', port: 17900 },
       scripts: { 'plugin:start': 'node server.js' },
     }));
     const meta = readPluginMeta('@moxxy/web-plugin');
     assert.equal(meta.name, '@moxxy/web-plugin');
-    assert.equal(meta.moxxy.port, 5173);
+    assert.equal(meta.moxxy.port, 17900);
   });
 
   it('validatePluginMeta accepts valid plugin', () => {
@@ -196,10 +196,10 @@ describe('plugin-registry', () => {
   });
 
   it('buildPluginEnv includes all required variables', () => {
-    const env = buildPluginEnv('@moxxy/web-plugin', 5173);
+    const env = buildPluginEnv('@moxxy/web-plugin', 17900);
     assert.equal(env.MOXXY_PLUGIN_NAME, '@moxxy/web-plugin');
-    assert.equal(env.MOXXY_PLUGIN_PORT, '5173');
-    assert.equal(env.PORT, '5173');
+    assert.equal(env.MOXXY_PLUGIN_PORT, '17900');
+    assert.equal(env.PORT, '17900');
     assert.ok(env.MOXXY_API_URL);
     assert.ok(env.MOXXY_HOME);
     assert.equal(typeof env.MOXXY_TOKEN, 'string');

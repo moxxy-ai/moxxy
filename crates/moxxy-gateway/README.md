@@ -49,7 +49,7 @@ An Axum-based HTTP server that exposes the full Moxxy API. Manages agent lifecyc
 | `MOXXY_PORT` | `3000` | Bind port |
 | `MOXXY_VAULT_KEY` | auto-generated | 256-bit hex key for AES-256-GCM |
 | `MOXXY_LOOPBACK` | `true` | Allow unauthenticated localhost access |
-| `MOXXY_CORS_ORIGINS` | localhost:3000,5173 | Comma-separated allowed origins |
+| `MOXXY_CORS_ORIGINS` | localhost:3000,17900,17901 | Comma-separated allowed origins |
 | `MOXXY_TRUSTED_PROXIES` | — | IPs trusted for x-forwarded-for |
 
 ## Dependencies

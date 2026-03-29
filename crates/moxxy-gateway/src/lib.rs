@@ -35,8 +35,10 @@ fn build_cors_layer() -> CorsLayer {
             vec![
                 "http://localhost:3000".parse().unwrap(),
                 "http://127.0.0.1:3000".parse().unwrap(),
-                "http://localhost:5173".parse().unwrap(),
-                "http://127.0.0.1:5173".parse().unwrap(),
+                "http://localhost:17900".parse().unwrap(),
+                "http://127.0.0.1:17900".parse().unwrap(),
+                "http://localhost:17901".parse().unwrap(),
+                "http://127.0.0.1:17901".parse().unwrap(),
             ]
         }
     };
