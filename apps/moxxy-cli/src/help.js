@@ -325,6 +325,7 @@ Actions:
   start <name>             Start a plugin
   stop <name>              Stop a plugin
   restart <name>           Restart a plugin
+  update <name>            Update a plugin to the latest version
   enable <name>            Enable auto-start
   disable <name>           Disable auto-start
   uninstall <name>         Remove a plugin

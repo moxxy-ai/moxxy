@@ -81,6 +81,7 @@ Usage:
   moxxy plugin start <name>                          Start a plugin
   moxxy plugin stop <name>                           Stop a plugin
   moxxy plugin restart <name>                        Restart a plugin
+  moxxy plugin update <name>                         Update a plugin to latest
   moxxy plugin uninstall <name>                      Remove a plugin
   moxxy plugin logs <name>                           Tail plugin logs
   moxxy tui [--agent <id>]                            Full-screen chat interface

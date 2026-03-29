@@ -480,9 +480,24 @@ impl ChannelTransport for TelegramTransport {
             MessageContent::Text(_) => Some("HTML"),
             _ => Some("MarkdownV2"),
         };
-        self.send_text(&msg.external_chat_id, &text, parse_mode)
-            .await
-            .map(|_| ())
+        match self.send_text(&msg.external_chat_id, &text, parse_mode).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // If formatted send fails (e.g. invalid HTML), retry as plain text
+                tracing::warn!(
+                    chat_id = %msg.external_chat_id,
+                    error = %e,
+                    "Formatted message send failed, retrying as plain text"
+                );
+                let plain = match &msg.content {
+                    MessageContent::Text(s) => s.clone(),
+                    _ => text,
+                };
+                self.send_text(&msg.external_chat_id, &plain, None)
+                    .await
+                    .map(|_| ())
+            }
+        }
     }
 
     async fn send_message_returning_id(
@@ -494,9 +509,21 @@ impl ChannelTransport for TelegramTransport {
             MessageContent::Text(_) => Some("HTML"),
             _ => Some("MarkdownV2"),
         };
-        let msg_id = self
-            .send_text(&msg.external_chat_id, &text, parse_mode)
-            .await?;
+        let msg_id = match self.send_text(&msg.external_chat_id, &text, parse_mode).await {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::warn!(
+                    chat_id = %msg.external_chat_id,
+                    error = %e,
+                    "Formatted message send failed, retrying as plain text"
+                );
+                let plain = match &msg.content {
+                    MessageContent::Text(s) => s.clone(),
+                    _ => text,
+                };
+                self.send_text(&msg.external_chat_id, &plain, None).await?
+            }
+        };
         Ok(msg_id.map(|id| id.to_string()))
     }
 

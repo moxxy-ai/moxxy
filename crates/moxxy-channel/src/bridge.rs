@@ -407,17 +407,31 @@ impl ChannelBridge {
         agent_name: &str,
     ) -> Vec<(Arc<dyn ChannelTransport>, String)> {
         let bindings = ChannelStore::find_bindings_by_agent(&self.moxxy_home, agent_name);
+        if bindings.is_empty() {
+            tracing::debug!(agent_name, "No active bindings found on disk for agent");
+            return vec![];
+        }
         let Ok(transports) = self.transports.read() else {
+            tracing::error!(agent_name, "Failed to acquire transports read lock");
             return vec![];
         };
-        bindings
+        let result: Vec<_> = bindings
             .iter()
             .filter_map(|(channel_id, chat_id, _)| {
-                transports
-                    .get(channel_id)
-                    .map(|t| (t.clone(), chat_id.clone()))
+                match transports.get(channel_id) {
+                    Some(t) => Some((t.clone(), chat_id.clone())),
+                    None => {
+                        tracing::warn!(
+                            agent_name,
+                            channel_id,
+                            "Binding exists but no transport registered for channel"
+                        );
+                        None
+                    }
+                }
             })
-            .collect()
+            .collect();
+        result
     }
 
     /// Resolve bindings and transports for an agent (includes channel_id).
@@ -681,11 +695,27 @@ impl ChannelBridge {
                     .unwrap_or("")
                     .to_string();
                 if text.is_empty() {
+                    tracing::warn!(agent_id, run_id, "MessageFinal had empty content, skipping channel send");
                     return;
                 }
-                let _ = self
+                match self
                     .send_to_agent_channels(agent_id, MessageContent::Text(text))
-                    .await;
+                    .await
+                {
+                    Ok(0) => {
+                        tracing::warn!(
+                            agent_id,
+                            run_id,
+                            "MessageFinal: no channels were notified (no bindings or transports found)"
+                        );
+                    }
+                    Ok(n) => {
+                        tracing::info!(agent_id, run_id, channels = n, "MessageFinal delivered");
+                    }
+                    Err(e) => {
+                        tracing::error!(agent_id, run_id, error = %e, "MessageFinal: failed to send to channels");
+                    }
+                }
             }
 
             EventType::RunCompleted => {
@@ -765,6 +795,16 @@ impl ChannelBridge {
         });
     }
 
+    /// Consume a pairing code and create a binding on disk.
+    /// Delegates to the internal PairingService which maps the code to the real external_chat_id.
+    pub fn consume_pairing_code(
+        &self,
+        code: &str,
+        agent_name: &str,
+    ) -> Result<crate::pairing::ConsumedBinding, ChannelError> {
+        self.pairing_service.consume_code(code, agent_name)
+    }
+
     pub fn shutdown(&self) {
         self.shutdown.cancel();
     }
@@ -778,19 +818,38 @@ impl ChannelSender for ChannelBridge {
         content: MessageContent,
     ) -> Result<u32, ChannelError> {
         let to_send = self.resolve_agent_transports(agent_name);
+        if to_send.is_empty() {
+            tracing::warn!(
+                agent_name,
+                "No channel transports resolved for agent (no bindings or no matching transports)"
+            );
+            return Ok(0);
+        }
         let mut sent = 0u32;
         for (transport, chat_id) in to_send {
             tracing::info!(
                 agent_name,
                 external_chat_id = %chat_id,
+                transport = transport.transport_name(),
                 "Outbound channel message"
             );
             let msg = OutgoingMessage {
-                external_chat_id: chat_id,
+                external_chat_id: chat_id.clone(),
                 content: content.clone(),
             };
-            if transport.send_message(msg).await.is_ok() {
-                sent += 1;
+            match transport.send_message(msg).await {
+                Ok(()) => {
+                    sent += 1;
+                }
+                Err(e) => {
+                    tracing::error!(
+                        agent_name,
+                        external_chat_id = %chat_id,
+                        transport = transport.transport_name(),
+                        error = %e,
+                        "Failed to send message via channel transport"
+                    );
+                }
             }
         }
         Ok(sent)

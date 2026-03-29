@@ -196,6 +196,68 @@ async function restartPlugin(pluginName) {
   await startPlugin(pluginName);
 }
 
+async function updatePlugin(pluginName) {
+  const registry = readRegistry();
+  const entry = registry.plugins[pluginName];
+  if (!entry) {
+    p.log.error(`${pluginName} is not installed.`);
+    return;
+  }
+
+  const { pluginsDir } = pluginPaths();
+  const wasRunning = entry.pid && isProcessAlive(entry.pid);
+  const oldVersion = entry.version;
+
+  // Stop if running
+  if (wasRunning) {
+    p.log.step('Stopping plugin before update...');
+    await stopPlugin(pluginName);
+  }
+
+  // Re-fetch the latest package
+  await withSpinner(`Updating ${pluginName}...`, async () => {
+    execSync(`npm install ${pluginName}@latest`, { cwd: pluginsDir, stdio: 'pipe', timeout: 120_000 });
+  }, `${pluginName} downloaded.`);
+
+  const meta = readPluginMeta(pluginName);
+  const { valid, errors } = validatePluginMeta(meta);
+  if (!valid) {
+    p.log.error(`Updated package is invalid: ${errors.join(', ')}`);
+    p.log.info('Rolling back...');
+    try { execSync(`npm install ${pluginName}@${oldVersion}`, { cwd: pluginsDir, stdio: 'pipe', timeout: 120_000 }); } catch { /* best effort */ }
+    if (wasRunning) await startPlugin(pluginName);
+    return;
+  }
+
+  // Run plugin:install hook if present (post-update setup)
+  if (meta.scripts?.['plugin:install']) {
+    const pluginDir = join(pluginsDir, 'node_modules', pluginName);
+    await withSpinner('Running post-install hook...', async () => {
+      execSync('npm run plugin:install', { cwd: pluginDir, stdio: 'pipe', timeout: 120_000 });
+    }, 'Post-install complete.');
+  }
+
+  const newVersion = meta.version || '0.0.0';
+  entry.version = newVersion;
+  writeRegistry(registry);
+
+  // Restart if it was running before
+  if (wasRunning) {
+    p.log.step('Restarting plugin...');
+    await startPlugin(pluginName);
+  }
+
+  if (oldVersion === newVersion) {
+    p.log.success(`${pluginName} is already at the latest version (v${newVersion}).`);
+  } else {
+    showResult('Plugin updated', {
+      Name: meta.moxxy?.displayName || pluginName,
+      'Old version': oldVersion,
+      'New version': newVersion,
+    });
+  }
+}
+
 async function uninstallPlugin(pluginName) {
   const registry = readRegistry();
   const entry = registry.plugins[pluginName];
@@ -405,6 +467,7 @@ async function interactiveManage() {
   } else {
     actions.push({ value: 'enable', label: 'Enable auto-start', hint: 'enable automatic startup' });
   }
+  actions.push({ value: 'update', label: 'Update', hint: 're-fetch the latest version' });
   actions.push({ value: 'logs', label: 'Logs', hint: 'tail plugin logs' });
   actions.push({ value: 'uninstall', label: 'Uninstall', hint: 'remove the plugin' });
 
@@ -429,6 +492,9 @@ async function interactiveManage() {
       break;
     case 'disable':
       disablePlugin(selected);
+      break;
+    case 'update':
+      await updatePlugin(selected);
       break;
     case 'logs':
       await pluginLogs(selected);
@@ -477,6 +543,11 @@ export async function runPlugin(client, args) {
     case 'restart': {
       const name = resolvePluginName(args.slice(1));
       if (name) await restartPlugin(name);
+      break;
+    }
+    case 'update': {
+      const name = resolvePluginName(args.slice(1));
+      if (name) await updatePlugin(name);
       break;
     }
     case 'uninstall': {

@@ -269,50 +269,45 @@ pub async fn pair_channel(
         ));
     }
 
-    // Bridge is available - but we can't access PairingService directly from outside.
-    // The API pair_channel endpoint creates bindings directly on disk
-    // (the PairingService flow is /start on Telegram -> generate code -> CLI consume).
-    // For the REST API, we accept a code and do direct pairing via the ChannelStore.
+    // Bridge is available - use PairingService to resolve the real external_chat_id
+    // from the 6-digit pairing code (generated when user sent /start on the platform).
+    let bridge = bridge_lock.as_ref().unwrap().clone();
     drop(bridge_lock);
 
-    let mut bindings = ChannelStore::load_bindings(&state.moxxy_home, &channel_id);
+    match bridge.consume_pairing_code(&body.code, &body.agent_id) {
+        Ok(consumed) => {
+            // Clear brute-force counter on success
+            {
+                let mut attempts = state.pairing_attempts.lock().unwrap();
+                attempts.remove(&channel_id);
+            }
 
-    // Remove existing active bindings (one agent per channel)
-    bindings.0.retain(|_, entry| entry.status != "active");
-
-    let now = chrono::Utc::now().to_rfc3339();
-    // The `code` field is used as the external_chat_id for direct API pairing
-    let external_chat_id = body.code.clone();
-    bindings.0.insert(
-        external_chat_id.clone(),
-        BindingEntry {
-            agent_name: body.agent_id.clone(),
-            status: "active".into(),
-            created_at: now,
-        },
-    );
-    ChannelStore::save_bindings(&state.moxxy_home, &channel_id, &bindings).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "internal", "message": format!("Failed to save bindings: {}", e)})),
-        )
-    })?;
-
-    // Clear brute-force counter on success
-    {
-        let mut attempts = state.pairing_attempts.lock().unwrap();
-        attempts.remove(&channel_id);
+            Ok((
+                StatusCode::CREATED,
+                Json(serde_json::json!({
+                    "channel_id": consumed.channel_id,
+                    "agent_id": consumed.agent_name,
+                    "external_chat_id": consumed.external_chat_id,
+                    "status": "active"
+                })),
+            ))
+        }
+        Err(e) => {
+            tracing::warn!(
+                channel_id = %channel_id,
+                code = %body.code,
+                error = %e,
+                "Pairing code consumption failed"
+            );
+            Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "pairing_failed",
+                    "message": format!("Invalid or expired pairing code: {}", e)
+                })),
+            ))
+        }
     }
-
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::json!({
-            "channel_id": channel_id,
-            "agent_id": body.agent_id,
-            "external_chat_id": external_chat_id,
-            "status": "active"
-        })),
-    ))
 }
 
 pub async fn list_bindings(
