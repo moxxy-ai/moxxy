@@ -210,6 +210,46 @@ async function main() {
   const token = process.env.MOXXY_TOKEN || '';
   const client = createApiClient(baseUrl, token, authMode);
 
+  const MENU_GROUPS = {
+    setup:        { label: 'Setup',        hint: 'init, gateway, doctor' },
+    agents:       { label: 'Agents',       hint: 'agents, skills, templates' },
+    security:     { label: 'Security',     hint: 'auth tokens & secrets' },
+    integrations: { label: 'Integrations', hint: 'providers, channels, MCP, plugins' },
+    tools:        { label: 'Tools',        hint: 'events stream' },
+    system:       { label: 'System',       hint: 'update & uninstall' },
+  };
+
+  const SUBMENUS = {
+    setup: [
+      { value: 'init',      label: 'Init',      hint: 'first-time setup' },
+      { value: 'gateway',   label: 'Gateway',   hint: 'start/stop/manage gateway' },
+      { value: 'doctor',    label: 'Doctor',    hint: 'diagnose installation' },
+    ],
+    agents: [
+      { value: 'agent',     label: 'Agent',     hint: 'create & manage agents' },
+      { value: 'skill',     label: 'Skill',     hint: 'create & manage skills' },
+      { value: 'template',  label: 'Template',  hint: 'manage agent templates' },
+    ],
+    security: [
+      { value: 'auth',      label: 'Auth',      hint: 'manage API tokens' },
+      { value: 'vault',     label: 'Vault',     hint: 'manage secrets' },
+    ],
+    integrations: [
+      { value: 'provider',  label: 'Provider',  hint: 'list providers' },
+      { value: 'channel',   label: 'Channel',   hint: 'manage Telegram/Discord channels' },
+      { value: 'mcp',       label: 'MCP',       hint: 'manage MCP servers for agents' },
+      { value: 'plugin',    label: 'Plugin',    hint: 'manage plugins & extensions' },
+      { value: 'heartbeat', label: 'Heartbeat', hint: 'schedule heartbeat rules' },
+    ],
+    tools: [
+      { value: 'events',    label: 'Events',    hint: 'stream live events' },
+    ],
+    system: [
+      { value: 'update',    label: 'Update',    hint: 'check for and install updates' },
+      { value: 'uninstall', label: 'Uninstall', hint: 'remove all Moxxy data' },
+    ],
+  };
+
   if (!command && isInteractive()) {
     while (true) {
       clearScreen();
@@ -219,23 +259,10 @@ async function main() {
       const selected = await p.select({
         message: 'What would you like to do?',
         options: [
-          { value: 'init',      label: 'Init',      hint: 'first-time setup' },
-          { value: 'gateway',   label: 'Gateway',   hint: 'start/stop/manage gateway' },
-          { value: 'auth',      label: 'Auth',      hint: 'manage API tokens' },
-          { value: 'provider',  label: 'Provider',  hint: 'list providers' },
-          { value: 'agent',     label: 'Agent',     hint: 'create & manage agents' },
-          { value: 'skill',     label: 'Skill',     hint: 'create & manage skills' },
-          { value: 'template',  label: 'Template',  hint: 'manage agent templates' },
-          { value: 'vault',     label: 'Vault',     hint: 'manage secrets' },
-          { value: 'heartbeat', label: 'Heartbeat', hint: 'schedule heartbeat rules' },
-          { value: 'channel',   label: 'Channel',   hint: 'manage Telegram/Discord channels' },
-          { value: 'mcp',       label: 'MCP',       hint: 'manage MCP servers for agents' },
-          { value: 'plugin',   label: 'Plugin',    hint: 'manage plugins & extensions' },
-          { value: 'tui',       label: 'Chat',      hint: 'full-screen TUI' },
-          { value: 'events',    label: 'Events',    hint: 'stream live events' },
-          { value: 'doctor',    label: 'Doctor',    hint: 'diagnose installation' },
-          { value: 'update',    label: 'Update',    hint: 'check for and install updates' },
-          { value: 'uninstall', label: 'Uninstall', hint: 'remove all Moxxy data' },
+          { value: 'tui', label: 'Chat', hint: 'full-screen TUI' },
+          ...Object.entries(MENU_GROUPS).map(([key, { label, hint }]) => ({
+            value: key, label, hint,
+          })),
         ],
       });
 
@@ -244,8 +271,35 @@ async function main() {
         break;
       }
 
+      // Chat goes straight to the command
+      if (selected === 'tui') {
+        try {
+          await routeCommand(client, 'tui', []);
+          continue;
+        } catch (err) {
+          if (err instanceof CancelledError) continue;
+          if (err.isGatewayDown) p.log.info(err.message);
+          else p.log.error(err.message);
+          await waitForEnter();
+          process.exitCode = 1;
+          continue;
+        }
+      }
+
+      const submenu = SUBMENUS[selected];
+      if (!submenu) continue;
+
+      const subSelected = await p.select({
+        message: `${MENU_GROUPS[selected].label}`,
+        options: submenu,
+      });
+
+      if (p.isCancel(subSelected)) {
+        continue;
+      }
+
       try {
-        await routeCommand(client, selected, []);
+        await routeCommand(client, subSelected, []);
         await waitForEnter();
       } catch (err) {
         if (err instanceof CancelledError) {
