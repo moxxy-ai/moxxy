@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "node --import tsx --watch src/cli.js",
-    "test": "node --import tsx --test test/cli.test.js test/tui.test.js test/update.test.js"
+    "test": "node --import tsx --test test/cli.test.js test/tui.test.js test/update.test.js test/plugin.test.js"
   },
   "dependencies": {
     "@clack/prompts": "^1.0.1",

@@ -216,6 +216,26 @@ export async function runDoctor(client, args) {
     p.log.info('  Set one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, XAI_API_KEY, ...');
   }
 
+  // ── 12. Plugins ──
+
+  try {
+    const { pluginPaths, readRegistry, isProcessAlive } = await import('../lib/plugin-registry.js');
+    const { registryFile } = pluginPaths();
+    if (existsSync(registryFile)) {
+      const registry = readRegistry();
+      const plugins = Object.values(registry.plugins);
+      const running = plugins.filter(pl => pl.status === 'running' && pl.pid && isProcessAlive(pl.pid));
+      ok(`Plugins: ${plugins.length} installed, ${running.length} running`);
+      for (const plug of running) {
+        ok(`  ${plug.name} v${plug.version} (PID ${plug.pid})`);
+      }
+      const zombies = plugins.filter(pl => pl.status === 'running' && pl.pid && !isProcessAlive(pl.pid));
+      for (const z of zombies) {
+        warning(`  ${z.name} marked running but PID ${z.pid} is dead`);
+      }
+    }
+  } catch { /* plugins not set up yet */ }
+
   // ── Summary ──
 
   const total = pass + warn + fail;

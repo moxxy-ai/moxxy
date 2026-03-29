@@ -122,6 +122,24 @@ export async function runUninstall(client, args) {
     }
   }
 
+  // ── 4b. Stop running plugins ──
+
+  try {
+    const { pluginPaths, readRegistry, isProcessAlive } = await import('../lib/plugin-registry.js');
+    const { registryFile } = pluginPaths();
+    if (existsSync(registryFile)) {
+      const registry = readRegistry();
+      for (const plug of Object.values(registry.plugins)) {
+        if (plug.pid && isProcessAlive(plug.pid)) {
+          try {
+            process.kill(plug.pid, 'SIGTERM');
+            p.log.info(`Stopped plugin: ${plug.name} (PID ${plug.pid})`);
+          } catch { /* already dead */ }
+        }
+      }
+    }
+  } catch { /* no plugins */ }
+
   // ── 5. Remove ~/.moxxy ──
 
   if (existsSync(moxxyHome)) {

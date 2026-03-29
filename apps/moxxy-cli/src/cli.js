@@ -15,6 +15,7 @@ import { runEvents } from './commands/events.js';
 import { runDoctor } from './commands/doctor.js';
 import { runUpdate } from './commands/update.js';
 import { runUninstall } from './commands/uninstall.js';
+import { runPlugin } from './commands/plugin.js';
 import { COMMAND_HELP, showHelp } from './help.js';
 import chalk from 'chalk';
 import { createInterface, cursorTo, clearScreenDown } from 'node:readline';
@@ -75,6 +76,13 @@ Usage:
   moxxy mcp add --agent <name> --id <id> --transport sse --url <url>
   moxxy mcp remove --agent <name> --id <id>         Remove an MCP server
   moxxy mcp test --agent <name> --id <id>           Test an MCP server
+  moxxy plugin list                                  List installed plugins
+  moxxy plugin install <package>                     Install a plugin
+  moxxy plugin start <name>                          Start a plugin
+  moxxy plugin stop <name>                           Stop a plugin
+  moxxy plugin restart <name>                        Restart a plugin
+  moxxy plugin uninstall <name>                      Remove a plugin
+  moxxy plugin logs <name>                           Tail plugin logs
   moxxy tui [--agent <id>]                            Full-screen chat interface
   moxxy chat [--agent <id>]                           Alias for tui
   moxxy events tail [--agent <id>] [--run <id>] [--json]
@@ -156,6 +164,9 @@ async function routeCommand(client, command, rest) {
     case 'mcp':
       await runMcp(client, rest);
       break;
+    case 'plugin':
+      await runPlugin(client, rest);
+      break;
     case 'tui':
     case 'chat': {
       const { startTui } = await import('./tui/index.jsx');
@@ -219,6 +230,7 @@ async function main() {
           { value: 'heartbeat', label: 'Heartbeat', hint: 'schedule heartbeat rules' },
           { value: 'channel',   label: 'Channel',   hint: 'manage Telegram/Discord channels' },
           { value: 'mcp',       label: 'MCP',       hint: 'manage MCP servers for agents' },
+          { value: 'plugin',   label: 'Plugin',    hint: 'manage plugins & extensions' },
           { value: 'tui',       label: 'Chat',      hint: 'full-screen TUI' },
           { value: 'events',    label: 'Events',    hint: 'stream live events' },
           { value: 'doctor',    label: 'Doctor',    hint: 'diagnose installation' },

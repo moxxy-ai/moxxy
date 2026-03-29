@@ -315,6 +315,32 @@ Examples:
   moxxy mcp remove --agent my-agent --id fs-server
   moxxy mcp test --agent my-agent --id fs-server`,
 
+  plugin: `Usage: moxxy plugin <action> [options]
+
+Manage CLI plugins that extend Moxxy functionality.
+
+Actions:
+  list                     List installed plugins
+  install <package>        Install a plugin from npm
+  start <name>             Start a plugin
+  stop <name>              Stop a plugin
+  restart <name>           Restart a plugin
+  enable <name>            Enable auto-start
+  disable <name>           Disable auto-start
+  uninstall <name>         Remove a plugin
+  logs <name>              Tail plugin logs
+
+Built-in plugins:
+  @moxxy/web-plugin              Web Dashboard (browser UI)
+  @moxxy/virtual-office-plugin   Virtual Office
+
+Examples:
+  moxxy plugin install @moxxy/web-plugin
+  moxxy plugin start @moxxy/web-plugin
+  moxxy plugin list
+  moxxy plugin logs @moxxy/web-plugin
+  moxxy plugin uninstall my-custom-plugin`,
+
   tui: `Usage: moxxy tui [options]
        moxxy chat [options]
 

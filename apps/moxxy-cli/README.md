@@ -113,6 +113,14 @@ moxxy mcp add --agent <name> --id <id> --transport sse --url <url>
 moxxy mcp remove --agent <name> --id <id>
 moxxy mcp test --agent <name> --id <id>
 
+moxxy plugin list                                   List installed plugins
+moxxy plugin install <package>                       Install a plugin
+moxxy plugin start <name>                            Start a plugin
+moxxy plugin stop <name>                             Stop a plugin
+moxxy plugin restart <name>                          Restart a plugin
+moxxy plugin uninstall <name>                        Remove a plugin
+moxxy plugin logs <name>                             Tail plugin logs
+
 moxxy events tail [--agent <id>] [--run <id>] [--json]
 ```
 
@@ -177,6 +185,123 @@ The CLI includes a built-in provider catalog:
 | ZAI Plan | `ZAI_API_KEY` | API key |
 | Claude Code CLI | — | Claude Code binary |
 | Custom | Any | OpenAI-compatible endpoint |
+
+## Plugins
+
+Plugins are npm packages that extend Moxxy with additional functionality — web dashboards, virtual offices, custom integrations, and more. Each plugin runs as a standalone process that connects to the gateway via the REST API and SSE events.
+
+### Built-in plugins
+
+| Plugin | Package | Description |
+|---|---|---|
+| Web Dashboard | `@moxxy/web-plugin` | Browser-based dashboard on port 5173 |
+| Virtual Office | `@moxxy/virtual-office-plugin` | Virtual office environment on port 5174 |
+
+```bash
+# Install and start the web dashboard
+moxxy plugin install @moxxy/web-plugin
+moxxy plugin start @moxxy/web-plugin
+
+# Or use the interactive menu
+moxxy plugin
+```
+
+### Creating a custom plugin
+
+A Moxxy plugin is any npm package that declares a `moxxy` section and a `plugin:start` script in its `package.json`:
+
+```json
+{
+  "name": "my-moxxy-dashboard",
+  "version": "1.0.0",
+  "moxxy": {
+    "type": "plugin",
+    "displayName": "My Dashboard",
+    "description": "Custom monitoring dashboard for Moxxy agents",
+    "port": 4000
+  },
+  "scripts": {
+    "plugin:start": "node src/server.js",
+    "plugin:stop": "echo 'shutting down'",
+    "plugin:install": "npm run build",
+    "plugin:uninstall": "rm -rf dist"
+  }
+}
+```
+
+**Required fields:**
+
+- `moxxy.type` — must be `"plugin"`
+- `scripts["plugin:start"]` — the command that starts your plugin
+
+**Optional fields:**
+
+- `moxxy.displayName` — friendly name shown in the CLI menu
+- `moxxy.description` — short description
+- `moxxy.port` — default port the plugin listens on
+- `scripts["plugin:stop"]` — graceful shutdown hook (run before SIGTERM)
+- `scripts["plugin:install"]` — post-install setup (e.g. build step)
+- `scripts["plugin:uninstall"]` — cleanup hook before removal
+
+### Environment variables
+
+When started, your plugin receives these environment variables:
+
+| Variable | Description |
+|---|---|
+| `MOXXY_API_URL` | Gateway base URL (e.g. `http://localhost:3000`) |
+| `MOXXY_TOKEN` | API bearer token for gateway access |
+| `MOXXY_PLUGIN_NAME` | The plugin's own package name |
+| `MOXXY_PLUGIN_PORT` | Allocated port from `moxxy.port` |
+| `MOXXY_HOME` | Moxxy home directory (`~/.moxxy`) |
+| `PORT` | Same as `MOXXY_PLUGIN_PORT` (convenience) |
+
+### Example: minimal plugin
+
+```js
+// src/server.js
+import http from 'node:http';
+
+const PORT = process.env.PORT || 4000;
+const API_URL = process.env.MOXXY_API_URL;
+const TOKEN = process.env.MOXXY_TOKEN;
+
+const server = http.createServer(async (req, res) => {
+  if (req.url === '/') {
+    // Fetch agents from the gateway
+    const resp = await fetch(`${API_URL}/v1/agents`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+    const agents = await resp.json();
+
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(`
+      <h1>Moxxy Agents</h1>
+      <ul>${agents.map(a => `<li>${a.name} [${a.status}]</li>`).join('')}</ul>
+    `);
+    return;
+  }
+  res.writeHead(404).end('Not found');
+});
+
+server.listen(PORT, () => console.log(`Dashboard running on http://localhost:${PORT}`));
+```
+
+Publish to npm, then install in Moxxy:
+
+```bash
+moxxy plugin install my-moxxy-dashboard
+moxxy plugin start my-moxxy-dashboard
+```
+
+### Plugin lifecycle scripts
+
+| Script | When it runs |
+|---|---|
+| `plugin:install` | After `npm install`, before first use (build steps, etc.) |
+| `plugin:start` | When the user runs `moxxy plugin start <name>` |
+| `plugin:stop` | Before SIGTERM when the user runs `moxxy plugin stop <name>` |
+| `plugin:uninstall` | Before removal when the user runs `moxxy plugin uninstall <name>` |
 
 ## About Moxxy
 
