@@ -113,6 +113,7 @@ impl SandboxedCommand {
              (deny default)\
              (allow process-exec)\
              (allow process-fork)\
+             (allow file-read* (literal \"/\"))\
              (allow file-read* (subpath \"{ws}\"))\
              (allow file-read* (subpath \"/usr\"))\
              (allow file-read* (subpath \"/bin\"))\
@@ -123,8 +124,10 @@ impl SandboxedCommand {
              (allow file-read* (subpath \"/Library\"))\
              (allow file-read* (subpath \"/var\"))\
              (allow file-read* (subpath \"/dev\"))\
+             (allow file-write* (literal \"/dev/null\"))\
              (allow file-read* (subpath \"/Applications\"))\
              (allow file-read* (subpath \"/tmp\"))\
+             (allow file-read* (subpath \"/Users\"))\
              (allow sysctl-read)"
         );
         let mut sb_args = vec!["-p".into(), profile, command.into()];
@@ -144,6 +147,7 @@ impl SandboxedCommand {
              (deny default)\
              (allow process-exec)\
              (allow process-fork)\
+             (allow file-read* (literal \"/\"))\
              (allow file-read* (subpath \"{ws}\"))\
              (allow file-write* (subpath \"{ws}\"))\
              (allow file-read* (subpath \"/usr\"))\
@@ -155,8 +159,11 @@ impl SandboxedCommand {
              (allow file-read* (subpath \"/Library\"))\
              (allow file-read* (subpath \"/var\"))\
              (allow file-read* (subpath \"/dev\"))\
+             (allow file-write* (literal \"/dev/null\"))\
              (allow file-read* (subpath \"/Applications\"))\
              (allow file-read* (subpath \"/tmp\"))\
+             (allow file-write* (subpath \"/tmp\"))\
+             (allow file-read* (subpath \"/Users\"))\
              (allow network-outbound)\
              (allow sysctl-read)"
         );

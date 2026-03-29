@@ -8,6 +8,9 @@ pub struct PathPolicy {
     core_mount: Option<PathBuf>,
     deny_prefix: Option<PathBuf>,
     cwd: Arc<Mutex<PathBuf>>,
+    /// Paths explicitly allowed by the user (e.g. "open /Downloads/report.pdf").
+    /// Each entry grants read+write access to that exact path and any children.
+    explicit_allows: Arc<Mutex<Vec<PathBuf>>>,
 }
 
 impl PathPolicy {
@@ -24,6 +27,7 @@ impl PathPolicy {
             workspace_root: canonical,
             core_mount: core_mount.map(|p| p.canonicalize().unwrap_or(p)),
             deny_prefix: deny_prefix.map(|p| p.canonicalize().unwrap_or(p)),
+            explicit_allows: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -51,6 +55,23 @@ impl PathPolicy {
     /// Returns the workspace root.
     pub fn workspace_root(&self) -> &Path {
         &self.workspace_root
+    }
+
+    /// Grant explicit access to a path outside the workspace.
+    /// The path (and any children if it is a directory) becomes readable and writable.
+    pub fn allow_path(&self, path: PathBuf) {
+        let canonical = path.canonicalize().unwrap_or(path);
+        let mut allows = self.explicit_allows.lock().unwrap();
+        if !allows.iter().any(|a| a == &canonical) {
+            allows.push(canonical);
+        }
+    }
+
+    fn is_explicitly_allowed(&self, path: &Path) -> bool {
+        let allows = self.explicit_allows.lock().unwrap();
+        allows
+            .iter()
+            .any(|allowed| path.starts_with(allowed) || path == allowed)
     }
 
     pub fn ensure_readable(&self, path: &Path) -> Result<(), PathPolicyError> {
@@ -108,7 +129,11 @@ impl PathPolicy {
             }
             return Ok(());
         }
-        // 3. Outside both → block
+        // 3. Explicitly allowed paths (user-requested)
+        if self.is_explicitly_allowed(&check_path) {
+            return Ok(());
+        }
+        // 4. Outside all allowed zones → block
         Err(PathPolicyError::OutsideWorkspace(
             check_path.display().to_string(),
         ))
@@ -180,7 +205,11 @@ impl PathPolicy {
             }
             return Ok(());
         }
-        // 3. Outside both → block
+        // 3. Explicitly allowed paths (user-requested)
+        if self.is_explicitly_allowed(&check_path) {
+            return Ok(());
+        }
+        // 4. Outside all allowed zones → block
         Err(PathPolicyError::OutsideWorkspace(
             check_path.display().to_string(),
         ))
@@ -419,5 +448,89 @@ mod tests {
 
         let deep_file = outside.join("hack").join("file.txt");
         assert!(policy.ensure_writable(&deep_file).is_err());
+    }
+
+    #[test]
+    fn explicit_allow_grants_read_outside_workspace() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path().join("workspace");
+        let downloads = tmp.path().join("downloads");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&downloads).unwrap();
+        let file = downloads.join("report.pdf");
+        std::fs::write(&file, "data").unwrap();
+
+        let policy = PathPolicy::new(workspace, None, None);
+        assert!(policy.ensure_readable(&file).is_err());
+
+        policy.allow_path(file.clone());
+        assert!(policy.ensure_readable(&file).is_ok());
+    }
+
+    #[test]
+    fn explicit_allow_grants_write_outside_workspace() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path().join("workspace");
+        let downloads = tmp.path().join("downloads");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&downloads).unwrap();
+
+        let file = downloads.join("output.txt");
+
+        let policy = PathPolicy::new(workspace, None, None);
+        assert!(policy.ensure_writable(&file).is_err());
+
+        policy.allow_path(downloads.clone());
+        assert!(policy.ensure_writable(&file).is_ok());
+    }
+
+    #[test]
+    fn explicit_allow_directory_grants_access_to_children() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path().join("workspace");
+        let ext_dir = tmp.path().join("external");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(ext_dir.join("sub")).unwrap();
+        let child = ext_dir.join("sub").join("file.txt");
+        std::fs::write(&child, "ok").unwrap();
+
+        let policy = PathPolicy::new(workspace, None, None);
+        assert!(policy.ensure_readable(&child).is_err());
+
+        policy.allow_path(ext_dir.clone());
+        assert!(policy.ensure_readable(&child).is_ok());
+        assert!(policy.ensure_writable(&child).is_ok());
+    }
+
+    #[test]
+    fn explicit_allow_does_not_duplicate() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path().join("workspace");
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+
+        let policy = PathPolicy::new(workspace, None, None);
+        policy.allow_path(outside.clone());
+        policy.allow_path(outside.clone());
+        assert_eq!(policy.explicit_allows.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn without_explicit_allow_still_blocks() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path().join("workspace");
+        let outside = tmp.path().join("outside");
+        let other = tmp.path().join("other");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        let file = other.join("secret.txt");
+        std::fs::write(&file, "nope").unwrap();
+
+        let policy = PathPolicy::new(workspace, None, None);
+        // Allow "outside" but NOT "other"
+        policy.allow_path(outside);
+        assert!(policy.ensure_readable(&file).is_err());
     }
 }

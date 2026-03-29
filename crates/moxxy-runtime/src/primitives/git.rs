@@ -8,15 +8,16 @@ use crate::context::PrimitiveContext;
 use crate::registry::{Primitive, PrimitiveError};
 
 /// Well-known directories that commonly contain developer tools.
-/// Appended to the inherited PATH so binaries like git, node, cargo, etc.
-/// are discoverable even when the gateway runs with a minimal environment
-/// (e.g. launched from launchd, systemd, or a daemon wrapper).
+/// Prepended to the inherited PATH so user-installed tools (Homebrew, etc.)
+/// take priority over system shims (e.g. /usr/bin/python3 is an Xcode shim
+/// that fails with `xcode-select: Failed to locate` when Xcode CLI tools
+/// are not installed, but /opt/homebrew/bin/python3 is the real binary).
 #[cfg(unix)]
 fn extra_path_dirs() -> &'static [&'static str] {
     &[
-        "/usr/local/bin",
         "/opt/homebrew/bin",
         "/opt/homebrew/sbin",
+        "/usr/local/bin",
         "/usr/bin",
         "/bin",
         "/usr/sbin",
@@ -34,8 +35,10 @@ fn extra_path_dirs() -> &'static [&'static str] {
     ]
 }
 
-/// Build an augmented PATH string that merges the current PATH with
-/// well-known directories (deduped, original order preserved first).
+/// Build an augmented PATH string that prepends well-known developer-tool
+/// directories before the inherited PATH. This ensures user-installed tools
+/// (e.g. Homebrew python3) shadow system shims (e.g. /usr/bin/python3 Xcode
+/// stub) even when the gateway inherits a minimal PATH from a daemon launcher.
 pub fn augmented_path() -> &'static str {
     static PATH: OnceLock<String> = OnceLock::new();
     PATH.get_or_init(|| {
@@ -43,15 +46,17 @@ pub fn augmented_path() -> &'static str {
         let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
         let mut parts: Vec<PathBuf> = Vec::new();
 
-        for dir in std::env::split_paths(&current) {
-            if seen.insert(dir.clone()) {
-                parts.push(dir);
-            }
-        }
+        // Prepend well-known dirs so Homebrew/user tools take priority.
         for dir in extra_path_dirs() {
             let p = PathBuf::from(dir);
             if seen.insert(p.clone()) {
                 parts.push(p);
+            }
+        }
+        // Then append the inherited PATH (deduped).
+        for dir in std::env::split_paths(&current) {
+            if seen.insert(dir.clone()) {
+                parts.push(dir);
             }
         }
         std::env::join_paths(parts)
