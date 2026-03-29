@@ -288,7 +288,7 @@ Remove all Moxxy data from the system. This includes:
   - Stops the gateway if running
 
 Does NOT remove the CLI package itself. To fully remove:
-  npm remove -g moxxy-cli`,
+  npm remove -g @moxxy/cli`,
 
   mcp: `Usage: moxxy mcp <action> [options]
 
