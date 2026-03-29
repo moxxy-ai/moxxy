@@ -94,5 +94,5 @@ export function buildPluginEnv(pluginName, port) {
 
 export const BUILTIN_PLUGINS = [
   { name: '@moxxy/web-plugin', label: 'Web Dashboard', hint: 'browser-based dashboard', defaultPort: 5173 },
-  { name: '@moxxy/virtual-office-plugin', label: 'Virtual Office', hint: 'virtual office environment', defaultPort: 5174 },
+  { name: '@moxxy/virtual-office-plugin', label: 'Virtual Office', hint: 'virtual office environment', defaultPort: 17901 },
 ];
