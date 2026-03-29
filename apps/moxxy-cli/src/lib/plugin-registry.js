@@ -76,14 +76,19 @@ export function sanitizeLogFileName(pluginName) {
 }
 
 export function buildPluginEnv(pluginName, port) {
+  const apiUrl = process.env.MOXXY_API_URL || 'http://localhost:3000';
+  const token = process.env.MOXXY_TOKEN || '';
   return {
     ...process.env,
-    MOXXY_API_URL: process.env.MOXXY_API_URL || 'http://localhost:3000',
-    MOXXY_TOKEN: process.env.MOXXY_TOKEN || '',
+    MOXXY_API_URL: apiUrl,
+    MOXXY_TOKEN: token,
     MOXXY_PLUGIN_NAME: pluginName,
     MOXXY_PLUGIN_PORT: port ? String(port) : '',
     MOXXY_HOME: getMoxxyHome(),
     PORT: port ? String(port) : '',
+    // Vite exposes only VITE_-prefixed vars to browser code
+    VITE_MOXXY_API_URL: apiUrl,
+    VITE_MOXXY_TOKEN: token,
   };
 }
 

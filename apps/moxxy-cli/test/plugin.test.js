@@ -203,6 +203,8 @@ describe('plugin-registry', () => {
     assert.ok(env.MOXXY_API_URL);
     assert.ok(env.MOXXY_HOME);
     assert.equal(typeof env.MOXXY_TOKEN, 'string');
+    assert.equal(env.VITE_MOXXY_API_URL, env.MOXXY_API_URL);
+    assert.equal(env.VITE_MOXXY_TOKEN, env.MOXXY_TOKEN);
   });
 
   it('buildPluginEnv handles null port', () => {
