@@ -7,10 +7,6 @@ function reducer(state, action) {
   switch (action.type) {
     case 'vault_set_pending':
       return { type: 'vault_set', keyName: action.keyName };
-    case 'model_select_provider':
-      return { type: 'model_provider', providers: action.providers };
-    case 'model_select_model':
-      return { type: 'model_model', providerId: action.providerId, models: action.models };
     case 'mcp_add_transport':
       return { type: 'mcp_transport' };
     case 'mcp_add_detail':
@@ -37,6 +33,7 @@ export function useCommandHandler({
   onExit,
   onAgentUpdate,
   onContextSync,
+  onOpenModelPicker,
 }) {
   const [twoStep, dispatch] = useReducer(reducer, INITIAL_STATE);
 
@@ -66,34 +63,6 @@ export function useCommandHandler({
         eventsHandler.addSystemMessage(`Secret "${keyName}" stored.`);
       } catch (err) {
         eventsHandler.addSystemMessage(`Error: ${err.message}`);
-      }
-      return;
-    }
-
-    // Two-step: model switch - provider selection
-    if (twoStep.type === 'model_provider') {
-      const num = parseInt(task, 10);
-      if (isNaN(num) || num < 1 || num > twoStep.providers.length) {
-        eventsHandler.addSystemMessage('Invalid selection. Cancelled.');
-        dispatch({ type: 'reset' });
-        return;
-      }
-      const provider = twoStep.providers[num - 1];
-      try {
-        const models = await client.listModels(provider.id);
-        if (!models || models.length === 0) {
-          eventsHandler.addSystemMessage(`No models for ${provider.id}.`);
-          dispatch({ type: 'reset' });
-          return;
-        }
-        const lines = models.map((m, i) => `  ${i + 1}. ${m.display_name || m.model_id}`);
-        eventsHandler.addSystemMessage(
-          `Models for ${provider.display_name || provider.id}:\n${lines.join('\n')}\nEnter number to select:`
-        );
-        dispatch({ type: 'model_select_model', providerId: provider.id, models });
-      } catch (err) {
-        eventsHandler.addSystemMessage(`Error: ${err.message}`);
-        dispatch({ type: 'reset' });
       }
       return;
     }
@@ -141,31 +110,6 @@ export function useCommandHandler({
         }
         await client.addMcpServer(agentId, config);
         eventsHandler.addSystemMessage(`MCP server "${serverId}" added.`);
-      } catch (err) {
-        eventsHandler.addSystemMessage(`Error: ${err.message}`);
-      }
-      return;
-    }
-
-    // Two-step: model switch - model selection
-    if (twoStep.type === 'model_model') {
-      const num = parseInt(task, 10);
-      dispatch({ type: 'reset' });
-      if (isNaN(num) || num < 1 || num > twoStep.models.length) {
-        eventsHandler.addSystemMessage('Invalid selection. Cancelled.');
-        return;
-      }
-      const model = twoStep.models[num - 1];
-      try {
-        await client.updateAgent(agentId, {
-          provider_id: twoStep.providerId,
-          model_id: model.model_id,
-        });
-        if (onAgentUpdate) {
-          onAgentUpdate({ provider_id: twoStep.providerId, model_id: model.model_id });
-        }
-        if (onContextSync) onContextSync();
-        eventsHandler.addSystemMessage(`Switched to ${twoStep.providerId}/${model.model_id}.`);
       } catch (err) {
         eventsHandler.addSystemMessage(`Error: ${err.message}`);
       }
@@ -259,46 +203,8 @@ export function useCommandHandler({
       return;
     }
 
-    // Model commands
-    if (task === '/model list') {
-      try {
-        const providers = await client.listProviders();
-        if (!providers || providers.length === 0) {
-          eventsHandler.addSystemMessage('No providers found.');
-          return;
-        }
-        const sections = [];
-        for (const p of providers) {
-          const models = await client.listModels(p.id);
-          const modelLines = (models || []).map(m => `    ${m.display_name || m.model_id}`);
-          sections.push(`  ${p.display_name || p.id}:\n${modelLines.join('\n') || '    (none)'}`);
-        }
-        eventsHandler.addSystemMessage('Available models:\n' + sections.join('\n'));
-      } catch (err) {
-        eventsHandler.addSystemMessage(`Error: ${err.message}`);
-      }
-      return;
-    }
-    if (task === '/model switch') {
-      try {
-        const providers = await client.listProviders();
-        if (!providers || providers.length === 0) {
-          eventsHandler.addSystemMessage('No providers found.');
-          return;
-        }
-        const lines = providers.map((p, i) => `  ${i + 1}. ${p.display_name || p.id}`);
-        eventsHandler.addSystemMessage('Select a provider:\n' + lines.join('\n') + '\nEnter number:');
-        dispatch({ type: 'model_select_provider', providers });
-      } catch (err) {
-        eventsHandler.addSystemMessage(`Error: ${err.message}`);
-      }
-      return;
-    }
     if (task === '/model') {
-      const info = agent
-        ? `Model: ${agent.model_id} via ${agent.provider_id}`
-        : 'No agent connected';
-      eventsHandler.addSystemMessage(info);
+      await onOpenModelPicker();
       return;
     }
 
@@ -414,7 +320,7 @@ export function useCommandHandler({
     } else {
       eventsHandler.addSystemMessage('No agent connected. Cannot run task.');
     }
-  }, [client, agent, agentId, eventsHandler, twoStep, onStop, onExit, onAgentUpdate, onContextSync, dispatch]);
+  }, [client, agent, agentId, eventsHandler, twoStep, onStop, onExit, onAgentUpdate, onContextSync, onOpenModelPicker, dispatch]);
 
   return { handleSubmit, twoStepState: twoStep };
 }

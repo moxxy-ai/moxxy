@@ -6,7 +6,7 @@ Moxxy is a framework for building, running, and orchestrating AI agents with str
 
 ## Key Features
 
-- **Pluggable providers** -- Any OpenAI-compatible LLM endpoint, plus built-in catalogs for Anthropic, OpenAI, xAI, Google Gemini, and DeepSeek
+- **Pluggable providers** -- Any OpenAI-compatible LLM endpoint, plus built-in catalogs for Anthropic, OpenAI, Ollama, xAI, Google Gemini, and DeepSeek
 - **Skill-based agents** -- Markdown skills with YAML frontmatter, declared primitive allowlists, and quarantine-before-approval security
 - **85 built-in primitives** -- Filesystem, shell, HTTP, memory, git, web browsing, webhooks, channels, skills, vault, agents, hive, MCP, and more
 - **Per-agent isolation** -- Separate workspace, memory store, runtime sandbox, and scoped secrets per agent

@@ -23,6 +23,7 @@ pub struct OpenAIProvider {
 }
 
 enum OpenAIAuth {
+    None,
     ApiKey(String),
     ChatGptOAuthSession(Mutex<ChatGptOAuthSession>),
 }
@@ -223,6 +224,16 @@ fn is_fixed_temperature_model(model: &str) -> bool {
 // ── Implementation ─────────────────────────────────────────────────
 
 impl OpenAIProvider {
+    pub fn new_no_auth(api_base: impl Into<String>, model: impl Into<String>) -> Self {
+        Self {
+            api_base: api_base.into(),
+            auth: OpenAIAuth::None,
+            chatgpt_account_id: None,
+            model: model.into(),
+            client: reqwest::Client::new(),
+        }
+    }
+
     pub fn new(
         api_base: impl Into<String>,
         api_key_or_secret: impl Into<String>,
@@ -643,6 +654,23 @@ impl OpenAIProvider {
         }
     }
 
+    fn apply_request_auth(
+        &self,
+        mut request: reqwest::RequestBuilder,
+        bearer: Option<&str>,
+        chatgpt_account_id: Option<&str>,
+    ) -> reqwest::RequestBuilder {
+        if let Some(bearer) = bearer {
+            request = request.bearer_auth(bearer);
+        }
+        if let Some(account_id) = chatgpt_account_id
+            && !account_id.trim().is_empty()
+        {
+            request = request.header("ChatGPT-Account-Id", account_id);
+        }
+        request
+    }
+
     fn is_codex_backend(&self) -> bool {
         let base = self.api_base.to_ascii_lowercase();
         let model = self.model.to_ascii_lowercase();
@@ -689,9 +717,12 @@ impl OpenAIProvider {
         })
     }
 
-    async fn resolve_bearer_auth(&self) -> Result<(String, Option<String>), PrimitiveError> {
+    async fn resolve_request_auth(
+        &self,
+    ) -> Result<(Option<String>, Option<String>), PrimitiveError> {
         match &self.auth {
-            OpenAIAuth::ApiKey(key) => Ok((key.clone(), self.chatgpt_account_id.clone())),
+            OpenAIAuth::None => Ok((None, None)),
+            OpenAIAuth::ApiKey(key) => Ok((Some(key.clone()), self.chatgpt_account_id.clone())),
             OpenAIAuth::ChatGptOAuthSession(state) => {
                 let (needs_refresh, refresh_token, client_id, account_id) = {
                     let locked = state.lock().map_err(|_| {
@@ -745,7 +776,7 @@ impl OpenAIProvider {
                     .clone()
                     .or(account_id)
                     .or_else(|| locked.account_id.clone());
-                Ok((locked.access_token.clone(), account))
+                Ok((Some(locked.access_token.clone()), account))
             }
         }
     }
@@ -756,14 +787,13 @@ impl OpenAIProvider {
         is_codex: bool,
     ) -> Result<ProviderResponse, PrimitiveError> {
         let url = self.request_url();
-        let (bearer, chatgpt_account_id) = self.resolve_bearer_auth().await?;
+        let (bearer, chatgpt_account_id) = self.resolve_request_auth().await?;
 
-        let mut request = self.client.post(&url).bearer_auth(&bearer);
-        if let Some(account_id) = chatgpt_account_id
-            && !account_id.trim().is_empty()
-        {
-            request = request.header("ChatGPT-Account-Id", account_id);
-        }
+        let mut request = self.apply_request_auth(
+            self.client.post(&url),
+            bearer.as_deref(),
+            chatgpt_account_id.as_deref(),
+        );
         if is_codex {
             request = request.header("accept", "text/event-stream");
             tracing::debug!(
@@ -916,6 +946,7 @@ mod tests {
         assert_eq!(provider.model, "gpt-4");
         match &provider.auth {
             OpenAIAuth::ApiKey(key) => assert_eq!(key, "sk-test-key-123"),
+            OpenAIAuth::None => panic!("expected api key auth"),
             OpenAIAuth::ChatGptOAuthSession(_) => panic!("expected api key auth"),
         }
     }
@@ -937,6 +968,7 @@ mod tests {
         );
 
         match &provider.auth {
+            OpenAIAuth::None => panic!("expected oauth session auth"),
             OpenAIAuth::ApiKey(_) => panic!("expected oauth session auth"),
             OpenAIAuth::ChatGptOAuthSession(state) => {
                 let locked = state.lock().unwrap();
@@ -993,6 +1025,22 @@ mod tests {
             build_codex_instructions(&messages),
             "You are a helpful assistant."
         );
+    }
+
+    #[test]
+    fn no_auth_provider_skips_authorization_header() {
+        let provider = OpenAIProvider::new_no_auth("http://localhost:11434/v1", "gpt-oss:20b");
+        let request = provider
+            .apply_request_auth(
+                reqwest::Client::new().post(provider.request_url()),
+                None,
+                None,
+            )
+            .build()
+            .unwrap();
+
+        assert!(request.headers().get("authorization").is_none());
+        assert!(request.headers().get("chatgpt-account-id").is_none());
     }
 
     #[test]

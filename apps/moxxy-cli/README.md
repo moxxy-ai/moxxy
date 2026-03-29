@@ -148,9 +148,7 @@ The built-in terminal UI provides a split-pane interface with real-time SSE even
 | `/clear` | Clear chat history |
 | `/help` | Show available commands |
 | `/status` | Show agent status |
-| `/model` | Show current model info |
-| `/model list` | List available models |
-| `/model switch` | Switch provider/model |
+| `/model` | Open interactive model picker |
 | `/vault list` | List vault secrets |
 | `/vault set` | Set a vault secret |
 | `/vault remove` | Remove a vault secret |
@@ -178,6 +176,7 @@ The CLI includes a built-in provider catalog:
 | Anthropic | `ANTHROPIC_API_KEY` | API key, OAuth |
 | OpenAI | `OPENAI_API_KEY` | API key |
 | OpenAI Codex | `OPENAI_CODEX_SECRET_KEY` | OAuth (browser/headless) |
+| Ollama | — | Local OpenAI-compatible endpoint, no auth |
 | xAI | `XAI_API_KEY` | API key |
 | Google Gemini | `GOOGLE_API_KEY` | API key |
 | DeepSeek | `DEEPSEEK_API_KEY` | API key |

@@ -264,6 +264,7 @@ All skills start **quarantined** and must be approved before use. The `allowed_p
 |---|---|---|---|
 | Anthropic | Built-in | Claude Opus 4, Sonnet 4, Haiku | `ANTHROPIC_API_KEY` |
 | OpenAI | Built-in | GPT-4.1, o3, o4-mini | `OPENAI_API_KEY` |
+| Ollama | Built-in | Local Ollama models via live discovery or static fallback | — |
 | xAI | OpenAI-compatible | Grok 3, Grok 3 Mini | `XAI_API_KEY` |
 | Google Gemini | OpenAI-compatible | Gemini 2.5 Pro/Flash | `GOOGLE_API_KEY` |
 | DeepSeek | OpenAI-compatible | R1, V3 | `DEEPSEEK_API_KEY` |

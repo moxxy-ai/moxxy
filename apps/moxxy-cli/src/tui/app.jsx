@@ -3,9 +3,16 @@ import { Box, useInput, useApp, useStdout } from 'ink';
 import { Header } from './components/header.jsx';
 import { ChatPanel } from './components/chat-panel.jsx';
 import { InputArea } from './components/input-area.jsx';
+import { ModelPicker } from './components/model-picker.jsx';
 import { EventsHandler } from './events-handler.js';
 import { useEventsStore } from './store.js';
 import { useCommandHandler } from './hooks/use-command-handler.js';
+import {
+  buildModelPickerEntries,
+  clampPickerScroll,
+  findFirstSelectableIndex,
+  movePickerSelection,
+} from './model-picker.js';
 
 const SCROLL_LINES = 3;
 
@@ -36,6 +43,7 @@ export function App({ client, agentId, debug, onExit }) {
   const [contextWindow, setContextWindow] = useState(0);
   const [scrollOffset, setScrollOffset] = useState(0);
   const [toolsExpanded, setToolsExpanded] = useState(false);
+  const [modelPicker, setModelPicker] = useState(null);
   const modelMetaKeyRef = useRef(null);
   const pollRef = useRef(null);
   const agentRef = useRef(null);
@@ -43,6 +51,20 @@ export function App({ client, agentId, debug, onExit }) {
   agentRef.current = agent;
 
   const snapshot = useEventsStore(eventsHandler);
+  const currentCustomSelection = useCallback((models) => {
+    const currentAgent = agentRef.current;
+    if (!currentAgent?.provider_id || !currentAgent?.model_id) return null;
+    const hasExactMatch = (models || []).some(model =>
+      model.provider_id === currentAgent.provider_id && model.model_id === currentAgent.model_id
+    );
+    if (hasExactMatch) return null;
+    return {
+      provider_id: currentAgent.provider_id,
+      model_id: currentAgent.model_id,
+    };
+  }, []);
+
+  const pickerVisibleRows = Math.max(4, Math.min(10, termHeight - 18));
 
   // Auto-scroll to bottom when new messages arrive
   const prevMsgVersion = useRef(snapshot.messageVersion);
@@ -111,6 +133,92 @@ export function App({ client, agentId, debug, onExit }) {
     setAgent(prev => prev ? { ...prev, ...patch } : prev);
   }, []);
 
+  const applyModelSelection = useCallback(async (providerId, modelId) => {
+    await client.updateAgent(agentId, {
+      provider_id: providerId,
+      model_id: modelId,
+    });
+    handleAgentUpdate({ provider_id: providerId, model_id: modelId });
+    syncContextWindow(true);
+    eventsHandler.addSystemMessage(`Switched to ${providerId}/${modelId}.`);
+  }, [client, agentId, handleAgentUpdate, syncContextWindow, eventsHandler]);
+
+  const refreshModelPicker = useCallback((prev, query) => {
+    const entries = buildModelPickerEntries(
+      prev.providers,
+      prev.models,
+      query,
+      currentCustomSelection(prev.models)
+    );
+    const selected = findFirstSelectableIndex(entries);
+    return {
+      ...prev,
+      mode: 'browse',
+      query,
+      entries,
+      selected,
+      scroll: clampPickerScroll(selected, 0, pickerVisibleRows),
+      status: entries.length === 0 ? 'No models available.' : null,
+    };
+  }, [currentCustomSelection, pickerVisibleRows]);
+
+  const openModelPicker = useCallback(async () => {
+    try {
+      const providers = await client.listProviders();
+      if (!providers || providers.length === 0) {
+        eventsHandler.addSystemMessage('No providers found.');
+        return;
+      }
+
+      const modelGroups = await Promise.all(
+        providers.map(async (provider) => {
+          try {
+            const models = await client.listModels(provider.id);
+            return { provider, models: models || [] };
+          } catch {
+            return { provider, models: [] };
+          }
+        })
+      );
+
+      const models = modelGroups.flatMap(({ provider, models }) =>
+        models.map((model) => ({
+          provider_id: provider.id,
+          provider_name: provider.display_name || provider.id,
+          model_id: model.model_id,
+          model_name: model.display_name || model.model_id,
+          deployment: readDeployment(provider.id, model),
+          is_current:
+            provider.id === agentRef.current?.provider_id
+            && model.model_id === agentRef.current?.model_id,
+          metadata: model.metadata,
+        }))
+      );
+
+      const entries = buildModelPickerEntries(
+        providers,
+        models,
+        '',
+        currentCustomSelection(models)
+      );
+      const selected = findFirstSelectableIndex(entries);
+
+      setModelPicker({
+        mode: 'browse',
+        providers,
+        models,
+        query: '',
+        focus: 'list',
+        entries,
+        selected,
+        scroll: clampPickerScroll(selected, 0, pickerVisibleRows),
+        status: entries.length === 0 ? 'No models available.' : null,
+      });
+    } catch (err) {
+      eventsHandler.addSystemMessage(`Error: ${err.message}`);
+    }
+  }, [client, currentCustomSelection, eventsHandler, pickerVisibleRows]);
+
   const { handleSubmit } = useCommandHandler({
     client,
     agent,
@@ -120,6 +228,7 @@ export function App({ client, agentId, debug, onExit }) {
     onExit: handleExit,
     onAgentUpdate: handleAgentUpdate,
     onContextSync: () => syncContextWindow(true),
+    onOpenModelPicker: openModelPicker,
   });
 
   // Load agent + connect SSE on mount
@@ -180,7 +289,171 @@ export function App({ client, agentId, debug, onExit }) {
   }, [agent?.status, client, agentId, syncContextWindow]);
 
   // Global keybindings
-  useInput((input, key) => {
+  useInput(async (input, key) => {
+    if (modelPicker) {
+      if (modelPicker.mode === 'browse') {
+        if (key.escape) {
+          setModelPicker(null);
+          return;
+        }
+
+        if (key.return) {
+          const entry = modelPicker.entries[modelPicker.selected];
+          if (!entry || entry.type === 'section') return;
+
+          if (entry.type === 'custom') {
+            setModelPicker(prev => prev ? {
+              ...prev,
+              mode: 'custom',
+              providerId: entry.provider_id,
+              providerName: entry.provider_name,
+              value: entry.current_model_id || '',
+              status: null,
+            } : prev);
+            return;
+          }
+
+          setModelPicker(null);
+          try {
+            await applyModelSelection(entry.provider_id, entry.model_id);
+          } catch (err) {
+            eventsHandler.addSystemMessage(`Error: ${err.message}`);
+          }
+          return;
+        }
+
+        if (key.upArrow) {
+          setModelPicker(prev => {
+            if (!prev) return prev;
+            const selected = movePickerSelection(prev.entries, prev.selected, -1);
+            return {
+              ...prev,
+              selected,
+              focus: 'list',
+              scroll: clampPickerScroll(selected, prev.scroll, pickerVisibleRows),
+            };
+          });
+          return;
+        }
+
+        if (key.downArrow) {
+          setModelPicker(prev => {
+            if (!prev) return prev;
+            const selected = movePickerSelection(prev.entries, prev.selected, 1);
+            return {
+              ...prev,
+              selected,
+              focus: 'list',
+              scroll: clampPickerScroll(selected, prev.scroll, pickerVisibleRows),
+            };
+          });
+          return;
+        }
+
+        if (key.pageUp) {
+          setModelPicker(prev => {
+            if (!prev) return prev;
+            let selected = prev.selected;
+            for (let i = 0; i < pickerVisibleRows; i++) {
+              selected = movePickerSelection(prev.entries, selected, -1);
+            }
+            return {
+              ...prev,
+              selected,
+              focus: 'list',
+              scroll: clampPickerScroll(selected, prev.scroll, pickerVisibleRows),
+            };
+          });
+          return;
+        }
+
+        if (key.pageDown) {
+          setModelPicker(prev => {
+            if (!prev) return prev;
+            let selected = prev.selected;
+            for (let i = 0; i < pickerVisibleRows; i++) {
+              selected = movePickerSelection(prev.entries, selected, 1);
+            }
+            return {
+              ...prev,
+              selected,
+              focus: 'list',
+              scroll: clampPickerScroll(selected, prev.scroll, pickerVisibleRows),
+            };
+          });
+          return;
+        }
+
+        if (key.tab) {
+          setModelPicker(prev => prev ? {
+            ...prev,
+            focus: prev.focus === 'search' ? 'list' : 'search',
+          } : prev);
+          return;
+        }
+
+        if ((key.backspace || key.delete) && modelPicker.focus === 'search') {
+          setModelPicker(prev => prev ? refreshModelPicker(prev, prev.query.slice(0, -1)) : prev);
+          return;
+        }
+
+        if (!key.ctrl && !key.meta && !key.escape && input && modelPicker.focus === 'search') {
+          setModelPicker(prev => prev ? refreshModelPicker(prev, prev.query + input) : prev);
+          return;
+        }
+
+        return;
+      }
+
+      if (modelPicker.mode === 'custom') {
+        if (key.escape) {
+          setModelPicker(prev => prev ? ({
+            ...prev,
+            mode: 'browse',
+            status: null,
+          }) : prev);
+          return;
+        }
+
+        if (key.return) {
+          const value = modelPicker.value.trim();
+          if (!value) {
+            setModelPicker(prev => prev ? ({ ...prev, status: 'Custom model ID cannot be empty.' }) : prev);
+            return;
+          }
+
+          const providerId = modelPicker.providerId;
+          setModelPicker(null);
+          try {
+            await applyModelSelection(providerId, value);
+          } catch (err) {
+            eventsHandler.addSystemMessage(`Error: ${err.message}`);
+          }
+          return;
+        }
+
+        if (key.backspace || key.delete) {
+          setModelPicker(prev => prev ? ({
+            ...prev,
+            value: prev.value.slice(0, -1),
+            status: null,
+          }) : prev);
+          return;
+        }
+
+        if (!key.ctrl && !key.meta && !key.escape && input && !key.upArrow && !key.downArrow) {
+          setModelPicker(prev => prev ? ({
+            ...prev,
+            value: prev.value + input,
+            status: null,
+          }) : prev);
+          return;
+        }
+
+        return;
+      }
+    }
+
     if (key.ctrl && input === 'x') {
       handleStop();
     }
@@ -213,12 +486,16 @@ export function App({ client, agentId, debug, onExit }) {
         toolsExpanded={toolsExpanded}
         termHeight={termHeight}
       />
+      {modelPicker && (
+        <ModelPicker picker={modelPicker} termHeight={termHeight} />
+      )}
       <InputArea
         onSubmit={handleSubmit}
         onExit={handleExit}
         onStop={handleStop}
         pendingAsk={snapshot.pendingAsk}
         agent={agent}
+        disabled={Boolean(modelPicker)}
       />
     </Box>
   );
@@ -238,4 +515,21 @@ function readContextWindow(metadata) {
     if (Number.isFinite(n) && n > 0) return Math.floor(n);
   }
   return 0;
+}
+
+function readDeployment(providerId, model) {
+  const direct = typeof model?.deployment === 'string' ? model.deployment.trim().toLowerCase() : '';
+  if (direct) return direct;
+
+  const metadataDeployment = typeof model?.metadata?.deployment === 'string'
+    ? model.metadata.deployment.trim().toLowerCase()
+    : '';
+  if (metadataDeployment) return metadataDeployment;
+
+  if (providerId === 'ollama') {
+    const id = String(model?.model_id || '').toLowerCase();
+    return id.includes(':cloud') || id.includes('-cloud') ? 'cloud' : 'local';
+  }
+
+  return null;
 }

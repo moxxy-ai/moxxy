@@ -81,6 +81,7 @@ moxxy provider list
 |----------|--------|-------------|
 | Anthropic | Claude Sonnet 5, Opus 4, Sonnet 4, Haiku 4 | `ANTHROPIC_API_KEY` |
 | OpenAI | GPT-5.2, GPT-4.1, o3, o4-mini, GPT-4o | `OPENAI_API_KEY` |
+| Ollama | Local models discovered from `http://localhost:11434/v1` with static fallback | — |
 | xAI | Grok 4, Grok 3, Grok 3 Mini/Fast | `XAI_API_KEY` |
 | Google Gemini | Gemini 3.1 Pro, 2.5 Pro/Flash | `GOOGLE_API_KEY` |
 | DeepSeek | V4, R1, V3 | `DEEPSEEK_API_KEY` |

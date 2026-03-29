@@ -83,7 +83,7 @@ moxxy auth token create --scopes tokens:admin,agents:write,agents:read,runs:writ
 
 ### Step 3: Install a Provider
 
-Providers supply the LLM backend. Moxxy includes a built-in catalog for Anthropic, OpenAI, xAI, Google Gemini, and DeepSeek.
+Providers supply the LLM backend. Moxxy includes a built-in catalog for Anthropic, OpenAI, Ollama, xAI, Google Gemini, and DeepSeek.
 
 ```bash
 # Interactive
