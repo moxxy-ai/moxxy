@@ -378,13 +378,95 @@ function respondHtml(res, statusCode, bodyHtml) {
 }
 
 function createAuthCallbackHtml(success, message) {
-  const title = success ? 'OpenAI authorization complete' : 'OpenAI authorization failed';
+  const title = success ? 'Authorization Complete' : 'Authorization Failed';
   const escaped = String(message || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head><body><h1>${title}</h1><p>${escaped}</p><script>window.close()</script></body></html>`;
+  const accentColor = success ? '#10b981' : '#ef4444';
+  const icon = success
+    ? `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="${accentColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`
+    : `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="${accentColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title} — Moxxy</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #0a0a0a;
+      color: #e5e5e5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 1rem;
+    }
+    .card {
+      background: #171717;
+      border: 1px solid #262626;
+      border-radius: 16px;
+      padding: 3rem 2.5rem;
+      max-width: 420px;
+      width: 100%;
+      text-align: center;
+      animation: fadeIn 0.4s ease-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: ${accentColor}1a;
+      margin-bottom: 1.5rem;
+    }
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #fafafa;
+      margin-bottom: 0.5rem;
+    }
+    .message {
+      font-size: 0.9rem;
+      color: #a3a3a3;
+      line-height: 1.5;
+      margin-bottom: 1.75rem;
+    }
+    .hint {
+      font-size: 0.8rem;
+      color: #525252;
+    }
+    .brand {
+      margin-top: 2rem;
+      font-size: 0.75rem;
+      color: #404040;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">${icon}</div>
+    <h1>${title}</h1>
+    <p class="message">${escaped}</p>
+    <p class="hint">${success ? 'This window will close automatically.' : 'Please try again from the terminal.'}</p>
+    <p class="brand">moxxy</p>
+  </div>
+  ${success ? '<script>setTimeout(()=>window.close(),2000)</script>' : ''}
+</body>
+</html>`;
 }
 
 async function bindServer(server, port, host) {
