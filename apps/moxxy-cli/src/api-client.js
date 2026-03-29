@@ -22,6 +22,12 @@ function normalizeBaseUrl(baseUrl) {
   return withoutV1Suffix || withoutTrailingSlash;
 }
 
+function normalizeMcpServersResponse(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.servers)) return payload.servers;
+  return [];
+}
+
 /**
  * Moxxy API client.
  * Uses native fetch with bearer token injection.
@@ -234,7 +240,8 @@ export class ApiClient {
   }
 
   async listMcpServers(agentName) {
-    return this.request(`/v1/agents/${encodeURIComponent(agentName)}/mcp`, 'GET');
+    const payload = await this.request(`/v1/agents/${encodeURIComponent(agentName)}/mcp`, 'GET');
+    return normalizeMcpServersResponse(payload);
   }
 
   async addMcpServer(agentName, config) {

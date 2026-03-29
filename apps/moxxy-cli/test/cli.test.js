@@ -23,6 +23,7 @@ import { buildSseUrl, parseSseEvent, createSseClient } from '../src/sse-client.j
 import { isInteractive, handleCancel } from '../src/ui.js';
 import { matchCommands, isSlashCommand, SLASH_COMMANDS } from '../src/tui/slash-commands.js';
 import { EventsHandler } from '../src/tui/events-handler.js';
+import { COMMAND_HELP } from '../src/help.js';
 
 // API Client tests
 describe('api-client', () => {
@@ -538,6 +539,56 @@ describe('api-client new methods', () => {
     const url = client.buildUrl('/v1/agents/agent-123');
     assert.equal(url, 'http://localhost:3000/v1/agents/agent-123');
   });
+
+  it('normalizes listMcpServers object response into an array', async () => {
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () => new Response(
+        JSON.stringify({
+          servers: [
+            { id: 'filesystem', transport: 'stdio', enabled: true },
+            { id: 'github', transport: 'sse', enabled: false },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }
+      );
+
+      const client = createApiClient('http://localhost:3000', 'tok');
+      const servers = await client.listMcpServers('agent-1');
+      assert.deepEqual(servers, [
+        { id: 'filesystem', transport: 'stdio', enabled: true },
+        { id: 'github', transport: 'sse', enabled: false },
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('passes through listMcpServers arrays unchanged', async () => {
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () => new Response(
+        JSON.stringify([
+          { id: 'filesystem', transport: 'stdio', enabled: true },
+        ]),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }
+      );
+
+      const client = createApiClient('http://localhost:3000', 'tok');
+      const servers = await client.listMcpServers('agent-1');
+      assert.deepEqual(servers, [
+        { id: 'filesystem', transport: 'stdio', enabled: true },
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
 // Slash command tests
@@ -562,14 +613,27 @@ describe('slash commands', () => {
   it('matchCommands matches aliases', () => {
     const matches = matchCommands('/ex');
     const names = matches.map(m => m.name);
-    assert.ok(names.includes('/quit'));
+    assert.ok(names.includes('/exit'));
+  });
+
+  it('slash command registry exposes /exit and no longer exposes /quit', () => {
+    const names = SLASH_COMMANDS.map(command => command.name);
+    assert.ok(names.includes('/exit'));
+    assert.equal(names.includes('/quit'), false);
   });
 
   it('isSlashCommand detects slash prefix', () => {
-    assert.equal(isSlashCommand('/quit'), true);
+    assert.equal(isSlashCommand('/exit'), true);
     assert.equal(isSlashCommand('/'), true);
     assert.equal(isSlashCommand('hello'), false);
     assert.equal(isSlashCommand(''), false);
+  });
+});
+
+describe('help text', () => {
+  it('tui help references /exit and does not mention /quit', () => {
+    assert.ok(COMMAND_HELP.tui.includes('/exit'));
+    assert.equal(COMMAND_HELP.tui.includes('/quit'), false);
   });
 });
 

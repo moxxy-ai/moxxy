@@ -10,7 +10,21 @@ import {
   clampPickerScroll,
   movePickerSelection,
 } from '../src/tui/model-picker.js';
-import { resolveAutocompleteSelection } from '../src/tui/input-utils.js';
+import { clampAutocompleteScroll, resolveAutocompleteSelection } from '../src/tui/input-utils.js';
+import {
+  createMcpAddWizard,
+  getMcpAddWizardPrompt,
+  parseMcpCommandInput,
+  submitMcpAddWizardValue,
+} from '../src/tui/mcp-wizard.js';
+import {
+  buildVaultRemovePickerItems,
+  createTemplateAssignWizard,
+  createVaultRemoveWizard,
+  createVaultSetWizard,
+  getActionWizardPrompt,
+  submitActionWizardValue,
+} from '../src/tui/action-wizards.js';
 
 describe('tui helpers', () => {
   it('shortId truncates to 12 chars', () => {
@@ -187,6 +201,81 @@ describe('mcp slash commands', () => {
   });
 });
 
+describe('mcp option picker shape', () => {
+  it('root /mcp should expose action-oriented picker labels only through a single command entry', () => {
+    const matches = matchCommands('/mcp');
+    assert.equal(matches.length, 1);
+    assert.equal(matches[0].name, '/mcp');
+  });
+});
+
+describe('mcp wizard helpers', () => {
+  it('parseMcpCommandInput splits command and args for stdio transports', () => {
+    assert.deepEqual(
+      parseMcpCommandInput('npx -y chrome-devtools-mcp@latest'),
+      {
+        command: 'npx',
+        args: ['-y', 'chrome-devtools-mcp@latest'],
+      }
+    );
+  });
+
+  it('parseMcpCommandInput preserves quoted arguments', () => {
+    assert.deepEqual(
+      parseMcpCommandInput('npx -y "@scope/server" "/tmp/my dir"'),
+      {
+        command: 'npx',
+        args: ['-y', '@scope/server', '/tmp/my dir'],
+      }
+    );
+  });
+
+  it('stdio wizard asks for command first and then server id', () => {
+    let wizard = createMcpAddWizard('stdio');
+    assert.equal(getMcpAddWizardPrompt(wizard).label, 'Command');
+
+    let result = submitMcpAddWizardValue(wizard, 'npx -y server-filesystem');
+    assert.equal(result.done, false);
+    wizard = result.wizard;
+    assert.equal(getMcpAddWizardPrompt(wizard).label, 'Server ID');
+
+    result = submitMcpAddWizardValue(wizard, 'filesystem');
+    assert.equal(result.done, true);
+    assert.deepEqual(result.payload, {
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', 'server-filesystem'],
+      id: 'filesystem',
+    });
+  });
+
+  it('sse wizard asks for url first and then server id', () => {
+    let wizard = createMcpAddWizard('sse');
+    assert.equal(getMcpAddWizardPrompt(wizard).label, 'Server URL');
+
+    let result = submitMcpAddWizardValue(wizard, 'http://localhost:8080/sse');
+    assert.equal(result.done, false);
+    wizard = result.wizard;
+    assert.equal(getMcpAddWizardPrompt(wizard).label, 'Server ID');
+
+    result = submitMcpAddWizardValue(wizard, 'remote-sse');
+    assert.equal(result.done, true);
+    assert.deepEqual(result.payload, {
+      transport: 'sse',
+      url: 'http://localhost:8080/sse',
+      id: 'remote-sse',
+    });
+  });
+
+  it('wizard rejects empty values', () => {
+    const wizard = createMcpAddWizard('stdio');
+    const result = submitMcpAddWizardValue(wizard, '   ');
+    assert.equal(result.done, false);
+    assert.equal(result.error, 'Value cannot be empty.');
+    assert.equal(result.wizard.step, 'command');
+  });
+});
+
 describe('template slash commands', () => {
   it('matchCommands returns only /template for /template prefix', () => {
     const matches = matchCommands('/template');
@@ -199,6 +288,42 @@ describe('template slash commands', () => {
     const templateCmds = SLASH_COMMANDS.filter(c => c.name.startsWith('/template'));
     assert.equal(templateCmds.length, 1);
     assert.equal(templateCmds[0].name, '/template');
+  });
+});
+
+describe('vault remove picker helpers', () => {
+  it('builds picker items from secrets returned by the vault API', () => {
+    const items = buildVaultRemovePickerItems([
+      {
+        id: 'sec_1',
+        key_name: 'OPENAI_API_KEY',
+        backend_key: 'OPENAI_API_KEY',
+        policy_label: 'default',
+      },
+      {
+        id: 'sec_2',
+        key_name: 'ANTHROPIC_API_KEY',
+        backend_key: 'anthropic-prod',
+        policy_label: null,
+      },
+    ]);
+
+    assert.deepEqual(items, [
+      {
+        label: 'OPENAI_API_KEY',
+        description: 'backend=OPENAI_API_KEY [default]',
+        command: '/vault remove OPENAI_API_KEY',
+      },
+      {
+        label: 'ANTHROPIC_API_KEY',
+        description: 'backend=anthropic-prod',
+        command: '/vault remove ANTHROPIC_API_KEY',
+      },
+    ]);
+  });
+
+  it('returns an empty picker list when secrets are missing', () => {
+    assert.deepEqual(buildVaultRemovePickerItems(null), []);
   });
 });
 
@@ -300,6 +425,17 @@ describe('input autocomplete helpers', () => {
     ], 4);
 
     assert.equal(selected, null);
+  });
+
+  it('clampAutocompleteScroll scrolls the suggestion window when selection moves below the viewport', () => {
+    assert.equal(clampAutocompleteScroll(0, 0, 5, 10), 0);
+    assert.equal(clampAutocompleteScroll(4, 0, 5, 10), 0);
+    assert.equal(clampAutocompleteScroll(5, 0, 5, 10), 1);
+    assert.equal(clampAutocompleteScroll(8, 1, 5, 10), 4);
+  });
+
+  it('clampAutocompleteScroll clamps to available rows when the list shrinks', () => {
+    assert.equal(clampAutocompleteScroll(2, 6, 5, 4), 0);
   });
 });
 

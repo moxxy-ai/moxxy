@@ -2,7 +2,9 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { THEME } from '../theme.js';
 import { matchCommands } from '../slash-commands.js';
-import { resolveAutocompleteSelection } from '../input-utils.js';
+import { clampAutocompleteScroll, resolveAutocompleteSelection } from '../input-utils.js';
+
+const AUTOCOMPLETE_VISIBLE_ROWS = 8;
 
 function wordBoundaryLeft(text, pos) {
   let i = pos - 1;
@@ -22,6 +24,7 @@ export function InputArea({ onSubmit, onExit, onStop, pendingAsk, agent, disable
   const [inputValue, setInputValue] = useState('');
   const [cursor, setCursor] = useState(0);
   const [selectedMatchIndex, setSelectedMatchIndex] = useState(0);
+  const [matchScrollOffset, setMatchScrollOffset] = useState(0);
   // anchor !== null means there's an active selection between anchor and cursor
   const [anchor, setAnchor] = useState(null);
 
@@ -64,7 +67,14 @@ export function InputArea({ onSubmit, onExit, onStop, pendingAsk, agent, disable
 
   useEffect(() => {
     setSelectedMatchIndex(0);
+    setMatchScrollOffset(0);
   }, [inputValue, matches.length]);
+
+  useEffect(() => {
+    setMatchScrollOffset(prev =>
+      clampAutocompleteScroll(autocompleteIndex, prev, AUTOCOMPLETE_VISIBLE_ROWS, matches.length)
+    );
+  }, [autocompleteIndex, matches.length]);
 
   // Raw stdin listener for Option+Backspace (\x1b\x7f)
   useEffect(() => {
@@ -294,6 +304,16 @@ export function InputArea({ onSubmit, onExit, onStop, pendingAsk, agent, disable
   const prompt = pendingAsk ? '? ' : '› ';
   const showPlaceholder = !inputValue;
   const placeholderText = pendingAsk ? 'Type your answer...' : 'Type a message or /command...';
+  const visibleMatchesStart = clampAutocompleteScroll(
+    autocompleteIndex,
+    matchScrollOffset,
+    AUTOCOMPLETE_VISIBLE_ROWS,
+    matches.length
+  );
+  const visibleMatches = matches.slice(
+    visibleMatchesStart,
+    visibleMatchesStart + AUTOCOMPLETE_VISIBLE_ROWS
+  );
 
   // Render text with selection highlighting
   let renderedInput;
@@ -326,16 +346,19 @@ export function InputArea({ onSubmit, onExit, onStop, pendingAsk, agent, disable
     <Box flexDirection="column" width="100%" flexShrink={0}>
       {matches.length > 0 && (
         <Box flexDirection="column" width="100%" paddingX={1}>
-          {matches.slice(0, 8).map((cmd, i) => (
+          {visibleMatches.map((cmd, i) => {
+            const absoluteIndex = visibleMatchesStart + i;
+            return (
             <Box key={cmd.name}>
               <Text>
-                {i === autocompleteIndex
+                {absoluteIndex === autocompleteIndex
                   ? <><Text bold color={THEME.primary}>{cmd.name}</Text><Text color={THEME.text}> - {cmd.description}</Text></>
                   : <><Text color={THEME.dim}>{cmd.name}</Text><Text color={THEME.dim}> - {cmd.description}</Text></>
                 }
               </Text>
             </Box>
-          ))}
+            );
+          })}
         </Box>
       )}
       <Box

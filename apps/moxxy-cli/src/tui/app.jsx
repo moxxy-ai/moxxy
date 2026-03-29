@@ -14,6 +14,18 @@ import {
   findFirstSelectableIndex,
   movePickerSelection,
 } from './model-picker.js';
+import {
+  createMcpAddWizard,
+  getMcpAddWizardPrompt,
+  submitMcpAddWizardValue,
+} from './mcp-wizard.js';
+import {
+  buildVaultRemovePickerItems,
+  createTemplateAssignWizard,
+  createVaultSetWizard,
+  getActionWizardPrompt,
+  submitActionWizardValue,
+} from './action-wizards.js';
 
 const SCROLL_LINES = 3;
 
@@ -69,16 +81,97 @@ export function App({ client, agentId, debug, onExit }) {
 
   const pickerVisibleRows = Math.max(4, Math.min(10, termHeight - 18));
 
-  const openActionPicker = useCallback((title, items) => {
+  const openActionPicker = useCallback((title, items, previousPicker = null) => {
     if (!items || items.length === 0) return;
     setActionPicker({
+      mode: 'list',
       title,
       items,
       selected: 0,
       scroll: 0,
       status: null,
+      previousPicker,
     });
   }, []);
+
+  const openMcpTransportPicker = useCallback(() => {
+    openActionPicker('MCP Transport', [
+      { label: 'stdio', description: 'Local process via stdin/stdout', command: '/mcp add stdio' },
+      { label: 'sse', description: 'Remote server via SSE', command: '/mcp add sse' },
+      { label: 'streamable_http', description: 'Remote server via Streamable HTTP', command: '/mcp add streamable_http' },
+    ]);
+  }, [openActionPicker]);
+
+  const openMcpAddWizard = useCallback((transport, previousPicker = null) => {
+    const wizard = createMcpAddWizard(transport);
+    const prompt = getMcpAddWizardPrompt(wizard);
+    setActionPicker({
+      mode: 'input',
+      title: prompt.title,
+      inputLabel: prompt.label,
+      placeholder: prompt.placeholder,
+      stepLabel: `${transport} · step 1`,
+      value: '',
+      status: null,
+      flow: 'mcp-add',
+      wizard,
+      previousPicker,
+    });
+  }, []);
+
+  const openInputWizard = useCallback((wizard, previousPicker = null) => {
+    const prompt = getActionWizardPrompt(wizard);
+    setActionPicker({
+      mode: 'input',
+      title: prompt.title,
+      inputLabel: prompt.label,
+      placeholder: prompt.placeholder,
+      stepLabel: wizard.flow,
+      value: '',
+      status: null,
+      flow: wizard.flow,
+      wizard,
+      previousPicker,
+    });
+  }, []);
+
+  const openMcpServerPicker = useCallback(async (mode) => {
+    try {
+      const servers = await client.listMcpServers(agentId);
+      if (!Array.isArray(servers) || servers.length === 0) {
+        eventsHandler.addSystemMessage(`No MCP servers to ${mode}.`);
+        return;
+      }
+
+      openActionPicker(
+        mode === 'remove' ? 'Remove MCP Server' : 'Test MCP Server',
+        servers.map(server => ({
+          label: server.id,
+          description: `[${server.transport || 'unknown'}] ${server.enabled === false ? 'disabled' : 'enabled'}`,
+          command: `/mcp ${mode} ${server.id}`,
+        }))
+      );
+    } catch (err) {
+      eventsHandler.addSystemMessage(`Error: ${err.message}`);
+    }
+  }, [client, agentId, eventsHandler, openActionPicker]);
+
+  const openVaultRemovePicker = useCallback(async (previousPicker = null) => {
+    try {
+      const secrets = await client.listSecrets();
+      const items = buildVaultRemovePickerItems(secrets);
+      if (items.length === 0) {
+        eventsHandler.addSystemMessage('No vault secrets found.');
+        if (previousPicker) setActionPicker(previousPicker);
+        return;
+      }
+
+      openActionPicker('Remove Vault Secret', items, previousPicker);
+    } catch (err) {
+      eventsHandler.addSystemMessage(`Error: ${err.message}`);
+      if (previousPicker) setActionPicker(previousPicker);
+    }
+  }, [client, eventsHandler, openActionPicker]);
 
   // Auto-scroll to bottom when new messages arrive
   const prevMsgVersion = useRef(snapshot.messageVersion);
@@ -248,17 +341,22 @@ export function App({ client, agentId, debug, onExit }) {
       { label: '/vault set', description: 'Set a vault secret', command: '/vault set' },
       { label: '/vault remove', description: 'Remove a vault secret', command: '/vault remove' },
     ]),
+    onOpenVaultSetWizard: async () => openInputWizard(createVaultSetWizard(), actionPicker),
+    onOpenVaultRemoveWizard: async () => openVaultRemovePicker(actionPicker),
     onOpenMcpPicker: async () => openActionPicker('MCP', [
       { label: '/mcp list', description: 'List MCP servers and tools', command: '/mcp list' },
       { label: '/mcp add', description: 'Add an MCP server', command: '/mcp add' },
       { label: '/mcp remove', description: 'Remove an MCP server', command: '/mcp remove' },
       { label: '/mcp test', description: 'Test MCP server connection', command: '/mcp test' },
     ]),
+    onOpenMcpTransportPicker: openMcpTransportPicker,
+    onOpenMcpServerPicker: openMcpServerPicker,
     onOpenTemplatePicker: async () => openActionPicker('Template', [
       { label: '/template list', description: 'List available templates', command: '/template list' },
       { label: '/template assign', description: 'Assign a template to the agent', command: '/template assign' },
       { label: '/template clear', description: 'Clear the current template', command: '/template clear' },
     ]),
+    onOpenTemplateAssignWizard: async () => openInputWizard(createTemplateAssignWizard(), actionPicker),
   });
   handleSubmitRef.current = handleSubmit;
 
@@ -322,14 +420,137 @@ export function App({ client, agentId, debug, onExit }) {
   // Global keybindings
   useInput(async (input, key) => {
     if (actionPicker) {
+      if (actionPicker.mode === 'input') {
+        if (key.escape) {
+          setActionPicker(actionPicker.previousPicker || null);
+          return;
+        }
+
+        if (key.return) {
+          if (actionPicker.flow === 'mcp-add') {
+            const result = submitMcpAddWizardValue(actionPicker.wizard, actionPicker.value);
+            if (!result.done) {
+              if (result.error) {
+                setActionPicker(prev => prev ? ({ ...prev, status: result.error }) : prev);
+                return;
+              }
+
+              const prompt = getMcpAddWizardPrompt(result.wizard);
+              const stepIndex = result.wizard.step === 'server_id' ? 2 : 1;
+              setActionPicker(prev => prev ? ({
+                ...prev,
+                inputLabel: prompt.label,
+                placeholder: prompt.placeholder,
+                stepLabel: `${result.wizard.transport} · step ${stepIndex}`,
+                value: '',
+                status: null,
+                wizard: result.wizard,
+              }) : prev);
+              return;
+            }
+
+            setActionPicker(null);
+            try {
+              await client.addMcpServer(agentId, result.payload);
+              eventsHandler.addSystemMessage(`MCP server "${result.payload.id}" added.`);
+            } catch (err) {
+              eventsHandler.addSystemMessage(`Error: ${err.message}`);
+            }
+            return;
+          }
+
+          if (actionPicker.flow === 'vault-set' || actionPicker.flow === 'vault-remove' || actionPicker.flow === 'template-assign') {
+            const result = submitActionWizardValue(actionPicker.wizard, actionPicker.value);
+            if (!result.done) {
+              if (result.error) {
+                setActionPicker(prev => prev ? ({ ...prev, status: result.error }) : prev);
+                return;
+              }
+
+              const prompt = getActionWizardPrompt(result.wizard);
+              setActionPicker(prev => prev ? ({
+                ...prev,
+                title: prompt.title,
+                inputLabel: prompt.label,
+                placeholder: prompt.placeholder,
+                value: '',
+                status: null,
+                wizard: result.wizard,
+              }) : prev);
+              return;
+            }
+
+            setActionPicker(null);
+            try {
+              if (actionPicker.flow === 'vault-set') {
+                await client.createSecret(result.payload);
+                eventsHandler.addSystemMessage(`Secret "${result.payload.key_name}" stored.`);
+              } else if (actionPicker.flow === 'vault-remove') {
+                const secrets = await client.listSecrets();
+                const match = secrets.find(s => s.key_name === result.payload.key_name);
+                if (!match) {
+                  eventsHandler.addSystemMessage(`Secret "${result.payload.key_name}" not found.`);
+                } else {
+                  await client.deleteSecret(match.id);
+                  eventsHandler.addSystemMessage(`Secret "${result.payload.key_name}" removed.`);
+                }
+              } else if (actionPicker.flow === 'template-assign') {
+                await client.setAgentTemplate(agentId, result.payload.slug);
+                eventsHandler.addSystemMessage(`Template "${result.payload.slug}" assigned. Changes take effect on next run.`);
+              }
+            } catch (err) {
+              eventsHandler.addSystemMessage(`Error: ${err.message}`);
+            }
+            return;
+          }
+          return;
+        }
+
+        if (key.backspace || key.delete) {
+          setActionPicker(prev => prev ? ({
+            ...prev,
+            value: prev.value.slice(0, -1),
+            status: null,
+          }) : prev);
+          return;
+        }
+
+        if (!key.ctrl && !key.meta && !key.escape && input && !key.upArrow && !key.downArrow) {
+          setActionPicker(prev => prev ? ({
+            ...prev,
+            value: prev.value + input,
+            status: null,
+          }) : prev);
+          return;
+        }
+
+        return;
+      }
+
       if (key.escape) {
-        setActionPicker(null);
+        setActionPicker(actionPicker.previousPicker || null);
         return;
       }
 
       if (key.return) {
         const item = actionPicker.items[actionPicker.selected];
         if (!item) return;
+        if (item.command === '/mcp add stdio' || item.command === '/mcp add sse' || item.command === '/mcp add streamable_http') {
+          openMcpAddWizard(item.command.slice('/mcp add '.length).trim(), actionPicker);
+          return;
+        }
+        if (item.command === '/vault set') {
+          openInputWizard(createVaultSetWizard(), actionPicker);
+          return;
+        }
+        if (item.command === '/vault remove') {
+          await openVaultRemovePicker(actionPicker);
+          return;
+        }
+        if (item.command === '/template assign') {
+          openInputWizard(createTemplateAssignWizard(), actionPicker);
+          return;
+        }
         setActionPicker(null);
         await handleSubmitRef.current(item.command);
         return;

@@ -353,7 +353,7 @@ Keyboard shortcuts:
   Enter           Send message
   Ctrl+X          Stop running agent
   /help           Show available slash commands
-  /quit           Exit the TUI`,
+  /exit           Exit the TUI`,
 };
 
 /**

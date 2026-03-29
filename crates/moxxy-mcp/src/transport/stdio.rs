@@ -3,6 +3,7 @@ use crate::protocol::{JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};
 use crate::transport::McpTransport;
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -22,6 +23,60 @@ pub struct StdioTransport {
     _reader_handle: tokio::task::JoinHandle<()>,
 }
 
+#[cfg(unix)]
+fn extra_path_dirs() -> &'static [&'static str] {
+    &[
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    ]
+}
+
+#[cfg(windows)]
+fn extra_path_dirs() -> &'static [&'static str] {
+    &[
+        r"C:\Program Files\nodejs",
+        r"C:\Program Files\Git\cmd",
+        r"C:\Program Files\Git\bin",
+        r"C:\Program Files\Git\usr\bin",
+    ]
+}
+
+fn build_augmented_path(current: &str) -> String {
+    let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    let mut parts: Vec<PathBuf> = Vec::new();
+
+    for dir in extra_path_dirs() {
+        let path = PathBuf::from(dir);
+        if seen.insert(path.clone()) {
+            parts.push(path);
+        }
+    }
+
+    for dir in std::env::split_paths(current) {
+        if seen.insert(dir.clone()) {
+            parts.push(dir);
+        }
+    }
+
+    std::env::join_paths(parts)
+        .expect("Failed to join PATH")
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn resolve_spawn_path(env: &HashMap<String, String>) -> String {
+    let current = env
+        .get("PATH")
+        .cloned()
+        .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
+    build_augmented_path(&current)
+}
+
 impl StdioTransport {
     /// Spawn a child process and set up the stdio transport.
     pub async fn spawn(
@@ -38,6 +93,7 @@ impl StdioTransport {
         for (key, val) in env {
             cmd.env(key, val);
         }
+        cmd.env("PATH", resolve_spawn_path(env));
 
         let mut child = cmd
             .spawn()
@@ -219,6 +275,24 @@ impl McpTransport for StdioTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn build_augmented_path_prepends_common_dev_dirs() {
+        let path = build_augmented_path("/custom/bin:/usr/bin");
+        #[cfg(unix)]
+        {
+            assert!(path.contains("/opt/homebrew/bin"));
+            assert!(path.contains("/custom/bin"));
+        }
+    }
+
+    #[test]
+    fn resolve_spawn_path_prefers_env_path_when_provided() {
+        let mut env = HashMap::new();
+        env.insert("PATH".into(), "/my/custom/bin".into());
+        let resolved = resolve_spawn_path(&env);
+        assert!(resolved.contains("/my/custom/bin"));
+    }
 
     #[tokio::test]
     async fn spawn_nonexistent_command_fails() {

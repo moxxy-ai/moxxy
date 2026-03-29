@@ -45,8 +45,13 @@ export function useCommandHandler({
   onContextSync,
   onOpenModelPicker,
   onOpenVaultPicker,
+  onOpenVaultSetWizard,
+  onOpenVaultRemoveWizard,
   onOpenMcpPicker,
+  onOpenMcpTransportPicker,
+  onOpenMcpServerPicker,
   onOpenTemplatePicker,
+  onOpenTemplateAssignWizard,
 }) {
   const [twoStep, dispatch] = useReducer(reducer, INITIAL_STATE);
 
@@ -213,7 +218,7 @@ export function useCommandHandler({
     }
 
     // Slash commands
-    if (task === '/quit' || task === '/exit') {
+    if (task === '/exit') {
       onExit();
       return;
     }
@@ -275,8 +280,7 @@ export function useCommandHandler({
     if (task.startsWith('/vault set')) {
       const keyName = task.slice('/vault set'.length).trim();
       if (!keyName) {
-        dispatch({ type: 'vault_set_key' });
-        eventsHandler.addSystemMessage('Enter the secret key name:');
+        await onOpenVaultSetWizard();
         return;
       }
       dispatch({ type: 'vault_set_pending', keyName });
@@ -286,8 +290,7 @@ export function useCommandHandler({
     if (task.startsWith('/vault remove') || task.startsWith('/vault delete')) {
       const keyName = task.replace(/^\/vault (remove|delete)/, '').trim();
       if (!keyName) {
-        dispatch({ type: 'vault_remove_key' });
-        eventsHandler.addSystemMessage('Enter the secret key name to remove:');
+        await onOpenVaultRemoveWizard();
         return;
       }
       try {
@@ -322,10 +325,12 @@ export function useCommandHandler({
           eventsHandler.addSystemMessage('No MCP servers connected.');
         } else {
           const lines = servers.map(s => {
-            const tools = s.tools && s.tools.length > 0
-              ? ` (${s.tools.length} tools: ${s.tools.map(t => t.name).join(', ')})`
-              : ' (no tools)';
-            return `  ${s.server_id} [${s.transport}] ${s.status || 'unknown'}${tools}`;
+            const id = s.id || s.server_id || 'unknown';
+            const status = s.enabled === false ? 'disabled' : 'enabled';
+            const detail = s.transport === 'stdio'
+              ? `cmd=${s.command || '?'}`
+              : `url=${s.url || '?'}`;
+            return `  ${id} [${s.transport || 'unknown'}] ${status}  ${detail}`;
           });
           eventsHandler.addSystemMessage('MCP servers:\n' + lines.join('\n'));
         }
@@ -335,15 +340,22 @@ export function useCommandHandler({
       return;
     }
     if (task === '/mcp add') {
-      eventsHandler.addSystemMessage('Select transport type: enter "stdio" or "sse":');
-      dispatch({ type: 'mcp_add_transport' });
+      await onOpenMcpTransportPicker();
+      return;
+    }
+    if (task === '/mcp add stdio' || task === '/mcp add sse' || task === '/mcp add streamable_http') {
+      const transport = task.slice('/mcp add '.length).trim();
+      const prompt = transport === 'stdio'
+        ? 'Enter the command to start the server:'
+        : 'Enter the server URL:';
+      eventsHandler.addSystemMessage(prompt);
+      dispatch({ type: 'mcp_add_detail', transport });
       return;
     }
     if (task.startsWith('/mcp remove')) {
       const serverId = task.slice('/mcp remove'.length).trim();
       if (!serverId) {
-        dispatch({ type: 'mcp_remove_id' });
-        eventsHandler.addSystemMessage('Enter the MCP server ID to remove:');
+        await onOpenMcpServerPicker('remove');
         return;
       }
       try {
@@ -357,13 +369,14 @@ export function useCommandHandler({
     if (task.startsWith('/mcp test')) {
       const serverId = task.slice('/mcp test'.length).trim();
       if (!serverId) {
-        dispatch({ type: 'mcp_test_id' });
-        eventsHandler.addSystemMessage('Enter the MCP server ID to test:');
+        await onOpenMcpServerPicker('test');
         return;
       }
       try {
         const result = await client.testMcpServer(agentId, serverId);
-        const status = result.success ? 'Connection successful' : `Connection failed: ${result.error || 'unknown error'}`;
+        const status = result.status === 'ok'
+          ? 'Connection successful'
+          : `Connection failed: ${result.error || 'unknown error'}`;
         eventsHandler.addSystemMessage(`MCP test "${serverId}": ${status}`);
       } catch (err) {
         eventsHandler.addSystemMessage(`Error: ${err.message}`);
@@ -395,8 +408,7 @@ export function useCommandHandler({
     if (task.startsWith('/template assign')) {
       const slug = task.slice('/template assign'.length).trim();
       if (!slug) {
-        dispatch({ type: 'template_assign_slug' });
-        eventsHandler.addSystemMessage('Enter the template slug to assign:');
+        await onOpenTemplateAssignWizard();
         return;
       }
       try {
@@ -433,7 +445,7 @@ export function useCommandHandler({
     } else {
       eventsHandler.addSystemMessage('No agent connected. Cannot run task.');
     }
-  }, [client, agent, agentId, eventsHandler, twoStep, onStop, onExit, onAgentUpdate, onContextSync, onOpenModelPicker, onOpenVaultPicker, onOpenMcpPicker, onOpenTemplatePicker, dispatch]);
+  }, [client, agent, agentId, eventsHandler, twoStep, onStop, onExit, onAgentUpdate, onContextSync, onOpenModelPicker, onOpenVaultPicker, onOpenVaultSetWizard, onOpenVaultRemoveWizard, onOpenMcpPicker, onOpenMcpTransportPicker, onOpenMcpServerPicker, onOpenTemplatePicker, onOpenTemplateAssignWizard, dispatch]);
 
   return { handleSubmit, twoStepState: twoStep };
 }

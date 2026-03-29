@@ -1,5 +1,5 @@
 export const SLASH_COMMANDS = [
-  { name: '/quit',         description: 'Exit the TUI',                aliases: ['/exit'] },
+  { name: '/exit',         description: 'Exit the TUI',                aliases: [] },
   { name: '/stop',         description: 'Stop the running agent',      aliases: [] },
   { name: '/new',          description: 'Reset session and start fresh', aliases: ['/reset'] },
   { name: '/clear',        description: 'Clear chat history',          aliases: [] },
