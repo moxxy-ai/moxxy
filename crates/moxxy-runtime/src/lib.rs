@@ -1,10 +1,12 @@
 pub mod agent_kind;
 pub mod anthropic_provider;
+pub mod chromium;
 pub mod claude_cli_provider;
 pub mod context;
 pub mod defaults;
 pub mod echo_provider;
 pub mod executor;
+pub mod html_text;
 pub mod openai_provider;
 pub mod primitives;
 pub mod process;
@@ -27,8 +29,8 @@ pub use primitives::{
     AgentSelfPersonaReadPrimitive, AgentSelfPersonaWritePrimitive, AgentSelfUpdatePrimitive,
     AgentSpawnPrimitive, AgentStatusPrimitive, AgentStopPrimitive, AllowlistAddPrimitive,
     AllowlistDenyPrimitive, AllowlistListPrimitive, AllowlistRemovePrimitive,
-    AllowlistUndenyPrimitive, AskChannels, BrowseExtractPrimitive,
-    BrowseFetchPrimitive, ChannelMessageSender, ChannelNotifyPrimitive, CliNotifyPrimitive,
+    AllowlistUndenyPrimitive, AskChannels, BrowseCrawlPrimitive, BrowseExtractPrimitive,
+    BrowseFetchPrimitive, BrowseRenderPrimitive, ChannelMessageSender, ChannelNotifyPrimitive, CliNotifyPrimitive,
     ConfigGetPrimitive, ConfigSetPrimitive, FsCdPrimitive, FsListPrimitive, FsReadPrimitive,
     FsRemovePrimitive, FsWritePrimitive, GitCheckoutPrimitive, GitClonePrimitive,
     GitCommitPrimitive, GitForkPrimitive, GitInitPrimitive, GitPrCreatePrimitive, GitPushPrimitive,

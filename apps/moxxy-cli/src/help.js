@@ -1,4 +1,28 @@
 export const COMMAND_HELP = {
+  settings: `Usage: moxxy settings <action> [options]
+
+Manage global Moxxy settings.
+
+Actions:
+  network-mode [safe|unsafe]   Get or set network mode
+  get [--key <k>]              View all settings or a single key
+  set --key <k> --value <v>    Set a setting value
+
+Network Modes:
+  safe      (default) Agent asks the user before accessing non-allowlisted domains
+  unsafe    Domain allowlist is bypassed entirely — any domain is allowed
+
+Options:
+  --json    Output as JSON
+
+Examples:
+  moxxy settings network-mode              Show current mode
+  moxxy settings network-mode unsafe       Switch to unsafe mode
+  moxxy settings network-mode safe         Switch back to safe mode
+  moxxy settings get                       Show all settings
+  moxxy settings get --key network_mode    Show a single setting
+  moxxy settings set --key network_mode --value unsafe`,
+
   init: `Usage: moxxy init
 
 First-time setup wizard. Configures the Moxxy home directory, auth mode,

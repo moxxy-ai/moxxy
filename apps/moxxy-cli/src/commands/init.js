@@ -763,5 +763,192 @@ export async function runInit(client, args) {
     }
   }
 
+  // Step 7: Browser rendering (optional)
+  p.note(
+    'Browser rendering enables agents to load JavaScript-heavy websites\n' +
+    'using a headless Chrome browser. This requires Chrome/Chromium.\n' +
+    'Without it, agents can still fetch pages via HTTP (works for most sites).',
+    'Browser Rendering'
+  );
+
+  const enableBrowser = await p.confirm({
+    message: 'Enable browser rendering capabilities?',
+    initialValue: false,
+  });
+  handleCancel(enableBrowser);
+
+  if (enableBrowser) {
+    const chromePath = detectChromeBinary(moxxyHome);
+
+    if (chromePath) {
+      p.log.success(`Chrome found: ${chromePath}`);
+      saveBrowserRenderingSetting(moxxyHome, true);
+      p.log.success('Browser rendering enabled.');
+    } else {
+      p.log.warn('Chrome/Chromium not found on this system.');
+
+      const downloadChrome = await p.confirm({
+        message: 'Download Chromium (~150MB) to ~/.moxxy/chromium/?',
+        initialValue: true,
+      });
+      handleCancel(downloadChrome);
+
+      if (downloadChrome) {
+        const installed = await installChromium(moxxyHome);
+        if (installed) {
+          saveBrowserRenderingSetting(moxxyHome, true);
+          p.log.success('Browser rendering enabled.');
+        } else {
+          p.log.warn('Chromium install failed. You can retry later with: moxxy settings browser-rendering');
+        }
+      } else {
+        p.log.info('Skipped. Install Chrome manually or run: moxxy settings browser-rendering');
+      }
+    }
+  }
+
   p.outro('Setup complete. Run moxxy to see available commands.');
+}
+
+// ---------------------------------------------------------------------------
+// Browser rendering helpers
+// ---------------------------------------------------------------------------
+
+function detectChromeBinary(moxxyHome) {
+  const os = platform();
+
+  // 1. CHROME_PATH env var
+  if (process.env.CHROME_PATH && existsSync(process.env.CHROME_PATH)) {
+    return process.env.CHROME_PATH;
+  }
+
+  // 2. System Chrome
+  const systemPaths = os === 'darwin'
+    ? [
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        '/Applications/Chromium.app/Contents/MacOS/Chromium',
+      ]
+    : [
+        '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser',
+      ];
+
+  for (const p of systemPaths) {
+    if (existsSync(p)) return p;
+  }
+
+  // 3. which fallback (Linux)
+  if (os === 'linux') {
+    for (const name of ['google-chrome', 'chromium-browser', 'chromium']) {
+      try {
+        const result = execSync(`which ${name}`, { stdio: 'pipe', encoding: 'utf-8' }).trim();
+        if (result && existsSync(result)) return result;
+      } catch { /* not found */ }
+    }
+  }
+
+  // 4. Previously downloaded
+  const platDir = chromePlatformDir();
+  const binaryName = os === 'darwin'
+    ? 'Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'
+    : 'chrome';
+  const downloaded = join(moxxyHome, 'chromium', platDir, binaryName);
+  if (existsSync(downloaded)) return downloaded;
+
+  return null;
+}
+
+function chromePlatformDir() {
+  const os = platform();
+  const cpuArch = arch();
+  if (os === 'darwin') {
+    return cpuArch === 'arm64' ? 'chrome-mac-arm64' : 'chrome-mac-x64';
+  }
+  return 'chrome-linux64';
+}
+
+async function installChromium(moxxyHome) {
+  const CHROME_FOR_TESTING_API = 'https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json';
+
+  try {
+    // Fetch latest stable version info
+    const versionInfo = await withSpinner('Fetching Chromium version info...', async () => {
+      const resp = await fetch(CHROME_FOR_TESTING_API, { signal: AbortSignal.timeout(15000) });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return resp.json();
+    }, 'Version info retrieved.');
+
+    const platKey = chromePlatformKey();
+    const stable = versionInfo.channels.Stable;
+    const chromeDownloads = stable.downloads.chrome;
+    const entry = chromeDownloads.find(d => d.platform === platKey);
+
+    if (!entry) {
+      p.log.error(`No Chromium build for platform: ${platKey}`);
+      return false;
+    }
+
+    const downloadUrl = entry.url;
+    const targetDir = join(moxxyHome, 'chromium');
+    mkdirSync(targetDir, { recursive: true });
+
+    const zipPath = join(targetDir, 'chrome.zip');
+
+    // Download
+    await withSpinner(`Downloading Chromium ${stable.version}...`, async () => {
+      const resp = await fetch(downloadUrl, { signal: AbortSignal.timeout(300000) });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const fileStream = createWriteStream(zipPath);
+      await pipeline(resp.body, fileStream);
+    }, 'Download complete.');
+
+    // Extract
+    await withSpinner('Extracting Chromium...', async () => {
+      execSync(`unzip -o -q "${zipPath}" -d "${targetDir}"`, { stdio: 'pipe' });
+    }, 'Extraction complete.');
+
+    // Cleanup zip
+    try { const { unlinkSync } = await import('node:fs'); unlinkSync(zipPath); } catch { /* ignore */ }
+
+    const chromePath = detectChromeBinary(moxxyHome);
+    if (chromePath) {
+      // Make executable on Linux
+      if (platform() === 'linux') {
+        try { chmodSync(chromePath, 0o755); } catch { /* ignore */ }
+      }
+      p.log.success(`Chromium installed: ${chromePath}`);
+      return true;
+    }
+
+    p.log.error('Extraction succeeded but Chrome binary not found');
+    return false;
+  } catch (err) {
+    p.log.error(`Failed to install Chromium: ${err.message}`);
+    return false;
+  }
+}
+
+function chromePlatformKey() {
+  const os = platform();
+  const cpuArch = arch();
+  if (os === 'darwin') {
+    return cpuArch === 'arm64' ? 'mac-arm64' : 'mac-x64';
+  }
+  return 'linux64';
+}
+
+function saveBrowserRenderingSetting(moxxyHome, enabled) {
+  const settingsFile = join(moxxyHome, 'settings.yaml');
+  let lines = [];
+  try {
+    const raw = readFileSync(settingsFile, 'utf-8');
+    lines = raw.split('\n').filter(l => !l.startsWith('browser_rendering:'));
+  } catch { /* no existing settings */ }
+
+  lines.push(`browser_rendering: ${enabled}`);
+
+  mkdirSync(moxxyHome, { recursive: true });
+  writeFileSync(settingsFile, lines.filter(l => l.trim()).join('\n') + '\n');
 }

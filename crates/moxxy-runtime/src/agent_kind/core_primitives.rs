@@ -4,7 +4,8 @@ use crate::{
     AgentSelfPersonaReadPrimitive, AgentSelfPersonaWritePrimitive, AgentSelfUpdatePrimitive,
     AgentSpawnPrimitive, AgentStatusPrimitive, AgentStopPrimitive, AllowlistAddPrimitive,
     AllowlistDenyPrimitive, AllowlistListPrimitive, AllowlistRemovePrimitive,
-    AllowlistUndenyPrimitive, BrowseExtractPrimitive, BrowseFetchPrimitive,
+    AllowlistUndenyPrimitive, BrowseCrawlPrimitive, BrowseExtractPrimitive, BrowseFetchPrimitive,
+    BrowseRenderPrimitive,
     ChannelNotifyPrimitive, CliNotifyPrimitive, FsCdPrimitive, FsListPrimitive, FsReadPrimitive,
     FsRemovePrimitive, FsWritePrimitive, GitCheckoutPrimitive, GitClonePrimitive,
     GitCommitPrimitive, GitForkPrimitive, GitInitPrimitive, GitPrCreatePrimitive, GitPushPrimitive,
@@ -79,11 +80,17 @@ pub fn register_core_primitives(
     .with_working_dir(policy.cwd());
     registry.register(Box::new(shell_prim));
 
+    // Load system settings for network mode
+    let system_settings = moxxy_core::SystemSettings::load(
+        &moxxy_core::settings_path(&ctx.moxxy_home),
+    );
+
     // HTTP primitive (YAML-backed domain allowlist)
     registry.register(Box::new(HttpRequestPrimitive::new(
         allowlist_path.clone(),
         std::time::Duration::from_secs(30),
         5 * 1024 * 1024,
+        system_settings.network_mode,
     )));
 
     // Skill primitives
@@ -127,8 +134,30 @@ pub fn register_core_primitives(
         allowlist_path.clone(),
         std::time::Duration::from_secs(30),
         10 * 1024 * 1024,
+        system_settings.network_mode,
     )));
     registry.register(Box::new(BrowseExtractPrimitive::new()));
+    registry.register(Box::new(BrowseCrawlPrimitive::new(
+        allowlist_path.clone(),
+        std::time::Duration::from_secs(30),
+        10 * 1024 * 1024,
+        system_settings.network_mode,
+    )));
+
+    // Browser rendering (headless Chrome — only if enabled in settings)
+    if system_settings.browser_rendering {
+        if let Some(manager) = crate::chromium::ChromiumManager::detect(&ctx.moxxy_home) {
+            registry.register(Box::new(BrowseRenderPrimitive::new(
+                allowlist_path.clone(),
+                std::time::Duration::from_secs(30),
+                10 * 1024 * 1024,
+                system_settings.network_mode,
+                std::sync::Arc::new(manager),
+            )));
+        } else {
+            tracing::warn!("Browser rendering enabled but Chrome/Chromium not found");
+        }
+    }
 
     // Git primitives (vault-aware via PrimitiveContext, with ask support for token resolution)
     let prim_ctx = PrimitiveContext::new(

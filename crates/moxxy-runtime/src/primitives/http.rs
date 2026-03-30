@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use moxxy_core::NetworkMode;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -8,6 +9,7 @@ pub struct HttpRequestPrimitive {
     allowlist_path: PathBuf,
     pub timeout: Duration,
     pub max_response_bytes: usize,
+    network_mode: NetworkMode,
 }
 
 impl HttpRequestPrimitive {
@@ -15,11 +17,13 @@ impl HttpRequestPrimitive {
         allowlist_path: PathBuf,
         timeout: Duration,
         max_response_bytes: usize,
+        network_mode: NetworkMode,
     ) -> Self {
         Self {
             allowlist_path,
             timeout,
             max_response_bytes,
+            network_mode,
         }
     }
 
@@ -62,13 +66,28 @@ impl Primitive for HttpRequestPrimitive {
         let domain = crate::url_policy::extract_host(url)
             .ok_or_else(|| PrimitiveError::InvalidParams("cannot parse domain from URL".into()))?;
 
-        let allowed_domains = self.load_allowed_domains();
-        if !crate::url_policy::is_domain_allowed(&domain, &allowed_domains) {
-            tracing::warn!(url, %domain, "HTTP request blocked = domain not in allowlist");
-            return Err(PrimitiveError::AccessDenied(format!(
-                "Domain '{}' not in allowlist",
-                domain
-            )));
+        match self.network_mode {
+            NetworkMode::Unsafe => {
+                tracing::debug!(url, %domain, "Unsafe mode — skipping domain allowlist check");
+            }
+            NetworkMode::Safe => {
+                let allowed_domains = self.load_allowed_domains();
+                if !crate::url_policy::is_domain_allowed(&domain, &allowed_domains) {
+                    tracing::info!(url, %domain, "Domain not in allowlist — prompting agent to ask user");
+                    return Ok(serde_json::json!({
+                        "status": "domain_not_allowed",
+                        "domain": domain,
+                        "url": url,
+                        "action_required": format!(
+                            "Domain '{}' is not in the allowlist. \
+                             Use `user.ask` to ask the user whether to allow access to this domain. \
+                             If approved, call `allowlist.add` with list_type \"http_domain\" and entry \"{}\" \
+                             to add it, then retry this http.request call.",
+                            domain, domain
+                        )
+                    }));
+                }
+            }
         }
 
         let method = params["method"].as_str().unwrap_or("GET");
@@ -164,39 +183,38 @@ mod tests {
     #[tokio::test]
     async fn http_request_allowed_domain_succeeds() {
         let path = setup_allowlist(&["example.com"]);
-        let prim = HttpRequestPrimitive::new(path, Duration::from_secs(5), 1024 * 1024);
+        let prim = HttpRequestPrimitive::new(path, Duration::from_secs(5), 1024 * 1024, NetworkMode::Safe);
         let allowed = prim.load_allowed_domains();
         assert!(allowed.contains(&"example.com".to_string()));
     }
 
     #[tokio::test]
-    async fn http_request_blocked_domain_fails() {
+    async fn http_request_safe_mode_returns_prompt_for_blocked_domain() {
         let path = setup_allowlist(&["example.com"]);
-        let prim = HttpRequestPrimitive::new(path, Duration::from_secs(5), 1024 * 1024);
+        let prim = HttpRequestPrimitive::new(path, Duration::from_secs(5), 1024 * 1024, NetworkMode::Safe);
         let result = prim
             .invoke(serde_json::json!({
                 "url": "https://evil.com/steal",
                 "method": "GET"
             }))
-            .await;
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            PrimitiveError::AccessDenied(_)
-        ));
+            .await
+            .unwrap();
+        assert_eq!(result["status"], "domain_not_allowed");
+        assert_eq!(result["domain"], "evil.com");
+        assert!(result["action_required"].as_str().unwrap().contains("user.ask"));
     }
 
     #[tokio::test]
     async fn http_request_enforces_timeout() {
         let path = setup_allowlist(&["httpbin.org"]);
-        let prim = HttpRequestPrimitive::new(path, Duration::from_millis(1), 1024);
+        let prim = HttpRequestPrimitive::new(path, Duration::from_millis(1), 1024, NetworkMode::Safe);
         assert_eq!(prim.timeout.as_millis(), 1);
     }
 
     #[tokio::test]
     async fn http_request_enforces_size_limit() {
         let path = setup_allowlist(&[]);
-        let prim = HttpRequestPrimitive::new(path, Duration::from_secs(5), 100);
+        let prim = HttpRequestPrimitive::new(path, Duration::from_secs(5), 100, NetworkMode::Safe);
         assert_eq!(prim.max_response_bytes, 100);
     }
 

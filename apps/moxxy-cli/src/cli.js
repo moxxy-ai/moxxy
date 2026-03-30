@@ -16,6 +16,7 @@ import { runDoctor } from './commands/doctor.js';
 import { runUpdate } from './commands/update.js';
 import { runUninstall } from './commands/uninstall.js';
 import { runPlugin } from './commands/plugin.js';
+import { runSettings } from './commands/settings.js';
 import { COMMAND_HELP, showHelp } from './help.js';
 import chalk from 'chalk';
 import { createInterface, cursorTo, clearScreenDown } from 'node:readline';
@@ -87,6 +88,9 @@ Usage:
   moxxy tui [--agent <id>]                            Full-screen chat interface
   moxxy chat [--agent <id>]                           Alias for tui
   moxxy events tail [--agent <id>] [--run <id>] [--json]
+  moxxy settings network-mode [safe|unsafe]           Get or set network mode
+  moxxy settings get [--key <k>] [--json]            View settings
+  moxxy settings set --key <k> --value <v>           Set a setting
   moxxy doctor                                       Diagnose installation
   moxxy update [--check] [--force] [--json]          Check for and install updates
   moxxy update --rollback                            Restore previous gateway version
@@ -168,6 +172,9 @@ async function routeCommand(client, command, rest) {
     case 'plugin':
       await runPlugin(client, rest);
       break;
+    case 'settings':
+      await runSettings(client, rest);
+      break;
     case 'tui':
     case 'chat': {
       const { startTui } = await import('./tui/index.jsx');
@@ -217,7 +224,7 @@ async function main() {
     security:     { label: 'Security',     hint: 'auth tokens & secrets' },
     integrations: { label: 'Integrations', hint: 'providers, channels, MCP, plugins' },
     tools:        { label: 'Tools',        hint: 'events stream' },
-    system:       { label: 'System',       hint: 'update & uninstall' },
+    system:       { label: 'System',       hint: 'settings, update & uninstall' },
   };
 
   const SUBMENUS = {
@@ -246,6 +253,7 @@ async function main() {
       { value: 'events',    label: 'Events',    hint: 'stream live events' },
     ],
     system: [
+      { value: 'settings',  label: 'Settings',  hint: 'network mode & global config' },
       { value: 'update',    label: 'Update',    hint: 'check for and install updates' },
       { value: 'uninstall', label: 'Uninstall', hint: 'remove all Moxxy data' },
     ],
