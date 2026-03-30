@@ -1,8 +1,40 @@
 {
   "name": "@moxxy/cli",
   "version": "0.1.0",
-  "description": "Moxxy Agentic Framework CLI",
+  "description": "CLI for the Moxxy agentic framework — manage agents, skills, plugins, channels, and vaults from the terminal",
   "type": "module",
+  "license": "MIT",
+  "author": "Moxxy AI <hello@moxxy.ai> (https://moxxy.ai)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "apps/moxxy-cli"
+  },
+  "homepage": "https://github.com/moxxy-ai/moxxy/tree/main/apps/moxxy-cli#readme",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "keywords": [
+    "moxxy",
+    "ai",
+    "agent",
+    "agentic",
+    "framework",
+    "cli",
+    "llm",
+    "automation",
+    "orchestration",
+    "skills",
+    "plugins",
+    "mcp"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin/",
+    "src/"
+  ],
   "bin": {
     "moxxy": "./bin/moxxy"
   },

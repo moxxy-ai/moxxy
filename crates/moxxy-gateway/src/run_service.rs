@@ -388,6 +388,7 @@ impl RunService {
         };
 
         let run_id = uuid::Uuid::now_v7().to_string();
+        let original_task = task.to_string();
         let mut task = task.to_string();
 
         // Resolve provider from config
@@ -682,6 +683,10 @@ impl RunService {
                 && let Ok(db) = db.lock()
             {
                 let now = chrono::Utc::now().to_rfc3339();
+                // Persist the original task (without hive bootstrap prefix) so
+                // that conversation history doesn't contain auto-injected
+                // instructions that would be re-injected on the next run,
+                // causing the queen to repeat herself.
                 let _ = db
                     .conversations()
                     .insert(&moxxy_storage::rows::ConversationLogRow {
@@ -690,7 +695,7 @@ impl RunService {
                         run_id: run_id_clone.clone(),
                         sequence: 0,
                         role: "user".into(),
-                        content: task.clone(),
+                        content: original_task.clone(),
                         created_at: now.clone(),
                     });
                 let _ = db
