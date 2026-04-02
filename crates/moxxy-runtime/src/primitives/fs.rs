@@ -24,6 +24,10 @@ impl Primitive for FsReadPrimitive {
         "Read the contents of a file at the given path within the workspace."
     }
 
+    fn is_concurrent_safe(&self) -> bool {
+        true
+    }
+
     fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
@@ -129,6 +133,10 @@ impl Primitive for FsListPrimitive {
 
     fn description(&self) -> &str {
         "List entries in a directory within the workspace."
+    }
+
+    fn is_concurrent_safe(&self) -> bool {
+        true
     }
 
     fn parameters_schema(&self) -> serde_json::Value {

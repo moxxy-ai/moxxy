@@ -24,6 +24,10 @@ impl Primitive for MemoryStmReadPrimitive {
         "Read short-term memory (STM). Returns a single key's value or the entire STM map."
     }
 
+    fn is_concurrent_safe(&self) -> bool {
+        true
+    }
+
     fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",

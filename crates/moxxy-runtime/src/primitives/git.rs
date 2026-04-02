@@ -403,6 +403,10 @@ impl Primitive for GitStatusPrimitive {
         "Get the git status of a repository, including modified, staged, and untracked files."
     }
 
+    fn is_concurrent_safe(&self) -> bool {
+        true
+    }
+
     fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",

@@ -5,6 +5,20 @@ pub struct SpawnOpts {
     pub agent_type: AgentType,
     pub model_id: Option<String>,
     pub hive_role: Option<HiveRole>,
+    /// When true, the child must submit a plan before executing write operations.
+    pub plan_mode: bool,
+    /// Workspace isolation mode for the child agent.
+    pub isolation: WorkspaceIsolation,
+}
+
+/// Controls how a child agent's workspace is isolated from the parent.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum WorkspaceIsolation {
+    /// Shared workspace with parent (default — current behavior).
+    #[default]
+    Shared,
+    /// Create a git worktree for the child. Changes don't affect parent until merged.
+    Worktree,
 }
 
 /// Result returned after successfully spawning a child agent.

@@ -25,7 +25,10 @@ pub use executor::{
 };
 pub use openai_provider::OpenAIProvider;
 pub use primitives::{
-    AgentDismissPrimitive, AgentListPrimitive, AgentRespondPrimitive, AgentSelfGetPrimitive,
+    AgentAwaitChannels, AgentAwaitPrimitive, AgentBroadcastPrimitive,
+    AgentDismissPrimitive, AgentInbox, AgentListPrimitive, AgentMessage,
+    AgentMessagePrimitive, AgentRespondPrimitive, AgentSelfGetPrimitive,
+    PlanApproval, PlanApprovalChannels, PlanApprovePrimitive, PlanSubmitPrimitive,
     AgentSelfPersonaReadPrimitive, AgentSelfPersonaWritePrimitive, AgentSelfUpdatePrimitive,
     AgentSpawnPrimitive, AgentStatusPrimitive, AgentStopPrimitive, AllowlistAddPrimitive,
     AllowlistDenyPrimitive, AllowlistListPrimitive, AllowlistRemovePrimitive,
@@ -49,7 +52,9 @@ pub use primitives::{
     VaultDeletePrimitive, VaultGetPrimitive, VaultListPrimitive, VaultSetPrimitive,
     WebhookDeletePrimitive, WebhookListPrimitive, WebhookListenChannels, WebhookListenPrimitive,
     WebhookRegisterPrimitive, WebhookRotatePrimitive, WebhookUpdatePrimitive, new_ask_channels,
-    new_webhook_listen_channels, ReplyPrimitive, REPLY_PRIMITIVE_NAME,
+    new_agent_await_channels, new_agent_inbox, new_plan_approval_channels,
+    new_webhook_listen_channels,
+    ReplyPrimitive, REPLY_PRIMITIVE_NAME,
 };
 pub use process::{AgentProcess, AgentProcessConfig};
 pub use provider::{

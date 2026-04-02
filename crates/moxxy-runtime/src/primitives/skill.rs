@@ -205,6 +205,10 @@ impl Primitive for SkillListPrimitive {
         "List skills installed on this agent."
     }
 
+    fn is_concurrent_safe(&self) -> bool {
+        true
+    }
+
     fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
@@ -260,6 +264,10 @@ impl Primitive for SkillFindPrimitive {
 
     fn description(&self) -> &str {
         "Search for skills matching a query. Searches skill names, descriptions, and body content."
+    }
+
+    fn is_concurrent_safe(&self) -> bool {
+        true
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -370,6 +378,10 @@ impl Primitive for SkillGetPrimitive {
 
     fn description(&self) -> &str {
         "Load the full content of a skill by name. Agent skills take priority over built-in skills."
+    }
+
+    fn is_concurrent_safe(&self) -> bool {
+        true
     }
 
     fn parameters_schema(&self) -> serde_json::Value {

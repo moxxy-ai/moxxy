@@ -90,6 +90,10 @@ impl Primitive for VaultGetPrimitive {
         "Retrieve a secret from the vault. Requires an active grant."
     }
 
+    fn is_concurrent_safe(&self) -> bool {
+        true
+    }
+
     fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
@@ -210,6 +214,10 @@ impl Primitive for VaultListPrimitive {
 
     fn description(&self) -> &str {
         "List all secrets the agent has access to (names only, no values)."
+    }
+
+    fn is_concurrent_safe(&self) -> bool {
+        true
     }
 
     fn parameters_schema(&self) -> serde_json::Value {

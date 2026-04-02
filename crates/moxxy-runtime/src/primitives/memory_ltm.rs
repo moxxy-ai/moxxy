@@ -141,6 +141,10 @@ impl Primitive for MemoryRecallPrimitive {
         "Recall content from long-term memory (LTM) via semantic search."
     }
 
+    fn is_concurrent_safe(&self) -> bool {
+        true
+    }
+
     fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",

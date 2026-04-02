@@ -195,6 +195,10 @@ impl Primitive for WebhookListPrimitive {
         "List all inbound webhooks registered for the current agent."
     }
 
+    fn is_concurrent_safe(&self) -> bool {
+        true
+    }
+
     fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",

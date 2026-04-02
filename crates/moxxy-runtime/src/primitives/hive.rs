@@ -533,6 +533,8 @@ impl Primitive for HiveRecruitPrimitive {
                     agent_type: moxxy_types::AgentType::HiveWorker,
                     model_id,
                     hive_role: Some(hive_role),
+                    plan_mode: false,
+                    isolation: moxxy_types::WorkspaceIsolation::Shared,
                 },
             )
             .await
@@ -806,6 +808,10 @@ impl Primitive for HiveAggregatePrimitive {
 
     fn description(&self) -> &str {
         "Get a complete snapshot of the hive: manifest, all tasks, signals, and proposals."
+    }
+
+    fn is_concurrent_safe(&self) -> bool {
+        true
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -1175,6 +1181,10 @@ impl Primitive for HiveBoardReadPrimitive {
         "Read signals from the hive board, optionally filtering by type or tag."
     }
 
+    fn is_concurrent_safe(&self) -> bool {
+        true
+    }
+
     fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
@@ -1224,6 +1234,10 @@ impl Primitive for HiveTaskListPrimitive {
 
     fn description(&self) -> &str {
         "List tasks in the hive, optionally filtering by status."
+    }
+
+    fn is_concurrent_safe(&self) -> bool {
+        true
     }
 
     fn parameters_schema(&self) -> serde_json::Value {

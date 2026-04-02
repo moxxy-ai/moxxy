@@ -21,8 +21,11 @@ pub mod vault;
 pub mod webhook;
 
 pub use agent::{
-    AgentDismissPrimitive, AgentListPrimitive, AgentSpawnPrimitive, AgentStatusPrimitive,
-    AgentStopPrimitive,
+    AgentAwaitChannels, AgentAwaitPrimitive, AgentBroadcastPrimitive, AgentDismissPrimitive,
+    AgentInbox, AgentListPrimitive, AgentMessage, AgentMessagePrimitive, AgentSpawnPrimitive,
+    AgentStatusPrimitive, AgentStopPrimitive, PlanApproval, PlanApprovalChannels,
+    PlanApprovePrimitive, PlanSubmitPrimitive, new_agent_await_channels, new_agent_inbox,
+    new_plan_approval_channels,
 };
 pub use agent_self::{
     AgentSelfGetPrimitive, AgentSelfPersonaReadPrimitive, AgentSelfPersonaWritePrimitive,

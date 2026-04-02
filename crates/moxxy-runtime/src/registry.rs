@@ -51,6 +51,12 @@ pub trait Primitive: Send + Sync {
     fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({"type": "object", "properties": {}})
     }
+
+    /// Whether this primitive is safe to run concurrently with other
+    /// concurrent-safe primitives.  Read-only primitives should return `true`.
+    fn is_concurrent_safe(&self) -> bool {
+        false
+    }
 }
 
 /// A tool definition suitable for sending to an LLM.
@@ -119,6 +125,15 @@ impl PrimitiveRegistry {
 
     pub fn list(&self) -> Vec<String> {
         self.primitives.read().unwrap().keys().cloned().collect()
+    }
+
+    /// Check whether a primitive is concurrent-safe.
+    pub fn is_concurrent_safe(&self, name: &str) -> bool {
+        self.primitives
+            .read()
+            .unwrap()
+            .get(name)
+            .is_some_and(|p| p.is_concurrent_safe())
     }
 
     /// Returns tool definitions for all primitives in the allowlist.

@@ -1,6 +1,7 @@
 use super::{AgentSetup, KindContext};
 use crate::{
-    AgentDismissPrimitive, AgentListPrimitive, AgentRespondPrimitive, AgentSelfGetPrimitive,
+    AgentAwaitPrimitive, AgentBroadcastPrimitive, AgentDismissPrimitive, AgentListPrimitive,
+    AgentMessagePrimitive, AgentRespondPrimitive, AgentSelfGetPrimitive,
     AgentSelfPersonaReadPrimitive, AgentSelfPersonaWritePrimitive, AgentSelfUpdatePrimitive,
     AgentSpawnPrimitive, AgentStatusPrimitive, AgentStopPrimitive, AllowlistAddPrimitive,
     AllowlistDenyPrimitive, AllowlistListPrimitive, AllowlistRemovePrimitive,
@@ -13,7 +14,8 @@ use crate::{
     GitWorktreeRemovePrimitive, HeartbeatCreatePrimitive, HeartbeatDeletePrimitive,
     HeartbeatDisablePrimitive, HeartbeatListPrimitive, HeartbeatUpdatePrimitive,
     HttpRequestPrimitive, MemoryRecallPrimitive, MemoryStmReadPrimitive,
-    MemoryStorePrimitive, PrimitiveContext, PrimitiveRegistry, ShellExecPrimitive,
+    MemoryStorePrimitive, PlanApprovePrimitive, PlanSubmitPrimitive,
+    PrimitiveContext, PrimitiveRegistry, ShellExecPrimitive,
     SkillCreatePrimitive, SkillExecutePrimitive, SkillFindPrimitive, SkillGetPrimitive,
     SkillListPrimitive, SkillRemovePrimitive, SkillValidatePrimitive, UserAskPrimitive,
     ReplyPrimitive, VaultDeletePrimitive, VaultGetPrimitive, VaultListPrimitive, VaultSetPrimitive,
@@ -318,6 +320,31 @@ pub fn register_core_primitives(
         )));
         registry.register(Box::new(AgentDismissPrimitive::new(
             setup.name.clone(),
+            starter.clone(),
+        )));
+        registry.register(Box::new(AgentMessagePrimitive::new(
+            setup.name.clone(),
+            ctx.agent_inbox.clone(),
+            starter.clone(),
+        )));
+        registry.register(Box::new(AgentBroadcastPrimitive::new(
+            setup.name.clone(),
+            ctx.agent_inbox.clone(),
+            starter.clone(),
+        )));
+        registry.register(Box::new(AgentAwaitPrimitive::new(
+            setup.name.clone(),
+            starter.clone(),
+            ctx.agent_await_channels.clone(),
+        )));
+        registry.register(Box::new(PlanSubmitPrimitive::new(
+            setup.name.clone(),
+            ctx.agent_inbox.clone(),
+            ctx.plan_approval_channels.clone(),
+        )));
+        registry.register(Box::new(PlanApprovePrimitive::new(
+            setup.name.clone(),
+            ctx.plan_approval_channels.clone(),
             starter.clone(),
         )));
 

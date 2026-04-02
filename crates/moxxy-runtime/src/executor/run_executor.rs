@@ -1,5 +1,6 @@
 use crate::primitives::REPLY_PRIMITIVE_NAME;
-use crate::provider::{Message, ModelConfig, Provider, ProviderResponse, StreamEvent};
+use crate::primitives::agent::AgentInbox;
+use crate::provider::{Message, ModelConfig, Provider, ProviderResponse, StreamEvent, ToolCall};
 use crate::registry::PrimitiveRegistry;
 use moxxy_core::EventBus;
 use moxxy_types::{EventEnvelope, EventType};
@@ -15,6 +16,12 @@ use super::listener::EventListener;
 use super::stuck_detector::{StuckAction, StuckDetector};
 
 const DEFAULT_MAX_TOOL_RESULT_CHARS: usize = 15_000;
+/// Default context window size in estimated tokens.
+const DEFAULT_CONTEXT_WINDOW_TOKENS: usize = 128_000;
+/// Compact when conversation exceeds this fraction of the context window.
+const COMPACT_THRESHOLD: f64 = 0.75;
+/// Keep at least this many recent messages after compaction.
+const COMPACT_KEEP_RECENT: usize = 6;
 
 enum LoopDecision {
     ExecuteTools,
@@ -48,6 +55,12 @@ pub struct RunExecutor {
     listeners: Vec<Box<dyn EventListener>>,
     stuck_detector: Option<StuckDetector>,
     stm_path: Option<std::path::PathBuf>,
+    /// Shared inbox for receiving inter-agent messages during execution.
+    inbox: Option<AgentInbox>,
+    /// Maximum context window in estimated tokens.
+    context_window_tokens: usize,
+    /// Number of consecutive auto-compact failures before giving up.
+    compact_failures: u32,
 }
 
 impl RunExecutor {
@@ -76,6 +89,9 @@ impl RunExecutor {
             ],
             stuck_detector: Some(StuckDetector::new()),
             stm_path: None,
+            inbox: None,
+            context_window_tokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
+            compact_failures: 0,
         }
     }
 
@@ -150,6 +166,16 @@ impl RunExecutor {
 
     pub fn with_stm_path(mut self, path: std::path::PathBuf) -> Self {
         self.stm_path = Some(path);
+        self
+    }
+
+    pub fn with_inbox(mut self, inbox: AgentInbox) -> Self {
+        self.inbox = Some(inbox);
+        self
+    }
+
+    pub fn with_context_window(mut self, tokens: usize) -> Self {
+        self.context_window_tokens = tokens;
         self
     }
 
@@ -237,6 +263,19 @@ impl RunExecutor {
                 }
             }
 
+            // Drain inter-agent inbox and inject messages into conversation
+            if let Some(ref inbox) = self.inbox
+                && let Ok(mut inbox) = inbox.lock()
+                && let Some(messages) = inbox.remove(agent_id)
+            {
+                for msg in messages {
+                    conversation.push(Message::user(format!(
+                        "[Message from agent '{}']: {}",
+                        msg.from, msg.content
+                    )));
+                }
+            }
+
             // Check activity-based timeout
             if let Some(timeout) = self.run_timeout
                 && last_activity.elapsed() > timeout
@@ -282,6 +321,14 @@ impl RunExecutor {
                         "messages_count": conversation.len()
                     }),
                 );
+            }
+
+            // Auto-compact if conversation is approaching context window limit
+            if iteration > 0 {
+                self.auto_compact(
+                    &mut conversation, agent_id, run_id, &mut sequence, model_config,
+                )
+                .await;
             }
 
             self.emit(
@@ -584,114 +631,72 @@ impl RunExecutor {
                         response.tool_calls.clone(),
                     ));
 
-                    for tool_call in &response.tool_calls {
-                        // Check stuck detector for repeated tool calls
+                    // Check stuck detector for each tool call before execution
+                    let mut stuck_recovery = false;
+                    for tc in &response.tool_calls {
                         if let Some(ref mut detector) = self.stuck_detector
                             && let StuckAction::InjectRecovery(msg) =
-                                detector.observe_tool_call(&tool_call.name, &tool_call.arguments)
+                                detector.observe_tool_call(&tc.name, &tc.arguments)
                         {
                             conversation.push(Message::user(&msg));
+                            stuck_recovery = true;
                             break;
                         }
+                    }
+                    if stuck_recovery {
+                        continue;
+                    }
 
-                        tracing::info!(
-                            agent_id,
-                            run_id,
-                            tool = %tool_call.name,
-                            call_id = %tool_call.id,
-                            arguments = %tool_call.arguments,
-                            "Primitive invoked"
-                        );
+                    // Partition tool calls into concurrent/serial batches
+                    let batches = partition_tool_calls(&response.tool_calls, &self.registry);
 
-                        self.emit(
-                            agent_id,
-                            run_id,
-                            &mut sequence,
-                            EventType::PrimitiveInvoked,
-                            serde_json::json!({"name": tool_call.name, "arguments": tool_call.arguments}),
-                        );
+                    for batch in batches {
+                        // Emit PrimitiveInvoked for all calls in the batch
+                        for tc in &batch.calls {
+                            tracing::info!(
+                                agent_id, run_id,
+                                tool = %tc.name, call_id = %tc.id,
+                                arguments = %tc.arguments,
+                                "Primitive invoked"
+                            );
+                            self.emit(
+                                agent_id, run_id, &mut sequence,
+                                EventType::PrimitiveInvoked,
+                                serde_json::json!({"name": tc.name, "arguments": tc.arguments}),
+                            );
+                        }
 
                         let allowed_snap = self.allowed_primitives.read().unwrap().clone();
-                        match self
-                            .registry
-                            .invoke(&tool_call.name, tool_call.arguments.clone(), &allowed_snap)
-                            .await
-                        {
-                            Ok(result) => {
-                                let raw = serde_json::to_string(&result).unwrap_or_default();
 
-                                // Truncate large tool results
-                                let result_str = if raw.len() > self.max_tool_result_size {
-                                    format!(
-                                        "{}...\n\n[Truncated: {} total chars]",
-                                        &raw[..self.max_tool_result_size],
-                                        raw.len()
-                                    )
-                                } else {
-                                    raw
-                                };
+                        if batch.concurrent && batch.calls.len() > 1 {
+                            // Execute concurrent-safe tools in parallel
+                            let futures: Vec<_> = batch.calls.iter().map(|tc| {
+                                let registry = self.registry.clone();
+                                let allowed = allowed_snap.clone();
+                                let name = tc.name.clone();
+                                let args = tc.arguments.clone();
+                                async move { registry.invoke(&name, args, &allowed).await }
+                            }).collect();
 
-                                // Notify all listeners of the tool result
-                                for listener in &mut self.listeners {
-                                    listener.on_tool_result(&tool_call.name, &result);
-                                }
+                            let results = futures_util::future::join_all(futures).await;
 
-                                tracing::info!(
-                                    agent_id,
-                                    run_id,
-                                    tool = %tool_call.name,
-                                    call_id = %tool_call.id,
-                                    result_len = result_str.len(),
-                                    "Primitive completed"
+                            for (tc, result) in batch.calls.iter().zip(results) {
+                                self.process_tool_result(
+                                    agent_id, run_id, &mut sequence,
+                                    tc, result, &mut conversation, &mut last_activity,
                                 );
-
-                                self.emit(
-                                    agent_id,
-                                    run_id,
-                                    &mut sequence,
-                                    EventType::PrimitiveCompleted,
-                                    serde_json::json!({"name": tool_call.name, "result": result}),
-                                );
-                                // Reset activity timer - primitive completed
-                                last_activity = tokio::time::Instant::now();
-                                conversation.push(Message::tool_result(
-                                    &tool_call.id,
-                                    &tool_call.name,
-                                    result_str,
-                                ));
                             }
-                            Err(e) => {
-                                // Notify listeners of tool failure
-                                for listener in &mut self.listeners {
-                                    listener.on_tool_result(
-                                        &tool_call.name,
-                                        &serde_json::json!({"error": e.to_string()}),
-                                    );
-                                }
-
-                                tracing::error!(
-                                    agent_id,
-                                    run_id,
-                                    tool = %tool_call.name,
-                                    call_id = %tool_call.id,
-                                    error = %e,
-                                    "Primitive failed"
+                        } else {
+                            // Execute serially
+                            for tc in &batch.calls {
+                                let result = self
+                                    .registry
+                                    .invoke(&tc.name, tc.arguments.clone(), &allowed_snap)
+                                    .await;
+                                self.process_tool_result(
+                                    agent_id, run_id, &mut sequence,
+                                    tc, result, &mut conversation, &mut last_activity,
                                 );
-
-                                self.emit(
-                                    agent_id,
-                                    run_id,
-                                    &mut sequence,
-                                    EventType::PrimitiveFailed,
-                                    serde_json::json!({"name": tool_call.name, "error": e.to_string()}),
-                                );
-                                // Reset activity timer - primitive completed (with error)
-                                last_activity = tokio::time::Instant::now();
-                                conversation.push(Message::tool_result(
-                                    &tool_call.id,
-                                    &tool_call.name,
-                                    format!("Error: {}", e),
-                                ));
                             }
                         }
                     }
@@ -801,13 +806,278 @@ impl RunExecutor {
         );
         self.event_bus.emit(envelope);
     }
+
+    /// Estimate token count for a conversation. Uses char/4 heuristic.
+    fn estimate_tokens(messages: &[Message]) -> usize {
+        messages
+            .iter()
+            .map(|m| {
+                let mut chars = m.content.len() + m.role.len();
+                if let Some(ref calls) = m.tool_calls {
+                    for tc in calls {
+                        chars += tc.name.len()
+                            + tc.id.len()
+                            + serde_json::to_string(&tc.arguments)
+                                .unwrap_or_default()
+                                .len();
+                    }
+                }
+                // ~4 chars per token on average
+                chars / 4 + 4 // +4 for message overhead
+            })
+            .sum()
+    }
+
+    /// Auto-compact the conversation if it exceeds the context window threshold.
+    /// Keeps the system prompt and recent messages, replaces older messages with a
+    /// summary generated by the provider.
+    async fn auto_compact(
+        &mut self,
+        conversation: &mut Vec<Message>,
+        agent_id: &str,
+        run_id: &str,
+        seq: &mut u64,
+        _model_config: &ModelConfig,
+    ) -> bool {
+        let estimated = Self::estimate_tokens(conversation);
+        let threshold = (self.context_window_tokens as f64 * COMPACT_THRESHOLD) as usize;
+
+        if estimated <= threshold {
+            return false;
+        }
+
+        if self.compact_failures >= 3 {
+            tracing::warn!(
+                agent_id, estimated, threshold,
+                "Skipping auto-compact: too many consecutive failures"
+            );
+            return false;
+        }
+
+        self.emit(
+            agent_id,
+            run_id,
+            seq,
+            EventType::MemoryCompactStarted,
+            serde_json::json!({
+                "estimated_tokens": estimated,
+                "threshold": threshold,
+                "context_window": self.context_window_tokens,
+            }),
+        );
+
+        // Find split point: keep system prompt(s) + last N messages
+        let system_count = conversation
+            .iter()
+            .take_while(|m| m.role == "system")
+            .count();
+        let keep_from = conversation.len().saturating_sub(COMPACT_KEEP_RECENT);
+        let compact_end = keep_from.max(system_count);
+
+        if compact_end <= system_count {
+            // Nothing to compact
+            return false;
+        }
+
+        // Build summary prompt from messages to compact
+        let to_compact = &conversation[system_count..compact_end];
+        let mut summary_input = String::from(
+            "Summarize the following conversation history concisely. \
+             Preserve key facts, decisions, tool results, and any information \
+             the agent needs to continue its work. Be thorough but compact.\n\n",
+        );
+        for msg in to_compact {
+            let role = &msg.role;
+            let preview: String = msg.content.chars().take(2000).collect();
+            summary_input.push_str(&format!("[{role}]: {preview}\n\n"));
+        }
+
+        // Call provider to generate summary (without tools to keep it simple)
+        let summary_messages = vec![Message::user(summary_input)];
+        let summary_config = ModelConfig {
+            temperature: 0.0,
+            max_tokens: 2048,
+            tool_choice: crate::provider::ToolChoice::Auto,
+        };
+
+        match self
+            .provider
+            .complete(summary_messages, &summary_config, &[])
+            .await
+        {
+            Ok(resp) => {
+                let summary = resp.content;
+                let old_len = conversation.len();
+
+                // Rebuild conversation: system prompts + summary + recent messages
+                let mut new_conversation: Vec<Message> = Vec::new();
+                new_conversation.extend(conversation.drain(..system_count));
+                new_conversation.push(Message::system(format!(
+                    "[Auto-compacted conversation summary]\n{summary}"
+                )));
+                // Skip compacted messages, keep recent ones
+                let recent: Vec<Message> = conversation.split_off(compact_end - system_count);
+                new_conversation.extend(recent);
+
+                *conversation = new_conversation;
+                self.compact_failures = 0;
+
+                let new_estimated = Self::estimate_tokens(conversation);
+                tracing::info!(
+                    agent_id,
+                    old_messages = old_len,
+                    new_messages = conversation.len(),
+                    old_tokens = estimated,
+                    new_tokens = new_estimated,
+                    "Auto-compact completed"
+                );
+
+                self.emit(
+                    agent_id,
+                    run_id,
+                    seq,
+                    EventType::MemoryCompactCompleted,
+                    serde_json::json!({
+                        "old_messages": old_len,
+                        "new_messages": conversation.len(),
+                        "old_tokens": estimated,
+                        "new_tokens": new_estimated,
+                    }),
+                );
+
+                true
+            }
+            Err(e) => {
+                self.compact_failures += 1;
+                tracing::warn!(
+                    agent_id,
+                    error = %e,
+                    failures = self.compact_failures,
+                    "Auto-compact failed"
+                );
+                false
+            }
+        }
+    }
+
+    /// Process a single tool result: truncate, notify listeners, emit events,
+    /// push tool_result message into conversation.
+    #[allow(clippy::too_many_arguments)]
+    fn process_tool_result(
+        &mut self,
+        agent_id: &str,
+        run_id: &str,
+        seq: &mut u64,
+        tool_call: &ToolCall,
+        result: Result<serde_json::Value, crate::registry::PrimitiveError>,
+        conversation: &mut Vec<Message>,
+        last_activity: &mut tokio::time::Instant,
+    ) {
+        match result {
+            Ok(value) => {
+                let raw = serde_json::to_string(&value).unwrap_or_default();
+                let result_str = if raw.len() > self.max_tool_result_size {
+                    format!(
+                        "{}...\n\n[Truncated: {} total chars]",
+                        &raw[..self.max_tool_result_size],
+                        raw.len()
+                    )
+                } else {
+                    raw
+                };
+                for listener in &mut self.listeners {
+                    listener.on_tool_result(&tool_call.name, &value);
+                }
+                tracing::info!(
+                    agent_id, run_id,
+                    tool = %tool_call.name, call_id = %tool_call.id,
+                    result_len = result_str.len(),
+                    "Primitive completed"
+                );
+                self.emit(
+                    agent_id, run_id, seq,
+                    EventType::PrimitiveCompleted,
+                    serde_json::json!({"name": tool_call.name, "result": value}),
+                );
+                *last_activity = tokio::time::Instant::now();
+                conversation.push(Message::tool_result(
+                    &tool_call.id,
+                    &tool_call.name,
+                    result_str,
+                ));
+            }
+            Err(e) => {
+                for listener in &mut self.listeners {
+                    listener.on_tool_result(
+                        &tool_call.name,
+                        &serde_json::json!({"error": e.to_string()}),
+                    );
+                }
+                tracing::error!(
+                    agent_id, run_id,
+                    tool = %tool_call.name, call_id = %tool_call.id,
+                    error = %e,
+                    "Primitive failed"
+                );
+                self.emit(
+                    agent_id, run_id, seq,
+                    EventType::PrimitiveFailed,
+                    serde_json::json!({"name": tool_call.name, "error": e.to_string()}),
+                );
+                *last_activity = tokio::time::Instant::now();
+                conversation.push(Message::tool_result(
+                    &tool_call.id,
+                    &tool_call.name,
+                    format!("Error: {}", e),
+                ));
+            }
+        }
+    }
+}
+
+// ──────────────────── Tool Batching ────────────────────
+
+struct ToolBatch {
+    calls: Vec<ToolCall>,
+    concurrent: bool,
+}
+
+/// Partition tool calls into batches: consecutive concurrent-safe primitives
+/// are grouped together, each non-safe primitive gets its own batch.
+fn partition_tool_calls(tool_calls: &[ToolCall], registry: &PrimitiveRegistry) -> Vec<ToolBatch> {
+    let mut batches: Vec<ToolBatch> = Vec::new();
+
+    for tc in tool_calls {
+        let safe = registry.is_concurrent_safe(&tc.name);
+        if safe {
+            // Try to extend the current concurrent batch
+            if let Some(last) = batches.last_mut()
+                && last.concurrent
+            {
+                last.calls.push(tc.clone());
+            } else {
+                batches.push(ToolBatch {
+                    calls: vec![tc.clone()],
+                    concurrent: true,
+                });
+            }
+        } else {
+            // Non-safe: own batch
+            batches.push(ToolBatch {
+                calls: vec![tc.clone()],
+                concurrent: false,
+            });
+        }
+    }
+
+    batches
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::echo_provider::EchoProvider;
-    use crate::provider::{TokenUsage, ToolCall};
+    use crate::provider::TokenUsage;
     use crate::registry::{Primitive, PrimitiveError};
     use async_trait::async_trait;
 
@@ -1775,5 +2045,404 @@ mod tests {
         let tracked = results.lock().unwrap();
         assert_eq!(tracked.len(), 1);
         assert!(tracked[0]["error"].as_str().unwrap().contains("boom"));
+    }
+
+    // ──────────── partition_tool_calls tests ────────────
+
+    #[test]
+    fn partition_all_safe_into_one_batch() {
+        let registry = PrimitiveRegistry::new();
+
+        struct SafePrimitive;
+        #[async_trait]
+        impl Primitive for SafePrimitive {
+            fn name(&self) -> &str {
+                "safe"
+            }
+            async fn invoke(
+                &self,
+                _p: serde_json::Value,
+            ) -> Result<serde_json::Value, PrimitiveError> {
+                Ok(serde_json::json!({}))
+            }
+            fn is_concurrent_safe(&self) -> bool {
+                true
+            }
+        }
+
+        registry.register(Box::new(SafePrimitive));
+
+        let calls = vec![
+            ToolCall { id: "1".into(), name: "safe".into(), arguments: serde_json::json!({}) },
+            ToolCall { id: "2".into(), name: "safe".into(), arguments: serde_json::json!({}) },
+            ToolCall { id: "3".into(), name: "safe".into(), arguments: serde_json::json!({}) },
+        ];
+
+        let batches = partition_tool_calls(&calls, &registry);
+        assert_eq!(batches.len(), 1);
+        assert!(batches[0].concurrent);
+        assert_eq!(batches[0].calls.len(), 3);
+    }
+
+    #[test]
+    fn partition_all_unsafe_into_separate_batches() {
+        let registry = PrimitiveRegistry::new();
+        registry.register(Box::new(EchoPrimitive)); // default is_concurrent_safe = false
+
+        let calls = vec![
+            ToolCall { id: "1".into(), name: "echo".into(), arguments: serde_json::json!({}) },
+            ToolCall { id: "2".into(), name: "echo".into(), arguments: serde_json::json!({}) },
+        ];
+
+        let batches = partition_tool_calls(&calls, &registry);
+        assert_eq!(batches.len(), 2);
+        assert!(!batches[0].concurrent);
+        assert!(!batches[1].concurrent);
+        assert_eq!(batches[0].calls.len(), 1);
+        assert_eq!(batches[1].calls.len(), 1);
+    }
+
+    #[test]
+    fn partition_mixed_safe_unsafe_safe() {
+        let registry = PrimitiveRegistry::new();
+
+        struct SafeRead;
+        #[async_trait]
+        impl Primitive for SafeRead {
+            fn name(&self) -> &str {
+                "read"
+            }
+            async fn invoke(
+                &self,
+                _p: serde_json::Value,
+            ) -> Result<serde_json::Value, PrimitiveError> {
+                Ok(serde_json::json!({}))
+            }
+            fn is_concurrent_safe(&self) -> bool {
+                true
+            }
+        }
+
+        struct UnsafeWrite;
+        #[async_trait]
+        impl Primitive for UnsafeWrite {
+            fn name(&self) -> &str {
+                "write"
+            }
+            async fn invoke(
+                &self,
+                _p: serde_json::Value,
+            ) -> Result<serde_json::Value, PrimitiveError> {
+                Ok(serde_json::json!({}))
+            }
+        }
+
+        registry.register(Box::new(SafeRead));
+        registry.register(Box::new(UnsafeWrite));
+
+        let calls = vec![
+            ToolCall { id: "1".into(), name: "read".into(), arguments: serde_json::json!({}) },
+            ToolCall { id: "2".into(), name: "read".into(), arguments: serde_json::json!({}) },
+            ToolCall { id: "3".into(), name: "write".into(), arguments: serde_json::json!({}) },
+            ToolCall { id: "4".into(), name: "read".into(), arguments: serde_json::json!({}) },
+        ];
+
+        let batches = partition_tool_calls(&calls, &registry);
+        // [read,read] (concurrent) → [write] (serial) → [read] (concurrent)
+        assert_eq!(batches.len(), 3);
+        assert!(batches[0].concurrent);
+        assert_eq!(batches[0].calls.len(), 2);
+        assert!(!batches[1].concurrent);
+        assert_eq!(batches[1].calls.len(), 1);
+        assert!(batches[2].concurrent);
+        assert_eq!(batches[2].calls.len(), 1);
+    }
+
+    #[test]
+    fn partition_empty_tool_calls() {
+        let registry = PrimitiveRegistry::new();
+        let batches = partition_tool_calls(&[], &registry);
+        assert!(batches.is_empty());
+    }
+
+    #[test]
+    fn partition_unknown_tool_treated_as_unsafe() {
+        let registry = PrimitiveRegistry::new();
+        // "unknown" is not registered — is_concurrent_safe returns false
+
+        let calls = vec![
+            ToolCall { id: "1".into(), name: "unknown".into(), arguments: serde_json::json!({}) },
+        ];
+
+        let batches = partition_tool_calls(&calls, &registry);
+        assert_eq!(batches.len(), 1);
+        assert!(!batches[0].concurrent);
+    }
+
+    // ──────────── estimate_tokens tests ────────────
+
+    #[test]
+    fn estimate_tokens_empty_conversation() {
+        let tokens = RunExecutor::estimate_tokens(&[]);
+        assert_eq!(tokens, 0);
+    }
+
+    #[test]
+    fn estimate_tokens_single_message() {
+        let messages = vec![Message::user("Hello world")]; // 11 chars + "user" 4 chars = 15 / 4 + 4 = 7
+        let tokens = RunExecutor::estimate_tokens(&messages);
+        assert!(tokens > 0);
+        assert!(tokens < 100); // sanity check
+    }
+
+    #[test]
+    fn estimate_tokens_scales_with_content() {
+        let short = vec![Message::user("hi")];
+        let long = vec![Message::user(&"x".repeat(10_000))];
+        let short_tokens = RunExecutor::estimate_tokens(&short);
+        let long_tokens = RunExecutor::estimate_tokens(&long);
+        assert!(long_tokens > short_tokens * 10);
+    }
+
+    #[test]
+    fn estimate_tokens_includes_tool_calls() {
+        let msg_no_tools = vec![Message::assistant("ok")];
+        let msg_with_tools = vec![Message::assistant_with_tool_calls(
+            "ok",
+            vec![ToolCall {
+                id: "call_1".into(),
+                name: "fs.read".into(),
+                arguments: serde_json::json!({"path": "/some/long/path/to/file.rs"}),
+            }],
+        )];
+        let no_tools = RunExecutor::estimate_tokens(&msg_no_tools);
+        let with_tools = RunExecutor::estimate_tokens(&msg_with_tools);
+        assert!(with_tools > no_tools);
+    }
+
+    // ──────────── inbox polling tests ────────────
+
+    #[tokio::test]
+    async fn executor_drains_inbox_into_conversation() {
+        let bus = EventBus::new(100);
+        let inbox = crate::new_agent_inbox();
+
+        // Pre-populate inbox with a message for the agent
+        {
+            let mut inbox = inbox.lock().unwrap();
+            inbox.entry("agent-1".into()).or_default().push(
+                crate::AgentMessage {
+                    from: "parent".into(),
+                    content: "please hurry up".into(),
+                    timestamp: 0,
+                },
+            );
+        }
+
+        let provider = Arc::new(EchoProvider::new());
+        let registry = PrimitiveRegistry::new();
+
+        let mut executor = RunExecutor::new(bus, provider, registry, Arc::new(RwLock::new(vec![])))
+            .with_inbox(inbox.clone())
+            .with_stuck_detection(false);
+
+        let result = executor
+            .execute("agent-1", "run-1", "do task", &model_config())
+            .await;
+        assert!(result.is_ok());
+
+        // Inbox should be drained
+        let inbox = inbox.lock().unwrap();
+        assert!(inbox.get("agent-1").is_none());
+    }
+
+    // ──────────── auto-compact tests ────────────
+
+    #[tokio::test]
+    async fn auto_compact_does_not_trigger_below_threshold() {
+        let bus = EventBus::new(100);
+        let provider = Arc::new(EchoProvider::new());
+        let registry = PrimitiveRegistry::new();
+
+        let mut executor = RunExecutor::new(bus, provider, registry, Arc::new(RwLock::new(vec![])))
+            .with_context_window(128_000); // default, will not trigger on small convos
+
+        let mut conversation = vec![
+            Message::system("You are helpful."),
+            Message::user("Hi"),
+            Message::assistant("Hello!"),
+        ];
+
+        let config = model_config();
+        let result = executor
+            .auto_compact(&mut conversation, "agent-1", "run-1", &mut 0, &config)
+            .await;
+
+        assert!(!result); // no compaction needed
+        assert_eq!(conversation.len(), 3); // unchanged
+    }
+
+    #[tokio::test]
+    async fn auto_compact_triggers_above_threshold() {
+        let bus = EventBus::new(100);
+
+        // Provider that returns a summary when called for compaction
+        struct SummaryProvider;
+        #[async_trait]
+        impl Provider for SummaryProvider {
+            async fn complete(
+                &self,
+                _messages: Vec<Message>,
+                _config: &ModelConfig,
+                _tools: &[crate::registry::ToolDefinition],
+            ) -> Result<ProviderResponse, PrimitiveError> {
+                Ok(ProviderResponse {
+                    content: "Summary: the agent discussed various topics.".into(),
+                    tool_calls: vec![],
+                    usage: None,
+                })
+            }
+        }
+
+        let provider = Arc::new(SummaryProvider);
+        let registry = PrimitiveRegistry::new();
+
+        let mut executor = RunExecutor::new(bus, provider, registry, Arc::new(RwLock::new(vec![])))
+            .with_context_window(100); // tiny window to force compaction
+
+        // Build a conversation that exceeds 75 tokens (75% of 100)
+        // Need more than COMPACT_KEEP_RECENT (6) + system (1) messages
+        // so there's something to compact
+        let mut conversation = vec![
+            Message::system("System prompt."),
+            Message::user(&"old user message ".repeat(50)),
+            Message::assistant(&"old assistant reply ".repeat(50)),
+            Message::user(&"another old message ".repeat(50)),
+            Message::assistant(&"another old reply ".repeat(50)),
+            Message::user(&"yet another question ".repeat(50)),
+            Message::assistant(&"yet another answer ".repeat(50)),
+            Message::user(&"more old stuff ".repeat(50)),
+            Message::assistant(&"more old replies ".repeat(50)),
+            Message::user("recent question"),
+            Message::assistant("recent answer"),
+            Message::user("recent q2"),
+            Message::assistant("recent a2"),
+            Message::user("recent q3"),
+            Message::assistant("recent a3"),
+            Message::user("current task"),
+        ];
+
+        let old_len = conversation.len();
+        let config = model_config();
+        let result = executor
+            .auto_compact(&mut conversation, "agent-1", "run-1", &mut 0, &config)
+            .await;
+
+        assert!(result); // compaction happened
+        assert!(conversation.len() < old_len); // fewer messages
+        // Should contain the summary
+        let has_summary = conversation
+            .iter()
+            .any(|m| m.content.contains("Auto-compacted"));
+        assert!(has_summary, "compacted conversation should contain summary");
+    }
+
+    #[tokio::test]
+    async fn auto_compact_circuit_breaker_after_failures() {
+        let bus = EventBus::new(100);
+
+        // Provider that always fails
+        struct FailingProvider;
+        #[async_trait]
+        impl Provider for FailingProvider {
+            async fn complete(
+                &self,
+                _messages: Vec<Message>,
+                _config: &ModelConfig,
+                _tools: &[crate::registry::ToolDefinition],
+            ) -> Result<ProviderResponse, PrimitiveError> {
+                Err(PrimitiveError::ExecutionFailed("API down".into()))
+            }
+        }
+
+        let provider = Arc::new(FailingProvider);
+        let registry = PrimitiveRegistry::new();
+
+        let mut executor = RunExecutor::new(bus, provider, registry, Arc::new(RwLock::new(vec![])))
+            .with_context_window(100);
+
+        let mut conversation = vec![
+            Message::system("prompt"),
+            Message::user(&"x".repeat(1000)),
+            Message::assistant(&"y".repeat(1000)),
+            Message::user(&"z".repeat(1000)),
+            Message::assistant(&"w".repeat(1000)),
+            Message::user(&"a".repeat(1000)),
+            Message::assistant(&"b".repeat(1000)),
+            Message::user(&"c".repeat(1000)),
+            Message::assistant(&"d".repeat(1000)),
+            Message::user("recent1"),
+            Message::assistant("recent2"),
+            Message::user("recent3"),
+            Message::assistant("recent4"),
+            Message::user("recent5"),
+            Message::assistant("recent6"),
+            Message::user("current"),
+        ];
+
+        let config = model_config();
+
+        // First 3 attempts should try (and fail)
+        for _ in 0..3 {
+            let _ = executor
+                .auto_compact(&mut conversation, "agent-1", "run-1", &mut 0, &config)
+                .await;
+        }
+
+        assert_eq!(executor.compact_failures, 3);
+
+        // 4th attempt should be skipped due to circuit breaker
+        let result = executor
+            .auto_compact(&mut conversation, "agent-1", "run-1", &mut 0, &config)
+            .await;
+        assert!(!result); // skipped
+    }
+
+    // ──────────── is_concurrent_safe on Primitive trait ────────────
+
+    #[test]
+    fn primitive_default_is_not_concurrent_safe() {
+        let prim = EchoPrimitive;
+        assert!(!prim.is_concurrent_safe());
+    }
+
+    #[test]
+    fn registry_is_concurrent_safe_returns_false_for_unknown() {
+        let registry = PrimitiveRegistry::new();
+        assert!(!registry.is_concurrent_safe("nonexistent"));
+    }
+
+    #[test]
+    fn registry_is_concurrent_safe_returns_true_for_safe_primitive() {
+        struct SafePrim;
+        #[async_trait]
+        impl Primitive for SafePrim {
+            fn name(&self) -> &str {
+                "safe_prim"
+            }
+            async fn invoke(
+                &self,
+                _p: serde_json::Value,
+            ) -> Result<serde_json::Value, PrimitiveError> {
+                Ok(serde_json::json!({}))
+            }
+            fn is_concurrent_safe(&self) -> bool {
+                true
+            }
+        }
+
+        let registry = PrimitiveRegistry::new();
+        registry.register(Box::new(SafePrim));
+        assert!(registry.is_concurrent_safe("safe_prim"));
     }
 }

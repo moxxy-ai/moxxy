@@ -1,7 +1,8 @@
 use moxxy_channel::bridge::{ChannelBridge, ChannelSender};
 use moxxy_core::{AgentRegistry, EmbeddingService, EventBus, LoadedWebhook};
 use moxxy_runtime::{
-    AskChannels, ChannelMessageSender, Provider, ProviderConfig, WebhookListenChannels,
+    AgentAwaitChannels, AgentInbox, AskChannels, ChannelMessageSender, PlanApprovalChannels,
+    Provider, ProviderConfig, WebhookListenChannels,
     agent_kind::{AgentKindRegistry, AgentSetup, KindContext},
 };
 use moxxy_storage::Database;
@@ -101,6 +102,12 @@ pub struct RunService {
     kind_registry: Arc<AgentKindRegistry>,
     pub webhook_index: Arc<RwLock<HashMap<String, LoadedWebhook>>>,
     pub webhook_listen_channels: WebhookListenChannels,
+    /// Shared inbox for inter-agent messaging.
+    pub agent_inbox: AgentInbox,
+    /// Channels notified when a child agent completes (for `agent.await`).
+    pub agent_await_channels: AgentAwaitChannels,
+    /// Channels for plan approval flow (plan.submit / plan.approve).
+    pub plan_approval_channels: PlanApprovalChannels,
     /// Per-agent bounded queue for run requests that arrive while the agent is busy.
     pub run_queue: AgentRunQueue,
     /// Channel for signalling the drain loop when a run completes and the queue should be checked.
@@ -135,6 +142,9 @@ impl RunService {
             kind_registry,
             webhook_index,
             webhook_listen_channels: moxxy_runtime::new_webhook_listen_channels(),
+            agent_inbox: moxxy_runtime::new_agent_inbox(),
+            agent_await_channels: moxxy_runtime::new_agent_await_channels(),
+            plan_approval_channels: moxxy_runtime::new_plan_approval_channels(),
             run_queue: Arc::new(Mutex::new(HashMap::new())),
             drain_tx: mpsc::unbounded_channel().0,
         }
@@ -170,6 +180,9 @@ impl RunService {
             kind_registry,
             webhook_index,
             webhook_listen_channels: moxxy_runtime::new_webhook_listen_channels(),
+            agent_inbox: moxxy_runtime::new_agent_inbox(),
+            agent_await_channels: moxxy_runtime::new_agent_await_channels(),
+            plan_approval_channels: moxxy_runtime::new_plan_approval_channels(),
             run_queue: Arc::new(Mutex::new(HashMap::new())),
             drain_tx,
         };
@@ -486,6 +499,9 @@ impl RunService {
             base_url: self.base_url.clone(),
             webhook_index: self.webhook_index.clone(),
             webhook_listen_channels: self.webhook_listen_channels.clone(),
+            agent_inbox: self.agent_inbox.clone(),
+            agent_await_channels: self.agent_await_channels.clone(),
+            plan_approval_channels: self.plan_approval_channels.clone(),
         };
         // Resolve template content if the agent has a template assigned
         let template_content = runtime.config.template.as_ref().and_then(|slug| {
@@ -517,6 +533,8 @@ impl RunService {
         let kind_registry = self.kind_registry.clone();
         let moxxy_home = self.moxxy_home.clone();
         let drain_tx = self.drain_tx.clone();
+        let agent_inbox = self.agent_inbox.clone();
+        let agent_await_channels = self.agent_await_channels.clone();
 
         tokio::spawn(async move {
             tracing::info!(
@@ -542,6 +560,7 @@ impl RunService {
             .with_system_prompt(prepared.system_prompt)
             .with_history(prepared.history)
             .with_cancel_token(cancel_token)
+            .with_inbox(agent_inbox)
             .with_timeout(std::time::Duration::from_secs(300))
             .with_stm_path(stm_path);
 
@@ -652,6 +671,9 @@ impl RunService {
                         base_url: String::new(),
                         webhook_index: Arc::new(RwLock::new(HashMap::new())),
                         webhook_listen_channels: moxxy_runtime::new_webhook_listen_channels(),
+                        agent_inbox: moxxy_runtime::new_agent_inbox(),
+                        agent_await_channels: moxxy_runtime::new_agent_await_channels(),
+                        plan_approval_channels: moxxy_runtime::new_plan_approval_channels(),
                     };
                     let _ = kind.post_run(&post_setup, &post_ctx, &result).await;
                 }
@@ -665,6 +687,17 @@ impl RunService {
                     Err(e) => Some(format!("error: {e}")),
                 },
             );
+
+            // Notify any parent waiting via agent.await
+            if let Ok(mut channels) = agent_await_channels.lock()
+                && let Some(sender) = channels.remove(&agent_name_owned)
+            {
+                let msg = match &result {
+                    Ok(content) => content.clone(),
+                    Err(e) => format!("error: {e}"),
+                };
+                let _ = sender.send(msg);
+            }
 
             // Apply cleanup actions from the kind
             if let Some(new_status) = &actions.new_status {
@@ -963,6 +996,55 @@ impl RunStarter for RunService {
             }
         }
 
+        // Create git worktree if isolation mode requires it
+        if opts.isolation == moxxy_types::WorkspaceIsolation::Worktree {
+            let parent_workspace = self
+                .moxxy_home
+                .join("agents")
+                .join(parent_name)
+                .join("workspace");
+            let child_workspace = self
+                .moxxy_home
+                .join("agents")
+                .join(&child_name)
+                .join("workspace");
+
+            if parent_workspace.exists() {
+                let branch_name = format!("moxxy/{child_name}");
+                let output = std::process::Command::new("git")
+                    .args(["worktree", "add", "-b", &branch_name])
+                    .arg(&child_workspace)
+                    .current_dir(&parent_workspace)
+                    .output();
+
+                match output {
+                    Ok(o) if o.status.success() => {
+                        tracing::info!(
+                            child = %child_name,
+                            branch = %branch_name,
+                            path = %child_workspace.display(),
+                            "Created git worktree for child agent"
+                        );
+                    }
+                    Ok(o) => {
+                        let stderr = String::from_utf8_lossy(&o.stderr);
+                        tracing::warn!(
+                            child = %child_name,
+                            error = %stderr,
+                            "Failed to create git worktree, falling back to shared workspace"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            child = %child_name,
+                            error = %e,
+                            "Failed to run git worktree command, falling back to shared workspace"
+                        );
+                    }
+                }
+            }
+        }
+
         // Start the child's run
         let run_id = self.do_start_run(&child_name, task).await.map_err(|e| {
             // Roll back: unregister child + decrement parent
@@ -1005,6 +1087,33 @@ impl RunStarter for RunService {
 
         if child.status == AgentStatus::Running {
             return Err(format!("cannot dismiss '{}': still running", child_name));
+        }
+
+        // Clean up git worktree if one exists for this child
+        let child_workspace = self
+            .moxxy_home
+            .join("agents")
+            .join(child_name)
+            .join("workspace");
+        if child_workspace.exists() {
+            let parent_workspace = self
+                .moxxy_home
+                .join("agents")
+                .join(parent_name)
+                .join("workspace");
+            if parent_workspace.exists() {
+                let _ = std::process::Command::new("git")
+                    .args(["worktree", "remove", "--force"])
+                    .arg(&child_workspace)
+                    .current_dir(&parent_workspace)
+                    .output();
+                // Also remove the branch
+                let branch_name = format!("moxxy/{child_name}");
+                let _ = std::process::Command::new("git")
+                    .args(["branch", "-D", &branch_name])
+                    .current_dir(&parent_workspace)
+                    .output();
+            }
         }
 
         self.registry.unregister(child_name);

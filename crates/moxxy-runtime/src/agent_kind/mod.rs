@@ -15,7 +15,10 @@ pub use prompt::{
 pub use registry::AgentKindRegistry;
 pub use standard::StandardAgentKind;
 
-use crate::{AskChannels, ChannelMessageSender, Message, PrimitiveRegistry, WebhookListenChannels};
+use crate::{
+    AgentAwaitChannels, AgentInbox, AskChannels, ChannelMessageSender, Message,
+    PlanApprovalChannels, PrimitiveRegistry, WebhookListenChannels,
+};
 use moxxy_core::{EmbeddingService, EventBus, LoadedWebhook};
 use moxxy_mcp::McpManager;
 use moxxy_storage::Database;
@@ -64,6 +67,12 @@ pub struct KindContext {
     pub base_url: String,
     pub webhook_index: Arc<RwLock<HashMap<String, LoadedWebhook>>>,
     pub webhook_listen_channels: WebhookListenChannels,
+    /// Shared inbox for inter-agent messaging.
+    pub agent_inbox: AgentInbox,
+    /// Channels for `agent.await` — notified when a child completes.
+    pub agent_await_channels: AgentAwaitChannels,
+    /// Channels for plan approval flow between parent and child agents.
+    pub plan_approval_channels: PlanApprovalChannels,
 }
 
 /// Per-run agent information passed to [`AgentKindDefinition::call`].

@@ -153,6 +153,10 @@ impl Primitive for BrowseFetchPrimitive {
         "Fetch a web page and return clean readable text, extracted links, and optional CSS-selected content."
     }
 
+    fn is_concurrent_safe(&self) -> bool {
+        true
+    }
+
     fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
@@ -267,6 +271,10 @@ impl Primitive for BrowseExtractPrimitive {
 
     fn description(&self) -> &str {
         "Extract structured data from HTML using CSS selectors. Pure parsing, no network requests."
+    }
+
+    fn is_concurrent_safe(&self) -> bool {
+        true
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
