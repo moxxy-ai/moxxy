@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/moxxy-ai/moxxy/compare/v1.2.0...v1.2.1) (2026-04-07)
+
+
+### Bug Fixes
+
+* release ci issue ([ea7b1f4](https://github.com/moxxy-ai/moxxy/commit/ea7b1f4dfa25e1802551a445c99cf363e0e00802))
+
 ## [1.2.0](https://github.com/moxxy-ai/moxxy/compare/v1.1.1...v1.2.0) (2026-04-07)
 
 
