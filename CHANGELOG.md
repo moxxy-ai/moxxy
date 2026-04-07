@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/moxxy-ai/moxxy/compare/moxxy-gateway-v1.1.0...moxxy-gateway-v1.1.1) (2026-04-07)
+
+
+### Bug Fixes
+
+* parallel packages sigterm ([eb3a7e4](https://github.com/moxxy-ai/moxxy/commit/eb3a7e4d6d781690a58d3d0d7e4e8a20de0e9fc6))
+
 ## [1.1.0](https://github.com/moxxy-ai/moxxy/compare/moxxy-gateway-v1.0.0...moxxy-gateway-v1.1.0) (2026-04-07)
 
 
