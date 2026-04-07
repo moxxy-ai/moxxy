@@ -1,9 +1,5 @@
 {
   "packages": {
-    "apps/moxxy-cli": {
-      "release-type": "node",
-      "package-name": "moxxy-cli"
-    },
     ".": {
       "release-type": "simple",
       "package-name": "moxxy-gateway",
@@ -17,7 +13,8 @@
         "crates/moxxy-mcp/Cargo.toml",
         "crates/moxxy-vault/Cargo.toml",
         "crates/moxxy-plugin/Cargo.toml",
-        "crates/moxxy-test-utils/Cargo.toml"
+        "crates/moxxy-test-utils/Cargo.toml",
+        "apps/moxxy-cli/package.json"
       ]
     }
   }
