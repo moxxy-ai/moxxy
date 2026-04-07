@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Moxxy Agentic Framework API
-  version: 0.1.0
+  version: 1.0.0
   description: Local-first agentic framework REST API
 
 servers:

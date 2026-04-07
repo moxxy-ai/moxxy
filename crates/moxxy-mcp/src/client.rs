@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 /// MCP client capabilities sent during initialization.
 const CLIENT_INFO: &str = "moxxy-mcp";
-const CLIENT_VERSION: &str = "0.1.0";
+const CLIENT_VERSION: &str = "1.0.0";
 const PROTOCOL_VERSION: &str = "2025-03-26";
 
 /// High-level MCP client that manages a single server connection.

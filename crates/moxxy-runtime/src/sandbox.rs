@@ -93,6 +93,7 @@ impl SandboxedCommand {
 
     /// Resolve symlinks in the workspace path (e.g. /tmp -> /private/tmp on macOS)
     /// so sandbox profiles match the canonical path the OS actually sees.
+    #[cfg(any(target_os = "macos", test))]
     fn canonical_workspace(workspace_root: &std::path::Path) -> String {
         workspace_root
             .canonicalize()
