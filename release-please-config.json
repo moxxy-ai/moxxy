@@ -5,8 +5,20 @@
       "package-name": "moxxy-cli"
     },
     ".": {
-      "release-type": "rust",
-      "package-name": "moxxy-gateway"
+      "release-type": "simple",
+      "package-name": "moxxy-gateway",
+      "extra-files": [
+        "crates/moxxy-core/Cargo.toml",
+        "crates/moxxy-types/Cargo.toml",
+        "crates/moxxy-storage/Cargo.toml",
+        "crates/moxxy-runtime/Cargo.toml",
+        "crates/moxxy-gateway/Cargo.toml",
+        "crates/moxxy-channel/Cargo.toml",
+        "crates/moxxy-mcp/Cargo.toml",
+        "crates/moxxy-vault/Cargo.toml",
+        "crates/moxxy-plugin/Cargo.toml",
+        "crates/moxxy-test-utils/Cargo.toml"
+      ]
     }
   }
 }
