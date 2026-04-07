@@ -17,7 +17,9 @@ pub mod webhooks;
 pub use agent_registry::AgentRegistry;
 pub use agent_store::AgentStore;
 pub use agents::AgentLineage;
+pub use allowlist_store::{AllowlistFile, allowlist_path};
 pub use auth::{ApiTokenService, IssuedToken};
+pub use channel_store::{BindingEntry, BindingsFile, ChannelDoc, ChannelStore};
 pub use events::{EventBus, RedactionEngine};
 pub use heartbeat::{
     HeartbeatAction, HeartbeatActionContext, HeartbeatActionError, HeartbeatActionRegistry,
@@ -29,11 +31,11 @@ pub use memory::{
     EmbeddingError, EmbeddingService, MemoryCompactor, MemoryJournal, MemoryRecord,
     MockEmbeddingService, bytes_to_embedding, embedding_to_bytes,
 };
-pub use providers::{LoadedProvider, ProviderDoc, ProviderLoader, ProviderModelEntry, ProviderStore};
-pub use allowlist_store::{AllowlistFile, allowlist_path};
-pub use channel_store::{BindingEntry, BindingsFile, ChannelDoc, ChannelStore};
+pub use providers::{
+    LoadedProvider, ProviderDoc, ProviderLoader, ProviderModelEntry, ProviderStore,
+};
 pub use security::PathPolicy;
+pub use settings::{NetworkMode, SystemSettings, settings_path};
 pub use skills::{LoadedSkill, SkillDoc, SkillLoader, SkillSource};
 pub use templates::{LoadedTemplate, TemplateDoc, TemplateLoader, TemplateStore};
-pub use settings::{NetworkMode, SystemSettings, settings_path};
 pub use webhooks::{LoadedWebhook, WebhookDoc, WebhookLoader, WebhookStore, render_template};

@@ -39,7 +39,8 @@ pub struct PlanApproval {
 }
 
 /// Channels for plan approval: child_name → sender.
-pub type PlanApprovalChannels = Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<PlanApproval>>>>;
+pub type PlanApprovalChannels =
+    Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<PlanApproval>>>>;
 
 pub fn new_plan_approval_channels() -> PlanApprovalChannels {
     Arc::new(Mutex::new(HashMap::new()))
@@ -454,11 +455,7 @@ pub struct AgentMessagePrimitive {
 }
 
 impl AgentMessagePrimitive {
-    pub fn new(
-        sender_name: String,
-        inbox: AgentInbox,
-        run_starter: Arc<dyn RunStarter>,
-    ) -> Self {
+    pub fn new(sender_name: String, inbox: AgentInbox, run_starter: Arc<dyn RunStarter>) -> Self {
         Self {
             sender_name,
             inbox,
@@ -553,11 +550,7 @@ pub struct AgentBroadcastPrimitive {
 }
 
 impl AgentBroadcastPrimitive {
-    pub fn new(
-        sender_name: String,
-        inbox: AgentInbox,
-        run_starter: Arc<dyn RunStarter>,
-    ) -> Self {
+    pub fn new(sender_name: String, inbox: AgentInbox, run_starter: Arc<dyn RunStarter>) -> Self {
         Self {
             sender_name,
             inbox,
@@ -732,15 +725,12 @@ impl Primitive for AgentAwaitPrimitive {
             "Awaiting sub-agent completion"
         );
 
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(timeout_secs),
-            rx,
-        )
-        .await
-        .map_err(|_| PrimitiveError::Timeout)?
-        .map_err(|_| {
-            PrimitiveError::ExecutionFailed("child agent was dropped before completing".into())
-        })?;
+        let result = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), rx)
+            .await
+            .map_err(|_| PrimitiveError::Timeout)?
+            .map_err(|_| {
+                PrimitiveError::ExecutionFailed("child agent was dropped before completing".into())
+            })?;
 
         Ok(serde_json::json!({
             "child_name": child_name,
@@ -761,11 +751,7 @@ pub struct PlanSubmitPrimitive {
 }
 
 impl PlanSubmitPrimitive {
-    pub fn new(
-        agent_name: String,
-        inbox: AgentInbox,
-        plan_channels: PlanApprovalChannels,
-    ) -> Self {
+    pub fn new(agent_name: String, inbox: AgentInbox, plan_channels: PlanApprovalChannels) -> Self {
         Self {
             agent_name,
             inbox,
@@ -838,15 +824,12 @@ impl Primitive for PlanSubmitPrimitive {
             channels.insert(self.agent_name.clone(), tx);
         }
 
-        let approval = tokio::time::timeout(
-            std::time::Duration::from_secs(600),
-            rx,
-        )
-        .await
-        .map_err(|_| PrimitiveError::Timeout)?
-        .map_err(|_| {
-            PrimitiveError::ExecutionFailed("parent dropped before approving plan".into())
-        })?;
+        let approval = tokio::time::timeout(std::time::Duration::from_secs(600), rx)
+            .await
+            .map_err(|_| PrimitiveError::Timeout)?
+            .map_err(|_| {
+                PrimitiveError::ExecutionFailed("parent dropped before approving plan".into())
+            })?;
 
         if approval.approved {
             tracing::info!(agent = %self.agent_name, "Plan approved by parent");
@@ -1325,7 +1308,10 @@ mod tests {
         let inbox = inbox.lock().unwrap();
         assert_eq!(inbox.get("child-1").unwrap().len(), 1);
         assert_eq!(inbox.get("child-2").unwrap().len(), 1);
-        assert_eq!(inbox.get("child-1").unwrap()[0].content, "attention everyone");
+        assert_eq!(
+            inbox.get("child-1").unwrap()[0].content,
+            "attention everyone"
+        );
     }
 
     #[tokio::test]
@@ -1359,8 +1345,7 @@ mod tests {
         });
 
         let await_channels = new_agent_await_channels();
-        let prim =
-            AgentAwaitPrimitive::new("parent-1".into(), run_starter, await_channels);
+        let prim = AgentAwaitPrimitive::new("parent-1".into(), run_starter, await_channels);
 
         let result = prim
             .invoke(serde_json::json!({
@@ -1391,8 +1376,7 @@ mod tests {
             }
         });
 
-        let prim =
-            AgentAwaitPrimitive::new("parent-1".into(), run_starter, await_channels);
+        let prim = AgentAwaitPrimitive::new("parent-1".into(), run_starter, await_channels);
 
         let result = prim
             .invoke(serde_json::json!({
@@ -1410,8 +1394,7 @@ mod tests {
     async fn agent_await_rejects_non_child() {
         let run_starter = Arc::new(MockRunStarter::new());
         let await_channels = new_agent_await_channels();
-        let prim =
-            AgentAwaitPrimitive::new("parent-1".into(), run_starter, await_channels);
+        let prim = AgentAwaitPrimitive::new("parent-1".into(), run_starter, await_channels);
 
         let result = prim
             .invoke(serde_json::json!({
@@ -1432,8 +1415,7 @@ mod tests {
         run_starter.add_child("child-1", "running");
 
         let await_channels = new_agent_await_channels();
-        let prim =
-            AgentAwaitPrimitive::new("parent-1".into(), run_starter, await_channels);
+        let prim = AgentAwaitPrimitive::new("parent-1".into(), run_starter, await_channels);
 
         let result = prim
             .invoke(serde_json::json!({
@@ -1457,7 +1439,10 @@ mod tests {
         // Simulate parent approving after a short delay
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            let sender = channels_clone.lock().unwrap().remove("parent-1-sub-abc12345");
+            let sender = channels_clone
+                .lock()
+                .unwrap()
+                .remove("parent-1-sub-abc12345");
             if let Some(sender) = sender {
                 let _ = sender.send(PlanApproval {
                     approved: true,
@@ -1466,11 +1451,8 @@ mod tests {
             }
         });
 
-        let prim = PlanSubmitPrimitive::new(
-            "parent-1-sub-abc12345".into(),
-            inbox.clone(),
-            plan_channels,
-        );
+        let prim =
+            PlanSubmitPrimitive::new("parent-1-sub-abc12345".into(), inbox.clone(), plan_channels);
 
         let result = prim
             .invoke(serde_json::json!({
@@ -1498,7 +1480,10 @@ mod tests {
 
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            let sender = channels_clone.lock().unwrap().remove("parent-1-sub-abc12345");
+            let sender = channels_clone
+                .lock()
+                .unwrap()
+                .remove("parent-1-sub-abc12345");
             if let Some(sender) = sender {
                 let _ = sender.send(PlanApproval {
                     approved: false,
@@ -1507,11 +1492,7 @@ mod tests {
             }
         });
 
-        let prim = PlanSubmitPrimitive::new(
-            "parent-1-sub-abc12345".into(),
-            inbox,
-            plan_channels,
-        );
+        let prim = PlanSubmitPrimitive::new("parent-1-sub-abc12345".into(), inbox, plan_channels);
 
         let result = prim
             .invoke(serde_json::json!({
@@ -1534,16 +1515,9 @@ mod tests {
 
         // Register a pending plan from child-1
         let (tx, rx) = tokio::sync::oneshot::channel();
-        plan_channels
-            .lock()
-            .unwrap()
-            .insert("child-1".into(), tx);
+        plan_channels.lock().unwrap().insert("child-1".into(), tx);
 
-        let prim = PlanApprovePrimitive::new(
-            "parent-1".into(),
-            plan_channels,
-            run_starter,
-        );
+        let prim = PlanApprovePrimitive::new("parent-1".into(), plan_channels, run_starter);
 
         let result = prim
             .invoke(serde_json::json!({
@@ -1568,11 +1542,7 @@ mod tests {
         // No children
 
         let plan_channels = new_plan_approval_channels();
-        let prim = PlanApprovePrimitive::new(
-            "parent-1".into(),
-            plan_channels,
-            run_starter,
-        );
+        let prim = PlanApprovePrimitive::new("parent-1".into(), plan_channels, run_starter);
 
         let result = prim
             .invoke(serde_json::json!({
@@ -1596,11 +1566,7 @@ mod tests {
         let plan_channels = new_plan_approval_channels();
         // No pending plan registered
 
-        let prim = PlanApprovePrimitive::new(
-            "parent-1".into(),
-            plan_channels,
-            run_starter,
-        );
+        let prim = PlanApprovePrimitive::new("parent-1".into(), plan_channels, run_starter);
 
         let result = prim
             .invoke(serde_json::json!({

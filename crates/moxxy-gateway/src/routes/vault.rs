@@ -84,7 +84,9 @@ pub async fn create_secret_ref(
                 _ => {
                     return Err((
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(serde_json::json!({"error": "internal", "message": "Failed to create secret ref"})),
+                        Json(
+                            serde_json::json!({"error": "internal", "message": "Failed to create secret ref"}),
+                        ),
                     ));
                 }
             }
@@ -144,7 +146,10 @@ pub async fn create_grant(
         Ok(()) => (id, StatusCode::CREATED),
         Err(_) => {
             // UNIQUE(agent_id, secret_ref_id) conflict - find existing grant and re-activate if revoked
-            match db.vault_grants().find_by_agent_and_secret(&body.agent_id, &body.secret_ref_id) {
+            match db
+                .vault_grants()
+                .find_by_agent_and_secret(&body.agent_id, &body.secret_ref_id)
+            {
                 Ok(Some(existing)) => {
                     if existing.revoked_at.is_some() {
                         let _ = db.vault_grants().unrevoke(&existing.id);
@@ -155,7 +160,9 @@ pub async fn create_grant(
                 _ => {
                     return Err((
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(serde_json::json!({"error": "internal", "message": "Failed to create grant"})),
+                        Json(
+                            serde_json::json!({"error": "internal", "message": "Failed to create grant"}),
+                        ),
                     ));
                 }
             }

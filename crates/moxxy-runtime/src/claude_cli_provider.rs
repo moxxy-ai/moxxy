@@ -5,11 +5,9 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::process::Stdio;
 
-use crate::provider::{
-    Message, ModelConfig, Provider, ProviderResponse, StreamEvent, TokenUsage,
-};
 #[allow(unused_imports)]
 use crate::provider::ToolCall;
+use crate::provider::{Message, ModelConfig, Provider, ProviderResponse, StreamEvent, TokenUsage};
 use crate::registry::{PrimitiveError, ToolDefinition};
 
 /// Default timeout for CLI invocations (120 seconds).
@@ -149,10 +147,7 @@ fn serialize_conversation(messages: &[Message]) -> (Option<String>, String) {
 }
 
 /// Parse the CLI JSON output into a `ProviderResponse`.
-fn parse_cli_output(
-    raw: &str,
-    stderr: &str,
-) -> Result<ProviderResponse, PrimitiveError> {
+fn parse_cli_output(raw: &str, stderr: &str) -> Result<ProviderResponse, PrimitiveError> {
     let output: CliJsonOutput = serde_json::from_str(raw).map_err(|e| {
         let context = if stderr.trim().is_empty() {
             raw.chars().take(500).collect::<String>()
@@ -291,9 +286,7 @@ impl Provider for ClaudeCliProvider {
         )
         .await
         .map_err(|_| PrimitiveError::Timeout)?
-        .map_err(|e| {
-            PrimitiveError::ExecutionFailed(format!("Claude CLI process error: {e}"))
-        })?;
+        .map_err(|e| PrimitiveError::ExecutionFailed(format!("Claude CLI process error: {e}")))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -316,8 +309,7 @@ impl Provider for ClaudeCliProvider {
         _tools: &[ToolDefinition],
     ) -> Result<Pin<Box<dyn Stream<Item = StreamEvent> + Send>>, PrimitiveError> {
         let (system_prompt, conversation_body) = serialize_conversation(&messages);
-        let (mut cmd, use_stdin) =
-            self.build_cli_command(&conversation_body, &system_prompt, true);
+        let (mut cmd, use_stdin) = self.build_cli_command(&conversation_body, &system_prompt, true);
 
         let mut child = cmd.spawn().map_err(|e| {
             PrimitiveError::ExecutionFailed(format!(
@@ -479,7 +471,11 @@ mod tests {
 
     #[test]
     fn serialize_conversation_with_tool_results() {
-        let msgs = vec![Message::tool_result("call_1", "fs.read", "file content here")];
+        let msgs = vec![Message::tool_result(
+            "call_1",
+            "fs.read",
+            "file content here",
+        )];
         let (_, body) = serialize_conversation(&msgs);
         assert!(body.contains("[Tool result for fs.read (id: call_1)]: file content here"));
     }

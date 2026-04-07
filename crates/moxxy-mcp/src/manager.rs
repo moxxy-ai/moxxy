@@ -41,8 +41,10 @@ impl McpManager {
         match &self.vault_resolver {
             Some(resolver) => {
                 let mut resolved = config.clone();
-                resolved.env = crate::client::resolve_vault_references(&config.env, resolver.as_ref());
-                resolved.headers = crate::client::resolve_vault_references(&config.headers, resolver.as_ref());
+                resolved.env =
+                    crate::client::resolve_vault_references(&config.env, resolver.as_ref());
+                resolved.headers =
+                    crate::client::resolve_vault_references(&config.headers, resolver.as_ref());
                 resolved
             }
             None => config.clone(),

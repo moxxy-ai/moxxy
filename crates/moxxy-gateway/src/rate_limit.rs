@@ -113,7 +113,10 @@ impl KeyExtractor for BearerTokenExtractor {
         }
 
         // Try peer IP from ConnectInfo
-        if let Some(connect_info) = req.extensions().get::<axum::extract::ConnectInfo<std::net::SocketAddr>>() {
+        if let Some(connect_info) = req
+            .extensions()
+            .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        {
             let peer_ip = connect_info.0.ip();
 
             // Only trust x-forwarded-for if peer is in trusted proxies list

@@ -5,11 +5,11 @@ pub mod errors;
 pub mod events;
 pub mod heartbeat;
 pub mod mcp;
+pub mod providers;
 pub mod run_starter;
 pub mod skills;
 pub mod templates;
 pub mod vault;
-pub mod providers;
 pub mod webhooks;
 
 pub use agents::{AgentConfig, AgentRuntime, AgentStatus, AgentType, HiveRole, SpawnError};

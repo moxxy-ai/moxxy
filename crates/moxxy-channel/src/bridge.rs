@@ -298,11 +298,7 @@ impl ChannelBridge {
         let _ = transport.send_typing(&msg.external_chat_id).await;
 
         // Trigger a run via RunStarter
-        match self
-            .run_starter
-            .start_run(agent_name, &msg.text)
-            .await
-        {
+        match self.run_starter.start_run(agent_name, &msg.text).await {
             Ok(_run_id) => {}
             Err(e) => {
                 tracing::error!("Failed to start run for agent {}: {}", agent_name, e);
@@ -338,8 +334,7 @@ impl ChannelBridge {
         let response_text = match self.commands.get(command_name) {
             Some(handler) => {
                 // Resolve binding from YAML
-                let bindings =
-                    ChannelStore::find_bindings_by_channel(&self.moxxy_home, channel_id);
+                let bindings = ChannelStore::find_bindings_by_channel(&self.moxxy_home, channel_id);
                 let agent_name = bindings
                     .into_iter()
                     .next()
@@ -417,8 +412,8 @@ impl ChannelBridge {
         };
         let result: Vec<_> = bindings
             .iter()
-            .filter_map(|(channel_id, chat_id, _)| {
-                match transports.get(channel_id) {
+            .filter_map(
+                |(channel_id, chat_id, _)| match transports.get(channel_id) {
                     Some(t) => Some((t.clone(), chat_id.clone())),
                     None => {
                         tracing::warn!(
@@ -428,8 +423,8 @@ impl ChannelBridge {
                         );
                         None
                     }
-                }
-            })
+                },
+            )
             .collect();
         result
     }
@@ -695,7 +690,11 @@ impl ChannelBridge {
                     .unwrap_or("")
                     .to_string();
                 if text.is_empty() {
-                    tracing::warn!(agent_id, run_id, "MessageFinal had empty content, skipping channel send");
+                    tracing::warn!(
+                        agent_id,
+                        run_id,
+                        "MessageFinal had empty content, skipping channel send"
+                    );
                     return;
                 }
                 match self

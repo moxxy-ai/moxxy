@@ -183,7 +183,8 @@ mod tests {
     #[tokio::test]
     async fn http_request_allowed_domain_succeeds() {
         let path = setup_allowlist(&["example.com"]);
-        let prim = HttpRequestPrimitive::new(path, Duration::from_secs(5), 1024 * 1024, NetworkMode::Safe);
+        let prim =
+            HttpRequestPrimitive::new(path, Duration::from_secs(5), 1024 * 1024, NetworkMode::Safe);
         let allowed = prim.load_allowed_domains();
         assert!(allowed.contains(&"example.com".to_string()));
     }
@@ -191,7 +192,8 @@ mod tests {
     #[tokio::test]
     async fn http_request_safe_mode_returns_prompt_for_blocked_domain() {
         let path = setup_allowlist(&["example.com"]);
-        let prim = HttpRequestPrimitive::new(path, Duration::from_secs(5), 1024 * 1024, NetworkMode::Safe);
+        let prim =
+            HttpRequestPrimitive::new(path, Duration::from_secs(5), 1024 * 1024, NetworkMode::Safe);
         let result = prim
             .invoke(serde_json::json!({
                 "url": "https://evil.com/steal",
@@ -201,13 +203,19 @@ mod tests {
             .unwrap();
         assert_eq!(result["status"], "domain_not_allowed");
         assert_eq!(result["domain"], "evil.com");
-        assert!(result["action_required"].as_str().unwrap().contains("user.ask"));
+        assert!(
+            result["action_required"]
+                .as_str()
+                .unwrap()
+                .contains("user.ask")
+        );
     }
 
     #[tokio::test]
     async fn http_request_enforces_timeout() {
         let path = setup_allowlist(&["httpbin.org"]);
-        let prim = HttpRequestPrimitive::new(path, Duration::from_millis(1), 1024, NetworkMode::Safe);
+        let prim =
+            HttpRequestPrimitive::new(path, Duration::from_millis(1), 1024, NetworkMode::Safe);
         assert_eq!(prim.timeout.as_millis(), 1);
     }
 

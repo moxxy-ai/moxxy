@@ -18,11 +18,7 @@ pub struct ShellExecPrimitive {
 }
 
 impl ShellExecPrimitive {
-    pub fn new(
-        allowlist_path: PathBuf,
-        max_timeout: Duration,
-        max_output_bytes: usize,
-    ) -> Self {
+    pub fn new(allowlist_path: PathBuf, max_timeout: Duration, max_output_bytes: usize) -> Self {
         Self {
             allowlist_path,
             max_timeout,
@@ -255,8 +251,8 @@ mod tests {
             workspace_root: PathBuf::from("/tmp"),
         };
         let path = setup_allowlist(&["echo"]);
-        let prim = ShellExecPrimitive::new(path, Duration::from_secs(5), 1024 * 1024)
-            .with_sandbox(config);
+        let prim =
+            ShellExecPrimitive::new(path, Duration::from_secs(5), 1024 * 1024).with_sandbox(config);
         let result = prim
             .invoke(serde_json::json!({"command": "echo", "args": ["sandbox-none"]}))
             .await
@@ -343,9 +339,7 @@ mod tests {
         let prim = ShellExecPrimitive::new(path, Duration::from_secs(5), 1024 * 1024)
             .with_working_dir(Arc::new(Mutex::new(ws.clone())));
         let result = prim
-            .invoke(
-                serde_json::json!({"command": "bash", "args": ["-c", "echo $MOXXY_WORKSPACE"]}),
-            )
+            .invoke(serde_json::json!({"command": "bash", "args": ["-c", "echo $MOXXY_WORKSPACE"]}))
             .await
             .unwrap();
         let stdout = result["stdout"].as_str().unwrap().trim();

@@ -46,8 +46,7 @@ impl BindingsFile {
 
     pub fn save(&self, path: &Path) -> Result<(), String> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("create dir: {e}"))?;
+            std::fs::create_dir_all(parent).map_err(|e| format!("create dir: {e}"))?;
         }
         let yaml = serde_yaml::to_string(&self).map_err(|e| format!("serialize: {e}"))?;
         std::fs::write(path, yaml).map_err(|e| format!("write: {e}"))
@@ -97,15 +96,14 @@ impl ChannelStore {
         let dir = Self::channel_dir(moxxy_home, id);
         std::fs::create_dir_all(&dir).map_err(|e| format!("create channel dir: {e}"))?;
         let yaml = serde_yaml::to_string(doc).map_err(|e| format!("serialize: {e}"))?;
-        std::fs::write(Self::channel_path(moxxy_home, id), yaml)
-            .map_err(|e| format!("write: {e}"))
+        std::fs::write(Self::channel_path(moxxy_home, id), yaml).map_err(|e| format!("write: {e}"))
     }
 
     /// Load a single channel by ID.
     pub fn load(moxxy_home: &Path, id: &str) -> Result<ChannelDoc, String> {
         let path = Self::channel_path(moxxy_home, id);
-        let content = std::fs::read_to_string(&path)
-            .map_err(|e| format!("read {}: {e}", path.display()))?;
+        let content =
+            std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
         serde_yaml::from_str(&content).map_err(|e| format!("parse: {e}"))
     }
 
@@ -142,8 +140,7 @@ impl ChannelStore {
         doc.status = status.to_string();
         doc.updated_at = chrono::Utc::now().to_rfc3339();
         let yaml = serde_yaml::to_string(&doc).map_err(|e| format!("serialize: {e}"))?;
-        std::fs::write(Self::channel_path(moxxy_home, id), yaml)
-            .map_err(|e| format!("write: {e}"))
+        std::fs::write(Self::channel_path(moxxy_home, id), yaml).map_err(|e| format!("write: {e}"))
     }
 
     /// Delete a channel directory entirely.

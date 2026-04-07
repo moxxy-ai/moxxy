@@ -121,8 +121,7 @@ mod tests {
     fn empty_denials_same_as_merge() {
         let allows = vec!["custom.io".to_string()];
         let merged_no_deny = merge_with_defaults(allows.clone(), "http_domain");
-        let merged_with_deny =
-            merge_with_defaults_and_denials(allows, vec![], "http_domain");
+        let merged_with_deny = merge_with_defaults_and_denials(allows, vec![], "http_domain");
         assert_eq!(merged_no_deny, merged_with_deny);
     }
 }

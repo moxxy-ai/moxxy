@@ -12,8 +12,8 @@ use crate::{
     HiveManifest, HiveMember, HiveProposePrimitive, HiveRecruitPrimitive,
     HiveResolveProposalPrimitive, HiveSignalPrimitive, HiveStore, HiveTaskClaimPrimitive,
     HiveTaskCompletePrimitive, HiveTaskCreatePrimitive, HiveTaskFailPrimitive,
-    HiveTaskListPrimitive, HiveTaskReviewPrimitive, HiveVotePrimitive, McpConnectPrimitive, McpDisconnectPrimitive,
-    McpListPrimitive, Message, PrimitiveRegistry,
+    HiveTaskListPrimitive, HiveTaskReviewPrimitive, HiveVotePrimitive, McpConnectPrimitive,
+    McpDisconnectPrimitive, McpListPrimitive, Message, PrimitiveRegistry,
 };
 use moxxy_mcp::McpManager;
 use std::path::Path;

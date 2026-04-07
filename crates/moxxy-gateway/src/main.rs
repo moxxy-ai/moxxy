@@ -201,8 +201,7 @@ async fn main() {
 
         // Log active bindings for diagnostics
         for (channel_id, _doc) in &channels {
-            let bindings =
-                moxxy_core::ChannelStore::find_bindings_by_channel(&home, channel_id);
+            let bindings = moxxy_core::ChannelStore::find_bindings_by_channel(&home, channel_id);
             if bindings.is_empty() {
                 tracing::warn!(
                     channel_id = %channel_id,

@@ -43,10 +43,9 @@ impl SystemSettings {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("failed to create settings dir: {}", e))?;
         }
-        let content =
-            serde_yaml::to_string(self).map_err(|e| format!("failed to serialize settings: {}", e))?;
-        std::fs::write(path, content)
-            .map_err(|e| format!("failed to write settings: {}", e))
+        let content = serde_yaml::to_string(self)
+            .map_err(|e| format!("failed to serialize settings: {}", e))?;
+        std::fs::write(path, content).map_err(|e| format!("failed to write settings: {}", e))
     }
 }
 
@@ -126,7 +125,10 @@ mod tests {
     #[test]
     fn settings_path_is_correct() {
         let home = Path::new("/home/test/.moxxy");
-        assert_eq!(settings_path(home), PathBuf::from("/home/test/.moxxy/settings.yaml"));
+        assert_eq!(
+            settings_path(home),
+            PathBuf::from("/home/test/.moxxy/settings.yaml")
+        );
     }
 
     #[test]

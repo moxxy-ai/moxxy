@@ -31,7 +31,10 @@ impl ChromiumManager {
         }
 
         // 3. Previously downloaded: ~/.moxxy/chromium/
-        let downloaded = moxxy_home.join("chromium").join(platform_dir()).join(chrome_binary_name());
+        let downloaded = moxxy_home
+            .join("chromium")
+            .join(platform_dir())
+            .join(chrome_binary_name());
         if downloaded.exists() {
             tracing::info!(path = %downloaded.display(), "Found downloaded Chromium");
             return Some(Self {

@@ -95,7 +95,10 @@ pub fn build_capabilities_prompt(
             &[
                 ("memory.store", "store information (long-term)"),
                 ("memory.recall", "recall stored information (long-term)"),
-                ("memory.stm_read", "read short-term memory (auto-persisted at end of run)"),
+                (
+                    "memory.stm_read",
+                    "read short-term memory (auto-persisted at end of run)",
+                ),
             ],
         ),
         (
@@ -221,7 +224,10 @@ pub fn build_capabilities_prompt(
                 ("hive.task_list", "list tasks"),
                 ("hive.task_claim", "claim an unassigned task"),
                 ("hive.task_complete", "mark task completed"),
-                ("hive.task_fail", "mark task failed (retries if attempts remain)"),
+                (
+                    "hive.task_fail",
+                    "mark task failed (retries if attempts remain)",
+                ),
                 ("hive.task_review", "review a completed task's results"),
                 ("hive.propose", "create a proposal"),
                 ("hive.vote", "vote on a proposal"),

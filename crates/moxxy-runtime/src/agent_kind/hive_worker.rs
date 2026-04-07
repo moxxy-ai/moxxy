@@ -166,4 +166,3 @@ impl AgentKindDefinition for HiveWorkerAgentKind {
         "worker"
     }
 }
-

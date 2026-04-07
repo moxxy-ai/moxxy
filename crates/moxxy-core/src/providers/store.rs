@@ -48,10 +48,7 @@ impl ProviderStore {
 
     /// Load a single provider doc by id.
     pub fn load(moxxy_home: &Path, id: &str) -> Result<ProviderDoc, ProviderDocError> {
-        let path = moxxy_home
-            .join("providers")
-            .join(id)
-            .join("provider.yaml");
+        let path = moxxy_home.join("providers").join(id).join("provider.yaml");
         ProviderDoc::load_from_file(&path)
     }
 
@@ -61,10 +58,7 @@ impl ProviderStore {
         id: &str,
         mutate: impl FnOnce(&mut ProviderDoc),
     ) -> Result<ProviderDoc, ProviderDocError> {
-        let path = moxxy_home
-            .join("providers")
-            .join(id)
-            .join("provider.yaml");
+        let path = moxxy_home.join("providers").join(id).join("provider.yaml");
         let mut doc = ProviderDoc::load_from_file(&path)?;
         mutate(&mut doc);
         doc.save_to_file(&path)?;
@@ -108,9 +102,7 @@ mod tests {
 
         let doc = sample_doc("test-provider", "Test");
         ProviderStore::create(home, &doc).unwrap();
-        assert!(home
-            .join("providers/test-provider/provider.yaml")
-            .exists());
+        assert!(home.join("providers/test-provider/provider.yaml").exists());
     }
 
     #[test]

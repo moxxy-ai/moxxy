@@ -70,8 +70,7 @@ fn is_domain_allowed(allowlist_path: &std::path::Path, domain: &str) -> bool {
     let file = moxxy_core::AllowlistFile::load(allowlist_path);
     let allows = file.allows("http_domain");
     let denials = file.denials("http_domain");
-    let allowed =
-        crate::defaults::merge_with_defaults_and_denials(allows, denials, "http_domain");
+    let allowed = crate::defaults::merge_with_defaults_and_denials(allows, denials, "http_domain");
     crate::url_policy::is_domain_allowed(domain, &allowed)
 }
 
@@ -177,9 +176,13 @@ impl Primitive for BrowseFetchPrimitive {
         let domain = crate::url_policy::extract_host(url)
             .ok_or_else(|| PrimitiveError::InvalidParams("cannot parse domain from URL".into()))?;
 
-        if let Some(blocked) =
-            check_domain(&self.allowlist_path, self.network_mode, url, &domain, "browse.fetch")
-        {
+        if let Some(blocked) = check_domain(
+            &self.allowlist_path,
+            self.network_mode,
+            url,
+            &domain,
+            "browse.fetch",
+        ) {
             return Ok(blocked);
         }
 
@@ -446,7 +449,9 @@ impl Primitive for BrowseCrawlPrimitive {
                 continue;
             }
 
-            if self.network_mode == NetworkMode::Safe && !is_domain_allowed(&self.allowlist_path, &domain) {
+            if self.network_mode == NetworkMode::Safe
+                && !is_domain_allowed(&self.allowlist_path, &domain)
+            {
                 continue;
             }
 
@@ -484,8 +489,7 @@ impl Primitive for BrowseCrawlPrimitive {
             }
 
             if let Some(sel) = selector {
-                page["selected_text"] =
-                    serde_json::Value::String(extract_by_selector(&body, sel));
+                page["selected_text"] = serde_json::Value::String(extract_by_selector(&body, sel));
             }
 
             pages.push(page);
@@ -572,8 +576,9 @@ impl BrowseRenderPrimitive {
                         PrimitiveError::ExecutionFailed(format!("Chrome config error: {e}"))
                     })?;
 
-                let (browser, mut handler) =
-                    chromiumoxide::Browser::launch(launch_opts).await.map_err(|e| {
+                let (browser, mut handler) = chromiumoxide::Browser::launch(launch_opts)
+                    .await
+                    .map_err(|e| {
                         PrimitiveError::ExecutionFailed(format!(
                             "Failed to launch Chrome at {}: {e}",
                             chrome_path.display()
@@ -581,9 +586,7 @@ impl BrowseRenderPrimitive {
                     })?;
 
                 // Spawn the CDP handler as a background task.
-                tokio::spawn(async move {
-                    while handler.next().await.is_some() {}
-                });
+                tokio::spawn(async move { while handler.next().await.is_some() {} });
 
                 Ok(browser)
             })
@@ -624,9 +627,13 @@ impl Primitive for BrowseRenderPrimitive {
         let domain = crate::url_policy::extract_host(url)
             .ok_or_else(|| PrimitiveError::InvalidParams("cannot parse domain from URL".into()))?;
 
-        if let Some(blocked) =
-            check_domain(&self.allowlist_path, self.network_mode, url, &domain, "browse.render")
-        {
+        if let Some(blocked) = check_domain(
+            &self.allowlist_path,
+            self.network_mode,
+            url,
+            &domain,
+            "browse.render",
+        ) {
             return Ok(blocked);
         }
 
@@ -638,9 +645,10 @@ impl Primitive for BrowseRenderPrimitive {
 
         let browser = self.get_browser().await?;
 
-        let page = browser.new_page(url).await.map_err(|e| {
-            PrimitiveError::ExecutionFailed(format!("Failed to open page: {e}"))
-        })?;
+        let page = browser
+            .new_page(url)
+            .await
+            .map_err(|e| PrimitiveError::ExecutionFailed(format!("Failed to open page: {e}")))?;
 
         // Wait for the page to load.
         tokio::time::timeout(self.timeout, page.wait_for_navigation())
@@ -650,11 +658,7 @@ impl Primitive for BrowseRenderPrimitive {
 
         // Wait for a specific selector if requested.
         if let Some(sel) = wait_for {
-            let _ = tokio::time::timeout(
-                Duration::from_secs(10),
-                page.find_element(sel),
-            )
-            .await;
+            let _ = tokio::time::timeout(Duration::from_secs(10), page.find_element(sel)).await;
         }
 
         // Additional wait.
@@ -793,7 +797,10 @@ mod tests {
 
     #[test]
     fn normalise_url_strips_fragment() {
-        assert_eq!(normalise_url("https://example.com/page#section"), "https://example.com/page");
+        assert_eq!(
+            normalise_url("https://example.com/page#section"),
+            "https://example.com/page"
+        );
     }
 
     #[test]
@@ -811,19 +818,20 @@ mod tests {
         file.add_allow("http_domain", "allowed.com".into());
         file.save(&path).unwrap();
 
-        let prim = BrowseFetchPrimitive::new(
-            path,
-            Duration::from_secs(5),
-            1024 * 1024,
-            NetworkMode::Safe,
-        );
+        let prim =
+            BrowseFetchPrimitive::new(path, Duration::from_secs(5), 1024 * 1024, NetworkMode::Safe);
         let result = prim
             .invoke(serde_json::json!({"url": "https://evil.com/page"}))
             .await
             .unwrap();
         assert_eq!(result["status"], "domain_not_allowed");
         assert_eq!(result["domain"], "evil.com");
-        assert!(result["action_required"].as_str().unwrap().contains("user.ask"));
+        assert!(
+            result["action_required"]
+                .as_str()
+                .unwrap()
+                .contains("user.ask")
+        );
     }
 
     #[tokio::test]
@@ -847,12 +855,8 @@ mod tests {
         let path = tmp.path().join("allowlists.yaml");
         std::fs::write(&path, "").unwrap();
 
-        let prim = BrowseFetchPrimitive::new(
-            path,
-            Duration::from_secs(5),
-            1024 * 1024,
-            NetworkMode::Safe,
-        );
+        let prim =
+            BrowseFetchPrimitive::new(path, Duration::from_secs(5), 1024 * 1024, NetworkMode::Safe);
         assert!(prim.is_domain_allowed("github.com"));
         assert!(prim.is_domain_allowed("stackoverflow.com"));
         assert!(!prim.is_domain_allowed("random-unknown.com"));
@@ -868,12 +872,8 @@ mod tests {
         file.add_allow("http_domain", "allowed.com".into());
         file.save(&path).unwrap();
 
-        let prim = BrowseCrawlPrimitive::new(
-            path,
-            Duration::from_secs(5),
-            1024 * 1024,
-            NetworkMode::Safe,
-        );
+        let prim =
+            BrowseCrawlPrimitive::new(path, Duration::from_secs(5), 1024 * 1024, NetworkMode::Safe);
         let result = prim
             .invoke(serde_json::json!({"url": "https://evil.com/"}))
             .await

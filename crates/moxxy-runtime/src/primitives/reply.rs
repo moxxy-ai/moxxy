@@ -37,14 +37,8 @@ impl Primitive for ReplyPrimitive {
         })
     }
 
-    async fn invoke(
-        &self,
-        params: serde_json::Value,
-    ) -> Result<serde_json::Value, PrimitiveError> {
-        let message = params
-            .get("message")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
+        let message = params.get("message").and_then(|v| v.as_str()).unwrap_or("");
         Ok(json!({ "delivered": true, "message": message }))
     }
 }

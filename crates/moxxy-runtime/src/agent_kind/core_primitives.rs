@@ -6,21 +6,20 @@ use crate::{
     AgentSpawnPrimitive, AgentStatusPrimitive, AgentStopPrimitive, AllowlistAddPrimitive,
     AllowlistDenyPrimitive, AllowlistListPrimitive, AllowlistRemovePrimitive,
     AllowlistUndenyPrimitive, BrowseCrawlPrimitive, BrowseExtractPrimitive, BrowseFetchPrimitive,
-    BrowseRenderPrimitive,
-    ChannelNotifyPrimitive, CliNotifyPrimitive, FsCdPrimitive, FsListPrimitive, FsReadPrimitive,
-    FsRemovePrimitive, FsWritePrimitive, GitCheckoutPrimitive, GitClonePrimitive,
-    GitCommitPrimitive, GitForkPrimitive, GitInitPrimitive, GitPrCreatePrimitive, GitPushPrimitive,
-    GitStatusPrimitive, GitWorktreeAddPrimitive, GitWorktreeListPrimitive,
-    GitWorktreeRemovePrimitive, HeartbeatCreatePrimitive, HeartbeatDeletePrimitive,
-    HeartbeatDisablePrimitive, HeartbeatListPrimitive, HeartbeatUpdatePrimitive,
-    HttpRequestPrimitive, MemoryRecallPrimitive, MemoryStmReadPrimitive,
-    MemoryStorePrimitive, PlanApprovePrimitive, PlanSubmitPrimitive,
-    PrimitiveContext, PrimitiveRegistry, ShellExecPrimitive,
-    SkillCreatePrimitive, SkillExecutePrimitive, SkillFindPrimitive, SkillGetPrimitive,
-    SkillListPrimitive, SkillRemovePrimitive, SkillValidatePrimitive, UserAskPrimitive,
-    ReplyPrimitive, VaultDeletePrimitive, VaultGetPrimitive, VaultListPrimitive, VaultSetPrimitive,
-    WebhookDeletePrimitive, WebhookListPrimitive, WebhookListenPrimitive, WebhookRegisterPrimitive,
-    WebhookRotatePrimitive, WebhookUpdatePrimitive,
+    BrowseRenderPrimitive, ChannelNotifyPrimitive, CliNotifyPrimitive, FsCdPrimitive,
+    FsListPrimitive, FsReadPrimitive, FsRemovePrimitive, FsWritePrimitive, GitCheckoutPrimitive,
+    GitClonePrimitive, GitCommitPrimitive, GitForkPrimitive, GitInitPrimitive,
+    GitPrCreatePrimitive, GitPushPrimitive, GitStatusPrimitive, GitWorktreeAddPrimitive,
+    GitWorktreeListPrimitive, GitWorktreeRemovePrimitive, HeartbeatCreatePrimitive,
+    HeartbeatDeletePrimitive, HeartbeatDisablePrimitive, HeartbeatListPrimitive,
+    HeartbeatUpdatePrimitive, HttpRequestPrimitive, MemoryRecallPrimitive, MemoryStmReadPrimitive,
+    MemoryStorePrimitive, PlanApprovePrimitive, PlanSubmitPrimitive, PrimitiveContext,
+    PrimitiveRegistry, ReplyPrimitive, ShellExecPrimitive, SkillCreatePrimitive,
+    SkillExecutePrimitive, SkillFindPrimitive, SkillGetPrimitive, SkillListPrimitive,
+    SkillRemovePrimitive, SkillValidatePrimitive, UserAskPrimitive, VaultDeletePrimitive,
+    VaultGetPrimitive, VaultListPrimitive, VaultSetPrimitive, WebhookDeletePrimitive,
+    WebhookListPrimitive, WebhookListenPrimitive, WebhookRegisterPrimitive, WebhookRotatePrimitive,
+    WebhookUpdatePrimitive,
 };
 
 /// Register all core primitives shared by all agent kinds.
@@ -69,9 +68,7 @@ pub fn register_core_primitives(
     if sandbox_config.profile != crate::sandbox::SandboxProfile::None
         && !crate::sandbox::is_sandbox_available()
     {
-        tracing::warn!(
-            "Shell sandboxing requested but sandbox binary not found on this platform"
-        );
+        tracing::warn!("Shell sandboxing requested but sandbox binary not found on this platform");
     }
     let shell_prim = ShellExecPrimitive::new(
         allowlist_path.clone(),
@@ -83,9 +80,8 @@ pub fn register_core_primitives(
     registry.register(Box::new(shell_prim));
 
     // Load system settings for network mode
-    let system_settings = moxxy_core::SystemSettings::load(
-        &moxxy_core::settings_path(&ctx.moxxy_home),
-    );
+    let system_settings =
+        moxxy_core::SystemSettings::load(&moxxy_core::settings_path(&ctx.moxxy_home));
 
     // HTTP primitive (YAML-backed domain allowlist)
     registry.register(Box::new(HttpRequestPrimitive::new(
@@ -352,9 +348,7 @@ pub fn register_core_primitives(
         registry.register(Box::new(AllowlistListPrimitive::new(
             allowlist_path.clone(),
         )));
-        registry.register(Box::new(AllowlistAddPrimitive::new(
-            allowlist_path.clone(),
-        )));
+        registry.register(Box::new(AllowlistAddPrimitive::new(allowlist_path.clone())));
         registry.register(Box::new(AllowlistRemovePrimitive::new(
             allowlist_path.clone(),
         )));

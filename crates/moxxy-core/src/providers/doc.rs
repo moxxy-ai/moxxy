@@ -30,8 +30,8 @@ fn default_true() -> bool {
 impl ProviderDoc {
     /// Parse a YAML string into a `ProviderDoc`.
     pub fn parse(input: &str) -> Result<Self, ProviderDocError> {
-        let doc: ProviderDoc =
-            serde_yaml::from_str(input).map_err(|e| ProviderDocError::InvalidYaml(e.to_string()))?;
+        let doc: ProviderDoc = serde_yaml::from_str(input)
+            .map_err(|e| ProviderDocError::InvalidYaml(e.to_string()))?;
 
         if doc.id.is_empty() {
             return Err(ProviderDocError::MissingField("id".to_string()));
@@ -177,7 +177,10 @@ models:
         assert_eq!(parsed.secret_ref, doc.secret_ref);
         assert_eq!(parsed.models.len(), 1);
         assert_eq!(parsed.models[0].id, "gpt-4o");
-        assert_eq!(parsed.models[0].chatgpt_account_id.as_deref(), Some("acct-1"));
+        assert_eq!(
+            parsed.models[0].chatgpt_account_id.as_deref(),
+            Some("acct-1")
+        );
     }
 
     #[test]

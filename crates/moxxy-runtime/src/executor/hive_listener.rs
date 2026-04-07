@@ -67,9 +67,17 @@ impl EventListener for HiveEventListener {
                 let task_id = event.payload["task_id"].as_str().unwrap_or("unknown");
                 let worker = event.payload["agent_id"].as_str().unwrap_or("unknown");
                 let reason = event.payload["reason"].as_str().unwrap_or("unknown");
-                let exhausted = event.payload["retries_exhausted"].as_bool().unwrap_or(false);
-                let suffix = if exhausted { " (retries exhausted)" } else { " (will retry)" };
-                Some(format!("[Hive task '{task_id}' failed by {worker}: {reason}{suffix}]"))
+                let exhausted = event.payload["retries_exhausted"]
+                    .as_bool()
+                    .unwrap_or(false);
+                let suffix = if exhausted {
+                    " (retries exhausted)"
+                } else {
+                    " (will retry)"
+                };
+                Some(format!(
+                    "[Hive task '{task_id}' failed by {worker}: {reason}{suffix}]"
+                ))
             }
             EventType::HiveSignalPosted => {
                 let signal_type = event.payload["signal_type"].as_str().unwrap_or("signal");

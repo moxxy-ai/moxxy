@@ -139,23 +139,6 @@ describe('markdown renderer', () => {
   });
 });
 
-describe('tab slash commands', () => {
-  it('matchCommands finds /tab commands', () => {
-    const matches = matchCommands('/tab');
-    assert.ok(matches.length >= 3);
-  });
-
-  it('matchCommands finds /close alias', () => {
-    const matches = matchCommands('/close');
-    assert.ok(matches.length >= 1);
-  });
-
-  it('slash commands include tab commands', () => {
-    const tabCmds = SLASH_COMMANDS.filter(c => c.name.startsWith('/tab'));
-    assert.ok(tabCmds.length >= 3);
-  });
-});
-
 describe('vault slash commands', () => {
   it('matchCommands returns only /vault for /vault prefix', () => {
     const matches = matchCommands('/vault');

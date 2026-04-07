@@ -25,11 +25,7 @@ impl WebhookStore {
     }
 
     /// Delete a webhook directory by slug.
-    pub fn delete(
-        moxxy_home: &Path,
-        agent_name: &str,
-        slug: &str,
-    ) -> Result<(), WebhookDocError> {
+    pub fn delete(moxxy_home: &Path, agent_name: &str, slug: &str) -> Result<(), WebhookDocError> {
         let slug_dir = moxxy_home
             .join("agents")
             .join(agent_name)
@@ -147,9 +143,10 @@ mod tests {
 
         let doc = sample_doc("Auto Dir", "tok");
         WebhookStore::create(home, "new-agent", &doc).unwrap();
-        assert!(home
-            .join("agents/new-agent/webhooks/auto-dir/WEBHOOK.md")
-            .exists());
+        assert!(
+            home.join("agents/new-agent/webhooks/auto-dir/WEBHOOK.md")
+                .exists()
+        );
     }
 
     #[test]

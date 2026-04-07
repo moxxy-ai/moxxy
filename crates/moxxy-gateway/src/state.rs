@@ -199,11 +199,7 @@ impl AppState {
     /// Spawn the drain loop that processes queued runs when agents become idle.
     /// Must be called after the Tokio runtime is available.
     pub fn spawn_drain_loop(self: &Arc<Self>) {
-        let drain_rx = self
-            .drain_rx
-            .lock()
-            .ok()
-            .and_then(|mut g| g.take());
+        let drain_rx = self.drain_rx.lock().ok().and_then(|mut g| g.take());
         if let Some(rx) = drain_rx {
             run_service::spawn_drain_loop(self.run_service.clone(), rx);
         }
@@ -309,14 +305,10 @@ impl AppState {
                 let stale_threshold_ms = 5 * 60 * 1000; // 5 minutes
 
                 for agent in &running_agents {
-                    let run_handle = run_tokens
-                        .lock()
-                        .ok()
-                        .and_then(|t| {
-                            t.get(&agent.name).map(|h| {
-                                (h.token.clone(), h.started_at_ms)
-                            })
-                        });
+                    let run_handle = run_tokens.lock().ok().and_then(|t| {
+                        t.get(&agent.name)
+                            .map(|h| (h.token.clone(), h.started_at_ms))
+                    });
 
                     let Some((token, started_at_ms)) = run_handle else {
                         // Agent stuck from crash = no active executor

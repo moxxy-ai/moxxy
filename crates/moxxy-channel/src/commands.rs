@@ -713,7 +713,11 @@ mod tests {
         .unwrap();
 
         let db = Arc::new(Mutex::new(Database::new(conn)));
-        TestEnv { _tmp: tmp, moxxy_home, db }
+        TestEnv {
+            _tmp: tmp,
+            moxxy_home,
+            db,
+        }
     }
 
     fn make_ctx<'a>(

@@ -68,7 +68,7 @@ pub use mcp::{
 pub use memory_ltm::{MemoryRecallPrimitive, MemoryStorePrimitive};
 pub use memory_stm::{MemoryStmReadPrimitive, MemoryStmWritePrimitive};
 pub use notify::CliNotifyPrimitive;
-pub use reply::{ReplyPrimitive, REPLY_PRIMITIVE_NAME};
+pub use reply::{REPLY_PRIMITIVE_NAME, ReplyPrimitive};
 pub use shell::ShellExecPrimitive;
 pub use skill::{
     SkillCreatePrimitive, SkillExecutePrimitive, SkillFindPrimitive, SkillGetPrimitive,

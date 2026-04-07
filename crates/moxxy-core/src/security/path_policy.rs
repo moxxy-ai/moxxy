@@ -76,8 +76,9 @@ impl PathPolicy {
 
     pub fn ensure_readable(&self, path: &Path) -> Result<(), PathPolicyError> {
         let check_path = if path.exists() {
-            path.canonicalize()
-                .map_err(|e| PathPolicyError::OutsideWorkspace(format!("{}: {}", path.display(), e)))?
+            path.canonicalize().map_err(|e| {
+                PathPolicyError::OutsideWorkspace(format!("{}: {}", path.display(), e))
+            })?
         } else {
             // Path doesn't exist yet - walk up to the nearest existing ancestor,
             // canonicalize it, then re-append the missing suffix so we can still

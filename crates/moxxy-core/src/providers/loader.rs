@@ -12,10 +12,7 @@ pub struct ProviderLoader;
 impl ProviderLoader {
     /// Load a single provider by id from `{moxxy_home}/providers/{id}/provider.yaml`.
     pub fn load(moxxy_home: &Path, id: &str) -> Option<LoadedProvider> {
-        let yaml_path = moxxy_home
-            .join("providers")
-            .join(id)
-            .join("provider.yaml");
+        let yaml_path = moxxy_home.join("providers").join(id).join("provider.yaml");
         match ProviderDoc::load_from_file(&yaml_path) {
             Ok(doc) => Some(LoadedProvider {
                 doc,

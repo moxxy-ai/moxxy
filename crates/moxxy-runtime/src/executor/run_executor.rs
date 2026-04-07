@@ -326,7 +326,11 @@ impl RunExecutor {
             // Auto-compact if conversation is approaching context window limit
             if iteration > 0 {
                 self.auto_compact(
-                    &mut conversation, agent_id, run_id, &mut sequence, model_config,
+                    &mut conversation,
+                    agent_id,
+                    run_id,
+                    &mut sequence,
+                    model_config,
                 )
                 .await;
             }
@@ -660,7 +664,9 @@ impl RunExecutor {
                                 "Primitive invoked"
                             );
                             self.emit(
-                                agent_id, run_id, &mut sequence,
+                                agent_id,
+                                run_id,
+                                &mut sequence,
                                 EventType::PrimitiveInvoked,
                                 serde_json::json!({"name": tc.name, "arguments": tc.arguments}),
                             );
@@ -670,20 +676,29 @@ impl RunExecutor {
 
                         if batch.concurrent && batch.calls.len() > 1 {
                             // Execute concurrent-safe tools in parallel
-                            let futures: Vec<_> = batch.calls.iter().map(|tc| {
-                                let registry = self.registry.clone();
-                                let allowed = allowed_snap.clone();
-                                let name = tc.name.clone();
-                                let args = tc.arguments.clone();
-                                async move { registry.invoke(&name, args, &allowed).await }
-                            }).collect();
+                            let futures: Vec<_> = batch
+                                .calls
+                                .iter()
+                                .map(|tc| {
+                                    let registry = self.registry.clone();
+                                    let allowed = allowed_snap.clone();
+                                    let name = tc.name.clone();
+                                    let args = tc.arguments.clone();
+                                    async move { registry.invoke(&name, args, &allowed).await }
+                                })
+                                .collect();
 
                             let results = futures_util::future::join_all(futures).await;
 
                             for (tc, result) in batch.calls.iter().zip(results) {
                                 self.process_tool_result(
-                                    agent_id, run_id, &mut sequence,
-                                    tc, result, &mut conversation, &mut last_activity,
+                                    agent_id,
+                                    run_id,
+                                    &mut sequence,
+                                    tc,
+                                    result,
+                                    &mut conversation,
+                                    &mut last_activity,
                                 );
                             }
                         } else {
@@ -694,8 +709,13 @@ impl RunExecutor {
                                     .invoke(&tc.name, tc.arguments.clone(), &allowed_snap)
                                     .await;
                                 self.process_tool_result(
-                                    agent_id, run_id, &mut sequence,
-                                    tc, result, &mut conversation, &mut last_activity,
+                                    agent_id,
+                                    run_id,
+                                    &mut sequence,
+                                    tc,
+                                    result,
+                                    &mut conversation,
+                                    &mut last_activity,
                                 );
                             }
                         }
@@ -709,10 +729,8 @@ impl RunExecutor {
                         .iter()
                         .find(|tc| tc.name == REPLY_PRIMITIVE_NAME)
                     {
-                        if let Some(msg) = reply_call
-                            .arguments
-                            .get("message")
-                            .and_then(|v| v.as_str())
+                        if let Some(msg) =
+                            reply_call.arguments.get("message").and_then(|v| v.as_str())
                         {
                             final_content = msg.to_string();
                         }
@@ -848,7 +866,9 @@ impl RunExecutor {
 
         if self.compact_failures >= 3 {
             tracing::warn!(
-                agent_id, estimated, threshold,
+                agent_id,
+                estimated,
+                threshold,
                 "Skipping auto-compact: too many consecutive failures"
             );
             return false;
@@ -995,7 +1015,9 @@ impl RunExecutor {
                     "Primitive completed"
                 );
                 self.emit(
-                    agent_id, run_id, seq,
+                    agent_id,
+                    run_id,
+                    seq,
                     EventType::PrimitiveCompleted,
                     serde_json::json!({"name": tool_call.name, "result": value}),
                 );
@@ -1020,7 +1042,9 @@ impl RunExecutor {
                     "Primitive failed"
                 );
                 self.emit(
-                    agent_id, run_id, seq,
+                    agent_id,
+                    run_id,
+                    seq,
                     EventType::PrimitiveFailed,
                     serde_json::json!({"name": tool_call.name, "error": e.to_string()}),
                 );
@@ -2073,9 +2097,21 @@ mod tests {
         registry.register(Box::new(SafePrimitive));
 
         let calls = vec![
-            ToolCall { id: "1".into(), name: "safe".into(), arguments: serde_json::json!({}) },
-            ToolCall { id: "2".into(), name: "safe".into(), arguments: serde_json::json!({}) },
-            ToolCall { id: "3".into(), name: "safe".into(), arguments: serde_json::json!({}) },
+            ToolCall {
+                id: "1".into(),
+                name: "safe".into(),
+                arguments: serde_json::json!({}),
+            },
+            ToolCall {
+                id: "2".into(),
+                name: "safe".into(),
+                arguments: serde_json::json!({}),
+            },
+            ToolCall {
+                id: "3".into(),
+                name: "safe".into(),
+                arguments: serde_json::json!({}),
+            },
         ];
 
         let batches = partition_tool_calls(&calls, &registry);
@@ -2090,8 +2126,16 @@ mod tests {
         registry.register(Box::new(EchoPrimitive)); // default is_concurrent_safe = false
 
         let calls = vec![
-            ToolCall { id: "1".into(), name: "echo".into(), arguments: serde_json::json!({}) },
-            ToolCall { id: "2".into(), name: "echo".into(), arguments: serde_json::json!({}) },
+            ToolCall {
+                id: "1".into(),
+                name: "echo".into(),
+                arguments: serde_json::json!({}),
+            },
+            ToolCall {
+                id: "2".into(),
+                name: "echo".into(),
+                arguments: serde_json::json!({}),
+            },
         ];
 
         let batches = partition_tool_calls(&calls, &registry);
@@ -2141,10 +2185,26 @@ mod tests {
         registry.register(Box::new(UnsafeWrite));
 
         let calls = vec![
-            ToolCall { id: "1".into(), name: "read".into(), arguments: serde_json::json!({}) },
-            ToolCall { id: "2".into(), name: "read".into(), arguments: serde_json::json!({}) },
-            ToolCall { id: "3".into(), name: "write".into(), arguments: serde_json::json!({}) },
-            ToolCall { id: "4".into(), name: "read".into(), arguments: serde_json::json!({}) },
+            ToolCall {
+                id: "1".into(),
+                name: "read".into(),
+                arguments: serde_json::json!({}),
+            },
+            ToolCall {
+                id: "2".into(),
+                name: "read".into(),
+                arguments: serde_json::json!({}),
+            },
+            ToolCall {
+                id: "3".into(),
+                name: "write".into(),
+                arguments: serde_json::json!({}),
+            },
+            ToolCall {
+                id: "4".into(),
+                name: "read".into(),
+                arguments: serde_json::json!({}),
+            },
         ];
 
         let batches = partition_tool_calls(&calls, &registry);
@@ -2170,9 +2230,11 @@ mod tests {
         let registry = PrimitiveRegistry::new();
         // "unknown" is not registered — is_concurrent_safe returns false
 
-        let calls = vec![
-            ToolCall { id: "1".into(), name: "unknown".into(), arguments: serde_json::json!({}) },
-        ];
+        let calls = vec![ToolCall {
+            id: "1".into(),
+            name: "unknown".into(),
+            arguments: serde_json::json!({}),
+        }];
 
         let batches = partition_tool_calls(&calls, &registry);
         assert_eq!(batches.len(), 1);
@@ -2230,13 +2292,14 @@ mod tests {
         // Pre-populate inbox with a message for the agent
         {
             let mut inbox = inbox.lock().unwrap();
-            inbox.entry("agent-1".into()).or_default().push(
-                crate::AgentMessage {
+            inbox
+                .entry("agent-1".into())
+                .or_default()
+                .push(crate::AgentMessage {
                     from: "parent".into(),
                     content: "please hurry up".into(),
                     timestamp: 0,
-                },
-            );
+                });
         }
 
         let provider = Arc::new(EchoProvider::new());

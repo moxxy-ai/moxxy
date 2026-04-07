@@ -75,12 +75,10 @@ impl PairingService {
                 .lock()
                 .map_err(|e| ChannelError::StorageError(e.to_string()))?;
 
-            let pairing = codes
-                .get(code)
-                .ok_or_else(|| {
-                    tracing::warn!(agent_name, "Pairing code not found");
-                    ChannelError::PairingCodeInvalid
-                })?;
+            let pairing = codes.get(code).ok_or_else(|| {
+                tracing::warn!(agent_name, "Pairing code not found");
+                ChannelError::PairingCodeInvalid
+            })?;
 
             if pairing.consumed {
                 tracing::warn!(agent_name, channel_id = %pairing.channel_id, "Pairing code already consumed");

@@ -397,7 +397,10 @@ mod tests {
 
         // Verify it's in the file
         let file = moxxy_core::AllowlistFile::load(&path);
-        assert!(file.allows("http_domain").contains(&"example.com".to_string()));
+        assert!(
+            file.allows("http_domain")
+                .contains(&"example.com".to_string())
+        );
     }
 
     #[tokio::test]

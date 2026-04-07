@@ -37,9 +37,9 @@ impl WebhookDoc {
         }
 
         let after_first = &input[3..];
-        let end_idx = after_first
-            .find("\n---")
-            .ok_or_else(|| WebhookDocError::InvalidFrontmatter("missing closing ---".to_string()))?;
+        let end_idx = after_first.find("\n---").ok_or_else(|| {
+            WebhookDocError::InvalidFrontmatter("missing closing ---".to_string())
+        })?;
 
         let frontmatter_str = &after_first[..end_idx];
         // Skip "---" (3) + frontmatter (end_idx) + "\n---" (4) + "\n" (1)

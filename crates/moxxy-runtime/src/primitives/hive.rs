@@ -1339,9 +1339,10 @@ impl Primitive for HiveTaskClaimPrimitive {
         let mut task = store.read_task(task_id)?;
 
         if task.status != "pending" {
-            return Err(PrimitiveError::ExecutionFailed(
-                format!("task cannot be claimed (status: {})", task.status),
-            ));
+            return Err(PrimitiveError::ExecutionFailed(format!(
+                "task cannot be claimed (status: {})",
+                task.status
+            )));
         }
 
         // Enforce dependency ordering: all depends_on tasks must be completed
@@ -1448,10 +1449,10 @@ impl Primitive for HiveTaskCompletePrimitive {
         let mut task = store.read_task(task_id)?;
 
         if task.assigned_agent_id.as_deref() != Some(&self.agent_id) {
-            return Err(PrimitiveError::AccessDenied(
-                format!("only the assigned agent can complete this task (assigned: {:?}, you: {})",
-                    task.assigned_agent_id, self.agent_id),
-            ));
+            return Err(PrimitiveError::AccessDenied(format!(
+                "only the assigned agent can complete this task (assigned: {:?}, you: {})",
+                task.assigned_agent_id, self.agent_id
+            )));
         }
 
         task.status = "completed".into();
@@ -1535,10 +1536,10 @@ impl Primitive for HiveTaskFailPrimitive {
         let mut task = store.read_task(task_id)?;
 
         if task.assigned_agent_id.as_deref() != Some(&self.agent_id) {
-            return Err(PrimitiveError::AccessDenied(
-                format!("only the assigned agent can fail this task (assigned: {:?}, you: {})",
-                    task.assigned_agent_id, self.agent_id),
-            ));
+            return Err(PrimitiveError::AccessDenied(format!(
+                "only the assigned agent can fail this task (assigned: {:?}, you: {})",
+                task.assigned_agent_id, self.agent_id
+            )));
         }
 
         task.failure_reason = Some(reason.to_string());
@@ -2905,7 +2906,10 @@ mod tests {
             .await;
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("cannot be claimed"), "expected 'cannot be claimed', got: {err_msg}");
+        assert!(
+            err_msg.contains("cannot be claimed"),
+            "expected 'cannot be claimed', got: {err_msg}"
+        );
     }
 
     #[tokio::test]
@@ -2945,8 +2949,7 @@ mod tests {
             .unwrap();
 
         // Try to complete as worker-2 - should fail with AccessDenied
-        let complete =
-            HiveTaskCompletePrimitive::new("worker-2".into(), agent_dir, bus);
+        let complete = HiveTaskCompletePrimitive::new("worker-2".into(), agent_dir, bus);
         let result = complete
             .invoke(serde_json::json!({ "task_id": task_id, "result_summary": "done" }))
             .await;
@@ -2983,8 +2986,7 @@ mod tests {
         let task_id = task_result["task_id"].as_str().unwrap().to_string();
 
         // Try to complete a pending (unclaimed) task - should fail with AccessDenied
-        let complete =
-            HiveTaskCompletePrimitive::new("worker-1".into(), agent_dir, bus);
+        let complete = HiveTaskCompletePrimitive::new("worker-1".into(), agent_dir, bus);
         let result = complete
             .invoke(serde_json::json!({ "task_id": task_id, "result_summary": "done" }))
             .await;

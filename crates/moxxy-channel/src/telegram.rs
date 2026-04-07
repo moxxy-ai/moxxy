@@ -480,7 +480,10 @@ impl ChannelTransport for TelegramTransport {
             MessageContent::Text(_) => Some("HTML"),
             _ => Some("MarkdownV2"),
         };
-        match self.send_text(&msg.external_chat_id, &text, parse_mode).await {
+        match self
+            .send_text(&msg.external_chat_id, &text, parse_mode)
+            .await
+        {
             Ok(_) => Ok(()),
             Err(e) => {
                 // If formatted send fails (e.g. invalid HTML), retry as plain text
@@ -509,7 +512,10 @@ impl ChannelTransport for TelegramTransport {
             MessageContent::Text(_) => Some("HTML"),
             _ => Some("MarkdownV2"),
         };
-        let msg_id = match self.send_text(&msg.external_chat_id, &text, parse_mode).await {
+        let msg_id = match self
+            .send_text(&msg.external_chat_id, &text, parse_mode)
+            .await
+        {
             Ok(id) => id,
             Err(e) => {
                 tracing::warn!(

@@ -32,7 +32,9 @@ fn init_tracing() {
 /// Returns the API key or `None` when the env var is unset.
 /// Tests call this and early-return when `None` so `cargo test` skips them.
 fn openai_api_key() -> Option<String> {
-    std::env::var("OPENAI_API_KEY").ok().filter(|k| !k.is_empty())
+    std::env::var("OPENAI_API_KEY")
+        .ok()
+        .filter(|k| !k.is_empty())
 }
 
 struct E2eServer {
@@ -66,9 +68,12 @@ impl E2eServer {
         let addr = listener.local_addr().unwrap();
 
         tokio::spawn(async move {
-            axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-                .await
-                .unwrap();
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await
+            .unwrap();
         });
 
         Self {
@@ -199,7 +204,11 @@ async fn setup_agent(server: &E2eServer, name: &str, api_key: &str) -> String {
             }),
         )
         .await;
-    assert_eq!(resp.status().as_u16(), 201, "Failed to create agent '{name}'");
+    assert_eq!(
+        resp.status().as_u16(),
+        201,
+        "Failed to create agent '{name}'"
+    );
 
     token
 }
@@ -305,7 +314,10 @@ After both workers complete, use hive.aggregate, then reply with a summary.";
     // Output files
     let animals = ws.join("animals.txt");
     let colors = ws.join("colors.txt");
-    assert!(animals.exists() || colors.exists(), "No output files created");
+    assert!(
+        animals.exists() || colors.exists(),
+        "No output files created"
+    );
     if animals.exists() {
         let c = std::fs::read_to_string(&animals).unwrap();
         eprintln!("=== animals.txt ===\n{c}");

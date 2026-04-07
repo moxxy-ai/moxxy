@@ -320,9 +320,7 @@ mod tests {
         assert_eq!(args[0], "-p");
         assert!(args[1].contains("deny default"));
         // Canonicalized: /tmp -> /private/tmp on macOS
-        assert!(
-            args[1].contains("/tmp/workspace") || args[1].contains("/private/tmp/workspace")
-        );
+        assert!(args[1].contains("/tmp/workspace") || args[1].contains("/private/tmp/workspace"));
         // Strict should NOT allow network-outbound
         assert!(!args[1].contains("network-outbound"));
         assert_eq!(args[2], "ls");

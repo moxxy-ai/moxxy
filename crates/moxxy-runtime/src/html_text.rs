@@ -92,10 +92,7 @@ fn walk_node(node: ego_tree::NodeRef<'_, Node>, buf: &mut String, in_pre: bool) 
                 if in_pre {
                     buf.push_str(s);
                 } else {
-                    let collapsed: String = s
-                        .split_whitespace()
-                        .collect::<Vec<_>>()
-                        .join(" ");
+                    let collapsed: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
                     if !collapsed.is_empty() {
                         buf.push_str(&collapsed);
                     }
@@ -401,7 +398,8 @@ mod tests {
 
     #[test]
     fn resolves_relative_links() {
-        let html = "<html><body><a href=\"/about\">About</a><a href=\"contact\">Contact</a></body></html>";
+        let html =
+            "<html><body><a href=\"/about\">About</a><a href=\"contact\">Contact</a></body></html>";
         let links = extract_links(html, "https://example.com/page");
         assert_eq!(links.len(), 2);
         assert_eq!(links[0].url, "https://example.com/about");
