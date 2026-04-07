@@ -2,7 +2,6 @@
   "packages": {
     ".": {
       "release-type": "simple",
-      "package-name": "moxxy-gateway",
       "extra-files": [
         "crates/moxxy-core/Cargo.toml",
         "crates/moxxy-types/Cargo.toml",
