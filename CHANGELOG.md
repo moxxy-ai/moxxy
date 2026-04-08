@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.6](https://github.com/moxxy-ai/moxxy/compare/v1.2.5...v1.2.6) (2026-04-08)
+
+
+### Bug Fixes
+
+* oidc valid npm version ([462c605](https://github.com/moxxy-ai/moxxy/commit/462c605cc21c6e585502292b44d3043d2f6feceb))
+
 ## [1.2.5](https://github.com/moxxy-ai/moxxy/compare/v1.2.4...v1.2.5) (2026-04-08)
 
 
