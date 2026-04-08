@@ -117,7 +117,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: 'https://registry.npmjs.org'
 
       - name: Install dependencies
@@ -127,8 +127,6 @@ jobs:
       - name: Publish
         working-directory: apps/moxxy-cli
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ""
 
   release:
     name: Create Release
