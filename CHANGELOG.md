@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.3](https://github.com/moxxy-ai/moxxy/compare/v1.2.2...v1.2.3) (2026-04-08)
+
+
+### Bug Fixes
+
+* release workflow wrong token ([99ffced](https://github.com/moxxy-ai/moxxy/commit/99ffced423df4d71429f4efbf7ab0c8c6a7c02f6))
+
 ## [1.2.2](https://github.com/moxxy-ai/moxxy/compare/v1.2.1...v1.2.2) (2026-04-08)
 
 
