@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.7](https://github.com/moxxy-ai/moxxy/compare/v1.2.6...v1.2.7) (2026-04-08)
+
+
+### Bug Fixes
+
+* not-supported macos build ([c05ffe0](https://github.com/moxxy-ai/moxxy/commit/c05ffe08988942d222feaa68ae5c576d94db36ca))
+
 ## [1.2.6](https://github.com/moxxy-ai/moxxy/compare/v1.2.5...v1.2.6) (2026-04-08)
 
 
