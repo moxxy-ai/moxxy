@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.4](https://github.com/moxxy-ai/moxxy/compare/v1.2.3...v1.2.4) (2026-04-08)
+
+
+### Bug Fixes
+
+* missing NODE_AUTH_TOKEN to release workflow ([3f84fdb](https://github.com/moxxy-ai/moxxy/commit/3f84fdb73fde356e4791d5a950bb17e5940bcb61))
+* workflow release script ([e6bf5cc](https://github.com/moxxy-ai/moxxy/commit/e6bf5cc3bb8e2e6bdb7fe6eba60f554331286f36))
+
 ## [1.2.3](https://github.com/moxxy-ai/moxxy/compare/v1.2.2...v1.2.3) (2026-04-08)
 
 
