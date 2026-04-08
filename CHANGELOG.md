@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2](https://github.com/moxxy-ai/moxxy/compare/v1.2.1...v1.2.2) (2026-04-08)
+
+
+### Bug Fixes
+
+* release workflow missing oidc ([0ae5678](https://github.com/moxxy-ai/moxxy/commit/0ae56782cc86562ef9616b284767830b3111287a))
+
 ## [1.2.1](https://github.com/moxxy-ai/moxxy/compare/v1.2.0...v1.2.1) (2026-04-07)
 
 
