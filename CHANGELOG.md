@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.5](https://github.com/moxxy-ai/moxxy/compare/v1.2.4...v1.2.5) (2026-04-08)
+
+
+### Bug Fixes
+
+* add required stubs for the publishing ([054bbd8](https://github.com/moxxy-ai/moxxy/commit/054bbd87c8fb6b0a457022e73b396309d7a38990))
+
 ## [1.2.4](https://github.com/moxxy-ai/moxxy/compare/v1.2.3...v1.2.4) (2026-04-08)
 
 
