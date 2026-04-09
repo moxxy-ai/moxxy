@@ -340,27 +340,30 @@ function sleep(ms) {
 }
 
 function tryOpenUrl(url) {
-  let cmd;
-  let args;
+  const candidates = [];
 
   if (process.platform === 'darwin') {
-    cmd = 'open';
-    args = [url];
+    candidates.push({ cmd: 'open', args: [url] });
   } else if (process.platform === 'win32') {
-    cmd = 'cmd';
-    args = ['/c', 'start', '', url];
+    candidates.push({ cmd: 'cmd', args: ['/c', 'start', '', url] });
   } else {
-    cmd = 'xdg-open';
-    args = [url];
+    candidates.push(
+      { cmd: 'xdg-open', args: [url] },
+      { cmd: 'sensible-browser', args: [url] },
+      { cmd: 'x-www-browser', args: [url] },
+    );
   }
 
-  try {
-    const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
-    child.unref();
-    return true;
-  } catch {
-    return false;
+  for (const { cmd, args } of candidates) {
+    try {
+      const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+      child.unref();
+      return true;
+    } catch {
+      // try next candidate
+    }
   }
+  return false;
 }
 
 function createCodeVerifier() {
