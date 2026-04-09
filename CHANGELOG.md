@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.10](https://github.com/moxxy-ai/moxxy/compare/v1.2.9...v1.2.10) (2026-04-09)
+
+
+### Bug Fixes
+
+* loopback rate limits ([1545bd2](https://github.com/moxxy-ai/moxxy/commit/1545bd29552944c474a69ea80995bb4c7bbf3652))
+
 ## [1.2.9](https://github.com/moxxy-ai/moxxy/compare/v1.2.8...v1.2.9) (2026-04-09)
 
 
