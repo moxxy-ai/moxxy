@@ -222,7 +222,9 @@ async function main() {
     setup:        { label: 'Setup',        hint: 'init, gateway, doctor' },
     agents:       { label: 'Agents',       hint: 'agents, skills, templates' },
     security:     { label: 'Security',     hint: 'auth tokens & secrets' },
-    integrations: { label: 'Integrations', hint: 'providers, channels, MCP, plugins' },
+    integrations: { label: 'Integrations', hint: 'channels, MCP' },
+    providers:    { label: 'Providers',    hint: 'manage AI providers' },
+    plugins:      { label: 'Plugins',      hint: 'manage plugins & extensions' },
     tools:        { label: 'Tools',        hint: 'events stream' },
     system:       { label: 'System',       hint: 'settings, update & uninstall' },
   };
@@ -243,11 +245,15 @@ async function main() {
       { value: 'vault',     label: 'Vault',     hint: 'manage secrets' },
     ],
     integrations: [
-      { value: 'provider',  label: 'Provider',  hint: 'list providers' },
       { value: 'channel',   label: 'Channel',   hint: 'manage Telegram/Discord channels' },
       { value: 'mcp',       label: 'MCP',       hint: 'manage MCP servers for agents' },
-      { value: 'plugin',    label: 'Plugin',    hint: 'manage plugins & extensions' },
       { value: 'heartbeat', label: 'Heartbeat', hint: 'schedule heartbeat rules' },
+    ],
+    providers: [
+      { value: 'provider',  label: 'Provider',  hint: 'list providers' },
+    ],
+    plugins: [
+      { value: 'plugin',    label: 'Plugin',    hint: 'manage plugins & extensions' },
     ],
     tools: [
       { value: 'events',    label: 'Events',    hint: 'stream live events' },
@@ -298,13 +304,18 @@ async function main() {
       const submenu = SUBMENUS[selected];
       if (!submenu) continue;
 
-      const subSelected = await p.select({
-        message: `${MENU_GROUPS[selected].label}`,
-        options: submenu,
-      });
+      let subSelected;
+      if (submenu.length === 1) {
+        subSelected = submenu[0].value;
+      } else {
+        subSelected = await p.select({
+          message: `${MENU_GROUPS[selected].label}`,
+          options: submenu,
+        });
 
-      if (p.isCancel(subSelected)) {
-        continue;
+        if (p.isCancel(subSelected)) {
+          continue;
+        }
       }
 
       try {
