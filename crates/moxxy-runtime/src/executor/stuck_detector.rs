@@ -14,6 +14,7 @@ pub struct StuckDetector {
     max_monologue_responses: usize,
     recent_tool_calls: VecDeque<(String, serde_json::Value)>,
     empty_count: usize,
+    empty_recovery_count: usize,
     monologue_count: usize,
     tool_recovery_count: usize,
     enabled: bool,
@@ -33,6 +34,7 @@ impl StuckDetector {
             max_monologue_responses: 5,
             recent_tool_calls: VecDeque::with_capacity(10),
             empty_count: 0,
+            empty_recovery_count: 0,
             monologue_count: 0,
             tool_recovery_count: 0,
             enabled: true,
@@ -52,6 +54,7 @@ impl StuckDetector {
         if !response.tool_calls.is_empty() {
             // Tool calls present - reset non-tool counters
             self.empty_count = 0;
+            self.empty_recovery_count = 0;
             self.monologue_count = 0;
             return StuckAction::Continue;
         }
@@ -59,6 +62,15 @@ impl StuckDetector {
         if response.content.is_empty() {
             self.empty_count += 1;
             if self.empty_count >= self.max_empty_responses {
+                self.empty_recovery_count += 1;
+                self.empty_count = 0;
+                if self.empty_recovery_count >= 3 {
+                    return StuckAction::Abort(
+                        "Agent stuck: too many consecutive empty responses \
+                         despite multiple recovery attempts"
+                            .to_string(),
+                    );
+                }
                 return StuckAction::InjectRecovery(
                     "You have produced several empty responses. \
                      Please either use a tool to make progress or provide a final answer."
@@ -120,6 +132,7 @@ impl StuckDetector {
 
     pub fn reset(&mut self) {
         self.empty_count = 0;
+        self.empty_recovery_count = 0;
         self.monologue_count = 0;
         self.tool_recovery_count = 0;
         self.recent_tool_calls.clear();
@@ -172,11 +185,45 @@ mod tests {
             detector.observe_response(&empty_response()),
             StuckAction::Continue
         ));
-        // Third → InjectRecovery
+        // Third → InjectRecovery (resets empty_count)
         assert!(matches!(
             detector.observe_response(&empty_response()),
             StuckAction::InjectRecovery(_)
         ));
+        // Counter reset, so next two are Continue again
+        assert!(matches!(
+            detector.observe_response(&empty_response()),
+            StuckAction::Continue
+        ));
+        assert!(matches!(
+            detector.observe_response(&empty_response()),
+            StuckAction::Continue
+        ));
+        // Second recovery
+        assert!(matches!(
+            detector.observe_response(&empty_response()),
+            StuckAction::InjectRecovery(_)
+        ));
+    }
+
+    #[test]
+    fn empty_responses_escalate_to_abort() {
+        let mut detector = StuckDetector::new();
+        // 3 rounds of 3 empties: first two → InjectRecovery, third → Abort
+        for round in 0..3 {
+            for _ in 0..2 {
+                assert!(matches!(
+                    detector.observe_response(&empty_response()),
+                    StuckAction::Continue
+                ));
+            }
+            let action = detector.observe_response(&empty_response());
+            if round < 2 {
+                assert!(matches!(action, StuckAction::InjectRecovery(_)));
+            } else {
+                assert!(matches!(action, StuckAction::Abort(_)));
+            }
+        }
     }
 
     #[test]

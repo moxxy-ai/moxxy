@@ -588,13 +588,46 @@ fn parse_codex_stream_response(body: &str) -> Result<ProviderResponse, Primitive
         ));
     }
 
+    let event_types: Vec<&str> = events
+        .iter()
+        .filter_map(|e| e.get("type").and_then(|v| v.as_str()))
+        .collect();
+    tracing::debug!(
+        event_count = events.len(),
+        event_types = ?event_types,
+        "Codex SSE events received"
+    );
+
     for event in events.iter().rev() {
         let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        if (event_type == "response.completed" || event_type == "response.done")
-            && let Some(response_obj) = event.get("response")
-            && let Ok(parsed) = parse_codex_response_output(response_obj)
-        {
-            return Ok(parsed);
+        if event_type == "response.completed" || event_type == "response.done" {
+            if let Some(response_obj) = event.get("response") {
+                let status = response_obj
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                if status == "incomplete" || status == "failed" {
+                    let reason = response_obj
+                        .get("incomplete_details")
+                        .or_else(|| response_obj.get("error"))
+                        .map(|v| v.to_string())
+                        .unwrap_or_default();
+                    tracing::warn!(
+                        status = status,
+                        reason = %reason,
+                        "Codex response completed with non-success status"
+                    );
+                }
+                match parse_codex_response_output(response_obj) {
+                    Ok(parsed) => return Ok(parsed),
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "Failed to parse codex response.completed output, falling back to deltas"
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -833,7 +866,20 @@ impl OpenAIProvider {
             let body_text = response.text().await.map_err(|e| {
                 PrimitiveError::ExecutionFailed(format!("failed to read codex stream: {}", e))
             })?;
-            return parse_codex_stream_response(&body_text);
+            let result = parse_codex_stream_response(&body_text);
+            if let Ok(ref resp) = result {
+                if resp.content.is_empty() && resp.tool_calls.is_empty() {
+                    // Log the raw SSE body so we can diagnose why parsing
+                    // produced an empty response (e.g. unrecognised event types).
+                    let preview: String = body_text.chars().take(2000).collect();
+                    tracing::warn!(
+                        body_preview = %preview,
+                        body_len = body_text.len(),
+                        "Codex stream parsed to empty response"
+                    );
+                }
+            }
+            return result;
         }
 
         let chat_resp: ChatResponse = response.json().await.map_err(|e| {
