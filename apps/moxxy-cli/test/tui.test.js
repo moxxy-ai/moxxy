@@ -528,3 +528,378 @@ describe('events handler stats', () => {
     assert.equal(h.stats.contextTokens, 40);
   });
 });
+
+describe('skill visual rendering in events handler', () => {
+  it('skill.execute invocation creates a skill message with steps array', () => {
+    const h = new EventsHandler({}, 'agent-1');
+
+    h._processEvent({
+      event_type: 'primitive.invoked',
+      payload: { name: 'skill.execute', arguments: { name: 'git clone' } },
+      ts: 1000,
+    });
+
+    assert.equal(h.messages.length, 1);
+    const msg = h.messages[0];
+    assert.equal(msg.type, 'skill');
+    assert.equal(msg.name, 'git clone');
+    assert.equal(msg.status, 'running');
+    assert.ok(Array.isArray(msg.steps));
+    assert.equal(msg.steps.length, 0);
+  });
+
+  it('skill.execute with string arguments is parsed correctly', () => {
+    const h = new EventsHandler({}, 'agent-1');
+
+    h._processEvent({
+      event_type: 'primitive.invoked',
+      payload: { name: 'skill.execute', arguments: '{"name":"deploy-app"}' },
+      ts: 1000,
+    });
+
+    assert.equal(h.messages.length, 1);
+    assert.equal(h.messages[0].name, 'deploy-app');
+  });
+
+  it('subsequent tools nest as steps under the active skill', () => {
+    const h = new EventsHandler({}, 'agent-1');
+
+    // Start skill
+    h._processEvent({
+      event_type: 'primitive.invoked',
+      payload: { name: 'skill.execute', arguments: { name: 'git clone' } },
+      ts: 1000,
+    });
+
+    // skill.execute completes (returns instructions)
+    h._processEvent({
+      event_type: 'primitive.completed',
+      payload: { name: 'skill.execute', result: { name: 'Git Clone', instructions: '...' } },
+      ts: 1001,
+    });
+
+    // Tool invoked within skill
+    h._processEvent({
+      event_type: 'primitive.invoked',
+      payload: { name: 'git.clone', arguments: { url: 'https://...' } },
+      ts: 1002,
+    });
+
+    // Should still only have 1 message (the skill), not a separate tool
+    assert.equal(h.messages.length, 1);
+    const skill = h.messages[0];
+    assert.equal(skill.name, 'Git Clone'); // updated from result
+    assert.equal(skill.steps.length, 1);
+    assert.equal(skill.steps[0].name, 'git.clone');
+    assert.equal(skill.steps[0].status, 'running');
+
+    // Tool completes
+    h._processEvent({
+      event_type: 'primitive.completed',
+      payload: { name: 'git.clone', result: { status: 'cloned' } },
+      ts: 1003,
+    });
+
+    assert.equal(skill.steps[0].status, 'completed');
+    assert.ok(skill.steps[0].result);
+  });
+
+  it('multiple tools within a skill are all nested', () => {
+    const h = new EventsHandler({}, 'agent-1');
+
+    h._processEvent({
+      event_type: 'primitive.invoked',
+      payload: { name: 'skill.execute', arguments: { name: 'deploy' } },
+      ts: 1000,
+    });
+    h._processEvent({
+      event_type: 'primitive.completed',
+      payload: { name: 'skill.execute', result: { name: 'Deploy' } },
+      ts: 1001,
+    });
+
+    // Three tools
+    for (const toolName of ['git.clone', 'fs.write', 'git.commit']) {
+      h._processEvent({ event_type: 'primitive.invoked', payload: { name: toolName }, ts: 1002 });
+      h._processEvent({ event_type: 'primitive.completed', payload: { name: toolName, result: 'ok' }, ts: 1003 });
+    }
+
+    assert.equal(h.messages.length, 1); // Still only the skill message
+    const skill = h.messages[0];
+    assert.equal(skill.steps.length, 3);
+    assert.equal(skill.steps[0].name, 'git.clone');
+    assert.equal(skill.steps[1].name, 'fs.write');
+    assert.equal(skill.steps[2].name, 'git.commit');
+    assert.ok(skill.steps.every(s => s.status === 'completed'));
+  });
+
+  it('message.final closes active skill and marks it completed', () => {
+    const h = new EventsHandler({}, 'agent-1');
+
+    h._processEvent({
+      event_type: 'primitive.invoked',
+      payload: { name: 'skill.execute', arguments: { name: 'test-skill' } },
+      ts: 1000,
+    });
+    h._processEvent({
+      event_type: 'primitive.completed',
+      payload: { name: 'skill.execute', result: { name: 'Test Skill' } },
+      ts: 1001,
+    });
+
+    h._processEvent({
+      event_type: 'primitive.invoked',
+      payload: { name: 'fs.write' },
+      ts: 1002,
+    });
+    h._processEvent({
+      event_type: 'primitive.completed',
+      payload: { name: 'fs.write', result: 'ok' },
+      ts: 1003,
+    });
+
+    // message.final ends the skill
+    h._processEvent({
+      event_type: 'message.final',
+      payload: { content: 'Done!' },
+      ts: 1004,
+    });
+
+    assert.equal(h.messages[0].status, 'completed');
+    assert.equal(h._activeSkillIdx, null);
+    // Also creates an assistant message
+    assert.equal(h.messages[1].type, 'assistant');
+  });
+
+  it('run.completed closes active skill', () => {
+    const h = new EventsHandler({}, 'agent-1');
+
+    h._processEvent({
+      event_type: 'primitive.invoked',
+      payload: { name: 'skill.execute', arguments: { name: 'my-skill' } },
+      ts: 1000,
+    });
+
+    h._processEvent({
+      event_type: 'run.completed',
+      payload: {},
+      ts: 1002,
+    });
+
+    assert.equal(h.messages[0].status, 'completed');
+    assert.equal(h._activeSkillIdx, null);
+  });
+
+  it('run.failed marks active skill as error', () => {
+    const h = new EventsHandler({}, 'agent-1');
+
+    h._processEvent({
+      event_type: 'primitive.invoked',
+      payload: { name: 'skill.execute', arguments: { name: 'my-skill' } },
+      ts: 1000,
+    });
+
+    h._processEvent({
+      event_type: 'run.failed',
+      payload: { error: 'timeout' },
+      ts: 1002,
+    });
+
+    assert.equal(h.messages[0].status, 'error');
+    assert.equal(h._activeSkillIdx, null);
+  });
+
+  it('skill.execute failure marks the skill as error', () => {
+    const h = new EventsHandler({}, 'agent-1');
+
+    h._processEvent({
+      event_type: 'primitive.invoked',
+      payload: { name: 'skill.execute', arguments: { name: 'bad-skill' } },
+      ts: 1000,
+    });
+
+    h._processEvent({
+      event_type: 'primitive.failed',
+      payload: { name: 'skill.execute', error: 'skill not found' },
+      ts: 1001,
+    });
+
+    assert.equal(h.messages.length, 1);
+    assert.equal(h.messages[0].status, 'error');
+    assert.equal(h.messages[0].error, 'skill not found');
+    assert.equal(h._activeSkillIdx, null);
+  });
+
+  it('tool failure within skill marks the step as error', () => {
+    const h = new EventsHandler({}, 'agent-1');
+
+    h._processEvent({
+      event_type: 'primitive.invoked',
+      payload: { name: 'skill.execute', arguments: { name: 'deploy' } },
+      ts: 1000,
+    });
+    h._processEvent({
+      event_type: 'primitive.completed',
+      payload: { name: 'skill.execute', result: { name: 'Deploy' } },
+      ts: 1001,
+    });
+
+    h._processEvent({
+      event_type: 'primitive.invoked',
+      payload: { name: 'git.push' },
+      ts: 1002,
+    });
+    h._processEvent({
+      event_type: 'primitive.failed',
+      payload: { name: 'git.push', error: 'permission denied' },
+      ts: 1003,
+    });
+
+    const skill = h.messages[0];
+    assert.equal(skill.status, 'running'); // skill itself is still running
+    assert.equal(skill.steps[0].status, 'error');
+    assert.equal(skill.steps[0].error, 'permission denied');
+  });
+
+  it('second skill.execute closes the first skill', () => {
+    const h = new EventsHandler({}, 'agent-1');
+
+    h._processEvent({
+      event_type: 'primitive.invoked',
+      payload: { name: 'skill.execute', arguments: { name: 'skill-1' } },
+      ts: 1000,
+    });
+
+    h._processEvent({
+      event_type: 'primitive.completed',
+      payload: { name: 'skill.execute', result: { name: 'Skill 1' } },
+      ts: 1001,
+    });
+
+    h._processEvent({
+      event_type: 'primitive.invoked',
+      payload: { name: 'fs.write' },
+      ts: 1002,
+    });
+    h._processEvent({
+      event_type: 'primitive.completed',
+      payload: { name: 'fs.write', result: 'ok' },
+      ts: 1003,
+    });
+
+    // Second skill.execute
+    h._processEvent({
+      event_type: 'primitive.invoked',
+      payload: { name: 'skill.execute', arguments: { name: 'skill-2' } },
+      ts: 1004,
+    });
+
+    assert.equal(h.messages.length, 2);
+    assert.equal(h.messages[0].name, 'Skill 1');
+    assert.equal(h.messages[0].status, 'completed'); // auto-closed
+    assert.equal(h.messages[0].steps.length, 1);
+    assert.equal(h.messages[1].name, 'skill-2');
+    assert.equal(h.messages[1].status, 'running');
+  });
+
+  it('tools without active skill are shown as normal tool messages', () => {
+    const h = new EventsHandler({}, 'agent-1');
+
+    h._processEvent({
+      event_type: 'primitive.invoked',
+      payload: { name: 'fs.read', arguments: { path: '/tmp' } },
+      ts: 1000,
+    });
+
+    assert.equal(h.messages.length, 1);
+    assert.equal(h.messages[0].type, 'tool');
+    assert.equal(h.messages[0].name, 'fs.read');
+    assert.equal(h.messages[0].status, 'invoked');
+  });
+
+  it('tools after skill completes are shown as normal tool messages', () => {
+    const h = new EventsHandler({}, 'agent-1');
+
+    // Skill session
+    h._processEvent({
+      event_type: 'primitive.invoked',
+      payload: { name: 'skill.execute', arguments: { name: 'my-skill' } },
+      ts: 1000,
+    });
+    h._processEvent({
+      event_type: 'primitive.completed',
+      payload: { name: 'skill.execute', result: { name: 'My Skill' } },
+      ts: 1001,
+    });
+
+    // Close via message.final
+    h._processEvent({
+      event_type: 'message.final',
+      payload: { content: 'Done' },
+      ts: 1002,
+    });
+
+    // Tool after skill completed
+    h._processEvent({
+      event_type: 'primitive.invoked',
+      payload: { name: 'fs.read', arguments: { path: '/tmp' } },
+      ts: 1003,
+    });
+
+    assert.equal(h.messages.length, 3); // skill, assistant, tool
+    assert.equal(h.messages[2].type, 'tool');
+    assert.equal(h.messages[2].name, 'fs.read');
+  });
+
+  it('skill.invoked event also creates a skill with steps', () => {
+    const h = new EventsHandler({}, 'agent-1');
+
+    h._processEvent({
+      event_type: 'skill.invoked',
+      payload: { name: 'custom-skill' },
+      ts: 1000,
+    });
+
+    assert.equal(h.messages.length, 1);
+    assert.equal(h.messages[0].type, 'skill');
+    assert.equal(h.messages[0].name, 'custom-skill');
+    assert.ok(Array.isArray(h.messages[0].steps));
+  });
+
+  it('skill.completed event closes the skill', () => {
+    const h = new EventsHandler({}, 'agent-1');
+
+    h._processEvent({
+      event_type: 'skill.invoked',
+      payload: { name: 'custom-skill' },
+      ts: 1000,
+    });
+    h._processEvent({
+      event_type: 'skill.completed',
+      payload: { name: 'custom-skill' },
+      ts: 1001,
+    });
+
+    assert.equal(h.messages[0].status, 'completed');
+    assert.equal(h._activeSkillIdx, null);
+  });
+
+  it('skill.failed event marks skill as error', () => {
+    const h = new EventsHandler({}, 'agent-1');
+
+    h._processEvent({
+      event_type: 'skill.invoked',
+      payload: { name: 'custom-skill' },
+      ts: 1000,
+    });
+    h._processEvent({
+      event_type: 'skill.failed',
+      payload: { name: 'custom-skill', error: 'boom' },
+      ts: 1001,
+    });
+
+    assert.equal(h.messages[0].status, 'error');
+    assert.equal(h.messages[0].error, 'boom');
+    assert.equal(h._activeSkillIdx, null);
+  });
+});

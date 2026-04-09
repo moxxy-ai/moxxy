@@ -37,6 +37,22 @@ enum ToolStatus {
     Failed,
 }
 
+/// A step within a skill execution.
+#[derive(Debug, Clone)]
+struct SkillStep {
+    name: String,
+    status: ToolStatus,
+    result: Option<String>,
+}
+
+/// Tracks an active skill within a run's progress.
+#[derive(Debug, Clone)]
+struct SkillProgress {
+    name: String,
+    steps: Vec<SkillStep>,
+    finished: bool,
+}
+
 /// Tracks a sub-agent within a run's progress.
 #[derive(Debug, Clone)]
 struct SubAgentProgress {
@@ -52,10 +68,21 @@ struct RunProgress {
     message_id: Option<String>,
     external_chat_id: String,
     tools: Vec<(String, ToolStatus)>,
+    active_skill: Option<SkillProgress>,
+    completed_skills: Vec<SkillProgress>,
     sub_agents: Vec<SubAgentProgress>,
     last_edit: Instant,
     dirty: bool,
     finished: bool,
+}
+
+/// Truncate a result string for display.
+fn truncate_result(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}…", &s[..max])
+    }
 }
 
 impl RunProgress {
@@ -64,7 +91,18 @@ impl RunProgress {
             return String::new(); // rendered externally
         }
         let mut lines = Vec::new();
-        // Table: one row per tool execution
+
+        // Render completed skills
+        for skill in &self.completed_skills {
+            Self::render_skill(&mut lines, skill, false);
+        }
+
+        // Render active skill
+        if let Some(ref skill) = self.active_skill {
+            Self::render_skill(&mut lines, skill, true);
+        }
+
+        // Render standalone tools (not part of a skill)
         if !self.tools.is_empty() {
             for (i, (name, status)) in self.tools.iter().enumerate() {
                 let num = i + 1;
@@ -98,6 +136,25 @@ impl RunProgress {
             }
         }
         lines.join("\n")
+    }
+
+    fn render_skill(lines: &mut Vec<String>, skill: &SkillProgress, active: bool) {
+        if active {
+            lines.push(format!("⊞ Invoking {}...", skill.name));
+        } else {
+            lines.push(format!("✅ {}", skill.name));
+        }
+        for step in &skill.steps {
+            let icon = match step.status {
+                ToolStatus::Running => "⏳",
+                ToolStatus::Completed => "◷",
+                ToolStatus::Failed => "❌",
+            };
+            match &step.result {
+                Some(r) => lines.push(format!("{icon} {} → {}", step.name, truncate_result(r, 60))),
+                None => lines.push(format!("{icon} {}", step.name)),
+            }
+        }
     }
 }
 
@@ -519,6 +576,8 @@ impl ChannelBridge {
                             message_id: None,
                             external_chat_id: chat_id.clone(),
                             tools: Vec::new(),
+                            active_skill: None,
+                            completed_skills: Vec::new(),
                             sub_agents: Vec::new(),
                             last_edit: Instant::now(),
                             dirty: false,
@@ -543,9 +602,52 @@ impl ChannelBridge {
                     let mut progress = self.progress.lock().await;
                     let key = (agent_id.to_string(), run_id.clone());
                     if let Some(chat_map) = progress.get_mut(&key) {
-                        for rp in chat_map.values_mut() {
-                            rp.tools.push((name.clone(), ToolStatus::Running));
-                            rp.dirty = true;
+                        if name == "skill.execute" {
+                            // Start a skill session.
+                            // Arguments may be an object or a JSON string.
+                            let skill_name = envelope
+                                .payload
+                                .get("arguments")
+                                .and_then(|a| {
+                                    // Try as object first
+                                    if let Some(n) = a.get("name").and_then(|v| v.as_str()) {
+                                        return Some(n.to_string());
+                                    }
+                                    // Try parsing from JSON string
+                                    if let Some(s) = a.as_str() {
+                                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(s) {
+                                            return parsed.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
+                                        }
+                                    }
+                                    None
+                                })
+                                .unwrap_or_else(|| "unknown".to_string());
+                            for rp in chat_map.values_mut() {
+                                // Close any previous active skill
+                                if let Some(prev) = rp.active_skill.take() {
+                                    rp.completed_skills.push(prev);
+                                }
+                                rp.active_skill = Some(SkillProgress {
+                                    name: skill_name.clone(),
+                                    steps: Vec::new(),
+                                    finished: false,
+                                });
+                                rp.dirty = true;
+                            }
+                        } else {
+                            for rp in chat_map.values_mut() {
+                                if let Some(ref mut skill) = rp.active_skill {
+                                    // Nest tool under active skill
+                                    skill.steps.push(SkillStep {
+                                        name: name.clone(),
+                                        status: ToolStatus::Running,
+                                        result: None,
+                                    });
+                                } else {
+                                    rp.tools.push((name.clone(), ToolStatus::Running));
+                                }
+                                rp.dirty = true;
+                            }
                         }
                     }
                 }
@@ -563,12 +665,55 @@ impl ChannelBridge {
                     let mut progress = self.progress.lock().await;
                     let key = (agent_id.to_string(), run_id.clone());
                     if let Some(chat_map) = progress.get_mut(&key) {
-                        for rp in chat_map.values_mut() {
-                            if let Some(tool) = rp.tools.iter_mut().rev().find(|(n, _)| *n == name)
-                            {
-                                tool.1 = ToolStatus::Completed;
+                        if name == "skill.execute" {
+                            // Update skill name from result if available
+                            let result_name = envelope
+                                .payload
+                                .get("result")
+                                .and_then(|r| r.get("name"))
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            for rp in chat_map.values_mut() {
+                                if let Some(ref mut skill) = rp.active_skill {
+                                    if let Some(ref rn) = result_name {
+                                        skill.name = rn.clone();
+                                    }
+                                }
+                                rp.dirty = true;
                             }
-                            rp.dirty = true;
+                        } else {
+                            // Extract a short result summary
+                            let result_summary = envelope
+                                .payload
+                                .get("result")
+                                .and_then(|r| {
+                                    // Try to get a string result or stringify
+                                    if let Some(s) = r.as_str() {
+                                        Some(s.to_string())
+                                    } else if let Some(status) = r.get("status").and_then(|v| v.as_str()) {
+                                        Some(status.to_string())
+                                    } else {
+                                        None
+                                    }
+                                });
+                            for rp in chat_map.values_mut() {
+                                if let Some(ref mut skill) = rp.active_skill {
+                                    if let Some(step) = skill
+                                        .steps
+                                        .iter_mut()
+                                        .rev()
+                                        .find(|s| s.name == name && matches!(s.status, ToolStatus::Running))
+                                    {
+                                        step.status = ToolStatus::Completed;
+                                        step.result = result_summary.clone();
+                                    }
+                                } else if let Some(tool) =
+                                    rp.tools.iter_mut().rev().find(|(n, _)| *n == name)
+                                {
+                                    tool.1 = ToolStatus::Completed;
+                                }
+                                rp.dirty = true;
+                            }
                         }
                     }
                 }
@@ -587,7 +732,20 @@ impl ChannelBridge {
                     let key = (agent_id.to_string(), run_id.clone());
                     if let Some(chat_map) = progress.get_mut(&key) {
                         for rp in chat_map.values_mut() {
-                            if let Some(tool) = rp.tools.iter_mut().rev().find(|(n, _)| *n == name)
+                            if let Some(ref mut skill) = rp.active_skill {
+                                if let Some(step) = skill
+                                    .steps
+                                    .iter_mut()
+                                    .rev()
+                                    .find(|s| s.name == name && matches!(s.status, ToolStatus::Running))
+                                {
+                                    step.status = ToolStatus::Failed;
+                                } else {
+                                    // skill.execute itself failed
+                                    skill.finished = true;
+                                }
+                            } else if let Some(tool) =
+                                rp.tools.iter_mut().rev().find(|(n, _)| *n == name)
                             {
                                 tool.1 = ToolStatus::Failed;
                             }
@@ -682,6 +840,21 @@ impl ChannelBridge {
             }
 
             EventType::MessageFinal => {
+                // Close any active skill session
+                {
+                    let mut progress = self.progress.lock().await;
+                    let key = (agent_id.to_string(), run_id.clone());
+                    if let Some(chat_map) = progress.get_mut(&key) {
+                        for rp in chat_map.values_mut() {
+                            if let Some(skill) = rp.active_skill.take() {
+                                rp.completed_skills.push(skill);
+                            }
+                            rp.dirty = true;
+                        }
+                    }
+                }
+                self.flush_progress(agent_id, &run_id).await;
+
                 // Send the actual answer as a NEW separate message
                 let text = envelope
                     .payload
@@ -721,7 +894,13 @@ impl ChannelBridge {
                 let channels = self.resolve_agent_channels(agent_id);
                 let mut progress = self.progress.lock().await;
                 let key = (agent_id.to_string(), run_id.clone());
-                if let Some(chat_map) = progress.remove(&key) {
+                if let Some(mut chat_map) = progress.remove(&key) {
+                    // Finalize any active skill before rendering
+                    for rp in chat_map.values_mut() {
+                        if let Some(skill) = rp.active_skill.take() {
+                            rp.completed_skills.push(skill);
+                        }
+                    }
                     for (transport, _chat_id, channel_id) in &channels {
                         if let Some(rp) = chat_map.get(channel_id)
                             && let Some(msg_id) = &rp.message_id
@@ -974,5 +1153,169 @@ mod tests {
         assert!(commands.contains(&"help"));
         assert!(commands.contains(&"model"));
         assert!(commands.contains(&"vault"));
+    }
+
+    fn new_run_progress() -> RunProgress {
+        RunProgress {
+            message_id: None,
+            external_chat_id: "chat-1".into(),
+            tools: Vec::new(),
+            active_skill: None,
+            completed_skills: Vec::new(),
+            sub_agents: Vec::new(),
+            last_edit: Instant::now(),
+            dirty: false,
+            finished: false,
+        }
+    }
+
+    #[test]
+    fn truncate_result_short_string_unchanged() {
+        assert_eq!(truncate_result("hello", 10), "hello");
+    }
+
+    #[test]
+    fn truncate_result_long_string_truncated() {
+        let long = "a".repeat(100);
+        let result = truncate_result(&long, 10);
+        assert!(result.len() < 100);
+        assert!(result.ends_with('…'));
+    }
+
+    #[test]
+    fn render_standalone_tools_unchanged() {
+        let mut rp = new_run_progress();
+        rp.tools.push(("fs.read".into(), ToolStatus::Running));
+        rp.tools.push(("fs.write".into(), ToolStatus::Completed));
+        let text = rp.render();
+        assert!(text.contains("1 ⏳ fs.read"));
+        assert!(text.contains("2 ✅ fs.write"));
+    }
+
+    #[test]
+    fn render_active_skill_shows_invoking_header() {
+        let mut rp = new_run_progress();
+        rp.active_skill = Some(SkillProgress {
+            name: "git clone".into(),
+            steps: vec![],
+            finished: false,
+        });
+        let text = rp.render();
+        assert!(text.contains("⊞ Invoking git clone..."), "got: {text}");
+    }
+
+    #[test]
+    fn render_active_skill_with_steps() {
+        let mut rp = new_run_progress();
+        rp.active_skill = Some(SkillProgress {
+            name: "Deploy".into(),
+            steps: vec![
+                SkillStep {
+                    name: "git.clone".into(),
+                    status: ToolStatus::Completed,
+                    result: Some("cloned repo".into()),
+                },
+                SkillStep {
+                    name: "fs.write".into(),
+                    status: ToolStatus::Running,
+                    result: None,
+                },
+            ],
+            finished: false,
+        });
+        let text = rp.render();
+        assert!(text.contains("⊞ Invoking Deploy..."), "got: {text}");
+        assert!(text.contains("◷ git.clone → cloned repo"), "got: {text}");
+        assert!(text.contains("⏳ fs.write"), "got: {text}");
+    }
+
+    #[test]
+    fn render_completed_skill_shows_checkmark() {
+        let mut rp = new_run_progress();
+        rp.completed_skills.push(SkillProgress {
+            name: "Deploy".into(),
+            steps: vec![
+                SkillStep {
+                    name: "git.clone".into(),
+                    status: ToolStatus::Completed,
+                    result: Some("cloned repo".into()),
+                },
+                SkillStep {
+                    name: "git.commit".into(),
+                    status: ToolStatus::Completed,
+                    result: Some("committed".into()),
+                },
+            ],
+            finished: false,
+        });
+        let text = rp.render();
+        assert!(text.contains("✅ Deploy"), "got: {text}");
+        assert!(text.contains("◷ git.clone → cloned repo"), "got: {text}");
+        assert!(text.contains("◷ git.commit → committed"), "got: {text}");
+    }
+
+    #[test]
+    fn render_skill_and_standalone_tools_together() {
+        let mut rp = new_run_progress();
+        rp.completed_skills.push(SkillProgress {
+            name: "Build".into(),
+            steps: vec![SkillStep {
+                name: "fs.write".into(),
+                status: ToolStatus::Completed,
+                result: None,
+            }],
+            finished: false,
+        });
+        rp.tools.push(("echo".into(), ToolStatus::Completed));
+        let text = rp.render();
+        assert!(text.contains("✅ Build"), "got: {text}");
+        assert!(text.contains("1 ✅ echo"), "got: {text}");
+    }
+
+    #[test]
+    fn render_failed_step_shows_error_icon() {
+        let mut rp = new_run_progress();
+        rp.active_skill = Some(SkillProgress {
+            name: "Deploy".into(),
+            steps: vec![SkillStep {
+                name: "git.push".into(),
+                status: ToolStatus::Failed,
+                result: None,
+            }],
+            finished: false,
+        });
+        let text = rp.render();
+        assert!(text.contains("❌ git.push"), "got: {text}");
+    }
+
+    #[test]
+    fn render_step_result_truncated_at_60() {
+        let mut rp = new_run_progress();
+        let long_result = "x".repeat(100);
+        rp.active_skill = Some(SkillProgress {
+            name: "Test".into(),
+            steps: vec![SkillStep {
+                name: "fs.read".into(),
+                status: ToolStatus::Completed,
+                result: Some(long_result),
+            }],
+            finished: false,
+        });
+        let text = rp.render();
+        // The result should be truncated
+        assert!(text.contains("→"), "got: {text}");
+        assert!(text.contains('…'), "result should be truncated, got: {text}");
+    }
+
+    #[test]
+    fn render_finished_returns_empty() {
+        let mut rp = new_run_progress();
+        rp.finished = true;
+        rp.active_skill = Some(SkillProgress {
+            name: "Test".into(),
+            steps: vec![],
+            finished: false,
+        });
+        assert_eq!(rp.render(), "");
     }
 }

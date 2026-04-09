@@ -24,13 +24,17 @@ export function ToolGroup({ messages, expanded = false }) {
 
   const icon = errors > 0 ? '✗' : '✓';
   const color = errors > 0 ? THEME.error : THEME.success;
-  const skills = messages.filter(m => m.type === 'skill').length;
+  const skillMsgs = messages.filter(m => m.type === 'skill');
   const tools = messages.filter(m => m.type === 'tool').length;
+  // Count total steps across all skills
+  const skillSteps = skillMsgs.reduce((sum, m) => sum + (m.steps ? m.steps.length : 0), 0);
   const parts = [];
-  if (tools > 0) parts.push(`${tools} tool${tools > 1 ? 's' : ''}`);
-  if (skills > 0) parts.push(`${skills} skill${skills > 1 ? 's' : ''}`);
+  const totalTools = tools + skillSteps;
+  if (totalTools > 0) parts.push(`${totalTools} tool${totalTools > 1 ? 's' : ''}`);
+  if (skillMsgs.length > 0) parts.push(`${skillMsgs.length} skill${skillMsgs.length > 1 ? 's' : ''}`);
   const label = parts.join(', ');
-  const detail = errors > 0 ? `${completed} done, ${errors} failed` : `${completed} done`;
+  const totalDone = completed + skillSteps;
+  const detail = errors > 0 ? `${totalDone} done, ${errors} failed` : `${totalDone} done`;
 
   if (!expanded) {
     return (

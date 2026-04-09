@@ -8,9 +8,10 @@ const ERROR_EVENTS = new Set([
 ]);
 
 // Error events that should be shown as user-friendly system messages
-// instead of raw event brackets (brackets only in debug mode)
+// instead of raw event brackets (brackets only in debug mode).
+// NOTE: primitive.failed is handled separately (with skill awareness) before this check.
 const FRIENDLY_ERROR_EVENTS = new Set([
-  'run.failed', 'primitive.failed',
+  'run.failed',
 ]);
 
 // Tool activity events always shown in chat as compact messages
@@ -104,6 +105,7 @@ export class EventsHandler {
     this._thinkingTimer = null;
     this.pendingAsk = null; // { questionId, question } = set when agent asks user
     this._subAgents = new Map(); // agentId -> { name, task, buffer, status }
+    this._activeSkillIdx = null; // index into this.messages for the running skill
     this._hiveStatus = null; // aggregated hive status tracker
     this._version = 0;
     this.messageVersion = 0;
@@ -597,6 +599,14 @@ export class EventsHandler {
         clearTimeout(this._deltaTimer);
         this._deltaTimer = null;
       }
+      // Close active skill session on final message
+      if (this._activeSkillIdx != null) {
+        const skill = this.messages[this._activeSkillIdx];
+        if (skill && skill.status === 'running') {
+          skill.status = 'completed';
+        }
+        this._activeSkillIdx = null;
+      }
       const finalContent = payload.content || payload.text || this._assistantBuffer;
       this._assistantBuffer = '';
       const last = this.messages[this.messages.length - 1];
@@ -614,11 +624,71 @@ export class EventsHandler {
     // Stop thinking on run completion or errors
     if (type === 'run.completed' || type === 'run.failed') {
       if (this.thinking) this._stopThinking();
+      // Close active skill session on run end
+      if (this._activeSkillIdx != null) {
+        const skill = this.messages[this._activeSkillIdx];
+        if (skill) {
+          skill.status = type === 'run.failed' ? 'error' : 'completed';
+        }
+        this._activeSkillIdx = null;
+      }
     }
 
     // Silence errors for hidden tool prefixes (e.g. agent.*)
     if (type === 'primitive.failed' && isHiddenTool(payload.name || '')) {
       return;
+    }
+
+    // Handle primitive.failed with skill awareness BEFORE friendly error fallback
+    if (type === 'primitive.failed') {
+      const toolName = payload.name || 'unknown';
+      const errorMsg = payload.error || 'unknown error';
+
+      // skill.execute itself failed → mark the skill as error and close session
+      if (toolName === 'skill.execute' && this._activeSkillIdx != null) {
+        const skill = this.messages[this._activeSkillIdx];
+        if (skill) {
+          skill.status = 'error';
+          skill.error = errorMsg;
+        }
+        this._activeSkillIdx = null;
+        this.messageVersion++;
+        this._notify();
+        return;
+      }
+
+      // A tool within an active skill failed → mark the step as error
+      if (this._activeSkillIdx != null) {
+        const skill = this.messages[this._activeSkillIdx];
+        if (skill && skill.status === 'running') {
+          const step = [...skill.steps].reverse().find(s => s.name === toolName && s.status === 'running');
+          if (step) {
+            step.status = 'error';
+            step.error = errorMsg;
+            this.messageVersion++;
+            this._notify();
+            return;
+          }
+        }
+      }
+
+      // Update the last tool message for the same primitive if it was just invoked
+      const last = this.messages[this.messages.length - 1];
+      if (last && last.type === 'tool' && last.name === toolName && last.status === 'invoked') {
+        last.status = 'error';
+        last.error = errorMsg;
+        this.messageVersion++;
+        this._notify();
+        return;
+      }
+
+      // Fallback: show as friendly system message (non-debug mode)
+      if (!this.debug) {
+        this.messages.push({ type: 'system', content: `Tool error: ${errorMsg}`, ts: event.ts });
+        this.messageVersion++;
+        this._notify();
+        return;
+      }
     }
 
     // For user-facing error events, show as a friendly system message
@@ -636,8 +706,48 @@ export class EventsHandler {
     if (TOOL_ACTIVITY_EVENTS.has(type)) {
       if (type === 'primitive.invoked') {
         if (isHiddenTool(payload.name || '')) return;
+        const toolName = payload.name || 'unknown';
+
+        // Detect skill.execute → start a skill session
+        if (toolName === 'skill.execute') {
+          // Parse arguments — may be an object or a JSON string
+          let args = payload.arguments;
+          if (typeof args === 'string') {
+            try { args = JSON.parse(args); } catch { args = {}; }
+          }
+          const skillName = (args && args.name) || 'unknown';
+
+          // Close any previous active skill
+          if (this._activeSkillIdx != null) {
+            const prev = this.messages[this._activeSkillIdx];
+            if (prev && prev.status === 'running') {
+              prev.status = 'completed';
+            }
+          }
+
+          this.messages.push({
+            type: 'skill', name: skillName, status: 'running',
+            steps: [], ts: event.ts,
+          });
+          this._activeSkillIdx = this.messages.length - 1;
+          this.messageVersion++;
+          this._notify();
+          return;
+        }
+
+        // If a skill is active, nest this tool as a step
+        if (this._activeSkillIdx != null) {
+          const skill = this.messages[this._activeSkillIdx];
+          if (skill && skill.status === 'running') {
+            skill.steps.push({ name: toolName, status: 'running', result: null });
+            this.messageVersion++;
+            this._notify();
+            return;
+          }
+        }
+
         this.messages.push({
-          type: 'tool', name: payload.name || 'unknown', status: 'invoked',
+          type: 'tool', name: toolName, status: 'invoked',
           arguments: formatParams(payload.arguments),
           rawArguments: payload.arguments,
           ts: event.ts,
@@ -648,9 +758,41 @@ export class EventsHandler {
       }
       if (type === 'primitive.completed') {
         if (isHiddenTool(payload.name || '')) return;
+        const toolName = payload.name || 'unknown';
+
+        // skill.execute completed → just absorb (skill stays running for subsequent tools)
+        if (toolName === 'skill.execute') {
+          // Update skill name from result if available
+          if (this._activeSkillIdx != null) {
+            const skill = this.messages[this._activeSkillIdx];
+            const resultName = payload.result && typeof payload.result === 'object' && payload.result.name;
+            if (skill && resultName) {
+              skill.name = resultName;
+            }
+          }
+          this.messageVersion++;
+          this._notify();
+          return;
+        }
+
+        // If a skill is active, update the step
+        if (this._activeSkillIdx != null) {
+          const skill = this.messages[this._activeSkillIdx];
+          if (skill && skill.status === 'running') {
+            const step = [...skill.steps].reverse().find(s => s.name === toolName && s.status === 'running');
+            if (step) {
+              step.status = 'completed';
+              step.result = formatParams(payload.result);
+            }
+            this.messageVersion++;
+            this._notify();
+            return;
+          }
+        }
+
         // Update the last tool message for the same primitive if it was just invoked
         const last = this.messages[this.messages.length - 1];
-        if (last && last.type === 'tool' && last.name === (payload.name || 'unknown') && last.status === 'invoked') {
+        if (last && last.type === 'tool' && last.name === toolName && last.status === 'invoked') {
           last.status = 'completed';
           last.result = formatParams(payload.result);
           last.rawResult = payload.result;
@@ -663,10 +805,18 @@ export class EventsHandler {
 
     // Show skill activity events as compact bordered messages
     if (type === 'skill.invoked') {
+      // Close any previous active skill
+      if (this._activeSkillIdx != null) {
+        const prev = this.messages[this._activeSkillIdx];
+        if (prev && prev.status === 'running') {
+          prev.status = 'completed';
+        }
+      }
       this.messages.push({
         type: 'skill', name: payload.name || 'unknown', status: 'running',
-        description: payload.description || '', ts: event.ts,
+        steps: [], ts: event.ts,
       });
+      this._activeSkillIdx = this.messages.length - 1;
       this.messageVersion++;
       this._notify();
       return;
@@ -680,6 +830,7 @@ export class EventsHandler {
           break;
         }
       }
+      this._activeSkillIdx = null;
       this.messageVersion++;
       this._notify();
       return;
@@ -699,25 +850,13 @@ export class EventsHandler {
       if (!found) {
         this.messages.push({
           type: 'skill', name: payload.name || 'unknown', status: 'error',
-          error: payload.error || 'unknown error', ts: event.ts,
+          error: payload.error || 'unknown error', steps: [], ts: event.ts,
         });
       }
+      this._activeSkillIdx = null;
       this.messageVersion++;
       this._notify();
       return;
-    }
-
-    // Show tool error events
-    if (type === 'primitive.failed') {
-      // Update the last tool message for the same primitive if it was just invoked
-      const last = this.messages[this.messages.length - 1];
-      if (last && last.type === 'tool' && last.name === (payload.name || 'unknown') && last.status === 'invoked') {
-        last.status = 'error';
-        last.error = payload.error || 'unknown error';
-        this.messageVersion++;
-        this._notify();
-        return;
-      }
     }
 
     // Show error events always; show all events in debug mode
