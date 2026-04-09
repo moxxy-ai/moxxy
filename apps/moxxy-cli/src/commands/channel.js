@@ -1,9 +1,24 @@
-import { p, handleCancel, withSpinner, showResult } from '../ui.js';
+import { p, handleCancel, isInteractive, withSpinner, showResult } from '../ui.js';
 import { showHelp } from '../help.js';
 import { parseFlags } from './auth.js';
 
 export async function runChannel(client, args) {
-  const [subcommand, ...rest] = args;
+  let [subcommand, ...rest] = args;
+
+  if (!subcommand && isInteractive()) {
+    subcommand = await p.select({
+      message: 'Channel action',
+      options: [
+        { value: 'list',     label: 'List channels',   hint: 'show registered channels' },
+        { value: 'create',   label: 'Create channel',  hint: 'register a new channel' },
+        { value: 'pair',     label: 'Pair channel',     hint: 'bind a channel to an agent' },
+        { value: 'bindings', label: 'List bindings',    hint: 'show channel-agent bindings' },
+        { value: 'unbind',   label: 'Unbind channel',   hint: 'remove a channel-agent binding' },
+        { value: 'delete',   label: 'Delete channel',   hint: 'remove a channel' },
+      ],
+    });
+    handleCancel(subcommand);
+  }
 
   switch (subcommand) {
     case 'create':
