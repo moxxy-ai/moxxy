@@ -614,10 +614,14 @@ impl ChannelBridge {
                                         return Some(n.to_string());
                                     }
                                     // Try parsing from JSON string
-                                    if let Some(s) = a.as_str() {
-                                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(s) {
-                                            return parsed.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
-                                        }
+                                    if let Some(s) = a.as_str()
+                                        && let Ok(parsed) =
+                                            serde_json::from_str::<serde_json::Value>(s)
+                                    {
+                                        return parsed
+                                            .get("name")
+                                            .and_then(|v| v.as_str())
+                                            .map(|s| s.to_string());
                                     }
                                     None
                                 })
@@ -674,36 +678,30 @@ impl ChannelBridge {
                                 .and_then(|v| v.as_str())
                                 .map(|s| s.to_string());
                             for rp in chat_map.values_mut() {
-                                if let Some(ref mut skill) = rp.active_skill {
-                                    if let Some(ref rn) = result_name {
-                                        skill.name = rn.clone();
-                                    }
+                                if let Some(ref mut skill) = rp.active_skill
+                                    && let Some(ref rn) = result_name
+                                {
+                                    skill.name = rn.clone();
                                 }
                                 rp.dirty = true;
                             }
                         } else {
                             // Extract a short result summary
-                            let result_summary = envelope
-                                .payload
-                                .get("result")
-                                .and_then(|r| {
-                                    // Try to get a string result or stringify
-                                    if let Some(s) = r.as_str() {
-                                        Some(s.to_string())
-                                    } else if let Some(status) = r.get("status").and_then(|v| v.as_str()) {
-                                        Some(status.to_string())
-                                    } else {
-                                        None
-                                    }
-                                });
+                            let result_summary = envelope.payload.get("result").and_then(|r| {
+                                // Try to get a string result or stringify
+                                if let Some(s) = r.as_str() {
+                                    Some(s.to_string())
+                                } else {
+                                    r.get("status")
+                                        .and_then(|v| v.as_str())
+                                        .map(|status| status.to_string())
+                                }
+                            });
                             for rp in chat_map.values_mut() {
                                 if let Some(ref mut skill) = rp.active_skill {
-                                    if let Some(step) = skill
-                                        .steps
-                                        .iter_mut()
-                                        .rev()
-                                        .find(|s| s.name == name && matches!(s.status, ToolStatus::Running))
-                                    {
+                                    if let Some(step) = skill.steps.iter_mut().rev().find(|s| {
+                                        s.name == name && matches!(s.status, ToolStatus::Running)
+                                    }) {
                                         step.status = ToolStatus::Completed;
                                         step.result = result_summary.clone();
                                     }
@@ -733,12 +731,9 @@ impl ChannelBridge {
                     if let Some(chat_map) = progress.get_mut(&key) {
                         for rp in chat_map.values_mut() {
                             if let Some(ref mut skill) = rp.active_skill {
-                                if let Some(step) = skill
-                                    .steps
-                                    .iter_mut()
-                                    .rev()
-                                    .find(|s| s.name == name && matches!(s.status, ToolStatus::Running))
-                                {
+                                if let Some(step) = skill.steps.iter_mut().rev().find(|s| {
+                                    s.name == name && matches!(s.status, ToolStatus::Running)
+                                }) {
                                     step.status = ToolStatus::Failed;
                                 } else {
                                     // skill.execute itself failed
@@ -1304,7 +1299,10 @@ mod tests {
         let text = rp.render();
         // The result should be truncated
         assert!(text.contains("→"), "got: {text}");
-        assert!(text.contains('…'), "result should be truncated, got: {text}");
+        assert!(
+            text.contains('…'),
+            "result should be truncated, got: {text}"
+        );
     }
 
     #[test]
