@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.9](https://github.com/moxxy-ai/moxxy/compare/v1.2.8...v1.2.9) (2026-04-09)
+
+
+### Bug Fixes
+
+* badge package name ([41b2c8b](https://github.com/moxxy-ai/moxxy/commit/41b2c8b3e03943ade06fe6f8c0cdd1afdd2d3cfd))
+* menu reorder for providers ([6cd8180](https://github.com/moxxy-ai/moxxy/commit/6cd8180fdd855133258ef78857cea96d37f4299b))
+* missing xdg candidates ([026eed1](https://github.com/moxxy-ai/moxxy/commit/026eed10b53786a53e125d1caa95e8a74e7ebaac))
+* setup channel interactive ([faa667a](https://github.com/moxxy-ai/moxxy/commit/faa667a76d72c657ab56f5f6eff7a94a34e4e8f7))
+
 ## [1.2.8](https://github.com/moxxy-ai/moxxy/compare/v1.2.7...v1.2.8) (2026-04-09)
 
 

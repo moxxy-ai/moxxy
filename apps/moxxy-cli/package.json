@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/cli",
-  "version": "1.2.8",
+  "version": "1.2.9",
   "description": "CLI for the Moxxy agentic framework — manage agents, skills, plugins, channels, and vaults from the terminal",
   "type": "module",
   "license": "MIT",
