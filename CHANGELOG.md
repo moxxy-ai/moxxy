@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.8](https://github.com/moxxy-ai/moxxy/compare/v1.2.7...v1.2.8) (2026-04-09)
+
+
+### Bug Fixes
+
+* formatting ([176735d](https://github.com/moxxy-ai/moxxy/commit/176735dff44ad5ba0b560ce05ec6b746c7d7daa3))
+* skills handling and presenting ([bedd9b3](https://github.com/moxxy-ai/moxxy/commit/bedd9b3096985ce51e4957dd7f15558b94731246))
+
 ## [1.2.7](https://github.com/moxxy-ai/moxxy/compare/v1.2.6...v1.2.7) (2026-04-08)
 
 
