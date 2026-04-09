@@ -15,7 +15,17 @@ pub struct RateLimitConfig {
 
 impl RateLimitConfig {
     /// Read configuration from environment variables with sensible defaults.
+    /// Set MOXXY_RATE_LIMIT_DISABLED=true to use permissive limits (effectively disabled).
     pub fn from_env() -> Self {
+        // Allow fully disabling rate limits (useful for local dev / loopback mode)
+        let disabled = std::env::var("MOXXY_RATE_LIMIT_DISABLED")
+            .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
+            .unwrap_or(false);
+
+        if disabled {
+            return Self::permissive();
+        }
+
         Self {
             per_second: std::env::var("MOXXY_RATE_LIMIT_PER_SEC")
                 .ok()

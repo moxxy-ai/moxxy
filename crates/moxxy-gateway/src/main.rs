@@ -228,7 +228,18 @@ async fn main() {
         }
     }
 
-    let app = create_router(state.clone(), Some(RateLimitConfig::from_env()));
+    // In loopback mode, use permissive rate limits unless explicitly configured
+    let rate_limit_config = if auth_mode.is_loopback()
+        && std::env::var("MOXXY_RATE_LIMIT_PER_SEC").is_err()
+        && std::env::var("MOXXY_RATE_LIMIT_DISABLED").is_err()
+    {
+        tracing::info!("Loopback mode: using permissive rate limits");
+        RateLimitConfig::permissive()
+    } else {
+        RateLimitConfig::from_env()
+    };
+
+    let app = create_router(state.clone(), Some(rate_limit_config));
 
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
