@@ -3,6 +3,7 @@ pub mod agent_self;
 pub mod allowlist;
 pub mod ask;
 pub mod browse;
+pub mod browser;
 pub mod channel_notify;
 pub mod config;
 pub mod fs;
@@ -36,8 +37,13 @@ pub use allowlist::{
     AllowlistRemovePrimitive, AllowlistUndenyPrimitive,
 };
 pub use ask::{AgentRespondPrimitive, AskChannels, UserAskPrimitive, new_ask_channels};
-pub use browse::{
-    BrowseCrawlPrimitive, BrowseExtractPrimitive, BrowseFetchPrimitive, BrowseRenderPrimitive,
+pub use browse::{BrowseExtractPrimitive, BrowseFetchPrimitive};
+pub use browser::{
+    BrowserClickPrimitive, BrowserCookiesPrimitive, BrowserCrawlPrimitive, BrowserEvalPrimitive,
+    BrowserExtractPrimitive, BrowserFillPrimitive, BrowserHoverPrimitive,
+    BrowserNavigatePrimitive, BrowserReadPrimitive, BrowserScreenshotPrimitive,
+    BrowserScrollPrimitive, BrowserSessionClosePrimitive, BrowserSessionListPrimitive,
+    BrowserSessionOpenPrimitive, BrowserTypePrimitive, BrowserWaitPrimitive,
 };
 pub use channel_notify::{ChannelMessageSender, ChannelNotifyPrimitive};
 pub use config::{ConfigGetPrimitive, ConfigSetPrimitive};

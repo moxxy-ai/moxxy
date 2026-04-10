@@ -1,9 +1,12 @@
+//! Lightweight HTTP-only browse primitives.
+//!
+//! `browse.fetch` does a plain reqwest fetch (no JS rendering) and `browse.extract`
+//! parses HTML offline. For JS-rendered pages, screenshots, interaction, and
+//! crawling, see the `browser.*` namespace backed by the Playwright sidecar.
+
 use async_trait::async_trait;
-use futures_util::StreamExt;
 use moxxy_core::NetworkMode;
-use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 
 use crate::html_text;
@@ -75,7 +78,6 @@ fn is_domain_allowed(allowlist_path: &std::path::Path, domain: &str) -> bool {
 }
 
 /// Check domain against allowlist, respecting NetworkMode.
-/// Returns `Ok(None)` if allowed, `Ok(Some(json))` if blocked (soft deny), or proceeds.
 fn check_domain(
     allowlist_path: &std::path::Path,
     network_mode: NetworkMode,
@@ -111,7 +113,7 @@ fn check_domain(
 }
 
 // ---------------------------------------------------------------------------
-// browse.fetch — improved with browser headers, clean text, link extraction
+// browse.fetch
 // ---------------------------------------------------------------------------
 
 /// HTTP fetch with browser-like headers, clean text extraction, and link discovery.
@@ -149,7 +151,8 @@ impl Primitive for BrowseFetchPrimitive {
     }
 
     fn description(&self) -> &str {
-        "Fetch a web page and return clean readable text, extracted links, and optional CSS-selected content."
+        "Fast HTTP fetch (no JS execution). Returns clean readable text, extracted links, and \
+         optional CSS-selected content. For JS-rendered pages use browser.navigate + browser.read."
     }
 
     fn is_concurrent_safe(&self) -> bool {
@@ -209,13 +212,9 @@ impl Primitive for BrowseFetchPrimitive {
 
         let body = String::from_utf8_lossy(&bytes).to_string();
 
-        // Extract clean text + links in a single parse.
         let (text, links) = html_text::extract_text_and_links(&body, url);
-
-        // Extract title.
         let title = extract_title(&body);
 
-        // Optional CSS selector extraction (backwards compat).
         let selected_text = params["selector"]
             .as_str()
             .map(|sel| extract_by_selector(&body, sel));
@@ -233,11 +232,9 @@ impl Primitive for BrowseFetchPrimitive {
         if let Some(t) = title {
             result["title"] = serde_json::Value::String(t);
         }
-
         if let Some(text) = selected_text {
             result["selected_text"] = serde_json::Value::String(text);
         }
-
         if include_html {
             result["body"] = serde_json::Value::String(body.clone());
         }
@@ -247,11 +244,9 @@ impl Primitive for BrowseFetchPrimitive {
 }
 
 // ---------------------------------------------------------------------------
-// browse.extract — unchanged pure HTML parsing
+// browse.extract — pure HTML parsing, no network
 // ---------------------------------------------------------------------------
 
-/// Extract structured data from HTML using CSS selectors.
-/// Pure parsing = no network requests.
 pub struct BrowseExtractPrimitive;
 
 impl BrowseExtractPrimitive {
@@ -300,12 +295,6 @@ impl Primitive for BrowseExtractPrimitive {
             PrimitiveError::InvalidParams("missing 'selectors' object parameter".into())
         })?;
 
-        tracing::debug!(
-            selectors_count = selectors.len(),
-            html_len = html.len(),
-            "Extracting from HTML"
-        );
-
         let document = scraper::Html::parse_document(html);
         let mut data = serde_json::Map::new();
 
@@ -335,382 +324,7 @@ impl Primitive for BrowseExtractPrimitive {
 }
 
 // ---------------------------------------------------------------------------
-// browse.crawl — BFS crawl across pages
-// ---------------------------------------------------------------------------
-
-/// Crawl a website by following links breadth-first.
-pub struct BrowseCrawlPrimitive {
-    allowlist_path: PathBuf,
-    timeout: Duration,
-    max_response_bytes: usize,
-    network_mode: NetworkMode,
-}
-
-impl BrowseCrawlPrimitive {
-    pub fn new(
-        allowlist_path: PathBuf,
-        timeout: Duration,
-        max_response_bytes: usize,
-        network_mode: NetworkMode,
-    ) -> Self {
-        Self {
-            allowlist_path,
-            timeout,
-            max_response_bytes,
-            network_mode,
-        }
-    }
-}
-
-const MAX_CRAWL_DEPTH: u32 = 3;
-const MAX_CRAWL_PAGES: u32 = 20;
-
-#[async_trait]
-impl Primitive for BrowseCrawlPrimitive {
-    fn name(&self) -> &str {
-        "browse.crawl"
-    }
-
-    fn description(&self) -> &str {
-        "Crawl a website by following links breadth-first. Returns clean text from each page visited."
-    }
-
-    fn parameters_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "url": {"type": "string", "description": "Starting URL to crawl"},
-                "max_depth": {"type": "integer", "description": "Maximum link-following depth (default 1, max 3)"},
-                "max_pages": {"type": "integer", "description": "Maximum pages to fetch (default 5, max 20)"},
-                "selector": {"type": "string", "description": "Optional CSS selector to filter content on each page"},
-                "same_domain": {"type": "boolean", "description": "Only follow links on the same domain (default true)"}
-            },
-            "required": ["url"]
-        })
-    }
-
-    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
-        let start_url = params["url"]
-            .as_str()
-            .ok_or_else(|| PrimitiveError::InvalidParams("missing 'url' parameter".into()))?;
-
-        let max_depth = params["max_depth"]
-            .as_u64()
-            .unwrap_or(1)
-            .min(MAX_CRAWL_DEPTH as u64) as u32;
-
-        let max_pages = params["max_pages"]
-            .as_u64()
-            .unwrap_or(5)
-            .min(MAX_CRAWL_PAGES as u64) as u32;
-
-        let selector = params["selector"].as_str();
-        let same_domain = params["same_domain"].as_bool().unwrap_or(true);
-
-        // Validate starting URL.
-        let start_domain = crate::url_policy::extract_host(start_url)
-            .ok_or_else(|| PrimitiveError::InvalidParams("cannot parse domain from URL".into()))?;
-
-        if let Some(blocked) = check_domain(
-            &self.allowlist_path,
-            self.network_mode,
-            start_url,
-            &start_domain,
-            "browse.crawl",
-        ) {
-            return Ok(blocked);
-        }
-
-        let client = build_browser_client(self.timeout)?;
-
-        let mut visited: HashSet<String> = HashSet::new();
-        let mut queue: VecDeque<(String, u32)> = VecDeque::new();
-        let mut pages: Vec<serde_json::Value> = Vec::new();
-
-        queue.push_back((start_url.to_string(), 0));
-
-        while let Some((url, depth)) = queue.pop_front() {
-            if pages.len() >= max_pages as usize {
-                break;
-            }
-
-            // Normalise URL for dedup (strip fragment).
-            let normalised = normalise_url(&url);
-            if !visited.insert(normalised) {
-                continue;
-            }
-
-            // Domain check for every URL.
-            let Some(domain) = crate::url_policy::extract_host(&url) else {
-                continue;
-            };
-
-            if same_domain && domain != start_domain {
-                continue;
-            }
-
-            if self.network_mode == NetworkMode::Safe
-                && !is_domain_allowed(&self.allowlist_path, &domain)
-            {
-                continue;
-            }
-
-            tracing::debug!(url = %url, depth, "Crawling page");
-
-            // Fetch the page.
-            let resp = match client.get(&url).send().await {
-                Ok(r) => r,
-                Err(e) => {
-                    tracing::warn!(url = %url, error = %e, "Crawl fetch failed, skipping");
-                    continue;
-                }
-            };
-
-            let status = resp.status().as_u16();
-            let bytes = match resp.bytes().await {
-                Ok(b) if b.len() <= self.max_response_bytes => b,
-                _ => continue,
-            };
-
-            let body = String::from_utf8_lossy(&bytes).to_string();
-            let (text, links) = html_text::extract_text_and_links(&body, &url);
-            let title = extract_title(&body);
-
-            let mut page = serde_json::json!({
-                "url": url,
-                "status": status,
-                "depth": depth,
-                "text": &text,
-                "links_found": links.len(),
-            });
-
-            if let Some(t) = title {
-                page["title"] = serde_json::Value::String(t);
-            }
-
-            if let Some(sel) = selector {
-                page["selected_text"] = serde_json::Value::String(extract_by_selector(&body, sel));
-            }
-
-            pages.push(page);
-
-            // Enqueue discovered links if within depth limit.
-            if depth < max_depth {
-                for link in &links {
-                    let n = normalise_url(&link.url);
-                    if !visited.contains(&n) {
-                        queue.push_back((link.url.clone(), depth + 1));
-                    }
-                }
-            }
-        }
-
-        Ok(serde_json::json!({
-            "pages_crawled": pages.len(),
-            "pages": pages,
-        }))
-    }
-}
-
-/// Strip fragment and trailing slash for URL deduplication.
-fn normalise_url(raw: &str) -> String {
-    match url::Url::parse(raw) {
-        Ok(mut u) => {
-            u.set_fragment(None);
-            let mut s = u.to_string();
-            if s.ends_with('/') && s.len() > 1 {
-                s.pop();
-            }
-            s
-        }
-        Err(_) => raw.to_string(),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// browse.render — headless Chrome via chromiumoxide
-// ---------------------------------------------------------------------------
-
-/// Render a page using headless Chrome (requires Chromium installed).
-pub struct BrowseRenderPrimitive {
-    allowlist_path: PathBuf,
-    timeout: Duration,
-    max_response_bytes: usize,
-    network_mode: NetworkMode,
-    chrome_manager: Arc<crate::chromium::ChromiumManager>,
-    browser: tokio::sync::OnceCell<chromiumoxide::Browser>,
-}
-
-impl BrowseRenderPrimitive {
-    pub fn new(
-        allowlist_path: PathBuf,
-        timeout: Duration,
-        max_response_bytes: usize,
-        network_mode: NetworkMode,
-        chrome_manager: Arc<crate::chromium::ChromiumManager>,
-    ) -> Self {
-        Self {
-            allowlist_path,
-            timeout,
-            max_response_bytes,
-            network_mode,
-            chrome_manager,
-            browser: tokio::sync::OnceCell::new(),
-        }
-    }
-
-    async fn get_browser(&self) -> Result<&chromiumoxide::Browser, PrimitiveError> {
-        self.browser
-            .get_or_try_init(|| async {
-                let chrome_path = self.chrome_manager.chrome_path();
-                tracing::info!(path = %chrome_path.display(), "Launching headless Chrome");
-
-                let launch_opts = chromiumoxide::BrowserConfig::builder()
-                    .chrome_executable(chrome_path)
-                    .arg("--headless=new")
-                    .arg("--disable-gpu")
-                    .arg("--no-sandbox")
-                    .arg("--disable-dev-shm-usage")
-                    .build()
-                    .map_err(|e| {
-                        PrimitiveError::ExecutionFailed(format!("Chrome config error: {e}"))
-                    })?;
-
-                let (browser, mut handler) = chromiumoxide::Browser::launch(launch_opts)
-                    .await
-                    .map_err(|e| {
-                        PrimitiveError::ExecutionFailed(format!(
-                            "Failed to launch Chrome at {}: {e}",
-                            chrome_path.display()
-                        ))
-                    })?;
-
-                // Spawn the CDP handler as a background task.
-                tokio::spawn(async move { while handler.next().await.is_some() {} });
-
-                Ok(browser)
-            })
-            .await
-    }
-}
-
-#[async_trait]
-impl Primitive for BrowseRenderPrimitive {
-    fn name(&self) -> &str {
-        "browse.render"
-    }
-
-    fn description(&self) -> &str {
-        "Render a web page using headless Chrome (JavaScript execution). \
-         Returns clean text after the page has fully loaded."
-    }
-
-    fn parameters_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "url": {"type": "string", "description": "URL to render"},
-                "selector": {"type": "string", "description": "Optional CSS selector to extract specific content"},
-                "wait_for": {"type": "string", "description": "CSS selector to wait for before extracting content"},
-                "wait_ms": {"type": "integer", "description": "Additional milliseconds to wait after page load (default 0, max 10000)"},
-                "include_html": {"type": "boolean", "description": "Include raw HTML in response (default false)"}
-            },
-            "required": ["url"]
-        })
-    }
-
-    async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
-        let url = params["url"]
-            .as_str()
-            .ok_or_else(|| PrimitiveError::InvalidParams("missing 'url' parameter".into()))?;
-
-        let domain = crate::url_policy::extract_host(url)
-            .ok_or_else(|| PrimitiveError::InvalidParams("cannot parse domain from URL".into()))?;
-
-        if let Some(blocked) = check_domain(
-            &self.allowlist_path,
-            self.network_mode,
-            url,
-            &domain,
-            "browse.render",
-        ) {
-            return Ok(blocked);
-        }
-
-        let wait_for = params["wait_for"].as_str();
-        let wait_ms = params["wait_ms"].as_u64().unwrap_or(0).min(10_000);
-        let include_html = params["include_html"].as_bool().unwrap_or(false);
-
-        tracing::info!(url, %domain, "Rendering page with headless Chrome");
-
-        let browser = self.get_browser().await?;
-
-        let page = browser
-            .new_page(url)
-            .await
-            .map_err(|e| PrimitiveError::ExecutionFailed(format!("Failed to open page: {e}")))?;
-
-        // Wait for the page to load.
-        tokio::time::timeout(self.timeout, page.wait_for_navigation())
-            .await
-            .map_err(|_| PrimitiveError::Timeout)?
-            .map_err(|e| PrimitiveError::ExecutionFailed(format!("Page navigation failed: {e}")))?;
-
-        // Wait for a specific selector if requested.
-        if let Some(sel) = wait_for {
-            let _ = tokio::time::timeout(Duration::from_secs(10), page.find_element(sel)).await;
-        }
-
-        // Additional wait.
-        if wait_ms > 0 {
-            tokio::time::sleep(Duration::from_millis(wait_ms)).await;
-        }
-
-        // Get rendered HTML.
-        let body = page.content().await.map_err(|e| {
-            PrimitiveError::ExecutionFailed(format!("Failed to get page content: {e}"))
-        })?;
-
-        // Close the page/tab (close takes ownership).
-        let _ = page.close().await;
-
-        if body.len() > self.max_response_bytes {
-            return Err(PrimitiveError::SizeLimitExceeded);
-        }
-
-        let (text, links) = html_text::extract_text_and_links(&body, url);
-        let title = extract_title(&body);
-
-        let selected_text = params["selector"]
-            .as_str()
-            .map(|sel| extract_by_selector(&body, sel));
-
-        let mut result = serde_json::json!({
-            "status": 200,
-            "url": url,
-            "body_length": body.len(),
-            "text": &text,
-            "links": links.iter().map(|l| serde_json::json!({"url": &l.url, "text": &l.text})).collect::<Vec<_>>(),
-        });
-
-        if let Some(t) = title {
-            result["title"] = serde_json::Value::String(t);
-        }
-
-        if let Some(text) = selected_text {
-            result["selected_text"] = serde_json::Value::String(text);
-        }
-
-        if include_html {
-            result["body"] = serde_json::Value::String(body.clone());
-        }
-
-        Ok(result)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers (shared across primitives)
+// Helpers
 // ---------------------------------------------------------------------------
 
 fn extract_title(html: &str) -> Option<String> {
@@ -737,8 +351,6 @@ fn extract_by_selector(html: &str, selector_str: &str) -> String {
 mod tests {
     use super::*;
 
-    // --- BrowseExtractPrimitive tests ---
-
     #[tokio::test]
     async fn browse_extract_parses_html() {
         let prim = BrowseExtractPrimitive::new();
@@ -746,10 +358,7 @@ mod tests {
         let result = prim
             .invoke(serde_json::json!({
                 "html": html,
-                "selectors": {
-                    "heading": "h1",
-                    "description": "p.desc"
-                }
+                "selectors": { "heading": "h1", "description": "p.desc" }
             }))
             .await
             .unwrap();
@@ -781,8 +390,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // --- Helper tests ---
-
     #[test]
     fn extract_title_from_html() {
         let html = "<html><head><title>My Page</title></head><body></body></html>";
@@ -794,21 +401,6 @@ mod tests {
         let html = "<html><body>No title</body></html>";
         assert_eq!(extract_title(html), None);
     }
-
-    #[test]
-    fn normalise_url_strips_fragment() {
-        assert_eq!(
-            normalise_url("https://example.com/page#section"),
-            "https://example.com/page"
-        );
-    }
-
-    #[test]
-    fn normalise_url_strips_trailing_slash() {
-        assert_eq!(normalise_url("https://example.com/"), "https://example.com");
-    }
-
-    // --- BrowseFetchPrimitive tests ---
 
     #[tokio::test]
     async fn browse_fetch_safe_mode_returns_prompt_for_disallowed_domain() {
@@ -835,21 +427,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn browse_fetch_unsafe_mode_skips_allowlist() {
-        let tmp = tempfile::tempdir().unwrap();
-        let path = tmp.path().join("allowlists.yaml");
-        std::fs::write(&path, "").unwrap();
-
-        let prim = BrowseFetchPrimitive::new(
-            path,
-            Duration::from_secs(5),
-            1024 * 1024,
-            NetworkMode::Unsafe,
-        );
-        assert!(!prim.is_domain_allowed("random-unknown.com"));
-    }
-
-    #[tokio::test]
     async fn browse_fetch_allows_default_domains() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("allowlists.yaml");
@@ -861,41 +438,6 @@ mod tests {
         assert!(prim.is_domain_allowed("stackoverflow.com"));
         assert!(!prim.is_domain_allowed("random-unknown.com"));
     }
-
-    // --- BrowseCrawlPrimitive tests ---
-
-    #[tokio::test]
-    async fn browse_crawl_blocks_disallowed_start_url() {
-        let tmp = tempfile::tempdir().unwrap();
-        let path = tmp.path().join("allowlists.yaml");
-        let mut file = moxxy_core::AllowlistFile::default();
-        file.add_allow("http_domain", "allowed.com".into());
-        file.save(&path).unwrap();
-
-        let prim =
-            BrowseCrawlPrimitive::new(path, Duration::from_secs(5), 1024 * 1024, NetworkMode::Safe);
-        let result = prim
-            .invoke(serde_json::json!({"url": "https://evil.com/"}))
-            .await
-            .unwrap();
-        assert_eq!(result["status"], "domain_not_allowed");
-    }
-
-    #[test]
-    fn crawl_depth_and_pages_are_clamped() {
-        // Verify the constants that will clamp user input.
-        assert_eq!(MAX_CRAWL_DEPTH, 3);
-        assert_eq!(MAX_CRAWL_PAGES, 20);
-
-        // Verify clamping logic inline.
-        let depth: u64 = 100;
-        assert_eq!(depth.min(MAX_CRAWL_DEPTH as u64), 3);
-
-        let pages: u64 = 1000;
-        assert_eq!(pages.min(MAX_CRAWL_PAGES as u64), 20);
-    }
-
-    // --- build_browser_client tests ---
 
     #[test]
     fn browser_client_builds_successfully() {

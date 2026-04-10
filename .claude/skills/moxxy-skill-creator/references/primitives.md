@@ -14,14 +14,44 @@ the `allowed_primitives` array of skill frontmatter.
 
 Security: All operations are scoped to the agent's workspace via PathPolicy. No path traversal possible.
 
-## Browse (`browse.*`)
+## Browse (`browse.*`) — fast HTTP path, no JavaScript
 
 | Primitive | Description |
 |-----------|-------------|
-| `browse.fetch` | Fetch a URL and extract content via CSS selector |
-| `browse.extract` | Parse raw HTML content without making a network request |
+| `browse.fetch` | Plain HTTP fetch with browser-like headers. Returns clean text + links + title. |
+| `browse.extract` | Parse raw HTML content offline without making a network request. |
 
 Security: `browse.fetch` makes HTTP requests. Domain allowlist should include target sites.
+
+## Browser (`browser.*`) — full headless browser via Playwright sidecar
+
+Per-agent supervised Chromium. Node, playwright-core, and Chromium are downloaded
+on demand on the first call (~250 MB into `~/.moxxy/`). Sessions and pages are
+referenced by id; always close sessions you open.
+
+| Primitive | Description |
+|-----------|-------------|
+| `browser.session.open` | Create an isolated session (cookie/storage jar). Returns `session_id`. |
+| `browser.session.close` | Close a session and all its tabs. |
+| `browser.session.list` | List active sessions and their pages. |
+| `browser.navigate` | Open URL in a tab (creates one if `page_id` omitted). Domain-allowlisted. |
+| `browser.read` | Get current rendered content (modes: markdown, text, html). |
+| `browser.extract` | Extract structured data from the live DOM via CSS selectors. |
+| `browser.screenshot` | PNG/JPEG of viewport, full page, or single element. `save_to` writes to workspace. |
+| `browser.click` | Click an element (auto-waits). |
+| `browser.type` | Type text key-by-key into an input. |
+| `browser.fill` | One-shot value set on an input/select. |
+| `browser.hover` | Hover over an element. |
+| `browser.scroll` | Scroll page to top/bottom/coords or scroll an element into view. |
+| `browser.wait` | Wait for selector state, load state, or fixed delay. |
+| `browser.eval` | Run a JS expression in the page context. **Powerful — grant only when needed.** |
+| `browser.cookies` | Get/set/clear cookies on the session. |
+| `browser.crawl` | BFS multi-page crawl with JS rendering. Configurable depth/pages. |
+
+Security: `browser.navigate` and `browser.crawl` honor the http_domain allowlist
+identically to `browse.fetch`. `browser.eval` runs arbitrary JavaScript inside the
+page sandbox — never grant it in skills that don't strictly require it. `browser.screenshot`
+with `save_to` writes through the agent's workspace `PathPolicy` — no escapes.
 
 ## Git (`git.*`)
 

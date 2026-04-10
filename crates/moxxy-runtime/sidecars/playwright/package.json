@@ -1,0 +1,13 @@
+{
+  "name": "moxxy-playwright-sidecar",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "sidecar.mjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "playwright-core": "1.49.1"
+  }
+}

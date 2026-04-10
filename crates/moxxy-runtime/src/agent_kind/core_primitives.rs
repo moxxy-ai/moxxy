@@ -5,8 +5,12 @@ use crate::{
     AgentSelfPersonaReadPrimitive, AgentSelfPersonaWritePrimitive, AgentSelfUpdatePrimitive,
     AgentSpawnPrimitive, AgentStatusPrimitive, AgentStopPrimitive, AllowlistAddPrimitive,
     AllowlistDenyPrimitive, AllowlistListPrimitive, AllowlistRemovePrimitive,
-    AllowlistUndenyPrimitive, BrowseCrawlPrimitive, BrowseExtractPrimitive, BrowseFetchPrimitive,
-    BrowseRenderPrimitive, ChannelNotifyPrimitive, CliNotifyPrimitive, FsCdPrimitive,
+    AllowlistUndenyPrimitive, BrowseExtractPrimitive, BrowseFetchPrimitive, BrowserClickPrimitive,
+    BrowserCookiesPrimitive, BrowserCrawlPrimitive, BrowserEvalPrimitive, BrowserExtractPrimitive,
+    BrowserFillPrimitive, BrowserHoverPrimitive, BrowserNavigatePrimitive, BrowserReadPrimitive,
+    BrowserScreenshotPrimitive, BrowserScrollPrimitive, BrowserSessionClosePrimitive,
+    BrowserSessionListPrimitive, BrowserSessionOpenPrimitive, BrowserTypePrimitive,
+    BrowserWaitPrimitive, ChannelNotifyPrimitive, CliNotifyPrimitive, FsCdPrimitive,
     FsListPrimitive, FsReadPrimitive, FsRemovePrimitive, FsWritePrimitive, GitCheckoutPrimitive,
     GitClonePrimitive, GitCommitPrimitive, GitForkPrimitive, GitInitPrimitive,
     GitPrCreatePrimitive, GitPushPrimitive, GitStatusPrimitive, GitWorktreeAddPrimitive,
@@ -127,7 +131,7 @@ pub fn register_core_primitives(
         )));
     }
 
-    // Browse primitives (YAML-backed domain allowlist)
+    // Browse primitives (fast HTTP path, no JS rendering)
     registry.register(Box::new(BrowseFetchPrimitive::new(
         allowlist_path.clone(),
         std::time::Duration::from_secs(30),
@@ -135,26 +139,44 @@ pub fn register_core_primitives(
         system_settings.network_mode,
     )));
     registry.register(Box::new(BrowseExtractPrimitive::new()));
-    registry.register(Box::new(BrowseCrawlPrimitive::new(
-        allowlist_path.clone(),
-        std::time::Duration::from_secs(30),
-        10 * 1024 * 1024,
-        system_settings.network_mode,
-    )));
 
-    // Browser rendering (headless Chrome — only if enabled in settings)
-    if system_settings.browser_rendering {
-        if let Some(manager) = crate::chromium::ChromiumManager::detect(&ctx.moxxy_home) {
-            registry.register(Box::new(BrowseRenderPrimitive::new(
-                allowlist_path.clone(),
-                std::time::Duration::from_secs(30),
-                10 * 1024 * 1024,
-                system_settings.network_mode,
-                std::sync::Arc::new(manager),
-            )));
-        } else {
-            tracing::warn!("Browser rendering enabled but Chrome/Chromium not found");
-        }
+    // Browser primitives (Playwright sidecar, lazily bootstrapped on first use).
+    // One supervised sidecar per agent, shared across all browser.* primitives.
+    {
+        let browser_config = crate::browser::BrowserConfig::new(
+            ctx.moxxy_home.clone(),
+            allowlist_path.clone(),
+            system_settings.network_mode,
+        );
+        let browser_mgr = crate::browser::BrowserManager::new(browser_config);
+
+        registry.register(Box::new(BrowserSessionOpenPrimitive::new(browser_mgr.clone())));
+        registry.register(Box::new(BrowserSessionClosePrimitive::new(browser_mgr.clone())));
+        registry.register(Box::new(BrowserSessionListPrimitive::new(browser_mgr.clone())));
+        registry.register(Box::new(BrowserNavigatePrimitive::new(
+            browser_mgr.clone(),
+            allowlist_path.clone(),
+            system_settings.network_mode,
+        )));
+        registry.register(Box::new(BrowserReadPrimitive::new(browser_mgr.clone())));
+        registry.register(Box::new(BrowserScreenshotPrimitive::new(
+            browser_mgr.clone(),
+            policy.clone(),
+        )));
+        registry.register(Box::new(BrowserExtractPrimitive::new(browser_mgr.clone())));
+        registry.register(Box::new(BrowserWaitPrimitive::new(browser_mgr.clone())));
+        registry.register(Box::new(BrowserEvalPrimitive::new(browser_mgr.clone())));
+        registry.register(Box::new(BrowserCookiesPrimitive::new(browser_mgr.clone())));
+        registry.register(Box::new(BrowserClickPrimitive::new(browser_mgr.clone())));
+        registry.register(Box::new(BrowserTypePrimitive::new(browser_mgr.clone())));
+        registry.register(Box::new(BrowserFillPrimitive::new(browser_mgr.clone())));
+        registry.register(Box::new(BrowserHoverPrimitive::new(browser_mgr.clone())));
+        registry.register(Box::new(BrowserScrollPrimitive::new(browser_mgr.clone())));
+        registry.register(Box::new(BrowserCrawlPrimitive::new(
+            browser_mgr.clone(),
+            allowlist_path.clone(),
+            system_settings.network_mode,
+        )));
     }
 
     // Git primitives (vault-aware via PrimitiveContext, with ask support for token resolution)
