@@ -49,7 +49,7 @@ fn check_domain_for(
 fn timeout_from_params(params: &serde_json::Value) -> Option<Duration> {
     params["timeout_ms"]
         .as_u64()
-        .map(|ms| Duration::from_millis(ms))
+        .map(Duration::from_millis)
 }
 
 // ---------------------------------------------------------------------------

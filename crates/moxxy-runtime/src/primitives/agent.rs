@@ -1025,7 +1025,7 @@ mod tests {
             if self.spawn_should_fail.load(Ordering::SeqCst) {
                 return Err("spawn limit reached: depth=0/0, total=0/0".into());
             }
-            let child_name = format!("parent-1-sub-abc12345");
+            let child_name = "parent-1-sub-abc12345".to_string();
             self.children.lock().unwrap().push(ChildInfo {
                 name: child_name.clone(),
                 status: "running".to_string(),

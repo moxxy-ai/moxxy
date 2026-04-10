@@ -98,20 +98,20 @@ impl BrowserManager {
         // Fast path: already running.
         {
             let st = self.state.lock().await;
-            if let Some(sc) = &st.sidecar {
-                if sc.is_alive() {
-                    return Ok(sc.clone());
-                }
+            if let Some(sc) = &st.sidecar
+                && sc.is_alive()
+            {
+                return Ok(sc.clone());
             }
         }
 
         // Slow path: bootstrap + spawn under the lock so concurrent first
         // callers coalesce.
         let mut st = self.state.lock().await;
-        if let Some(sc) = &st.sidecar {
-            if sc.is_alive() {
-                return Ok(sc.clone());
-            }
+        if let Some(sc) = &st.sidecar
+            && sc.is_alive()
+        {
+            return Ok(sc.clone());
         }
 
         let install = match &st.install {

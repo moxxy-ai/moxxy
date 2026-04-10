@@ -458,6 +458,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::type_complexity)]
     fn capabilities_prompt_includes_extra_categories() {
         let allowed = vec!["custom.tool".into()];
         let extra: &[(&str, &str, &[(&str, &str)])] =

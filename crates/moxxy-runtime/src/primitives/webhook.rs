@@ -760,7 +760,7 @@ mod tests {
         let backend = Arc::new(InMemoryBackend::new());
         let ctx = PrimitiveContext::new(db, agent_id, backend);
         let tmp = tempfile::tempdir().unwrap();
-        let home = tmp.into_path();
+        let home = tmp.keep();
         std::fs::create_dir_all(home.join("agents/test-agent/webhooks")).unwrap();
         let index = Arc::new(RwLock::new(HashMap::new()));
         (ctx, home, index)
@@ -1053,14 +1053,14 @@ mod tests {
     // Helper to register a webhook and return (slug, token)
     async fn register_webhook(
         ctx: &PrimitiveContext,
-        home: &PathBuf,
+        home: &std::path::Path,
         index: &Arc<RwLock<HashMap<String, LoadedWebhook>>>,
         label: &str,
     ) -> (String, String) {
         let register = WebhookRegisterPrimitive::new(
             ctx.clone(),
             "test-agent".into(),
-            home.clone(),
+            home.to_path_buf(),
             "https://moxxy.example.com".into(),
             index.clone(),
         );

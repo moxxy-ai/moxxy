@@ -2260,7 +2260,7 @@ mod tests {
     #[test]
     fn estimate_tokens_scales_with_content() {
         let short = vec![Message::user("hi")];
-        let long = vec![Message::user(&"x".repeat(10_000))];
+        let long = vec![Message::user("x".repeat(10_000))];
         let short_tokens = RunExecutor::estimate_tokens(&short);
         let long_tokens = RunExecutor::estimate_tokens(&long);
         assert!(long_tokens > short_tokens * 10);
@@ -2378,14 +2378,14 @@ mod tests {
         // so there's something to compact
         let mut conversation = vec![
             Message::system("System prompt."),
-            Message::user(&"old user message ".repeat(50)),
-            Message::assistant(&"old assistant reply ".repeat(50)),
-            Message::user(&"another old message ".repeat(50)),
-            Message::assistant(&"another old reply ".repeat(50)),
-            Message::user(&"yet another question ".repeat(50)),
-            Message::assistant(&"yet another answer ".repeat(50)),
-            Message::user(&"more old stuff ".repeat(50)),
-            Message::assistant(&"more old replies ".repeat(50)),
+            Message::user("old user message ".repeat(50)),
+            Message::assistant("old assistant reply ".repeat(50)),
+            Message::user("another old message ".repeat(50)),
+            Message::assistant("another old reply ".repeat(50)),
+            Message::user("yet another question ".repeat(50)),
+            Message::assistant("yet another answer ".repeat(50)),
+            Message::user("more old stuff ".repeat(50)),
+            Message::assistant("more old replies ".repeat(50)),
             Message::user("recent question"),
             Message::assistant("recent answer"),
             Message::user("recent q2"),
@@ -2436,14 +2436,14 @@ mod tests {
 
         let mut conversation = vec![
             Message::system("prompt"),
-            Message::user(&"x".repeat(1000)),
-            Message::assistant(&"y".repeat(1000)),
-            Message::user(&"z".repeat(1000)),
-            Message::assistant(&"w".repeat(1000)),
-            Message::user(&"a".repeat(1000)),
-            Message::assistant(&"b".repeat(1000)),
-            Message::user(&"c".repeat(1000)),
-            Message::assistant(&"d".repeat(1000)),
+            Message::user("x".repeat(1000)),
+            Message::assistant("y".repeat(1000)),
+            Message::user("z".repeat(1000)),
+            Message::assistant("w".repeat(1000)),
+            Message::user("a".repeat(1000)),
+            Message::assistant("b".repeat(1000)),
+            Message::user("c".repeat(1000)),
+            Message::assistant("d".repeat(1000)),
             Message::user("recent1"),
             Message::assistant("recent2"),
             Message::user("recent3"),
