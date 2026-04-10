@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.11](https://github.com/moxxy-ai/moxxy/compare/v1.2.10...v1.2.11) (2026-04-10)
+
+
+### Bug Fixes
+
+* ask skill writeback fix ([1bef1c3](https://github.com/moxxy-ai/moxxy/commit/1bef1c35335784547992e243438475fcf9a53068))
+* ci token name ([cd41af9](https://github.com/moxxy-ai/moxxy/commit/cd41af9a886088850231b29b4d2483df5a79486e))
+* clippy ([016817d](https://github.com/moxxy-ai/moxxy/commit/016817dd695c74238ceb0da184d884e6ac298659))
+* openai provider stuck in queue ([1820f4a](https://github.com/moxxy-ai/moxxy/commit/1820f4af82f9fc8fa31f1ef6db635990a546ae42))
+
 ## [1.2.10](https://github.com/moxxy-ai/moxxy/compare/v1.2.9...v1.2.10) (2026-04-09)
 
 
