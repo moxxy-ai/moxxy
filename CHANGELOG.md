@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.3.0](https://github.com/moxxy-ai/moxxy/compare/v1.2.11...v1.3.0) (2026-04-10)
+
+
+### Features
+
+* browser upgrade ([1cf609a](https://github.com/moxxy-ai/moxxy/commit/1cf609a17557453e61cf6070e791d4c727cad56d))
+* **webhooks:** add API + CLI for programmatic webhook registration ([928c48b](https://github.com/moxxy-ai/moxxy/commit/928c48b305929dc3d2059ae3292c31b1872ca1fe))
+
+
+### Bug Fixes
+
+* clippy ([8e531ed](https://github.com/moxxy-ai/moxxy/commit/8e531ed1bd9119facd8bbb39b2e22383e2ac70dd))
+* clippy ([a27283f](https://github.com/moxxy-ai/moxxy/commit/a27283f1ed171f5542d9834854e72fd313167a9f))
+* clippy format ([210cc1c](https://github.com/moxxy-ai/moxxy/commit/210cc1ce20f08b6dc2a873b630056c7fba7c7287))
+* readme missings ([25d0304](https://github.com/moxxy-ai/moxxy/commit/25d0304932505a53df52873dec63d1c272ee61d9))
+
 ## [1.2.11](https://github.com/moxxy-ai/moxxy/compare/v1.2.10...v1.2.11) (2026-04-10)
 
 
