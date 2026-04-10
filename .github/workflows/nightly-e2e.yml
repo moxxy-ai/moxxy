@@ -25,20 +25,20 @@ jobs:
 
       - name: Run single-agent e2e
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.MOXXY_E2E_OPENAI_API_KEY }}
         run: cargo test -p moxxy-gateway --test hive_e2e e2e_single_agent_tool_call -- --nocapture
 
       - name: Run hive parallel workers e2e
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.MOXXY_E2E_OPENAI_API_KEY }}
         run: cargo test -p moxxy-gateway --test hive_e2e e2e_hive_parallel_workers -- --nocapture
 
       - name: Run hive task dependencies e2e
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.MOXXY_E2E_OPENAI_API_KEY }}
         run: cargo test -p moxxy-gateway --test hive_e2e e2e_hive_task_dependencies -- --nocapture
 
       - name: Run hive complex project e2e
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.MOXXY_E2E_OPENAI_API_KEY }}
         run: cargo test -p moxxy-gateway --test hive_e2e e2e_hive_complex_project -- --nocapture
