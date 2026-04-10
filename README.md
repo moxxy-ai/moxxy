@@ -34,14 +34,14 @@ npm install --global @moxxy/cli
 
 ## What is Moxxy?
 
-Moxxy is a self-hosted runtime for autonomous AI agents. Each agent gets its own isolated workspace with private memory, scoped secrets via OS keychain, and access to 85 built-in primitives. Agents run autonomously on schedules, respond to messages across channels, and coordinate through hierarchical sub-agent spawning or structured hive swarms - all on your own infrastructure with complete data sovereignty.
+Moxxy is a self-hosted runtime for autonomous AI agents. Each agent gets its own isolated workspace with private memory, scoped secrets via OS keychain, and access to 85 built-in primitives — including a full headless browser driven by a supervised Playwright sidecar. Agents run autonomously on schedules, respond to messages across channels, and coordinate through hierarchical sub-agent spawning or structured hive swarms - all on your own infrastructure with complete data sovereignty.
 
 **Key features:**
 
 - **Multi-agent isolation** - each agent has its own workspace, memory store, and scoped vault secrets
 - **Agentic execution loop** - LLM-driven tool invocation with stuck detection and automatic recovery
 - **Hive swarm orchestration** - queen/worker hierarchy with task boards, signal boards, and voting
-- **85 built-in primitives** - filesystem, git, shell, HTTP, browsing, memory, webhooks, vault, MCP, skills, and more
+- **85 built-in primitives** - filesystem, git, shell, HTTP, browsing, headless browser automation, memory, webhooks, vault, MCP, skills, and more
 - **Multiple interfaces** - Node.js CLI with interactive wizards, full-screen TUI, REST API, SSE streaming
 - **Extensible skills** - Markdown files with YAML frontmatter that define agent capabilities and permissions
 - **WASI plugin system** - sandboxed plugin execution with capability-based permissions
@@ -58,7 +58,7 @@ Moxxy is a self-hosted runtime for autonomous AI agents. Each agent gets its own
 
 ## Highlights
 
-**Runtime** - 85 built-in primitives across filesystem, git, shell, HTTP, browsing, memory, webhooks, vault, MCP, skills, and multi-agent orchestration. Agents can only use primitives explicitly granted by their allowlist.
+**Runtime** - 85 built-in primitives across filesystem, git, shell, HTTP, browsing, headless browser automation (Playwright sidecar), memory, webhooks, vault, MCP, skills, and multi-agent orchestration. Agents can only use primitives explicitly granted by their allowlist.
 
 **Providers** - Anthropic and OpenAI providers built-in. Any OpenAI-compatible endpoint (xAI, DeepSeek, Google Gemini, etc.) can be added as a custom provider.
 
@@ -204,6 +204,9 @@ Each agent lives in `~/.moxxy/agents/<id>/` with:
 ├── bin/                  # Gateway binary
 ├── config/               # User configuration
 ├── logs/                 # Gateway logs
+├── runtimes/             # Bootstrapped Node.js runtime (for browser sidecar)
+├── sidecars/
+│   └── playwright/       # Playwright sidecar (playwright-core + Chromium)
 └── agents/{id}/
     ├── workspace/        # Sandboxed working directory
     └── memory/           # Persistent memory journal
@@ -214,7 +217,8 @@ Each agent lives in `~/.moxxy/agents/<id>/` with:
 | Category | Primitives | Description |
 |----------|-----------|-------------|
 | **Filesystem** | `fs.read`, `fs.write`, `fs.list`, `fs.remove`, `fs.cd` | Workspace-scoped file operations via PathPolicy |
-| **Browse** | `browse.fetch`, `browse.extract` | HTTP + CSS selector fetching, pure HTML parsing |
+| **Browse** | `browse.fetch`, `browse.extract` | Fast HTTP fetch with readability-style text + CSS extraction on raw HTML (no JS) |
+| **Browser** | `browser.session.open/close/list`, `browser.navigate`, `browser.read`, `browser.extract`, `browser.screenshot`, `browser.click`, `browser.type`, `browser.fill`, `browser.hover`, `browser.scroll`, `browser.wait`, `browser.eval`, `browser.cookies`, `browser.crawl` | Headless Chromium driven by a Playwright sidecar (one Node child process per agent, lazily bootstrapped, idle-killed after 5 min). Sessions for cookie/storage isolation, domain-allowlisted navigation, screenshots saved into the workspace. |
 | **Git** | `git.init`, `git.clone`, `git.status`, `git.commit`, `git.push`, `git.checkout`, `git.pr_create`, `git.fork`, `git.worktree_add/list/remove` | Full git workflow with worktree support |
 | **Memory** | `memory.store`, `memory.recall`, `memory.stm_read`, `memory.stm_write` | Long-term with semantic search + short-term file-based memory |
 | **Shell** | `shell.exec` | Command execution with allowlist enforcement |
@@ -349,6 +353,7 @@ Moxxy enforces strict workspace isolation through multiple security layers:
 | `MOXXY_GATEWAY_URL` | - | Override gateway binary download URL (skips GitHub releases) |
 | `MOXXY_GITHUB_REPO` | `moxxy-ai/moxxy` | GitHub repo for release downloads |
 | `GITHUB_TOKEN` | - | GitHub token for authenticated API requests (avoids rate limits) |
+| `NODE_PATH` | - | Path to a Node.js ≥ 18 binary for the browser sidecar (skips the bundled Node bootstrap if set; otherwise any Node ≥ 18 on `PATH` is used, else Moxxy downloads its own into `~/.moxxy/runtimes/`) |
 
 ## Local Development
 
