@@ -100,7 +100,12 @@ impl Primitive for BrowserSessionListPrimitive {
     fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({"type": "object", "properties": {}})
     }
-    async fn invoke(&self, _params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
-        self.manager.request("session.list", serde_json::json!({}), None).await
+    async fn invoke(
+        &self,
+        _params: serde_json::Value,
+    ) -> Result<serde_json::Value, PrimitiveError> {
+        self.manager
+            .request("session.list", serde_json::json!({}), None)
+            .await
     }
 }

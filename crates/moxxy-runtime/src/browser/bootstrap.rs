@@ -52,7 +52,8 @@ pub async fn ensure_installed(config: &BrowserConfig) -> Result<InstalledSidecar
     let browsers_dir = config.browsers_dir();
 
     if marker.exists()
-        && tokio::fs::read_to_string(&marker).await.ok().as_deref() == Some(expected_marker.as_str())
+        && tokio::fs::read_to_string(&marker).await.ok().as_deref()
+            == Some(expected_marker.as_str())
         && sidecar_script.exists()
     {
         tracing::debug!(marker = %marker.display(), "playwright sidecar already installed");
@@ -129,7 +130,11 @@ async fn check_node_env() -> Option<PathBuf> {
 async fn check_node_path() -> Option<PathBuf> {
     let p = PathBuf::from("node");
     let out = Command::new(&p).arg("--version").output().await.ok()?;
-    if out.status.success() && parse_node_version(&out.stdout).map(|v| v.0 >= 18).unwrap_or(false) {
+    if out.status.success()
+        && parse_node_version(&out.stdout)
+            .map(|v| v.0 >= 18)
+            .unwrap_or(false)
+    {
         Some(p)
     } else {
         None
@@ -141,7 +146,11 @@ async fn check_node_at(path: &Path) -> Option<PathBuf> {
         return None;
     }
     let out = Command::new(path).arg("--version").output().await.ok()?;
-    if out.status.success() && parse_node_version(&out.stdout).map(|v| v.0 >= 18).unwrap_or(false) {
+    if out.status.success()
+        && parse_node_version(&out.stdout)
+            .map(|v| v.0 >= 18)
+            .unwrap_or(false)
+    {
         Some(path.to_path_buf())
     } else {
         None
@@ -398,7 +407,12 @@ fn npm_cli_for(node_bin: &Path) -> Result<PathBuf, PrimitiveError> {
     let root = node_bin
         .parent() // bin/
         .and_then(|p| p.parent()) // <root>
-        .ok_or_else(|| exec(format!("cannot derive node root from {}", node_bin.display())))?;
+        .ok_or_else(|| {
+            exec(format!(
+                "cannot derive node root from {}",
+                node_bin.display()
+            ))
+        })?;
     let candidate = root
         .join("lib")
         .join("node_modules")
@@ -453,7 +467,9 @@ async fn playwright_install_chromium(
         .await
         .map_err(|e| exec(format!("spawn playwright cli: {e}")))?;
     if !status.success() {
-        return Err(exec(format!("playwright install chromium failed: {status}")));
+        return Err(exec(format!(
+            "playwright install chromium failed: {status}"
+        )));
     }
     Ok(())
 }

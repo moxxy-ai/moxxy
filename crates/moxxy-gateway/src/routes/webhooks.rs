@@ -3,9 +3,7 @@ use axum::body::Bytes;
 use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use hmac::{Hmac, Mac};
-use moxxy_core::{
-    LoadedWebhook, WebhookCreateInput, WebhookLoader, WebhookStore, render_template,
-};
+use moxxy_core::{LoadedWebhook, WebhookCreateInput, WebhookLoader, WebhookStore, render_template};
 use moxxy_storage::WebhookDeliveryRow;
 use moxxy_types::{EventEnvelope, EventType, TokenScope};
 use sha2::Sha256;
@@ -553,9 +551,7 @@ pub async fn create_webhook(
     if req.label.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(
-                serde_json::json!({"error": "validation", "message": "label must not be empty"}),
-            ),
+            Json(serde_json::json!({"error": "validation", "message": "label must not be empty"})),
         ));
     }
 

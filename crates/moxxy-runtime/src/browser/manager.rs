@@ -145,7 +145,10 @@ impl BrowserManager {
                 let idle_for = st.last_active.elapsed();
                 if let Some(sc) = &st.sidecar {
                     if sc.is_alive() && idle_for >= idle_timeout {
-                        tracing::info!(idle_secs = idle_for.as_secs(), "idle-killing browser sidecar");
+                        tracing::info!(
+                            idle_secs = idle_for.as_secs(),
+                            "idle-killing browser sidecar"
+                        );
                         let to_close = st.sidecar.take();
                         drop(st);
                         if let Some(sc) = to_close {

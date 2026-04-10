@@ -148,12 +148,13 @@ impl SidecarProcess {
         timeout: Duration,
     ) -> Result<serde_json::Value, PrimitiveError> {
         if self.dead.load(Ordering::SeqCst) {
-            return Err(PrimitiveError::ExecutionFailed("sidecar is not running".into()));
+            return Err(PrimitiveError::ExecutionFailed(
+                "sidecar is not running".into(),
+            ));
         }
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let req = serde_json::json!({ "id": id, "method": method, "params": params });
-        let line = serde_json::to_string(&req)
-            .map_err(|e| exec(format!("encode request: {e}")))?;
+        let line = serde_json::to_string(&req).map_err(|e| exec(format!("encode request: {e}")))?;
 
         let (tx, rx) = oneshot::channel();
         {
@@ -260,14 +261,16 @@ async fn read_capped_line<R: AsyncBufReadExt + Unpin>(
             }
             if let Some(idx) = available.iter().position(|b| *b == b'\n') {
                 let take = &available[..=idx];
-                buf.push_str(std::str::from_utf8(take).map_err(|e| {
-                    std::io::Error::new(std::io::ErrorKind::InvalidData, e)
-                })?);
+                buf.push_str(
+                    std::str::from_utf8(take)
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?,
+                );
                 (idx + 1, true)
             } else {
-                buf.push_str(std::str::from_utf8(available).map_err(|e| {
-                    std::io::Error::new(std::io::ErrorKind::InvalidData, e)
-                })?);
+                buf.push_str(
+                    std::str::from_utf8(available)
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?,
+                );
                 (available.len(), false)
             }
         };

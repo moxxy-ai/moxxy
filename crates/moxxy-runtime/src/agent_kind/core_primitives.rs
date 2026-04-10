@@ -150,9 +150,15 @@ pub fn register_core_primitives(
         );
         let browser_mgr = crate::browser::BrowserManager::new(browser_config);
 
-        registry.register(Box::new(BrowserSessionOpenPrimitive::new(browser_mgr.clone())));
-        registry.register(Box::new(BrowserSessionClosePrimitive::new(browser_mgr.clone())));
-        registry.register(Box::new(BrowserSessionListPrimitive::new(browser_mgr.clone())));
+        registry.register(Box::new(BrowserSessionOpenPrimitive::new(
+            browser_mgr.clone(),
+        )));
+        registry.register(Box::new(BrowserSessionClosePrimitive::new(
+            browser_mgr.clone(),
+        )));
+        registry.register(Box::new(BrowserSessionListPrimitive::new(
+            browser_mgr.clone(),
+        )));
         registry.register(Box::new(BrowserNavigatePrimitive::new(
             browser_mgr.clone(),
             allowlist_path.clone(),

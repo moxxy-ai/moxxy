@@ -40,10 +40,10 @@ pub use ask::{AgentRespondPrimitive, AskChannels, UserAskPrimitive, new_ask_chan
 pub use browse::{BrowseExtractPrimitive, BrowseFetchPrimitive};
 pub use browser::{
     BrowserClickPrimitive, BrowserCookiesPrimitive, BrowserCrawlPrimitive, BrowserEvalPrimitive,
-    BrowserExtractPrimitive, BrowserFillPrimitive, BrowserHoverPrimitive,
-    BrowserNavigatePrimitive, BrowserReadPrimitive, BrowserScreenshotPrimitive,
-    BrowserScrollPrimitive, BrowserSessionClosePrimitive, BrowserSessionListPrimitive,
-    BrowserSessionOpenPrimitive, BrowserTypePrimitive, BrowserWaitPrimitive,
+    BrowserExtractPrimitive, BrowserFillPrimitive, BrowserHoverPrimitive, BrowserNavigatePrimitive,
+    BrowserReadPrimitive, BrowserScreenshotPrimitive, BrowserScrollPrimitive,
+    BrowserSessionClosePrimitive, BrowserSessionListPrimitive, BrowserSessionOpenPrimitive,
+    BrowserTypePrimitive, BrowserWaitPrimitive,
 };
 pub use channel_notify::{ChannelMessageSender, ChannelNotifyPrimitive};
 pub use config::{ConfigGetPrimitive, ConfigSetPrimitive};

@@ -107,9 +107,12 @@ impl Primitive for BrowserNavigatePrimitive {
         let url = params["url"]
             .as_str()
             .ok_or_else(|| PrimitiveError::InvalidParams("missing 'url'".into()))?;
-        if let Some(blocked) =
-            check_domain_for(&self.allowlist_path, self.network_mode, url, "browser.navigate")?
-        {
+        if let Some(blocked) = check_domain_for(
+            &self.allowlist_path,
+            self.network_mode,
+            url,
+            "browser.navigate",
+        )? {
             return Ok(blocked);
         }
         let timeout = timeout_from_params(&params);
@@ -189,7 +192,9 @@ impl Primitive for BrowserReadPrimitive {
                     "final_url": final_url,
                 }))
             }
-            _ => Err(PrimitiveError::InvalidParams(format!("unknown mode '{mode}'"))),
+            _ => Err(PrimitiveError::InvalidParams(format!(
+                "unknown mode '{mode}'"
+            ))),
         }
     }
 }
@@ -205,7 +210,10 @@ pub struct BrowserScreenshotPrimitive {
 
 impl BrowserScreenshotPrimitive {
     pub fn new(manager: Arc<BrowserManager>, path_policy: moxxy_core::PathPolicy) -> Self {
-        Self { manager, path_policy }
+        Self {
+            manager,
+            path_policy,
+        }
     }
 }
 
@@ -245,7 +253,11 @@ impl Primitive for BrowserScreenshotPrimitive {
             sidecar_params.as_object_mut().unwrap().remove("save_to");
         }
         self.manager
-            .request("page.screenshot", sidecar_params, timeout_from_params(&params))
+            .request(
+                "page.screenshot",
+                sidecar_params,
+                timeout_from_params(&params),
+            )
             .await
     }
 }
@@ -285,9 +297,7 @@ impl Primitive for BrowserExtractPrimitive {
         })
     }
     async fn invoke(&self, params: serde_json::Value) -> Result<serde_json::Value, PrimitiveError> {
-        self.manager
-            .request("page.extract", params, None)
-            .await
+        self.manager.request("page.extract", params, None).await
     }
 }
 
@@ -413,4 +423,3 @@ impl Primitive for BrowserCookiesPrimitive {
         self.manager.request("page.cookies", params, None).await
     }
 }
-

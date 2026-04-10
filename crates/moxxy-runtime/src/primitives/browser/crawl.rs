@@ -121,11 +121,21 @@ impl Primitive for BrowserCrawlPrimitive {
             .await?;
         let session_id = session["session_id"]
             .as_str()
-            .ok_or_else(|| PrimitiveError::ExecutionFailed("session.create missing session_id".into()))?
+            .ok_or_else(|| {
+                PrimitiveError::ExecutionFailed("session.create missing session_id".into())
+            })?
             .to_string();
 
         let result = self
-            .crawl_inner(&session_id, &start_url, &start_host, max_depth, max_pages, same_domain, &wait_until)
+            .crawl_inner(
+                &session_id,
+                &start_url,
+                &start_host,
+                max_depth,
+                max_pages,
+                same_domain,
+                &wait_until,
+            )
             .await;
 
         // Best-effort close.
