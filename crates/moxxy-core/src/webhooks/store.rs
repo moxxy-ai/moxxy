@@ -1,6 +1,29 @@
 use super::doc::WebhookDoc;
+use super::loader::LoadedWebhook;
 use moxxy_types::WebhookDocError;
 use std::path::Path;
+
+/// Input for creating a webhook. The caller resolves/stores the HMAC secret
+/// (if any) before calling and passes its vault ref name via `secret_ref`.
+/// A pre-generated `token` may be supplied when the caller needs to know the
+/// token in advance (e.g. to derive vault backend keys); otherwise a fresh
+/// UUIDv7 is generated.
+#[derive(Debug, Clone, Default)]
+pub struct WebhookCreateInput {
+    pub label: String,
+    pub token: Option<String>,
+    pub event_filter: Option<String>,
+    pub body: String,
+    pub secret_ref: Option<String>,
+}
+
+/// Result of a webhook creation: the persisted doc and its loaded form ready
+/// for the gateway in-memory index.
+#[derive(Debug, Clone)]
+pub struct WebhookCreateOutput {
+    pub doc: WebhookDoc,
+    pub loaded: LoadedWebhook,
+}
 
 pub struct WebhookStore;
 
@@ -22,6 +45,52 @@ impl WebhookStore {
             .map_err(|e| WebhookDocError::IoError(format!("create webhook dir: {e}")))?;
         let path = slug_dir.join("WEBHOOK.md");
         doc.save_to_file(&path)
+    }
+
+    /// Generate a fresh token, build the `WebhookDoc`, persist it, and return
+    /// a `LoadedWebhook` ready for the in-memory index. Returns a conflict
+    /// error if a webhook with the same derived slug already exists.
+    pub fn create_from_input(
+        moxxy_home: &Path,
+        agent_name: &str,
+        input: WebhookCreateInput,
+    ) -> Result<WebhookCreateOutput, WebhookDocError> {
+        let token = input
+            .token
+            .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+        let doc = WebhookDoc {
+            label: input.label,
+            token,
+            event_filter: input.event_filter,
+            enabled: true,
+            secret_ref: input.secret_ref,
+            body: input.body,
+        };
+
+        let slug = doc.slug();
+        if slug.is_empty() {
+            return Err(WebhookDocError::MissingField("label".to_string()));
+        }
+        let slug_dir = moxxy_home
+            .join("agents")
+            .join(agent_name)
+            .join("webhooks")
+            .join(&slug);
+        if slug_dir.exists() {
+            return Err(WebhookDocError::IoError(format!(
+                "webhook already exists: {slug}"
+            )));
+        }
+
+        Self::create(moxxy_home, agent_name, &doc)?;
+
+        let loaded = LoadedWebhook {
+            doc: doc.clone(),
+            agent_name: agent_name.to_string(),
+            path: slug_dir.join("WEBHOOK.md"),
+        };
+
+        Ok(WebhookCreateOutput { doc, loaded })
     }
 
     /// Delete a webhook directory by slug.
@@ -229,5 +298,89 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let result = WebhookStore::update(tmp.path(), "x", "nope", |_| {});
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn create_from_input_generates_token_and_doc() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        std::fs::create_dir_all(home.join("agents/api-agent")).unwrap();
+
+        let output = WebhookStore::create_from_input(
+            home,
+            "api-agent",
+            WebhookCreateInput {
+                label: "Programmatic Hook".into(),
+                token: None,
+                event_filter: Some("push".into()),
+                body: "Handle {{body.msg}}".into(),
+                secret_ref: Some("webhook_secret_programmatic-hook".into()),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(output.doc.label, "Programmatic Hook");
+        assert!(!output.doc.token.is_empty());
+        assert_eq!(output.doc.event_filter.as_deref(), Some("push"));
+        assert_eq!(
+            output.doc.secret_ref.as_deref(),
+            Some("webhook_secret_programmatic-hook")
+        );
+        assert_eq!(output.loaded.agent_name, "api-agent");
+        assert!(output.loaded.path.ends_with("programmatic-hook/WEBHOOK.md"));
+
+        // Round-trip through the filesystem.
+        let reloaded = WebhookStore::load(home, "api-agent", "programmatic-hook").unwrap();
+        assert_eq!(reloaded.token, output.doc.token);
+        assert_eq!(reloaded.body, "Handle {{body.msg}}");
+    }
+
+    #[test]
+    fn create_from_input_honors_supplied_token() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        std::fs::create_dir_all(home.join("agents/tok-agent")).unwrap();
+
+        let output = WebhookStore::create_from_input(
+            home,
+            "tok-agent",
+            WebhookCreateInput {
+                label: "Fixed Token".into(),
+                token: Some("fixed-token-value".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(output.doc.token, "fixed-token-value");
+    }
+
+    #[test]
+    fn create_from_input_rejects_duplicate_slug() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        std::fs::create_dir_all(home.join("agents/dup-agent")).unwrap();
+
+        WebhookStore::create_from_input(
+            home,
+            "dup-agent",
+            WebhookCreateInput {
+                label: "Same Name".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let err = WebhookStore::create_from_input(
+            home,
+            "dup-agent",
+            WebhookCreateInput {
+                label: "Same Name".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, WebhookDocError::IoError(msg) if msg.contains("already exists")));
     }
 }

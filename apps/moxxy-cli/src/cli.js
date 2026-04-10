@@ -11,6 +11,7 @@ import { runVault } from './commands/vault.js';
 import { runHeartbeat } from './commands/heartbeat.js';
 import { runChannel } from './commands/channel.js';
 import { runMcp } from './commands/mcp.js';
+import { runWebhooks } from './commands/webhooks.js';
 import { runEvents } from './commands/events.js';
 import { runDoctor } from './commands/doctor.js';
 import { runUpdate } from './commands/update.js';
@@ -77,6 +78,10 @@ Usage:
   moxxy mcp add --agent <name> --id <id> --transport sse --url <url>
   moxxy mcp remove --agent <name> --id <id>         Remove an MCP server
   moxxy mcp test --agent <name> --id <id>           Test an MCP server
+  moxxy webhooks list --agent <name>                List webhooks for an agent
+  moxxy webhooks add --agent <name> --label <l> [--secret <s>] [--event_filter <ef>] [--body <b>]
+  moxxy webhooks update --agent <name> --slug <s> [--label <l>] [--enabled <bool>] [--event_filter <ef>] [--body <b>]
+  moxxy webhooks remove --agent <name> --slug <s>   Remove a webhook
   moxxy plugin list                                  List installed plugins
   moxxy plugin install <package>                     Install a plugin
   moxxy plugin start <name>                          Start a plugin
@@ -169,6 +174,10 @@ async function routeCommand(client, command, rest) {
     case 'mcp':
       await runMcp(client, rest);
       break;
+    case 'webhooks':
+    case 'webhook':
+      await runWebhooks(client, rest);
+      break;
     case 'plugin':
       await runPlugin(client, rest);
       break;
@@ -247,6 +256,7 @@ async function main() {
     integrations: [
       { value: 'channel',   label: 'Channel',   hint: 'manage Telegram/Discord channels' },
       { value: 'mcp',       label: 'MCP',       hint: 'manage MCP servers for agents' },
+      { value: 'webhooks',  label: 'Webhooks',  hint: 'manage inbound webhooks for agents' },
       { value: 'heartbeat', label: 'Heartbeat', hint: 'schedule heartbeat rules' },
     ],
     providers: [

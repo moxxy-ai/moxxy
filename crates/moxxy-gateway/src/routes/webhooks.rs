@@ -3,7 +3,9 @@ use axum::body::Bytes;
 use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use hmac::{Hmac, Mac};
-use moxxy_core::{WebhookLoader, WebhookStore, render_template};
+use moxxy_core::{
+    LoadedWebhook, WebhookCreateInput, WebhookLoader, WebhookStore, render_template,
+};
 use moxxy_storage::WebhookDeliveryRow;
 use moxxy_types::{EventEnvelope, EventType, TokenScope};
 use sha2::Sha256;
@@ -524,6 +526,287 @@ pub async fn delete_webhook(
     }
 
     Ok(Json(serde_json::json!({"status": "deleted", "slug": slug})))
+}
+
+/// Body for `POST /v1/agents/{name}/webhooks`. Mirrors the fields accepted by
+/// the `webhook.register` primitive so operators can register webhooks without
+/// starting an agent run.
+#[derive(Debug, serde::Deserialize)]
+pub struct CreateWebhookBody {
+    pub label: String,
+    #[serde(default)]
+    pub secret: Option<String>,
+    #[serde(default)]
+    pub event_filter: Option<String>,
+    #[serde(default)]
+    pub body: Option<String>,
+}
+
+pub async fn create_webhook(
+    State(state): State<Arc<AppState>>,
+    auth: AuthToken,
+    Path(agent_name): Path<String>,
+    Json(req): Json<CreateWebhookBody>,
+) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
+    check_scope(&auth.0, &TokenScope::AgentsWrite)?;
+
+    if req.label.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                serde_json::json!({"error": "validation", "message": "label must not be empty"}),
+            ),
+        ));
+    }
+
+    let agent_dir = state.moxxy_home.join("agents").join(&agent_name);
+    if !agent_dir.exists() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "not_found", "message": "Agent not found"})),
+        ));
+    }
+
+    tracing::info!(
+        agent_name = %agent_name,
+        label = %req.label,
+        has_secret = req.secret.is_some(),
+        "Creating webhook via API"
+    );
+
+    // Pre-generate the token so we can derive the vault backend key before
+    // writing the webhook file - mirrors the primitive's ordering.
+    let token = uuid::Uuid::now_v7().to_string();
+    let body = req.body.unwrap_or_default();
+
+    // If a secret was provided, store it in the vault first and create the
+    // secret_ref + grant so the inbound receiver can verify HMAC signatures.
+    let secret_ref = if let Some(ref secret_val) = req.secret {
+        let slug_base: String = req
+            .label
+            .to_lowercase()
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect();
+        let key_name = format!("webhook_secret_{}", slug_base);
+        let backend_key = format!("webhook_secret_{}", token);
+
+        state
+            .vault_backend
+            .set_secret(&backend_key, secret_val)
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        serde_json::json!({"error": "internal", "message": format!("vault set_secret: {e}")}),
+                    ),
+                )
+            })?;
+
+        let ref_id = {
+            let db = state.db.lock().unwrap();
+            // Reuse existing ref if one already exists for this key_name
+            // (mirrors PrimitiveContext::create_secret_ref behavior).
+            let existing = db.vault_refs().find_by_key_name(&key_name).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        serde_json::json!({"error": "internal", "message": format!("vault ref lookup: {e}")}),
+                    ),
+                )
+            })?;
+
+            if let Some(existing_row) = existing {
+                existing_row.id
+            } else {
+                let now = chrono::Utc::now().to_rfc3339();
+                let row = moxxy_storage::VaultSecretRefRow {
+                    id: uuid::Uuid::now_v7().to_string(),
+                    key_name: key_name.clone(),
+                    backend_key: backend_key.clone(),
+                    policy_label: Some("webhook".to_string()),
+                    created_at: now.clone(),
+                    updated_at: now,
+                };
+                db.vault_refs().insert(&row).map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            serde_json::json!({"error": "internal", "message": format!("vault ref insert: {e}")}),
+                        ),
+                    )
+                })?;
+                row.id
+            }
+        };
+
+        // Grant the agent access to the new ref (idempotent).
+        {
+            let db = state.db.lock().unwrap();
+            let existing_grants = db.vault_grants().find_by_agent(&agent_name).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        serde_json::json!({"error": "internal", "message": format!("vault grant lookup: {e}")}),
+                    ),
+                )
+            })?;
+            let already = existing_grants
+                .iter()
+                .any(|g| g.secret_ref_id == ref_id && g.revoked_at.is_none());
+            if !already {
+                let now = chrono::Utc::now().to_rfc3339();
+                let grant = moxxy_storage::VaultGrantRow {
+                    id: uuid::Uuid::now_v7().to_string(),
+                    agent_id: agent_name.clone(),
+                    secret_ref_id: ref_id,
+                    created_at: now,
+                    revoked_at: None,
+                };
+                db.vault_grants().insert(&grant).map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            serde_json::json!({"error": "internal", "message": format!("vault grant insert: {e}")}),
+                        ),
+                    )
+                })?;
+            }
+        }
+
+        Some(key_name)
+    } else {
+        None
+    };
+
+    let output = WebhookStore::create_from_input(
+        &state.moxxy_home,
+        &agent_name,
+        WebhookCreateInput {
+            label: req.label.clone(),
+            token: Some(token.clone()),
+            event_filter: req.event_filter.clone(),
+            body: body.clone(),
+            secret_ref,
+        },
+    )
+    .map_err(|e| {
+        let msg = e.to_string();
+        let status = if msg.contains("already exists") {
+            StatusCode::CONFLICT
+        } else {
+            StatusCode::INTERNAL_SERVER_ERROR
+        };
+        (
+            status,
+            Json(serde_json::json!({"error": "webhook_create", "message": msg})),
+        )
+    })?;
+
+    // Add to in-memory index so the inbound receiver can route immediately.
+    {
+        let mut index = state.webhook_index.write().unwrap();
+        index.insert(token.clone(), output.loaded);
+    }
+
+    let base = state.base_url.trim_end_matches('/');
+    let url = format!("{}/v1/hooks/{}", base, token);
+    let doc = &output.doc;
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({
+            "slug": doc.slug(),
+            "label": doc.label,
+            "url": url,
+            "token": token,
+            "enabled": doc.enabled,
+            "event_filter": doc.event_filter,
+            "has_secret": doc.secret_ref.is_some(),
+            "has_body": !body.is_empty(),
+        })),
+    ))
+}
+
+/// Body for `PATCH /v1/agents/{name}/webhooks/{slug}`. All fields are
+/// optional; only supplied fields are updated.
+#[derive(Debug, serde::Deserialize)]
+pub struct UpdateWebhookBody {
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub event_filter: Option<String>,
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub body: Option<String>,
+}
+
+pub async fn update_webhook(
+    State(state): State<Arc<AppState>>,
+    auth: AuthToken,
+    Path((agent_name, slug)): Path<(String, String)>,
+    Json(req): Json<UpdateWebhookBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    check_scope(&auth.0, &TokenScope::AgentsWrite)?;
+
+    tracing::info!(agent_name = %agent_name, slug = %slug, "Updating webhook via API");
+
+    let updated = WebhookStore::update(&state.moxxy_home, &agent_name, &slug, |doc| {
+        if let Some(label) = req.label.clone() {
+            doc.label = label;
+        }
+        if let Some(ef) = req.event_filter.clone() {
+            doc.event_filter = if ef.is_empty() { None } else { Some(ef) };
+        }
+        if let Some(enabled) = req.enabled {
+            doc.enabled = enabled;
+        }
+        if let Some(body) = req.body.clone() {
+            doc.body = body;
+        }
+    })
+    .map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "not_found", "message": e.to_string()})),
+        )
+    })?;
+
+    // Refresh the in-memory index: the token is unchanged, but the label
+    // (and therefore the slug/path) may have changed.
+    let new_slug = updated.slug();
+    {
+        let mut index = state.webhook_index.write().unwrap();
+        let loaded = LoadedWebhook {
+            doc: updated.clone(),
+            agent_name: agent_name.clone(),
+            path: state
+                .moxxy_home
+                .join("agents")
+                .join(&agent_name)
+                .join("webhooks")
+                .join(&new_slug)
+                .join("WEBHOOK.md"),
+        };
+        index.insert(updated.token.clone(), loaded);
+    }
+
+    let base = state.base_url.trim_end_matches('/');
+    Ok(Json(serde_json::json!({
+        "slug": new_slug,
+        "label": updated.label,
+        "url": format!("{}/v1/hooks/{}", base, updated.token),
+        "event_filter": updated.event_filter,
+        "enabled": updated.enabled,
+        "has_secret": updated.secret_ref.is_some(),
+        "has_body": !updated.body.is_empty(),
+    })))
 }
 
 pub async fn list_deliveries(

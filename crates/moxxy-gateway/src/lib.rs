@@ -187,11 +187,11 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
         // Webhooks
         .route(
             "/v1/agents/{name}/webhooks",
-            get(routes::webhooks::list_webhooks),
+            get(routes::webhooks::list_webhooks).post(routes::webhooks::create_webhook),
         )
         .route(
             "/v1/agents/{name}/webhooks/{slug}",
-            delete(routes::webhooks::delete_webhook),
+            delete(routes::webhooks::delete_webhook).patch(routes::webhooks::update_webhook),
         )
         .route(
             "/v1/agents/{name}/webhooks/{slug}/deliveries",

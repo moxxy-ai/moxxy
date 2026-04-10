@@ -256,6 +256,23 @@ export class ApiClient {
     return this.request(`/v1/agents/${encodeURIComponent(agentName)}/mcp/${encodeURIComponent(serverId)}/test`, 'POST');
   }
 
+  async listWebhooks(agentName) {
+    const payload = await this.request(`/v1/agents/${encodeURIComponent(agentName)}/webhooks`, 'GET');
+    return Array.isArray(payload) ? payload : [];
+  }
+
+  async createWebhook(agentName, config) {
+    return this.request(`/v1/agents/${encodeURIComponent(agentName)}/webhooks`, 'POST', config);
+  }
+
+  async updateWebhook(agentName, slug, patch) {
+    return this.request(`/v1/agents/${encodeURIComponent(agentName)}/webhooks/${encodeURIComponent(slug)}`, 'PATCH', patch);
+  }
+
+  async deleteWebhook(agentName, slug) {
+    return this.request(`/v1/agents/${encodeURIComponent(agentName)}/webhooks/${encodeURIComponent(slug)}`, 'DELETE');
+  }
+
   async listTemplates() {
     return this.request('/v1/templates', 'GET');
   }

@@ -339,6 +339,33 @@ Examples:
   moxxy mcp remove --agent my-agent --id fs-server
   moxxy mcp test --agent my-agent --id fs-server`,
 
+  webhooks: `Usage: moxxy webhooks <action> [options]
+
+Manage inbound webhooks for agents. External services POST JSON to the
+returned URL; the webhook body (with {{placeholder}} variables) becomes the
+agent's task when the webhook fires.
+
+Actions:
+  list      List webhooks for an agent
+  add       Register a new inbound webhook
+  update    Update a webhook's label, body, filter, or enabled flag
+  remove    Delete a webhook
+
+Options:
+  --agent <name>           Agent name
+  --label <label>          Webhook label (add/update)
+  --slug <slug>             Webhook slug (update/remove; derived from label)
+  --secret <secret>         Optional HMAC-SHA256 secret (add)
+  --event_filter <csv>      Comma-separated event filter (add/update)
+  --body <markdown>         Task instructions with {{placeholders}} (add/update)
+  --enabled <bool>          Enable/disable flag (update)
+
+Examples:
+  moxxy webhooks list --agent my-agent
+  moxxy webhooks add --agent my-agent --label "GitHub Push" --secret s3cret --event_filter push
+  moxxy webhooks update --agent my-agent --slug github-push --enabled false
+  moxxy webhooks remove --agent my-agent --slug github-push`,
+
   plugin: `Usage: moxxy plugin <action> [options]
 
 Manage CLI plugins that extend Moxxy functionality.

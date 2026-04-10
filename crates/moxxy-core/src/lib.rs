@@ -38,4 +38,7 @@ pub use security::PathPolicy;
 pub use settings::{NetworkMode, SystemSettings, settings_path};
 pub use skills::{LoadedSkill, SkillDoc, SkillLoader, SkillSource};
 pub use templates::{LoadedTemplate, TemplateDoc, TemplateLoader, TemplateStore};
-pub use webhooks::{LoadedWebhook, WebhookDoc, WebhookLoader, WebhookStore, render_template};
+pub use webhooks::{
+    LoadedWebhook, WebhookCreateInput, WebhookCreateOutput, WebhookDoc, WebhookLoader,
+    WebhookStore, render_template,
+};

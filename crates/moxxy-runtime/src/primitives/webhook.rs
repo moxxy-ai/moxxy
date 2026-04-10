@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use moxxy_core::{LoadedWebhook, WebhookDoc, WebhookStore};
+use moxxy_core::{LoadedWebhook, WebhookCreateInput, WebhookStore};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex as StdMutex, RwLock};
@@ -118,37 +118,27 @@ impl Primitive for WebhookRegisterPrimitive {
             None
         };
 
-        let doc = WebhookDoc {
-            label: label.to_string(),
-            token: token.clone(),
-            event_filter,
-            enabled: true,
-            secret_ref: secret_ref.clone(),
-            body: body.clone(),
-        };
-
-        // Write to filesystem
-        WebhookStore::create(&self.moxxy_home, &self.agent_name, &doc)
-            .map_err(|e| PrimitiveError::ExecutionFailed(format!("Failed to save webhook: {e}")))?;
+        let output = WebhookStore::create_from_input(
+            &self.moxxy_home,
+            &self.agent_name,
+            WebhookCreateInput {
+                label: label.to_string(),
+                token: Some(token.clone()),
+                event_filter,
+                body: body.clone(),
+                secret_ref,
+            },
+        )
+        .map_err(|e| PrimitiveError::ExecutionFailed(format!("Failed to save webhook: {e}")))?;
+        let doc = output.doc;
 
         // Add to in-memory index
         {
-            let loaded = LoadedWebhook {
-                doc: doc.clone(),
-                agent_name: self.agent_name.clone(),
-                path: self
-                    .moxxy_home
-                    .join("agents")
-                    .join(&self.agent_name)
-                    .join("webhooks")
-                    .join(doc.slug())
-                    .join("WEBHOOK.md"),
-            };
             let mut index = self
                 .webhook_index
                 .write()
                 .map_err(|e| PrimitiveError::ExecutionFailed(format!("webhook index lock: {e}")))?;
-            index.insert(token.clone(), loaded);
+            index.insert(token.clone(), output.loaded);
         }
 
         let url = format!("{}/v1/hooks/{}", self.base_url.trim_end_matches('/'), token);
