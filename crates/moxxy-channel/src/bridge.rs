@@ -168,6 +168,11 @@ pub struct ChannelBridge {
     shutdown: CancellationToken,
     run_starter: Arc<dyn RunStarter>,
     progress: TokioMutex<HashMap<(String, String), HashMap<String, RunProgress>>>,
+    /// Pending `user.ask` questions awaiting an answer from a channel user.
+    /// Keyed by `(agent_name, external_chat_id)` so the next inbound message
+    /// from that chat is routed back to the waiting agent instead of starting
+    /// a new run.
+    pending_asks: TokioMutex<HashMap<(String, String), String>>,
     moxxy_home: std::path::PathBuf,
 }
 
@@ -191,6 +196,7 @@ impl ChannelBridge {
             shutdown: CancellationToken::new(),
             run_starter,
             progress: TokioMutex::new(HashMap::new()),
+            pending_asks: TokioMutex::new(HashMap::new()),
             moxxy_home,
         }
     }
@@ -333,6 +339,44 @@ impl ChannelBridge {
 
         let (external_chat_id, entry) = binding;
         let agent_name = &entry.agent_name;
+
+        // If the agent is currently waiting on a `user.ask` question from this
+        // chat, route this incoming message as the answer instead of starting
+        // a new run. Otherwise the user's reply would silently spawn a fresh
+        // task and the original ask would time out.
+        let pending_question_id = {
+            let mut asks = self.pending_asks.lock().await;
+            asks.remove(&(agent_name.clone(), external_chat_id.clone()))
+        };
+        if let Some(question_id) = pending_question_id {
+            tracing::info!(
+                agent_id = %agent_name,
+                question_id,
+                "Routing inbound channel message as user.ask answer"
+            );
+            match self.run_starter.resolve_ask(&question_id, &msg.text) {
+                Ok(()) => {
+                    let _ = transport.send_typing(&msg.external_chat_id).await;
+                }
+                Err(e) => {
+                    tracing::error!(
+                        agent_id = %agent_name,
+                        question_id,
+                        error = %e,
+                        "Failed to resolve user.ask answer"
+                    );
+                    let _ = transport
+                        .send_message(OutgoingMessage {
+                            external_chat_id: msg.external_chat_id.clone(),
+                            content: MessageContent::Text(format!(
+                                "Could not deliver your answer: {e}"
+                            )),
+                        })
+                        .await;
+                }
+            }
+            return;
+        }
 
         // Emit channel.message_received event
         let envelope = moxxy_types::EventEnvelope::new(
@@ -554,6 +598,21 @@ impl ChannelBridge {
 
     async fn handle_bridge_event(self: &Arc<Self>, envelope: &moxxy_types::EventEnvelope) {
         let agent_id = &envelope.agent_id;
+
+        // `user.ask_*` events are agent-scoped, not run-scoped — handle them
+        // before the run_id guard below.
+        match envelope.event_type {
+            EventType::UserAskQuestion => {
+                self.handle_user_ask_question(agent_id, envelope).await;
+                return;
+            }
+            EventType::UserAskAnswered => {
+                self.handle_user_ask_answered(agent_id, envelope).await;
+                return;
+            }
+            _ => {}
+        }
+
         let run_id = match &envelope.run_id {
             Some(r) => r.clone(),
             None => return,
@@ -933,6 +992,10 @@ impl ChannelBridge {
                         }
                     }
                 }
+                // Clear any pending asks for this agent — the run is gone, so
+                // there is nothing left to answer.
+                let mut asks = self.pending_asks.lock().await;
+                asks.retain(|(a, _), _| a != agent_id);
             }
 
             _ => {
@@ -941,6 +1004,90 @@ impl ChannelBridge {
                     self.send_typing_to_agent_channels(agent_id).await;
                 }
             }
+        }
+    }
+
+    /// Deliver a `user.ask` question to every channel bound to the agent and
+    /// remember which question_id is in flight for each chat so that the
+    /// user's next reply can be routed back as the answer.
+    async fn handle_user_ask_question(
+        &self,
+        agent_id: &str,
+        envelope: &moxxy_types::EventEnvelope,
+    ) {
+        let question_id = match envelope.payload.get("question_id").and_then(|v| v.as_str()) {
+            Some(qid) => qid.to_string(),
+            None => {
+                tracing::warn!(
+                    agent_id,
+                    "UserAskQuestion event missing question_id, dropping"
+                );
+                return;
+            }
+        };
+        let question = envelope
+            .payload
+            .get("question")
+            .and_then(|v| v.as_str())
+            .unwrap_or("The agent is asking for input.")
+            .to_string();
+
+        // Flush any in-progress message for active runs of this agent so the
+        // question lands as a separate message rather than hidden behind a
+        // progress block that might still be edited.
+        let active_runs: Vec<String> = {
+            let progress = self.progress.lock().await;
+            progress
+                .keys()
+                .filter(|(a, _)| a == agent_id)
+                .map(|(_, r)| r.clone())
+                .collect()
+        };
+        for run_id in active_runs {
+            self.flush_progress(agent_id, &run_id).await;
+        }
+
+        let channels = self.resolve_agent_channels(agent_id);
+        if channels.is_empty() {
+            tracing::warn!(
+                agent_id,
+                question_id,
+                "UserAskQuestion: no channel bindings found, user cannot answer"
+            );
+            return;
+        }
+
+        let body = format!("❓ {question}");
+        let mut asks = self.pending_asks.lock().await;
+        for (transport, chat_id, _channel_id) in &channels {
+            asks.insert((agent_id.to_string(), chat_id.clone()), question_id.clone());
+            if let Err(e) = transport
+                .send_message(OutgoingMessage {
+                    external_chat_id: chat_id.clone(),
+                    content: MessageContent::Text(body.clone()),
+                })
+                .await
+            {
+                tracing::error!(
+                    agent_id,
+                    question_id,
+                    error = %e,
+                    "Failed to deliver user.ask question to channel"
+                );
+            }
+        }
+    }
+
+    /// Drop any cached `pending_asks` entries for a question that was already
+    /// answered through another surface (TUI, REST endpoint, etc.).
+    async fn handle_user_ask_answered(
+        &self,
+        agent_id: &str,
+        envelope: &moxxy_types::EventEnvelope,
+    ) {
+        if let Some(answered_id) = envelope.payload.get("question_id").and_then(|v| v.as_str()) {
+            let mut asks = self.pending_asks.lock().await;
+            asks.retain(|(a, _), qid| !(a == agent_id && qid == answered_id));
         }
     }
 

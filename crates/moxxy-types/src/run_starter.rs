@@ -51,6 +51,13 @@ pub trait RunStarter: Send + Sync {
         Err("reset_session not supported".into())
     }
 
+    /// Resolve a pending `user.ask` question by delivering an answer to the
+    /// waiting agent primitive. Returns an error if `question_id` is unknown.
+    fn resolve_ask(&self, question_id: &str, answer: &str) -> Result<(), String> {
+        let _ = (question_id, answer);
+        Err("resolve_ask not supported".into())
+    }
+
     /// Spawn a child agent (Ephemeral or HiveWorker) under the given parent.
     async fn spawn_child(
         &self,

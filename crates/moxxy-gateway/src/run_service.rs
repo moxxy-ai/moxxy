@@ -918,6 +918,10 @@ impl RunStarter for RunService {
         self.do_agent_status(agent_name)
     }
 
+    fn resolve_ask(&self, question_id: &str, answer: &str) -> Result<(), String> {
+        RunService::resolve_ask(self, question_id, answer)
+    }
+
     async fn spawn_child(
         &self,
         parent_name: &str,
