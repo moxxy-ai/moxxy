@@ -561,7 +561,7 @@ impl RunService {
             .with_history(prepared.history)
             .with_cancel_token(cancel_token)
             .with_inbox(agent_inbox)
-            .with_timeout(std::time::Duration::from_secs(300))
+            .with_timeout(std::time::Duration::from_secs(900))
             .with_stm_path(stm_path);
 
             let model_config = moxxy_runtime::ModelConfig {

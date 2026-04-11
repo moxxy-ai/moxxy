@@ -7,6 +7,7 @@ import { isInteractive, handleCancel, withSpinner, showResult, p } from '../ui.j
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
+import { BUILTIN_PROVIDERS } from './providers/index.js';
 
 const OPENAI_API_BASE = 'https://api.openai.com/v1';
 export const OPENAI_CODEX_PROVIDER_ID = 'openai-codex';
@@ -41,12 +42,12 @@ const ANTHROPIC_OAUTH_SESSION_MODE = 'anthropic_oauth_session';
 const OLLAMA_PROVIDER_ID = 'ollama';
 const OLLAMA_API_BASE = 'http://127.0.0.1:11434/v1';
 const OPENAI_CODEX_MODEL_IDS = [
+  'gpt-5.4',
+  'gpt-5.4-mini',
+  'gpt-5.4-nano',
   'gpt-5.3-codex',
-  'gpt-5.2-codex',
-  'gpt-5.1-codex',
-  'gpt-5.1-codex-mini',
-  'gpt-5.1-codex-max',
   'gpt-5.2',
+  'gpt-5.2-codex',
   'gpt-4.1',
   'gpt-4.1-mini',
   'gpt-4.1-nano',
@@ -1500,135 +1501,10 @@ export async function checkProviderCredentials(builtin, client) {
 }
 
 // ── Built-in Provider Catalog ────────────────────────────────────────────────
+// Each provider lives in its own file under ./providers/ — see providers/index.js.
+// Re-exported here for back-compat with existing importers.
 
-export const BUILTIN_PROVIDERS = [
-  {
-    id: 'anthropic',
-    display_name: 'Anthropic',
-    api_key_env: 'ANTHROPIC_API_KEY',
-    api_base: 'https://api.anthropic.com',
-    api_key_login: true,
-    oauth_login: true,
-    models: [
-      { model_id: 'claude-sonnet-5-20260203', display_name: 'Claude Sonnet 5 "Fennec"' },
-      { model_id: 'claude-opus-4-20250514', display_name: 'Claude Opus 4' },
-      { model_id: 'claude-sonnet-4-20250514', display_name: 'Claude Sonnet 4' },
-      { model_id: 'claude-haiku-4-20250506', display_name: 'Claude Haiku 4' },
-      { model_id: 'claude-3-5-sonnet-20241022', display_name: 'Claude 3.5 Sonnet' },
-      { model_id: 'claude-3-5-haiku-20241022', display_name: 'Claude 3.5 Haiku' },
-    ],
-  },
-  {
-    id: 'openai',
-    display_name: 'OpenAI',
-    api_key_env: 'OPENAI_API_KEY',
-    api_base: OPENAI_API_BASE,
-    models: [
-      { model_id: 'gpt-5.2', display_name: 'GPT-5.2' },
-      { model_id: 'gpt-4.1', display_name: 'GPT-4.1' },
-      { model_id: 'gpt-4.1-mini', display_name: 'GPT-4.1 Mini' },
-      { model_id: 'gpt-4.1-nano', display_name: 'GPT-4.1 Nano' },
-      { model_id: 'o3', display_name: 'o3' },
-      { model_id: 'o4-mini', display_name: 'o4-mini' },
-      { model_id: 'gpt-4o', display_name: 'GPT-4o' },
-      { model_id: 'gpt-4o-mini', display_name: 'GPT-4o Mini' },
-    ],
-  },
-  {
-    id: OPENAI_CODEX_PROVIDER_ID,
-    display_name: OPENAI_CODEX_DISPLAY_NAME,
-    api_key_env: OPENAI_CODEX_SECRET_KEY_NAME,
-    api_base: OPENAI_API_BASE,
-    oauth_login: true,
-    models: [
-      { model_id: 'gpt-5.2', display_name: 'GPT-5.2' },
-      { model_id: 'gpt-4.1', display_name: 'GPT-4.1' },
-      { model_id: 'gpt-4.1-mini', display_name: 'GPT-4.1 Mini' },
-      { model_id: 'gpt-4.1-nano', display_name: 'GPT-4.1 Nano' },
-      { model_id: 'o3', display_name: 'o3' },
-      { model_id: 'o4-mini', display_name: 'o4-mini' },
-      { model_id: 'gpt-4o', display_name: 'GPT-4o' },
-      { model_id: 'gpt-4o-mini', display_name: 'GPT-4o Mini' },
-    ],
-  },
-  {
-    id: OLLAMA_PROVIDER_ID,
-    display_name: 'Ollama',
-    api_base: OLLAMA_API_BASE,
-    models: [
-      { model_id: 'qwen3:8b', display_name: 'Qwen 3 8B' },
-      { model_id: 'gemma3', display_name: 'Gemma 3' },
-      { model_id: 'gpt-oss:20b', display_name: 'GPT OSS 20B' },
-    ],
-  },
-  {
-    id: 'xai',
-    display_name: 'xAI',
-    api_key_env: 'XAI_API_KEY',
-    api_base: 'https://api.x.ai/v1',
-    models: [
-      { model_id: 'grok-4', display_name: 'Grok 4' },
-      { model_id: 'grok-3', display_name: 'Grok 3' },
-      { model_id: 'grok-3-mini', display_name: 'Grok 3 Mini' },
-      { model_id: 'grok-3-fast', display_name: 'Grok 3 Fast' },
-      { model_id: 'grok-2', display_name: 'Grok 2' },
-    ],
-  },
-  {
-    id: 'google',
-    display_name: 'Google Gemini',
-    api_key_env: 'GOOGLE_API_KEY',
-    api_base: 'https://generativelanguage.googleapis.com/v1beta',
-    models: [
-      { model_id: 'gemini-3.1-pro', display_name: 'Gemini 3.1 Pro' },
-      { model_id: 'gemini-2.5-pro', display_name: 'Gemini 2.5 Pro' },
-      { model_id: 'gemini-2.5-flash', display_name: 'Gemini 2.5 Flash' },
-      { model_id: 'gemini-2.0-flash', display_name: 'Gemini 2.0 Flash' },
-    ],
-  },
-  {
-    id: 'deepseek',
-    display_name: 'DeepSeek',
-    api_key_env: 'DEEPSEEK_API_KEY',
-    api_base: 'https://api.deepseek.com',
-    models: [
-      { model_id: 'deepseek-v4', display_name: 'DeepSeek V4' },
-      { model_id: 'deepseek-r1', display_name: 'DeepSeek R1' },
-      { model_id: 'deepseek-v3', display_name: 'DeepSeek V3' },
-    ],
-  },
-  {
-    id: 'zai',
-    display_name: 'ZAI',
-    api_key_env: 'ZAI_API_KEY',
-    api_base: 'https://api.zai.com/v1',
-    models: [
-      { model_id: 'zai-pro', display_name: 'ZAI Pro' },
-      { model_id: 'zai-standard', display_name: 'ZAI Standard' },
-      { model_id: 'zai-fast', display_name: 'ZAI Fast' },
-    ],
-  },
-  {
-    id: 'zai-plan',
-    display_name: 'ZAI Plan',
-    api_key_env: 'ZAI_API_KEY',
-    api_base: 'https://api.zai.com/v1',
-    models: [
-      { model_id: 'zai-plan-pro', display_name: 'ZAI Plan Pro' },
-      { model_id: 'zai-plan-standard', display_name: 'ZAI Plan Standard' },
-    ],
-  },
-  {
-    id: 'claude-cli',
-    display_name: 'Claude Code CLI',
-    cli_binary: 'claude',
-    models: [
-      { model_id: 'opus', display_name: 'Claude Opus' },
-      { model_id: 'sonnet', display_name: 'Claude Sonnet' },
-      { model_id: 'haiku', display_name: 'Claude Haiku' },
-    ],
-  },
-];
+export { BUILTIN_PROVIDERS };
 
 // ── CLI Command ──────────────────────────────────────────────────────────────
 
@@ -1916,7 +1792,7 @@ async function installNonInteractive(client, flags) {
 
   // Custom provider
   if (!providerId) {
-    throw new Error('Required: --id (provider id). Built-in: openai, openai-codex, anthropic, ollama, xai, zai, zai-plan, claude-cli');
+    throw new Error('Required: --id (provider id). Built-in: openai, openai-codex, anthropic, ollama, xai, google, deepseek, zai, zai-coding-plan, claude-cli');
   }
 
   const displayName = flags.name || flags.display_name || providerId;
