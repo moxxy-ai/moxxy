@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.2](https://github.com/moxxy-ai/moxxy/compare/v1.3.1...v1.3.2) (2026-04-11)
+
+
+### Bug Fixes
+
+* browser ([43e7ad0](https://github.com/moxxy-ai/moxxy/commit/43e7ad0e51cbac448d40d89f489bb6d486cea0d2))
+* shim binary ([c304daf](https://github.com/moxxy-ai/moxxy/commit/c304daffd12a78f022cf4e545cfbe5330286692d))
+
 ## [1.3.1](https://github.com/moxxy-ai/moxxy/compare/v1.3.0...v1.3.1) (2026-04-11)
 
 
