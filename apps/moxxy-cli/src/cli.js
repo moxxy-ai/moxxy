@@ -137,8 +137,10 @@ async function routeCommand(client, command, rest) {
     return;
   }
 
-  clearScreen();
-  console.log(LOGO);
+  if (isInteractive()) {
+    clearScreen();
+    console.log(LOGO);
+  }
 
   switch (command) {
     case 'init':

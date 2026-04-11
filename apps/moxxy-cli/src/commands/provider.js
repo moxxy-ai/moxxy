@@ -814,6 +814,22 @@ async function fetchOllamaModels(apiBase = OLLAMA_API_BASE) {
   return [];
 }
 
+export function getProviderCatalog() {
+  return BUILTIN_PROVIDERS.map(bp => ({
+    id: bp.id,
+    display_name: bp.display_name,
+    api_base: bp.api_base ?? null,
+    api_key_env: bp.api_key_env ?? null,
+    cli_binary: bp.cli_binary ?? null,
+    api_key_login: Boolean(bp.api_key_login),
+    oauth_login: Boolean(bp.oauth_login),
+    models: (bp.models ?? []).map(m => ({
+      model_id: m.model_id,
+      display_name: m.display_name ?? m.model_id,
+    })),
+  }));
+}
+
 export async function resolveBuiltinProviderModels(builtin) {
   const fallbackModels = builtin.models.map(model => ({
     ...model,
@@ -1520,6 +1536,7 @@ export async function runProvider(client, args) {
         { value: 'install', label: 'Install provider', hint: 'add a built-in or custom provider' },
         { value: 'login', label: 'Login provider', hint: 'OAuth/subscription login for supported providers' },
         { value: 'list',    label: 'List providers',    hint: 'show installed providers' },
+        { value: 'catalog', label: 'Catalog',           hint: 'list all built-in providers and their known models' },
       ],
     });
     handleCancel(action);
@@ -1546,6 +1563,23 @@ export async function runProvider(client, args) {
       return result;
     }
 
+    case 'catalog': {
+      const catalog = getProviderCatalog();
+      if (isInteractive() && !flags.json) {
+        p.intro('Built-in provider catalog');
+        for (const pr of catalog) {
+          p.log.info(`${pr.display_name}  (${pr.id})`);
+          for (const m of pr.models) {
+            console.log(`    - ${m.model_id}${m.display_name ? `  (${m.display_name})` : ''}`);
+          }
+        }
+        p.outro(`${catalog.length} provider(s)`);
+      } else {
+        console.log(JSON.stringify(catalog, null, 2));
+      }
+      return catalog;
+    }
+
     case 'install': {
       if (isInteractive()) {
         return await installInteractive(client);
@@ -1559,7 +1593,7 @@ export async function runProvider(client, args) {
 
     default:
       if (!action) {
-        console.error('Usage: moxxy provider <install|login|list>');
+        console.error('Usage: moxxy provider <install|login|list|catalog>');
       } else {
         console.error(`Unknown provider action: ${action}`);
       }

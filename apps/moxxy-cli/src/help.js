@@ -99,6 +99,7 @@ Actions:
   install   Add a built-in or custom provider
   login     OAuth/subscription login (currently openai-codex)
   list      Show installed providers
+  catalog   Show all built-in providers and their known models (no gateway needed)
 
 Options:
   --id <id>          Provider ID for install (e.g. openai, anthropic, xai)
@@ -125,6 +126,8 @@ Built-in providers:
 
 Examples:
   moxxy provider list
+  moxxy provider catalog
+  moxxy provider catalog --json
   moxxy provider install --id openai
   moxxy provider login --id openai-codex --method browser
   moxxy provider login --id openai-codex --method headless --no-browser
