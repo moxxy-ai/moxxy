@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.1](https://github.com/moxxy-ai/moxxy/compare/v1.3.0...v1.3.1) (2026-04-11)
+
+
+### Bug Fixes
+
+* missing models ([c5ec29e](https://github.com/moxxy-ai/moxxy/commit/c5ec29ee931a2da07a8baecf0ca82cff8ca3d6eb))
+* missing providers list outside ([440224f](https://github.com/moxxy-ai/moxxy/commit/440224fb3318538bf6adf021b0c3b8fed0431b51))
+
 ## [1.3.0](https://github.com/moxxy-ai/moxxy/compare/v1.2.11...v1.3.0) (2026-04-10)
 
 
