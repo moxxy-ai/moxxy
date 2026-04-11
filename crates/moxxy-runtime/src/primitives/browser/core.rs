@@ -412,7 +412,25 @@ impl Primitive for BrowserCookiesPrimitive {
             "properties": {
                 "page_id": {"type": "string"},
                 "action": {"type": "string", "enum": ["get", "set", "clear"]},
-                "cookies": {"type": "array"}
+                "cookies": {
+                    "type": "array",
+                    "description": "Cookies to set when action is 'set'. Each cookie follows Playwright's cookie shape.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "value": {"type": "string"},
+                            "url": {"type": "string"},
+                            "domain": {"type": "string"},
+                            "path": {"type": "string"},
+                            "expires": {"type": "number"},
+                            "httpOnly": {"type": "boolean"},
+                            "secure": {"type": "boolean"},
+                            "sameSite": {"type": "string", "enum": ["Strict", "Lax", "None"]}
+                        },
+                        "required": ["name", "value"]
+                    }
+                }
             },
             "required": ["page_id", "action"]
         })
