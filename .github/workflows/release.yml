@@ -97,7 +97,7 @@ jobs:
       - name: Build CLI binary
         working-directory: apps/moxxy-cli
         run: |
-          bun build --compile --target=${{ matrix.bun-target }} --external react-devtools-core src/cli.js --outfile dist/moxxy
+          bun build --compile --target=${{ matrix.bun-target }} src/cli.js --outfile dist/moxxy
           cp dist/moxxy ../../moxxy-cli-${{ matrix.platform }}
 
       - uses: actions/upload-artifact@v4
