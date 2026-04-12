@@ -127,6 +127,46 @@ export class ApiClient {
     return this.request(`/v1/agents/${encodeURIComponent(agentId)}/runs`, 'POST', { task });
   }
 
+  /**
+   * Upload a recorded voice clip to the gateway. The server transcribes it
+   * via the configured STT provider and immediately starts a run with the
+   * transcript as the task. Returns `{ transcript, run_id, status, ... }`.
+   */
+  async startRunWithAudio(agentId, { data, mime = 'audio/wav', filename = 'voice.wav' }) {
+    const form = new FormData();
+    const blob = new Blob([data], { type: mime });
+    form.append('audio', blob, filename);
+
+    const headers = {};
+    if (this.token) {
+      headers['authorization'] = `Bearer ${this.token}`;
+    }
+    // NOTE: do NOT set content-type — fetch will compute the multipart
+    // boundary for us.
+
+    const url = this.buildUrl(`/v1/agents/${encodeURIComponent(agentId)}/runs/audio`);
+    let resp;
+    try {
+      resp = await fetch(url, { method: 'POST', headers, body: form });
+    } catch (err) {
+      if (isConnectionError(err)) throw gatewayDownError();
+      throw err;
+    }
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({
+        error: 'unknown',
+        message: resp.statusText,
+      }));
+      const error = new Error(err.message || `API error ${resp.status}`);
+      error.status = resp.status;
+      error.code = err.error;
+      throw error;
+    }
+    const text = await resp.text();
+    if (!text) return {};
+    return JSON.parse(text);
+  }
+
   async stopAgent(agentId) {
     return this.request(`/v1/agents/${encodeURIComponent(agentId)}/stop`, 'POST');
   }
@@ -295,6 +335,37 @@ export class ApiClient {
 
   async setAgentTemplate(name, template) {
     return this.request(`/v1/agents/${encodeURIComponent(name)}/template`, 'PATCH', { template });
+  }
+
+  // --- Settings: Speech-to-text ---------------------------------------
+
+  /**
+   * Fetch the currently-active STT configuration from the gateway.
+   * Returns `{ enabled: false }` when voice messages are off, or
+   * `{ enabled: true, provider, model, secret_ref, ... }` otherwise.
+   * The API never returns the raw API key.
+   */
+  async getSttSettings() {
+    return this.request('/v1/settings/stt', 'GET');
+  }
+
+  /**
+   * Configure (or reconfigure) speech-to-text.
+   *
+   * Pass `api_key` to provision a fresh vault secret; omit it to reuse an
+   * existing `secret_ref`. The running gateway swaps providers in-place —
+   * no restart needed.
+   */
+  async updateSttSettings(body) {
+    return this.request('/v1/settings/stt', 'PUT', body);
+  }
+
+  /**
+   * Disable voice messages. Removes the `stt` block from settings.yaml
+   * and clears the in-memory provider. Does NOT delete the vault secret.
+   */
+  async deleteSttSettings() {
+    return this.request('/v1/settings/stt', 'DELETE');
   }
 }
 

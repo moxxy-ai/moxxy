@@ -807,7 +807,181 @@ export async function runInit(client, args) {
     }
   }
 
+  // Step 8: Voice messages (optional)
+  p.note(
+    'Voice messages let users send audio to the agent on any channel\n' +
+    '(Telegram voice notes, the TUI /voice command, or direct audio upload\n' +
+    'to the gateway). The audio is transcribed to text before the agent\n' +
+    'sees it. The agent does not reply with voice.',
+    'Voice Messages (Speech-to-Text)'
+  );
+
+  const enableVoice = await p.confirm({
+    message: 'Enable voice messages?',
+    initialValue: false,
+  });
+  handleCancel(enableVoice);
+
+  if (enableVoice) {
+    const sttProvider = await p.select({
+      message: 'Speech-to-text provider',
+      options: [
+        {
+          value: 'whisper',
+          label: 'OpenAI Whisper',
+          hint: 'Cloud API, requires an OpenAI key',
+        },
+        { value: '__skip__', label: 'Skip', hint: 'configure later' },
+      ],
+    });
+    handleCancel(sttProvider);
+
+    if (sttProvider === 'whisper') {
+      const configured = await configureWhisperStt(client, moxxyHome);
+      if (configured) {
+        p.log.success('Voice messages enabled (OpenAI Whisper).');
+      } else {
+        p.log.warn('Voice setup skipped. Retry later with: moxxy init');
+      }
+    }
+  }
+
   p.outro('Setup complete. Run moxxy to see available commands.');
+}
+
+// ---------------------------------------------------------------------------
+// Speech-to-text (voice message) helpers
+// ---------------------------------------------------------------------------
+
+const STT_WHISPER_BACKEND_KEY = 'moxxy_stt_whisper';
+const STT_WHISPER_KEY_NAME = 'STT_WHISPER_API_KEY';
+const OPENAI_PROVIDER_BACKEND_KEY = 'moxxy_provider_openai';
+
+/**
+ * Configure Whisper STT: either reuse an existing OpenAI vault secret or
+ * prompt for a new key, then persist an `stt` block to settings.yaml.
+ * Returns true on success, false if the user bailed or storage failed.
+ */
+async function configureWhisperStt(client, moxxyHome) {
+  // Look for an existing vault entry we can reuse. Prefer a secret already
+  // backing the OpenAI provider install so users don't enter the same key
+  // twice.
+  let reuseBackendKey = null;
+  try {
+    const secrets = await client.listSecrets();
+    const existing = (secrets || []).find(
+      (s) => s.backend_key === OPENAI_PROVIDER_BACKEND_KEY,
+    );
+    if (existing) {
+      const reuse = await p.confirm({
+        message: 'Reuse your existing OpenAI API key for Whisper?',
+        initialValue: true,
+      });
+      handleCancel(reuse);
+      if (reuse) reuseBackendKey = OPENAI_PROVIDER_BACKEND_KEY;
+    }
+  } catch (err) {
+    // Vault listing may fail if the gateway is down — fall through to prompt.
+    p.log.warn(`Could not check existing vault secrets: ${err.message}`);
+  }
+
+  let secretRef = reuseBackendKey;
+
+  if (!secretRef) {
+    const apiKey = await p.password({
+      message: 'Enter your OpenAI API key (used for Whisper transcription)',
+      validate: (val) => {
+        if (!val || !val.trim()) return 'API key cannot be empty';
+      },
+    });
+    handleCancel(apiKey);
+
+    try {
+      await withSpinner(
+        'Storing API key in vault...',
+        async () => {
+          await client.createSecret({
+            key_name: STT_WHISPER_KEY_NAME,
+            backend_key: STT_WHISPER_BACKEND_KEY,
+            policy_label: 'stt-provider',
+            value: apiKey.trim(),
+          });
+        },
+        'Whisper API key stored.',
+      );
+      secretRef = STT_WHISPER_BACKEND_KEY;
+    } catch (err) {
+      p.log.error(`Failed to store API key: ${err.message}`);
+      return false;
+    }
+  }
+
+  try {
+    saveSttSetting(moxxyHome, {
+      provider: 'whisper',
+      model: 'whisper-1',
+      secret_ref: secretRef,
+    });
+  } catch (err) {
+    p.log.error(`Failed to write settings.yaml: ${err.message}`);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Write (or clear) the `stt` block in `{moxxy_home}/settings.yaml`.
+ *
+ * Pass `null` to remove the block. Pass an object with at least `provider`,
+ * `model`, and `secret_ref` to write a fresh block. Any prior `stt:` block
+ * is removed in full — including nested indented child lines — before the
+ * new block is appended, so repeated runs don't accumulate stale entries.
+ */
+export function saveSttSetting(moxxyHome, config) {
+  const settingsFile = join(moxxyHome, 'settings.yaml');
+
+  let existing = '';
+  try {
+    existing = readFileSync(settingsFile, 'utf-8');
+  } catch { /* no existing settings */ }
+
+  // Strip any previous `stt:` block. A block is the `stt:` line plus all
+  // subsequent indented (leading whitespace) lines — standard flow YAML.
+  const kept = [];
+  let inSttBlock = false;
+  for (const line of existing.split('\n')) {
+    if (inSttBlock) {
+      if (/^\s+\S/.test(line) || line.trim() === '') {
+        // indented child or blank line: still inside the block
+        if (line.trim() === '') {
+          inSttBlock = false;
+          kept.push(line);
+        }
+        continue;
+      }
+      inSttBlock = false;
+    }
+    if (/^stt:\s*$/.test(line) || /^stt:\s/.test(line)) {
+      inSttBlock = true;
+      continue;
+    }
+    kept.push(line);
+  }
+
+  // Drop trailing empty lines so we can cleanly append.
+  while (kept.length > 0 && kept[kept.length - 1].trim() === '') kept.pop();
+
+  if (config) {
+    kept.push('stt:');
+    kept.push(`  provider: ${config.provider}`);
+    kept.push(`  model: ${config.model}`);
+    kept.push(`  secret_ref: ${config.secret_ref}`);
+    if (config.api_base) kept.push(`  api_base: ${config.api_base}`);
+  }
+
+  mkdirSync(moxxyHome, { recursive: true });
+  writeFileSync(settingsFile, kept.join('\n') + '\n');
 }
 
 // ---------------------------------------------------------------------------

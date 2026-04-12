@@ -1,5 +1,6 @@
-import { useReducer, useCallback } from 'react';
+import { useReducer, useCallback, useRef } from 'react';
 import { SLASH_COMMANDS } from '../slash-commands.js';
+import { startRecording } from '../voice-recorder.js';
 
 const INITIAL_STATE = { type: 'idle' };
 
@@ -23,6 +24,8 @@ function reducer(state, action) {
       return { type: 'mcp_test_id' };
     case 'template_assign_slug':
       return { type: 'template_assign_slug' };
+    case 'voice_recording':
+      return { type: 'voice_recording' };
     case 'reset':
       return INITIAL_STATE;
     default:
@@ -54,9 +57,49 @@ export function useCommandHandler({
   onOpenTemplateAssignWizard,
 }) {
   const [twoStep, dispatch] = useReducer(reducer, INITIAL_STATE);
+  const voiceHandleRef = useRef(null);
 
   const handleSubmit = useCallback(async (text) => {
     const task = text.trim().replace(/^\/{2,}/, '/');
+
+    // While a recording is active, ANY submit (including bare Enter) stops
+    // it and ships the clip. This must run before the empty-text early return
+    // below so hitting Enter with no text still ends the capture.
+    if (twoStep.type === 'voice_recording') {
+      const handle = voiceHandleRef.current;
+      dispatch({ type: 'reset' });
+      voiceHandleRef.current = null;
+      if (!handle) {
+        eventsHandler.addSystemMessage('No active recording.');
+        return;
+      }
+      try {
+        const clip = await handle.stop();
+        eventsHandler.addSystemMessage('Transcribing voice message…');
+        if (!agent) {
+          eventsHandler.addSystemMessage('No agent connected. Cannot run task.');
+          return;
+        }
+        try {
+          const result = await client.startRunWithAudio(agent.name, clip);
+          const transcript = (result && result.transcript) || '[voice]';
+          eventsHandler.addUserMessage(transcript);
+          if (onAgentUpdate) onAgentUpdate({ status: 'running' });
+        } catch (err) {
+          if (err.isGatewayDown) {
+            eventsHandler.addSystemMessage(err.message);
+          } else {
+            eventsHandler.addSystemMessage(`Voice error: ${err.message}`);
+          }
+        }
+      } catch (err) {
+        eventsHandler.addSystemMessage(`Recording failed: ${err.message}`);
+      } finally {
+        handle.cleanup();
+      }
+      return;
+    }
+
     if (!task) return;
 
     // Pending ask: agent asked for user input
@@ -419,6 +462,25 @@ export function useCommandHandler({
       }
       return;
     }
+    if (task === '/voice') {
+      if (voiceHandleRef.current) {
+        // Defensive: treat a second /voice as a stop even if state drifted.
+        dispatch({ type: 'voice_recording' });
+        return;
+      }
+      try {
+        const handle = await startRecording();
+        voiceHandleRef.current = handle;
+        dispatch({ type: 'voice_recording' });
+        eventsHandler.addSystemMessage(
+          `Recording (${handle.tool})… press Enter or /voice again to stop.`,
+        );
+      } catch (err) {
+        eventsHandler.addSystemMessage(`Cannot record voice: ${err.message}`);
+      }
+      return;
+    }
+
     if (task === '/template clear') {
       try {
         await client.setAgentTemplate(agentId, null);

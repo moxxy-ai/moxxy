@@ -12,6 +12,19 @@ pub struct IncomingMessage {
     pub sender_name: String,
     pub text: String,
     pub timestamp: i64,
+    /// Optional audio payload. When present, the bridge transcribes it via
+    /// the configured `SttProvider` and replaces `text` with the transcript
+    /// before routing the message to the agent.
+    pub audio: Option<IncomingAudio>,
+}
+
+/// Raw audio attached to an incoming message.
+#[derive(Debug, Clone)]
+pub struct IncomingAudio {
+    pub data: Vec<u8>,
+    pub mime: String,
+    pub filename: String,
+    pub duration_secs: Option<u32>,
 }
 
 /// A message to send to an external chat platform.

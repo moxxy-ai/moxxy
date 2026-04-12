@@ -5,7 +5,12 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use crate::commands::CommandDefinition;
-use crate::transport::{ChannelTransport, IncomingMessage, OutgoingMessage};
+use crate::transport::{ChannelTransport, IncomingAudio, IncomingMessage, OutgoingMessage};
+
+/// Hard cap on voice/audio file size downloaded from Telegram. The bridge
+/// enforces its own (configurable) cap on top of this, but we refuse to spool
+/// anything larger than 25 MB into memory — matches Whisper's upload limit.
+const TELEGRAM_AUDIO_MAX_BYTES: u64 = 25 * 1024 * 1024;
 
 pub struct TelegramTransport {
     bot_token: String,
@@ -22,6 +27,126 @@ impl TelegramTransport {
 
     fn api_url(&self, method: &str) -> String {
         format!("https://api.telegram.org/bot{}/{}", self.bot_token, method)
+    }
+
+    /// Resolve a `file_id` to a downloadable file path via `getFile`.
+    async fn get_file(&self, file_id: &str) -> Result<TelegramFile, ChannelError> {
+        let resp = self
+            .http_client
+            .get(self.api_url("getFile"))
+            .query(&[("file_id", file_id)])
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await
+            .map_err(|e| ChannelError::TransportError(format!("getFile: {e}")))?;
+
+        let body: TelegramResponse<TelegramFile> = resp
+            .json()
+            .await
+            .map_err(|e| ChannelError::TransportError(format!("getFile decode: {e}")))?;
+
+        if !body.ok {
+            return Err(ChannelError::TransportError(
+                body.description.unwrap_or_else(|| "getFile failed".into()),
+            ));
+        }
+        body.result
+            .ok_or_else(|| ChannelError::TransportError("getFile: empty result".into()))
+    }
+
+    /// Download the raw bytes of a resolved Telegram file.
+    async fn download_file(&self, file_path: &str) -> Result<Vec<u8>, ChannelError> {
+        let url = format!(
+            "https://api.telegram.org/file/bot{}/{}",
+            self.bot_token, file_path
+        );
+        let resp = self
+            .http_client
+            .get(&url)
+            .timeout(Duration::from_secs(60))
+            .send()
+            .await
+            .map_err(|e| ChannelError::TransportError(format!("downloadFile: {e}")))?;
+
+        if !resp.status().is_success() {
+            return Err(ChannelError::TransportError(format!(
+                "downloadFile: HTTP {}",
+                resp.status()
+            )));
+        }
+
+        let bytes = resp
+            .bytes()
+            .await
+            .map_err(|e| ChannelError::TransportError(format!("downloadFile read: {e}")))?;
+        Ok(bytes.to_vec())
+    }
+
+    /// Try to download an audio payload (voice note or audio file) from a
+    /// Telegram message. Returns `None` if neither is present. Returns `Err`
+    /// if the download fails or exceeds the size cap.
+    async fn fetch_incoming_audio(
+        &self,
+        msg: &TelegramMessage,
+    ) -> Result<Option<IncomingAudio>, ChannelError> {
+        let (file_id, duration, mime, file_size, default_ext) = if let Some(v) = &msg.voice {
+            (
+                v.file_id.as_str(),
+                v.duration,
+                v.mime_type.clone().unwrap_or_else(|| "audio/ogg".into()),
+                v.file_size,
+                "ogg",
+            )
+        } else if let Some(a) = &msg.audio {
+            (
+                a.file_id.as_str(),
+                a.duration,
+                a.mime_type.clone().unwrap_or_else(|| "audio/mpeg".into()),
+                a.file_size,
+                "mp3",
+            )
+        } else {
+            return Ok(None);
+        };
+
+        if let Some(size) = file_size
+            && size > TELEGRAM_AUDIO_MAX_BYTES
+        {
+            return Err(ChannelError::TransportError(format!(
+                "audio file too large: {} bytes",
+                size
+            )));
+        }
+
+        let file = self.get_file(file_id).await?;
+        if let Some(size) = file.file_size
+            && size > TELEGRAM_AUDIO_MAX_BYTES
+        {
+            return Err(ChannelError::TransportError(format!(
+                "audio file too large: {} bytes",
+                size
+            )));
+        }
+        let Some(file_path) = file.file_path else {
+            return Err(ChannelError::TransportError(
+                "getFile returned no file_path".into(),
+            ));
+        };
+
+        let data = self.download_file(&file_path).await?;
+
+        let filename = std::path::Path::new(&file_path)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("voice.{default_ext}"));
+
+        Ok(Some(IncomingAudio {
+            data,
+            mime,
+            filename,
+            duration_secs: Some(duration),
+        }))
     }
 
     async fn get_updates(
@@ -425,12 +550,40 @@ impl ChannelTransport for TelegramTransport {
                                 if let Some(msg) = update.message {
                                     let sender_id = msg.from.as_ref().map(|u| u.id.to_string()).unwrap_or_default();
                                     let sender_name = msg.from.as_ref().map(|u| u.first_name.clone()).unwrap_or_default();
+                                    let chat_id = msg.chat.id.to_string();
+                                    let timestamp = msg.date;
+
+                                    let audio = match self.fetch_incoming_audio(&msg).await {
+                                        Ok(a) => a,
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                chat_id = %chat_id,
+                                                error = %e,
+                                                "Failed to fetch Telegram voice/audio payload"
+                                            );
+                                            None
+                                        }
+                                    };
+
+                                    // If the message had audio but we failed to download it,
+                                    // skip routing entirely — don't start a run with empty text.
+                                    if (msg.voice.is_some() || msg.audio.is_some()) && audio.is_none() {
+                                        continue;
+                                    }
+
+                                    let text = msg.text.unwrap_or_default();
+                                    // Ignore updates with neither text nor audio (e.g. stickers).
+                                    if text.is_empty() && audio.is_none() {
+                                        continue;
+                                    }
+
                                     let incoming = IncomingMessage {
-                                        external_chat_id: msg.chat.id.to_string(),
+                                        external_chat_id: chat_id,
                                         sender_id,
                                         sender_name,
-                                        text: msg.text.unwrap_or_default(),
-                                        timestamp: msg.date,
+                                        text,
+                                        timestamp,
+                                        audio,
                                     };
                                     if sender.send(incoming).await.is_err() {
                                         break;
@@ -648,6 +801,39 @@ struct TelegramMessage {
     chat: TelegramChat,
     date: i64,
     text: Option<String>,
+    voice: Option<TelegramVoice>,
+    audio: Option<TelegramAudio>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TelegramVoice {
+    file_id: String,
+    #[serde(default)]
+    duration: u32,
+    #[serde(default)]
+    mime_type: Option<String>,
+    #[serde(default)]
+    file_size: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TelegramAudio {
+    file_id: String,
+    #[serde(default)]
+    duration: u32,
+    #[serde(default)]
+    mime_type: Option<String>,
+    #[serde(default)]
+    file_size: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TelegramFile {
+    #[allow(dead_code)]
+    file_id: String,
+    #[serde(default)]
+    file_size: Option<u64>,
+    file_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

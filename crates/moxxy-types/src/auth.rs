@@ -59,6 +59,10 @@ pub enum TokenScope {
     ChannelsRead,
     #[serde(rename = "channels:write")]
     ChannelsWrite,
+    #[serde(rename = "settings:read")]
+    SettingsRead,
+    #[serde(rename = "settings:write")]
+    SettingsWrite,
     #[serde(rename = "*")]
     Wildcard,
 }

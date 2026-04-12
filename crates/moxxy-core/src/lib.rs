@@ -11,6 +11,7 @@ pub mod providers;
 pub mod security;
 pub mod settings;
 pub mod skills;
+pub mod stt;
 pub mod templates;
 pub mod webhooks;
 
@@ -35,8 +36,9 @@ pub use providers::{
     LoadedProvider, ProviderDoc, ProviderLoader, ProviderModelEntry, ProviderStore,
 };
 pub use security::PathPolicy;
-pub use settings::{NetworkMode, SystemSettings, settings_path};
+pub use settings::{NetworkMode, SttSettings, SystemSettings, settings_path};
 pub use skills::{LoadedSkill, SkillDoc, SkillLoader, SkillSource};
+pub use stt::{SttError, SttProvider};
 pub use templates::{LoadedTemplate, TemplateDoc, TemplateLoader, TemplateStore};
 pub use webhooks::{
     LoadedWebhook, WebhookCreateInput, WebhookCreateOutput, WebhookDoc, WebhookLoader,

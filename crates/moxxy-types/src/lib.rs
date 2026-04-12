@@ -49,6 +49,8 @@ mod tests {
             TokenScope::EventsRead,
             TokenScope::ChannelsRead,
             TokenScope::ChannelsWrite,
+            TokenScope::SettingsRead,
+            TokenScope::SettingsWrite,
             TokenScope::Wildcard,
         ];
         for scope in scopes {
@@ -59,9 +61,21 @@ mod tests {
     }
 
     #[test]
+    fn settings_scopes_serialize_to_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&TokenScope::SettingsRead).unwrap(),
+            "\"settings:read\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TokenScope::SettingsWrite).unwrap(),
+            "\"settings:write\""
+        );
+    }
+
+    #[test]
     fn event_type_has_all_30_variants() {
         let all = EventType::all_variants();
-        assert_eq!(all.len(), 60);
+        assert_eq!(all.len(), 61);
     }
 
     #[test]
@@ -149,6 +163,8 @@ mod proptests {
             Just(TokenScope::EventsRead),
             Just(TokenScope::ChannelsRead),
             Just(TokenScope::ChannelsWrite),
+            Just(TokenScope::SettingsRead),
+            Just(TokenScope::SettingsWrite),
             Just(TokenScope::Wildcard),
         ]
     }

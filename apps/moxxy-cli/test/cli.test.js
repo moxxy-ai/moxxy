@@ -24,6 +24,10 @@ import { isInteractive, handleCancel } from '../src/ui.js';
 import { matchCommands, isSlashCommand, SLASH_COMMANDS } from '../src/tui/slash-commands.js';
 import { EventsHandler } from '../src/tui/events-handler.js';
 import { COMMAND_HELP } from '../src/help.js';
+import { saveSttSetting } from '../src/commands/init.js';
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 // API Client tests
 describe('api-client', () => {
@@ -663,5 +667,324 @@ describe('gateway down detection', () => {
     const handler = new EventsHandler({}, 'agent-1');
     const err = new Error('timeout');
     assert.equal(handler._isConnectionError(err), false);
+  });
+});
+
+// ---------- STT (voice) init helpers ----------
+
+describe('saveSttSetting', () => {
+  function makeHome() {
+    return mkdtempSync(join(tmpdir(), 'moxxy-stt-test-'));
+  }
+
+  it('writes a fresh stt block when settings.yaml does not exist', () => {
+    const home = makeHome();
+    try {
+      saveSttSetting(home, {
+        provider: 'whisper',
+        model: 'whisper-1',
+        secret_ref: 'moxxy_stt_whisper',
+      });
+      const out = readFileSync(join(home, 'settings.yaml'), 'utf-8');
+      assert.match(out, /^stt:$/m);
+      assert.match(out, /^  provider: whisper$/m);
+      assert.match(out, /^  model: whisper-1$/m);
+      assert.match(out, /^  secret_ref: moxxy_stt_whisper$/m);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('appends stt block while preserving unrelated top-level keys', () => {
+    const home = makeHome();
+    try {
+      writeFileSync(
+        join(home, 'settings.yaml'),
+        'browser_rendering: true\nnetwork_mode: safe\n',
+      );
+      saveSttSetting(home, {
+        provider: 'whisper',
+        model: 'whisper-1',
+        secret_ref: 'moxxy_stt_whisper',
+      });
+      const out = readFileSync(join(home, 'settings.yaml'), 'utf-8');
+      assert.match(out, /^browser_rendering: true$/m);
+      assert.match(out, /^network_mode: safe$/m);
+      assert.match(out, /^stt:$/m);
+      assert.match(out, /^  provider: whisper$/m);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('replaces an existing stt block without leaving duplicates', () => {
+    const home = makeHome();
+    try {
+      writeFileSync(
+        join(home, 'settings.yaml'),
+        [
+          'browser_rendering: true',
+          'stt:',
+          '  provider: whisper',
+          '  model: whisper-1',
+          '  secret_ref: old_key',
+          '  max_bytes: 1234',
+          'network_mode: safe',
+          '',
+        ].join('\n'),
+      );
+      saveSttSetting(home, {
+        provider: 'whisper',
+        model: 'whisper-1',
+        secret_ref: 'new_key',
+      });
+      const out = readFileSync(join(home, 'settings.yaml'), 'utf-8');
+      // Only one stt: header should remain.
+      const sttMatches = out.match(/^stt:$/gm) || [];
+      assert.equal(sttMatches.length, 1, `expected one stt: block, got:\n${out}`);
+      // Old indented values should be gone.
+      assert.doesNotMatch(out, /old_key/);
+      assert.doesNotMatch(out, /max_bytes: 1234/);
+      // New values present.
+      assert.match(out, /^  secret_ref: new_key$/m);
+      // Other keys preserved.
+      assert.match(out, /^browser_rendering: true$/m);
+      assert.match(out, /^network_mode: safe$/m);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('clears the stt block when passed null', () => {
+    const home = makeHome();
+    try {
+      writeFileSync(
+        join(home, 'settings.yaml'),
+        [
+          'browser_rendering: true',
+          'stt:',
+          '  provider: whisper',
+          '  secret_ref: moxxy_stt_whisper',
+          '',
+        ].join('\n'),
+      );
+      saveSttSetting(home, null);
+      const out = readFileSync(join(home, 'settings.yaml'), 'utf-8');
+      assert.doesNotMatch(out, /^stt:/m);
+      assert.doesNotMatch(out, /provider: whisper/);
+      // Unrelated keys preserved.
+      assert.match(out, /^browser_rendering: true$/m);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('includes api_base when provided in config', () => {
+    const home = makeHome();
+    try {
+      saveSttSetting(home, {
+        provider: 'whisper',
+        model: 'whisper-1',
+        secret_ref: 'moxxy_stt_whisper',
+        api_base: 'https://api.groq.com/openai/v1',
+      });
+      const out = readFileSync(join(home, 'settings.yaml'), 'utf-8');
+      assert.match(out, /^  api_base: https:\/\/api\.groq\.com\/openai\/v1$/m);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('is idempotent across repeated writes of the same config', () => {
+    const home = makeHome();
+    try {
+      const cfg = {
+        provider: 'whisper',
+        model: 'whisper-1',
+        secret_ref: 'moxxy_stt_whisper',
+      };
+      saveSttSetting(home, cfg);
+      const first = readFileSync(join(home, 'settings.yaml'), 'utf-8');
+      saveSttSetting(home, cfg);
+      saveSttSetting(home, cfg);
+      const third = readFileSync(join(home, 'settings.yaml'), 'utf-8');
+      assert.equal(first, third);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('ApiClient STT settings', () => {
+  it('getSttSettings GETs /v1/settings/stt', async () => {
+    const calls = [];
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async (req) => {
+      calls.push({ url: req.url, method: req.method });
+      return new Response(
+        JSON.stringify({ enabled: false }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    };
+    try {
+      const client = createApiClient('http://localhost:3000', 'tok');
+      const out = await client.getSttSettings();
+      assert.deepEqual(out, { enabled: false });
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].url, 'http://localhost:3000/v1/settings/stt');
+      assert.equal(calls[0].method, 'GET');
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it('updateSttSettings PUTs the body as JSON', async () => {
+    const seen = [];
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async (req) => {
+      const body = await req.text();
+      seen.push({ url: req.url, method: req.method, body });
+      return new Response(
+        JSON.stringify({
+          enabled: true,
+          provider: 'whisper',
+          model: 'whisper-1',
+          secret_ref: 'moxxy_stt_whisper',
+          max_bytes: 26214400,
+          max_seconds: 600,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    };
+    try {
+      const client = createApiClient('http://localhost:3000', 'tok');
+      const out = await client.updateSttSettings({
+        provider: 'whisper',
+        model: 'whisper-1',
+        api_key: 'sk-live-abc',
+      });
+      assert.equal(out.enabled, true);
+      assert.equal(out.provider, 'whisper');
+      assert.equal(seen.length, 1);
+      assert.equal(seen[0].method, 'PUT');
+      assert.equal(seen[0].url, 'http://localhost:3000/v1/settings/stt');
+      const parsed = JSON.parse(seen[0].body);
+      assert.equal(parsed.provider, 'whisper');
+      assert.equal(parsed.model, 'whisper-1');
+      assert.equal(parsed.api_key, 'sk-live-abc');
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it('deleteSttSettings DELETEs the settings endpoint', async () => {
+    const seen = [];
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async (req) => {
+      seen.push({ url: req.url, method: req.method });
+      return new Response(
+        JSON.stringify({ enabled: false }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    };
+    try {
+      const client = createApiClient('http://localhost:3000', 'tok');
+      const out = await client.deleteSttSettings();
+      assert.deepEqual(out, { enabled: false });
+      assert.equal(seen[0].method, 'DELETE');
+      assert.equal(seen[0].url, 'http://localhost:3000/v1/settings/stt');
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it('getSttSettings surfaces 403 as an Error with status', async () => {
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({ error: 'insufficient_scope', message: 'settings:read required' }),
+        { status: 403, headers: { 'content-type': 'application/json' } },
+      );
+    try {
+      const client = createApiClient('http://localhost:3000', 'tok');
+      await assert.rejects(
+        () => client.getSttSettings(),
+        (err) => {
+          assert.equal(err.status, 403);
+          assert.match(err.message, /settings:read/);
+          return true;
+        },
+      );
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+});
+
+describe('ApiClient.startRunWithAudio', () => {
+  it('posts multipart/form-data with audio field to the audio route', async () => {
+    const calls = [];
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      calls.push({ url, init });
+      return new Response(
+        JSON.stringify({
+          agent_name: 'demo',
+          run_id: 'run-1',
+          task: 'hello',
+          transcript: 'hello',
+          status: 'running',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    };
+    try {
+      const client = createApiClient('http://localhost:3000', 'mox_token');
+      const out = await client.startRunWithAudio('demo', {
+        data: new Uint8Array([0, 1, 2, 3, 4]),
+        mime: 'audio/wav',
+        filename: 'clip.wav',
+      });
+      assert.equal(out.transcript, 'hello');
+      assert.equal(out.run_id, 'run-1');
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].url, 'http://localhost:3000/v1/agents/demo/runs/audio');
+      assert.equal(calls[0].init.method, 'POST');
+      assert.equal(calls[0].init.headers.authorization, 'Bearer mox_token');
+      assert.ok(calls[0].init.body instanceof FormData);
+      const audioField = calls[0].init.body.get('audio');
+      assert.ok(audioField, 'audio field must be present');
+      assert.equal(audioField.type, 'audio/wav');
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it('surfaces server error bodies as Error with status and code', async () => {
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({ error: 'voice_not_configured', message: 'STT is off' }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      );
+    try {
+      const client = createApiClient('http://localhost:3000', 'tok');
+      await assert.rejects(
+        () =>
+          client.startRunWithAudio('demo', {
+            data: new Uint8Array([1, 2, 3]),
+            mime: 'audio/wav',
+            filename: 'x.wav',
+          }),
+        (err) => {
+          assert.equal(err.status, 400);
+          assert.equal(err.code, 'voice_not_configured');
+          assert.match(err.message, /STT is off/);
+          return true;
+        },
+      );
+    } finally {
+      globalThis.fetch = origFetch;
+    }
   });
 });

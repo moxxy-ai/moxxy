@@ -1,8 +1,9 @@
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Multipart, Path, Query, State};
 use axum::http::StatusCode;
 use moxxy_core::AgentStore;
 use moxxy_core::AllowlistFile;
+use moxxy_core::SttError;
 use moxxy_types::{AgentConfig, AgentRuntime, AgentStatus, AgentType, TokenScope};
 use std::sync::Arc;
 
@@ -505,6 +506,166 @@ pub async fn start_run(
         StartRunOutcome::Queued { position } => Ok(Json(serde_json::json!({
             "agent_name": name,
             "task": body.task,
+            "status": "queued",
+            "queue_position": position
+        }))),
+        StartRunOutcome::QueueFull => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "queue_full",
+                "message": "Agent is busy and run queue is full"
+            })),
+        )),
+    }
+}
+
+/// `POST /v1/agents/{name}/runs/audio` — multipart upload of a voice clip.
+/// The gateway transcribes the audio via the configured STT provider and
+/// immediately starts a run with the transcript as the task.
+///
+/// Expects a single multipart field named `audio` carrying raw bytes and a
+/// `content_type` (e.g. `audio/wav`, `audio/ogg`, `audio/mpeg`).
+pub async fn start_run_audio(
+    State(state): State<Arc<AppState>>,
+    auth: AuthToken,
+    Path(name): Path<String>,
+    mut multipart: Multipart,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    check_scope(&auth.0, &TokenScope::RunsWrite)?;
+
+    let (stt, stt_settings) = state.stt_snapshot();
+    let Some(stt) = stt else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "voice_not_configured",
+                "message": "Speech-to-text is not configured. Set `stt` via PUT /v1/settings/stt."
+            })),
+        ));
+    };
+
+    let max_bytes = stt_settings
+        .as_ref()
+        .map(|s| s.max_bytes)
+        .unwrap_or(25 * 1024 * 1024);
+
+    let mut audio_bytes: Option<Vec<u8>> = None;
+    let mut mime: String = "application/octet-stream".into();
+    let mut filename: String = "voice.wav".into();
+
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "bad_multipart",
+                "message": e.to_string(),
+            })),
+        )
+    })? {
+        let field_name = field.name().unwrap_or("").to_string();
+        if field_name != "audio" {
+            continue;
+        }
+        if let Some(ct) = field.content_type() {
+            mime = ct.to_string();
+        }
+        if let Some(fname) = field.file_name() {
+            filename = fname.to_string();
+        }
+        let bytes = field.bytes().await.map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "bad_multipart",
+                    "message": format!("read audio field: {}", e),
+                })),
+            )
+        })?;
+        if bytes.len() > max_bytes {
+            return Err((
+                StatusCode::PAYLOAD_TOO_LARGE,
+                Json(serde_json::json!({
+                    "error": "audio_too_large",
+                    "message": format!("audio is {} bytes, max {}", bytes.len(), max_bytes),
+                })),
+            ));
+        }
+        audio_bytes = Some(bytes.to_vec());
+        break;
+    }
+
+    let Some(audio) = audio_bytes else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "validation",
+                "message": "missing `audio` multipart field"
+            })),
+        ));
+    };
+
+    tracing::info!(
+        agent_name = %name,
+        bytes = audio.len(),
+        mime = %mime,
+        "Transcribing audio run request"
+    );
+
+    let transcript = stt
+        .transcribe(&audio, &mime, &filename)
+        .await
+        .map_err(|e| {
+            let (status, code) = match &e {
+                SttError::Auth(_) => (StatusCode::BAD_GATEWAY, "stt_auth"),
+                SttError::Unsupported(_) => (StatusCode::UNSUPPORTED_MEDIA_TYPE, "stt_unsupported"),
+                SttError::Empty => (StatusCode::UNPROCESSABLE_ENTITY, "stt_empty"),
+                SttError::Http(_) => (StatusCode::BAD_GATEWAY, "stt_http"),
+            };
+            (
+                status,
+                Json(serde_json::json!({
+                    "error": code,
+                    "message": e.to_string(),
+                })),
+            )
+        })?;
+
+    let outcome = state
+        .run_service
+        .start_or_queue_run(QueuedRun {
+            agent_name: name.clone(),
+            task: transcript.clone(),
+            source: "api-audio".into(),
+            metadata: serde_json::json!({
+                "audio_bytes": audio.len(),
+                "mime": mime,
+            }),
+        })
+        .await
+        .map_err(|e| {
+            let status = if e.contains("not found") {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (
+                status,
+                Json(serde_json::json!({"error": "internal", "message": e})),
+            )
+        })?;
+
+    match outcome {
+        StartRunOutcome::Started { run_id } => Ok(Json(serde_json::json!({
+            "agent_name": name,
+            "run_id": run_id,
+            "task": transcript,
+            "transcript": transcript,
+            "status": "running"
+        }))),
+        StartRunOutcome::Queued { position } => Ok(Json(serde_json::json!({
+            "agent_name": name,
+            "task": transcript,
+            "transcript": transcript,
             "status": "queued",
             "queue_position": position
         }))),

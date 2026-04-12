@@ -136,12 +136,15 @@ async fn main() {
 
     // Start channel bridge
     {
-        let mut bridge = moxxy_channel::ChannelBridge::new(
+        let (stt, stt_settings) = state.stt_snapshot();
+        let mut bridge = moxxy_channel::ChannelBridge::new_with_stt(
             state.db.clone(),
             state.event_bus.clone(),
             state.run_service.clone(),
             state.vault_backend.clone(),
             state.moxxy_home.clone(),
+            stt,
+            stt_settings,
         );
 
         // Load active channels from YAML and resolve bot tokens from vault

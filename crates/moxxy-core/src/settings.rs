@@ -22,6 +22,36 @@ pub struct SystemSettings {
     pub network_mode: NetworkMode,
     #[serde(default)]
     pub browser_rendering: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stt: Option<SttSettings>,
+}
+
+/// Speech-to-text configuration. When `None`, voice messages are rejected.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SttSettings {
+    /// Provider identifier. Currently only `"whisper"` is implemented.
+    pub provider: String,
+    /// Model name, e.g. `"whisper-1"`.
+    pub model: String,
+    /// Optional API base override (for Groq/self-host compatibility).
+    #[serde(default)]
+    pub api_base: Option<String>,
+    /// Vault secret reference holding the API key (e.g. `"OPENAI_API_KEY"`).
+    pub secret_ref: String,
+    /// Maximum accepted audio duration in seconds.
+    #[serde(default = "default_stt_max_seconds")]
+    pub max_seconds: u32,
+    /// Maximum accepted audio byte size.
+    #[serde(default = "default_stt_max_bytes")]
+    pub max_bytes: usize,
+}
+
+fn default_stt_max_seconds() -> u32 {
+    600
+}
+
+fn default_stt_max_bytes() -> usize {
+    25 * 1024 * 1024
 }
 
 impl SystemSettings {
@@ -89,6 +119,7 @@ mod tests {
         let settings = SystemSettings {
             network_mode: NetworkMode::Safe,
             browser_rendering: false,
+            stt: None,
         };
         settings.save(&path).unwrap();
         let loaded = SystemSettings::load(&path);
@@ -102,6 +133,7 @@ mod tests {
         let settings = SystemSettings {
             network_mode: NetworkMode::Unsafe,
             browser_rendering: false,
+            stt: None,
         };
         settings.save(&path).unwrap();
         let loaded = SystemSettings::load(&path);
@@ -144,10 +176,46 @@ mod tests {
         let settings = SystemSettings {
             network_mode: NetworkMode::Safe,
             browser_rendering: true,
+            stt: None,
         };
         settings.save(&path).unwrap();
         let loaded = SystemSettings::load(&path);
         assert!(loaded.browser_rendering);
+    }
+
+    #[test]
+    fn round_trip_stt_settings() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("settings.yaml");
+        let settings = SystemSettings {
+            network_mode: NetworkMode::Safe,
+            browser_rendering: false,
+            stt: Some(SttSettings {
+                provider: "whisper".into(),
+                model: "whisper-1".into(),
+                api_base: None,
+                secret_ref: "OPENAI_API_KEY".into(),
+                max_seconds: 600,
+                max_bytes: 25 * 1024 * 1024,
+            }),
+        };
+        settings.save(&path).unwrap();
+        let loaded = SystemSettings::load(&path);
+        let stt = loaded.stt.expect("stt should round-trip");
+        assert_eq!(stt.provider, "whisper");
+        assert_eq!(stt.model, "whisper-1");
+        assert_eq!(stt.secret_ref, "OPENAI_API_KEY");
+        assert_eq!(stt.max_seconds, 600);
+    }
+
+    #[test]
+    fn stt_defaults_when_missing_optional_fields() {
+        let yaml = "stt:\n  provider: whisper\n  model: whisper-1\n  secret_ref: OPENAI_API_KEY\n";
+        let settings: SystemSettings = serde_yaml::from_str(yaml).unwrap();
+        let stt = settings.stt.expect("stt");
+        assert_eq!(stt.max_seconds, 600);
+        assert_eq!(stt.max_bytes, 25 * 1024 * 1024);
+        assert!(stt.api_base.is_none());
     }
 
     #[test]

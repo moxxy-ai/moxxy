@@ -9,6 +9,7 @@ export const SLASH_COMMANDS = [
   { name: '/vault',        description: 'Open vault actions',          aliases: ['/vault delete'] },
   { name: '/mcp',          description: 'Open MCP actions',            aliases: [] },
   { name: '/template',     description: 'Open template actions',       aliases: [] },
+  { name: '/voice',        description: 'Record a voice message (needs sox or ffmpeg)', aliases: [] },
 ];
 
 export function matchCommands(input) {

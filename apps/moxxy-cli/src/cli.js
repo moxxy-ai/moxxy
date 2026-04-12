@@ -94,8 +94,9 @@ Usage:
   moxxy chat [--agent <id>]                           Alias for tui
   moxxy events tail [--agent <id>] [--run <id>] [--json]
   moxxy settings network-mode [safe|unsafe]           Get or set network mode
-  moxxy settings get [--key <k>] [--json]            View settings
-  moxxy settings set --key <k> --value <v>           Set a setting
+  moxxy settings stt [status|enable|disable]          Configure voice messages (speech-to-text)
+  moxxy settings get [--key <k>] [--json]             View settings
+  moxxy settings set --key <k> --value <v>            Set a setting
   moxxy doctor                                       Diagnose installation
   moxxy update [--check] [--force] [--json]          Check for and install updates
   moxxy update --rollback                            Restore previous gateway version

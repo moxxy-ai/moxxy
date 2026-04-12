@@ -1,9 +1,10 @@
 use moxxy_channel::ChannelBridge;
 use moxxy_core::{
     AgentRegistry, AgentStore, EventBus, HeartbeatActionContext, HeartbeatActionRegistry,
-    HeartbeatScheduler, LoadedWebhook, RedactionEngine, WebhookLoader,
+    HeartbeatScheduler, LoadedWebhook, RedactionEngine, SttProvider, SttSettings, SystemSettings,
+    WebhookLoader, settings_path,
 };
-use moxxy_runtime::WebhookListenChannels;
+use moxxy_runtime::{WebhookListenChannels, WhisperProvider};
 use moxxy_storage::{Database, EventAuditRow};
 use moxxy_types::{AgentRuntime, AgentStatus, AgentType, AuthMode, EventEnvelope, EventType};
 use moxxy_vault::{SecretBackend, SqliteBackend};
@@ -28,6 +29,74 @@ pub fn register_sqlite_vec() {
     }
 }
 
+/// Error building an `SttProvider` from a `SttSettings`. Distinct from
+/// `SttError` so callers (including the settings API) can return precise
+/// HTTP status codes.
+#[derive(Debug, thiserror::Error)]
+pub enum SttBuildError {
+    #[error("unknown stt provider: {0}")]
+    UnknownProvider(String),
+    #[error("stt secret `{key}` not found in vault: {message}")]
+    SecretMissing { key: String, message: String },
+}
+
+/// Build an `SttProvider` from a `SttSettings` and a vault backend. Returns
+/// `Err` if the provider kind is unknown or the vault secret can't be fetched.
+pub fn build_stt_provider(
+    stt_cfg: &SttSettings,
+    vault_backend: &(dyn SecretBackend + Send + Sync),
+) -> Result<Arc<dyn SttProvider>, SttBuildError> {
+    let api_key = vault_backend.get_secret(&stt_cfg.secret_ref).map_err(|e| {
+        SttBuildError::SecretMissing {
+            key: stt_cfg.secret_ref.clone(),
+            message: e.to_string(),
+        }
+    })?;
+
+    match stt_cfg.provider.as_str() {
+        "whisper" | "openai" | "groq" => Ok(Arc::new(WhisperProvider::new(
+            stt_cfg
+                .api_base
+                .clone()
+                .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+            api_key,
+            stt_cfg.model.clone(),
+        ))),
+        other => Err(SttBuildError::UnknownProvider(other.to_string())),
+    }
+}
+
+/// Load STT config from `{moxxy_home}/settings.yaml` and build a provider
+/// backed by the vault-stored API key. Logs and returns `(None, None)` on any
+/// failure — the gateway should still boot without voice support.
+fn resolve_stt_at_startup(
+    moxxy_home: &std::path::Path,
+    vault_backend: &(dyn SecretBackend + Send + Sync),
+) -> (Option<Arc<dyn SttProvider>>, Option<SttSettings>) {
+    let settings = SystemSettings::load(&settings_path(moxxy_home));
+    let Some(stt_cfg) = settings.stt else {
+        return (None, None);
+    };
+
+    match build_stt_provider(&stt_cfg, vault_backend) {
+        Ok(provider) => {
+            tracing::info!(
+                provider = %stt_cfg.provider,
+                model = %stt_cfg.model,
+                "Speech-to-text backend initialized"
+            );
+            (Some(provider), Some(stt_cfg))
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                "Failed to initialize STT provider; voice messages will be unavailable"
+            );
+            (None, None)
+        }
+    }
+}
+
 /// Tracks pairing brute-force attempts: channel_id → (count, window_start).
 pub type PairingAttempts = Arc<Mutex<HashMap<String, (u32, chrono::DateTime<chrono::Utc>)>>>;
 
@@ -47,6 +116,16 @@ pub struct AppState {
     pub pairing_attempts: PairingAttempts,
     /// Drain receiver - must be consumed by `spawn_drain_loop` after the runtime starts.
     pub drain_rx: Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<String>>>,
+    /// Optional speech-to-text backend for voice message transcription.
+    /// Shared with `ChannelBridge` so Telegram, TUI, and any HTTP client go
+    /// through the same provider.
+    ///
+    /// Wrapped in a `RwLock` so `PUT /v1/settings/stt` can swap the
+    /// provider at runtime without restarting the gateway. Route handlers
+    /// should clone the `Arc` under the lock and then release it before
+    /// awaiting.
+    pub stt: RwLock<Option<Arc<dyn SttProvider>>>,
+    pub stt_settings: RwLock<Option<SttSettings>>,
 }
 
 impl AppState {
@@ -179,6 +258,12 @@ impl AppState {
 
         let channel_bridge: Arc<Mutex<Option<Arc<ChannelBridge>>>> = Arc::new(Mutex::new(None));
 
+        // Resolve the speech-to-text provider from SystemSettings, if configured.
+        // Errors at this stage are logged and turned into `None` so the gateway
+        // still boots — voice messages will surface a clear "not configured"
+        // error at request time instead of crashing startup.
+        let (stt, stt_settings) = resolve_stt_at_startup(&moxxy_home, vault_backend.as_ref());
+
         Self {
             db,
             registry,
@@ -193,6 +278,31 @@ impl AppState {
             webhook_listen_channels,
             pairing_attempts: Arc::new(Mutex::new(HashMap::new())) as PairingAttempts,
             drain_rx: Mutex::new(Some(drain_rx)),
+            stt: RwLock::new(stt),
+            stt_settings: RwLock::new(stt_settings),
+        }
+    }
+
+    /// Snapshot the currently-installed STT backend (cloning the `Arc`) plus
+    /// its settings so callers can use them outside the lock.
+    pub fn stt_snapshot(&self) -> (Option<Arc<dyn SttProvider>>, Option<SttSettings>) {
+        (
+            self.stt.read().unwrap().clone(),
+            self.stt_settings.read().unwrap().clone(),
+        )
+    }
+
+    /// Replace the STT backend + settings in both `AppState` and the running
+    /// `ChannelBridge` (if one has been installed). Passing `None`/`None`
+    /// disables voice messages.
+    pub fn set_stt(&self, provider: Option<Arc<dyn SttProvider>>, settings: Option<SttSettings>) {
+        *self.stt.write().unwrap() = provider.clone();
+        *self.stt_settings.write().unwrap() = settings.clone();
+
+        if let Ok(guard) = self.channel_bridge.lock()
+            && let Some(bridge) = guard.as_ref()
+        {
+            bridge.set_stt(provider, settings);
         }
     }
 

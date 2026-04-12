@@ -1,7 +1,7 @@
 use crate::commands::{self, CommandContext, CommandRegistry};
 use crate::pairing::PairingService;
 use crate::transport::{ChannelTransport, IncomingMessage, OutgoingMessage};
-use moxxy_core::{ChannelStore, EventBus};
+use moxxy_core::{ChannelStore, EventBus, SttProvider, SttSettings};
 use moxxy_storage::Database;
 use moxxy_types::{ChannelError, EventType, MessageContent, RunStarter};
 use moxxy_vault::SecretBackend;
@@ -174,6 +174,13 @@ pub struct ChannelBridge {
     /// a new run.
     pending_asks: TokioMutex<HashMap<(String, String), String>>,
     moxxy_home: std::path::PathBuf,
+    /// Optional speech-to-text backend. When `Some`, incoming voice messages
+    /// are transcribed to text before being routed to the agent.
+    ///
+    /// Wrapped in a `RwLock` so the gateway can swap the provider at runtime
+    /// when settings change (via `PUT /v1/settings/stt`) without restarting.
+    stt: RwLock<Option<Arc<dyn SttProvider>>>,
+    stt_settings: RwLock<Option<SttSettings>>,
 }
 
 impl ChannelBridge {
@@ -183,6 +190,26 @@ impl ChannelBridge {
         run_starter: Arc<dyn RunStarter>,
         vault_backend: Arc<dyn SecretBackend + Send + Sync>,
         moxxy_home: std::path::PathBuf,
+    ) -> Self {
+        Self::new_with_stt(
+            db,
+            event_bus,
+            run_starter,
+            vault_backend,
+            moxxy_home,
+            None,
+            None,
+        )
+    }
+
+    pub fn new_with_stt(
+        db: Arc<Mutex<Database>>,
+        event_bus: EventBus,
+        run_starter: Arc<dyn RunStarter>,
+        vault_backend: Arc<dyn SecretBackend + Send + Sync>,
+        moxxy_home: std::path::PathBuf,
+        stt: Option<Arc<dyn SttProvider>>,
+        stt_settings: Option<SttSettings>,
     ) -> Self {
         let pairing_service = Arc::new(PairingService::new(&moxxy_home));
         let commands = commands::build_default_registry();
@@ -198,7 +225,17 @@ impl ChannelBridge {
             progress: TokioMutex::new(HashMap::new()),
             pending_asks: TokioMutex::new(HashMap::new()),
             moxxy_home,
+            stt: RwLock::new(stt),
+            stt_settings: RwLock::new(stt_settings),
         }
+    }
+
+    /// Replace the bridge's speech-to-text backend at runtime. Pass `None`
+    /// for both arguments to disable voice transcription on every channel
+    /// without restarting the gateway.
+    pub fn set_stt(&self, stt: Option<Arc<dyn SttProvider>>, settings: Option<SttSettings>) {
+        *self.stt.write().unwrap() = stt;
+        *self.stt_settings.write().unwrap() = settings;
     }
 
     /// Return all command definitions (for platform menu registration).
@@ -292,19 +329,168 @@ impl ChannelBridge {
         self.spawn_event_listener();
     }
 
+    /// Transcribe `msg.audio` via the configured STT backend and replace
+    /// `msg.text` with the transcript. Returns `true` on success, `false` if
+    /// the message was handled (error sent to user) and the caller should
+    /// return without further routing.
+    async fn transcribe_audio_in_place(
+        &self,
+        channel_id: &str,
+        transport: &Arc<dyn ChannelTransport>,
+        msg: &mut IncomingMessage,
+    ) -> bool {
+        let Some(audio) = msg.audio.take() else {
+            return true;
+        };
+
+        // Snapshot the current STT backend + settings. We clone the `Arc`
+        // and `SttSettings` under the read lock so the lock isn't held across
+        // the subsequent `.await`s — a settings update that swaps the
+        // provider mid-transcription still lets the in-flight call complete.
+        let stt_snapshot = self.stt.read().unwrap().clone();
+        let settings_snapshot = self.stt_settings.read().unwrap().clone();
+
+        let Some(stt) = stt_snapshot else {
+            tracing::warn!(
+                channel_id,
+                external_chat_id = %msg.external_chat_id,
+                "Voice message received but STT is not configured"
+            );
+            let _ = transport
+                .send_message(OutgoingMessage {
+                    external_chat_id: msg.external_chat_id.clone(),
+                    content: MessageContent::Text(
+                        "Voice messages are not configured on this server. Ask the operator to configure STT.".into(),
+                    ),
+                })
+                .await;
+            return false;
+        };
+
+        if let Some(settings) = settings_snapshot.as_ref() {
+            if audio.data.len() > settings.max_bytes {
+                let _ = transport
+                    .send_message(OutgoingMessage {
+                        external_chat_id: msg.external_chat_id.clone(),
+                        content: MessageContent::Text(format!(
+                            "Voice message too large ({} bytes, max {}).",
+                            audio.data.len(),
+                            settings.max_bytes
+                        )),
+                    })
+                    .await;
+                return false;
+            }
+            if let Some(dur) = audio.duration_secs
+                && dur > settings.max_seconds
+            {
+                let _ = transport
+                    .send_message(OutgoingMessage {
+                        external_chat_id: msg.external_chat_id.clone(),
+                        content: MessageContent::Text(format!(
+                            "Voice message too long ({}s, max {}s).",
+                            dur, settings.max_seconds
+                        )),
+                    })
+                    .await;
+                return false;
+            }
+        }
+
+        let _ = transport.send_typing(&msg.external_chat_id).await;
+
+        match stt
+            .transcribe(&audio.data, &audio.mime, &audio.filename)
+            .await
+        {
+            Ok(text) if !text.trim().is_empty() => {
+                let chars = text.chars().count();
+                tracing::info!(
+                    channel_id,
+                    external_chat_id = %msg.external_chat_id,
+                    chars,
+                    "Voice message transcribed"
+                );
+                // Emit an audit event so transcripts are visible in the event log.
+                let envelope = moxxy_types::EventEnvelope::new(
+                    String::new(),
+                    None,
+                    None,
+                    0,
+                    EventType::ChannelVoiceTranscribed,
+                    serde_json::json!({
+                        "channel_id": channel_id,
+                        "channel_type": transport.transport_name(),
+                        "external_chat_id": msg.external_chat_id,
+                        "duration_secs": audio.duration_secs,
+                        "chars": chars,
+                        "stt_provider": stt.name(),
+                    }),
+                );
+                self.event_bus.emit(envelope);
+                msg.text = text;
+                true
+            }
+            Ok(_) => {
+                let _ = transport
+                    .send_message(OutgoingMessage {
+                        external_chat_id: msg.external_chat_id.clone(),
+                        content: MessageContent::Text(
+                            "Couldn't hear anything in that voice message — try again.".into(),
+                        ),
+                    })
+                    .await;
+                false
+            }
+            Err(e) => {
+                tracing::error!(
+                    channel_id,
+                    external_chat_id = %msg.external_chat_id,
+                    error = %e,
+                    "Voice transcription failed"
+                );
+                let user_msg = match &e {
+                    moxxy_core::SttError::Auth(_) => "Voice service authentication failed.",
+                    moxxy_core::SttError::Unsupported(_) => "This audio format is not supported.",
+                    moxxy_core::SttError::Empty => "Couldn't hear anything — try again.",
+                    moxxy_core::SttError::Http(_) => "Voice service temporarily unavailable.",
+                };
+                let _ = transport
+                    .send_message(OutgoingMessage {
+                        external_chat_id: msg.external_chat_id.clone(),
+                        content: MessageContent::Text(user_msg.into()),
+                    })
+                    .await;
+                false
+            }
+        }
+    }
+
     async fn handle_incoming(
         &self,
         channel_id: &str,
         transport: &Arc<dyn ChannelTransport>,
-        msg: IncomingMessage,
+        mut msg: IncomingMessage,
     ) {
         tracing::info!(
             channel_id,
             external_chat_id = %msg.external_chat_id,
             sender_id = %msg.sender_id,
             text_len = msg.text.len(),
+            has_audio = msg.audio.is_some(),
             "Inbound channel message"
         );
+
+        // Transcribe voice messages before any further routing. On any error
+        // (not configured, auth failure, oversize, empty) respond to the user
+        // and stop — do not start a run with an empty task.
+        if msg.audio.is_some()
+            && !self
+                .transcribe_audio_in_place(channel_id, transport, &mut msg)
+                .await
+        {
+            return;
+        }
 
         // Handle platform slash commands
         if msg.text.starts_with('/') {
@@ -1462,5 +1648,361 @@ mod tests {
             finished: false,
         });
         assert_eq!(rp.render(), "");
+    }
+
+    // ---------- STT integration tests for ChannelBridge ----------
+
+    use crate::transport::IncomingAudio;
+    use moxxy_core::SttError as CoreSttError;
+    use moxxy_core::SttProvider as CoreSttProvider;
+
+    /// Test STT provider with configurable behavior.
+    enum FakeSttBehavior {
+        Ok(String),
+        Auth,
+        Http,
+    }
+
+    struct FakeStt {
+        behavior: FakeSttBehavior,
+        calls: Arc<Mutex<u32>>,
+    }
+
+    #[async_trait::async_trait]
+    impl CoreSttProvider for FakeStt {
+        async fn transcribe(
+            &self,
+            _audio: &[u8],
+            _mime: &str,
+            _filename: &str,
+        ) -> Result<String, CoreSttError> {
+            *self.calls.lock().unwrap() += 1;
+            match &self.behavior {
+                FakeSttBehavior::Ok(s) => Ok(s.clone()),
+                FakeSttBehavior::Auth => Err(CoreSttError::Auth("bad".into())),
+                FakeSttBehavior::Http => Err(CoreSttError::Http("boom".into())),
+            }
+        }
+        fn name(&self) -> &str {
+            "fake"
+        }
+    }
+
+    /// Transport that captures every outgoing message in-memory so tests
+    /// can assert on the user-visible reply.
+    struct RecordingTransport {
+        sent: Arc<Mutex<Vec<OutgoingMessage>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl ChannelTransport for RecordingTransport {
+        fn transport_name(&self) -> &str {
+            "recording"
+        }
+        async fn start_receiving(
+            &self,
+            _sender: tokio::sync::mpsc::Sender<IncomingMessage>,
+            _shutdown: CancellationToken,
+        ) -> Result<(), ChannelError> {
+            Ok(())
+        }
+        async fn send_message(&self, msg: OutgoingMessage) -> Result<(), ChannelError> {
+            self.sent.lock().unwrap().push(msg);
+            Ok(())
+        }
+    }
+
+    fn build_bridge(
+        stt: Option<Arc<dyn CoreSttProvider>>,
+        stt_settings: Option<SttSettings>,
+    ) -> Arc<ChannelBridge> {
+        let db = setup_db();
+        let event_bus = EventBus::new(64);
+        let run_starter: Arc<dyn RunStarter> = Arc::new(MockRunStarter);
+        let vault: Arc<dyn SecretBackend + Send + Sync> =
+            Arc::new(moxxy_vault::InMemoryBackend::new());
+        Arc::new(ChannelBridge::new_with_stt(
+            db,
+            event_bus,
+            run_starter,
+            vault,
+            "/tmp/moxxy-stt-test".into(),
+            stt,
+            stt_settings,
+        ))
+    }
+
+    fn build_transport() -> (Arc<dyn ChannelTransport>, Arc<Mutex<Vec<OutgoingMessage>>>) {
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let transport: Arc<dyn ChannelTransport> =
+            Arc::new(RecordingTransport { sent: sent.clone() });
+        (transport, sent)
+    }
+
+    fn default_stt_settings() -> SttSettings {
+        SttSettings {
+            provider: "fake".into(),
+            model: "whisper-1".into(),
+            api_base: None,
+            secret_ref: "OPENAI_API_KEY".into(),
+            max_seconds: 600,
+            max_bytes: 25 * 1024 * 1024,
+        }
+    }
+
+    fn audio_msg(audio: IncomingAudio) -> IncomingMessage {
+        IncomingMessage {
+            external_chat_id: "chat-1".into(),
+            sender_id: "user-1".into(),
+            sender_name: "Alice".into(),
+            text: String::new(),
+            timestamp: 0,
+            audio: Some(audio),
+        }
+    }
+
+    #[tokio::test]
+    async fn transcribe_replaces_text_on_success() {
+        let calls = Arc::new(Mutex::new(0));
+        let stt: Arc<dyn CoreSttProvider> = Arc::new(FakeStt {
+            behavior: FakeSttBehavior::Ok("hello from voice".into()),
+            calls: calls.clone(),
+        });
+        let bridge = build_bridge(Some(stt), Some(default_stt_settings()));
+        let (transport, sent) = build_transport();
+
+        let mut msg = audio_msg(IncomingAudio {
+            data: vec![0u8; 128],
+            mime: "audio/ogg".into(),
+            filename: "voice.ogg".into(),
+            duration_secs: Some(4),
+        });
+
+        let ok = bridge
+            .transcribe_audio_in_place("ch1", &transport, &mut msg)
+            .await;
+        assert!(ok);
+        assert_eq!(msg.text, "hello from voice");
+        assert!(msg.audio.is_none(), "audio should be consumed");
+        assert_eq!(*calls.lock().unwrap(), 1);
+        // Only a typing indicator (no-op in recording transport) is expected;
+        // no user-facing error message should have been sent.
+        assert_eq!(sent.lock().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn transcribe_fails_cleanly_when_stt_not_configured() {
+        let bridge = build_bridge(None, None);
+        let (transport, sent) = build_transport();
+
+        let mut msg = audio_msg(IncomingAudio {
+            data: vec![0u8; 64],
+            mime: "audio/ogg".into(),
+            filename: "voice.ogg".into(),
+            duration_secs: Some(2),
+        });
+
+        let ok = bridge
+            .transcribe_audio_in_place("ch1", &transport, &mut msg)
+            .await;
+        assert!(!ok);
+        // User must see a clear message explaining the feature is off.
+        let sent_msgs = sent.lock().unwrap();
+        assert_eq!(sent_msgs.len(), 1);
+        match &sent_msgs[0].content {
+            MessageContent::Text(s) => assert!(
+                s.contains("not configured"),
+                "expected 'not configured' message, got: {s}"
+            ),
+            other => panic!("expected Text, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn transcribe_rejects_oversize_audio() {
+        let calls = Arc::new(Mutex::new(0));
+        let stt: Arc<dyn CoreSttProvider> = Arc::new(FakeStt {
+            behavior: FakeSttBehavior::Ok("should never run".into()),
+            calls: calls.clone(),
+        });
+        let mut settings = default_stt_settings();
+        settings.max_bytes = 10;
+        let bridge = build_bridge(Some(stt), Some(settings));
+        let (transport, sent) = build_transport();
+
+        let mut msg = audio_msg(IncomingAudio {
+            data: vec![0u8; 64], // 64 > max_bytes=10
+            mime: "audio/ogg".into(),
+            filename: "voice.ogg".into(),
+            duration_secs: Some(1),
+        });
+
+        let ok = bridge
+            .transcribe_audio_in_place("ch1", &transport, &mut msg)
+            .await;
+        assert!(!ok);
+        assert_eq!(
+            *calls.lock().unwrap(),
+            0,
+            "STT must not be called for oversize audio"
+        );
+        let sent_msgs = sent.lock().unwrap();
+        assert_eq!(sent_msgs.len(), 1);
+        match &sent_msgs[0].content {
+            MessageContent::Text(s) => {
+                assert!(s.contains("too large"), "got: {s}")
+            }
+            other => panic!("expected Text, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn transcribe_rejects_overlong_duration() {
+        let calls = Arc::new(Mutex::new(0));
+        let stt: Arc<dyn CoreSttProvider> = Arc::new(FakeStt {
+            behavior: FakeSttBehavior::Ok("should never run".into()),
+            calls: calls.clone(),
+        });
+        let mut settings = default_stt_settings();
+        settings.max_seconds = 5;
+        let bridge = build_bridge(Some(stt), Some(settings));
+        let (transport, sent) = build_transport();
+
+        let mut msg = audio_msg(IncomingAudio {
+            data: vec![0u8; 64],
+            mime: "audio/ogg".into(),
+            filename: "voice.ogg".into(),
+            duration_secs: Some(10),
+        });
+
+        let ok = bridge
+            .transcribe_audio_in_place("ch1", &transport, &mut msg)
+            .await;
+        assert!(!ok);
+        assert_eq!(*calls.lock().unwrap(), 0);
+        let sent_msgs = sent.lock().unwrap();
+        assert_eq!(sent_msgs.len(), 1);
+        match &sent_msgs[0].content {
+            MessageContent::Text(s) => assert!(s.contains("too long"), "got: {s}"),
+            other => panic!("expected Text, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn transcribe_handles_empty_transcript() {
+        let calls = Arc::new(Mutex::new(0));
+        let stt: Arc<dyn CoreSttProvider> = Arc::new(FakeStt {
+            behavior: FakeSttBehavior::Ok("   ".into()),
+            calls: calls.clone(),
+        });
+        let bridge = build_bridge(Some(stt), Some(default_stt_settings()));
+        let (transport, sent) = build_transport();
+
+        let mut msg = audio_msg(IncomingAudio {
+            data: vec![0u8; 64],
+            mime: "audio/ogg".into(),
+            filename: "voice.ogg".into(),
+            duration_secs: Some(3),
+        });
+
+        let ok = bridge
+            .transcribe_audio_in_place("ch1", &transport, &mut msg)
+            .await;
+        assert!(!ok);
+        assert_eq!(*calls.lock().unwrap(), 1);
+        let sent_msgs = sent.lock().unwrap();
+        assert_eq!(sent_msgs.len(), 1);
+        match &sent_msgs[0].content {
+            MessageContent::Text(s) => {
+                assert!(s.to_lowercase().contains("couldn't hear"), "got: {s}")
+            }
+            other => panic!("expected Text, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn transcribe_surfaces_auth_error() {
+        let calls = Arc::new(Mutex::new(0));
+        let stt: Arc<dyn CoreSttProvider> = Arc::new(FakeStt {
+            behavior: FakeSttBehavior::Auth,
+            calls: calls.clone(),
+        });
+        let bridge = build_bridge(Some(stt), Some(default_stt_settings()));
+        let (transport, sent) = build_transport();
+
+        let mut msg = audio_msg(IncomingAudio {
+            data: vec![0u8; 64],
+            mime: "audio/ogg".into(),
+            filename: "voice.ogg".into(),
+            duration_secs: Some(3),
+        });
+
+        let ok = bridge
+            .transcribe_audio_in_place("ch1", &transport, &mut msg)
+            .await;
+        assert!(!ok);
+        assert_eq!(*calls.lock().unwrap(), 1);
+        let sent_msgs = sent.lock().unwrap();
+        assert_eq!(sent_msgs.len(), 1);
+        match &sent_msgs[0].content {
+            MessageContent::Text(s) => {
+                assert!(s.contains("authentication"), "got: {s}")
+            }
+            other => panic!("expected Text, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn transcribe_surfaces_http_error_as_unavailable() {
+        let stt: Arc<dyn CoreSttProvider> = Arc::new(FakeStt {
+            behavior: FakeSttBehavior::Http,
+            calls: Arc::new(Mutex::new(0)),
+        });
+        let bridge = build_bridge(Some(stt), Some(default_stt_settings()));
+        let (transport, sent) = build_transport();
+
+        let mut msg = audio_msg(IncomingAudio {
+            data: vec![0u8; 64],
+            mime: "audio/ogg".into(),
+            filename: "voice.ogg".into(),
+            duration_secs: Some(3),
+        });
+
+        let ok = bridge
+            .transcribe_audio_in_place("ch1", &transport, &mut msg)
+            .await;
+        assert!(!ok);
+        let sent_msgs = sent.lock().unwrap();
+        assert_eq!(sent_msgs.len(), 1);
+        match &sent_msgs[0].content {
+            MessageContent::Text(s) => assert!(s.contains("unavailable"), "got: {s}"),
+            other => panic!("expected Text, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn transcribe_no_op_without_audio() {
+        let calls = Arc::new(Mutex::new(0));
+        let stt: Arc<dyn CoreSttProvider> = Arc::new(FakeStt {
+            behavior: FakeSttBehavior::Ok("nope".into()),
+            calls: calls.clone(),
+        });
+        let bridge = build_bridge(Some(stt), Some(default_stt_settings()));
+        let (transport, _sent) = build_transport();
+
+        let mut msg = IncomingMessage {
+            external_chat_id: "chat-1".into(),
+            sender_id: "user-1".into(),
+            sender_name: "Alice".into(),
+            text: "plain text".into(),
+            timestamp: 0,
+            audio: None,
+        };
+        let ok = bridge
+            .transcribe_audio_in_place("ch1", &transport, &mut msg)
+            .await;
+        assert!(ok, "no-audio path should be a success no-op");
+        assert_eq!(msg.text, "plain text");
+        assert_eq!(*calls.lock().unwrap(), 0);
     }
 }

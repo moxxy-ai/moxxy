@@ -101,6 +101,10 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
                 .delete(routes::agents::delete_agent),
         )
         .route("/v1/agents/{name}/runs", post(routes::agents::start_run))
+        .route(
+            "/v1/agents/{name}/runs/audio",
+            post(routes::agents::start_run_audio),
+        )
         .route("/v1/agents/{name}/stop", post(routes::agents::stop_run))
         .route(
             "/v1/agents/{name}/reset",
@@ -203,6 +207,13 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
         )
         // Audit logs
         .route("/v1/audit-logs", get(routes::audit::list_audit_logs))
+        // Settings — speech-to-text
+        .route(
+            "/v1/settings/stt",
+            get(routes::settings::get_stt)
+                .put(routes::settings::put_stt)
+                .delete(routes::settings::delete_stt),
+        )
         // Events
         .route("/v1/events/stream", get(routes::events::event_stream))
         // Channels
@@ -2222,5 +2233,298 @@ mod mcp_tests {
             .unwrap();
         let resp = request(&app, req).await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+}
+
+#[cfg(test)]
+mod settings_stt_tests {
+    use super::test_helpers::*;
+    use axum::body::Body;
+    use axum::http::StatusCode;
+    use http::Request;
+    use moxxy_types::TokenScope;
+
+    async fn get_json(app: &axum::Router, req: Request<Body>) -> serde_json::Value {
+        let resp = request(app, req).await;
+        let status = resp.status();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap_or_else(|_| {
+            panic!(
+                "non-JSON body (status={status}): {}",
+                String::from_utf8_lossy(&body)
+            )
+        });
+        v
+    }
+
+    #[tokio::test]
+    async fn get_stt_returns_disabled_by_default() {
+        let (app, state, _tmp) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::SettingsRead]);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/settings/stt")
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        let body = get_json(&app, req).await;
+        assert_eq!(body["enabled"], false);
+    }
+
+    #[tokio::test]
+    async fn get_stt_requires_settings_read_scope() {
+        let (app, state, _tmp) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::AgentsRead]);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/settings/stt")
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn put_stt_rejects_missing_provider() {
+        let (app, state, _tmp) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::SettingsWrite]);
+
+        let req = Request::builder()
+            .method("PUT")
+            .uri("/v1/settings/stt")
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"provider":"","model":"whisper-1","api_key":"sk-x"}"#,
+            ))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn put_stt_rejects_empty_api_key() {
+        let (app, state, _tmp) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::SettingsWrite]);
+
+        let req = Request::builder()
+            .method("PUT")
+            .uri("/v1/settings/stt")
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"provider":"whisper","model":"whisper-1","api_key":"   "}"#,
+            ))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn put_stt_rejects_unknown_provider() {
+        let (app, state, _tmp) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::SettingsWrite]);
+
+        let req = Request::builder()
+            .method("PUT")
+            .uri("/v1/settings/stt")
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"provider":"not-a-real-provider","model":"x","api_key":"sk-x"}"#,
+            ))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        // Secret should have been written, but the subsequent provider build
+        // fails — that's the expected behavior (fail loudly, don't persist to
+        // settings.yaml).
+    }
+
+    #[tokio::test]
+    async fn put_stt_without_api_key_or_existing_secret_returns_400() {
+        let (app, state, _tmp) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::SettingsWrite]);
+
+        let req = Request::builder()
+            .method("PUT")
+            .uri("/v1/settings/stt")
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"provider":"whisper","model":"whisper-1"}"#))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["error"], "secret_missing");
+    }
+
+    #[tokio::test]
+    async fn put_stt_happy_path_persists_and_updates_state() {
+        let (app, state, _tmp) = test_app();
+        let token = create_token_in_db(
+            &state,
+            vec![TokenScope::SettingsWrite, TokenScope::SettingsRead],
+        );
+
+        // Before: disabled.
+        let (_, pre) = state.stt_snapshot();
+        assert!(pre.is_none());
+
+        let req = Request::builder()
+            .method("PUT")
+            .uri("/v1/settings/stt")
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"provider":"whisper","model":"whisper-1","api_key":"sk-live-abc"}"#,
+            ))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["enabled"], true);
+        assert_eq!(v["provider"], "whisper");
+        assert_eq!(v["model"], "whisper-1");
+        assert_eq!(v["secret_ref"], "moxxy_stt_whisper");
+        // The API must never echo the raw key back.
+        assert!(v.get("api_key").is_none());
+
+        // After: AppState picked up the new provider.
+        let (provider_after, settings_after) = state.stt_snapshot();
+        assert!(provider_after.is_some());
+        assert_eq!(settings_after.unwrap().provider, "whisper");
+
+        // settings.yaml on disk has the block.
+        let yaml = std::fs::read_to_string(state.moxxy_home.join("settings.yaml")).unwrap();
+        assert!(yaml.contains("stt:"), "yaml was:\n{yaml}");
+        assert!(yaml.contains("provider: whisper"), "yaml was:\n{yaml}");
+        // Raw key never lands on disk — only the secret_ref pointer.
+        assert!(!yaml.contains("sk-live-abc"), "secret leaked to disk");
+
+        // GET reflects the same state.
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/settings/stt")
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        let got = get_json(&app, req).await;
+        assert_eq!(got["enabled"], true);
+        assert_eq!(got["provider"], "whisper");
+    }
+
+    #[tokio::test]
+    async fn put_stt_then_delete_disables_and_clears_state() {
+        let (app, state, _tmp) = test_app();
+        let token = create_token_in_db(
+            &state,
+            vec![TokenScope::SettingsWrite, TokenScope::SettingsRead],
+        );
+
+        // Enable.
+        let req = Request::builder()
+            .method("PUT")
+            .uri("/v1/settings/stt")
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"provider":"whisper","model":"whisper-1","api_key":"sk-live-abc"}"#,
+            ))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Disable.
+        let req = Request::builder()
+            .method("DELETE")
+            .uri("/v1/settings/stt")
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // AppState cleared.
+        let (p, s) = state.stt_snapshot();
+        assert!(p.is_none());
+        assert!(s.is_none());
+
+        // settings.yaml no longer has an stt block.
+        let yaml = std::fs::read_to_string(state.moxxy_home.join("settings.yaml")).unwrap();
+        assert!(!yaml.contains("stt:"), "stt: leaked into yaml:\n{yaml}");
+
+        // GET reflects disabled.
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/settings/stt")
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        let body = get_json(&app, req).await;
+        assert_eq!(body["enabled"], false);
+    }
+
+    #[tokio::test]
+    async fn put_stt_reuses_existing_secret_ref() {
+        let (app, state, _tmp) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::SettingsWrite]);
+
+        // Pre-seed a vault secret under a custom backend_key (e.g. the one
+        // the OpenAI provider install already uses).
+        state
+            .vault_backend
+            .set_secret("moxxy_provider_openai", "sk-reused")
+            .unwrap();
+
+        let req = Request::builder()
+            .method("PUT")
+            .uri("/v1/settings/stt")
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"provider":"whisper","model":"whisper-1","secret_ref":"moxxy_provider_openai"}"#,
+            ))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["secret_ref"], "moxxy_provider_openai");
+
+        // AppState has a working provider built against the reused key.
+        let (prov, _) = state.stt_snapshot();
+        assert!(prov.is_some());
+    }
+
+    #[tokio::test]
+    async fn put_stt_requires_settings_write_scope() {
+        let (app, state, _tmp) = test_app();
+        let token = create_token_in_db(&state, vec![TokenScope::SettingsRead]);
+
+        let req = Request::builder()
+            .method("PUT")
+            .uri("/v1/settings/stt")
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"provider":"whisper","model":"whisper-1","api_key":"sk-x"}"#,
+            ))
+            .unwrap();
+        let resp = request(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
     }
 }

@@ -8,6 +8,7 @@ pub mod heartbeats;
 pub mod mcp;
 pub mod memory;
 pub mod providers;
+pub mod settings;
 pub mod skills;
 pub mod templates;
 pub mod vault;

@@ -175,7 +175,103 @@ async function settingsBrowserRendering(flags) {
   }
 }
 
-export async function runSettings(_client, args) {
+/**
+ * Speech-to-text (voice message) settings. Unlike network_mode and
+ * browser_rendering, STT is configured through the gateway's
+ * `/v1/settings/stt` API so the running bridge picks up the new provider
+ * without a restart AND the vault-stored API key is owned by the gateway.
+ */
+async function settingsStt(client, flags, positional) {
+  if (!client) {
+    throw new Error('STT commands require a running gateway. Start it with: moxxy gateway start');
+  }
+
+  const sub = positional || 'status';
+
+  switch (sub) {
+    case 'status':
+    case 'get':
+    case 'show': {
+      const resp = await client.getSttSettings();
+      if (flags.json) {
+        console.log(JSON.stringify(resp, null, 2));
+        return;
+      }
+      if (!resp.enabled) {
+        p.log.info('Voice messages: disabled.');
+        p.log.info('Enable with: moxxy settings stt enable');
+        return;
+      }
+      p.log.info('Voice messages: enabled');
+      p.log.info(`  provider:   ${resp.provider}`);
+      p.log.info(`  model:      ${resp.model}`);
+      p.log.info(`  secret_ref: ${resp.secret_ref}`);
+      if (resp.api_base) p.log.info(`  api_base:   ${resp.api_base}`);
+      p.log.info(`  max_bytes:  ${resp.max_bytes}`);
+      p.log.info(`  max_seconds: ${resp.max_seconds}`);
+      return;
+    }
+
+    case 'enable':
+    case 'configure':
+    case 'set': {
+      // Non-interactive: `moxxy settings stt enable --api-key sk-... [--provider whisper] [--model whisper-1]`
+      const providerName = flags.provider || 'whisper';
+      const modelName = flags.model || 'whisper-1';
+      const apiBase = flags['api-base'] || flags.api_base || null;
+      let apiKey = flags['api-key'] || flags.api_key || null;
+      const secretRef = flags['secret-ref'] || flags.secret_ref || null;
+
+      if (!apiKey && !secretRef) {
+        if (!isInteractive()) {
+          throw new Error(
+            'Provide --api-key <key>, or --secret-ref <backend_key> to reuse an existing vault entry.',
+          );
+        }
+        const keyInput = await p.password({
+          message: 'OpenAI API key for Whisper',
+          validate: (v) => {
+            if (!v || !v.trim()) return 'API key cannot be empty';
+          },
+        });
+        if (p.isCancel(keyInput)) return;
+        apiKey = keyInput;
+      }
+
+      const body = { provider: providerName, model: modelName };
+      if (apiKey) body.api_key = apiKey.trim();
+      if (apiBase) body.api_base = apiBase;
+      if (secretRef) body.secret_ref = secretRef;
+
+      const resp = await client.updateSttSettings(body);
+      if (flags.json) {
+        console.log(JSON.stringify(resp, null, 2));
+      } else {
+        p.log.success(`Voice messages enabled (${resp.provider}, ${resp.model}).`);
+      }
+      return;
+    }
+
+    case 'disable':
+    case 'off':
+    case 'clear': {
+      const resp = await client.deleteSttSettings();
+      if (flags.json) {
+        console.log(JSON.stringify(resp, null, 2));
+      } else {
+        p.log.success('Voice messages disabled.');
+      }
+      return;
+    }
+
+    default:
+      throw new Error(
+        `Unknown stt action '${sub}'. Use: status | enable [--api-key <key>] | disable`,
+      );
+  }
+}
+
+export async function runSettings(client, args) {
   const { action, flags } = parseSettingsCommand(args);
 
   // Collect first positional arg after the action for convenience
@@ -198,6 +294,10 @@ export async function runSettings(_client, args) {
     case 'browser-rendering':
       await settingsBrowserRendering(flags);
       break;
+    case 'stt':
+    case 'voice':
+      await settingsStt(client, flags, flags._positional);
+      break;
     default:
       if (isInteractive() && !action) {
         // Interactive: show settings menu
@@ -206,18 +306,20 @@ export async function runSettings(_client, args) {
           options: [
             { value: 'network-mode', label: 'Network mode', hint: 'safe / unsafe domain access' },
             { value: 'browser-rendering', label: 'Browser rendering', hint: 'headless Chrome for JS-heavy sites' },
+            { value: 'stt', label: 'Voice (STT)', hint: 'speech-to-text provider' },
             { value: 'get', label: 'View all settings', hint: 'show current configuration' },
           ],
         });
         if (p.isCancel(selected)) return;
-        await runSettings(_client, [selected]);
+        await runSettings(client, [selected]);
       } else {
         throw new Error(
           'Usage: moxxy settings <action>\n' +
-          '  network-mode [safe|unsafe]         Get or set network mode\n' +
-          '  browser-rendering [true|false]     Enable/disable headless Chrome rendering\n' +
-          '  get [--key <k>]                    View settings\n' +
-          '  set --key <k> --value <v>          Set a setting'
+          '  network-mode [safe|unsafe]                     Get or set network mode\n' +
+          '  browser-rendering [true|false]                 Enable/disable headless Chrome rendering\n' +
+          '  stt [status|enable|disable] [--api-key <key>]  Configure voice messages (speech-to-text)\n' +
+          '  get [--key <k>]                                View settings\n' +
+          '  set --key <k> --value <v>                      Set a setting'
         );
       }
   }

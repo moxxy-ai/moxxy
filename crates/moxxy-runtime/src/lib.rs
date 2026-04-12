@@ -14,6 +14,7 @@ pub mod provider;
 pub mod provider_factory;
 pub mod registry;
 pub mod sandbox;
+pub mod stt;
 pub mod url_policy;
 
 pub use anthropic_provider::AnthropicProvider;
@@ -66,3 +67,4 @@ pub use provider::{
 pub use provider_factory::{ProviderConfig, create_provider};
 pub use registry::{Primitive, PrimitiveError, PrimitiveRegistry, ToolDefinition};
 pub use sandbox::{SandboxConfig, SandboxProfile, SandboxedCommand};
+pub use stt::WhisperProvider;
