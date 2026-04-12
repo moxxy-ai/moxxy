@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/moxxy-ai/moxxy/compare/v1.3.2...v1.4.0) (2026-04-12)
+
+
+### Features
+
+* add tts/stt capabilities ([3745fbc](https://github.com/moxxy-ai/moxxy/commit/3745fbcc6fe9535d0304ec2f6dd9fcce378dff66))
+
 ## [1.3.2](https://github.com/moxxy-ai/moxxy/compare/v1.3.1...v1.3.2) (2026-04-11)
 
 
