@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.0](https://github.com/moxxy-ai/moxxy/compare/v1.4.0...v1.5.0) (2026-04-13)
+
+
+### Features
+
+* discord and whatsapp ([a4648fc](https://github.com/moxxy-ai/moxxy/commit/a4648fcff7bba3a2289880c6ec5d81c9fbf82a93))
+
+
+### Bug Fixes
+
+* channels presence ([b43f937](https://github.com/moxxy-ai/moxxy/commit/b43f93702203293b6a9b4c8fbc415d300344f48c))
+
 ## [1.4.0](https://github.com/moxxy-ai/moxxy/compare/v1.3.2...v1.4.0) (2026-04-12)
 
 
