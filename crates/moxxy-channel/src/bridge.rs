@@ -173,6 +173,9 @@ pub struct ChannelBridge {
     /// from that chat is routed back to the waiting agent instead of starting
     /// a new run.
     pending_asks: TokioMutex<HashMap<(String, String), String>>,
+    /// Cancellation tokens for per-run typing indicator loops.
+    /// Keyed by `(agent_id, run_id)`. Cancelled on RunCompleted/RunFailed.
+    typing_loops: TokioMutex<HashMap<(String, String), CancellationToken>>,
     moxxy_home: std::path::PathBuf,
     /// Optional speech-to-text backend. When `Some`, incoming voice messages
     /// are transcribed to text before being routed to the agent.
@@ -224,6 +227,7 @@ impl ChannelBridge {
             run_starter,
             progress: TokioMutex::new(HashMap::new()),
             pending_asks: TokioMutex::new(HashMap::new()),
+            typing_loops: TokioMutex::new(HashMap::new()),
             moxxy_home,
             stt: RwLock::new(stt),
             stt_settings: RwLock::new(stt_settings),
@@ -584,9 +588,33 @@ impl ChannelBridge {
         // Show typing indicator immediately
         let _ = transport.send_typing(&msg.external_chat_id).await;
 
-        // Trigger a run via RunStarter
-        match self.run_starter.start_run(agent_name, &msg.text).await {
-            Ok(_run_id) => {}
+        // Trigger a run via RunStarter (with queueing support)
+        match self
+            .run_starter
+            .start_or_queue(agent_name, &msg.text, "channel")
+            .await
+        {
+            Ok(moxxy_types::RunOutcome::Started(_run_id)) => {}
+            Ok(moxxy_types::RunOutcome::Queued(position)) => {
+                let _ = transport
+                    .send_message(OutgoingMessage {
+                        external_chat_id: msg.external_chat_id.clone(),
+                        content: MessageContent::Text(format!(
+                            "Agent is busy — your message has been queued (position {position})."
+                        )),
+                    })
+                    .await;
+            }
+            Ok(moxxy_types::RunOutcome::QueueFull) => {
+                let _ = transport
+                    .send_message(OutgoingMessage {
+                        external_chat_id: msg.external_chat_id.clone(),
+                        content: MessageContent::Text(
+                            "Agent is busy and the queue is full. Please try again later.".into(),
+                        ),
+                    })
+                    .await;
+            }
             Err(e) => {
                 tracing::error!("Failed to start run for agent {}: {}", agent_name, e);
                 let _ = transport
@@ -667,19 +695,40 @@ impl ChannelBridge {
             .await;
     }
 
-    /// Returns true if this event type should trigger a typing indicator.
-    fn should_send_typing(event_type: &EventType) -> bool {
-        matches!(
-            event_type,
-            EventType::RunStarted | EventType::PrimitiveInvoked
-        )
+    /// Spawn a background loop that continuously sends typing indicators
+    /// every 4 seconds for the duration of a run. Telegram's typing status
+    /// expires after ~5 seconds, so this keeps it alive until cancelled.
+    fn spawn_typing_loop(
+        self: &Arc<Self>,
+        agent_name: String,
+        run_id: String,
+        channels: Vec<(Arc<dyn ChannelTransport>, String)>,
+    ) -> CancellationToken {
+        let token = CancellationToken::new();
+        let token_clone = token.clone();
+        let bridge_shutdown = self.shutdown.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = token_clone.cancelled() => break,
+                    _ = bridge_shutdown.cancelled() => break,
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(4)) => {
+                        for (transport, chat_id) in &channels {
+                            let _ = transport.send_typing(chat_id).await;
+                        }
+                    }
+                }
+            }
+            tracing::debug!(agent_name, run_id, "Typing loop ended");
+        });
+        token
     }
 
-    /// Send typing indicator to all channels bound to an agent.
-    async fn send_typing_to_agent_channels(&self, agent_name: &str) {
-        let to_send = self.resolve_agent_transports(agent_name);
-        for (transport, chat_id) in to_send {
-            let _ = transport.send_typing(&chat_id).await;
+    /// Cancel the typing indicator loop for a run.
+    async fn stop_typing_loop(&self, agent_id: &str, run_id: &str) {
+        let key = (agent_id.to_string(), run_id.to_string());
+        if let Some(token) = self.typing_loops.lock().await.remove(&key) {
+            token.cancel();
         }
     }
 
@@ -733,6 +782,36 @@ impl ChannelBridge {
                     .map(|t| (t.clone(), chat_id.clone(), channel_id.clone()))
             })
             .collect()
+    }
+
+    /// Finalize the current progress message by editing it to show a completed
+    /// summary. Called before starting a new skill's progress message.
+    async fn finalize_progress_message(&self, agent_id: &str, run_id: &str) {
+        let channels = self.resolve_agent_channels(agent_id);
+        let mut progress = self.progress.lock().await;
+        let key = (agent_id.to_string(), run_id.to_string());
+        let Some(chat_map) = progress.get_mut(&key) else {
+            return;
+        };
+
+        for (transport, _chat_id, channel_id) in &channels {
+            if let Some(rp) = chat_map.get_mut(channel_id) {
+                // Finalize active skill into completed list for rendering
+                if let Some(skill) = rp.active_skill.take() {
+                    rp.completed_skills.push(skill);
+                }
+                rp.finished = false;
+                rp.dirty = true;
+                let text = rp.render();
+                if let Some(msg_id) = &rp.message_id
+                    && !text.is_empty()
+                {
+                    let _ = transport
+                        .edit_message(&rp.external_chat_id, msg_id, &text)
+                        .await;
+                }
+            }
+        }
     }
 
     /// Edit all progress messages for a (agent_id, run_id) key, respecting debounce.
@@ -811,10 +890,24 @@ impl ChannelBridge {
                     return;
                 }
 
-                // Send typing indicator only (progress message sent lazily on first tool)
-                let mut chat_map = HashMap::new();
-                for (transport, chat_id, channel_id) in &channels {
+                // Send typing indicator and start continuous typing loop
+                let typing_channels: Vec<_> = channels
+                    .iter()
+                    .map(|(t, chat_id, _)| (t.clone(), chat_id.clone()))
+                    .collect();
+                for (transport, chat_id) in &typing_channels {
                     let _ = transport.send_typing(chat_id).await;
+                }
+                let typing_token =
+                    self.spawn_typing_loop(agent_id.to_string(), run_id.clone(), typing_channels);
+                self.typing_loops
+                    .lock()
+                    .await
+                    .insert((agent_id.to_string(), run_id.clone()), typing_token);
+
+                // Progress message sent lazily on first tool
+                let mut chat_map = HashMap::new();
+                for (_transport, chat_id, channel_id) in &channels {
                     chat_map.insert(
                         channel_id.clone(),
                         RunProgress {
@@ -843,64 +936,72 @@ impl ChannelBridge {
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown")
                     .to_string();
-                {
+                if name == "skill.execute" {
+                    // New skill invocation — finalize the current progress
+                    // message and start a fresh one so each skill gets its
+                    // own separate message in the chat.
+                    let skill_name = envelope
+                        .payload
+                        .get("arguments")
+                        .and_then(|a| {
+                            if let Some(n) = a.get("name").and_then(|v| v.as_str()) {
+                                return Some(n.to_string());
+                            }
+                            if let Some(s) = a.as_str()
+                                && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(s)
+                            {
+                                return parsed
+                                    .get("name")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string());
+                            }
+                            None
+                        })
+                        .unwrap_or_else(|| "unknown".to_string());
+
+                    // Finalize old progress message (edit to "completed" state)
+                    self.finalize_progress_message(agent_id, &run_id).await;
+
+                    // Start a fresh progress entry for the new skill
                     let mut progress = self.progress.lock().await;
                     let key = (agent_id.to_string(), run_id.clone());
                     if let Some(chat_map) = progress.get_mut(&key) {
-                        if name == "skill.execute" {
-                            // Start a skill session.
-                            // Arguments may be an object or a JSON string.
-                            let skill_name = envelope
-                                .payload
-                                .get("arguments")
-                                .and_then(|a| {
-                                    // Try as object first
-                                    if let Some(n) = a.get("name").and_then(|v| v.as_str()) {
-                                        return Some(n.to_string());
-                                    }
-                                    // Try parsing from JSON string
-                                    if let Some(s) = a.as_str()
-                                        && let Ok(parsed) =
-                                            serde_json::from_str::<serde_json::Value>(s)
-                                    {
-                                        return parsed
-                                            .get("name")
-                                            .and_then(|v| v.as_str())
-                                            .map(|s| s.to_string());
-                                    }
-                                    None
-                                })
-                                .unwrap_or_else(|| "unknown".to_string());
-                            for rp in chat_map.values_mut() {
-                                // Close any previous active skill
-                                if let Some(prev) = rp.active_skill.take() {
-                                    rp.completed_skills.push(prev);
-                                }
-                                rp.active_skill = Some(SkillProgress {
-                                    name: skill_name.clone(),
-                                    steps: Vec::new(),
-                                    finished: false,
-                                });
-                                rp.dirty = true;
-                            }
-                        } else {
-                            for rp in chat_map.values_mut() {
-                                if let Some(ref mut skill) = rp.active_skill {
-                                    // Nest tool under active skill
-                                    skill.steps.push(SkillStep {
-                                        name: name.clone(),
-                                        status: ToolStatus::Running,
-                                        result: None,
-                                    });
-                                } else {
-                                    rp.tools.push((name.clone(), ToolStatus::Running));
-                                }
-                                rp.dirty = true;
-                            }
+                        for rp in chat_map.values_mut() {
+                            rp.message_id = None;
+                            rp.tools.clear();
+                            rp.completed_skills.clear();
+                            rp.sub_agents.clear();
+                            rp.active_skill = Some(SkillProgress {
+                                name: skill_name.clone(),
+                                steps: Vec::new(),
+                                finished: false,
+                            });
+                            rp.dirty = true;
+                            rp.finished = false;
                         }
                     }
+                    drop(progress);
+                    self.flush_progress(agent_id, &run_id).await;
+                } else {
+                    let mut progress = self.progress.lock().await;
+                    let key = (agent_id.to_string(), run_id.clone());
+                    if let Some(chat_map) = progress.get_mut(&key) {
+                        for rp in chat_map.values_mut() {
+                            if let Some(ref mut skill) = rp.active_skill {
+                                skill.steps.push(SkillStep {
+                                    name: name.clone(),
+                                    status: ToolStatus::Running,
+                                    result: None,
+                                });
+                            } else {
+                                rp.tools.push((name.clone(), ToolStatus::Running));
+                            }
+                            rp.dirty = true;
+                        }
+                    }
+                    drop(progress);
+                    self.flush_progress(agent_id, &run_id).await;
                 }
-                self.flush_progress(agent_id, &run_id).await;
             }
 
             EventType::PrimitiveCompleted => {
@@ -910,57 +1011,75 @@ impl ChannelBridge {
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown")
                     .to_string();
-                {
-                    let mut progress = self.progress.lock().await;
-                    let key = (agent_id.to_string(), run_id.clone());
-                    if let Some(chat_map) = progress.get_mut(&key) {
-                        if name == "skill.execute" {
-                            // Update skill name from result if available
-                            let result_name = envelope
-                                .payload
-                                .get("result")
-                                .and_then(|r| r.get("name"))
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string());
+                if name == "skill.execute" {
+                    // Skill finished — update name if available, then finalize
+                    // its progress message so it shows as completed.
+                    let result_name = envelope
+                        .payload
+                        .get("result")
+                        .and_then(|r| r.get("name"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    {
+                        let mut progress = self.progress.lock().await;
+                        let key = (agent_id.to_string(), run_id.clone());
+                        if let Some(chat_map) = progress.get_mut(&key) {
                             for rp in chat_map.values_mut() {
                                 if let Some(ref mut skill) = rp.active_skill
                                     && let Some(ref rn) = result_name
                                 {
                                     skill.name = rn.clone();
                                 }
-                                rp.dirty = true;
-                            }
-                        } else {
-                            // Extract a short result summary
-                            let result_summary = envelope.payload.get("result").and_then(|r| {
-                                // Try to get a string result or stringify
-                                if let Some(s) = r.as_str() {
-                                    Some(s.to_string())
-                                } else {
-                                    r.get("status")
-                                        .and_then(|v| v.as_str())
-                                        .map(|status| status.to_string())
-                                }
-                            });
-                            for rp in chat_map.values_mut() {
-                                if let Some(ref mut skill) = rp.active_skill {
-                                    if let Some(step) = skill.steps.iter_mut().rev().find(|s| {
-                                        s.name == name && matches!(s.status, ToolStatus::Running)
-                                    }) {
-                                        step.status = ToolStatus::Completed;
-                                        step.result = result_summary.clone();
-                                    }
-                                } else if let Some(tool) =
-                                    rp.tools.iter_mut().rev().find(|(n, _)| *n == name)
-                                {
-                                    tool.1 = ToolStatus::Completed;
-                                }
-                                rp.dirty = true;
                             }
                         }
                     }
+                    self.finalize_progress_message(agent_id, &run_id).await;
+                    // Reset progress for any subsequent tools/skills
+                    let mut progress = self.progress.lock().await;
+                    let key = (agent_id.to_string(), run_id.clone());
+                    if let Some(chat_map) = progress.get_mut(&key) {
+                        for rp in chat_map.values_mut() {
+                            rp.message_id = None;
+                            rp.tools.clear();
+                            rp.completed_skills.clear();
+                            rp.sub_agents.clear();
+                            rp.active_skill = None;
+                            rp.dirty = false;
+                            rp.finished = false;
+                        }
+                    }
+                } else {
+                    let result_summary = envelope.payload.get("result").and_then(|r| {
+                        if let Some(s) = r.as_str() {
+                            Some(s.to_string())
+                        } else {
+                            r.get("status")
+                                .and_then(|v| v.as_str())
+                                .map(|status| status.to_string())
+                        }
+                    });
+                    let mut progress = self.progress.lock().await;
+                    let key = (agent_id.to_string(), run_id.clone());
+                    if let Some(chat_map) = progress.get_mut(&key) {
+                        for rp in chat_map.values_mut() {
+                            if let Some(ref mut skill) = rp.active_skill {
+                                if let Some(step) = skill.steps.iter_mut().rev().find(|s| {
+                                    s.name == name && matches!(s.status, ToolStatus::Running)
+                                }) {
+                                    step.status = ToolStatus::Completed;
+                                    step.result = result_summary.clone();
+                                }
+                            } else if let Some(tool) =
+                                rp.tools.iter_mut().rev().find(|(n, _)| *n == name)
+                            {
+                                tool.1 = ToolStatus::Completed;
+                            }
+                            rp.dirty = true;
+                        }
+                    }
+                    drop(progress);
+                    self.flush_progress(agent_id, &run_id).await;
                 }
-                self.flush_progress(agent_id, &run_id).await;
             }
 
             EventType::PrimitiveFailed => {
@@ -1131,6 +1250,7 @@ impl ChannelBridge {
             }
 
             EventType::RunCompleted => {
+                self.stop_typing_loop(agent_id, &run_id).await;
                 let channels = self.resolve_agent_channels(agent_id);
                 let mut progress = self.progress.lock().await;
                 let key = (agent_id.to_string(), run_id.clone());
@@ -1154,6 +1274,7 @@ impl ChannelBridge {
             }
 
             EventType::RunFailed => {
+                self.stop_typing_loop(agent_id, &run_id).await;
                 let error = envelope
                     .payload
                     .get("error")
@@ -1184,12 +1305,7 @@ impl ChannelBridge {
                 asks.retain(|(a, _), _| a != agent_id);
             }
 
-            _ => {
-                // Typing indicators for other events
-                if Self::should_send_typing(&envelope.event_type) {
-                    self.send_typing_to_agent_channels(agent_id).await;
-                }
-            }
+            _ => {}
         }
     }
 
@@ -1309,6 +1425,20 @@ impl ChannelBridge {
         agent_name: &str,
     ) -> Result<crate::pairing::ConsumedBinding, ChannelError> {
         self.pairing_service.consume_code(code, agent_name)
+    }
+
+    /// Push an externally-received message (e.g. from a WhatsApp webhook) into
+    /// the appropriate transport's receiving pipeline. The message is routed to
+    /// the first WhatsApp transport that has a webhook_sender.
+    pub fn inject_incoming(&self, msg: IncomingMessage) {
+        let transports = self.transports.read().unwrap();
+        for (_channel_id, transport) in transports.iter() {
+            if let Some(sender) = transport.webhook_sender() {
+                let _ = sender.try_send(msg);
+                return;
+            }
+        }
+        tracing::warn!("No webhook-capable transport found to inject message into");
     }
 
     pub fn shutdown(&self) {

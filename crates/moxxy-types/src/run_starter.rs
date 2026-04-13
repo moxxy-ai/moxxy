@@ -39,12 +39,37 @@ pub struct ChildInfo {
     pub last_result: Option<String>,
 }
 
+/// Outcome of a `start_or_queue` call.
+#[derive(Debug, Clone)]
+pub enum RunOutcome {
+    /// Run started immediately. Contains the run_id.
+    Started(String),
+    /// Agent was busy; run was queued at the given position.
+    Queued(usize),
+    /// Queue was full; run was dropped.
+    QueueFull,
+}
+
 /// Trait for triggering agent runs. Implemented by the gateway's RunService.
 #[async_trait::async_trait]
 pub trait RunStarter: Send + Sync {
     async fn start_run(&self, agent_id: &str, task: &str) -> Result<String, String>;
     async fn stop_agent(&self, agent_id: &str) -> Result<(), String>;
     fn agent_status(&self, agent_id: &str) -> Result<Option<String>, String>;
+
+    /// Start a run, or queue it if the agent is busy.
+    /// Default implementation falls back to `start_run` (no queueing).
+    async fn start_or_queue(
+        &self,
+        agent_id: &str,
+        task: &str,
+        source: &str,
+    ) -> Result<RunOutcome, String> {
+        let _ = source;
+        self.start_run(agent_id, task)
+            .await
+            .map(RunOutcome::Started)
+    }
 
     async fn reset_session(&self, agent_id: &str) -> Result<(), String> {
         let _ = agent_id;

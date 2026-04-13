@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum ChannelType {
     Telegram,
     Discord,
+    WhatsApp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

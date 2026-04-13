@@ -67,6 +67,11 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
     // Inbound webhook receiver: unauthenticated, uses HMAC verification
     let hooks_router = Router::new()
         .route("/v1/hooks/{token}", post(routes::webhooks::receive_webhook))
+        .route(
+            "/v1/channels/whatsapp/webhook",
+            get(routes::channels::whatsapp_webhook_verify)
+                .post(routes::channels::whatsapp_webhook_receive),
+        )
         .layer(cors.clone())
         .layer(TraceLayer::new_for_http())
         .layer(DefaultBodyLimit::max(1024 * 1024))

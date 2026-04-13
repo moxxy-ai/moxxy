@@ -1,7 +1,7 @@
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use moxxy_channel::TelegramTransport;
+use moxxy_channel::{DiscordTransport, TelegramTransport, WhatsAppTransport};
 use moxxy_core::{BindingEntry, ChannelDoc, ChannelStore};
 use moxxy_storage::VaultSecretRefRow;
 use moxxy_types::TokenScope;
@@ -85,14 +85,42 @@ pub async fn create_channel(
 
     tracing::debug!(channel_id = %channel_id, "Bot token stored in vault backend");
 
-    // Register transport on running bridge if it's a Telegram channel
-    if body.channel_type == "telegram" {
-        let transport = Arc::new(TelegramTransport::new(body.bot_token.clone()));
-        if let Ok(bridge_lock) = state.channel_bridge.lock()
-            && let Some(bridge) = bridge_lock.as_ref()
-        {
-            bridge.add_transport(channel_id.clone(), transport);
+    // Register transport on running bridge
+    match body.channel_type.as_str() {
+        "telegram" => {
+            let transport = Arc::new(TelegramTransport::new(body.bot_token.clone()));
+            if let Ok(bridge_lock) = state.channel_bridge.lock()
+                && let Some(bridge) = bridge_lock.as_ref()
+            {
+                bridge.add_transport(channel_id.clone(), transport);
+            }
         }
+        "discord" => {
+            let transport = Arc::new(DiscordTransport::new(body.bot_token.clone()));
+            if let Ok(bridge_lock) = state.channel_bridge.lock()
+                && let Some(bridge) = bridge_lock.as_ref()
+            {
+                bridge.add_transport(channel_id.clone(), transport);
+            }
+        }
+        "whatsapp" => {
+            let config: Option<moxxy_channel::whatsapp::WhatsAppConfig> = body
+                .config
+                .as_ref()
+                .and_then(|c| serde_json::from_value(c.clone()).ok());
+            if let Some(cfg) = config {
+                let transport = Arc::new(WhatsAppTransport::new(
+                    cfg.phone_number_id,
+                    body.bot_token.clone(),
+                ));
+                if let Ok(bridge_lock) = state.channel_bridge.lock()
+                    && let Some(bridge) = bridge_lock.as_ref()
+                {
+                    bridge.add_transport(channel_id.clone(), transport);
+                }
+            }
+        }
+        _ => {}
     }
 
     Ok((
@@ -365,4 +393,90 @@ pub async fn unbind(
     Ok(Json(
         serde_json::json!({"deleted": true, "channel_id": channel_id}),
     ))
+}
+
+// --- WhatsApp Webhook ---
+
+#[derive(serde::Deserialize)]
+pub struct WhatsAppVerifyQuery {
+    #[serde(rename = "hub.mode")]
+    pub hub_mode: Option<String>,
+    #[serde(rename = "hub.verify_token")]
+    pub hub_verify_token: Option<String>,
+    #[serde(rename = "hub.challenge")]
+    pub hub_challenge: Option<String>,
+}
+
+/// `GET /v1/channels/whatsapp/webhook` — WhatsApp webhook verification.
+/// Meta sends a GET request with hub.mode, hub.verify_token, and hub.challenge.
+pub async fn whatsapp_webhook_verify(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<WhatsAppVerifyQuery>,
+) -> Result<String, (StatusCode, Json<serde_json::Value>)> {
+    let mode = query.hub_mode.as_deref().unwrap_or("");
+    let token = query.hub_verify_token.as_deref().unwrap_or("");
+    let challenge = query.hub_challenge.as_deref().unwrap_or("");
+
+    if mode != "subscribe" {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "invalid_mode"})),
+        ));
+    }
+
+    // Find a WhatsApp channel whose config.verify_token matches
+    let channels = ChannelStore::list_active(&state.moxxy_home);
+    let verified = channels.iter().any(|(_, doc)| {
+        if doc.channel_type != "whatsapp" {
+            return false;
+        }
+        doc.config
+            .as_ref()
+            .and_then(|c| c.get("verify_token"))
+            .and_then(|v| v.as_str())
+            .map(|vt| vt == token)
+            .unwrap_or(false)
+    });
+
+    if verified {
+        tracing::info!("WhatsApp webhook verification succeeded");
+        Ok(challenge.to_string())
+    } else {
+        tracing::warn!("WhatsApp webhook verification failed: token mismatch");
+        Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "invalid_verify_token"})),
+        ))
+    }
+}
+
+/// `POST /v1/channels/whatsapp/webhook` — WhatsApp incoming message webhook.
+pub async fn whatsapp_webhook_receive(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let messages = moxxy_channel::whatsapp::parse_webhook_payload(&payload);
+
+    if messages.is_empty() {
+        // WhatsApp sends status updates too — acknowledge them.
+        return Ok(Json(serde_json::json!({"status": "ok"})));
+    }
+
+    tracing::info!(count = messages.len(), "WhatsApp webhook received messages");
+
+    // Route each message to the appropriate WhatsApp transport via the bridge
+    let bridge_lock = state.channel_bridge.lock().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal"})),
+        )
+    })?;
+
+    if let Some(bridge) = bridge_lock.as_ref() {
+        for msg in messages {
+            bridge.inject_incoming(msg);
+        }
+    }
+
+    Ok(Json(serde_json::json!({"status": "ok"})))
 }

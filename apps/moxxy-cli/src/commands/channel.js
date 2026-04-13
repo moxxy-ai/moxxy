@@ -49,15 +49,11 @@ async function createChannel(client, args) {
     message: 'Channel type',
     options: [
       { value: 'telegram', label: 'Telegram', hint: 'BotFather bot token required' },
-      { value: 'discord', label: 'Discord', hint: 'coming soon (scaffold)' },
+      { value: 'discord', label: 'Discord', hint: 'Discord bot token required' },
+      { value: 'whatsapp', label: 'WhatsApp', hint: 'WhatsApp Business API token required' },
     ],
   });
   handleCancel(channelType);
-
-  if (channelType === 'discord') {
-    p.log.info('Discord channel support is coming soon.');
-    return;
-  }
 
   // Step 1: Select agent to bind
   let agentId;
@@ -80,24 +76,74 @@ async function createChannel(client, args) {
     return;
   }
 
-  // Step 2: Get bot token
-  p.note(
-    '1. Open Telegram and talk to @BotFather\n' +
-    '2. Send /newbot and follow the prompts\n' +
-    '3. Copy the bot token',
-    'Telegram Bot Setup'
-  );
+  // Step 2: Get credentials based on channel type
+  let botToken, displayName, config;
 
-  const botToken = await p.password({
-    message: 'Paste your Telegram bot token',
-  });
-  handleCancel(botToken);
+  if (channelType === 'telegram') {
+    p.note(
+      '1. Open Telegram and talk to @BotFather\n' +
+      '2. Send /newbot and follow the prompts\n' +
+      '3. Copy the bot token',
+      'Telegram Bot Setup'
+    );
 
-  const displayName = await p.text({
+    botToken = await p.password({
+      message: 'Paste your Telegram bot token',
+    });
+    handleCancel(botToken);
+  } else if (channelType === 'discord') {
+    p.note(
+      '1. Go to https://discord.com/developers/applications\n' +
+      '2. Create a new application → Bot → copy the bot token\n' +
+      '3. Enable MESSAGE CONTENT intent under Bot → Privileged Intents\n' +
+      '4. Invite the bot to your server with the Messages scope',
+      'Discord Bot Setup'
+    );
+
+    botToken = await p.password({
+      message: 'Paste your Discord bot token',
+    });
+    handleCancel(botToken);
+  } else if (channelType === 'whatsapp') {
+    p.note(
+      '1. Go to https://developers.facebook.com and create an app\n' +
+      '2. Add the WhatsApp product to your app\n' +
+      '3. Copy the permanent access token and Phone Number ID\n' +
+      '4. Configure the webhook URL to: <your-moxxy-url>/v1/channels/whatsapp/webhook',
+      'WhatsApp Business API Setup'
+    );
+
+    botToken = await p.password({
+      message: 'Paste your WhatsApp access token',
+    });
+    handleCancel(botToken);
+
+    const phoneNumberId = await p.text({
+      message: 'Phone Number ID (from WhatsApp Business API)',
+    });
+    handleCancel(phoneNumberId);
+
+    const verifyToken = await p.text({
+      message: 'Webhook verify token (you choose this, used to verify the webhook)',
+      placeholder: 'my-verify-token',
+    });
+    handleCancel(verifyToken);
+
+    config = {
+      phone_number_id: phoneNumberId,
+      verify_token: verifyToken || undefined,
+    };
+  }
+
+  displayName = await p.text({
     message: 'Display name for this channel',
-    placeholder: 'My Moxxy Bot',
+    placeholder: channelType === 'telegram' ? 'My Telegram Bot' :
+                 channelType === 'discord' ? 'My Discord Bot' : 'My WhatsApp Bot',
   });
   handleCancel(displayName);
+
+  const defaultName = channelType === 'telegram' ? 'Telegram Bot' :
+                      channelType === 'discord' ? 'Discord Bot' : 'WhatsApp Bot';
 
   // Step 3: Create channel
   let channel;
@@ -105,8 +151,9 @@ async function createChannel(client, args) {
     channel = await withSpinner('Creating channel...', () =>
       client.request('/v1/channels', 'POST', {
         channel_type: channelType,
-        display_name: displayName || 'Telegram Bot',
+        display_name: displayName || defaultName,
         bot_token: botToken,
+        ...(config ? { config } : {}),
       }), 'Channel created.');
 
     showResult('Channel Created', {
@@ -121,11 +168,27 @@ async function createChannel(client, args) {
   }
 
   // Step 4: Wait for pairing code
-  p.note(
-    '1. Open your Telegram bot and send /start\n' +
-    '2. Copy the 6-digit pairing code',
-    'Pair your chat'
-  );
+  if (channelType === 'telegram') {
+    p.note(
+      '1. Open your Telegram bot and send /start\n' +
+      '2. Copy the 6-digit pairing code',
+      'Pair your chat'
+    );
+  } else if (channelType === 'discord') {
+    p.note(
+      '1. Send a message to your Discord bot or in a channel it can see\n' +
+      '2. The bot will respond with a pairing code if not yet paired\n' +
+      '3. Copy the 6-digit pairing code',
+      'Pair your chat'
+    );
+  } else if (channelType === 'whatsapp') {
+    p.note(
+      '1. Send a message to your WhatsApp number\n' +
+      '2. The bot will respond with a pairing code\n' +
+      '3. Copy the 6-digit pairing code',
+      'Pair your chat'
+    );
+  }
 
   const code = await p.text({
     message: 'Enter 6-digit pairing code',

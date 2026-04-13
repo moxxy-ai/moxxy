@@ -107,4 +107,10 @@ pub trait ChannelTransport: Send + Sync {
     ) -> Result<(), ChannelError> {
         Ok(())
     }
+
+    /// Get a sender for pushing webhook-delivered messages into this transport.
+    /// Only applicable to webhook-based transports (e.g. WhatsApp). Default: None.
+    fn webhook_sender(&self) -> Option<tokio::sync::mpsc::Sender<IncomingMessage>> {
+        None
+    }
 }

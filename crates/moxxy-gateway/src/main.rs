@@ -179,8 +179,49 @@ async fn main() {
                         channel_id
                     );
                 }
-                ("discord", _) => {
-                    tracing::info!("Discord channel {} registered (scaffold only)", channel_id);
+                ("discord", Some(token)) => {
+                    let transport = Arc::new(moxxy_channel::DiscordTransport::new(token));
+                    bridge.register_transport_mut(channel_id.clone(), transport);
+                    tracing::info!(
+                        "Discord channel loaded: {} ({})",
+                        doc.display_name,
+                        channel_id
+                    );
+                }
+                ("discord", None) => {
+                    tracing::warn!(
+                        "Discord channel {} has no bot token in vault, skipping",
+                        channel_id
+                    );
+                }
+                ("whatsapp", Some(token)) => {
+                    let config: Option<moxxy_channel::whatsapp::WhatsAppConfig> = doc
+                        .config
+                        .as_ref()
+                        .and_then(|c| serde_json::from_value(c.clone()).ok());
+                    if let Some(cfg) = config {
+                        let transport = Arc::new(moxxy_channel::WhatsAppTransport::new(
+                            cfg.phone_number_id,
+                            token,
+                        ));
+                        bridge.register_transport_mut(channel_id.clone(), transport);
+                        tracing::info!(
+                            "WhatsApp channel loaded: {} ({})",
+                            doc.display_name,
+                            channel_id
+                        );
+                    } else {
+                        tracing::warn!(
+                            "WhatsApp channel {} missing phone_number_id in config, skipping",
+                            channel_id
+                        );
+                    }
+                }
+                ("whatsapp", None) => {
+                    tracing::warn!(
+                        "WhatsApp channel {} has no access token in vault, skipping",
+                        channel_id
+                    );
                 }
                 (other, _) => {
                     tracing::warn!("Unknown channel type: {}", other);

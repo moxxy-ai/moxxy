@@ -8,7 +8,7 @@ use moxxy_runtime::{
 use moxxy_storage::Database;
 use moxxy_types::{
     AgentRuntime, AgentStatus, AgentType, ChildInfo, EventEnvelope, EventType, MessageContent,
-    RunStarter, SpawnOpts, SpawnResult,
+    RunOutcome, RunStarter, SpawnOpts, SpawnResult,
 };
 use moxxy_vault::SecretBackend;
 use std::collections::{HashMap, VecDeque};
@@ -916,6 +916,27 @@ impl RunStarter for RunService {
 
     fn agent_status(&self, agent_name: &str) -> Result<Option<String>, String> {
         self.do_agent_status(agent_name)
+    }
+
+    async fn start_or_queue(
+        &self,
+        agent_id: &str,
+        task: &str,
+        source: &str,
+    ) -> Result<RunOutcome, String> {
+        let outcome = self
+            .start_or_queue_run(QueuedRun {
+                agent_name: agent_id.to_string(),
+                task: task.to_string(),
+                source: source.to_string(),
+                metadata: serde_json::Value::Null,
+            })
+            .await?;
+        Ok(match outcome {
+            StartRunOutcome::Started { run_id } => RunOutcome::Started(run_id),
+            StartRunOutcome::Queued { position } => RunOutcome::Queued(position),
+            StartRunOutcome::QueueFull => RunOutcome::QueueFull,
+        })
     }
 
     fn resolve_ask(&self, question_id: &str, answer: &str) -> Result<(), String> {

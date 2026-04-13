@@ -20,7 +20,9 @@ pub use events::{EventEnvelope, EventType};
 pub use heartbeat::{HeartbeatActionType, HeartbeatError};
 pub use mcp::{McpConfig, McpServerConfig, McpToolDefinition, McpTransportType};
 pub use providers::ProviderDocError;
-pub use run_starter::{ChildInfo, RunStarter, SpawnOpts, SpawnResult, WorkspaceIsolation};
+pub use run_starter::{
+    ChildInfo, RunOutcome, RunStarter, SpawnOpts, SpawnResult, WorkspaceIsolation,
+};
 pub use skills::SkillDocError;
 pub use templates::TemplateDocError;
 pub use vault::VaultError;
