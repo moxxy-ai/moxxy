@@ -650,12 +650,12 @@ export async function runInit(client, args) {
 
   // Step 6: Channel setup (optional)
   p.note(
-    'Channels enable agent communication via Telegram or Discord.\n' +
+    'Channels enable agent communication via Telegram, Discord, or WhatsApp.\n' +
     'You can set up channels later with: moxxy channel create',
     'Channels'
   );
   const setupChannel = await p.confirm({
-    message: 'Set up a messaging channel (Telegram/Discord)?',
+    message: 'Set up a messaging channel?',
     initialValue: false,
   });
   handleCancel(setupChannel);
@@ -665,10 +665,13 @@ export async function runInit(client, args) {
       message: 'Channel type',
       options: [
         { value: 'telegram', label: 'Telegram', hint: 'BotFather bot token required' },
-        { value: 'discord', label: 'Discord', hint: 'coming soon (scaffold)' },
+        { value: 'discord', label: 'Discord', hint: 'Discord bot token required' },
+        { value: 'whatsapp', label: 'WhatsApp', hint: 'WhatsApp Business API token required' },
       ],
     });
     handleCancel(channelType);
+
+    let botToken, displayName, channelConfig;
 
     if (channelType === 'telegram') {
       p.note(
@@ -678,88 +681,148 @@ export async function runInit(client, args) {
         'Telegram Bot Setup'
       );
 
-      const botToken = await p.password({
+      botToken = await p.password({
         message: 'Paste your Telegram bot token',
       });
       handleCancel(botToken);
+    } else if (channelType === 'discord') {
+      p.note(
+        '1. Go to https://discord.com/developers/applications\n' +
+        '2. Create a new application → Bot → copy the bot token\n' +
+        '3. Enable MESSAGE CONTENT intent under Bot → Privileged Intents\n' +
+        '4. Invite the bot to your server with the Messages scope',
+        'Discord Bot Setup'
+      );
 
-      const displayName = await p.text({
-        message: 'Display name for this channel',
-        placeholder: 'My Moxxy Bot',
+      botToken = await p.password({
+        message: 'Paste your Discord bot token',
       });
-      handleCancel(displayName);
+      handleCancel(botToken);
+    } else if (channelType === 'whatsapp') {
+      p.note(
+        '1. Go to https://developers.facebook.com and create an app\n' +
+        '2. Add the WhatsApp product to your app\n' +
+        '3. Copy the permanent access token and Phone Number ID\n' +
+        '4. Configure the webhook URL to: <your-moxxy-url>/v1/channels/whatsapp/webhook',
+        'WhatsApp Business API Setup'
+      );
 
-      try {
-        const result = await withSpinner('Registering Telegram channel...', () =>
-          client.request('/v1/channels', 'POST', {
-            channel_type: 'telegram',
-            display_name: displayName || 'Telegram Bot',
-            bot_token: botToken,
-          }), 'Channel registered.');
+      botToken = await p.password({
+        message: 'Paste your WhatsApp access token',
+      });
+      handleCancel(botToken);
 
-        showResult('Telegram Channel', { ID: result.id, Status: result.status });
+      const phoneNumberId = await p.text({
+        message: 'Phone Number ID (from WhatsApp Business API)',
+      });
+      handleCancel(phoneNumberId);
 
-        // Interactive pairing
+      const verifyToken = await p.text({
+        message: 'Webhook verify token (you choose this, used to verify the webhook)',
+        placeholder: 'my-verify-token',
+      });
+      handleCancel(verifyToken);
+
+      channelConfig = {
+        phone_number_id: phoneNumberId,
+        verify_token: verifyToken || undefined,
+      };
+    }
+
+    const defaultName = channelType === 'telegram' ? 'Telegram Bot' :
+                        channelType === 'discord' ? 'Discord Bot' : 'WhatsApp Bot';
+    const channelLabel = channelType === 'telegram' ? 'Telegram' :
+                         channelType === 'discord' ? 'Discord' : 'WhatsApp';
+
+    displayName = await p.text({
+      message: 'Display name for this channel',
+      placeholder: `My ${channelLabel} Bot`,
+    });
+    handleCancel(displayName);
+
+    try {
+      const result = await withSpinner(`Registering ${channelLabel} channel...`, () =>
+        client.request('/v1/channels', 'POST', {
+          channel_type: channelType,
+          display_name: displayName || defaultName,
+          bot_token: botToken,
+          ...(channelConfig ? { config: channelConfig } : {}),
+        }), 'Channel registered.');
+
+      showResult(`${channelLabel} Channel`, { ID: result.id, Status: result.status });
+
+      // Interactive pairing
+      if (channelType === 'telegram') {
         p.note(
           '1. Open your Telegram bot and send /start\n' +
           '2. You will receive a 6-digit pairing code',
           'Pair your chat'
         );
+      } else if (channelType === 'discord') {
+        p.note(
+          '1. Send a message to your Discord bot or in a channel it can see\n' +
+          '2. Type /start to receive a 6-digit pairing code',
+          'Pair your chat'
+        );
+      } else if (channelType === 'whatsapp') {
+        p.note(
+          '1. Send /start to your WhatsApp number\n' +
+          '2. You will receive a 6-digit pairing code',
+          'Pair your chat'
+        );
+      }
 
-        const pairCode = await p.text({
-          message: 'Enter the 6-digit pairing code',
-          placeholder: '123456',
-          validate: (v) => {
-            if (!v || v.trim().length === 0) return 'Code is required';
-          },
-        });
-        handleCancel(pairCode);
+      const pairCode = await p.text({
+        message: 'Enter the 6-digit pairing code',
+        placeholder: '123456',
+        validate: (v) => {
+          if (!v || v.trim().length === 0) return 'Code is required';
+        },
+      });
+      handleCancel(pairCode);
 
-        // Pick an agent to bind
-        let agentId;
-        try {
-          const agents = await withSpinner('Fetching agents...', () =>
-            client.listAgents(), 'Agents loaded.');
-          if (!agents || agents.length === 0) {
-            p.log.warn('No agents found. Create one first with: moxxy agent create');
-            p.log.info(`Pair later with: moxxy channel pair --code ${pairCode} --agent <agent-id>`);
-          } else {
-            agentId = await p.select({
-              message: 'Select agent to bind',
-              options: agents.map(a => ({
-                value: a.name,
-                label: `${a.name} (${a.provider_id}/${a.model_id})`,
-              })),
-            });
-            handleCancel(agentId);
-          }
-        } catch (err) {
-          p.log.warn(`Could not list agents: ${err.message}`);
+      // Pick an agent to bind
+      let agentId;
+      try {
+        const agents = await withSpinner('Fetching agents...', () =>
+          client.listAgents(), 'Agents loaded.');
+        if (!agents || agents.length === 0) {
+          p.log.warn('No agents found. Create one first with: moxxy agent create');
           p.log.info(`Pair later with: moxxy channel pair --code ${pairCode} --agent <agent-id>`);
-        }
-
-        if (agentId) {
-          try {
-            const pairResult = await withSpinner('Pairing...', () =>
-              client.request(`/v1/channels/${result.id}/pair`, 'POST', {
-                code: pairCode,
-                agent_id: agentId,
-              }), 'Paired successfully.');
-            showResult('Channel Paired', {
-              'Binding ID': pairResult.id,
-              Agent: pairResult.agent_id,
-              'External Chat': pairResult.external_chat_id,
-            });
-          } catch (err) {
-            p.log.error(`Failed to pair: ${err.message}`);
-            p.log.info(`Try again with: moxxy channel pair --code ${pairCode} --agent ${agentId}`);
-          }
+        } else {
+          agentId = await p.select({
+            message: 'Select agent to bind',
+            options: agents.map(a => ({
+              value: a.name,
+              label: `${a.name} (${a.provider_id}/${a.model_id})`,
+            })),
+          });
+          handleCancel(agentId);
         }
       } catch (err) {
-        p.log.error(`Failed to register channel: ${err.message}`);
+        p.log.warn(`Could not list agents: ${err.message}`);
+        p.log.info(`Pair later with: moxxy channel pair --code ${pairCode} --agent <agent-id>`);
       }
-    } else {
-      p.log.info('Discord channel support is coming soon.');
+
+      if (agentId) {
+        try {
+          const pairResult = await withSpinner('Pairing...', () =>
+            client.request(`/v1/channels/${result.id}/pair`, 'POST', {
+              code: pairCode,
+              agent_id: agentId,
+            }), 'Paired successfully.');
+          showResult('Channel Paired', {
+            'Binding ID': pairResult.id,
+            Agent: pairResult.agent_id,
+            'External Chat': pairResult.external_chat_id,
+          });
+        } catch (err) {
+          p.log.error(`Failed to pair: ${err.message}`);
+          p.log.info(`Try again with: moxxy channel pair --code ${pairCode} --agent ${agentId}`);
+        }
+      }
+    } catch (err) {
+      p.log.error(`Failed to register channel: ${err.message}`);
     }
   }
 
