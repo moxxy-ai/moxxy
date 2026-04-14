@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/moxxy-ai/moxxy/compare/v1.5.0...v1.6.0) (2026-04-14)
+
+
+### Features
+
+* journal self improvement mem ([22333a5](https://github.com/moxxy-ai/moxxy/commit/22333a52494afced3cec41e84d3000379d7b7a92))
+
 ## [1.5.0](https://github.com/moxxy-ai/moxxy/compare/v1.4.0...v1.5.0) (2026-04-13)
 
 
