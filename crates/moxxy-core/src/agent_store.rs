@@ -92,6 +92,7 @@ mod tests {
             policy_profile: None,
             core_mount: None,
             template: None,
+            reflection: Default::default(),
         }
     }
 

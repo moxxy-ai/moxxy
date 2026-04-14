@@ -5,6 +5,7 @@ pub mod channels;
 pub mod events;
 pub mod health;
 pub mod heartbeats;
+pub mod insights;
 pub mod mcp;
 pub mod memory;
 pub mod providers;

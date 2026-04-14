@@ -39,6 +39,44 @@ pub struct ChildInfo {
     pub last_result: Option<String>,
 }
 
+/// Context for triggering a run, including caller identity.
+///
+/// Extends the simple `(agent_id, task, source)` tuple with optional
+/// caller/user identity so per-end-user personalization (profiles, memory
+/// scoping) can key off a stable id across runs.
+#[derive(Debug, Clone)]
+pub struct RunTrigger {
+    pub task: String,
+    /// Opaque origin tag (`"channel"`, `"api"`, `"webhook"`, ...).
+    pub source: String,
+    /// Stable, transport-namespaced end-user id (e.g. `tg:12345`, `discord:67`).
+    /// `None` for API/system triggers where no human user is identifiable.
+    pub user_id: Option<String>,
+    /// Optional channel identifier (e.g. the chat_id a message arrived on).
+    pub channel_id: Option<String>,
+}
+
+impl RunTrigger {
+    pub fn new(task: impl Into<String>, source: impl Into<String>) -> Self {
+        Self {
+            task: task.into(),
+            source: source.into(),
+            user_id: None,
+            channel_id: None,
+        }
+    }
+
+    pub fn with_user_id(mut self, user_id: impl Into<String>) -> Self {
+        self.user_id = Some(user_id.into());
+        self
+    }
+
+    pub fn with_channel_id(mut self, channel_id: impl Into<String>) -> Self {
+        self.channel_id = Some(channel_id.into());
+        self
+    }
+}
+
 /// Outcome of a `start_or_queue` call.
 #[derive(Debug, Clone)]
 pub enum RunOutcome {
@@ -69,6 +107,20 @@ pub trait RunStarter: Send + Sync {
         self.start_run(agent_id, task)
             .await
             .map(RunOutcome::Started)
+    }
+
+    /// Start a run (or queue it) with optional caller identity.
+    ///
+    /// Default implementation delegates to `start_or_queue`, discarding
+    /// `user_id`/`channel_id`. Implementations that care about per-user
+    /// context (e.g. the gateway `RunService`) should override.
+    async fn start_or_queue_with_context(
+        &self,
+        agent_id: &str,
+        trigger: RunTrigger,
+    ) -> Result<RunOutcome, String> {
+        self.start_or_queue(agent_id, &trigger.task, &trigger.source)
+            .await
     }
 
     async fn reset_session(&self, agent_id: &str) -> Result<(), String> {

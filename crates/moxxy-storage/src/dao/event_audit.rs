@@ -53,6 +53,33 @@ impl<'a> EventAuditDao<'a> {
         }
     }
 
+    /// Fetch events for an agent within `[ts_min, ts_max]` inclusive. Both
+    /// bounds are millisecond epoch timestamps, matching `EventEnvelope.ts`.
+    pub fn find_by_agent_in_range(
+        &self,
+        agent_id: &str,
+        ts_min: i64,
+        ts_max: i64,
+    ) -> Result<Vec<EventAuditRow>, StorageError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT event_id, ts, agent_id, run_id, parent_run_id,
+                 sequence, event_type, payload_json, redactions_json, sensitive, created_at
+                 FROM event_audit
+                 WHERE agent_id = ?1 AND ts >= ?2 AND ts <= ?3
+                 ORDER BY ts ASC",
+            )
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        let rows = stmt
+            .query_map(params![agent_id, ts_min, ts_max], Self::map_row)
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))
+    }
+
     pub fn find_by_agent(&self, agent_id: &str) -> Result<Vec<EventAuditRow>, StorageError> {
         let mut stmt = self
             .conn

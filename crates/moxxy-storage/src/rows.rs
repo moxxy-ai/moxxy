@@ -1,4 +1,27 @@
 #[derive(Debug, Clone)]
+pub struct SessionSummaryRow {
+    pub run_id: String,
+    pub agent_id: String,
+    pub user_id: Option<String>,
+    pub ts: i64,
+    pub tool_call_count: i64,
+    pub task: String,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct SessionSummaryHit {
+    pub run_id: String,
+    pub agent_id: String,
+    pub user_id: Option<String>,
+    pub ts: i64,
+    pub tool_call_count: i64,
+    pub task: String,
+    pub summary: String,
+    pub bm25_rank: f64,
+}
+
+#[derive(Debug, Clone)]
 pub struct StoredTokenRow {
     pub id: String,
     pub created_by: String,

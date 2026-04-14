@@ -158,6 +158,10 @@ impl AppState {
         )
         .expect("Failed to create memory_vec0");
 
+        // Apply 0002 — session_summary FTS5 virtual table (cross-session recall)
+        let sql_0002 = include_str!("../../../migrations/0002_session_summaries.sql");
+        conn.execute_batch(sql_0002).expect("Migration 0002 failed");
+
         // Open a second connection for the vault backend to avoid deadlocks
         // with the main Arc<Mutex<Database>>
         let db_path = conn.path().map(|p| p.to_string()).unwrap_or_default();

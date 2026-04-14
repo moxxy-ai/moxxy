@@ -136,6 +136,7 @@ mod tests {
                 policy_profile: None,
                 core_mount: None,
                 template: None,
+                reflection: Default::default(),
             },
             status: AgentStatus::Idle,
             parent_name: None,

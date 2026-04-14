@@ -124,6 +124,22 @@ pub enum EventType {
     McpToolCompleted,
     #[serde(rename = "mcp.tool_failed")]
     McpToolFailed,
+    #[serde(rename = "reflection.started")]
+    ReflectionStarted,
+    #[serde(rename = "reflection.completed")]
+    ReflectionCompleted,
+    #[serde(rename = "reflection.failed")]
+    ReflectionFailed,
+    #[serde(rename = "skill.synthesized")]
+    SkillSynthesized,
+    #[serde(rename = "skill.approval_requested")]
+    SkillApprovalRequested,
+    #[serde(rename = "skill.approved")]
+    SkillApproved,
+    #[serde(rename = "skill.approval_denied")]
+    SkillApprovalDenied,
+    #[serde(rename = "skill.patched")]
+    SkillPatched,
 }
 
 impl EventType {
@@ -190,6 +206,14 @@ impl EventType {
             EventType::McpToolInvoked,
             EventType::McpToolCompleted,
             EventType::McpToolFailed,
+            EventType::ReflectionStarted,
+            EventType::ReflectionCompleted,
+            EventType::ReflectionFailed,
+            EventType::SkillSynthesized,
+            EventType::SkillApprovalRequested,
+            EventType::SkillApproved,
+            EventType::SkillApprovalDenied,
+            EventType::SkillPatched,
         ]
     }
 }

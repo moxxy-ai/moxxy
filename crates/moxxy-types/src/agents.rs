@@ -42,6 +42,47 @@ fn default_max_depth() -> i32 {
 fn default_max_total() -> i32 {
     8
 }
+fn default_min_tool_calls_for_skill() -> u32 {
+    3
+}
+fn default_journal_max_bytes() -> u64 {
+    5_000_000
+}
+fn default_reflection_timeout_secs() -> u64 {
+    60
+}
+
+/// Configuration for the post-run reflection pass and downstream self-improvement features.
+///
+/// All flags default to `false` so existing agents are unaffected until opted in.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ReflectionConfig {
+    /// Master switch: run the reflection pass after a successful run completes.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Allow reflection to draft skills into quarantine. Requires `enabled`.
+    #[serde(default)]
+    pub skill_synthesis_enabled: bool,
+    /// Load/update per-end-user profile markdown files under `users/<user_id>.md`.
+    #[serde(default)]
+    pub user_profiles_enabled: bool,
+    /// Minimum tool calls in a run before skill synthesis is considered.
+    #[serde(default = "default_min_tool_calls_for_skill")]
+    pub min_tool_calls_for_skill: u32,
+    /// Soft cap for `journal.md` size before rotation (rotation not yet implemented).
+    #[serde(default = "default_journal_max_bytes")]
+    pub journal_max_bytes: u64,
+    /// Timeout for the reflection provider call, in seconds.
+    #[serde(default = "default_reflection_timeout_secs")]
+    pub timeout_secs: u64,
+    /// Maximum snapshots retained in `<skill_dir>/.history/` before oldest are pruned.
+    #[serde(default = "default_skill_history_max_versions")]
+    pub skill_history_max_versions: u32,
+}
+
+fn default_skill_history_max_versions() -> u32 {
+    10
+}
 
 /// YAML-persisted agent configuration (source of truth for user-created agents).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,6 +101,8 @@ pub struct AgentConfig {
     pub core_mount: Option<String>,
     #[serde(default)]
     pub template: Option<String>,
+    #[serde(default)]
+    pub reflection: ReflectionConfig,
 }
 
 impl AgentConfig {

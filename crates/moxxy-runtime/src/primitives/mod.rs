@@ -16,8 +16,10 @@ pub mod memory_ltm;
 pub mod memory_stm;
 pub mod notify;
 pub mod reply;
+pub mod session;
 pub mod shell;
 pub mod skill;
+pub mod user_profile;
 pub mod vault;
 pub mod webhook;
 
@@ -75,10 +77,15 @@ pub use memory_ltm::{MemoryRecallPrimitive, MemoryStorePrimitive};
 pub use memory_stm::{MemoryStmReadPrimitive, MemoryStmWritePrimitive};
 pub use notify::CliNotifyPrimitive;
 pub use reply::{REPLY_PRIMITIVE_NAME, ReplyPrimitive};
+pub use session::SessionRecallPrimitive;
 pub use shell::ShellExecPrimitive;
 pub use skill::{
     SkillCreatePrimitive, SkillExecutePrimitive, SkillFindPrimitive, SkillGetPrimitive,
-    SkillListPrimitive, SkillRemovePrimitive, SkillValidatePrimitive,
+    SkillListPrimitive, SkillPatchPrimitive, SkillRemovePrimitive, SkillRequestApprovalPrimitive,
+    SkillValidatePrimitive,
+};
+pub use user_profile::{
+    UserProfileListPrimitive, UserProfileReadPrimitive, UserProfileWritePrimitive,
 };
 pub use vault::{VaultDeletePrimitive, VaultGetPrimitive, VaultListPrimitive, VaultSetPrimitive};
 pub use webhook::{

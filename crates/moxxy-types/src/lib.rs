@@ -21,7 +21,7 @@ pub use heartbeat::{HeartbeatActionType, HeartbeatError};
 pub use mcp::{McpConfig, McpServerConfig, McpToolDefinition, McpTransportType};
 pub use providers::ProviderDocError;
 pub use run_starter::{
-    ChildInfo, RunOutcome, RunStarter, SpawnOpts, SpawnResult, WorkspaceIsolation,
+    ChildInfo, RunOutcome, RunStarter, RunTrigger, SpawnOpts, SpawnResult, WorkspaceIsolation,
 };
 pub use skills::SkillDocError;
 pub use templates::TemplateDocError;
@@ -75,9 +75,9 @@ mod tests {
     }
 
     #[test]
-    fn event_type_has_all_30_variants() {
+    fn event_type_all_variants_count_matches_enum() {
         let all = EventType::all_variants();
-        assert_eq!(all.len(), 61);
+        assert_eq!(all.len(), 69);
     }
 
     #[test]
@@ -239,6 +239,16 @@ mod proptests {
             Just(EventType::McpToolInvoked),
             Just(EventType::McpToolCompleted),
             Just(EventType::McpToolFailed),
+            Just(EventType::ReflectionStarted),
+            Just(EventType::ReflectionCompleted),
+            Just(EventType::ReflectionFailed),
+            Just(EventType::SkillSynthesized),
+            Just(EventType::SkillApprovalRequested),
+            Just(EventType::SkillApproved),
+            Just(EventType::SkillApprovalDenied),
+            Just(EventType::SkillPatched),
+            Just(EventType::RunQueued),
+            Just(EventType::RunDequeued),
         ]
     }
 

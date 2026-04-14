@@ -38,6 +38,10 @@ impl TestDb {
                 "CREATE VIRTUAL TABLE IF NOT EXISTS memory_vec0 USING vec0(memory_id TEXT, embedding float[384])",
             )
             .expect("Failed to create memory_vec0");
+        let sql_0002 = include_str!("../../../migrations/0002_session_summaries.sql");
+        self.conn
+            .execute_batch(sql_0002)
+            .expect("Migration 0002 failed");
     }
 
     pub fn conn(&self) -> &Connection {

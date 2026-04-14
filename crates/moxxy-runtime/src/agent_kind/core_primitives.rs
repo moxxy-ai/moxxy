@@ -18,12 +18,13 @@ use crate::{
     HeartbeatDeletePrimitive, HeartbeatDisablePrimitive, HeartbeatListPrimitive,
     HeartbeatUpdatePrimitive, HttpRequestPrimitive, MemoryRecallPrimitive, MemoryStmReadPrimitive,
     MemoryStorePrimitive, PlanApprovePrimitive, PlanSubmitPrimitive, PrimitiveContext,
-    PrimitiveRegistry, ReplyPrimitive, ShellExecPrimitive, SkillCreatePrimitive,
-    SkillExecutePrimitive, SkillFindPrimitive, SkillGetPrimitive, SkillListPrimitive,
-    SkillRemovePrimitive, SkillValidatePrimitive, UserAskPrimitive, VaultDeletePrimitive,
-    VaultGetPrimitive, VaultListPrimitive, VaultSetPrimitive, WebhookDeletePrimitive,
-    WebhookListPrimitive, WebhookListenPrimitive, WebhookRegisterPrimitive, WebhookRotatePrimitive,
-    WebhookUpdatePrimitive,
+    PrimitiveRegistry, ReplyPrimitive, SessionRecallPrimitive, ShellExecPrimitive,
+    SkillCreatePrimitive, SkillExecutePrimitive, SkillFindPrimitive, SkillGetPrimitive,
+    SkillListPrimitive, SkillPatchPrimitive, SkillRemovePrimitive, SkillRequestApprovalPrimitive,
+    SkillValidatePrimitive, UserAskPrimitive, UserProfileListPrimitive, UserProfileReadPrimitive,
+    UserProfileWritePrimitive, VaultDeletePrimitive, VaultGetPrimitive, VaultListPrimitive,
+    VaultSetPrimitive, WebhookDeletePrimitive, WebhookListPrimitive, WebhookListenPrimitive,
+    WebhookRegisterPrimitive, WebhookRotatePrimitive, WebhookUpdatePrimitive,
 };
 
 /// Register all core primitives shared by all agent kinds.
@@ -55,6 +56,11 @@ pub fn register_core_primitives(
         ctx.db.clone(),
         setup.name.clone(),
         ctx.embedding_svc.clone(),
+    )));
+    // Cross-session full-text recall (FTS5 over reflection-time summaries)
+    registry.register(Box::new(SessionRecallPrimitive::new(
+        ctx.db.clone(),
+        setup.name.clone(),
     )));
     let stm_path = setup.paths.memory_dir.join("stm.yaml");
     registry.register(Box::new(MemoryStmReadPrimitive::new(stm_path)));
@@ -321,6 +327,44 @@ pub fn register_core_primitives(
     registry.register(Box::new(AgentSelfPersonaWritePrimitive::new(
         setup.paths.agent_dir.clone(),
     )));
+
+    // Per-end-user profile primitives (used by channel-driven agents to
+    // remember facts about individual users across runs).
+    registry.register(Box::new(UserProfileReadPrimitive::new(
+        setup.paths.agent_dir.clone(),
+    )));
+    registry.register(Box::new(UserProfileWritePrimitive::new(
+        setup.paths.agent_dir.clone(),
+    )));
+    registry.register(Box::new(UserProfileListPrimitive::new(
+        setup.paths.agent_dir.clone(),
+    )));
+
+    // Skill self-approval (agent can request human consent to promote its
+    // own auto-synthesized skills from quarantine to the active catalog).
+    registry.register(Box::new(SkillRequestApprovalPrimitive::new(
+        ctx.event_bus.clone(),
+        ctx.ask_channels.clone(),
+        setup.name.clone(),
+        setup.paths.agent_dir.clone(),
+    )));
+
+    // Skill self-editing (scoped to skills THIS agent auto-synthesized).
+    // History pruning cap comes from the agent's reflection config so the
+    // knob is in one place.
+    let history_max = setup
+        .reflection
+        .as_ref()
+        .map(|r| r.skill_history_max_versions)
+        .unwrap_or(10);
+    registry.register(Box::new(
+        SkillPatchPrimitive::new(
+            ctx.event_bus.clone(),
+            setup.name.clone(),
+            setup.paths.agent_dir.clone(),
+        )
+        .with_history_max_versions(history_max),
+    ));
 
     // Agent management primitives (using RunStarter trait)
     if let Some(ref starter) = ctx.run_starter {

@@ -85,6 +85,10 @@ pub struct AgentSetup {
     pub temperature: f64,
     pub paths: AgentPaths,
     pub policy_profile: Option<String>,
+    /// Optional reflection config — controls skill history caps and similar
+    /// knobs for primitives registered in `core_primitives`. `None` means
+    /// use defaults.
+    pub reflection: Option<moxxy_types::agents::ReflectionConfig>,
 }
 
 /// Output of [`AgentKindDefinition::call`] - everything needed to build a RunExecutor.

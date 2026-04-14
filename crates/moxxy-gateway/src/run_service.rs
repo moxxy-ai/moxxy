@@ -304,7 +304,8 @@ impl RunService {
     /// Try to start a run. If the agent is busy, enqueue it instead.
     /// Returns `Started`, `Queued`, or `QueueFull`.
     pub async fn start_or_queue_run(&self, run: QueuedRun) -> Result<StartRunOutcome, String> {
-        match self.do_start_run(&run.agent_name, &run.task).await {
+        let user_id = Self::extract_user_id(&run.metadata);
+        match self.do_start_run(&run.agent_name, &run.task, user_id).await {
             Ok(run_id) => Ok(StartRunOutcome::Started { run_id }),
             Err(ref e) if e == "Agent is already running" => {
                 let agent_name = run.agent_name.clone();
@@ -346,8 +347,28 @@ impl RunService {
         }
     }
 
+    /// Extract the stable end-user id previously packed into a `QueuedRun`'s
+    /// metadata by `start_or_queue_with_context`. Returns `None` for legacy
+    /// callers that didn't provide one.
+    fn extract_user_id(metadata: &serde_json::Value) -> Option<String> {
+        metadata
+            .get("user_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    }
+
     /// Start a run for an agent. Returns the run_id on success.
-    pub async fn do_start_run(&self, agent_name: &str, task: &str) -> Result<String, String> {
+    ///
+    /// `user_id` is the stable, transport-namespaced id of the end user who
+    /// triggered this run (e.g. `tg:12345`). It propagates into the
+    /// reflection pass so per-user profiles can be read/written. `None` for
+    /// API/system triggers without a human user.
+    pub async fn do_start_run(
+        &self,
+        agent_name: &str,
+        task: &str,
+        user_id: Option<String>,
+    ) -> Result<String, String> {
         // Look up agent in registry
         let runtime = self
             .registry
@@ -516,6 +537,7 @@ impl RunService {
             template_content,
             temperature: runtime.config.temperature,
             paths,
+            reflection: Some(runtime.config.reflection.clone()),
             policy_profile: runtime.config.policy_profile.clone(),
         };
 
@@ -535,6 +557,11 @@ impl RunService {
         let drain_tx = self.drain_tx.clone();
         let agent_inbox = self.agent_inbox.clone();
         let agent_await_channels = self.agent_await_channels.clone();
+        let reflection_config = runtime.config.reflection.clone();
+        let embedding_svc = self.embedding_svc.clone();
+        let reflection_user_id = user_id.clone();
+        let reflection_channel_id: Option<String> = None; // Wire from trigger in a follow-up
+        let reflection_run_starter = self.run_starter.lock().ok().and_then(|g| g.clone());
 
         tokio::spawn(async move {
             tracing::info!(
@@ -563,6 +590,23 @@ impl RunService {
             .with_inbox(agent_inbox)
             .with_timeout(std::time::Duration::from_secs(900))
             .with_stm_path(stm_path);
+
+            // Wire the reflection pass when the agent has opted in. Skipping
+            // this entirely when disabled keeps legacy agents untouched.
+            if reflection_config.enabled {
+                let agent_dir = moxxy_home.join("agents").join(&agent_name_owned);
+                executor = executor.with_reflection(moxxy_runtime::ReflectionContext {
+                    db: db.clone(),
+                    embedding_svc: embedding_svc.clone(),
+                    agent_dir,
+                    moxxy_home: moxxy_home.clone(),
+                    config: reflection_config.clone(),
+                    user_id: reflection_user_id.clone(),
+                    channel_id: reflection_channel_id.clone(),
+                    agent_name: agent_name_owned.clone(),
+                    run_starter: reflection_run_starter.clone(),
+                });
+            }
 
             let model_config = moxxy_runtime::ModelConfig {
                 temperature,
@@ -657,6 +701,7 @@ impl RunService {
                         temperature: 0.0,
                         paths: post_paths,
                         policy_profile: None,
+                        reflection: None,
                     };
                     // Build a minimal KindContext for post_run
                     let post_ctx = KindContext {
@@ -882,7 +927,11 @@ pub fn spawn_drain_loop(
                     "metadata": queued.metadata,
                 }),
             ));
-            match run_service.do_start_run(&agent_name, &queued.task).await {
+            let user_id = RunService::extract_user_id(&queued.metadata);
+            match run_service
+                .do_start_run(&agent_name, &queued.task, user_id)
+                .await
+            {
                 Ok(run_id) => {
                     tracing::info!(
                         agent_name = %agent_name,
@@ -907,7 +956,7 @@ pub fn spawn_drain_loop(
 #[async_trait::async_trait]
 impl RunStarter for RunService {
     async fn start_run(&self, agent_name: &str, task: &str) -> Result<String, String> {
-        self.do_start_run(agent_name, task).await
+        self.do_start_run(agent_name, task, None).await
     }
 
     async fn stop_agent(&self, agent_name: &str) -> Result<(), String> {
@@ -930,6 +979,44 @@ impl RunStarter for RunService {
                 task: task.to_string(),
                 source: source.to_string(),
                 metadata: serde_json::Value::Null,
+            })
+            .await?;
+        Ok(match outcome {
+            StartRunOutcome::Started { run_id } => RunOutcome::Started(run_id),
+            StartRunOutcome::Queued { position } => RunOutcome::Queued(position),
+            StartRunOutcome::QueueFull => RunOutcome::QueueFull,
+        })
+    }
+
+    async fn start_or_queue_with_context(
+        &self,
+        agent_id: &str,
+        trigger: moxxy_types::RunTrigger,
+    ) -> Result<RunOutcome, String> {
+        // Pack caller identity into the run's metadata so downstream
+        // consumers (reflection, executor) can key off a stable user id.
+        let mut meta = serde_json::Map::new();
+        if let Some(user_id) = &trigger.user_id {
+            meta.insert("user_id".into(), serde_json::Value::String(user_id.clone()));
+        }
+        if let Some(channel_id) = &trigger.channel_id {
+            meta.insert(
+                "channel_id".into(),
+                serde_json::Value::String(channel_id.clone()),
+            );
+        }
+        let metadata = if meta.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::Value::Object(meta)
+        };
+
+        let outcome = self
+            .start_or_queue_run(QueuedRun {
+                agent_name: agent_id.to_string(),
+                task: trigger.task,
+                source: trigger.source,
+                metadata,
             })
             .await?;
         Ok(match outcome {
@@ -1071,12 +1158,15 @@ impl RunStarter for RunService {
         }
 
         // Start the child's run
-        let run_id = self.do_start_run(&child_name, task).await.map_err(|e| {
-            // Roll back: unregister child + decrement parent
-            self.registry.unregister(&child_name);
-            self.registry.decrement_spawned(parent_name);
-            format!("failed to start child run: {}", e)
-        })?;
+        let run_id = self
+            .do_start_run(&child_name, task, None)
+            .await
+            .map_err(|e| {
+                // Roll back: unregister child + decrement parent
+                self.registry.unregister(&child_name);
+                self.registry.decrement_spawned(parent_name);
+                format!("failed to start child run: {}", e)
+            })?;
 
         Ok(SpawnResult { child_name, run_id })
     }

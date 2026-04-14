@@ -955,6 +955,7 @@ mod tests {
             policy_profile: None,
             core_mount: None,
             template: None,
+            reflection: Default::default(),
         };
         config.save(&agent_dir.join("agent.yaml")).unwrap();
     }
@@ -1069,6 +1070,7 @@ mod tests {
             policy_profile: None,
             core_mount: None,
             template: None,
+            reflection: Default::default(),
         };
         config.save(&agent_dir.join("agent.yaml")).unwrap();
 

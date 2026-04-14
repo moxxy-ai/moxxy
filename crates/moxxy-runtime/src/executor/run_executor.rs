@@ -13,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 use super::agent_listener::AgentEventListener;
 use super::hive_listener::HiveEventListener;
 use super::listener::EventListener;
+use super::reflection::{self, ReflectionContext, RunOutcomeLabel};
 use super::stuck_detector::{StuckAction, StuckDetector};
 
 const DEFAULT_MAX_TOOL_RESULT_CHARS: usize = 15_000;
@@ -61,6 +62,9 @@ pub struct RunExecutor {
     context_window_tokens: usize,
     /// Number of consecutive auto-compact failures before giving up.
     compact_failures: u32,
+    /// When set, a reflection pass runs after `RunCompleted` emits. See
+    /// `executor::reflection` for details. `None` = legacy behaviour (no reflection).
+    reflection: Option<ReflectionContext>,
 }
 
 impl RunExecutor {
@@ -92,6 +96,7 @@ impl RunExecutor {
             inbox: None,
             context_window_tokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
             compact_failures: 0,
+            reflection: None,
         }
     }
 
@@ -179,6 +184,14 @@ impl RunExecutor {
         self
     }
 
+    /// Enable the post-run reflection pass. When set, after `RunCompleted` is
+    /// emitted the executor asks the model one more time to extract lessons,
+    /// which are persisted to `journal.md` + LTM (tagged `lesson`).
+    pub fn with_reflection(mut self, ctx: ReflectionContext) -> Self {
+        self.reflection = Some(ctx);
+        self
+    }
+
     fn load_stm(&self, path: &std::path::Path) -> std::collections::BTreeMap<String, String> {
         let content = match std::fs::read_to_string(path) {
             Ok(c) if !c.trim().is_empty() => c,
@@ -203,18 +216,61 @@ impl RunExecutor {
         task: &str,
         model_config: &ModelConfig,
     ) -> Result<String, String> {
-        self.execute_inner(agent_id, run_id, task, model_config)
-            .await
+        // Conversation + sequence live out here so that on an Err path from
+        // execute_inner we can still hand both to the failure-reflection pass.
+        let mut conversation: Vec<Message> = Vec::new();
+        let mut sequence: u64 = 0;
+        let result = self
+            .execute_inner(
+                agent_id,
+                run_id,
+                task,
+                model_config,
+                &mut conversation,
+                &mut sequence,
+            )
+            .await;
+
+        // On failure, attempt reflection so the run still contributes
+        // lessons. Skill synthesis is forcibly disabled for non-Success
+        // outcomes inside run_reflection.
+        if let Err(ref err) = result {
+            let outcome = Self::classify_error(err);
+            self.reflect_on_failure(
+                agent_id,
+                run_id,
+                task,
+                outcome,
+                err,
+                &conversation,
+                model_config,
+            )
+            .await;
+        }
+
+        result
     }
 
+    #[allow(clippy::too_many_arguments, clippy::needless_borrow)]
     async fn execute_inner(
         &mut self,
         agent_id: &str,
         run_id: &str,
         task: &str,
         model_config: &ModelConfig,
+        // Passed as `&mut` so the outer `execute` wrapper can see both on an
+        // Err path for failure reflection. Inside this fn we keep the
+        // historical `&mut sequence` / `&mut conversation` call style;
+        // clippy's `needless_borrow` is allowed for the whole fn because the
+        // reborrows are harmless and rewriting ~30 call sites just to satisfy
+        // the lint isn't worth the diff.
+        mut conversation: &mut Vec<Message>,
+        mut sequence: &mut u64,
     ) -> Result<String, String> {
-        let mut sequence: u64 = 0;
+        // Touch the bindings so the `mut` keyword isn't flagged as unused by
+        // the compiler when the only reborrows are implicit.
+        let _: &mut Vec<Message> = &mut *conversation;
+        let _: &mut u64 = &mut *sequence;
         let mut event_rx = self.event_bus.subscribe();
         let mut pending_notifications: Vec<EventEnvelope> = Vec::new();
         let mut last_activity = tokio::time::Instant::now();
@@ -239,8 +295,7 @@ impl RunExecutor {
             .registry
             .tool_definitions(&self.allowed_primitives.read().unwrap());
 
-        // Build initial conversation
-        let mut conversation: Vec<Message> = Vec::new();
+        // Build initial conversation (conversation comes in empty from the caller).
         if let Some(ref prompt) = self.system_prompt {
             conversation.push(Message::system(prompt));
         }
@@ -780,7 +835,221 @@ impl RunExecutor {
             serde_json::json!({"final_content_length": final_content.len()}),
         );
 
+        // Post-run reflection pass. RunCompleted has already emitted so
+        // subscribers see no added latency. Reflection failures never break
+        // the run — they log, emit `reflection.failed`, and move on.
+        let reflection_ctx = self
+            .reflection
+            .as_ref()
+            .filter(|c| c.config.enabled)
+            .cloned();
+        if let Some(ctx) = reflection_ctx {
+            self.run_reflection_phase(
+                ctx,
+                agent_id,
+                run_id,
+                task,
+                RunOutcomeLabel::Success,
+                &final_content,
+                &conversation,
+                model_config,
+                &mut sequence,
+            )
+            .await;
+        }
+
         Ok(final_content)
+    }
+
+    /// Map an `execute_inner` error string into a `RunOutcomeLabel` for
+    /// reflection. We inspect the error prefix — cheap and keeps failure
+    /// classification next to the failure reflection wiring.
+    fn classify_error(err: &str) -> RunOutcomeLabel {
+        let l = err.to_lowercase();
+        if l.contains("cancel") {
+            RunOutcomeLabel::Cancelled
+        } else if l.contains("timed out") || l.contains("timeout") {
+            RunOutcomeLabel::TimedOut
+        } else {
+            RunOutcomeLabel::Failed
+        }
+    }
+
+    /// Invoke the reflection pass for a non-successful run outcome. Used by
+    /// the top-level `execute` wrapper to attach reflection to error paths
+    /// as well. `final_content` is the error string or last partial output.
+    #[allow(clippy::too_many_arguments)]
+    async fn reflect_on_failure(
+        &mut self,
+        agent_id: &str,
+        run_id: &str,
+        task: &str,
+        outcome: RunOutcomeLabel,
+        final_content: &str,
+        conversation: &[Message],
+        model_config: &ModelConfig,
+    ) {
+        let ctx = match self
+            .reflection
+            .as_ref()
+            .filter(|c| c.config.enabled)
+            .cloned()
+        {
+            Some(c) => c,
+            None => return,
+        };
+        let mut sequence: u64 = u64::MAX / 2; // avoid collision with main-loop sequence
+        self.run_reflection_phase(
+            ctx,
+            agent_id,
+            run_id,
+            task,
+            outcome,
+            final_content,
+            conversation,
+            model_config,
+            &mut sequence,
+        )
+        .await;
+    }
+
+    /// Execute the reflection pass and emit the corresponding events. Always
+    /// completes gracefully: a panic/timeout/parse-failure results in
+    /// `ReflectionFailed` rather than propagating an error.
+    #[allow(clippy::too_many_arguments)]
+    async fn run_reflection_phase(
+        &mut self,
+        ctx: ReflectionContext,
+        agent_id: &str,
+        run_id: &str,
+        task: &str,
+        outcome: RunOutcomeLabel,
+        final_content: &str,
+        conversation: &[Message],
+        model_config: &ModelConfig,
+        sequence: &mut u64,
+    ) {
+        if let Some(ref token) = self.cancel_token
+            && token.is_cancelled()
+        {
+            return;
+        }
+
+        self.emit(
+            agent_id,
+            run_id,
+            sequence,
+            EventType::ReflectionStarted,
+            serde_json::json!({"outcome": outcome.as_str()}),
+        );
+
+        let timeout = Duration::from_secs(ctx.config.timeout_secs.max(1));
+        let result = tokio::time::timeout(
+            timeout,
+            reflection::run_reflection(
+                &ctx,
+                self.provider.clone(),
+                model_config,
+                agent_id,
+                run_id,
+                task,
+                outcome,
+                final_content,
+                conversation,
+            ),
+        )
+        .await;
+
+        match result {
+            Ok(Ok(report)) => {
+                // Emit `SkillSynthesized` when the model drafted a skill,
+                // annotated with the synthesis outcome (written to quarantine,
+                // rejected by the gate, or failed at write time).
+                if let (Some(draft), Some(outcome)) = (&report.skill_draft, &report.skill_synthesis)
+                {
+                    let payload = match outcome {
+                        reflection::SkillSynthesisOutcome::Written { slug, path } => {
+                            serde_json::json!({
+                                "name": draft.name,
+                                "description": draft.description,
+                                "synthesized": true,
+                                "quarantined": true,
+                                "slug": slug,
+                                "path": path.display().to_string(),
+                            })
+                        }
+                        reflection::SkillSynthesisOutcome::Rejected { reason } => {
+                            serde_json::json!({
+                                "name": draft.name,
+                                "description": draft.description,
+                                "synthesized": false,
+                                "rejected": true,
+                                "reason": reason,
+                            })
+                        }
+                        reflection::SkillSynthesisOutcome::Failed { error } => {
+                            serde_json::json!({
+                                "name": draft.name,
+                                "description": draft.description,
+                                "synthesized": false,
+                                "failed": true,
+                                "error": error,
+                            })
+                        }
+                    };
+                    self.emit(
+                        agent_id,
+                        run_id,
+                        sequence,
+                        EventType::SkillSynthesized,
+                        payload,
+                    );
+                }
+                self.emit(
+                    agent_id,
+                    run_id,
+                    sequence,
+                    EventType::ReflectionCompleted,
+                    serde_json::json!({
+                        "lessons_stored": report.lessons_stored,
+                        "journal_bytes_appended": report.journal_bytes_appended,
+                        "user_profile_updated": report.user_profile_updated,
+                        "reusable": report.reusable,
+                        "skill_draft_present": report.skill_draft.is_some(),
+                        "session_summary_indexed": report.session_summary_indexed,
+                        "self_approval_triggered": report.self_approval_triggered,
+                    }),
+                );
+            }
+            Ok(Err(err)) => {
+                tracing::warn!(agent_id, run_id, error = %err, "Reflection pass failed");
+                self.emit(
+                    agent_id,
+                    run_id,
+                    sequence,
+                    EventType::ReflectionFailed,
+                    serde_json::json!({"error": err}),
+                );
+            }
+            Err(_) => {
+                tracing::warn!(
+                    agent_id,
+                    run_id,
+                    timeout_secs = ctx.config.timeout_secs,
+                    "Reflection pass timed out"
+                );
+                self.emit(
+                    agent_id,
+                    run_id,
+                    sequence,
+                    EventType::ReflectionFailed,
+                    serde_json::json!({
+                        "error": "timeout",
+                        "timeout_secs": ctx.config.timeout_secs,
+                    }),
+                );
+            }
+        }
     }
 
     /// Dispatch an event to ALL listeners whose interests match.

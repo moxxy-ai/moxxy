@@ -178,6 +178,7 @@ mod tests {
             policy_profile: None,
             core_mount: None,
             template: Some("builder".into()),
+            reflection: Default::default(),
         };
         config.save(&agent_dir.join("agent.yaml")).unwrap();
 

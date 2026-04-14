@@ -22,7 +22,8 @@ pub use claude_cli_provider::ClaudeCliProvider;
 pub use context::PrimitiveContext;
 pub use echo_provider::EchoProvider;
 pub use executor::{
-    AgentEventListener, EventAction, EventListener, Executor, HiveEventListener, RunExecutor,
+    AgentEventListener, EventAction, EventListener, Executor, HiveEventListener, ReflectionContext,
+    ReflectionReport, RunExecutor,
 };
 pub use openai_provider::OpenAIProvider;
 pub use primitives::{
@@ -51,9 +52,11 @@ pub use primitives::{
     HttpRequestPrimitive, McpConnectPrimitive, McpDisconnectPrimitive, McpListPrimitive,
     McpToolPrimitive, MemoryRecallPrimitive, MemoryStmReadPrimitive, MemoryStmWritePrimitive,
     MemoryStorePrimitive, PlanApproval, PlanApprovalChannels, PlanApprovePrimitive,
-    PlanSubmitPrimitive, REPLY_PRIMITIVE_NAME, ReplyPrimitive, ShellExecPrimitive,
-    SkillCreatePrimitive, SkillExecutePrimitive, SkillFindPrimitive, SkillGetPrimitive,
-    SkillListPrimitive, SkillRemovePrimitive, SkillValidatePrimitive, UserAskPrimitive,
+    PlanSubmitPrimitive, REPLY_PRIMITIVE_NAME, ReplyPrimitive, SessionRecallPrimitive,
+    ShellExecPrimitive, SkillCreatePrimitive, SkillExecutePrimitive, SkillFindPrimitive,
+    SkillGetPrimitive, SkillListPrimitive, SkillPatchPrimitive, SkillRemovePrimitive,
+    SkillRequestApprovalPrimitive, SkillValidatePrimitive, UserAskPrimitive,
+    UserProfileListPrimitive, UserProfileReadPrimitive, UserProfileWritePrimitive,
     VaultDeletePrimitive, VaultGetPrimitive, VaultListPrimitive, VaultSetPrimitive,
     WebhookDeletePrimitive, WebhookListPrimitive, WebhookListenChannels, WebhookListenPrimitive,
     WebhookRegisterPrimitive, WebhookRotatePrimitive, WebhookUpdatePrimitive,

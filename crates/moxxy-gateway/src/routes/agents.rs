@@ -180,6 +180,7 @@ pub async fn create_agent(
         policy_profile: body.policy_profile.clone(),
         core_mount: None,
         template: None,
+        reflection: Default::default(),
     };
 
     // Create agent directory + YAML config

@@ -141,6 +141,11 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
             "/v1/agents/{id}/heartbeats/{hb_id}",
             delete(routes::heartbeats::disable_heartbeat),
         )
+        // Insights (weekly digest / usage analytics)
+        .route(
+            "/v1/agents/{id}/insights",
+            get(routes::insights::agent_insights),
+        )
         // Skills
         .route("/v1/agents/{id}/skills", get(routes::skills::list_skills))
         .route(
@@ -150,6 +155,19 @@ pub fn create_router(state: Arc<AppState>, rate_limit_config: Option<RateLimitCo
         .route(
             "/v1/agents/{id}/skills/{skill_id}",
             delete(routes::skills::delete_skill),
+        )
+        // Quarantined skills (pending human approval — written by the reflection pass)
+        .route(
+            "/v1/agents/{id}/skills/quarantine",
+            get(routes::skills::list_quarantined_skills),
+        )
+        .route(
+            "/v1/agents/{id}/skills/quarantine/{slug}/approve",
+            post(routes::skills::approve_quarantined_skill),
+        )
+        .route(
+            "/v1/agents/{id}/skills/quarantine/{slug}",
+            delete(routes::skills::reject_quarantined_skill),
         )
         // Templates
         .route(
@@ -358,6 +376,7 @@ mod test_helpers {
             policy_profile: None,
             core_mount: None,
             template: None,
+            reflection: Default::default(),
         };
         // Create on disk + register
         let _ = moxxy_core::AgentStore::create(&state.moxxy_home, &name, &config);
@@ -565,6 +584,7 @@ mod agent_tests {
                 policy_profile: None,
                 core_mount: None,
                 template: None,
+                reflection: Default::default(),
             };
             let _ = moxxy_core::AgentStore::create(&state.moxxy_home, &name, &config);
             let runtime = moxxy_types::AgentRuntime {

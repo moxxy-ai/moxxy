@@ -1,12 +1,14 @@
 pub mod agent_listener;
 pub mod hive_listener;
 pub mod listener;
+pub mod reflection;
 pub mod run_executor;
 pub mod stuck_detector;
 
 pub use agent_listener::AgentEventListener;
 pub use hive_listener::HiveEventListener;
 pub use listener::{EventAction, EventListener};
+pub use reflection::{ReflectionContext, ReflectionReport, RunOutcomeLabel};
 pub use run_executor::RunExecutor;
 
 use crate::provider::ModelConfig;

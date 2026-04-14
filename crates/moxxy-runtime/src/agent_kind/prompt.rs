@@ -416,6 +416,7 @@ mod tests {
                 memory_dir: PathBuf::from("/home/.moxxy/agents/test-agent/memory"),
             },
             policy_profile: None,
+            reflection: None,
         }
     }
 

@@ -2,10 +2,20 @@ use std::path::{Path, PathBuf};
 
 use super::doc::SkillDoc;
 
+/// Subdirectory under an agent's workspace that holds skills pending human
+/// approval. The tool catalog (`load_agent`, `load_all`) deliberately ignores
+/// this directory — skills live here until they're approved into `skills/`.
+pub const SKILLS_QUARANTINE_DIR: &str = "skills_quarantine";
+/// The active skills directory that contributes to the tool catalog.
+pub const SKILLS_ACTIVE_DIR: &str = "skills";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkillSource {
     Builtin,
     Agent,
+    /// Auto-synthesized by the reflection pass and awaiting human approval.
+    /// Quarantined skills are NEVER included in the tool catalog.
+    Quarantined,
 }
 
 #[derive(Debug)]
@@ -24,8 +34,58 @@ impl SkillLoader {
     }
 
     /// Load agent-specific skills from `{agent_dir}/skills/*/SKILL.md`.
+    ///
+    /// Deliberately does NOT include `{agent_dir}/skills_quarantine/` — those
+    /// are pending-approval skills that must never reach the tool catalog.
     pub fn load_agent(agent_dir: &Path) -> Vec<LoadedSkill> {
-        Self::load_from_dir(&agent_dir.join("skills"), SkillSource::Agent)
+        Self::load_from_dir(&agent_dir.join(SKILLS_ACTIVE_DIR), SkillSource::Agent)
+    }
+
+    /// Load quarantined skills — auto-synthesized by the reflection pass and
+    /// awaiting approval. Exposed for approval UIs, not for tool registration.
+    pub fn load_quarantine(agent_dir: &Path) -> Vec<LoadedSkill> {
+        Self::load_from_dir(
+            &agent_dir.join(SKILLS_QUARANTINE_DIR),
+            SkillSource::Quarantined,
+        )
+    }
+
+    /// Promote a quarantined skill to active. Atomically renames
+    /// `skills_quarantine/<slug>/` → `skills/<slug>/`. Returns an error if the
+    /// slug doesn't exist in quarantine or if the active dir already has a
+    /// skill with that slug.
+    pub fn approve_quarantined(agent_dir: &Path, slug: &str) -> Result<PathBuf, std::io::Error> {
+        let src = agent_dir.join(SKILLS_QUARANTINE_DIR).join(slug);
+        let dst = agent_dir.join(SKILLS_ACTIVE_DIR).join(slug);
+        if !src.is_dir() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("quarantined skill '{slug}' not found"),
+            ));
+        }
+        if dst.exists() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                format!("active skill '{slug}' already exists — remove it first"),
+            ));
+        }
+        if let Some(parent) = dst.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::rename(&src, &dst)?;
+        Ok(dst)
+    }
+
+    /// Delete a quarantined skill without promoting it.
+    pub fn reject_quarantined(agent_dir: &Path, slug: &str) -> Result<(), std::io::Error> {
+        let src = agent_dir.join(SKILLS_QUARANTINE_DIR).join(slug);
+        if !src.is_dir() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("quarantined skill '{slug}' not found"),
+            ));
+        }
+        std::fs::remove_dir_all(&src)
     }
 
     /// Load all skills, merging built-in and agent skills.
@@ -150,6 +210,78 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let skills = SkillLoader::load_builtin(tmp.path());
         assert!(skills.is_empty());
+    }
+
+    #[test]
+    fn load_quarantine_returns_quarantined_skills() {
+        let tmp = TempDir::new().unwrap();
+        let agent_dir = tmp.path();
+        let q_dir = agent_dir.join(SKILLS_QUARANTINE_DIR).join("draft-1");
+        std::fs::create_dir_all(&q_dir).unwrap();
+        std::fs::write(q_dir.join("SKILL.md"), valid_skill_content("draft-1")).unwrap();
+
+        let skills = SkillLoader::load_quarantine(agent_dir);
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].source, SkillSource::Quarantined);
+    }
+
+    #[test]
+    fn load_agent_ignores_quarantine_dir() {
+        let tmp = TempDir::new().unwrap();
+        let agent_dir = tmp.path();
+        // Write into quarantine — should NOT show up
+        let q_dir = agent_dir.join(SKILLS_QUARANTINE_DIR).join("pending");
+        std::fs::create_dir_all(&q_dir).unwrap();
+        std::fs::write(q_dir.join("SKILL.md"), valid_skill_content("pending")).unwrap();
+
+        let skills = SkillLoader::load_agent(agent_dir);
+        assert!(
+            skills.is_empty(),
+            "quarantined skills must not leak into tool catalog"
+        );
+    }
+
+    #[test]
+    fn approve_quarantined_moves_skill_to_active() {
+        let tmp = TempDir::new().unwrap();
+        let agent_dir = tmp.path();
+        let q_dir = agent_dir.join(SKILLS_QUARANTINE_DIR).join("to-approve");
+        std::fs::create_dir_all(&q_dir).unwrap();
+        std::fs::write(q_dir.join("SKILL.md"), valid_skill_content("to-approve")).unwrap();
+
+        let promoted = SkillLoader::approve_quarantined(agent_dir, "to-approve").unwrap();
+        assert!(promoted.exists());
+        assert!(!q_dir.exists());
+        // Should now be visible via load_agent
+        let agent_skills = SkillLoader::load_agent(agent_dir);
+        assert_eq!(agent_skills.len(), 1);
+    }
+
+    #[test]
+    fn approve_quarantined_rejects_duplicate() {
+        let tmp = TempDir::new().unwrap();
+        let agent_dir = tmp.path();
+        // Existing active skill
+        write_skill(agent_dir, "dup", &valid_skill_content("dup"));
+        // Quarantined with same slug
+        let q_dir = agent_dir.join(SKILLS_QUARANTINE_DIR).join("dup");
+        std::fs::create_dir_all(&q_dir).unwrap();
+        std::fs::write(q_dir.join("SKILL.md"), valid_skill_content("dup")).unwrap();
+
+        let result = SkillLoader::approve_quarantined(agent_dir, "dup");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn reject_quarantined_deletes_skill() {
+        let tmp = TempDir::new().unwrap();
+        let agent_dir = tmp.path();
+        let q_dir = agent_dir.join(SKILLS_QUARANTINE_DIR).join("spam");
+        std::fs::create_dir_all(&q_dir).unwrap();
+        std::fs::write(q_dir.join("SKILL.md"), valid_skill_content("spam")).unwrap();
+
+        SkillLoader::reject_quarantined(agent_dir, "spam").unwrap();
+        assert!(!q_dir.exists());
     }
 
     #[test]

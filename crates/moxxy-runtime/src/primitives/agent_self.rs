@@ -264,6 +264,7 @@ mod tests {
             policy_profile: None,
             core_mount: None,
             template: None,
+            reflection: Default::default(),
         };
         config.save(&agent_dir.join("agent.yaml")).unwrap();
         std::fs::write(agent_dir.join("persona.md"), "You are a helpful assistant.").unwrap();

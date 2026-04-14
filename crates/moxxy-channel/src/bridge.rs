@@ -588,10 +588,15 @@ impl ChannelBridge {
         // Show typing indicator immediately
         let _ = transport.send_typing(&msg.external_chat_id).await;
 
-        // Trigger a run via RunStarter (with queueing support)
+        // Trigger a run via RunStarter (with queueing support).
+        // Thread the sender's identity so per-end-user personalization can
+        // key off a stable, transport-namespaced id (e.g. `tg:12345`).
+        let trigger = moxxy_types::RunTrigger::new(msg.text.clone(), "channel")
+            .with_user_id(format!("{}:{}", transport.transport_name(), msg.sender_id))
+            .with_channel_id(msg.external_chat_id.clone());
         match self
             .run_starter
-            .start_or_queue(agent_name, &msg.text, "channel")
+            .start_or_queue_with_context(agent_name, trigger)
             .await
         {
             Ok(moxxy_types::RunOutcome::Started(_run_id)) => {}

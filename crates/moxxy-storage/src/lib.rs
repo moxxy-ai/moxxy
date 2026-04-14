@@ -66,6 +66,10 @@ impl Database {
         ConversationDao { conn: &self.conn }
     }
 
+    pub fn session_summaries(&self) -> SessionSummaryDao<'_> {
+        SessionSummaryDao { conn: &self.conn }
+    }
+
     pub fn allowlists(&self) -> AllowlistDao<'_> {
         AllowlistDao { conn: &self.conn }
     }
