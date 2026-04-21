@@ -9,6 +9,8 @@ import {
   buildCodexAuthorizationCodeExchangeBody,
   buildCodexApiKeyExchangeBody,
   buildCodexBrowserAuthorizeUrl,
+  codexClientHeaders,
+  codexUserAgent,
   buildOllamaDiscoveryUrls,
   buildScopedRetryFlags,
   buildOpenAiCodexSessionModels,
@@ -227,6 +229,22 @@ describe('provider oauth helpers', () => {
       'http://127.0.0.1:11434/v1/models',
       'http://127.0.0.1:11434/api/tags',
     ]);
+  });
+
+  it('codexClientHeaders include originator and a codex_cli_rs user-agent', () => {
+    // Without these headers OpenAI's abuse detection returns 429 on the
+    // device-code and token endpoints. Keep them aligned with the Rust side
+    // and with the official CLI.
+    const headers = codexClientHeaders();
+    assert.equal(headers.originator, 'codex_cli_rs');
+    assert.match(headers['user-agent'], /^codex_cli_rs\/\S+ \(.+;\s*.+\)$/);
+    assert.equal(codexUserAgent(), headers['user-agent']);
+  });
+
+  it('codexClientHeaders merges and overrides extras after identity headers', () => {
+    const headers = codexClientHeaders({ 'content-type': 'application/json' });
+    assert.equal(headers['content-type'], 'application/json');
+    assert.equal(headers.originator, 'codex_cli_rs');
   });
 
   it('buildCodexDeviceCodeBody returns oauth device-code payload', () => {

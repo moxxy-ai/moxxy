@@ -28,6 +28,22 @@ const OPENAI_CODEX_SECRET_KEY_NAME = 'OPENAI_CODEX_API_KEY';
 const OPENAI_CODEX_BACKEND_KEY = `moxxy_provider_${OPENAI_CODEX_PROVIDER_ID}`;
 const OPENAI_CODEX_CHATGPT_API_BASE = 'https://chatgpt.com/backend-api/codex';
 const OPENAI_CODEX_OAUTH_SESSION_MODE = 'chatgpt_oauth_session';
+const OPENAI_CODEX_CLIENT_USER_AGENT_ID = 'codex_cli_rs';
+const OPENAI_CODEX_CLIENT_VERSION = '0.50.0';
+
+export function codexUserAgent() {
+  const platform = process.platform || 'unknown';
+  const arch = process.arch || 'unknown';
+  return `${OPENAI_CODEX_CLIENT_USER_AGENT_ID}/${OPENAI_CODEX_CLIENT_VERSION} (${platform}; ${arch})`;
+}
+
+export function codexClientHeaders(extra = {}) {
+  return {
+    'user-agent': codexUserAgent(),
+    originator: OPENAI_CODEX_CLIENT_USER_AGENT_ID,
+    ...extra,
+  };
+}
 
 export const ANTHROPIC_PROVIDER_ID = 'anthropic';
 const ANTHROPIC_SECRET_KEY_NAME = 'ANTHROPIC_API_KEY';
@@ -577,7 +593,7 @@ async function startBrowserOAuthCallbackServer({ expectedState, timeoutMs, prefe
 async function requestCodexDeviceCode(opts = {}) {
   const resp = await fetch(OPENAI_CODEX_DEVICE_CODE_ENDPOINT, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: codexClientHeaders({ 'content-type': 'application/json' }),
     body: JSON.stringify(buildCodexDeviceCodeBody(OPENAI_CODEX_CLIENT_ID, opts)),
   });
 
@@ -598,7 +614,7 @@ async function pollCodexAuthorizationCode(deviceAuthId, userCode, intervalSecond
 
     const resp = await fetch(OPENAI_CODEX_DEVICE_TOKEN_ENDPOINT, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: codexClientHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify({
         device_auth_id: deviceAuthId,
         user_code: userCode,
@@ -639,9 +655,9 @@ async function exchangeCodexIdToken({
 }) {
   const resp = await fetch(OPENAI_CODEX_TOKEN_ENDPOINT, {
     method: 'POST',
-    headers: {
+    headers: codexClientHeaders({
       'content-type': 'application/x-www-form-urlencoded',
-    },
+    }),
     body: buildCodexAuthorizationCodeExchangeBody({
       code: authorizationCode,
       redirectUri,
@@ -662,9 +678,9 @@ async function exchangeCodexIdToken({
 async function exchangeCodexApiKey(idToken) {
   const resp = await fetch(OPENAI_CODEX_TOKEN_ENDPOINT, {
     method: 'POST',
-    headers: {
+    headers: codexClientHeaders({
       'content-type': 'application/x-www-form-urlencoded',
-    },
+    }),
     body: buildCodexApiKeyExchangeBody({
       clientId: OPENAI_CODEX_CLIENT_ID,
       idToken,

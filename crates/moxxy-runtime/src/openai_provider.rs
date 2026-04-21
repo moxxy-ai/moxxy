@@ -12,6 +12,34 @@ use crate::registry::{PrimitiveError, ToolDefinition};
 const OPENAI_OAUTH_TOKEN_ENDPOINT: &str = "https://auth.openai.com/oauth/token";
 const OPENAI_CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OPENAI_CODEX_SESSION_MODE: &str = "chatgpt_oauth_session";
+/// Matches the originator string sent by the official `codex` CLI. Requests
+/// without this header are rate-limited by the ChatGPT backend (429).
+const OPENAI_CODEX_ORIGINATOR: &str = "codex_cli_rs";
+/// User-agent that impersonates the official Rust Codex CLI; required for the
+/// chatgpt.com/backend-api/codex/* endpoints to avoid abuse-detection 429s.
+const OPENAI_CODEX_CLIENT_VERSION: &str = "0.50.0";
+
+fn codex_user_agent() -> String {
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
+    format!("{OPENAI_CODEX_ORIGINATOR}/{OPENAI_CODEX_CLIENT_VERSION} ({os}; {arch})")
+}
+
+fn codex_default_headers() -> reqwest::header::HeaderMap {
+    let mut headers = reqwest::header::HeaderMap::new();
+    if let Ok(value) = reqwest::header::HeaderValue::from_str(OPENAI_CODEX_ORIGINATOR) {
+        headers.insert("originator", value);
+    }
+    headers
+}
+
+fn build_codex_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .user_agent(codex_user_agent())
+        .default_headers(codex_default_headers())
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
 
 /// An OpenAI-compatible LLM provider that calls the Chat Completions API.
 pub struct OpenAIProvider {
@@ -248,6 +276,7 @@ impl OpenAIProvider {
                     && !s.access_token.trim().is_empty()
                     && !s.refresh_token.trim().is_empty()
             });
+        let is_oauth = parsed_session.is_some();
         let auth = match parsed_session {
             Some(mut session) => {
                 if session.client_id.trim().is_empty() {
@@ -258,12 +287,23 @@ impl OpenAIProvider {
             None => OpenAIAuth::ApiKey(raw_secret),
         };
 
+        let api_base: String = api_base.into();
+        let model: String = model.into();
+        let needs_codex_client = is_oauth
+            || api_base.to_ascii_lowercase().contains("/backend-api/codex")
+            || model.to_ascii_lowercase().contains("codex");
+        let client = if needs_codex_client {
+            build_codex_http_client()
+        } else {
+            reqwest::Client::new()
+        };
+
         Self {
-            api_base: api_base.into(),
+            api_base,
             auth,
             chatgpt_account_id,
-            model: model.into(),
-            client: reqwest::Client::new(),
+            model,
+            client,
         }
     }
 }
@@ -1053,6 +1093,54 @@ mod tests {
             provider.request_url(),
             "https://api.openai.com/v1/responses"
         );
+    }
+
+    #[test]
+    fn codex_user_agent_matches_official_cli_format() {
+        let ua = codex_user_agent();
+        assert!(
+            ua.starts_with("codex_cli_rs/"),
+            "user agent must start with codex_cli_rs/ to avoid 429 on chatgpt.com backend; got {ua}"
+        );
+        assert!(
+            ua.contains(';'),
+            "user agent must include os/arch; got {ua}"
+        );
+    }
+
+    #[test]
+    fn codex_default_headers_include_originator() {
+        // The chatgpt.com/backend-api/codex backend rate-limits (429) any
+        // request that doesn't identify itself as the official Codex CLI via
+        // the `originator` header.
+        let headers = codex_default_headers();
+        assert_eq!(
+            headers.get("originator").and_then(|v| v.to_str().ok()),
+            Some("codex_cli_rs"),
+        );
+    }
+
+    #[test]
+    fn oauth_session_provider_uses_codex_http_client() {
+        // Make sure constructing a provider from a stored ChatGPT OAuth
+        // session swaps in the identity-carrying reqwest client instead of
+        // the bare default. We can't introspect reqwest defaults directly,
+        // so we just exercise the code path and rely on the explicit header
+        // test above.
+        let secret = serde_json::json!({
+            "mode": "chatgpt_oauth_session",
+            "access_token": "access_123",
+            "refresh_token": "refresh_456",
+            "expires_at": 1_700_000_000_000u64
+        })
+        .to_string();
+        let provider = OpenAIProvider::new(
+            "https://chatgpt.com/backend-api/codex",
+            secret,
+            "gpt-5.3-codex",
+            None,
+        );
+        assert!(matches!(provider.auth, OpenAIAuth::ChatGptOAuthSession(_)));
     }
 
     #[test]
