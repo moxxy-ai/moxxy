@@ -30,7 +30,7 @@ const OPENAI_CODEX_CHATGPT_API_BASE = 'https://chatgpt.com/backend-api/codex';
 const OPENAI_CODEX_OAUTH_SESSION_MODE = 'chatgpt_oauth_session';
 const OPENAI_CODEX_CLIENT_USER_AGENT_ID = 'codex_cli_rs';
 const OPENAI_CODEX_CLIENT_VERSION = '0.50.0';
-const MOXXY_CODEX_CLOUD_OAUTH_URL = 'https://oauth.moxxy.ai';
+const MOXXY_CODEX_CLOUD_OAUTH_URL = 'https://oauth.cloud.moxxy.ai';
 const MOXXY_CODEX_CLOUD_POLL_MAX_MS = 15 * 60 * 1000;
 
 export function codexUserAgent() {
@@ -1036,7 +1036,7 @@ async function postCloudJson(baseUrl, path, body) {
   const json = parseJsonSafe(text);
   if (!resp.ok) {
     const msg = json?.error || text || `HTTP ${resp.status}`;
-    throw new Error(`oauth.moxxy.ai ${path} failed (${resp.status}): ${msg}`);
+    throw new Error(`oauth.cloud.moxxy.ai ${path} failed (${resp.status}): ${msg}`);
   }
   return json || {};
 }
@@ -1066,7 +1066,7 @@ async function loginOpenAiCodexCloud(flags) {
       session.verificationUrl ? `Open this URL: ${session.verificationUrl}` : '',
       session.userCode ? `Verification code: ${session.userCode}` : '',
     ].filter(Boolean).join('\n'),
-    'OpenAI OAuth (oauth.moxxy.ai)'
+    'OpenAI OAuth (oauth.cloud.moxxy.ai)'
   );
 
   let deviceSessionToken = session.deviceSessionToken;
@@ -1129,13 +1129,13 @@ async function loginOpenAiCodexCloud(flags) {
 
   const secretValue = String(connected.secretValue || '').trim();
   if (!secretValue) {
-    throw new Error('oauth.moxxy.ai returned no secretValue');
+    throw new Error('oauth.cloud.moxxy.ai returned no secretValue');
   }
   const models = Array.isArray(connected.models) && connected.models.length > 0
     ? connected.models
     : null;
   if (!models) {
-    throw new Error('oauth.moxxy.ai returned no models');
+    throw new Error('oauth.cloud.moxxy.ai returned no models');
   }
 
   if (connected.authMode === 'chatgpt_oauth_session') {
@@ -1243,7 +1243,7 @@ export async function loginOpenAiCodex(client, flags) {
     method = handleCancel(await p.select({
       message: 'Select OpenAI auth method',
       options: [
-        { value: 'cloud', label: 'ChatGPT Pro/Plus (oauth.moxxy.ai)', hint: 'recommended: hosted, no local server' },
+        { value: 'cloud', label: 'ChatGPT Pro/Plus (oauth.cloud.moxxy.ai)', hint: 'recommended: hosted, no local server' },
         { value: 'browser', label: 'ChatGPT Pro/Plus (browser)', hint: 'local OAuth callback on port 1455' },
         { value: 'headless', label: 'ChatGPT Pro/Plus (headless)', hint: 'device-code flow with verification code' },
       ],
@@ -1255,7 +1255,7 @@ export async function loginOpenAiCodex(client, flags) {
 
   const oauthTokens = await loginOpenAiCodexByMethod(method, flags);
 
-  // Cloud flow already exchanged the API key and listed models on oauth.moxxy.ai;
+  // Cloud flow already exchanged the API key and listed models on oauth.cloud.moxxy.ai;
   // only vault storage + provider install remain.
   if (oauthTokens && oauthTokens.__cloudResult) {
     const { secretValue, models } = oauthTokens.__cloudResult;
