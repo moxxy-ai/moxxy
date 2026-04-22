@@ -18,6 +18,7 @@ import {
   buildPkceCodeChallenge,
   extractCodexAccountIdFromTokens,
   formatOpenAiOAuthError,
+  getMoxxyCodexCloudOauthUrl,
   parseOllamaModels,
   parseOpenAiModels,
 } from '../src/commands/provider.js';
@@ -466,6 +467,20 @@ describe('provider oauth helpers', () => {
     assert.ok(codex);
     assert.equal(codex.metadata.api_base, 'https://chatgpt.com/backend-api/codex');
     assert.equal(codex.metadata.chatgpt_account_id, 'acct_123');
+  });
+
+  it('getMoxxyCodexCloudOauthUrl defaults to oauth.moxxy.ai and respects env override', () => {
+    const prev = process.env.MOXXY_CODEX_OAUTH_URL;
+    try {
+      delete process.env.MOXXY_CODEX_OAUTH_URL;
+      assert.equal(getMoxxyCodexCloudOauthUrl(), 'https://oauth.moxxy.ai');
+
+      process.env.MOXXY_CODEX_OAUTH_URL = 'http://localhost:4010/';
+      assert.equal(getMoxxyCodexCloudOauthUrl(), 'http://localhost:4010');
+    } finally {
+      if (prev === undefined) delete process.env.MOXXY_CODEX_OAUTH_URL;
+      else process.env.MOXXY_CODEX_OAUTH_URL = prev;
+    }
   });
 });
 

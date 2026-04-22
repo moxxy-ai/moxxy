@@ -103,7 +103,8 @@ Actions:
 
 Options:
   --id <id>          Provider ID for install (e.g. openai, anthropic, xai)
-  --method <m>       Login method for OAuth providers: browser | headless
+  --method <m>       Login method for OAuth providers: cloud | browser | headless
+                     (default: cloud - runs on oauth.moxxy.ai, no local server)
   --no-browser       Do not auto-open browser (print URL only)
   --originator <id>  Advanced: override OAuth originator (default: Codex Desktop)
   --allowed_workspace_id <id>  Advanced: constrain browser OAuth to a workspace/org id
@@ -111,6 +112,7 @@ Options:
   --project_id <id>            Advanced: pass explicit project id in OAuth URL
   --api_key <key>              Fallback: manually provide OpenAI API key if OAuth issuance fails
   (automatic fallback)         If API-key issuance fails, uses ChatGPT OAuth session mode
+  MOXXY_CODEX_OAUTH_URL        Env: override oauth.moxxy.ai base URL (dev/testing)
   --model <id>       Custom model ID to add
   --name <name>      Display name (custom providers)
   --api_base <url>   API base URL (custom providers)
@@ -129,6 +131,7 @@ Examples:
   moxxy provider catalog
   moxxy provider catalog --json
   moxxy provider install --id openai
+  moxxy provider login --id openai-codex                    # hosted (default)
   moxxy provider login --id openai-codex --method browser
   moxxy provider login --id openai-codex --method headless --no-browser
   moxxy provider login --id openai-codex --method browser --api_key sk-...

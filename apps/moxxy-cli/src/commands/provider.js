@@ -30,6 +30,8 @@ const OPENAI_CODEX_CHATGPT_API_BASE = 'https://chatgpt.com/backend-api/codex';
 const OPENAI_CODEX_OAUTH_SESSION_MODE = 'chatgpt_oauth_session';
 const OPENAI_CODEX_CLIENT_USER_AGENT_ID = 'codex_cli_rs';
 const OPENAI_CODEX_CLIENT_VERSION = '0.50.0';
+const MOXXY_CODEX_CLOUD_OAUTH_URL = 'https://oauth.moxxy.ai';
+const MOXXY_CODEX_CLOUD_POLL_MAX_MS = 15 * 60 * 1000;
 
 export function codexUserAgent() {
   const platform = process.platform || 'unknown';
@@ -320,8 +322,11 @@ function toInt(value, fallback) {
 
 function resolveOpenAiAuthMethod(flags) {
   const raw = String(flags.method || flags.auth_method || '').trim().toLowerCase();
-  if (raw === 'browser' || raw === 'headless') {
+  if (raw === 'browser' || raw === 'headless' || raw === 'cloud') {
     return raw;
+  }
+  if (toBool(flags.cloud)) {
+    return 'cloud';
   }
   if (toBool(flags.browser)) {
     return 'browser';
@@ -333,6 +338,11 @@ function resolveOpenAiAuthMethod(flags) {
     return 'headless';
   }
   return null;
+}
+
+export function getMoxxyCodexCloudOauthUrl() {
+  const raw = String(process.env.MOXXY_CODEX_OAUTH_URL || MOXXY_CODEX_CLOUD_OAUTH_URL).trim();
+  return raw.replace(/\/+$/, '');
 }
 
 function buildOrgScopeFromFlags(flags) {
@@ -1006,9 +1016,133 @@ async function loginOpenAiCodexHeadless(flags) {
 }
 
 async function loginOpenAiCodexByMethod(method, flags) {
-  return method === 'headless'
-    ? loginOpenAiCodexHeadless(flags)
-    : loginOpenAiCodexBrowser(flags);
+  if (method === 'headless') return loginOpenAiCodexHeadless(flags);
+  if (method === 'cloud') return loginOpenAiCodexCloud(flags);
+  return loginOpenAiCodexBrowser(flags);
+}
+
+async function postCloudJson(baseUrl, path, body) {
+  let resp;
+  try {
+    resp = await fetch(`${baseUrl}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+  } catch (err) {
+    throw new Error(`Could not reach ${baseUrl} (${err.message}). Fallback: moxxy provider login --id openai-codex --method headless`);
+  }
+  const text = await resp.text();
+  const json = parseJsonSafe(text);
+  if (!resp.ok) {
+    const msg = json?.error || text || `HTTP ${resp.status}`;
+    throw new Error(`oauth.moxxy.ai ${path} failed (${resp.status}): ${msg}`);
+  }
+  return json || {};
+}
+
+async function loginOpenAiCodexCloud(flags) {
+  const noBrowser = toBool(flags.no_browser) || toBool(flags.noBrowser);
+  const baseUrl = getMoxxyCodexCloudOauthUrl();
+  const scope = buildOrgScopeFromFlags(flags);
+
+  const startBody = {};
+  if (scope.organizationId) startBody.organizationId = scope.organizationId;
+  if (scope.projectId) startBody.projectId = scope.projectId;
+
+  let session = await withSpinner(
+    'Starting hosted OpenAI OAuth flow...',
+    () => postCloudJson(baseUrl, '/cli/openai-codex/start', startBody),
+    'OpenAI authorization started.'
+  );
+
+  if (session.verificationUrl && !noBrowser) {
+    tryOpenUrl(session.verificationUrl);
+  }
+
+  p.note(
+    [
+      'Log in to OpenAI and approve access.',
+      session.verificationUrl ? `Open this URL: ${session.verificationUrl}` : '',
+      session.userCode ? `Verification code: ${session.userCode}` : '',
+    ].filter(Boolean).join('\n'),
+    'OpenAI OAuth (oauth.moxxy.ai)'
+  );
+
+  let deviceSessionToken = session.deviceSessionToken;
+  let pollIntervalSeconds = Math.max(1, toInt(session.pollIntervalSeconds, 5));
+  const deadline = Date.now() + MOXXY_CODEX_CLOUD_POLL_MAX_MS;
+
+  const connected = await withSpinner(
+    'Waiting for OpenAI authorization...',
+    async () => {
+      while (Date.now() < deadline) {
+        await sleep(pollIntervalSeconds * 1000);
+        const result = await postCloudJson(baseUrl, '/cli/openai-codex/poll', {
+          deviceSessionToken,
+        });
+
+        if (result.status === 'pending') {
+          deviceSessionToken = result.deviceSessionToken || deviceSessionToken;
+          pollIntervalSeconds = Math.max(1, toInt(result.pollIntervalSeconds, pollIntervalSeconds));
+          continue;
+        }
+
+        if (result.status === 'needs_organization') {
+          const organizations = Array.isArray(result.organizations) ? result.organizations : [];
+          if (organizations.length === 0) {
+            throw new Error(result.error || 'OpenAI needs an organization to continue.');
+          }
+          let selectedOrg = organizations.find(o => o.isDefault)?.id || organizations[0].id;
+          if (isInteractive() && organizations.length > 1) {
+            const chosen = await p.select({
+              message: 'Select OpenAI organization for API key issuance',
+              options: organizations.map(org => ({
+                value: org.id,
+                label: org.title ? `${org.title} (${org.id})` : org.id,
+                hint: org.isDefault ? 'default' : undefined,
+              })),
+            });
+            selectedOrg = handleCancel(chosen);
+          }
+          const retry = await postCloudJson(baseUrl, '/cli/openai-codex/start', {
+            ...startBody,
+            organizationId: selectedOrg,
+          });
+          deviceSessionToken = retry.deviceSessionToken;
+          pollIntervalSeconds = Math.max(1, toInt(retry.pollIntervalSeconds, 5));
+          if (retry.verificationUrl && !noBrowser) tryOpenUrl(retry.verificationUrl);
+          p.log.warn(`Retrying OpenAI approval with organization ${selectedOrg} (code: ${retry.userCode}).`);
+          continue;
+        }
+
+        if (result.status === 'connected') {
+          return result;
+        }
+
+        throw new Error(result.error || 'OpenAI login failed');
+      }
+      throw new Error('Timed out waiting for OpenAI authorization');
+    },
+    'OpenAI authorization completed.'
+  );
+
+  const secretValue = String(connected.secretValue || '').trim();
+  if (!secretValue) {
+    throw new Error('oauth.moxxy.ai returned no secretValue');
+  }
+  const models = Array.isArray(connected.models) && connected.models.length > 0
+    ? connected.models
+    : null;
+  if (!models) {
+    throw new Error('oauth.moxxy.ai returned no models');
+  }
+
+  if (connected.authMode === 'chatgpt_oauth_session') {
+    p.log.warn('Using ChatGPT OAuth session mode (OpenCode-compatible).');
+  }
+
+  return { __cloudResult: { secretValue, models } };
 }
 
 async function loginOpenAiCodexBrowser(flags) {
@@ -1109,16 +1243,24 @@ export async function loginOpenAiCodex(client, flags) {
     method = handleCancel(await p.select({
       message: 'Select OpenAI auth method',
       options: [
-        { value: 'browser', label: 'ChatGPT Pro/Plus (browser)', hint: 'recommended: full OAuth link with callback' },
+        { value: 'cloud', label: 'ChatGPT Pro/Plus (oauth.moxxy.ai)', hint: 'recommended: hosted, no local server' },
+        { value: 'browser', label: 'ChatGPT Pro/Plus (browser)', hint: 'local OAuth callback on port 1455' },
         { value: 'headless', label: 'ChatGPT Pro/Plus (headless)', hint: 'device-code flow with verification code' },
       ],
     }));
   }
   if (!method) {
-    method = 'browser';
+    method = 'cloud';
   }
 
   const oauthTokens = await loginOpenAiCodexByMethod(method, flags);
+
+  // Cloud flow already exchanged the API key and listed models on oauth.moxxy.ai;
+  // only vault storage + provider install remain.
+  if (oauthTokens && oauthTokens.__cloudResult) {
+    const { secretValue, models } = oauthTokens.__cloudResult;
+    return finalizeOpenAiCodexProviderInstall(client, flags, secretValue, { models });
+  }
 
   try {
     return await finalizeOpenAiCodexLogin(client, flags, oauthTokens);
