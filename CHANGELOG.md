@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.2](https://github.com/moxxy-ai/moxxy/compare/v1.6.1...v1.6.2) (2026-04-22)
+
+
+### Bug Fixes
+
+* proper url ([8c3edbc](https://github.com/moxxy-ai/moxxy/commit/8c3edbc7ec0918e1700b0e43b50934d3cd5cc5c3))
+
 ## [1.6.1](https://github.com/moxxy-ai/moxxy/compare/v1.6.0...v1.6.1) (2026-04-22)
 
 
