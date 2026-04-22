@@ -161,10 +161,8 @@ fn parse_remote_url(remote_url: &str) -> Option<(String, String)> {
     let cleaned = remote_url.trim();
     let path = if let Some(rest) = cleaned.strip_prefix("https://github.com/") {
         rest
-    } else if let Some(rest) = cleaned.strip_prefix("git@github.com:") {
-        rest
     } else {
-        return None;
+        cleaned.strip_prefix("git@github.com:")?
     };
     let path = path.strip_suffix(".git").unwrap_or(path);
     let parts: Vec<&str> = path.split('/').collect();
