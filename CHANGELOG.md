@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.6.1](https://github.com/moxxy-ai/moxxy/compare/v1.6.0...v1.6.1) (2026-04-22)
+
+
+### Bug Fixes
+
+* clippy ([5c83156](https://github.com/moxxy-ai/moxxy/commit/5c831567b8abecb6384b0d6e0f7858e74d383f04))
+* clippy ([316cf35](https://github.com/moxxy-ai/moxxy/commit/316cf359fcd315bccf7434122e8ed82c336e8b79))
+* moved codex to oauth.moxxy.ai ([c3ba5cf](https://github.com/moxxy-ai/moxxy/commit/c3ba5cfd9c528708b331211e1ddb6ac3f84c7d9f))
+
 ## [1.6.0](https://github.com/moxxy-ai/moxxy/compare/v1.5.0...v1.6.0) (2026-04-14)
 
 
