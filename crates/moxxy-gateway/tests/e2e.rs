@@ -195,15 +195,24 @@ async fn e2e_full_agent_lifecycle() {
         .await;
     assert_eq!(resp.status().as_u16(), 200);
 
-    // Give the async run time to complete
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-    // Verify agent returns to idle (or some terminal state)
-    let resp = server
-        .get(&format!("/v1/agents/{}", agent_id), &token)
-        .await;
-    let agent: serde_json::Value = resp.json().await.unwrap();
-    let status = agent["status"].as_str().unwrap();
+    // Poll until the async run reaches a terminal state (idle or error).
+    // Using a fixed sleep was flaky under load when the provider HTTP call
+    // took longer than the sleep to fail.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let status = loop {
+        let resp = server
+            .get(&format!("/v1/agents/{}", agent_id), &token)
+            .await;
+        let agent: serde_json::Value = resp.json().await.unwrap();
+        let status = agent["status"].as_str().unwrap().to_string();
+        if status == "idle" || status == "error" {
+            break status;
+        }
+        if std::time::Instant::now() >= deadline {
+            break status;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    };
     assert!(
         status == "idle" || status == "error",
         "Expected idle or error, got {}",

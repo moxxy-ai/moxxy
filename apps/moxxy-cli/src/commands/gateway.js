@@ -113,6 +113,12 @@ async function startGateway() {
     return;
   }
 
+  // Pre-flight: if something is already bound to the gateway port, clear it
+  // so the new binary can actually start. Without this, launchd reports
+  // "started" but the process exits on `Address already in use` and the
+  // caller sees "health check failed" with no obvious cause.
+  await killProcessOnPort(gatewayPort());
+
   const os = platform();
 
   if (os === 'darwin') {
@@ -183,6 +189,69 @@ async function stopGateway() {
   } else {
     await stopFallback();
   }
+
+  // Final fallback: kill whatever is still bound to the gateway port. This
+  // catches gateways that were launched outside the CLI (manual `./moxxy-gateway`,
+  // an older CLI version with a different service label, etc.), which the
+  // service-manager stop above wouldn't know about. Without this, a new binary
+  // will fail to bind the port and silently fall over during startup.
+  await killProcessOnPort(gatewayPort());
+}
+
+function gatewayPort() {
+  const fromEnv = (process.env.MOXXY_PORT || '').trim();
+  if (fromEnv && /^\d+$/.test(fromEnv)) return Number(fromEnv);
+  const apiUrl = (process.env.MOXXY_API_URL || '').trim();
+  if (apiUrl) {
+    try {
+      const u = new URL(apiUrl);
+      if (u.port) return Number(u.port);
+    } catch { /* ignore parse errors */ }
+  }
+  return 3000;
+}
+
+async function killProcessOnPort(port) {
+  const os = platform();
+  if (os === 'win32') return; // lsof is unix-only; skip on Windows
+
+  let candidatePids = [];
+  try {
+    const out = execSync(`lsof -tiTCP:${port} -sTCP:LISTEN 2>/dev/null`, { encoding: 'utf-8' });
+    candidatePids = out.split('\n').map(s => s.trim()).filter(Boolean).map(Number).filter(n => Number.isInteger(n) && n > 0);
+  } catch { /* lsof missing or no match — nothing to clean up */ }
+
+  if (candidatePids.length === 0) return;
+
+  // Only kill processes whose command is the gateway. This avoids nuking an
+  // unrelated dev server the user is running on the same port.
+  const pids = candidatePids.filter(pid => {
+    try {
+      const cmd = execSync(`ps -p ${pid} -o comm= 2>/dev/null`, { encoding: 'utf-8' }).trim();
+      return cmd.includes('moxxy-gateway');
+    } catch { return false; }
+  });
+
+  if (pids.length === 0) {
+    const other = candidatePids.join(', ');
+    p.log.warn(`Port ${port} is in use by a non-moxxy process (PID ${other}). Set MOXXY_PORT to a different port, or stop that process manually.`);
+    return;
+  }
+
+  for (const pid of pids) {
+    try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
+  }
+
+  // Give processes a moment to exit on SIGTERM, then force-kill any stragglers.
+  await new Promise(r => setTimeout(r, 500));
+  for (const pid of pids) {
+    try {
+      process.kill(pid, 0); // probe liveness
+      process.kill(pid, 'SIGKILL');
+    } catch { /* exited cleanly */ }
+  }
+
+  p.log.warn(`Killed stale moxxy-gateway on port ${port} (PID ${pids.join(', ')}).`);
 }
 
 async function stopLaunchd() {

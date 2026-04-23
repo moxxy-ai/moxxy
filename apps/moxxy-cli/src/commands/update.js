@@ -79,18 +79,28 @@ export function findChecksumUrl(assets) {
 
 // --- Internal helpers ---
 
-async function getCurrentGatewayVersion(binPath) {
-  // Try health endpoint first
+export async function getCurrentGatewayVersion(binPath) {
+  // Try health endpoint first — this reports the version of the running process,
+  // which is what we actually need to know for update decisions (the binary on
+  // disk may have been replaced without a restart).
   const apiUrl = process.env.MOXXY_API_URL || 'http://localhost:3000';
+  let serverResponded = false;
   try {
     const resp = await fetch(`${apiUrl}/v1/health`, { signal: AbortSignal.timeout(2000) });
+    serverResponded = true;
     if (resp.ok) {
-      const data = await resp.json();
-      if (data.version) return data.version;
+      const data = await resp.json().catch(() => null);
+      if (data?.version) return data.version;
     }
-  } catch { /* gateway not running, fallback */ }
+  } catch { /* fetch failed — nothing listening, fall through to binary */ }
 
-  // Fallback to binary --version
+  // If something responded on the port but didn't give us a version, the
+  // running gateway is stale (e.g. too old to expose /v1/health). Return null
+  // so the caller treats it as "update required" rather than reading a newer
+  // version from the on-disk binary that isn't actually running.
+  if (serverResponded) return null;
+
+  // Nothing running — fall back to binary --version so we can still compare.
   if (binPath && existsSync(binPath)) {
     try {
       const out = execSync(`"${binPath}" --version`, { encoding: 'utf-8', timeout: 5000 });
@@ -189,11 +199,15 @@ async function healthCheckAfterUpdate() {
   return { healthy: false, version: null };
 }
 
-async function isGatewayRunning() {
+export async function isGatewayRunning() {
+  // Any HTTP response — including 404 — means a process is bound to the port.
+  // We must detect old gateways that don't expose /v1/health so the update
+  // flow can stop and restart them; otherwise the new binary lands on disk
+  // but the stale process keeps running.
   const apiUrl = process.env.MOXXY_API_URL || 'http://localhost:3000';
   try {
-    const resp = await fetch(`${apiUrl}/v1/health`, { signal: AbortSignal.timeout(2000) });
-    return resp.ok;
+    await fetch(`${apiUrl}/v1/health`, { signal: AbortSignal.timeout(2000) });
+    return true;
   } catch {
     return false;
   }

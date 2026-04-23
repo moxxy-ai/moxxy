@@ -647,27 +647,34 @@ fn parse_codex_stream_response(body: &str) -> Result<ProviderResponse, Primitive
                 .get("status")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
-            if status == "incomplete" || status == "failed" {
-                let reason = response_obj
-                    .get("incomplete_details")
-                    .or_else(|| response_obj.get("error"))
-                    .map(|v| v.to_string())
-                    .unwrap_or_default();
-                tracing::warn!(
-                    status = status,
-                    reason = %reason,
-                    "Codex response completed with non-success status"
-                );
-            }
-            match parse_codex_response_output(response_obj) {
-                Ok(parsed) => return Ok(parsed),
+            let parsed = match parse_codex_response_output(response_obj) {
+                Ok(parsed) => parsed,
                 Err(e) => {
                     tracing::warn!(
                         error = %e,
                         "Failed to parse codex response.completed output, falling back to deltas"
                     );
+                    break;
                 }
+            };
+
+            // If the upstream flagged an incomplete/failed response and we got
+            // nothing usable, surface that as an error. Returning Ok(empty) here
+            // lets the stuck detector silently retry 9 times before aborting
+            // with a generic message — the user should see the real reason
+            // (max_output_tokens, content_filter, etc.) on the first failure.
+            if status != "completed" && parsed.content.is_empty() && parsed.tool_calls.is_empty() {
+                let reason = response_obj
+                    .get("incomplete_details")
+                    .or_else(|| response_obj.get("error"))
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "no details provided".into());
+                return Err(PrimitiveError::ExecutionFailed(format!(
+                    "Codex response status={status} with no output; reason: {reason}"
+                )));
             }
+
+            return Ok(parsed);
         }
     }
 
@@ -697,6 +704,16 @@ fn parse_codex_stream_response(body: &str) -> Result<ProviderResponse, Primitive
             }
             _ => {}
         }
+    }
+
+    // No response.completed/done event and no parseable deltas — the stream was
+    // truncated or only emitted events we don't understand. Error out with the
+    // list of event types so the log is actionable instead of "empty response".
+    if content.is_empty() && tool_calls.is_empty() {
+        return Err(PrimitiveError::ExecutionFailed(format!(
+            "Codex stream ended without a completed response or parseable output; \
+             event types seen: {event_types:?}"
+        )));
     }
 
     Ok(ProviderResponse {
@@ -1258,6 +1275,52 @@ mod tests {
         assert_eq!(parsed.tool_calls.len(), 1);
         assert_eq!(parsed.tool_calls[0].name, "fs.read");
         assert_eq!(parsed.tool_calls[0].arguments["path"], "/tmp/a");
+    }
+
+    #[test]
+    fn parse_codex_stream_response_errors_on_incomplete_with_no_output() {
+        // Response signaled incomplete (e.g. max_output_tokens) and produced
+        // no content or tool calls. Must surface as an error with the reason
+        // rather than returning Ok(empty), which would feed the stuck detector.
+        let body = concat!(
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"incomplete\",\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"output\":[]}}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let err = parse_codex_stream_response(body).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("status=incomplete"), "got: {msg}");
+        assert!(msg.contains("max_output_tokens"), "got: {msg}");
+    }
+
+    #[test]
+    fn parse_codex_stream_response_returns_partial_output_on_incomplete() {
+        // Incomplete response that still produced partial content — return what
+        // we got instead of erroring; the caller can decide how to use it.
+        let body = concat!(
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"incomplete\",\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"partial\"}]}]}}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let parsed = parse_codex_stream_response(body).unwrap();
+        assert_eq!(parsed.content, "partial");
+    }
+
+    #[test]
+    fn parse_codex_stream_response_errors_on_truncated_stream() {
+        // Stream ended without response.completed and deltas were unparseable
+        // (only reasoning events). Must error with the event types seen so
+        // logs reveal what actually came back.
+        let body = concat!(
+            "data: {\"type\":\"response.created\",\"response\":{}}\n\n",
+            "data: {\"type\":\"response.reasoning.delta\",\"delta\":\"...\"}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let err = parse_codex_stream_response(body).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("Codex stream ended"), "got: {msg}");
+        assert!(
+            msg.contains("response.reasoning.delta") || msg.contains("response.created"),
+            "got: {msg}"
+        );
     }
 
     #[test]

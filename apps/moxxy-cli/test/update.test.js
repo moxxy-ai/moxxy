@@ -7,7 +7,23 @@ import {
   parseChecksumFile,
   findAssetUrl,
   findChecksumUrl,
+  isGatewayRunning,
+  getCurrentGatewayVersion,
 } from '../src/commands/update.js';
+
+function stubFetch(handler) {
+  const original = globalThis.fetch;
+  globalThis.fetch = handler;
+  return () => { globalThis.fetch = original; };
+}
+
+function jsonResp(status, body) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+  };
+}
 
 describe('parseUpdateFlags', () => {
   it('parses --check flag', () => {
@@ -136,6 +152,57 @@ describe('findChecksumUrl', () => {
       { name: 'moxxy-gateway-darwin-arm64', browser_download_url: 'https://example.com/binary' },
     ];
     assert.equal(findChecksumUrl(assets), null);
+  });
+});
+
+describe('isGatewayRunning', () => {
+  it('returns true when /v1/health responds with 200', async () => {
+    const restore = stubFetch(async () => jsonResp(200, { status: 'healthy', version: '1.6.2' }));
+    try {
+      assert.equal(await isGatewayRunning(), true);
+    } finally { restore(); }
+  });
+
+  it('returns true when /v1/health responds with 404 (stale gateway)', async () => {
+    // An old gateway is listening but predates the health route. The update
+    // flow must still recognize it as running so it gets stopped + restarted.
+    const restore = stubFetch(async () => jsonResp(404, { error: 'not found' }));
+    try {
+      assert.equal(await isGatewayRunning(), true);
+    } finally { restore(); }
+  });
+
+  it('returns false when fetch throws (nothing listening)', async () => {
+    const restore = stubFetch(async () => { throw new Error('fetch failed'); });
+    try {
+      assert.equal(await isGatewayRunning(), false);
+    } finally { restore(); }
+  });
+});
+
+describe('getCurrentGatewayVersion', () => {
+  it('returns version from a healthy /v1/health response', async () => {
+    const restore = stubFetch(async () => jsonResp(200, { status: 'healthy', version: '1.6.2' }));
+    try {
+      assert.equal(await getCurrentGatewayVersion(null), '1.6.2');
+    } finally { restore(); }
+  });
+
+  it('returns null when something is listening but /v1/health 404s', async () => {
+    // Stale gateway: binary on disk may be newer than the running process, so
+    // we deliberately do NOT fall back to `<binary> --version` here — that
+    // would misreport the running version and skip the update.
+    const restore = stubFetch(async () => jsonResp(404, { error: 'not found' }));
+    try {
+      assert.equal(await getCurrentGatewayVersion('/nonexistent/moxxy-gateway'), null);
+    } finally { restore(); }
+  });
+
+  it('returns null when nothing is listening and no binary exists', async () => {
+    const restore = stubFetch(async () => { throw new Error('fetch failed'); });
+    try {
+      assert.equal(await getCurrentGatewayVersion('/nonexistent/moxxy-gateway'), null);
+    } finally { restore(); }
   });
 });
 

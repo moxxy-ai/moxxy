@@ -1112,7 +1112,14 @@ async function loginOpenAiCodexCloud(flags) {
           deviceSessionToken = retry.deviceSessionToken;
           pollIntervalSeconds = Math.max(1, toInt(retry.pollIntervalSeconds, 5));
           if (retry.verificationUrl && !noBrowser) tryOpenUrl(retry.verificationUrl);
-          p.log.warn(`Retrying OpenAI approval with organization ${selectedOrg} (code: ${retry.userCode}).`);
+          p.note(
+            [
+              `Retry required for organization ${selectedOrg}.`,
+              retry.verificationUrl ? `Open this URL: ${retry.verificationUrl}` : '',
+              retry.userCode ? `Verification code: ${retry.userCode}` : '',
+            ].filter(Boolean).join('\n'),
+            'OpenAI OAuth — organization retry'
+          );
           continue;
         }
 
