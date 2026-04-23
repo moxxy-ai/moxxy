@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.3](https://github.com/moxxy-ai/moxxy/compare/v1.6.2...v1.6.3) (2026-04-23)
+
+
+### Bug Fixes
+
+* openai codex oauth flow ([bf6843c](https://github.com/moxxy-ai/moxxy/commit/bf6843cd4095142366d45cc20abd150a95226e02))
+
 ## [1.6.2](https://github.com/moxxy-ai/moxxy/compare/v1.6.1...v1.6.2) (2026-04-22)
 
 
