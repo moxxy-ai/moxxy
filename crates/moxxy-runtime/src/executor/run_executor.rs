@@ -684,27 +684,41 @@ impl RunExecutor {
                         detector.observe_response(&response);
                     }
 
-                    // Push assistant message with tool_calls metadata
+                    // Check stuck detector for each tool call before execution
+                    let mut stuck_recovery = None;
+                    for tc in &response.tool_calls {
+                        if let Some(ref mut detector) = self.stuck_detector {
+                            match detector.observe_tool_call(&tc.name, &tc.arguments) {
+                                StuckAction::InjectRecovery(msg) => {
+                                    stuck_recovery = Some(msg);
+                                    break;
+                                }
+                                StuckAction::Abort(msg) => {
+                                    self.emit(
+                                        agent_id,
+                                        run_id,
+                                        &mut sequence,
+                                        EventType::RunFailed,
+                                        serde_json::json!({"error": msg}),
+                                    );
+                                    return Err(msg);
+                                }
+                                StuckAction::Continue => {}
+                            }
+                        }
+                    }
+                    if let Some(msg) = stuck_recovery {
+                        conversation.push(Message::user(&msg));
+                        continue;
+                    }
+
+                    // Push assistant message with tool_calls metadata only after
+                    // deciding the calls will be executed; Responses/Codex rejects
+                    // any function_call that lacks a matching function_call_output.
                     conversation.push(Message::assistant_with_tool_calls(
                         &response.content,
                         response.tool_calls.clone(),
                     ));
-
-                    // Check stuck detector for each tool call before execution
-                    let mut stuck_recovery = false;
-                    for tc in &response.tool_calls {
-                        if let Some(ref mut detector) = self.stuck_detector
-                            && let StuckAction::InjectRecovery(msg) =
-                                detector.observe_tool_call(&tc.name, &tc.arguments)
-                        {
-                            conversation.push(Message::user(&msg));
-                            stuck_recovery = true;
-                            break;
-                        }
-                    }
-                    if stuck_recovery {
-                        continue;
-                    }
 
                     // Partition tool calls into concurrent/serial batches
                     let batches = partition_tool_calls(&response.tool_calls, &self.registry);
@@ -1373,6 +1387,8 @@ mod tests {
     use crate::provider::TokenUsage;
     use crate::registry::{Primitive, PrimitiveError};
     use async_trait::async_trait;
+    use std::collections::HashSet;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct EchoPrimitive;
 
@@ -1409,6 +1425,71 @@ mod tests {
                     input_tokens: None,
                     output_tokens: None,
                 }),
+            })
+        }
+    }
+
+    struct RepeatedToolProvider {
+        calls: AtomicUsize,
+    }
+
+    impl RepeatedToolProvider {
+        fn new() -> Self {
+            Self {
+                calls: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    fn unresolved_tool_call_id(messages: &[Message]) -> Option<String> {
+        let mut pending = HashSet::new();
+        for message in messages {
+            if message.role == "assistant" {
+                if let Some(calls) = &message.tool_calls {
+                    for call in calls {
+                        pending.insert(call.id.clone());
+                    }
+                }
+            } else if message.role == "tool"
+                && let Some(id) = &message.tool_call_id
+            {
+                pending.remove(id);
+            }
+        }
+        pending.into_iter().next()
+    }
+
+    #[async_trait]
+    impl Provider for RepeatedToolProvider {
+        async fn complete(
+            &self,
+            messages: Vec<Message>,
+            _config: &ModelConfig,
+            _tools: &[crate::registry::ToolDefinition],
+        ) -> Result<ProviderResponse, PrimitiveError> {
+            if let Some(id) = unresolved_tool_call_id(&messages) {
+                return Err(PrimitiveError::ExecutionFailed(format!(
+                    "unresolved tool call in provider input: {id}"
+                )));
+            }
+
+            let call_index = self.calls.fetch_add(1, Ordering::SeqCst);
+            if call_index < 3 {
+                return Ok(ProviderResponse {
+                    content: String::new(),
+                    tool_calls: vec![ToolCall {
+                        id: format!("call_{call_index}"),
+                        name: "echo".into(),
+                        arguments: serde_json::json!({"msg": "repeat"}),
+                    }],
+                    usage: None,
+                });
+            }
+
+            Ok(ProviderResponse {
+                content: "recovered".into(),
+                tool_calls: vec![],
+                usage: None,
             })
         }
     }
@@ -1479,6 +1560,29 @@ mod tests {
 
         assert!(event_types.contains(&EventType::PrimitiveInvoked));
         assert!(event_types.contains(&EventType::PrimitiveCompleted));
+    }
+
+    #[tokio::test]
+    async fn repeated_tool_recovery_does_not_leave_unresolved_tool_call_in_history() {
+        let bus = EventBus::new(100);
+        let provider = Arc::new(RepeatedToolProvider::new());
+
+        let registry = PrimitiveRegistry::new();
+        registry.register(Box::new(EchoPrimitive));
+
+        let mut executor = RunExecutor::new(
+            bus,
+            provider,
+            registry,
+            Arc::new(RwLock::new(vec!["echo".into()])),
+        )
+        .with_max_iterations(5);
+
+        let result = executor
+            .execute("agent-1", "run-1", "repeat tool", &model_config())
+            .await;
+
+        assert!(result.is_ok(), "unexpected executor failure: {result:?}");
     }
 
     #[tokio::test]

@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -510,6 +510,16 @@ fn parse_tool_call_arguments(value: &serde_json::Value) -> serde_json::Value {
     }
 }
 
+fn parse_codex_tool_arguments_if_present(
+    value: Option<&serde_json::Value>,
+) -> Option<serde_json::Value> {
+    match value {
+        Some(serde_json::Value::String(raw)) if raw.trim().is_empty() => None,
+        Some(value) => Some(parse_tool_call_arguments(value)),
+        None => None,
+    }
+}
+
 fn parse_codex_function_call_item(item: &serde_json::Value, i: usize) -> Option<ToolCall> {
     let item_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
     if item_type != "function_call" {
@@ -517,9 +527,9 @@ fn parse_codex_function_call_item(item: &serde_json::Value, i: usize) -> Option<
     }
 
     let id = item
-        .get("id")
+        .get("call_id")
         .and_then(|v| v.as_str())
-        .or_else(|| item.get("call_id").and_then(|v| v.as_str()))
+        .or_else(|| item.get("id").and_then(|v| v.as_str()))
         .map(str::to_string)
         .unwrap_or_else(|| format!("call_{i}"));
 
@@ -548,6 +558,182 @@ fn parse_codex_function_call_item(item: &serde_json::Value, i: usize) -> Option<
     })
 }
 
+#[derive(Clone, Debug)]
+struct CodexStreamToolCallState {
+    order: usize,
+    id: String,
+    name: String,
+    argument_chunks: String,
+    arguments: Option<serde_json::Value>,
+}
+
+impl CodexStreamToolCallState {
+    fn new(order: usize, id: String) -> Self {
+        Self {
+            order,
+            id,
+            name: "unknown_tool".into(),
+            argument_chunks: String::new(),
+            arguments: None,
+        }
+    }
+
+    fn into_tool_call(self) -> ToolCall {
+        let arguments = self.arguments.unwrap_or_else(|| {
+            if self.argument_chunks.trim().is_empty() {
+                serde_json::json!({})
+            } else {
+                parse_tool_call_arguments(&serde_json::Value::String(self.argument_chunks))
+            }
+        });
+        ToolCall {
+            id: self.id,
+            name: from_openai_name(&self.name),
+            arguments,
+        }
+    }
+}
+
+fn codex_function_call_event_key(event: &serde_json::Value, i: usize) -> String {
+    event
+        .get("call_id")
+        .and_then(|v| v.as_str())
+        .or_else(|| event.get("item_id").and_then(|v| v.as_str()))
+        .map(str::to_string)
+        .or_else(|| {
+            event
+                .get("output_index")
+                .map(|v| format!("output_index:{v}"))
+        })
+        .unwrap_or_else(|| format!("event:{i}"))
+}
+
+fn codex_function_call_item_key(item: &serde_json::Value, i: usize) -> String {
+    item.get("call_id")
+        .and_then(|v| v.as_str())
+        .or_else(|| item.get("id").and_then(|v| v.as_str()))
+        .map(str::to_string)
+        .or_else(|| {
+            item.get("output_index")
+                .map(|v| format!("output_index:{v}"))
+        })
+        .unwrap_or_else(|| format!("item:{i}"))
+}
+
+fn merge_codex_function_call_item(
+    states: &mut HashMap<String, CodexStreamToolCallState>,
+    item: &serde_json::Value,
+    i: usize,
+) {
+    if item.get("type").and_then(|v| v.as_str()) != Some("function_call") {
+        return;
+    }
+
+    let key = codex_function_call_item_key(item, i);
+    let id = item
+        .get("call_id")
+        .and_then(|v| v.as_str())
+        .or_else(|| item.get("id").and_then(|v| v.as_str()))
+        .unwrap_or(&key)
+        .to_string();
+    let state = states
+        .entry(key)
+        .or_insert_with(|| CodexStreamToolCallState::new(i, id.clone()));
+    state.id = id;
+    if let Some(name) = item.get("name").and_then(|v| v.as_str()).or_else(|| {
+        item.get("function")
+            .and_then(|f| f.get("name"))
+            .and_then(|v| v.as_str())
+    }) {
+        state.name = name.to_string();
+    }
+    if let Some(arguments) = parse_codex_tool_arguments_if_present(
+        item.get("arguments")
+            .or_else(|| item.get("function").and_then(|f| f.get("arguments"))),
+    ) {
+        state.arguments = Some(arguments);
+    }
+}
+
+fn collect_codex_stream_tool_calls(events: &[serde_json::Value]) -> Vec<ToolCall> {
+    let mut states = HashMap::new();
+
+    for (i, event) in events.iter().enumerate() {
+        match event.get("type").and_then(|v| v.as_str()).unwrap_or("") {
+            "response.output_item.added" | "response.output_item.done" => {
+                if let Some(item) = event.get("item") {
+                    merge_codex_function_call_item(&mut states, item, i);
+                }
+            }
+            "response.function_call_arguments.delta" => {
+                let key = codex_function_call_event_key(event, i);
+                let id = event
+                    .get("call_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&key)
+                    .to_string();
+                let state = states
+                    .entry(key)
+                    .or_insert_with(|| CodexStreamToolCallState::new(i, id.clone()));
+                state.id = id;
+                if let Some(delta) = event.get("delta").and_then(|v| v.as_str()) {
+                    state.argument_chunks.push_str(delta);
+                }
+            }
+            "response.function_call_arguments.done" => {
+                let key = codex_function_call_event_key(event, i);
+                let id = event
+                    .get("call_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&key)
+                    .to_string();
+                let state = states
+                    .entry(key)
+                    .or_insert_with(|| CodexStreamToolCallState::new(i, id.clone()));
+                state.id = id;
+                if let Some(name) = event.get("name").and_then(|v| v.as_str()) {
+                    state.name = name.to_string();
+                }
+                if let Some(arguments) =
+                    parse_codex_tool_arguments_if_present(event.get("arguments"))
+                {
+                    state.arguments = Some(arguments);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut calls: Vec<_> = states.into_values().collect();
+    calls.sort_by_key(|state| state.order);
+    calls
+        .into_iter()
+        .filter(|state| state.name != "unknown_tool")
+        .map(CodexStreamToolCallState::into_tool_call)
+        .collect()
+}
+
+fn enrich_codex_tool_calls_from_stream(
+    tool_calls: &mut [ToolCall],
+    stream_tool_calls: &[ToolCall],
+) {
+    let by_id: HashMap<&str, &ToolCall> = stream_tool_calls
+        .iter()
+        .map(|call| (call.id.as_str(), call))
+        .collect();
+
+    for call in tool_calls {
+        if let Some(stream_call) = by_id.get(call.id.as_str()) {
+            if call.name == "unknown_tool" {
+                call.name.clone_from(&stream_call.name);
+            }
+            if matches!(&call.arguments, serde_json::Value::String(raw) if raw.trim().is_empty()) {
+                call.arguments = stream_call.arguments.clone();
+            }
+        }
+    }
+}
+
 fn parse_codex_response_output(
     response_obj: &serde_json::Value,
 ) -> Result<ProviderResponse, PrimitiveError> {
@@ -562,23 +748,12 @@ fn parse_codex_response_output(
 
     for (i, part) in output.iter().enumerate() {
         match part.get("type").and_then(|v| v.as_str()).unwrap_or("") {
-            "message" => {
-                if let Some(items) = part.get("content").and_then(|v| v.as_array()) {
-                    for item in items {
-                        if item.get("type").and_then(|v| v.as_str()) == Some("output_text")
-                            && let Some(text) = item.get("text").and_then(|v| v.as_str())
-                        {
-                            content.push_str(text);
-                        }
-                    }
-                }
-            }
             "function_call" => {
                 if let Some(tc) = parse_codex_function_call_item(part, i) {
                     tool_calls.push(tc);
                 }
             }
-            _ => {}
+            _ => append_codex_text_from_value(part, &mut content),
         }
     }
 
@@ -587,6 +762,63 @@ fn parse_codex_response_output(
         tool_calls,
         usage: None,
     })
+}
+
+fn append_codex_text_from_value(value: &serde_json::Value, content: &mut String) {
+    match value.get("type").and_then(|v| v.as_str()).unwrap_or("") {
+        "message" => append_codex_message_content(value, content),
+        "output_text" | "text" => {
+            if let Some(text) = value.get("text").and_then(|v| v.as_str()) {
+                content.push_str(text);
+            }
+        }
+        _ => append_codex_message_content(value, content),
+    }
+}
+
+fn append_codex_message_content(value: &serde_json::Value, content: &mut String) {
+    match value.get("content") {
+        Some(serde_json::Value::Array(items)) => {
+            for item in items {
+                append_codex_text_from_value(item, content);
+            }
+        }
+        Some(serde_json::Value::String(text)) => content.push_str(text),
+        _ => {}
+    }
+}
+
+fn push_codex_final_text_part(
+    parts: &mut Vec<String>,
+    seen_keys: &mut HashSet<String>,
+    event: &serde_json::Value,
+    text: String,
+) {
+    if text.is_empty() {
+        return;
+    }
+    let key = codex_final_text_part_key(event, &text);
+    if seen_keys.insert(key) {
+        parts.push(text);
+    }
+}
+
+fn codex_final_text_part_key(event: &serde_json::Value, text: &str) -> String {
+    let item_id = event.get("item_id").and_then(|v| v.as_str()).unwrap_or("");
+    let output_index = event
+        .get("output_index")
+        .map(|v| v.to_string())
+        .unwrap_or_default();
+    let content_index = event
+        .get("content_index")
+        .map(|v| v.to_string())
+        .unwrap_or_default();
+
+    if !item_id.is_empty() || !output_index.is_empty() || !content_index.is_empty() {
+        format!("{item_id}:{output_index}:{content_index}")
+    } else {
+        format!("text:{text}")
+    }
 }
 
 fn parse_codex_sse_events(body: &str) -> Vec<serde_json::Value> {
@@ -638,6 +870,8 @@ fn parse_codex_stream_response(body: &str) -> Result<ProviderResponse, Primitive
         "Codex SSE events received"
     );
 
+    let stream_tool_calls = collect_codex_stream_tool_calls(&events);
+    let mut completed_empty_error: Option<String> = None;
     for event in events.iter().rev() {
         let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
         if (event_type == "response.completed" || event_type == "response.done")
@@ -647,7 +881,7 @@ fn parse_codex_stream_response(body: &str) -> Result<ProviderResponse, Primitive
                 .get("status")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
-            let parsed = match parse_codex_response_output(response_obj) {
+            let mut parsed = match parse_codex_response_output(response_obj) {
                 Ok(parsed) => parsed,
                 Err(e) => {
                     tracing::warn!(
@@ -657,59 +891,98 @@ fn parse_codex_stream_response(body: &str) -> Result<ProviderResponse, Primitive
                     break;
                 }
             };
+            enrich_codex_tool_calls_from_stream(&mut parsed.tool_calls, &stream_tool_calls);
+            if parsed.tool_calls.is_empty() && !stream_tool_calls.is_empty() {
+                parsed.tool_calls.clone_from(&stream_tool_calls);
+            }
 
-            // If the upstream flagged an incomplete/failed response and we got
-            // nothing usable, surface that as an error. Returning Ok(empty) here
-            // lets the stuck detector silently retry 9 times before aborting
-            // with a generic message — the user should see the real reason
-            // (max_output_tokens, content_filter, etc.) on the first failure.
-            if status != "completed" && parsed.content.is_empty() && parsed.tool_calls.is_empty() {
-                let reason = response_obj
-                    .get("incomplete_details")
-                    .or_else(|| response_obj.get("error"))
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "no details provided".into());
-                return Err(PrimitiveError::ExecutionFailed(format!(
-                    "Codex response status={status} with no output; reason: {reason}"
-                )));
+            if parsed.content.is_empty() && parsed.tool_calls.is_empty() {
+                completed_empty_error = Some(if status != "completed" {
+                    let reason = response_obj
+                        .get("incomplete_details")
+                        .or_else(|| response_obj.get("error"))
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "no details provided".into());
+                    format!("Codex response status={status} with no output; reason: {reason}")
+                } else {
+                    let output = response_obj
+                        .get("output")
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "missing output".into());
+                    format!("Codex response status=completed with no output; output: {output}")
+                });
+                break;
             }
 
             return Ok(parsed);
         }
     }
 
-    let mut content = String::new();
-    let mut tool_calls = Vec::new();
-    let mut seen_tool_ids = HashSet::new();
-    for (i, event) in events.iter().enumerate() {
+    let mut delta_content = String::new();
+    let mut final_text_parts = Vec::new();
+    let mut seen_final_text_keys = HashSet::new();
+    let mut output_item_text_parts = Vec::new();
+    let tool_calls = stream_tool_calls;
+    for event in events.iter() {
         match event.get("type").and_then(|v| v.as_str()).unwrap_or("") {
             "response.output_text.delta" => {
                 if let Some(delta) = event.get("delta").and_then(|v| v.as_str()) {
-                    content.push_str(delta);
+                    delta_content.push_str(delta);
                 }
             }
             "response.output_text.done" => {
                 if let Some(text) = event.get("text").and_then(|v| v.as_str()) {
-                    content.push_str(text);
+                    push_codex_final_text_part(
+                        &mut final_text_parts,
+                        &mut seen_final_text_keys,
+                        event,
+                        text.to_string(),
+                    );
+                }
+            }
+            "response.content_part.done" => {
+                if let Some(part) = event.get("part") {
+                    let mut text = String::new();
+                    append_codex_text_from_value(part, &mut text);
+                    push_codex_final_text_part(
+                        &mut final_text_parts,
+                        &mut seen_final_text_keys,
+                        event,
+                        text,
+                    );
                 }
             }
             "response.output_item.added" | "response.output_item.done" => {
-                if let Some(item) = event.get("item")
-                    && let Some(tc) = parse_codex_function_call_item(item, i)
-                    && !seen_tool_ids.contains(&tc.id)
+                if event.get("type").and_then(|v| v.as_str()) == Some("response.output_item.done")
+                    && let Some(item) = event.get("item")
                 {
-                    seen_tool_ids.insert(tc.id.clone());
-                    tool_calls.push(tc);
+                    let mut text = String::new();
+                    append_codex_text_from_value(item, &mut text);
+                    if !text.is_empty() {
+                        output_item_text_parts.push(text);
+                    }
                 }
             }
             _ => {}
         }
     }
+    let content = if !final_text_parts.is_empty() {
+        final_text_parts.concat()
+    } else if !delta_content.is_empty() {
+        delta_content
+    } else {
+        output_item_text_parts.concat()
+    };
 
     // No response.completed/done event and no parseable deltas — the stream was
     // truncated or only emitted events we don't understand. Error out with the
     // list of event types so the log is actionable instead of "empty response".
     if content.is_empty() && tool_calls.is_empty() {
+        if let Some(message) = completed_empty_error {
+            return Err(PrimitiveError::ExecutionFailed(format!(
+                "{message}; event types seen: {event_types:?}"
+            )));
+        }
         return Err(PrimitiveError::ExecutionFailed(format!(
             "Codex stream ended without a completed response or parseable output; \
              event types seen: {event_types:?}"
@@ -1278,6 +1551,66 @@ mod tests {
     }
 
     #[test]
+    fn parse_codex_stream_response_reads_completed_text_content_part() {
+        let body = concat!(
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"text\",\"text\":\"Czesc z OAuth\"}]}]}}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let parsed = parse_codex_stream_response(body).unwrap();
+        assert_eq!(parsed.content, "Czesc z OAuth");
+        assert!(parsed.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn parse_codex_stream_response_reads_content_part_done_fallback() {
+        let body = concat!(
+            "data: {\"type\":\"response.created\",\"response\":{\"output\":[]}}\n\n",
+            "data: {\"type\":\"response.content_part.done\",\"part\":{\"type\":\"text\",\"text\":\"fallback text\"}}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let parsed = parse_codex_stream_response(body).unwrap();
+        assert_eq!(parsed.content, "fallback text");
+        assert!(parsed.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn parse_codex_stream_response_falls_back_when_completed_output_is_empty() {
+        let body = concat!(
+            "data: {\"type\":\"response.content_part.done\",\"part\":{\"type\":\"text\",\"text\":\"text before final empty output\"}}\n\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let parsed = parse_codex_stream_response(body).unwrap();
+        assert_eq!(parsed.content, "text before final empty output");
+        assert!(parsed.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn parse_codex_stream_response_deduplicates_equivalent_final_text_events() {
+        let body = concat!(
+            "data: {\"type\":\"response.output_text.done\",\"text\":\"same final text\"}\n\n",
+            "data: {\"type\":\"response.content_part.done\",\"part\":{\"type\":\"text\",\"text\":\"same final text\"}}\n\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let parsed = parse_codex_stream_response(body).unwrap();
+        assert_eq!(parsed.content, "same final text");
+        assert!(parsed.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn parse_codex_stream_response_errors_on_completed_with_no_output() {
+        let body = concat!(
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let err = parse_codex_stream_response(body).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("status=completed"), "got: {msg}");
+        assert!(msg.contains("no output"), "got: {msg}");
+    }
+
+    #[test]
     fn parse_codex_stream_response_errors_on_incomplete_with_no_output() {
         // Response signaled incomplete (e.g. max_output_tokens) and produced
         // no content or tool calls. Must surface as an error with the reason
@@ -1336,6 +1669,44 @@ mod tests {
         assert_eq!(parsed.tool_calls.len(), 1);
         assert_eq!(parsed.tool_calls[0].name, "fs.list");
         assert_eq!(parsed.tool_calls[0].arguments["path"], "/tmp");
+    }
+
+    #[test]
+    fn parse_codex_function_call_prefers_call_id_for_tool_output_pairing() {
+        let body = concat!(
+            "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"id\":\"fc_0991d35038dbc3d10169f5619470e4819182df9b6d546bb34a\",\"call_id\":\"call_0991d35038dbc3d10169f5619470e4819182df9b6d546bb34a\",\"name\":\"skill__execute\",\"arguments\":\"{\\\"name\\\":\\\"news\\\"}\"}}\n\n",
+            "data: [DONE]\n\n"
+        );
+
+        let parsed = parse_codex_stream_response(body).unwrap();
+
+        assert_eq!(parsed.tool_calls.len(), 1);
+        assert_eq!(
+            parsed.tool_calls[0].id,
+            "call_0991d35038dbc3d10169f5619470e4819182df9b6d546bb34a"
+        );
+    }
+
+    #[test]
+    fn parse_codex_stream_response_uses_streamed_function_call_arguments() {
+        let body = concat!(
+            "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc_fetch\",\"call_id\":\"call_fetch\",\"name\":\"browse__fetch\",\"arguments\":\"\"}}\n\n",
+            "data: {\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"fc_fetch\",\"call_id\":\"call_fetch\",\"output_index\":0,\"delta\":\"{\\\"url\\\":\"}\n\n",
+            "data: {\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"fc_fetch\",\"call_id\":\"call_fetch\",\"output_index\":0,\"delta\":\"\\\"https://example.com\\\"}\"}\n\n",
+            "data: {\"type\":\"response.function_call_arguments.done\",\"item_id\":\"fc_fetch\",\"call_id\":\"call_fetch\",\"name\":\"browse__fetch\",\"output_index\":0,\"arguments\":\"{\\\"url\\\":\\\"https://example.com\\\"}\"}\n\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"function_call\",\"id\":\"fc_fetch\",\"call_id\":\"call_fetch\",\"name\":\"browse__fetch\",\"arguments\":\"\"}]}}\n\n",
+            "data: [DONE]\n\n"
+        );
+
+        let parsed = parse_codex_stream_response(body).unwrap();
+
+        assert_eq!(parsed.tool_calls.len(), 1);
+        assert_eq!(parsed.tool_calls[0].id, "call_fetch");
+        assert_eq!(parsed.tool_calls[0].name, "browse.fetch");
+        assert_eq!(
+            parsed.tool_calls[0].arguments,
+            serde_json::json!({"url": "https://example.com"})
+        );
     }
 
     #[test]
