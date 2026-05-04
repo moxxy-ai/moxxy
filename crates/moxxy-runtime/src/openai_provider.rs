@@ -1,4 +1,6 @@
 use async_trait::async_trait;
+use base64::Engine;
+use moxxy_types::{MediaAttachmentRef, MediaKind};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -130,19 +132,55 @@ enum CodexInputItem {
 struct CodexMessageContent {
     #[serde(rename = "type")]
     content_type: String,
-    text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    image_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file_data: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    filename: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
 }
 
 #[derive(Serialize)]
 struct ChatMessage {
     role: String,
-    content: String,
+    content: ChatMessageContent,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_calls: Option<Vec<OpenAIToolCallOut>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_call_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     name: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum ChatMessageContent {
+    Text(String),
+    Parts(Vec<ChatContentPart>),
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+enum ChatContentPart {
+    Text { text: String },
+    ImageUrl { image_url: ChatImageUrl },
+    File { file: ChatFile },
+}
+
+#[derive(Serialize)]
+struct ChatImageUrl {
+    url: String,
+    detail: String,
+}
+
+#[derive(Serialize)]
+struct ChatFile {
+    filename: String,
+    file_data: String,
 }
 
 #[derive(Serialize)]
@@ -328,10 +366,67 @@ fn convert_codex_tool_def(td: &ToolDefinition) -> CodexToolDef {
     }
 }
 
+fn image_attachment_to_data_url(attachment: &MediaAttachmentRef) -> Option<String> {
+    if attachment.kind != MediaKind::Image {
+        return None;
+    }
+    attachment_to_data_url(attachment)
+}
+
+fn document_attachment_to_data_url(attachment: &MediaAttachmentRef) -> Option<String> {
+    if attachment.kind != MediaKind::Document {
+        return None;
+    }
+    attachment_to_data_url(attachment)
+}
+
+fn attachment_to_data_url(attachment: &MediaAttachmentRef) -> Option<String> {
+    let bytes = std::fs::read(&attachment.local_path).ok()?;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Some(format!("data:{};base64,{}", attachment.mime, encoded))
+}
+
+fn chat_content_from_message(message: &Message) -> ChatMessageContent {
+    if message.role != "user" || message.attachments.is_empty() {
+        return ChatMessageContent::Text(message.content.clone());
+    }
+
+    let mut parts = Vec::new();
+    let text = message.content.trim();
+    if !text.is_empty() {
+        parts.push(ChatContentPart::Text {
+            text: text.to_string(),
+        });
+    }
+    for attachment in &message.attachments {
+        if let Some(url) = image_attachment_to_data_url(attachment) {
+            parts.push(ChatContentPart::ImageUrl {
+                image_url: ChatImageUrl {
+                    url,
+                    detail: "low".into(),
+                },
+            });
+        } else if let Some(file_data) = document_attachment_to_data_url(attachment) {
+            parts.push(ChatContentPart::File {
+                file: ChatFile {
+                    filename: attachment.filename.clone(),
+                    file_data,
+                },
+            });
+        }
+    }
+
+    if parts.is_empty() {
+        ChatMessageContent::Text(message.content.clone())
+    } else {
+        ChatMessageContent::Parts(parts)
+    }
+}
+
 fn convert_message(m: Message) -> ChatMessage {
     ChatMessage {
-        role: m.role,
-        content: m.content,
+        role: m.role.clone(),
+        content: chat_content_from_message(&m),
         tool_calls: m.tool_calls.map(|calls| {
             calls
                 .into_iter()
@@ -354,14 +449,44 @@ impl CodexMessageContent {
     fn input_text(text: impl Into<String>) -> Self {
         Self {
             content_type: "input_text".into(),
-            text: text.into(),
+            text: Some(text.into()),
+            image_url: None,
+            file_data: None,
+            filename: None,
+            detail: None,
         }
     }
 
     fn output_text(text: impl Into<String>) -> Self {
         Self {
             content_type: "output_text".into(),
-            text: text.into(),
+            text: Some(text.into()),
+            image_url: None,
+            file_data: None,
+            filename: None,
+            detail: None,
+        }
+    }
+
+    fn input_image(image_url: impl Into<String>) -> Self {
+        Self {
+            content_type: "input_image".into(),
+            text: None,
+            image_url: Some(image_url.into()),
+            file_data: None,
+            filename: None,
+            detail: Some("low".into()),
+        }
+    }
+
+    fn input_file(filename: impl Into<String>, file_data: impl Into<String>) -> Self {
+        Self {
+            content_type: "input_file".into(),
+            text: None,
+            image_url: None,
+            file_data: Some(file_data.into()),
+            filename: Some(filename.into()),
+            detail: Some("low".into()),
         }
     }
 }
@@ -406,17 +531,34 @@ fn convert_codex_input(messages: &[Message]) -> Vec<CodexInputItem> {
             }
             _ => {
                 let text = message.content.trim();
-                if text.is_empty() {
-                    continue;
-                }
                 let role = if message.role == "developer" {
                     "developer"
                 } else {
                     "user"
                 };
+                let mut content = Vec::new();
+                if !text.is_empty() {
+                    content.push(CodexMessageContent::input_text(text));
+                }
+                if role == "user" {
+                    for attachment in &message.attachments {
+                        if let Some(url) = image_attachment_to_data_url(attachment) {
+                            content.push(CodexMessageContent::input_image(url));
+                        } else if let Some(file_data) = document_attachment_to_data_url(attachment)
+                        {
+                            content.push(CodexMessageContent::input_file(
+                                attachment.filename.clone(),
+                                file_data,
+                            ));
+                        }
+                    }
+                }
+                if content.is_empty() {
+                    continue;
+                }
                 input.push(CodexInputItem::Message {
                     role: role.into(),
-                    content: vec![CodexMessageContent::input_text(text)],
+                    content,
                 });
             }
         }
@@ -1223,6 +1365,14 @@ impl OpenAIProvider {
 
 #[async_trait]
 impl Provider for OpenAIProvider {
+    fn supports_images(&self) -> bool {
+        true
+    }
+
+    fn supports_documents(&self) -> bool {
+        true
+    }
+
     async fn complete(
         &self,
         messages: Vec<Message>,
@@ -1310,6 +1460,48 @@ impl Provider for OpenAIProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_image_attachment() -> (tempfile::TempDir, MediaAttachmentRef) {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("photo.jpg");
+        std::fs::write(
+            &path,
+            [0xff, 0xd8, 0xff, 0xe0, b'M', b'O', b'X', b'X', b'Y'],
+        )
+        .unwrap();
+        (
+            tmp,
+            MediaAttachmentRef {
+                id: "media_test".into(),
+                kind: MediaKind::Image,
+                mime: "image/jpeg".into(),
+                filename: "photo.jpg".into(),
+                local_path: path.to_string_lossy().to_string(),
+                size_bytes: 9,
+                sha256: "abc".into(),
+                source: serde_json::json!({"channel": "telegram"}),
+            },
+        )
+    }
+
+    fn test_document_attachment() -> (tempfile::TempDir, MediaAttachmentRef) {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("brief.pdf");
+        std::fs::write(&path, b"%PDF-1.7\n1 0 obj\n<<>>\nendobj\n").unwrap();
+        (
+            tmp,
+            MediaAttachmentRef {
+                id: "media_doc".into(),
+                kind: MediaKind::Document,
+                mime: "application/pdf".into(),
+                filename: "brief.pdf".into(),
+                local_path: path.to_string_lossy().to_string(),
+                size_bytes: 31,
+                sha256: "docabc".into(),
+                source: serde_json::json!({"channel": "telegram"}),
+            },
+        )
+    }
 
     #[test]
     fn openai_provider_constructs_correctly() {
@@ -1534,6 +1726,53 @@ mod tests {
         assert_eq!(json[1]["name"], "fs__read");
         assert_eq!(json[2]["type"], "function_call_output");
         assert_eq!(json[2]["call_id"], "call_1");
+    }
+
+    #[test]
+    fn convert_codex_input_includes_image_input_for_user_attachment() {
+        let (_tmp, attachment) = test_image_attachment();
+        let messages = vec![Message::user_with_attachments(
+            "What is this?",
+            vec![attachment],
+        )];
+
+        let json = serde_json::to_value(convert_codex_input(&messages)).unwrap();
+
+        assert_eq!(json[0]["type"], "message");
+        assert_eq!(json[0]["role"], "user");
+        assert_eq!(json[0]["content"][0]["type"], "input_text");
+        assert_eq!(json[0]["content"][1]["type"], "input_image");
+        assert_eq!(json[0]["content"][1]["detail"], "low");
+        assert!(
+            json[0]["content"][1]["image_url"]
+                .as_str()
+                .unwrap()
+                .starts_with("data:image/jpeg;base64,")
+        );
+    }
+
+    #[test]
+    fn convert_codex_input_includes_file_input_for_document_attachment() {
+        let (_tmp, attachment) = test_document_attachment();
+        let messages = vec![Message::user_with_attachments(
+            "Summarize this",
+            vec![attachment],
+        )];
+
+        let json = serde_json::to_value(convert_codex_input(&messages)).unwrap();
+
+        assert_eq!(json[0]["type"], "message");
+        assert_eq!(json[0]["role"], "user");
+        assert_eq!(json[0]["content"][0]["type"], "input_text");
+        assert_eq!(json[0]["content"][1]["type"], "input_file");
+        assert_eq!(json[0]["content"][1]["filename"], "brief.pdf");
+        assert_eq!(json[0]["content"][1]["detail"], "low");
+        assert!(
+            json[0]["content"][1]["file_data"]
+                .as_str()
+                .unwrap()
+                .starts_with("data:application/pdf;base64,")
+        );
     }
 
     #[test]
@@ -2061,6 +2300,48 @@ mod tests {
         let calls = chat_msg.tool_calls.unwrap();
         assert_eq!(calls[0].id, "call_1");
         assert_eq!(calls[0].function.name, "fs__read");
+    }
+
+    #[test]
+    fn convert_message_includes_image_url_part_for_user_attachment() {
+        let (_tmp, attachment) = test_image_attachment();
+        let msg = Message::user_with_attachments("Describe it", vec![attachment]);
+
+        let chat_msg = convert_message(msg);
+        let json = serde_json::to_value(&chat_msg).unwrap();
+
+        assert_eq!(json["role"], "user");
+        assert_eq!(json["content"][0]["type"], "text");
+        assert_eq!(json["content"][0]["text"], "Describe it");
+        assert_eq!(json["content"][1]["type"], "image_url");
+        assert_eq!(json["content"][1]["image_url"]["detail"], "low");
+        assert!(
+            json["content"][1]["image_url"]["url"]
+                .as_str()
+                .unwrap()
+                .starts_with("data:image/jpeg;base64,")
+        );
+    }
+
+    #[test]
+    fn convert_message_includes_file_part_for_document_attachment() {
+        let (_tmp, attachment) = test_document_attachment();
+        let msg = Message::user_with_attachments("Read it", vec![attachment]);
+
+        let chat_msg = convert_message(msg);
+        let json = serde_json::to_value(&chat_msg).unwrap();
+
+        assert_eq!(json["role"], "user");
+        assert_eq!(json["content"][0]["type"], "text");
+        assert_eq!(json["content"][0]["text"], "Read it");
+        assert_eq!(json["content"][1]["type"], "file");
+        assert_eq!(json["content"][1]["file"]["filename"], "brief.pdf");
+        assert!(
+            json["content"][1]["file"]["file_data"]
+                .as_str()
+                .unwrap()
+                .starts_with("data:application/pdf;base64,")
+        );
     }
 
     #[test]

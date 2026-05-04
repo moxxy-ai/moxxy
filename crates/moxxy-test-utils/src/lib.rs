@@ -42,6 +42,14 @@ impl TestDb {
         self.conn
             .execute_batch(sql_0002)
             .expect("Migration 0002 failed");
+        let sql_0003 = include_str!("../../../migrations/0003_media_assets.sql");
+        self.conn
+            .execute_batch(sql_0003)
+            .expect("Migration 0003 failed");
+        let sql_0004 = include_str!("../../../migrations/0004_conversation_attachments.sql");
+        self.conn
+            .execute_batch(sql_0004)
+            .expect("Migration 0004 failed");
     }
 
     pub fn conn(&self) -> &Connection {
@@ -76,8 +84,10 @@ mod tests {
             "channel_bindings",
             "channel_pairing_codes",
             "channels",
+            "conversation_attachments",
             "conversation_log",
             "event_audit",
+            "media_assets",
             "memory_index",
             "memory_vec",
             "vault_grants",

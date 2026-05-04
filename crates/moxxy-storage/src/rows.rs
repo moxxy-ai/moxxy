@@ -159,3 +159,16 @@ pub struct ConversationLogRow {
     pub content: String,
     pub created_at: String,
 }
+
+#[derive(Debug, Clone)]
+pub struct MediaAssetRow {
+    pub id: String,
+    pub kind: String,
+    pub mime: String,
+    pub filename: String,
+    pub local_path: String,
+    pub size_bytes: i64,
+    pub sha256: String,
+    pub source_json: String,
+    pub created_at: String,
+}

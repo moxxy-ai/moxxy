@@ -7,8 +7,8 @@ use moxxy_runtime::{
 };
 use moxxy_storage::Database;
 use moxxy_types::{
-    AgentRuntime, AgentStatus, AgentType, ChildInfo, EventEnvelope, EventType, MessageContent,
-    RunOutcome, RunStarter, SpawnOpts, SpawnResult,
+    AgentRuntime, AgentStatus, AgentType, ChildInfo, EventEnvelope, EventType, MediaAttachmentRef,
+    MediaKind, MessageContent, RunOutcome, RunStarter, SpawnOpts, SpawnResult,
 };
 use moxxy_vault::SecretBackend;
 use std::collections::{HashMap, VecDeque};
@@ -35,6 +35,8 @@ pub struct QueuedRun {
     pub source: String,
     /// Optional caller-provided metadata (e.g. webhook delivery_id).
     pub metadata: serde_json::Value,
+    /// Media attachments already persisted under MOXXY_HOME/media.
+    pub attachments: Vec<MediaAttachmentRef>,
 }
 
 /// Result of `start_or_queue_run`.
@@ -49,6 +51,27 @@ pub enum StartRunOutcome {
 }
 
 pub type AgentRunQueue = Arc<Mutex<HashMap<String, VecDeque<QueuedRun>>>>;
+
+fn should_reuse_recent_document_attachment(task: &str) -> bool {
+    let normalized = task.to_lowercase();
+    [
+        "dokument",
+        "dokumencie",
+        "pdf",
+        "plik",
+        "pliku",
+        "załącz",
+        "zalacz",
+        "attachment",
+        "attached file",
+        "document",
+        "file",
+        "stron",
+        "page",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+}
 
 /// Adapts `ChannelBridge` (which implements `ChannelSender`) to the
 /// `ChannelMessageSender` trait required by `ChannelNotifyPrimitive`.
@@ -305,7 +328,10 @@ impl RunService {
     /// Returns `Started`, `Queued`, or `QueueFull`.
     pub async fn start_or_queue_run(&self, run: QueuedRun) -> Result<StartRunOutcome, String> {
         let user_id = Self::extract_user_id(&run.metadata);
-        match self.do_start_run(&run.agent_name, &run.task, user_id).await {
+        match self
+            .do_start_run(&run.agent_name, &run.task, user_id, run.attachments.clone())
+            .await
+        {
             Ok(run_id) => Ok(StartRunOutcome::Started { run_id }),
             Err(ref e) if e == "Agent is already running" => {
                 let agent_name = run.agent_name.clone();
@@ -357,6 +383,28 @@ impl RunService {
             .map(|s| s.to_string())
     }
 
+    fn load_recent_document_attachments(
+        &self,
+        agent_name: &str,
+        limit: u32,
+    ) -> Vec<MediaAttachmentRef> {
+        self.db
+            .lock()
+            .ok()
+            .and_then(|db| {
+                db.conversations()
+                    .find_recent_attachments_by_agent_and_kind(agent_name, "document", limit)
+                    .ok()
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|attachment| {
+                attachment.kind == MediaKind::Document
+                    && std::path::Path::new(&attachment.local_path).is_file()
+            })
+            .collect()
+    }
+
     /// Start a run for an agent. Returns the run_id on success.
     ///
     /// `user_id` is the stable, transport-namespaced id of the end user who
@@ -368,6 +416,7 @@ impl RunService {
         agent_name: &str,
         task: &str,
         user_id: Option<String>,
+        mut attachments: Vec<MediaAttachmentRef>,
     ) -> Result<String, String> {
         // Look up agent in registry
         let runtime = self
@@ -424,6 +473,17 @@ impl RunService {
         let run_id = uuid::Uuid::now_v7().to_string();
         let original_task = task.to_string();
         let mut task = task.to_string();
+
+        if attachments.is_empty() && should_reuse_recent_document_attachment(&original_task) {
+            attachments = self.load_recent_document_attachments(agent_name, 1);
+            if !attachments.is_empty() {
+                tracing::info!(
+                    agent_name,
+                    attachments_count = attachments.len(),
+                    "Reusing recent document attachment for follow-up question"
+                );
+            }
+        }
 
         // Resolve provider from config
         let provider = self
@@ -562,6 +622,8 @@ impl RunService {
         let reflection_user_id = user_id.clone();
         let reflection_channel_id: Option<String> = None; // Wire from trigger in a follow-up
         let reflection_run_starter = self.run_starter.lock().ok().and_then(|g| g.clone());
+        let initial_attachments = attachments;
+        let persisted_user_attachments = initial_attachments.clone();
 
         tokio::spawn(async move {
             tracing::info!(
@@ -586,6 +648,7 @@ impl RunService {
             .with_tools_dirty(prepared.tools_dirty)
             .with_system_prompt(prepared.system_prompt)
             .with_history(prepared.history)
+            .with_initial_attachments(initial_attachments)
             .with_cancel_token(cancel_token)
             .with_inbox(agent_inbox)
             .with_timeout(std::time::Duration::from_secs(900))
@@ -765,17 +828,21 @@ impl RunService {
                 // that conversation history doesn't contain auto-injected
                 // instructions that would be re-injected on the next run,
                 // causing the queen to repeat herself.
-                let _ = db
-                    .conversations()
-                    .insert(&moxxy_storage::rows::ConversationLogRow {
-                        id: uuid::Uuid::now_v7().to_string(),
-                        agent_id: agent_name_owned.clone(),
-                        run_id: run_id_clone.clone(),
-                        sequence: 0,
-                        role: "user".into(),
-                        content: original_task.clone(),
-                        created_at: now.clone(),
-                    });
+                let user_row = moxxy_storage::rows::ConversationLogRow {
+                    id: uuid::Uuid::now_v7().to_string(),
+                    agent_id: agent_name_owned.clone(),
+                    run_id: run_id_clone.clone(),
+                    sequence: 0,
+                    role: "user".into(),
+                    content: original_task.clone(),
+                    created_at: now.clone(),
+                };
+                let _ = if persisted_user_attachments.is_empty() {
+                    db.conversations().insert(&user_row)
+                } else {
+                    db.conversations()
+                        .insert_with_attachments(&user_row, &persisted_user_attachments)
+                };
                 let _ = db
                     .conversations()
                     .insert(&moxxy_storage::rows::ConversationLogRow {
@@ -929,7 +996,12 @@ pub fn spawn_drain_loop(
             ));
             let user_id = RunService::extract_user_id(&queued.metadata);
             match run_service
-                .do_start_run(&agent_name, &queued.task, user_id)
+                .do_start_run(
+                    &agent_name,
+                    &queued.task,
+                    user_id,
+                    queued.attachments.clone(),
+                )
                 .await
             {
                 Ok(run_id) => {
@@ -956,7 +1028,7 @@ pub fn spawn_drain_loop(
 #[async_trait::async_trait]
 impl RunStarter for RunService {
     async fn start_run(&self, agent_name: &str, task: &str) -> Result<String, String> {
-        self.do_start_run(agent_name, task, None).await
+        self.do_start_run(agent_name, task, None, Vec::new()).await
     }
 
     async fn stop_agent(&self, agent_name: &str) -> Result<(), String> {
@@ -979,6 +1051,7 @@ impl RunStarter for RunService {
                 task: task.to_string(),
                 source: source.to_string(),
                 metadata: serde_json::Value::Null,
+                attachments: Vec::new(),
             })
             .await?;
         Ok(match outcome {
@@ -1017,6 +1090,7 @@ impl RunStarter for RunService {
                 task: trigger.task,
                 source: trigger.source,
                 metadata,
+                attachments: trigger.attachments,
             })
             .await?;
         Ok(match outcome {
@@ -1159,7 +1233,7 @@ impl RunStarter for RunService {
 
         // Start the child's run
         let run_id = self
-            .do_start_run(&child_name, task, None)
+            .do_start_run(&child_name, task, None, Vec::new())
             .await
             .map_err(|e| {
                 // Roll back: unregister child + decrement parent
@@ -1234,5 +1308,32 @@ impl RunStarter for RunService {
         self.registry.unregister(child_name);
         self.registry.decrement_spawned(parent_name);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_document_followup_questions() {
+        assert!(should_reuse_recent_document_attachment(
+            "co jest na 5 stronie dokumentu?"
+        ));
+        assert!(should_reuse_recent_document_attachment(
+            "sprawdz prosze ten pdf"
+        ));
+        assert!(should_reuse_recent_document_attachment(
+            "what does the attached file say?"
+        ));
+    }
+
+    #[test]
+    fn avoids_document_reuse_for_unrelated_chat() {
+        assert!(!should_reuse_recent_document_attachment("czesc"));
+        assert!(!should_reuse_recent_document_attachment("super robota"));
+        assert!(!should_reuse_recent_document_attachment(
+            "znajdz mi cene mikrofonu"
+        ));
     }
 }

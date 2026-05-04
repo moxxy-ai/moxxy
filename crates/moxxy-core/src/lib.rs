@@ -6,6 +6,7 @@ pub mod auth;
 pub mod channel_store;
 pub mod events;
 pub mod heartbeat;
+pub mod media;
 pub mod memory;
 pub mod providers;
 pub mod security;
@@ -27,6 +28,7 @@ pub use heartbeat::{
     HeartbeatActionResult, HeartbeatEntry, HeartbeatFile, HeartbeatRule, HeartbeatScheduler,
     heartbeat_path, mutate_heartbeat_file, read_heartbeat_file, write_heartbeat_file,
 };
+pub use media::{MediaStore, StoreMediaInput};
 pub use memory::{
     CompactionConfig, CompactionError, CompactionResult, CompactionSummarizer, EligibleEntry,
     EmbeddingError, EmbeddingService, MemoryCompactor, MemoryJournal, MemoryRecord,

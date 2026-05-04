@@ -4,11 +4,14 @@ use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 
 use crate::registry::{PrimitiveError, ToolDefinition};
+use moxxy_types::MediaAttachmentRef;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: String,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<MediaAttachmentRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -22,6 +25,7 @@ impl Message {
         Self {
             role: "system".into(),
             content: content.into(),
+            attachments: Vec::new(),
             tool_calls: None,
             tool_call_id: None,
             name: None,
@@ -32,6 +36,21 @@ impl Message {
         Self {
             role: "user".into(),
             content: content.into(),
+            attachments: Vec::new(),
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+        }
+    }
+
+    pub fn user_with_attachments(
+        content: impl Into<String>,
+        attachments: Vec<MediaAttachmentRef>,
+    ) -> Self {
+        Self {
+            role: "user".into(),
+            content: content.into(),
+            attachments,
             tool_calls: None,
             tool_call_id: None,
             name: None,
@@ -42,6 +61,7 @@ impl Message {
         Self {
             role: "assistant".into(),
             content: content.into(),
+            attachments: Vec::new(),
             tool_calls: None,
             tool_call_id: None,
             name: None,
@@ -55,6 +75,7 @@ impl Message {
         Self {
             role: "assistant".into(),
             content: content.into(),
+            attachments: Vec::new(),
             tool_calls: Some(tool_calls),
             tool_call_id: None,
             name: None,
@@ -69,10 +90,15 @@ impl Message {
         Self {
             role: "tool".into(),
             content: content.into(),
+            attachments: Vec::new(),
             tool_calls: None,
             tool_call_id: Some(tool_call_id.into()),
             name: Some(name.into()),
         }
+    }
+
+    pub fn has_media_attachments(&self) -> bool {
+        !self.attachments.is_empty()
     }
 }
 
@@ -145,6 +171,14 @@ pub enum StreamEvent {
 
 #[async_trait]
 pub trait Provider: Send + Sync {
+    fn supports_images(&self) -> bool {
+        false
+    }
+
+    fn supports_documents(&self) -> bool {
+        false
+    }
+
     async fn complete(
         &self,
         messages: Vec<Message>,

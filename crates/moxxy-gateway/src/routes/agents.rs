@@ -483,6 +483,7 @@ pub async fn start_run(
             task: body.task.clone(),
             source: "api".into(),
             metadata: serde_json::json!({}),
+            attachments: Vec::new(),
         })
         .await
         .map_err(|e| {
@@ -641,6 +642,7 @@ pub async fn start_run_audio(
                 "audio_bytes": audio.len(),
                 "mime": mime,
             }),
+            attachments: Vec::new(),
         })
         .await
         .map_err(|e| {

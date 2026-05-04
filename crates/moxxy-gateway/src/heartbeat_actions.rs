@@ -57,6 +57,7 @@ impl HeartbeatAction for ExecuteSkillAction {
                 task: task.clone(),
                 source: "heartbeat".into(),
                 metadata: serde_json::json!({ "heartbeat_id": ctx.entry.id }),
+                attachments: Vec::new(),
             })
             .await;
 

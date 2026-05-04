@@ -517,6 +517,7 @@ fn parse_discord_message(data: &serde_json::Value) -> Option<IncomingMessage> {
         text: content.to_string(),
         timestamp,
         audio: None,
+        attachments: Vec::new(),
     })
 }
 

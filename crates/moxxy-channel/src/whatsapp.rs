@@ -434,6 +434,7 @@ pub fn parse_webhook_payload(payload: &serde_json::Value) -> Vec<IncomingMessage
                     text,
                     timestamp,
                     audio: None,
+                    attachments: Vec::new(),
                 });
             }
         }

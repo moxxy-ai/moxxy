@@ -1,16 +1,33 @@
 use async_trait::async_trait;
-use moxxy_types::{ChannelError, MessageContent};
+use moxxy_types::{ChannelError, MediaKind, MessageContent};
 use serde::Deserialize;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use crate::commands::CommandDefinition;
-use crate::transport::{ChannelTransport, IncomingAudio, IncomingMessage, OutgoingMessage};
+use crate::transport::{
+    ChannelTransport, IncomingAttachment, IncomingAudio, IncomingMessage, OutgoingMessage,
+};
 
 /// Hard cap on voice/audio file size downloaded from Telegram. The bridge
 /// enforces its own (configurable) cap on top of this, but we refuse to spool
 /// anything larger than 25 MB into memory — matches Whisper's upload limit.
 const TELEGRAM_AUDIO_MAX_BYTES: u64 = 25 * 1024 * 1024;
+/// Hard cap for Telegram image downloads before MediaStore validation.
+const TELEGRAM_IMAGE_MAX_BYTES: u64 = 25 * 1024 * 1024;
+/// Hard cap for Telegram document downloads before MediaStore validation.
+const TELEGRAM_DOCUMENT_MAX_BYTES: u64 = 25 * 1024 * 1024;
+/// Telegram Bot API rejects text messages above 4096 characters.
+const TELEGRAM_MAX_MESSAGE_CHARS: usize = 4096;
+/// Keep chunks comfortably below Telegram's hard cap after markdown conversion.
+const TELEGRAM_SAFE_MESSAGE_CHARS: usize = 3500;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TelegramMessageChunk {
+    text: String,
+    parse_mode: Option<&'static str>,
+    plain_fallback: String,
+}
 
 pub struct TelegramTransport {
     bot_token: String,
@@ -149,6 +166,147 @@ impl TelegramTransport {
         }))
     }
 
+    async fn fetch_incoming_attachments(
+        &self,
+        msg: &TelegramMessage,
+    ) -> Result<Vec<IncomingAttachment>, ChannelError> {
+        let mut attachments = Vec::new();
+
+        let Some(photos) = &msg.photo else {
+            return self.fetch_incoming_document_attachment(msg).await;
+        };
+
+        if let Some(photo) = photos.iter().max_by_key(|photo| {
+            photo
+                .file_size
+                .unwrap_or((photo.width as u64).saturating_mul(photo.height as u64))
+        }) {
+            if let Some(size) = photo.file_size
+                && size > TELEGRAM_IMAGE_MAX_BYTES
+            {
+                return Err(ChannelError::TransportError(format!(
+                    "image file too large: {} bytes",
+                    size
+                )));
+            }
+
+            let file = self.get_file(&photo.file_id).await?;
+            if let Some(size) = file.file_size
+                && size > TELEGRAM_IMAGE_MAX_BYTES
+            {
+                return Err(ChannelError::TransportError(format!(
+                    "image file too large: {} bytes",
+                    size
+                )));
+            }
+            let Some(file_path) = file.file_path else {
+                return Err(ChannelError::TransportError(
+                    "getFile returned no file_path".into(),
+                ));
+            };
+
+            let data = self.download_file(&file_path).await?;
+            if data.len() as u64 > TELEGRAM_IMAGE_MAX_BYTES {
+                return Err(ChannelError::TransportError(format!(
+                    "image file too large: {} bytes",
+                    data.len()
+                )));
+            }
+
+            let filename = std::path::Path::new(&file_path)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "telegram-photo.jpg".into());
+            let mime = infer_image_mime_from_path(&file_path).unwrap_or("image/jpeg");
+
+            attachments.push(IncomingAttachment {
+                kind: MediaKind::Image,
+                data,
+                mime: mime.into(),
+                filename,
+                source: serde_json::json!({
+                    "channel": "telegram",
+                    "telegram_file_id": photo.file_id,
+                    "telegram_file_unique_id": photo.file_unique_id,
+                    "width": photo.width,
+                    "height": photo.height,
+                }),
+            });
+        }
+
+        Ok(attachments)
+    }
+
+    async fn fetch_incoming_document_attachment(
+        &self,
+        msg: &TelegramMessage,
+    ) -> Result<Vec<IncomingAttachment>, ChannelError> {
+        let Some(document) = &msg.document else {
+            return Ok(Vec::new());
+        };
+
+        if let Some(size) = document.file_size
+            && size > TELEGRAM_DOCUMENT_MAX_BYTES
+        {
+            return Err(ChannelError::TransportError(format!(
+                "document file too large: {} bytes",
+                size
+            )));
+        }
+
+        let file = self.get_file(&document.file_id).await?;
+        if let Some(size) = file.file_size
+            && size > TELEGRAM_DOCUMENT_MAX_BYTES
+        {
+            return Err(ChannelError::TransportError(format!(
+                "document file too large: {} bytes",
+                size
+            )));
+        }
+        let Some(file_path) = file.file_path else {
+            return Err(ChannelError::TransportError(
+                "getFile returned no file_path".into(),
+            ));
+        };
+
+        let data = self.download_file(&file_path).await?;
+        if data.len() as u64 > TELEGRAM_DOCUMENT_MAX_BYTES {
+            return Err(ChannelError::TransportError(format!(
+                "document file too large: {} bytes",
+                data.len()
+            )));
+        }
+
+        let filename = document
+            .file_name
+            .clone()
+            .or_else(|| {
+                std::path::Path::new(&file_path)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_else(|| "telegram-document".into());
+        let mime = document
+            .mime_type
+            .clone()
+            .or_else(|| infer_document_mime_from_path(&filename).map(str::to_string))
+            .unwrap_or_else(|| "application/octet-stream".into());
+
+        Ok(vec![IncomingAttachment {
+            kind: MediaKind::Document,
+            data,
+            mime,
+            filename,
+            source: serde_json::json!({
+                "channel": "telegram",
+                "telegram_file_id": document.file_id,
+                "telegram_file_unique_id": document.file_unique_id,
+            }),
+        }])
+    }
+
     async fn get_updates(
         &self,
         offset: i64,
@@ -247,6 +405,69 @@ impl TelegramTransport {
             .result
             .and_then(|v| v.get("message_id").and_then(|id| id.as_i64()));
         Ok(message_id)
+    }
+
+    fn message_chunks(&self, content: &MessageContent) -> Vec<TelegramMessageChunk> {
+        match content {
+            MessageContent::Text(text) => split_message(text, TELEGRAM_SAFE_MESSAGE_CHARS)
+                .into_iter()
+                .map(|chunk| {
+                    let formatted = markdown_to_telegram_html(&chunk);
+                    if telegram_char_len(&formatted) <= TELEGRAM_MAX_MESSAGE_CHARS {
+                        TelegramMessageChunk {
+                            text: formatted,
+                            parse_mode: Some("HTML"),
+                            plain_fallback: chunk,
+                        }
+                    } else {
+                        TelegramMessageChunk {
+                            text: chunk.clone(),
+                            parse_mode: None,
+                            plain_fallback: chunk,
+                        }
+                    }
+                })
+                .collect(),
+            _ => {
+                let text = self.format_content(content);
+                let parse_mode = Some("MarkdownV2");
+                if telegram_char_len(&text) <= TELEGRAM_MAX_MESSAGE_CHARS {
+                    vec![TelegramMessageChunk {
+                        text: text.clone(),
+                        parse_mode,
+                        plain_fallback: text,
+                    }]
+                } else {
+                    split_message(&text, TELEGRAM_SAFE_MESSAGE_CHARS)
+                        .into_iter()
+                        .map(|chunk| TelegramMessageChunk {
+                            text: chunk.clone(),
+                            parse_mode: None,
+                            plain_fallback: chunk,
+                        })
+                        .collect()
+                }
+            }
+        }
+    }
+
+    async fn send_chunk(
+        &self,
+        chat_id: &str,
+        chunk: &TelegramMessageChunk,
+    ) -> Result<Option<i64>, ChannelError> {
+        match self.send_text(chat_id, &chunk.text, chunk.parse_mode).await {
+            Ok(id) => Ok(id),
+            Err(e) if chunk.parse_mode.is_some() => {
+                tracing::warn!(
+                    chat_id,
+                    error = %e,
+                    "Formatted Telegram message chunk failed, retrying as plain text"
+                );
+                self.send_text(chat_id, &chunk.plain_fallback, None).await
+            }
+            Err(e) => Err(e),
+        }
     }
 
     async fn edit_text(
@@ -358,6 +579,58 @@ fn markdown_to_telegram_html(md: &str) -> String {
         result.pop();
     }
     result
+}
+
+fn telegram_char_len(text: &str) -> usize {
+    text.chars().count()
+}
+
+fn split_message(text: &str, max_chars: usize) -> Vec<String> {
+    if text.is_empty() {
+        return vec![String::new()];
+    }
+    if telegram_char_len(text) <= max_chars {
+        return vec![text.to_string()];
+    }
+
+    let mut chunks = Vec::new();
+    let mut remaining = text;
+
+    while !remaining.is_empty() {
+        if telegram_char_len(remaining) <= max_chars {
+            chunks.push(remaining.to_string());
+            break;
+        }
+
+        let max_byte = byte_index_after_chars(remaining, max_chars);
+        let split_at = best_split_index(&remaining[..max_byte]).unwrap_or(max_byte);
+        let (chunk, rest) = remaining.split_at(split_at);
+        let chunk = chunk.trim_end();
+        if !chunk.is_empty() {
+            chunks.push(chunk.to_string());
+        }
+        remaining = rest.trim_start_matches(|c: char| c.is_whitespace());
+    }
+
+    chunks
+}
+
+fn byte_index_after_chars(text: &str, max_chars: usize) -> usize {
+    text.char_indices()
+        .nth(max_chars)
+        .map(|(idx, _)| idx)
+        .unwrap_or(text.len())
+}
+
+fn best_split_index(text: &str) -> Option<usize> {
+    for needle in ["\n\n", "\n", " "] {
+        if let Some(idx) = text.rfind(needle)
+            && idx > 0
+        {
+            return Some(idx);
+        }
+    }
+    None
 }
 
 /// Convert inline markdown patterns within a single line.
@@ -571,9 +844,27 @@ impl ChannelTransport for TelegramTransport {
                                         continue;
                                     }
 
-                                    let text = msg.text.unwrap_or_default();
-                                    // Ignore updates with neither text nor audio (e.g. stickers).
-                                    if text.is_empty() && audio.is_none() {
+                                    let attachments = match self.fetch_incoming_attachments(&msg).await {
+                                        Ok(a) => a,
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                chat_id = %chat_id,
+                                                error = %e,
+                                                "Failed to fetch Telegram photo payload"
+                                            );
+                                            Vec::new()
+                                        }
+                                    };
+
+                                    // If the message had media but we failed to download it,
+                                    // skip routing entirely — don't start a run that ignores the attachment.
+                                    if (msg.photo.is_some() || msg.document.is_some()) && attachments.is_empty() {
+                                        continue;
+                                    }
+
+                                    let text = msg.text.or(msg.caption).unwrap_or_default();
+                                    // Ignore updates with neither text nor media (e.g. stickers).
+                                    if text.is_empty() && audio.is_none() && attachments.is_empty() {
                                         continue;
                                     }
 
@@ -584,6 +875,7 @@ impl ChannelTransport for TelegramTransport {
                                         text,
                                         timestamp,
                                         audio,
+                                        attachments,
                                     };
                                     if sender.send(incoming).await.is_err() {
                                         break;
@@ -628,62 +920,42 @@ impl ChannelTransport for TelegramTransport {
     }
 
     async fn send_message(&self, msg: OutgoingMessage) -> Result<(), ChannelError> {
-        let text = self.format_content(&msg.content);
-        let parse_mode = match &msg.content {
-            MessageContent::Text(_) => Some("HTML"),
-            _ => Some("MarkdownV2"),
-        };
-        match self
-            .send_text(&msg.external_chat_id, &text, parse_mode)
-            .await
-        {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                // If formatted send fails (e.g. invalid HTML), retry as plain text
-                tracing::warn!(
-                    chat_id = %msg.external_chat_id,
-                    error = %e,
-                    "Formatted message send failed, retrying as plain text"
-                );
-                let plain = match &msg.content {
-                    MessageContent::Text(s) => s.clone(),
-                    _ => text,
-                };
-                self.send_text(&msg.external_chat_id, &plain, None)
-                    .await
-                    .map(|_| ())
-            }
+        let chunks = self.message_chunks(&msg.content);
+        if chunks.len() > 1 {
+            tracing::info!(
+                chat_id = %msg.external_chat_id,
+                chunks = chunks.len(),
+                "Splitting long Telegram message"
+            );
         }
+        for chunk in chunks {
+            self.send_chunk(&msg.external_chat_id, &chunk).await?;
+        }
+        Ok(())
     }
 
     async fn send_message_returning_id(
         &self,
         msg: OutgoingMessage,
     ) -> Result<Option<String>, ChannelError> {
-        let text = self.format_content(&msg.content);
-        let parse_mode = match &msg.content {
-            MessageContent::Text(_) => Some("HTML"),
-            _ => Some("MarkdownV2"),
-        };
-        let msg_id = match self
-            .send_text(&msg.external_chat_id, &text, parse_mode)
-            .await
-        {
-            Ok(id) => id,
-            Err(e) => {
-                tracing::warn!(
-                    chat_id = %msg.external_chat_id,
-                    error = %e,
-                    "Formatted message send failed, retrying as plain text"
-                );
-                let plain = match &msg.content {
-                    MessageContent::Text(s) => s.clone(),
-                    _ => text,
-                };
-                self.send_text(&msg.external_chat_id, &plain, None).await?
+        let chunks = self.message_chunks(&msg.content);
+        if chunks.len() > 1 {
+            tracing::info!(
+                chat_id = %msg.external_chat_id,
+                chunks = chunks.len(),
+                "Splitting long Telegram message"
+            );
+        }
+
+        let mut first_msg_id = None;
+        for chunk in chunks {
+            let msg_id = self.send_chunk(&msg.external_chat_id, &chunk).await?;
+            if first_msg_id.is_none() {
+                first_msg_id = msg_id;
             }
-        };
-        Ok(msg_id.map(|id| id.to_string()))
+        }
+
+        Ok(first_msg_id.map(|id| id.to_string()))
     }
 
     async fn edit_message(
@@ -778,6 +1050,44 @@ impl ChannelTransport for TelegramTransport {
     }
 }
 
+fn infer_image_mime_from_path(path: &str) -> Option<&'static str> {
+    match std::path::Path::new(path)
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("jpg") | Some("jpeg") => Some("image/jpeg"),
+        Some("png") => Some("image/png"),
+        Some("gif") => Some("image/gif"),
+        Some("webp") => Some("image/webp"),
+        _ => None,
+    }
+}
+
+fn infer_document_mime_from_path(path: &str) -> Option<&'static str> {
+    match std::path::Path::new(path)
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("pdf") => Some("application/pdf"),
+        Some("txt") => Some("text/plain"),
+        Some("md") | Some("markdown") => Some("text/markdown"),
+        Some("csv") => Some("text/csv"),
+        Some("json") => Some("application/json"),
+        Some("docx") => {
+            Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        }
+        Some("xlsx") => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+        Some("pptx") => {
+            Some("application/vnd.openxmlformats-officedocument.presentationml.presentation")
+        }
+        _ => None,
+    }
+}
+
 // Internal Telegram API types
 
 #[derive(Debug, Deserialize)]
@@ -801,6 +1111,9 @@ struct TelegramMessage {
     chat: TelegramChat,
     date: i64,
     text: Option<String>,
+    caption: Option<String>,
+    photo: Option<Vec<TelegramPhotoSize>>,
+    document: Option<TelegramDocument>,
     voice: Option<TelegramVoice>,
     audio: Option<TelegramAudio>,
 }
@@ -821,6 +1134,32 @@ struct TelegramAudio {
     file_id: String,
     #[serde(default)]
     duration: u32,
+    #[serde(default)]
+    mime_type: Option<String>,
+    #[serde(default)]
+    file_size: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TelegramPhotoSize {
+    file_id: String,
+    #[serde(default)]
+    file_unique_id: Option<String>,
+    #[serde(default)]
+    width: u32,
+    #[serde(default)]
+    height: u32,
+    #[serde(default)]
+    file_size: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TelegramDocument {
+    file_id: String,
+    #[serde(default)]
+    file_unique_id: Option<String>,
+    #[serde(default)]
+    file_name: Option<String>,
     #[serde(default)]
     mime_type: Option<String>,
     #[serde(default)]
@@ -879,6 +1218,39 @@ mod tests {
     }
 
     #[test]
+    fn parse_telegram_document_update() {
+        let json = r#"{
+            "ok": true,
+            "result": [{
+                "update_id": 123,
+                "message": {
+                    "message_id": 1,
+                    "from": {"id": 456, "is_bot": false, "first_name": "Alice"},
+                    "chat": {"id": 789, "type": "private"},
+                    "date": 1700000000,
+                    "caption": "Please analyze",
+                    "document": {
+                        "file_id": "file_123",
+                        "file_unique_id": "unique_123",
+                        "file_name": "brief.pdf",
+                        "mime_type": "application/pdf",
+                        "file_size": 1234
+                    }
+                }
+            }]
+        }"#;
+
+        let resp: TelegramResponse<Vec<TelegramUpdate>> = serde_json::from_str(json).unwrap();
+        let updates = resp.result.unwrap();
+        let msg = updates[0].message.as_ref().unwrap();
+        let doc = msg.document.as_ref().unwrap();
+        assert_eq!(msg.caption.as_deref(), Some("Please analyze"));
+        assert_eq!(doc.file_id, "file_123");
+        assert_eq!(doc.file_name.as_deref(), Some("brief.pdf"));
+        assert_eq!(doc.mime_type.as_deref(), Some("application/pdf"));
+    }
+
+    #[test]
     fn parse_telegram_error_response() {
         let json = r#"{"ok": false, "description": "Unauthorized"}"#;
         let resp: TelegramResponse<Vec<TelegramUpdate>> = serde_json::from_str(json).unwrap();
@@ -893,6 +1265,47 @@ mod tests {
             transport.api_url("getUpdates"),
             "https://api.telegram.org/bot123:ABC/getUpdates"
         );
+    }
+
+    #[test]
+    fn telegram_text_chunks_short_message_as_one_chunk() {
+        let transport = TelegramTransport::new("123:ABC".into());
+
+        let chunks = transport.message_chunks(&moxxy_types::MessageContent::Text("hello".into()));
+
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].text, "hello");
+        assert_eq!(chunks[0].parse_mode, Some("HTML"));
+    }
+
+    #[test]
+    fn telegram_text_chunks_long_message_under_limit() {
+        let transport = TelegramTransport::new("123:ABC".into());
+        let text = "a".repeat(TELEGRAM_SAFE_MESSAGE_CHARS + 250);
+
+        let chunks = transport.message_chunks(&moxxy_types::MessageContent::Text(text));
+
+        assert!(chunks.len() >= 2);
+        for chunk in chunks {
+            assert!(
+                telegram_char_len(&chunk.text) <= TELEGRAM_MAX_MESSAGE_CHARS,
+                "chunk too long: {}",
+                telegram_char_len(&chunk.text)
+            );
+        }
+    }
+
+    #[test]
+    fn split_message_handles_unicode_boundaries() {
+        let text = "ą🙂".repeat(TELEGRAM_SAFE_MESSAGE_CHARS / 2 + 5);
+
+        let chunks = split_message(&text, TELEGRAM_SAFE_MESSAGE_CHARS);
+
+        assert!(chunks.len() >= 2);
+        assert_eq!(chunks.concat(), text);
+        for chunk in chunks {
+            assert!(telegram_char_len(&chunk) <= TELEGRAM_SAFE_MESSAGE_CHARS);
+        }
     }
 
     #[test]

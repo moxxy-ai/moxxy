@@ -5,6 +5,7 @@ pub mod errors;
 pub mod events;
 pub mod heartbeat;
 pub mod mcp;
+pub mod media;
 pub mod providers;
 pub mod run_starter;
 pub mod skills;
@@ -19,6 +20,7 @@ pub use errors::{PathPolicyError, StorageError};
 pub use events::{EventEnvelope, EventType};
 pub use heartbeat::{HeartbeatActionType, HeartbeatError};
 pub use mcp::{McpConfig, McpServerConfig, McpToolDefinition, McpTransportType};
+pub use media::{MediaAttachmentRef, MediaKind};
 pub use providers::ProviderDocError;
 pub use run_starter::{
     ChildInfo, RunOutcome, RunStarter, RunTrigger, SpawnOpts, SpawnResult, WorkspaceIsolation,

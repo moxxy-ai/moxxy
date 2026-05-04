@@ -308,6 +308,7 @@ pub async fn receive_webhook(
                 "event_type": event_type,
                 "label": loaded.doc.label,
             }),
+            attachments: Vec::new(),
         })
         .await;
 

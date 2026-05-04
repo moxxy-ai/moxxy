@@ -1,9 +1,12 @@
 use crate::commands::{self, CommandContext, CommandRegistry};
 use crate::pairing::PairingService;
 use crate::transport::{ChannelTransport, IncomingMessage, OutgoingMessage};
-use moxxy_core::{ChannelStore, EventBus, SttProvider, SttSettings};
+use moxxy_core::{ChannelStore, EventBus, MediaStore, StoreMediaInput, SttProvider, SttSettings};
 use moxxy_storage::Database;
-use moxxy_types::{ChannelError, EventType, MessageContent, RunStarter};
+use moxxy_storage::rows::MediaAssetRow;
+use moxxy_types::{
+    ChannelError, EventType, MediaAttachmentRef, MediaKind, MessageContent, RunStarter,
+};
 use moxxy_vault::SecretBackend;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
@@ -82,6 +85,17 @@ fn truncate_result(s: &str, max: usize) -> String {
         s.to_string()
     } else {
         format!("{}…", &s[..max])
+    }
+}
+
+fn media_kind_storage_name(kind: &MediaKind) -> &'static str {
+    match kind {
+        MediaKind::Image => "image",
+        MediaKind::Document => "document",
+        MediaKind::Audio => "audio",
+        MediaKind::Voice => "voice",
+        MediaKind::Video => "video",
+        MediaKind::Unknown => "unknown",
     }
 }
 
@@ -470,6 +484,90 @@ impl ChannelBridge {
         }
     }
 
+    async fn persist_attachments(
+        &self,
+        channel_id: &str,
+        transport: &Arc<dyn ChannelTransport>,
+        msg: &IncomingMessage,
+    ) -> Option<Vec<MediaAttachmentRef>> {
+        if msg.attachments.is_empty() {
+            return Some(Vec::new());
+        }
+
+        let store = MediaStore::new(self.moxxy_home.clone());
+        let mut refs = Vec::with_capacity(msg.attachments.len());
+
+        for attachment in &msg.attachments {
+            let media_ref = match store.store_bytes(StoreMediaInput {
+                kind: attachment.kind.clone(),
+                bytes: &attachment.data,
+                mime: &attachment.mime,
+                filename: &attachment.filename,
+                source: attachment.source.clone(),
+            }) {
+                Ok(media_ref) => media_ref,
+                Err(e) => {
+                    tracing::warn!(
+                        channel_id,
+                        external_chat_id = %msg.external_chat_id,
+                        error = %e,
+                        "Failed to persist incoming media"
+                    );
+                    let _ = transport
+                        .send_message(OutgoingMessage {
+                            external_chat_id: msg.external_chat_id.clone(),
+                            content: MessageContent::Text(format!(
+                                "Could not process attached media: {e}"
+                            )),
+                        })
+                        .await;
+                    return None;
+                }
+            };
+
+            let row = MediaAssetRow {
+                id: media_ref.id.clone(),
+                kind: media_kind_storage_name(&media_ref.kind).into(),
+                mime: media_ref.mime.clone(),
+                filename: media_ref.filename.clone(),
+                local_path: media_ref.local_path.clone(),
+                size_bytes: media_ref.size_bytes as i64,
+                sha256: media_ref.sha256.clone(),
+                source_json: media_ref.source.to_string(),
+                created_at: chrono::Utc::now().to_rfc3339(),
+            };
+
+            let db_result = self
+                .db
+                .lock()
+                .map_err(|_| "db lock poisoned".to_string())
+                .and_then(|db| db.media().insert_or_ignore(&row).map_err(|e| e.to_string()));
+
+            if let Err(e) = db_result {
+                tracing::error!(
+                    channel_id,
+                    external_chat_id = %msg.external_chat_id,
+                    media_id = %media_ref.id,
+                    error = %e,
+                    "Failed to persist incoming media metadata"
+                );
+                let _ = transport
+                    .send_message(OutgoingMessage {
+                        external_chat_id: msg.external_chat_id.clone(),
+                        content: MessageContent::Text(format!(
+                            "Could not save attached media metadata: {e}"
+                        )),
+                    })
+                    .await;
+                return None;
+            }
+
+            refs.push(media_ref);
+        }
+
+        Some(refs)
+    }
+
     async fn handle_incoming(
         &self,
         channel_id: &str,
@@ -482,6 +580,7 @@ impl ChannelBridge {
             sender_id = %msg.sender_id,
             text_len = msg.text.len(),
             has_audio = msg.audio.is_some(),
+            attachments_count = msg.attachments.len(),
             "Inbound channel message"
         );
 
@@ -568,6 +667,22 @@ impl ChannelBridge {
             return;
         }
 
+        let media_refs = match self.persist_attachments(channel_id, transport, &msg).await {
+            Some(refs) => refs,
+            None => return,
+        };
+        let task = if msg.text.trim().is_empty()
+            && media_refs.iter().any(|a| a.kind == MediaKind::Image)
+        {
+            "Analyze the attached image.".to_string()
+        } else if msg.text.trim().is_empty()
+            && media_refs.iter().any(|a| a.kind == MediaKind::Document)
+        {
+            "Analyze the attached document.".to_string()
+        } else {
+            msg.text.clone()
+        };
+
         // Emit channel.message_received event
         let envelope = moxxy_types::EventEnvelope::new(
             agent_name.clone(),
@@ -580,7 +695,8 @@ impl ChannelBridge {
                 "channel_type": transport.transport_name(),
                 "external_chat_id": external_chat_id,
                 "sender_name": msg.sender_name,
-                "task": msg.text,
+                "task": task.clone(),
+                "attachments_count": media_refs.len(),
             }),
         );
         self.event_bus.emit(envelope);
@@ -591,9 +707,10 @@ impl ChannelBridge {
         // Trigger a run via RunStarter (with queueing support).
         // Thread the sender's identity so per-end-user personalization can
         // key off a stable, transport-namespaced id (e.g. `tg:12345`).
-        let trigger = moxxy_types::RunTrigger::new(msg.text.clone(), "channel")
+        let trigger = moxxy_types::RunTrigger::new(task, "channel")
             .with_user_id(format!("{}:{}", transport.transport_name(), msg.sender_id))
-            .with_channel_id(msg.external_chat_id.clone());
+            .with_channel_id(msg.external_chat_id.clone())
+            .with_attachments(media_refs);
         match self
             .run_starter
             .start_or_queue_with_context(agent_name, trigger)
@@ -1568,6 +1685,8 @@ mod tests {
         let conn = rusqlite::Connection::open_in_memory().expect("Failed to open in-memory db");
         conn.execute_batch(include_str!("../../../migrations/0001_init.sql"))
             .unwrap();
+        conn.execute_batch(include_str!("../../../migrations/0003_media_assets.sql"))
+            .unwrap();
         Arc::new(Mutex::new(Database::new(conn)))
     }
 
@@ -1787,7 +1906,7 @@ mod tests {
 
     // ---------- STT integration tests for ChannelBridge ----------
 
-    use crate::transport::IncomingAudio;
+    use crate::transport::{IncomingAttachment, IncomingAudio};
     use moxxy_core::SttError as CoreSttError;
     use moxxy_core::SttProvider as CoreSttProvider;
 
@@ -1847,6 +1966,48 @@ mod tests {
         }
     }
 
+    struct RecordingRunStarter {
+        triggers: Arc<Mutex<Vec<(String, moxxy_types::RunTrigger)>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl RunStarter for RecordingRunStarter {
+        async fn start_run(&self, _agent_id: &str, _task: &str) -> Result<String, String> {
+            Ok("run-123".into())
+        }
+        async fn stop_agent(&self, _agent_id: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn agent_status(&self, _agent_id: &str) -> Result<Option<String>, String> {
+            Ok(Some("idle".into()))
+        }
+        async fn start_or_queue_with_context(
+            &self,
+            agent_id: &str,
+            trigger: moxxy_types::RunTrigger,
+        ) -> Result<moxxy_types::RunOutcome, String> {
+            self.triggers
+                .lock()
+                .unwrap()
+                .push((agent_id.to_string(), trigger));
+            Ok(moxxy_types::RunOutcome::Started("run-123".into()))
+        }
+        async fn spawn_child(
+            &self,
+            _: &str,
+            _: &str,
+            _: moxxy_types::SpawnOpts,
+        ) -> Result<moxxy_types::SpawnResult, String> {
+            unimplemented!()
+        }
+        fn list_children(&self, _: &str) -> Result<Vec<moxxy_types::ChildInfo>, String> {
+            Ok(vec![])
+        }
+        fn dismiss_child(&self, _: &str, _: &str) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
     fn build_bridge(
         stt: Option<Arc<dyn CoreSttProvider>>,
         stt_settings: Option<SttSettings>,
@@ -1893,7 +2054,166 @@ mod tests {
             text: String::new(),
             timestamp: 0,
             audio: Some(audio),
+            attachments: Vec::new(),
         }
+    }
+
+    #[tokio::test]
+    async fn handle_incoming_persists_image_and_forwards_attachment_ref() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let db = setup_db();
+        let triggers = Arc::new(Mutex::new(Vec::new()));
+        let run_starter: Arc<dyn RunStarter> = Arc::new(RecordingRunStarter {
+            triggers: triggers.clone(),
+        });
+        let vault: Arc<dyn SecretBackend + Send + Sync> =
+            Arc::new(moxxy_vault::InMemoryBackend::new());
+        let bridge = Arc::new(ChannelBridge::new_with_stt(
+            db.clone(),
+            EventBus::new(64),
+            run_starter,
+            vault,
+            tmp.path().to_path_buf(),
+            None,
+            None,
+        ));
+        let channel_doc = moxxy_core::ChannelDoc {
+            channel_type: "telegram".into(),
+            display_name: "Telegram".into(),
+            vault_secret_ref_id: "ref".into(),
+            status: "active".into(),
+            config: None,
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+        };
+        ChannelStore::create(tmp.path(), "ch1", &channel_doc).unwrap();
+        let mut bindings = moxxy_core::BindingsFile::default();
+        bindings.0.insert(
+            "chat-1".into(),
+            moxxy_core::BindingEntry {
+                agent_name: "vixi".into(),
+                status: "active".into(),
+                created_at: "2026-01-01T00:00:00Z".into(),
+            },
+        );
+        ChannelStore::save_bindings(tmp.path(), "ch1", &bindings).unwrap();
+        let (transport, sent) = build_transport();
+
+        let msg = IncomingMessage {
+            external_chat_id: "chat-1".into(),
+            sender_id: "user-1".into(),
+            sender_name: "Alice".into(),
+            text: String::new(),
+            timestamp: 0,
+            audio: None,
+            attachments: vec![IncomingAttachment {
+                kind: MediaKind::Image,
+                data: vec![0xff, 0xd8, 0xff, 0xe0, b'M', b'O', b'X', b'X', b'Y'],
+                mime: "image/jpeg".into(),
+                filename: "photo.jpg".into(),
+                source: serde_json::json!({"channel": "telegram"}),
+            }],
+        };
+
+        bridge.handle_incoming("ch1", &transport, msg).await;
+
+        let triggers = triggers.lock().unwrap();
+        assert_eq!(triggers.len(), 1);
+        assert_eq!(triggers[0].0, "vixi");
+        assert_eq!(triggers[0].1.task, "Analyze the attached image.");
+        assert_eq!(triggers[0].1.attachments.len(), 1);
+        let attachment = &triggers[0].1.attachments[0];
+        assert_eq!(attachment.kind, MediaKind::Image);
+        assert!(attachment.local_path.contains("/media/inbound/telegram/"));
+        assert!(std::path::Path::new(&attachment.local_path).exists());
+        assert!(
+            db.lock()
+                .unwrap()
+                .media()
+                .find_by_id(&attachment.id)
+                .unwrap()
+                .is_some()
+        );
+        assert!(sent.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn handle_incoming_persists_document_and_forwards_attachment_ref() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let db = setup_db();
+        let triggers = Arc::new(Mutex::new(Vec::new()));
+        let run_starter: Arc<dyn RunStarter> = Arc::new(RecordingRunStarter {
+            triggers: triggers.clone(),
+        });
+        let vault: Arc<dyn SecretBackend + Send + Sync> =
+            Arc::new(moxxy_vault::InMemoryBackend::new());
+        let bridge = Arc::new(ChannelBridge::new_with_stt(
+            db.clone(),
+            EventBus::new(64),
+            run_starter,
+            vault,
+            tmp.path().to_path_buf(),
+            None,
+            None,
+        ));
+        let channel_doc = moxxy_core::ChannelDoc {
+            channel_type: "telegram".into(),
+            display_name: "Telegram".into(),
+            vault_secret_ref_id: "ref".into(),
+            status: "active".into(),
+            config: None,
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+        };
+        ChannelStore::create(tmp.path(), "ch1", &channel_doc).unwrap();
+        let mut bindings = moxxy_core::BindingsFile::default();
+        bindings.0.insert(
+            "chat-1".into(),
+            moxxy_core::BindingEntry {
+                agent_name: "vixi".into(),
+                status: "active".into(),
+                created_at: "2026-01-01T00:00:00Z".into(),
+            },
+        );
+        ChannelStore::save_bindings(tmp.path(), "ch1", &bindings).unwrap();
+        let (transport, sent) = build_transport();
+
+        let msg = IncomingMessage {
+            external_chat_id: "chat-1".into(),
+            sender_id: "user-1".into(),
+            sender_name: "Alice".into(),
+            text: String::new(),
+            timestamp: 0,
+            audio: None,
+            attachments: vec![IncomingAttachment {
+                kind: MediaKind::Document,
+                data: b"%PDF-1.7\n1 0 obj\n<<>>\nendobj\n".to_vec(),
+                mime: "application/pdf".into(),
+                filename: "brief.pdf".into(),
+                source: serde_json::json!({"channel": "telegram"}),
+            }],
+        };
+
+        bridge.handle_incoming("ch1", &transport, msg).await;
+
+        let triggers = triggers.lock().unwrap();
+        assert_eq!(triggers.len(), 1);
+        assert_eq!(triggers[0].0, "vixi");
+        assert_eq!(triggers[0].1.task, "Analyze the attached document.");
+        assert_eq!(triggers[0].1.attachments.len(), 1);
+        let attachment = &triggers[0].1.attachments[0];
+        assert_eq!(attachment.kind, MediaKind::Document);
+        assert!(attachment.local_path.contains("/media/inbound/telegram/"));
+        assert!(std::path::Path::new(&attachment.local_path).exists());
+        assert!(
+            db.lock()
+                .unwrap()
+                .media()
+                .find_by_id(&attachment.id)
+                .unwrap()
+                .is_some()
+        );
+        assert!(sent.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -2132,6 +2452,7 @@ mod tests {
             text: "plain text".into(),
             timestamp: 0,
             audio: None,
+            attachments: Vec::new(),
         };
         let ok = bridge
             .transcribe_audio_in_place("ch1", &transport, &mut msg)

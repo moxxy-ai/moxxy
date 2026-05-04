@@ -162,6 +162,14 @@ impl AppState {
         let sql_0002 = include_str!("../../../migrations/0002_session_summaries.sql");
         conn.execute_batch(sql_0002).expect("Migration 0002 failed");
 
+        // Apply 0003 — media attachment metadata (raw bytes live on disk under MOXXY_HOME/media)
+        let sql_0003 = include_str!("../../../migrations/0003_media_assets.sql");
+        conn.execute_batch(sql_0003).expect("Migration 0003 failed");
+
+        // Apply 0004 — link conversation history rows to stored media refs.
+        let sql_0004 = include_str!("../../../migrations/0004_conversation_attachments.sql");
+        conn.execute_batch(sql_0004).expect("Migration 0004 failed");
+
         // Open a second connection for the vault backend to avoid deadlocks
         // with the main Arc<Mutex<Database>>
         let db_path = conn.path().map(|p| p.to_string()).unwrap_or_default();

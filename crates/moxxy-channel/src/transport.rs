@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use moxxy_types::{ChannelError, MessageContent};
+use moxxy_types::{ChannelError, MediaKind, MessageContent};
 use tokio_util::sync::CancellationToken;
 
 use crate::commands::CommandDefinition;
@@ -16,6 +16,9 @@ pub struct IncomingMessage {
     /// the configured `SttProvider` and replaces `text` with the transcript
     /// before routing the message to the agent.
     pub audio: Option<IncomingAudio>,
+    /// Raw non-audio media payloads downloaded by the transport. The bridge
+    /// stores these in MediaStore and passes only stable refs to runtime.
+    pub attachments: Vec<IncomingAttachment>,
 }
 
 /// Raw audio attached to an incoming message.
@@ -25,6 +28,16 @@ pub struct IncomingAudio {
     pub mime: String,
     pub filename: String,
     pub duration_secs: Option<u32>,
+}
+
+/// Raw media attached to an incoming message.
+#[derive(Debug, Clone)]
+pub struct IncomingAttachment {
+    pub kind: MediaKind,
+    pub data: Vec<u8>,
+    pub mime: String,
+    pub filename: String,
+    pub source: serde_json::Value,
 }
 
 /// A message to send to an external chat platform.

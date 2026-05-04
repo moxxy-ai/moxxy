@@ -1,5 +1,5 @@
 use crate::rows::ConversationLogRow;
-use moxxy_types::StorageError;
+use moxxy_types::{MediaAttachmentRef, MediaKind, StorageError};
 use rusqlite::{Connection, params};
 
 pub struct ConversationDao<'a> {
@@ -23,6 +23,33 @@ impl<'a> ConversationDao<'a> {
                 ],
             )
             .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn insert_with_attachments(
+        &self,
+        row: &ConversationLogRow,
+        attachments: &[MediaAttachmentRef],
+    ) -> Result<(), StorageError> {
+        self.insert(row)?;
+
+        for (ordinal, attachment) in attachments.iter().enumerate() {
+            self.conn
+                .execute(
+                    "INSERT OR IGNORE INTO conversation_attachments
+                     (id, conversation_id, media_id, ordinal, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![
+                        uuid::Uuid::now_v7().to_string(),
+                        row.id,
+                        attachment.id,
+                        ordinal as i64,
+                        row.created_at,
+                    ],
+                )
+                .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+        }
+
         Ok(())
     }
 
@@ -75,6 +102,34 @@ impl<'a> ConversationDao<'a> {
         Ok(result)
     }
 
+    pub fn find_recent_attachments_by_agent_and_kind(
+        &self,
+        agent_id: &str,
+        kind: &str,
+        limit: u32,
+    ) -> Result<Vec<MediaAttachmentRef>, StorageError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT ma.id, ma.kind, ma.mime, ma.filename, ma.local_path, ma.size_bytes,
+                        ma.sha256, ma.source_json
+                 FROM conversation_log cl
+                 JOIN conversation_attachments ca ON ca.conversation_id = cl.id
+                 JOIN media_assets ma ON ma.id = ca.media_id
+                 WHERE cl.agent_id = ?1 AND cl.role = 'user' AND ma.kind = ?2
+                 ORDER BY cl.created_at DESC, cl.sequence DESC, ca.ordinal ASC
+                 LIMIT ?3",
+            )
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        let rows = stmt
+            .query_map(params![agent_id, kind, limit], Self::map_attachment_ref)
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| StorageError::QueryFailed(e.to_string()))
+    }
+
     pub fn delete_by_run(&self, agent_id: &str, run_id: &str) -> Result<(), StorageError> {
         self.conn
             .execute(
@@ -106,6 +161,33 @@ impl<'a> ConversationDao<'a> {
             content: row.get(5)?,
             created_at: row.get(6)?,
         })
+    }
+
+    fn map_attachment_ref(row: &rusqlite::Row<'_>) -> rusqlite::Result<MediaAttachmentRef> {
+        let kind: String = row.get(1)?;
+        let size_bytes: i64 = row.get(5)?;
+        let source_json: String = row.get(7)?;
+        Ok(MediaAttachmentRef {
+            id: row.get(0)?,
+            kind: parse_media_kind(&kind),
+            mime: row.get(2)?,
+            filename: row.get(3)?,
+            local_path: row.get(4)?,
+            size_bytes: size_bytes.max(0) as u64,
+            sha256: row.get(6)?,
+            source: serde_json::from_str(&source_json).unwrap_or_else(|_| serde_json::json!({})),
+        })
+    }
+}
+
+fn parse_media_kind(kind: &str) -> MediaKind {
+    match kind {
+        "image" => MediaKind::Image,
+        "document" => MediaKind::Document,
+        "audio" => MediaKind::Audio,
+        "voice" => MediaKind::Voice,
+        "video" => MediaKind::Video,
+        _ => MediaKind::Unknown,
     }
 }
 
@@ -387,5 +469,62 @@ mod tests {
         let rows_b = dao.find_recent_by_agent(&agent_b, 10).unwrap();
         assert_eq!(rows_b.len(), 1);
         assert_eq!(rows_b[0].content, "agent-b-msg");
+    }
+
+    #[test]
+    fn insert_with_attachments_can_find_recent_document_refs() {
+        let db = TestDb::new();
+        let agent_id = seed_agent(&db);
+        let dao = ConversationDao { conn: db.conn() };
+        let media = moxxy_types::MediaAttachmentRef {
+            id: "media_pdf".into(),
+            kind: moxxy_types::MediaKind::Document,
+            mime: "application/pdf".into(),
+            filename: "brief.pdf".into(),
+            local_path: "/tmp/.moxxy/media/brief.pdf".into(),
+            size_bytes: 128,
+            sha256: "pdf-sha".into(),
+            source: serde_json::json!({"channel": "telegram"}),
+        };
+        db.conn()
+            .execute(
+                "INSERT INTO media_assets
+                 (id, kind, mime, filename, local_path, size_bytes, sha256, source_json, created_at)
+                 VALUES (?1, 'document', ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                rusqlite::params![
+                    media.id,
+                    media.mime,
+                    media.filename,
+                    media.local_path,
+                    media.size_bytes as i64,
+                    media.sha256,
+                    media.source.to_string(),
+                    "2026-05-04T12:00:00Z",
+                ],
+            )
+            .unwrap();
+
+        dao.insert_with_attachments(
+            &ConversationLogRow {
+                id: "msg-1".into(),
+                agent_id: agent_id.clone(),
+                run_id: "run-1".into(),
+                sequence: 0,
+                role: "user".into(),
+                content: "Analyze the attached document.".into(),
+                created_at: "2026-05-04T12:00:00Z".into(),
+            },
+            std::slice::from_ref(&media),
+        )
+        .unwrap();
+
+        let found = dao
+            .find_recent_attachments_by_agent_and_kind(&agent_id, "document", 1)
+            .unwrap();
+
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].id, "media_pdf");
+        assert_eq!(found[0].kind, moxxy_types::MediaKind::Document);
+        assert_eq!(found[0].filename, "brief.pdf");
     }
 }

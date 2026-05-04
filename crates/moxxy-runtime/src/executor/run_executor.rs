@@ -3,7 +3,7 @@ use crate::primitives::agent::AgentInbox;
 use crate::provider::{Message, ModelConfig, Provider, ProviderResponse, StreamEvent, ToolCall};
 use crate::registry::PrimitiveRegistry;
 use moxxy_core::EventBus;
-use moxxy_types::{EventEnvelope, EventType};
+use moxxy_types::{EventEnvelope, EventType, MediaAttachmentRef, MediaKind};
 use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
@@ -53,6 +53,7 @@ pub struct RunExecutor {
     heartbeat_interval: usize,
     max_tool_result_size: usize,
     history: Vec<Message>,
+    initial_attachments: Vec<MediaAttachmentRef>,
     listeners: Vec<Box<dyn EventListener>>,
     stuck_detector: Option<StuckDetector>,
     stm_path: Option<std::path::PathBuf>,
@@ -87,6 +88,7 @@ impl RunExecutor {
             heartbeat_interval: 10,
             max_tool_result_size: DEFAULT_MAX_TOOL_RESULT_CHARS,
             history: Vec::new(),
+            initial_attachments: Vec::new(),
             listeners: vec![
                 Box::new(AgentEventListener::new()),
                 Box::new(HiveEventListener::new()),
@@ -159,6 +161,11 @@ impl RunExecutor {
         self
     }
 
+    pub fn with_initial_attachments(mut self, attachments: Vec<MediaAttachmentRef>) -> Self {
+        self.initial_attachments = attachments;
+        self
+    }
+
     pub fn with_listener(mut self, listener: Box<dyn EventListener>) -> Self {
         self.listeners.push(listener);
         self
@@ -190,6 +197,17 @@ impl RunExecutor {
     pub fn with_reflection(mut self, ctx: ReflectionContext) -> Self {
         self.reflection = Some(ctx);
         self
+    }
+
+    fn clear_delivered_attachments(conversation: &mut [Message]) -> usize {
+        let mut cleared = 0;
+        for message in conversation {
+            if !message.attachments.is_empty() {
+                message.attachments.clear();
+                cleared += 1;
+            }
+        }
+        cleared
     }
 
     fn load_stm(&self, path: &std::path::Path) -> std::collections::BTreeMap<String, String> {
@@ -301,7 +319,34 @@ impl RunExecutor {
         }
         // Inject conversation history (prior user/assistant pairs) before current task
         conversation.extend(self.history.iter().cloned());
-        conversation.push(Message::user(task));
+        if !self.initial_attachments.is_empty() {
+            if self
+                .initial_attachments
+                .iter()
+                .any(|attachment| attachment.kind == MediaKind::Image)
+                && !self.provider.supports_images()
+            {
+                return Err(
+                    "Provider does not support image attachments for this model.".to_string(),
+                );
+            }
+            if self
+                .initial_attachments
+                .iter()
+                .any(|attachment| attachment.kind == MediaKind::Document)
+                && !self.provider.supports_documents()
+            {
+                return Err(
+                    "Provider does not support document attachments for this model.".to_string(),
+                );
+            }
+            conversation.push(Message::user_with_attachments(
+                task,
+                self.initial_attachments.clone(),
+            ));
+        } else {
+            conversation.push(Message::user(task));
+        }
 
         let mut final_content = String::new();
 
@@ -506,6 +551,21 @@ impl RunExecutor {
 
             // Reset activity timer - model responded
             last_activity = tokio::time::Instant::now();
+
+            // Keep image cost bounded inside long tool loops. Once the model
+            // has produced textual analysis, later iterations rely on that
+            // conversation text instead of resending image bytes.
+            if !response.content.trim().is_empty() {
+                let cleared = Self::clear_delivered_attachments(&mut conversation);
+                if cleared > 0 {
+                    tracing::debug!(
+                        agent_id,
+                        run_id,
+                        cleared,
+                        "Cleared delivered media attachments from active conversation"
+                    );
+                }
+            }
 
             // Emit content events
             if !response.content.is_empty() || streamed_any {
@@ -1500,6 +1560,58 @@ mod tests {
             max_tokens: 100,
             tool_choice: crate::provider::ToolChoice::Auto,
         }
+    }
+
+    #[tokio::test]
+    async fn execute_rejects_image_attachment_when_provider_lacks_vision() {
+        let bus = EventBus::new(100);
+        let provider = Arc::new(UsageProvider);
+        let registry = PrimitiveRegistry::new();
+        let attachment = MediaAttachmentRef {
+            id: "media_1".into(),
+            kind: MediaKind::Image,
+            mime: "image/jpeg".into(),
+            filename: "photo.jpg".into(),
+            local_path: "/tmp/photo.jpg".into(),
+            size_bytes: 10,
+            sha256: "abc".into(),
+            source: serde_json::json!({"channel": "telegram"}),
+        };
+
+        let mut executor = RunExecutor::new(bus, provider, registry, Arc::new(RwLock::new(vec![])))
+            .with_initial_attachments(vec![attachment]);
+        let result = executor
+            .execute("agent-1", "run-1", "analyze", &model_config())
+            .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("does not support image"));
+    }
+
+    #[tokio::test]
+    async fn execute_rejects_document_attachment_when_provider_lacks_documents() {
+        let bus = EventBus::new(100);
+        let provider = Arc::new(UsageProvider);
+        let registry = PrimitiveRegistry::new();
+        let attachment = MediaAttachmentRef {
+            id: "media_doc".into(),
+            kind: MediaKind::Document,
+            mime: "application/pdf".into(),
+            filename: "brief.pdf".into(),
+            local_path: "/tmp/brief.pdf".into(),
+            size_bytes: 10,
+            sha256: "abc".into(),
+            source: serde_json::json!({"channel": "telegram"}),
+        };
+
+        let mut executor = RunExecutor::new(bus, provider, registry, Arc::new(RwLock::new(vec![])))
+            .with_initial_attachments(vec![attachment]);
+        let result = executor
+            .execute("agent-1", "run-1", "analyze", &model_config())
+            .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("does not support document"));
     }
 
     #[tokio::test]

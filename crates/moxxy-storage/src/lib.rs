@@ -34,6 +34,10 @@ impl Database {
         MemoryDao { conn: &self.conn }
     }
 
+    pub fn media(&self) -> MediaDao<'_> {
+        MediaDao { conn: &self.conn }
+    }
+
     pub fn vault_refs(&self) -> VaultRefDao<'_> {
         VaultRefDao { conn: &self.conn }
     }

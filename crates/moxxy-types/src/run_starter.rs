@@ -1,3 +1,4 @@
+use crate::MediaAttachmentRef;
 use crate::agents::{AgentType, HiveRole};
 
 /// Options for spawning a child agent.
@@ -54,6 +55,7 @@ pub struct RunTrigger {
     pub user_id: Option<String>,
     /// Optional channel identifier (e.g. the chat_id a message arrived on).
     pub channel_id: Option<String>,
+    pub attachments: Vec<MediaAttachmentRef>,
 }
 
 impl RunTrigger {
@@ -63,6 +65,7 @@ impl RunTrigger {
             source: source.into(),
             user_id: None,
             channel_id: None,
+            attachments: Vec::new(),
         }
     }
 
@@ -74,6 +77,46 @@ impl RunTrigger {
     pub fn with_channel_id(mut self, channel_id: impl Into<String>) -> Self {
         self.channel_id = Some(channel_id.into());
         self
+    }
+
+    pub fn with_attachments(mut self, attachments: Vec<MediaAttachmentRef>) -> Self {
+        self.attachments = attachments;
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::MediaKind;
+
+    #[test]
+    fn run_trigger_defaults_to_no_attachments_for_legacy_callers() {
+        let trigger = RunTrigger::new("hello", "api");
+
+        assert!(trigger.attachments.is_empty());
+        assert_eq!(trigger.task, "hello");
+        assert_eq!(trigger.source, "api");
+    }
+
+    #[test]
+    fn run_trigger_carries_media_attachments() {
+        let attachment = MediaAttachmentRef {
+            id: "media_123".into(),
+            kind: MediaKind::Image,
+            mime: "image/jpeg".into(),
+            filename: "photo.jpg".into(),
+            local_path: "/tmp/.moxxy/media/photo.jpg".into(),
+            size_bytes: 12,
+            sha256: "abc".into(),
+            source: serde_json::json!({"channel": "telegram"}),
+        };
+
+        let trigger = RunTrigger::new("analyze", "channel").with_attachments(vec![attachment]);
+
+        assert_eq!(trigger.attachments.len(), 1);
+        assert_eq!(trigger.attachments[0].kind, MediaKind::Image);
+        assert_eq!(trigger.attachments[0].mime, "image/jpeg");
     }
 }
 

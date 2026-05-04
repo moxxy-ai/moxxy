@@ -11,7 +11,9 @@ pub use commands::{CommandDefinition, CommandHandler, CommandRegistry, build_def
 pub use discord::DiscordTransport;
 pub use pairing::PairingService;
 pub use telegram::TelegramTransport;
-pub use transport::{ChannelTransport, IncomingAudio, IncomingMessage, OutgoingMessage};
+pub use transport::{
+    ChannelTransport, IncomingAttachment, IncomingAudio, IncomingMessage, OutgoingMessage,
+};
 pub use whatsapp::WhatsAppTransport;
 
 // Re-export MessageContent from moxxy-types for convenience
