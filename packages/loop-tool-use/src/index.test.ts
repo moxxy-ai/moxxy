@@ -1,0 +1,177 @@
+import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
+import { defineTool } from '@moxxy/sdk';
+import { Session, autoAllowResolver, collectTurn, silentLogger } from '@moxxy/core';
+import { FakeProvider, textReply, toolUseReply, createFakeSession } from '@moxxy/testing';
+import { toolUseLoopPlugin } from './index.js';
+
+const sessionWith = (provider: FakeProvider): Session => {
+  const session = createFakeSession({ provider });
+  session.pluginHost.registerStatic(toolUseLoopPlugin);
+  return session;
+};
+
+describe('toolUseLoop end-to-end', () => {
+  it('runs a plain text turn and emits the expected event sequence', async () => {
+    const provider = new FakeProvider({ script: [textReply('hello there')] });
+    const session = sessionWith(provider);
+
+    const events = await collectTurn(session, 'hi');
+    const types = events.map((e) => e.type);
+
+    expect(types).toEqual([
+      'user_prompt',
+      'loop_iteration',
+      'provider_request',
+      'assistant_chunk',
+      'provider_response',
+      'assistant_message',
+    ]);
+    const last = events[events.length - 1];
+    if (last.type !== 'assistant_message') throw new Error('expected assistant_message last');
+    expect(last.content).toBe('hello there');
+    expect(last.stopReason).toBe('end_turn');
+  });
+
+  it('runs tool_use then continues loop with the result', async () => {
+    const provider = new FakeProvider({
+      script: [toolUseReply('echo', { msg: 'world' }, 'c1'), textReply('done: world')],
+    });
+    const session = sessionWith(provider);
+    session.tools.register(
+      defineTool({
+        name: 'echo',
+        description: 'returns msg',
+        inputSchema: z.object({ msg: z.string() }),
+        handler: (i) => i.msg,
+      }),
+    );
+
+    const events = await collectTurn(session, 'go');
+    const toolResult = events.find((e) => e.type === 'tool_result');
+    if (toolResult?.type !== 'tool_result') throw new Error('expected tool_result');
+    expect(toolResult.ok).toBe(true);
+    expect(toolResult.output).toBe('world');
+
+    const last = events[events.length - 1];
+    if (last.type !== 'assistant_message') throw new Error('expected assistant_message last');
+    expect(last.content).toBe('done: world');
+  });
+
+  it('records denial when permission resolver says no', async () => {
+    const provider = new FakeProvider({
+      script: [toolUseReply('Bash', { command: 'rm -rf /' }, 'c1'), textReply('aborted')],
+    });
+    const session = new Session({
+      cwd: '/tmp',
+      logger: silentLogger,
+      permissionResolver: { name: 'deny', async check() { return { mode: 'deny', reason: 'no shells' }; } },
+    });
+    session.pluginHost.registerStatic({
+      __moxxy: 'plugin' as const,
+      name: 'shim',
+      version: '0.0.0',
+      providers: [
+        {
+          name: provider.name,
+          models: [...provider.models],
+          createClient: () => provider,
+        },
+      ],
+    });
+    session.providers.setActive(provider.name);
+    session.pluginHost.registerStatic(toolUseLoopPlugin);
+    session.tools.register(
+      defineTool({
+        name: 'Bash',
+        description: '',
+        inputSchema: z.object({ command: z.string() }),
+        handler: () => 'should not run',
+      }),
+    );
+
+    const events = await collectTurn(session, 'do it');
+    const denied = events.find((e) => e.type === 'tool_call_denied');
+    expect(denied).toBeDefined();
+    const result = events.find((e) => e.type === 'tool_result');
+    if (result?.type !== 'tool_result') throw new Error('expected tool_result');
+    expect(result.ok).toBe(false);
+    expect(result.error?.kind).toBe('denied');
+  });
+
+  it('handles tool handler throws as failure result', async () => {
+    const provider = new FakeProvider({
+      script: [toolUseReply('boom', {}, 'c1'), textReply('recovered')],
+    });
+    const session = sessionWith(provider);
+    session.tools.register(
+      defineTool({
+        name: 'boom',
+        description: '',
+        inputSchema: z.object({}),
+        handler: () => {
+          throw new Error('explode');
+        },
+      }),
+    );
+
+    const events = await collectTurn(session, 'go');
+    const result = events.find((e) => e.type === 'tool_result');
+    if (result?.type !== 'tool_result') throw new Error('expected tool_result');
+    expect(result.ok).toBe(false);
+    expect(result.error?.kind).toBe('threw');
+    expect(result.error?.message).toContain('explode');
+  });
+
+  it('respects maxIterations cap', async () => {
+    const provider = new FakeProvider({
+      script: Array(60).fill(toolUseReply('loop', {}, 'cN')),
+    });
+    const session = sessionWith(provider);
+    session.tools.register(
+      defineTool({
+        name: 'loop',
+        description: '',
+        inputSchema: z.object({}),
+        handler: () => 'ok',
+      }),
+    );
+    // resolver acts as autoAllow by default
+    void autoAllowResolver;
+
+    const events = await collectTurn(session, 'spin', { maxIterations: 3 });
+    const errors = events.filter((e) => e.type === 'error');
+    expect(errors).toHaveLength(1);
+    if (errors[0]?.type !== 'error') throw new Error();
+    expect(errors[0].message).toMatch(/maxIterations/);
+  });
+
+  it('emits abort event when session is aborted mid-stream', async () => {
+    const provider = new FakeProvider({
+      script: [toolUseReply('slow', {}, 'c1'), textReply('after')],
+    });
+    const session = sessionWith(provider);
+    session.tools.register(
+      defineTool({
+        name: 'slow',
+        description: '',
+        inputSchema: z.object({}),
+        handler: async () => {
+          await new Promise((r) => setTimeout(r, 1000));
+          return 'done';
+        },
+      }),
+    );
+
+    setTimeout(() => session.abort('test abort'), 20);
+    const events = await collectTurn(session, 'go');
+    const aborted = events.find((e) => e.type === 'abort');
+    // Either the abort fires before tool execution completes, or the tool_result has kind 'aborted'
+    const result = events.find((e) => e.type === 'tool_result');
+    if (result?.type === 'tool_result' && !result.ok) {
+      expect(result.error?.kind === 'aborted' || result.error?.kind === 'threw').toBe(true);
+    } else {
+      expect(aborted).toBeDefined();
+    }
+  });
+});

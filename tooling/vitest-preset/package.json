@@ -1,0 +1,13 @@
+{
+  "name": "@moxxy/vitest-preset",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "peerDependencies": {
+    "vitest": "^2.0.0"
+  }
+}

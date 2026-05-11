@@ -1,0 +1,216 @@
+import Anthropic from '@anthropic-ai/sdk';
+import type {
+  LLMProvider,
+  ModelDescriptor,
+  ProviderEvent,
+  ProviderRequest,
+} from '@moxxy/sdk';
+import { toAnthropicMessages, toAnthropicTools } from './translate.js';
+
+export interface AnthropicProviderConfig {
+  readonly apiKey?: string;
+  readonly baseURL?: string;
+  readonly defaultModel?: string;
+  readonly client?: Anthropic;
+}
+
+export const anthropicModels: ReadonlyArray<ModelDescriptor> = [
+  { id: 'claude-opus-4-7', contextWindow: 200_000, maxOutputTokens: 8000, supportsTools: true, supportsStreaming: true },
+  { id: 'claude-sonnet-4-6', contextWindow: 200_000, maxOutputTokens: 8000, supportsTools: true, supportsStreaming: true },
+  { id: 'claude-haiku-4-5-20251001', contextWindow: 200_000, maxOutputTokens: 8000, supportsTools: true, supportsStreaming: true },
+];
+
+export class AnthropicProvider implements LLMProvider {
+  readonly name = 'anthropic';
+  readonly models = anthropicModels;
+  private readonly client: Anthropic;
+  private readonly defaultModel: string;
+
+  constructor(config: AnthropicProviderConfig = {}) {
+    this.client =
+      config.client ??
+      new Anthropic({
+        apiKey: config.apiKey ?? process.env.ANTHROPIC_API_KEY,
+        ...(config.baseURL ? { baseURL: config.baseURL } : {}),
+      });
+    this.defaultModel = config.defaultModel ?? 'claude-sonnet-4-6';
+  }
+
+  async *stream(req: ProviderRequest): AsyncIterable<ProviderEvent> {
+    const { system, messages } = toAnthropicMessages(req.messages);
+    const tools = req.tools && req.tools.length > 0 ? toAnthropicTools(req.tools) : undefined;
+    const model = req.model || this.defaultModel;
+
+    yield { type: 'message_start', model };
+
+    let stream: AsyncIterable<unknown>;
+    try {
+      stream = this.client.messages.stream({
+        model,
+        max_tokens: req.maxTokens ?? 4096,
+        system,
+        messages,
+        tools,
+        ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+      } as Parameters<typeof this.client.messages.stream>[0]);
+    } catch (err) {
+      yield {
+        type: 'error',
+        message: err instanceof Error ? err.message : String(err),
+        retryable: isRetryable(err),
+      };
+      return;
+    }
+
+    const pendingToolUses = new Map<string, { name: string; partial: string }>();
+    let stopReason: 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence' | 'error' = 'end_turn';
+    let usage: { inputTokens: number; outputTokens: number } | undefined;
+
+    try {
+      for await (const event of stream as AsyncIterable<AnthropicStreamEvent>) {
+        if (req.signal?.aborted) {
+          yield { type: 'error', message: 'aborted', retryable: false };
+          return;
+        }
+        switch (event.type) {
+          case 'message_start': {
+            usage = {
+              inputTokens: event.message?.usage?.input_tokens ?? 0,
+              outputTokens: event.message?.usage?.output_tokens ?? 0,
+            };
+            break;
+          }
+          case 'content_block_start': {
+            const block = event.content_block;
+            if (block && block.type === 'tool_use') {
+              pendingToolUses.set(block.id, { name: block.name, partial: '' });
+              yield { type: 'tool_use_start', id: block.id, name: block.name };
+            }
+            break;
+          }
+          case 'content_block_delta': {
+            const delta = event.delta;
+            if (!delta) break;
+            if (delta.type === 'text_delta' && typeof delta.text === 'string') {
+              yield { type: 'text_delta', delta: delta.text };
+            } else if (delta.type === 'input_json_delta' && typeof delta.partial_json === 'string') {
+              const id = idOfBlock(event, pendingToolUses);
+              if (id) {
+                const t = pendingToolUses.get(id);
+                if (t) {
+                  t.partial += delta.partial_json;
+                  yield { type: 'tool_use_delta', id, partialInput: delta.partial_json };
+                }
+              }
+            }
+            break;
+          }
+          case 'content_block_stop': {
+            const id = idOfBlock(event, pendingToolUses);
+            if (id) {
+              const t = pendingToolUses.get(id);
+              if (t) {
+                let parsed: unknown = {};
+                try {
+                  parsed = t.partial ? JSON.parse(t.partial) : {};
+                } catch {
+                  parsed = { _rawPartial: t.partial };
+                }
+                yield { type: 'tool_use_end', id, input: parsed };
+                pendingToolUses.delete(id);
+              }
+            }
+            break;
+          }
+          case 'message_delta': {
+            if (event.delta?.stop_reason) {
+              stopReason = mapStopReason(event.delta.stop_reason);
+            }
+            if (event.usage) {
+              usage = {
+                inputTokens: usage?.inputTokens ?? 0,
+                outputTokens: event.usage.output_tokens ?? usage?.outputTokens ?? 0,
+              };
+            }
+            break;
+          }
+          case 'message_stop':
+            break;
+        }
+      }
+    } catch (err) {
+      yield {
+        type: 'error',
+        message: err instanceof Error ? err.message : String(err),
+        retryable: isRetryable(err),
+      };
+      return;
+    }
+
+    yield { type: 'message_end', stopReason, usage };
+  }
+
+  async countTokens(req: Pick<ProviderRequest, 'model' | 'messages' | 'system' | 'tools'>): Promise<number> {
+    const { system, messages } = toAnthropicMessages(req.messages);
+    const tools = req.tools && req.tools.length > 0 ? toAnthropicTools(req.tools) : undefined;
+    try {
+      const result = await (this.client.messages as unknown as { countTokens: (args: unknown) => Promise<{ input_tokens: number }> }).countTokens({
+        model: req.model || this.defaultModel,
+        system,
+        messages,
+        tools,
+      });
+      return result.input_tokens;
+    } catch {
+      const blob =
+        (system ?? '') +
+        messages.map((m) => JSON.stringify(m.content)).join('') +
+        JSON.stringify(tools ?? []);
+      return Math.ceil(blob.length / 4);
+    }
+  }
+}
+
+interface AnthropicStreamEvent {
+  type:
+    | 'message_start'
+    | 'content_block_start'
+    | 'content_block_delta'
+    | 'content_block_stop'
+    | 'message_delta'
+    | 'message_stop';
+  message?: { usage?: { input_tokens?: number; output_tokens?: number } };
+  content_block?: { type: 'text' | 'tool_use'; id: string; name: string };
+  index?: number;
+  delta?: {
+    type?: 'text_delta' | 'input_json_delta';
+    text?: string;
+    partial_json?: string;
+    stop_reason?: string;
+  };
+  usage?: { output_tokens?: number };
+}
+
+function idOfBlock(
+  _event: AnthropicStreamEvent,
+  pending: Map<string, { name: string; partial: string }>,
+): string | null {
+  for (const key of pending.keys()) return key;
+  return null;
+}
+
+function mapStopReason(s: string): 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence' | 'error' {
+  if (s === 'tool_use') return 'tool_use';
+  if (s === 'max_tokens') return 'max_tokens';
+  if (s === 'stop_sequence') return 'stop_sequence';
+  if (s === 'end_turn') return 'end_turn';
+  return 'error';
+}
+
+function isRetryable(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  if (msg.includes('rate_limit') || msg.includes('429') || msg.includes('overloaded')) return true;
+  if (msg.includes('econnreset') || msg.includes('etimedout') || msg.includes('network')) return true;
+  return false;
+}

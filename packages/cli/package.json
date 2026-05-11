@@ -1,0 +1,38 @@
+{
+  "name": "@moxxy/cli",
+  "version": "0.0.0",
+  "description": "moxxy command-line binary. Subcommand dispatcher consuming the moxxy SDK.",
+  "type": "module",
+  "main": "./dist/bin.js",
+  "bin": {
+    "moxxy": "./dist/bin.js"
+  },
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/bin.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo",
+    "start": "node ./dist/bin.js"
+  },
+  "dependencies": {
+    "@moxxy/compactor-summarize": "workspace:*",
+    "@moxxy/core": "workspace:*",
+    "@moxxy/loop-tool-use": "workspace:*",
+    "@moxxy/plugin-cli": "workspace:*",
+    "@moxxy/plugin-provider-anthropic": "workspace:*",
+    "@moxxy/sdk": "workspace:*",
+    "@moxxy/skills-builtin": "workspace:*",
+    "@moxxy/tools-builtin": "workspace:*",
+    "ink": "^5.0.0",
+    "react": "^18.3.0"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

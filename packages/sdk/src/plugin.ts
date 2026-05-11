@@ -1,0 +1,36 @@
+import type { CompactorDef } from './compactor.js';
+import type { LifecycleHooks } from './hooks.js';
+import type { LoopStrategyDef } from './loop.js';
+import type { ProviderDef } from './provider.js';
+import type { ToolDef } from './tool.js';
+
+export type PluginKind = 'tools' | 'provider' | 'loop' | 'compactor' | 'mcp' | 'cli' | 'hooks';
+
+export interface PluginSpec {
+  readonly name: string;
+  readonly version?: string;
+  readonly dependsOn?: ReadonlyArray<string>;
+  readonly tools?: ReadonlyArray<ToolDef>;
+  readonly providers?: ReadonlyArray<ProviderDef>;
+  readonly loopStrategies?: ReadonlyArray<LoopStrategyDef>;
+  readonly compactors?: ReadonlyArray<CompactorDef>;
+  readonly hooks?: LifecycleHooks;
+  readonly skillsDir?: string;
+}
+
+export interface Plugin extends PluginSpec {
+  readonly __moxxy: 'plugin';
+  readonly version: string;
+}
+
+export interface PluginManifest {
+  readonly entry: string;
+  readonly kind?: PluginKind | ReadonlyArray<PluginKind>;
+  readonly skills?: string;
+}
+
+export interface ResolvedPluginManifest extends PluginManifest {
+  readonly packageName: string;
+  readonly packageVersion: string;
+  readonly packagePath: string;
+}

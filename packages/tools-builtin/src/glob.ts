@@ -1,0 +1,74 @@
+import { promises as fs } from 'node:fs';
+import * as path from 'node:path';
+import { defineTool, z } from '@moxxy/sdk';
+import { clampString, resolveSafe } from './util.js';
+
+export const globTool = defineTool({
+  name: 'Glob',
+  description: 'Find files by glob pattern (e.g. "src/**/*.ts"). Returns absolute paths sorted by mtime descending.',
+  inputSchema: z.object({
+    pattern: z.string().min(1),
+    cwd: z.string().optional(),
+    max: z.number().int().positive().max(5000).optional().default(1000),
+  }),
+  permission: { action: 'prompt' },
+  async handler({ pattern, cwd, max }, ctx) {
+    const baseDir = resolveSafe(ctx.cwd, cwd ?? '.');
+    const matches: string[] = [];
+    for await (const entry of fsGlob(baseDir, pattern, ctx.signal)) {
+      matches.push(entry);
+      if (matches.length >= max) break;
+    }
+    const withMtime = await Promise.all(
+      matches.map(async (p) => ({ p, mtime: (await fs.stat(p).catch(() => null))?.mtime?.getTime() ?? 0 })),
+    );
+    withMtime.sort((a, b) => b.mtime - a.mtime);
+    return clampString(withMtime.map((x) => x.p).join('\n'), 50_000);
+  },
+});
+
+async function* fsGlob(
+  baseDir: string,
+  pattern: string,
+  signal: AbortSignal,
+): AsyncIterable<string> {
+  const regex = globToRegExp(pattern);
+  yield* walk(baseDir, regex, baseDir, signal);
+}
+
+async function* walk(
+  root: string,
+  regex: RegExp,
+  cursor: string,
+  signal: AbortSignal,
+): AsyncIterable<string> {
+  if (signal.aborted) return;
+  let entries: import('node:fs').Dirent[];
+  try {
+    entries = await fs.readdir(cursor, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (signal.aborted) return;
+    if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'dist' || entry.name === '.turbo') continue;
+    const full = path.join(cursor, entry.name);
+    if (entry.isDirectory() || entry.isSymbolicLink()) {
+      yield* walk(root, regex, full, signal);
+    }
+    if (entry.isFile() || entry.isSymbolicLink()) {
+      const relative = path.relative(root, full);
+      if (regex.test(relative)) yield full;
+    }
+  }
+}
+
+function globToRegExp(pattern: string): RegExp {
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\?/g, '[^/]')
+    .replace(/\*\*\//g, '(?:.*/)?')
+    .replace(/\*\*/g, '.*')
+    .replace(/\*/g, '[^/]*');
+  return new RegExp('^' + escaped + '$');
+}

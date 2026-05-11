@@ -1,0 +1,11 @@
+{
+  "name": "@moxxy/tsconfig",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "base.json",
+    "lib.json",
+    "app.json"
+  ]
+}

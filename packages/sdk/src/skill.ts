@@ -1,0 +1,25 @@
+import type { SkillId } from './ids.js';
+
+export interface SkillFrontmatter {
+  readonly name: string;
+  readonly description: string;
+  readonly triggers?: ReadonlyArray<string>;
+  readonly 'allowed-tools'?: ReadonlyArray<string>;
+  readonly version?: string;
+  readonly tags?: ReadonlyArray<string>;
+}
+
+export type SkillScope = 'project' | 'user' | 'plugin' | 'builtin';
+
+export interface Skill {
+  readonly id: SkillId;
+  readonly path: string;
+  readonly scope: SkillScope;
+  readonly frontmatter: SkillFrontmatter;
+  readonly body: string;
+}
+
+export interface SkillDef {
+  readonly frontmatter: SkillFrontmatter;
+  readonly body: string;
+}
