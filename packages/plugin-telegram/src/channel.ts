@@ -26,6 +26,12 @@ const TOKEN_KEY = 'telegram_bot_token';
 
 export interface TelegramStartOpts extends ChannelStartOptsBase {
   readonly session: Session;
+  /**
+   * If true, begin a pairing window on startup and emit the 6-digit code via
+   * the logger / stderr so the host operator can read it. Equivalent to the
+   * previous `moxxy telegram pair` invocation.
+   */
+  readonly pair?: boolean;
 }
 
 export interface TelegramChannelOptions {
@@ -76,6 +82,20 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     this.pairing = createPairingState({
       authorizedChatId: authorizedRaw ? Number(authorizedRaw) : null,
     });
+
+    if (startOpts.pair) {
+      const code = this.beginPairingWindow();
+      this.opts.logger?.info?.('telegram pairing window open', { code });
+      process.stderr.write(
+        `\n  Telegram pairing code:  ${code}\n` +
+          '  Send /start to your bot, then type this code in Telegram.\n' +
+          '  (Window: 5 minutes)\n\n',
+      );
+    } else if (this.pairing.phase !== 'paired') {
+      throw new Error(
+        'No Telegram chat is paired yet. Run `moxxy channels telegram pair` to start a pairing window first.',
+      );
+    }
 
     this.bot = new Bot(token);
     this.permissionResolver.setDecider((call, ctx) => this.askForPermission(call, ctx));

@@ -82,12 +82,49 @@ export interface ChannelDef<TStartOpts = unknown> {
    * Default: always available.
    */
   isAvailable?(deps: ChannelFactoryDeps): Promise<ChannelAvailability>;
+  /**
+   * One-shot subcommands the channel exposes. Routed as
+   * `moxxy channels <name> <subcommand>` by the CLI. Use this for
+   * channel-specific maintenance commands that don't need to run the channel
+   * (e.g., Telegram's `unpair`, `status`) — or that want to nudge a start with
+   * a flag (e.g., `pair` -> start with options.pair=true).
+   */
+  readonly subcommands?: Readonly<Record<string, ChannelSubcommand>>;
 }
 
 export interface ChannelAvailability {
   readonly ok: boolean;
   /** Human-readable explanation when ok=false. Shown by `moxxy channels list`. */
   readonly reason?: string;
+}
+
+/** Positional + flag args handed to a channel subcommand by the CLI. */
+export interface ChannelCommandArgs {
+  readonly positional: ReadonlyArray<string>;
+  readonly flags: Readonly<Record<string, string | boolean | undefined>>;
+}
+
+/**
+ * Context handed to a channel subcommand. The CLI builds `deps` exactly like
+ * it does for `Channel.create()` so subcommands can:
+ *  - inspect `deps.vault` for one-shot ops (unpair, status)
+ *  - mutate `deps.options` and call `startChannel()` to launch the channel
+ *    with extra start opts (e.g., pair=true)
+ */
+export interface ChannelSubcommandContext {
+  readonly deps: ChannelFactoryDeps;
+  readonly args: ChannelCommandArgs;
+  /**
+   * Boot a session and run the channel by name. Returns the process exit code
+   * (0 on clean shutdown). Subcommands that want to "start with twist" call
+   * this with overrides instead of duplicating the start-loop themselves.
+   */
+  startChannel(options?: Readonly<Record<string, unknown>>): Promise<number>;
+}
+
+export interface ChannelSubcommand {
+  readonly description: string;
+  run(ctx: ChannelSubcommandContext): Promise<number>;
 }
 
 /**

@@ -63,6 +63,48 @@ export function buildTelegramPlugin(opts: BuildTelegramPluginOptions): Plugin {
             };
           }
         },
+        subcommands: {
+          pair: {
+            description: 'Start the bot and emit a pairing code for first-run authorization.',
+            run: async (ctx) => ctx.startChannel({ pair: true }),
+          },
+          unpair: {
+            description: 'Forget the currently authorized Telegram chat.',
+            run: async (ctx) => {
+              const vault = ctx.deps.vault as VaultStore | undefined;
+              if (!vault) {
+                process.stderr.write('vault unavailable\n');
+                return 1;
+              }
+              const removed = await vault.delete(AUTHORIZED_CHAT_KEY);
+              process.stdout.write(removed ? 'unpaired\n' : 'no pairing was active\n');
+              return 0;
+            },
+          },
+          status: {
+            description: 'Report whether a Telegram token + an authorized chat are configured.',
+            run: async (ctx) => {
+              const vault = ctx.deps.vault as VaultStore | undefined;
+              if (!vault) {
+                process.stderr.write('vault unavailable\n');
+                return 1;
+              }
+              const hasToken = await vault.has(TOKEN_KEY);
+              const authorized = await vault.get(AUTHORIZED_CHAT_KEY);
+              process.stdout.write(
+                JSON.stringify(
+                  {
+                    tokenConfigured: hasToken,
+                    authorizedChatId: authorized ? Number(authorized) : null,
+                  },
+                  null,
+                  2,
+                ) + '\n',
+              );
+              return 0;
+            },
+          },
+        },
       }),
     ],
     tools: [

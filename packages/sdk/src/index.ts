@@ -100,6 +100,9 @@ export type {
   ChannelDef,
   ChannelAvailability,
   ChannelRegistry,
+  ChannelSubcommand,
+  ChannelSubcommandContext,
+  ChannelCommandArgs,
 } from './channel.js';
 export type { EmbeddingProvider } from './embedding.js';
 

@@ -4,7 +4,6 @@ import { runPromptCommand } from './commands/prompt.js';
 import { runTuiCommand } from './commands/tui.js';
 import { runSkillsCommand } from './commands/skills.js';
 import { runPluginsCommand } from './commands/plugins.js';
-import { runTelegramCommand } from './commands/telegram.js';
 import { runChannelsCommand } from './commands/channels.js';
 import { runChannelByName } from './commands/run-channel.js';
 import { runInitCommand } from './commands/init.js';
@@ -20,7 +19,6 @@ const KNOWN_COMMANDS = new Set([
   'skills',
   'plugins',
   'channels',
-  'telegram',
   'init',
   'perms',
   'memory',
@@ -38,11 +36,10 @@ usage:
   moxxy --prompt "..." [flags]       same; flags: --allow-tools, --allow-all,
                                                   --output-format text|json|stream-json,
                                                   --model <model-id>
-  moxxy channels list                list registered channels
-  moxxy telegram                     start the Telegram bot (must already be paired)
-  moxxy telegram pair                begin a pairing window, print code, start bot
-  moxxy telegram unpair              forget the authorized Telegram chat
-  moxxy telegram status              show Telegram token + pairing status
+  moxxy channels                     list registered channels + their subcommands
+  moxxy channels <name>              start a channel by name (same as 'moxxy <name>')
+  moxxy channels <name> <sub> [...]  invoke a channel-defined subcommand
+                                     (e.g. 'moxxy channels telegram pair|unpair|status')
   moxxy skills list|new <name>       manage skill files
   moxxy plugins list|reload          manage plugin host
   moxxy perms list|allow|deny|remove|clear|path  view/edit the permission policy
@@ -87,8 +84,6 @@ async function main(): Promise<number> {
       return await runPluginsCommand(argv);
     case 'channels':
       return await runChannelsCommand(argv);
-    case 'telegram':
-      return await runTelegramCommand(argv);
     default:
       // Not a built-in command? Check if it names a registered channel.
       // Skip the API-key prompt so an unknown command doesn't accidentally
