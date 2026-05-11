@@ -1,9 +1,21 @@
 import { defineTool, definePlugin, z, type Plugin } from '@moxxy/sdk';
 import { MemoryStore, memoryTypeSchema, type MemoryStoreOptions } from './store.js';
 
-export { MemoryStore, memoryTypeSchema, memoryFrontmatterSchema, defaultMemoryDir, type MemoryEntry, type MemoryFrontmatter, type MemoryStoreOptions, type MemoryType, type RankedMemory } from './store.js';
+export {
+  MemoryStore,
+  memoryTypeSchema,
+  memoryFrontmatterSchema,
+  defaultMemoryDir,
+  type MemoryEntry,
+  type MemoryFrontmatter,
+  type MemoryStoreOptions,
+  type MemoryType,
+  type RankedMemory,
+  type RecallMode,
+} from './store.js';
 export { parseMdFile, parseFrontmatter, renderFrontmatter } from './parse.js';
 export { recentExchanges, summarizeSession, type SessionFact } from './stm.js';
+export { TfIdfEmbedder, cosineSimilarity, tokenize } from './tfidf.js';
 
 export interface BuildMemoryPluginOptions extends MemoryStoreOptions {}
 
@@ -33,14 +45,18 @@ export function buildMemoryPlugin(opts: BuildMemoryPluginOptions = {}): { plugin
       }),
       defineTool({
         name: 'memory_recall',
-        description: 'Search long-term memory by free-text query. Returns the most relevant entries with their full bodies.',
+        description:
+          'Search long-term memory by free-text query. Uses vector similarity (TF-IDF by default, ' +
+          'or a configured EmbeddingProvider) when mode is "auto" or "vector". Returns the most ' +
+          'relevant entries with their full bodies.',
         inputSchema: z.object({
           query: z.string().min(1),
           limit: z.number().int().min(1).max(20).optional().default(5),
           type: memoryTypeSchema.optional(),
+          mode: z.enum(['auto', 'vector', 'keyword']).optional().default('auto'),
         }),
-        handler: async ({ query, limit, type }) => {
-          const matches = await store.recall(query, { limit, type });
+        handler: async ({ query, limit, type, mode }) => {
+          const matches = await store.recall(query, { limit, type, mode });
           return matches.map(({ entry, score }) => ({
             name: entry.frontmatter.name,
             type: entry.frontmatter.type,

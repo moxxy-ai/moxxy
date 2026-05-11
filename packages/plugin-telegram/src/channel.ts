@@ -1,6 +1,13 @@
 import { Bot, InlineKeyboard, GrammyError, HttpError } from 'grammy';
 import type { Context } from 'grammy';
-import { runTurn, silentLogger, type Session } from '@moxxy/core';
+import { runTurn, type Session } from '@moxxy/core';
+import type {
+  Channel,
+  ChannelHandle,
+  ChannelStartOptsBase,
+  PendingToolCall,
+  PermissionContext,
+} from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { TelegramPermissionResolver } from './permission.js';
 import {
@@ -13,22 +20,27 @@ import {
   type PairingState,
 } from './pairing.js';
 import { TurnRenderer, splitForTelegram } from './render.js';
-import type { PermissionContext, PendingToolCall } from '@moxxy/sdk';
 
 const AUTHORIZED_CHAT_KEY = 'telegram_authorized_chat_id';
 const TOKEN_KEY = 'telegram_bot_token';
 
-export interface TelegramChannelOptions {
+export interface TelegramStartOpts extends ChannelStartOptsBase {
   readonly session: Session;
+}
+
+export interface TelegramChannelOptions {
   readonly vault: VaultStore;
-  readonly resolver: TelegramPermissionResolver;
   readonly token?: string;
-  readonly model?: string;
-  readonly logger?: { info(msg: string, meta?: Record<string, unknown>): void; warn(msg: string, meta?: Record<string, unknown>): void };
+  readonly logger?: {
+    info(msg: string, meta?: Record<string, unknown>): void;
+    warn(msg: string, meta?: Record<string, unknown>): void;
+  };
   readonly editFrameMs?: number;
 }
 
-export class TelegramChannel {
+export class TelegramChannel implements Channel<TelegramStartOpts> {
+  readonly name = 'telegram';
+  readonly permissionResolver: TelegramPermissionResolver;
   private readonly opts: TelegramChannelOptions;
   private bot: Bot | null = null;
   private pairing: PairingState = createPairingState();
@@ -38,28 +50,37 @@ export class TelegramChannel {
   private renderer = new TurnRenderer();
   private editTimer: ReturnType<typeof setTimeout> | null = null;
   private lastSentFrame = '';
+  private session: Session | null = null;
+  private model: string | undefined;
+  private handle: ChannelHandle | null = null;
   private readonly editFrameMs: number;
 
   constructor(opts: TelegramChannelOptions) {
     this.opts = opts;
     this.editFrameMs = opts.editFrameMs ?? 1000;
+    this.permissionResolver = new TelegramPermissionResolver();
   }
 
-  async start(): Promise<void> {
+  async start(startOpts: TelegramStartOpts): Promise<ChannelHandle> {
+    if (this.handle) return this.handle;
+    this.session = startOpts.session;
+    this.model = startOpts.model;
+
     const token = this.opts.token ?? (await this.opts.vault.get(TOKEN_KEY));
     if (!token) {
       throw new Error(
-        `Telegram bot token not found. Run \`moxxy telegram setup\` to obtain one, or set MOXXY_TELEGRAM_TOKEN.`,
+        `Telegram bot token not found. Store one via vault_set('${TOKEN_KEY}', ...) or set MOXXY_TELEGRAM_TOKEN.`,
       );
     }
     const authorizedRaw = await this.opts.vault.get(AUTHORIZED_CHAT_KEY);
-    const authorizedChatId = authorizedRaw ? Number(authorizedRaw) : null;
-    this.pairing = createPairingState({ authorizedChatId });
+    this.pairing = createPairingState({
+      authorizedChatId: authorizedRaw ? Number(authorizedRaw) : null,
+    });
 
     this.bot = new Bot(token);
-    this.opts.resolver.setDecider((call, ctx) => this.askForPermission(call, ctx));
+    this.permissionResolver.setDecider((call, ctx) => this.askForPermission(call, ctx));
 
-    this.bot.command('start', (ctx) => this.handleStart(ctx));
+    this.bot.command('start', (ctx) => this.handleStartCommand(ctx));
     this.bot.on('callback_query:data', (ctx) => this.handleCallback(ctx));
     this.bot.on('message:text', (ctx) => this.handleText(ctx));
     this.bot.catch((err) => {
@@ -73,13 +94,16 @@ export class TelegramChannel {
       paired: this.pairing.phase === 'paired',
     });
 
-    await this.bot.start({ drop_pending_updates: false });
-  }
-
-  async stop(): Promise<void> {
-    this.opts.resolver.abortAll('telegram channel stopping');
-    if (this.editTimer) clearTimeout(this.editTimer);
-    if (this.bot) await this.bot.stop();
+    const running = this.bot.start({ drop_pending_updates: false });
+    this.handle = {
+      running,
+      stop: async (reason = 'shutdown') => {
+        this.permissionResolver.abortAll(reason);
+        if (this.editTimer) clearTimeout(this.editTimer);
+        if (this.bot) await this.bot.stop();
+      },
+    };
+    return this.handle;
   }
 
   /** Begin a pairing window. Returns the 6-digit code to display in the host. */
@@ -97,7 +121,7 @@ export class TelegramChannel {
     this.pairing = clearPairing(this.pairing);
   }
 
-  private async handleStart(ctx: Context): Promise<void> {
+  private async handleStartCommand(ctx: Context): Promise<void> {
     const chatId = ctx.chat?.id;
     if (!chatId) return;
     const decision = handleStart(this.pairing, chatId);
@@ -136,7 +160,7 @@ export class TelegramChannel {
 
     if (!isAuthorized(this.pairing, chatId)) {
       await ctx.reply(
-        'This bot is paired with a different chat (or not paired yet). Run `moxxy telegram pair` on your terminal to (re-)pair.',
+        'This bot is paired with a different chat (or not paired yet). Run `moxxy telegram pair` to (re-)pair.',
       );
       return;
     }
@@ -150,6 +174,7 @@ export class TelegramChannel {
   }
 
   private async runUserTurn(ctx: Context, chatId: number, text: string): Promise<void> {
+    if (!this.session) throw new Error('TelegramChannel.start() must be called first');
     this.busy = true;
     this.renderer.reset();
     this.currentChatId = chatId;
@@ -157,19 +182,20 @@ export class TelegramChannel {
     this.currentMessageId = initial.message_id;
     this.lastSentFrame = '…';
 
-    const unsubscribe = this.opts.session.log.subscribe((event) => {
+    const unsubscribe = this.session.log.subscribe((event) => {
       const frame = this.renderer.accept(event);
       if (frame.hasUpdate) this.scheduleEdit();
     });
 
     try {
-      for await (const _event of runTurn(this.opts.session, text, this.opts.model ? { model: this.opts.model } : {})) {
+      for await (const _event of runTurn(this.session, text, this.model ? { model: this.model } : {})) {
         void _event;
       }
-      // Final flush
       await this.flushEdit(true);
     } catch (err) {
-      this.opts.logger?.warn('telegram turn failed', { err: err instanceof Error ? err.message : String(err) });
+      this.opts.logger?.warn('telegram turn failed', {
+        err: err instanceof Error ? err.message : String(err),
+      });
       try {
         await ctx.reply(`Turn failed: ${err instanceof Error ? err.message : String(err)}`);
       } catch {
@@ -204,13 +230,10 @@ export class TelegramChannel {
       }
       return;
     }
-
-    // If the frame exceeds 4000 chars after splitting, send tail as new messages
     const parts = splitForTelegram(frame);
     const head = parts[0]!;
     await this.safeEdit(this.currentChatId, this.currentMessageId, head);
     this.lastSentFrame = head;
-
     if (final && parts.length > 1) {
       for (const tail of parts.slice(1)) {
         try {
@@ -226,21 +249,20 @@ export class TelegramChannel {
     try {
       await this.bot!.api.editMessageText(chatId, messageId, text);
     } catch (err) {
-      // 400 message-not-modified is benign; log others
       if (err instanceof GrammyError && err.description?.includes('not modified')) return;
       this.opts.logger?.warn('editMessageText failed', { err: String(err) });
     }
   }
 
   private async askForPermission(call: PendingToolCall, ctx: PermissionContext): Promise<void> {
-    if (!this.bot || !this.currentChatId) return;
+    if (!this.bot || !this.currentChatId || !this.session) return;
     void ctx;
     const keyboard = new InlineKeyboard()
       .text('Allow once', `perm:${call.callId}:allow`)
       .text('Allow session', `perm:${call.callId}:allow_session`)
       .row()
       .text('Deny', `perm:${call.callId}:deny`);
-    const description = this.opts.session.tools.get(call.name)?.description ?? '';
+    const description = this.session.tools.get(call.name)?.description ?? '';
     const summary =
       `🔐 Tool permission requested\n` +
       `Tool: ${call.name}\n` +
@@ -250,8 +272,7 @@ export class TelegramChannel {
       await this.bot.api.sendMessage(this.currentChatId, summary, { reply_markup: keyboard });
     } catch (err) {
       this.opts.logger?.warn('permission send failed', { err: String(err) });
-      // Force deny if we can't show the prompt
-      this.opts.resolver.resolvePending(call.callId, { mode: 'deny', reason: 'unable to render prompt' });
+      this.permissionResolver.resolvePending(call.callId, { mode: 'deny', reason: 'unable to render prompt' });
     }
   }
 
@@ -262,9 +283,8 @@ export class TelegramChannel {
     if (parts.length !== 3) return;
     const [, callId, choice] = parts;
     if (!callId || !choice) return;
-
     const decision = mapChoice(choice);
-    const handled = this.opts.resolver.resolvePending(callId, decision);
+    const handled = this.permissionResolver.resolvePending(callId, decision);
     await ctx.answerCallbackQuery({ text: handled ? choice : 'no pending permission' });
     if (handled && ctx.callbackQuery?.message) {
       try {
@@ -285,6 +305,3 @@ function mapChoice(choice: string): import('@moxxy/sdk').PermissionDecision {
 function truncate(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n) + '…';
 }
-
-// Tests need silentLogger to be importable; not used here but keep for tree-shake noise.
-void silentLogger;

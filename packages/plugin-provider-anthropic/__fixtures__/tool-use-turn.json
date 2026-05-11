@@ -1,0 +1,42 @@
+{
+  "description": "A representative Anthropic Messages API stream for a single-tool-use turn. Captured shape mimics what the SDK emits for: model decides to call the `greet` tool with input {name: 'world'} and finishes with stop_reason: 'tool_use'. Used by the real-API smoke test to drive AnthropicProvider end-to-end without burning tokens.",
+  "request": {
+    "model": "claude-sonnet-4-6",
+    "max_tokens": 4096,
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "please greet world" }] }
+    ],
+    "tools": [
+      {
+        "name": "greet",
+        "description": "Returns a greeting for the given name.",
+        "input_schema": {
+          "type": "object",
+          "properties": { "name": { "type": "string" } },
+          "required": ["name"]
+        }
+      }
+    ]
+  },
+  "events": [
+    {
+      "type": "message_start",
+      "message": {
+        "id": "msg_01ABC",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-4-6",
+        "content": [],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": { "input_tokens": 56, "output_tokens": 1 }
+      }
+    },
+    { "type": "content_block_start", "index": 0, "content_block": { "type": "tool_use", "id": "toolu_01XYZ", "name": "greet", "input": {} } },
+    { "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": "{\"name\":" } },
+    { "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": " \"world\"}" } },
+    { "type": "content_block_stop", "index": 0 },
+    { "type": "message_delta", "delta": { "stop_reason": "tool_use", "stop_sequence": null }, "usage": { "output_tokens": 23 } },
+    { "type": "message_stop" }
+  ]
+}

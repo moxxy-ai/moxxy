@@ -91,6 +91,9 @@ export type {
   ResolvedPluginManifest,
 } from './plugin.js';
 
+export type { Channel, ChannelHandle, ChannelStartOptsBase } from './channel.js';
+export type { EmbeddingProvider } from './embedding.js';
+
 export interface PluginLoader {
   load(manifest: import('./plugin.js').ResolvedPluginManifest): Promise<import('./plugin.js').Plugin>;
 }

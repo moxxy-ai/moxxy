@@ -2,7 +2,9 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { z } from 'zod';
+import type { EmbeddingProvider } from '@moxxy/sdk';
 import { parseMdFile, renderFrontmatter } from './parse.js';
+import { TfIdfEmbedder, cosineSimilarity, tokenize } from './tfidf.js';
 
 export const memoryTypeSchema = z.enum(['fact', 'preference', 'project', 'reference']);
 export type MemoryType = z.infer<typeof memoryTypeSchema>;
@@ -24,8 +26,16 @@ export interface MemoryEntry {
   readonly path: string;
 }
 
+export type RecallMode = 'auto' | 'vector' | 'keyword';
+
 export interface MemoryStoreOptions {
   readonly dir?: string;
+  /**
+   * Optional embedding provider. When supplied, `recall()` uses cosine
+   * similarity over dense vectors. When omitted, the built-in TF-IDF
+   * embedder is used. Pass `embedder: null` to force keyword-only recall.
+   */
+  readonly embedder?: EmbeddingProvider | null;
 }
 
 export function defaultMemoryDir(): string {
@@ -34,8 +44,21 @@ export function defaultMemoryDir(): string {
 
 export class MemoryStore {
   readonly dir: string;
+  private readonly embedder: EmbeddingProvider | null;
+
   constructor(opts: MemoryStoreOptions = {}) {
     this.dir = opts.dir ?? defaultMemoryDir();
+    if (opts.embedder === null) {
+      this.embedder = null;
+    } else if (opts.embedder !== undefined) {
+      this.embedder = opts.embedder;
+    } else {
+      this.embedder = new TfIdfEmbedder();
+    }
+  }
+
+  get embedderName(): string {
+    return this.embedder?.name ?? 'keyword';
   }
 
   async list(filterType?: MemoryType): Promise<ReadonlyArray<MemoryEntry>> {
@@ -134,16 +157,49 @@ export class MemoryStore {
     }
   }
 
-  async recall(query: string, opts: { limit?: number; type?: MemoryType } = {}): Promise<ReadonlyArray<RankedMemory>> {
+  /**
+   * Search memories by a free-text query. Uses vector cosine similarity when
+   * an EmbeddingProvider is configured (the default is the built-in TF-IDF
+   * embedder); falls back to keyword scoring when `mode: 'keyword'` or when
+   * no embedder is wired.
+   */
+  async recall(
+    query: string,
+    opts: { limit?: number; type?: MemoryType; mode?: RecallMode } = {},
+  ): Promise<ReadonlyArray<RankedMemory>> {
     const limit = opts.limit ?? 5;
+    const mode = opts.mode ?? 'auto';
     const all = await this.list(opts.type);
-    const tokens = tokenize(query);
-    const ranked: RankedMemory[] = all
-      .map((entry) => ({ entry, score: scoreEntry(entry, tokens) }))
-      .filter((r) => r.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit);
-    return ranked;
+    if (all.length === 0) return [];
+
+    const useVector = mode === 'vector' || (mode === 'auto' && this.embedder !== null);
+    if (useVector && this.embedder) {
+      return this.recallVector(all, query, limit);
+    }
+    return rankByKeywords(all, query, limit);
+  }
+
+  private async recallVector(
+    all: ReadonlyArray<MemoryEntry>,
+    query: string,
+    limit: number,
+  ): Promise<ReadonlyArray<RankedMemory>> {
+    if (!this.embedder) return [];
+    // For TF-IDF specifically, the embedder needs to see the corpus to build
+    // its vocabulary. Other providers (e.g., neural) embed independently.
+    const corpus = all.map((e) => entryForEmbedding(e));
+    if (this.embedder instanceof TfIdfEmbedder) {
+      this.embedder.fit([...corpus, query]);
+    }
+    const vectors = await this.embedder.embed([...corpus, query]);
+    const queryVec = vectors[vectors.length - 1]!;
+    const ranked: RankedMemory[] = [];
+    for (let i = 0; i < all.length; i++) {
+      const score = cosineSimilarity(vectors[i]!, queryVec);
+      if (score > 0) ranked.push({ entry: all[i]!, score });
+    }
+    ranked.sort((a, b) => b.score - a.score);
+    return ranked.slice(0, limit);
   }
 
   private fileFor(name: string): string {
@@ -177,6 +233,28 @@ export interface RankedMemory {
   readonly score: number;
 }
 
+function entryForEmbedding(entry: MemoryEntry): string {
+  return [
+    entry.frontmatter.name,
+    entry.frontmatter.description,
+    (entry.frontmatter.tags ?? []).join(' '),
+    entry.body,
+  ].join('\n');
+}
+
+function rankByKeywords(
+  all: ReadonlyArray<MemoryEntry>,
+  query: string,
+  limit: number,
+): ReadonlyArray<RankedMemory> {
+  const tokens = tokenize(query);
+  return all
+    .map((entry) => ({ entry, score: scoreEntry(entry, tokens) }))
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
 function scoreEntry(entry: MemoryEntry, tokens: ReadonlyArray<string>): number {
   if (tokens.length === 0) return 1;
   const haystack = (
@@ -199,13 +277,6 @@ function scoreEntry(entry: MemoryEntry, tokens: ReadonlyArray<string>): number {
     }
   }
   return score;
-}
-
-function tokenize(s: string): string[] {
-  return s
-    .toLowerCase()
-    .split(/[^a-z0-9_-]+/)
-    .filter((t) => t.length >= 2);
 }
 
 async function safeRead(filePath: string): Promise<{ frontmatter: MemoryFrontmatter; body: string } | null> {

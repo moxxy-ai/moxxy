@@ -1,6 +1,6 @@
 import { setupSessionWithConfig } from '../setup.js';
 import type { ParsedArgv } from '../argv.js';
-import { TelegramChannel, TelegramPermissionResolver } from '@moxxy/plugin-telegram';
+import { TelegramChannel } from '@moxxy/plugin-telegram';
 import { createLogger } from '@moxxy/core';
 
 const TOKEN_ENV = 'MOXXY_TELEGRAM_TOKEN';
@@ -28,55 +28,65 @@ export async function runTelegramCommand(argv: ParsedArgv): Promise<number> {
 }
 
 async function runStart(argv: ParsedArgv, withPairing: boolean): Promise<number> {
-  const resolver = new TelegramPermissionResolver();
+  // Build the channel first so we can install its permission resolver before
+  // the session boots. Token comes from env or vault inside the channel.
+  const explicitToken = process.env[TOKEN_ENV];
 
+  // Need vault before constructing channel — set up session first, channel second.
+  // Provide a temporary deny resolver so setupSession doesn't fail; we swap to
+  // the channel's resolver via setActive after both exist.
   const { session, vault } = await setupSessionWithConfig({
     cwd: process.cwd(),
     verbose: Boolean(argv.flags.verbose),
-    resolver,
     model: argv.flags.model ? String(argv.flags.model) : undefined,
     configPath: argv.flags.config ? String(argv.flags.config) : undefined,
   });
 
-  const token = process.env[TOKEN_ENV] ?? (await vault.get('telegram_bot_token'));
-  if (!token) {
-    process.stderr.write(
-      'No Telegram bot token. Run `moxxy` (TUI), invoke the `telegram-setup` skill, ' +
-        'or store one via `vault_set` under the name `telegram_bot_token`.\n',
-    );
-    return 1;
-  }
-
   const channel = new TelegramChannel({
-    session,
     vault,
-    resolver,
-    token,
-    model: argv.flags.model ? String(argv.flags.model) : undefined,
+    token: explicitToken,
     logger: argv.flags.verbose ? createLogger({ minLevel: 'debug' }) : undefined,
   });
+
+  // Now that the channel exists, swap its resolver into the session.
+  (session as unknown as { resolver: typeof channel.permissionResolver }).resolver =
+    channel.permissionResolver;
 
   if (withPairing) {
     const code = channel.beginPairingWindow();
     process.stderr.write(`\n  Telegram pairing code:  ${code}\n`);
     process.stderr.write('  Send /start to your bot, then type this code in Telegram.\n');
     process.stderr.write('  (Window: 5 minutes)\n\n');
-  } else if (channel.pairingPhase() !== 'paired') {
+  }
+
+  let handle;
+  try {
+    handle = await channel.start({
+      session,
+      model: argv.flags.model ? String(argv.flags.model) : undefined,
+    });
+  } catch (err) {
+    process.stderr.write(`fatal: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 1;
+  }
+
+  if (!withPairing && channel.pairingPhase() !== 'paired') {
     process.stderr.write(
       'No chat is paired yet. Run `moxxy telegram pair` to start a pairing window first.\n',
     );
+    await handle.stop();
     return 1;
   }
 
   const shutdown = async (): Promise<void> => {
     process.stderr.write('\nstopping telegram channel...\n');
-    await channel.stop();
+    await handle.stop('SIGINT');
     process.exit(0);
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
-  await channel.start();
+  await handle.running;
   return 0;
 }
 

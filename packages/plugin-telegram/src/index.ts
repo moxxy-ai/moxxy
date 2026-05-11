@@ -1,7 +1,11 @@
 import { defineTool, definePlugin, z, type Plugin } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
 
-export { TelegramChannel, type TelegramChannelOptions } from './channel.js';
+export {
+  TelegramChannel,
+  type TelegramChannelOptions,
+  type TelegramStartOpts,
+} from './channel.js';
 export { TelegramPermissionResolver, type PendingPermission } from './permission.js';
 export {
   createPairingState,

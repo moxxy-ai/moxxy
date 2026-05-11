@@ -9,6 +9,7 @@ export {
   type InteractivePermissionResolverOptions,
   type PermissionPromptHandler,
 } from './resolver.js';
+export { TuiChannel, type TuiStartOpts } from './TuiChannel.js';
 
 /**
  * The plugin export is mostly metadata — the real surface of this package is

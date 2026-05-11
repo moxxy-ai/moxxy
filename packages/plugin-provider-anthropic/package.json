@@ -33,6 +33,8 @@
     "@moxxy/sdk": "workspace:*"
   },
   "devDependencies": {
+    "@moxxy/core": "workspace:*",
+    "@moxxy/loop-tool-use": "workspace:*",
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "@types/node": "^22.10.0",
