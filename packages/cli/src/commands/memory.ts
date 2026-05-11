@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { MemoryStore, defaultMemoryDir, type MemoryEntry, type MemoryType } from '@moxxy/plugin-memory';
 import type { ParsedArgv } from '../argv.js';
+import { colors } from '../colors.js';
 
 const HELP = `moxxy memory — view and curate long-term memory
 
@@ -40,16 +41,16 @@ export async function runMemoryCommand(argv: ParsedArgv): Promise<number> {
       const byType = groupByType(stats);
       const totalSize = stats.reduce((sum, s) => sum + s.size, 0);
       process.stdout.write(
-        `${entries.length} memories · ${formatSize(totalSize)} total\n`,
+        `${colors.bold(String(entries.length))} memories · ${colors.cyan(formatSize(totalSize))} total\n`,
       );
       for (const [type, items] of byType) {
-        process.stdout.write(`\n## ${type} (${items.length})\n`);
+        process.stdout.write(`\n${colors.bold(colors.magenta('## ' + type))} ${colors.dim(`(${items.length})`)}\n`);
         for (const item of items) {
           const tags = item.entry.frontmatter.tags?.length
-            ? `  [${item.entry.frontmatter.tags.join(', ')}]`
+            ? colors.dim(`  [${item.entry.frontmatter.tags.join(', ')}]`)
             : '';
           process.stdout.write(
-            `  ${item.entry.frontmatter.name.padEnd(36)} ${formatSize(item.size).padStart(8)}  updated ${formatRelative(item.updatedAt)}${tags}\n`,
+            `  ${item.entry.frontmatter.name.padEnd(36)} ${colors.cyan(formatSize(item.size).padStart(8))}  ${colors.dim('updated ' + formatRelative(item.updatedAt))}${tags}\n`,
           );
         }
       }

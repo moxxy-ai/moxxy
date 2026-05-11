@@ -1,6 +1,7 @@
 import { setupSessionWithConfig } from '../setup.js';
 import type { ParsedArgv } from '../argv.js';
 import { runChannelByName } from './run-channel.js';
+import { colors } from '../colors.js';
 
 /**
  * `moxxy channels` dispatcher.
@@ -91,12 +92,18 @@ async function runList(argv: ParsedArgv): Promise<number> {
   };
   const entries = await session.channels.listWithAvailability(deps);
   for (const { def, availability } of entries) {
-    const status = availability.ok ? 'ok' : `unavailable: ${availability.reason ?? ''}`;
-    const configured = config.channels?.[def.name] ? ' [configured]' : '';
-    process.stdout.write(`${def.name}\t[${status}]${configured}\t${def.description}\n`);
+    const status = availability.ok
+      ? colors.green('available')
+      : colors.yellow(`unavailable: ${availability.reason ?? ''}`);
+    const configured = config.channels?.[def.name] ? colors.cyan(' [configured]') : '';
+    process.stdout.write(
+      `${colors.bold(def.name)}\t${status}${configured}\t${colors.dim(def.description)}\n`,
+    );
     if (def.subcommands) {
       for (const [subName, sc] of Object.entries(def.subcommands)) {
-        process.stdout.write(`  ${def.name} ${subName}\t${sc.description}\n`);
+        process.stdout.write(
+          `  ${colors.gray(`${def.name} ${subName}`)}\t${colors.dim(sc.description)}\n`,
+        );
       }
     }
   }

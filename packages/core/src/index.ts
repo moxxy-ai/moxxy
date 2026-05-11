@@ -39,6 +39,7 @@ export { ChannelRegistryImpl } from './registries/channels.js';
 export { PluginHost, type PluginLoader, type PluginRegistrationEvent } from './plugins/host.js';
 export { HookDispatcherImpl } from './plugins/lifecycle.js';
 export { discoverPlugins } from './plugins/discovery.js';
+export { createPluginLoader, type JitiLoaderOptions } from './plugins/loader.js';
 export {
   PermissionEngine,
   permissionPolicySchema,

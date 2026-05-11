@@ -6,9 +6,11 @@ import {
   createAllowListResolver,
   createCallbackResolver,
   createLogger,
+  createPluginLoader,
   defaultProjectSkillsDir,
   defaultUserSkillsDir,
   denyByDefaultResolver,
+  discoverPlugins,
   discoverSkills,
   PermissionEngine,
   silentLogger,
@@ -51,6 +53,13 @@ export interface SetupOptions {
   readonly disableKeytar?: boolean;
   /** Skip the interactive API-key prompt when no key is found. Useful for headless tooling that wants a hard error instead of a hang. */
   readonly skipKeyPrompt?: boolean;
+  /**
+   * If true, treat "no provider key resolvable" as a warning, not a fatal
+   * error: setup completes and returns the session with no active provider.
+   * Useful for diagnostic commands (`moxxy doctor`, `moxxy plugins list`)
+   * that want to inspect everything else even when the user hasn't run init.
+   */
+  readonly tolerateNoProvider?: boolean;
 }
 
 export interface SetupResult {
@@ -95,6 +104,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     permissionEngine,
     permissionResolver: opts.resolver ?? denyByDefaultResolver,
     hookTimeoutMs: config.hookTimeoutMs,
+    pluginLoader: createPluginLoader({ cwd: opts.cwd }),
   });
 
   // Build the builtin list first WITHOUT the config plugin so we can pass the
@@ -129,12 +139,51 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     },
   ];
 
+  const registered = new Set<string>();
   for (const { name, plugin } of builtins) {
     if (config.plugins?.[name]?.enabled === false) {
       logger.info('skipping disabled plugin', { plugin: name });
       continue;
     }
     session.pluginHost.registerStatic(plugin);
+    registered.add(plugin.name);
+  }
+
+  // Auto-discover any installed @moxxy/plugin-* (or user-authored) packages
+  // that declare a `moxxy.plugin` manifest in their package.json. Skips
+  // anything we already registered statically above; respects
+  // config.plugins[pkgName].enabled. Failures are logged, not fatal.
+  const loader = createPluginLoader({ cwd: opts.cwd });
+  const userPluginsDir = path.join(os.homedir(), '.moxxy', 'plugins');
+  try {
+    const manifests = await discoverPlugins({
+      cwd: opts.cwd,
+      logger,
+      extraPaths: [userPluginsDir],
+    });
+    for (const manifest of manifests) {
+      if (registered.has(manifest.packageName)) continue;
+      if (config.plugins?.[manifest.packageName]?.enabled === false) {
+        logger.info('skipping disabled plugin', { plugin: manifest.packageName });
+        continue;
+      }
+      try {
+        const plugin = await loader.load(manifest);
+        if (registered.has(plugin.name)) continue;
+        session.pluginHost.registerStatic(plugin);
+        registered.add(plugin.name);
+        logger.info('auto-loaded plugin', { plugin: plugin.name, from: manifest.packagePath });
+      } catch (err) {
+        logger.warn('auto-discovery: failed to load plugin', {
+          package: manifest.packageName,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  } catch (err) {
+    logger.warn('auto-discovery: scan failed', {
+      err: err instanceof Error ? err.message : String(err),
+    });
   }
 
   const primaryProvider = config.provider?.name ?? 'anthropic';
@@ -165,15 +214,23 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     }
   }
   if (!activated) {
-    throw new Error(
-      `No working provider key. Tried: ${candidates.join(', ')}. ` +
-        `Run \`moxxy init\` in an interactive terminal, set env vars, or store ` +
-        `keys in the vault. Last error: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`,
-    );
-  }
-  session.providers.setActive(activated.name, activated.cfg);
-  if (activated.name !== primaryProvider) {
-    logger.warn('using fallback provider', { primary: primaryProvider, active: activated.name });
+    if (opts.tolerateNoProvider) {
+      logger.warn('no provider key resolvable; continuing without an active provider', {
+        tried: candidates,
+        err: lastErr instanceof Error ? lastErr.message : String(lastErr),
+      });
+    } else {
+      throw new Error(
+        `No working provider key. Tried: ${candidates.join(', ')}. ` +
+          `Run \`moxxy init\` in an interactive terminal, set env vars, or store ` +
+          `keys in the vault. Last error: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`,
+      );
+    }
+  } else {
+    session.providers.setActive(activated.name, activated.cfg);
+    if (activated.name !== primaryProvider) {
+      logger.warn('using fallback provider', { primary: primaryProvider, active: activated.name });
+    }
   }
 
   if (config.loop) {

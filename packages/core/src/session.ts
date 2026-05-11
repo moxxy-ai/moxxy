@@ -2,7 +2,7 @@ import type { AppContext, LifecycleHooks, MoxxyEvent, SessionId } from '@moxxy/s
 import { newSessionId, newTurnId } from './events/factory.js';
 import { EventLog } from './events/log.js';
 import { HookDispatcherImpl } from './plugins/lifecycle.js';
-import { PluginHost } from './plugins/host.js';
+import { PluginHost, type PluginLoader } from './plugins/host.js';
 import { ProviderRegistry } from './registries/providers.js';
 import { LoopRegistry } from './registries/loops.js';
 import { CompactorRegistry } from './registries/compactors.js';
@@ -22,6 +22,12 @@ export interface SessionOptions {
   readonly permissionResolver?: PermissionResolver;
   readonly hookTimeoutMs?: number;
   readonly silent?: boolean;
+  /**
+   * Optional plugin loader. When provided, `session.pluginHost.discoverAndLoad()`
+   * can dynamic-import discovered plugins; without one, only static plugins
+   * registered via `registerStatic()` are wired up.
+   */
+  readonly pluginLoader?: PluginLoader;
 }
 
 export class Session {
@@ -67,6 +73,7 @@ export class Session {
       compactors: this.compactors,
       channels: this.channels,
       dispatcher: this.dispatcher,
+      loader: opts.pluginLoader,
     });
   }
 

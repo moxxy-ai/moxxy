@@ -9,7 +9,10 @@ import { runChannelByName } from './commands/run-channel.js';
 import { runInitCommand } from './commands/init.js';
 import { runPermsCommand } from './commands/perms.js';
 import { runMemoryCommand } from './commands/memory.js';
+import { runDoctorCommand } from './commands/doctor.js';
 import { setupSessionWithConfig } from './setup.js';
+import { renderLogo } from './logo.js';
+import { colors } from './colors.js';
 
 const KNOWN_COMMANDS = new Set([
   'help',
@@ -22,11 +25,10 @@ const KNOWN_COMMANDS = new Set([
   'init',
   'perms',
   'memory',
+  'doctor',
 ]);
 
-const HELP = `moxxy — block-based agentic loop
-
-usage:
+const HELP = `usage:
   moxxy init                         interactive first-time setup (provider keys → vault)
   moxxy                              start interactive TUI (default channel)
   moxxy tui                          start the Ink TUI channel
@@ -44,6 +46,7 @@ usage:
   moxxy plugins list|reload          manage plugin host
   moxxy perms list|allow|deny|remove|clear|path  view/edit the permission policy
   moxxy memory list|audit|show|revert|prune-stale|path  curate long-term memory
+  moxxy doctor [--check-keys]        diagnose config, vault, providers, channels, memory
   moxxy --help                       this help
   moxxy --version                    print version
 
@@ -63,10 +66,10 @@ async function main(): Promise<number> {
 
   switch (argv.command) {
     case 'help':
-      process.stdout.write(HELP);
+      process.stdout.write(renderLogo() + HELP);
       return 0;
     case 'version':
-      process.stdout.write('moxxy 0.0.0\n');
+      process.stdout.write(renderLogo() + 'moxxy 0.0.0\n');
       return 0;
     case 'init':
       return await runInitCommand(argv);
@@ -74,6 +77,8 @@ async function main(): Promise<number> {
       return await runPermsCommand(argv);
     case 'memory':
       return await runMemoryCommand(argv);
+    case 'doctor':
+      return await runDoctorCommand(argv);
     case 'prompt':
       return await runPromptCommand(argv);
     case 'tui':
@@ -101,7 +106,9 @@ async function main(): Promise<number> {
           // Provider key missing etc. — fall through to "unknown command".
         }
       }
-      process.stderr.write(`unknown command: ${argv.command}\n${HELP}`);
+      process.stderr.write(
+        colors.red(`unknown command: ${argv.command}`) + '\n' + HELP,
+      );
       return 2;
   }
 }
@@ -109,7 +116,9 @@ async function main(): Promise<number> {
 main().then(
   (code) => process.exit(code),
   (err) => {
-    process.stderr.write(`fatal: ${err instanceof Error ? err.message : String(err)}\n`);
+    process.stderr.write(
+      colors.red('fatal: ') + (err instanceof Error ? err.message : String(err)) + '\n',
+    );
     process.exit(1);
   },
 );
