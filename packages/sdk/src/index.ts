@@ -97,6 +97,7 @@ export type {
   ChannelStartOptsBase,
   ChannelFactoryDeps,
   ChannelDef,
+  ChannelAvailability,
   ChannelRegistry,
 } from './channel.js';
 export type { EmbeddingProvider } from './embedding.js';

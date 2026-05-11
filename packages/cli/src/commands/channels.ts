@@ -4,9 +4,18 @@ import type { ParsedArgv } from '../argv.js';
 export async function runChannelsCommand(argv: ParsedArgv): Promise<number> {
   const sub = argv.positional[0] ?? 'list';
   if (sub === 'list') {
-    const { session } = await setupSessionWithConfig({ cwd: process.cwd() });
-    for (const def of session.channels.list()) {
-      process.stdout.write(`${def.name}\t${def.description}\n`);
+    const { session, vault, config } = await setupSessionWithConfig({ cwd: process.cwd() });
+    const deps = {
+      cwd: process.cwd(),
+      vault,
+      logger: session.logger,
+      options: {},
+    };
+    const entries = await session.channels.listWithAvailability(deps);
+    for (const { def, availability } of entries) {
+      const status = availability.ok ? 'ok' : `unavailable: ${availability.reason ?? ''}`;
+      const configured = config.channels?.[def.name] ? ' [configured]' : '';
+      process.stdout.write(`${def.name}\t[${status}]${configured}\t${def.description}\n`);
     }
     return 0;
   }

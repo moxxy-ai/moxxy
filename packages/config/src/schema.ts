@@ -51,6 +51,7 @@ export const moxxyConfigSchema = z.object({
     })
     .optional(),
   plugins: z.record(z.string(), pluginSettingsSchema).optional(),
+  channels: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
   permissions: permissionsConfigSchema.optional(),
   env: z.record(z.string(), z.string()).optional(),
 });

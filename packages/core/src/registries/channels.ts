@@ -1,4 +1,9 @@
-import type { ChannelDef, ChannelRegistry } from '@moxxy/sdk';
+import type {
+  ChannelAvailability,
+  ChannelDef,
+  ChannelFactoryDeps,
+  ChannelRegistry,
+} from '@moxxy/sdk';
 
 export class ChannelRegistryImpl implements ChannelRegistry {
   private readonly defs = new Map<string, ChannelDef>();
@@ -24,5 +29,28 @@ export class ChannelRegistryImpl implements ChannelRegistry {
 
   has(name: string): boolean {
     return this.defs.has(name);
+  }
+
+  async listWithAvailability(
+    deps: ChannelFactoryDeps,
+  ): Promise<ReadonlyArray<{ def: ChannelDef; availability: ChannelAvailability }>> {
+    const out: Array<{ def: ChannelDef; availability: ChannelAvailability }> = [];
+    for (const def of this.defs.values()) {
+      let availability: ChannelAvailability;
+      if (def.isAvailable) {
+        try {
+          availability = await def.isAvailable(deps);
+        } catch (err) {
+          availability = {
+            ok: false,
+            reason: err instanceof Error ? err.message : String(err),
+          };
+        }
+      } else {
+        availability = { ok: true };
+      }
+      out.push({ def, availability });
+    }
+    return out;
   }
 }

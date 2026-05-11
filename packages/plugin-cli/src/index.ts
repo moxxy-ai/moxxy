@@ -16,6 +16,12 @@ export const tuiChannelDef = defineChannel({
   name: 'tui',
   description: 'Interactive terminal UI via Ink. Default `moxxy` command.',
   create: () => new TuiChannel(),
+  isAvailable: async () => {
+    if (!process.stdin.isTTY) {
+      return { ok: false, reason: 'stdin is not a TTY — use `moxxy -p` for headless prompts' };
+    }
+    return { ok: true };
+  },
 });
 
 export const cliPlugin: Plugin = definePlugin({

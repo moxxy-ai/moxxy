@@ -42,6 +42,27 @@ export function buildTelegramPlugin(opts: BuildTelegramPluginOptions): Plugin {
             token: (deps.options?.['token'] as string | undefined) ?? undefined,
             logger: deps.logger as never,
           }),
+        isAvailable: async () => {
+          const envToken = process.env.MOXXY_TELEGRAM_TOKEN;
+          if (envToken) return { ok: true };
+          try {
+            const stored = await opts.vault.has(TOKEN_KEY);
+            if (stored) return { ok: true };
+            return {
+              ok: false,
+              reason:
+                "No bot token. Set MOXXY_TELEGRAM_TOKEN, or store one in the vault as '" +
+                TOKEN_KEY +
+                "' via the `telegram-setup` skill.",
+            };
+          } catch {
+            return {
+              ok: false,
+              reason:
+                'Set MOXXY_TELEGRAM_TOKEN to skip the vault, or unlock the vault first.',
+            };
+          }
+        },
       }),
     ],
     tools: [

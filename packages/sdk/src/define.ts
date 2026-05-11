@@ -1,4 +1,4 @@
-import type { Channel, ChannelDef, ChannelFactoryDeps } from './channel.js';
+import type { Channel, ChannelAvailability, ChannelDef, ChannelFactoryDeps } from './channel.js';
 import type { CompactorDef } from './compactor.js';
 import type { LoopStrategyDef } from './loop.js';
 import type { PermissionRule } from './permission.js';
@@ -52,6 +52,7 @@ export function defineChannel<TStartOpts = unknown>(spec: {
   name: string;
   description: string;
   create: (deps: ChannelFactoryDeps) => Channel<TStartOpts>;
+  isAvailable?: (deps: ChannelFactoryDeps) => Promise<ChannelAvailability>;
 }): ChannelDef<TStartOpts> {
   return Object.freeze(spec);
 }

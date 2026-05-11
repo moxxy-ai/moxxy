@@ -12,7 +12,7 @@ import type { ParsedArgv } from '../argv.js';
  * code path for `moxxy <channel-name>` when no specialized subcommand exists.
  */
 export async function runChannelByName(name: string, argv: ParsedArgv): Promise<number> {
-  const { session, vault } = await setupSessionWithConfig({
+  const { session, vault, config } = await setupSessionWithConfig({
     cwd: process.cwd(),
     verbose: Boolean(argv.flags.verbose),
     model: argv.flags.model ? String(argv.flags.model) : undefined,
@@ -28,11 +28,13 @@ export async function runChannelByName(name: string, argv: ParsedArgv): Promise<
     return 2;
   }
 
+  // Merge sources, lowest → highest precedence: moxxy.config.ts → CLI flags.
+  const configOpts = (config.channels?.[name] ?? {}) as Record<string, unknown>;
   const channel = def.create({
     cwd: process.cwd(),
     vault,
     logger: session.logger,
-    options: { ...argv.flags },
+    options: { ...configOpts, ...argv.flags },
   });
 
   (session as unknown as { resolver: typeof channel.permissionResolver }).resolver =

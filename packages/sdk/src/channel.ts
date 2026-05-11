@@ -73,6 +73,21 @@ export interface ChannelDef<TStartOpts = unknown> {
   readonly name: string;
   readonly description: string;
   create(deps: ChannelFactoryDeps): Channel<TStartOpts>;
+  /**
+   * Optional runtime gate. Lets a channel declare "I can only run if these
+   * preconditions are met" (e.g., Telegram needs a token in the vault; TUI
+   * needs a TTY). The dispatcher uses this to filter the visible channel list
+   * and to give the user a helpful error before construction.
+   *
+   * Default: always available.
+   */
+  isAvailable?(deps: ChannelFactoryDeps): Promise<ChannelAvailability>;
+}
+
+export interface ChannelAvailability {
+  readonly ok: boolean;
+  /** Human-readable explanation when ok=false. Shown by `moxxy channels list`. */
+  readonly reason?: string;
 }
 
 /**
@@ -83,4 +98,12 @@ export interface ChannelRegistry {
   list(): ReadonlyArray<ChannelDef>;
   get(name: string): ChannelDef | undefined;
   has(name: string): boolean;
+  /**
+   * Returns every channel paired with its current availability. Channels
+   * without an `isAvailable` hook are treated as `{ok: true}`.
+   */
+  listWithAvailability(deps: ChannelFactoryDeps): Promise<ReadonlyArray<{
+    readonly def: ChannelDef;
+    readonly availability: ChannelAvailability;
+  }>>;
 }
