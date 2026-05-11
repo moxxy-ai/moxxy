@@ -1,0 +1,30 @@
+{
+  "name": "example-basic",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Smallest possible moxxy SDK consumer: one Session, one turn, deterministic via FakeProvider.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "start": "node ./dist/index.js",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@moxxy/core": "workspace:*",
+    "@moxxy/loop-tool-use": "workspace:*",
+    "@moxxy/sdk": "workspace:*",
+    "@moxxy/testing": "workspace:*",
+    "@moxxy/tools-builtin": "workspace:*",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

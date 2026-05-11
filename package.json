@@ -14,11 +14,13 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "test:watch": "turbo run test:watch --concurrency=1",
+    "check:deps": "depcruise --config .dependency-cruiser.cjs packages",
     "clean": "turbo run clean && rm -rf node_modules .turbo"
   },
   "devDependencies": {
     "@moxxy/config": "workspace:*",
     "@types/node": "^22.10.0",
+    "dependency-cruiser": "^16.0.0",
     "eslint": "^9.18.0",
     "tsx": "^4.19.2",
     "turbo": "^2.5.0",
