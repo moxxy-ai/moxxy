@@ -1,21 +1,38 @@
 import type { Session } from '@moxxy/core';
+import type { Plugin } from '@moxxy/sdk';
 import type { ConfigApplier, ConfigApplyResult, MoxxyConfig } from '@moxxy/config';
+
+export interface BuiltinPluginEntry {
+  readonly name: string;
+  readonly plugin: Plugin;
+}
 
 /**
  * Build a ConfigApplier closed over a live Session. The applier diffs the new
  * config snapshot against its own cached "last applied" config and reflects
- * the safe subset onto the session immediately. Unsafe changes are reported
- * in `pending` so the agent (or user) knows a restart is needed.
+ * changes onto the session immediately where it can.
  *
- * Safe (live): loop, compactor, model defaults (read per-turn anyway).
- * Pending (next boot): provider switch / apiKey, plugin enable/disable,
- *   channels.*, embeddings.*, skills paths, permissions.
+ * Live (applied):
+ *   loop, compactor, plugins[X].enabled (toggle register/unload).
+ * Pending (next boot):
+ *   provider.* (key rotation needs vault unlock + setActive)
+ *   embeddings.* (memory plugin is built once)
+ *   channels.*  (applies on next `moxxy <channel>` invocation)
+ *   skills.*    (restart to rediscover)
+ *   permissions.* (restart to reload policy)
+ *
+ * For plugin hot-toggling, the applier needs the original `{name, plugin}`
+ * map that setupSession used so it can re-register a previously-disabled
+ * plugin. Pass it in via the third arg.
  */
 export function buildSessionConfigApplier(
   session: Session,
   initial: MoxxyConfig,
+  builtins: ReadonlyArray<BuiltinPluginEntry> = [],
 ): ConfigApplier {
   let last: MoxxyConfig = initial;
+  const builtinsByName = new Map(builtins.map((b) => [b.name, b.plugin] as const));
+
   return async (next): Promise<ConfigApplyResult> => {
     const applied: string[] = [];
     const pending: string[] = [];
@@ -39,17 +56,17 @@ export function buildSessionConfigApplier(
     }
 
     if (next.hookTimeoutMs !== last.hookTimeoutMs) {
-      // The dispatcher reads timeout per call, but the cached value is set at
-      // construction. For v0, report as pending.
+      // The dispatcher reads its timeout at construction. v0: pending.
       pending.push('hookTimeoutMs (restart required)');
     }
 
-    // Provider changes can't be applied safely without re-resolving keys.
-    if (providerChanged(last, next)) pending.push('provider.* (restart required)');
+    if (providerChanged(last, next)) {
+      pending.push('provider.* (restart required)');
+    }
 
-    // Plugin enable/disable would require dynamic register/unregister of every
-    // contribution. v0: pending.
-    if (pluginsChanged(last, next)) pending.push('plugins.*.enabled (restart required)');
+    // Plugin enable/disable: actually apply now.
+    const togglesApplied = await applyPluginToggles(session, builtinsByName, last, next);
+    for (const t of togglesApplied) applied.push(`plugins[${t.name}].enabled=${t.enabled}`);
 
     if (!shallowEqual(last.embeddings, next.embeddings)) {
       pending.push('embeddings.* (restart required to rebuild memory embedder)');
@@ -69,21 +86,74 @@ export function buildSessionConfigApplier(
   };
 }
 
+interface PluginToggle {
+  readonly name: string;
+  readonly enabled: boolean;
+}
+
+/**
+ * Walk every plugin in the union of (builtins, old config, new config) and
+ * compare the resulting effective-enabled state. Apply the deltas via the
+ * plugin host. Returns the set of toggles that were actually applied (success
+ * cases only).
+ */
+async function applyPluginToggles(
+  session: Session,
+  builtinsByName: Map<string, Plugin>,
+  last: MoxxyConfig,
+  next: MoxxyConfig,
+): Promise<PluginToggle[]> {
+  const allNames = new Set<string>([
+    ...builtinsByName.keys(),
+    ...Object.keys(last.plugins ?? {}),
+    ...Object.keys(next.plugins ?? {}),
+  ]);
+  const result: PluginToggle[] = [];
+
+  const loaded = new Set(session.pluginHost.list().map((p) => p.name));
+
+  for (const name of allNames) {
+    const wasEnabled = effectiveEnabled(last, name);
+    const nowEnabled = effectiveEnabled(next, name);
+    if (wasEnabled === nowEnabled) continue;
+
+    if (nowEnabled) {
+      // Re-register
+      const plugin = builtinsByName.get(name);
+      if (!plugin) continue; // can't re-register a plugin we don't have a handle for
+      if (loaded.has(name)) continue; // already registered
+      try {
+        session.pluginHost.registerStatic(plugin);
+        result.push({ name, enabled: true });
+      } catch {
+        // Swallow — duplicate or other error; the next boot will reconcile.
+      }
+    } else {
+      // Unload
+      if (!loaded.has(name)) continue;
+      try {
+        await session.pluginHost.unload(name);
+        result.push({ name, enabled: false });
+      } catch {
+        // Swallow
+      }
+    }
+  }
+
+  return result;
+}
+
+function effectiveEnabled(cfg: MoxxyConfig, name: string): boolean {
+  const entry = cfg.plugins?.[name];
+  if (!entry) return true; // default: enabled when not mentioned
+  return entry.enabled !== false;
+}
+
 function providerChanged(a: MoxxyConfig, b: MoxxyConfig): boolean {
   if (a.provider?.name !== b.provider?.name) return true;
   if (a.provider?.model !== b.provider?.model) return true;
   if (!shallowEqual(a.provider?.config, b.provider?.config)) return true;
   if (!arraysEqual(a.provider?.fallbacks, b.provider?.fallbacks)) return true;
-  return false;
-}
-
-function pluginsChanged(a: MoxxyConfig, b: MoxxyConfig): boolean {
-  const aKeys = Object.keys(a.plugins ?? {});
-  const bKeys = Object.keys(b.plugins ?? {});
-  if (aKeys.length !== bKeys.length) return true;
-  for (const k of aKeys) {
-    if (a.plugins?.[k]?.enabled !== b.plugins?.[k]?.enabled) return true;
-  }
   return false;
 }
 

@@ -4,6 +4,7 @@ import { anthropicModels } from '@moxxy/plugin-provider-anthropic';
 import { openAIModels } from '@moxxy/plugin-provider-openai';
 import { setupSessionWithConfig } from '../setup.js';
 import { PROVIDER_KEYS } from '../provider-keys.js';
+import { validateProviderKey } from '../validate-key.js';
 import type { ParsedArgv } from '../argv.js';
 
 /**
@@ -67,6 +68,12 @@ export async function runInitCommand(_argv: ParsedArgv): Promise<number> {
       await fs.mkdir(path.dirname(target), { recursive: true });
       await fs.writeFile(target, yaml);
       return target;
+    },
+    async testKey(
+      providerId: string,
+      key: string,
+    ): Promise<{ ok: true } | { ok: false; message: string }> {
+      return await validateProviderKey(providerId, key);
     },
   };
 

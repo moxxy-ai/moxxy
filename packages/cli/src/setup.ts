@@ -97,7 +97,9 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     hookTimeoutMs: config.hookTimeoutMs,
   });
 
-  const builtins: Array<{ name: string; plugin: Plugin }> = [
+  // Build the builtin list first WITHOUT the config plugin so we can pass the
+  // whole list to the ConfigApplier (used for hot-toggle of plugin enable/disable).
+  const builtinsCore: Array<{ name: string; plugin: Plugin }> = [
     { name: '@moxxy/plugin-provider-anthropic', plugin: anthropicPlugin },
     { name: '@moxxy/plugin-provider-openai', plugin: openaiPlugin },
     { name: '@moxxy/tools-builtin', plugin: builtinToolsPlugin },
@@ -110,17 +112,21 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
       name: '@moxxy/memory-consolidate',
       plugin: buildMemoryConsolidatePlugin(memory, () => session.providers.getActive()),
     },
-    {
-      name: '@moxxy/plugin-config',
-      plugin: buildConfigPlugin({
-        cwd: opts.cwd,
-        applier: buildSessionConfigApplier(session, config),
-      }),
-    },
     { name: '@moxxy/plugin-cli', plugin: cliPlugin },
     { name: '@moxxy/plugin-channel-http', plugin: httpChannelPlugin },
     { name: '@moxxy/plugin-telegram', plugin: buildTelegramPlugin({ vault }) },
     { name: '@moxxy/synthesize-skill', plugin: buildSynthesizeSkillPlugin(session) },
+  ];
+
+  const builtins: Array<{ name: string; plugin: Plugin }> = [
+    ...builtinsCore,
+    {
+      name: '@moxxy/plugin-config',
+      plugin: buildConfigPlugin({
+        cwd: opts.cwd,
+        applier: buildSessionConfigApplier(session, config, builtinsCore),
+      }),
+    },
   ];
 
   for (const { name, plugin } of builtins) {

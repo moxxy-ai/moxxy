@@ -235,6 +235,9 @@ importers:
         specifier: ^18.3.0
         version: 18.3.1
     devDependencies:
+      '@anthropic-ai/sdk':
+        specifier: ^0.40.0
+        version: 0.40.1
       '@moxxy/tsconfig':
         specifier: workspace:*
         version: link:../../tooling/tsconfig
@@ -247,6 +250,9 @@ importers:
       '@types/react':
         specifier: ^18.3.0
         version: 18.3.28
+      openai:
+        specifier: ^4.80.0
+        version: 4.104.0(ws@8.20.0)(zod@3.25.76)
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -473,6 +479,9 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.18)
+      yaml:
+        specifier: ^2.6.0
+        version: 2.9.0
 
   packages/plugin-embeddings-openai:
     dependencies:
