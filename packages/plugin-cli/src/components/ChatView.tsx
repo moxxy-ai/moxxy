@@ -38,17 +38,13 @@ export const ChatView: React.FC<ChatViewProps> = ({ events, streamingDelta }) =>
  * to its marker. Mirrors the Claude Code convention (white = assistant).
  */
 const AssistantBlock: React.FC<{ content: string }> = ({ content }) => (
-  // Only top margin — every block owns its own top spacing so adjacent
-  // blocks don't compound into double-blank-line gaps.
-  //
-  // `marginRight={1}` on the bullet column guarantees a visual gap to
-  // the markdown column even when the terminal font renders ● wider
-  // than its declared cell width. Without it, some terminals (esp. ones
-  // with monospaced-but-not-fixed glyph widths) collapse the bullet
-  // into the first text character — "stuck to the dot".
+  // Bullet column + markdown column. The bullet glyph `▌` is a half-block
+  // that sits on the text baseline in every monospace font I've tested,
+  // unlike `●` (BLACK CIRCLE) which renders above the baseline on most
+  // terminal fonts and looked vertically off next to body text.
   <Box flexDirection="row" marginTop={1}>
     <Box flexDirection="column" marginRight={1}>
-      <Text color="white">●</Text>
+      <Text color="white">▌</Text>
     </Box>
     <Box flexDirection="column" flexGrow={1}>
       <Markdown content={content} firstBlockTight />
