@@ -102,18 +102,31 @@ export const PromptInput: React.FC<PromptInputProps> = ({
       if (trimmed) onSubmit(trimmed);
       return;
     }
-    if (key.backspace) {
-      // Delete the char to the LEFT of the cursor.
+    // Backspace handling. Different terminals report differently:
+    //   - Ink usually sets `key.backspace=true` (sequence \x7f or \x08).
+    //   - Some terminals deliver the byte alone via `input` without
+    //     setting the flag, especially when Ctrl+H is bound to backspace.
+    // Treat all three as backspace so the user isn't left with a dead key.
+    const isBackspace =
+      key.backspace ||
+      input === '\x7f' ||
+      input === '\x08' ||
+      (key.ctrl && input === 'h');
+    if (isBackspace) {
       if (cursor === 0) return;
-      setBuffer((b) => b.slice(0, cursor - 1) + b.slice(cursor));
-      setCursor((c) => c - 1);
+      const pos = cursor;
+      setBuffer((b) => b.slice(0, pos - 1) + b.slice(pos));
+      setCursor((c) => Math.max(0, c - 1));
       setSlashCursor(0);
       return;
     }
-    if (key.delete) {
-      // Forward-delete: char to the RIGHT of the cursor.
+    // Forward-delete (Fn+Delete on macOS, Delete on PC layouts). Same
+    // dual-channel reporting as backspace.
+    const isForwardDelete = key.delete || input === '\x1b[3~';
+    if (isForwardDelete) {
       if (cursor >= buffer.length) return;
-      setBuffer((b) => b.slice(0, cursor) + b.slice(cursor + 1));
+      const pos = cursor;
+      setBuffer((b) => b.slice(0, pos) + b.slice(pos + 1));
       setSlashCursor(0);
       return;
     }
