@@ -86,8 +86,23 @@ async function* runPlanExecuteLoop(ctx: LoopContext): AsyncIterable<MoxxyEvent> 
     return;
   }
 
-  // Phase 2: execute each step
+  // Phase 2: execute each step. Two caps:
+  //   - per-step iteration cap (model can call tools up to N times for one step)
+  //   - turn-wide cap on total steps × iterations so a runaway plan can't
+  //     burn through hundreds of tool calls. Esc still cancels mid-loop.
   const maxIterationsPerStep = ctx.maxIterations ?? 6;
+  const MAX_PLAN_STEPS = 12;
+  if (steps.length > MAX_PLAN_STEPS) {
+    yield await ctx.emit({
+      type: 'error',
+      sessionId: ctx.sessionId,
+      turnId: ctx.turnId,
+      source: 'system',
+      kind: 'fatal',
+      message: `plan-execute: refusing a ${steps.length}-step plan (cap is ${MAX_PLAN_STEPS}). Rephrase as a smaller scope or switch to the tool-use loop.`,
+    });
+    return;
+  }
 
   for (let i = 0; i < steps.length; i++) {
     if (ctx.signal.aborted) {
@@ -262,19 +277,14 @@ async function executeStep(
       model: ctx.model,
     });
 
-    for (const t of toolUses) {
-      await ctx.emit({
-        type: 'tool_call_requested',
-        sessionId: ctx.sessionId,
-        turnId: ctx.turnId,
-        source: 'model',
-        callId: asToolCallId(t.id),
-        name: t.name,
-        input: t.input,
-      });
-    }
-
-    if (text || stopReason === 'end_turn' || toolUses.length === 0) {
+    // Surface any spoken text from the model. Note: we do NOT emit
+    // tool_call_requested here yet — emitting before we know we'll
+    // actually execute leaves orphan requests in the log if the model
+    // signaled end_turn alongside the tool_use. The next step's
+    // projection then sees pending tool calls with no results and the
+    // model tends to re-request them, which is exactly the infinite-loop
+    // shape the user hit.
+    if (text) {
       await ctx.emit({
         type: 'assistant_message',
         sessionId: ctx.sessionId,
@@ -285,9 +295,22 @@ async function executeStep(
       });
     }
 
+    // Step done if the model didn't ask to use tools.
     if (stopReason !== 'tool_use' || toolUses.length === 0) return true;
 
     for (const t of toolUses) {
+      // Emit the request RIGHT BEFORE we dispatch + execute it so
+      // every tool_call_requested in the log has a matching outcome.
+      await ctx.emit({
+        type: 'tool_call_requested',
+        sessionId: ctx.sessionId,
+        turnId: ctx.turnId,
+        source: 'model',
+        callId: asToolCallId(t.id),
+        name: t.name,
+        input: t.input,
+      });
+
       // Run plugin onToolCall hooks first — this used to be skipped here
       // (a divergence from loop-tool-use that silently disabled plugin
       // gating for plan-execute). A hook may deny or rewrite the input.
