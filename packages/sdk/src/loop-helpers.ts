@@ -1,4 +1,4 @@
-import type { ProviderEvent, ProviderMessage } from './provider.js';
+import type { ContentBlock, ProviderEvent, ProviderMessage } from './provider.js';
 import type { LoopContext } from './loop.js';
 import type { StopReason } from './provider-utils.js';
 import type { Skill } from './skill.js';
@@ -135,10 +135,28 @@ export function projectMessagesFromLog(
 
   for (const e of allEvents) {
     switch (e.type) {
-      case 'user_prompt':
+      case 'user_prompt': {
         flush();
-        messages.push({ role: 'user', content: [{ type: 'text', text: e.text }] });
+        const blocks: ContentBlock[] = [{ type: 'text', text: e.text }];
+        if (e.attachments) {
+          for (const att of e.attachments) {
+            if (att.kind === 'image') {
+              blocks.push({
+                type: 'image',
+                mediaType: att.mediaType ?? 'image/png',
+                data: att.content,
+              });
+            } else {
+              blocks.push({
+                type: 'text',
+                text: `[${att.kind}${att.name ? ` ${att.name}` : ''}]\n${att.content}`,
+              });
+            }
+          }
+        }
+        messages.push({ role: 'user', content: blocks });
         break;
+      }
       case 'assistant_message':
         flush();
         messages.push({ role: 'assistant', content: [{ type: 'text', text: e.content }] });

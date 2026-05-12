@@ -39,6 +39,34 @@ describe('toOpenAIMessages', () => {
     expect(out).toEqual([{ role: 'tool', tool_call_id: 'c1', content: 'ok' }]);
   });
 
+  it('emits a content parts array when a user message has an image', () => {
+    const out = toOpenAIMessages([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'what is this?' },
+          { type: 'image', mediaType: 'image/png', data: 'AAAA' },
+        ],
+      },
+    ]);
+    expect(out).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'what is this?' },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+        ],
+      },
+    ]);
+  });
+
+  it('keeps user content as plain text when no images are present', () => {
+    const out = toOpenAIMessages([
+      { role: 'user', content: [{ type: 'text', text: 'hello' }, { type: 'text', text: 'world' }] },
+    ]);
+    expect(out[0].content).toBe('hello\nworld');
+  });
+
   it('handles assistant with both text and tool_calls', () => {
     const out = toOpenAIMessages([
       {

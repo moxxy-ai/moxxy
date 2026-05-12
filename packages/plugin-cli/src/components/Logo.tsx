@@ -1,38 +1,6 @@
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
-
-// Bold uppercase block-letter banner. Drawn with U+2588/2554-style box
-// characters so it renders the same in every terminal that supports the
-// box-drawing range (every modern one). Widths add up to ~52 columns —
-// the < 60 column fallback below keeps narrower terms readable.
-const LOGO_LINES: ReadonlyArray<string> = [
-  '███╗   ███╗  ██████╗  ██╗  ██╗ ██╗  ██╗ ██╗   ██╗',
-  '████╗ ████║ ██╔═══██╗ ╚██╗██╔╝ ╚██╗██╔╝ ╚██╗ ██╔╝',
-  '██╔████╔██║ ██║   ██║  ╚███╔╝   ╚███╔╝   ╚████╔╝ ',
-  '██║╚██╔╝██║ ██║   ██║  ██╔██╗   ██╔██╗    ╚██╔╝  ',
-  '██║ ╚═╝ ██║ ╚██████╔╝ ██╔╝ ██╗ ██╔╝ ██╗    ██║   ',
-  '╚═╝     ╚═╝  ╚═════╝  ╚═╝  ╚═╝ ╚═╝  ╚═╝    ╚═╝   ',
-];
-
-// Catalog of rotating slogans. Pick one at random per session — kept
-// short so they sit under the banner without wrapping in narrow terms.
-// New ones are welcome here; aim for ≤60 chars and a mild attitude.
-const SLOGANS: ReadonlyArray<string> = [
-  'block-by-block agentic loops',
-  'every block swappable, every skill replicable',
-  'skills that breed skills, plugins that hot-load',
-  'the framework that builds itself',
-  'loops. tools. skills. all yours.',
-  'agents, assembled from interchangeable parts',
-  'an event log, a loop, and a lot of plugins',
-  'your agent stack, with the cover off',
-  'self-improving by design, paranoid by default',
-  'open-loop architecture for closed-loop agents',
-];
-
-function pickSlogan(): string {
-  return SLOGANS[Math.floor(Math.random() * SLOGANS.length)]!;
-}
+import { LOGO_LINES, pickSlogan } from '../logo-data.js';
 
 /**
  * ASCII banner shown at the top of the TUI. Big block-letter `MOXXY`

@@ -7,8 +7,15 @@ import type {
   PendingToolCall,
   PermissionContext,
   PermissionDecision,
+  UserPromptAttachment,
 } from '@moxxy/sdk';
 import { runTurn, type Session } from '@moxxy/core';
+import {
+  detectPastedImagePath,
+  extractImagePlaceholders,
+  loadImageAttachment,
+} from './image-attachments.js';
+import { readClipboardImageSync } from './clipboard-image.js';
 import { ChatView } from './components/ChatView.js';
 import { PromptInput } from './components/PromptInput.js';
 import { PermissionDialog } from './components/PermissionDialog.js';
@@ -91,6 +98,14 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
   // poisoning the session's own controller, so the next prompt still
   // runs normally.
   const turnControllerRef = useRef<AbortController | null>(null);
+
+  // Pending images keyed by the integer in `[Image #N]` placeholders.
+  // Promise<UserPromptAttachment | null>: null means the read failed,
+  // which we surface as a notice but keep the placeholder text visible
+  // so the user can see what went wrong. Cleared after a successful
+  // submit so subsequent turns get fresh numbering.
+  const imageAttachmentsRef = useRef<Map<number, Promise<UserPromptAttachment | null>>>(new Map());
+  const nextImageIdRef = useRef(1);
 
   // Keep the yolo flag in a ref so the promptHandler closure (registered
   // once on mount) reads the latest value without a re-register.
@@ -516,6 +531,41 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
     }
   };
 
+  const registerImage = (detected: ReturnType<typeof detectPastedImagePath>): string => {
+    if (!detected) return '';
+    const id = nextImageIdRef.current;
+    nextImageIdRef.current += 1;
+    imageAttachmentsRef.current.set(
+      id,
+      loadImageAttachment(detected).catch((err) => {
+        setSystemNotice(
+          `failed to read image ${detected.name}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return null;
+      }),
+    );
+    return `[Image #${id}]`;
+  };
+
+  const handlePasteText = (pasted: string): string => {
+    // Path 1: pasted text itself is a file path to an image (drag-drop
+    // from Finder, "Copy as Path", or `pbcopy <path>`).
+    const pathDetected = detectPastedImagePath(pasted);
+    if (pathDetected) return registerImage(pathDetected);
+
+    // Path 2: terminals fire bracketed paste with empty / whitespace
+    // content when the clipboard holds an image (e.g. a screenshot
+    // copied via Cmd+Shift+Ctrl+4). Probe the system clipboard for an
+    // image and route it through the same pipeline. Falls back to the
+    // raw paste if the clipboard has no image (or the platform isn't
+    // supported), so plain text pastes are unaffected.
+    if (pasted.trim() === '') {
+      const fromClipboard = readClipboardImageSync();
+      if (fromClipboard) return registerImage(fromClipboard);
+    }
+    return pasted;
+  };
+
   const handleSubmit = async (text: string): Promise<void> => {
     setSystemNotice(null);
     setOverlay(null);
@@ -523,6 +573,38 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
       runSlash(text);
       return;
     }
+
+    // Resolve any pending image attachments referenced by `[Image #N]`
+    // placeholders in the prompt. We only attach images that actually
+    // appear in the submitted text — pasting an image and then erasing
+    // the placeholder discards the bytes too.
+    const referencedIds = extractImagePlaceholders(text);
+    const attachments: UserPromptAttachment[] = [];
+    if (referencedIds.length > 0) {
+      const activeDescriptor = (() => {
+        try {
+          const provider = session.providers.getActive();
+          return provider.models.find((m) => m.id === activeModel) ?? null;
+        } catch {
+          return null;
+        }
+      })();
+      if (activeDescriptor && activeDescriptor.supportsImages !== true) {
+        setSystemNotice(
+          `${providerName}:${activeModel} doesn't accept images — switch to a vision-capable model via /model`,
+        );
+        return;
+      }
+      for (const id of referencedIds) {
+        const pending = imageAttachmentsRef.current.get(id);
+        if (!pending) continue;
+        const att = await pending;
+        if (att) attachments.push(att);
+      }
+      imageAttachmentsRef.current.clear();
+      nextImageIdRef.current = 1;
+    }
+
     setBusy(true);
     streamingBufferRef.current = '';
     setStreamingDelta('');
@@ -535,6 +617,7 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
       for await (const _event of runTurn(session, text, {
         ...(effectiveModel ? { model: effectiveModel } : {}),
         signal: controller.signal,
+        ...(attachments.length > 0 ? { attachments } : {}),
       })) {
         void _event;
       }
@@ -620,6 +703,7 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
           onSubmit={handleSubmit}
           disabled={busy}
           placeholder={busy ? '' : 'type a prompt or / for commands'}
+          onPasteText={handlePasteText}
         />
       )}
       <StatusBar

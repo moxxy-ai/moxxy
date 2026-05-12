@@ -25,6 +25,34 @@ allowed-tools: [<tool names>]
 
 `@moxxy/sdk` exposes `skillFrontmatterSchema` (zod). Run it locally against your draft to catch validation issues before committing.
 
+## Optional: schedule (heartbeat/cron)
+
+A skill can opt in to **automatic execution on a schedule** by adding a `schedule:` block to its frontmatter. The body becomes the prompt that fires; the scheduler plugin (`@moxxy/plugin-scheduler`) picks it up automatically — no separate `schedule_create` tool call needed.
+
+```yaml
+---
+name: morning-briefing
+description: Daily 9 AM Hacker News digest pushed to Telegram.
+schedule:
+  cron: "0 9 * * *"           # 5-field POSIX cron (or `runAt: <ISO|epoch-ms>` for one-shot)
+  timeZone: "Europe/Warsaw"   # optional; default is system local
+  channel: telegram           # soft hint — the body still decides how to deliver
+allowed-tools:
+  - web_fetch
+  - telegram_send_message
+---
+Fetch https://news.ycombinator.com/, pick the top 5 stories, summarize each in 2 lines, then call `telegram_send_message` with the digest.
+```
+
+Rules:
+
+- Either `cron` (recurring) or `runAt` (one-shot) — never both, never neither. Cron format: `min hour dom month dow`, with `*` / `a-b` / `a,b,c` / `*/n`.
+- `enabled: false` keeps the schedule registered but paused.
+- A scheduled fire runs **headless against the active provider** — the skill body is the entire prompt the model sees. Be explicit: name the tools the prompt should call (e.g. `telegram_send_message`, `send_email`).
+- The scheduler diffs skill schedules against `~/.moxxy/schedules.json` on every poller tick (default 30s), so editing the frontmatter (or removing the `schedule:` block) propagates without a restart.
+- Schedules only fire while a moxxy process is alive. For 24/7 firing, the user runs `moxxy schedule daemon` (or wraps it in launchd/systemd).
+- See the built-in `scheduling` skill for cron cheat-sheet + manual `schedule_create` usage.
+
 ## Body
 
 The body is the instructions the agent reads when this skill is invoked. Keep it under 30 lines — long context belongs in code or files the skill reads at runtime, not in the skill itself.

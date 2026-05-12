@@ -1,35 +1,20 @@
 /**
- * Plain-ASCII logo for moxxy. Two variants: a full block-letter banner shown
- * on TUI boot + help, and a single-line compact form for narrow terminals.
- *
- * Each line is a separate string to avoid template-literal escaping
- * gymnastics; chars are 7-bit ASCII so it renders everywhere.
+ * Plain-string moxxy banner for non-Ink contexts (`moxxy --help`, init wizard
+ * intro, doctor output). Reuses the shared `LOGO_LINES` from
+ * `@moxxy/plugin-cli/logo-data` so the TUI's React `<Logo />` and this
+ * helper stay in lock-step. The slogan + version line is rendered by the
+ * caller (typically in the clack-style box header right under the banner),
+ * not by this function — that keeps the slogan from appearing twice.
  */
 
+import { LOGO_LINES } from '@moxxy/plugin-cli';
 import { colors } from './colors.js';
 
-const LOGO_LINES: ReadonlyArray<string> = [
-  '  _ __ ___   _____  ___  ___ _   _ ',
-  " | '_ ` _ \\ / _ \\ \\/ / |/ / | | |",
-  ' | | | | | | (_) >  <|   <| |_| |',
-  ' |_| |_| |_|\\___/_/\\_\\_|\\_\\\\__, |',
-  '                              |___/ ',
-];
+export const MOXXY_LOGO_COMPACT = 'MOXXY';
 
-export function renderLogoColored(): string {
-  return (
-    '\n' +
-    LOGO_LINES.map((l) => colors.cyan(l)).join('\n') +
-    '\n\n' +
-    colors.dim(' block-based agentic loop') +
-    '\n\n'
-  );
-}
-
-export const MOXXY_LOGO_COMPACT = 'moxxy — block-based agentic loop';
-
-/** Render the logo, falling back to the compact form when stdout is narrow. */
+/** Render the moxxy banner. Falls back to a tighter form on narrow terminals. */
 export function renderLogo(width: number = process.stdout.columns ?? 80): string {
-  if (width < 40) return colors.cyan(MOXXY_LOGO_COMPACT) + '\n';
-  return renderLogoColored();
+  if (width < 40) return '\n' + colors.bold('MOXXY') + '\n\n';
+  if (width < 60) return '\n' + colors.bold('M O X X Y') + '\n\n';
+  return '\n' + LOGO_LINES.map((l) => colors.bold(l)).join('\n') + '\n\n';
 }

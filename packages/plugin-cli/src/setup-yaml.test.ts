@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { renderYaml } from './SetupWizard.js';
+import { renderYaml } from './setup-yaml.js';
 
 const base = {
   apiKeys: {},
@@ -86,5 +86,31 @@ describe('renderYaml', () => {
     expect(parsed.provider.fallbacks).toEqual(['openai']);
     expect(parsed.embeddings.provider).toBe('transformers');
     expect(parsed.loop).toBe('tool-use');
+  });
+
+  it('omits the apiKey vault line when the primary provider authenticates via OAuth', () => {
+    const yaml = renderYaml({
+      ...base,
+      providers: ['openai-codex'],
+      primary: 'openai-codex',
+      model: null,
+      authKinds: { 'openai-codex': 'oauth' },
+    });
+    expect(yaml).toContain('name: openai-codex');
+    // OAuth providers persist tokens under a provider-specific vault key,
+    // not a generic *_API_KEY entry — the config must not reference one.
+    expect(yaml).not.toContain('apiKey:');
+    expect(yaml).not.toContain('config:');
+  });
+
+  it('still emits apiKey for an API-key primary even when a fallback is OAuth', () => {
+    const yaml = renderYaml({
+      ...base,
+      providers: ['anthropic', 'openai-codex'],
+      primary: 'anthropic',
+      authKinds: { 'openai-codex': 'oauth' },
+    });
+    expect(yaml).toContain('apiKey: ${vault:ANTHROPIC_API_KEY}');
+    expect(yaml).toMatch(/- openai-codex/);
   });
 });

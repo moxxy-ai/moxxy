@@ -16,6 +16,7 @@ export type {
   MoxxyEventOfType,
   EmittedEvent,
   UserPromptEvent,
+  UserPromptAttachment,
   AssistantChunkEvent,
   AssistantMessageEvent,
   ToolCallRequestedEvent,
@@ -59,6 +60,11 @@ export type {
   LLMProvider,
   ProviderDef,
   ProviderKeyValidation,
+  ProviderVault,
+  ProviderAuthContext,
+  ProviderOAuthResult,
+  ProviderOAuthStatus,
+  ProviderAuthDescriptor,
 } from './provider.js';
 export { isRetryableError, zodToJsonSchema, type StopReason } from './provider-utils.js';
 export {
@@ -72,7 +78,7 @@ export {
 
 export type { TokenBudget, CompactContext, CompactorDef } from './compactor.js';
 
-export type { Skill, SkillDef, SkillFrontmatter, SkillScope } from './skill.js';
+export type { Skill, SkillDef, SkillFrontmatter, SkillScope, SkillSchedule } from './skill.js';
 
 export type {
   ToolRegistry,

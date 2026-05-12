@@ -55,7 +55,7 @@ export const SessionInfo: React.FC<SessionInfoProps> = ({
     <Box flexDirection="column" marginBottom={1}>
       <Box
         borderStyle="round"
-        borderColor="cyan"
+        borderColor="white"
         borderDimColor
         paddingX={2}
         paddingY={0}

@@ -12,10 +12,20 @@ export interface EventBase {
   readonly source: EventSource;
 }
 
+export interface UserPromptAttachment {
+  readonly kind: 'stdin' | 'file' | 'image';
+  /** Inline payload. For images this is base64-encoded bytes. */
+  readonly content: string;
+  /** Human-readable label, e.g. the file path or `image.png`. */
+  readonly name?: string;
+  /** MIME type — required for images so providers translate correctly. */
+  readonly mediaType?: string;
+}
+
 export interface UserPromptEvent extends EventBase {
   readonly type: 'user_prompt';
   readonly text: string;
-  readonly attachments?: ReadonlyArray<{ kind: 'stdin' | 'file' | 'image'; content: string; name?: string }>;
+  readonly attachments?: ReadonlyArray<UserPromptAttachment>;
 }
 
 export interface AssistantChunkEvent extends EventBase {

@@ -29,6 +29,7 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 @moxxy/plugin-embeddings-openai   OpenAI embeddings
 @moxxy/plugin-embeddings-transformers   on-device embeddings via xenova
 @moxxy/plugin-browser             web_fetch tool + Playwright sidecar (heavy)
+@moxxy/plugin-scheduler           cron/heartbeat: time-driven prompts + auto-scheduled skills
 
 @moxxy/config      defineConfig + loader (cosmiconfig-style discovery + zod validation)
 @moxxy/testing     FakeProvider + record/replay harness

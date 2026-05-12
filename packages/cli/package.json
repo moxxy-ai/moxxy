@@ -7,7 +7,10 @@
   "bin": {
     "moxxy": "./dist/bin.js"
   },
-  "files": ["dist", "src"],
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json && chmod +x dist/bin.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -16,6 +19,7 @@
     "start": "node ./dist/bin.js"
   },
   "dependencies": {
+    "@clack/prompts": "^1.4.0",
     "@moxxy/compactor-summarize": "workspace:*",
     "@moxxy/config": "workspace:*",
     "@moxxy/core": "workspace:*",
@@ -31,6 +35,7 @@
     "@moxxy/plugin-provider-anthropic": "workspace:*",
     "@moxxy/plugin-provider-openai": "workspace:*",
     "@moxxy/plugin-provider-openai-codex": "workspace:*",
+    "@moxxy/plugin-scheduler": "workspace:*",
     "@moxxy/plugin-telegram": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/sdk": "workspace:*",

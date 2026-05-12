@@ -16,6 +16,13 @@ export interface PromptInputProps {
    * Defaults to BUILTIN_SLASH_COMMANDS — pass a custom list to extend.
    */
   readonly slashCommands?: ReadonlyArray<SlashCommand>;
+  /**
+   * Synchronous transform for bracketed-paste payloads. Receives the
+   * full pasted text and returns the text actually inserted into the
+   * buffer. Used to swap image file paths (drag-drop, "Copy as Path")
+   * for `[Image #N]` placeholders while side-loading the bytes.
+   */
+  readonly onPasteText?: (text: string) => string;
 }
 
 /**
@@ -73,7 +80,7 @@ type Action =
   | { type: 'reset' }
   | { type: 'set'; buffer: string; cursor: number }
   | { type: 'paste-start' }
-  | { type: 'paste-end' }
+  | { type: 'paste-end'; overrideText?: string }
   | { type: 'paste-append'; data: string };
 
 const INITIAL: State = {
@@ -159,7 +166,7 @@ function reducer(state: State, action: Action): State {
     case 'paste-start':
       return { ...state, inPaste: true, pasteBuffer: '' };
     case 'paste-end': {
-      const text = state.pasteBuffer;
+      const text = action.overrideText !== undefined ? action.overrideText : state.pasteBuffer;
       const next = state.buffer.slice(0, state.cursor) + text + state.buffer.slice(state.cursor);
       return { ...state, buffer: next, cursor: state.cursor + text.length, inPaste: false, pasteBuffer: '' };
     }
@@ -214,12 +221,17 @@ function parseInputChunk(
   chunk: string,
   ctx: {
     inPaste: boolean;
+    /** Accumulator across chunks: every byte received inside the
+     *  current bracketed paste, so the post-paste transform sees the
+     *  whole payload — not just the trailing fragment. */
+    pasteAccum: { text: string };
     dispatch: (a: Action) => void;
     onSubmit: () => void;
     onCancel: () => void;
     onSlashUp: () => void;
     onSlashDown: () => void;
     onSlashAccept: () => void;
+    onPasteText?: (text: string) => string;
     slashOpen: boolean;
     bufferRef: { current: { buffer: string; cursor: number } };
   },
@@ -236,17 +248,33 @@ function parseInputChunk(
     if (ctx.inPaste) {
       const endIdx = chunk.indexOf(PASTE_END, i);
       if (endIdx < 0) {
-        ctx.dispatch({ type: 'paste-append', data: chunk.slice(i).replace(/\r/g, '\n') });
+        const data = chunk.slice(i).replace(/\r/g, '\n');
+        ctx.pasteAccum.text += data;
+        ctx.dispatch({ type: 'paste-append', data });
         return '';
       }
       const inner = chunk.slice(i, endIdx).replace(/\r/g, '\n');
-      if (inner) ctx.dispatch({ type: 'paste-append', data: inner });
-      ctx.dispatch({ type: 'paste-end' });
+      if (inner) {
+        ctx.pasteAccum.text += inner;
+        ctx.dispatch({ type: 'paste-append', data: inner });
+      }
+      // Hand the full paste to the host transform (if installed) so an
+      // image path payload can be swapped for `[Image #N]` before it
+      // lands in the buffer. Falls through to the raw text otherwise.
+      const raw = ctx.pasteAccum.text;
+      const transformed = ctx.onPasteText ? ctx.onPasteText(raw) : raw;
+      ctx.pasteAccum.text = '';
+      ctx.dispatch(
+        transformed === raw
+          ? { type: 'paste-end' }
+          : { type: 'paste-end', overrideText: transformed },
+      );
       ctx.inPaste = false;
       i = endIdx + PASTE_END.length;
       continue;
     }
     if (chunk.startsWith(PASTE_START, i)) {
+      ctx.pasteAccum.text = '';
       ctx.dispatch({ type: 'paste-start' });
       ctx.inPaste = true;
       i += PASTE_START.length;
@@ -461,6 +489,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   disabled,
   placeholder,
   slashCommands = BUILTIN_SLASH_COMMANDS,
+  onPasteText,
 }) => {
   const [state, dispatch] = useReducer(reducer, INITIAL);
   const [slashCursor, setSlashCursor] = React.useState(0);
@@ -507,6 +536,9 @@ export const PromptInput: React.FC<PromptInputProps> = ({
     }
   }, []);
 
+  const onPasteTextRef = useRef(onPasteText);
+  onPasteTextRef.current = onPasteText;
+
   const { stdin, setRawMode, isRawModeSupported } = useStdin();
 
   useEffect(() => {
@@ -527,12 +559,14 @@ export const PromptInput: React.FC<PromptInputProps> = ({
     let remainder = '';
     const parseCtx: Parameters<typeof parseInputChunk>[1] = {
       inPaste: false,
+      pasteAccum: { text: '' },
       dispatch,
       onSubmit: handleSubmit,
       onCancel: handleCancel,
       onSlashUp: () => setSlashCursor((c) => Math.max(0, c - 1)),
       onSlashDown: () => setSlashCursor((c) => Math.min(slashMatchesRef.current.length - 1, c + 1)),
       onSlashAccept: handleSlashAccept,
+      onPasteText: (text: string) => onPasteTextRef.current?.(text) ?? text,
       slashOpen: false,
       bufferRef: { current: { buffer: '', cursor: 0 } },
     };

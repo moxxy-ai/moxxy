@@ -5,18 +5,22 @@ import { canonicalKey } from '../provider-keys.js';
 import { validateProviderKey } from '../validate-key.js';
 import type { ParsedArgv } from '../argv.js';
 import { cliVersion } from '../version.js';
+import { runSetupWizard } from '../wizard/run-setup-wizard.js';
+import { buildProviderAuthContext } from '../wizard/auth-context.js';
+import { renderLogo } from '../logo.js';
+import type { ProviderAuthKind } from '@moxxy/plugin-cli';
+import type { ProviderDef } from '@moxxy/sdk';
 
 /**
- * Interactive first-time setup. Mounts the Ink-based SetupWizard, which walks
- * the user through provider selection, API-key entry, model + loop + embedder
- * picks, and emits a moxxy.config.yaml.
+ * Interactive first-time setup. Renders a @clack/prompts vertical stepper
+ * that walks the user through provider selection, credential entry, model +
+ * loop + embedder picks, and emits a moxxy.config.yaml.
  *
- * Everything provider-specific is driven by the session's ProviderRegistry —
- * the CLI itself doesn't know about Anthropic or OpenAI by name. New providers
- * appear in the wizard automatically as long as their plugin is loaded.
- *
- * If stdin isn't a TTY, falls back to a minimal headless flow that just
- * forwards env vars into the vault.
+ * The wizard is fully provider-agnostic — it reads each registered
+ * provider's `ProviderDef.auth` descriptor to decide whether to prompt for
+ * an API key or to drive that provider's OAuth flow. Installing a new
+ * provider plugin (current or future `moxxy provider install <pkg>`) is
+ * enough to make it appear here; no CLI-side branch table.
  */
 export async function runInitCommand(argv: ParsedArgv): Promise<number> {
   // `skipProviderActivation` is critical here: without it, the activation
@@ -34,43 +38,32 @@ export async function runInitCommand(argv: ParsedArgv): Promise<number> {
     return await runHeadlessInit(session, vault);
   }
 
-  // Pre-warm the vault BEFORE we mount Ink. A first-time install (no
-  // keytar entry yet) needs to prompt for a passphrase; that prompt uses
-  // stdin/readline and would deadlock against Ink if it fired while the
-  // wizard was rendering. Open it here while the terminal is still raw,
-  // then Ink takes over with an unlocked vault and vault.set() is silent.
+  // Pre-warm the vault BEFORE starting the wizard. A first-time install
+  // (no keytar entry yet) needs to prompt for a passphrase via readline;
+  // doing that mid-clack would garble the rendering. Opening here while
+  // the terminal is in cooked mode keeps the prompt clean.
   await vault.open();
 
-  const [React, ink, plugin] = await Promise.all([
-    import('react'),
-    import('ink'),
-    import('@moxxy/plugin-cli'),
-  ]);
-  const { render, Box, Text } = ink;
-  const { SetupWizard, Logo } = plugin;
+  // Banner above the wizard intro. The clack `intro()` line will land
+  // immediately under this with a `┌` corner, giving the impression that
+  // the whole flow flows out of the moxxy logo.
+  process.stdout.write(renderLogo());
 
-  // OAuth-only providers (e.g. openai-codex) don't go through the API-key
-  // wizard — they have a dedicated sign-in flow. Filter them out so the
-  // wizard doesn't try to validate a key that doesn't exist, and surface
-  // a one-line tip pointing users at the right command.
   const providerDefs = session.providers.list();
-  const oauthOnlyProviders = providerDefs.filter((p) => p.name === 'openai-codex');
-  const wizardProviderDefs = providerDefs.filter((p) => p.name !== 'openai-codex');
-  const providers = wizardProviderDefs.map((p) => ({
-    id: p.name,
-    label: titleCase(p.name),
-    description: p.models[0]?.id ? `default model: ${p.models[0].id}` : undefined,
-  }));
+  const defsByName = new Map(providerDefs.map((d) => [d.name, d] as const));
+
+  const providers = providerDefs.map((p) => {
+    const description = providerDescription(p);
+    return description === undefined
+      ? { id: p.name, label: titleCase(p.name) }
+      : { id: p.name, label: titleCase(p.name), description };
+  });
   const models = Object.fromEntries(
-    wizardProviderDefs.map((p) => [p.name, p.models.map((m) => ({ id: m.id, label: m.id }))]),
+    providerDefs.map((p) => [p.name, p.models.map((m) => ({ id: m.id, label: m.id }))]),
   );
-  if (oauthOnlyProviders.some((p) => p.name === 'openai-codex')) {
-    process.stdout.write(
-      `\nTip: if you have a ChatGPT Pro/Plus subscription, run ` +
-        `\`moxxy login openai-codex\` after init to use the Codex backend ` +
-        `without an API key.\n\n`,
-    );
-  }
+  const authKinds: Record<string, ProviderAuthKind> = Object.fromEntries(
+    providerDefs.map((p) => [p.name, providerAuthKind(p)]),
+  );
 
   const loops = [
     { id: 'tool-use', label: 'tool-use', description: 'Default Claude Code-style loop (recommended)' },
@@ -101,40 +94,26 @@ export async function runInitCommand(argv: ParsedArgv): Promise<number> {
     ): Promise<{ ok: true } | { ok: false; message: string }> {
       return await validateProviderKey(providerId, key, session.providers);
     },
+    async loginOAuth(providerId: string): Promise<void> {
+      const def = defsByName.get(providerId);
+      if (!def || def.auth?.kind !== 'oauth') {
+        throw new Error(`Provider ${providerId} does not advertise an OAuth flow.`);
+      }
+      // We already bailed to runHeadlessInit when stdin wasn't a TTY, so
+      // the browser flow is the default here.
+      const ctx = buildProviderAuthContext(vault, { headless: false });
+      await def.auth.login(ctx);
+    },
   };
 
-  const version = cliVersion();
-  await new Promise<void>((resolve) => {
-    // Wrap the wizard with the Logo so a first-time user sees the moxxy
-    // banner during setup — gives a consistent visual identity between
-    // the bare `moxxy init` invocation and the auto-init that fires
-    // when there's no config yet.
-    const { Fragment, createElement } = React;
-    const banner = createElement(
-      Box,
-      { flexDirection: 'column', marginBottom: 1 },
-      createElement(Logo, version ? { version } : {}),
-      createElement(
-        Text,
-        { dimColor: true },
-        ' first-time setup — pick a provider, paste an API key, choose a model',
-      ),
-    );
-    const { waitUntilExit } = render(
-      createElement(
-        Fragment,
-        null,
-        banner,
-        createElement(SetupWizard, {
-          providers,
-          models,
-          loops,
-          embedders,
-          controller,
-        }),
-      ),
-    );
-    void waitUntilExit().then(() => resolve());
+  await runSetupWizard({
+    providers,
+    models,
+    loops,
+    embedders,
+    controller,
+    authKinds,
+    ...(cliVersion() ? { version: cliVersion()! } : {}),
   });
 
   return 0;
@@ -147,6 +126,12 @@ async function runHeadlessInit(
   process.stderr.write('moxxy init: no TTY — running headless. Reading provider keys from env.\n');
   let saved = 0;
   for (const provider of session.providers.list()) {
+    if (providerAuthKind(provider) === 'oauth') {
+      // OAuth providers can't auto-bootstrap from an env var; the device-code
+      // flow needs a user. Skip silently — the user will run
+      // `moxxy login <name>` separately.
+      continue;
+    }
     const canonical = canonicalKey(provider.name);
     const value = process.env[canonical];
     if (!value) continue;
@@ -161,6 +146,18 @@ async function runHeadlessInit(
   }
   process.stderr.write(`moxxy init: saved ${saved} key(s) to vault.\n`);
   return 0;
+}
+
+function providerAuthKind(def: ProviderDef): ProviderAuthKind {
+  return def.auth?.kind === 'oauth' ? 'oauth' : 'apiKey';
+}
+
+function providerDescription(def: ProviderDef): string | undefined {
+  if (def.auth?.kind === 'oauth') {
+    const service = def.auth.serviceName;
+    return service ? `OAuth · ${service}` : 'OAuth sign-in';
+  }
+  return def.models[0]?.id ? `default model: ${def.models[0].id}` : undefined;
 }
 
 function titleCase(s: string): string {

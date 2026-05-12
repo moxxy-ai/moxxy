@@ -1,5 +1,6 @@
 import { defineChannel, defineTool, definePlugin, z, type Plugin } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
+import { Bot } from 'grammy';
 import { TelegramChannel } from './channel.js';
 
 export {
@@ -133,6 +134,40 @@ export function buildTelegramPlugin(opts: BuildTelegramPluginOptions): Plugin {
             tokenConfigured: hasToken,
             authorizedChatId: authorized ? Number(authorized) : null,
           };
+        },
+      }),
+      defineTool({
+        name: 'telegram_send_message',
+        description:
+          'Push a one-off message to the currently authorized Telegram chat. Use this from a ' +
+          "scheduled prompt to deliver results without an interactive channel running. The " +
+          'message is sent via the Bot API directly — no streaming, no formatting. Requires ' +
+          'a stored bot token + a paired chat (run `moxxy channels telegram pair` once).',
+        inputSchema: z.object({
+          text: z.string().min(1).max(4096),
+          /** Optional override; defaults to the vault-paired chat id. */
+          chatId: z.number().int().optional(),
+          parseMode: z.enum(['MarkdownV2', 'Markdown', 'HTML']).optional(),
+        }),
+        permission: { action: 'prompt' },
+        handler: async ({ text, chatId, parseMode }) => {
+          const token = process.env.MOXXY_TELEGRAM_TOKEN ?? (await opts.vault.get(TOKEN_KEY));
+          if (!token) {
+            throw new Error(
+              'no Telegram bot token configured (set MOXXY_TELEGRAM_TOKEN or run `moxxy init` to store one)',
+            );
+          }
+          const targetChat =
+            chatId ??
+            (await opts.vault.get(AUTHORIZED_CHAT_KEY).then((v) => (v ? Number(v) : null)));
+          if (!targetChat) {
+            throw new Error(
+              'no authorized chat — run `moxxy channels telegram pair` first or pass `chatId` explicitly',
+            );
+          }
+          const bot = new Bot(token);
+          await bot.api.sendMessage(targetChat, text, parseMode ? { parse_mode: parseMode } : {});
+          return { delivered: true, chatId: targetChat, length: text.length };
         },
       }),
       defineTool({

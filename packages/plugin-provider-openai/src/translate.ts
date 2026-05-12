@@ -1,9 +1,13 @@
-import type { ContentBlock, ProviderMessage, ToolDef } from '@moxxy/sdk';
+import type { ProviderMessage, ToolDef } from '@moxxy/sdk';
 import { zodToJsonSchema } from '@moxxy/sdk';
+
+export type OpenAIUserContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
 
 export interface OpenAIChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content?: string | null;
+  content?: string | ReadonlyArray<OpenAIUserContentPart> | null;
   tool_calls?: Array<{
     id: string;
     type: 'function';
@@ -31,11 +35,31 @@ export function toOpenAIMessages(messages: ReadonlyArray<ProviderMessage>): Open
       continue;
     }
     if (msg.role === 'user') {
-      const text = msg.content
-        .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-        .map((c) => c.text)
-        .join('\n');
-      out.push({ role: 'user', content: text });
+      const hasImage = msg.content.some((c) => c.type === 'image');
+      if (hasImage) {
+        // Vision-capable user message: emit content as a parts array so
+        // base64 images ride alongside text. Non-vision OpenAI models
+        // will 400 on this shape — callers gate by `supportsImages` on
+        // the model descriptor before attaching images.
+        const parts: OpenAIUserContentPart[] = [];
+        for (const c of msg.content) {
+          if (c.type === 'text') {
+            parts.push({ type: 'text', text: c.text });
+          } else if (c.type === 'image') {
+            parts.push({
+              type: 'image_url',
+              image_url: { url: `data:${c.mediaType};base64,${c.data}` },
+            });
+          }
+        }
+        out.push({ role: 'user', content: parts });
+      } else {
+        const text = msg.content
+          .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+          .map((c) => c.text)
+          .join('\n');
+        out.push({ role: 'user', content: text });
+      }
       continue;
     }
     if (msg.role === 'assistant') {
@@ -84,4 +108,3 @@ export function toOpenAITools(tools: ReadonlyArray<ToolDef>): OpenAIToolDef[] {
   }));
 }
 
-void (null as unknown as ContentBlock);

@@ -1,4 +1,4 @@
-import type { EmittedEvent, LoopContext, MoxxyEvent } from '@moxxy/sdk';
+import type { EmittedEvent, LoopContext, MoxxyEvent, UserPromptAttachment } from '@moxxy/sdk';
 import type { Session } from './session.js';
 
 export interface RunTurnOptions {
@@ -12,6 +12,12 @@ export interface RunTurnOptions {
    * passed, either firing cancels the turn.
    */
   readonly signal?: AbortSignal;
+  /**
+   * Inline attachments to ship alongside the prompt — images dropped
+   * into the TUI, piped stdin payloads, file refs. Persisted onto the
+   * user_prompt event so replay sees the same context.
+   */
+  readonly attachments?: ReadonlyArray<UserPromptAttachment>;
 }
 
 export async function* runTurn(
@@ -49,6 +55,9 @@ export async function* runTurn(
       turnId,
       source: 'user',
       text: prompt,
+      ...(opts.attachments && opts.attachments.length > 0
+        ? { attachments: opts.attachments }
+        : {}),
     });
 
     const strategy = session.loops.getActive();

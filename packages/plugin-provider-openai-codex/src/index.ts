@@ -1,6 +1,7 @@
 import { defineProvider, definePlugin } from '@moxxy/sdk';
 import { CodexProvider, type CodexProviderConfig } from './provider.js';
 import { codexModels } from './models.js';
+import { codexLogin, codexLogout, codexStatus } from './login.js';
 
 export const openaiCodexProviderDef = defineProvider({
   name: 'openai-codex',
@@ -8,6 +9,13 @@ export const openaiCodexProviderDef = defineProvider({
   createClient: (config) => new CodexProvider(config as CodexProviderConfig),
   // No validateKey: OAuth credentials are validated by the OAuth token
   // exchange itself, not by a synchronous key check.
+  auth: {
+    kind: 'oauth',
+    serviceName: 'ChatGPT Pro/Plus',
+    login: codexLogin,
+    logout: codexLogout,
+    status: codexStatus,
+  },
 });
 
 export const openaiCodexPlugin = definePlugin({
@@ -43,5 +51,12 @@ export {
   type DeviceAuthInit,
 } from './oauth.js';
 export { toResponsesBody, toResponsesInput, toResponsesTools } from './translate.js';
+export {
+  CODEX_VAULT_KEY,
+  codexLogin,
+  codexLogout,
+  codexStatus,
+  readStoredTokens as readCodexStoredTokens,
+} from './login.js';
 export type { CodexProviderConfig } from './provider.js';
 export type { CodexTokens, PkceCodes, OAuthTokenResponse } from './types.js';

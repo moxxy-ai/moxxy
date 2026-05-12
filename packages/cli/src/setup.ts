@@ -14,8 +14,15 @@ import {
   discoverSkills,
   loadPreferences,
   PermissionEngine,
+  runTurn,
   silentLogger,
 } from '@moxxy/core';
+import {
+  buildSchedulerPlugin,
+  SchedulerPoller,
+  ScheduleStore,
+  type SchedulePromptRunner,
+} from '@moxxy/plugin-scheduler';
 import type { EmbeddingProvider, PermissionResolver, Plugin } from '@moxxy/sdk';
 import { buildConfigPlugin, loadConfig, type EmbeddingsConfig, type MoxxyConfig } from '@moxxy/config';
 import { buildSessionConfigApplier } from './config-applier.js';
@@ -81,6 +88,9 @@ export interface SetupResult {
   readonly configSources: ReadonlyArray<{ scope: 'project' | 'user' | 'explicit'; path: string }>;
   readonly vault: VaultStore;
   readonly memory: MemoryStore;
+  /** Scheduler store + poller, surfaced so the CLI subcommands
+   *  (`moxxy schedule list|run`) can reach them without a model turn. */
+  readonly scheduler: { readonly store: ScheduleStore; readonly poller: SchedulerPoller };
 }
 
 export async function setupSession(opts: SetupOptions): Promise<Session> {
@@ -178,6 +188,38 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
       }),
     },
   ];
+
+  // Scheduler — fires recurring/one-shot prompts at user-defined times.
+  // The runner reuses the active session for v1; scheduled prompts
+  // appear in conversation history so the user sees what fired. An
+  // isolated child-session runner is the obvious follow-up to avoid
+  // context pollution.
+  const schedulerRunner: SchedulePromptRunner = {
+    runPrompt: async ({ prompt, model }) => {
+      let text = '';
+      let lastError: string | null = null;
+      try {
+        for await (const event of runTurn(session, prompt, model ? { model } : {})) {
+          if (event.type === 'assistant_message') {
+            text = event.content;
+            if (event.stopReason === 'error') lastError = 'turn ended with error stop reason';
+          } else if (event.type === 'error') {
+            lastError = event.message;
+          }
+        }
+      } catch (err) {
+        return { text, error: err instanceof Error ? err.message : String(err) };
+      }
+      return lastError ? { text, error: lastError } : { text };
+    },
+  };
+  const { plugin: schedulerPlugin, store: scheduleStore, poller: schedulerPoller } =
+    buildSchedulerPlugin({
+      runner: schedulerRunner,
+      skills: session.skills,
+      logger,
+    });
+  builtinsCore.push({ name: '@moxxy/plugin-scheduler', plugin: schedulerPlugin });
 
   const builtins: Array<{ name: string; plugin: Plugin }> = [
     ...builtinsCore,
@@ -381,7 +423,14 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // dispatcher records them as ErrorEvents but startup proceeds.
   await session.dispatcher.dispatchInit(session.appContext());
 
-  return { session, config, configSources: sources, vault, memory };
+  return {
+    session,
+    config,
+    configSources: sources,
+    vault,
+    memory,
+    scheduler: { store: scheduleStore, poller: schedulerPoller },
+  };
 }
 
 export { createAllowListResolver, createCallbackResolver, denyByDefaultResolver };

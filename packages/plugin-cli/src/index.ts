@@ -13,13 +13,13 @@ export {
 export { TuiChannel, type TuiStartOpts } from './TuiChannel.js';
 export { PermissionEditor, type PermissionEditorProps } from './components/PermissionEditor.js';
 export { Logo } from './components/Logo.js';
+export { LOGO_LINES, SLOGANS, pickSlogan } from './logo-data.js';
 export {
-  SetupWizard,
-  type SetupWizardProps,
-  type SetupWizardController,
-  type SetupChoice,
   renderYaml,
-} from './components/SetupWizard.js';
+  type ProviderAuthKind,
+  type SetupChoice,
+  type SetupSelections,
+} from './setup-yaml.js';
 export {
   loadPreferences,
   savePreferences,

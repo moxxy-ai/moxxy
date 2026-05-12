@@ -103,7 +103,7 @@ export function selectMessages(
         const blocks: ContentBlock[] = [{ type: 'text', text: e.text }];
         if (e.attachments) {
           for (const att of e.attachments) {
-            if (att.kind === 'image') blocks.push({ type: 'image', mediaType: 'image/png', data: att.content });
+            if (att.kind === 'image') blocks.push({ type: 'image', mediaType: att.mediaType ?? 'image/png', data: att.content });
             else blocks.push({ type: 'text', text: `[${att.kind}${att.name ? ` ${att.name}` : ''}]\n${att.content}` });
           }
         }

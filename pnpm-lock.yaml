@@ -177,6 +177,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@clack/prompts':
+        specifier: ^1.4.0
+        version: 1.4.0
       '@moxxy/compactor-summarize':
         specifier: workspace:*
         version: link:../compactor-summarize
@@ -222,6 +225,9 @@ importers:
       '@moxxy/plugin-provider-openai-codex':
         specifier: workspace:*
         version: link:../plugin-provider-openai-codex
+      '@moxxy/plugin-scheduler':
+        specifier: workspace:*
+        version: link:../plugin-scheduler
       '@moxxy/plugin-telegram':
         specifier: workspace:*
         version: link:../plugin-telegram
@@ -704,6 +710,37 @@ importers:
         specifier: ^3.24.0
         version: 3.25.76
 
+  packages/plugin-scheduler:
+    dependencies:
+      '@moxxy/core':
+        specifier: workspace:*
+        version: link:../core
+      '@moxxy/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+      ulid:
+        specifier: ^2.3.0
+        version: 2.4.0
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
+    devDependencies:
+      '@moxxy/tsconfig':
+        specifier: workspace:*
+        version: link:../../tooling/tsconfig
+      '@moxxy/vitest-preset':
+        specifier: workspace:*
+        version: link:../../tooling/vitest-preset
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.18
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.18)
+
   packages/plugin-telegram:
     dependencies:
       '@moxxy/core':
@@ -941,6 +978,14 @@ packages:
   '@capsizecss/unpack@4.0.0':
     resolution: {integrity: sha512-VERIM64vtTP1C4mxQ5thVT9fK0apjPFobqybMtA1UdUujWka24ERHbRHFGmpbbhp73MhV+KSsHQH9C6uOTdEQA==}
     engines: {node: '>=18'}
+
+  '@clack/core@1.3.1':
+    resolution: {integrity: sha512-fT1qHVGAag4IEkrupZ6lRRbNCs1vS9P01KB/sG8zKgvUztbYtFBtQpjSITNwooDZ83tpsPzP0mRNs1/KVszCRA==}
+    engines: {node: '>= 20.12.0'}
+
+  '@clack/prompts@1.4.0':
+    resolution: {integrity: sha512-S0My7XPGIgpRWMDG8uRqalbgT+a6FmCUdOW+HaIOVVpUPHOb7RrpvjTjiODadKp06fsrVDJZlIzc6yCTp4AnxA==}
+    engines: {node: '>= 20.12.0'}
 
   '@ctrl/tinycolor@4.2.0':
     resolution: {integrity: sha512-kzyuwOAQnXJNLS9PSyrk0CWk35nWJW/zl/6KvnTBMFK65gm7U1/Z5BqjxeapjZCIhQcM/DsrEmcbRwDyXyXK4A==}
@@ -2900,8 +2945,17 @@ packages:
   fast-levenshtein@2.0.6:
     resolution: {integrity: sha512-DCXu6Ifhqcks7TZKY3Hxp3y6qphY5SJZmrWMDrKcERSOXWQdMhU9Ig/PYrzyw/ul9jOIyh0N4M0tbC5hodg8dw==}
 
+  fast-string-truncated-width@3.0.3:
+    resolution: {integrity: sha512-0jjjIEL6+0jag3l2XWWizO64/aZVtpiGE3t0Zgqxv0DPuxiMjvB3M24fCyhZUO4KomJQPj3LTSUnDP3GpdwC0g==}
+
+  fast-string-width@3.0.2:
+    resolution: {integrity: sha512-gX8LrtNEI5hq8DVUfRQMbr5lpaS4nMIWV+7XEbXk2b8kiQIizgnlr12B4dA3ZEx3308ze0O4Q1R+cHts8kyUJg==}
+
   fast-uri@3.1.2:
     resolution: {integrity: sha512-rVjf7ArG3LTk+FS6Yw81V1DLuZl1bRbNrev6Tmd/9RaroeeRRJhAt7jg/6YFxbvAQXUCavSoZhPPj6oOx+5KjQ==}
+
+  fast-wrap-ansi@0.2.0:
+    resolution: {integrity: sha512-rLV8JHxTyhVmFYhBJuMujcrHqOT2cnO5Zxj37qROj23CP39GXubJRBUFF0z8KFK77Uc0SukZUf7JZhsVEQ6n8w==}
 
   fdir@6.5.0:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
@@ -4885,6 +4939,18 @@ snapshots:
     dependencies:
       fontkitten: 1.0.3
 
+  '@clack/core@1.3.1':
+    dependencies:
+      fast-wrap-ansi: 0.2.0
+      sisteransi: 1.0.5
+
+  '@clack/prompts@1.4.0':
+    dependencies:
+      '@clack/core': 1.3.1
+      fast-string-width: 3.0.2
+      fast-wrap-ansi: 0.2.0
+      sisteransi: 1.0.5
+
   '@ctrl/tinycolor@4.2.0': {}
 
   '@emnapi/runtime@1.10.0':
@@ -6738,7 +6804,17 @@ snapshots:
 
   fast-levenshtein@2.0.6: {}
 
+  fast-string-truncated-width@3.0.3: {}
+
+  fast-string-width@3.0.2:
+    dependencies:
+      fast-string-truncated-width: 3.0.3
+
   fast-uri@3.1.2: {}
+
+  fast-wrap-ansi@0.2.0:
+    dependencies:
+      fast-string-width: 3.0.2
 
   fdir@6.5.0(picomatch@4.0.4):
     optionalDependencies:

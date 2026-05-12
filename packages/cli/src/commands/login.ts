@@ -1,211 +1,217 @@
 import type { ParsedArgv } from '../argv.js';
 import { bootSessionWithConfig, hasBoolFlag } from '../argv-helpers.js';
 import { colors } from '../colors.js';
-import { startCallbackServer } from '../oauth-server.js';
-import {
-  CODEX_VAULT_KEY,
-  deleteCodexTokens,
-  readCodexTokens,
-  writeCodexTokens,
-} from '../provider-credentials.js';
+import { buildProviderAuthContext } from '../wizard/auth-context.js';
+import type { ProviderDef } from '@moxxy/sdk';
+import type { Session } from '@moxxy/core';
 
-const HELP = `moxxy login — OAuth sign-in for providers that don't use API keys
+/**
+ * `moxxy login` — generic OAuth driver. Walks the session's provider
+ * registry; any provider plugin that declares `auth: { kind: 'oauth', … }`
+ * is automatically loggable via `moxxy login <name>`. There is no
+ * provider-specific code in this command — the plugin owns the dance.
+ */
 
-  moxxy login openai-codex          Sign in with ChatGPT Pro/Plus (Codex backend)
-                                    Flags:
-                                      --no-browser   force the headless device-code flow
-                                                     (auto-selected when stdin is not a TTY)
-  moxxy login status                Show currently-stored OAuth credentials (no secrets printed)
-  moxxy login logout <provider>     Remove stored OAuth credentials for a provider
+function buildHelp(session: Session | null): string {
+  const oauthLines = session
+    ? session.providers
+        .list()
+        .filter((d) => d.auth?.kind === 'oauth')
+        .map((d) => {
+          const service = d.auth?.kind === 'oauth' ? d.auth.serviceName : undefined;
+          return service
+            ? `  moxxy login ${d.name.padEnd(22)} Sign in with ${service}`
+            : `  moxxy login ${d.name}`;
+        })
+    : ['  (no providers loaded — run inside a moxxy project)'];
 
-After a successful login the credentials live in the encrypted vault
-(~/.moxxy/vault.json). Set the active provider via moxxy.config.yaml:
-
-  provider:
-    name: openai-codex
-`;
+  return (
+    `moxxy login — OAuth sign-in for providers that don't use API keys\n\n` +
+    `${oauthLines.join('\n')}\n` +
+    `                                    Flags:\n` +
+    `                                      --no-browser   force the headless device-code flow\n` +
+    `                                                     (auto-selected when stdin is not a TTY)\n` +
+    `  moxxy login status [<provider>]   Show currently-stored OAuth credentials (no secrets printed)\n` +
+    `  moxxy login logout <provider>     Remove stored OAuth credentials for a provider\n\n` +
+    `After a successful login the credentials live in the encrypted vault\n` +
+    `(~/.moxxy/vault.json). Set the active provider via moxxy.config.yaml:\n\n` +
+    `  provider:\n` +
+    `    name: <provider>\n`
+  );
+}
 
 export async function runLoginCommand(argv: ParsedArgv): Promise<number> {
   const sub = argv.positional[0];
+
   if (!sub || sub === 'help' || sub === '--help' || sub === '-h') {
-    process.stdout.write(HELP);
+    // Best-effort: list OAuth providers known to the current install. If
+    // boot fails for any reason fall back to a generic help body.
+    let session: Session | null = null;
+    try {
+      const { session: s } = await bootSessionWithConfig(argv, {
+        skipKeyPrompt: true,
+        skipProviderActivation: true,
+        tolerateNoProvider: true,
+      });
+      session = s;
+    } catch {
+      // ignore
+    }
+    process.stdout.write(buildHelp(session));
     return sub ? 0 : 2;
   }
-  if (sub === 'openai-codex') return await loginOpenAICodex(argv);
+
   if (sub === 'status') return await loginStatus(argv);
   if (sub === 'logout') return await loginLogout(argv);
-  process.stderr.write(`${colors.red(`unknown subcommand: ${sub}`)}\n${HELP}`);
-  return 2;
+
+  // Otherwise, treat `sub` as a provider name.
+  return await loginProvider(argv, sub);
 }
 
-async function loginOpenAICodex(argv: ParsedArgv): Promise<number> {
-  const { vault } = await bootSessionWithConfig(argv, {
+async function loginProvider(argv: ParsedArgv, providerName: string): Promise<number> {
+  const { session, vault } = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,
     skipProviderActivation: true,
+    tolerateNoProvider: true,
   });
-  // Pre-warm the vault before we open a TCP port / start polling. If the
-  // vault prompts for a passphrase, we want that to happen synchronously
-  // here — not racing the browser callback.
+  const def = session.providers.list().find((d) => d.name === providerName);
+  if (!def) {
+    process.stderr.write(
+      `${colors.red(`unknown provider: ${providerName}`)}\n${buildHelp(session)}`,
+    );
+    return 2;
+  }
+  if (def.auth?.kind !== 'oauth') {
+    process.stderr.write(
+      `${colors.red(`${providerName} uses API-key auth — no \`moxxy login\` flow.`)}\n` +
+        `Run \`moxxy init\` to store its key in the vault.\n`,
+    );
+    return 2;
+  }
+
+  // Pre-warm the vault — if a passphrase is needed, prompt for it now
+  // (synchronously, under cooked TTY) rather than racing the browser/device
+  // flow that's about to start.
   await vault.open();
 
   // Headless mode triggers when:
   //   - stdin isn't a TTY (CI, ssh -T, docker exec without -t), OR
   //   - the user passes `--no-browser` (e.g. running on a remote box and
   //     wanting to complete the flow from their laptop's browser).
-  const noBrowser = hasBoolFlag(argv, 'no-browser');
-  const headless = noBrowser || process.stdin.isTTY !== true;
-
-  return headless ? loginCodexDeviceFlow(vault) : loginCodexBrowserFlow(vault);
-}
-
-async function loginCodexBrowserFlow(
-  vault: import('@moxxy/plugin-vault').VaultStore,
-): Promise<number> {
-  const {
-    generatePKCE,
-    generateState,
-    buildAuthorizeUrl,
-    exchangeCodeForTokens,
-    DEFAULT_CALLBACK_PORT,
-  } = await import('@moxxy/plugin-provider-openai-codex');
-
-  const pkce = await generatePKCE();
-  const state = generateState();
-  const server = await startCallbackServer({ port: DEFAULT_CALLBACK_PORT, expectedState: state });
-  const url = buildAuthorizeUrl(server.redirectUri, pkce, state);
-
-  process.stdout.write(
-    `\n${colors.bold('Sign in to ChatGPT to authorize moxxy')}\n\n` +
-      `If your browser doesn't open automatically, paste this URL:\n\n  ${colors.cyan(url)}\n\n` +
-      `Waiting for callback on ${colors.dim(server.redirectUri)} (5 min timeout)…\n\n`,
-  );
-
-  // Best-effort browser launch — never fatal if it fails.
-  await tryOpenInBrowser(url);
+  const headless = hasBoolFlag(argv, 'no-browser') || process.stdin.isTTY !== true;
+  const ctx = buildProviderAuthContext(vault, { headless });
 
   try {
-    const code = await server.waitForCode(5 * 60 * 1000);
-    const tokens = await exchangeCodeForTokens(code, server.redirectUri, pkce);
-    await writeCodexTokens(vault, tokens);
+    const result = await def.auth.login(ctx);
+    const expiresStr =
+      result.expiresAt !== undefined
+        ? colors.dim(`token expires ${new Date(result.expiresAt).toLocaleString()}`)
+        : colors.dim('credentials stored');
     process.stdout.write(
       `${colors.green('✓ Login successful.')} ` +
-        `Account: ${colors.bold(tokens.accountId ?? '(none)')}  ` +
-        colors.dim(`token expires ${new Date(tokens.expires).toLocaleString()}`) +
+        `Account: ${colors.bold(result.accountId ?? '(none)')}  ` +
+        expiresStr +
         `\n\n` +
-        `Set ${colors.cyan('provider.name: openai-codex')} in moxxy.config.yaml to use it.\n`,
+        `Set ${colors.cyan(`provider.name: ${providerName}`)} in moxxy.config.yaml to use it.\n`,
     );
     return 0;
-  } catch (err) {
-    process.stderr.write(`${colors.red('✗ Login failed:')} ${err instanceof Error ? err.message : String(err)}\n`);
-    return 1;
-  } finally {
-    server.stop();
-  }
-}
-
-async function loginCodexDeviceFlow(
-  vault: import('@moxxy/plugin-vault').VaultStore,
-): Promise<number> {
-  const { startDeviceAuth, pollDeviceAuth } = await import('@moxxy/plugin-provider-openai-codex');
-
-  let init;
-  try {
-    init = await startDeviceAuth();
   } catch (err) {
     process.stderr.write(
-      `${colors.red('✗ Could not start device authorization:')} ` +
-        `${err instanceof Error ? err.message : String(err)}\n`,
+      `${colors.red('✗ Login failed:')} ${err instanceof Error ? err.message : String(err)}\n`,
     );
-    return 1;
-  }
-
-  process.stdout.write(
-    `\n${colors.bold('Sign in to ChatGPT (headless / device code flow)')}\n\n` +
-      `  1. On any browser-capable device, open:\n` +
-      `       ${colors.cyan(init.verificationUri)}\n\n` +
-      `  2. Enter this code:\n` +
-      `       ${colors.bold(colors.green(init.userCode))}\n\n` +
-      `Polling every ${Math.round(init.intervalMs / 1000)}s (10 min timeout)…\n\n`,
-  );
-
-  try {
-    const tokens = await pollDeviceAuth(init, { timeoutMs: 10 * 60 * 1000 });
-    await writeCodexTokens(vault, tokens);
-    process.stdout.write(
-      `${colors.green('✓ Login successful.')} ` +
-        `Account: ${colors.bold(tokens.accountId ?? '(none)')}  ` +
-        colors.dim(`token expires ${new Date(tokens.expires).toLocaleString()}`) +
-        `\n\n` +
-        `Set ${colors.cyan('provider.name: openai-codex')} in moxxy.config.yaml to use it.\n`,
-    );
-    return 0;
-  } catch (err) {
-    process.stderr.write(`${colors.red('✗ Login failed:')} ${err instanceof Error ? err.message : String(err)}\n`);
     return 1;
   }
 }
 
 async function loginStatus(argv: ParsedArgv): Promise<number> {
-  const { vault } = await bootSessionWithConfig(argv, {
+  const { session, vault } = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,
     skipProviderActivation: true,
+    tolerateNoProvider: true,
   });
   await vault.open();
-  const tokens = await readCodexTokens(vault);
-  if (!tokens) {
-    process.stdout.write(
-      `${colors.dim('openai-codex')}: ${colors.yellow('not logged in')}\n` +
-        `  Run \`moxxy login openai-codex\` to sign in.\n`,
-    );
+  const ctx = buildProviderAuthContext(vault, { headless: true });
+  const filter = argv.positional[1];
+
+  const oauthProviders = session.providers
+    .list()
+    .filter((d): d is ProviderDef & { auth: { kind: 'oauth' } & ProviderDef['auth'] } =>
+      d.auth?.kind === 'oauth',
+    )
+    .filter((d) => !filter || d.name === filter);
+
+  if (oauthProviders.length === 0) {
+    if (filter) {
+      process.stderr.write(`${colors.red(`unknown OAuth provider: ${filter}`)}\n`);
+      return 2;
+    }
+    process.stdout.write(`${colors.dim('no OAuth-capable providers are registered.')}\n`);
     return 0;
   }
-  const expired = tokens.expires < Date.now();
-  process.stdout.write(
-    `${colors.bold('openai-codex')}\n` +
-      `  account:        ${tokens.accountId ?? colors.dim('(none)')}\n` +
-      `  access expires: ${new Date(tokens.expires).toLocaleString()}` +
-      (expired ? ` ${colors.red('(expired — will refresh on next call)')}` : '') +
-      `\n  vault key:      ${colors.dim(CODEX_VAULT_KEY)}\n`,
-  );
+
+  for (const def of oauthProviders) {
+    const auth = def.auth!;
+    if (auth.kind !== 'oauth') continue;
+    if (!auth.status) {
+      process.stdout.write(
+        `${colors.bold(def.name)} ${colors.dim('— status not reported by plugin')}\n`,
+      );
+      continue;
+    }
+    const status = await auth.status(ctx);
+    if (!status) {
+      process.stdout.write(
+        `${colors.dim(def.name)}: ${colors.yellow('not logged in')}\n` +
+          `  Run \`moxxy login ${def.name}\` to sign in.\n`,
+      );
+      continue;
+    }
+    const expired = status.expiresAt !== undefined && status.expiresAt < Date.now();
+    process.stdout.write(
+      `${colors.bold(def.name)}\n` +
+        `  account:        ${status.accountId ?? colors.dim('(none)')}\n` +
+        (status.expiresAt !== undefined
+          ? `  access expires: ${new Date(status.expiresAt).toLocaleString()}` +
+            (expired ? ` ${colors.red('(expired — will refresh on next call)')}` : '') +
+            '\n'
+          : '') +
+        (status.vaultKey ? `  vault key:      ${colors.dim(status.vaultKey)}\n` : ''),
+    );
+  }
   return 0;
 }
 
 async function loginLogout(argv: ParsedArgv): Promise<number> {
-  const provider = argv.positional[1];
-  if (provider !== 'openai-codex') {
+  const providerName = argv.positional[1];
+  if (!providerName) {
     process.stderr.write(
-      `${colors.red(`logout: pass a provider name`)}\n  usage: moxxy login logout openai-codex\n`,
+      `${colors.red(`logout: pass a provider name`)}\n  usage: moxxy login logout <provider>\n`,
     );
     return 2;
   }
-  const { vault } = await bootSessionWithConfig(argv, {
+  const { session, vault } = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,
     skipProviderActivation: true,
+    tolerateNoProvider: true,
   });
   await vault.open();
-  const removed = await deleteCodexTokens(vault);
+  const def = session.providers.list().find((d) => d.name === providerName);
+  if (!def || def.auth?.kind !== 'oauth') {
+    process.stderr.write(`${colors.red(`unknown OAuth provider: ${providerName}`)}\n`);
+    return 2;
+  }
+  if (!def.auth.logout) {
+    process.stderr.write(
+      `${colors.dim(`${providerName}: plugin does not expose a logout flow.`)}\n`,
+    );
+    return 1;
+  }
+  const ctx = buildProviderAuthContext(vault, { headless: true });
+  const removed = await def.auth.logout(ctx);
   if (removed) {
     process.stdout.write(`${colors.green('✓ Logged out.')} OAuth credentials removed from the vault.\n`);
     return 0;
   }
-  process.stdout.write(`${colors.dim('No stored credentials for openai-codex.')}\n`);
+  process.stdout.write(`${colors.dim(`No stored credentials for ${providerName}.`)}\n`);
   return 0;
-}
-
-async function tryOpenInBrowser(url: string): Promise<void> {
-  // Use the OS-native "open this URL" command — no extra npm dependency
-  // required. Each branch is a fire-and-forget; failure is fine.
-  const { spawn } = await import('node:child_process');
-  const platform = process.platform;
-  try {
-    if (platform === 'darwin') {
-      spawn('open', [url], { detached: true, stdio: 'ignore' }).unref();
-    } else if (platform === 'win32') {
-      spawn('cmd', ['/c', 'start', '""', url], { detached: true, stdio: 'ignore' }).unref();
-    } else {
-      spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).unref();
-    }
-  } catch {
-    // Silent fallback — user has the URL printed above.
-  }
 }

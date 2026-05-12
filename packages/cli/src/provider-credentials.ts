@@ -1,12 +1,13 @@
 import type { VaultStore } from '@moxxy/plugin-vault';
-import type { CodexTokens } from '@moxxy/plugin-provider-openai-codex';
+import {
+  CODEX_VAULT_KEY,
+  type CodexTokens,
+} from '@moxxy/plugin-provider-openai-codex';
 import { resolveProviderApiKey, type ResolveOptions } from './provider-keys.js';
 
-/**
- * Vault entry name for the ChatGPT OAuth credential bundle. The full
- * JSON-stringified `CodexTokens` record is stored under this key.
- */
-export const CODEX_VAULT_KEY = 'OPENAI_CODEX_OAUTH';
+// Re-export so existing CLI imports (`./provider-credentials`) keep working.
+// The single source of truth lives in the codex plugin now.
+export { CODEX_VAULT_KEY };
 
 /**
  * Provider-aware credential resolution. The existing API-key flow (vault →
@@ -57,29 +58,3 @@ async function resolveOAuthCodex(vault: VaultStore): Promise<Record<string, unkn
   };
 }
 
-export async function readCodexTokens(vault: VaultStore): Promise<CodexTokens | null> {
-  let raw: string | null;
-  try {
-    raw = await vault.get(CODEX_VAULT_KEY);
-  } catch {
-    return null;
-  }
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as CodexTokens;
-  } catch {
-    return null;
-  }
-}
-
-export async function deleteCodexTokens(vault: VaultStore): Promise<boolean> {
-  try {
-    return await vault.delete(CODEX_VAULT_KEY);
-  } catch {
-    return false;
-  }
-}
-
-export async function writeCodexTokens(vault: VaultStore, tokens: CodexTokens): Promise<void> {
-  await vault.set(CODEX_VAULT_KEY, JSON.stringify(tokens), ['openai-codex', 'oauth']);
-}
