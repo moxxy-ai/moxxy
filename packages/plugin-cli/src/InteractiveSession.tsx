@@ -8,6 +8,7 @@ import { PermissionDialog } from './components/PermissionDialog.js';
 import { StatusBar } from './components/StatusBar.js';
 import { Spinner } from './components/Spinner.js';
 import { Logo } from './components/Logo.js';
+import { SessionInfo } from './components/SessionInfo.js';
 import { BUILTIN_SLASH_COMMANDS } from './components/SlashCommands.js';
 
 export interface InteractiveSessionProps {
@@ -57,8 +58,7 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
     return () => unsub();
   }, [session, registerInteractiveResolver]);
 
-  // Active provider + model snapshot for the status bar. Reads once per
-  // render — the registries are stable within a turn.
+  // Snapshot the session's stable session metadata for the header table.
   const providerName = session.providers.getActiveName() ?? '(none)';
   const activeModel =
     model ?? (() => {
@@ -68,6 +68,19 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
         return 'default';
       }
     })();
+  const loopName = (() => {
+    try {
+      return session.loops.getActive().name;
+    } catch {
+      return '(none)';
+    }
+  })();
+  const allTools = session.tools.list();
+  const allSkills = session.skills.list();
+  const PREVIEW_LIMIT = 6;
+  const toolPreview = allTools.slice(0, PREVIEW_LIMIT).map((t) => t.name);
+  const skillPreview = allSkills.slice(0, PREVIEW_LIMIT).map((s) => s.frontmatter.name);
+  const pluginCount = session.pluginHost.list().length;
 
   const runSlash = (cmd: string): void => {
     const [head] = cmd.split(/\s+/);
@@ -136,11 +149,19 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
 
   return (
     <Box flexDirection="column">
-      <Logo subtitle="type / for commands · /exit to quit" />
+      <Logo />
+      <SessionInfo
+        provider={providerName}
+        model={activeModel}
+        loop={loopName}
+        toolCount={allTools.length}
+        toolPreview={toolPreview}
+        skillCount={allSkills.length}
+        skillPreview={skillPreview}
+        pluginCount={pluginCount}
+      />
       <Box marginBottom={1}>
-        <Text> </Text>
-        <Text backgroundColor="magenta" color="white" bold>{` ${providerName} `}</Text>
-        <Text dimColor>{`  ${activeModel}`}</Text>
+        <Text dimColor>type / for commands · /exit to quit</Text>
       </Box>
       <ChatView events={events} streamingDelta={streamingDelta} />
       {systemNotice ? (
