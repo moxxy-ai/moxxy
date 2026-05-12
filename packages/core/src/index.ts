@@ -1,5 +1,11 @@
 export { Session, type SessionOptions } from './session.js';
 export { runTurn, collectTurn, type RunTurnOptions } from './run-turn.js';
+export {
+  loadPreferences,
+  savePreferences,
+  preferencesPath,
+  type MoxxyPreferences,
+} from './preferences.js';
 export { SkillRegistryImpl } from './registries/skills.js';
 export {
   parseSkillFile,

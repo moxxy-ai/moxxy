@@ -11,7 +11,7 @@ import { SkillRegistryImpl } from './registries/skills.js';
 import { ToolRegistryImpl, type ToolRegistry } from './registries/tools.js';
 import { PermissionEngine } from './permissions/engine.js';
 import { autoAllowResolver } from './permissions/resolvers.js';
-import type { PermissionResolver } from '@moxxy/sdk';
+import type { ApprovalResolver, PermissionResolver } from '@moxxy/sdk';
 import { createLogger, silentLogger, type Logger } from './logger.js';
 
 export interface SessionOptions {
@@ -44,6 +44,14 @@ export class Session {
   readonly permissions: PermissionEngine;
   /** Current PermissionResolver. Update via `setPermissionResolver(r)`. */
   resolver: PermissionResolver;
+  /**
+   * Optional generic approval resolver. Loop strategies use this to ask
+   * the user a checkpoint question (plan validation, command preview,
+   * diff review, etc.). Null when running headless or before the TUI
+   * registers one — strategies that have no resolver simply skip the
+   * approval step.
+   */
+  approvalResolver: ApprovalResolver | null = null;
   readonly dispatcher: HookDispatcherImpl;
   readonly pluginHost: PluginHost;
   private readonly controller = new AbortController();
@@ -100,6 +108,11 @@ export class Session {
    */
   setPermissionResolver(resolver: PermissionResolver): void {
     this.resolver = resolver;
+  }
+
+  /** Install/replace the generic approval resolver. Pass null to clear. */
+  setApprovalResolver(resolver: ApprovalResolver | null): void {
+    this.approvalResolver = resolver;
   }
 
   /**

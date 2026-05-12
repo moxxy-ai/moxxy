@@ -68,6 +68,7 @@ export async function* runTurn(
       log: session.log,
       compactor: session.compactors.getActive(),
       permissions: session.resolver,
+      ...(session.approvalResolver ? { approval: session.approvalResolver } : {}),
       hooks: session.dispatcher,
       pluginHost: session.pluginHost,
       signal: effectiveSignal,

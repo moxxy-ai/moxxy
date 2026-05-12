@@ -60,15 +60,38 @@ async function loadDir(
       logger?.warn('skill: invalid frontmatter, skipping', { path: full, issues: parsed.error.issues });
       continue;
     }
+    // Auto-derive trigger fallbacks from the skill name when the
+    // frontmatter `triggers:` field is missing/empty. Without this,
+    // user-authored skills (or model-synthesized ones that skipped the
+    // field) have no triggers at all — they're effectively invisible
+    // to the trigger-match router and confusing in /skills listings.
+    // We split the kebab-case name into words and also keep the full
+    // slug as a literal trigger.
+    const fm = parsed.data;
+    const finalTriggers =
+      fm.triggers && fm.triggers.length > 0 ? fm.triggers : deriveTriggers(fm.name);
     out.push({
-      id: asSkillId(`${scope}/${parsed.data.name}`),
+      id: asSkillId(`${scope}/${fm.name}`),
       path: full,
       scope,
-      frontmatter: parsed.data,
+      frontmatter: { ...fm, triggers: finalTriggers },
       body: body.trimEnd(),
     });
   }
   return out;
+}
+
+/**
+ * Derive trigger-like phrases from a kebab-case skill name. Best-effort
+ * fallback for skills whose frontmatter omits the `triggers:` field —
+ * gives the router and `/skills` listing *something* to show.
+ */
+function deriveTriggers(name: string): ReadonlyArray<string> {
+  const parts = name.split('-').filter((p) => p.length > 1);
+  const out = new Set<string>();
+  out.add(name.replace(/-/g, ' '));
+  for (const p of parts) out.add(p);
+  return [...out];
 }
 
 export function defaultUserSkillsDir(): string {

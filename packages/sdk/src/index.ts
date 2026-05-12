@@ -64,6 +64,7 @@ export { isRetryableError, zodToJsonSchema, type StopReason } from './provider-u
 export {
   collectProviderStream,
   projectMessagesFromLog,
+  buildSystemPromptWithSkills,
   type CollectedToolUse,
   type StreamResult,
   type ProjectMessagesOptions,
@@ -79,6 +80,10 @@ export type {
   PluginHostHandle,
   LoopContext,
   LoopStrategyDef,
+  ApprovalResolver,
+  ApprovalRequest,
+  ApprovalDecision,
+  ApprovalOption,
 } from './loop.js';
 
 export type {

@@ -1,6 +1,7 @@
 import type { ProviderEvent, ProviderMessage } from './provider.js';
 import type { LoopContext } from './loop.js';
 import type { StopReason } from './provider-utils.js';
+import type { Skill } from './skill.js';
 
 /**
  * Shared bits used by every loop strategy: a typed tool-use struct and a
@@ -16,6 +17,41 @@ export interface CollectedToolUse {
   readonly id: string;
   readonly name: string;
   readonly input: unknown;
+}
+
+/**
+ * Compose a model-facing system prompt that includes any base prompt
+ * plus a COMPACT skill index (name + description + triggers only).
+ *
+ * Lazy-loading design: the body is intentionally NOT inlined. The model
+ * matches user intent against the description/triggers, then calls the
+ * `load_skill` tool to fetch the body of the skill it picked. This keeps
+ * the system prompt small even with many skills installed and avoids
+ * paying for skill bodies the model never actually follows.
+ */
+export function buildSystemPromptWithSkills(
+  baseSystemPrompt: string | undefined,
+  skills: ReadonlyArray<Skill>,
+): string | undefined {
+  if (skills.length === 0) return baseSystemPrompt;
+  const header =
+    `## Available skills\n\n` +
+    `Each line below is a pre-authored playbook for a specific intent. ` +
+    `When the user's request matches one of these (by name, description, ` +
+    `or triggers), call \`load_skill({ name: "<skill-name>" })\` FIRST to ` +
+    `fetch the full instructions, then follow them verbatim. Prefer using ` +
+    `a skill over re-deriving the workflow with ad-hoc tools.\n`;
+  const entries = skills
+    .map((s) => {
+      const fm = s.frontmatter;
+      const triggerHint = fm.triggers?.length
+        ? ` (triggers: ${fm.triggers.map((t) => `"${t}"`).join(', ')})`
+        : '';
+      return `- **${fm.name}** — ${fm.description}${triggerHint}`;
+    })
+    .join('\n');
+  const skillBlock = `${header}\n${entries}`;
+  return baseSystemPrompt ? `${baseSystemPrompt}\n\n${skillBlock}` : skillBlock;
 }
 
 export interface ProjectMessagesOptions {
@@ -47,15 +83,57 @@ export function projectMessagesFromLog(
     messages.push({ role: 'system', content: [{ type: 'text', text: opts.systemPrompt }] });
   }
 
+  const allEvents = ctx.log.slice();
+  // Pre-scan: build the set of callIds that have a matching tool_result
+  // (or tool_call_denied) somewhere in the log. Used to synthesize a
+  // fallback `[interrupted]` tool_result for orphan tool_use blocks
+  // when the assistant message gets flushed.
+  //
+  // Without this fallback the provider rejects the whole conversation
+  // with "assistant message with 'tool_calls' must be followed by tool
+  // messages responding to each 'tool_call_id'". Orphans typically
+  // appear after a cancelled turn, an aborted process, or a tool
+  // exception that bypassed the loop's tool_result emit path.
+  const resolvedCallIds = new Set<string>();
+  for (const e of allEvents) {
+    if (e.type === 'tool_result' || e.type === 'tool_call_denied') {
+      resolvedCallIds.add(e.callId);
+    }
+  }
+
   let pendingAssistant: ProviderMessage | null = null;
   const flush = (): void => {
-    if (pendingAssistant) {
-      messages.push(pendingAssistant);
-      pendingAssistant = null;
+    if (!pendingAssistant) return;
+    const flushed = pendingAssistant;
+    messages.push(flushed);
+    pendingAssistant = null;
+    // Synthesize fallback tool_result messages for any tool_use blocks
+    // whose callId never resolved in the event log. Has to land
+    // immediately after the assistant message (and before any
+    // subsequent user_prompt / assistant_message) so the provider sees
+    // a clean assistant→tool-result chain.
+    for (const block of flushed.content) {
+      if (block.type === 'tool_use' && !resolvedCallIds.has(block.id)) {
+        messages.push({
+          role: 'tool_result',
+          content: [
+            {
+              type: 'tool_result',
+              toolUseId: block.id,
+              content: '[tool call did not return a result — possibly interrupted or cancelled]',
+              isError: true,
+            },
+          ],
+        });
+        // Mark synthesized so we don't double-emit if the same orphan
+        // appears in multiple groups (defensive — shouldn't normally
+        // happen since each tool_call_requested has a unique callId).
+        resolvedCallIds.add(block.id);
+      }
     }
   };
 
-  for (const e of ctx.log.slice()) {
+  for (const e of allEvents) {
     switch (e.type) {
       case 'user_prompt':
         flush();

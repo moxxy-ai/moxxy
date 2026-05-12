@@ -45,11 +45,56 @@ export interface LoopContext {
   readonly log: EventLogReader;
   readonly compactor: CompactorDef | null;
   readonly permissions: PermissionResolver;
+  /**
+   * Optional generic "ask the user a question" gate. Any loop strategy can
+   * call this to surface a checkpoint to the user — plan-execute uses it
+   * after producing a plan, but a code-execution loop could use it for
+   * "run this command?" or a refactor loop for "apply this diff?". When
+   * absent (headless / non-TTY), strategies should proceed as if the user
+   * picked the default option, or fail closed depending on the strategy.
+   */
+  readonly approval?: ApprovalResolver;
   readonly hooks: HookDispatcher;
   readonly pluginHost: PluginHostHandle;
   readonly signal: AbortSignal;
   readonly maxIterations?: number;
   emit(event: EmittedEvent): Promise<MoxxyEvent>;
+}
+
+/**
+ * Generic approval-dialog request. The TUI renders `title` as the header,
+ * `body` as a verbatim block (plan text, diff, command preview, etc.), and
+ * a single-select list of `options`. An option may set `requestsText` so
+ * the dialog prompts for follow-up text after selection (e.g. redraft
+ * feedback). `kind` is a loose tag the dialog/CLI can use for styling.
+ */
+export interface ApprovalRequest {
+  readonly title: string;
+  readonly body: string;
+  readonly options: ReadonlyArray<ApprovalOption>;
+  readonly defaultOptionId?: string;
+  readonly kind?: string;
+}
+
+export interface ApprovalOption {
+  readonly id: string;
+  readonly label: string;
+  readonly hotkey?: string;
+  readonly description?: string;
+  readonly requestsText?: boolean;
+  readonly textPrompt?: string;
+  readonly danger?: boolean;
+}
+
+export interface ApprovalDecision {
+  readonly optionId: string;
+  /** Free-text follow-up the user typed when the option had `requestsText: true`. */
+  readonly text?: string;
+}
+
+export interface ApprovalResolver {
+  readonly name: string;
+  confirm(req: ApprovalRequest): Promise<ApprovalDecision>;
 }
 
 export interface LoopStrategyDef {

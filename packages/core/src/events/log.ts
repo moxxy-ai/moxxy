@@ -68,6 +68,22 @@ export class EventLog implements EventLogReader {
     return () => this.listeners.delete(fn);
   }
 
+  /**
+   * Drop every event from the log. Used by `/new` (TUI) to start a
+   * fresh session without rebuilding the entire Session object — the
+   * registries, resolvers, and active provider stay; only the
+   * conversation context vanishes. Listeners are intentionally NOT
+   * notified: there's no "event removed" event in the schema, and any
+   * subscriber that wants to react to a wipe can observe the
+   * subsequent next-`user_prompt` arriving with seq=0.
+   *
+   * Safe to call only when no turn is in flight — callers should abort
+   * their AbortController and await any pending runTurn() first.
+   */
+  clear(): void {
+    this.events.length = 0;
+  }
+
   asReader(): EventLogReader {
     return this;
   }

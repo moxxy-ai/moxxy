@@ -1,6 +1,7 @@
 import {
   asPluginId,
   asToolCallId,
+  buildSystemPromptWithSkills,
   collectProviderStream,
   defineLoopStrategy,
   definePlugin,
@@ -58,23 +59,119 @@ async function* runPlanExecuteLoop(ctx: LoopContext): AsyncIterable<MoxxyEvent> 
     routing: 'unresolved',
   });
 
-  // Phase 1: produce a plan
-  const planText = await collectPlan(ctx);
-  if (planText === null) return;
-  const steps = parsePlan(planText);
+  // Phase 1: produce a plan, with an optional user-approval gate.
+  // When ctx.planApproval is set (TUI), we ask the user to validate
+  // the plan after each draft. On "redraft" we re-run planning with
+  // their feedback as extra context; on "cancel" we abort the turn.
+  let planText = '';
+  let steps: string[] = [];
+  let redraftFeedback: string | null = null;
+  const MAX_REDRAFTS = 5;
+  let redraftCount = 0;
 
-  yield await ctx.emit({
-    type: 'plugin_event',
-    sessionId: ctx.sessionId,
-    turnId: ctx.turnId,
-    source: 'plugin',
-    pluginId: PLAN_PLUGIN_ID,
-    subtype: 'plan_created',
-    payload: { text: planText, steps },
-  });
+  while (true) {
+    if (ctx.signal.aborted) {
+      yield await ctx.emit({
+        type: 'abort',
+        sessionId: ctx.sessionId,
+        turnId: ctx.turnId,
+        source: 'system',
+        reason: 'aborted during planning',
+      });
+      return;
+    }
 
-  if (steps.length === 0) {
-    // No actionable plan — surface and stop.
+    const collected = await collectPlan(ctx, redraftFeedback);
+    if (collected === null) return;
+    planText = collected;
+    steps = parsePlan(planText);
+
+    yield await ctx.emit({
+      type: 'plugin_event',
+      sessionId: ctx.sessionId,
+      turnId: ctx.turnId,
+      source: 'plugin',
+      pluginId: PLAN_PLUGIN_ID,
+      subtype: 'plan_created',
+      payload: { text: planText, steps, redraft: redraftCount },
+    });
+
+    if (steps.length === 0) {
+      // No actionable plan — surface as a final assistant message and stop.
+      yield await ctx.emit({
+        type: 'assistant_message',
+        sessionId: ctx.sessionId,
+        turnId: ctx.turnId,
+        source: 'model',
+        content: planText,
+        stopReason: 'end_turn',
+      });
+      return;
+    }
+
+    // Approval gate — only when a resolver is installed. Headless contexts
+    // (-p / non-TTY) have no resolver and proceed straight to execution.
+    if (ctx.approval) {
+      const decision = await ctx.approval.confirm({
+        title: 'Plan ready — review before execution',
+        body: planText,
+        kind: 'plan-execute.plan',
+        defaultOptionId: 'approve',
+        options: [
+          {
+            id: 'approve',
+            label: 'Approve and run',
+            hotkey: 'a',
+            description: `Execute the ${steps.length} step${steps.length === 1 ? '' : 's'} above.`,
+          },
+          {
+            id: 'redraft',
+            label: 'Redraft with feedback',
+            hotkey: 'r',
+            requestsText: true,
+            textPrompt: 'What should change about the plan?',
+            description: 'Send feedback to the planner and get a new plan.',
+          },
+          {
+            id: 'cancel',
+            label: 'Cancel this turn',
+            hotkey: 'c',
+            danger: true,
+          },
+        ],
+      });
+      if (decision.optionId === 'cancel') {
+        yield await ctx.emit({
+          type: 'abort',
+          sessionId: ctx.sessionId,
+          turnId: ctx.turnId,
+          source: 'user',
+          reason: 'plan rejected by user',
+        });
+        return;
+      }
+      if (decision.optionId === 'redraft') {
+        redraftCount += 1;
+        if (redraftCount > MAX_REDRAFTS) {
+          yield await ctx.emit({
+            type: 'error',
+            sessionId: ctx.sessionId,
+            turnId: ctx.turnId,
+            source: 'system',
+            kind: 'fatal',
+            message: `plan-execute: redrafted ${MAX_REDRAFTS}× without approval; aborting.`,
+          });
+          return;
+        }
+        redraftFeedback = decision.text ?? null;
+        continue; // loop back, collect a new plan
+      }
+      // optionId === 'approve' (or unknown — treat as approve) — fall through
+    }
+
+    // Materialize the approved plan as an assistant_message so projection
+    // picks it up in per-step execution. Only emit the FINAL plan — earlier
+    // redrafts shouldn't pollute the conversation the model sees.
     yield await ctx.emit({
       type: 'assistant_message',
       sessionId: ctx.sessionId,
@@ -83,7 +180,7 @@ async function* runPlanExecuteLoop(ctx: LoopContext): AsyncIterable<MoxxyEvent> 
       content: planText,
       stopReason: 'end_turn',
     });
-    return;
+    break;
   }
 
   // Phase 2: execute each step. Two caps:
@@ -126,7 +223,14 @@ async function* runPlanExecuteLoop(ctx: LoopContext): AsyncIterable<MoxxyEvent> 
       payload: { index: i, step: steps[i]! },
     });
 
-    const completed = await executeStep(ctx, steps[i]!, maxIterationsPerStep);
+    const completed = await executeStep(
+      ctx,
+      steps[i]!,
+      i,
+      steps,
+      planText,
+      maxIterationsPerStep,
+    );
 
     yield await ctx.emit({
       type: 'plugin_event',
@@ -162,12 +266,39 @@ async function* runPlanExecuteLoop(ctx: LoopContext): AsyncIterable<MoxxyEvent> 
   });
 }
 
-async function collectPlan(ctx: LoopContext): Promise<string | null> {
+async function collectPlan(
+  ctx: LoopContext,
+  redraftFeedback: string | null,
+): Promise<string | null> {
   const userMessages = buildBaseMessages(ctx);
+  // On redraft, append the user's feedback as an extra user turn so the
+  // planner sees both the original request AND what they wanted changed.
+  if (redraftFeedback) {
+    userMessages.push({
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text:
+            `The previous plan needs to be redrafted. Feedback from the user: ${redraftFeedback}\n\n` +
+            `Produce a new PLAN block addressing this feedback.`,
+        },
+      ],
+    });
+  }
+  // Include skills in the planner's view so plans can name skills as
+  // steps (e.g. "Use the media-digest skill") instead of always routing
+  // to generic tools like web_fetch.
+  const systemWithSkills = buildSystemPromptWithSkills(ctx.systemPrompt, ctx.skills.list()) ?? '';
   const planMessages: ProviderMessage[] = [
     {
       role: 'system',
-      content: [{ type: 'text', text: PLAN_SYSTEM_PROMPT + (ctx.systemPrompt ? `\n\n${ctx.systemPrompt}` : '') }],
+      content: [
+        {
+          type: 'text',
+          text: PLAN_SYSTEM_PROMPT + (systemWithSkills ? `\n\n${systemWithSkills}` : ''),
+        },
+      ],
     },
     ...userMessages,
   ];
@@ -237,8 +368,35 @@ async function collectPlan(ctx: LoopContext): Promise<string | null> {
 async function executeStep(
   ctx: LoopContext,
   step: string,
+  stepIndex: number,
+  allSteps: ReadonlyArray<string>,
+  planText: string,
   maxIterations: number,
 ): Promise<boolean> {
+  // The plan itself lives in the log now (as an assistant_message
+  // emitted right after planning), so projection will surface it
+  // automatically. We still need a forceful per-step nudge so the model
+  // actually uses tools rather than narrating — the previous prompt
+  // "Focus on this step now: X" sounded conversational and the model
+  // would reply with "Sure, I'll do X" without ever calling a tool,
+  // then the loop would advance and burn another step doing nothing.
+  void planText;
+  const stepNudge =
+    `STEP ${stepIndex + 1}/${allSteps.length}: ${step}\n\n` +
+    `Use the available tools to do this step now. Do not summarize, do ` +
+    `not explain what you will do — just call the tools. When the step is ` +
+    `concretely done, reply with one short line of confirmation and stop. ` +
+    `If you cannot make progress with tools, say exactly what's blocking ` +
+    `you in one sentence and stop.`;
+
+  // Track tool-call signatures within this step. If the model repeats
+  // the exact same call (same name + same input), it's stuck in a
+  // pointless loop — observed empirically when the model "writes the
+  // same step1.md four times in a row" because nothing in the
+  // conversation tells it the work is done. We treat the second
+  // identical call as the signal that the step is finished.
+  const callSignatures = new Set<string>();
+
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
     if (ctx.signal.aborted) return false;
 
@@ -252,8 +410,9 @@ async function executeStep(
     });
 
     const messages = projectMessagesFromLog(ctx, {
-      systemPrompt: ctx.systemPrompt,
-      trailingUserText: `Focus on this step now: ${step}`,
+      systemPrompt:
+        buildSystemPromptWithSkills(ctx.systemPrompt, ctx.skills.list()) ?? ctx.systemPrompt,
+      trailingUserText: stepNudge,
     });
     await ctx.emit({
       type: 'provider_request',
@@ -298,7 +457,38 @@ async function executeStep(
     // Step done if the model didn't ask to use tools.
     if (stopReason !== 'tool_use' || toolUses.length === 0) return true;
 
+    // Detect repeat calls BEFORE dispatching. If every tool use in this
+    // iteration was already seen in a prior iteration of the SAME step,
+    // the model is stuck rewriting the same file / running the same
+    // command over and over. Treat the step as done so we move on
+    // instead of burning the full per-step iteration cap.
+    const newCallsThisIteration = toolUses.filter((t) => {
+      const sig = `${t.name}::${JSON.stringify(t.input ?? null)}`;
+      return !callSignatures.has(sig);
+    });
+    if (newCallsThisIteration.length === 0) {
+      await ctx.emit({
+        type: 'plugin_event',
+        sessionId: ctx.sessionId,
+        turnId: ctx.turnId,
+        source: 'plugin',
+        pluginId: PLAN_PLUGIN_ID,
+        subtype: 'plan_step_repeat_detected',
+        payload: {
+          stepIndex,
+          step,
+          iteration,
+          repeatedCalls: toolUses.map((t) => t.name),
+        },
+      });
+      return true;
+    }
+
     for (const t of toolUses) {
+      // Record the signature so the NEXT iteration can detect a repeat.
+      const sig = `${t.name}::${JSON.stringify(t.input ?? null)}`;
+      callSignatures.add(sig);
+
       // Emit the request RIGHT BEFORE we dispatch + execute it so
       // every tool_call_requested in the log has a matching outcome.
       await ctx.emit({

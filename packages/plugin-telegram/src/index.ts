@@ -8,6 +8,7 @@ export {
   type TelegramStartOpts,
 } from './channel.js';
 export { TelegramPermissionResolver, type PendingPermission } from './permission.js';
+export { TelegramApprovalResolver, type PendingApproval } from './approval.js';
 export {
   createPairingState,
   beginPairing,

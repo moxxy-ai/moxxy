@@ -1,5 +1,6 @@
 import {
   asToolCallId,
+  buildSystemPromptWithSkills,
   collectProviderStream,
   defineLoopStrategy,
   definePlugin,
@@ -205,7 +206,12 @@ async function* runToolUseLoop(ctx: LoopContext): AsyncIterable<MoxxyEvent> {
 }
 
 function buildMessages(ctx: LoopContext): ReadonlyArray<import('@moxxy/sdk').ProviderMessage> {
-  return projectMessagesFromLog(ctx, { systemPrompt: ctx.systemPrompt });
+  // Compose the system prompt with the skill catalog so the model knows
+  // which playbooks exist; without this skills are invisible to the
+  // model and it falls back to ad-hoc tool calls (the classic
+  // `web_fetch instead of media-digest skill` symptom).
+  const systemPrompt = buildSystemPromptWithSkills(ctx.systemPrompt, ctx.skills.list());
+  return projectMessagesFromLog(ctx, { ...(systemPrompt ? { systemPrompt } : {}) });
 }
 
 function hookDeny(verdict: ToolCallVerdict): string | null {

@@ -61,7 +61,22 @@ export class ToolRegistryImpl implements ToolRegistry {
   ): Promise<unknown> {
     const tool = this.tools.get(name);
     if (!tool) throw new Error(`Unknown tool: ${name}`);
-    const parsed = tool.inputSchema.parse(input);
+    // Use safeParse so a validation failure surfaces as a clean,
+    // single-line error in the tool_result instead of the raw ZodError
+    // (which JSON-stringifies into 20+ lines of red noise — observed
+    // with memory_save and synthesize_skill). The formatted message tells
+    // the model exactly which fields are off and why, so it can retry.
+    const parseResult = tool.inputSchema.safeParse(input);
+    if (!parseResult.success) {
+      const issues = parseResult.error.issues
+        .map((iss) => {
+          const path = iss.path.length ? iss.path.join('.') : '(root)';
+          return `${path}: ${iss.message}`;
+        })
+        .join('; ');
+      throw new Error(`Invalid input for ${name}: ${issues}`);
+    }
+    const parsed = parseResult.data;
 
     const ctx: ToolContext = {
       sessionId: asSessionId(opts.sessionId ?? 'no-session'),

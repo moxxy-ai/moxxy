@@ -20,6 +20,15 @@ export interface SynthesizeOptions {
   readonly projectDir?: string;
   readonly model?: string;
   readonly auditPath?: string;
+  /**
+   * Directory holding builtin skills (`@moxxy/skills-builtin`). Threaded
+   * through so `reload_skills` can rescan the same source set as the boot
+   * loader — otherwise reload silently drops the builtins, observed when
+   * a session called `reload_skills` and lost every shipped skill.
+   */
+  readonly builtinDir?: string;
+  /** Extra plugin-supplied skill directories. Same boot-vs-reload story. */
+  readonly pluginDirs?: ReadonlyArray<string>;
 }
 
 export interface SynthesizedSkill {
@@ -46,9 +55,22 @@ export async function synthesizeSkill(
 
   // Validate the LLM-drafted frontmatter against the published schema BEFORE
   // we write it to disk or register it. A model that returns sloppy YAML
-  // (missing description, illegal slug, etc.) should fail loudly here, not
-  // produce a malformed skill the loader silently ignores later.
-  const frontmatter = skillFrontmatterSchema.parse(draft.frontmatter) as Skill['frontmatter'];
+  // (missing description, illegal slug, etc.) should fail with a single
+  // readable line — the raw zod issue array was dumping ~30 lines of
+  // angry red JSON into the chat, which is a worse signal than just
+  // saying "the model didn't produce valid frontmatter."
+  const parsed = skillFrontmatterSchema.safeParse(draft.frontmatter);
+  if (!parsed.success) {
+    const missing = parsed.error.issues
+      .map((iss) => iss.path.join('.') || '(root)')
+      .join(', ');
+    throw new Error(
+      `synthesize_skill: the model didn't produce valid skill frontmatter ` +
+        `(missing or invalid: ${missing}). This usually means the model returned ` +
+        `prose or a code block without proper YAML frontmatter. Try a more specific intent.`,
+    );
+  }
+  const frontmatter = parsed.data as Skill['frontmatter'];
 
   const finalPath = await uniqueFilename(baseDir, slugify(frontmatter.name));
   await fs.writeFile(finalPath, draft.raw, 'utf8');
@@ -178,10 +200,22 @@ export function buildSynthesizeSkillPlugin(
         name: 'synthesize_skill',
         description:
           'Draft and persist a new Markdown skill for the given user intent. ' +
-          'Uses the active provider to generate the skill body. Returns the path of the created skill.',
+          'Uses the active provider to generate the skill body. Returns the path of the created skill. ' +
+          'ALWAYS pass scope="user" (the default) unless the user has EXPLICITLY asked to scope ' +
+          'the skill to this project — "user" writes to ~/.moxxy/skills/ and the skill is ' +
+          'available across every project; "project" writes to <cwd>/.moxxy/skills/ and only ' +
+          'applies in this directory. Most skills are general-purpose; pick "project" only when ' +
+          'the user said something like "for this repo only" or "project-specific".',
         inputSchema: z.object({
           intent: z.string().min(1).describe('What the user is trying to do. One sentence is enough.'),
-          scope: z.enum(['user', 'project']).optional().default('user'),
+          scope: z
+            .enum(['user', 'project'])
+            .optional()
+            .default('user')
+            .describe(
+              'Where to write the skill. "user" → ~/.moxxy/skills/ (default, recommended). ' +
+                '"project" → <cwd>/.moxxy/skills/ — ONLY when the user explicitly asks for a project-scoped skill.',
+            ),
         }),
         permission: { action: 'prompt' },
         handler: async ({ intent, scope }) => {
@@ -194,17 +228,72 @@ export function buildSynthesizeSkillPlugin(
         },
       }),
       defineTool({
+        name: 'load_skill',
+        description:
+          'Fetch the full body (instructions) of a pre-authored skill by name. ' +
+          'The system prompt lists each skill\'s name, description, and triggers; ' +
+          'call this tool to retrieve the actual workflow when the user\'s intent ' +
+          'matches one of those skills. Returns the markdown body verbatim plus the ' +
+          'frontmatter metadata (allowed-tools, scope, etc.).',
+        inputSchema: z.object({
+          name: z
+            .string()
+            .min(1)
+            .describe('The exact skill name from the "Available skills" list in the system prompt.'),
+        }),
+        handler: async ({ name }) => {
+          const skill = session.skills.byName(name);
+          if (!skill) {
+            const known = session.skills
+              .list()
+              .map((s) => s.frontmatter.name)
+              .join(', ');
+            throw new Error(
+              `load_skill: no skill named "${name}". ` +
+                `Known skills: ${known || '(none registered)'}.`,
+            );
+          }
+          // Emit a skill_invoked event so the audit log captures which
+          // skills were actually exercised in this turn — useful for
+          // routing analytics and for the self-improver agent later.
+          await session.log.append({
+            type: 'skill_invoked',
+            sessionId: session.id,
+            turnId: session.startTurn().turnId,
+            source: 'model',
+            skillId: skill.id,
+            name: skill.frontmatter.name,
+            reason: 'load_skill_tool',
+          });
+          return {
+            name: skill.frontmatter.name,
+            description: skill.frontmatter.description,
+            scope: skill.scope,
+            allowedTools: skill.frontmatter['allowed-tools'] ?? null,
+            body: skill.body,
+          };
+        },
+      }),
+      defineTool({
         name: 'reload_skills',
-        description: 'Rescan ~/.moxxy/skills and ./.moxxy/skills, registering any new or changed skills.',
+        description:
+          'Rescan all skill sources (builtin + plugin + ~/.moxxy/skills + ./.moxxy/skills), ' +
+          'registering any new or changed skills.',
         inputSchema: z.object({}),
         handler: async () => {
           const { discoverSkills } = await import('./loader.js');
           // Discover first, swap second: never empty the registry while
           // the fs scan is in flight, because concurrent skill lookups
-          // would observe an empty registry mid-reload.
+          // would observe an empty registry mid-reload. Pass the SAME
+          // source set the boot loader used (builtin + pluginDirs +
+          // user + project); a previous version of this handler omitted
+          // builtinDir/pluginDirs and reload silently nuked the builtin
+          // skill set.
           const discovered = await discoverSkills({
-            projectDir: defaultProjectSkillsDir(session.cwd),
+            projectDir: opts.projectDir ?? defaultProjectSkillsDir(session.cwd),
             userDir: opts.userDir ?? defaultUserSkillsDir(),
+            ...(opts.builtinDir ? { builtinDir: opts.builtinDir } : {}),
+            ...(opts.pluginDirs ? { pluginDirs: opts.pluginDirs } : {}),
           });
           session.skills.replaceAll(discovered);
           return `loaded ${discovered.length} skill${discovered.length === 1 ? '' : 's'}`;
