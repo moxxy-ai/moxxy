@@ -33,6 +33,11 @@ export class VaultStore {
   private readonly keySource: MasterKeySource;
   private file: VaultFile | null = null;
   private masterKey: Buffer | null = null;
+  // Serializes every mutator (set/delete) and persist() so concurrent
+  // writers don't clobber each other through the read-modify-write +
+  // whole-file rewrite. open() is also chained through this so two
+  // parallel `open()` calls never both derive a fresh salt.
+  private writeChain: Promise<unknown> = Promise.resolve();
 
   constructor(opts: VaultStoreOptions) {
     this.filePath = opts.filePath;
@@ -41,7 +46,10 @@ export class VaultStore {
 
   async open(): Promise<void> {
     if (this.file && this.masterKey) return;
-    await this.load();
+    return this.serialize(async () => {
+      if (this.file && this.masterKey) return;
+      await this.load();
+    });
   }
 
   get sourceName(): string {
@@ -71,31 +79,49 @@ export class VaultStore {
     this.masterKey = await this.keySource.obtain(salt);
   }
 
+  /**
+   * Crash-atomic write: serialize to a sibling tmp file, then rename. POSIX
+   * rename is atomic, so a crash mid-write leaves the previous vault intact
+   * rather than truncated.
+   */
   private async persist(): Promise<void> {
     if (!this.file) return;
     await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    await fs.writeFile(this.filePath, JSON.stringify(this.file, null, 2), { mode: 0o600 });
+    const tmp = `${this.filePath}.tmp.${process.pid}.${Date.now()}`;
+    await fs.writeFile(tmp, JSON.stringify(this.file, null, 2), { mode: 0o600 });
+    await fs.rename(tmp, this.filePath);
+  }
+
+  /** Run `fn` under the per-instance mutex. */
+  private serialize<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.writeChain.then(fn, fn);
+    // Keep the chain alive even if `fn` rejects, so subsequent calls aren't
+    // poisoned by a single failure.
+    this.writeChain = next.catch(() => undefined);
+    return next;
   }
 
   async set(name: string, value: string, tags?: ReadonlyArray<string>): Promise<void> {
     await this.open();
-    if (!this.file || !this.masterKey) throw new Error('vault not open');
-    const now = new Date().toISOString();
-    const existing = this.file.entries[name];
-    const blob = encrypt(value, this.masterKey);
-    this.file = {
-      ...this.file,
-      entries: {
-        ...this.file.entries,
-        [name]: {
-          ...blob,
-          createdAt: existing?.createdAt ?? now,
-          updatedAt: now,
-          tags: tags ?? existing?.tags,
+    return this.serialize(async () => {
+      if (!this.file || !this.masterKey) throw new Error('vault not open');
+      const now = new Date().toISOString();
+      const existing = this.file.entries[name];
+      const blob = encrypt(value, this.masterKey);
+      this.file = {
+        ...this.file,
+        entries: {
+          ...this.file.entries,
+          [name]: {
+            ...blob,
+            createdAt: existing?.createdAt ?? now,
+            updatedAt: now,
+            tags: tags ?? existing?.tags,
+          },
         },
-      },
-    };
-    await this.persist();
+      };
+      await this.persist();
+    });
   }
 
   async get(name: string): Promise<string | null> {
@@ -113,13 +139,15 @@ export class VaultStore {
 
   async delete(name: string): Promise<boolean> {
     await this.open();
-    if (!this.file) return false;
-    if (!(name in this.file.entries)) return false;
-    const { [name]: _removed, ...rest } = this.file.entries;
-    void _removed;
-    this.file = { ...this.file, entries: rest };
-    await this.persist();
-    return true;
+    return this.serialize(async () => {
+      if (!this.file) return false;
+      if (!(name in this.file.entries)) return false;
+      const { [name]: _removed, ...rest } = this.file.entries;
+      void _removed;
+      this.file = { ...this.file, entries: rest };
+      await this.persist();
+      return true;
+    });
   }
 
   async list(): Promise<ReadonlyArray<VaultEntryInfo>> {

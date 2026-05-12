@@ -176,6 +176,21 @@ export async function consolidateMemory(
     const extracted = extractJson(response);
     const parsed = consolidatedSchema.parse(extracted);
 
+    // Guard: if the LLM picked a name that already exists OUTSIDE this
+    // cluster, writing it would silently clobber an unrelated memory. Skip
+    // the merge and record the cluster as not-merged rather than destroy
+    // data.
+    const clusterNames = new Set(cluster.members);
+    if (byName.has(parsed.name) && !clusterNames.has(parsed.name)) {
+      outcomes.push({
+        key: cluster.key,
+        merged: cluster.members,
+        into: null,
+        dryRun: false,
+      });
+      continue;
+    }
+
     await store.save({
       name: parsed.name,
       type: parsed.type as MemoryType,

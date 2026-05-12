@@ -63,6 +63,12 @@ export class AnthropicProvider implements LLMProvider {
     }
 
     const pendingToolUses = new Map<string, { name: string; partial: string }>();
+    // Anthropic's stream events carry a block `index` on every delta/stop;
+    // we map that index to the tool_use id at content_block_start time so
+    // parallel tool_use blocks route their deltas correctly. Without this,
+    // we used to return the first key in `pendingToolUses` for every event,
+    // causing two parallel blocks to overwrite each other's partial JSON.
+    const blockIndexToId = new Map<number, string>();
     let stopReason: 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence' | 'error' = 'end_turn';
     let usage: { inputTokens: number; outputTokens: number } | undefined;
 
@@ -84,6 +90,10 @@ export class AnthropicProvider implements LLMProvider {
             const block = event.content_block;
             if (block && block.type === 'tool_use') {
               pendingToolUses.set(block.id, { name: block.name, partial: '' });
+              // Real Anthropic events carry `index` here; fall back to the
+              // arrival ordinal when callers (e.g. test fakes) omit it.
+              const idx = typeof event.index === 'number' ? event.index : blockIndexToId.size;
+              blockIndexToId.set(idx, block.id);
               yield { type: 'tool_use_start', id: block.id, name: block.name };
             }
             break;
@@ -94,7 +104,7 @@ export class AnthropicProvider implements LLMProvider {
             if (delta.type === 'text_delta' && typeof delta.text === 'string') {
               yield { type: 'text_delta', delta: delta.text };
             } else if (delta.type === 'input_json_delta' && typeof delta.partial_json === 'string') {
-              const id = idOfBlock(event, pendingToolUses);
+              const id = idOfBlock(event, blockIndexToId);
               if (id) {
                 const t = pendingToolUses.get(id);
                 if (t) {
@@ -106,7 +116,7 @@ export class AnthropicProvider implements LLMProvider {
             break;
           }
           case 'content_block_stop': {
-            const id = idOfBlock(event, pendingToolUses);
+            const id = idOfBlock(event, blockIndexToId);
             if (id) {
               const t = pendingToolUses.get(id);
               if (t) {
@@ -118,6 +128,7 @@ export class AnthropicProvider implements LLMProvider {
                 }
                 yield { type: 'tool_use_end', id, input: parsed };
                 pendingToolUses.delete(id);
+                if (typeof event.index === 'number') blockIndexToId.delete(event.index);
               }
             }
             break;
@@ -192,10 +203,18 @@ interface AnthropicStreamEvent {
 }
 
 function idOfBlock(
-  _event: AnthropicStreamEvent,
-  pending: Map<string, { name: string; partial: string }>,
+  event: AnthropicStreamEvent,
+  blockIndexToId: Map<number, string>,
 ): string | null {
-  for (const key of pending.keys()) return key;
+  if (typeof event.index === 'number') {
+    return blockIndexToId.get(event.index) ?? null;
+  }
+  // Fallback when `index` is missing (older SDKs / hand-rolled fakes): only
+  // unambiguous when exactly one tool_use is pending; otherwise refuse to
+  // guess and let the delta drop rather than misroute it.
+  if (blockIndexToId.size === 1) {
+    for (const id of blockIndexToId.values()) return id;
+  }
   return null;
 }
 

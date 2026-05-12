@@ -23,6 +23,14 @@ describe('define* factories', () => {
     expect(p.version).toBe('1.2.3');
   });
 
+  it('definePlugin defaults version when spec.version is explicitly undefined', () => {
+    // Reproduces the spread-order bug: a spec with `version: undefined`
+    // (e.g. produced by destructuring) must not erase the default.
+    const spec = { name: 'p', version: undefined as string | undefined };
+    const p = definePlugin(spec);
+    expect(p.version).toBe('0.0.0');
+  });
+
   it('defineTool round-trips typed input', async () => {
     const tool = defineTool({
       name: 'echo',

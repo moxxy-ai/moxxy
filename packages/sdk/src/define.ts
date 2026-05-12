@@ -15,10 +15,13 @@ import type { ToolContext, ToolDef } from './tool.js';
 import type { z } from 'zod';
 
 export function definePlugin(spec: PluginSpec): Plugin {
+  // Spread spec first so the defaults below can't be clobbered by an
+  // explicit `version: undefined` in the spec (which violates Plugin.version
+  // typed as `string`).
   return Object.freeze({
+    ...spec,
     __moxxy: 'plugin' as const,
     version: spec.version ?? '0.0.0',
-    ...spec,
   });
 }
 

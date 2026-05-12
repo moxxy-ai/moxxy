@@ -142,6 +142,35 @@ describe('consolidateMemory', () => {
     const invalid = JSON.stringify({ name: 'Bad Name', type: 'fact', description: 'd', body: 'b' });
     await expect(consolidateMemory(store, fakeProvider(invalid))).rejects.toThrow();
   });
+
+  it('refuses to overwrite an unrelated memory when the LLM picks a colliding name', async () => {
+    // Setup: a + b cluster on tag 'api'; an unrelated entry 'c' exists.
+    // If the LLM's consolidated name happens to be 'c', writing it would
+    // silently destroy the real 'c'. We expect the merge to be skipped.
+    const store = new MemoryStore({ dir: tmp, embedder: null });
+    await store.save({ name: 'a', type: 'fact', description: 'A', body: 'a', tags: ['api'] });
+    await store.save({ name: 'b', type: 'fact', description: 'B', body: 'b', tags: ['api'] });
+    await store.save({ name: 'c', type: 'fact', description: 'C-real', body: 'C-original' });
+
+    const collidingReply = JSON.stringify({
+      name: 'c',
+      type: 'fact',
+      description: 'merged a+b',
+      body: 'should not land',
+    });
+    const outcome = await consolidateMemory(store, fakeProvider(collidingReply));
+
+    // The cluster was found but the merge was refused.
+    expect(outcome.clusters[0]?.merged).toEqual(['a', 'b']);
+    expect(outcome.clusters[0]?.into).toBeNull();
+
+    // All three originals survive; the real 'c' was not overwritten.
+    const remaining = await store.list();
+    expect(remaining.map((e) => e.frontmatter.name).sort()).toEqual(['a', 'b', 'c']);
+    const realC = remaining.find((e) => e.frontmatter.name === 'c');
+    expect(realC?.body).toBe('C-original');
+    expect(realC?.frontmatter.description).toBe('C-real');
+  });
 });
 
 function mkEntry(
