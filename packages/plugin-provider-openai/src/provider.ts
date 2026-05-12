@@ -81,6 +81,14 @@ export class OpenAIProvider implements LLMProvider {
 
     yield { type: 'message_start', model };
 
+    // GPT-5.x (and OpenAI's reasoning models) renamed the token cap field
+    // from `max_tokens` to `max_completion_tokens` and ALSO reject the
+    // legacy name with a 400. Use the new name for any model whose id
+    // starts with gpt-5 / o1 / o3; keep the legacy name for the gpt-4
+    // family so existing callers don't regress.
+    const usesCompletionTokens = /^(?:gpt-5|o1|o3)/.test(model);
+    const tokenLimitKey = usesCompletionTokens ? 'max_completion_tokens' : 'max_tokens';
+
     let stream: AsyncIterable<unknown>;
     try {
       stream = (await this.client.chat.completions.create({
@@ -88,9 +96,9 @@ export class OpenAIProvider implements LLMProvider {
         messages: messages as never,
         ...(tools ? { tools: tools as never } : {}),
         ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
-        ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
+        ...(req.maxTokens ? { [tokenLimitKey]: req.maxTokens } : {}),
         stream: true,
-      })) as unknown as AsyncIterable<unknown>;
+      } as never)) as unknown as AsyncIterable<unknown>;
     } catch (err) {
       yield {
         type: 'error',
