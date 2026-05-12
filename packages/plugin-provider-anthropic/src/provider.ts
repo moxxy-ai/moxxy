@@ -47,14 +47,20 @@ export class AnthropicProvider implements LLMProvider {
 
     let stream: AsyncIterable<unknown>;
     try {
-      stream = this.client.messages.stream({
-        model,
-        max_tokens: req.maxTokens ?? 4096,
-        system,
-        messages,
-        tools,
-        ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
-      } as Parameters<typeof this.client.messages.stream>[0]);
+      stream = this.client.messages.stream(
+        {
+          model,
+          max_tokens: req.maxTokens ?? 4096,
+          system,
+          messages,
+          tools,
+          ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+        } as Parameters<typeof this.client.messages.stream>[0],
+        // Pass the AbortSignal into the SDK request options so cancelling
+        // tears down the underlying HTTP request. Without this, Esc only
+        // stopped our loop while the model kept generating upstream.
+        req.signal ? { signal: req.signal } : undefined,
+      );
     } catch (err) {
       yield {
         type: 'error',

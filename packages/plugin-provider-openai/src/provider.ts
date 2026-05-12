@@ -91,14 +91,22 @@ export class OpenAIProvider implements LLMProvider {
 
     let stream: AsyncIterable<unknown>;
     try {
-      stream = (await this.client.chat.completions.create({
-        model,
-        messages: messages as never,
-        ...(tools ? { tools: tools as never } : {}),
-        ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
-        ...(req.maxTokens ? { [tokenLimitKey]: req.maxTokens } : {}),
-        stream: true,
-      } as never)) as unknown as AsyncIterable<unknown>;
+      stream = (await this.client.chat.completions.create(
+        {
+          model,
+          messages: messages as never,
+          ...(tools ? { tools: tools as never } : {}),
+          ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+          ...(req.maxTokens ? { [tokenLimitKey]: req.maxTokens } : {}),
+          stream: true,
+        } as never,
+        // Pass the AbortSignal into the SDK request options so cancelling
+        // mid-stream tears down the underlying HTTP request instead of just
+        // stopping our consumption loop. Without this, Esc / Ctrl+C felt
+        // like nothing happened — the model kept generating and the user
+        // got charged for tokens after the cancel.
+        req.signal ? { signal: req.signal } : undefined,
+      )) as unknown as AsyncIterable<unknown>;
     } catch (err) {
       yield {
         type: 'error',
