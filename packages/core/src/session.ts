@@ -42,7 +42,8 @@ export class Session {
   readonly channels: ChannelRegistryImpl;
   readonly skills: SkillRegistryImpl;
   readonly permissions: PermissionEngine;
-  readonly resolver: PermissionResolver;
+  /** Current PermissionResolver. Update via `setPermissionResolver(r)`. */
+  resolver: PermissionResolver;
   readonly dispatcher: HookDispatcherImpl;
   readonly pluginHost: PluginHost;
   private readonly controller = new AbortController();
@@ -75,6 +76,11 @@ export class Session {
       dispatcher: this.dispatcher,
       loader: opts.pluginLoader,
     });
+
+    // Fan every appended event out to plugin `onEvent` hooks. Without this
+    // wiring the hook is dead code — declared on the SDK, dispatched by
+    // HookDispatcherImpl, but nothing ever calls dispatchEvent.
+    this.log.subscribe((event) => this.dispatcher.dispatchEvent(event, this.appContext()));
   }
 
   get signal(): AbortSignal {
@@ -84,6 +90,37 @@ export class Session {
   abort(reason = 'user-requested abort'): void {
     this.controller.abort(reason);
   }
+
+  /**
+   * Swap the active PermissionResolver. Channels call this after they're
+   * constructed so the session uses the channel's interactive resolver
+   * (TUI prompt, Telegram inline keyboard, HTTP allow-list, etc.).
+   * Replaces the previous monkey-patching of the private `resolver` field
+   * from CLI command code.
+   */
+  setPermissionResolver(resolver: PermissionResolver): void {
+    this.resolver = resolver;
+  }
+
+  /**
+   * Graceful shutdown: fire every plugin's `onShutdown` hook, then abort
+   * the session. Idempotent — safe to call multiple times (subsequent
+   * calls are no-ops once `closed` is set).
+   *
+   * Channels' SIGINT handlers should call this before exiting so plugins
+   * can flush state (memory journal, vault, audit logs, etc.).
+   */
+  async close(reason = 'shutdown'): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
+    try {
+      await this.dispatcher.dispatchShutdown(this.appContext());
+    } finally {
+      this.abort(reason);
+    }
+  }
+
+  private closed = false;
 
   appContext(): AppContext {
     return {

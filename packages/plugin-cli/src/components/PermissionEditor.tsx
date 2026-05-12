@@ -66,8 +66,8 @@ export const PermissionEditor: React.FC<PermissionEditorProps> = ({ policyPath }
         }
         const promise =
           mode.bucket === 'allow'
-            ? engine.addAllow({ name, action: 'allow' })
-            : engine.addDeny({ name, action: 'deny' });
+            ? engine.addAllow({ name })
+            : engine.addDeny({ name });
         void promise.then(() => {
           refresh(engine);
           setDirty(true);
@@ -136,13 +136,11 @@ export const PermissionEditor: React.FC<PermissionEditorProps> = ({ policyPath }
         if (targetKind === 'allow') {
           await engine.addAllow({
             name: row.name,
-            action: 'allow',
             ...(row.reason ? { reason: row.reason } : {}),
           });
         } else {
           await engine.addDeny({
             name: row.name,
-            action: 'deny',
             ...(row.reason ? { reason: row.reason } : {}),
           });
         }

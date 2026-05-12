@@ -65,8 +65,8 @@ export async function runPermsCommand(argv: ParsedArgv): Promise<number> {
         return 2;
       }
       const reason = argv.positional.slice(2).join(' ') || undefined;
-      if (sub === 'allow') await engine.addAllow({ name: tool, action: 'allow', ...(reason ? { reason } : {}) });
-      else await engine.addDeny({ name: tool, action: 'deny', ...(reason ? { reason } : {}) });
+      if (sub === 'allow') await engine.addAllow({ name: tool, ...(reason ? { reason } : {}) });
+      else await engine.addDeny({ name: tool, ...(reason ? { reason } : {}) });
       process.stdout.write(`added ${sub} rule: ${tool}${reason ? ` (${reason})` : ''}\n`);
       return 0;
     }

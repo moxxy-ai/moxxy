@@ -100,20 +100,28 @@ export class HookDispatcherImpl implements HookDispatcher {
     hook: keyof LifecycleHooks,
     fn: () => T | Promise<T> | void | Promise<void>,
   ): Promise<T | undefined> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const p = Promise.resolve(fn() as Promise<T | undefined | void>);
-      const winner = await Promise.race([
-        p,
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Hook ${hook} on ${entry.plugin.name} timed out`)), this.timeoutMs),
-        ),
-      ]);
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`Hook ${hook} on ${entry.plugin.name} timed out`)),
+          this.timeoutMs,
+        );
+      });
+      // Attach a no-op rejection handler to the timeout promise so if the
+      // fast path wins, the timer's eventual rejection is swallowed
+      // silently rather than surfacing as an unhandled rejection.
+      timeout.catch(() => undefined);
+      const winner = await Promise.race([p, timeout]);
       return winner as T | undefined;
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.logger.warn('hook failed', { plugin: entry.plugin.name, hook, err: error.message });
       this.onHookFailed?.(error, entry.plugin.name, hook);
       return undefined;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
     }
   }
 }

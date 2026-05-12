@@ -33,7 +33,10 @@ async function* fsGlob(
   signal: AbortSignal,
 ): AsyncIterable<string> {
   const regex = globToRegExp(pattern);
-  yield* walk(baseDir, regex, baseDir, signal);
+  // Track resolved dir paths we've already descended into so a self- or
+  // cross-symlink cycle doesn't loop forever.
+  const visited = new Set<string>();
+  yield* walk(baseDir, regex, baseDir, signal, visited);
 }
 
 async function* walk(
@@ -41,8 +44,21 @@ async function* walk(
   regex: RegExp,
   cursor: string,
   signal: AbortSignal,
+  visited: Set<string>,
 ): AsyncIterable<string> {
   if (signal.aborted) return;
+  // Resolve via realpath so two different symlinks pointing at the same
+  // directory collapse to a single visited entry. If realpath fails (broken
+  // link), skip this branch entirely.
+  let realCursor: string;
+  try {
+    realCursor = await fs.realpath(cursor);
+  } catch {
+    return;
+  }
+  if (visited.has(realCursor)) return;
+  visited.add(realCursor);
+
   let entries: import('node:fs').Dirent[];
   try {
     entries = await fs.readdir(cursor, { withFileTypes: true });
@@ -54,7 +70,7 @@ async function* walk(
     if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'dist' || entry.name === '.turbo') continue;
     const full = path.join(cursor, entry.name);
     if (entry.isDirectory() || entry.isSymbolicLink()) {
-      yield* walk(root, regex, full, signal);
+      yield* walk(root, regex, full, signal, visited);
     }
     if (entry.isFile() || entry.isSymbolicLink()) {
       const relative = path.relative(root, full);

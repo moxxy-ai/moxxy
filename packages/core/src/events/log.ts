@@ -48,7 +48,11 @@ export class EventLog implements EventLogReader {
   async append(partial: EmittedEvent): Promise<MoxxyEvent> {
     const event = materializeEvent(partial, this.events.length, this.now);
     this.events.push(event);
-    for (const fn of this.listeners) {
+    // Snapshot listeners so a subscribe/unsubscribe during dispatch (e.g.,
+    // a runTurn finishing and unsubscribing while we're still mid-fanout)
+    // doesn't change the iteration target.
+    const snapshot = [...this.listeners];
+    for (const fn of snapshot) {
       try {
         await fn(event);
       } catch {

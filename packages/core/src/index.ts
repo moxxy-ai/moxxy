@@ -44,6 +44,7 @@ export {
   PermissionEngine,
   permissionPolicySchema,
   type PermissionPolicy,
+  type PolicyRule,
 } from './permissions/engine.js';
 export {
   autoAllowResolver,

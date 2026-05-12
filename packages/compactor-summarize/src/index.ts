@@ -24,7 +24,17 @@ export function createSummarizeCompactor(opts: SummarizeOptions = {}): Compactor
       return budget.estimatedTokens > thresholdRatio * budget.contextWindow;
     },
     async compact(events: ReadonlyArray<MoxxyEvent>) {
-      const turnIds = unique(events.map((e) => e.turnId));
+      // High-water mark: skip anything already covered by a previous
+      // CompactionEvent's replacedRange. Without this, every call
+      // re-compacts the same prefix from index 0 on top of itself,
+      // wasting tokens and producing nested summaries.
+      const prior = events
+        .filter((e): e is MoxxyEvent & { type: 'compaction' } => e.type === 'compaction')
+        .reduce((max, e) => Math.max(max, e.replacedRange[1] ?? -1), -1);
+      const startIdx = prior + 1;
+
+      const tail = events.slice(startIdx);
+      const turnIds = unique(tail.map((e) => e.turnId));
       if (turnIds.length <= keepRecent) {
         return {
           type: 'compaction',
@@ -38,9 +48,9 @@ export function createSummarizeCompactor(opts: SummarizeOptions = {}): Compactor
         };
       }
       const compactThrough = turnIds[turnIds.length - keepRecent - 1] ?? turnIds[0];
-      let from = 0;
-      let to = 0;
-      for (let i = 0; i < events.length; i++) {
+      const from = startIdx;
+      let to = from;
+      for (let i = from; i < events.length; i++) {
         if (events[i]!.turnId === compactThrough) to = i;
       }
       const slice = events.slice(from, to + 1);

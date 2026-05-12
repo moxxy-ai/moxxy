@@ -188,12 +188,14 @@ export function buildSynthesizeSkillPlugin(
         inputSchema: z.object({}),
         handler: async () => {
           const { discoverSkills } = await import('./loader.js');
-          session.skills.clear();
+          // Discover first, swap second: never empty the registry while
+          // the fs scan is in flight, because concurrent skill lookups
+          // would observe an empty registry mid-reload.
           const discovered = await discoverSkills({
             projectDir: defaultProjectSkillsDir(session.cwd),
             userDir: opts.userDir ?? defaultUserSkillsDir(),
           });
-          for (const s of discovered) session.skills.register(s);
+          session.skills.replaceAll(discovered);
           return `loaded ${discovered.length} skill${discovered.length === 1 ? '' : 's'}`;
         },
       }),

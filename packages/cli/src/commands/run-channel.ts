@@ -37,8 +37,7 @@ export async function runChannelByName(name: string, argv: ParsedArgv): Promise<
     options: { ...configOpts, ...argv.flags },
   });
 
-  (session as unknown as { resolver: typeof channel.permissionResolver }).resolver =
-    channel.permissionResolver;
+  session.setPermissionResolver(channel.permissionResolver);
 
   // Build per-invocation start opts: well-known keys first, then any other
   // flags the caller forwarded (channel-specific, e.g., Telegram's `pair`).
@@ -56,6 +55,9 @@ export async function runChannelByName(name: string, argv: ParsedArgv): Promise<
 
   const shutdown = async (): Promise<void> => {
     await handle.stop('SIGINT');
+    // Fire onShutdown hooks so plugins can flush (memory journal, vault,
+    // audit logs, etc.) before the process exits.
+    await session.close('SIGINT').catch(() => undefined);
     process.exit(0);
   };
   process.on('SIGINT', shutdown);

@@ -10,6 +10,7 @@ import { editTool } from './edit.js';
 import { bashTool } from './bash.js';
 import { grepTool } from './grep.js';
 import { globTool } from './glob.js';
+import { resolvePath, resolveWithinCwd, resolveSafe } from './util.js';
 
 let tmp: string;
 
@@ -145,5 +146,47 @@ describe('globTool', () => {
     expect(out).toContain('src/a.ts');
     expect(out).toContain('src/b.ts');
     expect(out).not.toContain('c.md');
+  });
+
+  it('terminates on a symlink cycle', async () => {
+    // Create dir/loop -> dir, plus a real file inside dir. Before the fix,
+    // walk() recursed forever. The handler must complete and find the file.
+    const dir = path.join(tmp, 'dir');
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, 'target.ts'), '');
+    try {
+      await fs.symlink(dir, path.join(dir, 'loop'));
+    } catch {
+      // Symlink creation may fail on some filesystems — skip in that case.
+      return;
+    }
+    const out = (await globTool.handler({ pattern: 'dir/**/*.ts' }, baseCtx())) as string;
+    expect(out).toContain('target.ts');
+  });
+});
+
+describe('path resolution helpers', () => {
+  it('resolvePath normalizes relative + absolute paths without sandbox', () => {
+    expect(resolvePath('/work', 'a/b')).toBe(path.resolve('/work', 'a/b'));
+    expect(resolvePath('/work', '/etc/passwd')).toBe(path.normalize('/etc/passwd'));
+    // Traversal is allowed — the permission layer is what gates real access.
+    expect(resolvePath('/work', '../outside')).toBe(path.resolve('/work', '../outside'));
+  });
+
+  it('resolveSafe is a backward-compat alias for resolvePath', () => {
+    expect(resolveSafe('/x', 'y')).toBe(resolvePath('/x', 'y'));
+  });
+
+  it('resolveWithinCwd allows paths inside cwd', () => {
+    const out = resolveWithinCwd('/work', 'a/b');
+    expect(out).toBe(path.resolve('/work', 'a/b'));
+  });
+
+  it('resolveWithinCwd rejects absolute paths outside cwd', () => {
+    expect(() => resolveWithinCwd('/work', '/etc/passwd')).toThrow(/escapes cwd/);
+  });
+
+  it('resolveWithinCwd rejects traversal escape', () => {
+    expect(() => resolveWithinCwd('/work', '../outside')).toThrow(/escapes cwd/);
   });
 });

@@ -42,4 +42,25 @@ export class SkillRegistryImpl implements SkillRegistry {
     this.byId.clear();
     this.byNameIdx.clear();
   }
+
+  /**
+   * Replace the registry's entire contents atomically (no observable empty
+   * window). Used by `reload_skills` so a concurrent lookup never sees
+   * zero skills while a rescan is in flight.
+   */
+  replaceAll(skills: ReadonlyArray<Skill>): void {
+    const nextById = new Map<string, Skill>();
+    const nextByName = new Map<string, Skill>();
+    for (const s of skills) {
+      nextById.set(s.id, s);
+      nextByName.set(s.frontmatter.name, s);
+    }
+    // Synchronous swap: callers between these lines still see the OLD
+    // registry (Maps aren't replaced, only repopulated). Clear+set is the
+    // shortest synchronous window we can achieve in JS for Map fields.
+    this.byId.clear();
+    this.byNameIdx.clear();
+    for (const [k, v] of nextById) this.byId.set(k, v);
+    for (const [k, v] of nextByName) this.byNameIdx.set(k, v);
+  }
 }

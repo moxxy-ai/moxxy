@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { definePlugin } from '@moxxy/sdk';
 import { Session } from './session.js';
 
 describe('Session', () => {
@@ -29,5 +30,50 @@ describe('Session', () => {
     expect(ctx.sessionId).toBe(s.id);
     expect(ctx.cwd).toBe('/tmp');
     expect(ctx.log.length).toBe(0);
+  });
+
+  it('fans appended events out to plugin onEvent hooks', async () => {
+    const s = new Session({ cwd: '/tmp', silent: true });
+    const onEvent = vi.fn();
+    s.pluginHost.registerStatic(
+      definePlugin({
+        name: 'observer',
+        version: '0.0.0',
+        hooks: { onEvent },
+      }),
+    );
+    await s.log.append({
+      type: 'user_prompt',
+      sessionId: s.id,
+      turnId: s.startTurn().turnId,
+      source: 'user',
+      text: 'hi',
+    });
+    expect(onEvent).toHaveBeenCalledTimes(1);
+    const arg = onEvent.mock.calls[0]![0] as { type: string; text?: string };
+    expect(arg.type).toBe('user_prompt');
+    expect(arg.text).toBe('hi');
+  });
+
+  it('close() fires plugin onShutdown hooks and aborts the session', async () => {
+    const s = new Session({ cwd: '/tmp', silent: true });
+    const onShutdown = vi.fn();
+    s.pluginHost.registerStatic(
+      definePlugin({ name: 'p', version: '0.0.0', hooks: { onShutdown } }),
+    );
+    await s.close();
+    expect(onShutdown).toHaveBeenCalledTimes(1);
+    expect(s.signal.aborted).toBe(true);
+  });
+
+  it('close() is idempotent', async () => {
+    const s = new Session({ cwd: '/tmp', silent: true });
+    const onShutdown = vi.fn();
+    s.pluginHost.registerStatic(
+      definePlugin({ name: 'p', version: '0.0.0', hooks: { onShutdown } }),
+    );
+    await s.close();
+    await s.close();
+    expect(onShutdown).toHaveBeenCalledTimes(1);
   });
 });

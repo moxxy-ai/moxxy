@@ -1,7 +1,19 @@
-import type { PendingToolCall, PermissionDecision, PermissionRule } from '@moxxy/sdk';
+import type { PendingToolCall, PermissionDecision } from '@moxxy/sdk';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { z } from 'zod';
+
+/**
+ * Flat shape used by the policy file and the engine's mutator API.
+ * Different from SDK's `PermissionRule` (which uses a nested `pattern`).
+ * The engine has its own type because the persisted format is intentionally
+ * simple and stable.
+ */
+export interface PolicyRule {
+  readonly name: string;
+  readonly inputMatches?: Record<string, string>;
+  readonly reason?: string;
+}
 
 export const permissionPolicySchema = z.object({
   allow: z.array(z.object({
@@ -56,18 +68,18 @@ export class PermissionEngine {
     return null;
   }
 
-  async addAllow(rule: PermissionRule & { name: string }): Promise<void> {
+  async addAllow(rule: PolicyRule): Promise<void> {
     this.policy = {
       ...this.policy,
-      allow: [...this.policy.allow, { name: rule.name, reason: rule.reason }],
+      allow: [...this.policy.allow, sanitizeRule(rule)],
     };
     await this.persist();
   }
 
-  async addDeny(rule: PermissionRule & { name: string }): Promise<void> {
+  async addDeny(rule: PolicyRule): Promise<void> {
     this.policy = {
       ...this.policy,
-      deny: [...this.policy.deny, { name: rule.name, reason: rule.reason }],
+      deny: [...this.policy.deny, sanitizeRule(rule)],
     };
     await this.persist();
   }
@@ -93,7 +105,10 @@ export class PermissionEngine {
   private async persist(): Promise<void> {
     if (!this.policyPath) return;
     await fs.mkdir(path.dirname(this.policyPath), { recursive: true });
-    await fs.writeFile(this.policyPath, JSON.stringify(this.policy, null, 2));
+    // Crash-atomic write: tmp + rename.
+    const tmp = `${this.policyPath}.tmp.${process.pid}.${Date.now()}`;
+    await fs.writeFile(tmp, JSON.stringify(this.policy, null, 2));
+    await fs.rename(tmp, this.policyPath);
   }
 
   get policySnapshot(): PermissionPolicy {
@@ -101,13 +116,19 @@ export class PermissionEngine {
   }
 }
 
-interface PolicyRuleShape {
-  name: string;
-  inputMatches?: Record<string, string>;
-  reason?: string;
+/** Strip undefined fields and copy `inputMatches` through so persistence preserves it. */
+function sanitizeRule(rule: PolicyRule): PolicyRule {
+  const out: PolicyRule = { name: rule.name };
+  if (rule.inputMatches && Object.keys(rule.inputMatches).length > 0) {
+    (out as { -readonly [K in keyof PolicyRule]: PolicyRule[K] }).inputMatches = { ...rule.inputMatches };
+  }
+  if (rule.reason !== undefined) {
+    (out as { -readonly [K in keyof PolicyRule]: PolicyRule[K] }).reason = rule.reason;
+  }
+  return out;
 }
 
-function matchRule(rule: PolicyRuleShape, call: PendingToolCall): boolean {
+function matchRule(rule: PolicyRule, call: PendingToolCall): boolean {
   if (!nameMatches(rule.name, call.name)) return false;
   if (rule.inputMatches) {
     const input = call.input as Record<string, unknown> | null;

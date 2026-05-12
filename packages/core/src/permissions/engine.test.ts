@@ -67,8 +67,40 @@ describe('PermissionEngine', () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-perm-'));
     const file = path.join(tmp, 'permissions.json');
     const e = await PermissionEngine.load(file);
-    await e.addAllow({ name: 'Edit', action: 'allow' });
+    await e.addAllow({ name: 'Edit' });
     const raw = JSON.parse(await fs.readFile(file, 'utf8'));
     expect(raw.allow[0].name).toBe('Edit');
+  });
+
+  it('persists inputMatches with addAllow (regression for silent drop)', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-perm-'));
+    const file = path.join(tmp, 'permissions.json');
+    const e = await PermissionEngine.load(file);
+    await e.addAllow({
+      name: 'Bash',
+      inputMatches: { cmd: '^ls' },
+      reason: 'safe listings only',
+    });
+    const raw = JSON.parse(await fs.readFile(file, 'utf8'));
+    expect(raw.allow[0]).toEqual({
+      name: 'Bash',
+      inputMatches: { cmd: '^ls' },
+      reason: 'safe listings only',
+    });
+
+    // Reload and verify it still matches correctly.
+    const e2 = await PermissionEngine.load(file);
+    expect(e2.check(call('Bash', { cmd: 'ls -la' }))?.mode).toBe('allow');
+    expect(e2.check(call('Bash', { cmd: 'rm -rf /' }))).toBeNull();
+  });
+
+  it('writes the policy file atomically (tmp+rename, no .tmp residue)', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-perm-'));
+    const file = path.join(tmp, 'permissions.json');
+    const e = await PermissionEngine.load(file);
+    await e.addAllow({ name: 'A' });
+    const after = await fs.readdir(tmp);
+    expect(after.filter((f) => f.startsWith('permissions.json.tmp.'))).toEqual([]);
+    expect(after).toContain('permissions.json');
   });
 });

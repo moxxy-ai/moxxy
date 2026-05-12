@@ -282,8 +282,45 @@ async function executeStep(
     if (stopReason !== 'tool_use' || toolUses.length === 0) return true;
 
     for (const t of toolUses) {
+      // Run plugin onToolCall hooks first — this used to be skipped here
+      // (a divergence from loop-tool-use that silently disabled plugin
+      // gating for plan-execute). A hook may deny or rewrite the input.
+      const verdict = await ctx.hooks.dispatchToolCall({
+        sessionId: ctx.sessionId,
+        cwd: '',
+        log: ctx.log,
+        env: {},
+        turnId: ctx.turnId,
+        iteration,
+        call: { callId: asToolCallId(t.id), name: t.name, input: t.input },
+      });
+      let actualInput = t.input;
+      if (verdict.action === 'rewrite') actualInput = verdict.input;
+      if (verdict.action === 'deny') {
+        const reason = verdict.reason ?? 'denied by hook';
+        await ctx.emit({
+          type: 'tool_call_denied',
+          sessionId: ctx.sessionId,
+          turnId: ctx.turnId,
+          source: 'system',
+          callId: asToolCallId(t.id),
+          decidedBy: 'hook',
+          reason,
+        });
+        await ctx.emit({
+          type: 'tool_result',
+          sessionId: ctx.sessionId,
+          turnId: ctx.turnId,
+          source: 'tool',
+          callId: asToolCallId(t.id),
+          ok: false,
+          error: { kind: 'denied', message: reason },
+        });
+        continue;
+      }
+
       const decision = await ctx.permissions.check(
-        { callId: asToolCallId(t.id), name: t.name, input: t.input },
+        { callId: asToolCallId(t.id), name: t.name, input: actualInput },
         { sessionId: String(ctx.sessionId), toolDescription: ctx.tools.get(t.name)?.description },
       );
       if (decision.mode === 'deny') {
@@ -317,7 +354,7 @@ async function executeStep(
         mode: decision.mode,
       });
       try {
-        const output = await ctx.tools.execute(t.name, t.input, ctx.signal, {
+        const output = await ctx.tools.execute(t.name, actualInput, ctx.signal, {
           callId: t.id,
           sessionId: String(ctx.sessionId),
           turnId: String(ctx.turnId),
