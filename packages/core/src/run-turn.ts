@@ -5,6 +5,13 @@ export interface RunTurnOptions {
   readonly model?: string;
   readonly systemPrompt?: string;
   readonly maxIterations?: number;
+  /**
+   * Per-turn abort signal. Aborting it cancels this turn without
+   * tainting the session's own controller — useful for "the user hit
+   * Esc on a runaway loop." If both this and `session.signal` are
+   * passed, either firing cancels the turn.
+   */
+  readonly signal?: AbortSignal;
 }
 
 export async function* runTurn(
@@ -45,6 +52,11 @@ export async function* runTurn(
     });
 
     const strategy = session.loops.getActive();
+    // Combine the session's signal with the per-turn one (if provided)
+    // so either firing cancels the turn.
+    const effectiveSignal = opts.signal
+      ? AbortSignal.any([session.signal, opts.signal])
+      : session.signal;
     const ctx: LoopContext = {
       sessionId: session.id,
       turnId,
@@ -58,7 +70,7 @@ export async function* runTurn(
       permissions: session.resolver,
       hooks: session.dispatcher,
       pluginHost: session.pluginHost,
-      signal: session.signal,
+      signal: effectiveSignal,
       maxIterations: opts.maxIterations,
       emit: (event: EmittedEvent) => session.log.append(event),
     };

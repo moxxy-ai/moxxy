@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Box, Text, useApp } from 'ink';
+import { Box, Text, useApp, useInput } from 'ink';
 import type { MoxxyEvent, PendingToolCall, PermissionContext, PermissionDecision } from '@moxxy/sdk';
 import { runTurn, type Session } from '@moxxy/core';
 import { ChatView } from './components/ChatView.js';
@@ -46,6 +46,10 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
     resolve: (d: PermissionDecision) => void;
   } | null>(null);
   const streamingBufferRef = useRef('');
+  // Per-turn abort controller. Esc while busy aborts THIS turn without
+  // poisoning the session's own controller, so the next prompt still
+  // runs normally.
+  const turnControllerRef = useRef<AbortController | null>(null);
 
   // Keep the yolo flag in a ref so the promptHandler closure (registered
   // once on mount) reads the latest value without a re-register.
@@ -79,6 +83,26 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
 
     return () => unsub();
   }, [session, registerInteractiveResolver]);
+
+  // While the model is running, Esc / Ctrl+C cancels the turn. The
+  // per-turn AbortController fires; loop strategies + provider streams
+  // observe ctx.signal.aborted and bail out. PromptInput is disabled
+  // during busy, so its own useInput doesn't fight us for these keys.
+  useInput(
+    (input, key) => {
+      if (!busy) return;
+      const isCancel =
+        key.escape || (key.ctrl && input === 'c');
+      if (isCancel) {
+        const ctrl = turnControllerRef.current;
+        if (ctrl && !ctrl.signal.aborted) {
+          ctrl.abort('user cancel');
+          setSystemNotice('turn cancelled');
+        }
+      }
+    },
+    { isActive: busy },
+  );
 
   // Snapshot the session's stable session metadata for the header table.
   const providerName = session.providers.getActiveName() ?? '(none)';
@@ -256,18 +280,22 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
     streamingBufferRef.current = '';
     setStreamingDelta('');
     const effectiveModel = activeModelOverride ?? model;
+    // Fresh controller per turn so Esc cancels just this turn, not the
+    // session.
+    const controller = new AbortController();
+    turnControllerRef.current = controller;
     try {
-      for await (const _event of runTurn(
-        session,
-        text,
-        effectiveModel ? { model: effectiveModel } : {},
-      )) {
+      for await (const _event of runTurn(session, text, {
+        ...(effectiveModel ? { model: effectiveModel } : {}),
+        signal: controller.signal,
+      })) {
         void _event;
       }
     } catch (err) {
       // surfaced via error events; nothing extra to do
       void err;
     } finally {
+      turnControllerRef.current = null;
       setBusy(false);
     }
   };
@@ -299,7 +327,7 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
           itself signals "waiting on you." */}
       {busy && !pendingPermission ? (
         <Box>
-          <Spinner label="thinking…" color="yellow" />
+          <Spinner label="thinking…  (esc to cancel)" color="yellow" />
         </Box>
       ) : null}
       {pendingPermission ? (
