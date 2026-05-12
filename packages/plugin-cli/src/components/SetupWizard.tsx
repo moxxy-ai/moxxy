@@ -28,7 +28,6 @@ export interface SetupWizardProps {
 }
 
 type Step =
-  | { kind: 'welcome' }
   | { kind: 'providers'; selected: Set<string>; cursor: number }
   | { kind: 'apikey'; queue: string[]; index: number; buffer: string; testing: boolean; testError: string | null }
   | { kind: 'primary'; choices: ReadonlyArray<string>; cursor: number }
@@ -56,7 +55,10 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   onComplete,
 }) => {
   const { exit } = useApp();
-  const [step, setStep] = useState<Step>({ kind: 'welcome' });
+  // Start directly on the providers step — the previous "welcome" screen
+  // forced an extra Enter press and the user gets the same context from
+  // the providers screen's header anyway.
+  const [step, setStep] = useState<Step>({ kind: 'providers', selected: new Set(), cursor: 0 });
   const [sel, setSel] = useState<Selections>({
     providers: [],
     apiKeys: {},
@@ -67,12 +69,6 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   });
 
   useInput((input, key) => {
-    if (step.kind === 'welcome') {
-      if (key.return) setStep({ kind: 'providers', selected: new Set(), cursor: 0 });
-      else if (input === 'q' || key.escape) exit();
-      return;
-    }
-
     if (step.kind === 'providers') {
       if (key.upArrow) setStep({ ...step, cursor: Math.max(0, step.cursor - 1) });
       else if (key.downArrow) setStep({ ...step, cursor: Math.min(providers.length - 1, step.cursor + 1) });
@@ -175,8 +171,16 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
         }
         return;
       }
-      if (!key.ctrl && !key.meta && input && input.length === 1) {
-        setStep({ ...step, buffer: step.buffer + input, testError: null });
+      // Accept any printable input — single keypress OR a multi-character
+      // paste event. Terminals deliver paste as a single chunk, so the old
+      // `input.length === 1` gate silently dropped pastes.
+      // Strip control whitespace (newlines / tabs / CR) that often come
+      // along with terminal paste so the user doesn't have to clean up.
+      if (!key.ctrl && !key.meta && !key.return && !key.escape && input) {
+        const sanitized = input.replace(/[\r\n\t\v\f]/g, '');
+        if (sanitized) {
+          setStep({ ...step, buffer: step.buffer + sanitized, testError: null });
+        }
       }
       return;
     }
@@ -270,9 +274,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
         <Text dimColor>  — interactive setup</Text>
       </Box>
 
-      {step.kind === 'welcome' ? (
-        <WelcomeStep />
-      ) : step.kind === 'providers' ? (
+      {step.kind === 'providers' ? (
         <ProvidersStep step={step} providers={providers} />
       ) : step.kind === 'apikey' ? (
         <ApiKeyStep step={step} />
@@ -293,25 +295,13 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   );
 };
 
-const WelcomeStep: React.FC = () => (
-  <Box flexDirection="column">
-    <Text>This wizard will help you configure moxxy:</Text>
-    <Text dimColor>  · pick LLM providers + store their API keys in the encrypted vault</Text>
-    <Text dimColor>  · choose your default model, loop strategy, and memory embedder</Text>
-    <Text dimColor>  · write a moxxy.config.yaml to your project</Text>
-    <Box marginTop={1}>
-      <Text color="cyan">press enter to begin</Text>
-      <Text dimColor>  (q to quit)</Text>
-    </Box>
-  </Box>
-);
-
 const ProvidersStep: React.FC<{ step: Step & { kind: 'providers' }; providers: ReadonlyArray<SetupChoice> }> = ({
   step,
   providers,
 }) => (
   <Box flexDirection="column">
     <Text bold>Step 1: Choose LLM providers</Text>
+    <Text dimColor>  Keys are stored encrypted in the vault. A moxxy.config.yaml will be written when you finish.</Text>
     <Text dimColor>  space to toggle · enter to continue · esc to quit</Text>
     <Box marginTop={1} flexDirection="column">
       {providers.map((p, i) => {
@@ -320,7 +310,10 @@ const ProvidersStep: React.FC<{ step: Step & { kind: 'providers' }; providers: R
         return (
           <Box key={p.id}>
             <Text color={focused ? 'cyan' : undefined}>{focused ? '› ' : '  '}</Text>
-            <Text>{checked ? '☑' : '☐'} </Text>
+            {/* ASCII brackets — the unicode ballot-box glyphs (☑ ☐) render at
+                different widths in many terminal fonts, making the row jump
+                when toggled. `[x]` and `[ ]` are guaranteed monospaced. */}
+            <Text color={checked ? 'green' : undefined}>{checked ? '[x]' : '[ ]'} </Text>
             <Text>{p.label}</Text>
             {p.description ? <Text dimColor>  — {p.description}</Text> : null}
             {p.disabled ? <Text color="red"> ({p.disabled})</Text> : null}
