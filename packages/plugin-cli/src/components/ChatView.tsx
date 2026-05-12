@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { MoxxyEvent, ToolCallRequestedEvent, ToolResultEvent } from '@moxxy/sdk';
+import { Markdown } from './Markdown.js';
 
 export interface ChatViewProps {
   readonly events: ReadonlyArray<MoxxyEvent>;
@@ -30,24 +31,22 @@ export const ChatView: React.FC<ChatViewProps> = ({ events, streamingDelta }) =>
 };
 
 /**
- * Renders an assistant turn: a white `● ` bullet on the first line, the
- * response body in normal text, vertical padding above and below so it
- * breathes against tool blocks and the next user prompt. Mirrors the
- * Claude Code rendering convention (white = the assistant speaking).
+ * Renders an assistant turn: a white `● ` bullet on the first line and
+ * the body rendered through the lightweight Markdown component
+ * (headings, lists, code blocks, inline emphasis + links). Indented one
+ * column past the bullet so the body reads as one visual unit attached
+ * to its marker. Mirrors the Claude Code convention (white = assistant).
  */
-const AssistantBlock: React.FC<{ content: string }> = ({ content }) => {
-  const lines = content.split('\n');
-  return (
-    <Box flexDirection="column" marginTop={1} marginBottom={1}>
-      {lines.map((line, i) => (
-        <Box key={i}>
-          {i === 0 ? <Text color="white">● </Text> : <Text>  </Text>}
-          <Text>{line}</Text>
-        </Box>
-      ))}
+const AssistantBlock: React.FC<{ content: string }> = ({ content }) => (
+  <Box flexDirection="row" marginTop={1} marginBottom={1}>
+    <Box flexDirection="column" width={2}>
+      <Text color="white">● </Text>
     </Box>
-  );
-};
+    <Box flexDirection="column" flexGrow={1}>
+      <Markdown content={content} />
+    </Box>
+  </Box>
+);
 
 type Block =
   | { kind: 'event'; id: string; event: MoxxyEvent }

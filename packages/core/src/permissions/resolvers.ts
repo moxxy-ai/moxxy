@@ -90,7 +90,15 @@ export function createDeferredPermissionResolver(
           },
         );
       });
-      if (decision.mode === 'allow_session') sessionAllows.add(call.name);
+      // Both allow_session and allow_always should skip future prompts for
+       // the same tool within this resolver instance. allow_always
+       // additionally signals to the caller (via the decision flag) that
+       // the rule should be persisted to ~/.moxxy/permissions.json — but
+       // that persistence isn't our job; the channel does it when wiring
+       // up the dialog.
+      if (decision.mode === 'allow_session' || decision.mode === 'allow_always') {
+        sessionAllows.add(call.name);
+      }
       return decision;
     },
     abortAll(reason = 'channel closed') {

@@ -30,12 +30,20 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
   const [streamingDelta, setStreamingDelta] = useState('');
   const [busy, setBusy] = useState(false);
   const [systemNotice, setSystemNotice] = useState<string | null>(null);
+  const [yolo, setYolo] = useState(false);
+  const yoloRef = useRef(false);
   const [pendingPermission, setPendingPermission] = useState<{
     call: PendingToolCall;
     ctx: PermissionContext;
     resolve: (d: PermissionDecision) => void;
   } | null>(null);
   const streamingBufferRef = useRef('');
+
+  // Keep the yolo flag in a ref so the promptHandler closure (registered
+  // once on mount) reads the latest value without a re-register.
+  useEffect(() => {
+    yoloRef.current = yolo;
+  }, [yolo]);
 
   useEffect(() => {
     const unsub = session.log.subscribe((event) => {
@@ -51,6 +59,11 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
     });
 
     registerInteractiveResolver(async (call, ctx) => {
+      // YOLO mode: auto-allow every tool call without asking. Toggled via
+      // `/yolo`. Useful for trusted workflows; the status bar shows it on.
+      if (yoloRef.current) {
+        return { mode: 'allow', reason: 'yolo mode' };
+      }
       return new Promise<PermissionDecision>((resolve) => {
         setPendingPermission({ call, ctx, resolve });
       });
@@ -130,6 +143,18 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
       case '/model':
         setSystemNotice(`provider: ${providerName}   model: ${activeModel}`);
         return;
+      case '/yolo':
+      case '/auto-approve':
+        setYolo((y) => {
+          const next = !y;
+          setSystemNotice(
+            next
+              ? '⚠ yolo mode ON — tool calls auto-approved for the rest of this session'
+              : 'yolo mode OFF — tool prompts will resume',
+          );
+          return next;
+        });
+        return;
       case '/help':
         setSystemNotice(
           BUILTIN_SLASH_COMMANDS.map((c) => `/${c.name}  — ${c.description}`).join('\n'),
@@ -182,8 +207,13 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
           ))}
         </Box>
       ) : null}
-      {busy ? (
-        <Box marginTop={1}>
+      {/* Spinner sits flush against the chat scrollback (no extra
+          marginTop) so the thinking indicator visually attaches to the
+          last tool/assistant block rather than floating in its own
+          padded region. Hidden while the dialog is up — the dialog
+          itself signals "waiting on you." */}
+      {busy && !pendingPermission ? (
+        <Box>
           <Spinner label="thinking…" color="yellow" />
         </Box>
       ) : null}
@@ -192,8 +222,17 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
           call={pendingPermission.call}
           toolDescription={session.tools.get(pendingPermission.call.name)?.description}
           onDecide={(decision) => {
-            const { resolve } = pendingPermission;
+            const { call, resolve } = pendingPermission;
             setPendingPermission(null);
+            // `allow_always` persists to ~/.moxxy/permissions.json so
+            // future sessions also skip the prompt. The resolver itself
+            // adds the tool name to its in-memory sessionAllows set, so
+            // queued calls inside this same turn are auto-approved too.
+            if (decision.mode === 'allow_always') {
+              void session.permissions
+                .addAllow({ name: call.name, reason: 'allow_always via TUI dialog' })
+                .catch(() => undefined);
+            }
             resolve(decision);
           }}
         />
@@ -209,6 +248,7 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
         model={activeModel}
         contextUsed={contextUsed}
         contextWindow={contextWindow ?? undefined}
+        yolo={yolo}
       />
     </Box>
   );

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
+import { RainbowText } from './RainbowText.js';
 
 export interface StatusBarProps {
   readonly provider: string;
@@ -8,28 +9,37 @@ export interface StatusBarProps {
   readonly contextUsed?: number;
   /** Active model's context window size. Required for the percentage. */
   readonly contextWindow?: number;
+  /** Auto-approve mode active — animated rainbow badge on the right. */
+  readonly yolo?: boolean;
 }
 
 /**
  * Row below the prompt input. Left side: provider chip + model name.
- * Right side (when context info is available): "Nk / Nk (NN%)" sized
- * meter so the user can see how full the context window is before
- * the model starts dropping old turns.
+ * Right side: context-window meter and, when yolo mode is on, an
+ * animated rainbow "YOLO MODE" indicator so it's loud enough to remind
+ * the user that tool calls are being auto-approved.
  */
 export const StatusBar: React.FC<StatusBarProps> = ({
   provider,
   model,
   contextUsed,
   contextWindow,
+  yolo,
 }) => (
   <Box marginTop={1} justifyContent="space-between">
     <Box>
       <Text backgroundColor="magenta" color="white" bold>{` ${provider} `}</Text>
       <Text dimColor>{`  ${model}`}</Text>
     </Box>
-    {contextWindow ? (
-      <ContextMeter used={contextUsed ?? 0} total={contextWindow} />
-    ) : null}
+    <Box>
+      {contextWindow ? <ContextMeter used={contextUsed ?? 0} total={contextWindow} /> : null}
+      {yolo ? (
+        <>
+          {contextWindow ? <Text>  </Text> : null}
+          <RainbowText bold>YOLO MODE</RainbowText>
+        </>
+      ) : null}
+    </Box>
   </Box>
 );
 

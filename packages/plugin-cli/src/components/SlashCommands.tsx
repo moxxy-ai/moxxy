@@ -18,6 +18,11 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<SlashCommand> = [
   { name: 'tools', description: 'List the tools the active session can call' },
   { name: 'skills', description: 'List the discovered skills' },
   { name: 'model', description: 'Show the active provider + model' },
+  {
+    name: 'yolo',
+    description: 'Toggle auto-approve mode — every tool call allowed without asking',
+    aliases: ['auto-approve'],
+  },
   { name: 'help', description: 'Show this command list' },
 ];
 
