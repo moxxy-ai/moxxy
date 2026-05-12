@@ -74,6 +74,11 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
   private awaitingApprovalText: { approvalId: string; optionId: string } | null = null;
   private handle: ChannelHandle | null = null;
   private readonly editFrameMs: number;
+  // Repeating "typing…" chat-action timer. Telegram clears the indicator
+  // ~5s after the last sendChatAction call, so we re-send every ~4s for
+  // the lifetime of a turn. Cleared in `stopTyping()` (always called
+  // from runUserTurn's finally block).
+  private typingTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(opts: TelegramChannelOptions) {
     this.opts = opts;
@@ -143,6 +148,7 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
         this.approvalResolver.abortAll(reason);
         if (this.session) this.session.setApprovalResolver(null);
         if (this.editTimer) clearTimeout(this.editTimer);
+        this.stopTyping();
         if (this.bot) await this.bot.stop();
       },
     };
@@ -294,11 +300,22 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
         const keyboard = new InlineKeyboard();
         const providerName = this.session.providers.getActiveName() ?? '';
         const activeModel = this.activeModelOverride ?? this.model ?? '';
+        // Same boot-time readiness set the TUI uses to flag unconfigured
+        // providers — set by `@moxxy/cli` at setup time. Providers that
+        // failed credential resolution get a "(not connected)" suffix
+        // and a tap on them surfaces the right setup command instead of
+        // a no-op switch.
+        const ready =
+          (this.session as unknown as { readyProviders?: Set<string> }).readyProviders ??
+          new Set<string>();
         let count = 0;
         for (const p of providers) {
           for (const m of p.models) {
             const isCurrent = providerName === p.name && activeModel === m.id;
-            const label = `${isCurrent ? '• ' : ''}${p.name}: ${m.id}`;
+            const connected = ready.has(p.name);
+            const label =
+              `${isCurrent ? '• ' : ''}${p.name}: ${m.id}` +
+              (connected ? '' : ' (not connected)');
             keyboard.text(label, `model:${p.name}::${m.id}`).row();
             count += 1;
             if (count >= 30) break;
@@ -370,6 +387,9 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     this.busy = true;
     this.renderer.reset();
     this.currentChatId = chatId;
+    // Kick off "typing…" right away so the user gets immediate feedback
+    // even before the first placeholder message lands.
+    this.startTyping(chatId);
     const initial = await ctx.reply('…');
     this.currentMessageId = initial.message_id;
     this.lastSentFrame = '…';
@@ -402,11 +422,38 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
         /* ignore */
       }
     } finally {
+      this.stopTyping();
       unsubscribe();
       this.busy = false;
       this.turnController = null;
       this.currentChatId = null;
       this.currentMessageId = null;
+    }
+  }
+
+  /**
+   * Show a "typing…" indicator in the chat for the lifetime of a turn.
+   * Telegram clears the indicator ~5s after the last sendChatAction, so
+   * we re-fire every 4s. Best-effort — a single failure shouldn't crash
+   * the turn (we keep the interval going so transient network blips
+   * recover on the next tick).
+   */
+  private startTyping(chatId: number): void {
+    if (!this.bot) return;
+    this.stopTyping();
+    const fire = (): void => {
+      this.bot?.api.sendChatAction(chatId, 'typing').catch(() => {
+        /* best-effort */
+      });
+    };
+    fire();
+    this.typingTimer = setInterval(fire, 4_000);
+  }
+
+  private stopTyping(): void {
+    if (this.typingTimer) {
+      clearInterval(this.typingTimer);
+      this.typingTimer = null;
     }
   }
 
@@ -587,9 +634,45 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
         await ctx.answerCallbackQuery({ text: 'invalid model selection' });
         return;
       }
+      // Intercept switches to unconfigured providers — otherwise OAuth-
+      // backed providers (openai-codex) would surface a credential
+      // error on the next turn. Match the TUI's wording so the user
+      // sees the same setup command in both channels.
+      const ready =
+        (this.session as unknown as { readyProviders?: Set<string> }).readyProviders ??
+        new Set<string>();
+      if (!ready.has(providerId)) {
+        const cmd =
+          providerId === 'openai-codex'
+            ? 'moxxy login openai-codex'
+            : `moxxy init   # (will prompt for ${providerId.toUpperCase()}_API_KEY)`;
+        await ctx.answerCallbackQuery({ text: `${providerId} not connected` });
+        if (ctx.callbackQuery?.message) {
+          try {
+            await ctx.editMessageText(
+              `${providerId} isn't connected.\n\nRun \`${cmd}\` then restart moxxy.`,
+              { parse_mode: 'Markdown' },
+            );
+          } catch {
+            /* ignore */
+          }
+        }
+        return;
+      }
       try {
         if (this.session.providers.getActiveName() !== providerId) {
-          this.session.providers.setActive(providerId);
+          // Resolve credentials and drop the cached instance, same as
+          // the TUI. Without this the new provider gets createClient({})
+          // and openai-codex throws "no OAuth credentials" on next turn.
+          const resolver = (
+            this.session as unknown as {
+              credentialResolver?: (name: string) => Promise<Record<string, unknown>>;
+            }
+          ).credentialResolver;
+          const cfg = resolver ? await resolver(providerId) : {};
+          const def = this.session.providers.list().find((p) => p.name === providerId);
+          if (def) this.session.providers.replace(def);
+          this.session.providers.setActive(providerId, cfg);
         }
         this.activeModelOverride = modelId;
         // Persist for next CLI run — same preferences file the TUI writes.
