@@ -1,21 +1,17 @@
 import React from 'react';
-import { Box, Text } from 'ink';
+import { Box } from 'ink';
 
 export interface StatusBarProps {
-  readonly model: string;
-  readonly provider: string;
-  readonly busy?: boolean;
+  // Intentionally empty for now — the model/provider info moved up next to
+  // the logo so the row below the prompt stays visually quiet and reserved
+  // for future contextual content (token usage, network status, hints, etc.).
+  readonly _placeholder?: never;
 }
 
 /**
- * Minimal status row below the prompt input: provider and model only,
- * both dimmed so they stay in the user's peripheral vision and the
- * focus stays on the prompt itself. The busy indicator mirrors the
- * spinner state.
+ * Reserved space below the prompt input. The model + provider info now
+ * lives below the logo at the top of the TUI. This component is kept as
+ * the slot future indicators can fill (e.g., token counter, vault status,
+ * stream rate) without re-shuffling the layout.
  */
-export const StatusBar: React.FC<StatusBarProps> = ({ model, provider, busy }) => (
-  <Box marginTop={1} flexDirection="row">
-    <Text dimColor>{busy ? '⏺  ' : '○  '}</Text>
-    <Text dimColor>{provider}:{model}</Text>
-  </Box>
-);
+export const StatusBar: React.FC<StatusBarProps> = () => <Box marginTop={1} />;

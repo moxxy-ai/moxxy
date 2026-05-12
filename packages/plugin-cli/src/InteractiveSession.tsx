@@ -137,6 +137,11 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
   return (
     <Box flexDirection="column">
       <Logo subtitle="type / for commands · /exit to quit" />
+      <Box marginBottom={1}>
+        <Text> </Text>
+        <Text backgroundColor="magenta" color="white" bold>{` ${providerName} `}</Text>
+        <Text dimColor>{`  ${activeModel}`}</Text>
+      </Box>
       <ChatView events={events} streamingDelta={streamingDelta} />
       {systemNotice ? (
         <Box marginTop={1} marginBottom={1} flexDirection="column">
@@ -167,7 +172,7 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
           placeholder={busy ? '' : 'type a prompt or / for commands'}
         />
       )}
-      <StatusBar model={activeModel} provider={providerName} busy={busy} />
+      <StatusBar />
     </Box>
   );
 };
