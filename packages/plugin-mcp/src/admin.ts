@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { defineTool, definePlugin, z, type Plugin, type Skill, type ToolDef } from '@moxxy/sdk';
 import type { McpClientLike, McpServerConfig, McpToolDescriptor } from './types.js';
+import { defaultClientFactory } from './client.js';
 import { wrapMcpServerTools, wrapMcpServerToolsLazy } from './wrap.js';
 
 /**
@@ -255,6 +256,21 @@ export interface McpAdminApi {
   enableAndAttach(name: string): Promise<{ toolNames: ReadonlyArray<string> } | null>;
   /** Detach a server's live tools and close its client. */
   detach(name: string): Promise<boolean>;
+  /**
+   * One-shot snapshot of every server configured in ~/.moxxy/mcp.json,
+   * joined with the runtime attach state. `enabled` reflects the persisted
+   * config (`disabled !== true`); `connected` is true when the server's
+   * tools are attached to the session (whether eagerly or via a lazy stub
+   * — both states make tools callable from a user's perspective). Used
+   * by the TUI status bar to show "mcp 2/3" style summaries.
+   */
+  listServers(): Promise<ReadonlyArray<McpServerStatus>>;
+}
+
+export interface McpServerStatus {
+  readonly name: string;
+  readonly enabled: boolean;
+  readonly connected: boolean;
 }
 
 export function buildMcpAdminPluginWithApi(
@@ -355,7 +371,6 @@ function buildMcpAdminPluginInternal(
   const attachServer = async (
     server: McpServerConfig,
   ): Promise<{ toolNames: ReadonlyArray<string>; descriptors: ReadonlyArray<McpToolDescriptor> }> => {
-    const { defaultClientFactory } = await import('./index.js');
     const client = await defaultClientFactory(server);
     const list = await client.listTools();
     const descriptors = list.tools;
@@ -402,7 +417,6 @@ function buildMcpAdminPluginInternal(
     const getOrConnect = async (): Promise<McpClientLike> => {
       if (!connectPromise) {
         connectPromise = (async () => {
-          const { defaultClientFactory } = await import('./index.js');
           const client = await defaultClientFactory(server);
           // Stash the live client on the runtime entry so shutdown can
           // close it. The entry was created with a sentinel; replace it.
@@ -455,7 +469,6 @@ function buildMcpAdminPluginInternal(
   const refreshServerCache = async (
     server: McpStoredServer,
   ): Promise<McpStoredServer> => {
-    const { defaultClientFactory } = await import('./index.js');
     const client = await defaultClientFactory(server);
     try {
       const list = await client.listTools();
@@ -502,6 +515,14 @@ function buildMcpAdminPluginInternal(
       return attachServerLazy(entry);
     },
     detach: detachServer,
+    listServers: async () => {
+      const cfg = await readMcpConfig();
+      return cfg.servers.map((s) => ({
+        name: s.name,
+        enabled: s.disabled !== true,
+        connected: runtimes.has(s.name),
+      }));
+    },
   };
   const plugin = definePlugin({
     name: '@moxxy/plugin-mcp-admin',
@@ -621,10 +642,6 @@ function buildMcpAdminPluginInternal(
         inputSchema: addServerInput,
         handler: async (input) => {
           const server = validateAddServerInput(input);
-          // Local import: keep the @modelcontextprotocol/sdk dependency
-          // lazy so admin tools don't pay the import cost when the
-          // session never tests anything.
-          const { defaultClientFactory } = await import('./index.js');
           let client: Awaited<ReturnType<typeof defaultClientFactory>> | null = null;
           try {
             client = await defaultClientFactory(server);

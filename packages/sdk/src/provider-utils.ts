@@ -36,6 +36,57 @@ export function zodToJsonSchema(schema: unknown): unknown {
   if (typeof s.toJSON === 'function') return s.toJSON();
   const def = s._def;
   const typeName = def?.typeName;
+
+  // ZodEffects (`.refine`, `.transform`, `.superRefine`) is a wrapper —
+  // the inner `schema` field holds the real type. Skipping the unwrap
+  // leaves us with a properties-less object schema, which providers like
+  // Codex's /responses validator reject ("object schema missing properties").
+  if (typeName === 'ZodEffects') {
+    const inner = (def as unknown as { schema: unknown }).schema;
+    return zodToJsonSchema(inner);
+  }
+  // ZodOptional / ZodNullable / ZodDefault / ZodBranded / ZodReadonly all
+  // wrap an inner schema we want to unwrap for JSON-schema purposes.
+  if (
+    typeName === 'ZodOptional' ||
+    typeName === 'ZodNullable' ||
+    typeName === 'ZodDefault' ||
+    typeName === 'ZodBranded' ||
+    typeName === 'ZodReadonly'
+  ) {
+    const inner = (def as unknown as { innerType: unknown }).innerType;
+    return zodToJsonSchema(inner);
+  }
+  // `.and(other)` produces a ZodIntersection. The standard JSON-schema
+  // representation is `allOf`, but strict validators (Codex again) want
+  // each branch to be a complete object schema. Easiest path that satisfies
+  // them: when both branches reduce to object schemas, merge properties
+  // and required lists into one object. Fall back to `allOf` otherwise.
+  if (typeName === 'ZodIntersection') {
+    const intersection = def as unknown as { left: unknown; right: unknown };
+    const left = zodToJsonSchema(intersection.left) as Record<string, unknown>;
+    const right = zodToJsonSchema(intersection.right) as Record<string, unknown>;
+    if (
+      left &&
+      right &&
+      left.type === 'object' &&
+      right.type === 'object' &&
+      left.properties &&
+      right.properties
+    ) {
+      return {
+        type: 'object',
+        properties: { ...(left.properties as object), ...(right.properties as object) },
+        required: Array.from(
+          new Set([
+            ...((left.required as ReadonlyArray<string>) ?? []),
+            ...((right.required as ReadonlyArray<string>) ?? []),
+          ]),
+        ),
+      };
+    }
+    return { allOf: [left, right] };
+  }
   if (typeName === 'ZodObject') {
     // zod's ZodObject._def has a `shape()` thunk returning the field map.
     const shape = (def as unknown as { shape: () => Record<string, unknown> }).shape();
@@ -51,10 +102,33 @@ export function zodToJsonSchema(schema: unknown): unknown {
   if (typeName === 'ZodString') return { type: 'string' };
   if (typeName === 'ZodNumber') return { type: 'number' };
   if (typeName === 'ZodBoolean') return { type: 'boolean' };
+  if (typeName === 'ZodEnum') {
+    const values = (def as unknown as { values: ReadonlyArray<string> }).values;
+    return { type: 'string', enum: [...values] };
+  }
+  if (typeName === 'ZodNativeEnum') {
+    const values = Object.values(
+      (def as unknown as { values: Record<string, string | number> }).values,
+    );
+    const allString = values.every((v) => typeof v === 'string');
+    return { type: allString ? 'string' : 'number', enum: values };
+  }
+  if (typeName === 'ZodLiteral') {
+    const value = (def as unknown as { value: string | number | boolean | null }).value;
+    const t = value === null ? 'null' : typeof value;
+    return { type: t, enum: [value] };
+  }
+  if (typeName === 'ZodUnion' || typeName === 'ZodDiscriminatedUnion') {
+    const options = (def as unknown as { options: ReadonlyArray<unknown> }).options;
+    return { anyOf: options.map((o) => zodToJsonSchema(o)) };
+  }
   if (typeName === 'ZodArray') {
     // ZodArray._def.type is the element schema.
     const items = zodToJsonSchema((def as unknown as { type: unknown }).type);
     return { type: 'array', items };
   }
-  return { type: 'object' };
+  // Truly unknown — fall back to a permissive "any object" but spell out
+  // `properties: {}` and `additionalProperties: true` so strict validators
+  // accept the schema instead of bailing on a missing `properties` field.
+  return { type: 'object', properties: {}, additionalProperties: true };
 }

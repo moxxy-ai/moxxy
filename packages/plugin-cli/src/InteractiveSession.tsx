@@ -71,6 +71,34 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
   const [expandSkills, setExpandSkills] = useState(false);
   const [yolo, setYolo] = useState(false);
   const yoloRef = useRef(false);
+  // MCP attach summary — refreshed on mount, after every /mcp action, and
+  // every 5s while the session is open so lazy stubs that connect mid-turn
+  // surface in the status bar without needing a user-driven refresh.
+  const [mcpStatus, setMcpStatus] = useState<{ connected: number; enabled: number }>({
+    connected: 0,
+    enabled: 0,
+  });
+  const refreshMcpStatus = React.useCallback(async () => {
+    const api = (session as unknown as {
+      mcpAdmin?: { listServers: () => Promise<ReadonlyArray<{ enabled: boolean; connected: boolean }>> };
+    }).mcpAdmin;
+    if (!api?.listServers) return;
+    try {
+      const list = await api.listServers();
+      const enabled = list.filter((s) => s.enabled);
+      setMcpStatus({
+        enabled: enabled.length,
+        connected: enabled.filter((s) => s.connected).length,
+      });
+    } catch {
+      // best-effort — leave the previous count visible
+    }
+  }, [session]);
+  useEffect(() => {
+    void refreshMcpStatus();
+    const t = setInterval(() => void refreshMcpStatus(), 5000);
+    return () => clearInterval(t);
+  }, [refreshMcpStatus]);
   // Mid-session model override. When the user picks a model via /model,
   // this takes precedence over the prop passed in at mount time.
   const [activeModelOverride, setActiveModelOverride] = useState<string | null>(null);
@@ -310,6 +338,8 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
           }
         } catch (err) {
           setSystemNotice(`MCP action failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          void refreshMcpStatus();
         }
       })();
       return;
@@ -712,6 +742,7 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
         contextUsed={contextUsed}
         contextWindow={contextWindow ?? undefined}
         yolo={yolo}
+        mcp={mcpStatus}
       />
     </Box>
   );

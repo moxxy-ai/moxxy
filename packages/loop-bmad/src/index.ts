@@ -26,7 +26,6 @@ import {
   collectProviderStream,
   defineLoopStrategy,
   definePlugin,
-  projectMessagesFromLog,
   type ApprovalDecision,
   type LoopContext,
   type MoxxyEvent,
@@ -254,7 +253,7 @@ async function* runBmadLoop(ctx: LoopContext): AsyncIterable<MoxxyEvent> {
   // intentionally drop the persona-driven gating and run a normal,
   // iteration-bounded tool-use loop so the developer can flow across
   // stories naturally — same engine that powers `tool-use`, just with the
-  // BMAD artifacts already in the log.
+  // BMAD artifacts in scope.
   yield await ctx.emit({
     type: 'plugin_event',
     sessionId: ctx.sessionId,
@@ -263,6 +262,21 @@ async function* runBmadLoop(ctx: LoopContext): AsyncIterable<MoxxyEvent> {
     pluginId: BMAD_PLUGIN_ID,
     subtype: 'bmad_phase_started',
     payload: { phase: 'implementation', persona: 'Developer' },
+  });
+
+  // Visible banner so the user sees the auto-transition land in chat —
+  // without this the only signal is the plugin_event above, which the TUI
+  // doesn't render, and a silent first-iteration end_turn looks like the
+  // turn just stopped.
+  yield await ctx.emit({
+    type: 'assistant_message',
+    sessionId: ctx.sessionId,
+    turnId: ctx.turnId,
+    source: 'system',
+    content:
+      `→ Implementation phase: working through ${artifacts.stories.length} ` +
+      `${artifacts.stories.length === 1 ? 'story' : 'stories'} as the developer persona.`,
+    stopReason: 'end_turn',
   });
 
   const completed = yield* runImplementationLoop(ctx, artifacts);
@@ -510,13 +524,25 @@ async function* runImplementationLoop(
   const storyList = artifacts.stories
     .map((s, i) => `  ${i + 1}. [ ] ${s}`)
     .join('\n');
+  // Single context block instead of three consecutive assistant messages.
+  // Several providers (including codex /responses) handle alternating
+  // user/assistant turns much better than 3+ consecutive assistant blocks
+  // — the latter was making the codex implementation phase return
+  // end_turn with empty text on iteration 1, which the loop was
+  // mis-reading as "story complete" and exiting silently.
+  const bmadContext =
+    `BMAD context — three prior phases produced these artifacts:\n\n` +
+    `## Analyst brief\n${artifacts.analysis}\n\n` +
+    `## Story list\n${artifacts.planning}\n\n` +
+    `## Architect's design\n${artifacts.solutioning}`;
   const devNudge =
-    `Developer persona. The analyst brief, story list, and architect's design ` +
-    `are above as prior assistant messages. Implement the stories now using the ` +
-    `available tools. Work through them in order; flow between stories as needed. ` +
-    `Do not narrate — call the tools. When all acceptance criteria are met, reply ` +
-    `with one short summary line and stop.\n\n` +
+    `Developer persona. Implement the stories above now using the available ` +
+    `tools. Work through them in order; flow between stories as needed. ` +
+    `Do not narrate — call the tools. When all acceptance criteria are met, ` +
+    `reply with one short summary line and stop.\n\n` +
     `Stories to implement:\n${storyList}`;
+
+  let producedAnyOutput = false; // Tracks whether the loop did any visible work.
 
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
     if (ctx.signal.aborted) {
@@ -539,11 +565,11 @@ async function* runImplementationLoop(
       iteration,
     });
 
-    const messages = projectMessagesFromLog(ctx, {
-      systemPrompt:
-        buildSystemPromptWithSkills(ctx.systemPrompt, ctx.skills.list()) ?? ctx.systemPrompt,
-      trailingUserText: iteration === 1 ? devNudge : undefined,
-    });
+    const messages = buildImplementationMessages(
+      ctx,
+      iteration === 1 ? bmadContext : null,
+      iteration === 1 ? devNudge : null,
+    );
 
     yield await ctx.emit({
       type: 'provider_request',
@@ -589,9 +615,31 @@ async function* runImplementationLoop(
         content: text,
         stopReason,
       });
+      producedAnyOutput = true;
     }
 
-    if (stopReason !== 'tool_use' || toolUses.length === 0) return true;
+    if (stopReason !== 'tool_use' || toolUses.length === 0) {
+      // First-iteration silent end_turn is the bug signature that used to
+      // make the implementation phase look like it never ran. Surface it
+      // as a hint instead of pretending the work is done.
+      if (iteration === 1 && !producedAnyOutput) {
+        yield await ctx.emit({
+          type: 'error',
+          sessionId: ctx.sessionId,
+          turnId: ctx.turnId,
+          source: 'system',
+          kind: 'fatal',
+          message:
+            'bmad: developer phase ended with no output or tool calls on its first ' +
+            'iteration — the model accepted the BMAD context but produced nothing. ' +
+            'Try re-running with the `tool-use` loop, or send a follow-up prompt like ' +
+            '"execute the plan above" to kick the developer off.',
+        });
+        return false;
+      }
+      return true;
+    }
+    producedAnyOutput = true;
 
     for (const t of toolUses) {
       const callId = asToolCallId(t.id);
@@ -722,6 +770,87 @@ function buildBaseMessages(ctx: LoopContext): ProviderMessage[] {
     }
   }
   return out;
+}
+
+/**
+ * Message builder for the implementation phase. Instead of replaying every
+ * `assistant_message` from the log (which produces three consecutive
+ * assistant turns and confuses providers like codex /responses), we
+ * collapse the BMAD artifacts into a single context-bearing user message
+ * before the developer nudge. The resulting shape on iteration 1 is:
+ *
+ *   system   = systemPrompt + skill index
+ *   user[0]  = original prompt + tool_result blocks from the live log
+ *   user[1]  = BMAD context (analyst brief, stories, design)
+ *   user[2]  = developer nudge ("implement these now, use tools")
+ *
+ * On subsequent iterations only the live conversation (with whatever
+ * tool calls and results the developer has produced) is replayed,
+ * because the context block is already established in the conversation
+ * via iteration 1.
+ */
+function buildImplementationMessages(
+  ctx: LoopContext,
+  bmadContext: string | null,
+  devNudge: string | null,
+): ProviderMessage[] {
+  const messages: ProviderMessage[] = [];
+  const systemText =
+    buildSystemPromptWithSkills(ctx.systemPrompt, ctx.skills.list()) ?? ctx.systemPrompt;
+  if (systemText) {
+    messages.push({ role: 'system', content: [{ type: 'text', text: systemText }] });
+  }
+
+  // Replay the live tool-use trace: user_prompt + (assistant tool_use /
+  // tool_result) chains the developer has produced since the BMAD
+  // artifacts. Pure assistant_message events from the artifact phases
+  // are intentionally skipped — those go into the BMAD context block
+  // instead so the provider sees alternating user/assistant turns.
+  let pendingAssistant:
+    | { role: 'assistant'; content: Array<{ type: 'tool_use'; id: string; name: string; input: unknown }> }
+    | null = null;
+  const flushAssistant = (): void => {
+    if (pendingAssistant) {
+      messages.push(pendingAssistant);
+      pendingAssistant = null;
+    }
+  };
+  for (const e of ctx.log.slice()) {
+    if (e.type === 'user_prompt') {
+      flushAssistant();
+      messages.push({ role: 'user', content: [{ type: 'text', text: e.text }] });
+    } else if (e.type === 'tool_call_requested') {
+      if (!pendingAssistant) pendingAssistant = { role: 'assistant', content: [] };
+      pendingAssistant.content.push({
+        type: 'tool_use',
+        id: String(e.callId),
+        name: e.name,
+        input: e.input,
+      });
+    } else if (e.type === 'tool_result') {
+      flushAssistant();
+      const text = e.error
+        ? `[error:${e.error.kind}] ${e.error.message}`
+        : typeof e.output === 'string'
+          ? e.output
+          : JSON.stringify(e.output ?? '');
+      messages.push({
+        role: 'tool_result',
+        content: [{ type: 'tool_result', toolUseId: String(e.callId), content: text, isError: !e.ok }],
+      });
+    }
+  }
+  flushAssistant();
+
+  // Inject the BMAD context + dev nudge as standalone user turns on the
+  // first iteration so the model has clean alternation.
+  if (bmadContext) {
+    messages.push({ role: 'user', content: [{ type: 'text', text: bmadContext }] });
+  }
+  if (devNudge) {
+    messages.push({ role: 'user', content: [{ type: 'text', text: devNudge }] });
+  }
+  return messages;
 }
 
 /**
