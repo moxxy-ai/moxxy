@@ -81,7 +81,30 @@ export interface SetupOptions {
    * one up themselves (or accept that the session can't run turns yet).
    */
   readonly skipProviderActivation?: boolean;
+  /**
+   * Optional progress callback fired after each discrete boot phase. The
+   * TUI uses this to render the live checklist on the bootstrap screen.
+   * When set, `skipKeyPrompt` is forced true — Ink owns raw mode while
+   * the boot screen is on-screen, so a `readline`-based prompt would
+   * deadlock against the terminal.
+   */
+  readonly onProgress?: (step: BootStep) => void;
 }
+
+/**
+ * Discrete boot phases reported via `SetupOptions.onProgress`. The TUI
+ * pattern-matches on `kind` to render a checklist row; programmatic
+ * callers can ignore everything except `kind: 'error'` and `kind: 'ready'`.
+ */
+export type BootStep =
+  | { kind: 'config-loaded'; sources: number }
+  | { kind: 'plugins-registered'; count: number }
+  | { kind: 'provider-activated'; name: string }
+  | { kind: 'provider-failed'; tried: ReadonlyArray<string>; error: string }
+  | { kind: 'prefs-applied' }
+  | { kind: 'skills-loaded'; count: number }
+  | { kind: 'init-hooks-done' }
+  | { kind: 'ready' };
 
 export interface SetupResult {
   readonly session: Session;
@@ -101,12 +124,18 @@ export async function setupSession(opts: SetupOptions): Promise<Session> {
 
 export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupResult> {
   const logger = opts.verbose ? createLogger({ minLevel: 'debug' }) : silentLogger;
+  // When the TUI bootstrap path passes onProgress, it owns raw mode —
+  // a vault/key prompt would deadlock. Force skipKeyPrompt to surface
+  // missing-credential errors as a visible boot-failure row instead.
+  const skipKeyPrompt = opts.skipKeyPrompt || opts.onProgress != null;
+  const progress = opts.onProgress ?? ((): void => undefined);
 
   const { config: rawConfig, sources } = await loadConfig({
     cwd: opts.cwd,
     explicitPath: opts.configPath,
     skipUser: opts.skipUserConfig,
   });
+  progress({ kind: 'config-loaded', sources: sources.length });
 
   const { plugin: vaultPlugin, vault } = buildVaultPlugin({ disableKeytar: opts.disableKeytar });
   const embedder = await buildEmbedder(rawConfig.embeddings, logger);
@@ -280,6 +309,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
       err: err instanceof Error ? err.message : String(err),
     });
   }
+  progress({ kind: 'plugins-registered', count: registered.size });
 
   const primaryProvider = config.provider?.name ?? 'anthropic';
   const initialProviderConfig = { ...(config.provider?.config ?? {}), ...(opts.providerConfig ?? {}) };
@@ -294,7 +324,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     const candidate = candidates[i]!;
     // Only the FIRST candidate gets the interactive prompt — chaining
     // through fallbacks via prompts would be confusing.
-    const interactive = i === 0 && !opts.skipKeyPrompt && process.stdin.isTTY === true;
+    const interactive = i === 0 && !skipKeyPrompt && process.stdin.isTTY === true;
     try {
       const resolved = await resolveProviderCredentials(candidate, vault, {
         providerConfig: i === 0 ? initialProviderConfig : {},
@@ -311,16 +341,28 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     }
   }
   if (!activated) {
+    const errMsg = lastErr instanceof Error ? lastErr.message : String(lastErr);
     if (opts.tolerateNoProvider || opts.skipProviderActivation) {
       logger.warn('no provider key resolvable; continuing without an active provider', {
         tried: candidates,
-        err: lastErr instanceof Error ? lastErr.message : String(lastErr),
+        err: errMsg,
       });
+      progress({ kind: 'provider-failed', tried: candidates, error: errMsg });
+    } else if (opts.onProgress) {
+      // Boot screen path: surface the failure to the UI instead of
+      // throwing — the TUI's `phase === 'error'` branch shows it as a
+      // checklist row + centered error block.
+      progress({ kind: 'provider-failed', tried: candidates, error: errMsg });
+      throw new Error(
+        `No working provider key. Tried: ${candidates.join(', ')}. ` +
+          `Run \`moxxy init\` in an interactive terminal, set env vars, or store ` +
+          `keys in the vault. Last error: ${errMsg}`,
+      );
     } else {
       throw new Error(
         `No working provider key. Tried: ${candidates.join(', ')}. ` +
           `Run \`moxxy init\` in an interactive terminal, set env vars, or store ` +
-          `keys in the vault. Last error: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`,
+          `keys in the vault. Last error: ${errMsg}`,
       );
     }
   } else {
@@ -328,6 +370,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     if (activated.name !== primaryProvider) {
       logger.warn('using fallback provider', { primary: primaryProvider, active: activated.name });
     }
+    progress({ kind: 'provider-activated', name: activated.name });
   }
 
   // Probe each registered provider for credential readiness so the TUI
@@ -408,6 +451,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
       err: err instanceof Error ? err.message : String(err),
     });
   }
+  progress({ kind: 'prefs-applied' });
 
   const discovered = await discoverSkills({
     projectDir: config.skills?.projectDir ?? defaultProjectSkillsDir(opts.cwd),
@@ -417,6 +461,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     logger,
   });
   for (const skill of discovered) session.skills.register(skill);
+  progress({ kind: 'skills-loaded', count: discovered.length });
 
   // Fire onInit lifecycle hooks now that every plugin is registered and
   // every skill is loaded. Hooks observe the fully-populated session
@@ -424,6 +469,8 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // lazy stubs for saved servers here). Failures are non-fatal — the
   // dispatcher records them as ErrorEvents but startup proceeds.
   await session.dispatcher.dispatchInit(session.appContext());
+  progress({ kind: 'init-hooks-done' });
+  progress({ kind: 'ready' });
 
   return {
     session,

@@ -2,6 +2,7 @@ import { bootSessionWithConfig } from '../argv-helpers.js';
 import { printError } from '../errors.js';
 import { stringFlag } from '../argv-helpers.js';
 import type { ParsedArgv } from '../argv.js';
+import { runTuiWithBootstrap } from './run-tui.js';
 
 /**
  * Generic channel dispatcher. Looks up a ChannelDef by name in the session's
@@ -14,6 +15,13 @@ import type { ParsedArgv } from '../argv.js';
  * `moxxy channels <name>` when no subcommand is given.
  */
 export async function runChannelByName(name: string, argv: ParsedArgv): Promise<number> {
+  // The `tui` channel mounts its UI BEFORE running setup so the user
+  // sees the logo + boot checklist instantly. Delegate the whole flow
+  // to the TUI-specific helper, which threads progress callbacks into
+  // the bootstrap and wires the permission resolver post-boot.
+  if (name === 'tui') {
+    return runTuiWithBootstrap(argv);
+  }
   const { session, vault, config } = await bootSessionWithConfig(argv);
 
   const def = session.channels.get(name);

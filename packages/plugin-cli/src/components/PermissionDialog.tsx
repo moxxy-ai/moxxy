@@ -1,6 +1,8 @@
 import React, { useEffect } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Text, useInput } from 'ink';
 import type { PendingToolCall, PermissionDecision } from '@moxxy/sdk';
+import { Colors } from '../theme.js';
+import { Modal } from './Modal.js';
 
 export interface PermissionDialogProps {
   readonly call: PendingToolCall;
@@ -22,17 +24,25 @@ export const PermissionDialog: React.FC<PermissionDialogProps> = ({ call, toolDe
   }, []);
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1} paddingY={0}>
-      <Text bold color="yellow">Tool permission requested</Text>
+    <Modal
+      title="Tool permission requested"
+      hints="y allow · a session · p always · n deny"
+    >
       <Text>
         Tool: <Text bold>{call.name}</Text>
         {toolDescription ? <Text dimColor> — {toolDescription}</Text> : null}
       </Text>
       <Text dimColor>Input: {JSON.stringify(call.input).slice(0, 200)}</Text>
       <Text>
-        <Text color="green">[y]</Text> allow once · <Text color="green">[a]</Text> allow session ·{' '}
-        <Text color="green">[p]</Text> always · <Text color="red">[n]</Text> deny
+        <Text>[y]</Text>
+        <Text dimColor> allow once · </Text>
+        <Text>[a]</Text>
+        <Text dimColor> allow session · </Text>
+        <Text>[p]</Text>
+        <Text dimColor> always · </Text>
+        <Text color={Colors.danger}>[n]</Text>
+        <Text dimColor> deny</Text>
       </Text>
-    </Box>
+    </Modal>
   );
 };

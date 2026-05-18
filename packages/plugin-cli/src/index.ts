@@ -1,7 +1,11 @@
 import { defineChannel, definePlugin, type Plugin } from '@moxxy/sdk';
 import { TuiChannel } from './TuiChannel.js';
 
-export { InteractiveSession, type InteractiveSessionProps } from './InteractiveSession.js';
+export {
+  InteractiveSession,
+  type InteractiveSessionProps,
+  type InteractiveBootStep,
+} from './InteractiveSession.js';
 export { PermissionDialog, type PermissionDialogProps } from './components/PermissionDialog.js';
 export { ChatView, type ChatViewProps } from './components/ChatView.js';
 export { PromptInput, type PromptInputProps } from './components/PromptInput.js';

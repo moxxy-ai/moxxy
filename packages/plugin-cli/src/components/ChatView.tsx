@@ -7,6 +7,7 @@ import type {
   ToolResultEvent,
 } from '@moxxy/sdk';
 import { Markdown } from './Markdown.js';
+import { Colors, Glyphs } from '../theme.js';
 
 export interface ChatViewProps {
   readonly events: ReadonlyArray<MoxxyEvent>;
@@ -61,7 +62,7 @@ const AssistantBlock: React.FC<{ content: string }> = ({ content }) => {
   return (
     <Box flexDirection="row" marginTop={1}>
       <Box flexDirection="column" marginRight={1}>
-        <Text color="white">●</Text>
+        <Text dimColor>{Glyphs.filled}</Text>
       </Box>
       <Box flexDirection="column" flexGrow={1}>
         <Markdown content={content} firstBlockTight />
@@ -255,11 +256,9 @@ const SkillScopeView: React.FC<{ scope: SkillScopeBlock; expandClosedSkills: boo
   return (
     <Box flexDirection="column" marginTop={1}>
       <Box>
-        <Text color="magenta">● </Text>
+        <Text color={DotColors.skill}>{Glyphs.filled} </Text>
         <Text bold>{scope.skillEvent.name}</Text>
-        <Text>(</Text>
-        <Text dimColor>{callLabel}</Text>
-        <Text>)</Text>
+        <Text dimColor>{` (${callLabel})`}</Text>
         {scope.closed && !expandClosedSkills ? (
           <Text dimColor italic>{'  collapsed'}</Text>
         ) : null}
@@ -274,6 +273,25 @@ const SkillScopeView: React.FC<{ scope: SkillScopeBlock; expandClosedSkills: boo
     </Box>
   );
 };
+
+/**
+ * Color the `◆` indicator by where the call came from so a glance
+ * across the scrollback shows which subsystem is active — MCP tools
+ * are cyan, in-process skills magenta, builtin tools green, anything
+ * else (compactor, abort, plugin notes) dim gray. Pending / failed
+ * states override these (yellow / red).
+ */
+const DotColors = {
+  mcp: 'cyan' as const,
+  skill: 'magenta' as const,
+  tool: 'green' as const,
+  other: 'gray' as const,
+};
+
+function dotColorForTool(toolName: string): string {
+  if (toolName.startsWith('mcp__')) return DotColors.mcp;
+  return DotColors.tool;
+}
 
 function countToolCalls(blocks: ReadonlyArray<Block>): number {
   let n = 0;
@@ -293,7 +311,7 @@ function countToolCalls(blocks: ReadonlyArray<Block>): number {
  * that follows (some terminals interpret the boundary loosely and the
  * whole row appeared to pulse).
  */
-const PendingBullet: React.FC<{ color: string }> = ({ color }) => {
+const PendingBullet: React.FC = () => {
   const [on, setOn] = useState(true);
   useEffect(() => {
     const t = setInterval(() => setOn((v) => !v), 500);
@@ -301,7 +319,7 @@ const PendingBullet: React.FC<{ color: string }> = ({ color }) => {
   }, []);
   return (
     <>
-      <Text color={color} dimColor={!on}>●</Text>
+      <Text color={Colors.busy} dimColor={!on}>{Glyphs.filled}</Text>
       <Text> </Text>
     </>
   );
@@ -319,20 +337,19 @@ const ToolCallBlock: React.FC<{
         : outcome.ok
           ? 'ok'
           : 'err';
-  const bulletColor = status === 'pending' ? 'yellow' : status === 'ok' ? 'green' : 'red';
   const argSummary = summarizeArgs(request.input);
   return (
     <Box flexDirection="column" marginTop={1}>
       <Box>
         {status === 'pending' ? (
-          <PendingBullet color={bulletColor} />
+          <PendingBullet />
+        ) : status === 'err' ? (
+          <Text color={Colors.danger}>{Glyphs.filled} </Text>
         ) : (
-          <Text color={bulletColor}>● </Text>
+          <Text color={dotColorForTool(request.name)}>{Glyphs.filled} </Text>
         )}
         <Text bold>{request.name}</Text>
-        <Text>(</Text>
-        <Text dimColor>{argSummary}</Text>
-        <Text>)</Text>
+        <Text dimColor>{`(${argSummary})`}</Text>
       </Box>
       {outcome ? (
         <Box>
@@ -348,11 +365,11 @@ const OutcomeText: React.FC<{
   outcome: ToolResultEvent | { type: 'denied'; reason: string };
 }> = ({ outcome }) => {
   if (outcome.type === 'denied') {
-    return <Text color="red">denied: {outcome.reason}</Text>;
+    return <Text color={Colors.danger}>denied: {outcome.reason}</Text>;
   }
   if (!outcome.ok) {
     return (
-      <Text color="red">
+      <Text color={Colors.danger}>
         {outcome.error?.kind ?? 'error'}: {outcome.error?.message}
       </Text>
     );
@@ -398,12 +415,16 @@ function oneLine(s: string): string {
 const EventLine: React.FC<{ event: MoxxyEvent }> = ({ event }) => {
   switch (event.type) {
     case 'user_prompt':
-      // Only top margin — the block below (assistant / tool) owns its
-      // own top spacing, so a marginBottom here compounds to two blank
-      // lines between the user prompt and the first response.
+      // Highlighted echo bar: bold prompt glyph + the user text, then a
+      // dim horizontal rule under it. Matches the Grok-style "pinned
+      // user prompt" treatment without needing a full bordered box.
       return (
-        <Box marginTop={1}>
-          <Text backgroundColor="#262626">{` ${event.text} `}</Text>
+        <Box flexDirection="column" marginTop={1}>
+          <Box>
+            <Text>{`${Glyphs.prompt} `}</Text>
+            <Text bold>{event.text}</Text>
+          </Box>
+          <Text dimColor>{'─'.repeat(Math.min(60, event.text.length + 2))}</Text>
         </Box>
       );
     case 'assistant_message':
@@ -415,7 +436,7 @@ const EventLine: React.FC<{ event: MoxxyEvent }> = ({ event }) => {
     case 'skill_created':
       return (
         <Box marginTop={1}>
-          <Text color="green">● </Text>
+          <Text dimColor>{Glyphs.filled} </Text>
           <Text bold>skill created</Text>
           <Text dimColor>  {event.name}</Text>
         </Box>
@@ -429,7 +450,7 @@ const EventLine: React.FC<{ event: MoxxyEvent }> = ({ event }) => {
     case 'compaction':
       return (
         <Box marginTop={1}>
-          <Text color="magenta">⤺ </Text>
+          <Text dimColor>⤺ </Text>
           <Text dimColor>
             compacted {event.replacedRange[1] - event.replacedRange[0] + 1} events ({truncate(event.summary, 100)})
           </Text>
@@ -438,15 +459,15 @@ const EventLine: React.FC<{ event: MoxxyEvent }> = ({ event }) => {
     case 'error':
       return (
         <Box marginTop={1}>
-          <Text color="red">● </Text>
-          <Text color="red">error: </Text>
+          <Text color={Colors.danger}>{Glyphs.filled} </Text>
+          <Text color={Colors.danger}>error: </Text>
           <Text>{event.message}</Text>
         </Box>
       );
     case 'abort':
       return (
         <Box marginTop={1}>
-          <Text color="yellow">⏹ aborted: {event.reason}</Text>
+          <Text color={Colors.busy}>⏹ aborted: {event.reason}</Text>
         </Box>
       );
     default:

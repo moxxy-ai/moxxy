@@ -1,6 +1,14 @@
 import type { ParsedArgv } from './argv.js';
-import { setupSession, setupSessionWithConfig, type SetupOptions, type SetupResult } from './setup.js';
+import {
+  setupSession,
+  setupSessionWithConfig,
+  type BootStep,
+  type SetupOptions,
+  type SetupResult,
+} from './setup.js';
 import type { Session } from '@moxxy/core';
+
+export type { BootStep };
 
 /**
  * Anything that exposes a `flags` record is enough — callers that don't have

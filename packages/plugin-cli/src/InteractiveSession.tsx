@@ -17,12 +17,12 @@ import {
 } from './image-attachments.js';
 import { readClipboardImageSync } from './clipboard-image.js';
 import { ChatView } from './components/ChatView.js';
-import { PromptInput } from './components/PromptInput.js';
 import { PermissionDialog } from './components/PermissionDialog.js';
 import { ApprovalDialog } from './components/ApprovalDialog.js';
-import { StatusBar } from './components/StatusBar.js';
-import { Logo } from './components/Logo.js';
-import { SessionInfo } from './components/SessionInfo.js';
+import { StatusLine } from './components/StatusLine.js';
+import { InputBox } from './components/InputBox.js';
+import { FooterHints } from './components/FooterHints.js';
+import { BootScreen, type BootEvent, type BootEventId } from './components/BootScreen.js';
 import { SkillsPanel } from './components/SkillsPanel.js';
 import { ToolsPanel } from './components/ToolsPanel.js';
 import { BUILTIN_SLASH_COMMANDS } from './components/SlashCommands.js';
@@ -30,8 +30,38 @@ import { ListPicker, type ListPickerOption } from './components/ListPicker.js';
 import { estimateContextTokens } from './context-estimate.js';
 import { savePreferences } from '@moxxy/core';
 
+/**
+ * Generic shape of a boot-progress step. We keep this loose so the
+ * plugin-cli package doesn't depend on `@moxxy/cli`'s setup module —
+ * callers translate their own `BootStep`/`BootEvent` into this shape.
+ */
+export interface InteractiveBootStep {
+  readonly kind:
+    | 'config-loaded'
+    | 'plugins-registered'
+    | 'provider-activated'
+    | 'provider-failed'
+    | 'prefs-applied'
+    | 'skills-loaded'
+    | 'init-hooks-done'
+    | 'ready';
+  readonly detail?: string;
+  readonly error?: string;
+}
+
 export interface InteractiveSessionProps {
-  readonly session: Session;
+  /**
+   * Pre-resolved session. When omitted, `bootstrap` must be provided and
+   * the TUI renders the BootScreen while initialization runs.
+   */
+  readonly session?: Session;
+  /**
+   * Lazy session loader. Called once on mount; the returned promise
+   * resolves to the session once boot completes. The `progress` argument
+   * is invoked synchronously for each completed step so the BootScreen's
+   * checklist can tick off rows live.
+   */
+  readonly bootstrap?: (progress: (step: InteractiveBootStep) => void) => Promise<Session>;
   readonly registerInteractiveResolver: (
     prompt: (call: PendingToolCall, ctx: PermissionContext) => Promise<PermissionDecision>,
   ) => void;
@@ -44,11 +74,137 @@ export interface InteractiveSessionProps {
   readonly version?: string;
 }
 
+/**
+ * Outer shell: mounts the BootScreen first, runs `bootstrap()` in an
+ * effect, and swaps to the real `SessionView` once a `Session` is
+ * available. Callers that already have a `Session` can pass `session`
+ * directly and skip the boot phase.
+ */
 export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
+  session: eagerSession,
+  bootstrap,
+  registerInteractiveResolver,
+  model,
+  version,
+}) => {
+  const [session, setSession] = useState<Session | null>(eagerSession ?? null);
+  const [bootEvents, setBootEvents] = useState<ReadonlyArray<BootEvent>>([]);
+  const [bootError, setBootError] = useState<{ failedStep?: BootEventId; message: string } | null>(
+    null,
+  );
+  // First-prompt gate: the boot screen stays visible (input enabled
+  // once the session resolves) until the user submits something. Only
+  // then do we swap to the chat view — prevents the splash from
+  // flashing past on fast boots.
+  const [initialPrompt, setInitialPrompt] = useState<string | null>(null);
+  const startedAt = React.useMemo(() => Date.now(), []);
+
+  useEffect(() => {
+    if (eagerSession || !bootstrap) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const s = await bootstrap((step) => {
+          if (cancelled) return;
+          if (step.kind === 'provider-failed') {
+            setBootEvents((prev) => [
+              ...prev,
+              { id: 'provider-activated', at: Date.now(), failed: true },
+            ]);
+            return;
+          }
+          if (step.kind === 'ready') return;
+          setBootEvents((prev) => [
+            ...prev,
+            {
+              id: step.kind as BootEventId,
+              at: Date.now(),
+              ...(step.detail ? { detail: step.detail } : {}),
+            },
+          ]);
+        });
+        if (cancelled) return;
+        setSession(s);
+      } catch (err) {
+        if (cancelled) return;
+        setBootError({
+          failedStep: 'provider-activated',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [eagerSession, bootstrap]);
+
+  // Splash phase: render the BootScreen until the user submits the
+  // first prompt. The input unlocks the moment a session resolves; the
+  // submission flips us into the chat view AND becomes the first turn.
+  if (!session || initialPrompt == null) {
+    const ready = session != null && bootError == null;
+    return (
+      <Box flexDirection="column">
+        <BootScreen
+          events={bootEvents}
+          startedAt={startedAt}
+          {...(version ? { version } : {})}
+          {...(bootError ? { error: bootError } : {})}
+        />
+        <Box marginTop={2}>
+          <InputBox
+            disabled={!ready}
+            placeholder={
+              ready
+                ? 'type a prompt to begin · / for commands'
+                : bootError
+                  ? 'Bootstrap failed — quit and run `moxxy init`'
+                  : 'Initializing…'
+            }
+            onSubmit={(text) => {
+              if (!ready) return;
+              const trimmed = text.trim();
+              if (trimmed) setInitialPrompt(trimmed);
+            }}
+          />
+        </Box>
+        <Box marginTop={1}>
+          <FooterHints mode={ready ? 'default' : 'boot'} />
+        </Box>
+      </Box>
+    );
+  }
+
+  return (
+    <SessionView
+      session={session}
+      registerInteractiveResolver={registerInteractiveResolver}
+      initialPrompt={initialPrompt}
+      {...(model ? { model } : {})}
+      {...(version ? { version } : {})}
+    />
+  );
+};
+
+interface SessionViewProps {
+  readonly session: Session;
+  readonly registerInteractiveResolver: InteractiveSessionProps['registerInteractiveResolver'];
+  readonly model?: string;
+  readonly version?: string;
+  /**
+   * Prompt typed on the splash screen. Submitted automatically on mount
+   * so the user's first message kicks off the first turn — they don't
+   * have to retype it after the view transitions.
+   */
+  readonly initialPrompt?: string;
+}
+
+const SessionView: React.FC<SessionViewProps> = ({
   session,
   registerInteractiveResolver,
   model,
   version,
+  initialPrompt,
 }) => {
   const { exit } = useApp();
   const [events, setEvents] = useState<ReadonlyArray<MoxxyEvent>>([]);
@@ -589,6 +745,24 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
           return next;
         });
         return;
+      case '/info': {
+        const mcpLine =
+          mcpStatus.enabled > 0
+            ? `mcp:       ${mcpStatus.connected}/${mcpStatus.enabled} connected`
+            : 'mcp:       none configured';
+        const lines = [
+          `provider:  ${providerName}`,
+          `model:     ${activeModel}`,
+          `loop:      ${loopName}`,
+          `plugins:   ${pluginCount}`,
+          `skills:    ${skillCount}`,
+          `tools:     ${toolCount}`,
+          mcpLine,
+          version ? `version:   v${version}` : '',
+        ].filter(Boolean);
+        setSystemNotice(lines.join('\n'));
+        return;
+      }
       case '/help':
         setSystemNotice(
           BUILTIN_SLASH_COMMANDS.map((c) => `/${c.name}  — ${c.description}`).join('\n'),
@@ -750,30 +924,34 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
     await runTurnWith(text, resolved);
   };
 
+  // Hand off the prompt the user typed on the splash screen. Fires
+  // once after mount — `firedInitial` guards against re-fires if the
+  // wrapper ever re-renders us with the same prop.
+  const firedInitial = useRef(false);
+  useEffect(() => {
+    if (firedInitial.current) return;
+    if (!initialPrompt) return;
+    firedInitial.current = true;
+    void handleSubmit(initialPrompt);
+    // handleSubmit closes over the latest state via refs; safe to omit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPrompt]);
+
   return (
     <Box flexDirection="column">
-      <Logo {...(version ? { version } : {})} />
-      <SessionInfo
-        loop={loopName}
-        provider={providerName}
-        model={activeModel}
-        toolCount={toolCount}
-        skillCount={skillCount}
-        pluginCount={pluginCount}
-        {...(version ? { version: `v${version}` } : {})}
-      />
-      <Box>
-        <Text dimColor>type / for commands · /exit to quit</Text>
-      </Box>
       <ChatView events={events} streamingDelta={streamingDelta} expandClosedSkills={expandSkills} />
       {overlay?.kind === 'skills' ? (
-        <SkillsPanel skills={session.skills.list()} mcpServers={deriveMcpServers(session.tools.list())} />
+        <SkillsPanel
+          skills={session.skills.list()}
+          mcpServers={deriveMcpServers(session.tools.list())}
+          onClose={() => setOverlay(null)}
+        />
       ) : overlay?.kind === 'tools' ? (
-        <ToolsPanel tools={session.tools.list()} />
+        <ToolsPanel tools={session.tools.list()} onClose={() => setOverlay(null)} />
       ) : systemNotice ? (
         <Box marginTop={1} marginBottom={1} flexDirection="column">
           {systemNotice.split('\n').map((line, i) => (
-            <Text key={i} color="yellow">{line}</Text>
+            <Text key={i}>{line}</Text>
           ))}
         </Box>
       ) : null}
@@ -809,9 +987,10 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
           onCancel={() => setPicker(null)}
         />
       ) : (
-        <PromptInput
+        <InputBox
           onSubmit={handleSubmit}
           disabled={false}
+          yolo={yolo}
           placeholder={
             busy
               ? 'type to queue a message — sent after the current turn'
@@ -820,15 +999,14 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
           onPasteText={handlePasteText}
         />
       )}
-      <StatusBar
-        provider={providerName}
-        model={activeModel}
-        contextUsed={contextUsed}
-        contextWindow={contextWindow ?? undefined}
-        yolo={yolo}
-        mcp={mcpStatus}
+      <StatusLine
         busyStartedAt={busy && !pendingPermission && !pendingApproval ? busyStartedAt : null}
         queueCount={queueCount}
+        provider={providerName}
+        model={activeModel}
+        mcp={mcpStatus}
+        contextUsed={contextUsed}
+        {...(contextWindow ? { contextWindow } : {})}
       />
     </Box>
   );

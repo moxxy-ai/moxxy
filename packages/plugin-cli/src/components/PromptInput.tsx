@@ -609,32 +609,24 @@ export const PromptInput: React.FC<PromptInputProps> = ({
 
   // Render: place an inverse-styled "cursor cell" at state.cursor.
   // Split buffer into before / atCursor / after segments, then walk
-  // through each line so multi-line input renders correctly.
+  // through each line so multi-line input renders correctly. The
+  // rounded border is owned by `<InputBox>` so this stays borderless.
+  // Slash suggestions render right above the buffer so they appear
+  // inside the InputBox border, dropdown-style.
   return (
-    <Box flexDirection="column" marginTop={1}>
-      <Box
-        flexDirection="column"
-        borderStyle="single"
-        borderColor="gray"
-        borderDimColor
-        borderTop
-        borderBottom
-        borderLeft={false}
-        borderRight={false}
-      >
-        <BufferLines
-          buffer={state.buffer}
-          cursor={state.cursor}
-          disabled={!!disabled}
-          placeholder={placeholder}
-        />
-      </Box>
+    <Box flexDirection="column">
       {slashMatches.length > 0 ? (
         <SlashSuggestions
           matches={slashMatches}
           cursor={Math.min(slashCursor, slashMatches.length - 1)}
         />
       ) : null}
+      <BufferLines
+        buffer={state.buffer}
+        cursor={state.cursor}
+        disabled={!!disabled}
+        placeholder={placeholder}
+      />
     </Box>
   );
 };

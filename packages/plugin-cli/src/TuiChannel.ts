@@ -16,7 +16,21 @@ import {
 import { InteractiveSession } from './InteractiveSession.js';
 
 export interface TuiStartOpts extends ChannelStartOptsBase {
-  readonly session: Session;
+  /**
+   * Pre-resolved session. Either this OR `bootstrap` must be set. When
+   * both are present, `session` wins and `bootstrap` is ignored.
+   */
+  readonly session?: Session;
+  /**
+   * Lazy session loader: the TUI mounts immediately, shows the boot
+   * checklist, and calls `bootstrap(progress)` in an effect. Each
+   * `progress(step)` invocation ticks a row in the checklist.
+   */
+  readonly bootstrap?: (
+    progress: (step: import('./InteractiveSession.js').InteractiveBootStep) => void,
+  ) => Promise<Session>;
+  /** Optional version string surfaced in the logo + /info. */
+  readonly version?: string;
 }
 
 /**
@@ -45,15 +59,20 @@ export class TuiChannel implements Channel<TuiStartOpts> {
   }
 
   async start(opts: TuiStartOpts): Promise<ChannelHandle> {
+    if (!opts.session && !opts.bootstrap) {
+      throw new Error('TuiChannel.start requires either `session` or `bootstrap`');
+    }
     const registerInteractiveResolver: (h: PermissionPromptHandler) => void = (handler) => {
       this.promptHandler = handler;
     };
 
     this.inkInstance = render(
       React.createElement(InteractiveSession, {
-        session: opts.session,
+        ...(opts.session ? { session: opts.session } : {}),
+        ...(opts.bootstrap ? { bootstrap: opts.bootstrap } : {}),
         registerInteractiveResolver,
-        model: opts.model,
+        ...(opts.model ? { model: opts.model } : {}),
+        ...(opts.version ? { version: opts.version } : {}),
       }),
     );
 

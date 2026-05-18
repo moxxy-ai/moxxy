@@ -33,6 +33,7 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<SlashCommand> = [
   { name: 'collapse', description: 'Collapse closed skill scopes back to a one-line summary' },
   { name: 'queue', description: 'Show messages queued while the current turn is running' },
   { name: 'clear-queue', description: 'Drop all queued messages' },
+  { name: 'info', description: 'Show provider · model · loop · plugin/skill counts' },
   { name: 'help', description: 'Show this command list' },
 ];
 
@@ -72,14 +73,14 @@ export const SlashSuggestions: React.FC<{
 }> = ({ matches, cursor }) => {
   if (matches.length === 0) return null;
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column">
       {matches.map((m, i) => {
         const focused = i === cursor;
         return (
           <Box key={m.name}>
-            <Text color={focused ? 'cyan' : 'gray'}>{focused ? '› ' : '  '}</Text>
-            <Text color={focused ? 'cyan' : undefined}>/{m.name}</Text>
-            <Text dimColor>  — {m.description}</Text>
+            <Text {...(focused ? {} : { dimColor: true })}>{focused ? '› ' : '  '}</Text>
+            <Text {...(focused ? { bold: true } : { dimColor: true })}>/{m.name}</Text>
+            <Text dimColor>{`  — ${m.description}`}</Text>
           </Box>
         );
       })}

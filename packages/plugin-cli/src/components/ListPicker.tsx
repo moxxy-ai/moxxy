@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { Colors } from '../theme.js';
+import { Modal } from './Modal.js';
 
 export interface ListPickerOption {
   readonly id: string;
@@ -54,16 +56,8 @@ export const ListPicker: React.FC<ListPickerProps> = ({ title, options, onSelect
 
   let lastGroup: string | undefined = undefined;
   return (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor="cyan"
-      borderDimColor
-      paddingX={1}
-    >
-      <Text bold color="cyan">{title}</Text>
-      <Text dimColor>↑↓ navigate · enter to select · esc to cancel</Text>
-      <Box marginTop={1} flexDirection="column">
+    <Modal title={title} hints="↑↓ navigate · Enter select · Esc close">
+      <Box flexDirection="column">
         {options.map((opt, i) => {
           const groupHeader =
             opt.group && opt.group !== lastGroup ? (
@@ -77,11 +71,13 @@ export const ListPicker: React.FC<ListPickerProps> = ({ title, options, onSelect
             <React.Fragment key={opt.id}>
               {groupHeader}
               <Box>
-                <Text color={focused ? 'cyan' : undefined}>{focused ? '› ' : '  '}</Text>
-                <Text color={focused ? 'cyan' : undefined}>{opt.label}</Text>
-                {opt.current ? <Text color="green">{' (current)'}</Text> : null}
+                <Text {...(focused ? {} : { dimColor: true })}>{focused ? '› ' : '  '}</Text>
+                <Text {...(focused ? { bold: true } : {})}>{opt.label}</Text>
+                {opt.current ? <Text dimColor>{' (current)'}</Text> : null}
                 {opt.badge ? (
-                  <Text color={opt.badgeColor ?? 'red'}>{`  [${opt.badge}]`}</Text>
+                  <Text color={opt.badgeColor === 'red' ? Colors.danger : (opt.badgeColor ?? Colors.danger)}>
+                    {`  [${opt.badge}]`}
+                  </Text>
                 ) : null}
                 {opt.description ? (
                   <Text dimColor>{`  — ${opt.description}`}</Text>
@@ -91,6 +87,6 @@ export const ListPicker: React.FC<ListPickerProps> = ({ title, options, onSelect
           );
         })}
       </Box>
-    </Box>
+    </Modal>
   );
 };

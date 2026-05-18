@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { ApprovalDecision, ApprovalRequest } from '@moxxy/sdk';
+import { Colors } from '../theme.js';
+import { Modal } from './Modal.js';
 
 export interface ApprovalDialogProps {
   readonly request: ApprovalRequest;
@@ -76,6 +78,15 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({ request, onDecid
       pick(hotkeyMatch.id);
       return;
     }
+    // Digit jump: "1"–"9" maps to the corresponding (1-indexed) option.
+    if (/^[1-9]$/.test(ch)) {
+      const idx = Number.parseInt(ch, 10) - 1;
+      const opt = request.options[idx];
+      if (opt) {
+        pick(opt.id);
+        return;
+      }
+    }
 
     if (key.upArrow) {
       setCursor((c) => Math.max(0, c - 1));
@@ -110,66 +121,72 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({ request, onDecid
   };
 
   const bodyLines = request.body.split('\n');
+  const hints = textEntry
+    ? 'Enter submit · Esc back'
+    : '↑↓ navigate · Enter select · digit jumps · Esc cancel';
 
   return (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor="cyan"
-      paddingX={1}
-      paddingY={0}
-      marginTop={1}
-    >
-      <Text bold color="cyan">
-        {request.title}
-      </Text>
-      <Box flexDirection="column" marginTop={1}>
-        {bodyLines.slice(0, 24).map((line, i) => (
-          <Text key={i}>{line}</Text>
-        ))}
-        {bodyLines.length > 24 ? (
-          <Text dimColor>… {bodyLines.length - 24} more line(s) hidden</Text>
-        ) : null}
-      </Box>
+    <Modal title={request.title} hints={hints}>
+      {bodyLines.length > 0 && bodyLines[0] !== '' ? (
+        <Box flexDirection="column" marginBottom={1}>
+          {bodyLines.slice(0, 24).map((line, i) => (
+            <Text key={i}>{line}</Text>
+          ))}
+          {bodyLines.length > 24 ? (
+            <Text dimColor>… {bodyLines.length - 24} more line(s) hidden</Text>
+          ) : null}
+        </Box>
+      ) : null}
 
       {textEntry ? (
-        <Box flexDirection="column" marginTop={1}>
-          <Text color="yellow">
+        <Box flexDirection="column">
+          <Text dimColor>
             {request.options.find((o) => o.id === textEntry.optionId)?.textPrompt ??
               'Type your message and press Enter (Esc to back out):'}
           </Text>
           <Box>
-            <Text color="green">› </Text>
+            <Text>› </Text>
             <Text>{textEntry.buffer}</Text>
             <Text inverse> </Text>
           </Box>
         </Box>
       ) : (
-        <Box flexDirection="column" marginTop={1}>
+        <Box flexDirection="column">
           {request.options.map((opt, i) => {
             const active = i === cursor;
-            const prefix = active ? '› ' : '  ';
-            const color = opt.danger ? 'red' : active ? 'green' : undefined;
+            const isDanger = !!opt.danger;
+            const radio = active ? '●' : '○';
+            const numLabel = opt.hotkey ?? String(i + 1);
             return (
               <Box key={opt.id}>
-                <Text color={color}>{prefix}</Text>
-                {opt.hotkey ? (
-                  <Text color={color} bold={active}>
-                    [{opt.hotkey}]{' '}
-                  </Text>
-                ) : null}
-                <Text color={color} bold={active}>
-                  {opt.label}
+                <Box width={4}>
+                  <Text {...(active ? {} : { dimColor: true })}>{numLabel}</Text>
+                </Box>
+                <Text
+                  {...(isDanger
+                    ? { color: Colors.danger }
+                    : active
+                      ? {}
+                      : { dimColor: true })}
+                >
+                  {`(${radio}) `}
                 </Text>
-                {opt.description ? <Text dimColor> — {opt.description}</Text> : null}
+                <Box width={24}>
+                  <Text
+                    bold={active}
+                    {...(isDanger ? { color: Colors.danger } : active ? {} : { dimColor: true })}
+                  >
+                    {opt.label}
+                  </Text>
+                </Box>
+                {opt.description ? (
+                  <Text dimColor>{opt.description}</Text>
+                ) : null}
               </Box>
             );
           })}
-          <Box marginTop={1}>
-            <Text dimColor>↑/↓ select · enter confirm · hotkey jumps · esc cancels</Text>
-          </Box>
         </Box>
       )}
-    </Box>
+    </Modal>
   );
 };
