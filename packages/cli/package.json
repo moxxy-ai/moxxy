@@ -35,6 +35,7 @@
     "@moxxy/plugin-embeddings-transformers": "workspace:*",
     "@moxxy/plugin-mcp": "workspace:*",
     "@moxxy/plugin-memory": "workspace:*",
+    "@moxxy/plugin-oauth": "workspace:*",
     "@moxxy/plugin-plugins-admin": "workspace:*",
     "@moxxy/plugin-provider-anthropic": "workspace:*",
     "@moxxy/plugin-provider-openai": "workspace:*",

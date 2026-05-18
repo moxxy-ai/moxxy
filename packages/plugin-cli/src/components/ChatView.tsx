@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Static, Text } from 'ink';
 import type {
   MoxxyEvent,
@@ -37,7 +37,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
   streamingDelta,
   expandClosedSkills,
 }) => {
-  const blocks = pairToolEvents(events);
+  // pairToolEvents walks the whole events array. Parent re-renders
+  // happen for unrelated state too (mcp-status poll, every streaming
+  // delta tick, etc.), so memoize on the events reference — when a
+  // chunk arrives setEvents creates a new array; everything else
+  // keeps the old reference and we skip the walk entirely.
+  const blocks = useMemo(() => pairToolEvents(events), [events]);
   // The longest leading prefix of blocks whose contents will never
   // change again gets handed to <Static>. Ink renders each Static item
   // ONCE, appends it to the terminal scrollback, then skips it on every
@@ -85,12 +90,41 @@ export const ChatView: React.FC<ChatViewProps> = ({
           <BlockLine key={b.id} block={b} expandClosedSkills={!!expandClosedSkills} />
         ))}
         {streamingDelta && streamingDelta.trim() ? (
-          <AssistantBlock content={streamingDelta} />
+          <AssistantBlock content={tailForViewport(streamingDelta)} />
         ) : null}
       </Box>
     </>
   );
 };
+
+/**
+ * During streaming the AssistantBlock lives in the live render zone
+ * (NOT in <Static>), so Ink redraws it on every chunk. When the body
+ * grows taller than the terminal, Ink's renderer clips it — the top
+ * scrolls off the visible area, never enters the terminal scrollback,
+ * and you can't scroll up to recover it. Cap the visible portion to
+ * roughly one viewport worth of lines so the live block always fits
+ * and Ink never has to clip.
+ *
+ * Once the assistant_message lands, the FULL text becomes a settled
+ * block and goes through <Static>, which writes it to scrollback in
+ * one shot. So this cap only affects what's visible during the typing
+ * animation — the historical record is complete.
+ */
+function tailForViewport(content: string): string {
+  const rows = process.stdout.rows ?? 24;
+  // Reserve ~10 rows for the bottom UI (StatusLine + InputBox + a
+  // margin) plus the AssistantBlock's bullet/spacing. Bias toward
+  // smaller window so the input row stays visible during very long
+  // streaming bodies.
+  const budget = Math.max(8, rows - 12);
+  const lines = content.split('\n');
+  if (lines.length <= budget) return content;
+  const elided = lines.length - budget;
+  return `… (${elided} earlier line${elided === 1 ? '' : 's'} continuing — full text lands in scrollback when done)\n${lines
+    .slice(-budget)
+    .join('\n')}`;
+}
 
 /**
  * A block is "settled" once nothing in its render will change anymore.
@@ -116,7 +150,7 @@ function isSettled(block: Block): boolean {
  * column past the bullet so the body reads as one visual unit attached
  * to its marker. Mirrors the Claude Code convention (white = assistant).
  */
-const AssistantBlock: React.FC<{ content: string }> = ({ content }) => {
+const AssistantBlock: React.FC<{ content: string }> = memo(function AssistantBlock({ content }) {
   if (!content.trim()) return null;
   return (
     <Box flexDirection="row" marginTop={1}>
@@ -128,7 +162,7 @@ const AssistantBlock: React.FC<{ content: string }> = ({ content }) => {
       </Box>
     </Box>
   );
-};
+});
 
 type Block = EventBlock | ToolCallBlockData | SkillScopeBlock | SubagentBlock;
 
@@ -376,19 +410,61 @@ function pairToolEvents(events: ReadonlyArray<MoxxyEvent>): Block[] {
   return root;
 }
 
-const BlockLine: React.FC<{ block: Block; expandClosedSkills: boolean }> = ({
-  block,
-  expandClosedSkills,
-}) => {
-  if (block.kind === 'event') return <EventLine event={block.event} />;
-  if (block.kind === 'tool-call') {
-    return <ToolCallBlock request={block.request} outcome={block.outcome} />;
+const BlockLine: React.FC<{ block: Block; expandClosedSkills: boolean }> = memo(
+  function BlockLine({ block, expandClosedSkills }) {
+    if (block.kind === 'event') return <EventLine event={block.event} />;
+    if (block.kind === 'tool-call') {
+      return <ToolCallBlock request={block.request} outcome={block.outcome} />;
+    }
+    if (block.kind === 'subagent') {
+      return <SubagentScopeView scope={block} />;
+    }
+    return <SkillScopeView scope={block} expandClosedSkills={expandClosedSkills} />;
+  },
+  // Blocks are mutated in-place by `pairToolEvents` (tool outcome
+  // arrives, scope closes, subagent counter ticks). Compare the
+  // render-relevant fields so an unrelated parent re-render (a
+  // streaming-delta flush, an mcp poll) doesn't redraw every block.
+  (prev, next) => {
+    if (prev.expandClosedSkills !== next.expandClosedSkills) return false;
+    return blocksEquivalent(prev.block, next.block);
+  },
+);
+
+/**
+ * Shallow-but-typed equality for the fields each block kind renders.
+ * Returning true means "skip this re-render" — be conservative: when in
+ * doubt, return false (correctness over perf). Identity check is the
+ * fast path; the per-kind logic only runs when references differ.
+ */
+function blocksEquivalent(a: Block, b: Block): boolean {
+  if (a === b) return true;
+  if (a.kind !== b.kind) return false;
+  if (a.kind === 'event' && b.kind === 'event') {
+    return a.event === b.event;
   }
-  if (block.kind === 'subagent') {
-    return <SubagentScopeView scope={block} />;
+  if (a.kind === 'tool-call' && b.kind === 'tool-call') {
+    return a.request === b.request && a.outcome === b.outcome;
   }
-  return <SkillScopeView scope={block} expandClosedSkills={expandClosedSkills} />;
-};
+  if (a.kind === 'subagent' && b.kind === 'subagent') {
+    // Subagent updates: tool count, completion timestamp, preview, error.
+    return (
+      a.completedAtMs === b.completedAtMs &&
+      a.toolCallCount === b.toolCallCount &&
+      a.finalPreview === b.finalPreview &&
+      a.error === b.error
+    );
+  }
+  if (a.kind === 'skill-scope' && b.kind === 'skill-scope') {
+    if (a.closed !== b.closed) return false;
+    if (a.children.length !== b.children.length) return false;
+    for (let i = 0; i < a.children.length; i += 1) {
+      if (!blocksEquivalent(a.children[i]!, b.children[i]!)) return false;
+    }
+    return true;
+  }
+  return false;
+}
 
 const SubagentScopeView: React.FC<{ scope: SubagentBlock }> = ({ scope }) => {
   const [now, setNow] = useState(() => Date.now());

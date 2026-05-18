@@ -335,14 +335,52 @@ const SessionView: React.FC<SessionViewProps> = ({
     yoloRef.current = yolo;
   }, [yolo]);
 
+  // Throttle for the streaming-delta state. Some providers ship
+  // assistant_chunk events 100×/s; without throttling each chunk
+  // re-renders the entire markdown body — Ink redraws the whole live
+  // region every chunk, which on a long response visibly flickers more
+  // as the text grows. A ~30fps update cadence is indistinguishable
+  // from chunk-frequency typing but keeps Ink's render pipeline calm.
+  const streamFlushRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleStreamFlush = React.useCallback(() => {
+    if (streamFlushRef.current) return;
+    streamFlushRef.current = setTimeout(() => {
+      streamFlushRef.current = null;
+      setStreamingDelta(streamingBufferRef.current);
+    }, 33);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      // Component unmount: cancel any pending streaming flush so we
+      // don't try to setState on an unmounted tree.
+      if (streamFlushRef.current) {
+        clearTimeout(streamFlushRef.current);
+        streamFlushRef.current = null;
+      }
+    };
+  }, []);
+
   useEffect(() => {
     const unsub = session.log.subscribe((event) => {
-      setEvents((prev) => [...prev, event]);
+      // assistant_chunk events fire at provider-stream cadence (often
+      // hundreds per turn). Don't push them into `events` — they render
+      // to null in EventLine anyway, but every push triggers
+      // `pairToolEvents` to re-walk the growing array (O(n²) over the
+      // turn). The live buffer + throttled setState handles display.
       if (event.type === 'assistant_chunk') {
         streamingBufferRef.current += event.delta;
-        setStreamingDelta(streamingBufferRef.current);
+        scheduleStreamFlush();
+        return;
       }
+      setEvents((prev) => [...prev, event]);
       if (event.type === 'assistant_message') {
+        // Cancel any pending flush — the message is in `events` now,
+        // so leaving the streaming delta visible would double-render.
+        if (streamFlushRef.current) {
+          clearTimeout(streamFlushRef.current);
+          streamFlushRef.current = null;
+        }
         streamingBufferRef.current = '';
         setStreamingDelta('');
       }
@@ -637,7 +675,12 @@ const SessionView: React.FC<SessionViewProps> = ({
       return;
     }
     if (action === 'clear') {
+      clearTerminalScreen();
       setEvents([]);
+      if (streamFlushRef.current) {
+        clearTimeout(streamFlushRef.current);
+        streamFlushRef.current = null;
+      }
       setStreamingDelta('');
       streamingBufferRef.current = '';
       if (notice) setSystemNotice(notice);
@@ -647,7 +690,12 @@ const SessionView: React.FC<SessionViewProps> = ({
       const ctrl = turnControllerRef.current;
       if (ctrl && !ctrl.signal.aborted) ctrl.abort('user reset');
       session.log.clear();
+      clearTerminalScreen();
       setEvents([]);
+      if (streamFlushRef.current) {
+        clearTimeout(streamFlushRef.current);
+        streamFlushRef.current = null;
+      }
       setStreamingDelta('');
       streamingBufferRef.current = '';
       setOverlay(null);
@@ -915,6 +963,10 @@ const SessionView: React.FC<SessionViewProps> = ({
     setBusy(true);
     busyRef.current = true;
     setBusyStartedAt(Date.now());
+    if (streamFlushRef.current) {
+      clearTimeout(streamFlushRef.current);
+      streamFlushRef.current = null;
+    }
     streamingBufferRef.current = '';
     setStreamingDelta('');
     const effectiveModel = activeModelOverride ?? model;
@@ -1110,4 +1162,26 @@ function deriveMcpServers(
   return [...grouped.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([name, toolNames]) => ({ name, toolCount: toolNames.length, toolNames }));
+}
+
+/**
+ * Wipe the visible terminal AND its scrollback buffer.
+ *
+ * Why this is needed: `<Static>` items in Ink commit to the terminal's
+ * scrollback once and stay there forever — Ink's render loop can't
+ * reach up and erase already-printed lines. `/clear` and `/new` empty
+ * the React state and the event log, but the historical text the user
+ * already scrolled past remains in the terminal's history. Emitting
+ * the ANSI sequence is the only way to truly start fresh.
+ *
+ *   \x1b[3J  — clear scrollback (xterm extension; widely supported)
+ *   \x1b[2J  — clear visible viewport
+ *   \x1b[H   — move cursor to home (0,0)
+ *
+ * Ink's next paint draws the (now-empty) chat + bottom UI cleanly.
+ */
+function clearTerminalScreen(): void {
+  if (process.stdout.isTTY) {
+    process.stdout.write('\x1b[3J\x1b[2J\x1b[H');
+  }
 }
