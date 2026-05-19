@@ -59,7 +59,7 @@ describe('resolveProviderApiKey', () => {
   it('throws when no key found and interactive is false', async () => {
     await expect(
       resolveProviderApiKey('anthropic', vault, { interactive: false }),
-    ).rejects.toThrow(/No API key for provider/);
+    ).rejects.toThrow(/No API key found for provider/);
   });
 
   it('throws on empty prompt response', async () => {

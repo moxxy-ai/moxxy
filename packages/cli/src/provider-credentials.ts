@@ -1,4 +1,5 @@
 import type { VaultStore } from '@moxxy/plugin-vault';
+import { MoxxyError } from '@moxxy/sdk';
 import {
   persistCodexTokens,
   readStoredTokens,
@@ -31,10 +32,12 @@ async function resolveOAuthCodex(vault: VaultStore): Promise<Record<string, unkn
     tokens = null;
   }
   if (!tokens) {
-    throw new Error(
-      `No ChatGPT OAuth credentials found in the vault. ` +
-        `Run \`moxxy login openai-codex\` to sign in with your ChatGPT Pro/Plus account.`,
-    );
+    throw new MoxxyError({
+      code: 'AUTH_NO_CREDENTIALS',
+      message: 'No ChatGPT OAuth credentials found in the vault.',
+      hint: 'Run `moxxy login openai-codex` to sign in with your ChatGPT Pro/Plus account.',
+      context: { provider: 'openai-codex' },
+    });
   }
   return {
     tokens,

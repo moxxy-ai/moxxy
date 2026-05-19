@@ -9,7 +9,7 @@ import { runSetupWizard } from '../wizard/run-setup-wizard.js';
 import { buildProviderAuthContext } from '../wizard/auth-context.js';
 import { renderLogo } from '../logo.js';
 import type { ProviderAuthKind } from '@moxxy/plugin-cli';
-import type { ProviderDef } from '@moxxy/sdk';
+import { MoxxyError, type ProviderDef } from '@moxxy/sdk';
 
 /**
  * Interactive first-time setup. Renders a @clack/prompts vertical stepper
@@ -102,7 +102,14 @@ export async function runInitCommand(argv: ParsedArgv): Promise<number> {
     async loginOAuth(providerId: string): Promise<void> {
       const def = defsByName.get(providerId);
       if (!def || def.auth?.kind !== 'oauth') {
-        throw new Error(`Provider ${providerId} does not advertise an OAuth flow.`);
+        throw new MoxxyError({
+          code: 'OAUTH_FLOW_NOT_SUPPORTED',
+          message: `Provider "${providerId}" does not advertise an OAuth flow.`,
+          hint:
+            'This provider expects an API key. Re-run `moxxy init` and provide the key when prompted, ' +
+            'or set the relevant *_API_KEY environment variable.',
+          context: { provider: providerId },
+        });
       }
       // We already bailed to runHeadlessInit when stdin wasn't a TTY, so
       // the browser flow is the default here.

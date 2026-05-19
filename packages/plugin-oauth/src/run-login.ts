@@ -5,6 +5,7 @@
  * (token set + extras) under `oauth/<profile.id>/*`.
  */
 
+import { MoxxyError } from '@moxxy/sdk';
 import { runAuthorizationCodeFlow } from './oauth/browser-flow.js';
 import { pollUntil } from './oauth/poll-until.js';
 import { storeTokenSet } from './storage.js';
@@ -81,10 +82,14 @@ async function runDeviceFlow(
   ctx: RunOauthLoginCtx,
 ): Promise<TokenSet> {
   if (!profile.deviceFlow) {
-    throw new Error(
-      `Provider "${profile.id}" doesn't support the device (headless) flow. ` +
-        `Run on a host with a browser, or add a deviceFlow adapter to the provider profile.`,
-    );
+    throw new MoxxyError({
+      code: 'OAUTH_FLOW_NOT_SUPPORTED',
+      message: `Provider "${profile.id}" doesn't expose a headless (device-code) flow.`,
+      hint:
+        'Run this command on a host with a browser, or ask the provider plugin author to ' +
+        'add a deviceFlow adapter to the profile.',
+      context: { provider: profile.id },
+    });
   }
   const adapter: DeviceFlowAdapter = profile.deviceFlow;
   const init: DeviceFlowInit = await adapter.start({

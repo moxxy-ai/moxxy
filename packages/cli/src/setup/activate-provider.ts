@@ -1,6 +1,7 @@
 import type { Session } from '@moxxy/core';
 import type { MoxxyConfig } from '@moxxy/config';
 import type { VaultStore } from '@moxxy/plugin-vault';
+import { MoxxyError } from '@moxxy/sdk';
 import { resolveProviderCredentials } from '../provider-credentials.js';
 import type { BootStep } from './types.js';
 
@@ -87,9 +88,9 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
       // throwing — the TUI's `phase === 'error'` branch shows it as a
       // checklist row + centered error block.
       progress({ kind: 'provider-failed', tried: candidates, error: errMsg });
-      throw new Error(noProviderMessage(candidates, errMsg));
+      throw noProviderError(candidates, lastErr);
     } else {
-      throw new Error(noProviderMessage(candidates, errMsg));
+      throw noProviderError(candidates, lastErr);
     }
   } else {
     session.providers.setActive(activated.name, activated.cfg);
@@ -128,10 +129,18 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   return { activated, credentialResolver };
 }
 
-function noProviderMessage(candidates: ReadonlyArray<string>, errMsg: string): string {
-  return (
-    `No working provider key. Tried: ${candidates.join(', ')}. ` +
-    `Run \`moxxy init\` in an interactive terminal, set env vars, or store ` +
-    `keys in the vault. Last error: ${errMsg}`
-  );
+function noProviderError(candidates: ReadonlyArray<string>, lastErr: unknown): MoxxyError {
+  // If the last attempt already produced a structured error, preserve it —
+  // it's almost always more specific than the "tried N providers" wrapper.
+  if (MoxxyError.isMoxxyError(lastErr)) return lastErr;
+  const errMsg = lastErr instanceof Error ? lastErr.message : String(lastErr);
+  return new MoxxyError({
+    code: 'PROVIDER_NOT_CONFIGURED',
+    message: `No working provider credentials. Tried: ${candidates.join(', ')}.`,
+    hint:
+      'Run `moxxy init` in an interactive terminal, set the relevant API-key env var, ' +
+      'or store the key in the vault. For OAuth providers, run `moxxy login <provider>`.',
+    context: { tried: candidates.join(','), last_error: errMsg },
+    cause: lastErr,
+  });
 }

@@ -6,7 +6,7 @@ import type {
   ProviderRequest,
   StopReason,
 } from '@moxxy/sdk';
-import { isRetryableError } from '@moxxy/sdk';
+import { toFriendlyError } from '@moxxy/sdk';
 import { toAnthropicMessages, toAnthropicTools } from './translate.js';
 
 export interface AnthropicProviderConfig {
@@ -62,11 +62,7 @@ export class AnthropicProvider implements LLMProvider {
         req.signal ? { signal: req.signal } : undefined,
       );
     } catch (err) {
-      yield {
-        type: 'error',
-        message: err instanceof Error ? err.message : String(err),
-        retryable: isRetryableError(err),
-      };
+      yield { type: 'error', ...toFriendlyError(err, { provider: 'anthropic' }) };
       return;
     }
 
@@ -158,11 +154,7 @@ export class AnthropicProvider implements LLMProvider {
         }
       }
     } catch (err) {
-      yield {
-        type: 'error',
-        message: err instanceof Error ? err.message : String(err),
-        retryable: isRetryableError(err),
-      };
+      yield { type: 'error', ...toFriendlyError(err, { provider: 'anthropic' }) };
       return;
     }
 

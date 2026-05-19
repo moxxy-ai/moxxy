@@ -1,3 +1,4 @@
+import { MoxxyError } from '@moxxy/sdk';
 import { pollUntil, type PollOutcome } from './poll-until.js';
 import { parseTokenResponse } from './token-exchange.js';
 import type { DeviceFlowOptions, TokenSet } from './types.js';
@@ -101,10 +102,24 @@ async function pollOnce(
     state.intervalMs += 5000;
     return { pending: true };
   }
-  if (err === 'access_denied') throw new Error('OAuth device flow: user denied authorization');
+  if (err === 'access_denied') {
+    throw new MoxxyError({
+      code: 'OAUTH_FLOW_DENIED',
+      message: 'You declined the device authorization.',
+      hint: 'Re-run the login command and approve the consent screen on your browser device.',
+    });
+  }
   if (err === 'expired_token') {
-    throw new Error('OAuth device flow: device_code expired before approval');
+    throw new MoxxyError({
+      code: 'OAUTH_FLOW_TIMEOUT',
+      message: 'The device code expired before you finished signing in.',
+      hint: 'Re-run the login command — a new code will be generated.',
+    });
   }
   const desc = typeof pollJson.error_description === 'string' ? pollJson.error_description : '';
-  throw new Error(`OAuth device flow failed: ${err}${desc ? ` — ${desc}` : ''}`);
+  throw new MoxxyError({
+    code: 'AUTH_INVALID',
+    message: `OAuth device flow failed: ${err}${desc ? ` — ${desc}` : ''}.`,
+    context: { provider_error: String(err), ...(desc ? { description: desc } : {}) },
+  });
 }

@@ -1,4 +1,5 @@
 import { createServer, type Server } from 'node:http';
+import { MoxxyError } from '@moxxy/sdk';
 
 interface WaitForCallbackOpts {
   readonly port: number;
@@ -20,12 +21,28 @@ export function waitForCallback(opts: WaitForCallbackOpts): Promise<string> {
     };
 
     const timer = setTimeout(() => {
-      settle(() => reject(new Error(`OAuth callback timed out after ${opts.timeoutMs}ms`)));
+      settle(() =>
+        reject(
+          new MoxxyError({
+            code: 'OAUTH_FLOW_TIMEOUT',
+            message: `OAuth callback timed out after ${Math.round(opts.timeoutMs / 1000)}s.`,
+            hint: 'Re-run the login command and complete the consent screen before the timeout.',
+            context: { port: opts.port, path: opts.path, timeout_ms: opts.timeoutMs },
+          }),
+        ),
+      );
     }, opts.timeoutMs);
     timer.unref?.();
 
     const onAbort = (): void => {
-      settle(() => reject(new Error('OAuth flow aborted')));
+      settle(() =>
+        reject(
+          new MoxxyError({
+            code: 'NETWORK_ABORTED',
+            message: 'OAuth flow was aborted.',
+          }),
+        ),
+      );
     };
     opts.signal?.addEventListener('abort', onAbort, { once: true });
 
@@ -42,7 +59,21 @@ export function waitForCallback(opts: WaitForCallbackOpts): Promise<string> {
         res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(htmlPage('OAuth error', `${err}${errDesc ? `: ${errDesc}` : ''}`));
         clearTimeout(timer);
-        settle(() => reject(new Error(`OAuth error: ${err}${errDesc ? ` — ${errDesc}` : ''}`)));
+        const denied = err === 'access_denied';
+        settle(() =>
+          reject(
+            new MoxxyError({
+              code: denied ? 'OAUTH_FLOW_DENIED' : 'AUTH_INVALID',
+              message: denied
+                ? 'You declined the authorization request.'
+                : `Authorization server returned an error: ${err}${errDesc ? ` — ${errDesc}` : ''}.`,
+              ...(denied
+                ? { hint: 'Re-run the login command and approve the consent screen to continue.' }
+                : {}),
+              context: { provider_error: err, ...(errDesc ? { description: errDesc } : {}) },
+            }),
+          ),
+        );
         return;
       }
       const code = url.searchParams.get('code');
@@ -51,14 +82,32 @@ export function waitForCallback(opts: WaitForCallbackOpts): Promise<string> {
         res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(htmlPage('OAuth error', 'callback was missing code or state'));
         clearTimeout(timer);
-        settle(() => reject(new Error('OAuth callback missing code or state')));
+        settle(() =>
+          reject(
+            new MoxxyError({
+              code: 'AUTH_INVALID',
+              message: 'OAuth callback was missing code or state — the upstream redirect is malformed.',
+              hint: 'Re-run the login command. If this persists, the provider may have rejected the request.',
+            }),
+          ),
+        );
         return;
       }
       if (returnedState !== opts.expectedState) {
         res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(htmlPage('OAuth error', 'state mismatch — possible CSRF, refusing'));
         clearTimeout(timer);
-        settle(() => reject(new Error('OAuth state mismatch')));
+        settle(() =>
+          reject(
+            new MoxxyError({
+              code: 'OAUTH_FLOW_STATE_MISMATCH',
+              message: 'OAuth state mismatch — possible CSRF attempt, refusing to continue.',
+              hint:
+                'Make sure no other moxxy login is running at the same time, and re-run the command. ' +
+                'If this keeps happening, your browser or a proxy may be tampering with redirects.',
+            }),
+          ),
+        );
         return;
       }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -68,7 +117,31 @@ export function waitForCallback(opts: WaitForCallbackOpts): Promise<string> {
     });
     server.on('error', (e) => {
       clearTimeout(timer);
-      settle(() => reject(e));
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === 'EADDRINUSE') {
+        settle(() =>
+          reject(
+            new MoxxyError({
+              code: 'OAUTH_FLOW_PORT_BUSY',
+              message: `OAuth callback port ${opts.port} is already in use.`,
+              hint:
+                'Another moxxy login may already be running, or the port is occupied by something else. ' +
+                `Stop the other process, or set a different port for this provider's redirect.`,
+              context: { port: opts.port },
+              cause: e,
+            }),
+          ),
+        );
+        return;
+      }
+      settle(() =>
+        reject(
+          MoxxyError.wrap(e, {
+            code: 'INTERNAL',
+            message: `OAuth callback server failed: ${e.message}`,
+          }),
+        ),
+      );
     });
     server.listen(opts.port, '127.0.0.1');
   });

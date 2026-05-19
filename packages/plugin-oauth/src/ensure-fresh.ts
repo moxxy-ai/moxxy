@@ -8,6 +8,7 @@
  * refresh fails permanently.
  */
 
+import { MoxxyError, classifyNetworkError } from '@moxxy/sdk';
 import { isExpired, readStoredCreds, storeTokenSet, type OAuthVault } from './storage.js';
 import { refreshAccessToken } from './oauth/token-exchange.js';
 import type { TokenSet } from './oauth/types.js';
@@ -32,25 +33,43 @@ export async function ensureFreshTokens(
 ): Promise<EnsureFreshResult> {
   const stored = await readStoredCreds(vault, profile.id);
   if (!stored) {
-    throw new Error(
-      `No stored OAuth credentials for "${profile.id}". Run \`moxxy login ${profile.id}\` to sign in.`,
-    );
+    throw new MoxxyError({
+      code: 'AUTH_NO_CREDENTIALS',
+      message: `No stored OAuth credentials for "${profile.id}".`,
+      hint: `Run \`moxxy login ${profile.id}\` to sign in.`,
+      context: { provider: profile.id },
+    });
   }
   if (!opts.force && !isExpired(stored.tokenSet, opts.skewMs)) {
     return { tokens: stored.tokenSet, extras: stored.extras };
   }
   if (!stored.tokenSet.refreshToken) {
-    throw new Error(
-      `OAuth token for "${profile.id}" expired and no refresh_token is stored. ` +
-        `Re-run \`moxxy login ${profile.id}\`.`,
-    );
+    throw new MoxxyError({
+      code: 'AUTH_EXPIRED',
+      message: `OAuth token for "${profile.id}" expired and no refresh_token is stored.`,
+      hint: `Re-run \`moxxy login ${profile.id}\` to sign in again.`,
+      context: { provider: profile.id },
+    });
   }
-  const refreshed = await refreshAccessToken({
-    tokenUrl: stored.tokenUrl,
-    clientId: stored.clientId,
-    ...(stored.clientSecret ? { clientSecret: stored.clientSecret } : {}),
-    refreshToken: stored.tokenSet.refreshToken,
-  });
+  let refreshed: TokenSet;
+  try {
+    refreshed = await refreshAccessToken({
+      tokenUrl: stored.tokenUrl,
+      clientId: stored.clientId,
+      ...(stored.clientSecret ? { clientSecret: stored.clientSecret } : {}),
+      refreshToken: stored.tokenSet.refreshToken,
+    });
+  } catch (err) {
+    const net = classifyNetworkError(err, { url: stored.tokenUrl, provider: profile.id });
+    if (net) throw net;
+    throw new MoxxyError({
+      code: 'AUTH_EXPIRED',
+      message: `Couldn't refresh the OAuth token for "${profile.id}".`,
+      hint: `Re-run \`moxxy login ${profile.id}\` to sign in again.`,
+      context: { provider: profile.id },
+      cause: err,
+    });
+  }
   // Providers MAY rotate refresh_token — preserve the prior one if not.
   const merged: TokenSet = {
     ...refreshed,

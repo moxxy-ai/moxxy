@@ -72,7 +72,14 @@ export type {
   ProviderOAuthStatus,
   ProviderAuthDescriptor,
 } from './provider.js';
-export { isRetryableError, zodToJsonSchema, type StopReason } from './provider-utils.js';
+export { isRetryableError, toFriendlyError, zodToJsonSchema, type StopReason } from './provider-utils.js';
+export {
+  MoxxyError,
+  classifyHttpStatus,
+  classifyNetworkError,
+  type MoxxyErrorCode,
+  type MoxxyErrorInit,
+} from './errors.js';
 export {
   collectProviderStream,
   projectMessagesFromLog,

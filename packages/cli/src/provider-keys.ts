@@ -1,4 +1,5 @@
 import type { VaultStore } from '@moxxy/plugin-vault';
+import { MoxxyError } from '@moxxy/sdk';
 import * as readline from 'node:readline/promises';
 
 /**
@@ -68,7 +69,12 @@ export async function resolveProviderApiKey(
     const label = opts.promptLabel ?? `${canonical}: `;
     const value = (await prompt(label)).trim();
     if (!value) {
-      throw new Error(`No ${canonical} provided.`);
+      throw new MoxxyError({
+        code: 'AUTH_NO_CREDENTIALS',
+        message: `No ${canonical} provided at the prompt.`,
+        hint: `Set ${canonical} as an environment variable, or run \`moxxy init\` to store it in the vault.`,
+        context: { provider: providerName, env_var: canonical },
+      });
     }
     config.apiKey = value;
     if (opts.persistToVault !== false) {
@@ -81,11 +87,14 @@ export async function resolveProviderApiKey(
     return { source: 'prompt', providerConfig: config, canonicalName: canonical };
   }
 
-  throw new Error(
-    `No API key for provider '${providerName}'. Set ${canonical} env var, ` +
-      `store it in the vault, ` +
-      `or run \`moxxy init\` in an interactive terminal.`,
-  );
+  throw new MoxxyError({
+    code: 'AUTH_NO_CREDENTIALS',
+    message: `No API key found for provider '${providerName}'.`,
+    hint:
+      `Set the ${canonical} environment variable, store it in the vault, or ` +
+      `run \`moxxy init\` in an interactive terminal to be prompted.`,
+    context: { provider: providerName, env_var: canonical },
+  });
 }
 
 async function defaultPrompt(label: string): Promise<string> {

@@ -1,12 +1,12 @@
-import { isRetryableError, type ProviderEvent, type StopReason } from '@moxxy/sdk';
+import { toFriendlyError, type ProviderEvent, type StopReason } from '@moxxy/sdk';
 import { handleSseEvent } from './sse-event-handler.js';
+import { CODEX_RESPONSES_URL } from '../oauth.js';
 import type { PendingFunctionCall, ResponsesSseEvent } from './stream-types.js';
 
 export function toErrorEvent(err: unknown): ProviderEvent {
   return {
     type: 'error',
-    message: err instanceof Error ? err.message : String(err),
-    retryable: isRetryableError(err),
+    ...toFriendlyError(err, { provider: 'openai-codex', url: CODEX_RESPONSES_URL }),
   };
 }
 

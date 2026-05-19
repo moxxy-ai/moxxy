@@ -21,6 +21,7 @@ import { renderLogo } from './logo.js';
 import { colors } from './colors.js';
 import { cliVersion } from './version.js';
 import { pickSlogan } from '@moxxy/plugin-cli';
+import { formatErrorForCli } from './error-formatter.js';
 
 type CommandHandler = (argv: ParsedArgv) => Promise<number>;
 
@@ -207,15 +208,12 @@ async function main(): Promise<number> {
 main().then(
   (code) => process.exit(code),
   (err) => {
-    // Surface specific user-actionable errors without the scary "fatal:" prefix.
-    // VaultPassphraseError already contains a recovery hint in its message.
-    if (err && (err as Error).name === 'VaultPassphraseError') {
-      process.stderr.write(colors.red((err as Error).message) + '\n');
-      process.exit(1);
-    }
-    process.stderr.write(
-      colors.red('fatal: ') + (err instanceof Error ? err.message : String(err)) + '\n',
-    );
+    process.stderr.write(formatErrorForCli(err, { debug: isDebugEnabled() }) + '\n');
     process.exit(1);
   },
 );
+
+function isDebugEnabled(): boolean {
+  const v = process.env.MOXXY_DEBUG;
+  return v === '1' || v === 'true';
+}

@@ -9,7 +9,7 @@ import {
   restoreSessionEvents,
   type Logger,
 } from '@moxxy/core';
-import type { MoxxyEvent, PermissionResolver, SessionId } from '@moxxy/sdk';
+import { MoxxyError, type MoxxyEvent, type PermissionResolver, type SessionId } from '@moxxy/sdk';
 import type { MoxxyConfig } from '@moxxy/config';
 
 export interface BuildSessionArgs {
@@ -35,9 +35,15 @@ export async function buildSession(args: BuildSessionArgs): Promise<Session> {
     try {
       restoredEvents = await restoreSessionEvents(args.resumeSessionId);
     } catch (err) {
-      throw new Error(
-        `Failed to resume session ${args.resumeSessionId}: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      throw new MoxxyError({
+        code: 'CONFIG_INVALID',
+        message: `Failed to resume session "${args.resumeSessionId}".`,
+        hint:
+          `The persisted session may be missing or corrupted. Run \`moxxy sessions list\` to ` +
+          `see available sessions, or start a fresh one without --resume.`,
+        context: { session_id: args.resumeSessionId },
+        cause: err,
+      });
     }
   }
 

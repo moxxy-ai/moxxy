@@ -3,6 +3,8 @@
  * are only allowed to depend on @moxxy/sdk, not core.
  */
 
+import { classifyNetworkError } from './errors.js';
+
 /** Canonical stop reasons emitted on `message_end` events. */
 export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence' | 'error';
 
@@ -16,10 +18,40 @@ export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence
  */
 export function isRetryableError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
+  // MoxxyError-classified ones carry the verdict in the code.
+  const code = (err as { code?: unknown }).code;
+  if (typeof code === 'string') {
+    if (code === 'PROVIDER_RATE_LIMITED' || code === 'PROVIDER_SERVER_ERROR') return true;
+    if (code === 'NETWORK_TIMEOUT' || code === 'NETWORK_UNREACHABLE') return true;
+  }
   const msg = err.message.toLowerCase();
   if (msg.includes('rate_limit') || msg.includes('429') || msg.includes('overloaded')) return true;
   if (msg.includes('econnreset') || msg.includes('etimedout') || msg.includes('network')) return true;
   return false;
+}
+
+/**
+ * Build a friendly error event for `ProviderEvent` streams. Tries to classify
+ * the cause as a network failure (turning Node's "fetch failed" into something
+ * actionable) before falling back to the raw message. Providers' catch blocks
+ * yield the result via:
+ *   yield { type: 'error', ...toFriendlyError(err, { provider: this.name }) };
+ */
+export function toFriendlyError(
+  err: unknown,
+  ctx: { readonly url?: string; readonly provider?: string } = {},
+): { message: string; retryable: boolean } {
+  const classified = classifyNetworkError(err, ctx);
+  if (classified) {
+    return {
+      message: classified.message + (classified.hint ? ` — ${classified.hint}` : ''),
+      retryable: isRetryableError(classified),
+    };
+  }
+  return {
+    message: err instanceof Error ? err.message : String(err),
+    retryable: isRetryableError(err),
+  };
 }
 
 /**

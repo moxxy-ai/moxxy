@@ -6,7 +6,7 @@ import type {
   ProviderRequest,
   StopReason,
 } from '@moxxy/sdk';
-import { isRetryableError } from '@moxxy/sdk';
+import { toFriendlyError } from '@moxxy/sdk';
 import { toOpenAIMessages, toOpenAITools } from './translate.js';
 
 export interface OpenAIProviderConfig {
@@ -109,11 +109,7 @@ export class OpenAIProvider implements LLMProvider {
         req.signal ? { signal: req.signal } : undefined,
       )) as unknown as AsyncIterable<unknown>;
     } catch (err) {
-      yield {
-        type: 'error',
-        message: err instanceof Error ? err.message : String(err),
-        retryable: isRetryableError(err),
-      };
+      yield { type: 'error', ...toFriendlyError(err, { provider: 'openai' }) };
       return;
     }
 
@@ -173,11 +169,7 @@ export class OpenAIProvider implements LLMProvider {
         }
       }
     } catch (err) {
-      yield {
-        type: 'error',
-        message: err instanceof Error ? err.message : String(err),
-        retryable: isRetryableError(err),
-      };
+      yield { type: 'error', ...toFriendlyError(err, { provider: 'openai' }) };
       return;
     }
 
