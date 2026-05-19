@@ -1,0 +1,121 @@
+import type { EmbeddingProvider } from '@moxxy/sdk';
+import { TfIdfEmbedder, cosineSimilarity, tokenize } from '../tfidf.js';
+import { EmbeddingIndex } from '../embedding-cache.js';
+import type { MemoryEntry } from './types.js';
+
+export interface RankedMemory {
+  readonly entry: MemoryEntry;
+  readonly score: number;
+}
+
+export async function recallVector(
+  all: ReadonlyArray<MemoryEntry>,
+  query: string,
+  limit: number,
+  embedder: EmbeddingProvider,
+  index: EmbeddingIndex | null,
+): Promise<ReadonlyArray<RankedMemory>> {
+  const corpus = all.map((e) => entryForEmbedding(e));
+
+  // TF-IDF special-cases the persistent cache (vocab is corpus-wide).
+  if (embedder instanceof TfIdfEmbedder) {
+    embedder.fit([...corpus, query]);
+    const vectors = await embedder.embed([...corpus, query]);
+    const queryVec = vectors[vectors.length - 1]!;
+    return rankCosine(all, vectors.slice(0, all.length), queryVec, limit);
+  }
+
+  // Neural embedders: consult the persistent cache, only embed misses + query.
+  if (index) {
+    await index.load();
+    const cached: Array<ReadonlyArray<number> | null> = [];
+    const misses: { index: number; text: string }[] = [];
+    for (let i = 0; i < all.length; i++) {
+      const hit = index.lookup(all[i]!.frontmatter.name, corpus[i]!);
+      cached.push(hit);
+      if (!hit) misses.push({ index: i, text: corpus[i]! });
+    }
+    const queryIdx = misses.length;
+    const toEmbed = [...misses.map((m) => m.text), query];
+    const fresh = await embedder.embed(toEmbed);
+    const queryVec = fresh[queryIdx]!;
+    // Stitch results: cached + freshly-embedded
+    const vectors: ReadonlyArray<number>[] = [];
+    for (let i = 0; i < all.length; i++) {
+      vectors.push(cached[i] ?? fresh[misses.findIndex((m) => m.index === i)]!);
+    }
+    // Persist fresh vectors
+    for (const m of misses) {
+      index.set(all[m.index]!.frontmatter.name, m.text, fresh[misses.indexOf(m)]!);
+    }
+    index.prune(all.map((e) => e.frontmatter.name));
+    await index.flush();
+    return rankCosine(all, vectors, queryVec, limit);
+  }
+
+  // No cache configured — embed everything every time.
+  const vectors = await embedder.embed([...corpus, query]);
+  const queryVec = vectors[vectors.length - 1]!;
+  return rankCosine(all, vectors.slice(0, all.length), queryVec, limit);
+}
+
+export function rankByKeywords(
+  all: ReadonlyArray<MemoryEntry>,
+  query: string,
+  limit: number,
+): ReadonlyArray<RankedMemory> {
+  const tokens = tokenize(query);
+  return all
+    .map((entry) => ({ entry, score: scoreEntry(entry, tokens) }))
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
+function rankCosine(
+  entries: ReadonlyArray<MemoryEntry>,
+  vectors: ReadonlyArray<ReadonlyArray<number>>,
+  query: ReadonlyArray<number>,
+  limit: number,
+): ReadonlyArray<RankedMemory> {
+  const ranked: RankedMemory[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const score = cosineSimilarity(vectors[i]!, query);
+    if (score > 0) ranked.push({ entry: entries[i]!, score });
+  }
+  ranked.sort((a, b) => b.score - a.score);
+  return ranked.slice(0, limit);
+}
+
+function entryForEmbedding(entry: MemoryEntry): string {
+  return [
+    entry.frontmatter.name,
+    entry.frontmatter.description,
+    (entry.frontmatter.tags ?? []).join(' '),
+    entry.body,
+  ].join('\n');
+}
+
+function scoreEntry(entry: MemoryEntry, tokens: ReadonlyArray<string>): number {
+  if (tokens.length === 0) return 1;
+  const haystack = (
+    entry.frontmatter.name +
+    ' ' +
+    entry.frontmatter.description +
+    ' ' +
+    (entry.frontmatter.tags ?? []).join(' ') +
+    ' ' +
+    entry.body
+  ).toLowerCase();
+  let score = 0;
+  for (const t of tokens) {
+    if (!t) continue;
+    const matches = haystack.split(t).length - 1;
+    if (matches > 0) {
+      score += matches;
+      if (entry.frontmatter.name.toLowerCase().includes(t)) score += 3;
+      if (entry.frontmatter.description.toLowerCase().includes(t)) score += 2;
+    }
+  }
+  return score;
+}

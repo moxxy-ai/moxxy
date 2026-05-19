@@ -1,6 +1,6 @@
 import { Bot, GrammyError, HttpError } from 'grammy';
 import type { Context } from 'grammy';
-import { runTurn, type Session } from '@moxxy/core';
+import { type Session } from '@moxxy/core';
 import type {
   ApprovalRequest,
   Channel,
@@ -21,11 +21,13 @@ import {
 } from './channel/pairing-handler.js';
 import { askForPermission } from './channel/permission-prompt.js';
 import { askForApproval } from './channel/approval-prompt.js';
-import { publishBotCommands, runSlash } from './channel/slash-handler.js';
+import { publishBotCommands } from './channel/slash-handler.js';
 import {
   handleCallback,
   type AwaitingApprovalText,
 } from './channel/callback-handler.js';
+import { runUserTurn } from './channel/turn-runner.js';
+import { handleTextMessage } from './channel/text-handler.js';
 
 const TOKEN_KEY = 'telegram_bot_token';
 
@@ -179,157 +181,66 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     return this.pairing.confirmCode(rawInput);
   }
 
-  private async handleText(ctx: Context): Promise<void> {
-    const chatId = ctx.chat?.id;
-    const text = ctx.message?.text;
-    if (!chatId || !text) return;
-
-    if (!this.pairing.isAuthorized(chatId)) {
-      await ctx.reply(
-        'This bot is paired with a different chat (or not paired yet). Run `moxxy telegram pair` to (re-)pair.',
-      );
-      return;
-    }
-
-    // Capture awaiting-text BEFORE the busy guard so the user can answer
-    // an approval text prompt even while the strategy is technically
-    // still mid-turn (it's pending on us).
-    if (this.awaitingApprovalText) {
-      const { approvalId, optionId } = this.awaitingApprovalText;
-      this.awaitingApprovalText = null;
-      const handled = this.approvalResolver.resolvePendingWithText(approvalId, optionId, text);
-      if (handled) {
-        await ctx.reply(`✓ submitted (${optionId})`);
-      } else {
-        await ctx.reply('that approval is no longer pending');
-      }
-      return;
-    }
-
-    // /cancel works even while busy; everything else routes through
-    // runSlash or the user-turn path.
-    if (text === '/cancel') {
-      if (this.turnController && !this.turnController.signal.aborted) {
-        this.turnController.abort('user cancel');
-        await ctx.reply('cancelling current turn…');
-      } else {
-        await ctx.reply('nothing to cancel.');
-      }
-      return;
-    }
-
-    if (text.startsWith('/')) {
-      await runSlash(
-        ctx,
-        text,
-        {
-          session: this.session,
-          model: this.model,
-          activeModelOverride: this.activeModelOverride,
-          yolo: this.yolo,
+  private handleText(ctx: Context): Promise<void> {
+    return handleTextMessage(
+      ctx,
+      {
+        session: this.session,
+        model: this.model,
+        activeModelOverride: this.activeModelOverride,
+        yolo: this.yolo,
+        busy: this.busy,
+        turnController: this.turnController,
+        awaitingApprovalText: this.awaitingApprovalText,
+        handle: this.handle,
+      },
+      {
+        pairing: this.pairing,
+        approvalResolver: this.approvalResolver,
+        permissionResolver: this.permissionResolver,
+        framePump: this.framePump,
+      },
+      {
+        setAwaitingApprovalText: (state) => {
+          this.awaitingApprovalText = state;
         },
-        {
-          toggleYolo: () => {
-            this.yolo = !this.yolo;
-            return this.yolo;
-          },
-          performSessionAction: (c, action, notice) =>
-            this.performSessionAction(c, action, notice),
+        toggleYolo: () => {
+          this.yolo = !this.yolo;
+          return this.yolo;
         },
-      );
-      return;
-    }
-
-    if (this.busy) {
-      await ctx.reply('I am still working on the previous prompt. Send /cancel to abort it.');
-      return;
-    }
-
-    await this.runUserTurn(ctx, chatId, text);
-  }
-
-  /**
-   * Channel-side handler for `session-action` outputs from registered
-   * commands. The TUI does the same thing; both channels translate the
-   * action into their own UI semantics (Telegram = reply text, Ink =
-   * setState + exit).
-   */
-  private async performSessionAction(
-    ctx: Context,
-    action: 'new' | 'clear' | 'exit',
-    notice: string | undefined,
-  ): Promise<void> {
-    if (!this.session) return;
-    if (action === 'exit') {
-      await ctx.reply(notice ?? 'closing Telegram channel');
-      if (this.handle) await this.handle.stop('user /exit');
-      return;
-    }
-    if (action === 'clear') {
-      this.framePump.resetRenderer();
-      if (notice) await ctx.reply(`✓ ${notice}`);
-      return;
-    }
-    if (action === 'new') {
-      if (this.turnController && !this.turnController.signal.aborted) {
-        this.turnController.abort('user reset');
-      }
-      this.session.log.clear();
-      this.framePump.resetRenderer();
-      this.yolo = false;
-      this.awaitingApprovalText = null;
-      this.approvalResolver.abortAll('session reset');
-      this.permissionResolver.abortAll('session reset');
-      await ctx.reply(`✓ ${notice ?? 'new session — conversation history cleared'}`);
-    }
+        setYolo: (value) => {
+          this.yolo = value;
+        },
+        runUserTurn: (c, chatId, text) => this.runUserTurn(c, chatId, text),
+      },
+    );
   }
 
   private async runUserTurn(ctx: Context, chatId: number, text: string): Promise<void> {
     if (!this.session) throw new Error('TelegramChannel.start() must be called first');
     this.busy = true;
     this.currentChatId = chatId;
-    this.framePump.beginTurn(chatId);
-    // Kick off "typing…" right away so the user gets immediate
-    // feedback. Don't send an ellipsis placeholder message — the
-    // typing indicator IS the placeholder. The frame pump lazily sends
-    // the first real frame when there's content to display, then
-    // edits that message for every subsequent frame.
-    this.typing.start(this.bot, chatId);
-
-    const unsubscribe = this.session.log.subscribe((event) => {
-      const frame = this.framePump.renderState.accept(event);
-      if (frame.hasUpdate) this.framePump.scheduleEdit();
-    });
-
     // Per-turn AbortController so /cancel only aborts THIS turn.
     const controller = new AbortController();
     this.turnController = controller;
     const effectiveModel = this.activeModelOverride ?? this.model;
 
     try {
-      for await (const _event of runTurn(this.session, text, {
-        ...(effectiveModel ? { model: effectiveModel } : {}),
-        signal: controller.signal,
-      })) {
-        void _event;
-      }
-      await this.framePump.flush(true);
-    } catch (err) {
-      this.opts.logger?.warn('telegram turn failed', {
-        err: err instanceof Error ? err.message : String(err),
-      });
-      try {
-        await ctx.reply(`Turn failed: ${err instanceof Error ? err.message : String(err)}`);
-      } catch {
-        /* ignore */
-      }
+      await runUserTurn(
+        ctx,
+        {
+          session: this.session,
+          bot: this.bot,
+          framePump: this.framePump,
+          typing: this.typing,
+          ...(this.opts.logger ? { logger: this.opts.logger } : {}),
+        },
+        { chatId, text, model: effectiveModel, controller },
+      );
     } finally {
-      this.typing.stop();
-      unsubscribe();
       this.busy = false;
       this.turnController = null;
       this.currentChatId = null;
-      this.framePump.endTurn();
     }
   }
 
