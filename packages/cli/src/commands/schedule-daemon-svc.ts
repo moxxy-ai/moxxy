@@ -1,49 +1,66 @@
+import { mkdir } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import path from 'node:path';
 import {
-  getServiceStatus,
-  installAndStartService,
-  stopAndUninstallService,
-  type ServiceSpec,
-  type ServiceStatus,
-} from './service-manager.js';
+  cliBin,
+  logPath,
+  nodeBin,
+  type DaemonServiceStatus,
+  type ServiceProvider,
+} from './service/common.js';
+import { launchdService } from './service/launchd.js';
+import { systemdService } from './service/systemd.js';
+
+export type { DaemonServiceStatus } from './service/common.js';
 
 /**
- * Back-compat shim — the scheduler daemon now rides on the generic
- * `ServiceManager` so it shares unit-rendering, log paths, and
- * launchd/systemd plumbing with the other channel services that
- * `moxxy service` can install. The `schedule` command keeps its
- * existing public functions; they just forward into the manager with
- * the scheduler's ServiceSpec.
+ * OS-level daemonization for `moxxy schedule daemon`. Picks the right
+ * per-platform implementation (`launchd.ts` on macOS, `systemd.ts` on
+ * Linux) and exposes three verbs — install (start), stop (unload +
+ * remove), status (query).
  */
 
-export const SCHEDULER_SERVICE: ServiceSpec = {
-  id: 'scheduler',
-  description: 'moxxy scheduler — fires time-driven prompts',
-  execArgs: ['schedule', 'daemon'],
-};
-
-export interface DaemonServiceStatus {
-  readonly platform: ServiceStatus['platform'];
-  readonly installed: boolean;
-  readonly running: boolean;
-  readonly unitPath: string | null;
-  readonly logPath: string | null;
+function pickProvider(): ServiceProvider | null {
+  if (process.platform === 'darwin') return launchdService;
+  if (process.platform === 'linux') return systemdService;
+  return null;
 }
 
 export async function getDaemonStatus(): Promise<DaemonServiceStatus> {
-  const s = await getServiceStatus(SCHEDULER_SERVICE);
-  return {
-    platform: s.platform,
-    installed: s.installed,
-    running: s.running,
-    unitPath: s.unitPath,
-    logPath: s.platform === 'unsupported' ? null : s.logPath,
-  };
+  const provider = pickProvider();
+  if (!provider) {
+    return { platform: 'unsupported', installed: false, running: false, unitPath: null, logPath: null };
+  }
+  return provider.getStatus();
 }
 
 export async function installAndStartDaemon(): Promise<{ ok: boolean; message: string; logPath: string }> {
-  return await installAndStartService(SCHEDULER_SERVICE);
+  const node = nodeBin();
+  const cli = cliBin();
+  const log = logPath();
+  const home = homedir();
+  if (!cli) {
+    return {
+      ok: false,
+      message: 'could not determine the moxxy CLI path (process.argv[1] missing)',
+      logPath: log,
+    };
+  }
+  await mkdir(path.dirname(log), { recursive: true });
+
+  const provider = pickProvider();
+  if (!provider) {
+    return {
+      ok: false,
+      message: `unsupported platform: ${process.platform} (only darwin + linux are wired up)`,
+      logPath: log,
+    };
+  }
+  return provider.install({ node, cli, log, home });
 }
 
 export async function stopAndUninstallDaemon(): Promise<{ ok: boolean; message: string }> {
-  return await stopAndUninstallService(SCHEDULER_SERVICE);
+  const provider = pickProvider();
+  if (!provider) return { ok: false, message: `unsupported platform: ${process.platform}` };
+  return provider.uninstall();
 }
