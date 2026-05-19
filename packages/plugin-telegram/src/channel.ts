@@ -83,14 +83,14 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     this.opts = opts;
     this.permissionResolver = new TelegramPermissionResolver();
     this.approvalResolver = new TelegramApprovalResolver();
-    const pumpOpts: ConstructorParameters<typeof FramePump>[0] = {
+    this.framePump = new FramePump({
       editFrameMs: opts.editFrameMs ?? 1000,
-    };
-    if (opts.logger) pumpOpts.logger = opts.logger;
-    this.framePump = new FramePump(pumpOpts);
-    const pairingOpts: ConstructorParameters<typeof PairingHandler>[0] = { vault: opts.vault };
-    if (opts.logger) pairingOpts.logger = opts.logger;
-    this.pairing = new PairingHandler(pairingOpts);
+      ...(opts.logger ? { logger: opts.logger } : {}),
+    });
+    this.pairing = new PairingHandler({
+      vault: opts.vault,
+      ...(opts.logger ? { logger: opts.logger } : {}),
+    });
   }
 
   async start(startOpts: TelegramStartOpts): Promise<ChannelHandle> {

@@ -3,46 +3,51 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 
 /**
- * OS-level daemonization for `moxxy schedule daemon`. Each platform
- * implements the same three verbs — install (start), stop (unload +
- * remove), status (query). See the per-platform modules:
+ * OS-level service primitives shared by:
+ *   - `moxxy schedule daemon --background` (the scheduler's back-compat shim)
+ *   - `moxxy service install <name>` (the generic background-unit installer
+ *     for Telegram / HTTP / scheduler channels)
  *
- *   - launchd.ts — macOS `LaunchAgent` plist
- *   - systemd.ts — Linux `systemd --user` unit
+ * Per-platform impls (`launchd.ts` on macOS, `systemd.ts` on Linux) take a
+ * `ServiceSpec` describing what to run; `index.ts` exposes the platform-
+ * picking entry points (`getServiceStatus`, `installAndStartService`, ...).
  *
- * Both keep the daemon alive across logouts/restarts and write
- * stdout/stderr to `~/.moxxy/scheduler-daemon.log`. The unit's
- * `ExecStart` points at the node binary + the path to this CLI's
- * `bin.js` (resolved from `process.argv[1]` at install time), invoked
- * as `schedule daemon` (i.e. the foreground form), so a single
- * implementation runs whether you launch it interactively or via the
- * OS supervisor.
+ * Unit naming convention is `com.moxxy.<id>` on launchd and
+ * `moxxy-<id>.service` on systemd. Logs land in
+ * `~/.moxxy/services/<id>.log` (overridable via `MOXXY_HOME`).
  */
 
-export interface DaemonServiceStatus {
-  readonly platform: 'darwin' | 'linux' | 'unsupported';
+export type ServicePlatform = 'darwin' | 'linux' | 'unsupported';
+
+export interface ServiceSpec {
+  /** Stable short identifier — used in unit filenames + log path. */
+  readonly id: string;
+  /** One-line description that lands in the systemd unit's Description=. */
+  readonly description: string;
+  /** CLI args appended to `[<node>, <cli>]` to build the unit's ExecStart. */
+  readonly execArgs: ReadonlyArray<string>;
+  /** Extra env vars exported into the daemon process. */
+  readonly env?: Readonly<Record<string, string>>;
+}
+
+export interface ServiceStatus {
+  readonly platform: ServicePlatform;
+  readonly id: string;
   readonly installed: boolean;
   readonly running: boolean;
   readonly unitPath: string | null;
-  readonly logPath: string | null;
+  readonly logPath: string;
 }
 
-export interface InstallResult {
+export interface ServiceResult {
   readonly ok: boolean;
   readonly message: string;
   readonly logPath: string;
 }
 
-export interface UninstallResult {
+export interface SimpleResult {
   readonly ok: boolean;
   readonly message: string;
-}
-
-export interface ServiceProvider {
-  readonly platform: 'darwin' | 'linux';
-  getStatus(): Promise<DaemonServiceStatus>;
-  install(ctx: InstallContext): Promise<InstallResult>;
-  uninstall(): Promise<UninstallResult>;
 }
 
 export interface InstallContext {
@@ -52,23 +57,41 @@ export interface InstallContext {
   readonly home: string;
 }
 
-export function logPath(): string {
-  return path.join(process.env.MOXXY_HOME ?? path.join(homedir(), '.moxxy'), 'scheduler-daemon.log');
+export interface ServiceProvider {
+  readonly platform: Exclude<ServicePlatform, 'unsupported'>;
+  getStatus(spec: ServiceSpec): Promise<ServiceStatus>;
+  install(spec: ServiceSpec, ctx: InstallContext): Promise<ServiceResult>;
+  uninstall(spec: ServiceSpec): Promise<SimpleResult>;
+  start(spec: ServiceSpec): Promise<SimpleResult>;
+  stop(spec: ServiceSpec): Promise<SimpleResult>;
+}
+
+export function servicePlatform(): ServicePlatform {
+  if (process.platform === 'darwin') return 'darwin';
+  if (process.platform === 'linux') return 'linux';
+  return 'unsupported';
+}
+
+function moxxyHome(): string {
+  return process.env.MOXXY_HOME ?? path.join(homedir(), '.moxxy');
+}
+
+export function serviceLogPath(spec: Pick<ServiceSpec, 'id'>): string {
+  return path.join(moxxyHome(), 'services', `${spec.id}.log`);
 }
 
 export function nodeBin(): string {
-  // process.execPath gives the absolute path to the running Node
-  // binary, which is what we want — pnpm-installed `moxxy` is also
-  // launched via Node, and the user's PATH may not contain a Node at
-  // the same path systemd will see.
+  // process.execPath gives the absolute path to the running Node binary,
+  // which is what we want — pnpm-installed `moxxy` is also launched via
+  // Node, and the user's PATH may not contain a Node at the same path
+  // systemd will see.
   return process.execPath;
 }
 
 export function cliBin(): string {
-  // argv[1] is the resolved path to the JS entry that's currently
-  // running — i.e. /…/packages/cli/dist/bin.js or wherever pnpm
-  // linked it. Using it as the ExecStart target means the daemon
-  // tracks whatever binary the user installed.
+  // argv[1] is the resolved path to the JS entry — i.e. /…/packages/cli/dist/bin.js
+  // or wherever pnpm linked it. Using it as ExecStart means the daemon
+  // tracks whatever binary the user actually installed.
   return process.argv[1] ?? '';
 }
 

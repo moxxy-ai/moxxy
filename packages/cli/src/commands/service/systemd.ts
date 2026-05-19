@@ -4,48 +4,63 @@ import { homedir, userInfo } from 'node:os';
 import path from 'node:path';
 import {
   fileExists,
-  logPath,
-  type DaemonServiceStatus,
+  serviceLogPath,
   type InstallContext,
-  type InstallResult,
   type ServiceProvider,
-  type UninstallResult,
+  type ServiceResult,
+  type ServiceSpec,
+  type ServiceStatus,
+  type SimpleResult,
 } from './common.js';
 
-const SYSTEMD_UNIT = 'moxxy-scheduler.service';
-
-function systemdUnitPath(): string {
-  return path.join(homedir(), '.config', 'systemd', 'user', SYSTEMD_UNIT);
+function unitName(spec: Pick<ServiceSpec, 'id'>): string {
+  return `moxxy-${spec.id}.service`;
 }
 
-function renderSystemdUnit(node: string, cli: string, log: string, home: string): string {
+function unitPath(spec: Pick<ServiceSpec, 'id'>): string {
+  return path.join(homedir(), '.config', 'systemd', 'user', unitName(spec));
+}
+
+function renderUnit(spec: ServiceSpec, ctx: InstallContext): string {
+  const execStart = [ctx.node, ctx.cli, ...spec.execArgs].map(quote).join(' ');
+  const envLines = Object.entries(spec.env ?? {})
+    .map(([k, v]) => `Environment=${k}=${v}`)
+    .join('\n');
   return `[Unit]
-Description=moxxy scheduler — fires time-driven prompts
+Description=${spec.description}
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=${node} ${cli} schedule daemon
-WorkingDirectory=${home}
+ExecStart=${execStart}
+WorkingDirectory=${ctx.home}
 Restart=on-failure
 RestartSec=10
-StandardOutput=append:${log}
-StandardError=append:${log}
+StandardOutput=append:${ctx.log}
+StandardError=append:${ctx.log}
+${envLines}
 
 [Install]
 WantedBy=default.target
 `;
 }
 
+function quote(s: string): string {
+  // systemd ExecStart tokenizes unquoted args; quote only when needed.
+  if (!/[\s"]/.test(s)) return s;
+  return '"' + s.replace(/"/g, '\\"') + '"';
+}
+
 export const systemdService: ServiceProvider = {
   platform: 'linux',
 
-  async getStatus(): Promise<DaemonServiceStatus> {
-    const installed = await fileExists(systemdUnitPath());
+  async getStatus(spec): Promise<ServiceStatus> {
+    const target = unitPath(spec);
+    const installed = await fileExists(target);
     let running = false;
     if (installed) {
-      const result = spawnSync('systemctl', ['--user', 'is-active', SYSTEMD_UNIT], {
+      const result = spawnSync('systemctl', ['--user', 'is-active', unitName(spec)], {
         encoding: 'utf8',
         timeout: 5000,
       });
@@ -53,17 +68,18 @@ export const systemdService: ServiceProvider = {
     }
     return {
       platform: 'linux',
+      id: spec.id,
       installed,
       running,
-      unitPath: systemdUnitPath(),
-      logPath: logPath(),
+      unitPath: target,
+      logPath: serviceLogPath(spec),
     };
   },
 
-  async install(ctx: InstallContext): Promise<InstallResult> {
-    const target = systemdUnitPath();
+  async install(spec, ctx): Promise<ServiceResult> {
+    const target = unitPath(spec);
     await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, renderSystemdUnit(ctx.node, ctx.cli, ctx.log, ctx.home), 'utf8');
+    await writeFile(target, renderUnit(spec, ctx), 'utf8');
     const reload = spawnSync('systemctl', ['--user', 'daemon-reload'], { encoding: 'utf8', timeout: 5000 });
     if (reload.status !== 0) {
       return {
@@ -72,7 +88,7 @@ export const systemdService: ServiceProvider = {
         logPath: ctx.log,
       };
     }
-    const enable = spawnSync('systemctl', ['--user', 'enable', '--now', SYSTEMD_UNIT], {
+    const enable = spawnSync('systemctl', ['--user', 'enable', '--now', unitName(spec)], {
       encoding: 'utf8',
       timeout: 10000,
     });
@@ -86,25 +102,49 @@ export const systemdService: ServiceProvider = {
     return {
       ok: true,
       message:
-        `installed systemd user unit ${target} ` +
-        '(make sure `loginctl enable-linger ' +
+        `installed systemd user unit ${target}  ` +
+        '(run `loginctl enable-linger ' +
         userInfo().username +
-        '` is set so it runs even when logged out)',
+        '` once so the service survives logout)',
       logPath: ctx.log,
     };
   },
 
-  async uninstall(): Promise<UninstallResult> {
-    const target = systemdUnitPath();
+  async uninstall(spec): Promise<SimpleResult> {
+    const target = unitPath(spec);
     if (!(await fileExists(target))) {
       return { ok: true, message: 'no systemd unit installed' };
     }
-    spawnSync('systemctl', ['--user', 'disable', '--now', SYSTEMD_UNIT], {
+    spawnSync('systemctl', ['--user', 'disable', '--now', unitName(spec)], {
       encoding: 'utf8',
       timeout: 10000,
     });
     await unlink(target).catch(() => undefined);
     spawnSync('systemctl', ['--user', 'daemon-reload'], { encoding: 'utf8', timeout: 5000 });
     return { ok: true, message: `removed ${target}` };
+  },
+
+  async start(spec): Promise<SimpleResult> {
+    if (!(await fileExists(unitPath(spec)))) {
+      return { ok: false, message: 'service not installed — run `moxxy service install` first' };
+    }
+    const r = spawnSync('systemctl', ['--user', 'start', unitName(spec)], {
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+    if (r.status !== 0) return { ok: false, message: `systemctl start failed: ${r.stderr || r.stdout}` };
+    return { ok: true, message: 'started' };
+  },
+
+  async stop(spec): Promise<SimpleResult> {
+    if (!(await fileExists(unitPath(spec)))) {
+      return { ok: false, message: 'service not installed' };
+    }
+    const r = spawnSync('systemctl', ['--user', 'stop', unitName(spec)], {
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+    if (r.status !== 0) return { ok: false, message: `systemctl stop failed: ${r.stderr || r.stdout}` };
+    return { ok: true, message: 'stopped' };
   },
 };

@@ -13,7 +13,7 @@ import {
   stopRunningService,
   type ServiceSpec,
   type ServiceStatus,
-} from './service-manager.js';
+} from './service/index.js';
 
 /**
  * `moxxy service` — install moxxy bits as a launchd / systemd --user
