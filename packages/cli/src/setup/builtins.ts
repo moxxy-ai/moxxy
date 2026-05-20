@@ -37,6 +37,10 @@ import {
   type WebhookStore,
   type WebhookConfigStore,
 } from '@moxxy/plugin-webhooks';
+import {
+  buildSecurityPlugin,
+  type SecurityPluginHandle,
+} from '@moxxy/plugin-security';
 
 export interface BuiltinEntry {
   readonly name: string;
@@ -63,6 +67,7 @@ export interface BuiltBuiltinsCore {
     readonly config: WebhookConfigStore;
     readonly stop: () => Promise<void>;
   };
+  readonly security: SecurityPluginHandle;
 }
 
 /**
@@ -194,10 +199,32 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
   });
   entries.push({ name: '@moxxy/plugin-webhooks', plugin: webhooksPlugin });
 
+  // Security plugin — always registered, but a no-op unless
+  // `security.enabled: true` in the loaded config. Its onInit hook
+  // fires AFTER every other plugin has registered, so it sees the
+  // fully-populated tool registry when wrapping declared-isolation
+  // tools. Tools without an `isolation` declaration pass through
+  // untouched (unless `security.requireDeclaration` is set).
+  const security = buildSecurityPlugin({
+    config: {
+      enabled: rawConfig.security?.enabled ?? false,
+      ...(rawConfig.security?.isolator ? { isolator: rawConfig.security.isolator } : {}),
+      ...(rawConfig.security?.perTool ? { perTool: rawConfig.security.perTool } : {}),
+      ...(rawConfig.security?.perPlugin ? { perPlugin: rawConfig.security.perPlugin } : {}),
+      ...(rawConfig.security?.requireDeclaration !== undefined
+        ? { requireDeclaration: rawConfig.security.requireDeclaration }
+        : {}),
+    },
+    toolRegistry: session.tools,
+    resolvePluginForTool: null,
+  });
+  entries.push({ name: '@moxxy/plugin-security', plugin: security.plugin });
+
   return {
     entries,
     scheduler: { store: scheduleStore, poller: schedulerPoller },
     webhooks: { store: webhookStore, config: webhookConfig, stop: stopWebhooks },
+    security,
   };
 }
 

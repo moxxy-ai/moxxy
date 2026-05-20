@@ -50,6 +50,7 @@ interface Selections {
   readonly loop: string;
   readonly embedder: string;
   readonly authKinds?: Record<string, ProviderAuthKind>;
+  readonly security?: { readonly enabled: boolean; readonly isolator?: string };
 }
 
 function authKind(
@@ -175,6 +176,17 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
   });
   const embedder = guard(embedderRaw) as string;
 
+  // Step 7 — plugin-security opt-in. Default off — declared
+  // capabilities on individual tools remain advisory unless the user
+  // turns this on. See `@moxxy/plugin-security` for what enabling buys.
+  const securityRaw = await confirm({
+    message:
+      'Step 7 — Enable plugin-security? ' +
+      colors.dim('(per-tool capability isolation; off by default)'),
+    initialValue: false,
+  });
+  const securityEnabled = guard(securityRaw) as boolean;
+
   const selections: Selections = {
     providers: chosenProviders,
     apiKeys,
@@ -184,9 +196,10 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
     loop,
     embedder,
     ...(opts.authKinds ? { authKinds: opts.authKinds } : {}),
+    ...(securityEnabled ? { security: { enabled: true, isolator: 'inproc' } } : {}),
   };
 
-  // Step 7 — review
+  // Step 8 — review
   const yaml = renderYaml(selections);
   note(yaml, 'Step 7 — Review (moxxy.config.yaml)');
 

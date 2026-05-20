@@ -12,11 +12,13 @@ export {
   providerSettingsSchema,
   permissionsConfigSchema,
   embeddingsConfigSchema,
+  securityConfigSchema,
   watcherModeSchema,
   type MoxxyConfig,
   type PluginSettings,
   type ProviderSettings,
   type PermissionsConfig,
   type EmbeddingsConfig,
+  type SecurityConfig,
   type WatcherMode,
 } from './schema.js';

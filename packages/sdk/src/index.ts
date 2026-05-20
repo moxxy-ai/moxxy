@@ -50,6 +50,17 @@ export type {
 export type { ToolContext, ToolDef, ToolCompactPresentation } from './tool.js';
 
 export type {
+  FsCapability,
+  NetCapability,
+  CapabilitySpec,
+  IsolationStrength,
+  ToolIsolationSpec,
+  IsolatedToolCall,
+  Isolator,
+} from './isolation.js';
+export { ISOLATION_RANK } from './isolation.js';
+
+export type {
   SubagentSpec,
   SubagentResult,
   SubagentSpawner,

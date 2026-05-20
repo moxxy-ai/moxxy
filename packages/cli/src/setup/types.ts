@@ -5,6 +5,7 @@ import type { VaultStore } from '@moxxy/plugin-vault';
 import type { MemoryStore } from '@moxxy/plugin-memory';
 import type { SchedulerPoller, ScheduleStore } from '@moxxy/plugin-scheduler';
 import type { WebhookConfigStore, WebhookStore } from '@moxxy/plugin-webhooks';
+import type { SecurityPluginHandle } from '@moxxy/plugin-security';
 
 export interface SetupOptions {
   readonly cwd: string;
@@ -87,4 +88,8 @@ export interface SetupResult {
   };
   /** Session persistence handle. Null when `disableSessionPersistence` is set. */
   readonly persistence: SessionPersistence | null;
+  /** Security plugin handle. `audit()` lists every tool's isolation
+   *  status; `registry` exposes the available `Isolator` impls. The
+   *  plugin itself is a no-op until `security.enabled: true`. */
+  readonly security: SecurityPluginHandle;
 }

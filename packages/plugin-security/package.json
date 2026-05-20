@@ -1,0 +1,33 @@
+{
+  "name": "@moxxy/plugin-security",
+  "version": "0.0.0",
+  "description": "Pluggable capability isolation for moxxy tool calls. Off by default; opt-in at init or per-plugin via declared CapabilitySpec on defineTool().",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": { "plugin": { "entry": "./dist/index.js", "kind": "hooks" } },
+  "dependencies": {
+    "@moxxy/sdk": "workspace:*",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

@@ -3,6 +3,7 @@ import type { EventLogReader } from './log.js';
 import type { PermissionRule } from './permission.js';
 import type { SessionId, ToolCallId, TurnId } from './ids.js';
 import type { SubagentSpawner } from './subagent.js';
+import type { ToolIsolationSpec } from './isolation.js';
 
 export interface ToolContext {
   readonly sessionId: SessionId;
@@ -63,4 +64,10 @@ export interface ToolDef {
   readonly handler: (input: unknown, ctx: ToolContext) => Promise<unknown> | unknown;
   /** Opt-in presentation hint. See `ToolCompactPresentation`. */
   readonly compact?: ToolCompactPresentation;
+  /**
+   * Optional capability declaration. Advisory unless the user enables
+   * `@moxxy/plugin-security`, at which point the active `Isolator`
+   * enforces these bounds at every call. See `ToolIsolationSpec`.
+   */
+  readonly isolation?: ToolIsolationSpec;
 }

@@ -30,6 +30,7 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 @moxxy/plugin-embeddings-transformers   on-device embeddings via xenova
 @moxxy/plugin-browser             web_fetch tool + Playwright sidecar (heavy)
 @moxxy/plugin-scheduler           cron/heartbeat: time-driven prompts + auto-scheduled skills
+@moxxy/plugin-security            opt-in capability isolation: Isolator interface + `none` / `inproc` impls
 
 @moxxy/config      defineConfig + loader (cosmiconfig-style discovery + zod validation)
 @moxxy/testing     FakeProvider + record/replay harness
@@ -79,6 +80,7 @@ Run `pnpm check:deps` to verify after structural changes.
 | Build a new loop strategy | `.claude/agents/loop-strategy-author.md` |
 | Build a new `Compactor` | `.claude/agents/compactor-author.md` |
 | Build a new `Channel` | `.claude/agents/channel-author.md` |
+| Add a security isolator (worker / subprocess / wasm / docker / …) | `.claude/agents/isolator-author.md` |
 | Modify `@moxxy/core` itself | `.claude/agents/core-extender.md` |
 | Reproduce and isolate a bug | `.claude/agents/bug-hunter.md` |
 | Identify gaps and propose improvements | `.claude/agents/self-improver.md` |

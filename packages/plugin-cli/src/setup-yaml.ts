@@ -25,6 +25,14 @@ export interface SetupSelections {
   readonly embedder: string;
   /** Optional per-provider auth kind. Missing entries default to `'apiKey'`. */
   readonly authKinds?: Record<string, ProviderAuthKind>;
+  /**
+   * Opt-in plugin-security selection. Omit to leave the security block
+   * out of the generated YAML entirely (= default, off behavior).
+   */
+  readonly security?: {
+    readonly enabled: boolean;
+    readonly isolator?: string;
+  };
 }
 
 function isOAuth(sel: SetupSelections, providerId: string): boolean {
@@ -52,6 +60,13 @@ export function renderYaml(sel: SetupSelections): string {
   if (sel.embedder !== 'tfidf') {
     lines.push('embeddings:');
     lines.push(`  provider: ${sel.embedder}`);
+  }
+  if (sel.security?.enabled) {
+    lines.push('security:');
+    lines.push('  enabled: true');
+    if (sel.security.isolator && sel.security.isolator !== 'inproc') {
+      lines.push(`  isolator: ${sel.security.isolator}`);
+    }
   }
   lines.push('');
   return lines.join('\n');

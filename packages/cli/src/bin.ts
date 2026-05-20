@@ -17,6 +17,7 @@ import { runResumeCommand } from './commands/resume.js';
 import { runServiceCommand } from './commands/service.js';
 import { runServeCommand } from './commands/serve.js';
 import { runSessionsCommand } from './commands/sessions.js';
+import { runSecurityCommand } from './commands/security.js';
 import { setupSessionWithConfig } from './setup.js';
 import { renderLogo } from './logo.js';
 import { colors } from './colors.js';
@@ -70,6 +71,7 @@ const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyA
       ['plugins list|reload|new', 'manage plugin host'],
       ['perms list|allow|deny|remove|clear|path', 'view / edit the permission policy'],
       ['memory list|audit|show|revert|prune-stale|path', 'curate long-term memory'],
+      ['security audit|isolators|status', 'inspect plugin-security isolation state'],
       ['mcp list|enable|disable|remove|path', 'manage Model Context Protocol servers'],
       ['schedule list|add|remove|run|daemon', 'manage time-driven prompts (cron / heartbeat)'],
       ['service list|install|uninstall|start|stop|logs', 'run channels + scheduler as a background OS unit'],
@@ -160,6 +162,7 @@ const COMMANDS: Record<string, CommandHandler> = {
   service: runServiceCommand,
   serve: runServeCommand,
   sessions: runSessionsCommand,
+  security: runSecurityCommand,
   skills: runSkillsCommand,
   plugins: runPluginsCommand,
   channels: runChannelsCommand,

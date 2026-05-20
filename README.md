@@ -64,6 +64,7 @@ Most agent frameworks lock you in. One LLM provider. One loop topology. One fron
 | ⏰ **Always-on** | `moxxy service install` turns any channel into a launchd / systemd background service, or `moxxy serve --background` runs everything in one shared-session process. |
 | 🔔 **Webhooks** | Any external system can fire prompts: verified (HMAC / bearer), filtered (header + JSON-path include/exclude), idempotent. Auto-tunneled with `cloudflared` for a one-command public URL. |
 | 🪪 **Permissions** | Every tool call gated. Allow-always rules learned per tool over time. |
+| 🛡 **Pluggable isolation** | Opt-in capability sandboxing. Tools declare what they need (fs paths, hosts, time / memory); an `Isolator` enforces. `inproc` ships built-in; `worker` / `subprocess` / `wasm` / `docker` drop in behind the same interface. Off by default. |
 
 ## 🚀 Installation
 
@@ -138,6 +139,7 @@ Logs land in `~/.moxxy/services/<name>.log`; units survive reboots.
 - **Webhooks**: `@moxxy/plugin-webhooks` ships a verified HTTP listener, include/exclude filters (headers + JSON paths), delivery idempotency, and a `cloudflared`/`ngrok` tunnel helper. Vendor-neutral — the agent walks the user through provider specifics conversationally.
 - **Voice in (STT)**: `@moxxy/plugin-stt-whisper` ships an OpenAI Whisper `Transcriber`. Wire it once and every channel with audio input (Telegram voice notes, HTTP `/v1/turn/audio`) routes through it. Swap to Deepgram, AssemblyAI, or a local `whisper.cpp` by registering a different `Transcriber`.
 - **Vault**: AES-256-GCM at rest. Reference secrets in config as `${vault:KEY}`.
+- **Security / isolation**: `@moxxy/plugin-security` — opt-in capability sandboxing. Tools declare an `isolation: { capabilities }` spec on `defineTool({...})` (fs path globs, net host allowlist, env keys, `timeMs`, `memMb`); when enabled, an `Isolator` enforces those bounds at every call. Ships `none` (passthrough) and `inproc` (in-process caps + timeout) isolators; stronger modes (`worker_threads`, subprocess, wasm, Docker, …) register through the same SDK interface. Off by default — enable via `moxxy init` or `security.enabled: true`. Inspect with `moxxy security audit|status|isolators`.
 
 ## 📚 Docs
 
@@ -243,6 +245,7 @@ export default defineConfig({
 @moxxy/plugin-channel-http          ← HTTP channel (POST /v1/turn, /v1/turn/stream, /v1/turn/audio)
 @moxxy/plugin-scheduler             ← time-driven prompts
 @moxxy/plugin-webhooks              ← external-event triggers (verified HTTP listener + tunnels)
+@moxxy/plugin-security              ← opt-in capability isolation (Isolator interface + none/inproc impls)
 @moxxy/plugin-subagents             ← spawn sub-agents from a turn
 @moxxy/compactor-summarize          ← default context-window compactor
 @moxxy/cli                          ← the `moxxy` binary

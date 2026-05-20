@@ -40,6 +40,40 @@ export const permissionsConfigSchema = z.object({
     .optional(),
 });
 
+export const securityConfigSchema = z.object({
+  /**
+   * Master toggle. When false (the default), `@moxxy/plugin-security`
+   * is a no-op even if registered — every tool runs exactly as it does
+   * without the plugin. Per-tool `isolation: { ... }` declarations
+   * remain as documentation but are not enforced.
+   */
+  enabled: z.boolean(),
+  /**
+   * Name of the Isolator implementation to use as default. Phase 1
+   * ships `none` (passthrough) and `inproc` (cap validation + timeout).
+   * Future isolators (`worker`, `subprocess`, `wasm`, `docker`) register
+   * by name via the same plugin contract and slot in here.
+   */
+  isolator: z.string().optional(),
+  /**
+   * Per-tool isolator overrides keyed by tool name. e.g.
+   * `{ bash: 'subprocess', memory_save: 'none' }`. Falls back to the
+   * default isolator above when a tool isn't listed.
+   */
+  perTool: z.record(z.string(), z.string()).optional(),
+  /**
+   * Per-plugin isolator overrides keyed by plugin name. Applies to
+   * every tool the plugin contributes unless overridden in `perTool`.
+   */
+  perPlugin: z.record(z.string(), z.string()).optional(),
+  /**
+   * When true, tools without a declared `isolation` field are denied
+   * outright (instead of falling through to the default isolator).
+   * Useful for hardening once every in-use tool has been audited.
+   */
+  requireDeclaration: z.boolean().optional(),
+});
+
 export const embeddingsConfigSchema = z.object({
   /**
    * 'tfidf' (default, zero deps) | 'openai' (text-embedding-3-*)
@@ -71,6 +105,7 @@ export const moxxyConfigSchema = z.object({
     })
     .optional(),
   embeddings: embeddingsConfigSchema.optional(),
+  security: securityConfigSchema.optional(),
   plugins: z.record(z.string(), pluginSettingsSchema).optional(),
   channels: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
   permissions: permissionsConfigSchema.optional(),
@@ -83,3 +118,4 @@ export type ProviderSettings = z.infer<typeof providerSettingsSchema>;
 export type WatcherMode = z.infer<typeof watcherModeSchema>;
 export type PermissionsConfig = z.infer<typeof permissionsConfigSchema>;
 export type EmbeddingsConfig = z.infer<typeof embeddingsConfigSchema>;
+export type SecurityConfig = z.infer<typeof securityConfigSchema>;

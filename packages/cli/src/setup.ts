@@ -77,7 +77,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // whole list to the ConfigApplier (used for hot-toggle of plugin enable/disable).
   const schedulerRunner = buildSchedulerRunner(session);
   const webhookRunner = buildWebhookRunner(session);
-  const { entries: builtinsCore, scheduler, webhooks } = buildBuiltinsCore({
+  const { entries: builtinsCore, scheduler, webhooks, security } = buildBuiltinsCore({
     session,
     rawConfig,
     vault,
@@ -152,6 +152,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     scheduler,
     webhooks,
     persistence,
+    security,
   };
 }
 
