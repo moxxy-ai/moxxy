@@ -42,6 +42,7 @@
     "@moxxy/plugin-provider-openai-codex": "workspace:*",
     "@moxxy/plugin-scheduler": "workspace:*",
     "@moxxy/plugin-security": "workspace:*",
+    "@moxxy/isolator-worker": "workspace:*",
     "@moxxy/plugin-subagents": "workspace:*",
     "@moxxy/plugin-telegram": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",

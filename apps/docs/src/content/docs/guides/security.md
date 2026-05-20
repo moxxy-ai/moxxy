@@ -150,35 +150,108 @@ strings are the tool's responsibility.
 
 ## Available isolators
 
-Phase 1 ships two:
+The CLI ships three out of the box:
 
 | Name | Strength | What it does |
 |---|---|---|
 | `none` | `'none'` | Passthrough — handler runs unmodified. Useful for benchmarking and as an explicit opt-out. |
 | `inproc` | `'inproc'` | In-process: validates declared `fs`/`net` caps against the input, enforces `timeMs` via timer + abort. Does **not** stop the handler from doing fs/net it didn't declare. |
+| `worker` | `'worker'` | `worker_threads`-based: re-imports the tool's `handlerModule` in a fresh JS thread with its own module cache + V8 heap. Enforces `memMb` via `resourceLimits`, `timeMs` + abort via `worker.terminate()`. Main-thread closures and globals are **not** visible to the handler. Requires `handlerModule` to be declared. |
 
-Stronger isolators register through the same SDK `Isolator` interface —
-no plugin changes needed. The roadmap: `worker_threads`, `subprocess`,
-`vm` (V8 isolate), `wasm` (WASI), `docker`. See
+Further isolators (subprocess, vm, wasm, docker) register through the
+same SDK `Isolator` interface — no plugin changes needed. See
 [`.claude/agents/isolator-author.md`](https://github.com/moxxy-ai/new_moxxy/blob/main/.claude/agents/isolator-author.md)
 for the implementation guide.
 
-## What inproc can't enforce
+### When to pick `worker`
 
-Be honest about the threat model. The in-process isolator's strength is
-*declarative integrity* — it ensures tools don't quietly act outside
-their stated bounds when those bounds are visible in the input. It
-does **not**:
+- The tool's input could be attacker-influenced (webhooks, untrusted
+  prompts, anything reaching `dispatch_agent` from a low-trust channel).
+- You want guaranteed termination on timeout — `inproc` can race a
+  `Promise`, but a synchronous JS loop in the handler will still hang
+  the main thread until the next yield point. `worker.terminate()`
+  kills the thread immediately.
+- You want each call to start from a clean module cache (no global
+  state leaking between unrelated tool invocations).
 
+### Making your tool worker-capable
+
+The worker isolator re-imports the handler on the worker side, so the
+handler must be addressable as a module + named export. Closures
+captured at `defineTool(...)` time can't cross thread boundaries.
+
+```ts
+// my-tool-handler.ts — pure handler module
+import { promises as fs } from 'node:fs';
+
+export async function myToolHandler(input, ctx) {
+  return await fs.readFile(input.file_path, 'utf8');
+}
+```
+
+```ts
+// my-tool.ts — defineTool with handlerModule reference
+import { defineTool, z } from '@moxxy/sdk';
+import { myToolHandler } from './my-tool-handler.js';
+
+export const myTool = defineTool({
+  name: 'my_tool',
+  description: '...',
+  inputSchema: z.object({ file_path: z.string() }),
+  handler: myToolHandler,                      // used by `inproc` / `none`
+  isolation: {
+    capabilities: { fs: { read: ['$cwd/**'] }, timeMs: 30_000 },
+    handlerModule: {
+      // `import.meta.url` resolves correctly post-publish, regardless
+      // of where the consumer installs the package.
+      url: new URL('./my-tool-handler.js', import.meta.url).href,
+      export: 'myToolHandler',
+    },
+  },
+});
+```
+
+The single handler module powers both paths: in-process callers
+invoke `myToolHandler` directly via the closure, and the worker
+isolator imports the same module on its side. **No code duplication.**
+
+Run `moxxy security audit` to confirm — tools with `handlerModule` set
+get a `◊` marker:
+
+```
+DECLARED  · 1/12 worker-capable (handlerModule set)
+  ◊ Read           → worker  fs:read(1) net:none time:30000ms
+    Write          → inproc  fs:read(1) fs:write(1) net:none time:30000ms
+    …
+```
+
+A tool without `handlerModule` denied at call time when configured for
+worker isolation — the isolator has no way to actually run the handler
+out-of-process and refuses to silently degrade.
+
+## What each isolator can't enforce
+
+Be honest about the threat model. Strengths stack — pick the weakest
+that actually meets your need.
+
+**`inproc` does NOT:**
 - Stop a malicious handler from `import('node:fs').then(fs => fs.readFileSync('/etc/passwd'))`. The handler runs in your process.
 - Constrain opaque command strings (Bash's `command`, custom DSL inputs).
-- Enforce memory ceilings or subprocess limits.
+- Enforce memory ceilings.
 - Provide network-level isolation — the handler can `fetch()` to any host.
 
-For those guarantees, you need an out-of-process isolator. The
-infrastructure is in place for them to drop in behind the same
-interface; check the audit output for `→ <isolator-name>` to confirm
-which one is active for each tool.
+**`worker` adds** memory ceiling enforcement, true JS-state isolation
+(no closures / globals visible from main thread), and guaranteed
+immediate termination on abort. **It still does NOT:**
+- Mediate filesystem syscalls — the worker can `import('node:fs')` and
+  read/write anywhere the parent process can.
+- Mediate network — the worker can `fetch()` anywhere.
+- Mediate env — the worker inherits `process.env`.
+
+The next iteration (capability broker) closes those gaps by re-routing
+worker fs/net through a parent RPC channel that re-checks every call
+against the cap spec. Same `Isolator` interface; same `handlerModule`
+authoring shape.
 
 ## Per-tool / per-plugin overrides
 

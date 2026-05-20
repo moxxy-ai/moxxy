@@ -75,13 +75,21 @@ export async function runSecurityCommand(argv: ParsedArgv): Promise<number> {
     );
 
     if (declared.length > 0) {
-      process.stdout.write(colors.bold('DECLARED') + '\n');
+      const workerCount = declared.filter((e) => e.hasModuleRef).length;
+      process.stdout.write(
+        colors.bold('DECLARED') +
+          colors.dim(`  · ${workerCount}/${declared.length} worker-capable (handlerModule set)`) +
+          '\n',
+      );
       const nameCol = Math.max(8, ...declared.map((e) => e.tool.length));
       for (const e of declared) {
         const caps = formatCapabilities(e.capabilities);
         const required = e.required ? colors.dim(`  req:${e.required}`) : '';
+        // ◊ marks tools that ship a handlerModule and can run under
+        // worker/subprocess isolators. Plain tools work under inproc/none only.
+        const mark = e.hasModuleRef ? colors.bold('◊ ') : '  ';
         process.stdout.write(
-          `  ${colors.bold(e.tool.padEnd(nameCol))}  ` +
+          `  ${mark}${colors.bold(e.tool.padEnd(nameCol))}  ` +
             `${colors.dim('→ ' + e.resolvedIsolator)}${required}  ${caps}\n`,
         );
       }

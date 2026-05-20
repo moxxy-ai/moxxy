@@ -74,6 +74,9 @@ export interface AuditEntry {
   readonly required?: string;
   readonly resolvedIsolator: string;
   readonly capabilities?: Readonly<Record<string, unknown>>;
+  /** True when the tool declared a `handlerModule` and can therefore run
+   *  under out-of-process isolators. */
+  readonly hasModuleRef: boolean;
 }
 
 const DEFAULT_ISOLATOR = 'inproc';
@@ -171,6 +174,7 @@ export function buildSecurityPlugin(opts: BuildSecurityPluginOptions): SecurityP
           declared,
           ...(t.isolation?.required ? { required: t.isolation.required } : {}),
           resolvedIsolator: resolved,
+          hasModuleRef: Boolean(t.isolation?.handlerModule),
           ...(t.isolation?.capabilities
             ? { capabilities: t.isolation.capabilities as Record<string, unknown> }
             : {}),
@@ -195,6 +199,7 @@ export function wrapWithIsolator(
   if (!iso) return tool;
   const caps = tool.isolation.capabilities;
 
+  const moduleRef = tool.isolation.handlerModule;
   const wrapped: ToolDef = {
     ...tool,
     handler: async (input: unknown, ctx: ToolContext): Promise<unknown> => {
@@ -205,6 +210,7 @@ export function wrapWithIsolator(
         sessionId: String(ctx.sessionId),
         turnId: String(ctx.turnId),
         cwd: ctx.cwd,
+        ...(moduleRef ? { moduleRef } : {}),
       };
       const bound = (i: unknown): Promise<unknown> =>
         Promise.resolve(tool.handler(i, ctx));

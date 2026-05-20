@@ -57,6 +57,7 @@ export type {
   ToolIsolationSpec,
   IsolatedToolCall,
   Isolator,
+  HandlerModuleRef,
 } from './isolation.js';
 export { ISOLATION_RANK } from './isolation.js';
 

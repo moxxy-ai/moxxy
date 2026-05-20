@@ -31,6 +31,7 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 @moxxy/plugin-browser             web_fetch tool + Playwright sidecar (heavy)
 @moxxy/plugin-scheduler           cron/heartbeat: time-driven prompts + auto-scheduled skills
 @moxxy/plugin-security            opt-in capability isolation: Isolator interface + `none` / `inproc` impls
+@moxxy/isolator-worker            worker_threads-based Isolator (memory + time + JS-state isolation)
 
 @moxxy/config      defineConfig + loader (cosmiconfig-style discovery + zod validation)
 @moxxy/testing     FakeProvider + record/replay harness

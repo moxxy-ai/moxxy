@@ -1,0 +1,36 @@
+{
+  "name": "@moxxy/isolator-worker",
+  "version": "0.0.0",
+  "description": "worker_threads-based Isolator for @moxxy/plugin-security. Runs tools that declare a handlerModule reference in a separate JS thread with enforced memory + time + abort.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./shim": {
+      "import": "./dist/worker-shim.js"
+    }
+  },
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": { "plugin": { "entry": "./dist/index.js", "kind": "hooks" } },
+  "dependencies": {
+    "@moxxy/sdk": "workspace:*",
+    "@moxxy/plugin-security": "workspace:*"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

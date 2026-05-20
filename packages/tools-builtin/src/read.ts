@@ -1,6 +1,5 @@
-import { promises as fs } from 'node:fs';
 import { defineTool, z } from '@moxxy/sdk';
-import { clampString, resolveSafe } from './util.js';
+import { readHandler } from './read-handler.js';
 
 export const readTool = defineTool({
   name: 'Read',
@@ -22,16 +21,14 @@ export const readTool = defineTool({
       net: { mode: 'none' },
       timeMs: 30_000,
     },
+    // Module reference lets out-of-process isolators
+    // (`@moxxy/isolator-worker`, future subprocess/wasm) re-import the
+    // handler outside the main thread. Closure handler below is what
+    // `inproc` / `none` use.
+    handlerModule: {
+      url: new URL('./read-handler.js', import.meta.url).href,
+      export: 'readHandler',
+    },
   },
-  async handler({ file_path, offset = 0, limit = 2000 }, ctx) {
-    const resolved = resolveSafe(ctx.cwd, file_path);
-    const buf = await fs.readFile(resolved);
-    const text = buf.toString('utf8');
-    const lines = text.split('\n');
-    const sliced = lines.slice(offset, offset + limit);
-    const numbered = sliced
-      .map((line, i) => `${String(offset + i + 1).padStart(6, ' ')}\t${line}`)
-      .join('\n');
-    return clampString(numbered, 200_000);
-  },
+  handler: readHandler,
 });

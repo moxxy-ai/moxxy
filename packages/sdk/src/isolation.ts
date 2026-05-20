@@ -50,6 +50,42 @@ export interface ToolIsolationSpec {
    */
   readonly required?: IsolationStrength;
   readonly capabilities: CapabilitySpec;
+  /**
+   * Module + export reference to the handler. Required for tools that
+   * want to be runnable under out-of-process isolators (`worker`,
+   * `subprocess`, …). When omitted, the tool is only executable under
+   * `none` / `inproc`; stronger isolators will deny.
+   *
+   * Convention: derive `url` from `import.meta.url` at `defineTool(...)` time:
+   * ```
+   * handlerModule: {
+   *   url: new URL('./read-handler.js', import.meta.url).href,
+   *   export: 'readHandler',
+   * }
+   * ```
+   * — that keeps the pointer correct after the package is published.
+   */
+  readonly handlerModule?: HandlerModuleRef;
+}
+
+/**
+ * Pointer to a tool's handler as a *module + export*. When present on
+ * `ToolDef.handlerModule`, stronger isolators (worker, subprocess, wasm)
+ * re-import that module on their side of the boundary and call the
+ * named export — closures aren't serializable across thread/process
+ * boundaries, so this declarative form is the only way to actually
+ * re-execute a handler outside the main process.
+ *
+ * `url` should be an absolute `file://` URL or import-resolvable path.
+ * The conventional shape is `new URL('./handler-module.js', import.meta.url).href`
+ * at `defineTool(...)` time, so the reference resolves correctly regardless
+ * of where the published package ends up on the consumer's disk.
+ */
+export interface HandlerModuleRef {
+  /** Module URL (typically `file://...`) the isolator can `import()`. */
+  readonly url: string;
+  /** Named export of the handler within that module. */
+  readonly export: string;
 }
 
 export interface IsolatedToolCall {
@@ -59,19 +95,28 @@ export interface IsolatedToolCall {
   readonly sessionId: string;
   readonly turnId: string;
   readonly cwd: string;
+  /**
+   * Set by the security plugin when the tool declared `handlerModule`.
+   * Isolators that re-execute the handler off-thread (worker/subprocess/…)
+   * read this; in-process isolators (`none`, `inproc`) ignore it because
+   * they invoke the bound closure directly.
+   */
+  readonly moduleRef?: HandlerModuleRef;
 }
 
 /**
  * Pluggable runtime for executing tools under a capability spec.
  *
- * Phase 1 ships `none` (passthrough) and `inproc` (in-process with cap
- * validation + timeout). Phase 2+ adds `worker`, `subprocess`, `wasm`,
- * `docker` — they implement this same interface, no SDK change required.
- *
- * The isolator receives the handler already bound to its `ToolContext`,
- * so it only needs to marshal `(input) => output` across whatever
- * boundary it owns. Callers (the security plugin's hook) build the
- * bound handler from `tool.handler` + the in-process ctx.
+ * The isolator receives:
+ * - `call.input` — the validated tool input.
+ * - `handler` — an in-process closure bound to the real `ToolContext`.
+ *   In-process isolators (`none`, `inproc`) invoke this directly.
+ * - `call.moduleRef` — optional reference to the handler's source
+ *   module. Out-of-process isolators (`worker`, `subprocess`, `wasm`)
+ *   `import()` this on their side of the boundary and call the named
+ *   export, because closures don't cross thread/process boundaries.
+ *   An out-of-process isolator that receives a call with no `moduleRef`
+ *   should deny: it has no way to actually run the handler in isolation.
  */
 export interface Isolator {
   readonly name: string;
