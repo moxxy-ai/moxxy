@@ -150,16 +150,18 @@ strings are the tool's responsibility.
 
 ## Available isolators
 
-The CLI ships three out of the box:
+The CLI ships five out of the box:
 
 | Name | Strength | What it does |
 |---|---|---|
 | `none` | `'none'` | Passthrough — handler runs unmodified. Useful for benchmarking and as an explicit opt-out. |
 | `inproc` | `'inproc'` | In-process: validates declared `fs`/`net` caps against the input, enforces `timeMs` via timer + abort. Does **not** stop the handler from doing fs/net it didn't declare. |
-| `worker` | `'worker'` | `worker_threads`-based: re-imports the tool's `handlerModule` in a fresh JS thread with its own module cache + V8 heap. Enforces `memMb` via `resourceLimits`, `timeMs` + abort via `worker.terminate()`. Main-thread closures and globals are **not** visible to the handler. Requires `handlerModule` to be declared. |
+| `worker` | `'worker'` | `worker_threads`-based: re-imports the tool's `handlerModule` in a fresh JS thread with its own module cache + V8 heap. Enforces `memMb` via `resourceLimits`, `timeMs` + abort via `worker.terminate()`. Brokered fs/net/exec via async RPC. Main-thread closures and globals are **not** visible. |
+| `subprocess` | `'subprocess'` | Spawns a Node child process per call. OS-level process boundary (own VM, own fds). Restrictable env via `caps.env`. Same async broker as worker, over NDJSON stdio. Slower startup (~80–150ms vs ~5–20ms) but stronger boundary. |
+| `wasm` | `'wasm'` (experimental) | WebAssembly VM: zero ambient authority. Module can only call host functions it explicitly imports. Synchronous broker (sync fs + spawnSync, no fetch). Requires a wasm toolchain (AssemblyScript / Rust / TinyGo) to author handlers — authoring story is the friction, isolation is the strongest available. |
 
-Further isolators (subprocess, vm, wasm, docker) register through the
-same SDK `Isolator` interface — no plugin changes needed. See
+Further isolators register through the same SDK `Isolator` interface —
+no plugin changes needed. See
 [`.claude/agents/isolator-author.md`](https://github.com/moxxy-ai/new_moxxy/blob/main/.claude/agents/isolator-author.md)
 for the implementation guide.
 
@@ -229,14 +231,18 @@ A tool without `handlerModule` denied at call time when configured for
 worker isolation — the isolator has no way to actually run the handler
 out-of-process and refuses to silently degrade.
 
-## The capability broker (worker isolator)
+## The capability broker
 
-The `worker` isolator injects two capability-mediated proxies into the
-synthetic `ToolContext` it builds for the handler:
+Worker, subprocess, and wasm isolators all inject capability-mediated
+proxies into the synthetic `ToolContext` they build for the handler:
 
 ```ts
 ctx.fs?.readFile(filePath, { encoding: 'utf8' }): Promise<string>
+ctx.fs?.writeFile(filePath, data): Promise<void>
+ctx.fs?.readdir(dirPath): Promise<string[]>
+ctx.fs?.stat(filePath): Promise<{ size, mtimeMs, isFile, isDirectory }>
 ctx.fetch?(url, init): Promise<{ status, statusText, headers, body }>
+ctx.exec?(command, args, opts): Promise<{ stdout, stderr, exitCode }>
 ```
 
 Each call posts a `broker-request` message to the parent thread. The
@@ -278,25 +284,36 @@ that actually meets your need.
 - Enforce memory ceilings.
 - Provide network-level isolation — the handler can `fetch()` to any host.
 
-**`worker` adds** memory ceiling enforcement, true JS-state isolation
-(no closures / globals visible from main thread), guaranteed immediate
-termination on abort, and **brokered `fs.readFile` + `fetch`** when
-the handler opts in (`ctx.fs` / `ctx.fetch`). **It still does NOT:**
-- Block handlers that import `node:fs` / `node:child_process` directly
-  and bypass the broker. The broker is *advisory*: tools that want
-  mediation use the injected proxies; tools that don't can still touch
-  the host. Locking this down requires a loader-hook layer that
-  intercepts module resolution — Node has no stable API for that yet.
-- Broker other fs ops (`writeFile`, `readdir`, `stat`). Only
-  `readFile` and `fetch` are mediated in the current build. The list
-  grows as concrete tool migrations need it.
+**`worker` adds** memory ceiling, true JS-state isolation (no closures
+or globals from main thread), guaranteed termination on abort, and
+**brokered fs (readFile/writeFile/readdir/stat) + fetch + exec** when
+the handler opts in (`ctx.fs` / `ctx.fetch` / `ctx.exec`). **It still
+does NOT:**
+- Block handlers that `import('node:fs')` / `node:child_process` directly
+  and bypass the broker. The broker is *advisory*: handlers that want
+  mediation use the injected proxies. Locking this down requires a
+  loader-hook layer; Node has no stable API for it yet.
 - Mediate env — the worker inherits `process.env`.
-- Mediate `child_process` — tools with `caps.subprocess: true` can
-  spawn anything from the worker.
 
-Phase 2.2+ extends the brokered op set (writeFile, readdir, stat,
-child_process with command allowlist). The same `Isolator` interface
-and `handlerModule` authoring shape; just more proxies on `ctx`.
+**`subprocess` adds** OS-level process boundary (separate VM, separate
+fd table, separate signal mask) and **restrictable env** via `caps.env`.
+Same advisory limit on direct `node:fs` imports.
+
+**`wasm` adds** zero ambient authority — modules with no imports
+literally cannot reach the host. **Even direct `node:fs` is unavailable**
+because wasm modules have no access to Node APIs at all. The broker
+imports use synchronous fs / `spawnSync`. **It still does NOT:**
+- Support fetch — Node has no safe sync HTTP API. Wasm handlers
+  needing network use the `worker` or `subprocess` isolator instead.
+- Solve the authoring problem — wasm modules must be authored in a
+  language that compiles to wasm. The calling convention is documented
+  in [`@moxxy/isolator-wasm`](/packages/isolator-wasm/) and aligns
+  with what AssemblyScript / wasm-bindgen / TinyGo produce by default.
+
+A future iteration may add a loader-hook layer that blocks direct
+`node:fs` / `node:child_process` from inside worker / subprocess.
+Until then, the broker is the opt-in path for handlers that want
+mediation.
 
 ## Per-tool / per-plugin overrides
 

@@ -1,0 +1,33 @@
+{
+  "name": "@moxxy/isolator-wasm",
+  "version": "0.0.0-experimental",
+  "description": "WebAssembly-based Isolator for @moxxy/plugin-security (EXPERIMENTAL). Strongest pure-JS sandbox: wasm modules can only touch what's explicitly imported. Calling convention is still TBD; this ships the runtime + skeleton.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": { "plugin": { "entry": "./dist/index.js", "kind": "hooks" } },
+  "dependencies": {
+    "@moxxy/sdk": "workspace:*",
+    "@moxxy/plugin-security": "workspace:*"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

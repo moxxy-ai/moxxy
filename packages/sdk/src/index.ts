@@ -52,9 +52,13 @@ export type {
   ToolDef,
   ToolCompactPresentation,
   BrokeredFs,
+  BrokeredStat,
   BrokeredFetch,
   BrokeredFetchInit,
   BrokeredFetchResponse,
+  BrokeredExec,
+  BrokeredExecOpts,
+  BrokeredExecResult,
 } from './tool.js';
 
 export type {

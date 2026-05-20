@@ -43,6 +43,8 @@
     "@moxxy/plugin-scheduler": "workspace:*",
     "@moxxy/plugin-security": "workspace:*",
     "@moxxy/isolator-worker": "workspace:*",
+    "@moxxy/isolator-subprocess": "workspace:*",
+    "@moxxy/isolator-wasm": "workspace:*",
     "@moxxy/plugin-subagents": "workspace:*",
     "@moxxy/plugin-telegram": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",

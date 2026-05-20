@@ -1,0 +1,290 @@
+/**
+ * Unit tests for the synchronous wasm broker bridges.
+ *
+ * The bridges (`broker_fs_read_file` and friends) are functions
+ * exposed to wasm modules as imports. They have the wasm calling
+ * shape `(inputPtr, inputLen, [...,] outPtrOut, outLenOut) -> i32`,
+ * reading inputs from a `WebAssembly.Memory` and writing results
+ * back to it.
+ *
+ * Testing them via a real wasm module would require hand-encoding
+ * modules that import each function, which is hundreds of bytes of
+ * hand-assembled wasm bytecode per op. Instead we construct a fake
+ * `WebAssembly.Memory` and call the bridges directly — same code
+ * path, same memory access, no wasm bytecode needed.
+ */
+import { describe, expect, it, beforeEach } from 'vitest';
+import { promises as fs, writeFileSync } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import type { CapabilitySpec } from '@moxxy/sdk';
+import { buildWasmHostImports, _resetScratch } from './index.js';
+
+function makeMemory(): WebAssembly.Memory {
+  return new WebAssembly.Memory({ initial: 2 });
+}
+
+function writeStr(mem: WebAssembly.Memory, ptr: number, s: string): number {
+  const bytes = new TextEncoder().encode(s);
+  new Uint8Array(mem.buffer, ptr, bytes.length).set(bytes);
+  return bytes.length;
+}
+
+function readResult(mem: WebAssembly.Memory, outPtrOut: number, outLenOut: number): string {
+  const view = new DataView(mem.buffer);
+  const ptr = view.getUint32(outPtrOut, true);
+  const len = view.getUint32(outLenOut, true);
+  return new TextDecoder().decode(new Uint8Array(mem.buffer, ptr, len));
+}
+
+interface Setup {
+  memory: WebAssembly.Memory;
+  imports: WebAssembly.ModuleImports;
+  outPtrOut: number;
+  outLenOut: number;
+}
+
+function setupBridges(caps: CapabilitySpec, cwd = '/tmp'): Setup {
+  _resetScratch();
+  const memory = makeMemory();
+  const imports = buildWasmHostImports({ current: memory }, caps, cwd);
+  return { memory, imports, outPtrOut: 32, outLenOut: 36 };
+}
+
+describe('wasm broker: broker_fs_read_file', () => {
+  it('reads when in scope', async () => {
+    const tmp = path.join(os.tmpdir(), `wasm-bridge-read-${Date.now()}.txt`);
+    await fs.writeFile(tmp, 'hello-wasm-bridge');
+    try {
+      const { memory, imports, outPtrOut, outLenOut } = setupBridges({
+        fs: { read: [`${os.tmpdir()}/**`] },
+      });
+      const pathPtr = 128;
+      const pathLen = writeStr(memory, pathPtr, tmp);
+      const rc = (imports.broker_fs_read_file as Function)(
+        pathPtr,
+        pathLen,
+        outPtrOut,
+        outLenOut,
+      );
+      expect(rc).toBe(0);
+      expect(readResult(memory, outPtrOut, outLenOut)).toBe('hello-wasm-bridge');
+    } finally {
+      await fs.unlink(tmp);
+    }
+  });
+
+  it('denies out-of-scope reads with code 1 + error message', () => {
+    const { memory, imports, outPtrOut, outLenOut } = setupBridges({
+      fs: { read: ['/tmp/**'] },
+    });
+    const pathPtr = 128;
+    const pathLen = writeStr(memory, pathPtr, '/etc/passwd');
+    const rc = (imports.broker_fs_read_file as Function)(
+      pathPtr,
+      pathLen,
+      outPtrOut,
+      outLenOut,
+    );
+    expect(rc).toBe(1);
+    expect(readResult(memory, outPtrOut, outLenOut)).toMatch(/fs\.read capability/);
+  });
+});
+
+describe('wasm broker: broker_fs_write_file', () => {
+  it('writes when in scope', async () => {
+    const tmp = path.join(os.tmpdir(), `wasm-bridge-write-${Date.now()}.txt`);
+    try {
+      const { memory, imports } = setupBridges({
+        fs: { write: [`${os.tmpdir()}/**`] },
+      });
+      const pathPtr = 128;
+      const pathLen = writeStr(memory, pathPtr, tmp);
+      const dataPtr = 1024;
+      const dataLen = writeStr(memory, dataPtr, 'wasm-wrote-this');
+      const rc = (imports.broker_fs_write_file as Function)(
+        pathPtr,
+        pathLen,
+        dataPtr,
+        dataLen,
+      );
+      expect(rc).toBe(0);
+      expect(await fs.readFile(tmp, 'utf8')).toBe('wasm-wrote-this');
+    } finally {
+      await fs.unlink(tmp).catch(() => undefined);
+    }
+  });
+
+  it('denies out-of-scope writes (return 1)', () => {
+    const { memory, imports } = setupBridges({
+      fs: { write: ['/tmp/**'] },
+    });
+    const pathPtr = 128;
+    const pathLen = writeStr(memory, pathPtr, '/etc/should-fail');
+    const dataPtr = 1024;
+    const dataLen = writeStr(memory, dataPtr, 'nope');
+    const rc = (imports.broker_fs_write_file as Function)(
+      pathPtr,
+      pathLen,
+      dataPtr,
+      dataLen,
+    );
+    expect(rc).toBe(1);
+  });
+});
+
+describe('wasm broker: broker_fs_readdir', () => {
+  it('lists when in scope', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wasm-bridge-readdir-'));
+    try {
+      await fs.writeFile(path.join(dir, 'a.txt'), 'a');
+      await fs.writeFile(path.join(dir, 'b.txt'), 'b');
+      const { memory, imports, outPtrOut, outLenOut } = setupBridges({
+        fs: { read: [`${os.tmpdir()}/**`] },
+      });
+      const pathPtr = 128;
+      const pathLen = writeStr(memory, pathPtr, dir);
+      const rc = (imports.broker_fs_readdir as Function)(
+        pathPtr,
+        pathLen,
+        outPtrOut,
+        outLenOut,
+      );
+      expect(rc).toBe(0);
+      const entries = readResult(memory, outPtrOut, outLenOut).split('\n').sort();
+      expect(entries).toEqual(['a.txt', 'b.txt']);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('denies out-of-scope readdir', () => {
+    const { memory, imports, outPtrOut, outLenOut } = setupBridges({
+      fs: { read: ['/tmp/**'] },
+    });
+    const pathPtr = 128;
+    const pathLen = writeStr(memory, pathPtr, '/etc');
+    const rc = (imports.broker_fs_readdir as Function)(
+      pathPtr,
+      pathLen,
+      outPtrOut,
+      outLenOut,
+    );
+    expect(rc).toBe(1);
+  });
+});
+
+describe('wasm broker: broker_fs_stat', () => {
+  it('returns JSON stat when in scope', () => {
+    const tmp = path.join(os.tmpdir(), `wasm-bridge-stat-${Date.now()}.txt`);
+    writeFileSync(tmp, 'abc');
+    try {
+      const { memory, imports, outPtrOut, outLenOut } = setupBridges({
+        fs: { read: [`${os.tmpdir()}/**`] },
+      });
+      const pathPtr = 128;
+      const pathLen = writeStr(memory, pathPtr, tmp);
+      const rc = (imports.broker_fs_stat as Function)(
+        pathPtr,
+        pathLen,
+        outPtrOut,
+        outLenOut,
+      );
+      expect(rc).toBe(0);
+      const result = JSON.parse(readResult(memory, outPtrOut, outLenOut)) as {
+        size: number;
+        isFile: boolean;
+      };
+      expect(result.size).toBe(3);
+      expect(result.isFile).toBe(true);
+    } finally {
+      void fs.unlink(tmp).catch(() => undefined);
+    }
+  });
+});
+
+describe('wasm broker: broker_exec', () => {
+  it('denies when subprocess cap is not granted', () => {
+    const { memory, imports, outPtrOut, outLenOut } = setupBridges({});
+    const cmdPtr = 128;
+    const cmdLen = writeStr(memory, cmdPtr, '/bin/echo');
+    const argvPtr = 1024;
+    const argvLen = writeStr(memory, argvPtr, JSON.stringify(['hi']));
+    const rc = (imports.broker_exec as Function)(
+      cmdPtr,
+      cmdLen,
+      argvPtr,
+      argvLen,
+      outPtrOut,
+      outLenOut,
+    );
+    expect(rc).toBe(1);
+    expect(readResult(memory, outPtrOut, outLenOut)).toMatch(/subprocess: true/);
+  });
+
+  it('runs when subprocess cap is granted', () => {
+    const { memory, imports, outPtrOut, outLenOut } = setupBridges({ subprocess: true });
+    const cmdPtr = 128;
+    const cmdLen = writeStr(memory, cmdPtr, '/bin/echo');
+    const argvPtr = 1024;
+    const argvLen = writeStr(memory, argvPtr, JSON.stringify(['hello-wasm-exec']));
+    const rc = (imports.broker_exec as Function)(
+      cmdPtr,
+      cmdLen,
+      argvPtr,
+      argvLen,
+      outPtrOut,
+      outLenOut,
+    );
+    expect(rc).toBe(0);
+    const result = JSON.parse(readResult(memory, outPtrOut, outLenOut)) as {
+      stdout: string;
+      exitCode: number | null;
+    };
+    expect(result.stdout).toContain('hello-wasm-exec');
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('honors commands allowlist (deny)', () => {
+    const { memory, imports, outPtrOut, outLenOut } = setupBridges({
+      subprocess: true,
+      commands: ['echo'],
+    });
+    const cmdPtr = 128;
+    const cmdLen = writeStr(memory, cmdPtr, '/bin/cat');
+    const argvPtr = 1024;
+    const argvLen = writeStr(memory, argvPtr, JSON.stringify(['/etc/hosts']));
+    const rc = (imports.broker_exec as Function)(
+      cmdPtr,
+      cmdLen,
+      argvPtr,
+      argvLen,
+      outPtrOut,
+      outLenOut,
+    );
+    expect(rc).toBe(1);
+    expect(readResult(memory, outPtrOut, outLenOut)).toMatch(/commands allowlist/);
+  });
+});
+
+describe('wasm broker: import surface', () => {
+  it('exposes the documented op set', () => {
+    const { imports } = setupBridges({});
+    expect(Object.keys(imports).sort()).toEqual([
+      'broker_exec',
+      'broker_fs_read_file',
+      'broker_fs_readdir',
+      'broker_fs_stat',
+      'broker_fs_write_file',
+    ]);
+  });
+
+  it('does NOT expose broker_fetch (sync http isn\'t safe in Node)', () => {
+    const { imports } = setupBridges({});
+    expect(imports.broker_fetch).toBeUndefined();
+  });
+});
+
+beforeEach(() => {
+  _resetScratch();
+});

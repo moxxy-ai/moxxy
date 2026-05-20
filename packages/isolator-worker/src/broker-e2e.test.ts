@@ -35,7 +35,7 @@ const baseCall = (
 });
 
 describe('worker broker: ctx is injected', () => {
-  it('handler sees ctx.fs.readFile + ctx.fetch on the synthetic ctx', async () => {
+  it('handler sees the full broker surface on the synthetic ctx', async () => {
     const iso = createWorkerIsolator();
     const out = await iso.run(
       baseCall('inspectCtx', {}),
@@ -43,7 +43,92 @@ describe('worker broker: ctx is injected', () => {
       {},
       new AbortController().signal,
     );
-    expect(out).toMatchObject({ hasFs: true, hasFetch: true, sessionId: 's1' });
+    expect(out).toMatchObject({
+      hasFs: true,
+      hasWriteFile: true,
+      hasReaddir: true,
+      hasStat: true,
+      hasFetch: true,
+      hasExec: true,
+      sessionId: 's1',
+    });
+  });
+});
+
+describe('worker broker: extended fs ops', () => {
+  it('writeFile mediates through the broker', async () => {
+    const tmp = path.join(os.tmpdir(), `moxxy-write-${Date.now()}.txt`);
+    try {
+      const iso = createWorkerIsolator();
+      await iso.run(
+        baseCall('writeViaBroker', { where: tmp, data: 'broker-wrote-this' }),
+        async () => 'unused',
+        { fs: { write: [`${os.tmpdir()}/**`] } },
+        new AbortController().signal,
+      );
+      expect(await fs.readFile(tmp, 'utf8')).toBe('broker-wrote-this');
+    } finally {
+      await fs.unlink(tmp).catch(() => undefined);
+    }
+  });
+
+  it('writeFile denied when out of cap', async () => {
+    const iso = createWorkerIsolator();
+    await expect(
+      iso.run(
+        baseCall('writeViaBroker', { where: '/etc/passwd', data: 'nope' }),
+        async () => 'unused',
+        { fs: { write: ['$cwd/**'] } },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/fs\.write capability/);
+  });
+
+  it('stat mediates through the broker', async () => {
+    const tmp = path.join(os.tmpdir(), `moxxy-stat-${Date.now()}.txt`);
+    await fs.writeFile(tmp, 'xyz');
+    try {
+      const iso = createWorkerIsolator();
+      const out = (await iso.run(
+        baseCall('statViaBroker', { where: tmp }),
+        async () => 'unused',
+        { fs: { read: [`${os.tmpdir()}/**`] } },
+        new AbortController().signal,
+      )) as { isFile: boolean; size: number };
+      expect(out.isFile).toBe(true);
+      expect(out.size).toBe(3);
+    } finally {
+      await fs.unlink(tmp);
+    }
+  });
+});
+
+describe('worker broker: exec', () => {
+  it('runs allowed commands via the broker', async () => {
+    const iso = createWorkerIsolator();
+    const out = (await iso.run(
+      // Use a real cwd that exists on the test host. The broker spawns
+      // from the parent, which inherits the parent's CWD only if we
+      // pass one; our `call.cwd = '/work'` doesn't exist in CI.
+      { ...baseCall('execViaBroker', { cmd: '/bin/echo', args: ['from-worker'] }), cwd: os.tmpdir() },
+      async () => 'unused',
+      { subprocess: true },
+      new AbortController().signal,
+    )) as { stdout: string; exitCode: number | null };
+    expect(out.stdout).toContain('from-worker');
+    expect(out.exitCode).toBe(0);
+  });
+
+  it('denies exec when subprocess is not granted', async () => {
+    const iso = createWorkerIsolator();
+    await expect(
+      iso.run(
+        { ...baseCall('execViaBroker', { cmd: '/bin/echo', args: ['x'] }), cwd: os.tmpdir() },
+        async () => 'unused',
+        {}, // no subprocess cap
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/subprocess: true/);
   });
 });
 

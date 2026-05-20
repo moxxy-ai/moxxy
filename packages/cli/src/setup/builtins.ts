@@ -42,6 +42,8 @@ import {
   type SecurityPluginHandle,
 } from '@moxxy/plugin-security';
 import { workerIsolator } from '@moxxy/isolator-worker';
+import { subprocessIsolator } from '@moxxy/isolator-subprocess';
+import { wasmIsolator } from '@moxxy/isolator-wasm';
 
 export interface BuiltinEntry {
   readonly name: string;
@@ -221,7 +223,7 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
     // Register the worker_threads isolator so users can opt in via
     // `security: { isolator: 'worker' }`. It coexists with the built-in
     // `none` + `inproc` isolators; unused isolators have no runtime cost.
-    isolators: [workerIsolator],
+    isolators: [workerIsolator, subprocessIsolator, wasmIsolator],
   });
   entries.push({ name: '@moxxy/plugin-security', plugin: security.plugin });
 

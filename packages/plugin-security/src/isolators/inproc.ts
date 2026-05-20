@@ -33,6 +33,11 @@ export const inprocIsolator: Isolator = {
     if (caps.timeMs === undefined) return handler(call.input);
 
     return new Promise((resolve, reject) => {
+      // Already-aborted: events don't replay, check explicitly first.
+      if (signal.aborted) {
+        reject(new Error(`[security:inproc] tool '${call.toolName}' aborted`));
+        return;
+      }
       const timer = setTimeout(() => {
         reject(new Error(`[security:inproc] tool '${call.toolName}' exceeded ${caps.timeMs}ms budget`));
       }, caps.timeMs);

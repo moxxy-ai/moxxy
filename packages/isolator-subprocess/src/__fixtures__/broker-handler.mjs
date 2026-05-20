@@ -53,3 +53,16 @@ export async function statViaBroker(input, ctx) {
 export async function execViaBroker(input, ctx) {
   return await ctx.exec(input.cmd, input.args);
 }
+
+// Slow handler for timeout / abort tests.
+export async function slowHandler(input) {
+  await new Promise((r) => setTimeout(r, input.ms));
+  return 'done';
+}
+
+// Reads a parent-thread global. Should always come back null in the
+// subprocess child (separate OS process = separate heap).
+export async function readParentGlobal() {
+  // eslint-disable-next-line no-undef
+  return { seen: globalThis.__MOXXY_PARENT_FLAG__ ?? null };
+}

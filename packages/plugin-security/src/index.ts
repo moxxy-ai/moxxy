@@ -36,6 +36,13 @@ export {
   maskEnv,
   type CapCheckResult,
 } from './cap-check.js';
+export {
+  handleBrokerRequest,
+  type BrokerOp,
+  type BrokerRequest,
+  type BrokerResponse,
+  type BrokerContext,
+} from './broker.js';
 
 /**
  * Runtime config shape consumed by `buildSecurityPlugin`. Mirrors the

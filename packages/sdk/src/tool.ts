@@ -19,6 +19,19 @@ import type { ToolIsolationSpec } from './isolation.js';
 export interface BrokeredFs {
   /** Read a UTF-8 file. Throws if the path is outside `caps.fs.read`. */
   readFile(filePath: string, opts?: { encoding?: BufferEncoding }): Promise<string>;
+  /** Write a UTF-8 file (creates parent dirs). Throws if outside `caps.fs.write`. */
+  writeFile(filePath: string, data: string): Promise<void>;
+  /** List entries in a directory. Throws if outside `caps.fs.read`. */
+  readdir(dirPath: string): Promise<ReadonlyArray<string>>;
+  /** Stat a path. Throws if outside `caps.fs.read`. */
+  stat(filePath: string): Promise<BrokeredStat>;
+}
+
+export interface BrokeredStat {
+  readonly size: number;
+  readonly mtimeMs: number;
+  readonly isFile: boolean;
+  readonly isDirectory: boolean;
 }
 
 /**
@@ -44,6 +57,32 @@ export interface BrokeredFetchResponse {
   readonly statusText: string;
   readonly headers: Readonly<Record<string, string>>;
   readonly body: string;
+}
+
+/**
+ * Capability-mediated subprocess `exec`. Validated against `caps.subprocess`
+ * (must be true) and optional `caps.commands` allowlist on the parent side.
+ * Collects stdout/stderr and the exit code; for streaming use cases the
+ * broker layer will grow a separate streaming variant later.
+ */
+export interface BrokeredExec {
+  (
+    command: string,
+    args?: ReadonlyArray<string>,
+    opts?: BrokeredExecOpts,
+  ): Promise<BrokeredExecResult>;
+}
+
+export interface BrokeredExecOpts {
+  readonly cwd?: string;
+  readonly env?: Readonly<Record<string, string>>;
+  readonly timeoutMs?: number;
+}
+
+export interface BrokeredExecResult {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: number | null;
 }
 
 export interface ToolContext {
@@ -82,6 +121,12 @@ export interface ToolContext {
    * shape so the same value crosses a process boundary intact.
    */
   readonly fetch?: BrokeredFetch;
+  /**
+   * Capability-mediated subprocess execution. Present only when the
+   * active isolator implements a broker. Validated against
+   * `caps.subprocess` + optional `caps.commands` allowlist.
+   */
+  readonly exec?: BrokeredExec;
 }
 
 /**

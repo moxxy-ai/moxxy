@@ -247,6 +247,8 @@ export default defineConfig({
 @moxxy/plugin-webhooks              ← external-event triggers (verified HTTP listener + tunnels)
 @moxxy/plugin-security              ← opt-in capability isolation (Isolator interface + none/inproc impls)
 @moxxy/isolator-worker              ← worker_threads Isolator (memory + time + JS-state isolation)
+@moxxy/isolator-subprocess          ← subprocess Isolator (kernel-enforced process boundary)
+@moxxy/isolator-wasm                ← WebAssembly Isolator (zero ambient authority; experimental)
 @moxxy/plugin-subagents             ← spawn sub-agents from a turn
 @moxxy/compactor-summarize          ← default context-window compactor
 @moxxy/cli                          ← the `moxxy` binary

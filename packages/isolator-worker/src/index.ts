@@ -1,7 +1,10 @@
 import { Worker } from 'node:worker_threads';
 import type { Isolator } from '@moxxy/sdk';
-import { checkAllCaps } from '@moxxy/plugin-security';
-import { handleBrokerRequest, type BrokerRequest } from './broker.js';
+import {
+  checkAllCaps,
+  handleBrokerRequest,
+  type BrokerRequest,
+} from '@moxxy/plugin-security';
 
 /**
  * Worker entry code, inlined as a string and run via
@@ -59,8 +62,12 @@ function rpc(op, args) {
 const broker = {
   fs: {
     readFile: (filePath, opts) => rpc('fs.readFile', [filePath, opts || {}]),
+    writeFile: (filePath, data) => rpc('fs.writeFile', [filePath, data]),
+    readdir: (dirPath) => rpc('fs.readdir', [dirPath]),
+    stat: (filePath) => rpc('fs.stat', [filePath]),
   },
   fetch: (url, init) => rpc('fetch', [url, init || {}]),
+  exec: (cmd, args, opts) => rpc('exec', [cmd, args || [], opts || {}]),
 };
 
 try {
@@ -84,6 +91,7 @@ try {
       logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
       fs: broker.fs,
       fetch: broker.fetch,
+      exec: broker.exec,
     };
     const out = await fn(input, ctx);
     parentPort.postMessage({ type: 'result', ok: true, value: out });
@@ -214,6 +222,13 @@ export function createWorkerIsolator(opts: WorkerIsolatorOptions = {}): Isolator
           void worker.terminate();
         };
 
+        if (signal.aborted) {
+          finish(() =>
+            reject(new Error(`[security:worker] tool '${call.toolName}' aborted`)),
+          );
+          return;
+        }
+
         const timer = setTimeout(() => {
           finish(() =>
             reject(
@@ -279,4 +294,10 @@ export function createWorkerIsolator(opts: WorkerIsolatorOptions = {}): Isolator
 /** Default singleton. Use `createWorkerIsolator({...})` to tune limits. */
 export const workerIsolator: Isolator = createWorkerIsolator();
 
-export { handleBrokerRequest, type BrokerRequest, type BrokerResponse, type BrokerOp } from './broker.js';
+// Re-export broker types from plugin-security for convenience.
+export {
+  handleBrokerRequest,
+  type BrokerRequest,
+  type BrokerResponse,
+  type BrokerOp,
+} from '@moxxy/plugin-security';

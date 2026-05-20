@@ -189,6 +189,12 @@ importers:
       '@moxxy/core':
         specifier: workspace:*
         version: link:../core
+      '@moxxy/isolator-subprocess':
+        specifier: workspace:*
+        version: link:../isolator-subprocess
+      '@moxxy/isolator-wasm':
+        specifier: workspace:*
+        version: link:../isolator-wasm
       '@moxxy/isolator-worker':
         specifier: workspace:*
         version: link:../isolator-worker
@@ -363,6 +369,56 @@ importers:
       zod:
         specifier: ^3.24.0
         version: 3.25.76
+    devDependencies:
+      '@moxxy/tsconfig':
+        specifier: workspace:*
+        version: link:../../tooling/tsconfig
+      '@moxxy/vitest-preset':
+        specifier: workspace:*
+        version: link:../../tooling/vitest-preset
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.18
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.18)
+
+  packages/isolator-subprocess:
+    dependencies:
+      '@moxxy/plugin-security':
+        specifier: workspace:*
+        version: link:../plugin-security
+      '@moxxy/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+    devDependencies:
+      '@moxxy/tsconfig':
+        specifier: workspace:*
+        version: link:../../tooling/tsconfig
+      '@moxxy/vitest-preset':
+        specifier: workspace:*
+        version: link:../../tooling/vitest-preset
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.18
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.18)
+
+  packages/isolator-wasm:
+    dependencies:
+      '@moxxy/plugin-security':
+        specifier: workspace:*
+        version: link:../plugin-security
+      '@moxxy/sdk':
+        specifier: workspace:*
+        version: link:../sdk
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*

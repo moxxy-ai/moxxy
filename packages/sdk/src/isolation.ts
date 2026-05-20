@@ -31,6 +31,13 @@ export interface CapabilitySpec {
   readonly memMb?: number;
   /** Whether the tool may spawn child processes. Defaults to false. */
   readonly subprocess?: boolean;
+  /**
+   * Optional command allowlist for `ctx.exec` / brokered subprocess
+   * calls. Each entry can be a basename (`'echo'`) or absolute path
+   * (`'/bin/echo'`); a request matches if either form is in the list.
+   * Empty/omitted = no restriction beyond `subprocess: true`.
+   */
+  readonly commands?: ReadonlyArray<string>;
 }
 
 export type IsolationStrength =
