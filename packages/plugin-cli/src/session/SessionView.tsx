@@ -88,10 +88,38 @@ export const SessionView: React.FC<SessionViewProps> = ({
     overlayOpen,
     turnControllerRef: turn.turnControllerRef,
     setSystemNotice,
-    setExpandToolOutputs,
-    forceSendFirst: turn.forceSendFirst,
-    dropFirst: turn.dropFirst,
   });
+
+  // Hotkeys that need to reach inside PromptInput. Routed through
+  // parse-input.ts since Ink's useInput stops firing once the editor
+  // owns the stdin stream (data-mode flowing vs. readable-mode read()).
+  const commandHotkeys: Record<string, () => void> = {
+    t: () => {
+      const moved = turn.forceSendFirst();
+      setSystemNotice(
+        moved
+          ? 'queue: first message will run next, by itself'
+          : 'queue: nothing queued to force-send',
+      );
+    },
+    b: () => {
+      const dropped = turn.dropFirst();
+      setSystemNotice(
+        dropped ? 'queue: dropped the first queued message' : 'queue: nothing to drop',
+      );
+    },
+    o: () => {
+      setExpandToolOutputs((e) => {
+        const next = !e;
+        setSystemNotice(
+          next
+            ? 'tool blocks expanded — Ctrl+O again to collapse'
+            : 'tool blocks collapsed — Ctrl+O again to expand',
+        );
+        return next;
+      });
+    },
+  };
 
   // Snapshot per-tool compact-presentation metadata from the live tool
   // registry. Built once per session (plugins register at boot); MCP
@@ -247,6 +275,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         slashCommands={slashSuggestions}
         queueMessages={turn.queueRef.current}
         priorityMessage={turn.priorityMessage}
+        commandHotkeys={commandHotkeys}
         onPermissionDecide={(perm, decision) => {
           permissions.setPendingPermissions((prev) => prev.slice(1));
           if (decision.mode === 'allow_always') {

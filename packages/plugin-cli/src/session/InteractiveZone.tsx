@@ -21,8 +21,11 @@ interface InteractiveZoneProps {
   slashCommands: ReadonlyArray<SlashCommand>;
   /** Live queue contents for the always-visible QueueView. */
   queueMessages: ReadonlyArray<QueuedMessage>;
-  /** Single-slot priority message set by Ctrl+J. */
+  /** Single-slot priority message set by Ctrl+T. */
   priorityMessage: QueuedMessage | null;
+  /** Ctrl+<letter> hotkeys plumbed into the input editor (Ink's useInput
+   *  can't see these once PromptInput holds stdin). */
+  commandHotkeys: Record<string, () => void>;
   onPermissionDecide: (perm: PendingPermission, decision: import('@moxxy/sdk').PermissionDecision) => void;
   onApprovalDecide: (decision: import('@moxxy/sdk').ApprovalDecision) => void;
   onPickerSelect: (picker: NonNullable<Picker>, id: string) => void;
@@ -49,6 +52,7 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
   slashCommands,
   queueMessages,
   priorityMessage,
+  commandHotkeys,
   onPermissionDecide,
   onApprovalDecide,
   onPickerSelect,
@@ -84,10 +88,12 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
       />
     );
   }
-  // QueueView renders ONLY when there's something to show. When idle and
-  // the queue is empty, it returns null and there's no extra spacing.
+  // The queue strip touches the input directly (no border-bottom on
+  // the queue, no margin-top on the input). The wrapper carries a
+  // single line of margin so the strip — or, when empty, the input —
+  // has breathing room from the chat above.
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" marginTop={1}>
       <QueueView messages={queueMessages} priority={priorityMessage} />
       <InputBox
         onSubmit={onSubmit}
@@ -96,10 +102,11 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
         slashCommands={slashCommands}
         placeholder={
           busy
-            ? 'type to queue a message — sent after the current turn (ctrl+j to force-send first)'
+            ? 'type to queue a message — sent after the current turn (ctrl+t to force-send first)'
             : 'type a prompt or / for commands'
         }
         onPasteText={onPasteText}
+        commandHotkeys={commandHotkeys}
       />
     </Box>
   );

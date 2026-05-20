@@ -1,23 +1,20 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import { Colors, Glyphs } from '../theme.js';
+import { Glyphs } from '../theme.js';
 import type { QueuedMessage } from '../session/use-turn-runner.js';
 
 /**
- * Compact list of pending messages rendered just above the input box.
+ * Single dim line rendered directly above the input box. A thin top
+ * rule separates it from the chat above so the strip reads as input
+ * chrome rather than message content.
  *
- *   ► next: triage the failed CI run
- *     · fetch latest stats
- *     · re-run the smoke tests
- *     ctrl+J send first next   ctrl+K drop first
+ *   ──────────────────────────────────────────────────────────────────
+ *   ▲ next: triage the failed CI run · +2 more · ⌃t send · ⌃b drop
  *
- * The `next:` row only appears when the user has force-sent something
- * (priority slot is set). Otherwise the list is the regular FIFO queue.
- * Long messages are truncated to one line; users can still review the
- * full text via `/queue`.
+ * Users can review the full backlog via the `/queue` slash command.
  */
 
-const PREVIEW_MAX = 80;
+const PREVIEW_MAX = 60;
 
 function oneLinePreview(s: string): string {
   const flat = s.replace(/\s+/g, ' ').trim();
@@ -25,38 +22,44 @@ function oneLinePreview(s: string): string {
 }
 
 export interface QueueViewProps {
-  /** Live queue contents. Render-time read is safe because the caller
-   *  bumps `queueCount` whenever the array mutates, which is what
-   *  drives the re-render. */
   readonly messages: ReadonlyArray<QueuedMessage>;
-  /** Priority slot set by `forceSendFirst`. Runs alone before the
-   *  remaining queue drains. Null when no force-send is pending. */
   readonly priority: QueuedMessage | null;
 }
 
 export const QueueView: React.FC<QueueViewProps> = ({ messages, priority }) => {
   if (!priority && messages.length === 0) return null;
 
+  let headLabel: string;
+  let headText: string;
+  let restCount: number;
+  if (priority) {
+    headLabel = 'next';
+    headText = priority.text;
+    restCount = messages.length;
+  } else {
+    headLabel = 'queued';
+    headText = messages[0]!.text;
+    restCount = messages.length - 1;
+  }
+
+  const restPart = restCount > 0 ? ` · +${restCount} more` : '';
+
   return (
-    <Box flexDirection="column" marginBottom={1}>
-      {priority ? (
-        <Box>
-          <Text color={Colors.busy}>{Glyphs.contextUp} </Text>
-          <Text bold>next: </Text>
-          <Text>{oneLinePreview(priority.text)}</Text>
-        </Box>
-      ) : null}
-      {messages.map((m, i) => (
-        <Box key={i}>
-          <Text dimColor>{`  · ${oneLinePreview(m.text)}`}</Text>
-        </Box>
-      ))}
-      {messages.length > 0 ? (
-        <Box marginTop={0}>
-          <Text dimColor>{'  '}</Text>
-          <Text dimColor>ctrl+j send first next   ctrl+k drop first   /clear-queue empty</Text>
-        </Box>
-      ) : null}
+    <Box
+      flexDirection="column"
+      borderStyle="single"
+      borderBottom={false}
+      borderLeft={false}
+      borderRight={false}
+      borderColor="blackBright"
+      borderDimColor
+    >
+      <Box>
+        <Text color="blackBright" dimColor>{Glyphs.contextUp} </Text>
+        <Text dimColor>
+          {headLabel}: {oneLinePreview(headText)}{restPart} · ⌃t send · ⌃b drop
+        </Text>
+      </Box>
     </Box>
   );
 };

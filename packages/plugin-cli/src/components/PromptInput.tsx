@@ -26,6 +26,15 @@ export interface PromptInputProps {
    * for `[Image #N]` placeholders while side-loading the bytes.
    */
   readonly onPasteText?: (text: string) => string;
+  /**
+   * Map of `Ctrl+<letter>` hotkeys to react to inside the input. Lets
+   * the session wire force-send / drop / live-block toggle without
+   * relying on Ink's `useInput`, which doesn't receive bytes once
+   * PromptInput's raw-stdin listener flips the stream to flowing mode.
+   * Keys are single lowercase letters; collisions with editor keys
+   * (a/c/e/h/j/k/u/w/y) silently no-op.
+   */
+  readonly commandHotkeys?: Record<string, () => void>;
 }
 
 /**
@@ -62,6 +71,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   placeholder,
   slashCommands = BUILTIN_SLASH_COMMANDS,
   onPasteText,
+  commandHotkeys,
 }) => {
   const [state, dispatch] = useReducer(reducer, INITIAL);
   const [slashCursor, setSlashCursor] = React.useState(0);
@@ -110,6 +120,8 @@ export const PromptInput: React.FC<PromptInputProps> = ({
 
   const onPasteTextRef = useRef(onPasteText);
   onPasteTextRef.current = onPasteText;
+  const commandHotkeysRef = useRef(commandHotkeys);
+  commandHotkeysRef.current = commandHotkeys;
 
   const { stdin, setRawMode, isRawModeSupported } = useStdin();
 
@@ -141,6 +153,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
       onPasteText: (text: string) => onPasteTextRef.current?.(text) ?? text,
       slashOpen: false,
       bufferRef: { current: { buffer: '', cursor: 0 } },
+      commandHotkeys: commandHotkeysRef.current,
     };
 
     const onData = (data: Buffer): void => {
@@ -164,6 +177,10 @@ export const PromptInput: React.FC<PromptInputProps> = ({
         },
       } as { current: { buffer: string; cursor: number } };
       parseCtx.inPaste = local.inPaste;
+      // Refresh the hotkey map every chunk so React state captured by
+      // the parent (e.g. queue actions whose closure changes on every
+      // render) sees the latest references.
+      parseCtx.commandHotkeys = commandHotkeysRef.current;
       const chunk = remainder + data.toString('utf8');
       remainder = parseInputChunk(chunk, parseCtx);
     };

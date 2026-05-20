@@ -16,6 +16,20 @@ export interface ParseCtx {
   onPasteText?: (text: string) => string;
   slashOpen: boolean;
   bufferRef: { current: { buffer: string; cursor: number } };
+  /**
+   * Optional map of `Ctrl+<letter>` global hotkeys that take effect
+   * INSIDE the input. Keys are single lowercase letters. The editor
+   * already owns several control combos (a, c, e, h, j, k, u, w, y) so
+   * collisions silently no-op — pick from b, d, f, g, l, n, o, p, q,
+   * r, s, t, v, x, z and avoid platform-reserved ones (s/q in many
+   * terminals, z = suspend).
+   *
+   * Routing the hotkey here (instead of relying on Ink's `useInput`)
+   * works around a Node-streams quirk: PromptInput holds a `data`
+   * listener on stdin which switches the stream to flowing mode, after
+   * which Ink's `readable`-based handler stops receiving chunks.
+   */
+  commandHotkeys?: Record<string, () => void>;
 }
 
 /**
@@ -177,6 +191,20 @@ export function parseInputChunk(chunk: string, ctx: ParseCtx): string {
       ctx.dispatch({ type: 'insert', text: c });
       i += 1;
       continue;
+    }
+    // Caller-registered Ctrl+<letter> hotkey. Only reachable for bytes
+    // the editor didn't already handle above.
+    if (ctx.commandHotkeys) {
+      const code = c.charCodeAt(0);
+      if (code >= 1 && code <= 26) {
+        const letter = String.fromCharCode(code + 96);
+        const handler = ctx.commandHotkeys[letter];
+        if (handler) {
+          handler();
+          i += 1;
+          continue;
+        }
+      }
     }
     // Unknown control byte; skip.
     i += 1;

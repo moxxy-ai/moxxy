@@ -34,7 +34,7 @@ export const InputBox: React.FC<InputBoxProps> = ({ model, modeBadge, yolo, ...i
     return <YoloInputBox model={model} modeBadge={modeBadge} {...input} />;
   }
   return (
-    <Box flexDirection="column" marginTop={1} width="100%">
+    <Box flexDirection="column" width="100%">
       <Box
         flexDirection="column"
         width="100%"
@@ -63,7 +63,7 @@ const YoloInputBox: React.FC<Omit<InputBoxProps, 'yolo'>> = ({
   const innerWidth = Math.max(YOLO_LABEL.length + 4, term - 2);
   const dashesBefore = Math.max(1, innerWidth - YOLO_LABEL.length - RIGHT_PAD);
   return (
-    <Box flexDirection="column" marginTop={1} width="100%">
+    <Box flexDirection="column" width="100%">
       <Box>
         <Text color={Colors.busy}>{'╭' + '─'.repeat(dashesBefore)}</Text>
         <Text backgroundColor={Colors.busy} color="black" bold>{YOLO_LABEL}</Text>
