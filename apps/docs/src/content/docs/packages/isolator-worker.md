@@ -39,15 +39,45 @@ const iso = createWorkerIsolator({
 - **Wall-clock** — `caps.timeMs` via `setTimeout` → `worker.terminate()`. Hard kill, not cooperative.
 - **Abort** — parent's `ctx.signal` → `worker.terminate()`.
 - **JS state isolation** — fresh module cache, globals, V8 heap. Main-thread closures are not visible in the worker. Module-scoped state in the main thread is not visible either (proved by the boundary test in this package's suite).
-- **Cap declarations** — `checkAllCaps` from `@moxxy/plugin-security` validates input against `fs` / `net` declarations.
+- **Cap declarations on input** — `checkAllCaps` from `@moxxy/plugin-security` validates input against `fs` / `net` declarations before spawning.
+- **Brokered `ctx.fs.readFile`** — handlers that opt in get every read re-validated against `caps.fs.read` on the parent side via an RPC channel. The syscall happens on the parent; the worker only sees the result.
+- **Brokered `ctx.fetch`** — handlers that opt in get every URL re-validated against `caps.net` on the parent side. The socket opens on the parent.
+
+## The broker RPC
+
+Worker → Parent on `postMessage`:
+- `{ type: 'broker-request', id, op, args }`
+
+Parent → Worker:
+- `{ type: 'broker-response', id, ok: true, value }`
+- `{ type: 'broker-response', id, ok: false, errorName, errorMessage }`
+
+Terminal:
+- Worker → Parent: `{ type: 'result', ok, value | error... }`
+
+Supported ops (see `src/broker.ts`):
+- `fs.readFile(path, { encoding? })` — validated against `caps.fs.read`
+- `fetch(url, init?)` — validated against `caps.net`
+
+The op set is intentionally narrow. Adding `writeFile`, `readdir`,
+`stat`, or `child_process` means extending the broker boundary —
+a deliberate decision, not an ergonomic afterthought.
 
 ## What it does NOT enforce (yet)
 
-- **Filesystem mediation** — the worker has full fs access. `caps.fs` is validated against input fields, not against actual syscalls. A malicious or buggy handler can `import('node:fs')` and read anything the parent process can.
-- **Network mediation** — the worker can `fetch()` anywhere.
-- **Env mediation** — the worker inherits `process.env`.
+- **Direct `node:fs` / `node:child_process` imports** — the broker is
+  advisory. A handler that `import('node:fs')` and reads anywhere is
+  not mediated. A loader-hook layer to block these imports is on the
+  Phase 2.2+ roadmap; Node currently lacks a stable API for it.
+- **Other fs ops** — only `readFile` is brokered today.
+- **Env mediation** — `process.env` is inherited from the parent.
 
-The next iteration (capability broker over a parent RPC channel) will mediate these. Same `Isolator` interface, same authoring shape.
+These are documented gaps, not bugs. Pick `worker` when the marginal
+cost of a worker_threads boundary buys you something — memory caps,
+fast termination, JS-state isolation, mediated reads/fetches. If your
+threat model assumes a fully-adversarial handler, you need a
+subprocess or container boundary, which the same `Isolator` interface
+will host when implemented.
 
 ## Tool authoring requirements
 

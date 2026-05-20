@@ -229,6 +229,44 @@ A tool without `handlerModule` denied at call time when configured for
 worker isolation — the isolator has no way to actually run the handler
 out-of-process and refuses to silently degrade.
 
+## The capability broker (worker isolator)
+
+The `worker` isolator injects two capability-mediated proxies into the
+synthetic `ToolContext` it builds for the handler:
+
+```ts
+ctx.fs?.readFile(filePath, { encoding: 'utf8' }): Promise<string>
+ctx.fetch?(url, init): Promise<{ status, statusText, headers, body }>
+```
+
+Each call posts a `broker-request` message to the parent thread. The
+parent re-validates the syscall against `caps.fs` / `caps.net` using
+the same matcher the input cap-check uses, executes the syscall if
+allowed, and posts a `broker-response` back. The handler awaits the
+RPC like any normal `await`.
+
+**Why this matters.** Input-level cap-check only sees the *input
+fields* (`file_path`, `url`). The broker sees every *actual syscall*
+the handler makes. A handler that decided to read a different file
+than the one in the input would bypass input-level checks; the broker
+catches that case.
+
+**How to opt in as a tool author.** Pass through `ctx.fs.readFile`
+instead of `node:fs.readFile`:
+
+```ts
+export async function myHandler(input, ctx) {
+  const text = ctx.fs
+    ? await ctx.fs.readFile(input.file_path, { encoding: 'utf8' })
+    : (await import('node:fs')).promises.readFile(input.file_path, 'utf8');
+  // ...
+}
+```
+
+The ternary keeps the handler portable across isolators: under
+`worker` you get brokering; under `none` / `inproc`, `ctx.fs` is
+undefined and the handler falls back to direct `node:fs`.
+
 ## What each isolator can't enforce
 
 Be honest about the threat model. Strengths stack — pick the weakest
@@ -241,17 +279,24 @@ that actually meets your need.
 - Provide network-level isolation — the handler can `fetch()` to any host.
 
 **`worker` adds** memory ceiling enforcement, true JS-state isolation
-(no closures / globals visible from main thread), and guaranteed
-immediate termination on abort. **It still does NOT:**
-- Mediate filesystem syscalls — the worker can `import('node:fs')` and
-  read/write anywhere the parent process can.
-- Mediate network — the worker can `fetch()` anywhere.
+(no closures / globals visible from main thread), guaranteed immediate
+termination on abort, and **brokered `fs.readFile` + `fetch`** when
+the handler opts in (`ctx.fs` / `ctx.fetch`). **It still does NOT:**
+- Block handlers that import `node:fs` / `node:child_process` directly
+  and bypass the broker. The broker is *advisory*: tools that want
+  mediation use the injected proxies; tools that don't can still touch
+  the host. Locking this down requires a loader-hook layer that
+  intercepts module resolution — Node has no stable API for that yet.
+- Broker other fs ops (`writeFile`, `readdir`, `stat`). Only
+  `readFile` and `fetch` are mediated in the current build. The list
+  grows as concrete tool migrations need it.
 - Mediate env — the worker inherits `process.env`.
+- Mediate `child_process` — tools with `caps.subprocess: true` can
+  spawn anything from the worker.
 
-The next iteration (capability broker) closes those gaps by re-routing
-worker fs/net through a parent RPC channel that re-checks every call
-against the cap spec. Same `Isolator` interface; same `handlerModule`
-authoring shape.
+Phase 2.2+ extends the brokered op set (writeFile, readdir, stat,
+child_process with command allowlist). The same `Isolator` interface
+and `handlerModule` authoring shape; just more proxies on `ctx`.
 
 ## Per-tool / per-plugin overrides
 

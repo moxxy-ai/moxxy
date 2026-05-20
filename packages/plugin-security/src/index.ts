@@ -31,6 +31,8 @@ export {
   checkAllCaps,
   checkFsCap,
   checkNetCap,
+  pathInScope,
+  urlInScope,
   maskEnv,
   type CapCheckResult,
 } from './cap-check.js';

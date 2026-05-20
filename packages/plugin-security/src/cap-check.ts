@@ -245,3 +245,39 @@ export function checkAllCaps(
   if (!netResult.ok) return netResult;
   return OK;
 }
+
+/**
+ * Validate a *single* concrete path against an FS capability. Used by
+ * isolator brokers when a handler asks for fs access via `ctx.fs`. The
+ * input-tree walkers above answer "does this input field violate the
+ * cap?"; this answers "does this specific syscall violate the cap?",
+ * which is what the broker needs at every fs RPC.
+ */
+export function pathInScope(
+  filePath: string,
+  cap: FsCapability | undefined,
+  cwd: string,
+  mode: 'read' | 'write',
+): boolean {
+  if (!cap) return false;
+  const globs = mode === 'read' ? cap.read : cap.write;
+  if (!globs || globs.length === 0) return false;
+  const abs = path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(cwd, filePath);
+  return globs.some((pattern) => matchesGlob(abs, resolvePattern(pattern, cwd)));
+}
+
+/**
+ * Validate a *single* concrete URL against a NetCapability. Same idea
+ * as `pathInScope` but for network ops mediated by an isolator broker.
+ */
+export function urlInScope(url: string, cap: NetCapability | undefined): boolean {
+  if (!cap || cap.mode === 'none') return false;
+  if (cap.mode === 'any') return true;
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return false;
+  }
+  return cap.hosts.some((pattern) => hostMatches(host, pattern));
+}

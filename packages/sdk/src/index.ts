@@ -47,7 +47,15 @@ export type {
   PermissionResolver,
 } from './permission.js';
 
-export type { ToolContext, ToolDef, ToolCompactPresentation } from './tool.js';
+export type {
+  ToolContext,
+  ToolDef,
+  ToolCompactPresentation,
+  BrokeredFs,
+  BrokeredFetch,
+  BrokeredFetchInit,
+  BrokeredFetchResponse,
+} from './tool.js';
 
 export type {
   FsCapability,

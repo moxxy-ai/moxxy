@@ -1,31 +1,74 @@
 import { Worker } from 'node:worker_threads';
 import type { Isolator } from '@moxxy/sdk';
 import { checkAllCaps } from '@moxxy/plugin-security';
+import { handleBrokerRequest, type BrokerRequest } from './broker.js';
 
 /**
  * Worker entry code, inlined as a string and run via
  * `new Worker(SHIM_SOURCE, { eval: true, workerData })`.
  *
- * Why inline instead of a separate shim file:
- *  - Worker_threads' file form (`new Worker(filename)`) needs the file
- *    to physically exist at a known URL. In a published package the
- *    file lives at `dist/worker-shim.js`, but during `vitest`-on-src
- *    runs `import.meta.url` points into `src/` and there's no real
- *    `.js` there to load. Inline shipping sidesteps that asymmetry.
- *  - The shim is small and stable. The cost of "no TS in this block"
- *    is paid once, here.
+ * The shim:
+ *  1. Imports the tool's handler module and named export.
+ *  2. Builds a synthetic `ToolContext` with capability-mediated
+ *     `fs` + `fetch` proxies. Each call posts a `broker-request` to
+ *     the parent, awaits a `broker-response` with a matching id, and
+ *     resolves the in-worker Promise.
+ *  3. Calls the handler with (input, ctx).
+ *  4. Posts a `result` message to the parent with success or failure.
  *
- * Unit tests against `runTask` (in `worker-shim.ts`) cover the same
- * logic in a type-checked environment.
+ * RPC message shapes (see `broker.ts`):
+ *  - worker → parent: { type: 'broker-request', id, op, args }
+ *  - parent → worker: { type: 'broker-response', id, ok, value/error... }
+ *  - worker → parent (terminal): { type: 'result', ok, value/error... }
+ *
+ * Inlined as a string for the reasons documented in Phase 2 first cut:
+ * worker_threads file form requires the .js to physically exist at a
+ * known URL, which is asymmetric across published / src-mode runs.
  */
 const SHIM_SOURCE = `
 const { parentPort, workerData } = await import('node:worker_threads');
 const { moduleUrl, exportName, input, syntheticCtx } = workerData;
+
+// RPC client state
+let nextId = 1;
+const pending = new Map();
+
+parentPort.on('message', (msg) => {
+  if (msg && msg.type === 'broker-response') {
+    const p = pending.get(msg.id);
+    if (!p) return;
+    pending.delete(msg.id);
+    if (msg.ok) {
+      p.resolve(msg.value);
+    } else {
+      const e = new Error(msg.errorMessage);
+      e.name = msg.errorName || 'Error';
+      p.reject(e);
+    }
+  }
+});
+
+function rpc(op, args) {
+  const id = nextId++;
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject });
+    parentPort.postMessage({ type: 'broker-request', id, op, args });
+  });
+}
+
+const broker = {
+  fs: {
+    readFile: (filePath, opts) => rpc('fs.readFile', [filePath, opts || {}]),
+  },
+  fetch: (url, init) => rpc('fetch', [url, init || {}]),
+};
+
 try {
   const mod = await import(moduleUrl);
   const fn = mod[exportName];
   if (typeof fn !== 'function') {
     parentPort.postMessage({
+      type: 'result',
       ok: false,
       errorName: 'Error',
       errorMessage: "worker shim: export '" + exportName + "' from " + moduleUrl + " is " + (typeof fn) + ", expected function",
@@ -39,12 +82,15 @@ try {
       signal: new AbortController().signal,
       log: { length: 0, at: () => undefined, slice: () => [], ofType: () => [], byTurn: () => [], toJSON: () => [] },
       logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+      fs: broker.fs,
+      fetch: broker.fetch,
     };
     const out = await fn(input, ctx);
-    parentPort.postMessage({ ok: true, value: out });
+    parentPort.postMessage({ type: 'result', ok: true, value: out });
   }
 } catch (e) {
   parentPort.postMessage({
+    type: 'result',
     ok: false,
     errorName: e && e.name ? e.name : 'Error',
     errorMessage: e && e.message ? e.message : String(e),
@@ -53,17 +99,19 @@ try {
 }
 `;
 
-interface WorkerOk {
+interface ResultOk {
+  readonly type: 'result';
   readonly ok: true;
   readonly value: unknown;
 }
-interface WorkerFail {
+interface ResultFail {
+  readonly type: 'result';
   readonly ok: false;
   readonly errorName: string;
   readonly errorMessage: string;
   readonly errorStack?: string;
 }
-type WorkerMessage = WorkerOk | WorkerFail;
+type WorkerMessage = ResultOk | ResultFail | BrokerRequest;
 
 export interface WorkerIsolatorOptions {
   /** Default heap ceiling (MB) when caps.memMb is omitted. Default 256. */
@@ -73,7 +121,7 @@ export interface WorkerIsolatorOptions {
 }
 
 /**
- * worker_threads-based Isolator.
+ * worker_threads-based Isolator with a capability broker.
  *
  * **What this enforces:**
  * - **Memory** — `resourceLimits.maxOldGenerationSizeMb` from `caps.memMb`.
@@ -81,22 +129,33 @@ export interface WorkerIsolatorOptions {
  * - **Wall-clock** — `caps.timeMs` via `setTimeout` → `worker.terminate()`.
  * - **Abort** — parent's `signal` → `worker.terminate()`.
  * - **JS state isolation** — worker has its own module cache, globals,
- *   V8 heap. No closures from the main thread are visible. Handler
- *   must be addressable as a module + export (`isolation.handlerModule`).
- * - **Cap declarations** — `checkAllCaps` validates the input against
- *   `fs` / `net` declarations before launching the worker.
+ *   V8 heap. No closures from the main thread are visible.
+ * - **Cap declarations on input** — `checkAllCaps` validates input
+ *   fields against `fs` / `net` declarations before launching.
+ * - **Mediated fs.readFile** — handlers that use `ctx.fs.readFile()` get
+ *   every call re-checked against `caps.fs.read` on the parent side
+ *   before the syscall happens.
+ * - **Mediated fetch** — handlers that use `ctx.fetch()` get every URL
+ *   re-checked against `caps.net` on the parent side before the
+ *   socket is opened.
  *
- * **What this does NOT enforce** (Phase 2.1+):
- * - **Filesystem mediation** — the worker can `import('node:fs')` and
- *   read/write whatever the parent process can. `caps.fs` is validated
- *   against input fields but not against actual syscalls.
- * - **Network mediation** — the worker can `fetch()` anywhere. `caps.net`
- *   validates URL-shaped input, not actual sockets.
- * - **Env mediation** — the worker inherits `process.env`.
+ * **What this still does NOT enforce** (Phase 2.2+):
+ * - **Direct `node:fs`** — a handler can `import('node:fs').then(fs => fs.readFileSync('/etc/passwd'))`
+ *   and bypass the broker. The broker is advisory; tools opt in by
+ *   using `ctx.fs` instead of `node:fs`. A future loader-hook layer
+ *   could block direct imports, but that's complex and Node doesn't
+ *   yet have a stable API for it.
+ * - **Other fs ops** — only `readFile` is brokered. `writeFile`,
+ *   `readdir`, `stat`, etc. will land in Phase 2.2.
+ * - **`child_process` / raw `net`** — not brokered. Tools that need
+ *   subprocess access should declare `caps.subprocess: true` and
+ *   accept that the worker can spawn anything; a future broker can
+ *   add `child_process.spawn` with command-allowlist enforcement.
+ * - **Env** — the worker inherits `process.env`.
  *
- * Closing those gaps means re-routing handler fs/net through a parent
- * RPC channel that re-checks each call against the cap spec. Same
- * `Isolator` interface; future iteration.
+ * **Documenting the gap honestly** is more important than pretending
+ * to close it. The threat model is "well-behaved handler that opts
+ * into the broker," not "adversarial handler trying to escape."
  */
 export function createWorkerIsolator(opts: WorkerIsolatorOptions = {}): Isolator {
   const defaultMemMb = opts.defaultMemMb ?? 256;
@@ -145,7 +204,10 @@ export function createWorkerIsolator(opts: WorkerIsolatorOptions = {}): Isolator
 
       return new Promise<unknown>((resolve, reject) => {
         const cleanup = new Set<() => void>();
+        let settled = false;
         const finish = (action: () => void): void => {
+          if (settled) return;
+          settled = true;
           cleanup.forEach((fn) => fn());
           cleanup.clear();
           action();
@@ -171,7 +233,19 @@ export function createWorkerIsolator(opts: WorkerIsolatorOptions = {}): Isolator
         signal.addEventListener('abort', onAbort, { once: true });
         cleanup.add(() => signal.removeEventListener('abort', onAbort));
 
-        worker.once('message', (msg: WorkerMessage) => {
+        worker.on('message', (msg: WorkerMessage) => {
+          if (settled) return;
+          if (msg.type === 'broker-request') {
+            void handleBrokerRequest(msg, {
+              caps,
+              cwd: call.cwd,
+              signal,
+            }).then((response) => {
+              if (!settled) worker.postMessage(response);
+            });
+            return;
+          }
+          // type === 'result' — the terminal message
           if (msg.ok) {
             finish(() => resolve(msg.value));
           } else {
@@ -187,7 +261,7 @@ export function createWorkerIsolator(opts: WorkerIsolatorOptions = {}): Isolator
         });
 
         worker.once('exit', (code) => {
-          if (cleanup.size > 0 && code !== 0) {
+          if (!settled && code !== 0) {
             finish(() =>
               reject(
                 new Error(
@@ -204,3 +278,5 @@ export function createWorkerIsolator(opts: WorkerIsolatorOptions = {}): Isolator
 
 /** Default singleton. Use `createWorkerIsolator({...})` to tune limits. */
 export const workerIsolator: Isolator = createWorkerIsolator();
+
+export { handleBrokerRequest, type BrokerRequest, type BrokerResponse, type BrokerOp } from './broker.js';

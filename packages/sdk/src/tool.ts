@@ -5,6 +5,47 @@ import type { SessionId, ToolCallId, TurnId } from './ids.js';
 import type { SubagentSpawner } from './subagent.js';
 import type { ToolIsolationSpec } from './isolation.js';
 
+/**
+ * Capability-mediated filesystem operations injected by isolators that
+ * support brokering. Handlers can opt in by checking `ctx.fs` at runtime
+ * and using these instead of `node:fs`; the broker validates each call
+ * against the tool's declared `caps.fs` spec on the parent side before
+ * executing.
+ *
+ * When `ctx.fs` is undefined (the `none`/`inproc` paths today, or any
+ * isolator that hasn't implemented a broker yet), handlers fall back to
+ * unmediated direct fs access.
+ */
+export interface BrokeredFs {
+  /** Read a UTF-8 file. Throws if the path is outside `caps.fs.read`. */
+  readFile(filePath: string, opts?: { encoding?: BufferEncoding }): Promise<string>;
+}
+
+/**
+ * Capability-mediated `fetch`. Same shape as the global, but validated
+ * against `caps.net` on the parent side before the socket is opened.
+ *
+ * Returns a plain JSON-serializable response shape rather than the
+ * standard `Response` object — that's the price of crossing a process
+ * boundary cleanly.
+ */
+export interface BrokeredFetch {
+  (url: string, init?: BrokeredFetchInit): Promise<BrokeredFetchResponse>;
+}
+
+export interface BrokeredFetchInit {
+  readonly method?: 'GET' | 'HEAD' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly body?: string;
+}
+
+export interface BrokeredFetchResponse {
+  readonly status: number;
+  readonly statusText: string;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly body: string;
+}
+
 export interface ToolContext {
   readonly sessionId: SessionId;
   readonly turnId: TurnId;
@@ -25,6 +66,22 @@ export interface ToolContext {
    * child loop and stream its events back to the parent log.
    */
   readonly subagents?: SubagentSpawner;
+  /**
+   * Capability-mediated filesystem ops. Present only when the active
+   * isolator implements a broker (currently `@moxxy/isolator-worker`).
+   * Handlers that use this get their fs access checked against
+   * `caps.fs` at every call, regardless of whether the path appeared
+   * in the validated input. Absent → handler is on its own for fs
+   * access (today's behavior).
+   */
+  readonly fs?: BrokeredFs;
+  /**
+   * Capability-mediated network. Present only when the active
+   * isolator implements a broker. Validates every URL against
+   * `caps.net` on the parent side. Returns a serializable response
+   * shape so the same value crosses a process boundary intact.
+   */
+  readonly fetch?: BrokeredFetch;
 }
 
 /**
