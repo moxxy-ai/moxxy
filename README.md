@@ -50,13 +50,14 @@
 
 Most agent frameworks lock you in. One LLM provider. One loop topology. One frontend. One opinionated way the agent should behave.
 
-**moxxy doesn't.** Every block is a plugin. Swap Anthropic for OpenAI. Swap the default `tool-use` loop for `plan-execute` or `bmad`. Drive the agent from your terminal, from Telegram, from an HTTP endpoint — or all three at once, on the same Session.
+**moxxy doesn't.** Every block is a plugin. Swap Anthropic for OpenAI. Swap the default `tool-use` loop for `plan-execute` or `bmad`. Drive the agent from your terminal, from Telegram, from an HTTP endpoint, or all three at once on the same Session.
 
 |   |   |
 |---|---|
-| 🧩 **Truly modular** | Provider, loop strategy, tools, compactor, channel — everything is a swappable plugin. |
+| 🧩 **Truly modular** | Every block is a swappable plugin: provider, loop strategy, tools, compactor, channel. |
 | 🔌 **Plug-and-play** | Install a package, it's auto-discovered. Hot-reload without restarting. |
-| 🤖 **Multi-channel** | TUI, Telegram, HTTP — one Session, many surfaces. |
+| 🤖 **Multi-channel** | TUI, Telegram, HTTP. One Session, many surfaces. |
+| 🎙 **Voice in** | Send Telegram voice notes or POST raw audio to the HTTP channel. Whisper plugin ships with the framework; swap to Deepgram or local whisper.cpp by registering a different `Transcriber`. |
 | 🔐 **Secrets done right** | Built-in AES-256-GCM vault. OS keychain by default, passphrase fallback. |
 | 🧠 **Long-term memory** | Journal-based with vector recall. TF-IDF ships built-in; swap to OpenAI embeddings. |
 | 🛠 **Type-safe SDK** | Zero-runtime-dep `@moxxy/sdk` is the contract. Author plugins with full IDE support. |
@@ -105,8 +106,8 @@ Run your agent through whatever surface fits the task:
 | Channel | What it does | Command |
 |---|---|---|
 | **TUI** | Grok-style interactive terminal UI | `moxxy` |
-| **Telegram** | Message your agent from anywhere; pairs with a 6-digit code | `moxxy telegram` |
-| **HTTP** | `POST /v1/turn` with SSE streaming, bearer-token auth | `moxxy channels http` |
+| **Telegram** | Message your agent from anywhere; voice notes get transcribed and run as turns; pairs with a 6-digit code | `moxxy telegram` |
+| **HTTP** | `POST /v1/turn` (JSON, SSE streaming) or `POST /v1/turn/audio` (raw bytes, iOS Shortcut friendly), bearer-token auth | `moxxy channels http` |
 | **Cron** | Time-driven prompts (cron expressions or one-shot ISO timestamps) | `moxxy schedule add …` |
 
 Keep them online 24/7 as background OS services:
@@ -121,17 +122,18 @@ Logs land in `~/.moxxy/services/<name>.log`; units survive reboots.
 
 ## 🧩 What's in the box
 
-- **Providers** — Anthropic, OpenAI, Codex (ChatGPT OAuth). Add your own with one `defineProvider({})`.
-- **Loop strategies** — `tool-use` (default, Claude-Code-style), `plan-execute` (plan → validate → execute), `bmad` (analysis → planning → solutioning → implementation).
-- **Built-in tools** — Read, Edit, Write, Bash, Grep, Glob, WebFetch, plus computer-control (macOS) and browser-session (Playwright).
-- **MCP** — register any Model Context Protocol server as a tool source.
-- **Skills** — prompt-only Markdown files. The agent can author new skills for itself when no existing skill fits.
-- **Memory** — long-term journal + STM event-log selectors. TF-IDF vector recall built in; swap to OpenAI embeddings via `@moxxy/plugin-embeddings-openai`.
-- **Vault** — AES-256-GCM at rest. Reference secrets in config as `${vault:KEY}`.
+- **Providers**: Anthropic, OpenAI, Codex (ChatGPT OAuth). Add your own with one `defineProvider({})`.
+- **Loop strategies**: `tool-use` (default, Claude-Code-style), `plan-execute` (plan → validate → execute), `bmad` (analysis → planning → solutioning → implementation).
+- **Built-in tools**: Read, Edit, Write, Bash, Grep, Glob, WebFetch, plus computer-control (macOS) and browser-session (Playwright).
+- **MCP**: register any Model Context Protocol server as a tool source.
+- **Skills**: prompt-only Markdown files. The agent can author new skills for itself when no existing skill fits.
+- **Memory**: long-term journal + STM event-log selectors. TF-IDF vector recall built in; swap to OpenAI embeddings via `@moxxy/plugin-embeddings-openai`.
+- **Voice in (STT)**: `@moxxy/plugin-stt-whisper` ships an OpenAI Whisper `Transcriber`. Wire it once and every channel with audio input (Telegram voice notes, HTTP `/v1/turn/audio`) routes through it. Swap to Deepgram, AssemblyAI, or a local `whisper.cpp` by registering a different `Transcriber`.
+- **Vault**: AES-256-GCM at rest. Reference secrets in config as `${vault:KEY}`.
 
 ## 📚 Docs
 
-Full docs at **[moxxy.dev](https://moxxy.dev)** — concepts, recipes, plugin authoring, channel guides.
+Full docs at **[moxxy.dev](https://moxxy.dev)**: concepts, recipes, plugin authoring, channel guides.
 
 ---
 
@@ -184,7 +186,7 @@ Add a `"moxxy"` block to your `package.json` and moxxy auto-discovers it:
 }
 ```
 
-Per-block author guides live in [`.claude/agents/`](.claude/agents/) — one per surface (skill, plugin, tool, channel, provider, loop strategy, compactor).
+Per-block author guides live in [`.claude/agents/`](.claude/agents/), one per surface (skill, plugin, tool, channel, provider, loop strategy, compactor).
 
 ## Configuration
 
@@ -224,12 +226,13 @@ export default defineConfig({
 @moxxy/plugin-vault                 ← encrypted secrets
 @moxxy/plugin-memory                ← journal LTM + vector recall + STM selectors
 @moxxy/plugin-embeddings-openai     ← neural embeddings (optional)
+@moxxy/plugin-stt-whisper           ← OpenAI Whisper Transcriber (voice in)
 @moxxy/plugin-browser               ← headless Playwright sidecar + web_fetch
 @moxxy/plugin-computer-control      ← macOS native input (screenshot, click, type, …)
 @moxxy/plugin-oauth                 ← generic OAuth 2.0 + PKCE / device-code
 @moxxy/plugin-cli                   ← Ink TUI + TuiChannel
-@moxxy/plugin-telegram              ← TelegramChannel via grammy
-@moxxy/plugin-channel-http          ← HTTP channel (POST /v1/turn + SSE)
+@moxxy/plugin-telegram              ← TelegramChannel via grammy (text + voice)
+@moxxy/plugin-channel-http          ← HTTP channel (POST /v1/turn, /v1/turn/stream, /v1/turn/audio)
 @moxxy/plugin-scheduler             ← time-driven prompts
 @moxxy/plugin-subagents             ← spawn sub-agents from a turn
 @moxxy/compactor-summarize          ← default context-window compactor

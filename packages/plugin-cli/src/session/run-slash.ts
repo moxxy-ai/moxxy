@@ -12,7 +12,6 @@ export interface SlashDeps {
   loopName: string;
   setSystemNotice: (msg: string | null) => void;
   setOverlay: React.Dispatch<React.SetStateAction<Overlay>>;
-  setExpandSkills: React.Dispatch<React.SetStateAction<boolean>>;
   setYolo: React.Dispatch<React.SetStateAction<boolean>>;
   setPicker: React.Dispatch<React.SetStateAction<Picker>>;
   queueRef: React.MutableRefObject<Array<{ text: string; attachments: UserPromptAttachment[] }>>;
@@ -72,14 +71,6 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
     case '/agents':
       deps.setSystemNotice(null);
       deps.setOverlay({ kind: 'agents' });
-      return;
-    case '/expand':
-      deps.setExpandSkills(true);
-      deps.setSystemNotice('skill scopes expanded (use /collapse to re-collapse)');
-      return;
-    case '/collapse':
-      deps.setExpandSkills(false);
-      deps.setSystemNotice('skill scopes collapsed');
       return;
     case '/model':
       return openModelPicker(deps);

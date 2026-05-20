@@ -1,22 +1,49 @@
-import type { MoxxyEvent } from '@moxxy/sdk';
-import type { Block, SkillScopeBlock, SubagentBlock, ToolCallBlockData } from './types.js';
+import type { MoxxyEvent, ToolCompactPresentation } from '@moxxy/sdk';
+import type {
+  Block,
+  LiveToolBlockData,
+  LiveToolCall,
+  SkillScopeBlock,
+  SubagentBlock,
+  ToolCallBlockData,
+} from './types.js';
 import { oneLine } from './format.js';
 
 const SUBAGENT_PLUGIN_ID = '@moxxy/subagents';
 
-export function pairToolEvents(events: ReadonlyArray<MoxxyEvent>): Block[] {
+/**
+ * Map of tool name → compact presentation metadata. Tool registries
+ * declare this at definePlugin time; the channel hands a snapshot to
+ * `pairToolEvents` so the aggregator knows which tool_call_requested
+ * events should fold into a live block instead of rendering individually.
+ */
+export type CompactToolMap = ReadonlyMap<string, ToolCompactPresentation>;
+
+const EMPTY_COMPACT_MAP: CompactToolMap = new Map();
+
+interface CallTarget {
+  /** Mutable outcome slot — points at either a verbose ToolCallBlockData
+   *  or a LiveToolCall inside a live-tools block. JS by-reference lets
+   *  one map serve both. */
+  outcome: ToolCallBlockData['outcome'];
+}
+
+export function pairToolEvents(
+  events: ReadonlyArray<MoxxyEvent>,
+  compactByName: CompactToolMap = EMPTY_COMPACT_MAP,
+): Block[] {
   const root: Block[] = [];
-  // Reverse lookup: callId → the tool-call block currently waiting on a
-  // result/denied event. Lookup works whether the block sits in `root`
-  // or inside an open skill scope.
-  const callBlocks = new Map<string, ToolCallBlockData>();
+  // Reverse lookup: callId → the outcome-holder for that call (either a
+  // ToolCallBlockData or a LiveToolCall — both have a mutable `outcome`
+  // field). One map handles both kinds via structural typing.
+  const callTargets = new Map<string, CallTarget>();
   const suppressedCallIds = new Set<string>();
   let pendingLoadSkillCallId: string | null = null;
-  // Active skill scope (children get pushed here instead of root).
   let openScope: SkillScopeBlock | null = null;
-  // Live subagent blocks keyed by their childSessionId so subsequent
-  // tool-call / completed events from the spawner can attach to the
-  // right block.
+  // Open live-tools aggregate, if any. Lives at the current push level
+  // (root or openScope.children); subsequent compact tool calls append
+  // into it until something non-compact closes it.
+  let openLive: LiveToolBlockData | null = null;
   const subagents = new Map<string, SubagentBlock>();
 
   const pushBlock = (block: Block): void => {
@@ -27,7 +54,15 @@ export function pairToolEvents(events: ReadonlyArray<MoxxyEvent>): Block[] {
     }
   };
 
+  const closeOpenLive = (): void => {
+    if (openLive) {
+      openLive.closed = true;
+      openLive = null;
+    }
+  };
+
   const closeOpenScope = (): void => {
+    closeOpenLive();
     if (openScope) {
       openScope.closed = true;
       openScope = null;
@@ -57,15 +92,15 @@ export function pairToolEvents(events: ReadonlyArray<MoxxyEvent>): Block[] {
   // synthesize tool_result events for these cases (and now do), but this
   // guard means a future regression can't leave a permanent stuck dot.
   const markOrphansAtTurnBoundary = (): void => {
-    for (const block of callBlocks.values()) {
-      if (block.outcome === null) {
-        block.outcome = {
+    for (const target of callTargets.values()) {
+      if (target.outcome === null) {
+        target.outcome = {
           type: 'denied',
           reason: 'no result recorded before next turn — likely interrupted or lost',
         };
       }
     }
-    callBlocks.clear();
+    callTargets.clear();
   };
 
   for (const e of events) {
@@ -100,29 +135,43 @@ export function pairToolEvents(events: ReadonlyArray<MoxxyEvent>): Block[] {
       if (e.name === 'load_skill') {
         pendingLoadSkillCallId = e.callId;
       }
+      const compact = compactByName.get(e.name);
+      if (compact) {
+        // Compact tool — aggregate into an open live block, or start one.
+        if (!openLive) {
+          openLive = { kind: 'live-tools', id: e.id, calls: [], closed: false };
+          pushBlock(openLive);
+        }
+        const call: LiveToolCall = { id: e.id, request: e, compact, outcome: null };
+        openLive.calls.push(call);
+        callTargets.set(e.callId, call);
+        continue;
+      }
+      // Verbose tool — seal any open live block first so it stops accreting.
+      closeOpenLive();
       const block: ToolCallBlockData = {
         kind: 'tool-call',
         id: e.id,
         request: e,
         outcome: null,
       };
-      callBlocks.set(e.callId, block);
+      callTargets.set(e.callId, block);
       pushBlock(block);
       continue;
     }
     if (e.type === 'tool_result') {
       if (suppressedCallIds.has(e.callId)) continue;
-      const block = callBlocks.get(e.callId);
-      if (block) {
-        block.outcome = e;
+      const target = callTargets.get(e.callId);
+      if (target) {
+        target.outcome = e;
         continue;
       }
     }
     if (e.type === 'tool_call_denied') {
       if (suppressedCallIds.has(e.callId)) continue;
-      const block = callBlocks.get(e.callId);
-      if (block) {
-        block.outcome = { type: 'denied', reason: e.reason };
+      const target = callTargets.get(e.callId);
+      if (target) {
+        target.outcome = { type: 'denied', reason: e.reason };
         continue;
       }
     }
@@ -130,6 +179,7 @@ export function pairToolEvents(events: ReadonlyArray<MoxxyEvent>): Block[] {
       continue; // outcome already conveys this
     }
     if (e.type === 'assistant_message') {
+      closeOpenLive();
       // Assistant messages always render at the chat's left margin,
       // even when a skill scope is open above them. The scope groups
       // skill tool work; the assistant's commentary surrounding that
@@ -209,6 +259,9 @@ export function isSettled(block: Block): boolean {
   if (block.kind === 'skill-scope') {
     return block.closed && block.children.every(isSettled);
   }
+  if (block.kind === 'live-tools') {
+    return block.closed && block.calls.every((c) => c.outcome !== null);
+  }
   return true;
 }
 
@@ -244,6 +297,15 @@ export function blocksEquivalent(a: Block, b: Block): boolean {
     }
     return true;
   }
+  if (a.kind === 'live-tools' && b.kind === 'live-tools') {
+    if (a.closed !== b.closed) return false;
+    if (a.calls.length !== b.calls.length) return false;
+    for (let i = 0; i < a.calls.length; i += 1) {
+      if (a.calls[i]!.outcome !== b.calls[i]!.outcome) return false;
+      if (a.calls[i]!.request !== b.calls[i]!.request) return false;
+    }
+    return true;
+  }
   return false;
 }
 
@@ -252,6 +314,7 @@ export function countToolCalls(blocks: ReadonlyArray<Block>): number {
   for (const b of blocks) {
     if (b.kind === 'tool-call') n += 1;
     else if (b.kind === 'skill-scope') n += countToolCalls(b.children);
+    else if (b.kind === 'live-tools') n += b.calls.length;
   }
   return n;
 }

@@ -12,6 +12,11 @@ export const editTool = defineTool({
     replace_all: z.boolean().optional().default(false),
   }),
   permission: { action: 'prompt' },
+  compact: {
+    verb: 'Editing',
+    noun: { one: 'file', other: 'files' },
+    previewKey: 'file_path',
+  },
   async handler({ file_path, old_string, new_string, replace_all }, ctx) {
     const resolved = resolveSafe(ctx.cwd, file_path);
     const original = await fs.readFile(resolved, 'utf8');

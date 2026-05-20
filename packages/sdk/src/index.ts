@@ -47,7 +47,7 @@ export type {
   PermissionResolver,
 } from './permission.js';
 
-export type { ToolContext, ToolDef } from './tool.js';
+export type { ToolContext, ToolDef, ToolCompactPresentation } from './tool.js';
 
 export type {
   SubagentSpec,

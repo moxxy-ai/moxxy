@@ -11,6 +11,11 @@ export const readTool = defineTool({
     limit: z.number().int().positive().max(5000).optional().describe('Max lines to return.'),
   }),
   permission: { action: 'prompt' },
+  compact: {
+    verb: 'Reading',
+    noun: { one: 'file', other: 'files' },
+    previewKey: 'file_path',
+  },
   async handler({ file_path, offset = 0, limit = 2000 }, ctx) {
     const resolved = resolveSafe(ctx.cwd, file_path);
     const buf = await fs.readFile(resolved);

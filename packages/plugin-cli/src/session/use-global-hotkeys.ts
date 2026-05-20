@@ -6,13 +6,13 @@ export interface GlobalHotkeysOptions {
   overlayOpen: boolean;
   turnControllerRef: React.MutableRefObject<AbortController | null>;
   setSystemNotice: (msg: string | null) => void;
-  setExpandSkills: React.Dispatch<React.SetStateAction<boolean>>;
+  setExpandToolOutputs: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 /**
- * Wires the two TUI-wide hotkeys:
+ * Wires the TUI-wide hotkeys:
  *   - Esc / Ctrl+C while busy and no overlay open → cancel the turn
- *   - Ctrl+B (always) → toggle global skill-scope expand/collapse
+ *   - Ctrl+O (always) → toggle global live-tools-block expand/collapse
  *
  * The Esc handler is gated on "no overlay is intercepting Esc" so the
  * cancel doesn't fire alongside the modal's own close handler.
@@ -34,19 +34,18 @@ export function useGlobalHotkeys(opts: GlobalHotkeysOptions): void {
     { isActive: opts.busy && !opts.overlayOpen },
   );
 
-  // Always-on Ctrl+B handler: toggle global skill-scope expand/collapse.
-  // Lives outside the busy gate so the hotkey works both while typing
-  // and while a turn is in flight. PromptInput's useInput doesn't
-  // intercept Ctrl+B (it gates printable input on !key.ctrl), so the
-  // keystroke passes through cleanly.
+  // Always-on Ctrl+O handler: toggle global live-tools-block expand/collapse.
+  // Lives outside the busy gate so the keystroke works while typing AND
+  // mid-turn. PromptInput's useInput gates printable input on !key.ctrl
+  // so this passes through cleanly.
   useInput((input, key) => {
-    if (key.ctrl && input === 'b') {
-      opts.setExpandSkills((e) => {
+    if (key.ctrl && input === 'o') {
+      opts.setExpandToolOutputs((e) => {
         const next = !e;
         opts.setSystemNotice(
           next
-            ? 'skill scopes expanded — Ctrl+B again to collapse'
-            : 'skill scopes collapsed — Ctrl+B again to expand',
+            ? 'tool blocks expanded — Ctrl+O again to collapse'
+            : 'tool blocks collapsed — Ctrl+O again to expand',
         );
         return next;
       });

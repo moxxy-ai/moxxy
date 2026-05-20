@@ -12,6 +12,11 @@ export const globTool = defineTool({
     max: z.number().int().positive().max(5000).optional().default(1000),
   }),
   permission: { action: 'prompt' },
+  compact: {
+    verb: 'Listing',
+    noun: { one: 'glob', other: 'globs' },
+    previewKey: 'pattern',
+  },
   async handler({ pattern, cwd, max }, ctx) {
     const baseDir = resolveSafe(ctx.cwd, cwd ?? '.');
     const matches: string[] = [];

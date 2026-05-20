@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box } from 'ink';
 import { useApp } from 'ink';
 import type { UserPromptAttachment } from '@moxxy/sdk';
@@ -53,11 +53,10 @@ export const SessionView: React.FC<SessionViewProps> = ({
   // /skills and /tools render through here so they get full-color
   // typography instead of being squeezed into the yellow notice strip.
   const [overlay, setOverlay] = useState<Overlay>(null);
-  // When true, closed skill scopes render expanded (children visible).
-  // Default false = collapsed summary. Toggled by /expand and /collapse.
-  // In-flight scopes ignore this flag and always render expanded so the
-  // user can watch tools execute live.
-  const [expandSkills, setExpandSkills] = useState(false);
+  // Global Ctrl+O toggle. When true, every live-tools block renders
+  // expanded (every constituent call visible). Default false: each
+  // block shows its verb-summary line + the latest call preview.
+  const [expandToolOutputs, setExpandToolOutputs] = useState(false);
   const [yolo, setYolo] = useState(false);
   const { mcpStatus, refreshMcpStatus } = useMcpStatus(session);
   // Mid-session model override. When the user picks a model via /model,
@@ -89,8 +88,21 @@ export const SessionView: React.FC<SessionViewProps> = ({
     overlayOpen,
     turnControllerRef: turn.turnControllerRef,
     setSystemNotice,
-    setExpandSkills,
+    setExpandToolOutputs,
   });
+
+  // Snapshot per-tool compact-presentation metadata from the live tool
+  // registry. Built once per session (plugins register at boot); MCP
+  // hot-attach won't surface here until the next session, which is
+  // acceptable since MCP tools rarely declare `compact` anyway. The
+  // stable map identity drives a memo in pairToolEvents.
+  const compactTools = useMemo(() => {
+    const m = new Map<string, NonNullable<ReturnType<typeof session.tools.list>[number]['compact']>>();
+    for (const tool of session.tools.list()) {
+      if (tool.compact) m.set(tool.name, tool.compact);
+    }
+    return m;
+  }, [session]);
 
   const providerName = session.providers.getActiveName() ?? '(none)';
   const activeModel = resolveActiveModel(session, activeModelOverride, model);
@@ -161,7 +173,6 @@ export const SessionView: React.FC<SessionViewProps> = ({
         loopName,
         setSystemNotice,
         setOverlay,
-        setExpandSkills,
         setYolo,
         setPicker,
         queueRef: turn.queueRef,
@@ -213,7 +224,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
       <ChatView
         events={stream.events}
         streamingDelta={stream.streamingDelta}
-        expandClosedSkills={expandSkills}
+        expandToolOutputs={expandToolOutputs}
+        compactTools={compactTools}
       />
       <OverlayOrNotice
         overlay={overlay}

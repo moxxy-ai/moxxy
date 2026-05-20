@@ -4,6 +4,7 @@ import type { ToolCallRequestedEvent, ToolResultEvent } from '@moxxy/sdk';
 import { Colors, Glyphs } from '../../theme.js';
 import { dotColorForTool, oneLine, stringify, summarizeArgs, truncate } from './format.js';
 
+
 /**
  * Pulsing `●` for in-flight tool calls. Toggles between full color and
  * dim every ~500ms so the user can tell at a glance that work is still
@@ -27,6 +28,10 @@ const PendingBullet: React.FC = () => {
   );
 };
 
+/** Cap displayed identifier length so an oversized MCP/skill name
+ *  doesn't blow the header off the right edge of the terminal. */
+const NAME_DISPLAY_MAX = 48;
+
 export const ToolCallBlock: React.FC<{
   request: ToolCallRequestedEvent;
   outcome: ToolResultEvent | { type: 'denied'; reason: string } | null;
@@ -40,6 +45,8 @@ export const ToolCallBlock: React.FC<{
           ? 'ok'
           : 'err';
   const argSummary = summarizeArgs(request.input);
+  const nameLabel = truncate(request.name, NAME_DISPLAY_MAX);
+  const detail = argSummary ? `${nameLabel}, ${argSummary}` : nameLabel;
   return (
     <Box flexDirection="column" marginTop={1}>
       <Box>
@@ -50,8 +57,8 @@ export const ToolCallBlock: React.FC<{
         ) : (
           <Text color={dotColorForTool(request.name)}>{Glyphs.filled} </Text>
         )}
-        <Text bold>{request.name}</Text>
-        <Text dimColor>{`(${argSummary})`}</Text>
+        <Text bold>Tool</Text>
+        <Text dimColor>{` (${detail})`}</Text>
       </Box>
       {outcome ? (
         <Box>

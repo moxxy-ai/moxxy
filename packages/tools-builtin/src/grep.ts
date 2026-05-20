@@ -14,6 +14,11 @@ export const grepTool = defineTool({
     maxMatches: z.number().int().positive().max(10_000).optional().default(500),
   }),
   permission: { action: 'prompt' },
+  compact: {
+    verb: 'Searching for',
+    noun: { one: 'pattern', other: 'patterns' },
+    previewKey: 'pattern',
+  },
   async handler({ pattern, cwd, glob, caseInsensitive, maxMatches }, ctx) {
     const baseDir = resolveSafe(ctx.cwd, cwd ?? '.');
     const re = new RegExp(pattern, caseInsensitive ? 'i' : '');

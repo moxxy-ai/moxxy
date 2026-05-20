@@ -2,10 +2,16 @@ import type {
   MoxxyEvent,
   SkillInvokedEvent,
   ToolCallRequestedEvent,
+  ToolCompactPresentation,
   ToolResultEvent,
 } from '@moxxy/sdk';
 
-export type Block = EventBlock | ToolCallBlockData | SkillScopeBlock | SubagentBlock;
+export type Block =
+  | EventBlock
+  | ToolCallBlockData
+  | SkillScopeBlock
+  | SubagentBlock
+  | LiveToolBlockData;
 
 /**
  * Aggregated view of one spawned subagent. Built from the plugin_event
@@ -55,5 +61,35 @@ export interface SkillScopeBlock {
    * after it). Closed scopes collapse to a one-line summary by default;
    * in-flight scopes render expanded so the user can watch tools run.
    */
+  closed: boolean;
+}
+
+/**
+ * One tool invocation inside a live-tools aggregate. Same outcome shape
+ * as a verbose `ToolCallBlockData` so the result/denied paths can be
+ * applied uniformly via callId lookup.
+ */
+export interface LiveToolCall {
+  readonly id: string;
+  readonly request: ToolCallRequestedEvent;
+  readonly compact: ToolCompactPresentation;
+  outcome: ToolResultEvent | { type: 'denied'; reason: string } | null;
+}
+
+/**
+ * A run of consecutive "compact" tool calls aggregated into one live
+ * block. The renderer shows a verb summary ("Reading 3 files, searching
+ * for 1 pattern…") plus a one-line preview of the latest call. When the
+ * global Ctrl+O toggle is on, the block expands to render every call.
+ *
+ * A live block is "closed" once anything non-compact happens in the
+ * turn (assistant_message, a verbose tool call, a new user_prompt, …).
+ * Closed live blocks behave the same visually — they just won't accept
+ * more calls.
+ */
+export interface LiveToolBlockData {
+  kind: 'live-tools';
+  readonly id: string;
+  calls: LiveToolCall[];
   closed: boolean;
 }

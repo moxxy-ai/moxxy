@@ -11,6 +11,11 @@ export const writeTool = defineTool({
     content: z.string(),
   }),
   permission: { action: 'prompt' },
+  compact: {
+    verb: 'Writing',
+    noun: { one: 'file', other: 'files' },
+    previewKey: 'file_path',
+  },
   async handler({ file_path, content }, ctx) {
     const resolved = resolveSafe(ctx.cwd, file_path);
     await fs.mkdir(path.dirname(resolved), { recursive: true });

@@ -26,6 +26,27 @@ export interface ToolContext {
   readonly subagents?: SubagentSpawner;
 }
 
+/**
+ * Optional presentation hint for compact rendering in TUI/chat surfaces.
+ * When present, the channel may aggregate consecutive calls of this tool
+ * into one "live block" with a verb+count summary, rather than rendering
+ * each call separately. Opting in is per-tool: noisy small-output tools
+ * (Read, Grep, Glob, Edit) benefit; tools with rich output (Bash,
+ * dispatch_agent) generally don't.
+ *
+ * Channels MAY ignore this hint — it's purely presentational. The event
+ * log and provider serialization don't see it.
+ */
+export interface ToolCompactPresentation {
+  /** Present-participle verb used in summary, e.g. "Reading", "Searching for". */
+  readonly verb: string;
+  /** Noun for the count, pluralized e.g. `{ one: 'file', other: 'files' }`. */
+  readonly noun: { readonly one: string; readonly other: string };
+  /** Input field whose value previews the latest call (the line under the summary).
+   *  e.g. `"file_path"` for Read so the preview shows the file just read. */
+  readonly previewKey?: string;
+}
+
 export interface ToolDef {
   readonly name: string;
   readonly description: string;
@@ -40,4 +61,6 @@ export interface ToolDef {
   readonly outputSchema?: z.ZodTypeAny;
   readonly permission?: PermissionRule;
   readonly handler: (input: unknown, ctx: ToolContext) => Promise<unknown> | unknown;
+  /** Opt-in presentation hint. See `ToolCompactPresentation`. */
+  readonly compact?: ToolCompactPresentation;
 }

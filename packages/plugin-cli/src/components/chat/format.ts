@@ -70,3 +70,61 @@ export function dotColorForTool(toolName: string): string {
   if (toolName.startsWith('mcp__')) return DotColors.mcp;
   return DotColors.tool;
 }
+
+import type { LiveToolCall } from './types.js';
+
+/**
+ * Build the verb summary line for a live-tools block:
+ *   "Reading 3 files, searching for 1 pattern, listing 2 directories…"
+ *
+ * Tools with the same name share one phrase; counts plural-aware. The
+ * trailing ellipsis is appended only while the block is still open (in
+ * flight) — closed blocks read past-tense-ish without it.
+ */
+export function buildCompactSummary(
+  calls: ReadonlyArray<LiveToolCall>,
+  inFlight: boolean,
+): string {
+  if (calls.length === 0) return '';
+  // Group by tool name preserving insertion order. Map keeps insertion order
+  // for first-occurrence and we just bump counts on subsequent hits.
+  const groups = new Map<string, { verb: string; one: string; other: string; count: number }>();
+  for (const c of calls) {
+    const existing = groups.get(c.request.name);
+    if (existing) {
+      existing.count += 1;
+      continue;
+    }
+    groups.set(c.request.name, {
+      verb: c.compact.verb,
+      one: c.compact.noun.one,
+      other: c.compact.noun.other,
+      count: 1,
+    });
+  }
+  const phrases: string[] = [];
+  let first = true;
+  for (const g of groups.values()) {
+    const verb = first ? g.verb : g.verb.toLowerCase();
+    const noun = g.count === 1 ? g.one : g.other;
+    phrases.push(`${verb} ${g.count} ${noun}`);
+    first = false;
+  }
+  const joined = phrases.join(', ');
+  return inFlight ? `${joined}…` : joined;
+}
+
+/**
+ * One-line preview of the latest call in a live-tools block. Uses
+ * `compact.previewKey` when set (e.g. "file_path"), falling back to the
+ * generic input summary. Capped to fit on one terminal line.
+ */
+export function compactPreviewLine(call: LiveToolCall): string {
+  const key = call.compact.previewKey;
+  if (key) {
+    const input = call.request.input as Record<string, unknown> | null;
+    const v = input?.[key];
+    if (typeof v === 'string') return truncate(oneLine(v), 100);
+  }
+  return summarizeArgs(call.request.input);
+}

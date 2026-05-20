@@ -2,21 +2,17 @@ import React, { useMemo, useRef } from 'react';
 import { Box, Static } from 'ink';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { BlockLine } from './chat/BlockLine.js';
-import { isSettled, pairToolEvents } from './chat/pair-events.js';
+import { isSettled, pairToolEvents, type CompactToolMap } from './chat/pair-events.js';
 import { StreamingPreview, tailForViewport } from './chat/StreamingPreview.js';
 import type { Block } from './chat/types.js';
 
 export interface ChatViewProps {
   readonly events: ReadonlyArray<MoxxyEvent>;
   readonly streamingDelta?: string;
-  /**
-   * Override the per-skill expansion default. When `true`, every closed
-   * skill scope renders expanded (children visible); when `false`, all
-   * closed scopes collapse to a one-line summary. Defaults to false
-   * (closed scopes collapse) — in-flight scopes ignore this and always
-   * render expanded so the user can watch tools execute live.
-   */
-  readonly expandClosedSkills?: boolean;
+  /** Global Ctrl+O toggle — expand every live-tools block at once. */
+  readonly expandToolOutputs?: boolean;
+  /** Per-tool compact-presentation metadata from the active tool registry. */
+  readonly compactTools?: CompactToolMap;
 }
 
 /**
@@ -32,14 +28,18 @@ export interface ChatViewProps {
 export const ChatView: React.FC<ChatViewProps> = ({
   events,
   streamingDelta,
-  expandClosedSkills,
+  expandToolOutputs,
+  compactTools,
 }) => {
   // pairToolEvents walks the whole events array. Parent re-renders
   // happen for unrelated state too (mcp-status poll, every streaming
   // delta tick, etc.), so memoize on the events reference — when a
   // chunk arrives setEvents creates a new array; everything else
   // keeps the old reference and we skip the walk entirely.
-  const blocks = useMemo(() => pairToolEvents(events), [events]);
+  const blocks = useMemo(
+    () => pairToolEvents(events, compactTools),
+    [events, compactTools],
+  );
   // The longest leading prefix of blocks whose contents will never
   // change again gets handed to <Static>. Ink renders each Static item
   // ONCE, appends it to the terminal scrollback, then skips it on every
@@ -79,12 +79,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
     <>
       <Static key={clearGenerationRef.current} items={settledRef.current}>
         {(block) => (
-          <BlockLine key={block.id} block={block} expandClosedSkills={!!expandClosedSkills} />
+          <BlockLine
+            key={block.id}
+            block={block}
+            expandToolOutputs={!!expandToolOutputs}
+          />
         )}
       </Static>
       <Box flexDirection="column">
         {liveBlocks.map((b) => (
-          <BlockLine key={b.id} block={b} expandClosedSkills={!!expandClosedSkills} />
+          <BlockLine
+            key={b.id}
+            block={b}
+            expandToolOutputs={!!expandToolOutputs}
+          />
         ))}
         {streamingDelta && streamingDelta.trim() ? (
           <StreamingPreview content={tailForViewport(streamingDelta)} />
