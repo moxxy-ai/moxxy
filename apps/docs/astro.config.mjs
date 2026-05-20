@@ -2,7 +2,7 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
 export default defineConfig({
-  site: 'https://moxxy.dev',
+  site: 'https://docs.moxxy.ai',
   integrations: [
     starlight({
       title: 'moxxy',

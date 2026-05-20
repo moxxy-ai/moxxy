@@ -29,7 +29,7 @@ description: Typed public surface — event types, define* helpers, all the cont
 - `EmbeddingProvider` — vector embedders (for memory recall)
 - `PermissionResolver`, `PermissionRule`, `PermissionDecision`
 - `EventLogReader` — read-only event log
-- `ToolContext`, `ToolDef` — tool authoring
+- `ToolContext`, `ToolDef`, `ToolCompactPresentation` — tool authoring
 - `LifecycleHooks`, `HookDispatcher` — hook contract
 
 ### Re-exports
@@ -37,6 +37,35 @@ description: Typed public surface — event types, define* helpers, all the cont
 - `z` — re-exported from `zod` so plugin authors don't need to install it
 - Branded ID types: `EventId`, `TurnId`, `ToolCallId`, `SessionId`, `PluginId`, `SkillId`
 - `skillFrontmatterSchema`, `pluginManifestSchema` — pre-built zod schemas
+
+## Compact tool presentation (opt-in)
+
+`ToolDef.compact` is an optional hint channels MAY use to aggregate
+consecutive calls of a tool into a single "live block" in chat-like
+surfaces (e.g. the TUI's `Ctrl+O` expand mechanism):
+
+```ts
+defineTool({
+  name: 'Read',
+  description: '…',
+  inputSchema: z.object({ file_path: z.string(), … }),
+  permission: { action: 'prompt' },
+  compact: {
+    verb: 'Reading',
+    noun: { one: 'file', other: 'files' },
+    previewKey: 'file_path',     // optional — which input field to show as preview
+  },
+  handler: async ({ file_path }) => { … },
+});
+```
+
+A run of compact calls produces summaries like `Reading 3 files,
+searching for 1 pattern…`. Tools without `compact` always render as
+their own block. Bash, dispatch_agent, and MCP tools intentionally
+omit it — their output matters per-call.
+
+The hint is purely presentational. The event log, providers, and
+permission engine see no difference between compact and verbose tools.
 
 ## Stability
 

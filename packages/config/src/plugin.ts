@@ -219,7 +219,7 @@ export function buildConfigPlugin(
           const target = scopeDefaultPath(scope, cwd);
           await fs.mkdir(path.dirname(target), { recursive: true });
           const template = `# moxxy config (${scope} scope)
-# Documentation: https://moxxy.dev
+# Documentation: https://docs.moxxy.ai
 provider:
   name: anthropic
   model: claude-sonnet-4-6

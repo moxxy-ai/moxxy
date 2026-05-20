@@ -57,3 +57,51 @@ preview. The wizard itself lives in `packages/cli/src/wizard/`.
 Re-exports `loadPreferences` / `savePreferences` / `preferencesPath`
 from `@moxxy/core` for TUI components that need to read user prefs
 (theme, default loop, etc.) without re-implementing the file format.
+
+## TUI hotkeys
+
+Most keys are scoped to the input editor (Ctrl+A/E/K/U/W/Y, Tab,
+Alt+Arrows, etc.). Three global hotkeys always fire — routed through
+the editor's parser so they reach the handler even while typing:
+
+| Key | Effect |
+|---|---|
+| `Esc` / `Ctrl+C` | Cancel the current turn (only while busy, no overlay open). |
+| `Ctrl+O` | Toggle expand/collapse of all live tool-call blocks. |
+| `Ctrl+T` | Force-send the first queued message — runs alone after the current turn, bypassing the auto-merge. |
+| `Ctrl+B` | Drop the first queued message. |
+
+## Live tool blocks
+
+Consecutive "compact" tool calls (`Read`, `Grep`, `Glob`, `Edit`,
+`Write` — anything whose `ToolDef.compact` is set) aggregate into a
+single live block with a verb summary:
+
+```
+● Reading 3 files, searching for 1 pattern, listing 2 globs… (ctrl+o to expand)
+  └ packages/plugin-cli/src/components/chat/pair-events.ts
+```
+
+`Ctrl+O` expands every live block to render each call individually.
+Verbose tools (`Bash`, `dispatch_agent`, MCP tools — anything without
+`compact`) always render as their own block. Settled blocks (a turn
+ago) freeze in their last expand state; only in-flight blocks
+re-render on toggle.
+
+## Queue strip
+
+When you type while a turn is running, your message goes into a queue
+and a dim strip appears directly above the input box:
+
+```
+──────────────────────────────
+↑ queued: fetch latest stats · +2 more · ⌃t send · ⌃b drop
+[input box]
+```
+
+`Ctrl+T` pops the head of the queue into a "priority" slot — when the
+current turn ends, the priority message runs alone (bypassing the
+default behavior of joining all queued messages into one follow-up).
+`Ctrl+B` drops the first queued message without running it. `/queue`
+and `/clear-queue` slash commands still work for reviewing or
+emptying the whole backlog.

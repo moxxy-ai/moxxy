@@ -17,6 +17,9 @@ description: The shape of moxxy — sdk, core, plugins, channels.
 @moxxy/plugin-memory   <— journal LTM + STM helpers + vector recall
 @moxxy/plugin-cli      <— Ink TUI components + TuiChannel
 @moxxy/plugin-telegram <— TelegramChannel via grammy
+@moxxy/plugin-channel-http <— HTTP channel (POST /v1/turn + audio)
+@moxxy/plugin-scheduler   <— time-driven prompts
+@moxxy/plugin-webhooks    <— external-event triggers (verified HTTP listener)
 @moxxy/cli             <— the `moxxy` binary
 ```
 

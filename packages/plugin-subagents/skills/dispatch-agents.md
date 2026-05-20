@@ -21,7 +21,7 @@ triggers:
   - "list 5"
   - "multi-source"
   - "multiple sources"
-allowed-tools: [dispatch_agent]
+allowed-tools: [dispatch_agent, memory_save, memory_recall, memory_update]
 ---
 
 # Dispatch subagents for parallel work
@@ -79,6 +79,31 @@ single user-facing reply that:
 If most agents failed, fall back to doing the work yourself in the
 current loop instead of retrying the spawn — the user shouldn't pay
 twice for the same fan-out.
+
+## Persist findings worth carrying forward
+
+Subagent transcripts die with the session unless you journal them. After
+synthesizing the reply, save durable findings to long-term memory —
+`memory_save` for new entries, or `memory_update` (after `memory_recall`
+to avoid fragmenting) when extending an existing one. See the
+`remember-this` skill for the full workflow.
+
+Save when a subagent surfaced:
+- A **code location** that was hard to find ("auth middleware lives in
+  `packages/auth/src/mw.ts`") → type `project`.
+- An **external pointer** worth keeping ("staging metrics at
+  `grafana.internal/d/auth`") → type `reference`.
+- A **convention or constraint** the fan-out revealed about the repo
+  ("all webhook handlers must call `verifySig` before parsing body") →
+  type `project`.
+
+Skip when:
+- The finding is only useful for the current reply (one-shot debug output).
+- It's already obvious from `git log`, README, or the code itself.
+- It's a secret — that belongs in the vault, not memory.
+
+One entry per durable finding, not one per subagent. If three subagents
+all rediscovered the same thing, save it once.
 
 ## Don't
 

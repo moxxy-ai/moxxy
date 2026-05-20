@@ -11,9 +11,16 @@ background OS units. The same subcommand surface works on macOS
 
 | Service id | Wraps | Why you'd install it |
 |---|---|---|
+| `serve` | `moxxy serve` | One process running every registered channel + scheduler + webhooks, sharing a single Session. |
 | `telegram` | `moxxy telegram --no-wizard` | Keep the paired bot online across logout / restart. |
 | `http` | `moxxy channels http` | Always-on HTTP API for remote callers. |
 | `scheduler` | `moxxy schedule daemon` | Fire cron + one-shot prompts even when no terminal is open. |
+
+**Pick `serve`** when you want one process and a shared event log
+across surfaces (Telegram chat sees scheduled fires and webhook
+outcomes in the same conversation history). **Pick the individual
+units** when you want isolation, separate logs, and independent
+crashes per surface.
 
 Configure the channel interactively first (e.g. `moxxy channels telegram pair`),
 then promote it to a service.
@@ -79,6 +86,49 @@ curl -H "Authorization: Bearer $MOXXY_HTTP_TOKEN" http://localhost:3737/v1/healt
 ```
 
 See [HTTP channel](./http-channel) for the endpoint shape.
+
+## `moxxy serve` — one process, everything on
+
+`moxxy serve` is an alternative to installing per-channel units. It
+boots a single Session, starts every registered channel, and lets the
+scheduler + webhooks daemons (auto-started by their plugins' `onInit`
+hooks) ride along. Run it foreground or as a single OS unit:
+
+```sh
+moxxy serve                         # foreground, ^C to stop
+moxxy serve --except http           # foreground, skip the HTTP channel
+moxxy serve --background            # install as a launchd / systemd unit and exit
+moxxy serve --background --except telegram     # background unit that skips Telegram
+moxxy serve --status                # show whether the background unit is loaded + running
+moxxy serve --stop                  # tear down the background unit
+```
+
+`--except` accepts a comma-separated list of channel names *or*
+background unit ids (`scheduler`, `webhooks`). Unknown names are
+reported as a warning, not an error — serve keeps starting whatever's
+valid.
+
+When `serve` is installed as a background unit it uses the same
+`serve` slot as `moxxy service install serve`; the two commands are
+interchangeable.
+
+Use `moxxy serve` when:
+
+- You want a Telegram bot that can see scheduled-prompt outcomes (and
+  webhook outcomes) in the same conversation.
+- You want the webhook listener up by default whenever moxxy is
+  running (it auto-starts in any session, but serve gives you one
+  reliable place to keep that session alive).
+- You want one log file (`~/.moxxy/services/serve.log`) instead of
+  three.
+
+Use individual `moxxy service install <id>` units when:
+
+- You want a crashed Telegram bot to leave the scheduler running.
+- You're scaling — e.g., HTTP channel on one box, Telegram on another.
+- You have conflicting permission policies between channels (only one
+  permission resolver applies per Session — `serve` picks the
+  first-started channel's resolver).
 
 ## Caveats
 

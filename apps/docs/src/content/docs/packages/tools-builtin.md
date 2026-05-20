@@ -23,14 +23,19 @@ session.pluginHost.registerStatic(builtinToolsPlugin);
 
 ## Tools
 
-| Tool | Purpose |
-|---|---|
-| `Read` | Read a file (bytes / lines / pages for PDF). |
-| `Write` | Create or overwrite a file. |
-| `Edit` | In-place edit with old/new string matching. |
-| `Bash` | Run a shell command. Cooperative aborts via `ctx.signal`. |
-| `Grep` | ripgrep-style search across the workspace. |
-| `Glob` | Glob-style file listing. |
+| Tool | Purpose | Compact render |
+|---|---|---|
+| `Read` | Read a file (bytes / lines / pages for PDF). | ✓ Reading N files |
+| `Write` | Create or overwrite a file. | ✓ Writing N files |
+| `Edit` | In-place edit with old/new string matching. | ✓ Editing N files |
+| `Bash` | Run a shell command. Cooperative aborts via `ctx.signal`. | – |
+| `Grep` | ripgrep-style search across the workspace. | ✓ Searching for N patterns |
+| `Glob` | Glob-style file listing. | ✓ Listing N globs |
+
+The compact-render column reflects each tool's `ToolDef.compact` hint
+(see `@moxxy/sdk`). Channels MAY use it to group consecutive calls
+into a single live block; `Bash` opts out because its output usually
+matters per-invocation.
 
 Each tool is exported individually (`bashTool`, `editTool`, …) so a
 custom plugin can re-bundle a subset.

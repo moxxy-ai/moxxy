@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://moxxy.dev">
+  <a href="https://moxxy.ai">
     <img src="https://moxxy.ai/logo-gradient.svg" alt="moxxy" width="160" />
   </a>
 </p>
@@ -37,7 +37,7 @@
   &nbsp;·&nbsp;
   <a href="#-quickstart">Quickstart</a>
   &nbsp;·&nbsp;
-  <a href="https://moxxy.dev">Docs</a>
+  <a href="https://moxxy.ai">Docs</a>
   &nbsp;·&nbsp;
   <a href="#-channels">Channels</a>
   &nbsp;·&nbsp;
@@ -61,7 +61,8 @@ Most agent frameworks lock you in. One LLM provider. One loop topology. One fron
 | 🔐 **Secrets done right** | Built-in AES-256-GCM vault. OS keychain by default, passphrase fallback. |
 | 🧠 **Long-term memory** | Journal-based with vector recall. TF-IDF ships built-in; swap to OpenAI embeddings. |
 | 🛠 **Type-safe SDK** | Zero-runtime-dep `@moxxy/sdk` is the contract. Author plugins with full IDE support. |
-| ⏰ **Always-on** | `moxxy service install` turns any channel into a launchd / systemd background service. |
+| ⏰ **Always-on** | `moxxy service install` turns any channel into a launchd / systemd background service, or `moxxy serve --background` runs everything in one shared-session process. |
+| 🔔 **Webhooks** | Any external system can fire prompts: verified (HMAC / bearer), filtered (header + JSON-path include/exclude), idempotent. Auto-tunneled with `cloudflared` for a one-command public URL. |
 | 🪪 **Permissions** | Every tool call gated. Allow-always rules learned per tool over time. |
 
 ## 🚀 Installation
@@ -109,13 +110,19 @@ Run your agent through whatever surface fits the task:
 | **Telegram** | Message your agent from anywhere; voice notes get transcribed and run as turns; pairs with a 6-digit code | `moxxy telegram` |
 | **HTTP** | `POST /v1/turn` (JSON, SSE streaming) or `POST /v1/turn/audio` (raw bytes, iOS Shortcut friendly), bearer-token auth | `moxxy channels http` |
 | **Cron** | Time-driven prompts (cron expressions or one-shot ISO timestamps) | `moxxy schedule add …` |
+| **Webhooks** | External systems fire prompts on signed POST. HMAC + bearer + filter rules. | `moxxy serve` (auto-starts the listener) |
 
-Keep them online 24/7 as background OS services:
+Keep them online 24/7 as background OS services. Two paths:
 
 ```sh
+# Per-channel units (one process each, independent crashes)
 moxxy service install telegram     # launchd on macOS, systemd --user on Linux
-moxxy service status                # see what's running
 moxxy service logs telegram         # tail the log
+
+# Or: one process for everything, shared event log
+moxxy serve --background            # every channel + scheduler + webhooks
+moxxy serve --background --except http   # skip what you don't want
+moxxy serve --status                # is it running?
 ```
 
 Logs land in `~/.moxxy/services/<name>.log`; units survive reboots.
@@ -128,12 +135,13 @@ Logs land in `~/.moxxy/services/<name>.log`; units survive reboots.
 - **MCP**: register any Model Context Protocol server as a tool source.
 - **Skills**: prompt-only Markdown files. The agent can author new skills for itself when no existing skill fits.
 - **Memory**: long-term journal + STM event-log selectors. TF-IDF vector recall built in; swap to OpenAI embeddings via `@moxxy/plugin-embeddings-openai`.
+- **Webhooks**: `@moxxy/plugin-webhooks` ships a verified HTTP listener, include/exclude filters (headers + JSON paths), delivery idempotency, and a `cloudflared`/`ngrok` tunnel helper. Vendor-neutral — the agent walks the user through provider specifics conversationally.
 - **Voice in (STT)**: `@moxxy/plugin-stt-whisper` ships an OpenAI Whisper `Transcriber`. Wire it once and every channel with audio input (Telegram voice notes, HTTP `/v1/turn/audio`) routes through it. Swap to Deepgram, AssemblyAI, or a local `whisper.cpp` by registering a different `Transcriber`.
 - **Vault**: AES-256-GCM at rest. Reference secrets in config as `${vault:KEY}`.
 
 ## 📚 Docs
 
-Full docs at **[moxxy.dev](https://moxxy.dev)**: concepts, recipes, plugin authoring, channel guides.
+Full docs at **[docs.moxxy.ai](https://docs.moxxy.ai)**: concepts, recipes, plugin authoring, channel guides. Marketing site: [moxxy.ai](https://moxxy.ai).
 
 ---
 
@@ -234,6 +242,7 @@ export default defineConfig({
 @moxxy/plugin-telegram              ← TelegramChannel via grammy (text + voice)
 @moxxy/plugin-channel-http          ← HTTP channel (POST /v1/turn, /v1/turn/stream, /v1/turn/audio)
 @moxxy/plugin-scheduler             ← time-driven prompts
+@moxxy/plugin-webhooks              ← external-event triggers (verified HTTP listener + tunnels)
 @moxxy/plugin-subagents             ← spawn sub-agents from a turn
 @moxxy/compactor-summarize          ← default context-window compactor
 @moxxy/cli                          ← the `moxxy` binary
