@@ -33,6 +33,13 @@ import {
 
 const CATALOG: ReadonlyArray<ServiceSpec> = [
   {
+    id: 'serve',
+    description:
+      'moxxy serve — every registered channel + scheduler + webhooks in ONE process. ' +
+      'Use this when you want a single background unit instead of separate per-channel units.',
+    execArgs: ['serve'],
+  },
+  {
     id: 'telegram',
     description: 'moxxy telegram channel — keeps the paired bot online in the background',
     execArgs: ['telegram', '--no-wizard'],

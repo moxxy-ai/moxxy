@@ -20,6 +20,7 @@ import { buildEmbedder } from './setup/embedder.js';
 import { buildSession } from './setup/build-session.js';
 import { buildBuiltinsCore } from './setup/builtins.js';
 import { buildSchedulerRunner } from './setup/scheduler-runner.js';
+import { buildWebhookRunner } from './setup/webhook-runner.js';
 import { registerPlugins } from './setup/register-plugins.js';
 import { activateProvider } from './setup/activate-provider.js';
 import { applyPreferences } from './setup/apply-preferences.js';
@@ -75,7 +76,8 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // Build the builtin list first WITHOUT the config plugin so we can pass the
   // whole list to the ConfigApplier (used for hot-toggle of plugin enable/disable).
   const schedulerRunner = buildSchedulerRunner(session);
-  const { entries: builtinsCore, scheduler } = buildBuiltinsCore({
+  const webhookRunner = buildWebhookRunner(session);
+  const { entries: builtinsCore, scheduler, webhooks } = buildBuiltinsCore({
     session,
     rawConfig,
     vault,
@@ -83,6 +85,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     memory,
     memoryPlugin,
     schedulerRunner,
+    webhookRunner,
     logger,
   });
 
@@ -147,6 +150,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     vault,
     memory,
     scheduler,
+    webhooks,
     persistence,
   };
 }

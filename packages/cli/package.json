@@ -44,6 +44,7 @@
     "@moxxy/plugin-subagents": "workspace:*",
     "@moxxy/plugin-telegram": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
+    "@moxxy/plugin-webhooks": "workspace:*",
     "@moxxy/sdk": "workspace:*",
     "@moxxy/skills-builtin": "workspace:*",
     "@moxxy/tools-builtin": "workspace:*",

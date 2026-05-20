@@ -4,6 +4,7 @@ import type { MoxxyConfig } from '@moxxy/config';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import type { MemoryStore } from '@moxxy/plugin-memory';
 import type { SchedulerPoller, ScheduleStore } from '@moxxy/plugin-scheduler';
+import type { WebhookConfigStore, WebhookStore } from '@moxxy/plugin-webhooks';
 
 export interface SetupOptions {
   readonly cwd: string;
@@ -75,6 +76,15 @@ export interface SetupResult {
   /** Scheduler store + poller, surfaced so the CLI subcommands
    *  (`moxxy schedule list|run`) can reach them without a model turn. */
   readonly scheduler: { readonly store: ScheduleStore; readonly poller: SchedulerPoller };
+  /** Webhook trigger + config stores, surfaced for embedding hosts that
+   *  want to list/edit triggers without going through a model turn.
+   *  `stop` lets `moxxy serve --except webhooks` tear the listener down
+   *  after boot without unloading the plugin entirely. */
+  readonly webhooks: {
+    readonly store: WebhookStore;
+    readonly config: WebhookConfigStore;
+    readonly stop: () => Promise<void>;
+  };
   /** Session persistence handle. Null when `disableSessionPersistence` is set. */
   readonly persistence: SessionPersistence | null;
 }

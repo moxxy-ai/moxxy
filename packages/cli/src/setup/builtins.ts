@@ -31,6 +31,12 @@ import {
   type ScheduleStore,
   type SchedulePromptRunner,
 } from '@moxxy/plugin-scheduler';
+import {
+  buildWebhooksPlugin,
+  type WebhookPromptRunner,
+  type WebhookStore,
+  type WebhookConfigStore,
+} from '@moxxy/plugin-webhooks';
 
 export interface BuiltinEntry {
   readonly name: string;
@@ -45,12 +51,18 @@ export interface BuildBuiltinsArgs {
   readonly memory: MemoryStore;
   readonly memoryPlugin: Plugin;
   readonly schedulerRunner: SchedulePromptRunner;
+  readonly webhookRunner: WebhookPromptRunner;
   readonly logger: { warn(msg: string, meta?: Record<string, unknown>): void };
 }
 
 export interface BuiltBuiltinsCore {
   readonly entries: ReadonlyArray<BuiltinEntry>;
   readonly scheduler: { readonly store: ScheduleStore; readonly poller: SchedulerPoller };
+  readonly webhooks: {
+    readonly store: WebhookStore;
+    readonly config: WebhookConfigStore;
+    readonly stop: () => Promise<void>;
+  };
 }
 
 /**
@@ -60,7 +72,7 @@ export interface BuiltBuiltinsCore {
  * can drive the store/poller without going through a model turn.
  */
 export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
-  const { session, rawConfig, vault, vaultPlugin, memory, memoryPlugin, schedulerRunner, logger } = args;
+  const { session, rawConfig, vault, vaultPlugin, memory, memoryPlugin, schedulerRunner, webhookRunner, logger } = args;
 
   const entries: BuiltinEntry[] = [
     { name: '@moxxy/plugin-provider-anthropic', plugin: anthropicPlugin },
@@ -166,9 +178,26 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
     });
   entries.push({ name: '@moxxy/plugin-scheduler', plugin: schedulerPlugin });
 
+  // Webhooks — generic external-event triggers. Listens on its own port
+  // (default 3738) and dispatches verified deliveries to runTurn via
+  // the supplied runner. Agent-facing tools (webhook_create,
+  // webhook_tunnel_start, webhook_setup_guide, …) let a non-technical
+  // user walk through tunnel + provider setup in conversation.
+  const {
+    plugin: webhooksPlugin,
+    store: webhookStore,
+    config: webhookConfig,
+    stop: stopWebhooks,
+  } = buildWebhooksPlugin({
+    runner: webhookRunner,
+    logger,
+  });
+  entries.push({ name: '@moxxy/plugin-webhooks', plugin: webhooksPlugin });
+
   return {
     entries,
     scheduler: { store: scheduleStore, poller: schedulerPoller },
+    webhooks: { store: webhookStore, config: webhookConfig, stop: stopWebhooks },
   };
 }
 

@@ -15,6 +15,7 @@ import { runDoctorCommand } from './commands/doctor.js';
 import { runLoginCommand } from './commands/login.js';
 import { runResumeCommand } from './commands/resume.js';
 import { runServiceCommand } from './commands/service.js';
+import { runServeCommand } from './commands/serve.js';
 import { runSessionsCommand } from './commands/sessions.js';
 import { setupSessionWithConfig } from './setup.js';
 import { renderLogo } from './logo.js';
@@ -58,6 +59,7 @@ const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyA
       ['channels', 'list registered channels + their subcommands'],
       ['channels <name>', 'start a channel by name (same as `moxxy <name>`)'],
       ['channels <name> <sub>', 'invoke a channel-defined subcommand'],
+      ['serve [--except <list>]', 'run every channel + background daemon in ONE process'],
     ],
   },
   {
@@ -156,6 +158,7 @@ const COMMANDS: Record<string, CommandHandler> = {
   tui: runTuiCommand,
   resume: runResumeCommand,
   service: runServiceCommand,
+  serve: runServeCommand,
   sessions: runSessionsCommand,
   skills: runSkillsCommand,
   plugins: runPluginsCommand,
