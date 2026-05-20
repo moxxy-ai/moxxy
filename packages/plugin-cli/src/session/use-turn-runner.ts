@@ -27,6 +27,15 @@ export interface TurnRunnerHandle {
   setQueueCount: React.Dispatch<React.SetStateAction<number>>;
   turnControllerRef: React.MutableRefObject<AbortController | null>;
   runTurnWith: (text: string, attachments: UserPromptAttachment[]) => Promise<void>;
+  /** Single-slot "next-up" message. When set, drain logic runs it ALONE
+   *  before merging the rest of the queue. Surfaced as state so the UI
+   *  can render it distinctly. */
+  priorityMessage: QueuedMessage | null;
+  /** Pop the head of the queue and mark it as the priority next-turn.
+   *  No-op when the queue is empty. Returns whether anything moved. */
+  forceSendFirst: () => boolean;
+  /** Remove the head of the queue without running it. */
+  dropFirst: () => boolean;
 }
 
 export function useTurnRunner(opts: TurnRunnerOptions): TurnRunnerHandle {
@@ -36,6 +45,9 @@ export function useTurnRunner(opts: TurnRunnerOptions): TurnRunnerHandle {
   const [busyStartedAt, setBusyStartedAt] = useState<number | null>(null);
   const queueRef = useRef<QueuedMessage[]>([]);
   const [queueCount, setQueueCount] = useState(0);
+  // Single "send this next, alone" slot. Held in state (not just a ref)
+  // so the QueueView re-renders when the user force-sends.
+  const [priorityMessage, setPriorityMessage] = useState<QueuedMessage | null>(null);
   const busyRef = useRef(false);
   // Per-turn abort controller. Esc while busy aborts THIS turn without
   // poisoning the session's own controller, so the next prompt still
@@ -70,10 +82,19 @@ export function useTurnRunner(opts: TurnRunnerOptions): TurnRunnerHandle {
       setBusy(false);
       busyRef.current = false;
       setBusyStartedAt(null);
-      // Drain any messages the user queued while this turn was running.
-      // Concatenate into one follow-up turn so the model sees the
-      // user's accumulated input as one coherent prompt rather than N
-      // micro-turns. Idempotent when the queue is empty.
+      // Drain order:
+      //   1. Priority slot (force-sent) runs ALONE so the user can land
+      //      a single targeted follow-up without it merging with whatever
+      //      else they typed.
+      //   2. Remaining queue concatenates into one follow-up turn — the
+      //      model sees accumulated input as one coherent prompt rather
+      //      than N micro-turns.
+      if (priorityMessage) {
+        const p = priorityMessage;
+        setPriorityMessage(null);
+        await runTurnWith(p.text, p.attachments);
+        return;
+      }
       if (queueRef.current.length > 0) {
         const batch = queueRef.current.splice(0);
         setQueueCount(0);
@@ -82,6 +103,21 @@ export function useTurnRunner(opts: TurnRunnerOptions): TurnRunnerHandle {
         await runTurnWith(joinedText, joinedAtts);
       }
     }
+  };
+
+  const forceSendFirst = (): boolean => {
+    if (queueRef.current.length === 0) return false;
+    const first = queueRef.current.shift()!;
+    setQueueCount(queueRef.current.length);
+    setPriorityMessage(first);
+    return true;
+  };
+
+  const dropFirst = (): boolean => {
+    if (queueRef.current.length === 0) return false;
+    queueRef.current.shift();
+    setQueueCount(queueRef.current.length);
+    return true;
   };
 
   return {
@@ -95,5 +131,8 @@ export function useTurnRunner(opts: TurnRunnerOptions): TurnRunnerHandle {
     setQueueCount,
     turnControllerRef,
     runTurnWith,
+    priorityMessage,
+    forceSendFirst,
+    dropFirst,
   };
 }

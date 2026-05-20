@@ -1,10 +1,13 @@
 import React from 'react';
+import { Box } from 'ink';
 import type { Session } from '@moxxy/core';
 import { PermissionDialog } from '../components/PermissionDialog.js';
 import { ApprovalDialog } from '../components/ApprovalDialog.js';
 import { InputBox } from '../components/InputBox.js';
 import { ListPicker } from '../components/ListPicker.js';
+import { QueueView } from '../components/QueueView.js';
 import type { SlashCommand } from '../components/SlashCommands.js';
+import type { QueuedMessage } from './use-turn-runner.js';
 import type { PendingApproval, PendingPermission, Picker } from './types.js';
 
 interface InteractiveZoneProps {
@@ -16,6 +19,10 @@ interface InteractiveZoneProps {
   busy: boolean;
   yolo: boolean;
   slashCommands: ReadonlyArray<SlashCommand>;
+  /** Live queue contents for the always-visible QueueView. */
+  queueMessages: ReadonlyArray<QueuedMessage>;
+  /** Single-slot priority message set by Ctrl+J. */
+  priorityMessage: QueuedMessage | null;
   onPermissionDecide: (perm: PendingPermission, decision: import('@moxxy/sdk').PermissionDecision) => void;
   onApprovalDecide: (decision: import('@moxxy/sdk').ApprovalDecision) => void;
   onPickerSelect: (picker: NonNullable<Picker>, id: string) => void;
@@ -40,6 +47,8 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
   busy,
   yolo,
   slashCommands,
+  queueMessages,
+  priorityMessage,
   onPermissionDecide,
   onApprovalDecide,
   onPickerSelect,
@@ -75,18 +84,23 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
       />
     );
   }
+  // QueueView renders ONLY when there's something to show. When idle and
+  // the queue is empty, it returns null and there's no extra spacing.
   return (
-    <InputBox
-      onSubmit={onSubmit}
-      disabled={false}
-      yolo={yolo}
-      slashCommands={slashCommands}
-      placeholder={
-        busy
-          ? 'type to queue a message — sent after the current turn'
-          : 'type a prompt or / for commands'
-      }
-      onPasteText={onPasteText}
-    />
+    <Box flexDirection="column">
+      <QueueView messages={queueMessages} priority={priorityMessage} />
+      <InputBox
+        onSubmit={onSubmit}
+        disabled={false}
+        yolo={yolo}
+        slashCommands={slashCommands}
+        placeholder={
+          busy
+            ? 'type to queue a message — sent after the current turn (ctrl+j to force-send first)'
+            : 'type a prompt or / for commands'
+        }
+        onPasteText={onPasteText}
+      />
+    </Box>
   );
 };

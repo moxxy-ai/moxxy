@@ -7,12 +7,17 @@ export interface GlobalHotkeysOptions {
   turnControllerRef: React.MutableRefObject<AbortController | null>;
   setSystemNotice: (msg: string | null) => void;
   setExpandToolOutputs: React.Dispatch<React.SetStateAction<boolean>>;
+  forceSendFirst: () => boolean;
+  dropFirst: () => boolean;
 }
 
 /**
  * Wires the TUI-wide hotkeys:
  *   - Esc / Ctrl+C while busy and no overlay open → cancel the turn
  *   - Ctrl+O (always) → toggle global live-tools-block expand/collapse
+ *   - Ctrl+J (always) → force-send the first queued message (runs alone
+ *     after the current turn ends, bypassing the auto-merge)
+ *   - Ctrl+K (always) → drop the first queued message
  *
  * The Esc handler is gated on "no overlay is intercepting Esc" so the
  * cancel doesn't fire alongside the modal's own close handler.
@@ -49,6 +54,23 @@ export function useGlobalHotkeys(opts: GlobalHotkeysOptions): void {
         );
         return next;
       });
+      return;
+    }
+    if (key.ctrl && input === 'j') {
+      const moved = opts.forceSendFirst();
+      opts.setSystemNotice(
+        moved
+          ? 'queue: first message will run next, by itself'
+          : 'queue: nothing queued to force-send',
+      );
+      return;
+    }
+    if (key.ctrl && input === 'k') {
+      const dropped = opts.dropFirst();
+      opts.setSystemNotice(
+        dropped ? 'queue: dropped the first queued message' : 'queue: nothing to drop',
+      );
+      return;
     }
   });
 }

@@ -89,6 +89,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
     turnControllerRef: turn.turnControllerRef,
     setSystemNotice,
     setExpandToolOutputs,
+    forceSendFirst: turn.forceSendFirst,
+    dropFirst: turn.dropFirst,
   });
 
   // Snapshot per-tool compact-presentation metadata from the live tool
@@ -243,6 +245,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
         busy={turn.busy}
         yolo={yolo}
         slashCommands={slashSuggestions}
+        queueMessages={turn.queueRef.current}
+        priorityMessage={turn.priorityMessage}
         onPermissionDecide={(perm, decision) => {
           permissions.setPendingPermissions((prev) => prev.slice(1));
           if (decision.mode === 'allow_always') {
