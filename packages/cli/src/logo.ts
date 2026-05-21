@@ -10,11 +10,15 @@
 import { LOGO_LINES } from '@moxxy/plugin-cli';
 import { colors } from './colors.js';
 
-export const MOXXY_LOGO_COMPACT = 'MOXXY';
+export const MOXXY_LOGO_COMPACT = '|X|';
 
-/** Render the moxxy banner. Falls back to a tighter form on narrow terminals. */
+/** Render the moxxy banner. Falls back to a one-line mark on ultra-narrow terminals. */
 export function renderLogo(width: number = process.stdout.columns ?? 80): string {
-  if (width < 40) return '\n' + colors.bold('MOXXY') + '\n\n';
-  if (width < 60) return '\n' + colors.bold('M O X X Y') + '\n\n';
-  return '\n' + LOGO_LINES.map((l) => colors.bold(l)).join('\n') + '\n\n';
+  // `gray` (ANSI 90 / bright-black) + `dim` (SGR 2). Both interpreted by
+  // the terminal relative to its own palette, so the banner reads as
+  // barely-visible chrome in both light and dark themes — never glaring,
+  // never quite invisible.
+  const fade = (s: string): string => colors.dim(colors.gray(s));
+  if (width < 20) return '\n' + fade('|X|  moxxy') + '\n\n';
+  return '\n' + LOGO_LINES.map(fade).join('\n') + '\n\n';
 }

@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
-import { LOGO_LINES, pickSlogan } from '../logo-data.js';
+import { LOGO_LINES, pickExamples, pickSlogan } from '../logo-data.js';
 import { Colors, Glyphs } from '../theme.js';
+import { LogoLine } from './LogoLine.js';
 
 /**
  * A single boot-progress event. Mirrors `BootStep` from
@@ -42,7 +43,6 @@ const STEPS: ReadonlyArray<ChecklistStep> = [
 ];
 
 export interface BootScreenProps {
-  readonly version?: string;
   /**
    * Ordered list of events that have fired so far. Steps not yet
    * represented in the list render with the pending glyph.
@@ -54,83 +54,78 @@ export interface BootScreenProps {
    */
   readonly startedAt: number;
   /**
-   * Fatal error from boot. Renders as a centered red block after the
-   * checklist; the failing step shows the failed glyph.
+   * Fatal error from boot. Renders as a centered red block; the
+   * failing step's label surfaces above the message.
    */
   readonly error?: { readonly failedStep?: BootEventId; readonly message: string };
 }
 
+// Number of example prompts to surface on the boot screen. Two keeps
+// the panel tight while still hinting at breadth (the pool in
+// `logo-data.ts` spans coding, automation, webhooks, memory, …).
+const READY_EXAMPLE_COUNT = 2;
+
 /**
- * Full-screen boot panel: centered logo + version + tips + live
- * progress checklist. Stays mounted until the InteractiveSession flips
- * to `phase === 'ready'`, at which point the parent swaps in the
- * steady-state layout.
+ * Full-screen boot panel: centered logo + slogan, with the live
+ * checklist replaced by terse output:
+ *   - during boot: nothing (just logo + slogan)
+ *   - on error: red error block + the failing step
+ *   - on ready: one short suggestion with the command token in white
+ *
+ * Stays mounted until the InteractiveSession flips to `phase === 'ready'`,
+ * at which point the parent swaps in the steady-state layout.
  */
-export const BootScreen: React.FC<BootScreenProps> = ({ version, events, startedAt, error }) => {
+export const BootScreen: React.FC<BootScreenProps> = ({ events, startedAt, error }) => {
+  void startedAt;
   const slogan = useMemo(() => pickSlogan(), []);
+  // `pickExamples` is itself process-cached, so re-renders never
+  // shuffle the picks; the useMemo is for clarity.
+  const examples = useMemo(() => pickExamples(READY_EXAMPLE_COUNT), []);
   const width = process.stdout.columns ?? 80;
   const useFullLogo = width >= 60;
 
   const seen = new Map<BootEventId, BootEvent>();
   for (const e of events) seen.set(e.id, e);
+  const failedStep = error?.failedStep
+    ? STEPS.find((s) => s.id === error.failedStep) ?? null
+    : null;
+  const ready = !error && STEPS.every((s) => seen.has(s.id));
 
   return (
-    <Box flexDirection="column" alignItems="center" marginTop={1}>
+    <Box flexDirection="column" alignItems="center" width="100%" marginTop={1}>
       {useFullLogo ? (
         <Box flexDirection="column" alignItems="center">
           {LOGO_LINES.map((line, i) => (
-            <Text key={i} bold>{line}</Text>
+            <LogoLine key={i} text={line} />
           ))}
         </Box>
       ) : (
-        <Text bold>{width >= 40 ? 'M O X X Y' : 'MOXXY'}</Text>
+        <Text>{width >= 40 ? 'M O X X Y' : 'MOXXY'}</Text>
       )}
       <Box marginTop={1}>
         <Text dimColor italic>{slogan}</Text>
-        {version ? <Text dimColor>{`  ${Glyphs.midDot}  v${version}`}</Text> : null}
-      </Box>
-
-      <Box flexDirection="column" marginTop={2} alignItems="flex-start">
-        {STEPS.map((step) => {
-          const event = seen.get(step.id);
-          const failed = event?.failed === true;
-          const done = event != null && !failed;
-          const elapsed = event ? event.at - startedAt : null;
-          return (
-            <Box key={step.id}>
-              <Text
-                {...(failed ? { color: Colors.danger } : done ? {} : { dimColor: true })}
-              >
-                {done || failed ? Glyphs.filled : Glyphs.pending}
-              </Text>
-              <Text> </Text>
-              <Text
-                {...(failed
-                  ? { color: Colors.danger }
-                  : done
-                    ? {}
-                    : { dimColor: true })}
-              >
-                {step.label}
-                {event?.detail ? ` · ${event.detail}` : ''}
-                {failed ? ' — failed' : ''}
-              </Text>
-              {elapsed != null && !failed ? (
-                <Text dimColor>{`  (${elapsed}ms)`}</Text>
-              ) : null}
-            </Box>
-          );
-        })}
       </Box>
 
       {error ? (
         <Box flexDirection="column" marginTop={2} alignItems="center">
+          <Text color={Colors.danger}>
+            {Glyphs.filled} {failedStep?.label ?? 'boot failed'}
+          </Text>
           <Text color={Colors.danger}>{error.message}</Text>
           <Box marginTop={1}>
             <Text dimColor>Run </Text>
             <Text>moxxy init</Text>
             <Text dimColor> in another terminal, then relaunch.</Text>
           </Box>
+        </Box>
+      ) : ready ? (
+        <Box flexDirection="column" alignItems="flex-start" marginTop={2}>
+          {examples.map((example, i) => (
+            <Box key={i}>
+              <Text dimColor>{'›  '}</Text>
+              <Text>{example}</Text>
+            </Box>
+          ))}
         </Box>
       ) : null}
     </Box>

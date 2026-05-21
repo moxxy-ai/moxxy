@@ -18,7 +18,6 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
   bootstrap,
   registerInteractiveResolver,
   model,
-  version,
   resumed,
 }) => {
   const [session, setSession] = useState<Session | null>(eagerSession ?? null);
@@ -84,7 +83,6 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
         <BootScreen
           events={bootEvents}
           startedAt={startedAt}
-          {...(version ? { version } : {})}
           {...(bootError ? { error: bootError } : {})}
         />
         <Box marginTop={2}>
@@ -117,7 +115,6 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
       registerInteractiveResolver={registerInteractiveResolver}
       {...(initialPrompt ? { initialPrompt } : {})}
       {...(model ? { model } : {})}
-      {...(version ? { version } : {})}
     />
   );
 };
