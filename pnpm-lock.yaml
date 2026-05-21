@@ -240,6 +240,9 @@ importers:
       '@moxxy/plugin-plugins-admin':
         specifier: workspace:*
         version: link:../plugin-plugins-admin
+      '@moxxy/plugin-provider-admin':
+        specifier: workspace:*
+        version: link:../plugin-provider-admin
       '@moxxy/plugin-provider-anthropic':
         specifier: workspace:*
         version: link:../plugin-provider-anthropic
@@ -839,6 +842,37 @@ importers:
       '@moxxy/sdk':
         specifier: workspace:*
         version: link:../sdk
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
+    devDependencies:
+      '@moxxy/tsconfig':
+        specifier: workspace:*
+        version: link:../../tooling/tsconfig
+      '@moxxy/vitest-preset':
+        specifier: workspace:*
+        version: link:../../tooling/vitest-preset
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.18
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.18)
+
+  packages/plugin-provider-admin:
+    dependencies:
+      '@moxxy/plugin-provider-openai':
+        specifier: workspace:*
+        version: link:../plugin-provider-openai
+      '@moxxy/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+      openai:
+        specifier: ^4.80.0
+        version: 4.104.0(ws@8.20.0)(zod@3.25.76)
       zod:
         specifier: ^3.24.0
         version: 3.25.76

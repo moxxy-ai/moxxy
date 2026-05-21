@@ -37,6 +37,7 @@
     "@moxxy/plugin-memory": "workspace:*",
     "@moxxy/plugin-oauth": "workspace:*",
     "@moxxy/plugin-plugins-admin": "workspace:*",
+    "@moxxy/plugin-provider-admin": "workspace:*",
     "@moxxy/plugin-provider-anthropic": "workspace:*",
     "@moxxy/plugin-provider-openai": "workspace:*",
     "@moxxy/plugin-provider-openai-codex": "workspace:*",

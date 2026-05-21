@@ -21,6 +21,7 @@ import { httpChannelPlugin } from '@moxxy/plugin-channel-http';
 import { browserPlugin } from '@moxxy/plugin-browser';
 import { buildSubagentsPlugin } from '@moxxy/plugin-subagents';
 import { buildPluginsAdminPlugin } from '@moxxy/plugin-plugins-admin';
+import { buildProviderAdminPlugin } from '@moxxy/plugin-provider-admin';
 import { commandsPlugin } from '@moxxy/plugin-commands';
 import { computerControlPlugin } from '@moxxy/plugin-computer-control';
 import { buildOauthPlugin } from '@moxxy/plugin-oauth';
@@ -143,6 +144,15 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
           channels: session.channels.list().map((c) => c.name),
         }),
       }),
+    },
+    // Provider admin tools (provider_add, provider_list, provider_remove,
+    // provider_test). Persists OpenAI-compatible vendor registrations to
+    // ~/.moxxy/providers.json; the plugin's onInit re-registers them on
+    // every boot. Pairs with the `add-provider` skill which walks the
+    // model through gathering baseURL + models + key.
+    {
+      name: '@moxxy/plugin-provider-admin',
+      plugin: buildProviderAdminPlugin({ providerRegistry: session.providers }),
     },
     // Admin tools (mcp_add_server, mcp_list_servers, mcp_remove_server,
     // mcp_test_server) plus the boot-time lazy attach. Passing the
