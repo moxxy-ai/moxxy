@@ -131,7 +131,7 @@ Logs land in `~/.moxxy/services/<name>.log`; units survive reboots.
 ## 🧩 What's in the box
 
 - **Providers**: Anthropic, OpenAI, Codex (ChatGPT OAuth). Add your own with one `defineProvider({})`.
-- **Loop strategies**: `tool-use` (default, Claude-Code-style), `plan-execute` (plan → validate → execute), `bmad` (analysis → planning → solutioning → implementation).
+- **Loop strategies**: `tool-use` (default, Claude-Code-style), `plan-execute` (plan → validate → execute), `bmad` (analysis → planning → solutioning → implementation), `developer` (guardrailed tool-use → verify → commit-with-diff-preview gate), `deep-research` (plan queries → parallel subagent fan-out → cited synthesis).
 - **Built-in tools**: Read, Edit, Write, Bash, Grep, Glob, WebFetch, plus computer-control (macOS) and browser-session (Playwright).
 - **MCP**: register any Model Context Protocol server as a tool source.
 - **Skills**: prompt-only Markdown files. The agent can author new skills for itself when no existing skill fits.

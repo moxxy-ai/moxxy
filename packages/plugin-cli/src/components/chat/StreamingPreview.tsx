@@ -22,59 +22,109 @@ import { Glyphs } from '../../theme.js';
  * kicks in inside `<Static>`. The user only sees plain text during
  * the ~ms-to-seconds typing animation, then the formatted version
  * for the rest of the session.
+ *
+ * Constant-height contract — DO NOT BREAK. The streaming preview is
+ * rendered OUTSIDE `<Static>` (it changes every chunk), and Ink's
+ * inline renderer commits live-region rows to scrollback whenever the
+ * region grows by even one line. A naïve "render every line as a
+ * <Text>" approach therefore stacks duplicate frames in scrollback as
+ * the buffer fills (the bug surfaced empirically with long
+ * deep-research synthesis writeups). We avoid this by emitting EXACTLY
+ * `COMPACT_HEIGHT` rows every frame for long streams and a small
+ * per-line capped block for short streams. As long as the rendered
+ * height never grows, Ink updates in place instead of appending.
  */
+
+/**
+ * Threshold (in characters) above which we switch from the multi-line
+ * preview to a single-line compact indicator. Below this the preview
+ * is short enough that the height variance can't trip Ink's
+ * scrollback-commit behavior. Above this we'd be streaming a long
+ * response (synthesis writeup, large refactor explanation, etc.) and
+ * the preview would otherwise grow tall enough to spam scrollback.
+ */
+const COMPACT_THRESHOLD_CHARS = 280;
+
+/**
+ * Number of logical lines reserved for the short-stream preview. Each
+ * line is truncated to one terminal column width below, so the visual
+ * height equals the logical line count — important so Ink doesn't
+ * reflow as content shifts.
+ */
+const SHORT_PREVIEW_LINES = 4;
+
 export const StreamingPreview: React.FC<{ content: string }> = memo(function StreamingPreview({
   content,
 }) {
+  if (content.length >= COMPACT_THRESHOLD_CHARS) {
+    return <CompactIndicator content={content} />;
+  }
+  return <ShortPreview content={content} />;
+});
+
+/**
+ * Long-response indicator: one constant-height row. Shows the typing
+ * progress (chars + line count) without exposing the buffer body, so
+ * Ink has nothing to grow and never commits intermediate frames to
+ * scrollback. The full message lands settled via <Static> the moment
+ * the assistant_message event arrives.
+ */
+const CompactIndicator: React.FC<{ content: string }> = ({ content }) => {
+  const lineCount = content.split('\n').length;
+  return (
+    <Box marginTop={1}>
+      <Text dimColor>{Glyphs.filled} streaming · {content.length} chars · {lineCount} line{lineCount === 1 ? '' : 's'} — full text lands in scrollback when done</Text>
+    </Box>
+  );
+};
+
+/**
+ * Short-response preview: at most SHORT_PREVIEW_LINES rows of the
+ * most recent buffer content, padded to exactly that height and with
+ * each line truncated to terminal width so no line wraps. Constant
+ * height means Ink updates in place between chunks.
+ */
+const ShortPreview: React.FC<{ content: string }> = ({ content }) => {
+  const cols = process.stdout.columns ?? 80;
+  // Leave room for the diamond glyph + 1-col margin in the row.
+  const innerCols = Math.max(20, cols - 4);
   const lines = content.split('\n');
+  const tail = lines.slice(-SHORT_PREVIEW_LINES);
+  while (tail.length < SHORT_PREVIEW_LINES) tail.unshift('');
+  const truncated = tail.map((line) =>
+    line.length > innerCols ? line.slice(0, innerCols - 1) + '…' : line,
+  );
   return (
     <Box flexDirection="row" marginTop={1}>
       <Box flexDirection="column" marginRight={1}>
         <Text dimColor>{Glyphs.filled}</Text>
+        {Array.from({ length: SHORT_PREVIEW_LINES - 1 }, (_, i) => (
+          <Text key={i}> </Text>
+        ))}
       </Box>
       <Box flexDirection="column" flexGrow={1}>
-        {lines.map((line, i) => (
+        {truncated.map((line, i) => (
           <Text key={i}>{line || ' '}</Text>
         ))}
       </Box>
     </Box>
   );
-});
+};
 
 /**
- * Hard ceiling on the streaming preview, regardless of terminal
- * height. The previous "rows - 12" budget worked when the streaming
- * block was the ONLY thing in the live region, but a turn with open
- * skill scopes or pending tool calls above accumulates a tall live
- * region on top of the preview — push past terminal rows and Ink
- * drops into clear-on-each-frame overflow mode, which is the flicker
- * the user reports during long responses. Capping at 18 lines keeps
- * the preview compact enough that even a busy live region above
- * stays within a 30-row terminal without overflow.
- */
-const STREAM_PREVIEW_MAX = 18;
-
-/**
- * During streaming the AssistantBlock lives in the live render zone
- * (NOT in <Static>), so Ink redraws it on every chunk. When the body
- * grows taller than the terminal, Ink's renderer clips it — the top
- * scrolls off the visible area, never enters the terminal scrollback,
- * and you can't scroll up to recover it. Cap the visible portion to
- * roughly one viewport worth of lines so the live block always fits
- * and Ink never has to clip.
+ * Pre-render no-op: the StreamingPreview component now handles its own
+ * truncation, so tailForViewport doesn't need to trim anymore. Kept as
+ * an identity passthrough so the call site in ChatView (and any other
+ * callers / tests) stay unchanged.
  *
- * Once the assistant_message lands, the FULL text becomes a settled
- * block and goes through <Static>, which writes it to scrollback in
- * one shot. So this cap only affects what's visible during the typing
- * animation — the historical record is complete.
+ * The old logical-line truncation was the source of the "stacked
+ * placeholder rows in scrollback" symptom — each throttled chunk
+ * produced a slightly different truncated string, which grew the
+ * <Text> child count on every render, and Ink appended new rows
+ * instead of overwriting them. By keeping the preview itself at a
+ * constant rendered height we avoid the growth, and pre-trimming the
+ * content is unnecessary.
  */
 export function tailForViewport(content: string): string {
-  const rows = process.stdout.rows ?? 24;
-  const budget = Math.max(8, Math.min(STREAM_PREVIEW_MAX, rows - 14));
-  const lines = content.split('\n');
-  if (lines.length <= budget) return content;
-  const elided = lines.length - budget;
-  return `… (${elided} earlier line${elided === 1 ? '' : 's'} continuing — full text lands in scrollback when done)\n${lines
-    .slice(-budget)
-    .join('\n')}`;
+  return content;
 }

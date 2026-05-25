@@ -12,6 +12,8 @@ import { builtinToolsPlugin } from '@moxxy/tools-builtin';
 import { toolUseModePlugin } from '@moxxy/mode-tool-use';
 import { planExecuteModePlugin } from '@moxxy/mode-plan-execute';
 import { bmadModePlugin } from '@moxxy/mode-bmad';
+import { developerModePlugin } from '@moxxy/mode-developer';
+import { deepResearchModePlugin } from '@moxxy/mode-deep-research';
 import { summarizeCompactorPlugin } from '@moxxy/compactor-summarize';
 import { BUILTIN_SKILLS_DIR } from '@moxxy/skills-builtin';
 import {
@@ -70,6 +72,8 @@ export const BUILTIN_REQUIREMENT_DECISIONS: Readonly<Record<string, BuiltinRequi
   '@moxxy/mode-tool-use': { hardRequirements: false, reason: 'mode has no plugin dependency' },
   '@moxxy/mode-plan-execute': { hardRequirements: false, reason: 'mode has no plugin dependency' },
   '@moxxy/mode-bmad': { hardRequirements: false, reason: 'mode has no plugin dependency' },
+  '@moxxy/mode-developer': { hardRequirements: false, reason: 'mode layers on tool-use; no hard plugin dependency' },
+  '@moxxy/mode-deep-research': { hardRequirements: false, reason: 'mode needs @moxxy/plugin-subagents at runtime; surfaced as fatal error if absent' },
   '@moxxy/compactor-summarize': { hardRequirements: false, reason: 'compactor has no plugin dependency' },
   '@moxxy/plugin-vault': { hardRequirements: false, reason: 'vault is the base secret store' },
   '@moxxy/plugin-stt-whisper': { hardRequirements: false, reason: 'generic Whisper backend; harmless without a configured provider' },
@@ -134,6 +138,8 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
     { name: '@moxxy/mode-tool-use', plugin: toolUseModePlugin },
     { name: '@moxxy/mode-plan-execute', plugin: planExecuteModePlugin },
     { name: '@moxxy/mode-bmad', plugin: bmadModePlugin },
+    { name: '@moxxy/mode-developer', plugin: developerModePlugin },
+    { name: '@moxxy/mode-deep-research', plugin: deepResearchModePlugin },
     { name: '@moxxy/compactor-summarize', plugin: summarizeCompactorPlugin },
     { name: '@moxxy/plugin-vault', plugin: vaultPlugin },
     { name: '@moxxy/plugin-stt-whisper', plugin: buildWhisperPlugin() },

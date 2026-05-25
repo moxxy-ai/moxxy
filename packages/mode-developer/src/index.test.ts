@@ -1,0 +1,128 @@
+import { describe, expect, it } from 'vitest';
+import { collectTurn } from '@moxxy/core';
+import { FakeProvider, createFakeSession, textReply } from '@moxxy/testing';
+
+import {
+  developerModePlugin,
+  DEVELOPER_MODE_NAME,
+  formatCommitMessage,
+  parseVerify,
+  renderDiffBody,
+} from './index.js';
+
+describe('parseVerify', () => {
+  it('extracts SUMMARY and COMMIT subject + body', () => {
+    const text = [
+      'SUMMARY: Added foo() and confirmed unit tests still pass',
+      'COMMIT:',
+      'add foo helper for downstream callers',
+      '',
+      'Body line one explaining the why.',
+      'Body line two with extra detail.',
+    ].join('\n');
+    const out = parseVerify(text);
+    expect(out.summary).toBe('Added foo() and confirmed unit tests still pass');
+    expect(out.commitSubject).toBe('add foo helper for downstream callers');
+    expect(out.commitBody).toBe('Body line one explaining the why.\nBody line two with extra detail.');
+  });
+
+  it('handles missing body', () => {
+    const out = parseVerify('SUMMARY: did the thing\nCOMMIT:\nfix typo in readme');
+    expect(out.commitSubject).toBe('fix typo in readme');
+    expect(out.commitBody).toBeNull();
+  });
+
+  it('returns nulls when format is missing', () => {
+    const out = parseVerify('I am thinking out loud and not following the format.');
+    expect(out.summary).toBeNull();
+    expect(out.commitSubject).toBeNull();
+    expect(out.commitBody).toBeNull();
+  });
+});
+
+describe('formatCommitMessage', () => {
+  it('joins subject and body with one blank line', () => {
+    expect(formatCommitMessage('subject', 'body line')).toBe('subject\n\nbody line');
+  });
+  it('returns subject alone when body is null', () => {
+    expect(formatCommitMessage('only subject', null)).toBe('only subject');
+  });
+});
+
+describe('renderDiffBody', () => {
+  it('returns a friendly message when there are no changes', () => {
+    const out = renderDiffBody({ files: [], totalFiles: 0, empty: true });
+    expect(out).toMatch(/no changes/i);
+  });
+
+  it('surfaces git errors verbatim', () => {
+    const out = renderDiffBody({ files: [], totalFiles: 0, empty: false, error: 'not a git repo' });
+    expect(out).toContain('not a git repo');
+  });
+
+  it('emits fenced diff blocks per file', () => {
+    const body = renderDiffBody({
+      empty: false,
+      totalFiles: 1,
+      files: [
+        {
+          path: 'src/foo.ts',
+          additions: 3,
+          deletions: 1,
+          truncated: false,
+          diff: 'diff --git a/src/foo.ts b/src/foo.ts\n@@ -1,1 +1,3 @@\n-old\n+new\n+more\n',
+        },
+      ],
+    });
+    expect(body).toContain('Changed files (1)');
+    expect(body).toContain('src/foo.ts  +3/-1');
+    expect(body).toMatch(/```diff[\s\S]*\+new[\s\S]*```/);
+  });
+});
+
+describe('developerMode end-to-end (headless)', () => {
+  it('runs implementation, verify, then emits suggested commit when headless', async () => {
+    const provider = new FakeProvider({
+      script: [
+        // Implementation phase: model says it's done without calling tools.
+        textReply('Done with the implementation.'),
+        // Verify phase: returns the structured SUMMARY/COMMIT block.
+        textReply(
+          [
+            'SUMMARY: Verified — tests pass',
+            'COMMIT:',
+            'add scratch helper',
+            '',
+            'Tiny helper used by the smoke test.',
+          ].join('\n'),
+        ),
+      ],
+    });
+
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(developerModePlugin);
+    session.modes.setActive(DEVELOPER_MODE_NAME);
+
+    const events = await collectTurn(session, 'add a scratch helper');
+
+    const modeIter = events.find(
+      (e) => e.type === 'mode_iteration' && e.strategy === DEVELOPER_MODE_NAME,
+    );
+    expect(modeIter).toBeDefined();
+
+    const verifyCompleted = events.find(
+      (e) => e.type === 'plugin_event' && e.subtype === 'developer_verify_completed',
+    );
+    expect(verifyCompleted).toBeDefined();
+    if (verifyCompleted?.type !== 'plugin_event') throw new Error();
+    expect((verifyCompleted.payload as { hasCommitSubject: boolean }).hasCommitSubject).toBe(true);
+
+    // Headless: the final assistant_message announces the suggested commit
+    // message (since FakeSession has no approval resolver).
+    const finalSystem = events
+      .filter((e) => e.type === 'assistant_message' && e.source === 'system')
+      .pop();
+    if (finalSystem?.type !== 'assistant_message') throw new Error('expected system message');
+    expect(finalSystem.content).toContain('add scratch helper');
+  });
+});

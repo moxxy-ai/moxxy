@@ -204,6 +204,12 @@ importers:
       '@moxxy/mode-bmad':
         specifier: workspace:*
         version: link:../mode-bmad
+      '@moxxy/mode-deep-research':
+        specifier: workspace:*
+        version: link:../mode-deep-research
+      '@moxxy/mode-developer':
+        specifier: workspace:*
+        version: link:../mode-developer
       '@moxxy/mode-plan-execute':
         specifier: workspace:*
         version: link:../mode-plan-execute
@@ -481,6 +487,71 @@ importers:
 
   packages/mode-bmad:
     dependencies:
+      '@moxxy/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+    devDependencies:
+      '@moxxy/core':
+        specifier: workspace:*
+        version: link:../core
+      '@moxxy/testing':
+        specifier: workspace:*
+        version: link:../testing
+      '@moxxy/tsconfig':
+        specifier: workspace:*
+        version: link:../../tooling/tsconfig
+      '@moxxy/vitest-preset':
+        specifier: workspace:*
+        version: link:../../tooling/vitest-preset
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.18
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.18)
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
+
+  packages/mode-deep-research:
+    dependencies:
+      '@moxxy/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+    devDependencies:
+      '@moxxy/core':
+        specifier: workspace:*
+        version: link:../core
+      '@moxxy/testing':
+        specifier: workspace:*
+        version: link:../testing
+      '@moxxy/tsconfig':
+        specifier: workspace:*
+        version: link:../../tooling/tsconfig
+      '@moxxy/vitest-preset':
+        specifier: workspace:*
+        version: link:../../tooling/vitest-preset
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.18
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.18)
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
+
+  packages/mode-developer:
+    dependencies:
+      '@moxxy/mode-tool-use':
+        specifier: workspace:*
+        version: link:../mode-tool-use
       '@moxxy/sdk':
         specifier: workspace:*
         version: link:../sdk

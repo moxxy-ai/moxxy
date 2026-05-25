@@ -9,6 +9,61 @@ export interface ApprovalDialogProps {
   readonly onDecide: (decision: ApprovalDecision) => void;
 }
 
+/** Maximum body lines rendered in one frame. Larger bodies become scrollable. */
+const MAX_BODY_LINES = 20;
+
+type LineRender = { readonly text: string; readonly color?: string; readonly dim?: boolean };
+
+/**
+ * Recognize diff-flavored content so the body can be colorized. Either a
+ * fenced ```diff block (preferred — explicit) or a body that starts with
+ * a `diff --git` line works.
+ */
+function isDiffBody(body: string): boolean {
+  return /```diff\b/.test(body) || /^\s*diff --git\b/m.test(body);
+}
+
+/**
+ * Render a single body line with diff-style coloring when inside a fenced
+ * diff block (or when the entire body is treated as diff content). Fence
+ * markers themselves are suppressed.
+ */
+function renderDiffLines(bodyLines: ReadonlyArray<string>): LineRender[] {
+  const wholeBodyIsDiff = bodyLines.some((l) => /^\s*diff --git\b/.test(l));
+  let inFence = wholeBodyIsDiff;
+  const out: LineRender[] = [];
+  for (const line of bodyLines) {
+    // Toggle on/off when we see ```diff or a closing ``` (only meaningful
+    // when fences are present — if the body is raw diff, fences never
+    // appear and inFence stays true throughout).
+    if (/^```diff\b/.test(line.trim())) {
+      inFence = true;
+      continue;
+    }
+    if (inFence && line.trim() === '```') {
+      if (!wholeBodyIsDiff) inFence = false;
+      continue;
+    }
+    if (!inFence) {
+      out.push({ text: line });
+      continue;
+    }
+    // Coloring rules — match before generic +/- to avoid eating headers.
+    if (/^(diff --git|index |---|\+\+\+)/.test(line)) {
+      out.push({ text: line, dim: true });
+    } else if (/^@@/.test(line)) {
+      out.push({ text: line, color: 'cyan' });
+    } else if (line.startsWith('+')) {
+      out.push({ text: line, color: 'green' });
+    } else if (line.startsWith('-')) {
+      out.push({ text: line, color: 'red' });
+    } else {
+      out.push({ text: line });
+    }
+  }
+  return out;
+}
+
 /**
  * Generic approval dialog used by any loop strategy that wants to surface
  * a checkpoint to the user. Renders the request body verbatim, lets the
@@ -31,6 +86,10 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({ request, onDecid
   const [textEntry, setTextEntry] = useState<{ optionId: string; buffer: string } | null>(
     null,
   );
+  // Scroll offset for long bodies (diff previews, etc). j/k or PgDn/PgUp
+  // walk through; ↑/↓ still control option navigation, so the two never
+  // collide.
+  const [scrollOffset, setScrollOffset] = useState(0);
 
   useInput((input, key) => {
     if (textEntry) {
@@ -68,6 +127,18 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({ request, onDecid
           setTextEntry((t) => (t ? { ...t, buffer: t.buffer + sanitized } : t));
         }
       }
+      return;
+    }
+
+    // Body scroll: j/k or PgDn/PgUp move through long bodies (e.g. diffs).
+    // Handled BEFORE hotkey/digit matching so a binding like hotkey='j'
+    // doesn't accidentally shadow scroll. No-op when the body fits.
+    if (input === 'j' || key.pageDown) {
+      setScrollOffset((o) => o + Math.max(1, Math.floor(MAX_BODY_LINES / 2)));
+      return;
+    }
+    if (input === 'k' || key.pageUp) {
+      setScrollOffset((o) => Math.max(0, o - Math.max(1, Math.floor(MAX_BODY_LINES / 2))));
       return;
     }
 
@@ -120,20 +191,42 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({ request, onDecid
     onDecide({ optionId: id });
   };
 
-  const bodyLines = request.body.split('\n');
-  const hints = textEntry
+  const rawLines = request.body.split('\n');
+  const diffMode = isDiffBody(request.body);
+  const rendered: LineRender[] = diffMode
+    ? renderDiffLines(rawLines)
+    : rawLines.map((text) => ({ text }));
+
+  // Clamp scrollOffset so we don't end up looking past the bottom when
+  // the body is short or the user paged down past the end.
+  const maxOffset = Math.max(0, rendered.length - MAX_BODY_LINES);
+  const offset = Math.min(scrollOffset, maxOffset);
+  const visible = rendered.slice(offset, offset + MAX_BODY_LINES);
+  const hiddenBefore = offset;
+  const hiddenAfter = Math.max(0, rendered.length - offset - visible.length);
+
+  const baseHints = textEntry
     ? 'Enter submit · Esc back'
     : '↑↓ navigate · Enter select · digit jumps · Esc cancel';
+  const hints =
+    !textEntry && rendered.length > MAX_BODY_LINES
+      ? `${baseHints} · j/k scroll`
+      : baseHints;
 
   return (
     <Modal title={request.title} hints={hints}>
-      {bodyLines.length > 0 && bodyLines[0] !== '' ? (
+      {rendered.length > 0 && rendered[0]?.text !== '' ? (
         <Box flexDirection="column" marginBottom={1}>
-          {bodyLines.slice(0, 24).map((line, i) => (
-            <Text key={i}>{line}</Text>
+          {hiddenBefore > 0 ? (
+            <Text dimColor>↑ {hiddenBefore} earlier line(s) — k/PgUp</Text>
+          ) : null}
+          {visible.map((line, i) => (
+            <Text key={i} {...(line.color ? { color: line.color } : {})} {...(line.dim ? { dimColor: true } : {})}>
+              {line.text}
+            </Text>
           ))}
-          {bodyLines.length > 24 ? (
-            <Text dimColor>… {bodyLines.length - 24} more line(s) hidden</Text>
+          {hiddenAfter > 0 ? (
+            <Text dimColor>↓ {hiddenAfter} more line(s) — j/PgDn</Text>
           ) : null}
         </Box>
       ) : null}

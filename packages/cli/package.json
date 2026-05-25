@@ -24,6 +24,8 @@
     "@moxxy/config": "workspace:*",
     "@moxxy/core": "workspace:*",
     "@moxxy/mode-bmad": "workspace:*",
+    "@moxxy/mode-deep-research": "workspace:*",
+    "@moxxy/mode-developer": "workspace:*",
     "@moxxy/mode-plan-execute": "workspace:*",
     "@moxxy/mode-tool-use": "workspace:*",
     "@moxxy/plugin-browser": "workspace:*",
