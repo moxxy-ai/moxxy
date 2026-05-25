@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { finalizeStagedCoreUpdate } from '@moxxy/plugin-self-update';
 import { parseArgv, type ParsedArgv } from './argv.js';
 import { runPromptCommand } from './commands/prompt.js';
 import { runTuiCommand } from './commands/tui.js';
@@ -18,6 +21,7 @@ import { runServiceCommand } from './commands/service.js';
 import { runServeCommand } from './commands/serve.js';
 import { runSessionsCommand } from './commands/sessions.js';
 import { runSecurityCommand } from './commands/security.js';
+import { runSelfUpdateCommand } from './commands/self-update.js';
 import { setupSessionWithConfig } from './setup.js';
 import { renderLogo } from './logo.js';
 import { colors } from './colors.js';
@@ -69,6 +73,7 @@ const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyA
       ['sessions list|delete', 'list / remove persisted sessions'],
       ['skills list|new|audit', 'manage skill files'],
       ['plugins list|reload|new', 'manage plugin host'],
+      ['self-update status|rollback', 'inspect / roll back self-update transactions'],
       ['perms list|allow|deny|remove|clear|path', 'view / edit the permission policy'],
       ['memory list|audit|show|revert|prune-stale|path', 'curate long-term memory'],
       ['security audit|isolators|status', 'inspect plugin-security isolation state'],
@@ -166,10 +171,16 @@ const COMMANDS: Record<string, CommandHandler> = {
   skills: runSkillsCommand,
   plugins: runPluginsCommand,
   channels: runChannelsCommand,
+  'self-update': runSelfUpdateCommand,
 };
 
 async function main(): Promise<number> {
   const argv = parseArgv(process.argv.slice(2));
+
+  // Reaching this point means the (possibly overlaid) core code imported
+  // cleanly, so commit any staged Tier-2 core patch. Best-effort — never
+  // block boot on it.
+  await finalizeStagedCoreUpdate(path.join(os.homedir(), '.moxxy')).catch(() => undefined);
 
   const handler = COMMANDS[argv.command];
   if (handler) return handler(argv);

@@ -1,5 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { promises as fs } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { z } from 'zod';
+import type { Plugin, ResolvedPluginManifest } from '@moxxy/sdk';
 import {
   defineCompactor,
   defineMode,
@@ -245,6 +249,83 @@ describe('PluginHost', () => {
     const result = await host.discoverAndLoad();
     expect(result).toEqual([]);
     warn.mockRestore();
+  });
+
+  describe('reload with userPaths', () => {
+    const tempDirs: string[] = [];
+    afterEach(async () => {
+      await Promise.all(tempDirs.splice(0).map((d) => fs.rm(d, { recursive: true, force: true })));
+    });
+
+    const makeHostWithUserPaths = (userPaths: ReadonlyArray<string>) => {
+      const base = makeHost();
+      const loader = {
+        load: async (m: ResolvedPluginManifest): Promise<Plugin> =>
+          definePlugin({
+            name: m.packageName,
+            tools: [
+              defineTool({
+                name: `${m.packageName}_tool`,
+                description: '',
+                inputSchema: z.any(),
+                handler: () => null,
+              }),
+            ],
+          }),
+      };
+      const host = new PluginHost({
+        cwd: '/tmp',
+        logger: silentLogger,
+        tools: base.tools,
+        providers: base.providers,
+        modes: base.modes,
+        compactors: base.compactors,
+        channels: base.channels,
+        agents: base.agents,
+        commands: base.commands,
+        transcribers: base.transcribers,
+        requirements: base.requirements,
+        dispatcher: base.dispatcher,
+        loader,
+        userPaths,
+      });
+      return { host, tools: base.tools };
+    };
+
+    const writeUserPlugin = async (root: string, name: string): Promise<void> => {
+      const dir = path.join(root, name);
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(
+        path.join(dir, 'package.json'),
+        JSON.stringify({ name, version: '0.0.0', moxxy: { plugin: { entry: './index.mjs' } } }),
+        'utf8',
+      );
+    };
+
+    it('preserves static builtins and (re)discovers user-path plugins', async () => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-host-'));
+      tempDirs.push(root);
+      const { host, tools } = makeHostWithUserPaths([root]);
+
+      // A statically-registered builtin has no manifest — it must survive reload.
+      host.registerStatic(
+        definePlugin({
+          name: 'builtin',
+          tools: [defineTool({ name: 'builtin_tool', description: '', inputSchema: z.any(), handler: () => null })],
+        }),
+      );
+      await writeUserPlugin(root, 'userplug');
+
+      await host.reload();
+      expect(tools.has('builtin_tool')).toBe(true); // static preserved
+      expect(tools.has('userplug_tool')).toBe(true); // user-path discovered
+
+      // Remove the user plugin from disk → reload unloads it, keeps the builtin.
+      await fs.rm(path.join(root, 'userplug'), { recursive: true, force: true });
+      await host.reload();
+      expect(tools.has('userplug_tool')).toBe(false);
+      expect(tools.has('builtin_tool')).toBe(true);
+    });
   });
 
   it('registerStatic + unload roundtrip transcribers', async () => {

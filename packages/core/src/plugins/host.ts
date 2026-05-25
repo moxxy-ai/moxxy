@@ -42,6 +42,13 @@ export interface PluginHostOptions {
   readonly requirements: RequirementRegistry;
   readonly dispatcher: HookDispatcherImpl;
   readonly loader?: PluginLoader;
+  /**
+   * Extra discovery roots beyond the cwd-rooted `node_modules` walk (e.g.
+   * `~/.moxxy/plugins` and its `node_modules`). Stored so `reload()` reuses
+   * them — otherwise a reload would compute its "wanted" set without these
+   * paths and unload every user plugin, then fail to rediscover them.
+   */
+  readonly userPaths?: ReadonlyArray<string>;
 }
 
 export interface PluginLoader {
@@ -213,15 +220,21 @@ export class PluginHost implements PluginHostHandle {
 
   async reload(): Promise<void> {
     this.opts.logger.info('PluginHost.reload(): rescanning plugins');
+    // Reuse the same discovery roots the initial load used (incl. the user
+    // plugin dirs) for BOTH the "wanted" scan and the re-load. Omitting them
+    // would mark user plugins as not-wanted (→ unloaded) and never re-add them.
     const manifests = await discoverPlugins({
       cwd: this.opts.cwd,
       logger: this.opts.logger,
+      ...(this.opts.userPaths ? { extraPaths: this.opts.userPaths } : {}),
     });
     const wanted = new Set(manifests.map((m) => m.packageName));
     for (const [name] of [...this.loaded]) {
-      if (!wanted.has(name)) await this.unload(name);
+      // Statically-registered builtins have no manifest; never unload them on
+      // reload — they aren't discovered from disk so they'd never come back.
+      if (this.loaded.get(name)?.manifest && !wanted.has(name)) await this.unload(name);
     }
-    await this.discoverAndLoad();
+    await this.discoverAndLoad(this.opts.userPaths);
   }
 
   private applyPlugin(plugin: Plugin, manifest?: ResolvedPluginManifest): LoadedRecord {

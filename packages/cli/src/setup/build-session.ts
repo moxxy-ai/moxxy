@@ -47,6 +47,8 @@ export async function buildSession(args: BuildSessionArgs): Promise<Session> {
     }
   }
 
+  const userPluginsDir = path.join(os.homedir(), '.moxxy', 'plugins');
+
   return new Session({
     cwd: args.cwd,
     logger: args.logger,
@@ -54,6 +56,10 @@ export async function buildSession(args: BuildSessionArgs): Promise<Session> {
     permissionResolver: args.resolver ?? denyByDefaultResolver,
     hookTimeoutMs: args.config.hookTimeoutMs,
     pluginLoader: createPluginLoader({ cwd: args.cwd }),
+    // Mirror the discovery roots register-plugins.ts uses for the initial
+    // scan, so pluginHost.reload() (install_plugin, self-update) rediscovers
+    // and preserves runtime-installed / scaffolded plugins.
+    pluginDiscoveryPaths: [userPluginsDir, path.join(userPluginsDir, 'node_modules')],
     ...(args.resumeSessionId ? { sessionId: args.resumeSessionId as SessionId } : {}),
     // Seed restored events directly into the log so subscribers don't
     // re-fire side effects for historical events. New appends from this

@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Session } from '@moxxy/core';
 import { checkVoiceCaptureAvailable } from '@moxxy/plugin-cli';
+import { corePreflight, detectCoreInstall } from '@moxxy/plugin-self-update';
 import type { RequirementIssue } from '@moxxy/sdk';
 import type { RequirementCheck } from '@moxxy/sdk';
 import type { ParsedArgv } from '../argv.js';
@@ -205,7 +206,25 @@ export async function runDoctorCommand(argv: ParsedArgv): Promise<number> {
     message: `provider=${eCfg}${config.embeddings?.model ? ` model=${config.embeddings.model}` : ''}`,
   });
 
+  // Self-update — Tier-1 is always available if the plugin is loaded; Tier-2
+  // (core patching) additionally needs git/pnpm + pinned source provenance.
+  checks.push(await buildSelfUpdateDoctorCheck(session));
+
   return emit(checks, asJson);
+}
+
+export async function buildSelfUpdateDoctorCheck(session: Session): Promise<Check> {
+  if (!session.tools.has('self_update_begin')) {
+    return { id: 'self-update', status: 'warn', message: 'disabled (plugin not loaded)' };
+  }
+  const tier2 = session.tools.has('self_update_core_begin');
+  if (!tier2) {
+    return { id: 'self-update', status: 'ok', message: 'Tier 1 ready (plugins/skills); Tier 2 disabled' };
+  }
+  const pf = await corePreflight(detectCoreInstall(import.meta.url));
+  if (pf.ok) return { id: 'self-update', status: 'ok', message: 'Tier 1 + Tier 2 (core) ready' };
+  const failed = pf.checks.filter((c) => !c.ok).map((c) => `${c.id}: ${c.detail}`).join('; ');
+  return { id: 'self-update', status: 'warn', message: `Tier 1 ready; Tier 2 unavailable — ${failed}` };
 }
 
 export function buildVoiceDoctorCheck(

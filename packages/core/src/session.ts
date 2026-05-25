@@ -38,6 +38,15 @@ export interface SessionOptions {
    */
   readonly pluginLoader?: PluginLoader;
   /**
+   * Extra directories to scan for plugins, on top of the cwd-rooted
+   * `node_modules` walk. The CLI sets this to `~/.moxxy/plugins` (and its
+   * `node_modules` subtree) so runtime-installed / scaffolded plugins are
+   * discoverable. Crucially these are remembered by the host and reused on
+   * `pluginHost.reload()`, so a hot-reload neither drops user plugins nor
+   * fails to pick up freshly written ones.
+   */
+  readonly pluginDiscoveryPaths?: ReadonlyArray<string>;
+  /**
    * Pre-seeded event log. Used by `moxxy resume` to restore the
    * conversation from a persisted JSONL. Subscribers don't re-fire for
    * seeded events (the constructor pushes them directly), so plugin
@@ -129,6 +138,7 @@ export class Session {
       requirements: this.requirements,
       dispatcher: this.dispatcher,
       loader: opts.pluginLoader,
+      ...(opts.pluginDiscoveryPaths ? { userPaths: opts.pluginDiscoveryPaths } : {}),
     });
 
     // Fan every appended event out to plugin `onEvent` hooks. Without this

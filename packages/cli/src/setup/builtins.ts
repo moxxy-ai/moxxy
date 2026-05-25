@@ -1,5 +1,7 @@
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { buildSynthesizeSkillPlugin, runTurn, type Session } from '@moxxy/core';
-import type { Plugin } from '@moxxy/sdk';
+import { asPluginId, type Plugin } from '@moxxy/sdk';
 import type { MoxxyConfig } from '@moxxy/config';
 import { anthropicPlugin } from '@moxxy/plugin-provider-anthropic';
 import { openaiPlugin } from '@moxxy/plugin-provider-openai';
@@ -23,6 +25,7 @@ import { httpChannelPlugin } from '@moxxy/plugin-channel-http';
 import { browserPlugin } from '@moxxy/plugin-browser';
 import { buildSubagentsPlugin } from '@moxxy/plugin-subagents';
 import { buildPluginsAdminPlugin } from '@moxxy/plugin-plugins-admin';
+import { buildSelfUpdatePlugin } from '@moxxy/plugin-self-update';
 import { buildProviderAdminPlugin } from '@moxxy/plugin-provider-admin';
 import { commandsPlugin } from '@moxxy/plugin-commands';
 import { computerControlPlugin } from '@moxxy/plugin-computer-control';
@@ -82,6 +85,7 @@ export const BUILTIN_REQUIREMENT_DECISIONS: Readonly<Record<string, BuiltinRequi
   '@moxxy/plugin-commands': { hardRequirements: false, reason: 'slash commands have no plugin dependency' },
   '@moxxy/plugin-subagents': { hardRequirements: false, reason: 'agent registry is injected by closure' },
   '@moxxy/plugin-plugins-admin': { hardRequirements: false, reason: 'plugin host access is injected by closure' },
+  '@moxxy/plugin-self-update': { hardRequirements: false, reason: 'plugin host / log access is injected by closure' },
   '@moxxy/plugin-mcp-admin': { hardRequirements: false, reason: 'tool and skill registries are injected by closure' },
   '@moxxy/synthesize-skill': { hardRequirements: false, reason: 'session access is injected by closure' },
   '@moxxy/plugin-scheduler': { hardRequirements: false, reason: 'runner and skills registry are injected by closure' },
@@ -187,6 +191,63 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
           compactors: session.compactors.list().map((c) => c.name),
           channels: session.channels.list().map((c) => c.name),
         }),
+      }),
+    },
+    // Self-update — exposes self_update_* tools so the model can author
+    // and apply guardrailed, transactional changes to its OWN plugins /
+    // skills (Tier 1, hot-reloaded) under ~/.moxxy. Every code write is
+    // permission-gated; verify builds+tests+loads the change and a failed
+    // modify auto-restores the previous version. Disable this plugin
+    // (`config.plugins['@moxxy/plugin-self-update'].enabled = false`) to
+    // lock the code base.
+    {
+      name: '@moxxy/plugin-self-update',
+      plugin: buildSelfUpdatePlugin({
+        moxxyDir: path.join(os.homedir(), '.moxxy'),
+        reload: () => session.pluginHost.reload(),
+        unload: (name) => session.pluginHost.unload(name),
+        snapshot: () => ({
+          tools: session.tools.list().map((t) => t.name),
+          agents: session.agents.list().map((a) => a.name),
+          providers: session.providers.list().map((p) => p.name),
+          modes: session.modes.list().map((l) => l.name),
+          compactors: session.compactors.list().map((c) => c.name),
+          channels: session.channels.list().map((c) => c.name),
+        }),
+        skipped: () =>
+          session.pluginHost.listSkipped().map((s) => ({
+            pluginName: s.pluginName,
+            ...(s.packageName ? { packageName: s.packageName } : {}),
+            message: s.message,
+          })),
+        emit: (e) =>
+          session.log
+            .append({
+              type: 'plugin_event',
+              pluginId: asPluginId('@moxxy/plugin-self-update'),
+              subtype: e.subtype,
+              payload: e.payload,
+              sessionId: e.sessionId,
+              turnId: e.turnId,
+              source: 'plugin',
+            })
+            .then(() => undefined),
+        ...(typeof rawConfig.plugins?.['@moxxy/plugin-self-update']?.options?.maxTxnRetained === 'number'
+          ? {
+              maxTxnRetained: rawConfig.plugins['@moxxy/plugin-self-update'].options
+                .maxTxnRetained as number,
+            }
+          : {}),
+        // Tier-2 core-patching is on by default; set
+        // options.allowCoreUpdate = false to hide the self_update_core_* tools.
+        // options.repoUrl overrides the git source (needed if @moxxy/core's
+        // published package.json lacks a `repository` field).
+        coreUpdate: {
+          enabled: rawConfig.plugins?.['@moxxy/plugin-self-update']?.options?.allowCoreUpdate !== false,
+          ...(typeof rawConfig.plugins?.['@moxxy/plugin-self-update']?.options?.repoUrl === 'string'
+            ? { repoUrlOverride: rawConfig.plugins['@moxxy/plugin-self-update'].options.repoUrl as string }
+            : {}),
+        },
       }),
     },
     // Provider admin tools (provider_add, provider_list, provider_remove,
