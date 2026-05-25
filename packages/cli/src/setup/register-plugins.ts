@@ -1,11 +1,25 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { createPluginLoader, discoverPlugins, type Logger, type Session } from '@moxxy/core';
+import {
+  createPluginLoader,
+  discoverPlugins,
+  PluginRequirementError,
+  readPackageMoxxyRequirements,
+  type Logger,
+  type PluginSkipRecord,
+  type Session,
+} from '@moxxy/core';
 import type { MoxxyConfig } from '@moxxy/config';
+import type { MoxxyRequirement } from '@moxxy/sdk';
 import type { BuiltinEntry } from './builtins.js';
 
 export interface RegistrationResult {
   readonly registered: ReadonlySet<string>;
+  readonly skipped: ReadonlyArray<PluginSkipRecord>;
+}
+
+export interface RegisterPluginsOptions {
+  readonly discover?: boolean;
 }
 
 /**
@@ -13,6 +27,11 @@ export interface RegistrationResult {
  * auto-discover installed `@moxxy/plugin-*` packages from the project
  * cwd plus `~/.moxxy/plugins` (both the dir itself and its
  * `node_modules` subtree). Discovery failures are logged, not fatal.
+ *
+ * Requirements for each builtin are resolved from the builtin's own
+ * `package.json#moxxy.requirements` field — there are no hardcoded
+ * requirement lists in CLI code. Builtins are toposorted by those
+ * resolved requirements so a dependent loads after its prerequisites.
  */
 export async function registerPlugins(
   session: Session,
@@ -20,16 +39,32 @@ export async function registerPlugins(
   builtins: ReadonlyArray<BuiltinEntry>,
   cwd: string,
   logger: Logger,
+  opts: RegisterPluginsOptions = {},
 ): Promise<RegistrationResult> {
   const registered = new Set<string>();
 
-  for (const { name, plugin } of builtins) {
+  const resolved = await resolveBuiltinRequirements(builtins, cwd);
+  const ordered = toposortBuiltins(builtins, resolved);
+  for (const { name, plugin } of ordered) {
     if (config.plugins?.[name]?.enabled === false) {
       logger.info('skipping disabled plugin', { plugin: name });
       continue;
     }
-    session.pluginHost.registerStatic(plugin);
-    registered.add(plugin.name);
+    const requirements = resolved.get(name);
+    try {
+      session.pluginHost.registerStatic(plugin, requirements ? { requirements } : {});
+      registered.add(plugin.name);
+    } catch (err) {
+      if (!(err instanceof PluginRequirementError)) throw err;
+      logger.warn('skipping plugin with unmet requirements', {
+        plugin: name,
+        err: err.message,
+      });
+    }
+  }
+
+  if (opts.discover === false) {
+    return { registered, skipped: session.pluginHost.listSkipped() };
   }
 
   const loader = createPluginLoader({ cwd });
@@ -55,7 +90,7 @@ export async function registerPlugins(
       try {
         const plugin = await loader.load(manifest);
         if (registered.has(plugin.name)) continue;
-        session.pluginHost.registerStatic(plugin);
+        session.pluginHost.registerDiscovered(plugin, manifest);
         registered.add(plugin.name);
         logger.info('auto-loaded plugin', { plugin: plugin.name, from: manifest.packagePath });
       } catch (err) {
@@ -71,5 +106,72 @@ export async function registerPlugins(
     });
   }
 
-  return { registered };
+  return { registered, skipped: session.pluginHost.listSkipped() };
+}
+
+/**
+ * For each builtin entry, look up `moxxy.requirements` in the entry's
+ * own package.json (resolved from `cwd`). Returns a map keyed by
+ * BuiltinEntry.name. Entries with no package on disk (e.g. virtual
+ * sub-plugins built dynamically inside another package) end up with no
+ * entry in the map — i.e. zero static requirements, which is the
+ * correct behavior: requirements live in package.json or they don't
+ * exist.
+ */
+async function resolveBuiltinRequirements(
+  builtins: ReadonlyArray<BuiltinEntry>,
+  cwd: string,
+): Promise<Map<string, ReadonlyArray<MoxxyRequirement>>> {
+  const out = new Map<string, ReadonlyArray<MoxxyRequirement>>();
+  await Promise.all(
+    builtins.map(async (entry) => {
+      const reqs = await readPackageMoxxyRequirements(entry.name, cwd);
+      if (reqs.length > 0) out.set(entry.name, reqs);
+    }),
+  );
+  return out;
+}
+
+function toposortBuiltins(
+  entries: ReadonlyArray<BuiltinEntry>,
+  requirementsByName: ReadonlyMap<string, ReadonlyArray<MoxxyRequirement>>,
+): ReadonlyArray<BuiltinEntry> {
+  const byPluginName = new Map<string, BuiltinEntry>();
+  for (const e of entries) byPluginName.set(e.plugin.name, e);
+
+  const order: BuiltinEntry[] = [];
+  const visited = new Set<string>();
+  const onStack = new Set<string>();
+
+  const visit = (entry: BuiltinEntry): void => {
+    if (visited.has(entry.plugin.name)) return;
+    if (onStack.has(entry.plugin.name)) {
+      // Cycle: bail to original insertion order rather than throwing —
+      // builtins are author-controlled and the failure should surface as
+      // a missing-requirement diagnostic, not a hard crash at boot.
+      return;
+    }
+    onStack.add(entry.plugin.name);
+    for (const depName of pluginDeps(requirementsByName.get(entry.name))) {
+      const dep = byPluginName.get(depName);
+      if (dep) visit(dep);
+    }
+    onStack.delete(entry.plugin.name);
+    visited.add(entry.plugin.name);
+    order.push(entry);
+  };
+
+  for (const e of entries) visit(e);
+  return order;
+}
+
+function pluginDeps(
+  requirements: ReadonlyArray<MoxxyRequirement> | undefined,
+): ReadonlyArray<string> {
+  if (!requirements) return [];
+  const out: string[] = [];
+  for (const req of requirements) {
+    if (req.kind === 'plugin') out.push(req.name);
+  }
+  return out;
 }

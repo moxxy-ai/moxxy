@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pluginManifestSchema, skillFrontmatterSchema } from './schemas.js';
+import { moxxyPackageSchema, pluginManifestSchema, skillFrontmatterSchema } from './schemas.js';
 
 describe('skillFrontmatterSchema', () => {
   it('accepts minimal valid frontmatter', () => {
@@ -56,7 +56,51 @@ describe('pluginManifestSchema', () => {
     ]);
   });
 
+  it('accepts every public plugin kind, including transcriber/agent/command', () => {
+    expect(pluginManifestSchema.parse({ entry: 'a', kind: 'transcriber' }).kind).toBe(
+      'transcriber',
+    );
+    expect(pluginManifestSchema.parse({ entry: 'a', kind: ['agent', 'command'] }).kind).toEqual([
+      'agent',
+      'command',
+    ]);
+  });
+
   it('rejects unknown kind', () => {
     expect(() => pluginManifestSchema.parse({ entry: 'a', kind: 'weird' })).toThrow();
+  });
+});
+
+describe('moxxyPackageSchema', () => {
+  it('accepts the full moxxy package block with plugin + requirements', () => {
+    const parsed = moxxyPackageSchema.parse({
+      plugin: { entry: './dist/index.js', kind: 'transcriber' },
+      requirements: [
+        {
+          kind: 'plugin',
+          name: '@moxxy/plugin-provider-openai-codex',
+          state: 'registered',
+          hint: 'Enable @moxxy/plugin-provider-openai-codex.',
+        },
+      ],
+    });
+
+    expect(parsed.plugin?.entry).toBe('./dist/index.js');
+    expect(parsed.requirements).toEqual([
+      {
+        kind: 'plugin',
+        name: '@moxxy/plugin-provider-openai-codex',
+        state: 'registered',
+        hint: 'Enable @moxxy/plugin-provider-openai-codex.',
+      },
+    ]);
+  });
+
+  it('accepts a moxxy block with only requirements (no plugin entry)', () => {
+    const parsed = moxxyPackageSchema.parse({
+      requirements: [{ kind: 'plugin', name: 'base' }],
+    });
+    expect(parsed.plugin).toBeUndefined();
+    expect(parsed.requirements).toHaveLength(1);
   });
 });

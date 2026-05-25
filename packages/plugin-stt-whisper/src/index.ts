@@ -7,6 +7,14 @@ export {
   type WhisperModel,
   type WhisperTranscriberOptions,
 } from './whisper.js';
+export {
+  MOXXY_PCM16_24KHZ_MIME,
+  WHISPER_FILENAME_BY_MIME,
+  normalizeWhisperUpload,
+  pcm16MonoToWav,
+  whisperFilenameFor,
+  type NormalizedAudioUpload,
+} from './audio.js';
 
 export interface BuildWhisperPluginOptions {
   /**

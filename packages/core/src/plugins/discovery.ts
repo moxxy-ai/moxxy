@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { pluginManifestSchema, type PluginManifest, type ResolvedPluginManifest } from '@moxxy/sdk';
+import { moxxyPackageSchema, type ResolvedPluginManifest } from '@moxxy/sdk';
 import type { Logger } from '../logger.js';
 
 export interface DiscoveryOptions {
@@ -73,28 +73,32 @@ async function readPluginManifest(
   logger: Logger,
 ): Promise<ResolvedPluginManifest | null> {
   const pkgJsonPath = path.join(packagePath, 'package.json');
-  let pkg: { name?: string; version?: string; moxxy?: { plugin?: PluginManifest } };
+  let pkg: { name?: string; version?: string; moxxy?: unknown };
   try {
     pkg = JSON.parse(await fs.readFile(pkgJsonPath, 'utf8'));
   } catch {
     return null;
   }
-  if (!pkg.moxxy?.plugin) return null;
+  if (!pkg.moxxy) return null;
   if (!pkg.name) return null;
 
-  const parsed = pluginManifestSchema.safeParse(pkg.moxxy.plugin);
-  if (!parsed.success) {
-    logger.warn('discovery: invalid moxxy.plugin manifest, skipping', {
+  const parsedMoxxy = moxxyPackageSchema.safeParse(pkg.moxxy);
+  if (!parsedMoxxy.success) {
+    logger.warn('discovery: invalid moxxy package config, skipping', {
       package: pkg.name,
-      issues: parsed.error.issues,
+      issues: parsedMoxxy.error.issues,
     });
     return null;
   }
 
+  const { plugin, requirements } = parsedMoxxy.data;
+  if (!plugin) return null;
+
   return {
-    ...parsed.data,
+    ...plugin,
     packageName: pkg.name,
     packageVersion: pkg.version ?? '0.0.0',
     packagePath,
+    ...(requirements ? { requirements } : {}),
   };
 }

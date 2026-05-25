@@ -4,9 +4,12 @@ import type {
   CommandDef,
   CompactorDef,
   LoopStrategyDef,
+  MoxxyRequirement,
   Plugin,
   PluginHostHandle,
   ProviderDef,
+  RequirementCheck,
+  RequirementIssue,
   ResolvedPluginManifest,
   ToolDef,
   TranscriberDef,
@@ -21,7 +24,9 @@ import type { ProviderRegistry } from '../registries/providers.js';
 import type { ToolRegistry } from '../registries/tools.js';
 import type { TranscriberRegistry } from '../registries/transcribers.js';
 import type { HookDispatcherImpl } from './lifecycle.js';
+import type { RequirementRegistry } from '../requirements.js';
 import { discoverPlugins } from './discovery.js';
+import { toposortPluginManifests, PluginCycleError } from './toposort.js';
 
 export interface PluginHostOptions {
   readonly cwd: string;
@@ -34,12 +39,51 @@ export interface PluginHostOptions {
   readonly agents: AgentRegistry;
   readonly commands: CommandRegistry;
   readonly transcribers: TranscriberRegistry;
+  readonly requirements: RequirementRegistry;
   readonly dispatcher: HookDispatcherImpl;
   readonly loader?: PluginLoader;
 }
 
 export interface PluginLoader {
   load(manifest: ResolvedPluginManifest): Promise<Plugin>;
+}
+
+export interface RegisterStaticOptions {
+  /**
+   * Static requirements to enforce before registration. Mirrors the
+   * `moxxy.requirements` field a discovered plugin's package.json would
+   * carry; passed explicitly here because statically-imported builtins
+   * don't go through `discoverPlugins()`.
+   */
+  readonly requirements?: ReadonlyArray<MoxxyRequirement>;
+}
+
+export type PluginSkipSource = 'static' | 'discovered';
+export type PluginSkipReason = 'unmet_requirements' | 'load_error';
+
+export interface PluginSkipRecord {
+  readonly pluginName: string;
+  readonly source: PluginSkipSource;
+  readonly reason: PluginSkipReason;
+  readonly message: string;
+  readonly packageName?: string;
+  readonly issues?: ReadonlyArray<RequirementIssue>;
+  readonly hints: ReadonlyArray<string>;
+}
+
+export class PluginRequirementError extends Error {
+  constructor(
+    readonly pluginName: string,
+    readonly check: RequirementCheck,
+  ) {
+    super(
+      check.issues
+        .filter((issue) => !issue.requirement.optional)
+        .map((issue) => issue.message)
+        .join('; '),
+    );
+    this.name = 'PluginRequirementError';
+  }
 }
 
 interface LoadedRecord {
@@ -57,6 +101,7 @@ interface LoadedRecord {
 
 export class PluginHost implements PluginHostHandle {
   private readonly loaded = new Map<string, LoadedRecord>();
+  private readonly skipped = new Map<string, PluginSkipRecord>();
 
   constructor(private readonly opts: PluginHostOptions) {}
 
@@ -68,12 +113,32 @@ export class PluginHost implements PluginHostHandle {
     }));
   }
 
-  registerStatic(plugin: Plugin): void {
+  listSkipped(): ReadonlyArray<PluginSkipRecord> {
+    return [...this.skipped.values()];
+  }
+
+  registerStatic(plugin: Plugin, opts: RegisterStaticOptions = {}): void {
     if (this.loaded.has(plugin.name)) {
       throw new Error(`Plugin already registered: ${plugin.name}`);
     }
+    this.assertRequirementsReady(plugin, opts.requirements, 'static');
     const record = this.applyPlugin(plugin);
     this.loaded.set(plugin.name, record);
+    this.clearSkip(plugin.name);
+    this.opts.requirements.registerPlugin(plugin.name, plugin.version);
+    this.refreshDispatcher();
+  }
+
+  registerDiscovered(plugin: Plugin, manifest: ResolvedPluginManifest): void {
+    if (this.loaded.has(plugin.name)) {
+      throw new Error(`Plugin already registered: ${plugin.name}`);
+    }
+    this.assertRequirementsReady(plugin, manifest.requirements, 'discovered', manifest);
+    const record = this.applyPlugin(plugin, manifest);
+    this.loaded.set(plugin.name, record);
+    this.clearSkip(plugin.name);
+    this.clearSkip(manifest.packageName);
+    this.opts.requirements.registerPlugin(plugin.name, plugin.version);
     this.refreshDispatcher();
   }
 
@@ -91,14 +156,35 @@ export class PluginHost implements PluginHostHandle {
       );
       return loaded;
     }
-    for (const manifest of manifests) {
+    let ordered: ReadonlyArray<ResolvedPluginManifest>;
+    try {
+      ordered = toposortPluginManifests(manifests);
+    } catch (err) {
+      if (err instanceof PluginCycleError) {
+        this.opts.logger.warn('PluginHost: requirement cycle, falling back to unsorted order', {
+          cycle: err.cycle,
+        });
+        ordered = manifests;
+      } else {
+        throw err;
+      }
+    }
+    for (const manifest of ordered) {
       if (this.loaded.has(manifest.packageName)) continue;
       try {
         const plugin = await loader.load(manifest);
-        const record = this.applyPlugin(plugin, manifest);
-        this.loaded.set(plugin.name, record);
+        this.registerDiscovered(plugin, manifest);
         loaded.push(plugin);
       } catch (err) {
+        if (err instanceof PluginRequirementError) {
+          this.opts.logger.warn('PluginHost: skipped plugin due to unmet requirements', {
+            package: manifest.packageName,
+            plugin: err.pluginName,
+            err: err.message,
+          });
+          continue;
+        }
+        this.recordLoadError(manifest.packageName, 'discovered', manifest.packageName, err);
         this.opts.logger.warn('PluginHost: failed to load plugin', {
           package: manifest.packageName,
           err: err instanceof Error ? err.message : String(err),
@@ -121,6 +207,7 @@ export class PluginHost implements PluginHostHandle {
     for (const cmdName of record.commandNames) this.opts.commands.unregister(cmdName);
     for (const transcriberName of record.transcriberNames) this.opts.transcribers.unregister(transcriberName);
     this.loaded.delete(name);
+    this.opts.requirements.unregisterPlugin(record.plugin.name);
     this.refreshDispatcher();
   }
 
@@ -170,7 +257,63 @@ export class PluginHost implements PluginHostHandle {
     };
   }
 
+  private assertRequirementsReady(
+    plugin: Plugin,
+    requirements: ReadonlyArray<MoxxyRequirement> | undefined,
+    source: PluginSkipSource = 'static',
+    manifest?: ResolvedPluginManifest,
+  ): void {
+    if (!requirements || requirements.length === 0) return;
+    const check = this.opts.requirements.check(requirements);
+    if (!check.ready) {
+      this.recordRequirementSkip(plugin, source, manifest, check);
+      throw new PluginRequirementError(plugin.name, check);
+    }
+  }
+
   private refreshDispatcher(): void {
     this.opts.dispatcher.setPlugins([...this.loaded.values()].map((r) => r.plugin));
   }
+
+  private recordRequirementSkip(
+    plugin: Plugin,
+    source: PluginSkipSource,
+    manifest: ResolvedPluginManifest | undefined,
+    check: RequirementCheck,
+  ): void {
+    const blocking = check.issues.filter((issue) => !issue.requirement.optional);
+    this.skipped.set(skipKey(plugin.name), {
+      pluginName: plugin.name,
+      source,
+      reason: 'unmet_requirements',
+      message: blocking.map((issue) => issue.message).join('; '),
+      ...(manifest ? { packageName: manifest.packageName } : {}),
+      issues: check.issues,
+      hints: blocking.flatMap((issue) => issue.hint ? [issue.hint] : []),
+    });
+  }
+
+  private recordLoadError(
+    pluginName: string,
+    source: PluginSkipSource,
+    packageName: string | undefined,
+    err: unknown,
+  ): void {
+    this.skipped.set(skipKey(pluginName), {
+      pluginName,
+      source,
+      reason: 'load_error',
+      message: err instanceof Error ? err.message : String(err),
+      ...(packageName ? { packageName } : {}),
+      hints: [],
+    });
+  }
+
+  private clearSkip(pluginName: string): void {
+    this.skipped.delete(skipKey(pluginName));
+  }
+}
+
+function skipKey(pluginName: string): string {
+  return pluginName;
 }

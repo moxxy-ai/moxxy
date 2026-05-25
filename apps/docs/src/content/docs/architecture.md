@@ -41,6 +41,13 @@ Plugins are TypeScript code, distributed as `@moxxy/*` (or `@anyone/*`) npm pack
 - **Lifecycle hooks** — `onInit`, `onToolCall`, `onBeforeProviderCall`, …
 - **Bundled skills** — Markdown files shipped with the plugin
 
+Plugins and blocks can declare `requirements` for availability and readiness:
+required plugins, active providers, runtime auth facts, registered
+transcribers, and similar preflight state. The plugin host skips plugins with
+missing hard requirements before partial contributions are registered, and
+registries check block requirements before activation or execution. See
+[Requirements](./guides/requirements).
+
 ## Channel model
 
 A `Channel` is a bidirectional frontend that owns a Session: feeds user prompts in, renders assistant chunks + tool activity out, implements `PermissionResolver`. The TUI and Telegram are both Channels. Future Slack/Discord/HTTP channels slot in identically.

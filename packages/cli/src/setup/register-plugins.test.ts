@@ -1,0 +1,92 @@
+import { promises as fs } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { afterAll, describe, expect, it } from 'vitest';
+import { Session, silentLogger } from '@moxxy/core';
+import { definePlugin } from '@moxxy/sdk';
+import type { MoxxyConfig } from '@moxxy/config';
+import { registerPlugins } from './register-plugins.js';
+
+const tempDirs: string[] = [];
+
+afterAll(async () => {
+  await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+});
+
+async function stageFakePackage(
+  pkgName: string,
+  moxxy: object,
+): Promise<string> {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-register-plugins-'));
+  tempDirs.push(cwd);
+  const pkgDir = path.join(cwd, 'node_modules', ...pkgName.split('/'));
+  await fs.mkdir(pkgDir, { recursive: true });
+  await fs.writeFile(
+    path.join(pkgDir, 'package.json'),
+    JSON.stringify({ name: pkgName, version: '0.0.0', moxxy }),
+  );
+  return cwd;
+}
+
+describe('registerPlugins', () => {
+  it('resolves builtin requirements from package.json and reports unmet ones as skips', async () => {
+    const cwd = await stageFakePackage('needs-base', {
+      requirements: [
+        { kind: 'plugin', name: 'base-plugin', hint: 'Enable base-plugin.' },
+      ],
+    });
+    const session = new Session({ cwd, logger: silentLogger });
+    const result = await registerPlugins(
+      session,
+      {} as MoxxyConfig,
+      [{ name: 'needs-base', plugin: definePlugin({ name: 'needs-base' }) }],
+      cwd,
+      silentLogger,
+      { discover: false },
+    );
+
+    expect(result.registered.size).toBe(0);
+    expect(result.skipped).toMatchObject([
+      {
+        pluginName: 'needs-base',
+        source: 'static',
+        reason: 'unmet_requirements',
+        message: 'Required plugin is not registered: base-plugin',
+        hints: ['Enable base-plugin.'],
+      },
+    ]);
+  });
+
+  it('orders builtins by their declared plugin requirements', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-register-plugins-order-'));
+    tempDirs.push(cwd);
+    const stage = async (name: string, moxxy: object): Promise<void> => {
+      const pkgDir = path.join(cwd, 'node_modules', ...name.split('/'));
+      await fs.mkdir(pkgDir, { recursive: true });
+      await fs.writeFile(
+        path.join(pkgDir, 'package.json'),
+        JSON.stringify({ name, version: '0.0.0', moxxy }),
+      );
+    };
+    await stage('base', {});
+    await stage('dependent', {
+      requirements: [{ kind: 'plugin', name: 'base', state: 'registered' }],
+    });
+
+    const session = new Session({ cwd, logger: silentLogger });
+    // Pass dependent first so we exercise the reorder.
+    const result = await registerPlugins(
+      session,
+      {} as MoxxyConfig,
+      [
+        { name: 'dependent', plugin: definePlugin({ name: 'dependent' }) },
+        { name: 'base', plugin: definePlugin({ name: 'base' }) },
+      ],
+      cwd,
+      silentLogger,
+      { discover: false },
+    );
+
+    expect([...result.registered]).toEqual(['base', 'dependent']);
+  });
+});

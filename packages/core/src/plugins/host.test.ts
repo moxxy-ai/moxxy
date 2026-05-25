@@ -19,6 +19,7 @@ import { CommandRegistry } from '../registries/commands.js';
 import { TranscriberRegistry } from '../registries/transcribers.js';
 import { HookDispatcherImpl } from './lifecycle.js';
 import { PluginHost } from './host.js';
+import { RequirementRegistry } from '../requirements.js';
 
 const makeHost = () => {
   const tools = new ToolRegistryImpl({ logger: silentLogger, cwd: '/tmp' });
@@ -29,6 +30,16 @@ const makeHost = () => {
   const agents = new AgentRegistry();
   const commands = new CommandRegistry();
   const transcribers = new TranscriberRegistry();
+  const requirements = new RequirementRegistry({
+    tools,
+    providers,
+    loops,
+    compactors,
+    channels,
+    agents,
+    commands,
+    transcribers,
+  });
   const dispatcher = new HookDispatcherImpl({ logger: silentLogger });
   const host = new PluginHost({
     cwd: '/tmp',
@@ -41,9 +52,10 @@ const makeHost = () => {
     agents,
     commands,
     transcribers,
+    requirements,
     dispatcher,
   });
-  return { host, tools, providers, loops, compactors, channels, agents, commands, transcribers, dispatcher };
+  return { host, tools, providers, loops, compactors, channels, agents, commands, transcribers, requirements, dispatcher };
 };
 
 describe('PluginHost', () => {
@@ -87,6 +99,129 @@ describe('PluginHost', () => {
     const p = definePlugin({ name: 'x' });
     host.registerStatic(p);
     expect(() => host.registerStatic(p)).toThrow(/already registered/);
+  });
+
+  it('rejects plugins whose required plugin is missing without partial registration', () => {
+    const { host, tools } = makeHost();
+    const plugin = definePlugin({
+      name: 'needs-codex',
+      tools: [
+        defineTool({
+          name: 'should-not-register',
+          description: '',
+          inputSchema: z.any(),
+          handler: () => null,
+        }),
+      ],
+    });
+
+    expect(() =>
+      host.registerStatic(plugin, {
+        requirements: [{ kind: 'plugin', name: '@moxxy/plugin-provider-openai-codex' }],
+      }),
+    ).toThrow(/Required plugin is not registered: @moxxy\/plugin-provider-openai-codex/);
+    expect(tools.has('should-not-register')).toBe(false);
+    expect(host.list()).toEqual([]);
+    expect(host.listSkipped()).toMatchObject([
+      {
+        pluginName: 'needs-codex',
+        source: 'static',
+        reason: 'unmet_requirements',
+        message: 'Required plugin is not registered: @moxxy/plugin-provider-openai-codex',
+      },
+    ]);
+  });
+
+  it('keeps optional plugin requirements as diagnostics without skipping registration', () => {
+    const { host, tools } = makeHost();
+    host.registerStatic(
+      definePlugin({
+        name: 'optional-codex',
+        tools: [
+          defineTool({
+            name: 'optional-tool',
+            description: '',
+            inputSchema: z.any(),
+            handler: () => null,
+          }),
+        ],
+      }),
+      {
+        requirements: [
+          {
+            kind: 'plugin',
+            name: '@moxxy/plugin-provider-openai-codex',
+            optional: true,
+            hint: 'Enable Codex for richer behavior.',
+          },
+        ],
+      },
+    );
+
+    expect(tools.has('optional-tool')).toBe(true);
+    expect(host.listSkipped()).toEqual([]);
+  });
+
+  it('clears a previous skip once the same plugin registers successfully', () => {
+    const { host } = makeHost();
+    const plugin = definePlugin({ name: 'needs-codex' });
+    const opts = {
+      requirements: [{ kind: 'plugin' as const, name: '@moxxy/plugin-provider-openai-codex' }],
+    };
+
+    expect(() => host.registerStatic(plugin, opts)).toThrow(/Required plugin is not registered/);
+    expect(host.listSkipped()).toHaveLength(1);
+
+    host.registerStatic(definePlugin({ name: '@moxxy/plugin-provider-openai-codex' }));
+    host.registerStatic(plugin, opts);
+
+    expect(host.listSkipped()).toEqual([]);
+  });
+
+  it('records discovered plugin skips with discovered source metadata', () => {
+    const { host } = makeHost();
+    const plugin = definePlugin({ name: '@demo/discovered' });
+
+    expect(() =>
+      host.registerDiscovered(plugin, {
+        entry: './dist/index.js',
+        packageName: '@demo/discovered',
+        packageVersion: '1.0.0',
+        packagePath: '/tmp/discovered',
+        requirements: [{ kind: 'plugin', name: '@demo/base' }],
+      }),
+    ).toThrow(/Required plugin is not registered/);
+
+    expect(host.listSkipped()).toMatchObject([
+      {
+        pluginName: '@demo/discovered',
+        source: 'discovered',
+        packageName: '@demo/discovered',
+      },
+    ]);
+  });
+
+  it('allows plugin registration after required plugin is loaded', () => {
+    const { host, tools } = makeHost();
+    host.registerStatic(definePlugin({ name: '@moxxy/plugin-provider-openai-codex' }));
+    host.registerStatic(
+      definePlugin({
+        name: 'needs-codex',
+        tools: [
+          defineTool({
+            name: 'registers-after-requirements',
+            description: '',
+            inputSchema: z.any(),
+            handler: () => null,
+          }),
+        ],
+      }),
+      {
+        requirements: [{ kind: 'plugin', name: '@moxxy/plugin-provider-openai-codex' }],
+      },
+    );
+
+    expect(tools.has('registers-after-requirements')).toBe(true);
   });
 
   it('unload removes contributions', async () => {

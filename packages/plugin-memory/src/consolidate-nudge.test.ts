@@ -95,4 +95,5 @@ describe('auto-consolidation nudge hook', () => {
     const result = await plugin.hooks?.onBeforeProviderCall?.(baseReq(), ctx());
     expect(result).toBeUndefined();
   });
+
 });

@@ -7,8 +7,10 @@ import { InputBox } from '../components/InputBox.js';
 import { ListPicker } from '../components/ListPicker.js';
 import { QueueView } from '../components/QueueView.js';
 import type { SlashCommand } from '../components/SlashCommands.js';
+import type { ExternalInsert } from '../components/prompt/external-insert.js';
 import type { QueuedMessage } from './use-turn-runner.js';
 import type { PendingApproval, PendingPermission, Picker } from './types.js';
+import type { VoicePhase } from './use-voice-input.js';
 
 interface InteractiveZoneProps {
   session: Session;
@@ -17,6 +19,8 @@ interface InteractiveZoneProps {
   pendingApproval: PendingApproval | null;
   picker: Picker;
   busy: boolean;
+  voiceReady: boolean;
+  voicePhase: VoicePhase;
   yolo: boolean;
   slashCommands: ReadonlyArray<SlashCommand>;
   /** Live queue contents for the always-visible QueueView. */
@@ -26,6 +30,7 @@ interface InteractiveZoneProps {
   /** Ctrl+<letter> hotkeys plumbed into the input editor (Ink's useInput
    *  can't see these once PromptInput holds stdin). */
   commandHotkeys: Record<string, () => void>;
+  externalInsert?: ExternalInsert;
   onPermissionDecide: (perm: PendingPermission, decision: import('@moxxy/sdk').PermissionDecision) => void;
   onApprovalDecide: (decision: import('@moxxy/sdk').ApprovalDecision) => void;
   onPickerSelect: (picker: NonNullable<Picker>, id: string) => void;
@@ -48,11 +53,14 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
   pendingApproval,
   picker,
   busy,
+  voiceReady,
+  voicePhase,
   yolo,
   slashCommands,
   queueMessages,
   priorityMessage,
   commandHotkeys,
+  externalInsert,
   onPermissionDecide,
   onApprovalDecide,
   onPickerSelect,
@@ -99,15 +107,18 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
         onSubmit={onSubmit}
         disabled={false}
         yolo={yolo}
+        voicePhase={voicePhase}
         slashCommands={slashCommands}
-        placeholder={
-          busy
-            ? 'type to queue a message — sent after the current turn (ctrl+t to force-send first)'
-            : 'type a prompt or / for commands'
-        }
+        placeholder={buildPromptPlaceholder(busy, voiceReady)}
         onPasteText={onPasteText}
         commandHotkeys={commandHotkeys}
+        externalInsert={externalInsert}
       />
     </Box>
   );
 };
+
+export function buildPromptPlaceholder(busy: boolean, voiceReady = true): string {
+  if (busy) return 'type to queue a message — sent after the current turn (ctrl+t to force-send first)';
+  return voiceReady ? 'type a prompt, / for commands, Ctrl+R voice' : 'type a prompt, / for commands';
+}

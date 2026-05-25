@@ -5,6 +5,8 @@ import { BootScreen, type BootEvent, type BootEventId } from '../components/Boot
 import { InputBox } from '../components/InputBox.js';
 import { FooterHints } from '../components/FooterHints.js';
 import { SessionView } from './SessionView.js';
+import { SystemNotice } from './OverlayOrNotice.js';
+import { useVoiceInput } from './use-voice-input.js';
 import type { InteractiveSessionProps } from './props.js';
 
 /**
@@ -77,7 +79,6 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
   // Resumed sessions skip the splash entirely — the user wants to land
   // back in their conversation without re-typing anything.
   if (!session || (initialPrompt == null && !resumed)) {
-    const ready = session != null && bootError == null;
     return (
       <Box flexDirection="column">
         <BootScreen
@@ -85,26 +86,22 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
           startedAt={startedAt}
           {...(bootError ? { error: bootError } : {})}
         />
-        <Box marginTop={2}>
-          <InputBox
-            disabled={!ready}
-            placeholder={
-              ready
-                ? 'type a prompt to begin · / for commands'
-                : bootError
-                  ? 'Bootstrap failed — quit and run `moxxy init`'
-                  : 'Initializing…'
-            }
-            onSubmit={(text) => {
-              if (!ready) return;
-              const trimmed = text.trim();
-              if (trimmed) setInitialPrompt(trimmed);
-            }}
+        {session ? (
+          <BootInputArea
+            session={session}
+            ready={bootError == null}
+            bootError={bootError}
+            onSubmit={(text) => setInitialPrompt(text)}
           />
-        </Box>
-        <Box marginTop={1}>
-          <FooterHints mode={ready ? 'default' : 'boot'} />
-        </Box>
+        ) : (
+          <DisabledBootInput
+            placeholder={
+              bootError
+                ? 'Bootstrap failed — quit and run `moxxy init`'
+                : 'Initializing…'
+            }
+          />
+        )}
       </Box>
     );
   }
@@ -118,3 +115,69 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
     />
   );
 };
+
+interface BootInputAreaProps {
+  readonly session: Session;
+  readonly ready: boolean;
+  readonly bootError: { failedStep?: BootEventId; message: string } | null;
+  readonly onSubmit: (text: string) => void;
+}
+
+/**
+ * Splash-screen input area, mounted once a `Session` is available so
+ * the voice hook (which needs live registries) can run. Ctrl+R toggles
+ * recording exactly like in the chat view, and a transcribed utterance
+ * fills the input via `externalInsert` so the user can review + Enter
+ * to send as their first prompt.
+ */
+const BootInputArea: React.FC<BootInputAreaProps> = ({ session, ready, bootError, onSubmit }) => {
+  const [systemNotice, setSystemNotice] = useState<string | null>(null);
+  const voice = useVoiceInput({ session, setSystemNotice });
+  const commandHotkeys: Record<string, () => void> = ready ? { r: voice.toggleVoiceInput } : {};
+
+  return (
+    <Box flexDirection="column">
+      <Box marginTop={2}>
+        <InputBox
+          disabled={!ready}
+          voicePhase={voice.phase}
+          externalInsert={voice.externalInsert}
+          commandHotkeys={commandHotkeys}
+          placeholder={
+            ready
+              ? buildBootPlaceholder(voice.ready)
+              : bootError
+                ? 'Bootstrap failed — quit and run `moxxy init`'
+                : 'Initializing…'
+          }
+          onSubmit={(text) => {
+            if (!ready) return;
+            const trimmed = text.trim();
+            if (trimmed) onSubmit(trimmed);
+          }}
+        />
+      </Box>
+      {systemNotice ? <SystemNotice notice={systemNotice} /> : null}
+      <Box marginTop={1}>
+        <FooterHints mode="boot" voiceReady={voice.ready} />
+      </Box>
+    </Box>
+  );
+};
+
+const DisabledBootInput: React.FC<{ placeholder: string }> = ({ placeholder }) => (
+  <>
+    <Box marginTop={2}>
+      <InputBox disabled placeholder={placeholder} onSubmit={() => undefined} />
+    </Box>
+    <Box marginTop={1}>
+      <FooterHints mode="boot" />
+    </Box>
+  </>
+);
+
+function buildBootPlaceholder(voiceReady: boolean): string {
+  return voiceReady
+    ? 'type a prompt to begin · / for commands · Ctrl+R voice'
+    : 'type a prompt to begin · / for commands';
+}

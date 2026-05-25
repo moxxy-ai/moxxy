@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { Border, Colors } from '../theme.js';
 import { PromptInput, type PromptInputProps } from './PromptInput.js';
+import type { VoicePhase } from '../session/use-voice-input.js';
 
 export interface InputBoxProps extends PromptInputProps {
   /** Active model name (e.g. `claude-sonnet-4-6`). Bottom-right corner. */
@@ -14,9 +15,18 @@ export interface InputBoxProps extends PromptInputProps {
    * never forget tool calls are being auto-allowed.
    */
   readonly yolo?: boolean;
+  /**
+   * Current voice-input phase. When `recording` or `transcribing`, the
+   * box paints its border in the matching accent color and inlays a
+   * pill on the top edge so the recording state is impossible to miss
+   * while typing.
+   */
+  readonly voicePhase?: VoicePhase;
 }
 
 const YOLO_LABEL = ' YOLO ';
+const VOICE_REC_LABEL = ' ● REC ';
+const VOICE_TRANSCRIBE_LABEL = ' TRANSCRIBING ';
 /** How many border dashes to keep between the label and the top-right
  *  corner — a single dash so the badge sits visually attached to the
  *  corner without touching it. */
@@ -28,8 +38,16 @@ const RIGHT_PAD = 1;
  * top edge is replaced with a hand-drawn row containing an inverse-
  * yellow `YOLO` tab embedded in the border, mirroring the reference
  * design where the tab character-overlaps the border line.
+ *
+ * Voice phase takes priority over the standard border when the user is
+ * actively recording or transcribing: the border + an inline pill turn
+ * red (recording) or yellow (transcribing) so the state is visible
+ * from across the screen.
  */
-export const InputBox: React.FC<InputBoxProps> = ({ model, modeBadge, yolo, ...input }) => {
+export const InputBox: React.FC<InputBoxProps> = ({ model, modeBadge, yolo, voicePhase, ...input }) => {
+  if (voicePhase && voicePhase !== 'idle') {
+    return <VoiceInputBox phase={voicePhase} model={model} modeBadge={modeBadge} {...input} />;
+  }
   if (yolo) {
     return <YoloInputBox model={model} modeBadge={modeBadge} {...input} />;
   }
@@ -41,6 +59,39 @@ export const InputBox: React.FC<InputBoxProps> = ({ model, modeBadge, yolo, ...i
         borderStyle={Border.style}
         borderColor={Border.color}
         borderDimColor={Border.dim}
+      >
+        <PromptInput {...input} />
+      </Box>
+      {model || modeBadge ? <BottomBadge model={model} modeBadge={modeBadge} /> : null}
+    </Box>
+  );
+};
+
+const VoiceInputBox: React.FC<{ phase: Exclude<VoicePhase, 'idle'> } & Omit<InputBoxProps, 'voicePhase' | 'yolo'>> = ({
+  phase,
+  model,
+  modeBadge,
+  ...input
+}) => {
+  const isRecording = phase === 'recording';
+  const accent = isRecording ? Colors.danger : Colors.busy;
+  const label = isRecording ? VOICE_REC_LABEL : VOICE_TRANSCRIBE_LABEL;
+  const term = process.stdout.columns ?? 80;
+  const innerWidth = Math.max(label.length + 4, term - 2);
+  const dashesBefore = Math.max(1, innerWidth - label.length - RIGHT_PAD);
+  return (
+    <Box flexDirection="column" width="100%">
+      <Box>
+        <Text color={accent}>{'╭' + '─'.repeat(dashesBefore)}</Text>
+        <Text backgroundColor={accent} color="black" bold>{label}</Text>
+        <Text color={accent}>{'─'.repeat(RIGHT_PAD) + '╮'}</Text>
+      </Box>
+      <Box
+        flexDirection="column"
+        width="100%"
+        borderStyle={Border.style}
+        borderColor={accent}
+        borderTop={false}
       >
         <PromptInput {...input} />
       </Box>

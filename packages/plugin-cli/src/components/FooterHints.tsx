@@ -6,6 +6,12 @@ export type FooterHintMode = 'default' | 'picker' | 'permission' | 'boot';
 
 export interface FooterHintsProps {
   readonly mode?: FooterHintMode;
+  /**
+   * When true, append the `^R voice` hint to modes that support voice
+   * input (`default`, `boot`). False/undefined keeps it hidden so users
+   * without a voice plugin / ffmpeg don't see a non-functional shortcut.
+   */
+  readonly voiceReady?: boolean;
 }
 
 interface Hint {
@@ -40,14 +46,17 @@ const HINTS: Record<FooterHintMode, ReadonlyArray<Hint>> = {
   ],
 };
 
+const VOICE_HINT: Hint = { key: '^R', action: 'voice', priority: 2 };
+
 /**
  * Persistent dim row of keybinding hints. Truncates from highest
  * priority number down so the most useful keys always stay visible
  * even at 40 columns.
  */
-export const FooterHints: React.FC<FooterHintsProps> = ({ mode = 'default' }) => {
+export const FooterHints: React.FC<FooterHintsProps> = ({ mode = 'default', voiceReady = false }) => {
   const width = process.stdout.columns ?? 80;
-  const all = HINTS[mode];
+  const base = HINTS[mode];
+  const all = voiceReady && (mode === 'default' || mode === 'boot') ? [...base, VOICE_HINT] : base;
   const visible = pickHints(all, width);
   return (
     <Box>

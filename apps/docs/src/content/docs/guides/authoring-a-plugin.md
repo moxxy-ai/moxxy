@@ -61,7 +61,52 @@ export default definePlugin({
 });
 ```
 
-Hook ordering is topologically sorted by `dependsOn`. `onToolCall` short-circuits on first deny.
+Hook ordering follows plugin registration order. Use
+[`requirements`](./requirements) to describe availability/readiness, not hook
+ordering. `onToolCall` short-circuits on first deny.
+
+## Requirements
+
+Plugins and individual blocks can declare `requirements` so unavailable
+features fail closed and show clear diagnostics:
+
+```ts
+export default definePlugin({
+  name: '@acme/moxxy-plugin-reporting',
+  requirements: [
+    {
+      kind: 'plugin',
+      name: '@moxxy/plugin-memory',
+      state: 'registered',
+      hint: 'Enable @moxxy/plugin-memory.',
+    },
+  ],
+  tools: [
+    defineTool({
+      name: 'report_from_memory',
+      description: 'Create a report from long-term memory.',
+      inputSchema: z.object({ topic: z.string() }),
+      requirements: [
+        {
+          kind: 'runtime',
+          name: 'auth:provider:openai-codex',
+          state: 'ready',
+          hint: 'Run `moxxy login openai-codex`.',
+        },
+      ],
+      handler: async ({ topic }) => `Report for ${topic}`,
+    }),
+  ],
+});
+```
+
+Plugin-level requirements are checked before registration; missing hard
+requirements skip the whole plugin. Tool requirements are checked before the
+handler runs. Providers, loop strategies, compactors, and transcribers check
+requirements before activation.
+
+See [Requirements](./requirements) for the full contract, runtime facts, and
+diagnostics behavior.
 
 ## Don't
 

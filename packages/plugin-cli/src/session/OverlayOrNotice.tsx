@@ -5,6 +5,7 @@ import type { Session } from '@moxxy/core';
 import { SkillsPanel } from '../components/SkillsPanel.js';
 import { ToolsPanel } from '../components/ToolsPanel.js';
 import { AgentsPanel } from '../components/AgentsPanel.js';
+import { Colors } from '../theme.js';
 import { deriveMcpServers } from './helpers.js';
 import type { Overlay } from './types.js';
 
@@ -41,13 +42,71 @@ export const OverlayOrNotice: React.FC<OverlayOrNoticeProps> = ({
     );
   }
   if (systemNotice) {
+    return <SystemNotice notice={systemNotice} />;
+  }
+  return null;
+};
+
+interface VoiceNoticeStyle {
+  readonly label: string;
+  readonly accent: string;
+  readonly textColor: 'black' | 'white';
+  /** Strips the routing prefix so the displayed body reads naturally. */
+  readonly body: string;
+}
+
+/**
+ * Voice notices ride the shared `systemNotice` channel but matter more
+ * to the user than e.g. a `/help` message, so they render as a colored
+ * pill + body block. Non-voice notices keep the original plain layout.
+ */
+function classifyVoiceNotice(notice: string): VoiceNoticeStyle | null {
+  if (!notice.startsWith('voice:')) return null;
+  const body = notice.slice('voice:'.length).trim();
+  const lower = body.toLowerCase();
+  if (lower.startsWith('recording')) {
+    return { label: ' ● REC ', accent: Colors.danger, textColor: 'black', body };
+  }
+  if (lower.startsWith('transcribing')) {
+    return { label: ' TRANSCRIBING ', accent: Colors.busy, textColor: 'black', body };
+  }
+  if (lower.startsWith('transcript inserted')) {
+    return { label: ' VOICE ', accent: Colors.active, textColor: 'black', body };
+  }
+  if (lower.includes('empty transcript')) {
+    return { label: ' VOICE ', accent: Colors.busy, textColor: 'black', body };
+  }
+  // Errors, readiness gripes, missing-ffmpeg, etc.
+  return { label: ' VOICE ', accent: Colors.danger, textColor: 'black', body };
+}
+
+export const SystemNotice: React.FC<{ notice: string }> = ({ notice }) => {
+  const voice = classifyVoiceNotice(notice);
+  if (voice) {
+    const lines = voice.body.split('\n');
+    const [first, ...rest] = lines;
     return (
       <Box marginTop={1} marginBottom={1} flexDirection="column">
-        {systemNotice.split('\n').map((line, i) => (
-          <Text key={i}>{line}</Text>
+        <Box>
+          <Text backgroundColor={voice.accent} color={voice.textColor} bold>
+            {voice.label}
+          </Text>
+          <Text color={voice.accent} bold>{` ${first ?? ''}`}</Text>
+        </Box>
+        {rest.map((line, i) => (
+          <Text key={i} dimColor>
+            {' '.repeat(voice.label.length + 1)}
+            {line}
+          </Text>
         ))}
       </Box>
     );
   }
-  return null;
+  return (
+    <Box marginTop={1} marginBottom={1} flexDirection="column">
+      {notice.split('\n').map((line, i) => (
+        <Text key={i}>{line}</Text>
+      ))}
+    </Box>
+  );
 };

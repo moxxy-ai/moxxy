@@ -1,10 +1,17 @@
-import type { Session } from '@moxxy/core';
-import type { Plugin } from '@moxxy/sdk';
+import { PluginRequirementError, readPackageMoxxyRequirements, type Session } from '@moxxy/core';
+import type { MoxxyRequirement, Plugin } from '@moxxy/sdk';
 import type { ConfigApplier, ConfigApplyResult, MoxxyConfig } from '@moxxy/config';
 
 export interface BuiltinPluginEntry {
   readonly name: string;
   readonly plugin: Plugin;
+}
+
+interface BuiltinPluginRecord {
+  readonly plugin: Plugin;
+  /** Resolved lazily on first toggle from `<name>/package.json#moxxy.requirements`. */
+  requirements?: ReadonlyArray<MoxxyRequirement>;
+  requirementsLoaded: boolean;
 }
 
 /**
@@ -31,7 +38,9 @@ export function buildSessionConfigApplier(
   builtins: ReadonlyArray<BuiltinPluginEntry> = [],
 ): ConfigApplier {
   let last: MoxxyConfig = initial;
-  const builtinsByName = new Map(builtins.map((b) => [b.name, b.plugin] as const));
+  const builtinsByName = new Map<string, BuiltinPluginRecord>(
+    builtins.map((b) => [b.name, { plugin: b.plugin, requirementsLoaded: false }] as const),
+  );
 
   return async (next): Promise<ConfigApplyResult> => {
     const applied: string[] = [];
@@ -65,8 +74,9 @@ export function buildSessionConfigApplier(
     }
 
     // Plugin enable/disable: actually apply now.
-    const togglesApplied = await applyPluginToggles(session, builtinsByName, last, next);
-    for (const t of togglesApplied) applied.push(`plugins[${t.name}].enabled=${t.enabled}`);
+    const toggles = await applyPluginToggles(session, builtinsByName, last, next);
+    for (const t of toggles.applied) applied.push(`plugins[${t.name}].enabled=${t.enabled}`);
+    for (const p of toggles.pending) pending.push(p);
 
     if (!shallowEqual(last.embeddings, next.embeddings)) {
       pending.push('embeddings.* (restart required to rebuild memory embedder)');
@@ -91,6 +101,11 @@ interface PluginToggle {
   readonly enabled: boolean;
 }
 
+interface PluginToggleResult {
+  readonly applied: ReadonlyArray<PluginToggle>;
+  readonly pending: ReadonlyArray<string>;
+}
+
 /**
  * Walk every plugin in the union of (builtins, old config, new config) and
  * compare the resulting effective-enabled state. Apply the deltas via the
@@ -99,16 +114,17 @@ interface PluginToggle {
  */
 async function applyPluginToggles(
   session: Session,
-  builtinsByName: Map<string, Plugin>,
+  builtinsByName: Map<string, BuiltinPluginRecord>,
   last: MoxxyConfig,
   next: MoxxyConfig,
-): Promise<PluginToggle[]> {
+): Promise<PluginToggleResult> {
   const allNames = new Set<string>([
     ...builtinsByName.keys(),
     ...Object.keys(last.plugins ?? {}),
     ...Object.keys(next.plugins ?? {}),
   ]);
-  const result: PluginToggle[] = [];
+  const applied: PluginToggle[] = [];
+  const pending: string[] = [];
 
   const loaded = new Set(session.pluginHost.list().map((p) => p.name));
 
@@ -119,28 +135,37 @@ async function applyPluginToggles(
 
     if (nowEnabled) {
       // Re-register
-      const plugin = builtinsByName.get(name);
-      if (!plugin) continue; // can't re-register a plugin we don't have a handle for
+      const record = builtinsByName.get(name);
+      if (!record) continue; // can't re-register a plugin we don't have a handle for
       if (loaded.has(name)) continue; // already registered
+      if (!record.requirementsLoaded) {
+        const reqs = await readPackageMoxxyRequirements(name, session.cwd);
+        if (reqs.length > 0) record.requirements = reqs;
+        record.requirementsLoaded = true;
+      }
       try {
-        session.pluginHost.registerStatic(plugin);
-        result.push({ name, enabled: true });
-      } catch {
-        // Swallow — duplicate or other error; the next boot will reconcile.
+        session.pluginHost.registerStatic(record.plugin, record.requirements ? { requirements: record.requirements } : {});
+        applied.push({ name, enabled: true });
+      } catch (err) {
+        if (err instanceof PluginRequirementError) {
+          pending.push(`plugins[${name}].enabled=true (${err.message})`);
+          continue;
+        }
+        pending.push(`plugins[${name}].enabled=true (${err instanceof Error ? err.message : String(err)})`);
       }
     } else {
       // Unload
       if (!loaded.has(name)) continue;
       try {
         await session.pluginHost.unload(name);
-        result.push({ name, enabled: false });
-      } catch {
-        // Swallow
+        applied.push({ name, enabled: false });
+      } catch (err) {
+        pending.push(`plugins[${name}].enabled=false (${err instanceof Error ? err.message : String(err)})`);
       }
     }
   }
 
-  return result;
+  return { applied, pending };
 }
 
 function effectiveEnabled(cfg: MoxxyConfig, name: string): boolean {
