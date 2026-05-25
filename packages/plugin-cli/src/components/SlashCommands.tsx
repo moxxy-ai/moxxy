@@ -15,9 +15,9 @@ export interface SlashCommand {
 /**
  * Channel-local commands that ONLY make sense in the Ink TUI — they
  * either open an overlay picker (model / loop / mcp / tools / skills /
- * agents) or mutate raw React state (yolo, expand, collapse, queue
- * controls). The TUI merges this list with `session.commands` so the
- * autocomplete dropdown lists everything together.
+ * agents) or mutate raw React state (yolo, queue controls). The TUI
+ * merges this list with `session.commands` so the autocomplete
+ * dropdown lists everything together.
  *
  * Universal commands like /info, /clear, /new, /exit, /help live in
  * `@moxxy/plugin-commands` and are inherited by every channel.
@@ -34,8 +34,6 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<SlashCommand> = [
     description: 'Toggle auto-approve mode — every tool call allowed without asking',
     aliases: ['auto-approve'],
   },
-  { name: 'expand', description: 'Expand closed skill scopes so children show in the chat' },
-  { name: 'collapse', description: 'Collapse closed skill scopes back to a one-line summary' },
   { name: 'queue', description: 'Show messages queued while the current turn is running' },
   { name: 'clear-queue', description: 'Drop all queued messages' },
 ];

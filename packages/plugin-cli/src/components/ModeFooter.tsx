@@ -7,7 +7,7 @@ import { Colors } from '../theme.js';
  * (formerly "loop strategy") and the hotkey to switch it, mirroring
  * Claude Code's "accept edits on (shift+tab to cycle)" footer.
  *
- *   ▸▸ mode: tool-use (shift+tab to cycle)
+ *   ▸▸ mode: tool-use (shift+tab to change)
  *
  * Rendered on the left of `<StatusLine>` while idle; during a turn the
  * "Thinking" marker takes that slot instead.
@@ -18,6 +18,8 @@ export const ModeFooter: React.FC<{ modeName: string }> = ({ modeName }) => (
     <Text color={Colors.mode} bold>
       mode: {modeName}
     </Text>
-    <Text dimColor>{' (shift+tab to cycle)'}</Text>
+    <Text color={Colors.chrome} dimColor>
+      {' (shift+tab to change)'}
+    </Text>
   </Box>
 );

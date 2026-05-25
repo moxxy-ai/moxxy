@@ -48,7 +48,7 @@ export const StatusLine: React.FC<StatusLineProps> = ({
   const showMcp = !!(mcp && mcp.enabled > 0);
   const showCtx = !!(contextWindow && contextWindow > 0);
   return (
-    <Box justifyContent="space-between" marginTop={1}>
+    <Box justifyContent="space-between">
       <Box>
         {busy ? (
           <>

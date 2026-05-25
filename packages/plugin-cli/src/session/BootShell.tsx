@@ -158,7 +158,7 @@ const BootInputArea: React.FC<BootInputAreaProps> = ({ session, ready, bootError
         />
       </Box>
       {systemNotice ? <SystemNotice notice={systemNotice} /> : null}
-      <Box marginTop={1}>
+      <Box>
         <FooterHints mode="boot" voiceReady={voice.ready} />
       </Box>
     </Box>
@@ -170,7 +170,7 @@ const DisabledBootInput: React.FC<{ placeholder: string }> = ({ placeholder }) =
     <Box marginTop={2}>
       <InputBox disabled placeholder={placeholder} onSubmit={() => undefined} />
     </Box>
-    <Box marginTop={1}>
+    <Box>
       <FooterHints mode="boot" />
     </Box>
   </>
