@@ -12,12 +12,12 @@ import type {
   TurnId,
 } from '@moxxy/sdk';
 import { asPluginId } from '@moxxy/sdk';
-import type { Session } from '../session.js';
+import type { SessionRuntime } from '../session-runtime.js';
 
 export const SUBAGENT_PLUGIN_ID = asPluginId('@moxxy/subagents');
 
 export async function emitSubagentStart(
-  parentSession: Session,
+  parentSession: SessionRuntime,
   parentTurnId: TurnId,
   label: string,
   childSessionId: SessionId,
@@ -42,7 +42,7 @@ export async function emitSubagentStart(
 }
 
 export async function emitSubagentCompleted(
-  parentSession: Session,
+  parentSession: SessionRuntime,
   parentTurnId: TurnId,
   label: string,
   childSessionId: SessionId,
@@ -68,7 +68,7 @@ export async function emitSubagentCompleted(
 }
 
 export async function emitSubagentWarning(
-  parentSession: Session,
+  parentSession: SessionRuntime,
   parentTurnId: TurnId,
   label: string,
   childSessionId: SessionId,
@@ -97,7 +97,7 @@ export async function emitSubagentWarning(
  * filtered out to keep the parent log lean.
  */
 export async function streamChildEventToParent(
-  parentSession: Session,
+  parentSession: SessionRuntime,
   parentTurnId: TurnId,
   label: string,
   childSessionId: SessionId,

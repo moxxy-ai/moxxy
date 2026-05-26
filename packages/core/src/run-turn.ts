@@ -1,5 +1,5 @@
 import type { EmittedEvent, ModeContext, MoxxyEvent, RunTurnOptions } from '@moxxy/sdk';
-import type { Session } from './session.js';
+import type { SessionRuntime } from './session-runtime.js';
 import { createSubagentSpawner } from './subagents.js';
 
 // `RunTurnOptions` now lives in `@moxxy/sdk` so the runner client (which has
@@ -8,7 +8,7 @@ import { createSubagentSpawner } from './subagents.js';
 export type { RunTurnOptions } from '@moxxy/sdk';
 
 export async function* runTurn(
-  session: Session,
+  session: SessionRuntime,
   prompt: string,
   opts: RunTurnOptions = {},
 ): AsyncIterable<MoxxyEvent> {
@@ -112,7 +112,7 @@ export async function* runTurn(
 }
 
 export async function collectTurn(
-  session: Session,
+  session: SessionRuntime,
   prompt: string,
   opts: RunTurnOptions = {},
 ): Promise<ReadonlyArray<MoxxyEvent>> {

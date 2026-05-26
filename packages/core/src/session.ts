@@ -9,6 +9,7 @@ import type {
 } from '@moxxy/sdk';
 import { newSessionId, newTurnId } from './events/factory.js';
 import { runTurn as runTurnImpl } from './run-turn.js';
+import type { SessionRuntime } from './session-runtime.js';
 import { EventLog } from './events/log.js';
 import { HookDispatcherImpl } from './plugins/lifecycle.js';
 import { PluginHost, type PluginLoader } from './plugins/host.js';
@@ -64,7 +65,7 @@ export interface SessionOptions {
   readonly log?: EventLog;
 }
 
-export class Session implements ClientSession {
+export class Session implements ClientSession, SessionRuntime {
   readonly id: SessionId;
   readonly cwd: string;
   readonly log: EventLog;

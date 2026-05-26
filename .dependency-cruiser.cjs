@@ -62,6 +62,10 @@ module.exports = {
           // Standalone executables shipped via a package's `bin` field
           // (consumed by spawning a child process, not by being imported).
           'src/sidecar\\.ts$',
+          // worker_threads entry shipped via the `./shim` subpath export and
+          // spawned with `new Worker(SHIM_SOURCE, { eval: true })`. The eval
+          // boundary is invisible to static analysis, so it reads as an orphan.
+          'src/worker-shim\\.ts$',
         ],
       },
       to: {},

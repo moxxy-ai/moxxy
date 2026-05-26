@@ -1,3 +1,8 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 import { collectTurn } from '@moxxy/core';
 import { FakeProvider, createFakeSession, textReply } from '@moxxy/testing';
@@ -82,47 +87,72 @@ describe('renderDiffBody', () => {
 
 describe('developerMode end-to-end (headless)', () => {
   it('runs implementation, verify, then emits suggested commit when headless', async () => {
-    const provider = new FakeProvider({
-      script: [
-        // Implementation phase: model says it's done without calling tools.
-        textReply('Done with the implementation.'),
-        // Verify phase: returns the structured SUMMARY/COMMIT block.
-        textReply(
-          [
-            'SUMMARY: Verified — tests pass',
-            'COMMIT:',
-            'add scratch helper',
-            '',
-            'Tiny helper used by the smoke test.',
-          ].join('\n'),
-        ),
-      ],
-    });
+    // runDeveloperMode collects the working-tree diff from process.cwd() and
+    // short-circuits (skipping verify + commit) when there are no changes. Run
+    // inside a throwaway git repo with a real pending change so the full flow
+    // exercises rather than depending on whatever state the repo happens to be
+    // in. Restored in finally.
+    const repo = mkdtempSync(join(tmpdir(), 'moxxy-dev-mode-'));
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'pipe' });
+    const originalCwd = process.cwd();
+    try {
+      git('init', '-q');
+      git('config', 'user.email', 'test@example.com');
+      git('config', 'user.name', 'Test');
+      git('config', 'commit.gpgsign', 'false');
+      const scratch = join(repo, 'scratch.ts');
+      writeFileSync(scratch, 'export const before = 1;\n');
+      git('add', '-A');
+      git('commit', '-q', '-m', 'initial');
+      // Pending change against HEAD so the diff is non-empty.
+      writeFileSync(scratch, 'export const before = 1;\nexport const after = 2;\n');
+      process.chdir(repo);
 
-    const session = createFakeSession({ provider });
-    session.pluginHost.registerStatic(developerModePlugin);
-    session.modes.setActive(DEVELOPER_MODE_NAME);
+      const provider = new FakeProvider({
+        script: [
+          // Implementation phase: model says it's done without calling tools.
+          textReply('Done with the implementation.'),
+          // Verify phase: returns the structured SUMMARY/COMMIT block.
+          textReply(
+            [
+              'SUMMARY: Verified — tests pass',
+              'COMMIT:',
+              'add scratch helper',
+              '',
+              'Tiny helper used by the smoke test.',
+            ].join('\n'),
+          ),
+        ],
+      });
 
-    const events = await collectTurn(session, 'add a scratch helper');
+      const session = createFakeSession({ provider });
+      session.pluginHost.registerStatic(developerModePlugin);
+      session.modes.setActive(DEVELOPER_MODE_NAME);
 
-    const modeIter = events.find(
-      (e) => e.type === 'mode_iteration' && e.strategy === DEVELOPER_MODE_NAME,
-    );
-    expect(modeIter).toBeDefined();
+      const events = await collectTurn(session, 'add a scratch helper');
 
-    const verifyCompleted = events.find(
-      (e) => e.type === 'plugin_event' && e.subtype === 'developer_verify_completed',
-    );
-    expect(verifyCompleted).toBeDefined();
-    if (verifyCompleted?.type !== 'plugin_event') throw new Error();
-    expect((verifyCompleted.payload as { hasCommitSubject: boolean }).hasCommitSubject).toBe(true);
+      const modeIter = events.find(
+        (e) => e.type === 'mode_iteration' && e.strategy === DEVELOPER_MODE_NAME,
+      );
+      expect(modeIter).toBeDefined();
 
-    // Headless: the final assistant_message announces the suggested commit
-    // message (since FakeSession has no approval resolver).
-    const finalSystem = events
-      .filter((e) => e.type === 'assistant_message' && e.source === 'system')
-      .pop();
-    if (finalSystem?.type !== 'assistant_message') throw new Error('expected system message');
-    expect(finalSystem.content).toContain('add scratch helper');
+      const verifyCompleted = events.find(
+        (e) => e.type === 'plugin_event' && e.subtype === 'developer_verify_completed',
+      );
+      expect(verifyCompleted).toBeDefined();
+      if (verifyCompleted?.type !== 'plugin_event') throw new Error();
+      expect((verifyCompleted.payload as { hasCommitSubject: boolean }).hasCommitSubject).toBe(true);
+
+      // Headless: the final assistant_message announces the suggested commit
+      // message (since FakeSession has no approval resolver).
+      const finalSystem = events
+        .filter((e) => e.type === 'assistant_message' && e.source === 'system')
+        .pop();
+      if (finalSystem?.type !== 'assistant_message') throw new Error('expected system message');
+      expect(finalSystem.content).toContain('add scratch helper');
+    } finally {
+      process.chdir(originalCwd);
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });

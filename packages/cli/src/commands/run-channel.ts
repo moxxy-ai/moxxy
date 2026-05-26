@@ -1,10 +1,11 @@
 import { isRunnerUp } from '@moxxy/runner';
+import type { ChannelDef } from '@moxxy/sdk';
 import type { ParsedArgv } from '../argv.js';
 import { bootSessionWithConfig, hasBoolFlag } from '../argv-helpers.js';
 import { printError } from '../errors.js';
+import type { SetupResult } from '../setup.js';
 import { runTuiWithBootstrap } from './run-tui.js';
 import { startRegisteredChannel } from './start-registered-channel.js';
-import { runChannelSubcommand } from './channels.js';
 
 /**
  * Smart channel dispatcher. Routes the `moxxy <channel>` invocation
@@ -65,4 +66,76 @@ export async function runChannelByName(name: string, argv: ParsedArgv): Promise<
   }
 
   return startRegisteredChannel(name, argv);
+}
+
+/**
+ * Build the full {@link ChannelSubcommandContext} (deps + args + startChannel +
+ * session) for a channel subcommand and run it. Shared by the
+ * `moxxy channels <name> <sub>` dispatcher and the bare `moxxy <name>`
+ * interactive-command path, so the ctx is constructed identically in both.
+ *
+ * Lives here alongside `runChannelByName` because the two are mutually
+ * recursive — a subcommand's `startChannel` callback routes back through
+ * `runChannelByName`. Co-locating them keeps the module graph acyclic.
+ *
+ * `argv.positional` carries the subcommand's positional args (callers strip the
+ * `<name> <sub>` prefix); `argv.flags` are forwarded as both the subcommand
+ * flags and the channel options overrides.
+ */
+export async function runChannelSubcommand(
+  def: ChannelDef,
+  subName: string,
+  ctx: {
+    session: SetupResult['session'];
+    vault: SetupResult['vault'];
+    config: SetupResult['config'];
+    argv: ParsedArgv;
+  },
+): Promise<number> {
+  const { session, vault, config, argv } = ctx;
+  const subcommand = def.subcommands?.[subName];
+  if (!subcommand) {
+    const available = def.subcommands
+      ? Object.entries(def.subcommands)
+          .map(([n, c]) => `    ${def.name} ${n}  — ${c.description}\n`)
+          .join('')
+      : '    (none)\n';
+    printError(
+      `unknown '${def.name}' subcommand: ${subName}\n  Available subcommands:\n${available}`,
+    );
+    return 2;
+  }
+
+  const configOpts = (config.channels?.[def.name] ?? {}) as Record<string, unknown>;
+  const deps = {
+    cwd: process.cwd(),
+    vault,
+    logger: session.logger,
+    options: { ...configOpts, ...argv.flags },
+  };
+
+  return await subcommand.run({
+    deps,
+    args: {
+      positional: argv.positional,
+      flags: argv.flags,
+    },
+    session,
+    startChannel: (extra) => {
+      // Coerce extra opts into the ParsedArgv.flags shape (string | boolean).
+      // ChannelSubcommand.startChannel accepts arbitrary unknown values for
+      // forward compatibility; we serialize them as the CLI would.
+      const extraFlags: Record<string, string | boolean> = {};
+      for (const [k, v] of Object.entries(extra ?? {})) {
+        if (typeof v === 'string' || typeof v === 'boolean') extraFlags[k] = v;
+        else if (v !== undefined && v !== null) extraFlags[k] = String(v);
+      }
+      const merged: ParsedArgv = {
+        command: argv.command,
+        flags: { ...argv.flags, ...extraFlags },
+        positional: [],
+      };
+      return runChannelByName(def.name, merged);
+    },
+  });
 }

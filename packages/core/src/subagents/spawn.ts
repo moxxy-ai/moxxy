@@ -30,7 +30,7 @@ import type {
 } from '@moxxy/sdk';
 import { EventLog } from '../events/log.js';
 import { newSessionId, newTurnId } from '../events/factory.js';
-import type { Session } from '../session.js';
+import type { SessionRuntime } from '../session-runtime.js';
 import {
   emitSubagentCompleted,
   emitSubagentStart,
@@ -40,7 +40,7 @@ import {
 import { buildFilteredToolRegistry } from './tools.js';
 
 export interface SubagentRuntime {
-  readonly parentSession: Session;
+  readonly parentSession: SessionRuntime;
   readonly parentTurnId: TurnId;
   readonly parentSignal: AbortSignal;
   readonly parentModel: string;
@@ -141,11 +141,11 @@ async function runOne(rt: SubagentRuntime, spec: SubagentSpec): Promise<Subagent
 }
 
 type ResolvedStrategy =
-  | { strategy: ReturnType<Session['modes']['list']>[number]; strategyName: string }
+  | { strategy: ReturnType<SessionRuntime['modes']['list']>[number]; strategyName: string }
   | { failure: SubagentResult };
 
 async function resolveStrategy(
-  parentSession: Session,
+  parentSession: SessionRuntime,
   parentTurnId: TurnId,
   label: string,
   childSessionId: ReturnType<typeof newSessionId>,
