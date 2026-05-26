@@ -86,6 +86,76 @@ export function summarizeSessionTokensFromEvents(
   );
 }
 
+/**
+ * Raw per-model token totals — the shape persisted to the cross-session usage
+ * aggregate (`~/.moxxy/usage.json`). Unlike {@link SessionTokenSummary} this
+ * carries no derived/cost fields: it's a plain additive counter so totals from
+ * many sessions can be summed without re-deriving ratios.
+ */
+export interface ModelUsageTotals {
+  /** Provider calls that reported usage for this model. */
+  readonly calls: number;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly cacheReadTokens: number;
+  readonly cacheCreationTokens: number;
+}
+
+const ZERO_TOTALS: ModelUsageTotals = {
+  calls: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheCreationTokens: 0,
+};
+
+/** Add two {@link ModelUsageTotals} field-wise (for merging session deltas into the aggregate). */
+export function addModelTotals(a: ModelUsageTotals, b: ModelUsageTotals): ModelUsageTotals {
+  return {
+    calls: a.calls + b.calls,
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
+    cacheCreationTokens: a.cacheCreationTokens + b.cacheCreationTokens,
+  };
+}
+
+/** A `provider_response` reported usage iff any token field is present. */
+function hasUsage(e: ProviderResponseEvent): boolean {
+  return (
+    e.inputTokens !== undefined ||
+    e.outputTokens !== undefined ||
+    e.cacheReadTokens !== undefined ||
+    e.cacheCreationTokens !== undefined
+  );
+}
+
+/**
+ * Fold `provider_response` events into per-model token totals, keyed by
+ * `"<provider>/<model>"` (the same model id can be served by more than one
+ * provider, so both pin the key). Used by the usage-stats plugin to compute a
+ * session's contribution and by the `/usage` panel to render the lifetime
+ * breakdown.
+ */
+export function summarizeTokensByModel(
+  events: ReadonlyArray<MoxxyEvent>,
+): Record<string, ModelUsageTotals> {
+  const byModel: Record<string, ModelUsageTotals> = {};
+  for (const e of events) {
+    if (e.type !== 'provider_response') continue;
+    if (!hasUsage(e)) continue;
+    const key = `${e.provider}/${e.model}`;
+    byModel[key] = addModelTotals(byModel[key] ?? ZERO_TOTALS, {
+      calls: 1,
+      inputTokens: e.inputTokens ?? 0,
+      outputTokens: e.outputTokens ?? 0,
+      cacheReadTokens: e.cacheReadTokens ?? 0,
+      cacheCreationTokens: e.cacheCreationTokens ?? 0,
+    });
+  }
+  return byModel;
+}
+
 function foldResponses(responses: ReadonlyArray<ProviderResponseEvent>): SessionTokenSummary {
   let calls = 0;
   let totalInput = 0;

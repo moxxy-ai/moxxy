@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, useStdout } from 'ink';
 import { Colors } from '../theme.js';
 import { Modal } from './Modal.js';
 
@@ -54,22 +54,49 @@ export const ListPicker: React.FC<ListPickerProps> = ({ title, options, onSelect
     }
   });
 
-  let lastGroup: string | undefined = undefined;
+  // Window the list to the terminal height. The picker renders in the TUI's
+  // LIVE (non-Static) region; if the rendered box is taller than the terminal,
+  // its top lines scroll into the persistent scrollback and Ink can no longer
+  // erase them on close — leaving a ghost copy of the list behind. Showing a
+  // cursor-following slice keeps the box bounded, so it always clears cleanly.
+  const { stdout } = useStdout();
+  const termRows = stdout?.rows ?? 24;
+  // Reserve rows for the modal chrome (border/title/hints ≈ 8), the scroll
+  // indicators (2), the persistent status line, and a little breathing room.
+  const maxVisible = Math.max(4, Math.min(options.length, termRows - 14));
+
+  let start = 0;
+  if (options.length > maxVisible) {
+    const half = Math.floor(maxVisible / 2);
+    start = Math.min(Math.max(0, cursor - half), options.length - maxVisible);
+  }
+  const end = Math.min(options.length, start + maxVisible);
+  const moreAbove = start;
+  const moreBelow = options.length - end;
+
   return (
-    <Modal title={title} hints="↑↓ navigate · Enter select · Esc close">
+    <Modal
+      title={title}
+      subtitle={`${cursor + 1} of ${options.length}`}
+      hints="↑↓ navigate · Enter select · Esc close"
+    >
       <Box flexDirection="column">
-        {options.map((opt, i) => {
-          const groupHeader =
-            opt.group && opt.group !== lastGroup ? (
-              <Box key={`g-${i}`} marginTop={i === 0 ? 0 : 1}>
-                <Text dimColor>{opt.group}</Text>
-              </Box>
-            ) : null;
-          lastGroup = opt.group;
+        {moreAbove > 0 ? <Text dimColor>{`  ↑ ${moreAbove} more`}</Text> : null}
+        {options.slice(start, end).map((opt, idx) => {
+          const i = start + idx;
+          // Show a group header when this row opens a new group — compared to
+          // the option above it in the FULL list, so the top visible row still
+          // shows which group it belongs to.
+          const prevGroup = i > 0 ? options[i - 1]!.group : undefined;
+          const showHeader = opt.group != null && opt.group !== prevGroup;
           const focused = i === cursor;
           return (
             <React.Fragment key={opt.id}>
-              {groupHeader}
+              {showHeader ? (
+                <Box marginTop={idx === 0 ? 0 : 1}>
+                  <Text dimColor>{opt.group}</Text>
+                </Box>
+              ) : null}
               <Box>
                 <Text {...(focused ? {} : { dimColor: true })}>{focused ? '› ' : '  '}</Text>
                 <Text {...(focused ? { bold: true } : {})}>{opt.label}</Text>
@@ -86,6 +113,7 @@ export const ListPicker: React.FC<ListPickerProps> = ({ title, options, onSelect
             </React.Fragment>
           );
         })}
+        {moreBelow > 0 ? <Text dimColor>{`  ↓ ${moreBelow} more`}</Text> : null}
       </Box>
     </Modal>
   );

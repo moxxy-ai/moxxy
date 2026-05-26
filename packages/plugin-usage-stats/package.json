@@ -1,0 +1,42 @@
+{
+  "name": "@moxxy/plugin-usage-stats",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Records cross-session token usage. On session close it folds this run's provider_response events by provider/model and merges the delta into ~/.moxxy/usage.json (a forward-going aggregate surfaced in the /usage panel and reset by /usage clear).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "hooks"
+    }
+  },
+  "dependencies": {
+    "@moxxy/core": "workspace:*",
+    "@moxxy/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

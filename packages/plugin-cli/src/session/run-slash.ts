@@ -1,5 +1,5 @@
 import type React from 'react';
-import { savePreferences } from '@moxxy/core';
+import { savePreferences, clearUsageStats } from '@moxxy/core';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import type { ListPickerOption } from '../components/ListPicker.js';
@@ -76,6 +76,18 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
       return;
     case '/usage':
       deps.setSystemNotice(null);
+      // `/usage clear` resets the saved cross-session aggregate; bare `/usage`
+      // opens the panel. Clearing is a user-only action (no model tool).
+      if (args.trim() === 'clear') {
+        void clearUsageStats()
+          .then(() => deps.setSystemNotice('✓ Cleared saved cross-session usage stats.'))
+          .catch((err) =>
+            deps.setSystemNotice(
+              `failed to clear usage stats: ${err instanceof Error ? err.message : String(err)}`,
+            ),
+          );
+        return;
+      }
       deps.setOverlay({ kind: 'usage' });
       return;
     case '/model':

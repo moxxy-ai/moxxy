@@ -54,7 +54,7 @@ Most agent frameworks lock you in. One LLM provider. One loop topology. One fron
 
 |   |   |
 |---|---|
-| 🧩 **Truly modular** | Every block is a swappable plugin: provider, loop strategy, tools, compactor, channel. |
+| 🧩 **Truly modular** | Every block is a swappable plugin: provider, loop strategy, tools, compactor, cache strategy, channel. |
 | 🔌 **Plug-and-play** | Install a package, it's auto-discovered. Hot-reload without restarting. |
 | 🤖 **Multi-channel** | TUI, Telegram, HTTP. One Session, many surfaces. |
 | 🎙 **Voice in** | Send Telegram voice notes or POST raw audio to the HTTP channel. Whisper plugin ships with the framework; swap to Deepgram or local whisper.cpp by registering a different `Transcriber`. |
@@ -133,6 +133,7 @@ Logs land in `~/.moxxy/services/<name>.log`; units survive reboots.
 - **Providers**: Anthropic, OpenAI, Codex (ChatGPT OAuth). Add your own with one `defineProvider({})`.
 - **Loop strategies**: `tool-use` (default, Claude-Code-style), `plan-execute` (plan → validate → execute), `bmad` (analysis → planning → solutioning → implementation), `developer` (guardrailed tool-use → verify → commit-with-diff-preview gate), `deep-research` (plan queries → parallel subagent fan-out → cited synthesis).
 - **Built-in tools**: Read, Edit, Write, Bash, Grep, Glob, WebFetch, plus computer-control (macOS) and browser-session (Playwright).
+- **Prompt caching**: `@moxxy/cache-strategy-stable-prefix` places deterministic cache breakpoints (static tools/system/stable-prefix + a rolling tail) so the inner iterations of a turn read the prompt from cache instead of paying full price. A `CacheStrategy` is provider-neutral (Anthropic `cache_control` today); swap it or disable caching with the `none` strategy. Inspect savings live with `/usage`.
 - **MCP**: register any Model Context Protocol server as a tool source.
 - **Skills**: prompt-only Markdown files. The agent can author new skills for itself when no existing skill fits.
 - **Memory**: long-term journal + STM event-log selectors. TF-IDF vector recall built in; swap to OpenAI embeddings via `@moxxy/plugin-embeddings-openai`.
@@ -196,7 +197,7 @@ Add a `"moxxy"` block to your `package.json` and moxxy auto-discovers it:
 }
 ```
 
-Per-block author guides live in [`.claude/agents/`](.claude/agents/), one per surface (skill, plugin, tool, channel, provider, loop strategy, compactor).
+Per-block author guides live in [`.claude/agents/`](.claude/agents/), one per surface (skill, plugin, tool, channel, provider, loop strategy, compactor, cache strategy).
 
 ## Configuration
 
@@ -251,6 +252,7 @@ export default defineConfig({
 @moxxy/isolator-wasm                ← WebAssembly Isolator (zero ambient authority; experimental)
 @moxxy/plugin-subagents             ← spawn sub-agents from a turn
 @moxxy/compactor-summarize          ← default context-window compactor
+@moxxy/cache-strategy-stable-prefix ← default prompt-cache strategy (deterministic breakpoints; `none` opts out)
 @moxxy/cli                          ← the `moxxy` binary
 @moxxy/config                       ← defineConfig + moxxy.config.ts loader
 @moxxy/testing                      ← FakeProvider + record/replay harness
@@ -264,7 +266,7 @@ The hard invariant: `@moxxy/sdk` has zero internal deps; `@moxxy/core` doesn't i
 packages/        publishable @moxxy/* packages
 apps/            runnable examples (example-basic, example-cli, fixture-recorder, docs)
 tooling/         shared tsconfig + eslint + vitest preset
-.claude/agents/  AI-agent author guides (skill, plugin, tool, channel, provider, …)
+.claude/agents/  AI-agent author guides (skill, plugin, tool, channel, provider, compactor, cache strategy, …)
 AGENTS.md        index for AI agents working in this repo
 ```
 
@@ -282,7 +284,7 @@ CI runs all of the above on every push + PR.
 
 ## 🤝 Contributing
 
-PRs welcome. Open an issue first for anything non-trivial. Per-block author guides in [`.claude/agents/`](.claude/agents/) describe how to write skills, plugins, tools, channels, providers, loop strategies, and compactors.
+PRs welcome. Open an issue first for anything non-trivial. Per-block author guides in [`.claude/agents/`](.claude/agents/) describe how to write skills, plugins, tools, channels, providers, loop strategies, compactors, and cache strategies.
 
 ## 📝 License
 

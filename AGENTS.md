@@ -16,6 +16,7 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 @moxxy/loop-tool-use              default loop strategy (Claude Code-style)
 @moxxy/loop-plan-execute          alt loop strategy
 @moxxy/compactor-summarize        default summarize-old-turns compactor
+@moxxy/cache-strategy-stable-prefix  default prompt-cache strategy (stable-prefix breakpoints; `none` = opt-out)
 @moxxy/skills-builtin             MD skills shipped with the framework
 
 @moxxy/plugin-provider-anthropic  first-party provider
@@ -42,7 +43,9 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 
 **State model.** Every interaction appends to an immutable event log; derived state is a pure fold. Any session can be replayed from its log.
 
-**Plugin model.** Plugins are TS code distributed as `@moxxy/*` npm packages, auto-discovered via `package.json#moxxy.plugin.entry`. The CLI also auto-loads any package under `~/.moxxy/plugins/*/` that carries that manifest. Plugins contribute `tools`, `providers`, `loopStrategies`, `compactors`, `channels`, and `hooks` via `definePlugin({...})`.
+**Plugin model.** Plugins are TS code distributed as `@moxxy/*` npm packages, auto-discovered via `package.json#moxxy.plugin.entry`. The CLI also auto-loads any package under `~/.moxxy/plugins/*/` that carries that manifest. Plugins contribute `tools`, `providers`, `loopStrategies`, `compactors`, `cacheStrategies`, `channels`, and `hooks` via `definePlugin({...})`.
+
+**Caching model.** A `CacheStrategy` decides *where* prompt-cache breakpoints go and returns provider-neutral `CacheHint`s (`{ target: 'tools' | 'system' | { messageIndex } }`); the provider expresses them (Anthropic → `cache_control`). One is active per session — registered via plugins exactly like compactors/modes; first registered auto-activates. `@moxxy/cache-strategy-stable-prefix` is the default (static prefix + rolling tail); `none` opts out. `plan()` MUST be deterministic given identical inputs — a non-deterministic breakpoint shifts the cached prefix between calls and silently defeats the cache (paying 1.25x writes for 0 reads).
 
 **Channels.** A `Channel` is a bidirectional surface that drives a Session — TUI, Telegram, HTTP, etc. Channels expose `subcommands` for one-shot maintenance ops (`moxxy channels telegram pair|unpair|status`); the CLI's `bin.ts` knows nothing about specific channels.
 
@@ -82,6 +85,7 @@ Run `pnpm check:deps` to verify after structural changes.
 | Implement an `LLMProvider` for a new model API | `.claude/agents/provider-author.md` |
 | Build a new loop strategy | `.claude/agents/loop-strategy-author.md` |
 | Build a new `Compactor` | `.claude/agents/compactor-author.md` |
+| Build a new `CacheStrategy` (prompt-cache breakpoints) | `.claude/agents/cache-strategy-author.md` |
 | Build a new `Channel` | `.claude/agents/channel-author.md` |
 | Add a security isolator (worker / subprocess / wasm / docker / …) | `.claude/agents/isolator-author.md` |
 | Modify `@moxxy/core` itself | `.claude/agents/core-extender.md` |
@@ -94,6 +98,7 @@ Run `pnpm check:deps` to verify after structural changes.
 
 ### Do
 
+- **Rebuild the whole repo after every code change, before reporting work done.** Run `pnpm build` (root → `turbo run build`) — it's turbo-cached so unchanged packages are instant; only what you touched recompiles. The CLI binary is bundled by tsup and won't reflect source edits until rebuilt, so "tests pass" is not "the app works." Don't claim a change is done or hand off without a green full build.
 - **Use the SDK's shared helpers.** `collectProviderStream`, `projectMessagesFromLog`, `isRetryableError`, `zodToJsonSchema`, `CachedEmbeddingProvider` — all exported from `@moxxy/sdk`. New loops/providers/embedders should compose these instead of reimplementing.
 - **Filter event-log subscribers by `turnId`** when serving multiple turns on one Session (e.g., HTTP channel). The shared `session.log` fans out to every listener; without the filter, concurrent turns cross-contaminate (see `run-turn.ts`).
 - **Persist atomically.** Vault, permissions, memory, skills — anything writing a whole file does `writeFile(tmp); rename(tmp, final)`. POSIX rename is atomic; crash mid-write leaves the previous file intact.

@@ -167,8 +167,11 @@ export {
 export {
   summarizeSessionTokens,
   summarizeSessionTokensFromEvents,
+  summarizeTokensByModel,
+  addModelTotals,
   usageEventFields,
   type SessionTokenSummary,
+  type ModelUsageTotals,
 } from './token-accounting.js';
 
 export type { Skill, SkillDef, SkillFrontmatter, SkillScope, SkillSchedule } from './skill.js';

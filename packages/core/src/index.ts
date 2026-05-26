@@ -6,6 +6,14 @@ export {
   preferencesPath,
   type MoxxyPreferences,
 } from './preferences.js';
+export {
+  loadUsageStats,
+  mergeUsageStats,
+  clearUsageStats,
+  usageStatsPath,
+  type UsageStatsFile,
+  type StoredModelUsage,
+} from './usage-stats.js';
 export { SkillRegistryImpl } from './registries/skills.js';
 export {
   parseSkillFile,

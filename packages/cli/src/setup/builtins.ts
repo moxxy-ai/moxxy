@@ -29,6 +29,7 @@ import { buildSubagentsPlugin } from '@moxxy/plugin-subagents';
 import { buildPluginsAdminPlugin } from '@moxxy/plugin-plugins-admin';
 import { buildSelfUpdatePlugin } from '@moxxy/plugin-self-update';
 import { buildProviderAdminPlugin } from '@moxxy/plugin-provider-admin';
+import { buildUsageStatsPlugin } from '@moxxy/plugin-usage-stats';
 import { commandsPlugin } from '@moxxy/plugin-commands';
 import { computerControlPlugin } from '@moxxy/plugin-computer-control';
 import { buildOauthPlugin } from '@moxxy/plugin-oauth';
@@ -98,6 +99,7 @@ export const BUILTIN_REQUIREMENT_DECISIONS: Readonly<Record<string, BuiltinRequi
   '@moxxy/plugin-webhooks': { hardRequirements: false, reason: 'runner is injected by closure' },
   '@moxxy/plugin-security': { hardRequirements: false, reason: 'disabled by default and configured at runtime' },
   '@moxxy/plugin-config': { hardRequirements: false, reason: 'config applier is injected by bootstrap closure' },
+  '@moxxy/plugin-usage-stats': { hardRequirements: false, reason: 'records usage via lifecycle hooks; no plugin dependency' },
 };
 
 export interface BuildBuiltinsArgs {
@@ -156,6 +158,10 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
       plugin: buildMemoryConsolidatePlugin(memory, () => session.providers.getActive()),
     },
     { name: '@moxxy/plugin-cli', plugin: cliPlugin },
+    // Cross-session token usage. onShutdown folds this run's provider_response
+    // usage by provider/model into ~/.moxxy/usage.json (a forward-going
+    // aggregate). Surfaced in the /usage panel; reset via /usage clear.
+    { name: '@moxxy/plugin-usage-stats', plugin: buildUsageStatsPlugin() },
     { name: '@moxxy/plugin-channel-http', plugin: httpChannelPlugin },
     { name: '@moxxy/plugin-telegram', plugin: buildTelegramPlugin({ vault }) },
     { name: '@moxxy/plugin-browser', plugin: browserPlugin },
