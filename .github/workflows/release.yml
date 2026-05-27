@@ -1,0 +1,60 @@
+name: Release
+
+# On push to main, open (or update) a "Version Packages" PR that bumps versions
+# + changelogs from accumulated changesets. Merging that PR re-triggers this
+# workflow, which then publishes the changed published packages to npm.
+#
+# Requires an NPM_TOKEN repo secret (npm automation token with publish rights
+# for the @moxxy scope). GITHUB_TOKEN is provided automatically.
+#
+# Changesets is invoked via `pnpm dlx` (no devDep / lockfile entry) so this
+# works without a `pnpm install` to add @changesets/cli. For nicer local DX you
+# can later add `@changesets/cli` to root devDependencies and run `pnpm install`.
+on:
+  push:
+    branches: [main]
+
+concurrency: release
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  release:
+    name: Version / publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.0
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Build so the prepack/postpack flow (strip @moxxy/* devDeps, bundle) runs
+      # against fresh dist before publish.
+      - name: Build
+        run: pnpm build
+
+      - name: Create Release PR or publish
+        uses: changesets/action@v1
+        with:
+          version: pnpm dlx @changesets/cli@2.27.10 version
+          publish: pnpm dlx @changesets/cli@2.27.10 publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
