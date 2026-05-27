@@ -281,6 +281,8 @@ export {
   definePermission,
   defineSkill,
   defineTranscriber,
+  defineCommand,
+  defineAgent,
 } from './define.js';
 
 export {

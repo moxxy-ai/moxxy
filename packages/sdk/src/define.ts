@@ -1,5 +1,7 @@
+import type { AgentDef } from './agent.js';
 import type { CacheStrategyDef } from './cache-strategy.js';
 import type { ChannelDef } from './channel.js';
+import type { CommandDef } from './command.js';
 import type { CompactorDef } from './compactor.js';
 import type { ModeDef } from './mode.js';
 import type { PermissionRule } from './permission.js';
@@ -99,5 +101,13 @@ export function defineSkill(spec: { frontmatter: SkillFrontmatter; body: string 
 }
 
 export function defineTranscriber(spec: TranscriberDef): TranscriberDef {
+  return Object.freeze(spec);
+}
+
+export function defineCommand(spec: CommandDef): CommandDef {
+  return Object.freeze(spec);
+}
+
+export function defineAgent(spec: AgentDef): AgentDef {
   return Object.freeze(spec);
 }

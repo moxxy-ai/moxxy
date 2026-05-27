@@ -118,10 +118,9 @@ function eventInCompactionRange(
  * into a single assistant message of tool_use blocks), and tool_result.
  * Other event types are passed through as a no-op.
  *
- * Note: this is the minimal projection used by loop strategies. Core's
- * `selectMessages` is a richer variant that also honors compaction events
- * and attachments; the simpler form here lives in the SDK so loop plugins
- * stay independent of core.
+ * This is THE projection every loop strategy uses; it honors compaction
+ * events, turn-boundary elision, and the orphan-tool_use fallback. It lives in
+ * the SDK so loop plugins stay independent of core.
  */
 export interface ProjectedMessages {
   readonly messages: ProviderMessage[];

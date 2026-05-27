@@ -34,7 +34,6 @@ export {
 } from './skills/index.js';
 export { EventLog, type EventListener } from './events/log.js';
 export {
-  selectMessages,
   selectPendingToolCalls,
   selectCurrentTurn,
   type PendingToolCall,

@@ -97,7 +97,24 @@ export interface PluginRegisteredEvent extends EventBase {
   readonly pluginId: PluginId;
   readonly name: string;
   readonly version: string;
-  readonly kind: ReadonlyArray<'tools' | 'provider' | 'mode' | 'compactor' | 'mcp' | 'cli' | 'hooks'>;
+  // Keep in sync with PluginKind (plugin.ts). Inlined rather than imported to
+  // avoid an events↔plugin type cycle (dep-cruiser flags circular deps).
+  readonly kind: ReadonlyArray<
+    | 'tools'
+    | 'provider'
+    | 'mode'
+    | 'compactor'
+    | 'cache-strategy'
+    | 'view-renderer'
+    | 'tunnel-provider'
+    | 'mcp'
+    | 'cli'
+    | 'channel'
+    | 'hooks'
+    | 'agent'
+    | 'command'
+    | 'transcriber'
+  >;
 }
 
 export interface PluginUnregisteredEvent extends EventBase {
