@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import OpenAI from 'openai';
+import type OpenAI from 'openai';
 import { WhisperTranscriber } from './whisper.js';
 import { buildWhisperPlugin } from './index.js';
 

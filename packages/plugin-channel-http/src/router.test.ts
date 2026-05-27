@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { IncomingMessage, ServerResponse } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Readable } from 'node:stream';
 import { Socket } from 'node:net';
 import { Session, silentLogger } from '@moxxy/core';

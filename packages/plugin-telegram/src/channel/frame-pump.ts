@@ -1,4 +1,5 @@
-import { Bot, GrammyError } from 'grammy';
+import type { Bot} from 'grammy';
+import { GrammyError } from 'grammy';
 import { TurnRenderer, splitForTelegram } from '../render.js';
 import { composeFrame, stripHtml } from './html.js';
 

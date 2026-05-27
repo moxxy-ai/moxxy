@@ -29,7 +29,7 @@ export function parseFrontmatter(text: string): Record<string, unknown> {
     const colon = trimmed.indexOf(':');
     if (colon === -1) continue;
     const key = trimmed.slice(0, colon).trim();
-    let raw = trimmed.slice(colon + 1).trim();
+    const raw = trimmed.slice(colon + 1).trim();
 
     if (raw === '' && i + 1 < lines.length && /^\s*-\s/.test(lines[i + 1] ?? '')) {
       const items: unknown[] = [];

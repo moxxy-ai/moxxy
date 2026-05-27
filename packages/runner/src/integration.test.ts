@@ -155,7 +155,7 @@ describe('runner end-to-end', () => {
         modes: [
           defineMode({
             name: 'echo-mode',
-            // eslint-disable-next-line require-yield
+             
             run: async function* () {
               return;
             },
@@ -228,7 +228,7 @@ describe('runner end-to-end', () => {
         modes: [
           defineMode({
             name: 'wait-mode',
-            // eslint-disable-next-line require-yield
+             
             run: async function* (modeCtx) {
               await new Promise<void>((resolve) => {
                 if (modeCtx.signal.aborted) return resolve();
@@ -266,7 +266,7 @@ describe('runner end-to-end', () => {
         modes: [
           defineMode({
             name: 'approval-mode',
-            // eslint-disable-next-line require-yield
+             
             run: async function* (modeCtx) {
               await modeCtx.approval?.confirm({
                 title: 'proceed?',

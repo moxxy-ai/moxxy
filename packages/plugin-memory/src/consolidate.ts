@@ -1,5 +1,6 @@
 import { z, defineTool, definePlugin, type LLMProvider, type Plugin } from '@moxxy/sdk';
-import { MemoryStore, memoryTypeSchema, type MemoryEntry, type MemoryType } from './store.js';
+import type { MemoryStore} from './store.js';
+import { memoryTypeSchema, type MemoryEntry, type MemoryType } from './store.js';
 
 const SYSTEM_PROMPT = `You are consolidating overlapping long-term memory entries.
 

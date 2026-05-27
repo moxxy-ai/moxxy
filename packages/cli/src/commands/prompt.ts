@@ -24,7 +24,7 @@ export async function runPromptCommand(argv: ParsedArgv): Promise<number> {
   // rather than hardcoding a stale snapshot. We boot the session first with
   // deny-by-default, look at tools, then swap to the all-tools resolver.
   // For the common case (no --allow-all) we can wire the resolver inline.
-  let resolver = allowAll
+  const resolver = allowAll
     ? denyByDefaultResolver
     : allowTools.length > 0
       ? createAllowListResolver(allowTools)

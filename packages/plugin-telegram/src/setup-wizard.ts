@@ -54,7 +54,7 @@ export async function runTelegramWizard(ctx: ChannelSubcommandContext): Promise<
 
   intro(bold('moxxy telegram setup'));
 
-  // eslint-disable-next-line no-constant-condition
+   
   while (true) {
     const state = await readState(vault);
     printStatus(state);

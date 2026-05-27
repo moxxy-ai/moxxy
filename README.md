@@ -158,12 +158,12 @@ Everything below is for plugin authors, contributors, and folks embedding moxxy 
 import { Session, runTurn, autoAllowResolver } from '@moxxy/core';
 import { anthropicPlugin } from '@moxxy/plugin-provider-anthropic';
 import { builtinToolsPlugin } from '@moxxy/tools-builtin';
-import { toolUseLoopPlugin } from '@moxxy/loop-tool-use';
+import { toolUseModePlugin } from '@moxxy/mode-tool-use';
 
 const session = new Session({ cwd: process.cwd(), permissionResolver: autoAllowResolver });
 session.pluginHost.registerStatic(anthropicPlugin);
 session.pluginHost.registerStatic(builtinToolsPlugin);
-session.pluginHost.registerStatic(toolUseLoopPlugin);
+session.pluginHost.registerStatic(toolUseModePlugin);
 session.providers.setActive('anthropic');
 
 for await (const event of runTurn(session, 'list TS files in cwd')) {

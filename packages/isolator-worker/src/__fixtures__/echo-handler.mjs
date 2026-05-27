@@ -18,6 +18,6 @@ export async function throwHandler() {
 // set by the test runner; in the worker, the variable is undefined.
 // This is how we prove the worker has its own isolated state.
 export async function readGlobalHandler() {
-  // eslint-disable-next-line no-undef
+   
   return { seen: globalThis.__MOXXY_TEST_FLAG__ ?? null };
 }

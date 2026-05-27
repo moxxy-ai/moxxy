@@ -1,6 +1,6 @@
 import type { EmbeddingProvider } from '@moxxy/sdk';
 import { TfIdfEmbedder, cosineSimilarity, tokenize } from '../tfidf.js';
-import { EmbeddingIndex } from '../embedding-cache.js';
+import type { EmbeddingIndex } from '../embedding-cache.js';
 import type { MemoryEntry } from './types.js';
 
 export interface RankedMemory {

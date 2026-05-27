@@ -1,14 +1,24 @@
+import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useViewSocket } from './socket';
 import { renderNode } from './render';
+import { ChatPanel } from './chat';
 
 /**
  * The web surface is a RENDERING surface for the agent-built app — not a chat.
- * There is no prompt box: the user asks via their channel (TUI/Telegram), the
- * app renders here, and interaction happens through the app's own forms/buttons.
+ * A floating button opens a chat panel ON DEMAND so the user can ask the agent
+ * to refine the view ("add a price filter", "make the cards bigger"); the agent
+ * re-runs present_view and the view updates live.
  */
 function App(): JSX.Element {
-  const { connected, view, canGoBack, status, dispatch, navigate, goBack } = useViewSocket();
+  const { connected, view, canGoBack, messages, status, dispatch, navigate, goBack, sendPrompt } = useViewSocket();
+  const [chatOpen, setChatOpen] = useState(false);
+  const [seen, setSeen] = useState(0);
+  useEffect(() => {
+    if (chatOpen) setSeen(messages.length);
+  }, [chatOpen, messages.length]);
+  const unread = !chatOpen && messages.length > seen;
+
   return (
     <div className="app">
       <header>
@@ -29,11 +39,17 @@ function App(): JSX.Element {
           <div className="empty">{status ? status.text : 'No view yet — ask the agent to build you an app.'}</div>
         )}
         {view && status && (
-          <div className={status.error ? 'turn-status err' : 'turn-status'}>
-            {status.error ? `⚠ ${status.text}` : status.text}
-          </div>
+          <div className={status.error ? 'turn-status err' : 'turn-status'}>{status.error ? `⚠ ${status.text}` : status.text}</div>
         )}
       </main>
+      {chatOpen ? (
+        <ChatPanel messages={messages} status={status} onSend={sendPrompt} onClose={() => setChatOpen(false)} />
+      ) : (
+        <button className="chat-fab" onClick={() => setChatOpen(true)} aria-label="Chat with the agent">
+          <span aria-hidden>💬</span>
+          {unread && <span className="chat-dot" />}
+        </button>
+      )}
     </div>
   );
 }

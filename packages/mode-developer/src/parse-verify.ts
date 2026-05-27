@@ -45,7 +45,7 @@ function extractCommit(text: string): { subject: string | null; body: string | n
   const subject = after[i]!.trim();
   // Body = remaining lines, with one separator blank line trimmed off the
   // front and trailing blanks trimmed off the end.
-  let bodyLines = after.slice(i + 1);
+  const bodyLines = after.slice(i + 1);
   while (bodyLines.length > 0 && bodyLines[0]!.trim() === '') bodyLines.shift();
   while (bodyLines.length > 0 && bodyLines[bodyLines.length - 1]!.trim() === '') bodyLines.pop();
   const body = bodyLines.length > 0 ? bodyLines.join('\n') : null;

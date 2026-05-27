@@ -78,6 +78,6 @@ export async function slowHandler(input) {
 // Reads a parent-thread global. Should always come back null in the
 // subprocess child (separate OS process = separate heap).
 export async function readParentGlobal() {
-  // eslint-disable-next-line no-undef
+   
   return { seen: globalThis.__MOXXY_PARENT_FLAG__ ?? null };
 }
