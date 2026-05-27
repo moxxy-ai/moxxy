@@ -78,5 +78,17 @@ export default defineConfig({
     const skillsDest = path.resolve(here, 'dist/skills');
     await fs.rm(skillsDest, { recursive: true, force: true });
     await fs.cp(skillsSrc, skillsDest, { recursive: true });
+
+    // Copy the web-surface frontend bundle next to the bin. When bundled, the
+    // WebChannel's import.meta.url is dist/bin.js, so it serves from dist/public
+    // — without this copy the browser gets "web surface bundle missing".
+    const webSrc = path.resolve(here, '../plugin-channel-web/dist/public');
+    const webDest = path.resolve(here, 'dist/public');
+    if (await fs.stat(webSrc).then(() => true).catch(() => false)) {
+      await fs.rm(webDest, { recursive: true, force: true });
+      await fs.cp(webSrc, webDest, { recursive: true });
+    } else {
+      console.warn(`[cli build] web frontend missing at ${webSrc} — build @moxxy/plugin-channel-web first`);
+    }
   },
 });

@@ -105,6 +105,9 @@ export const VIEW_PRIMITIVES: ReadonlyArray<ViewTagSpec> = [
   { tag: 'grid', attrs: { cols: { type: 'number', required: true, min: 1, max: 6 }, gap: { type: 'enum', values: GAP } }, allowedChildren: 'any' },
   { tag: 'card', attrs: { title: { type: 'string' }, accent: { type: 'enum', values: TONE } }, allowedChildren: 'any' },
   { tag: 'divider', attrs: {}, allowedChildren: 'none' },
+  // loading states (show while fetching real data, then replace with results)
+  { tag: 'spinner', attrs: { label: { type: 'string' } }, allowedChildren: 'none' },
+  { tag: 'skeleton', attrs: { rows: { type: 'number', min: 1, max: 12 } }, allowedChildren: 'none' },
   // display
   { tag: 'heading', attrs: { level: { type: 'number', min: 1, max: 3 } }, allowedChildren: 'any' },
   { tag: 'text', attrs: { tone: { type: 'enum', values: TONE }, weight: { type: 'enum', values: ['normal', 'bold'] } }, allowedChildren: 'any' },

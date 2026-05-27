@@ -1,28 +1,14 @@
-import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useViewSocket } from './socket';
 import { renderNode } from './render';
 
-function PromptBox(props: { onSend: (text: string) => void }): JSX.Element {
-  const [text, setText] = useState('');
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        const t = text.trim();
-        if (!t) return;
-        props.onSend(t);
-        setText('');
-      }}
-    >
-      <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Ask the agent…" autoFocus />
-      <button type="submit">Send</button>
-    </form>
-  );
-}
-
+/**
+ * The web surface is a RENDERING surface for the agent-built app — not a chat.
+ * There is no prompt box: the user asks via their channel (TUI/Telegram), the
+ * app renders here, and interaction happens through the app's own forms/buttons.
+ */
 function App(): JSX.Element {
-  const { connected, view, canGoBack, messages, status, dispatch, navigate, goBack, sendPrompt } = useViewSocket();
+  const { connected, view, canGoBack, status, dispatch, navigate, goBack } = useViewSocket();
   return (
     <div className="app">
       <header>
@@ -40,22 +26,14 @@ function App(): JSX.Element {
         {view ? (
           <div className="view">{renderNode(view.doc.root, { dispatch, navigate })}</div>
         ) : (
-          <div className="empty">No view yet — ask the agent to build you something.</div>
+          <div className="empty">{status ? status.text : 'No view yet — ask the agent to build you an app.'}</div>
         )}
-        {messages.length > 0 && (
-          <div className="transcript">
-            {messages.map((m, i) => (
-              <div key={i} className={`msg ${m.role}`}>
-                {m.text}
-              </div>
-            ))}
+        {view && status && (
+          <div className={status.error ? 'turn-status err' : 'turn-status'}>
+            {status.error ? `⚠ ${status.text}` : status.text}
           </div>
         )}
-        {status && <div className={status.error ? 'turn-status err' : 'turn-status'}>{status.error ? `⚠ ${status.text}` : status.text}</div>}
       </main>
-      <footer>
-        <PromptBox onSend={sendPrompt} />
-      </footer>
     </div>
   );
 }

@@ -83,6 +83,18 @@
       .v-btn[data-variant="primary"] { background: var(--accent); color: #fff; border-color: var(--accent); }
       .v-btn[data-variant="danger"] { background: var(--danger); color: #fff; border-color: var(--danger); }
       .v-unknown { color: var(--warn); font-size: 13px; }
+      /* loading states */
+      .v-spinner { display: flex; align-items: center; gap: 10px; color: var(--muted); padding: 8px 0; }
+      .v-spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line);
+        border-top-color: var(--accent); animation: v-rot 0.8s linear infinite; }
+      @keyframes v-rot { to { transform: rotate(360deg); } }
+      .v-skeleton { display: flex; flex-direction: column; gap: 10px; }
+      .v-skel-row { height: 16px; border-radius: 6px;
+        background: linear-gradient(90deg, var(--panel) 25%, var(--panel2) 37%, var(--panel) 63%);
+        background-size: 400% 100%; animation: v-shimmer 1.4s ease infinite; }
+      .v-skel-row:nth-child(odd) { width: 90%; }
+      .v-skel-row:nth-child(3n) { width: 70%; }
+      @keyframes v-shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
     </style>
   </head>
   <body>

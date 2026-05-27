@@ -7,10 +7,12 @@ import {
 import { render } from 'ink';
 import React from 'react';
 import type {
+  ChannelHandle,
   PendingToolCall,
   PermissionContext,
   PermissionDecision,
 } from '@moxxy/sdk';
+import { coAttachWebSurface } from './web-surface.js';
 import { loadConfig } from '@moxxy/config';
 import {
   connectRemoteSession,
@@ -86,6 +88,8 @@ async function runAttachedTui(argv: ParsedArgv): Promise<number> {
   const shutdown = async (): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
+    const force = setTimeout(() => process.exit(0), 4000);
+    force.unref?.();
     await remote.close().catch(() => undefined);
   };
   const onSignal = (): void => void shutdown().then(() => process.exit(0));
@@ -174,11 +178,20 @@ async function runSelfHostedTui(
   // `onShutdown` hooks and release the socket.
   let bootedSession: Session | null = null;
   let runnerServer: RunnerServer | null = null;
+  let webHandle: ChannelHandle | null = null;
   let shuttingDown = false;
 
   const shutdown = async (signal: NodeJS.Signals | 'normal'): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
+    // Force-exit guard for signal-driven shutdown: never hang holding the port /
+    // a tunnel child if a stop() stalls. (Harmless on the normal-exit path, where
+    // the process exits on its own and this unref'd timer is moot.)
+    if (signal !== 'normal') {
+      const force = setTimeout(() => process.exit(0), 4000);
+      force.unref?.();
+    }
+    await webHandle?.stop('shutdown').catch(() => undefined);
     await runnerServer?.close().catch(() => undefined);
     const s = bootedSession;
     bootedSession = null;
@@ -216,6 +229,17 @@ async function runSelfHostedTui(
             runnerServer = null;
           }
         }
+        // Co-attach the web surface to THIS session so `present_view` returns a
+        // real URL (local by default — no public tunnel for the TUI). `write` is
+        // suppressed: the URL flows back through present_view → the agent's reply,
+        // and stdout would corrupt the Ink render.
+        webHandle = await coAttachWebSurface({
+          primary: 'tui',
+          session: result.session,
+          vault: result.vault,
+          config: result.config,
+          write: () => {},
+        });
         return result.session;
       },
       registerInteractiveResolver: (handler) => {

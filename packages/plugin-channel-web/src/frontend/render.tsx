@@ -60,6 +60,23 @@ export function renderNode(node: ViewNode, h: RenderHandlers, key?: number): Rea
       );
     case 'divider':
       return <hr className="v-divider" key={key} />;
+    case 'spinner':
+      return (
+        <div className="v-spinner" key={key}>
+          <span className="v-spin" />
+          {p.label ? <span className="v-text" data-tone="muted">{String(p.label)}</span> : null}
+        </div>
+      );
+    case 'skeleton': {
+      const rows = Math.min(12, Math.max(1, Number(p.rows) || 3));
+      return (
+        <div className="v-skeleton" key={key}>
+          {Array.from({ length: rows }, (_, i) => (
+            <div className="v-skel-row" key={i} />
+          ))}
+        </div>
+      );
+    }
     case 'heading': {
       const lvl = Math.min(3, Math.max(1, Number(p.level) || 2));
       return createElement(`h${lvl}`, { className: 'v-heading', key }, kids);

@@ -127,6 +127,25 @@ describe('WebChannel', () => {
     ws.close();
   });
 
+  it('replays already-built views to a browser that connects later', async () => {
+    const { session, emit } = fakeSession();
+    const { wsBase, token } = await startOn(session);
+    // Build a view BEFORE any browser connects (the normal flow: build in TUI,
+    // then open the link).
+    emit({ type: 'tool_call_requested', callId: 'c', name: 'present_view', input: {} });
+    emit({
+      type: 'tool_result',
+      callId: 'c',
+      ok: true,
+      output: { ast: { root: { kind: 'element', tag: 'view', props: { name: 'search' }, children: [] } } },
+    });
+    // Now connect — the view must arrive via replay (no "No view yet").
+    const { ws, waitFor } = await connect(wsBase, token);
+    const v = await waitFor('view');
+    expect(v.kind).toBe('view');
+    ws.close();
+  });
+
   it('publishes the surface URL via the active tunnel provider', async () => {
     let published: { url: string; nextViewId: () => string } | null = null;
     const fakeTunnel: TunnelProviderDef = {
@@ -145,6 +164,25 @@ describe('WebChannel', () => {
     handle = await channel.start({ session: fakeSession().session });
     expect(published).not.toBeNull();
     expect(published!.url).toBe('https://abc.trycloudflare.com/?t=tkn');
+  });
+
+  it('co-attached to a real Session publishes a localhost URL by default (the TUI case)', async () => {
+    const { Session } = await import('@moxxy/core');
+    const session = new Session({ cwd: '/tmp', silent: true });
+    let published: { url: string; nextViewId: () => string } | null = null;
+    channel = new WebChannel({
+      port: 0,
+      host: '127.0.0.1',
+      authToken: 'tkn',
+      getTunnel: () => session.tunnelProviders.getActive(), // core seeds 'localhost'
+      publishSurface: (s) => {
+        published = s;
+      },
+    });
+    handle = await channel.start({ session: session as never });
+    expect(published).not.toBeNull();
+    // A real, tokenized URL present_view can hand back — never null/rendered:false.
+    expect(published!.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/\?t=tkn$/);
   });
 
   it('falls back to the local URL when the tunnel provider fails', async () => {

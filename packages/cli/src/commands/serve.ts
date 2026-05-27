@@ -438,6 +438,11 @@ async function runUntilSignal(
   const shutdown = async (signal: string): Promise<void> => {
     if (stopRequested) return;
     stopRequested = true;
+    // Guarantee the process exits even if a stop()/close() hangs — otherwise it
+    // lingers holding the port. The child-cleanup `exit` hook then SIGKILLs any
+    // tunnel subprocess, so nothing is left running.
+    const force = setTimeout(() => process.exit(0), 4000);
+    force.unref?.();
     process.stderr.write(`\nstopping (${signal})…\n`);
     // Close the socket first so attached clients see the disconnect and stop
     // sending before the session tears down.

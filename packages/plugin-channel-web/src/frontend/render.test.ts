@@ -76,6 +76,12 @@ describe('frontend renderNode — correctness', () => {
     expect(render(el('view', {}, [el('list', {}, [el('item', {}, [txt('a')])])]))).toContain('<ul');
   });
 
+  it('renders a spinner and a skeleton with the requested rows', () => {
+    expect(render(el('view', {}, [el('spinner', { label: 'Loading…' })]))).toContain('v-spin');
+    const sk = render(el('view', {}, [el('skeleton', { rows: 4 })]));
+    expect((sk.match(/v-skel-row/g) ?? []).length).toBe(4);
+  });
+
   it('renders an external link with safe rel/target', () => {
     const html = render(el('view', {}, [el('link', { href: 'https://example.com' }, [txt('site')])]));
     expect(html).toContain('href="https://example.com"');

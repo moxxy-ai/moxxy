@@ -68,6 +68,8 @@ export class WebChannel implements Channel<WebStartOpts> {
   private server: Server | null = null;
   private wss: WebSocketServer | null = null;
   private readonly clients = new Set<WebSocket>();
+  /** Built screens, keyed by name||viewId, replayed to a newly-connected browser. */
+  private readonly views = new Map<string, ServerFrame>();
   private unsubscribe: (() => void) | null = null;
   private session: ClientSession | null = null;
   private busy = false;
@@ -85,9 +87,14 @@ export class WebChannel implements Channel<WebStartOpts> {
     this.publishSurface = opts.publishSurface;
     this.publishControls = opts.publishControls;
     // The interactive surface is the gate; tools still need an upfront
-    // allow-list (no per-call clicker). Default to just present_view so the
-    // view feature works out of the box; extend via config.allowedTools.
-    const allowed = opts.allowedTools && opts.allowedTools.length > 0 ? [...opts.allowedTools] : ['present_view'];
+    // allow-list (no per-call clicker). Default to present_view + the read-only
+    // fetch tools so apps can pull REAL data out of the box. Extend via
+    // config.allowedTools. (When co-attached, the PRIMARY channel's resolver
+    // governs instead — e.g. the TUI prompts per tool.)
+    const allowed =
+      opts.allowedTools && opts.allowedTools.length > 0
+        ? [...opts.allowedTools]
+        : ['present_view', 'web_fetch', 'browser_session'];
     this.permissionResolver = createAllowListResolver(allowed);
   }
 
@@ -106,7 +113,13 @@ export class WebChannel implements Channel<WebStartOpts> {
     this.session = startOpts.session;
     const projector = new EventProjector();
     this.unsubscribe = startOpts.session.log.subscribe((event) => {
-      for (const frame of projector.project(event)) this.broadcast(frame);
+      for (const frame of projector.project(event)) {
+        // Remember each screen so a browser that connects AFTER the agent built
+        // the app (the normal flow: build in TUI/Telegram → open the link) still
+        // sees it. Keyed by name||viewId so a re-render replaces in place.
+        if (frame.kind === 'view') this.views.set(frame.name ?? frame.viewId, frame);
+        this.broadcast(frame);
+      }
     });
 
     const server = createServer((req, res) => {
@@ -251,6 +264,9 @@ export class WebChannel implements Channel<WebStartOpts> {
     ws.on('close', () => this.clients.delete(ws));
     ws.on('message', (data: unknown) => this.onMessage(ws, data));
     this.send(ws, { kind: 'hello' });
+    // Replay already-built screens so a browser opening the link AFTER the agent
+    // built the app sees it immediately (no "No view yet").
+    for (const frame of this.views.values()) this.send(ws, frame);
   }
 
   private onMessage(ws: WebSocket, data: unknown): void {
