@@ -79,9 +79,12 @@ export class EventLog implements EventLogReader {
    */
   ingest(event: MoxxyEvent): void {
     // Contiguous, ordered delivery over a single socket means seq === index.
-    // Ignore anything we already hold (overlap between attach-replay and the
-    // live stream).
-    if (event.seq < this.events.length) return;
+    // Accept ONLY the next-expected seq: this drops duplicates (overlap
+    // between attach-replay and the live stream, seq < length) AND refuses a
+    // gap (seq > length) rather than pushing it at the wrong index, which
+    // would permanently desync `seq` from the array index. A gap can't happen
+    // over the reliable in-order transport, so refusing one is fail-safe.
+    if (event.seq !== this.events.length) return;
     this.events.push(event);
     const snapshot = [...this.listeners];
     for (const fn of snapshot) {

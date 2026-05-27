@@ -20,7 +20,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['22.x']
+        # Cover the declared engines floor (>=20.10), current LTS, and latest.
+        node: ['20.x', '22.x', '24.x']
     env:
       MOXXY_FIXTURES: replay
 
@@ -42,14 +43,28 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Restore Turborepo's local cache so unchanged packages aren't rebuilt
+      # or retested across runs. The cache is content-addressed, so restoring a
+      # superset is always safe — turbo only reuses entries whose hash matches.
+      - name: Turbo cache
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ matrix.node }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ matrix.node }}-
+
+      # Use the root scripts (turbo run …) rather than `pnpm -r` so CI gets
+      # turbo's graph-aware ordering AND caching — the whole repo is built
+      # around it; `pnpm -r` ignored the cache entirely.
       - name: Build
-        run: pnpm -r build
+        run: pnpm build
 
       - name: Typecheck
-        run: pnpm -r typecheck
+        run: pnpm typecheck
 
       - name: Test
-        run: pnpm -r test
+        run: pnpm test
 
       - name: Dependency invariants
         run: pnpm check:deps

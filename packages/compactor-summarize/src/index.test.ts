@@ -60,9 +60,14 @@ describe('summarizeCompactor', () => {
       ev(7, 't7', 'turn7'),
     ];
     const result = await compactor.compact(events);
-    // Should only consider seqs 3..7, keep t6+t7, compact t3..t5 — so from=3.
-    expect(result.replacedRange[0]).toBe(3);
-    expect(result.replacedRange[1]).toBeGreaterThanOrEqual(3);
+    // Should consider seqs 3..7, keep t6+t7, compact t3..t5. The range is in
+    // seq space, so [3, 5] — and crucially seqs 3 and 4 must NOT be skipped
+    // (the old index-based math started at array index 3 = seq 5, dropping
+    // ev3/ev4 entirely; this fixture has seq ≠ arrayIndex to catch that).
+    expect(result.replacedRange).toEqual([3, 5]);
+    expect(result.summary).toContain('turn3');
+    expect(result.summary).toContain('turn4');
+    expect(result.summary).toContain('turn5');
     // And the prior prefix's "turn1-a" / "turn2-a" must not appear in the
     // new summary (we're not re-summarizing them).
     expect(result.summary).not.toContain('turn1-a');

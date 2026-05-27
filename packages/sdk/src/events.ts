@@ -117,6 +117,14 @@ export interface ModeIterationEvent extends EventBase {
 export interface CompactionEvent extends EventBase {
   readonly type: 'compaction';
   readonly compactor: string;
+  /**
+   * Inclusive `[fromSeq, toSeq]` range of event `seq` values this summary
+   * replaces — NOT array indices. Consumers (`projectMessagesFromLog`,
+   * `estimateContextTokens`) test `event.seq` against these bounds, so a
+   * compactor MUST emit the `seq` of the first/last replaced event. (Today
+   * `seq === arrayIndex` in the primary log, but that is not guaranteed for
+   * mirrors or partial views — emit seqs to stay correct regardless.)
+   */
   readonly replacedRange: readonly [number, number];
   readonly summary: string;
   readonly tokensSaved: number;

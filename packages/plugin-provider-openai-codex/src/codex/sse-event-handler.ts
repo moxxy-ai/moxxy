@@ -100,7 +100,15 @@ export function handleSseEvent(
     return {
       stopReason,
       ...(usage
-        ? { usage: { input: usage.input_tokens ?? 0, output: usage.output_tokens ?? 0 } }
+        ? {
+            usage: {
+              input: usage.input_tokens ?? 0,
+              output: usage.output_tokens ?? 0,
+              ...(usage.input_tokens_details?.cached_tokens !== undefined
+                ? { cacheRead: usage.input_tokens_details.cached_tokens }
+                : {}),
+            },
+          }
         : {}),
       terminal: true,
     };

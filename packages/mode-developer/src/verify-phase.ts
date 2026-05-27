@@ -2,9 +2,10 @@ import {
   asToolCallId,
   buildSystemPromptWithSkills,
   collectProviderStream,
-  projectMessagesFromLog,
+  projectMessages,
   runCompactionIfNeeded,
   runElisionIfNeeded,
+  usageEventFields,
   type ModeContext,
   type MoxxyEvent,
 } from '@moxxy/sdk';
@@ -62,7 +63,7 @@ export async function* runVerifyPhase(
     const systemPrompt = baseSystem
       ? `${VERIFY_SYSTEM_PROMPT}\n\n${baseSystem}`
       : VERIFY_SYSTEM_PROMPT;
-    const messages = projectMessagesFromLog(ctx, {
+    const { messages, stablePrefixIndex } = projectMessages(ctx, {
       systemPrompt,
       trailingUserText:
         'The implementation phase is done. Now run the verify command(s) and reply with the SUMMARY: / COMMIT: blocks exactly as specified.',
@@ -77,8 +78,9 @@ export async function* runVerifyPhase(
       model: ctx.model,
     });
 
-    const { text, toolUses, stopReason, error } = await collectProviderStream(ctx, messages, {
+    const { text, toolUses, stopReason, error, usage } = await collectProviderStream(ctx, messages, {
       iteration,
+      stablePrefixIndex,
     });
 
     await ctx.emit({
@@ -88,6 +90,7 @@ export async function* runVerifyPhase(
       source: 'system',
       provider: ctx.provider.name,
       model: ctx.model,
+      ...usageEventFields(usage),
     });
 
     if (error) {

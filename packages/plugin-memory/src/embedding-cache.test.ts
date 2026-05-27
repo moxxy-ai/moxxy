@@ -50,6 +50,23 @@ describe('EmbeddingIndex', () => {
     expect(b.lookup('foo', 'body')).toBeNull();
   });
 
+  it('invalidates cache when the dim changes under the same embedder name', async () => {
+    // Same name (e.g. the OpenAI embedder's coarse name), different dim — a
+    // model switch (1536 → 3072) must NOT reuse incomparable vectors.
+    const a = new EmbeddingIndex(tmp, 'openai', 1536);
+    a.set('foo', 'body', [1, 2, 3]);
+    await a.flush();
+
+    const b = new EmbeddingIndex(tmp, 'openai', 3072);
+    await b.load();
+    expect(b.lookup('foo', 'body')).toBeNull();
+
+    // Same name AND dim → cache is reused.
+    const c = new EmbeddingIndex(tmp, 'openai', 1536);
+    await c.load();
+    expect(c.lookup('foo', 'body')).toEqual([1, 2, 3]);
+  });
+
   it('prune() removes entries not in the current set', async () => {
     const idx = new EmbeddingIndex(tmp, 'test');
     idx.set('keep', 'b1', [1]);

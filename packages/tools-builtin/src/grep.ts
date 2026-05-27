@@ -28,7 +28,14 @@ export const grepTool = defineTool({
   },
   async handler({ pattern, cwd, glob, caseInsensitive, maxMatches }, ctx) {
     const baseDir = resolveSafe(ctx.cwd, cwd ?? '.');
-    const re = new RegExp(pattern, caseInsensitive ? 'i' : '');
+    let re: RegExp;
+    try {
+      re = new RegExp(pattern, caseInsensitive ? 'i' : '');
+    } catch (e) {
+      // A malformed user pattern would otherwise throw a raw SyntaxError;
+      // surface it as a clean, actionable tool error instead.
+      throw new Error(`Grep: invalid regular expression ${JSON.stringify(pattern)}: ${(e as Error).message}`);
+    }
     const fileRe = glob ? globToRegExp(glob) : null;
     const matches: string[] = [];
     await walk(baseDir, baseDir, re, fileRe, matches, maxMatches, ctx.signal);

@@ -1,4 +1,5 @@
 import type { Bot, Context } from 'grammy';
+import { newTurnId } from '@moxxy/core';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type { FramePump } from './frame-pump.js';
 import type { TypingIndicator } from './typing-indicator.js';
@@ -46,13 +47,20 @@ export async function runUserTurn(
   // every subsequent frame.
   typing.start(bot, chatId);
 
+  // Mint the turnId up front so the frame-pump subscriber can filter by it.
+  // `session.log` fans out to every listener; without this filter a concurrent
+  // turn driven by another channel (HTTP/runner) on the same Session would
+  // render into THIS chat. (AGENTS.md: filter event-log subscribers by turnId.)
+  const turnId = newTurnId();
   const unsubscribe = session.log.subscribe((event) => {
+    if (event.turnId !== turnId) return;
     const frame = framePump.renderState.accept(event);
     if (frame.hasUpdate) framePump.scheduleEdit();
   });
 
   try {
     for await (const _event of session.runTurn(text, {
+      turnId,
       ...(model ? { model } : {}),
       signal: controller.signal,
     })) {

@@ -123,16 +123,50 @@ function eventInCompactionRange(
  * and attachments; the simpler form here lives in the SDK so loop plugins
  * stay independent of core.
  */
+export interface ProjectedMessages {
+  readonly messages: ProviderMessage[];
+  /**
+   * Index (into `messages`) of the last message belonging to the stable,
+   * byte-identical prefix — i.e. produced entirely from events at or below the
+   * elision high-water mark (which only advances on whole-turn boundaries, so
+   * the cut never splits a message). -1 when no elision is active. The
+   * `stable-prefix` cache strategy places its long-lived cross-turn breakpoint
+   * here; see {@link collectProviderStream}'s `stablePrefixIndex` option.
+   */
+  readonly stablePrefixIndex: number;
+}
+
 export function projectMessagesFromLog(
   ctx: Pick<ModeContext, 'log'>,
   opts: ProjectMessagesOptions = {},
 ): ProviderMessage[] {
+  return projectMessages(ctx, opts).messages;
+}
+
+/**
+ * Same projection as {@link projectMessagesFromLog} but also reports the
+ * stable-prefix boundary so the active cache strategy can place a cross-turn
+ * breakpoint. Modes that build messages this way should thread the returned
+ * `stablePrefixIndex` into {@link collectProviderStream}.
+ */
+export function projectMessages(
+  ctx: Pick<ModeContext, 'log'>,
+  opts: ProjectMessagesOptions = {},
+): ProjectedMessages {
   const allEvents = ctx.log.slice();
   const compactions = activeCompactionRanges(allEvents);
   const emittedCompactions = new Set<CompactionRange>();
   const el = computeElisionState(allEvents);
 
   const messages: ProviderMessage[] = [];
+  // The stable prefix is every message produced from events at/below the
+  // elision HWM. Record the latest such message index as we push.
+  let stablePrefixIndex = -1;
+  const recordStable = (maxSeq: number): void => {
+    if (el.hwm >= 0 && maxSeq >= 0 && maxSeq <= el.hwm) {
+      stablePrefixIndex = messages.length - 1;
+    }
+  };
   if (opts.systemPrompt) {
     // When elision is active, tell the model that older turns may be shown as
     // stubs and how to expand them — so it recalls instead of hallucinating.
@@ -159,11 +193,15 @@ export function projectMessagesFromLog(
   }
 
   let pendingAssistant: ProviderMessage | null = null;
+  let pendingAssistantMaxSeq = -1;
   const flush = (): void => {
     if (!pendingAssistant) return;
     const flushed = pendingAssistant;
-    messages.push(flushed);
+    const groupMaxSeq = pendingAssistantMaxSeq;
     pendingAssistant = null;
+    pendingAssistantMaxSeq = -1;
+    messages.push(flushed);
+    recordStable(groupMaxSeq);
     // Synthesize fallback tool_result messages for any tool_use blocks
     // whose callId never resolved in the event log. Has to land
     // immediately after the assistant message (and before any
@@ -182,6 +220,7 @@ export function projectMessagesFromLog(
             },
           ],
         });
+        recordStable(groupMaxSeq);
         // Mark synthesized so we don't double-emit if the same orphan
         // appears in multiple groups (defensive — shouldn't normally
         // happen since each tool_call_requested has a unique callId).
@@ -200,6 +239,7 @@ export function projectMessagesFromLog(
           role: 'user',
           content: [{ type: 'text', text: `[summary of earlier turns]\n${compaction.summary}` }],
         });
+        recordStable(compaction.to);
       }
       continue;
     }
@@ -213,6 +253,7 @@ export function projectMessagesFromLog(
             role: 'user',
             content: [{ type: 'text', text: conversationalStub('user', e.seq) }],
           });
+          recordStable(e.seq);
           break;
         }
         const blocks: ContentBlock[] = [{ type: 'text', text: e.text }];
@@ -233,6 +274,7 @@ export function projectMessagesFromLog(
           }
         }
         messages.push({ role: 'user', content: blocks });
+        recordStable(e.seq);
         break;
       }
       case 'assistant_message':
@@ -242,12 +284,15 @@ export function projectMessagesFromLog(
             role: 'assistant',
             content: [{ type: 'text', text: conversationalStub('assistant', e.seq) }],
           });
+          recordStable(e.seq);
           break;
         }
         messages.push({ role: 'assistant', content: [{ type: 'text', text: e.content }] });
+        recordStable(e.seq);
         break;
       case 'tool_call_requested': {
         pendingAssistant ??= { role: 'assistant', content: [] };
+        pendingAssistantMaxSeq = Math.max(pendingAssistantMaxSeq, e.seq);
         (pendingAssistant.content as Array<ProviderMessage['content'][number]>).push({
           type: 'tool_use',
           id: e.callId,
@@ -273,6 +318,7 @@ export function projectMessagesFromLog(
           role: 'tool_result',
           content: [{ type: 'tool_result', toolUseId: e.callId, content: text, isError: !e.ok }],
         });
+        recordStable(e.seq);
         break;
       }
       default:
@@ -282,9 +328,11 @@ export function projectMessagesFromLog(
   flush();
 
   if (opts.trailingUserText) {
+    // The trailing step nudge is volatile (changes per step), never part of
+    // the stable prefix — don't record it.
     messages.push({ role: 'user', content: [{ type: 'text', text: opts.trailingUserText }] });
   }
-  return messages;
+  return { messages, stablePrefixIndex };
 }
 
 export interface StreamResult {
@@ -304,7 +352,19 @@ export interface StreamResult {
 export async function collectProviderStream(
   ctx: ModeContext,
   messages: ReadonlyArray<ProviderMessage>,
-  opts: { iteration?: number; includeTools?: boolean; maxTokens?: number } = {},
+  opts: {
+    iteration?: number;
+    includeTools?: boolean;
+    maxTokens?: number;
+    /**
+     * Index (into `messages`) of the last stable-prefix message, from
+     * {@link projectMessages}. Passed to the active cache strategy as
+     * `stablePrefixMessageIndex` so it can place a long-lived cross-turn
+     * breakpoint at the elision boundary. Omit (or -1) when unknown — the
+     * strategy then falls back to its tools/system/tail breakpoints only.
+     */
+    stablePrefixIndex?: number;
+  } = {},
 ): Promise<StreamResult> {
   // Lazy tool gating (opt-in): send only always-on + loaded tool schemas, and
   // index the rest in the system prompt. Runs BEFORE cache planning since it
@@ -328,6 +388,9 @@ export async function collectProviderStream(
         model: ctx.model,
         contextWindow: descriptor?.contextWindow ?? 0,
         log: ctx.log,
+        ...(opts.stablePrefixIndex != null && opts.stablePrefixIndex >= 0
+          ? { stablePrefixMessageIndex: opts.stablePrefixIndex }
+          : {}),
       })
     : undefined;
 

@@ -34,6 +34,23 @@ describe('MemoryStore', () => {
     expect(raw).toMatch(/createdAt: .+/);
   });
 
+  it('serializes concurrent saves so MEMORY.md keeps every entry', async () => {
+    const store = newStore();
+    // Without the per-instance mutex, each save's rebuildIndex can read the
+    // entry list before a sibling save has written its file, so a concurrent
+    // save's row is dropped from MEMORY.md (and the writes race the file).
+    await Promise.all([
+      store.save({ name: 'a', type: 'fact', description: 'A.', body: 'a' }),
+      store.save({ name: 'b', type: 'fact', description: 'B.', body: 'b' }),
+      store.save({ name: 'c', type: 'fact', description: 'C.', body: 'c' }),
+    ]);
+    const idx = await fs.readFile(path.join(tmp, 'MEMORY.md'), 'utf8');
+    expect(idx).toContain('[a](a.md)');
+    expect(idx).toContain('[b](b.md)');
+    expect(idx).toContain('[c](c.md)');
+    expect(await store.list()).toHaveLength(3);
+  });
+
   it('rebuilds the MEMORY.md index after each save', async () => {
     const store = newStore();
     await store.save({ name: 'a', type: 'fact', description: 'A.', body: '...' });

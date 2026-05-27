@@ -79,6 +79,47 @@ describe('CodexProvider.stream', () => {
     expect(end?.stopReason).toBe('end_turn');
   });
 
+  it('sets prompt_cache_key to the session id and surfaces cached input tokens', async () => {
+    let body: Record<string, unknown> | undefined;
+    const fakeFetch = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body));
+      return new Response(
+        sseStream([
+          'data: {"type":"response.completed","response":{"usage":{"input_tokens":100,"output_tokens":20,"input_tokens_details":{"cached_tokens":80}}}}\n\n',
+        ]),
+        { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+      );
+    });
+    const provider = new CodexProvider({
+      tokens: makeTokens(),
+      fetch: fakeFetch as unknown as typeof fetch,
+      sessionIdProvider: () => 'sess_fixed',
+    });
+    const events = await collect(provider.stream(baseRequest()));
+
+    expect(body?.prompt_cache_key).toBe('sess_fixed');
+    const end = events.find((e): e is Extract<ProviderEvent, { type: 'message_end' }> => e.type === 'message_end');
+    expect(end?.usage).toEqual({ inputTokens: 100, outputTokens: 20, cacheReadTokens: 80 });
+  });
+
+  it('uses a stable default session id across turns so the prefix cache can hit', async () => {
+    const keys: unknown[] = [];
+    const fakeFetch = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
+      keys.push((JSON.parse(String(init?.body)) as { prompt_cache_key?: unknown }).prompt_cache_key);
+      return new Response(sseStream(['data: {"type":"response.completed"}\n\n']), { status: 200 });
+    });
+    // No sessionIdProvider → exercises the default, which must be stable per instance.
+    const provider = new CodexProvider({
+      tokens: makeTokens(),
+      fetch: fakeFetch as unknown as typeof fetch,
+    });
+    await collect(provider.stream(baseRequest()));
+    await collect(provider.stream(baseRequest()));
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBeTruthy();
+    expect(keys[0]).toBe(keys[1]);
+  });
+
   it('omits ChatGPT-Account-Id when no accountId is set', async () => {
     const captured: { init?: RequestInit } = {};
     const fakeFetch = vi.fn(async (_u, init?: RequestInit) => {
@@ -168,6 +209,33 @@ describe('CodexProvider.stream', () => {
     const err = events.find((e) => e.type === 'error');
     expect(err).toBeDefined();
     expect((err as { message: string }).message).toMatch(/moxxy login openai-codex/);
+  });
+
+  it('emits a single error and no trailing message_end when the stream reports response.failed', async () => {
+    const fakeFetch = vi.fn(async () => {
+      return new Response(
+        sseStream([
+          'data: {"type":"response.output_text.delta","delta":"partial"}\n\n',
+          'data: {"type":"response.failed","error":{"message":"model overloaded"}}\n\n',
+          // A stray frame after the terminal error must be ignored, not turned
+          // into a second terminal event.
+          'data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1}}}\n\n',
+        ]),
+        { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+      );
+    });
+    const provider = new CodexProvider({
+      tokens: makeTokens(),
+      fetch: fakeFetch as unknown as typeof fetch,
+    });
+    const events = await collect(provider.stream(baseRequest()));
+
+    const errs = events.filter((e) => e.type === 'error');
+    expect(errs).toHaveLength(1);
+    expect((errs[0] as { message: string }).message).toMatch(/overloaded/);
+    // A failed turn must NOT also produce a message_end (the old code ignored
+    // the terminal flag and fell through to one).
+    expect(events.some((e) => e.type === 'message_end')).toBe(false);
   });
 
   it('parses tool_use_start/delta/end from function_call SSE events', async () => {

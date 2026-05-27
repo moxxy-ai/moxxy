@@ -2,8 +2,8 @@
  * Architectural invariants for moxxy (see AGENTS.md):
  *   1. @moxxy/sdk has zero internal deps — it must not import from any other @moxxy/* package.
  *   2. @moxxy/core must not import from any plugin package
- *      (@moxxy/plugin-*, @moxxy/loop-*, @moxxy/compactor-*, @moxxy/skills-builtin).
- *      Core can only import @moxxy/sdk + @moxxy/tools-builtin.
+ *      (@moxxy/plugin-*, @moxxy/mode-*, @moxxy/compactor-*, @moxxy/cache-strategy-*,
+ *      @moxxy/skills-builtin). Core can only import @moxxy/sdk + @moxxy/tools-builtin.
  *
  * Run with: `pnpm check:deps`
  *
@@ -31,7 +31,10 @@ module.exports = {
         'a static import from core inverts the dependency arrow.',
       from: { path: '^packages/core/src' },
       to: {
-        path: '^packages/(plugin-|loop-plan-execute|compactor-|skills-builtin)',
+        // Loop strategies were renamed loop-* → mode-*; cache-strategy-* was
+        // added. Match all current block packages so the invariant stays
+        // enforced. tools-builtin is intentionally NOT listed (core may import it).
+        path: '^packages/(plugin-|mode-|compactor-|cache-strategy-|skills-builtin)',
       },
     },
     {
@@ -62,10 +65,6 @@ module.exports = {
           // Standalone executables shipped via a package's `bin` field
           // (consumed by spawning a child process, not by being imported).
           'src/sidecar\\.ts$',
-          // worker_threads entry shipped via the `./shim` subpath export and
-          // spawned with `new Worker(SHIM_SOURCE, { eval: true })`. The eval
-          // boundary is invisible to static analysis, so it reads as an orphan.
-          'src/worker-shim\\.ts$',
         ],
       },
       to: {},

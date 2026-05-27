@@ -1,6 +1,7 @@
 import type { Channel, ChannelDef, ChannelHandle } from '@moxxy/sdk';
 import { startRunnerServer, runnerSocketPath, type RunnerServer } from '@moxxy/runner';
 import type { ParsedArgv } from '../argv.js';
+import { coAttachWebSurface } from './web-surface.js';
 import { bootSessionWithConfig, hasBoolFlag, helpRequested, stringFlag } from '../argv-helpers.js';
 import { colors } from '../colors.js';
 import { formatHelp } from './help-format.js';
@@ -281,7 +282,15 @@ async function runServeForeground(
       }
     }
   }
-  void vault;
+  // Co-attach the web view surface to the runner's session (on by default) so
+  // any attached client (incl. the TUI) can drive "build me X" and present_view
+  // renders. Skip if `--all` already started the web channel. Local by default;
+  // a public tunnel is opt-in via the persisted setting / config.
+  if (!started.some((s) => s.name === 'web')) {
+    const webHandle = await coAttachWebSurface({ primary: 'serve', session, vault, config });
+    if (webHandle) started.push({ name: 'web', handle: webHandle });
+  }
+
   void config;
 
   const runningBackground = BACKGROUND_UNITS.filter((u) => !except.has(u.id)).map((u) => u.id);

@@ -89,6 +89,41 @@ describe('OpenAIProvider.stream', () => {
     }
   });
 
+  it('requests usage via stream_options and surfaces token + cache-read counts from the final empty-choices chunk', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fake = {
+      chat: {
+        completions: {
+          create: async (body: Record<string, unknown>) => {
+            captured = body;
+            return (async function* () {
+              yield { choices: [{ index: 0, delta: { content: 'hi' } }] };
+              yield { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] };
+              // OpenAI sends usage in a trailing chunk with NO choices, only
+              // when include_usage was requested.
+              yield {
+                choices: [],
+                usage: {
+                  prompt_tokens: 100,
+                  completion_tokens: 20,
+                  prompt_tokens_details: { cached_tokens: 80 },
+                },
+              };
+            })();
+          },
+        },
+      },
+    };
+    const p = new OpenAIProvider({ client: fake as never });
+    const events = [];
+    for await (const e of p.stream({ model: 'gpt-4o-mini', messages: [] })) events.push(e);
+    expect(captured?.stream_options).toEqual({ include_usage: true });
+    expect(events[events.length - 1]).toMatchObject({
+      type: 'message_end',
+      usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 80 },
+    });
+  });
+
   it('emits error event when create() throws', async () => {
     const fake = {
       chat: {

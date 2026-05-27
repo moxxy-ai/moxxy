@@ -122,6 +122,19 @@ export type {
   ProviderAuthDescriptor,
 } from './provider.js';
 export type { CacheStrategyDef, CacheStrategyContext } from './cache-strategy.js';
+export type {
+  ViewNode,
+  ViewAction,
+  ViewDoc,
+  ViewParseError,
+  ViewParseResult,
+  AttrType,
+  AttrSpec,
+  ViewTagSpec,
+  ViewRendererDef,
+} from './view-renderer.js';
+export { VIEW_PRIMITIVES, VIEW_COMPONENTS, DEFAULT_VIEW_TAGS } from './view-renderer.js';
+export type { TunnelProviderDef, TunnelHandle, TunnelOpenOptions } from './tunnel.js';
 export { isRetryableError, toFriendlyError, zodToJsonSchema, type StopReason } from './provider-utils.js';
 export {
   MoxxyError,
@@ -133,10 +146,12 @@ export {
 export {
   collectProviderStream,
   projectMessagesFromLog,
+  projectMessages,
   buildSystemPromptWithSkills,
   type CollectedToolUse,
   type StreamResult,
   type ProjectMessagesOptions,
+  type ProjectedMessages,
 } from './mode-helpers.js';
 
 export type { TokenBudget, CompactContext, CompactorDef } from './compactor.js';
@@ -259,6 +274,8 @@ export {
   defineMode,
   defineCompactor,
   defineCacheStrategy,
+  defineViewRenderer,
+  defineTunnelProvider,
   defineChannel,
   definePermission,
   defineSkill,

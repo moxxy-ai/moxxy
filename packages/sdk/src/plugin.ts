@@ -9,8 +9,10 @@ import type { ProviderDef } from './provider.js';
 import type { MoxxyRequirement } from './requirements.js';
 import type { ToolDef } from './tool.js';
 import type { TranscriberDef } from './transcriber.js';
+import type { ViewRendererDef } from './view-renderer.js';
+import type { TunnelProviderDef } from './tunnel.js';
 
-export type PluginKind = 'tools' | 'provider' | 'mode' | 'compactor' | 'cache-strategy' | 'mcp' | 'cli' | 'channel' | 'hooks' | 'agent' | 'command' | 'transcriber';
+export type PluginKind = 'tools' | 'provider' | 'mode' | 'compactor' | 'cache-strategy' | 'view-renderer' | 'tunnel-provider' | 'mcp' | 'cli' | 'channel' | 'hooks' | 'agent' | 'command' | 'transcriber';
 
 export interface PluginSpec {
   readonly name: string;
@@ -25,6 +27,18 @@ export interface PluginSpec {
    * active strategy decides where cache breakpoints go for each provider call.
    */
   readonly cacheStrategies?: ReadonlyArray<CacheStrategyDef>;
+  /**
+   * View-spec renderers contributed by the plugin. One is active per session
+   * (selected via `session.viewRenderers.setActive(name)`); the active renderer
+   * parses the agent's view-spec into a validated AST for `present_view`. A
+   * default renderer ships with core, so this is only for replacing it.
+   */
+  readonly viewRenderers?: ReadonlyArray<ViewRendererDef>;
+  /**
+   * Tunnel providers that expose the local web surface publicly (e.g.
+   * cloudflared). One active per session; core seeds a `localhost` no-op.
+   */
+  readonly tunnelProviders?: ReadonlyArray<TunnelProviderDef>;
   readonly channels?: ReadonlyArray<ChannelDef>;
   /**
    * Speech-to-text backends contributed by the plugin. Selected by name via

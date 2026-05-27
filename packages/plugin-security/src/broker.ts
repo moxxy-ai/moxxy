@@ -294,6 +294,28 @@ interface ExecResult {
   readonly exitCode: number | null;
 }
 
+// Minimal POSIX-friendly default, matching the subprocess isolator's DEFAULT_ENV.
+const BROKER_DEFAULT_ENV: ReadonlyArray<string> = ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'LC_ALL', 'TERM'];
+
+/**
+ * Curate the env a brokered subprocess inherits: only the keys in the tool's
+ * `caps.env` allowlist (or a minimal default), plus any explicit per-call
+ * `env`. Never the full parent `process.env` — that would leak the host's
+ * secrets into the child.
+ */
+function buildBrokerEnv(
+  caps: { env?: ReadonlyArray<string> },
+  optsEnv: Record<string, string> | undefined,
+): Record<string, string> {
+  const allow = caps.env ?? BROKER_DEFAULT_ENV;
+  const env: Record<string, string> = {};
+  for (const key of allow) {
+    const v = process.env[key];
+    if (v !== undefined) env[key] = v;
+  }
+  return { ...env, ...(optsEnv ?? {}) };
+}
+
 async function brokerExec(
   args: ReadonlyArray<unknown>,
   { caps, cwd, signal }: BrokerContext,
@@ -327,7 +349,11 @@ async function brokerExec(
   return await new Promise<ExecResult>((resolve, reject) => {
     const child = spawn(command, [...argv], {
       cwd: opts.cwd ?? cwd,
-      env: opts.env ? { ...process.env, ...opts.env } : process.env,
+      // Filter the parent env through the tool's `caps.env` allowlist (or a
+      // minimal default) instead of leaking ALL of process.env — which would
+      // hand the brokered subprocess every API key/token the host holds. This
+      // mirrors the subprocess isolator's own env curation.
+      env: buildBrokerEnv(caps, opts.env),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let out = '';

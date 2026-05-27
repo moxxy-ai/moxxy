@@ -2,14 +2,14 @@ import {
   asToolCallId,
   buildSystemPromptWithSkills,
   collectProviderStream,
-  projectMessagesFromLog,
+  projectMessages,
   runCompactionIfNeeded,
   runElisionIfNeeded,
   usageEventFields,
   type CollectedToolUse,
   type ModeContext,
   type MoxxyEvent,
-  type ProviderMessage,
+  type ProjectedMessages,
 } from '@moxxy/sdk';
 
 import { dispatchToolCall } from './tool-dispatch.js';
@@ -57,7 +57,7 @@ export async function* runToolUseMode(ctx: ModeContext): AsyncIterable<MoxxyEven
     // compaction over the same projection.
     await runElisionIfNeeded(ctx);
 
-    const messages = buildMessages(ctx);
+    const { messages, stablePrefixIndex } = buildMessages(ctx);
     yield await ctx.emit({
       type: 'provider_request',
       sessionId: ctx.sessionId,
@@ -69,6 +69,7 @@ export async function* runToolUseMode(ctx: ModeContext): AsyncIterable<MoxxyEven
 
     const { text, toolUses, stopReason, error, usage } = await collectProviderStream(ctx, messages, {
       iteration,
+      stablePrefixIndex,
     });
 
     yield await ctx.emit({
@@ -213,11 +214,11 @@ async function* executeToolUses(
   return false;
 }
 
-function buildMessages(ctx: ModeContext): ReadonlyArray<ProviderMessage> {
+function buildMessages(ctx: ModeContext): ProjectedMessages {
   // Compose the system prompt with the skill catalog so the model knows
   // which playbooks exist; without this skills are invisible to the
   // model and it falls back to ad-hoc tool calls (the classic
   // `web_fetch instead of media-digest skill` symptom).
   const systemPrompt = buildSystemPromptWithSkills(ctx.systemPrompt, ctx.skills.list());
-  return projectMessagesFromLog(ctx, { ...(systemPrompt ? { systemPrompt } : {}) });
+  return projectMessages(ctx, { ...(systemPrompt ? { systemPrompt } : {}) });
 }

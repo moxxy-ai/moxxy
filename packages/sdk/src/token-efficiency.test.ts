@@ -8,6 +8,7 @@ import {
   asTurnId,
   defineTool,
   estimateContextTokens,
+  projectMessages,
   projectMessagesFromLog,
   summarizeSessionTokens,
   type EventLogReader,
@@ -123,6 +124,24 @@ describe('elision in projectMessagesFromLog', () => {
       (m) => m.role === 'user' && m.content.some((b) => b.type === 'text' && b.text === 'the new task'),
     );
     expect(recent).toBeDefined();
+  });
+
+  it('reports the stable-prefix boundary at the elision HWM (the cross-turn cache breakpoint)', () => {
+    const { messages, stablePrefixIndex } = projectMessages({ log: reader(baseEvents()) });
+    // Messages: anchor user(0), assistant tool_use(1), tool_result stub(2),
+    // assistant stub(3) — all from seqs ≤ HWM(3) — then the new task user(4),
+    // which is post-HWM and volatile. So the stable prefix ends at index 3.
+    expect(stablePrefixIndex).toBe(3);
+    expect(messages).toHaveLength(5);
+    // The boundary must be strictly before the rolling tail so the strategy
+    // actually emits a distinct long-lived breakpoint.
+    expect(stablePrefixIndex).toBeLessThan(messages.length - 1);
+  });
+
+  it('reports no stable prefix (-1) when elision is not active', () => {
+    const noElision = baseEvents().filter((e) => e.type !== 'elision');
+    const { stablePrefixIndex } = projectMessages({ log: reader(noElision) });
+    expect(stablePrefixIndex).toBe(-1);
   });
 
   it('marks an elided result as "already recalled" once a recall references it', () => {

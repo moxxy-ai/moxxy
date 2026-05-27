@@ -39,14 +39,17 @@ export const recallTool = defineTool({
 
     // Idempotency belt (anti-thrash): if this exact target was recalled in the
     // recent window, its result is already in context — return a pointer rather
-    // than re-injecting the bytes and risking a recall loop.
+    // than re-injecting the bytes and risking a recall loop. Window by position
+    // (the last RECENT events) rather than `seq >= length - RECENT`, which
+    // conflates a count with a seq and skews once seq ≠ arrayIndex.
     const RECENT = 40;
+    const recentSeqs = new Set(events.slice(-RECENT).map((e) => e.seq));
     const prior = events.find(
       (e) =>
         e.type === 'tool_call_requested' &&
         e.name === 'recall' &&
         e.callId !== ctx.callId &&
-        e.seq >= events.length - RECENT &&
+        recentSeqs.has(e.seq) &&
         recallTargetMatches(e.input, { callId, seq, turnId }),
     );
     if (prior) {

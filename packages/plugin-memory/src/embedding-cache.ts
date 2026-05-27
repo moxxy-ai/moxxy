@@ -8,6 +8,8 @@ const INDEX_VERSION = 1;
 interface IndexFile {
   readonly version: typeof INDEX_VERSION;
   readonly embedder: string;
+  /** Vector dimensionality the cache was built with (undefined = pre-dim format). */
+  readonly dim?: number | 'dynamic';
   readonly entries: Record<string, IndexEntry>;
 }
 
@@ -18,8 +20,11 @@ interface IndexEntry {
 
 /**
  * Persists computed embeddings to `<memoryDir>/.embeddings.json` keyed by
- * content hash. When the embedder name changes, the entire cache is invalidated
- * (a switch from openai → transformers produces incomparable vectors).
+ * content hash. The cache is invalidated when the embedder name OR its
+ * dimensionality changes — a name alone is too coarse (e.g. the OpenAI embedder
+ * reports a fixed name across models/`dimensions` settings, so a 1536→3072
+ * model switch must invalidate on the dim mismatch or recall compares
+ * incomparable vectors).
  */
 export class EmbeddingIndex {
   private cache: Map<string, IndexEntry> = new Map();
@@ -28,6 +33,7 @@ export class EmbeddingIndex {
   constructor(
     private readonly dir: string,
     private readonly embedderName: string,
+    private readonly dim?: number | 'dynamic',
   ) {}
 
   static hash(text: string): string {
@@ -44,6 +50,9 @@ export class EmbeddingIndex {
       const parsed = JSON.parse(raw) as IndexFile;
       if (parsed.version !== INDEX_VERSION) return; // unknown format, ignore
       if (parsed.embedder !== this.embedderName) return; // embedder changed, invalidate
+      // Dim mismatch (incl. an old file written before dim was tracked) → the
+      // vectors are a different dimensionality; invalidate rather than mix them.
+      if (this.dim !== undefined && parsed.dim !== this.dim) return;
       for (const [name, entry] of Object.entries(parsed.entries)) {
         this.cache.set(name, entry);
       }
@@ -88,6 +97,7 @@ export class EmbeddingIndex {
     const data: IndexFile = {
       version: INDEX_VERSION,
       embedder: this.embedderName,
+      ...(this.dim !== undefined ? { dim: this.dim } : {}),
       entries: Object.fromEntries(this.cache),
     };
     await fs.mkdir(this.dir, { recursive: true });

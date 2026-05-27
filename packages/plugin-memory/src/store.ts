@@ -12,7 +12,7 @@ import {
   type MemoryType,
   type RecallMode,
 } from './store/types.js';
-import { isEnoent, listEntries, readEntry, safeRead, writeIndex } from './store/io.js';
+import { isEnoent, listEntries, readEntry, safeRead, writeFileAtomic, writeIndex } from './store/io.js';
 import { rankByKeywords, recallVector, type RankedMemory } from './store/search.js';
 
 export {
@@ -50,6 +50,10 @@ export class MemoryStore {
   readonly dir: string;
   private readonly embedder: EmbeddingProvider | null;
   private readonly index: EmbeddingIndex | null;
+  // Per-instance mutex. save/update/forget each read-modify-write the entry
+  // file, MEMORY.md, and the embedding index; without serialization two
+  // overlapping calls clobber MEMORY.md and race the embedding cache.
+  private writeChain: Promise<unknown> = Promise.resolve();
 
   constructor(opts: MemoryStoreOptions = {}) {
     this.dir = opts.dir ?? defaultMemoryDir();
@@ -65,7 +69,10 @@ export class MemoryStore {
     // a big win since each entry's vector is corpus-independent.
     const isTfIdf = this.embedder instanceof TfIdfEmbedder;
     const persist = opts.persistEmbeddings ?? (this.embedder !== null && !isTfIdf);
-    this.index = persist && this.embedder ? new EmbeddingIndex(this.dir, this.embedder.name) : null;
+    this.index =
+      persist && this.embedder
+        ? new EmbeddingIndex(this.dir, this.embedder.name, this.embedder.dim)
+        : null;
   }
 
   get embedderName(): string {
@@ -80,7 +87,58 @@ export class MemoryStore {
     return readEntry(this.fileFor(name));
   }
 
-  async save(
+  /** Run `fn` under the per-instance mutex (kept alive across rejections). */
+  private serialize<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.writeChain.then(fn, fn);
+    this.writeChain = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  }
+
+  save(
+    input: Omit<MemoryFrontmatter, 'createdAt' | 'updatedAt'> & { body: string },
+  ): Promise<MemoryEntry> {
+    return this.serialize(() => this.writeEntry(input));
+  }
+
+  update(
+    name: string,
+    patch: { body?: string; description?: string; tags?: ReadonlyArray<string> },
+  ): Promise<MemoryEntry | null> {
+    // Read-modify-write under the mutex; calls the internal (unserialized)
+    // writer so it doesn't deadlock on its own chain.
+    return this.serialize(async () => {
+      const existing = await readEntry(this.fileFor(name));
+      if (!existing) return null;
+      const mergedTags = patch.tags ?? existing.frontmatter.tags;
+      return this.writeEntry({
+        name: existing.frontmatter.name,
+        type: existing.frontmatter.type,
+        description: patch.description ?? existing.frontmatter.description,
+        ...(mergedTags ? { tags: [...mergedTags] } : {}),
+        body: patch.body ?? existing.body,
+      });
+    });
+  }
+
+  forget(name: string): Promise<boolean> {
+    return this.serialize(async () => {
+      const filePath = this.fileFor(name);
+      try {
+        await fs.unlink(filePath);
+        await this.rebuildIndex();
+        return true;
+      } catch (err) {
+        if (isEnoent(err)) return false;
+        throw err;
+      }
+    });
+  }
+
+  /** The actual entry write. NOT serialized — callers hold the mutex. */
+  private async writeEntry(
     input: Omit<MemoryFrontmatter, 'createdAt' | 'updatedAt'> & { body: string },
   ): Promise<MemoryEntry> {
     await fs.mkdir(this.dir, { recursive: true });
@@ -97,37 +155,9 @@ export class MemoryStore {
       updatedAt: now,
     });
     const content = `${renderFrontmatter(frontmatter)}\n\n${input.body.trimEnd()}\n`;
-    await fs.writeFile(filePath, content, 'utf8');
+    await writeFileAtomic(filePath, content);
     await this.rebuildIndex();
     return { frontmatter, body: input.body.trimEnd(), path: filePath };
-  }
-
-  async update(
-    name: string,
-    patch: { body?: string; description?: string; tags?: ReadonlyArray<string> },
-  ): Promise<MemoryEntry | null> {
-    const existing = await this.get(name);
-    if (!existing) return null;
-    const mergedTags = patch.tags ?? existing.frontmatter.tags;
-    return this.save({
-      name: existing.frontmatter.name,
-      type: existing.frontmatter.type,
-      description: patch.description ?? existing.frontmatter.description,
-      ...(mergedTags ? { tags: [...mergedTags] } : {}),
-      body: patch.body ?? existing.body,
-    });
-  }
-
-  async forget(name: string): Promise<boolean> {
-    const filePath = this.fileFor(name);
-    try {
-      await fs.unlink(filePath);
-      await this.rebuildIndex();
-      return true;
-    } catch (err) {
-      if (isEnoent(err)) return false;
-      throw err;
-    }
   }
 
   /**

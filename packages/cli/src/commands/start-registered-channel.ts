@@ -15,6 +15,7 @@ import { setupSessionWithConfig } from '../setup.js';
 import { printError } from '../errors.js';
 import type { ParsedArgv } from '../argv.js';
 import { chooseClientMode, collectExtraFlags } from './client-mode.js';
+import { coAttachWebSurface } from './web-surface.js';
 
 /**
  * Run a registered channel by name, headlessly (no wizard, no TUI hand-off).
@@ -142,7 +143,13 @@ async function runSelfHostedChannel(
     ...collectExtraFlags(argv),
   } as never);
 
+  // Co-attach the web surface to the SAME session (on by default) so
+  // present_view renders and the agent can hand the user a URL even when the
+  // primary channel is e.g. telegram. The primary's permission resolver governs.
+  const webHandle = name === 'web' ? null : await coAttachWebSurface({ primary: name, session, vault, config });
+
   const shutdown = async (): Promise<void> => {
+    await webHandle?.stop('SIGINT').catch(() => undefined);
     await runnerServer?.close().catch(() => undefined);
     await handle.stop('SIGINT');
     // Fire onShutdown hooks so plugins can flush (memory journal, vault, etc.).

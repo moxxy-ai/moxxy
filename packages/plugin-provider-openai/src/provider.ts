@@ -100,6 +100,10 @@ export class OpenAIProvider implements LLMProvider {
           ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
           ...(req.maxTokens ? { [tokenLimitKey]: req.maxTokens } : {}),
           stream: true,
+          // OpenAI only emits the final `usage` chunk when this is set;
+          // without it `raw.usage` is null on every chunk and token usage
+          // (and cache-read counts) are silently lost for every streamed turn.
+          stream_options: { include_usage: true },
         } as never,
         // Pass the AbortSignal into the SDK request options so cancelling
         // mid-stream tears down the underlying HTTP request instead of just
@@ -117,12 +121,24 @@ export class OpenAIProvider implements LLMProvider {
     let stopReason: StopReason = 'end_turn';
     let usageIn = 0;
     let usageOut = 0;
+    let usageCacheRead = 0;
 
     try {
       for await (const raw of stream as AsyncIterable<OpenAIStreamChunk>) {
         if (req.signal?.aborted) {
           yield { type: 'error', message: 'aborted', retryable: false };
           return;
+        }
+        // Usage arrives in a FINAL chunk that has an empty `choices` array
+        // (only when stream_options.include_usage is set), so it must be read
+        // before the `!choice` guard below — otherwise it's `continue`d past.
+        if (raw.usage) {
+          usageIn = raw.usage.prompt_tokens ?? usageIn;
+          usageOut = raw.usage.completion_tokens ?? usageOut;
+          // `prompt_tokens` already includes the cached portion; surface the
+          // cached count so cache hit-rate accounting works (parity with the
+          // Anthropic provider's cache_read_input_tokens).
+          usageCacheRead = raw.usage.prompt_tokens_details?.cached_tokens ?? usageCacheRead;
         }
         const choice = raw.choices?.[0];
         if (!choice) continue;
@@ -162,11 +178,6 @@ export class OpenAIProvider implements LLMProvider {
         if (choice.finish_reason) {
           stopReason = mapStopReason(choice.finish_reason);
         }
-
-        if (raw.usage) {
-          usageIn = raw.usage.prompt_tokens ?? usageIn;
-          usageOut = raw.usage.completion_tokens ?? usageOut;
-        }
       }
     } catch (err) {
       yield { type: 'error', ...toFriendlyError(err, { provider: 'openai' }) };
@@ -191,7 +202,14 @@ export class OpenAIProvider implements LLMProvider {
     yield {
       type: 'message_end',
       stopReason,
-      usage: usageIn > 0 || usageOut > 0 ? { inputTokens: usageIn, outputTokens: usageOut } : undefined,
+      usage:
+        usageIn > 0 || usageOut > 0
+          ? {
+              inputTokens: usageIn,
+              outputTokens: usageOut,
+              ...(usageCacheRead > 0 ? { cacheReadTokens: usageCacheRead } : {}),
+            }
+          : undefined,
     };
   }
 
@@ -218,7 +236,11 @@ interface OpenAIStreamChunk {
     };
     finish_reason?: string | null;
   }>;
-  usage?: { prompt_tokens?: number; completion_tokens?: number };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number };
+  };
 }
 
 function mapStopReason(s: string): StopReason {

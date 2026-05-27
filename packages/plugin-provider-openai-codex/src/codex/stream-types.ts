@@ -25,7 +25,11 @@ export interface ResponsesSseEvent {
   response?: {
     status?: string;
     incomplete_details?: { reason?: string };
-    usage?: { input_tokens?: number; output_tokens?: number };
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      input_tokens_details?: { cached_tokens?: number };
+    };
   };
   error?: { message?: string };
 }
@@ -33,6 +37,6 @@ export interface ResponsesSseEvent {
 export interface SseStepResult {
   events?: ProviderEvent[];
   stopReason?: StopReason;
-  usage?: { input?: number; output?: number };
+  usage?: { input?: number; output?: number; cacheRead?: number };
   terminal?: boolean;
 }

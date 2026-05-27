@@ -10,9 +10,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./shim": {
-      "import": "./dist/worker-shim.js"
     }
   },
   "files": ["dist", "src"],

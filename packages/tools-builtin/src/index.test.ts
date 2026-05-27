@@ -118,6 +118,15 @@ describe('bashTool', () => {
     const result = await p;
     expect(result).toMatch(/exit/);
   });
+
+  it('rejects immediately when the signal is already aborted (does not spawn)', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const ctx = { ...baseCtx(), signal: controller.signal };
+    await expect(
+      bashTool.handler({ command: 'echo should-not-run', timeoutMs: 5000 }, ctx),
+    ).rejects.toThrow(/aborted before start/);
+  });
 });
 
 describe('grepTool', () => {
@@ -133,6 +142,12 @@ describe('grepTool', () => {
     await fs.writeFile(path.join(tmp, 'a.txt'), 'HELLO');
     const out = (await grepTool.handler({ pattern: 'hello', caseInsensitive: true }, baseCtx())) as string;
     expect(out).toContain('a.txt:1');
+  });
+
+  it('surfaces an invalid regex as a clean error, not a raw SyntaxError', async () => {
+    await expect(grepTool.handler({ pattern: '(' }, baseCtx())).rejects.toThrow(
+      /invalid regular expression/i,
+    );
   });
 });
 

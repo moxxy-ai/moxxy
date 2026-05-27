@@ -6,6 +6,7 @@ import type {
   Channel,
   ChannelHandle,
   ChannelStartOptsBase,
+  MoxxyEvent,
   PendingToolCall,
   PermissionContext,
 } from '@moxxy/sdk';
@@ -64,6 +65,10 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
   private bot: Bot | null = null;
   private busy = false;
   private currentChatId: number | null = null;
+  // Last chat we ran a turn for — the target for mirroring turns this channel
+  // did NOT initiate (e.g. a web-surface action on a shared session).
+  private lastChatId: number | null = null;
+  private logUnsub: (() => void) | null = null;
   private session: Session | null = null;
   private model: string | undefined;
   private activeModelOverride: string | null = null;
@@ -129,6 +134,12 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     // headless code paths after channel close don't see a stale handler.
     this.session.setApprovalResolver(this.approvalResolver);
 
+    // Mirror-to-both: when the session runs a turn this channel did NOT
+    // initiate (e.g. a user submitted a form on the co-attached web surface),
+    // post the assistant's prose into the last chat we served. Our OWN turns
+    // are rendered by the FramePump (gated by `busy`), so skip those.
+    this.logUnsub = this.session.log.subscribe((event) => this.mirrorForeignTurn(event));
+
     this.bot.command('start', (ctx) => this.pairing.handleStartCommand(ctx));
     this.bot.on('callback_query:data', (ctx) => this.dispatchCallback(ctx));
     this.bot.on('message:text', (ctx) => this.handleText(ctx));
@@ -157,6 +168,8 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
       stop: async (reason = 'shutdown') => {
         this.permissionResolver.abortAll(reason);
         this.approvalResolver.abortAll(reason);
+        this.logUnsub?.();
+        this.logUnsub = null;
         if (this.session) this.session.setApprovalResolver(null);
         this.framePump.endTurn();
         this.typing.stop();
@@ -252,6 +265,7 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     if (!this.session) throw new Error('TelegramChannel.start() must be called first');
     this.busy = true;
     this.currentChatId = chatId;
+    this.lastChatId = chatId;
     // Per-turn AbortController so /cancel only aborts THIS turn.
     const controller = new AbortController();
     this.turnController = controller;
@@ -274,6 +288,22 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
       this.turnController = null;
       this.currentChatId = null;
     }
+  }
+
+  /**
+   * Post the assistant's prose for a turn this channel did not initiate. Gated
+   * by `!busy` (our own turns are rendered by the FramePump from the runUserTurn
+   * iterator) and by having served a chat at least once. Sent as plain text to
+   * avoid parse-mode pitfalls; the view itself lives on the web surface.
+   */
+  private mirrorForeignTurn(event: MoxxyEvent): void {
+    if (event.type !== 'assistant_message' || this.busy) return;
+    if (!this.bot || this.lastChatId == null) return;
+    const text = event.content.trim();
+    if (!text) return;
+    void this.bot.api.sendMessage(this.lastChatId, text).catch((err) => {
+      this.opts.logger?.warn('telegram mirror failed', { err: String(err) });
+    });
   }
 
   private askForPermission(call: PendingToolCall, ctx: PermissionContext): Promise<void> {

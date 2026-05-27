@@ -35,10 +35,24 @@ const emptyPolicy: PermissionPolicy = { allow: [], deny: [] };
 export class PermissionEngine {
   private policy: PermissionPolicy;
   private policyPath: string | null;
+  // Per-instance mutex. Mutators read-modify-write `this.policy` then persist;
+  // without serialization two overlapping calls both read the same snapshot,
+  // each append one rule, and the second write clobbers the first's rule.
+  private writeChain: Promise<void> = Promise.resolve();
 
   constructor(policy: PermissionPolicy = emptyPolicy, policyPath: string | null = null) {
     this.policy = policy;
     this.policyPath = policyPath;
+  }
+
+  /** Run `fn` under the per-instance mutex (kept alive across rejections). */
+  private serialize<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.writeChain.then(fn, fn);
+    this.writeChain = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
   }
 
   static async load(policyPath: string): Promise<PermissionEngine> {
@@ -69,37 +83,45 @@ export class PermissionEngine {
   }
 
   async addAllow(rule: PolicyRule): Promise<void> {
-    this.policy = {
-      ...this.policy,
-      allow: [...this.policy.allow, sanitizeRule(rule)],
-    };
-    await this.persist();
+    return this.serialize(async () => {
+      this.policy = {
+        ...this.policy,
+        allow: [...this.policy.allow, sanitizeRule(rule)],
+      };
+      await this.persist();
+    });
   }
 
   async addDeny(rule: PolicyRule): Promise<void> {
-    this.policy = {
-      ...this.policy,
-      deny: [...this.policy.deny, sanitizeRule(rule)],
-    };
-    await this.persist();
+    return this.serialize(async () => {
+      this.policy = {
+        ...this.policy,
+        deny: [...this.policy.deny, sanitizeRule(rule)],
+      };
+      await this.persist();
+    });
   }
 
   /** Remove every rule (allow + deny) whose name matches exactly. Returns the count removed. */
   async removeByName(name: string): Promise<number> {
-    const allowBefore = this.policy.allow.length;
-    const denyBefore = this.policy.deny.length;
-    this.policy = {
-      allow: this.policy.allow.filter((r) => r.name !== name),
-      deny: this.policy.deny.filter((r) => r.name !== name),
-    };
-    const removed = allowBefore - this.policy.allow.length + (denyBefore - this.policy.deny.length);
-    if (removed > 0) await this.persist();
-    return removed;
+    return this.serialize(async () => {
+      const allowBefore = this.policy.allow.length;
+      const denyBefore = this.policy.deny.length;
+      this.policy = {
+        allow: this.policy.allow.filter((r) => r.name !== name),
+        deny: this.policy.deny.filter((r) => r.name !== name),
+      };
+      const removed = allowBefore - this.policy.allow.length + (denyBefore - this.policy.deny.length);
+      if (removed > 0) await this.persist();
+      return removed;
+    });
   }
 
   async clear(): Promise<void> {
-    this.policy = { allow: [], deny: [] };
-    await this.persist();
+    return this.serialize(async () => {
+      this.policy = { allow: [], deny: [] };
+      await this.persist();
+    });
   }
 
   private async persist(): Promise<void> {

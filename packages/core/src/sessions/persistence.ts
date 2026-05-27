@@ -6,12 +6,14 @@
  *
  * Layout:
  *   ~/.moxxy/sessions/
- *     index.json                 array of SessionMeta
+ *     <sessionId>.meta.json      per-session metadata sidecar (one per session)
  *     <sessionId>.jsonl          one MoxxyEvent per line
  *
- * Atomicity: JSONL appends are best-effort (lose at most the last
- * in-flight event on a crash); index.json uses write-temp-rename so
- * concurrent moxxy processes can't half-corrupt it.
+ * Each session writes only its OWN `.meta.json` sidecar (write-temp-rename), so
+ * two concurrent moxxy processes can't drop each other's row the way a shared
+ * `index.json` read-modify-write would. `readIndex` assembles the sidecars (and
+ * a legacy `index.json`, if present, for back-compat). JSONL appends are
+ * best-effort (lose at most the last in-flight event on a crash).
  */
 
 import { promises as fs } from 'node:fs';
@@ -56,7 +58,6 @@ export class SessionPersistence {
   private readonly dir: string;
   private readonly id: string;
   private readonly logPath: string;
-  private readonly indexPath: string;
   private meta: SessionMeta;
   private indexUpdateScheduled = false;
   /**
@@ -71,7 +72,6 @@ export class SessionPersistence {
     this.dir = opts.dir ?? defaultSessionsDir();
     this.id = String(opts.sessionId);
     this.logPath = path.join(this.dir, `${this.id}.jsonl`);
-    this.indexPath = path.join(this.dir, 'index.json');
     const now = new Date().toISOString();
     this.meta = {
       id: this.id,
@@ -156,12 +156,11 @@ export class SessionPersistence {
     try {
       await this.ensureDir();
       await this.ensureLogFile();
-      const all = await readIndex(this.dir);
-      const without = all.filter((m) => m.id !== this.meta.id);
-      const next = [...without, this.meta].sort((a, b) =>
-        b.lastActivity.localeCompare(a.lastActivity),
-      );
-      await writeJsonAtomic(this.indexPath, next);
+      // Write ONLY this session's sidecar (`<id>.meta.json`), never a
+      // read-modify-write of a shared index.json — that loses rows when two
+      // moxxy processes update "their" row concurrently (each reads the index,
+      // re-adds only itself, and the last writer drops the other's row).
+      await writeJsonAtomic(metaPath(this.dir, this.meta.id), this.meta);
     } catch {
       // Index write failures shouldn't bring down a session; the
       // user can always re-resume by id from the filename.
@@ -178,28 +177,59 @@ export class SessionPersistence {
   }
 }
 
-/** Read the session index. Returns [] when the file doesn't exist. */
+/**
+ * Read the session index by assembling per-session sidecars (`<id>.meta.json`)
+ * plus a legacy `index.json` if one exists (sidecars win by id). Sessions whose
+ * `.jsonl` is missing are dropped. Sorted most-recent-activity first.
+ */
 export async function readIndex(dir = defaultSessionsDir()): Promise<SessionMeta[]> {
-  const indexPath = path.join(dir, 'index.json');
+  const byId = new Map<string, SessionMeta>();
+
+  // Legacy single-file index (pre-sidecar layout). Sidecars override it below.
   try {
-    const raw = await fs.readFile(indexPath, 'utf8');
+    const raw = await fs.readFile(path.join(dir, 'index.json'), 'utf8');
     const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    const metas = parsed.filter(isSessionMeta);
-    const checks = await Promise.all(
-      metas.map(async (meta) => {
+    if (Array.isArray(parsed)) {
+      for (const m of parsed.filter(isSessionMeta)) byId.set(m.id, m);
+    }
+  } catch {
+    // no legacy index — fine
+  }
+
+  let dirents: import('node:fs').Dirent[];
+  try {
+    dirents = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    dirents = [];
+  }
+  await Promise.all(
+    dirents
+      .filter((d) => d.isFile() && d.name.endsWith('.meta.json'))
+      .map(async (d) => {
         try {
-          await fs.access(path.join(dir, `${meta.id}.jsonl`));
-          return true;
+          const raw = await fs.readFile(path.join(dir, d.name), 'utf8');
+          const parsed = JSON.parse(raw) as unknown;
+          if (isSessionMeta(parsed)) byId.set(parsed.id, parsed);
         } catch {
-          return false;
+          // skip a malformed/half-written sidecar
         }
       }),
-    );
-    return metas.filter((_, index) => checks[index]);
-  } catch {
-    return [];
-  }
+  );
+
+  const metas = [...byId.values()];
+  const checks = await Promise.all(
+    metas.map(async (meta) => {
+      try {
+        await fs.access(path.join(dir, `${meta.id}.jsonl`));
+        return true;
+      } catch {
+        return false;
+      }
+    }),
+  );
+  return metas
+    .filter((_, index) => checks[index])
+    .sort((a, b) => b.lastActivity.localeCompare(a.lastActivity));
 }
 
 /**
@@ -232,16 +262,22 @@ export async function restoreEvents(
   return events;
 }
 
-/** Remove a session's log file and its index entry. */
+/**
+ * Remove a session's log file and its sidecar. A leftover legacy `index.json`
+ * row, if any, is harmless — `readIndex` filters out sessions whose `.jsonl` is
+ * gone, so the deleted session won't reappear.
+ */
 export async function deleteSession(
   sessionId: string,
   dir = defaultSessionsDir(),
 ): Promise<void> {
-  const logPath = path.join(dir, `${sessionId}.jsonl`);
-  await fs.rm(logPath, { force: true });
-  const index = await readIndex(dir);
-  const without = index.filter((m) => m.id !== sessionId);
-  await writeJsonAtomic(path.join(dir, 'index.json'), without);
+  await fs.rm(path.join(dir, `${sessionId}.jsonl`), { force: true });
+  await fs.rm(metaPath(dir, sessionId), { force: true });
+}
+
+/** Per-session metadata sidecar path. */
+function metaPath(dir: string, id: string): string {
+  return path.join(dir, `${id}.meta.json`);
 }
 
 async function writeJsonAtomic(target: string, value: unknown): Promise<void> {

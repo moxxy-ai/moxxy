@@ -103,4 +103,21 @@ describe('PermissionEngine', () => {
     expect(after.filter((f) => f.startsWith('permissions.json.tmp.'))).toEqual([]);
     expect(after).toContain('permissions.json');
   });
+
+  it('serializes concurrent mutators so no rule is lost (in-memory + on disk)', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-perm-'));
+    const file = path.join(tmp, 'permissions.json');
+    try {
+      const e = await PermissionEngine.load(file);
+      // Fire many adds without awaiting between them. Without the per-instance
+      // mutex, overlapping persists rename out of order and the final file
+      // reflects a stale snapshot (rows dropped).
+      await Promise.all(Array.from({ length: 20 }, (_, i) => e.addAllow({ name: `tool-${i}` })));
+      expect(e.policySnapshot.allow).toHaveLength(20);
+      const reloaded = await PermissionEngine.load(file);
+      expect(reloaded.policySnapshot.allow).toHaveLength(20);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
 });

@@ -55,6 +55,36 @@ describe('SessionPersistence', () => {
 
     detach();
   });
+
+  it('writes a per-session sidecar that readIndex assembles', async () => {
+    const dir = await makeTempDir();
+    const id = '01SIDECAR00000000000000000';
+    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
+    const detach = persistence.attach(new EventLog());
+    await waitForFile(path.join(dir, `${id}.meta.json`));
+    const ids = (await readIndex(dir)).map((m) => m.id);
+    expect(ids).toContain(id);
+    detach();
+  });
+
+  it('two concurrent sessions both survive (no shared-index clobber)', async () => {
+    const dir = await makeTempDir();
+    const idA = '01AAAA00000000000000000001';
+    const idB = '01BBBB00000000000000000002';
+    const detachA = new SessionPersistence({ sessionId: idA as never, cwd: '/a', dir }).attach(
+      new EventLog(),
+    );
+    const detachB = new SessionPersistence({ sessionId: idB as never, cwd: '/b', dir }).attach(
+      new EventLog(),
+    );
+    await waitForFile(path.join(dir, `${idA}.meta.json`));
+    await waitForFile(path.join(dir, `${idB}.meta.json`));
+    const ids = (await readIndex(dir)).map((m) => m.id);
+    expect(ids).toContain(idA);
+    expect(ids).toContain(idB);
+    detachA();
+    detachB();
+  });
 });
 
 async function waitForFile(file: string): Promise<void> {

@@ -129,6 +129,10 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   } else if (config.context?.cacheStrategy) {
     session.cacheStrategies.setActive(config.context.cacheStrategy);
   }
+  // The web-surface tunnel provider (localhost by default) is applied by the
+  // web plugin's onInit from ~/.moxxy/web.json or config.channels.web.tunnel,
+  // and auto-selected per primary channel by coAttachWebSurface — no env needed.
+
   // Elision is on by default (built-in defaults); config only needs to be
   // carried when the user customizes or disables it.
   if (config.context?.elision) session.elisionSettings = config.context.elision;

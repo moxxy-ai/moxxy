@@ -9,6 +9,8 @@ import type { SkillDef, SkillFrontmatter } from './skill.js';
 import type { ToolCompactPresentation, ToolContext, ToolDef } from './tool.js';
 import type { ToolIsolationSpec } from './isolation.js';
 import type { TranscriberDef } from './transcriber.js';
+import type { ViewRendererDef } from './view-renderer.js';
+import type { TunnelProviderDef } from './tunnel.js';
 import type { z } from 'zod';
 
 export function definePlugin(spec: PluginSpec): Plugin {
@@ -71,6 +73,14 @@ export function defineCompactor(spec: CompactorDef): CompactorDef {
 }
 
 export function defineCacheStrategy(spec: CacheStrategyDef): CacheStrategyDef {
+  return Object.freeze(spec);
+}
+
+export function defineViewRenderer(spec: ViewRendererDef): ViewRendererDef {
+  return Object.freeze(spec);
+}
+
+export function defineTunnelProvider(spec: TunnelProviderDef): TunnelProviderDef {
   return Object.freeze(spec);
 }
 

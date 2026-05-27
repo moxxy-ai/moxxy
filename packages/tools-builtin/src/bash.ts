@@ -31,6 +31,12 @@ export const bashTool = defineTool({
     },
   },
   async handler({ command, cwd, timeoutMs, env }, ctx) {
+    // An already-aborted signal won't fire an 'abort' event, so the listener
+    // below would never run and the child would ignore the abort entirely.
+    // Reject up front rather than spawning a process we can't cancel.
+    if (ctx.signal.aborted) {
+      throw new Error(`Bash aborted before start: ${command}`);
+    }
     return await new Promise<string>((resolve, reject) => {
       const child = spawn('/bin/sh', ['-lc', command], {
         cwd: cwd ?? ctx.cwd,

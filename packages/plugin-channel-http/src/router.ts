@@ -237,6 +237,12 @@ export async function handleTurnStream(
     connection: 'keep-alive',
   });
 
+  // Abort the turn when the client hangs up — without this the model keeps
+  // generating (and billing) with nothing consuming the SSE stream.
+  const controller = new AbortController();
+  const onClose = (): void => controller.abort();
+  res.on('close', onClose);
+
   const writeEvent = (event: MoxxyEvent): void => {
     res.write(`data: ${JSON.stringify(event)}\n\n`);
   };
@@ -245,6 +251,7 @@ export async function handleTurnStream(
     for await (const event of ctx.session.runTurn(body.prompt, {
       ...(body.model ? { model: body.model } : {}),
       ...(body.systemPrompt ? { systemPrompt: body.systemPrompt } : {}),
+      signal: controller.signal,
     })) {
       writeEvent(event);
     }
@@ -252,6 +259,7 @@ export async function handleTurnStream(
   } catch (err) {
     res.write(`event: error\ndata: ${JSON.stringify({ message: err instanceof Error ? err.message : String(err) })}\n\n`);
   } finally {
+    res.off('close', onClose);
     res.end();
   }
 }

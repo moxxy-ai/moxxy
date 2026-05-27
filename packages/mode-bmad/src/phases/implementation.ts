@@ -3,6 +3,7 @@ import {
   collectProviderStream,
   runCompactionIfNeeded,
   runElisionIfNeeded,
+  usageEventFields,
   type ModeContext,
   type MoxxyEvent,
 } from '@moxxy/sdk';
@@ -82,7 +83,7 @@ export async function* runImplementationLoop(
       model: ctx.model,
     });
 
-    const { text, toolUses, stopReason, error } = await collectProviderStream(ctx, messages, {
+    const { text, toolUses, stopReason, error, usage } = await collectProviderStream(ctx, messages, {
       iteration,
     });
 
@@ -93,6 +94,7 @@ export async function* runImplementationLoop(
       source: 'system',
       provider: ctx.provider.name,
       model: ctx.model,
+      ...usageEventFields(usage),
     });
 
     if (error) {

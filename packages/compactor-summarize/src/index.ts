@@ -34,17 +34,20 @@ export function createSummarizeCompactor(opts: SummarizeOptions = {}): Compactor
 
       // High-water mark: skip anything already covered by a previous
       // CompactionEvent's replacedRange. Without this, every call
-      // re-compacts the same prefix from index 0 on top of itself,
-      // wasting tokens and producing nested summaries.
-      const prior = events
+      // re-compacts the same prefix on top of itself, wasting tokens and
+      // producing nested summaries. `replacedRange` is in event-`seq` space
+      // (see CompactionEvent), so resume from the first event whose seq is
+      // past the previous high-water mark — NOT from `priorSeq + 1` as an
+      // array index, which silently skips events once seq ≠ arrayIndex.
+      const priorSeq = events
         .filter((e): e is MoxxyEvent & { type: 'compaction' } => e.type === 'compaction')
-        .reduce((max, e) => Math.max(max, e.replacedRange[1] ?? -1), -1);
-      const startIdx = prior + 1;
+        .reduce((max, e) => Math.max(max, e.replacedRange[1]), -1);
+      const startIdx = events.findIndex((e) => e.seq > priorSeq);
 
-      const tail = events.slice(startIdx);
-      const turnIds = unique(tail.map((e) => e.turnId));
       const firstEvent = events[0]!;
       const lastEvent = events[events.length - 1]!;
+      const tail = startIdx < 0 ? [] : events.slice(startIdx);
+      const turnIds = unique(tail.map((e) => e.turnId));
       if (turnIds.length <= keepRecent) {
         return {
           type: 'compaction',
@@ -77,7 +80,7 @@ export function createSummarizeCompactor(opts: SummarizeOptions = {}): Compactor
         turnId: sliceLast.turnId,
         source: 'compactor',
         compactor: 'summarize-old-turns',
-        replacedRange: [from, to],
+        replacedRange: [sliceFirst.seq, sliceLast.seq],
         summary,
         tokensSaved: Math.max(0, slice.length * 30),
       };

@@ -2,7 +2,7 @@ import {
   asToolCallId,
   buildSystemPromptWithSkills,
   collectProviderStream,
-  projectMessagesFromLog,
+  projectMessages,
   runCompactionIfNeeded,
   runElisionIfNeeded,
   usageEventFields,
@@ -59,7 +59,7 @@ export async function executeStep(
     await runCompactionIfNeeded(ctx);
     await runElisionIfNeeded(ctx);
 
-    const messages = projectMessagesFromLog(ctx, {
+    const { messages, stablePrefixIndex } = projectMessages(ctx, {
       systemPrompt:
         buildSystemPromptWithSkills(ctx.systemPrompt, ctx.skills.list()) ?? ctx.systemPrompt,
       trailingUserText: stepNudge,
@@ -73,8 +73,9 @@ export async function executeStep(
       model: ctx.model,
     });
 
-    const { text, toolUses, stopReason, usage } = await collectProviderStream(ctx, messages, {
+    const { text, toolUses, stopReason, error, usage } = await collectProviderStream(ctx, messages, {
       iteration,
+      stablePrefixIndex,
     });
 
     await ctx.emit({
@@ -86,6 +87,23 @@ export async function executeStep(
       model: ctx.model,
       ...usageEventFields(usage),
     });
+
+    // A provider failure yields zero tool uses — without this guard the
+    // `toolUses.length === 0` check below would mistake a failed call for a
+    // completed step (return true). Surface it and retry if retryable;
+    // otherwise end the step as NOT done.
+    if (error) {
+      await ctx.emit({
+        type: 'error',
+        sessionId: ctx.sessionId,
+        turnId: ctx.turnId,
+        source: 'system',
+        kind: error.retryable ? 'retryable' : 'fatal',
+        message: error.message,
+      });
+      if (!error.retryable) return false;
+      continue;
+    }
 
     // Surface any spoken text from the model. Note: we do NOT emit
     // tool_call_requested here yet — emitting before we know we'll

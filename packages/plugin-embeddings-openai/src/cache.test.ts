@@ -55,6 +55,23 @@ describe('CachedEmbeddingProvider', () => {
     expect(b.embed).not.toHaveBeenCalled();
   });
 
+  it('does not serve a hydrated vector when the upstream dim/name differs', async () => {
+    // Cache built against one provider...
+    const small: EmbeddingProvider = { name: 'm', dim: 1536, embed: vi.fn(async () => [[1, 2]]) };
+    const cachedSmall = new CachedEmbeddingProvider(small);
+    await cachedSmall.embed(['x']);
+    const snapshot = cachedSmall.serialize();
+
+    // ...must NOT satisfy a lookup on a different-dim provider for the same
+    // text — that would return the wrong-dimension vector.
+    const largeEmbed = vi.fn(async () => [[9, 9, 9, 9]]);
+    const large: EmbeddingProvider = { name: 'm', dim: 3072, embed: largeEmbed };
+    const cachedLarge = new CachedEmbeddingProvider(large);
+    cachedLarge.hydrate(snapshot);
+    expect(await cachedLarge.embed(['x'])).toEqual([[9, 9, 9, 9]]); // re-embedded
+    expect(largeEmbed).toHaveBeenCalledTimes(1);
+  });
+
   it('name is upstream + "+cache"', () => {
     const { upstream } = makeUpstream([]);
     expect(new CachedEmbeddingProvider(upstream).name).toBe('stub+cache');

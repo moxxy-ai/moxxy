@@ -410,21 +410,30 @@ export function buildWasmHostImports(
 // Memory marshalling helpers (host side)
 // ---------------------------------------------------------------------------
 
-/** Per-isolation simple bump pointer for host-allocated scratch regions. */
-let scratchOffset = 65536;
+// Bump-pointer scratch allocator, keyed PER memory (i.e. per wasm invocation —
+// each instantiation gets its own WebAssembly.Memory). A module-global offset
+// here was a real bug: it persisted across invocations and only ever grew, so
+// every later call started higher and forced unbounded memory.grow() / OOM.
+const SCRATCH_BASE = 65536;
+let scratchOffsets = new WeakMap<WebAssembly.Memory, number>();
 
 function reserveScratch(memory: WebAssembly.Memory, size: number): number {
-  const start = scratchOffset;
-  scratchOffset += size;
-  const required = Math.ceil((scratchOffset + 1) / 65536);
+  const start = scratchOffsets.get(memory) ?? SCRATCH_BASE;
+  const next = start + size;
+  scratchOffsets.set(memory, next);
+  const required = Math.ceil((next + 1) / 65536);
   const have = memory.buffer.byteLength / 65536;
   if (required > have) memory.grow(required - have);
   return start;
 }
 
-/** Test-only helper to reset the scratch allocator between unit tests. */
+/**
+ * Test-only helper to reset the scratch allocator between unit tests. State is
+ * now per-memory, so a fresh memory already starts at the base; this just drops
+ * the table for full isolation.
+ */
 export function _resetScratch(): void {
-  scratchOffset = 65536;
+  scratchOffsets = new WeakMap();
 }
 
 function writePtrPair(

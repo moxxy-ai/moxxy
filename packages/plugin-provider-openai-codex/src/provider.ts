@@ -47,7 +47,12 @@ export class CodexProvider implements LLMProvider {
     if (config.onTokensRefreshed) this.onTokensRefreshed = config.onTokensRefreshed;
     this.defaultModel = config.defaultModel ?? DEFAULT_CODEX_MODEL;
     this.fetchImpl = config.fetch ?? fetch;
-    this.sessionIdProvider = config.sessionIdProvider ?? (() => webcrypto.randomUUID());
+    // Default to ONE id for the instance's lifetime, not a fresh uuid per call.
+    // The session id becomes the `prompt_cache_key`, so it must be stable
+    // across a session's turns for the Responses prefix cache to hit (and the
+    // `session_id` header should be stable for one logical session too).
+    const defaultSessionId = webcrypto.randomUUID();
+    this.sessionIdProvider = config.sessionIdProvider ?? (() => defaultSessionId);
   }
 
   async *stream(req: ProviderRequest): AsyncIterable<ProviderEvent> {
@@ -61,8 +66,11 @@ export class CodexProvider implements LLMProvider {
       return;
     }
 
-    const body = toResponsesBody({ ...req, model });
     const sessionId = this.sessionIdProvider();
+    // Pass the session id as the Responses prefix-cache key so repeated turns
+    // in a session reuse the cached prefix (cheaper + faster). Codex DOES
+    // support this even though the Chat-Completions providers ignore cacheHints.
+    const body = toResponsesBody({ ...req, model }, { sessionHint: sessionId });
 
     let response: Response;
     try {

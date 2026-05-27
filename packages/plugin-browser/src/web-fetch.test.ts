@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { htmlToMarkdown, htmlToPlainText, webFetchTool } from './web-fetch.js';
+import { htmlToMarkdown, htmlToPlainText, setWebFetchDnsResolver, webFetchTool } from './web-fetch.js';
 import { asSessionId, asToolCallId, asTurnId } from '@moxxy/sdk';
 import type { ToolContext } from '@moxxy/sdk';
 
@@ -65,9 +65,12 @@ describe('web_fetch handler', () => {
   let origFetch: typeof globalThis.fetch;
   beforeEach(() => {
     origFetch = globalThis.fetch;
+    // Keep tests hermetic: never hit real DNS — example.com "resolves" public.
+    setWebFetchDnsResolver(async () => ['93.184.216.34']);
   });
   afterEach(() => {
     globalThis.fetch = origFetch;
+    setWebFetchDnsResolver(null);
   });
 
   it('returns text body for an HTML page', async () => {
@@ -126,6 +129,64 @@ describe('web_fetch handler', () => {
     )) as string;
     expect(out).toContain('arrived');
     expect(calls).toEqual(['https://example.com/a', 'https://example.com/b']);
+  });
+});
+
+describe('web_fetch SSRF guard', () => {
+  let origFetch: typeof globalThis.fetch;
+  beforeEach(() => {
+    origFetch = globalThis.fetch;
+    // Default fetch must NOT be reached for blocked URLs; make it loud if it is.
+    globalThis.fetch = vi.fn(async () => {
+      throw new Error('fetch should not be called for a blocked URL');
+    }) as never;
+  });
+  afterEach(() => {
+    globalThis.fetch = origFetch;
+    setWebFetchDnsResolver(null);
+  });
+
+  async function run(url: string): Promise<string> {
+    return (await webFetchTool.handler({ url, format: 'raw', method: 'GET' }, baseCtx())) as string;
+  }
+
+  it('blocks the loopback hostname without any DNS or fetch', async () => {
+    setWebFetchDnsResolver(async () => {
+      throw new Error('resolver should not be consulted for localhost');
+    });
+    await expect(run('http://localhost:8080/admin')).rejects.toThrow(/loopback/);
+  });
+
+  it('blocks the cloud metadata IP literal', async () => {
+    await expect(run('http://169.254.169.254/latest/meta-data/')).rejects.toThrow(/private|loopback/);
+  });
+
+  it('blocks a public hostname that resolves to a private address', async () => {
+    setWebFetchDnsResolver(async () => ['10.0.0.5']);
+    await expect(run('https://intranet.example.com/')).rejects.toThrow(/private|loopback/);
+  });
+
+  it('blocks non-HTTP schemes', async () => {
+    await expect(run('file:///etc/passwd')).rejects.toThrow(/scheme/);
+  });
+
+  it('blocks a redirect from a public host into the internal network', async () => {
+    setWebFetchDnsResolver(async (host: string) =>
+      host === 'evil.example.com' ? ['93.184.216.34'] : ['127.0.0.1'],
+    );
+    globalThis.fetch = vi.fn(async () =>
+      mkResponse('', { location: 'http://127.0.0.1:6379/' }, 302),
+    ) as never;
+    await expect(run('https://evil.example.com/start')).rejects.toThrow(/private|loopback/);
+  });
+
+  it('allows a genuinely public URL', async () => {
+    setWebFetchDnsResolver(async () => ['93.184.216.34']);
+    globalThis.fetch = vi.fn(async () =>
+      mkResponse('ok', { 'content-type': 'text/plain' }),
+    ) as never;
+    const out = await run('https://example.com/');
+    expect(out).toContain('ok');
   });
 });
 

@@ -1,0 +1,90 @@
+import { describe, expect, it } from 'vitest';
+import {
+  VIEW_PRIMITIVES,
+  VIEW_COMPONENTS,
+  DEFAULT_VIEW_TAGS,
+  defineViewRenderer,
+  defineTunnelProvider,
+  type ViewTagSpec,
+} from './index.js';
+
+describe('view vocabulary integrity', () => {
+  const all = DEFAULT_VIEW_TAGS;
+
+  it('DEFAULT_VIEW_TAGS is primitives + components', () => {
+    expect(all.length).toBe(VIEW_PRIMITIVES.length + VIEW_COMPONENTS.length);
+  });
+
+  it('has no duplicate tag names', () => {
+    const names = all.map((t) => t.tag);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it('every tag has a valid allowedChildren', () => {
+    for (const t of all) {
+      const ac = t.allowedChildren;
+      const valid = ac === 'any' || ac === 'none' || Array.isArray(ac);
+      expect(valid, `${t.tag} allowedChildren`).toBe(true);
+    }
+  });
+
+  it('every array allowedChildren references known tags', () => {
+    const known = new Set(all.map((t) => t.tag));
+    for (const t of all) {
+      if (Array.isArray(t.allowedChildren)) {
+        for (const child of t.allowedChildren) {
+          expect(known.has(child), `${t.tag} -> ${child}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('enum attrs declare their allowed values; number attrs may declare bounds', () => {
+    for (const t of all) {
+      for (const [name, spec] of Object.entries(t.attrs)) {
+        if (spec.type === 'enum') {
+          expect(Array.isArray(spec.values) && spec.values.length > 0, `${t.tag}.${name}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('marks interactive elements and rich components correctly', () => {
+    const byTag = (tag: string): ViewTagSpec => all.find((t) => t.tag === tag)!;
+    expect(byTag('form').interactive).toBe(true);
+    expect(byTag('button').interactive).toBe(true);
+    expect(byTag('text').interactive).toBeUndefined();
+    expect(VIEW_COMPONENTS.every((c) => c.component)).toBe(true);
+    expect(VIEW_PRIMITIVES.every((p) => !p.component)).toBe(true);
+  });
+
+  it('declares the expected required attributes', () => {
+    const required = (tag: string) =>
+      Object.entries(DEFAULT_VIEW_TAGS.find((t) => t.tag === tag)!.attrs)
+        .filter(([, s]) => s.required)
+        .map(([n]) => n)
+        .sort();
+    expect(required('input')).toEqual(['name']);
+    expect(required('form')).toEqual(['action']);
+    // action is optional on button now (a button may navigate via `to` instead).
+    expect(required('button')).toEqual(['label']);
+    expect(required('image')).toEqual(['src']);
+    expect(required('option')).toEqual(['value']);
+    expect(required('result')).toEqual(['title']);
+  });
+});
+
+describe('define factories freeze their specs', () => {
+  it('defineViewRenderer', () => {
+    const def = defineViewRenderer({ name: 'x', allowList: [], parse: () => ({ ok: false, errors: [] }), validate: () => [] });
+    expect(Object.isFrozen(def)).toBe(true);
+    expect(() => {
+      (def as { name: string }).name = 'y';
+    }).toThrow();
+  });
+
+  it('defineTunnelProvider', () => {
+    const def = defineTunnelProvider({ name: 't', open: () => Promise.resolve({ url: 'http://x', close: () => Promise.resolve() }) });
+    expect(Object.isFrozen(def)).toBe(true);
+  });
+});

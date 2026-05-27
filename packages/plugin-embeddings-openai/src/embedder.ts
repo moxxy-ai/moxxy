@@ -27,7 +27,6 @@ export interface OpenAIEmbedderOptions {
 }
 
 export class OpenAIEmbedder implements EmbeddingProvider {
-  readonly name = 'openai';
   readonly model: OpenAIEmbeddingModel;
   private readonly client: OpenAI;
   private readonly batchSize: number;
@@ -43,6 +42,17 @@ export class OpenAIEmbedder implements EmbeddingProvider {
       });
     this.batchSize = opts.batchSize ?? DEFAULT_BATCH_SIZE;
     this.explicitDim = opts.dimensions;
+  }
+
+  /**
+   * Identity includes the model (and any `dimensions` override) so caches keyed
+   * by name invalidate on a model/dim switch. A bare 'openai' would let a
+   * 1536-dim cache serve a 3072-dim model's lookups.
+   */
+  get name(): string {
+    return this.explicitDim !== undefined
+      ? `openai:${this.model}:${this.explicitDim}`
+      : `openai:${this.model}`;
   }
 
   get dim(): number {
