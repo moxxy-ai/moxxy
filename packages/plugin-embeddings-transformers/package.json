@@ -22,12 +22,6 @@
     "test": "vitest run",
     "clean": "rm -rf dist .turbo"
   },
-  "moxxy": {
-    "plugin": {
-      "entry": "./dist/index.js",
-      "kind": "tools"
-    }
-  },
   "dependencies": {
     "@huggingface/transformers": "^3.0.0",
     "@moxxy/sdk": "workspace:*"

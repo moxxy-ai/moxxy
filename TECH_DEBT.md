@@ -66,12 +66,13 @@ shows) report their real `package.json` version (+regression test in `discovery.
 register time) still carry their literal. Harmless — they're the framework's own packages; their
 "version" is the framework version. Could stamp from a known framework version if it ever matters.
 
-### 5. `moxxy.plugin` manifest `kind` is semantically wrong for non-plugin packages
-**Cross-cut 2.10.** Both embedders declare `kind: 'tools'` but export no `definePlugin` (they're
-injected `EmbeddingProvider` classes); the three isolators declare `kind: 'hooks'` but export a
-factory + singleton `Isolator`. **Action:** either remove the manifest from packages that aren't
-loaded as `PluginSpec`s, or add an `'isolator'`/`'embedder'` kind the loader understands and align
-the entry exports. Requires a loader-semantics decision.
+### 5. `moxxy.plugin` manifest `kind` semantically wrong for non-plugin packages — ✅ DONE
+**Cross-cut 2.10.** Confirmed the two embedders (dynamic-imported in `cli/setup/embedder.ts`) and the
+three isolators (`import { workerIsolator } from '@moxxy/isolator-worker'` etc. in
+`cli/setup/builtins.ts`) are wired by direct import, never discovery-loaded, and export no
+`definePlugin` — so a discovery attempt would only throw. Removed the vestigial `moxxy.plugin`
+manifest from all five package.json files, aligning metadata with reality. (Loader/discovery don't
+read `kind` anyway.)
 
 ### 6. Add a tool/platform `MoxxyErrorCode`
 Flagged by the tools-builtin and computer-control fix agents (see Blocked §B2). `MoxxyErrorCode` is a
