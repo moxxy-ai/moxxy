@@ -1,19 +1,25 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { Socket } from 'node:net';
+import { pathToFileURL } from 'node:url';
 import { Session, silentLogger } from '@moxxy/core';
-import { definePlugin, defineProvider, defineTranscriber } from '@moxxy/sdk';
+import { defineMode, definePlugin, defineProvider, defineTranscriber, type ModeContext } from '@moxxy/sdk';
 import {
   routeRequest,
   handleHealth,
   handleAgentRun,
   handleInputCapabilities,
+  handleMediaPreview,
   handleRunCommand,
   handleTranscription,
   handleTurnAudio,
   turnRequestSchema,
 } from './router.js';
+import { OfficeAgentRuntime } from './office-agent-runtime.js';
 
 function makeIncoming(opts: { method: string; url: string; headers?: Record<string, string>; body?: string }): IncomingMessage {
   const readable = Readable.from(opts.body ? [Buffer.from(opts.body)] : []);
@@ -32,11 +38,13 @@ function makeResponse(): ServerResponse & {
   _status: number;
   _headers: Record<string, string | number | string[]>;
   _body: string;
+  _rawBody: Buffer;
 } {
   const res = {
     _status: 0,
     _headers: {} as Record<string, string | number | string[]>,
     _body: '',
+    _rawBody: Buffer.alloc(0),
     headersSent: false,
     writeHead(status: number, headers: Record<string, string | number | string[]>) {
       this._status = status;
@@ -44,18 +52,25 @@ function makeResponse(): ServerResponse & {
       this.headersSent = true;
       return this;
     },
-    end(body?: string) {
-      if (body !== undefined) this._body += body;
+    end(body?: string | Buffer | Uint8Array) {
+      if (body !== undefined) {
+        const chunk = Buffer.isBuffer(body) ? body : Buffer.from(body);
+        this._rawBody = Buffer.concat([this._rawBody, chunk]);
+        this._body += chunk.toString('utf8');
+      }
       return this;
     },
-    write(chunk: string) {
-      this._body += chunk;
+    write(chunk: string | Buffer | Uint8Array) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      this._rawBody = Buffer.concat([this._rawBody, buffer]);
+      this._body += buffer.toString('utf8');
       return true;
     },
   } as unknown as ServerResponse & {
     _status: number;
     _headers: Record<string, string | number | string[]>;
     _body: string;
+    _rawBody: Buffer;
   };
   return res;
 }
@@ -95,6 +110,12 @@ describe('routeRequest', () => {
       handleTranscription,
     );
   });
+
+  it('matches Virtual Office media preview endpoint', () => {
+    expect(routeRequest(makeIncoming({ method: 'GET', url: '/v1/media/preview' }))).toBe(
+      handleMediaPreview,
+    );
+  });
 });
 
 describe('Virtual Office input endpoints', () => {
@@ -102,22 +123,28 @@ describe('Virtual Office input endpoints', () => {
 
   function makeCodexSession(opts: { oauthReady?: boolean; supportsImages?: boolean; transcript?: string } = {}): Session {
     const session = new Session({ cwd: '/tmp', silent: true });
+    const models = [
+      {
+        id: 'gpt-5.5',
+        contextWindow: 300_000,
+        supportsTools: true,
+        supportsStreaming: true,
+        supportsImages: opts.supportsImages ?? true,
+      },
+    ];
     session.pluginHost.registerStatic(
       definePlugin({
         name: 'router-codex-input-test',
         providers: [
           defineProvider({
             name: 'openai-codex',
-            models: [
-              {
-                id: 'gpt-5.5',
-                contextWindow: 300_000,
-                supportsTools: true,
-                supportsStreaming: true,
-                supportsImages: opts.supportsImages ?? true,
-              },
-            ],
-            createClient: () => ({}) as never,
+            models,
+            createClient: () => ({
+              name: 'openai-codex',
+              models,
+              stream: async function* () {},
+              countTokens: async () => 0,
+            }),
           }),
         ],
         transcribers: [
@@ -134,6 +161,32 @@ describe('Virtual Office input endpoints', () => {
     session.providers.setActive('openai-codex');
     if (opts.oauthReady ?? true) session.requirements.setRuntime('auth:provider:openai-codex', 'ready');
     return session;
+  }
+
+  function captureMode(session: Session): { getSystemPrompt: () => string | undefined } {
+    let systemPrompt: string | undefined;
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: `router-capture-mode-${Math.random().toString(16).slice(2)}`,
+        modes: [
+          defineMode({
+            name: 'capture-office-run',
+            run: async function* (ctx: ModeContext) {
+              systemPrompt = ctx.systemPrompt;
+            },
+          }),
+        ],
+      }),
+    );
+    session.modes.setActive('capture-office-run');
+    return { getSystemPrompt: () => systemPrompt };
+  }
+
+  function materializedPathFromPrompt(prompt: string | undefined): string {
+    expect(prompt).toContain('Virtual Office uploaded image attachments');
+    const match = prompt?.match(/\/[^\n]+?\.png/);
+    expect(match?.[0]).toBeTruthy();
+    return match![0];
   }
 
   it('reports voice and image readiness without leaking auth data', async () => {
@@ -269,6 +322,95 @@ describe('Virtual Office input endpoints', () => {
       ],
     });
   });
+
+  it('materializes session image attachments as local tool paths without polluting the user prompt', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'moxxy-office-media-'));
+    vi.stubEnv('MOXXY_HOME', home);
+    try {
+      const session = makeCodexSession({ supportsImages: true });
+      const capture = captureMode(session);
+      const res = makeResponse();
+      const imageBytes = Buffer.from('office image bytes');
+
+      await handleAgentRun(
+        makeIncoming({
+          method: 'POST',
+          url: '/v1/agents/session/runs',
+          headers: { 'content-type': 'application/json', authorization: 'Bearer x' },
+          body: JSON.stringify({
+            task: 'Use this image in a local tool',
+            attachments: [
+              {
+                kind: 'image',
+                content: imageBytes.toString('base64'),
+                mediaType: 'image/png',
+                name: '../my photo.png',
+              },
+            ],
+          }),
+        }),
+        res,
+        ctx(session),
+      );
+
+      expect(res._status).toBe(200);
+      await vi.waitFor(() => expect(capture.getSystemPrompt() ?? '').toContain('Virtual Office uploaded image attachments'));
+      const materializedPath = materializedPathFromPrompt(capture.getSystemPrompt());
+
+      expect(materializedPath.startsWith(join(home, 'media', String(session.id)))).toBe(true);
+      expect(materializedPath).toContain('my-photo.png');
+      expect(await readFile(materializedPath)).toEqual(imageBytes);
+      expect(session.log.ofType('user_prompt')[0]?.text).toBe('Use this image in a local tool');
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('materializes office agent image attachments as local tool paths', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'moxxy-office-agent-media-'));
+    vi.stubEnv('MOXXY_HOME', home);
+    try {
+      const session = makeCodexSession({ supportsImages: true });
+      const capture = captureMode(session);
+      const runtime = new OfficeAgentRuntime(session, silentLogger);
+      const agent = await runtime.create({ name: 'designer' });
+      const res = makeResponse();
+      const imageBytes = Buffer.from('office agent image bytes');
+
+      await handleAgentRun(
+        makeIncoming({
+          method: 'POST',
+          url: `/v1/agents/${agent.id}/runs`,
+          headers: { 'content-type': 'application/json', authorization: 'Bearer x' },
+          body: JSON.stringify({
+            task: 'Edit this reference image',
+            attachments: [
+              {
+                kind: 'image',
+                content: imageBytes.toString('base64'),
+                mediaType: 'image/png',
+                name: 'reference.png',
+              },
+            ],
+          }),
+        }),
+        res,
+        { ...ctx(session), officeAgents: runtime },
+      );
+
+      expect(res._status).toBe(200);
+      await vi.waitFor(() => expect(capture.getSystemPrompt() ?? '').toContain('Virtual Office uploaded image attachments'));
+      const materializedPath = materializedPathFromPrompt(capture.getSystemPrompt());
+
+      expect(materializedPath.startsWith(join(home, 'media', String(session.id)))).toBe(true);
+      expect(materializedPath).toContain('reference.png');
+      expect(await readFile(materializedPath)).toEqual(imageBytes);
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('handleTurnAudio', () => {
@@ -378,6 +520,159 @@ describe('handleHealth', () => {
     await handleHealth(makeIncoming({ method: 'GET', url: '/v1/health' }), res);
     expect(res._status).toBe(200);
     expect(JSON.parse(res._body)).toEqual({ status: 'ok' });
+  });
+});
+
+describe('handleMediaPreview', () => {
+  const ctx = (session: Session) => ({ session, authToken: 'x', logger: silentLogger });
+
+  async function tempFile(name: string, bytes: Buffer | string): Promise<{ dir: string; path: string }> {
+    const dir = await mkdtemp(join(tmpdir(), 'moxxy-media-preview-'));
+    const path = join(dir, name);
+    await writeFile(path, bytes);
+    return { dir, path };
+  }
+
+  async function referenceImage(session: Session, source: string): Promise<void> {
+    await session.log.append({
+      type: 'assistant_message',
+      sessionId: session.id,
+      turnId: session.startTurn().turnId,
+      source: 'assistant',
+      content: `Generated image: ![preview](${source})`,
+    });
+  }
+
+  it('requires auth when the bridge is token protected', async () => {
+    const session = new Session({ cwd: '/tmp', silent: true });
+    const res = makeResponse();
+
+    await handleMediaPreview(
+      makeIncoming({ method: 'GET', url: '/v1/media/preview?source=/tmp/missing.png' }),
+      res,
+      ctx(session),
+    );
+
+    expect(res._status).toBe(401);
+  });
+
+  it('serves a referenced local image as bytes', async () => {
+    const { dir, path } = await tempFile('render.png', Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    try {
+      const session = new Session({ cwd: dir, silent: true });
+      await referenceImage(session, pathToFileURL(path).href);
+      const res = makeResponse();
+
+      await handleMediaPreview(
+        makeIncoming({
+          method: 'GET',
+          url: `/v1/media/preview?source=${encodeURIComponent(pathToFileURL(path).href)}`,
+          headers: { authorization: 'Bearer x' },
+        }),
+        res,
+        ctx(session),
+      );
+
+      expect(res._status).toBe(200);
+      expect(res._headers['content-type']).toBe('image/png');
+      expect(res._rawBody).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects local images that were not referenced by the current session log', async () => {
+    const { dir, path } = await tempFile('private.png', 'png');
+    try {
+      const session = new Session({ cwd: dir, silent: true });
+      const res = makeResponse();
+
+      await handleMediaPreview(
+        makeIncoming({
+          method: 'GET',
+          url: `/v1/media/preview?source=${encodeURIComponent(path)}`,
+          headers: { authorization: 'Bearer x' },
+        }),
+        res,
+        ctx(session),
+      );
+
+      expect(res._status).toBe(403);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns 404 for a referenced image path that no longer exists', async () => {
+    const { dir, path } = await tempFile('gone.png', 'png');
+    await rm(path, { force: true });
+    try {
+      const session = new Session({ cwd: dir, silent: true });
+      await referenceImage(session, path);
+      const res = makeResponse();
+
+      await handleMediaPreview(
+        makeIncoming({
+          method: 'GET',
+          url: `/v1/media/preview?source=${encodeURIComponent(path)}`,
+          headers: { authorization: 'Bearer x' },
+        }),
+        res,
+        ctx(session),
+      );
+
+      expect(res._status).toBe(404);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects non-image local files even if they were referenced', async () => {
+    const { dir, path } = await tempFile('notes.txt', 'hello');
+    try {
+      const session = new Session({ cwd: dir, silent: true });
+      await referenceImage(session, path);
+      const res = makeResponse();
+
+      await handleMediaPreview(
+        makeIncoming({
+          method: 'GET',
+          url: `/v1/media/preview?source=${encodeURIComponent(path)}`,
+          headers: { authorization: 'Bearer x' },
+        }),
+        res,
+        ctx(session),
+      );
+
+      expect(res._status).toBe(415);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects referenced image files above the preview size limit', async () => {
+    const bytes = Buffer.alloc((10 * 1024 * 1024) + 1, 1);
+    const { dir, path } = await tempFile('huge.jpg', bytes);
+    try {
+      expect((await stat(path)).size).toBeGreaterThan(10 * 1024 * 1024);
+      const session = new Session({ cwd: dir, silent: true });
+      await referenceImage(session, path);
+      const res = makeResponse();
+
+      await handleMediaPreview(
+        makeIncoming({
+          method: 'GET',
+          url: `/v1/media/preview?source=${encodeURIComponent(path)}`,
+          headers: { authorization: 'Bearer x' },
+        }),
+        res,
+        ctx(session),
+      );
+
+      expect(res._status).toBe(413);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

@@ -53,6 +53,10 @@ export interface OfficeRunStart {
   attachments?: ReadonlyArray<UserPromptAttachment>;
 }
 
+export interface OfficeRunOptions {
+  systemPrompt?: string;
+}
+
 export interface OfficeAgentHistory {
   messages: Array<{
     role: 'user' | 'assistant';
@@ -249,6 +253,7 @@ export class OfficeAgentRuntime {
     id: string,
     task: string,
     attachments: ReadonlyArray<UserPromptAttachment> = [],
+    options?: OfficeRunOptions,
   ): OfficeRunStart | 'not_found' | 'already_running' {
     if (id === 'session') return 'not_found';
     const agent = this.agents.get(id);
@@ -267,7 +272,7 @@ export class OfficeAgentRuntime {
       await this.recordEnvelope(agent, envelope, event.turnId);
     });
 
-    void this.runAgentTurn(agent, turnId, task, attachments, controller.signal)
+    void this.runAgentTurn(agent, turnId, task, attachments, controller.signal, options)
       .then(async (result) => {
         if (result !== 'completed') return;
         await this.recordEnvelope(agent, {
@@ -317,6 +322,7 @@ export class OfficeAgentRuntime {
     task: string,
     attachments: ReadonlyArray<UserPromptAttachment>,
     signal: AbortSignal,
+    options?: OfficeRunOptions,
   ): Promise<'completed' | 'failed'> {
     const effectiveSignal = AbortSignal.any([this.session.signal, signal]);
     await agent.log.append({
@@ -331,11 +337,12 @@ export class OfficeAgentRuntime {
     const toolRegistry = agent.allowedTools
       ? buildAllowedToolsRegistry(this.session.tools as unknown as ToolRegistry, new Set(agent.allowedTools))
       : (this.session.tools as unknown as ToolRegistry);
+    const systemPrompt = mergeSystemPrompt(agent.instructions, options?.systemPrompt);
     const ctx: ModeContext = {
       sessionId: agent.sessionId,
       turnId,
       model: agent.modelId,
-      ...(agent.instructions ? { systemPrompt: agent.instructions } : {}),
+      ...(systemPrompt ? { systemPrompt } : {}),
       provider: this.session.providers.getActive(),
       tools: toolRegistry,
       skills: this.session.skills,
@@ -484,6 +491,14 @@ function normalizeName(name: string | undefined): string | null {
 function normalizeOptional(value: string | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
+}
+
+function mergeSystemPrompt(...parts: ReadonlyArray<string | null | undefined>): string | undefined {
+  const text = parts
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part))
+    .join('\n\n');
+  return text || undefined;
 }
 
 function messagesFromLog(log: EventLog, agentId: string): OfficeAgentHistory['messages'] {

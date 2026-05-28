@@ -1,6 +1,10 @@
+import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { z } from 'zod';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { homedir } from 'node:os';
 import {
   CODEX_TRANSCRIBER_NAME,
   checkCodexTranscriptionReady,
@@ -35,6 +39,7 @@ export const turnRequestSchema = z.object({
 export type TurnRequest = z.infer<typeof turnRequestSchema>;
 
 const IMAGE_ATTACHMENT_MAX = 10 * 1024 * 1024;
+const MEDIA_PREVIEW_MAX = 10 * 1024 * 1024;
 const AGENT_RUN_BODY_MAX =
   (4 * Math.ceil((IMAGE_ATTACHMENT_MAX * 4) / 3)) + (1024 * 1024);
 const imageAttachmentSchema = z.object({
@@ -95,6 +100,7 @@ export function routeRequest(req: IncomingMessage): RouteHandler | null {
   if (req.method === 'POST' && pathname === '/v1/turn/audio') return handleTurnAudio;
   if (req.method === 'GET' && pathname === '/v1/input-capabilities') return handleInputCapabilities;
   if (req.method === 'POST' && pathname === '/v1/transcriptions') return handleTranscription;
+  if (req.method === 'GET' && pathname === '/v1/media/preview') return handleMediaPreview;
   if (req.method === 'GET' && pathname === '/v1/session-selection') return handleSessionSelection;
   if (req.method === 'GET' && pathname === '/v1/providers') return handleProviders;
   if (req.method === 'GET' && /^\/v1\/providers\/[^/]+\/models$/.test(pathname)) return handleProviderModels;
@@ -220,6 +226,66 @@ export async function handleTranscription(
   reply(res, 200, { transcript });
 }
 
+export async function handleMediaPreview(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+
+  const source = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('source');
+  const requestedPath = source ? localPathFromMediaSource(source) : null;
+  if (!requestedPath) {
+    reply(res, 400, {
+      error: 'bad_request',
+      message: 'source must be a file:// URL or an absolute local path',
+    });
+    return;
+  }
+
+  const contentType = mediaPreviewContentType(requestedPath);
+  if (!contentType) {
+    reply(res, 415, { error: 'unsupported_media_type', message: 'only png, jpg, jpeg, webp, and gif previews are supported' });
+    return;
+  }
+
+  let resolvedPath: string;
+  let fileInfo: Awaited<ReturnType<typeof stat>>;
+  try {
+    resolvedPath = await realpath(requestedPath);
+    fileInfo = await stat(resolvedPath);
+  } catch {
+    reply(res, 404, { error: 'not_found', message: 'media file not found' });
+    return;
+  }
+
+  if (!fileInfo.isFile()) {
+    reply(res, 404, { error: 'not_found', message: 'media file not found' });
+    return;
+  }
+  if (fileInfo.size > MEDIA_PREVIEW_MAX) {
+    reply(res, 413, { error: 'payload_too_large', message: 'media preview exceeds 10 MB' });
+    return;
+  }
+
+  const allowed = await referencedMediaRealpaths(ctx.session);
+  if (!allowed.has(resolvedPath)) {
+    reply(res, 403, { error: 'forbidden', message: 'media source is not referenced by this session' });
+    return;
+  }
+
+  const bytes = await readFile(resolvedPath);
+  res.writeHead(200, {
+    'content-type': contentType,
+    'content-length': bytes.length,
+    'cache-control': 'no-store',
+  });
+  res.end(bytes);
+}
+
 function checkAuth(req: IncomingMessage, expected: string | null): boolean {
   if (!expected) return true;
   // Constant-time compare of the full `Bearer <token>` header so the token
@@ -239,6 +305,97 @@ const DEFAULT_AUDIO_MAX = 10 * 1024 * 1024;
 function reply(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json' });
   res.end(JSON.stringify(body));
+}
+
+const MEDIA_PREVIEW_EXT_RE = /\.(?:png|jpe?g|webp|gif)$/i;
+const FILE_URL_IMAGE_RE = /file:\/\/(?:localhost)?\/[^\s'"<>)]*?\.(?:png|jpe?g|webp|gif)(?:[?#][^\s'"<>)]*)?/gi;
+const ABSOLUTE_IMAGE_PATH_RE = /\/[^\n\r'"<>)]*?\.(?:png|jpe?g|webp|gif)/gi;
+
+function mediaPreviewContentType(filePath: string): string | null {
+  const ext = path.extname(filePath).toLowerCase();
+  switch (ext) {
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.webp':
+      return 'image/webp';
+    case '.gif':
+      return 'image/gif';
+    default:
+      return null;
+  }
+}
+
+function localPathFromMediaSource(source: string): string | null {
+  const trimmed = source.trim();
+  if (trimmed.startsWith('file://')) {
+    try {
+      return fileURLToPath(trimmed);
+    } catch {
+      return null;
+    }
+  }
+  const decoded = safeDecodeUri(trimmed);
+  return path.isAbsolute(decoded) ? decoded : null;
+}
+
+function safeDecodeUri(value: string): string {
+  try {
+    return decodeURI(value);
+  } catch {
+    return value;
+  }
+}
+
+async function referencedMediaRealpaths(session: Session): Promise<ReadonlySet<string>> {
+  const sources = new Set<string>();
+  const strings: string[] = [];
+  collectStrings(session.log.toJSON(), strings);
+  for (const text of strings) {
+    for (const source of extractLocalMediaSources(text)) {
+      sources.add(source);
+    }
+  }
+
+  const realpaths = new Set<string>();
+  for (const source of sources) {
+    const localPath = localPathFromMediaSource(source);
+    if (!localPath || !MEDIA_PREVIEW_EXT_RE.test(localPath)) continue;
+    try {
+      realpaths.add(await realpath(localPath));
+    } catch {
+      // Missing historical files should not prevent other referenced media
+      // from being previewed.
+    }
+  }
+  return realpaths;
+}
+
+function collectStrings(value: unknown, out: string[]): void {
+  if (typeof value === 'string') {
+    out.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectStrings(item, out);
+    return;
+  }
+  if (value && typeof value === 'object') {
+    for (const item of Object.values(value)) collectStrings(item, out);
+  }
+}
+
+function extractLocalMediaSources(text: string): string[] {
+  const sources = new Set<string>();
+  for (const match of text.matchAll(FILE_URL_IMAGE_RE)) {
+    if (match[0]) sources.add(match[0]);
+  }
+  for (const match of text.matchAll(ABSOLUTE_IMAGE_PATH_RE)) {
+    if (match[0]) sources.add(match[0]);
+  }
+  return [...sources];
 }
 
 function pathPart(req: IncomingMessage, index: number): string {
@@ -284,12 +441,109 @@ function activeModelInfo(session: Session, providerId?: string, modelId?: string
   };
 }
 
-function imageAttachments(attachments: ReadonlyArray<UserPromptAttachment> | undefined): ReadonlyArray<UserPromptAttachment> {
-  return (attachments ?? []).filter((attachment) => attachment.kind === 'image');
+type ImagePromptAttachment = UserPromptAttachment & {
+  kind: 'image';
+  content: string;
+  mediaType: string;
+  name?: string;
+};
+
+interface MaterializedImageAttachment {
+  readonly name: string;
+  readonly mediaType: string;
+  readonly path: string;
+}
+
+function imageAttachments(attachments: ReadonlyArray<UserPromptAttachment> | undefined): ReadonlyArray<ImagePromptAttachment> {
+  return (attachments ?? []).filter((attachment): attachment is ImagePromptAttachment => attachment.kind === 'image');
 }
 
 function supportsImageAttachments(session: Session, providerId?: string, modelId?: string): boolean {
   return activeModelInfo(session, providerId, modelId).model?.supportsImages === true;
+}
+
+async function imageAttachmentToolHint(
+  session: Session,
+  attachments: ReadonlyArray<UserPromptAttachment>,
+): Promise<string | undefined> {
+  const files = await materializeImageAttachmentsForTools(session, attachments);
+  if (files.length === 0) return undefined;
+  const lines = files.map((file, index) => `${index + 1}. ${file.name}: ${file.path} (${file.mediaType})`);
+  return [
+    'Virtual Office uploaded image attachments are also available as local file paths for tools:',
+    ...lines,
+    '',
+    'Use these paths only when a tool or skill requires a local image path. The images are already attached inline for visual understanding.',
+  ].join('\n');
+}
+
+async function materializeImageAttachmentsForTools(
+  session: Session,
+  attachments: ReadonlyArray<UserPromptAttachment>,
+): Promise<ReadonlyArray<MaterializedImageAttachment>> {
+  const images = imageAttachments(attachments);
+  if (images.length === 0) return [];
+
+  const dir = sessionMediaDir(session);
+  await mkdir(dir, { recursive: true });
+
+  const files: MaterializedImageAttachment[] = [];
+  for (const [index, attachment] of images.entries()) {
+    const filename = attachmentFilename(attachment, index);
+    const filePath = path.join(dir, filename);
+    await writeFile(filePath, Buffer.from(attachment.content, 'base64'), { flag: 'wx' });
+    files.push({
+      name: safeAttachmentDisplayName(attachment.name, filename),
+      mediaType: attachment.mediaType,
+      path: filePath,
+    });
+  }
+  return files;
+}
+
+function sessionMediaDir(session: Session): string {
+  return path.join(moxxyHome(), 'media', String(session.id));
+}
+
+function moxxyHome(): string {
+  const configured = process.env.MOXXY_HOME?.trim();
+  return configured ? configured : path.join(homedir(), '.moxxy');
+}
+
+function attachmentFilename(attachment: ImagePromptAttachment, index: number): string {
+  const base = safeAttachmentBaseName(attachment.name, index);
+  return `${String(index + 1).padStart(2, '0')}-${randomUUID()}-${base}${extensionForMediaType(attachment.mediaType)}`;
+}
+
+function safeAttachmentBaseName(name: string | undefined, index: number): string {
+  const fallback = `image-${index + 1}`;
+  const parsed = path.parse(path.basename(name ?? fallback)).name || fallback;
+  const safe = parsed
+    .normalize('NFKD')
+    .replace(/[^\w.-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 80);
+  return safe || fallback;
+}
+
+function safeAttachmentDisplayName(name: string | undefined, fallback: string): string {
+  const normalized = (name ?? fallback).replace(/\\/g, '/');
+  return path.basename(normalized) || fallback;
+}
+
+function extensionForMediaType(mediaType: string): string {
+  switch (mediaType) {
+    case 'image/jpeg':
+      return '.jpg';
+    case 'image/webp':
+      return '.webp';
+    case 'image/gif':
+      return '.gif';
+    case 'image/png':
+    default:
+      return '.png';
+  }
 }
 
 export async function handlePermissionDecision(
@@ -1091,7 +1345,25 @@ export async function handleAgentRun(
       });
       return;
     }
-    const started = runtime.startRun(agentId, body.task, attachments);
+    let toolSystemPrompt: string | undefined;
+    try {
+      toolSystemPrompt = await imageAttachmentToolHint(ctx.session, attachments);
+    } catch (err) {
+      ctx.logger?.warn('http virtual office attachment materialization failed', {
+        err: err instanceof Error ? err.message : String(err),
+      });
+      reply(res, 500, {
+        error: 'attachment_materialization_failed',
+        message: 'failed to prepare image attachments for tools',
+      });
+      return;
+    }
+    const started = runtime.startRun(
+      agentId,
+      body.task,
+      attachments,
+      toolSystemPrompt ? { systemPrompt: toolSystemPrompt } : undefined,
+    );
     if (started === 'not_found') {
       reply(res, 404, { error: 'not_found', message: 'agent not found' });
       return;
@@ -1113,10 +1385,25 @@ export async function handleAgentRun(
     return;
   }
 
+  let toolSystemPrompt: string | undefined;
+  try {
+    toolSystemPrompt = await imageAttachmentToolHint(ctx.session, attachments);
+  } catch (err) {
+    ctx.logger?.warn('http virtual office attachment materialization failed', {
+      err: err instanceof Error ? err.message : String(err),
+    });
+    reply(res, 500, {
+      error: 'attachment_materialization_failed',
+      message: 'failed to prepare image attachments for tools',
+    });
+    return;
+  }
+
   void (async () => {
     try {
       for await (const event of runTurn(coreSession(ctx.session), body.task, {
         ...(attachments.length > 0 ? { attachments } : {}),
+        ...(toolSystemPrompt ? { systemPrompt: toolSystemPrompt } : {}),
       })) {
         void event;
       }
