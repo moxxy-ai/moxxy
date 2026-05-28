@@ -40,13 +40,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # configure-pages MUST run before upload-pages-artifact when the
+      # configure-pages must run before upload-pages-artifact when the
       # repo's Pages source is set to "GitHub Actions" (the modern
-      # default). Without it, the upload step 404s looking for a
-      # Pages site that hasn't been initialized for the workflow —
-      # the failure mode the user was hitting.
+      # default). Without it, the upload step 404s looking for a Pages
+      # site that has not been initialised for the workflow.
+      #
+      # `enablement: true` makes the step *create* the Pages site if it
+      # does not exist yet. Without that flag, configure-pages only
+      # *reads* the existing site config and fails with
+      # "Get Pages site failed ... Not Found" on a repository whose
+      # Pages has never been turned on.
       - name: Configure Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - name: Build docs
         run: pnpm --filter docs build
