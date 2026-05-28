@@ -336,6 +336,10 @@ async function readBody(req: IncomingMessage, max = 64 * 1024): Promise<string> 
   return (await readRequestBody(req, max)).toString('utf8');
 }
 
+async function readBodyBytes(req: IncomingMessage, max: number): Promise<Buffer> {
+  return readRequestBody(req, max);
+}
+
 /** Audio uploads need a much larger cap than JSON; 10 MB covers a few
  *  minutes of Opus voice (Telegram caps voice notes at 50 MB, but
  *  realistic notes are well under that). */

@@ -23,8 +23,6 @@ export {
   type RemovePluginPackageOptions,
   type RemovePluginPackageResult,
   type PluginSnapshot,
-  type RemovePluginPackageOptions,
-  type RemovePluginPackageResult,
 } from './install.js';
 
 export interface BuildPluginsAdminOpts {
