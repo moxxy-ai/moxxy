@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
 import {
   summarizeSessionTokensFromEvents,
   summarizeTokensByModel,
@@ -9,7 +9,7 @@ import {
 } from '@moxxy/sdk';
 import { loadUsageStats, type UsageStatsFile } from '@moxxy/core';
 import { Colors } from '../theme.js';
-import { Modal } from './Modal.js';
+import { Modal, type ModalTab } from './Modal.js';
 
 export interface UsagePanelProps {
   readonly events: ReadonlyArray<MoxxyEvent>;
@@ -174,16 +174,14 @@ function sparkline(series: number[], maxCols = 48): string {
  * (quadratic) vs bounded (flat) visible at a glance. Esc closes (global Esc is
  * suppressed while an overlay is open, so we capture it here).
  */
+type TabId = 'session' | 'lifetime';
+
 export const UsagePanel: React.FC<UsagePanelProps> = ({
   events,
   contextWindow,
   contextTokens,
   onClose,
 }) => {
-  useInput((_input, key) => {
-    if (key.escape) onClose?.();
-  });
-
   const s = React.useMemo(() => summarizeSessionTokensFromEvents(events), [events]);
   const series = React.useMemo(() => perCallPrompt(events), [events]);
 
@@ -220,6 +218,7 @@ export const UsagePanel: React.FC<UsagePanelProps> = ({
   );
 
   const hasSession = s.calls > 0;
+  const [activeTab, setActiveTab] = React.useState<TabId>(hasSession ? 'session' : 'lifetime');
 
   if (!hasSession && !hasModels) {
     const loading = lifetime === null;
@@ -227,7 +226,7 @@ export const UsagePanel: React.FC<UsagePanelProps> = ({
       <Modal
         title="Usage"
         subtitle={loading ? 'loading…' : 'no usage recorded yet'}
-        hints="Esc close"
+        {...(onClose ? { onClose } : {})}
       >
         <Text dimColor>
           {loading
@@ -237,6 +236,13 @@ export const UsagePanel: React.FC<UsagePanelProps> = ({
       </Modal>
     );
   }
+
+  const tabs: ModalTab[] | undefined = hasSession && hasModels
+    ? [
+        { id: 'session', label: 'This session' },
+        { id: 'lifetime', label: 'Lifetime' },
+      ]
+    : undefined;
 
   const freshFrac = s.totalPrompt > 0 ? s.totalInput / s.totalPrompt : 0;
   const readFrac = s.totalPrompt > 0 ? s.totalCacheRead / s.totalPrompt : 0;
@@ -257,9 +263,20 @@ export const UsagePanel: React.FC<UsagePanelProps> = ({
     ? `${s.calls} calls   ·   ${fmt(s.totalPrompt)} prompt   ·   ${fmt(s.totalOutput)} output`
     : 'saved across sessions';
 
+  // Decide which sections to render. With tabs active, only one is on
+  // screen at a time; without tabs (single-source data), keep the old
+  // stacked layout.
+  const showSession = hasSession && (!tabs || activeTab === 'session');
+  const showLifetime = hasModels && (!tabs || activeTab === 'lifetime');
+
   return (
-    <Modal title="Usage" subtitle={subtitle} hints="Esc close">
-      {hasSession ? (
+    <Modal
+      title="Usage"
+      subtitle={subtitle}
+      {...(tabs ? { tabs, activeTabId: activeTab, onTabChange: (id) => setActiveTab(id as TabId) } : {})}
+      {...(onClose ? { onClose } : {})}
+    >
+      {showSession ? (
         <>
           <Text bold>Prompt composition</Text>
           <CompRow label="cache read" frac={readFrac} value={s.totalCacheRead} color={Colors.active} />
@@ -319,8 +336,8 @@ export const UsagePanel: React.FC<UsagePanelProps> = ({
         </>
       ) : null}
 
-      {hasModels ? (
-        <Box marginTop={hasSession ? 1 : 0} flexDirection="column">
+      {showLifetime ? (
+        <Box marginTop={showSession ? 1 : 0} flexDirection="column">
           <Box>
             <Text bold>By model </Text>
             <Text dimColor>{`(saved + this session · ${lifeRows.length} model${lifeRows.length === 1 ? '' : 's'})`}</Text>

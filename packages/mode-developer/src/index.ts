@@ -9,6 +9,7 @@ export { collectChangedFiles, renderDiffBody } from './diff-preview.js';
 
 export const developerMode = defineMode({
   name: DEVELOPER_MODE_NAME,
+  description: 'Code-focused loop with diff-aware verify + commit step at the end of each turn',
   run: runDeveloperMode,
 });
 

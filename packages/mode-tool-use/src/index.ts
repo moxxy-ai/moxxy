@@ -11,6 +11,7 @@ export type { CollectedToolUse };
 
 export const toolUseMode = defineMode({
   name: TOOL_USE_MODE_NAME,
+  description: 'Default ReAct-style loop: model thinks, calls tools, observes results, repeats',
   run: runToolUseMode,
 });
 

@@ -43,6 +43,7 @@ export { parseStories } from './parse-stories.js';
 
 export const bmadMode = defineMode({
   name: BMAD_MODE_NAME,
+  description: 'Five-phase product loop: brief, market, architect, design, develop — gated per phase',
   run: runBmadMode,
 });
 

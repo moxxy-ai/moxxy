@@ -178,29 +178,50 @@ function openModelPicker(deps: SlashDeps): void {
       sess.readyProviders = fresh;
     }
 
-    const options: ListPickerOption[] = [];
-    for (const p of providers) {
+    // One tab per provider — each tab carries its own searchable list,
+    // so the user lands on (e.g.) anthropic and can type "haiku" without
+    // wading past 200 unrelated entries from other providers. Tabs that
+    // belong to a not-yet-connected provider keep their label but every
+    // option inside gets the `not connected` red badge.
+    const tabs = providers.map((p) => {
       const isReady = ready.has(p.name);
-      for (const m of p.models) {
-        options.push({
-          id: `${p.name}::${m.id}`,
-          label: m.id,
-          group: p.name,
-          current: deps.providerName === p.name && deps.activeModel === m.id,
-          description: m.contextWindow ? `${formatTokensShort(m.contextWindow)} ctx` : undefined,
-          ...(isReady ? {} : { badge: 'not connected', badgeColor: 'red' as const }),
-        });
-      }
-    }
+      const options: ListPickerOption[] = p.models.map((m) => ({
+        id: `${p.name}::${m.id}`,
+        label: m.id,
+        current: deps.providerName === p.name && deps.activeModel === m.id,
+        ...(m.contextWindow
+          ? { description: `${formatTokensShort(m.contextWindow)} ctx` }
+          : {}),
+        ...(isReady ? {} : { badge: 'not connected', badgeColor: 'red' as const }),
+      }));
+      const label = isReady
+        ? `${p.name} (${p.models.length})`
+        : `${p.name} (offline)`;
+      return { id: p.name, label, options };
+    });
     deps.setPicker({
       kind: 'model',
       title: 'Switch model',
-      options,
+      tabs,
+      initialTabId: deps.providerName,
+      searchable: true,
+      searchPlaceholder: 'filter models…',
     });
   })();
 }
 
-function openMcpPicker(deps: SlashDeps): void {
+/**
+ * Subset of deps `openMcpPicker` actually touches. Exported so the
+ * picker-handlers Cancel path can re-open the server list (Cancel in
+ * the action picker should walk back to the parent, not close the
+ * whole modal) without dragging the rest of SlashDeps along.
+ */
+export interface OpenMcpPickerDeps {
+  setPicker: (p: Picker) => void;
+  setSystemNotice: (msg: string | null) => void;
+}
+
+export function openMcpPicker(deps: OpenMcpPickerDeps): void {
   // Open a server picker. Selecting one opens the action picker
   // (enable/disable/remove/cancel). MCP catalog state lives in
   // ~/.moxxy/mcp.json; we read it lazily here so changes from the
@@ -264,6 +285,17 @@ function openModePicker(deps: SlashDeps, arg = ''): void {
     id: s.name,
     label: s.name,
     current: s.name === deps.modeName,
+    ...(s.description ? { description: truncate(s.description, 80) } : {}),
   }));
   deps.setPicker({ kind: 'mode', title: 'Switch mode', options });
+}
+
+/**
+ * Trim a one-line summary so a long description doesn't overflow the
+ * picker row. ListPicker already wraps with `truncate` for column
+ * widths, but the picker description column is fluid so we cap at
+ * ~80 chars here to keep things sane on narrower terminals too.
+ */
+function truncate(s: string, n: number): string {
+  return s.length <= n ? s : s.slice(0, n - 1) + '…';
 }

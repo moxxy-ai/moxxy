@@ -13,6 +13,15 @@ export interface ChatViewProps {
   readonly expandToolOutputs?: boolean;
   /** Per-tool compact-presentation metadata from the active tool registry. */
   readonly compactTools?: CompactToolMap;
+  /**
+   * Suppress the dynamic area (live blocks + streaming preview) while a
+   * modal overlay is on screen. The Static, already-flushed scrollback
+   * stays intact — only the still-mutating tail vanishes so the modal
+   * doesn't push the combined live height past the terminal rows
+   * (which is what triggers Ink's fallback "append every frame" mode
+   * and leaves "shadow text" once the modal dismisses).
+   */
+  readonly hideLive?: boolean;
 }
 
 /**
@@ -30,6 +39,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   streamingDelta,
   expandToolOutputs,
   compactTools,
+  hideLive,
 }) => {
   // pairToolEvents walks the whole events array. Parent re-renders
   // happen for unrelated state too (mcp-status poll, every streaming
@@ -86,18 +96,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
           />
         )}
       </Static>
-      <Box flexDirection="column">
-        {liveBlocks.map((b) => (
-          <BlockLine
-            key={b.id}
-            block={b}
-            expandToolOutputs={!!expandToolOutputs}
-          />
-        ))}
-        {streamingDelta && streamingDelta.trim() ? (
-          <StreamingPreview content={tailForViewport(streamingDelta)} />
-        ) : null}
-      </Box>
+      {hideLive ? null : (
+        <Box flexDirection="column">
+          {liveBlocks.map((b) => (
+            <BlockLine
+              key={b.id}
+              block={b}
+              expandToolOutputs={!!expandToolOutputs}
+            />
+          ))}
+          {streamingDelta && streamingDelta.trim() ? (
+            <StreamingPreview content={tailForViewport(streamingDelta)} />
+          ) : null}
+        </Box>
+      )}
     </>
   );
 };

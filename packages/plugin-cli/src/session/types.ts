@@ -5,7 +5,7 @@ import type {
   PermissionContext,
   PermissionDecision,
 } from '@moxxy/sdk';
-import type { ListPickerOption } from '../components/ListPicker.js';
+import type { ListPickerOption, ListPickerTab } from '../components/ListPicker.js';
 
 export type Overlay =
   | { kind: 'skills' }
@@ -16,7 +16,15 @@ export type Overlay =
 
 export type Picker =
   | null
-  | { kind: 'model' | 'mode'; title: string; options: ReadonlyArray<ListPickerOption> }
+  | {
+      kind: 'model';
+      title: string;
+      tabs: ReadonlyArray<ListPickerTab>;
+      initialTabId?: string;
+      searchable?: boolean;
+      searchPlaceholder?: string;
+    }
+  | { kind: 'mode'; title: string; options: ReadonlyArray<ListPickerOption> }
   | { kind: 'mcp-server'; title: string; options: ReadonlyArray<ListPickerOption> }
   | {
       kind: 'mcp-action';

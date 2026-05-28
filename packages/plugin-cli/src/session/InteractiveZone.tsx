@@ -90,7 +90,17 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
     );
   }
   if (picker) {
-    return (
+    return picker.kind === 'model' ? (
+      <ListPicker
+        title={picker.title}
+        tabs={picker.tabs}
+        {...(picker.initialTabId ? { initialTabId: picker.initialTabId } : {})}
+        searchable={picker.searchable ?? true}
+        {...(picker.searchPlaceholder ? { searchPlaceholder: picker.searchPlaceholder } : {})}
+        onSelect={(id) => onPickerSelect(picker, id)}
+        onCancel={onPickerCancel}
+      />
+    ) : (
       <ListPicker
         title={picker.title}
         options={picker.options}

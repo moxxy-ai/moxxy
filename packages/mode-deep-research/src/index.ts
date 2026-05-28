@@ -14,6 +14,7 @@ export {
 
 export const deepResearchMode = defineMode({
   name: DEEP_RESEARCH_MODE_NAME,
+  description: 'Fan-out research: plan queries, run subagents in parallel, synthesise a report',
   run: runDeepResearchMode,
 });
 

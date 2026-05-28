@@ -21,6 +21,7 @@ export { parsePlan } from './parse-plan.js';
 
 export const planExecuteMode = defineMode({
   name: PLAN_EXECUTE_MODE_NAME,
+  description: 'Two-phase loop: model drafts a plan, you approve, then it executes step by step',
   run: runPlanExecuteMode,
 });
 

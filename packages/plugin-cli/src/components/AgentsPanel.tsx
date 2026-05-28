@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import type { AgentDef, MoxxyEvent } from '@moxxy/sdk';
 import { Colors } from '../theme.js';
-import { Modal } from './Modal.js';
+import { Modal, type ModalTab } from './Modal.js';
 import { useScrollableList } from './useScrollableList.js';
 
 const SUBAGENT_PLUGIN_ID = '@moxxy/subagents';
@@ -12,8 +12,8 @@ export interface AgentsPanelProps {
   readonly events: ReadonlyArray<MoxxyEvent>;
   /**
    * Agent kinds currently in the session's `AgentRegistry`. Rendered
-   * as a small header section so the user can see what's installable
-   * (and what the model can pass as `agentType`).
+   * under the "Available" tab as a short reference of what the model
+   * can pass for `agentType`.
    */
   readonly availableKinds?: ReadonlyArray<AgentDef>;
   /** Called when the user presses Esc inside the modal. */
@@ -36,12 +36,13 @@ interface ActivityRow {
   readonly color?: string;
 }
 
+type TabId = 'active' | 'available';
+
 /**
  * Read-only modal showing one row per agent activity event so the user
  * can see exactly what each subagent is doing without having to expand
  * a chat scope or read raw event logs. ↑↓ scrolls the unified
- * timeline; agents are interleaved chronologically so the most recent
- * activity sits at the bottom.
+ * timeline; ←/→ flips between active timeline and available kinds.
  */
 export const AgentsPanel: React.FC<AgentsPanelProps> = ({
   events,
@@ -56,19 +57,45 @@ export const AgentsPanel: React.FC<AgentsPanelProps> = ({
   }
   rows.sort((a, b) => a.row.atMs - b.row.atMs);
 
+  const [activeTab, setActiveTab] = React.useState<TabId>(agents.length > 0 ? 'active' : 'available');
+
   const scroll = useScrollableList({
     total: rows.length,
     windowSize: WINDOW,
-    ...(onClose ? { onClose } : {}),
+    isActive: activeTab === 'active',
   });
+
+  const tabs: ModalTab[] = [
+    { id: 'active', label: `Active (${agents.length})` },
+    { id: 'available', label: `Available (${availableKinds.length + 1})` },
+  ];
+
+  if (activeTab === 'available') {
+    return (
+      <Modal
+        title="Agents"
+        subtitle={`${availableKinds.length + 1} kind${availableKinds.length === 0 ? '' : 's'} installed`}
+        tabs={tabs}
+        activeTabId={activeTab}
+        onTabChange={(id) => setActiveTab(id as TabId)}
+        {...(onClose ? { onClose } : {})}
+      >
+        <KindsList kinds={availableKinds} />
+      </Modal>
+    );
+  }
 
   if (agents.length === 0) {
     return (
-      <Modal title="Agents" subtitle="no subagents spawned this session" hints="Esc close">
-        <KindsList kinds={availableKinds} />
-        <Box marginTop={1}>
-          <Text dimColor>(spawn agents via the `dispatch_agent` tool)</Text>
-        </Box>
+      <Modal
+        title="Agents"
+        subtitle="no subagents spawned this session"
+        tabs={tabs}
+        activeTabId={activeTab}
+        onTabChange={(id) => setActiveTab(id as TabId)}
+        {...(onClose ? { onClose } : {})}
+      >
+        <Text dimColor>(spawn agents via the `dispatch_agent` tool)</Text>
       </Modal>
     );
   }
@@ -79,7 +106,7 @@ export const AgentsPanel: React.FC<AgentsPanelProps> = ({
     (running > 0 ? ` · ${running} running` : '');
   const subtitle =
     rows.length > 0 ? `${scroll.cursor + 1} of ${rows.length}  ·  ${summary}` : summary;
-  const hints = '↑↓ scroll · PgUp/PgDn fast · g/G top/bottom · Esc close';
+  const hints = '↑↓ scroll · PgUp/PgDn fast · g/G top/bottom';
   const slice = rows.slice(scroll.visible.start, scroll.visible.end);
   const labelColWidth = Math.min(
     18,
@@ -87,10 +114,16 @@ export const AgentsPanel: React.FC<AgentsPanelProps> = ({
   );
 
   return (
-    <Modal title="Agents" subtitle={subtitle} hints={hints}>
-      <KindsList kinds={availableKinds} />
-      <Box flexDirection="column" marginBottom={1} marginTop={availableKinds.length > 0 ? 1 : 0}>
-        <Text dimColor>{`── active ${'─'.repeat(40)}`}</Text>
+    <Modal
+      title="Agents"
+      subtitle={subtitle}
+      hints={hints}
+      tabs={tabs}
+      activeTabId={activeTab}
+      onTabChange={(id) => setActiveTab(id as TabId)}
+      {...(onClose ? { onClose } : {})}
+    >
+      <Box flexDirection="column" marginBottom={1}>
         {agents.map((a) => (
           <AgentSummary key={a.childSessionId} agent={a} />
         ))}
@@ -132,33 +165,29 @@ const KindsList: React.FC<{ kinds: ReadonlyArray<AgentDef> }> = ({ kinds }) => {
   const descCol = Math.max(20, termWidth - nameCol - 12);
   return (
     <Box flexDirection="column">
-      <Text dimColor>{`── available kinds ${'─'.repeat(28)}`}</Text>
-      {kinds.length === 0 ? (
-        <Box marginLeft={2}>
-          <Text dimColor>only `default` — install an agent plugin to add kinds</Text>
+      <Box marginLeft={2}>
+        <Box width={nameCol}>
+          <Text bold>default</Text>
         </Box>
-      ) : (
-        <>
-          <Box marginLeft={2}>
-            <Box width={nameCol}>
-              <Text bold>default</Text>
-            </Box>
-            <Box width={descCol}>
-              <Text dimColor wrap="truncate">generic tool-use loop (built-in fallback)</Text>
-            </Box>
+        <Box width={descCol}>
+          <Text dimColor wrap="truncate">generic tool-use loop (built-in fallback)</Text>
+        </Box>
+      </Box>
+      {kinds.map((k) => (
+        <Box key={k.name} marginLeft={2}>
+          <Box width={nameCol}>
+            <Text bold>{truncate(k.name, nameCol - 1)}</Text>
           </Box>
-          {kinds.map((k) => (
-            <Box key={k.name} marginLeft={2}>
-              <Box width={nameCol}>
-                <Text bold>{truncate(k.name, nameCol - 1)}</Text>
-              </Box>
-              <Box width={descCol}>
-                <Text dimColor wrap="truncate">{k.description}</Text>
-              </Box>
-            </Box>
-          ))}
-        </>
-      )}
+          <Box width={descCol}>
+            <Text dimColor wrap="truncate">{k.description}</Text>
+          </Box>
+        </Box>
+      ))}
+      {kinds.length === 0 ? (
+        <Box marginLeft={2} marginTop={1}>
+          <Text dimColor>install an agent plugin to add kinds</Text>
+        </Box>
+      ) : null}
     </Box>
   );
 };

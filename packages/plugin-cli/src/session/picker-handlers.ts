@@ -1,6 +1,7 @@
 import type { ClientSession as Session } from '@moxxy/sdk';
 import { savePreferences } from '@moxxy/core';
 import type { Picker } from './types.js';
+import { openMcpPicker } from './run-slash.js';
 
 export interface PickerHandlerDeps {
   session: Session;
@@ -67,7 +68,13 @@ function handleMcpServerSelected(id: string, deps: PickerHandlerDeps): void {
 }
 
 function handleMcpAction(serverName: string, id: string, deps: PickerHandlerDeps): void {
-  if (id === 'cancel') return;
+  if (id === 'cancel') {
+    // Cancel pops back to the server list rather than closing the
+    // whole modal — users hit Cancel when they picked the wrong
+    // server, not because they want to abandon /mcp entirely.
+    openMcpPicker(deps);
+    return;
+  }
   void (async () => {
     try {
       const { readMcpConfig, setServerDisabled, removeServerFromConfig } = await import(

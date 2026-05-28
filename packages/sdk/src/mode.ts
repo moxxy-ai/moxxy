@@ -129,5 +129,11 @@ export interface ApprovalResolver {
 
 export interface ModeDef {
   readonly name: string;
+  /**
+   * One-line summary of what this mode does. Rendered next to the mode
+   * name in the TUI /mode picker so users have context without
+   * memorising plugin internals. Keep short — the picker truncates.
+   */
+  readonly description?: string;
   run(ctx: ModeContext): AsyncIterable<MoxxyEvent>;
 }

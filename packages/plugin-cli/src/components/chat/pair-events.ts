@@ -40,6 +40,14 @@ export function pairToolEvents(
   const suppressedCallIds = new Set<string>();
   let pendingLoadSkillCallId: string | null = null;
   let openScope: SkillScopeBlock | null = null;
+  // When an assistant_message lands mid-skill we close the current
+  // scope so the message renders below the tools that preceded it
+  // (preserving chronological order). If more skill tool calls come
+  // afterwards, we open a continuation scope tagged with the same
+  // skillEvent so the grouping carries through both visually and via
+  // `countToolCalls`. Cleared at turn boundaries and on a new
+  // skill_invoked.
+  let continuationSkillEvent: import('@moxxy/sdk').SkillInvokedEvent | null = null;
   // Open live-tools aggregate, if any. Lives at the current push level
   // (root or openScope.children); subsequent compact tool calls append
   // into it until something non-compact closes it.
@@ -108,6 +116,7 @@ export function pairToolEvents(
       closeOpenScope();
       markOrphansAtTurnBoundary();
       pendingLoadSkillCallId = null;
+      continuationSkillEvent = null;
       root.push({ kind: 'event', id: e.id, event: e });
       continue;
     }
@@ -116,6 +125,7 @@ export function pairToolEvents(
       // the load_skill tool-call into the new scope so we don't show
       // both "load_skill(name=foo)" AND "◆ skill: foo".
       closeOpenScope();
+      continuationSkillEvent = null;
       if (pendingLoadSkillCallId) {
         suppressedCallIds.add(pendingLoadSkillCallId);
         removeBlockByCallId(pendingLoadSkillCallId);
@@ -134,6 +144,21 @@ export function pairToolEvents(
     if (e.type === 'tool_call_requested') {
       if (e.name === 'load_skill') {
         pendingLoadSkillCallId = e.callId;
+      }
+      // A skill scope was closed by an interleaved assistant_message
+      // and a fresh tool call has now arrived. Reopen the scope so the
+      // continuation tools stay visually grouped under the same skill
+      // banner, just below the assistant text in chronological order.
+      if (!openScope && continuationSkillEvent) {
+        openScope = {
+          kind: 'skill-scope',
+          id: `${continuationSkillEvent.id}:cont:${e.id}`,
+          skillEvent: continuationSkillEvent,
+          children: [],
+          closed: false,
+        };
+        root.push(openScope);
+        continuationSkillEvent = null;
       }
       const compact = compactByName.get(e.name);
       if (compact) {
@@ -186,6 +211,17 @@ export function pairToolEvents(
       // work belongs at root so its bullet aligns with the rest of the
       // conversation — and so post-stream rendering matches the
       // streaming preview, which already lives at root.
+      //
+      // If a skill scope is currently open, close it so subsequent
+      // tool calls form a continuation block BELOW this message. Without
+      // this split, late tool calls fold back into the original scope
+      // (a child push above) and the message visually drops below the
+      // entire skill block instead of slotting in chronologically.
+      if (openScope) {
+        continuationSkillEvent = openScope.skillEvent;
+        openScope.closed = true;
+        openScope = null;
+      }
       root.push({ kind: 'event', id: e.id, event: e });
       continue;
     }
