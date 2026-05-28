@@ -414,8 +414,10 @@ describe('HttpChannel integration', () => {
         expect.objectContaining({ name: 'clear', command: '/clear', supported: true }),
         expect.objectContaining({ name: 'model', command: '/model', supported: true }),
         expect.objectContaining({ name: 'loop', command: '/loop', supported: true }),
-        expect.objectContaining({ name: 'exit', command: '/exit', supported: false }),
       ]),
+    );
+    expect(body.map((command) => command.name)).not.toEqual(
+      expect.arrayContaining(['clear-queue', 'collapse', 'exit', 'expand', 'queue', 'quit', 'q', 'yolo']),
     );
   });
 

@@ -7,11 +7,12 @@ import { Readable } from 'node:stream';
 import { Socket } from 'node:net';
 import { pathToFileURL } from 'node:url';
 import { Session, silentLogger } from '@moxxy/core';
-import { defineMode, definePlugin, defineProvider, defineTranscriber, type ModeContext } from '@moxxy/sdk';
+import { defineCommand, defineMode, definePlugin, defineProvider, defineTool, defineTranscriber, z, type ModeContext } from '@moxxy/sdk';
 import {
   routeRequest,
   handleHealth,
   handleAgentRun,
+  handleCommands,
   handleInputCapabilities,
   handleMediaPreview,
   handleRunCommand,
@@ -75,6 +76,16 @@ function makeResponse(): ServerResponse & {
   return res;
 }
 
+async function dispatchRoute(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: Parameters<NonNullable<ReturnType<typeof routeRequest>>>[2],
+): Promise<void> {
+  const handler = routeRequest(req);
+  expect(handler).not.toBeNull();
+  await handler!(req, res, ctx);
+}
+
 describe('routeRequest', () => {
   it('matches GET /v1/health', () => {
     expect(routeRequest(makeIncoming({ method: 'GET', url: '/v1/health' }))).toBe(handleHealth);
@@ -115,6 +126,370 @@ describe('routeRequest', () => {
     expect(routeRequest(makeIncoming({ method: 'GET', url: '/v1/media/preview' }))).toBe(
       handleMediaPreview,
     );
+  });
+
+  it('matches Virtual Office vault management endpoints', () => {
+    expect(routeRequest(makeIncoming({ method: 'GET', url: '/v1/vault/secrets' }))).not.toBeNull();
+    expect(routeRequest(makeIncoming({ method: 'POST', url: '/v1/vault/secrets' }))).not.toBeNull();
+    expect(routeRequest(makeIncoming({ method: 'DELETE', url: '/v1/vault/secrets/OPENAI_API_KEY' }))).not.toBeNull();
+  });
+
+  it('matches Virtual Office MCP management endpoints', () => {
+    expect(routeRequest(makeIncoming({ method: 'GET', url: '/v1/agents/session/mcp' }))).not.toBeNull();
+    expect(routeRequest(makeIncoming({ method: 'POST', url: '/v1/agents/session/mcp' }))).not.toBeNull();
+    expect(routeRequest(makeIncoming({ method: 'DELETE', url: '/v1/agents/session/mcp/filesystem' }))).not.toBeNull();
+    expect(routeRequest(makeIncoming({ method: 'POST', url: '/v1/agents/session/mcp/filesystem/test' }))).not.toBeNull();
+  });
+});
+
+describe('Virtual Office admin action endpoints', () => {
+  const ctx = (session: Session) => ({ session, authToken: 'x', logger: silentLogger });
+
+  function sessionWithAdminTools() {
+    const session = new Session({ cwd: '/tmp', silent: true });
+    const captures: Record<string, unknown> = {};
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'router-office-admin-tools',
+        tools: [
+          defineTool({
+            name: 'vault_list',
+            description: 'list vault entries',
+            inputSchema: z.object({}),
+            handler: () => [
+              {
+                name: 'OPENAI_API_KEY',
+                createdAt: '2026-01-01T00:00:00.000Z',
+                tags: ['default'],
+              },
+            ],
+          }),
+          defineTool({
+            name: 'vault_set',
+            description: 'store vault entry',
+            inputSchema: z.object({
+              name: z.string(),
+              value: z.string(),
+              tags: z.array(z.string()).optional(),
+            }),
+            handler: (input) => {
+              captures.vaultSet = input;
+              return 'stored';
+            },
+          }),
+          defineTool({
+            name: 'vault_delete',
+            description: 'delete vault entry',
+            inputSchema: z.object({ name: z.string() }),
+            handler: (input) => {
+              captures.vaultDelete = input;
+              return 'deleted';
+            },
+          }),
+          defineTool({
+            name: 'mcp_list_servers',
+            description: 'list MCP servers',
+            inputSchema: z.object({}),
+            handler: () => [
+              {
+                name: 'filesystem',
+                kind: 'stdio',
+                command: 'npx',
+                args: ['-y', '@modelcontextprotocol/server-filesystem'],
+                env: { NODE_ENV: 'test' },
+              },
+              {
+                name: 'remote-docs',
+                kind: 'http',
+                url: 'https://mcp.example.test/mcp',
+                headers: { Authorization: 'Bearer token' },
+                disabled: true,
+              },
+            ],
+          }),
+          defineTool({
+            name: 'mcp_add_server',
+            description: 'add MCP server',
+            inputSchema: z.object({
+              name: z.string(),
+              kind: z.enum(['stdio', 'http', 'sse']),
+              command: z.string().optional(),
+              args: z.array(z.string()).optional(),
+              env: z.record(z.string()).optional(),
+              url: z.string().optional(),
+              headers: z.record(z.string()).optional(),
+              autoSkill: z.boolean().default(true),
+            }),
+            handler: (input) => {
+              captures.mcpAdd = input;
+              return {
+                ok: true,
+                name: input.name,
+                tools: ['mcp__docs__search'],
+              };
+            },
+          }),
+          defineTool({
+            name: 'mcp_remove_server',
+            description: 'remove MCP server',
+            inputSchema: z.object({ name: z.string() }),
+            handler: (input) => {
+              captures.mcpRemove = input;
+              return { ok: true };
+            },
+          }),
+          defineTool({
+            name: 'mcp_test_server',
+            description: 'test MCP server',
+            inputSchema: z.object({
+              name: z.string(),
+              kind: z.enum(['stdio', 'http', 'sse']),
+              command: z.string().optional(),
+              args: z.array(z.string()).optional(),
+              env: z.record(z.string()).optional(),
+              url: z.string().optional(),
+              headers: z.record(z.string()).optional(),
+              autoSkill: z.boolean().default(false),
+            }),
+            handler: (input) => {
+              captures.mcpTest = input;
+              return {
+                ok: true,
+                name: input.name,
+                tools: [{ name: 'mcp__filesystem__read_file' }],
+              };
+            },
+          }),
+        ],
+      }),
+    );
+    return { session, captures };
+  }
+
+  it('maps Vault list/create/delete GUI calls to the registered vault tools', async () => {
+    const { session, captures } = sessionWithAdminTools();
+
+    const listRes = makeResponse();
+    await dispatchRoute(
+      makeIncoming({
+        method: 'GET',
+        url: '/v1/vault/secrets',
+        headers: { authorization: 'Bearer x' },
+      }),
+      listRes,
+      ctx(session),
+    );
+
+    expect(listRes._status).toBe(200);
+    expect(JSON.parse(listRes._body)).toEqual([
+      {
+        id: 'OPENAI_API_KEY',
+        key_name: 'OPENAI_API_KEY',
+        backend_key: 'OPENAI_API_KEY',
+        policy_label: 'default',
+        created_at: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    const createRes = makeResponse();
+    await dispatchRoute(
+      makeIncoming({
+        method: 'POST',
+        url: '/v1/vault/secrets',
+        headers: { authorization: 'Bearer x' },
+        body: JSON.stringify({
+          key_name: 'ANTHROPIC_API_KEY',
+          backend_key: 'ANTHROPIC_API_KEY',
+          value: 'sk-ant',
+          policy_label: 'provider',
+        }),
+      }),
+      createRes,
+      ctx(session),
+    );
+
+    expect(createRes._status).toBe(200);
+    expect(captures.vaultSet).toEqual({
+      name: 'ANTHROPIC_API_KEY',
+      value: 'sk-ant',
+      tags: ['provider'],
+    });
+    expect(JSON.parse(createRes._body)).toMatchObject({
+      id: 'ANTHROPIC_API_KEY',
+      key_name: 'ANTHROPIC_API_KEY',
+      backend_key: 'ANTHROPIC_API_KEY',
+      policy_label: 'provider',
+    });
+
+    const deleteRes = makeResponse();
+    await dispatchRoute(
+      makeIncoming({
+        method: 'DELETE',
+        url: '/v1/vault/secrets/ANTHROPIC_API_KEY',
+        headers: { authorization: 'Bearer x' },
+      }),
+      deleteRes,
+      ctx(session),
+    );
+
+    expect(deleteRes._status).toBe(200);
+    expect(captures.vaultDelete).toEqual({ name: 'ANTHROPIC_API_KEY' });
+    expect(JSON.parse(deleteRes._body)).toEqual({ ok: true });
+  });
+
+  it('maps MCP list/add/remove/test GUI calls to the registered MCP admin tools', async () => {
+    const { session, captures } = sessionWithAdminTools();
+
+    const listRes = makeResponse();
+    await dispatchRoute(
+      makeIncoming({
+        method: 'GET',
+        url: '/v1/agents/session/mcp',
+        headers: { authorization: 'Bearer x' },
+      }),
+      listRes,
+      ctx(session),
+    );
+
+    expect(listRes._status).toBe(200);
+    expect(JSON.parse(listRes._body)).toEqual({
+      servers: [
+        {
+          id: 'filesystem',
+          transport: 'stdio',
+          enabled: true,
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-filesystem'],
+          env: { NODE_ENV: 'test' },
+        },
+        {
+          id: 'remote-docs',
+          transport: 'streamable_http',
+          enabled: false,
+          url: 'https://mcp.example.test/mcp',
+          headers: { Authorization: 'Bearer token' },
+        },
+      ],
+    });
+
+    const addRes = makeResponse();
+    await dispatchRoute(
+      makeIncoming({
+        method: 'POST',
+        url: '/v1/agents/session/mcp',
+        headers: { authorization: 'Bearer x' },
+        body: JSON.stringify({
+          id: 'docs',
+          transport: 'streamable_http',
+          url: 'https://mcp.docs.example/mcp',
+          headers: { Authorization: 'Bearer docs' },
+        }),
+      }),
+      addRes,
+      ctx(session),
+    );
+
+    expect(addRes._status).toBe(200);
+    expect(captures.mcpAdd).toEqual({
+      name: 'docs',
+      kind: 'http',
+      url: 'https://mcp.docs.example/mcp',
+      headers: { Authorization: 'Bearer docs' },
+      autoSkill: true,
+    });
+    expect(JSON.parse(addRes._body)).toMatchObject({
+      id: 'docs',
+      transport: 'streamable_http',
+      enabled: true,
+      url: 'https://mcp.docs.example/mcp',
+    });
+
+    const removeRes = makeResponse();
+    await dispatchRoute(
+      makeIncoming({
+        method: 'DELETE',
+        url: '/v1/agents/session/mcp/filesystem',
+        headers: { authorization: 'Bearer x' },
+      }),
+      removeRes,
+      ctx(session),
+    );
+
+    expect(removeRes._status).toBe(200);
+    expect(captures.mcpRemove).toEqual({ name: 'filesystem' });
+
+    const testRes = makeResponse();
+    await dispatchRoute(
+      makeIncoming({
+        method: 'POST',
+        url: '/v1/agents/session/mcp/filesystem/test',
+        headers: { authorization: 'Bearer x' },
+      }),
+      testRes,
+      ctx(session),
+    );
+
+    expect(testRes._status).toBe(200);
+    expect(captures.mcpTest).toEqual({
+      name: 'filesystem',
+      kind: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem'],
+      env: { NODE_ENV: 'test' },
+      autoSkill: false,
+    });
+    expect(JSON.parse(testRes._body)).toEqual({
+      status: 'ok',
+      server_id: 'filesystem',
+      tools: ['mcp__filesystem__read_file'],
+    });
+  });
+
+  it('hides terminal-only and unsupported commands from the Office action catalog', async () => {
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'router-office-command-catalog',
+        commands: [
+          defineCommand({
+            name: 'exit',
+            description: 'Quit terminal',
+            handler: () => ({ kind: 'session-action', action: 'exit' }),
+          }),
+          defineCommand({
+            name: 'compact',
+            description: 'Compact conversation',
+            handler: () => ({ kind: 'text', text: 'ok' }),
+          }),
+        ],
+      }),
+    );
+
+    const res = makeResponse();
+    await handleCommands(
+      makeIncoming({
+        method: 'GET',
+        url: '/v1/commands',
+        headers: { authorization: 'Bearer x' },
+      }),
+      res,
+      ctx(session),
+    );
+
+    expect(res._status).toBe(200);
+    const names = JSON.parse(res._body).map((command: { name: string }) => command.name);
+    expect(names).toContain('compact');
+    expect(names).toContain('tools');
+    expect(names).not.toEqual(expect.arrayContaining([
+      'clear-queue',
+      'collapse',
+      'exit',
+      'expand',
+      'q',
+      'queue',
+      'quit',
+      'yolo',
+    ]));
   });
 });
 

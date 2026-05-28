@@ -69,6 +69,38 @@ const commandRequestSchema = z.object({
   origin_id: z.string().min(1).optional(),
 });
 
+const vaultCreateRequestSchema = z.object({
+  key_name: z.string().min(1),
+  backend_key: z.string().min(1).optional(),
+  value: z.string().min(1),
+  policy_label: z.string().min(1).optional(),
+});
+
+const mcpServerCreateRequestSchema = z.object({
+  id: z.string().min(1),
+  transport: z.enum(['stdio', 'sse', 'streamable_http']),
+  command: z.string().min(1).optional(),
+  args: z.array(z.string()).optional(),
+  url: z.string().url().optional(),
+  headers: z.record(z.string()).optional(),
+  env: z.record(z.string()).optional(),
+}).superRefine((value, ctx) => {
+  if (value.transport === 'stdio' && !value.command) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'command is required for stdio MCP servers',
+      path: ['command'],
+    });
+  }
+  if (value.transport !== 'stdio' && !value.url) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'url is required for remote MCP servers',
+      path: ['url'],
+    });
+  }
+});
+
 const permissionDecisionSchema = z.object({
   mode: z.enum(['allow', 'allow_session', 'allow_always', 'deny']),
   reason: z.string().optional(),
@@ -107,8 +139,15 @@ export function routeRequest(req: IncomingMessage): RouteHandler | null {
   if (req.method === 'GET' && pathname === '/v1/graveyard') return handleGraveyard;
   if (req.method === 'GET' && pathname === '/v1/commands') return handleCommands;
   if (req.method === 'POST' && pathname === '/v1/commands') return handleRunCommand;
+  if (req.method === 'GET' && pathname === '/v1/vault/secrets') return handleVaultListSecrets;
+  if (req.method === 'POST' && pathname === '/v1/vault/secrets') return handleVaultCreateSecret;
+  if (req.method === 'DELETE' && /^\/v1\/vault\/secrets\/[^/]+$/.test(pathname)) return handleVaultDeleteSecret;
   if (req.method === 'GET' && pathname === '/v1/agents') return handleAgents;
   if (req.method === 'POST' && pathname === '/v1/agents') return handleCreateAgent;
+  if (req.method === 'GET' && /^\/v1\/agents\/[^/]+\/mcp$/.test(pathname)) return handleMcpListServers;
+  if (req.method === 'POST' && /^\/v1\/agents\/[^/]+\/mcp$/.test(pathname)) return handleMcpAddServer;
+  if (req.method === 'POST' && /^\/v1\/agents\/[^/]+\/mcp\/[^/]+\/test$/.test(pathname)) return handleMcpTestServer;
+  if (req.method === 'DELETE' && /^\/v1\/agents\/[^/]+\/mcp\/[^/]+$/.test(pathname)) return handleMcpRemoveServer;
   if (req.method === 'GET' && /^\/v1\/agents\/[^/]+$/.test(pathname)) return handleGetAgent;
   if (req.method === 'DELETE' && /^\/v1\/agents\/[^/]+$/.test(pathname)) return handleDeleteAgent;
   if (req.method === 'POST' && /^\/v1\/agents\/[^/]+\/runs$/.test(pathname)) return handleAgentRun;
@@ -768,6 +807,375 @@ export async function handleRunCommand(
   }
 }
 
+class AdminToolUnavailableError extends Error {
+  constructor(readonly toolName: string) {
+    super(`admin tool is not registered: ${toolName}`);
+    this.name = 'AdminToolUnavailableError';
+  }
+}
+
+async function executeSessionTool(ctx: RouterContext, toolName: string, input: unknown): Promise<unknown> {
+  const session = coreSession(ctx.session);
+  if (!session.tools.has(toolName)) {
+    throw new AdminToolUnavailableError(toolName);
+  }
+  return session.tools.execute(toolName, input, new AbortController().signal, {
+    sessionId: session.id,
+    turnId: 'office-admin',
+    log: session.log,
+    logger: session.logger,
+    cwd: session.cwd,
+  });
+}
+
+function replyAdminToolError(res: ServerResponse, err: unknown): void {
+  if (err instanceof AdminToolUnavailableError) {
+    reply(res, 404, {
+      error: 'not_found',
+      message: `${err.toolName} is not available in this session`,
+    });
+    return;
+  }
+  reply(res, 502, {
+    error: 'action_failed',
+    message: err instanceof Error ? err.message : String(err),
+  });
+}
+
+export async function handleVaultListSecrets(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  try {
+    const raw = await executeSessionTool(ctx, 'vault_list', {});
+    const entries = Array.isArray(raw) ? raw.map((entry) => vaultSecretFromEntry(entry)) : [];
+    reply(res, 200, entries);
+  } catch (err) {
+    replyAdminToolError(res, err);
+  }
+}
+
+export async function handleVaultCreateSecret(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  let body: z.infer<typeof vaultCreateRequestSchema>;
+  try {
+    const raw = await readBody(req);
+    body = vaultCreateRequestSchema.parse(raw.trim() ? JSON.parse(raw) : {});
+  } catch (err) {
+    reply(res, 400, { error: 'bad_request', message: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+
+  const backendKey = body.backend_key ?? body.key_name;
+  const tags = body.policy_label ? [body.policy_label] : undefined;
+  try {
+    await executeSessionTool(ctx, 'vault_set', {
+      name: backendKey,
+      value: body.value,
+      ...(tags ? { tags } : {}),
+    });
+    reply(res, 200, vaultSecretFromEntry({
+      name: backendKey,
+      tags: tags ?? [],
+      createdAt: new Date().toISOString(),
+    }, body.key_name));
+  } catch (err) {
+    replyAdminToolError(res, err);
+  }
+}
+
+export async function handleVaultDeleteSecret(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  try {
+    await executeSessionTool(ctx, 'vault_delete', { name: pathPart(req, 4) });
+    reply(res, 200, { ok: true });
+  } catch (err) {
+    replyAdminToolError(res, err);
+  }
+}
+
+export async function handleMcpListServers(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  try {
+    const raw = await executeSessionTool(ctx, 'mcp_list_servers', {});
+    const servers = Array.isArray(raw) ? raw.map((server) => mcpServerFromToolOutput(server)) : [];
+    reply(res, 200, { servers });
+  } catch (err) {
+    replyAdminToolError(res, err);
+  }
+}
+
+export async function handleMcpAddServer(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  let body: z.infer<typeof mcpServerCreateRequestSchema>;
+  try {
+    const raw = await readBody(req);
+    body = mcpServerCreateRequestSchema.parse(raw.trim() ? JSON.parse(raw) : {});
+  } catch (err) {
+    reply(res, 400, { error: 'bad_request', message: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+
+  const toolInput = mcpToolInputFromCreateRequest(body, true);
+  try {
+    await executeSessionTool(ctx, 'mcp_add_server', toolInput);
+    reply(res, 200, mcpServerFromToolOutput({
+      name: body.id,
+      kind: toolInput.kind,
+      command: body.command,
+      args: body.args,
+      url: body.url,
+      headers: body.headers,
+      env: body.env,
+      disabled: false,
+    }));
+  } catch (err) {
+    replyAdminToolError(res, err);
+  }
+}
+
+export async function handleMcpRemoveServer(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  try {
+    await executeSessionTool(ctx, 'mcp_remove_server', { name: pathPart(req, 5) });
+    reply(res, 200, { ok: true });
+  } catch (err) {
+    replyAdminToolError(res, err);
+  }
+}
+
+export async function handleMcpTestServer(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  const serverId = pathPart(req, 5);
+  try {
+    const raw = await executeSessionTool(ctx, 'mcp_list_servers', {});
+    const servers = Array.isArray(raw) ? raw : [];
+    const server = servers.find((entry) => mcpServerFromToolOutput(entry).id === serverId);
+    if (!server) {
+      reply(res, 404, { error: 'not_found', message: `MCP server not found: ${serverId}` });
+      return;
+    }
+
+    const result = await executeSessionTool(ctx, 'mcp_test_server', mcpToolInputFromToolOutput(server, false));
+    reply(res, 200, mcpTestResultFromToolOutput(serverId, result));
+  } catch (err) {
+    replyAdminToolError(res, err);
+  }
+}
+
+function vaultSecretFromEntry(entry: unknown, keyNameOverride?: string): {
+  id: string;
+  key_name: string;
+  backend_key: string;
+  policy_label?: string | null;
+  created_at?: string;
+} {
+  const record = objectRecord(entry);
+  const name = stringValue(record.name) ?? stringValue(record.backend_key) ?? stringValue(record.id) ?? keyNameOverride ?? 'unknown';
+  const keyName = keyNameOverride ?? stringValue(record.key_name) ?? name;
+  const backendKey = stringValue(record.backend_key) ?? name;
+  const tags = stringArray(record.tags);
+  const policy = stringValue(record.policy_label) ?? (tags.length > 0 ? tags.join(', ') : undefined);
+  const createdAt = stringValue(record.created_at) ?? stringValue(record.createdAt);
+  return {
+    id: backendKey,
+    key_name: keyName,
+    backend_key: backendKey,
+    ...(policy ? { policy_label: policy } : {}),
+    ...(createdAt ? { created_at: createdAt } : {}),
+  };
+}
+
+interface OfficeMcpServer {
+  readonly id: string;
+  readonly transport: 'stdio' | 'sse' | 'streamable_http';
+  readonly enabled: boolean;
+  readonly command?: string;
+  readonly args?: string[];
+  readonly url?: string;
+  readonly headers?: Record<string, string>;
+  readonly env?: Record<string, string>;
+  readonly cwd?: string;
+}
+
+type McpToolInput = {
+  name: string;
+  kind: 'stdio' | 'http' | 'sse';
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  url?: string;
+  headers?: Record<string, string>;
+  autoSkill?: boolean;
+};
+
+function mcpServerFromToolOutput(value: unknown): OfficeMcpServer {
+  const record = objectRecord(value);
+  const id = stringValue(record.id) ?? stringValue(record.name) ?? 'unknown';
+  const transport = officeMcpTransport(stringValue(record.transport) ?? stringValue(record.kind));
+  const disabled = record.disabled === true;
+  const enabled = typeof record.enabled === 'boolean' ? record.enabled : !disabled;
+  return {
+    id,
+    transport,
+    enabled,
+    ...optionalProp('command', stringValue(record.command)),
+    ...optionalProp('args', stringArrayOrUndefined(record.args)),
+    ...optionalProp('url', stringValue(record.url)),
+    ...optionalProp('headers', stringRecord(record.headers)),
+    ...optionalProp('env', stringRecord(record.env)),
+    ...optionalProp('cwd', stringValue(record.cwd)),
+  };
+}
+
+function mcpToolInputFromCreateRequest(
+  body: z.infer<typeof mcpServerCreateRequestSchema>,
+  autoSkill: boolean,
+): McpToolInput {
+  return {
+    name: body.id,
+    kind: toolMcpKind(body.transport),
+    ...optionalProp('command', body.command),
+    ...optionalProp('args', body.args),
+    ...optionalProp('env', body.env),
+    ...optionalProp('url', body.url),
+    ...optionalProp('headers', body.headers),
+    autoSkill,
+  };
+}
+
+function mcpToolInputFromToolOutput(value: unknown, autoSkill: boolean): McpToolInput {
+  const server = mcpServerFromToolOutput(value);
+  return {
+    name: server.id,
+    kind: toolMcpKind(server.transport),
+    ...optionalProp('command', server.command),
+    ...optionalProp('args', server.args),
+    ...optionalProp('env', server.env),
+    ...optionalProp('cwd', server.cwd),
+    ...optionalProp('url', server.url),
+    ...optionalProp('headers', server.headers),
+    autoSkill,
+  };
+}
+
+function mcpTestResultFromToolOutput(serverId: string, value: unknown): {
+  status: 'ok' | 'error';
+  server_id: string;
+  tools?: string[];
+  error?: string;
+} {
+  const record = objectRecord(value);
+  const ok = record.ok !== false;
+  const tools = Array.isArray(record.tools)
+    ? record.tools.map(toolNameFromResult).filter((tool): tool is string => Boolean(tool))
+    : undefined;
+  const error = stringValue(record.error);
+  return {
+    status: ok ? 'ok' : 'error',
+    server_id: serverId,
+    ...(tools ? { tools } : {}),
+    ...(error ? { error } : {}),
+  };
+}
+
+function toolNameFromResult(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  const record = objectRecord(value);
+  return stringValue(record.name) ?? null;
+}
+
+function officeMcpTransport(value: string | undefined): OfficeMcpServer['transport'] {
+  if (value === 'sse') return 'sse';
+  if (value === 'http' || value === 'streamable_http') return 'streamable_http';
+  return 'stdio';
+}
+
+function toolMcpKind(value: OfficeMcpServer['transport']): McpToolInput['kind'] {
+  return value === 'streamable_http' ? 'http' : value;
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function stringArrayOrUndefined(value: unknown): string[] | undefined {
+  const values = stringArray(value);
+  return values.length > 0 ? values : undefined;
+}
+
+function stringRecord(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const entries = Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string');
+  if (entries.length === 0 && Object.keys(value).length > 0) return undefined;
+  return Object.fromEntries(entries);
+}
+
+function optionalProp<TKey extends string, TValue>(
+  key: TKey,
+  value: TValue | undefined,
+): { [K in TKey]?: TValue } {
+  return value === undefined ? {} : { [key]: value } as { [K in TKey]?: TValue };
+}
+
 type OfficeCommandOutput =
   | { kind: 'text'; text: string }
   | { kind: 'notice'; message: string }
@@ -780,19 +1188,18 @@ type OfficeCommandOutput =
 function buildCommandCatalog(session: Session): OfficeCommandDescriptor[] {
   const registry = session.commands
     .listForChannel('tui')
+    .filter((command) => !unsupportedReason(command.name))
     .map((command) => {
-      const unsupported = unsupportedReason(command.name);
       return {
         name: command.name,
         command: `/${command.name}`,
         description: command.description,
         ...(command.aliases ? { aliases: command.aliases } : {}),
-        supported: !unsupported,
-        ...(unsupported ? { reason: unsupported } : {}),
+        supported: true,
       };
     });
   const seen = new Set(registry.map((command) => command.name));
-  const local = OFFICE_LOCAL_COMMANDS.filter((command) => !seen.has(command.name));
+  const local = OFFICE_LOCAL_COMMANDS.filter((command) => command.supported && !seen.has(command.name));
   return [...registry, ...local].sort((a, b) => a.name.localeCompare(b.name));
 }
 
