@@ -22,6 +22,8 @@ describe('marketplace catalog', () => {
         id: 'virtual-office',
         packageName: '@moxxy/virtual-office-plugin',
         installSpec: 'github:moxxy-ai/virtual-office-plugin#main',
+        startCommand: 'moxxy marketplace open virtual-office --tui',
+        openFlags: { tui: true },
         defaultPort: 17901,
       }),
     );
@@ -210,6 +212,61 @@ describe('runMarketplaceCommand', () => {
 
     expect(code).toBe(1);
     expect(errors.join('')).toContain('moxxy marketplace enable virtual-office');
+  });
+
+  it('opens virtual-office with catalog default TUI mode', async () => {
+    const opened: unknown[] = [];
+    const code = await runMarketplaceCommand(argv(['open', 'virtual-office']), {
+      isPluginDisabled: async () => false,
+      startUiPlugin: async (next) => {
+        opened.push(next);
+        return 0;
+      },
+      writeOut: () => undefined,
+      writeErr: () => undefined,
+    });
+
+    expect(code).toBe(0);
+    expect(opened).toEqual([
+      expect.objectContaining({
+        command: 'marketplace',
+        positional: ['open', '@moxxy/virtual-office-plugin'],
+        flags: expect.objectContaining({ tui: true }),
+      }),
+    ]);
+  });
+
+  it('preserves explicit flags and passthrough when applying catalog open defaults', async () => {
+    const opened: unknown[] = [];
+    const code = await runMarketplaceCommand(
+      {
+        command: 'marketplace',
+        positional: ['open', 'virtual-office'],
+        flags: { port: '18000', open: true },
+        passthrough: ['--theme', 'dark'],
+      },
+      {
+        isPluginDisabled: async () => false,
+        startUiPlugin: async (next) => {
+          opened.push(next);
+          return 0;
+        },
+        writeOut: () => undefined,
+        writeErr: () => undefined,
+      },
+    );
+
+    expect(code).toBe(0);
+    expect(opened).toEqual([
+      expect.objectContaining({
+        flags: {
+          tui: true,
+          port: '18000',
+          open: true,
+        },
+        passthrough: ['--theme', 'dark'],
+      }),
+    ]);
   });
 });
 

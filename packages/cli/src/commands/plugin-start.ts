@@ -2,6 +2,7 @@ import { spawn, type StdioOptions } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { createServer, type ServerResponse } from 'node:http';
+import { createServer as createNetServer } from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { discoverPlugins, readSessionIndex, silentLogger, type Session, type SessionMeta } from '@moxxy/core';
@@ -477,6 +478,13 @@ export async function runPluginStartCommand(argv: ParsedArgv): Promise<number> {
     return 1;
   }
 
+  try {
+    await assertTcpPortAvailable(uiPort, 'UI plugin');
+  } catch (err) {
+    printError(err instanceof Error ? err.message : String(err));
+    return 1;
+  }
+
   const createBridge = (session: Session) => new HttpChannel({
     port: apiPort,
     host: '127.0.0.1',
@@ -600,6 +608,26 @@ function parseList(raw: string | undefined): string[] | undefined {
   if (!raw) return undefined;
   const values = raw.split(',').map((value) => value.trim()).filter(Boolean);
   return values.length > 0 ? values : undefined;
+}
+
+async function assertTcpPortAvailable(port: number, label: string): Promise<void> {
+  const server = createNetServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        reject(
+          new Error(
+            `${label} port ${port} is already in use. Stop the existing process or choose another port with --port.`,
+          ),
+        );
+        return;
+      }
+      reject(err);
+    });
+    server.listen(port, () => {
+      server.close(() => resolve());
+    });
+  });
 }
 
 function sessionMetaToSelectionOption(meta: SessionMeta): Record<string, unknown> {

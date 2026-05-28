@@ -1,8 +1,11 @@
 import { promises as fs } from 'node:fs';
+import { createServer as createNetServer, type Server as NetServer } from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  runPluginStartCommand,
   startSessionSelectionServer,
   isStartableUiPluginManifest,
   startUiPlugin,
@@ -63,6 +66,21 @@ async function writeFixture(): Promise<{ packagePath: string; envPath: string }>
     ].join('\n'),
   );
   return { packagePath, envPath };
+}
+
+async function listenOnFreePort(host?: string): Promise<{ server: NetServer; port: number }> {
+  const server = createNetServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, host, () => resolve());
+  });
+  return { server, port: (server.address() as AddressInfo).port };
+}
+
+async function closeServer(server: NetServer): Promise<void> {
+  await new Promise<void>((resolve) => {
+    server.close(() => resolve());
+  });
 }
 
 describe('startUiPlugin', () => {
@@ -159,6 +177,55 @@ describe('startUiPlugin', () => {
     await expect(handle.running).resolves.toMatchObject({ exitCode: 0 });
   });
 
+  it('refuses to open a UI plugin when the UI port is already in use', async () => {
+    const { packagePath } = await writeFixture();
+    await fs.writeFile(
+      path.join(packagePath, 'serve.js'),
+      [
+        "import { createServer } from 'node:http';",
+        "createServer((_req, res) => res.end('ok')).listen(Number(process.env.PORT));",
+      ].join('\n'),
+    );
+    const uiPort = await listenOnFreePort();
+    const apiPort = await listenOnFreePort('127.0.0.1');
+    const outputs: string[] = [];
+    const errors: string[] = [];
+    const stdout = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => {
+        outputs.push(String(chunk));
+        return true;
+      });
+    const stderr = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => {
+        errors.push(String(chunk));
+        return true;
+      });
+
+    try {
+      await closeServer(apiPort.server);
+      const code = await runPluginStartCommand({
+        command: 'ui',
+        positional: ['open', packagePath],
+        flags: {
+          port: String(uiPort.port),
+          'api-port': String(apiPort.port),
+          'no-open': true,
+        },
+        passthrough: [],
+      });
+
+      expect(code).toBe(1);
+      expect(outputs.join('')).not.toContain('session picker');
+      expect(errors.join('')).toContain(`UI plugin port ${uiPort.port} is already in use`);
+    } finally {
+      stdout.mockRestore();
+      stderr.mockRestore();
+      await closeServer(uiPort.server);
+    }
+  });
+
   it('starts bridge and tui against the same session when tui mode is enabled', async () => {
     const { packagePath } = await writeFixture();
     const bridgeResolver = { resolve: vi.fn() } as unknown as PermissionResolver;
@@ -222,6 +289,65 @@ describe('startUiPlugin', () => {
     expect(session.setPermissionResolver).toHaveBeenCalledWith(tuiResolver);
     expect(bridgeHandle.stop).toHaveBeenCalledOnce();
     expect(tuiHandle.stop).toHaveBeenCalledOnce();
+  });
+
+  it('stops the UI plugin and bridge when the TUI exits first', async () => {
+    const { packagePath } = await writeFixture();
+    let finishTui!: () => void;
+    const tuiRunning = new Promise<void>((resolve) => {
+      finishTui = resolve;
+    });
+    const session = {
+      setPermissionResolver: vi.fn(),
+      close: vi.fn(async () => undefined),
+      logger: {},
+    };
+    const bridge = {
+      permissionResolver: { resolve: vi.fn() } as unknown as PermissionResolver,
+      start: vi.fn(async () => ({
+        running: new Promise<void>(() => undefined),
+        stop: vi.fn(async () => undefined),
+      })),
+    };
+    const tuiHandle = {
+      running: tuiRunning,
+      stop: vi.fn(async () => undefined),
+    };
+    const tui = {
+      permissionResolver: { resolve: vi.fn() } as unknown as PermissionResolver,
+      start: vi.fn(async () => tuiHandle),
+    };
+    const uiProcess = {
+      running: new Promise<{ exitCode: number }>(() => undefined),
+      stop: vi.fn(async () => undefined),
+    };
+
+    const running = startUiPluginHost({
+      session: session as never,
+      bridge: bridge as never,
+      manifest: {
+        packageName: '@moxxy/virtual-office-fixture',
+        packageVersion: '1.0.0',
+        packagePath,
+        entry: './serve.js',
+        kind: 'ui',
+        port: 17901,
+      },
+      uiPort: 18000,
+      apiPort: 3737,
+      token: 'test-token',
+      withTui: true,
+      createTuiChannel: () => tui as never,
+      startUiProcess: vi.fn(() => uiProcess),
+      stdout: { write: vi.fn() } as never,
+    });
+
+    finishTui();
+
+    await expect(running).resolves.toEqual({ exitCode: 0 });
+    expect(uiProcess.stop).toHaveBeenCalledOnce();
+    expect(tuiHandle.stop).toHaveBeenCalledOnce();
+    expect(session.close).toHaveBeenCalledOnce();
   });
 
   it('serves saved sessions from the preboot session-selection API', async () => {
