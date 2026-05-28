@@ -60,6 +60,8 @@ pub fn run() {
             commands::runner_ready,
             commands::transcribe,
             commands::desks_pick_folder,
+            commands::open_session_window,
+            commands::close_session_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

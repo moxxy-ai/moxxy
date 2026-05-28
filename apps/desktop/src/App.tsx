@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useSidecarStatus, type SidecarStatus } from './lib/runner';
 import { useRunnerSession } from './lib/runner-session';
 import { useDesks } from './lib/desks';
+import { useWindows } from './lib/windows';
+import { isMainWindow } from './lib/window-context';
 import { DeskSidebar } from './desks/desk-sidebar';
 import { Composer, Transcript } from './chat';
 
@@ -9,13 +11,37 @@ export function App(): JSX.Element {
   const status = useSidecarStatus();
   const session = useRunnerSession();
   const desks = useDesks();
+  const windows = useWindows();
   const [theme] = useState<'dark' | 'light'>('dark');
+  const showWindowControls = isMainWindow();
 
   return (
     <div className="app-shell" data-theme={theme}>
       <aside className="app-sidebar">
         <SidebarHeader status={status} />
         <DeskSidebar api={desks} />
+        {showWindowControls && (
+          <button
+            type="button"
+            data-testid="open-new-window"
+            onClick={() => void windows.openSession()}
+            disabled={windows.opening || status !== 'running'}
+            style={{
+              margin: '0.5rem 1rem',
+              padding: '0.4rem 0.6rem',
+              fontSize: '0.8rem',
+              color: 'var(--color-text-dim)',
+              border: '1px dashed var(--color-border-light)',
+              borderRadius: 'var(--radius-block)',
+              background: 'transparent',
+              textAlign: 'left',
+              opacity:
+                windows.opening || status !== 'running' ? 0.5 : 1,
+            }}
+          >
+            ↗ New window
+          </button>
+        )}
       </aside>
       <main className="app-main bp-grid-fade">
         {session.blocks.length === 0 ? (

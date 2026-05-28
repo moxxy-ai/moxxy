@@ -85,4 +85,19 @@ describe('<App />', () => {
     expect(await screen.findByTestId('composer-abort')).toBeInTheDocument();
     expect(screen.queryByTestId('composer-send')).toBeNull();
   });
+
+  it('shows "New window" on main and opens a session window', async () => {
+    mockTauri.respond('sidecar_status', () => 'running');
+    mockTauri.respond('runner_ready', () => true);
+    mockTauri.respond('open_session_window', () => 'session-abc');
+    render(<App />);
+    const btn = await screen.findByTestId('open-new-window');
+    expect(btn).not.toBeDisabled();
+    await userEvent.click(btn);
+    await waitFor(() =>
+      expect(
+        mockTauri.calls.find((c) => c.cmd === 'open_session_window'),
+      ).toBeDefined(),
+    );
+  });
 });

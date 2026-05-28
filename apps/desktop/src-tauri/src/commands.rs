@@ -137,6 +137,111 @@ pub async fn transcribe(
         .map_err(|e| e.to_string())
 }
 
+/// Spawn an ephemeral runner, connect its bridge, open a new webview
+/// window pinned to it, and start fanning that bridge's events into
+/// the new window. Returns the new window's label so the JS side can
+/// pass it back as `window` on subsequent commands.
+///
+/// The window URL carries `?window=<label>` so the React app inside it
+/// can identify itself in commands without a separate roundtrip.
+#[tauri::command]
+pub async fn open_session_window<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    use moxxy_desktop_core::pool::RunnerKind;
+    use moxxy_desktop_core::runner_bridge::RunnerBridge;
+
+    // 1. Spawn an ephemeral runner.
+    let handle = state
+        .pool
+        .spawn(RunnerKind::Ephemeral)
+        .await
+        .map_err(|e| format!("spawn ephemeral: {e}"))?;
+    let runner_id = handle.id.clone();
+
+    // 2. Wait for the runner socket to accept.
+    if let Err(e) = crate::boot::wait_for_runner(&handle).await {
+        // Don't leave a half-alive runner behind.
+        let _ = state.pool.kill(&runner_id).await;
+        return Err(e.to_string());
+    }
+
+    // 3. Connect a bridge for it.
+    let role = format!("desktop-{}", runner_id.as_str());
+    let (bridge, events_rx) = RunnerBridge::connect(handle.transport.clone(), role)
+        .await
+        .map_err(|e| {
+            // Trust but verify: an attach failure shouldn't leak the runner.
+            let _pool = state.pool.clone();
+            let _rid = runner_id.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = _pool.kill(&_rid).await;
+            });
+            format!("connect bridge: {e}")
+        })?;
+    state.bridges.insert(runner_id.clone(), bridge);
+
+    // 4. Open the Tauri window. Label namespaced session-<runnerId> so
+    // it's stable + traceable in logs.
+    let window_label = format!("session-{}", runner_id.as_str());
+    let window_id = WindowId::new(window_label.clone()).map_err(|e| e.to_string())?;
+
+    let url = format!("/?window={window_label}");
+    let url_parsed: tauri::WebviewUrl = tauri::WebviewUrl::App(url.parse().unwrap_or_default());
+    tauri::WebviewWindowBuilder::new(&app, window_label.clone(), url_parsed)
+        .title("moxxy")
+        .inner_size(1180.0, 760.0)
+        .min_inner_size(720.0, 480.0)
+        .build()
+        .map_err(|e| format!("create window: {e}"))?;
+
+    // 5. Pin the window to the runner and start its event pump.
+    state
+        .pin_window(window_id.clone(), runner_id.clone())
+        .await
+        .map_err(|e| e.to_string())?;
+    let pump_app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        crate::boot::pump_events(&pump_app, window_id, events_rx).await;
+    });
+
+    Ok(window_label)
+}
+
+/// Tear down a parallel-session window: drop the bridge, kill its
+/// runner, remove the persisted pin, and close the native window.
+/// Refuses to close the main window (use the OS close button for that).
+#[tauri::command]
+pub async fn close_session_window<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    window: String,
+) -> Result<(), String> {
+    use tauri::Manager;
+    let window_id = WindowId::new(window.clone()).map_err(|e| e.to_string())?;
+    if window_id == WindowId::main() {
+        return Err("cannot close the main window via this command".into());
+    }
+    if let Some(runner_id) = state.runner_for_window(&window_id).await {
+        // Drop bridge first; killing the sidecar before EOF the reader
+        // is sees is fine, but cleaner if our side disconnects first.
+        let _ = state.bridges.remove(&runner_id);
+        let _ = state.pool.kill(&runner_id).await;
+    }
+    state
+        .window_pins
+        .remove(&window_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    state.window_runners.lock().await.remove(&window_id);
+
+    if let Some(w) = app.get_webview_window(window.as_str()) {
+        let _ = w.close();
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn desks_pick_folder<R: Runtime>(app: AppHandle<R>) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::FilePath;

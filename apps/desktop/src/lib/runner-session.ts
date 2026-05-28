@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useRef } from 'react';
 import { invoke, subscribe } from './tauri';
+import { currentWindowLabel } from './window-context';
 
 /**
  * One transcript "block" the chat surface renders. The runner streams
@@ -215,11 +216,15 @@ function reducer(state: State, action: Action): State {
  * Hook that turns the Tauri command surface + event stream into a single
  * declarative state for the chat UI. Subscribes on mount, drains its
  * listeners on unmount.
+ *
+ * In multi-window mode each window passes its own label to the Tauri
+ * commands so per-window event streams stay isolated. The label is
+ * read from the URL via [`currentWindowLabel`]; the main window reads
+ * `"main"`, ephemeral windows are spawned with `?window=session-…`.
  */
 export function useRunnerSession(): RunnerSession {
   const [state, dispatch] = useReducer(reducer, initialState);
-  // Keep refs to dispatch + state so the imperative `send` / `abort`
-  // callbacks below don't change identity on every render.
+  const windowLabel = currentWindowLabel();
   const dispatchRef = useRef(dispatch);
   dispatchRef.current = dispatch;
   const activeTurnRef = useRef<string | null>(null);
@@ -228,7 +233,7 @@ export function useRunnerSession(): RunnerSession {
   useEffect(() => {
     let cancelled = false;
 
-    void invoke<boolean>('runner_ready')
+    void invoke<boolean>('runner_ready', { window: windowLabel })
       .then((ready) => {
         if (!cancelled) dispatchRef.current({ type: 'ready', value: ready });
       })
@@ -263,7 +268,7 @@ export function useRunnerSession(): RunnerSession {
         void u.then((fn) => fn());
       }
     };
-  }, []);
+  }, [windowLabel]);
 
   return {
     ready: state.ready,
@@ -273,13 +278,15 @@ export function useRunnerSession(): RunnerSession {
     send: async (prompt: string) => {
       const text = prompt.trim();
       if (!text) return;
-      const turnId = await invoke<string>('run_turn', { args: { prompt: text } });
+      const turnId = await invoke<string>('run_turn', {
+        args: { prompt: text, window: windowLabel },
+      });
       dispatchRef.current({ type: 'sent', turnId, prompt: text });
     },
     abort: async () => {
       const turnId = activeTurnRef.current;
       if (!turnId) return;
-      await invoke('abort_turn', { turnId });
+      await invoke('abort_turn', { turnId, window: windowLabel });
     },
   };
 }

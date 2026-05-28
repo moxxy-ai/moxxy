@@ -27,7 +27,7 @@ describe('useRunnerSession', () => {
   it('records a user block when send() succeeds', async () => {
     mockTauri.respond('runner_ready', () => true);
     mockTauri.respond('run_turn', (args) => {
-      expect(args?.args).toEqual({ prompt: 'hello' });
+      expect(args?.args).toMatchObject({ prompt: 'hello', window: 'main' });
       return 'T-1';
     });
     const { result } = renderHook(() => useRunnerSession());
@@ -229,7 +229,7 @@ describe('useRunnerSession', () => {
     mockTauri.respond('runner_ready', () => true);
     mockTauri.respond('run_turn', () => 'T-9');
     mockTauri.respond('abort_turn', (args) => {
-      expect(args).toEqual({ turnId: 'T-9' });
+      expect(args).toMatchObject({ turnId: 'T-9', window: 'main' });
       return null;
     });
     const { result } = renderHook(() => useRunnerSession());

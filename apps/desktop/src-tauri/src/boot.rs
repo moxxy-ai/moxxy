@@ -11,10 +11,11 @@
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Runtime};
 
-use moxxy_desktop_core::pool::RunnerKind;
+use moxxy_desktop_core::pool::{RunnerHandle, RunnerKind};
 use moxxy_desktop_core::runner_bridge::{BridgeEvent, RunnerBridge};
 use moxxy_desktop_core::transport::is_runner_up;
 use moxxy_desktop_core::windows::WindowId;
+use tokio::sync::broadcast;
 
 use crate::app_state::AppState;
 
@@ -50,19 +51,10 @@ async fn run<R: Runtime>(app: AppHandle<R>, state: AppState) -> Result<(), BootE
     let _ = app.emit(events::SIDECAR_STATUS, handle.status());
 
     // 2. Wait until the socket accepts connections.
-    let deadline = tokio::time::Instant::now() + CONNECT_TIMEOUT;
-    loop {
-        if is_runner_up(handle.transport.as_ref()).await {
-            break;
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return Err(BootError::Timeout);
-        }
-        tokio::time::sleep(POLL_INTERVAL).await;
-    }
+    wait_for_runner(&handle).await?;
 
     // 3. Connect and stash the bridge; pin the main window.
-    let (bridge, mut events_rx) = RunnerBridge::connect(handle.transport.clone(), "desktop")
+    let (bridge, events_rx) = RunnerBridge::connect(handle.transport.clone(), "desktop")
         .await
         .map_err(|e| BootError::Connect(e.to_string()))?;
     state.bridges.insert(handle.id.clone(), bridge);
@@ -73,34 +65,61 @@ async fn run<R: Runtime>(app: AppHandle<R>, state: AppState) -> Result<(), BootE
     let _ = app.emit(events::RUNNER_READY, true);
 
     // 4. Pump events into the main window's event stream.
-    let main = WindowId::main();
+    pump_events(&app, WindowId::main(), events_rx).await;
+    Ok(())
+}
+
+/// Forward every BridgeEvent on `events_rx` to `window` via `emit_to`.
+/// Exits when the bridge closes (the broadcast channel returns Err).
+///
+/// Pulled out so `open_session_window` can reuse the same routing for
+/// ephemeral runners — each parallel-session window has its own pump.
+pub async fn pump_events<R: Runtime>(
+    app: &AppHandle<R>,
+    window: WindowId,
+    mut events_rx: broadcast::Receiver<BridgeEvent>,
+) {
+    let label = window.as_str().to_string();
     while let Ok(event) = events_rx.recv().await {
-        let label = main.as_str();
         match event {
             BridgeEvent::Event { event } => {
-                let _ = app.emit_to(label, events::RUNNER_EVENT, event);
+                let _ = app.emit_to(label.as_str(), events::RUNNER_EVENT, event);
             }
             BridgeEvent::TurnComplete { turn_id, error } => {
                 let _ = app.emit_to(
-                    label,
+                    label.as_str(),
                     events::RUNNER_TURN_COMPLETE,
                     serde_json::json!({ "turnId": turn_id, "error": error }),
                 );
             }
             BridgeEvent::InfoChanged { info } => {
-                let _ = app.emit_to(label, events::RUNNER_INFO_CHANGED, info);
+                let _ = app.emit_to(label.as_str(), events::RUNNER_INFO_CHANGED, info);
             }
             BridgeEvent::Lagged { count } => {
-                let _ = app.emit_to(label, events::RUNNER_LAGGED, count);
+                let _ = app.emit_to(label.as_str(), events::RUNNER_LAGGED, count);
             }
         }
     }
+}
 
-    Ok(())
+/// Wait until `handle`'s socket accepts a connection, polling at
+/// [`POLL_INTERVAL`] until [`CONNECT_TIMEOUT`] elapses. Re-usable by
+/// the multi-window spawn path.
+pub async fn wait_for_runner(handle: &RunnerHandle) -> Result<(), BootError> {
+    let deadline = tokio::time::Instant::now() + CONNECT_TIMEOUT;
+    loop {
+        if is_runner_up(handle.transport.as_ref()).await {
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(BootError::Timeout);
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
-enum BootError {
+pub enum BootError {
     #[error("sidecar failed to start: {0}")]
     Sidecar(String),
     #[error("runner did not accept connections within the boot timeout")]
