@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./dist/bin.js",
   "bin": {
-    "moxxy": "./dist/bin.js"
+    "moxxy": "dist/bin.js"
   },
   "files": [
     "dist"
