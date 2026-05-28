@@ -1,0 +1,10 @@
+node_modules
+dist
+.turbo
+.vite
+
+playwright-report
+test-results
+
+src-tauri/target
+src-tauri/Cargo.lock

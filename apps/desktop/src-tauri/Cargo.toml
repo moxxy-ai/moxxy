@@ -1,0 +1,48 @@
+[package]
+name = "moxxy-desktop"
+version = "0.0.1"
+description = "moxxy desktop — Tauri shell + sidecar supervisor for the moxxy runner"
+authors = ["Michal Makowski"]
+edition = "2021"
+rust-version = "1.77"
+publish = false
+
+[lib]
+name = "moxxy_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0", features = [] }
+tauri-plugin-shell = "2.0"
+tauri-plugin-dialog = "2.0"
+tauri-plugin-fs = "2.0"
+tauri-plugin-store = "2.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "io-util", "net", "time", "fs", "process"] }
+async-trait = "0.1"
+thiserror = "2.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dirs = "5"
+parking_lot = "0.12"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "io-util", "net", "time", "fs", "process", "test-util"] }
+tempfile = "3"
+proptest = "1"
+
+[features]
+strict = []
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

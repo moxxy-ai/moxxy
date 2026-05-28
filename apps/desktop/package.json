@@ -1,0 +1,44 @@
+{
+  "name": "@moxxy/desktop",
+  "private": true,
+  "version": "0.0.1",
+  "description": "moxxy desktop app — Tauri shell that runs a `moxxy serve` sidecar and renders a React UI for desks, sessions, voice, settings, scheduler, multi-window, and tray.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "clean": "rm -rf dist .turbo node_modules/.vite src-tauri/target"
+  },
+  "dependencies": {
+    "@moxxy/ui-tokens": "workspace:*",
+    "@tauri-apps/api": "^2.0.0",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@playwright/test": "^1.49.0",
+    "@tauri-apps/cli": "^2.0.0",
+    "@testing-library/jest-dom": "^6.6.0",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^2.1.8",
+    "jsdom": "^25.0.1",
+    "typescript": "catalog:",
+    "vite": "^5.4.0",
+    "vitest": "catalog:"
+  }
+}
