@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-provider-openai",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "OpenAI LLMProvider plugin for moxxy. Streams Chat Completions with tool_calls; translates moxxy ProviderRequest/Event ↔ OpenAI wire shape.",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,14 +12,22 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "src"],
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "clean": "rm -rf dist .turbo"
   },
-  "moxxy": { "plugin": { "entry": "./dist/index.js", "kind": "provider" } },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "provider"
+    }
+  },
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
     "openai": "^4.80.0"

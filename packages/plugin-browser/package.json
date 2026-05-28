@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-browser",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Browser capabilities for moxxy: web_fetch (zero-deps light tier) + browser_session (Playwright sidecar for JS-heavy / interactive pages).",
   "type": "module",
   "main": "./dist/index.js",
@@ -15,7 +15,11 @@
   "bin": {
     "moxxy-browser-sidecar": "./dist/sidecar.js"
   },
-  "files": ["dist", "src", "skills"],
+  "files": [
+    "dist",
+    "src",
+    "skills"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json && chmod +x dist/sidecar.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -35,7 +39,9 @@
     "playwright": "^1.40.0"
   },
   "peerDependenciesMeta": {
-    "playwright": { "optional": true }
+    "playwright": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",

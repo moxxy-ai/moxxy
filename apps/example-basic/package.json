@@ -1,6 +1,6 @@
 {
   "name": "example-basic",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "description": "Smallest possible moxxy SDK consumer: one Session, one turn, deterministic via FakeProvider.",
   "type": "module",
