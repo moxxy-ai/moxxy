@@ -9,6 +9,15 @@ import { classifyNetworkError } from './errors.js';
 export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence' | 'error';
 
 /**
+ * Rough token estimate for a blob of text: ~4 chars per token. The shared
+ * fallback for a provider's `countTokens` when no native tokenizer is wired —
+ * previously each provider hardcoded `Math.ceil(text.length / 4)` independently.
+ */
+export function estimateTextTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/**
  * Heuristic: should a provider request retry on this error? Used by stream
  * modes to attach a `retryable: boolean` flag to the `error` event so callers
  * (or the loop strategy) can decide whether to back off and try again.
