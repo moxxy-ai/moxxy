@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-channel-web",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Web surface channel for moxxy: serves a browser app that renders agent-authored view-spec UIs over a WebSocket, and routes form/button actions back into the session as new turns.",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,14 +12,22 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "src"],
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/build-web.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "clean": "rm -rf dist .turbo"
   },
-  "moxxy": { "plugin": { "entry": "./dist/index.js", "kind": "channel" } },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "channel"
+    }
+  },
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
     "@moxxy/core": "workspace:*",

@@ -1,11 +1,13 @@
 {
   "name": "fixture-recorder",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "description": "Record real Anthropic interactions into JSONL fixtures for the moxxy test harness.",
   "type": "module",
   "main": "./dist/index.js",
-  "bin": { "moxxy-record": "./dist/index.js" },
+  "bin": {
+    "moxxy-record": "./dist/index.js"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json && chmod +x dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",

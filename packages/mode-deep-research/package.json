@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/mode-deep-research",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Deep-research loop strategy for moxxy: decompose the user question into parallel sub-queries, fan out via subagents, synthesize a cited writeup.",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,14 +12,22 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "src"],
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "clean": "rm -rf dist .turbo"
   },
-  "moxxy": { "plugin": { "entry": "./dist/index.js", "kind": "mode" } },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "mode"
+    }
+  },
   "dependencies": {
     "@moxxy/sdk": "workspace:*"
   },

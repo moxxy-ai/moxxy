@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/mode-plan-execute",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Plan-and-execute loop strategy for moxxy: model produces a plan, then executes each step as a focused tool-use sub-loop.",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,14 +12,22 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "src"],
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "clean": "rm -rf dist .turbo"
   },
-  "moxxy": { "plugin": { "entry": "./dist/index.js", "kind": "mode" } },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "mode"
+    }
+  },
   "dependencies": {
     "@moxxy/sdk": "workspace:*"
   },

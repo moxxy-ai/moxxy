@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/mode-tool-use",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Default tool-use loop strategy for moxxy (Claude Code-style).",
   "type": "module",
   "main": "./dist/index.js",

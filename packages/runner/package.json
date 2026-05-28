@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/runner",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Runner/thin-client transport for moxxy. A unix-socket + bidirectional JSON-RPC layer that lets `moxxy serve` own the Session while channels (tui, telegram, http) attach as thin clients via a RemoteSession.",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,7 +12,10 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "src"],
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

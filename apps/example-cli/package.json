@@ -1,6 +1,6 @@
 {
   "name": "example-cli",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "description": "Library-consumer example: wires the full moxxy feature set (provider, builtins, vault, memory, skills, hooks) from outside the @moxxy/cli binary.",
   "type": "module",
