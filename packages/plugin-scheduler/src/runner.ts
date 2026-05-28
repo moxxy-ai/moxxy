@@ -1,6 +1,5 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import path from 'node:path';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk';
 import { nextFireTime } from './cron.js';
 import type { ScheduleEntry, ScheduleStore } from './store.js';
 
@@ -38,7 +37,7 @@ export interface InboxOptions {
 }
 
 export function defaultInboxDir(): string {
-  return path.join(process.env.MOXXY_HOME ?? path.join(homedir(), '.moxxy'), 'inbox');
+  return moxxyPath('inbox');
 }
 
 async function writeInbox(
@@ -47,7 +46,6 @@ async function writeInbox(
   opts: InboxOptions = {},
 ): Promise<string> {
   const dir = opts.dir ?? defaultInboxDir();
-  await mkdir(dir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const file = path.join(dir, `${stamp}-${entry.name}.md`);
   const header = [
@@ -63,7 +61,7 @@ async function writeInbox(
     .filter((line) => line !== null)
     .join('\n');
   const body = result.error ? `**error:** ${result.error}\n\n${result.text}` : result.text;
-  await writeFile(file, header + body + '\n', 'utf8');
+  await writeFileAtomic(file, header + body + '\n');
   return file;
 }
 

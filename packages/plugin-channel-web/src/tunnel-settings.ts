@@ -1,6 +1,5 @@
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
+import { readFileSync } from 'node:fs';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk';
 
 /**
  * Persisted, user/agent-changeable choice of tunnel provider for the web
@@ -14,7 +13,7 @@ export interface WebSettings {
 }
 
 export function webSettingsPath(): string {
-  return path.join(os.homedir(), '.moxxy', 'web.json');
+  return moxxyPath('web.json');
 }
 
 /** Normalize user-friendly aliases for "no tunnel" to the localhost provider. */
@@ -38,8 +37,7 @@ export function readTunnelSetting(file = webSettingsPath()): string | undefined 
   return typeof t === 'string' && t ? normalizeTunnelName(t) : undefined;
 }
 
-export function writeTunnelSetting(name: string, file = webSettingsPath()): void {
+export async function writeTunnelSetting(name: string, file = webSettingsPath()): Promise<void> {
   const next: WebSettings = { ...readWebSettings(file), tunnel: normalizeTunnelName(name) };
-  mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify(next, null, 2), 'utf8');
+  await writeFileAtomic(file, JSON.stringify(next, null, 2));
 }

@@ -2,6 +2,7 @@ import {
   asToolCallId,
   buildSystemPromptWithSkills,
   collectProviderStream,
+  createStuckLoopDetector,
   dispatchToolCall,
   projectMessages,
   runCompactionIfNeeded,
@@ -36,12 +37,15 @@ export async function* runVerifyPhase(
   ctx: ModeContext,
 ): AsyncGenerator<MoxxyEvent, string | null, unknown> {
   let finalText = '';
-  // Sliding window of recent (toolName, input) hashes inside this verify
-  // phase only — mode-tool-use's detector covers the implementation
-  // phase, but verify runs after that returns and has its own loop. The
-  // original bug had the model burn 6 iterations re-running the same
-  // `npm run lint && npm run build` after it had already passed.
-  const recentCalls: string[] = [];
+  // Stuck-loop detector scoped to this verify phase only — mode-tool-use's
+  // detector covers the implementation phase, but verify runs after that
+  // returns and has its own loop. The original bug had the model burn 6
+  // iterations re-running the same `npm run lint && npm run build` after it
+  // had already passed.
+  const detector = createStuckLoopDetector({
+    windowSize: VERIFY_STUCK_WINDOW,
+    repeatThreshold: VERIFY_STUCK_THRESHOLD,
+  });
 
   for (let iteration = 1; iteration <= VERIFY_MAX_ITERATIONS; iteration++) {
     if (ctx.signal.aborted) return null;
@@ -129,10 +133,7 @@ export async function* runVerifyPhase(
       // the recent window, bail rather than burn the cap on identical
       // calls. We still return finalText (possibly empty) so the
       // developer-loop can decide whether to proceed to the commit gate.
-      const key = `${t.name}|${stableInput(t.input)}`;
-      recentCalls.push(key);
-      if (recentCalls.length > VERIFY_STUCK_WINDOW) recentCalls.shift();
-      const repeats = recentCalls.filter((k) => k === key).length;
+      const repeats = detector.record(t.name, t.input);
       if (repeats >= VERIFY_STUCK_THRESHOLD) {
         yield await ctx.emit({
           type: 'error',
@@ -165,16 +166,4 @@ export async function* runVerifyPhase(
   // Hit cap without the model declaring it's done. Surface what we have;
   // parser will return nulls if the format isn't there.
   return finalText;
-}
-
-function stableInput(input: unknown): string {
-  if (input === null || input === undefined) return 'null';
-  if (typeof input !== 'object') return JSON.stringify(input);
-  if (Array.isArray(input)) {
-    return '[' + input.map((v) => stableInput(v)).join(',') + ']';
-  }
-  const entries = Object.entries(input as Record<string, unknown>).sort(
-    ([a], [b]) => (a < b ? -1 : a > b ? 1 : 0),
-  );
-  return '{' + entries.map(([k, v]) => JSON.stringify(k) + ':' + stableInput(v)).join(',') + '}';
 }

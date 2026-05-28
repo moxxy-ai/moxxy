@@ -1,4 +1,4 @@
-import { defineTool, z } from '@moxxy/sdk';
+import { defineTool, MoxxyError, z } from '@moxxy/sdk';
 import { ensureDarwin, runProcess } from '../shell.js';
 
 export const typeTool = defineTool({
@@ -37,9 +37,11 @@ export const typeTool = defineTool({
       timeoutMs: 30_000,
     });
     if (proc.exitCode !== 0) {
-      throw new Error(
-        `type failed (exit ${proc.exitCode}): ${proc.stderr.trim() || '(check Accessibility permission)'}`,
-      );
+      throw new MoxxyError({
+        code: 'INTERNAL',
+        message: `type failed (exit ${proc.exitCode}): ${proc.stderr.trim() || '(check Accessibility permission)'}`,
+        context: { tool: 'computer_type', exitCode: proc.exitCode },
+      });
     }
     return { ok: true, length: text.length };
   },

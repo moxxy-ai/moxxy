@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { createAllowListResolver } from '@moxxy/core';
+import { createAllowListResolver, bearerTokenMatches } from '@moxxy/sdk';
 import type {
   Channel,
   ChannelHandle,
@@ -218,7 +218,10 @@ export class WebChannel implements Channel<WebStartOpts> {
 
   private validToken(reqUrl: string | undefined): boolean {
     try {
-      return new URL(reqUrl ?? '/', 'http://localhost').searchParams.get('t') === this.token;
+      // Constant-time compare so the token isn't recoverable byte-by-byte via
+      // response timing (this is the only public-internet gate).
+      const presented = new URL(reqUrl ?? '/', 'http://localhost').searchParams.get('t');
+      return bearerTokenMatches(presented, this.token);
     } catch {
       return false;
     }

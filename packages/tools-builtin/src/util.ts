@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import { MoxxyError } from '@moxxy/sdk';
 
 /**
  * Normalize `target` against `cwd`. Returns an absolute path. **Does not
@@ -26,9 +27,10 @@ export function resolveWithinCwd(cwd: string, target: string): string {
   const cwdAbs = path.resolve(cwd);
   const rel = path.relative(cwdAbs, resolved);
   if (rel.startsWith('..') || path.isAbsolute(rel)) {
-    throw new Error(
-      `Path escapes cwd: ${target} (resolved to ${resolved}, outside ${cwdAbs})`,
-    );
+    throw new MoxxyError({
+      code: 'INTERNAL',
+      message: `Path escapes cwd: ${target} (resolved to ${resolved}, outside ${cwdAbs})`,
+    });
   }
   return resolved;
 }

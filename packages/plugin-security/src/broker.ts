@@ -302,8 +302,12 @@ const BROKER_DEFAULT_ENV: ReadonlyArray<string> = ['PATH', 'HOME', 'USER', 'SHEL
  * `caps.env` allowlist (or a minimal default), plus any explicit per-call
  * `env`. Never the full parent `process.env` — that would leak the host's
  * secrets into the child.
+ *
+ * Exported so every isolator that spawns a child (e.g. the wasm broker's
+ * synchronous `spawnSync`) curates env the same way instead of inheriting
+ * the full `process.env`.
  */
-function buildBrokerEnv(
+export function buildBrokerEnv(
   caps: { env?: ReadonlyArray<string> },
   optsEnv: Record<string, string> | undefined,
 ): Record<string, string> {

@@ -1,6 +1,7 @@
 import {
   collectProviderStream,
   runCompactionIfNeeded,
+  runElisionIfNeeded,
   usageEventFields,
   type ModeContext,
   type ProviderMessage,
@@ -18,6 +19,7 @@ export async function collectSynthesis(
   inputBody: string,
 ): Promise<string | null> {
   await runCompactionIfNeeded(ctx);
+  await runElisionIfNeeded(ctx);
 
   const messages: ProviderMessage[] = [
     {

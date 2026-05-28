@@ -1,8 +1,7 @@
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
-import { defineTool, z } from '@moxxy/sdk';
+import { defineTool, moxxyPath, writeFileAtomic, z } from '@moxxy/sdk';
 
 /**
  * Where third-party plugins installed at runtime live. The CLI's
@@ -10,8 +9,8 @@ import { defineTool, z } from '@moxxy/sdk';
  * `node_modules/` subtree) for plugins, so anything `npm install`'ed
  * here becomes discoverable after a `pluginHost.reload()`.
  */
-function userPluginsDir(): string {
-  return path.join(os.homedir(), '.moxxy', 'plugins');
+export function userPluginsDir(): string {
+  return moxxyPath('plugins');
 }
 
 const NPM_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
@@ -38,6 +37,73 @@ export interface PluginSnapshot {
   readonly modes: ReadonlyArray<string>;
   readonly compactors: ReadonlyArray<string>;
   readonly channels: ReadonlyArray<string>;
+}
+
+export interface InstallPluginPackageOptions {
+  /** Full npm install spec: a package name, `name@version`, git, or path. */
+  readonly packageName: string;
+  /** Optional abort signal; aborting kills the npm child process. */
+  readonly signal?: AbortSignal;
+}
+
+export interface InstallPluginPackageResult {
+  /** The spec that was installed. */
+  readonly installed: string;
+  /** The plugins directory the package was installed into. */
+  readonly dir: string;
+}
+
+export interface RemovePluginPackageOptions {
+  /** npm package name to uninstall from the plugins directory. */
+  readonly packageName: string;
+  /** Optional abort signal; aborting kills the npm child process. */
+  readonly signal?: AbortSignal;
+}
+
+export interface RemovePluginPackageResult {
+  /** The package name that was removed. */
+  readonly removed: string;
+  /** The plugins directory the package was removed from. */
+  readonly dir: string;
+}
+
+/**
+ * Install a plugin package into `~/.moxxy/plugins/` via `npm install`.
+ * Imperative counterpart to the `install_plugin` tool, used by the
+ * marketplace CLI. Does NOT hot-reload — callers that need new tools to
+ * appear in a live session must reload the plugin host themselves.
+ */
+export async function installPluginPackage(
+  opts: InstallPluginPackageOptions,
+): Promise<InstallPluginPackageResult> {
+  const dir = userPluginsDir();
+  await ensurePackageJson(dir);
+  const { exitCode, stderr } = await runNpm(
+    ['install', '--prefix', dir, '--no-fund', '--no-audit', '--save', opts.packageName],
+    opts.signal,
+  );
+  if (exitCode !== 0) {
+    throw new Error(`npm install failed (exit ${exitCode}): ${truncate(stderr, 400)}`);
+  }
+  return { installed: opts.packageName, dir };
+}
+
+/**
+ * Uninstall a plugin package from `~/.moxxy/plugins/` via `npm uninstall`.
+ */
+export async function removePluginPackage(
+  opts: RemovePluginPackageOptions,
+): Promise<RemovePluginPackageResult> {
+  const dir = userPluginsDir();
+  await ensurePackageJson(dir);
+  const { exitCode, stderr } = await runNpm(
+    ['uninstall', '--prefix', dir, '--no-fund', '--no-audit', '--save', opts.packageName],
+    opts.signal,
+  );
+  if (exitCode !== 0) {
+    throw new Error(`npm uninstall failed (exit ${exitCode}): ${truncate(stderr, 400)}`);
+  }
+  return { removed: opts.packageName, dir };
 }
 
 export function buildInstallPluginTool(deps: InstallPluginDeps) {
@@ -67,21 +133,27 @@ export function buildInstallPluginTool(deps: InstallPluginDeps) {
         .describe('Optional version / dist-tag. Defaults to "latest".'),
     }),
     permission: { action: 'prompt' },
-    handler: async ({ packageName, version }) => {
-      const dir = userPluginsDir();
-      await ensurePackageJson(dir);
+    // install_plugin shells out to `npm install`, which spawns a child
+    // process, reads/writes the user plugin dir, and hits the network to
+    // fetch packages. These caps are *honest*: the in-process isolator
+    // can't constrain what npm does, but a future subprocess/sandbox
+    // isolator can use them to confine the install.
+    isolation: {
+      capabilities: {
+        subprocess: true,
+        commands: ['npm'],
+        net: { mode: 'any' },
+        fs: { read: ['$cwd/**'], write: [`${userPluginsDir()}/**`] },
+      },
+    },
+    handler: async ({ packageName, version }, ctx) => {
       const spec = version ? `${packageName}@${version}` : packageName;
       const before = deps.snapshot();
-      const { exitCode, stderr } = await runNpmInstall(dir, spec);
-      if (exitCode !== 0) {
-        throw new Error(
-          `npm install failed (exit ${exitCode}): ${truncate(stderr, 400)}`,
-        );
-      }
+      const { installed } = await installPluginPackage({ packageName: spec, signal: ctx.signal });
       await deps.reload();
       const after = deps.snapshot();
       return {
-        installed: spec,
+        installed,
         registered: diffSnapshot(before, after),
       };
     },
@@ -95,7 +167,6 @@ export function buildInstallPluginTool(deps: InstallPluginDeps) {
  * Node's loader without surprises.
  */
 async function ensurePackageJson(dir: string): Promise<void> {
-  await fs.mkdir(dir, { recursive: true });
   const pkgPath = path.join(dir, 'package.json');
   try {
     await fs.access(pkgPath);
@@ -107,20 +178,22 @@ async function ensurePackageJson(dir: string): Promise<void> {
       type: 'module',
       description: 'Auto-generated workspace for moxxy plugins installed at runtime.',
     };
-    await fs.writeFile(pkgPath, JSON.stringify(stub, null, 2) + '\n', 'utf8');
+    await writeFileAtomic(pkgPath, JSON.stringify(stub, null, 2) + '\n');
   }
 }
 
-function runNpmInstall(
-  dir: string,
-  spec: string,
+function runNpm(
+  args: ReadonlyArray<string>,
+  signal?: AbortSignal,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(
-      'npm',
-      ['install', '--prefix', dir, '--no-fund', '--no-audit', '--save', spec],
-      { stdio: ['ignore', 'pipe', 'pipe'] },
-    );
+    if (signal?.aborted) {
+      reject(new Error('npm aborted before start'));
+      return;
+    }
+    const child = spawn('npm', [...args], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d: Buffer) => {
@@ -129,8 +202,16 @@ function runNpmInstall(
     child.stderr.on('data', (d: Buffer) => {
       stderr += d.toString('utf8');
     });
-    child.on('error', (err) => reject(err));
+    const onAbort = (): void => {
+      child.kill('SIGTERM');
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    child.on('error', (err) => {
+      signal?.removeEventListener('abort', onAbort);
+      reject(err);
+    });
     child.on('close', (code) => {
+      signal?.removeEventListener('abort', onAbort);
       resolve({ exitCode: code ?? -1, stdout, stderr });
     });
   });

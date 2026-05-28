@@ -1,13 +1,12 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import path from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { createMutex, moxxyPath, writeFileAtomic, type Mutex } from '@moxxy/sdk';
 import { ulid } from 'ulid';
 import { z } from 'zod';
 
 /**
  * Persistent store for webhook triggers. Single JSON file at
- * `~/.moxxy/webhooks.json`. Mutations serialize through a promise-chain
- * mutex; writes land via tmp-file + rename so a crash mid-write leaves
+ * `~/.moxxy/webhooks.json`. Mutations serialize through a write mutex;
+ * writes land via an atomic whole-file write so a crash mid-write leaves
  * the previous state intact (same pattern as the scheduler/vault).
  *
  * The store knows nothing about HTTP or verification — it just owns
@@ -126,13 +125,13 @@ export interface WebhookStoreOptions {
 }
 
 export function defaultWebhooksFile(): string {
-  return path.join(process.env.MOXXY_HOME ?? path.join(homedir(), '.moxxy'), 'webhooks.json');
+  return moxxyPath('webhooks.json');
 }
 
 export class WebhookStore {
   private readonly file: string;
   private cache: WebhookTrigger[] | null = null;
-  private mutation: Promise<void> = Promise.resolve();
+  private readonly mutex: Mutex = createMutex();
 
   constructor(opts: WebhookStoreOptions = {}) {
     this.file = opts.file ?? defaultWebhooksFile();
@@ -245,21 +244,16 @@ export class WebhookStore {
   private async mutate(
     fn: (triggers: WebhookTrigger[]) => WebhookTrigger[],
   ): Promise<void> {
-    const next = this.mutation.then(async () => {
+    await this.mutex.run(async () => {
       await this.ensureLoaded();
       const updated = fn(this.cache!.slice());
       this.cache = updated;
       await this.persist(updated);
     });
-    this.mutation = next.catch(() => undefined);
-    return next;
   }
 
   private async persist(triggers: WebhookTrigger[]): Promise<void> {
-    await mkdir(path.dirname(this.file), { recursive: true });
-    const tmp = `${this.file}.${process.pid}.${Date.now()}.tmp`;
     const payload = JSON.stringify({ version: 1, triggers }, null, 2);
-    await writeFile(tmp, payload, 'utf8');
-    await rename(tmp, this.file);
+    await writeFileAtomic(this.file, payload);
   }
 }

@@ -1,6 +1,5 @@
 import { promises as fs } from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
+import { writeFileAtomic, moxxyPath } from '@moxxy/sdk';
 import { deriveKey } from './crypto.js';
 
 const KEYTAR_SERVICE = 'moxxy';
@@ -99,7 +98,7 @@ export function createCombinedKeySource(opts: CombinedKeySourceOptions): MasterK
 function resolveDiskPath(supplied: string | false | undefined): string | null {
   if (supplied === false) return null;
   if (typeof supplied === 'string') return supplied;
-  return path.join(os.homedir(), '.moxxy', 'vault.key');
+  return moxxyPath('vault.key');
 }
 
 async function tryDiskGet(filePath: string): Promise<string | null> {
@@ -113,8 +112,8 @@ async function tryDiskGet(filePath: string): Promise<string | null> {
 
 async function tryDiskSet(filePath: string, value: string): Promise<void> {
   try {
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, value + '\n', { mode: 0o600 });
+    // Crash-atomic, owner-only (0o600) — this is the cached master key.
+    await writeFileAtomic(filePath, value + '\n', { mode: 0o600 });
   } catch {
     // Best-effort; if we can't write, the next run will just re-prompt.
   }

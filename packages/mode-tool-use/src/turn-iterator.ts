@@ -2,6 +2,7 @@ import {
   asToolCallId,
   buildSystemPromptWithSkills,
   collectProviderStream,
+  createStuckLoopDetector,
   dispatchToolCall,
   projectMessages,
   runCompactionIfNeeded,
@@ -11,8 +12,8 @@ import {
   type ModeContext,
   type MoxxyEvent,
   type ProjectedMessages,
+  type StuckLoopDetector,
 } from '@moxxy/sdk';
-import { createStuckLoopDetector } from './stuck-loop-detector.js';
 
 export const TOOL_USE_MODE_NAME = 'tool-use';
 
@@ -136,7 +137,7 @@ export async function* runToolUseMode(ctx: ModeContext): AsyncIterable<MoxxyEven
 async function* emitRequestsAndDetectStuck(
   ctx: ModeContext,
   toolUses: ReadonlyArray<CollectedToolUse>,
-  detector: ReturnType<typeof createStuckLoopDetector>,
+  detector: StuckLoopDetector,
 ): AsyncGenerator<MoxxyEvent, boolean, unknown> {
   for (const t of toolUses) {
     yield await ctx.emit({

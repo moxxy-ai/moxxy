@@ -11,6 +11,25 @@ export function buildTestServerTool(): ToolDef {
       'server exposes if the connection succeeds, or a connection-error message. Useful for ' +
       'sanity-checking before calling mcp_add_server.',
     inputSchema: addServerInput,
+    // Mirrors mcp_add_server: a stdio server is an arbitrary local
+    // executable we spawn, so gate behind a prompt rather than running
+    // unknown commands silently.
+    permission: { action: 'prompt' },
+    // Honest capability surface modeled on the Bash tool: for kind="stdio"
+    // this spawns a child process the user named (subprocess + broad fs,
+    // since the command can touch anything it likes); for http/sse it
+    // makes an outbound connection to an arbitrary URL (net: any). Advisory
+    // until @moxxy/plugin-security is enabled, then enforced at call time.
+    isolation: {
+      required: 'inproc',
+      capabilities: {
+        subprocess: true,
+        fs: { read: ['$cwd/**', '/tmp/**'], write: ['$cwd/**', '/tmp/**'] },
+        net: { mode: 'any' },
+        env: ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'LC_ALL', 'TERM'],
+        timeMs: 600_000,
+      },
+    },
     handler: async (input) => {
       const server = validateAddServerInput(input);
       let client: Awaited<ReturnType<typeof defaultClientFactory>> | null = null;

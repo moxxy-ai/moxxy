@@ -1,4 +1,4 @@
-import { defineTool, z } from '@moxxy/sdk';
+import { defineTool, MoxxyError, z } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import {
   buildAuthUrl,
@@ -221,16 +221,20 @@ export function buildOauthGetTokenTool(deps: OAuthToolDeps) {
     async handler({ provider, forceRefresh, includeRefresh }, _ctx) {
       const stored = await readStoredCreds(deps.vault, provider);
       if (!stored) {
-        throw new Error(
-          `no stored OAuth credentials for "${provider}". Run oauth_authorize first.`,
-        );
+        throw new MoxxyError({
+          code: 'AUTH_NO_CREDENTIALS',
+          message: `no stored OAuth credentials for "${provider}". Run oauth_authorize first.`,
+          context: { provider },
+        });
       }
       let tokens = stored.tokenSet;
       if (forceRefresh || isExpired(tokens)) {
         if (!tokens.refreshToken) {
-          throw new Error(
-            `OAuth token for "${provider}" expired and no refresh_token is stored. Re-run oauth_authorize.`,
-          );
+          throw new MoxxyError({
+            code: 'AUTH_EXPIRED',
+            message: `OAuth token for "${provider}" expired and no refresh_token is stored. Re-run oauth_authorize.`,
+            context: { provider },
+          });
         }
         const refreshed = await refreshAccessToken({
           tokenUrl: stored.tokenUrl,

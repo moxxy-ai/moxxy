@@ -1,4 +1,4 @@
-import type { EmbeddingProvider } from '@moxxy/sdk';
+import type { EmbeddingProvider, Mutex } from '@moxxy/sdk';
 import { TfIdfEmbedder, cosineSimilarity, tokenize } from '../tfidf.js';
 import type { EmbeddingIndex } from '../embedding-cache.js';
 import type { MemoryEntry } from './types.js';
@@ -14,6 +14,7 @@ export async function recallVector(
   limit: number,
   embedder: EmbeddingProvider,
   index: EmbeddingIndex | null,
+  mutex: Mutex,
 ): Promise<ReadonlyArray<RankedMemory>> {
   const corpus = all.map((e) => entryForEmbedding(e));
 
@@ -27,29 +28,37 @@ export async function recallVector(
 
   // Neural embedders: consult the persistent cache, only embed misses + query.
   if (index) {
-    await index.load();
-    const cached: Array<ReadonlyArray<number> | null> = [];
-    const misses: { index: number; text: string }[] = [];
-    for (let i = 0; i < all.length; i++) {
-      const hit = index.lookup(all[i]!.frontmatter.name, corpus[i]!);
-      cached.push(hit);
-      if (!hit) misses.push({ index: i, text: corpus[i]! });
-    }
-    const queryIdx = misses.length;
-    const toEmbed = [...misses.map((m) => m.text), query];
-    const fresh = await embedder.embed(toEmbed);
-    const queryVec = fresh[queryIdx]!;
-    // Stitch results: cached + freshly-embedded
-    const vectors: ReadonlyArray<number>[] = [];
-    for (let i = 0; i < all.length; i++) {
-      vectors.push(cached[i] ?? fresh[misses.findIndex((m) => m.index === i)]!);
-    }
-    // Persist fresh vectors
-    for (const m of misses) {
-      index.set(all[m.index]!.frontmatter.name, m.text, fresh[misses.indexOf(m)]!);
-    }
-    index.prune(all.map((e) => e.frontmatter.name));
-    await index.flush();
+    // The index load->lookup->set->prune->flush cycle mutates the shared
+    // on-disk cache, so it must run under the store's write mutex — otherwise
+    // two concurrent recalls (or a recall racing forget()'s rebuildIndex)
+    // read the same snapshot and clobber each other's writes. Only the cache
+    // bookkeeping is serialized; the pure cosine ranking stays outside.
+    const { vectors, queryVec } = await mutex.run(async () => {
+      await index.load();
+      const cached: Array<ReadonlyArray<number> | null> = [];
+      const misses: { index: number; text: string }[] = [];
+      for (let i = 0; i < all.length; i++) {
+        const hit = index.lookup(all[i]!.frontmatter.name, corpus[i]!);
+        cached.push(hit);
+        if (!hit) misses.push({ index: i, text: corpus[i]! });
+      }
+      const queryIdx = misses.length;
+      const toEmbed = [...misses.map((m) => m.text), query];
+      const fresh = await embedder.embed(toEmbed);
+      const qVec = fresh[queryIdx]!;
+      // Stitch results: cached + freshly-embedded
+      const vecs: ReadonlyArray<number>[] = [];
+      for (let i = 0; i < all.length; i++) {
+        vecs.push(cached[i] ?? fresh[misses.findIndex((m) => m.index === i)]!);
+      }
+      // Persist fresh vectors
+      for (const m of misses) {
+        index.set(all[m.index]!.frontmatter.name, m.text, fresh[misses.indexOf(m)]!);
+      }
+      index.prune(all.map((e) => e.frontmatter.name));
+      await index.flush();
+      return { vectors: vecs, queryVec: qVec };
+    });
     return rankCosine(all, vectors, queryVec, limit);
   }
 

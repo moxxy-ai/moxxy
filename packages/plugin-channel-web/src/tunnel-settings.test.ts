@@ -26,15 +26,15 @@ describe('tunnel-settings', () => {
     expect(readWebSettings(file)).toEqual({});
   });
 
-  it('round-trips a written setting (normalized)', () => {
-    writeTunnelSetting('cloudflared', file);
+  it('round-trips a written setting (normalized)', async () => {
+    await writeTunnelSetting('cloudflared', file);
     expect(readTunnelSetting(file)).toBe('cloudflared');
-    writeTunnelSetting('none', file);
+    await writeTunnelSetting('none', file);
     expect(readTunnelSetting(file)).toBe('localhost');
   });
 
-  it('tolerates a corrupt file', () => {
-    writeTunnelSetting('ngrok', file);
+  it('tolerates a corrupt file', async () => {
+    await writeTunnelSetting('ngrok', file);
     // overwrite with garbage
     rmSync(file);
     expect(readTunnelSetting(file)).toBeUndefined();

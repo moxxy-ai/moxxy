@@ -1,16 +1,15 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import path from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { createMutex, moxxyPath, writeFileAtomic, type Mutex } from '@moxxy/sdk';
 import { ulid } from 'ulid';
 import { z } from 'zod';
 import { isValidCron } from './cron.js';
 
 /**
  * Persistent store for scheduled triggers. Single JSON file at
- * `~/.moxxy/schedules.json`. Mutations serialize through a
- * promise-chain mutex (each `mutate()` awaits the previous one) and
- * land via tmp-file + rename so a crash mid-write leaves the previous
- * state intact — same pattern used by the vault and permissions store.
+ * `~/.moxxy/schedules.json`. Mutations serialize through a write mutex
+ * and land via an atomic whole-file write so a crash mid-write leaves
+ * the previous state intact — same pattern used by the vault and
+ * permissions store.
  *
  * `source` separates user-created schedules ("manual") from schedules
  * synthesized off of skill frontmatter ("skill"). The two namespaces
@@ -80,13 +79,13 @@ export interface ScheduleStoreOptions {
 }
 
 export function defaultSchedulesFile(): string {
-  return path.join(process.env.MOXXY_HOME ?? path.join(homedir(), '.moxxy'), 'schedules.json');
+  return moxxyPath('schedules.json');
 }
 
 export class ScheduleStore {
   private readonly file: string;
   private cache: ScheduleEntry[] | null = null;
-  private mutation: Promise<void> = Promise.resolve();
+  private readonly mutex: Mutex = createMutex();
 
   constructor(opts: ScheduleStoreOptions = {}) {
     this.file = opts.file ?? defaultSchedulesFile();
@@ -185,28 +184,23 @@ export class ScheduleStore {
   }
 
   /**
-   * Read-modify-write the cached array under the chain mutex. The
+   * Read-modify-write the cached array under the write mutex. The
    * mutator receives a fresh shallow copy; whatever it returns becomes
    * the new state. Persists atomically.
    */
   private async mutate(
     fn: (schedules: ScheduleEntry[]) => ScheduleEntry[],
   ): Promise<void> {
-    const next = this.mutation.then(async () => {
+    await this.mutex.run(async () => {
       await this.ensureLoaded();
       const updated = fn(this.cache!.slice());
       this.cache = updated;
       await this.persist(updated);
     });
-    this.mutation = next.catch(() => undefined);
-    return next;
   }
 
   private async persist(schedules: ScheduleEntry[]): Promise<void> {
-    await mkdir(path.dirname(this.file), { recursive: true });
-    const tmp = `${this.file}.${process.pid}.${Date.now()}.tmp`;
     const payload = JSON.stringify({ version: 1, schedules }, null, 2);
-    await writeFile(tmp, payload, 'utf8');
-    await rename(tmp, this.file);
+    await writeFileAtomic(this.file, payload);
   }
 }

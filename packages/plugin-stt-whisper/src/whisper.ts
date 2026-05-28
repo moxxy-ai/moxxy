@@ -1,7 +1,17 @@
-import OpenAI from 'openai';
-import type { Transcriber, TranscribeOptions, TranscriptionResult } from '@moxxy/sdk';
+import OpenAI, { APIError, APIConnectionError, APIUserAbortError } from 'openai';
+import {
+  classifyHttpStatus,
+  classifyNetworkError,
+  MoxxyError,
+  type Transcriber,
+  type TranscribeOptions,
+  type TranscriptionResult,
+} from '@moxxy/sdk';
 
 export type WhisperModel = 'whisper-1' | 'gpt-4o-transcribe' | 'gpt-4o-mini-transcribe';
+
+/** Provider tag attached to classified errors for logs/debug context. */
+const WHISPER_PROVIDER_ID = 'openai';
 
 const DEFAULT_FILENAMES: Record<string, string> = {
   'audio/ogg': 'audio.ogg',
@@ -72,13 +82,18 @@ export class WhisperTranscriber implements Transcriber {
     // returns plain JSON. Branch so callers get rich segments when
     // available, and a graceful text-only result when not.
     if (this.model === 'whisper-1') {
-      const response = await this.client.audio.transcriptions.create({
-        model: this.model,
-        file,
-        response_format: 'verbose_json',
-        ...(language ? { language } : {}),
-        ...(opts.prompt ? { prompt: opts.prompt } : {}),
-      });
+      const response = await this.run(() =>
+        this.client.audio.transcriptions.create(
+          {
+            model: this.model,
+            file,
+            response_format: 'verbose_json',
+            ...(language ? { language } : {}),
+            ...(opts.prompt ? { prompt: opts.prompt } : {}),
+          },
+          { signal: opts.signal },
+        ),
+      );
       // OpenAI verbose-json response: { text, language, duration, segments[] }
       const r = response as unknown as {
         text: string;
@@ -97,13 +112,50 @@ export class WhisperTranscriber implements Transcriber {
       if (r.segments) result.segments = r.segments.map((s) => ({ start: s.start, end: s.end, text: s.text }));
       return result;
     }
-    const response = await this.client.audio.transcriptions.create({
-      model: this.model,
-      file,
-      ...(language ? { language } : {}),
-      ...(opts.prompt ? { prompt: opts.prompt } : {}),
-    });
+    const response = await this.run(() =>
+      this.client.audio.transcriptions.create(
+        {
+          model: this.model,
+          file,
+          ...(language ? { language } : {}),
+          ...(opts.prompt ? { prompt: opts.prompt } : {}),
+        },
+        { signal: opts.signal },
+      ),
+    );
     return { text: (response as { text: string }).text };
+  }
+
+  /**
+   * Run an SDK transcription call, translating failures into structured
+   * `MoxxyError`s (network vs. HTTP status) to match the codex sibling.
+   * User aborts re-throw unchanged so cancellation isn't masked as an error.
+   */
+  private async run<T>(call: () => Promise<T>): Promise<T> {
+    try {
+      return await call();
+    } catch (err) {
+      // Intentional cancellation: propagate as-is so callers see the abort.
+      if (err instanceof APIUserAbortError) throw err;
+      const ctx = { provider: WHISPER_PROVIDER_ID, url: this.client.baseURL };
+      if (err instanceof APIConnectionError) {
+        const network = classifyNetworkError(err.cause ?? err, ctx);
+        if (network) throw network;
+      }
+      if (err instanceof APIError && typeof err.status === 'number') {
+        const classified = classifyHttpStatus(err.status, { ...ctx, body: err.message });
+        if (classified) throw classified;
+        throw new MoxxyError({
+          code: 'PROVIDER_BAD_REQUEST',
+          message: `OpenAI transcription returned HTTP ${err.status}.`,
+          context: { ...ctx, status: err.status },
+          cause: err,
+        });
+      }
+      const network = classifyNetworkError(err, ctx);
+      if (network) throw network;
+      throw err;
+    }
   }
 }
 

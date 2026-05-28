@@ -1,4 +1,4 @@
-import { defineTool, z } from '@moxxy/sdk';
+import { defineTool, MoxxyError, z } from '@moxxy/sdk';
 import { ensureDarwin, runProcess } from '../shell.js';
 
 export const clipboardTool = defineTool({
@@ -25,12 +25,20 @@ export const clipboardTool = defineTool({
         timeoutMs: 5_000,
       });
       if (proc.exitCode !== 0) {
-        throw new Error(`pbpaste failed (exit ${proc.exitCode}): ${proc.stderr.trim()}`);
+        throw new MoxxyError({
+          code: 'INTERNAL',
+          message: `pbpaste failed (exit ${proc.exitCode}): ${proc.stderr.trim()}`,
+          context: { tool: 'computer_clipboard', exitCode: proc.exitCode },
+        });
       }
       return { ok: true, text: proc.stdout };
     }
     if (text === undefined) {
-      throw new Error('computer_clipboard: `text` is required when action="write"');
+      throw new MoxxyError({
+        code: 'INTERNAL',
+        message: 'computer_clipboard: `text` is required when action="write"',
+        context: { tool: 'computer_clipboard' },
+      });
     }
     const proc = await runProcess('pbcopy', [], {
       ...(ctx.signal ? { signal: ctx.signal } : {}),
@@ -38,7 +46,11 @@ export const clipboardTool = defineTool({
       timeoutMs: 5_000,
     });
     if (proc.exitCode !== 0) {
-      throw new Error(`pbcopy failed (exit ${proc.exitCode}): ${proc.stderr.trim()}`);
+      throw new MoxxyError({
+        code: 'INTERNAL',
+        message: `pbcopy failed (exit ${proc.exitCode}): ${proc.stderr.trim()}`,
+        context: { tool: 'computer_clipboard', exitCode: proc.exitCode },
+      });
     }
     return { ok: true, length: text.length };
   },

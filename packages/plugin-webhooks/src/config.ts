@@ -1,6 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import path from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { createMutex, moxxyPath, writeFileAtomic, type Mutex } from '@moxxy/sdk';
 import { z } from 'zod';
 
 /**
@@ -37,16 +36,13 @@ export interface WebhookConfigStoreOptions {
 }
 
 export function defaultWebhookConfigFile(): string {
-  return path.join(
-    process.env.MOXXY_HOME ?? path.join(homedir(), '.moxxy'),
-    'webhooks-config.json',
-  );
+  return moxxyPath('webhooks-config.json');
 }
 
 export class WebhookConfigStore {
   private readonly file: string;
   private cache: WebhookConfig | null = null;
-  private mutation: Promise<void> = Promise.resolve();
+  private readonly mutex: Mutex = createMutex();
 
   constructor(opts: WebhookConfigStoreOptions = {}) {
     this.file = opts.file ?? defaultWebhookConfigFile();
@@ -58,17 +54,13 @@ export class WebhookConfigStore {
   }
 
   async set(patch: Partial<WebhookConfig>): Promise<WebhookConfig> {
-    let result: WebhookConfig | null = null;
-    const next = this.mutation.then(async () => {
+    return this.mutex.run(async () => {
       await this.ensureLoaded();
       const merged = webhookConfigSchema.parse({ ...this.cache, ...patch });
       this.cache = merged;
-      result = merged;
       await this.persist(merged);
+      return merged;
     });
-    this.mutation = next.catch(() => undefined);
-    await next;
-    return result!;
   }
 
   async clearPublicUrl(): Promise<WebhookConfig> {
@@ -91,10 +83,7 @@ export class WebhookConfigStore {
   }
 
   private async persist(config: WebhookConfig): Promise<void> {
-    await mkdir(path.dirname(this.file), { recursive: true });
-    const tmp = `${this.file}.${process.pid}.${Date.now()}.tmp`;
     const payload = JSON.stringify({ version: 1, config }, null, 2);
-    await writeFile(tmp, payload, 'utf8');
-    await rename(tmp, this.file);
+    await writeFileAtomic(this.file, payload);
   }
 }

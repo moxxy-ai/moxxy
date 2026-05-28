@@ -1,7 +1,8 @@
+import { MoxxyError } from '@moxxy/sdk';
 import type { McpClientLike, McpServerConfig, McpToolDescriptor } from '../types.js';
 import { defaultClientFactory } from '../client.js';
 import { wrapMcpServerTools, wrapMcpServerToolsLazy } from '../wrap.js';
-import { readMcpConfig, writeMcpConfig } from './config-io.js';
+import { mutateMcpConfig } from './config-io.js';
 import type {
   AdminToolRegistryLike,
   McpRuntimeHandle,
@@ -42,10 +43,12 @@ export function createMcpRuntime(registry: AdminToolRegistryLike | null): McpRun
     const collisions = wrapped.filter((t) => registry.has(t.name)).map((t) => t.name);
     if (collisions.length > 0) {
       await client.close();
-      throw new Error(
-        `mcp_add_server: tool name collision — already registered: ${collisions.join(', ')}. ` +
+      throw new MoxxyError({
+        code: 'CONFIG_INVALID',
+        message:
+          `mcp_add_server: tool name collision — already registered: ${collisions.join(', ')}. ` +
           'Pick a different server name (the server name becomes a prefix on each tool).',
-      );
+      });
     }
     for (const tool of wrapped) registry.register(tool);
     runtimes.set(server.name, { client, toolNames: wrapped.map((t) => t.name) });
@@ -96,10 +99,12 @@ export function createMcpRuntime(registry: AdminToolRegistryLike | null): McpRun
     const wrapped = wrapMcpServerToolsLazy({ server, descriptors, getClient: getOrConnect });
     const collisions = wrapped.filter((t) => registry.has(t.name)).map((t) => t.name);
     if (collisions.length > 0) {
-      throw new Error(
-        `lazy attach: tool name collision for "${server.name}": ${collisions.join(', ')}. ` +
+      throw new MoxxyError({
+        code: 'CONFIG_INVALID',
+        message:
+          `lazy attach: tool name collision for "${server.name}": ${collisions.join(', ')}. ` +
           'A different server (or a previously-attached version) already owns these names.',
-      );
+      });
     }
     for (const tool of wrapped) registry.register(tool);
     // Sentinel client gets swapped for the real one inside getOrConnect.
@@ -130,10 +135,12 @@ export function createMcpRuntime(registry: AdminToolRegistryLike | null): McpRun
       const list = await client.listTools();
       const refreshed: McpStoredServer = { ...server, cachedTools: list.tools };
       // Persist the refreshed cache so subsequent boots can lazy-attach
-      // without reconnecting.
-      const cfg = await readMcpConfig();
-      const nextServers = cfg.servers.map((s) => (s.name === server.name ? refreshed : s));
-      await writeMcpConfig({ servers: nextServers });
+      // without reconnecting. Read-modify-write under the shared config
+      // mutex so a concurrent add/remove can't clobber the file.
+      await mutateMcpConfig((cfg) => ({
+        next: { servers: cfg.servers.map((s) => (s.name === server.name ? refreshed : s)) },
+        result: undefined,
+      }));
       return refreshed;
     } finally {
       try {

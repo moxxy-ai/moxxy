@@ -1,9 +1,8 @@
-import * as path from 'node:path';
-import * as os from 'node:os';
 import {
   z,
   defineTool,
   definePlugin,
+  moxxyPath,
   type Plugin,
   type CommandDef,
   type EmittedEvent,
@@ -27,7 +26,7 @@ export interface BuildVaultPluginOptions {
 }
 
 export function defaultVaultPath(): string {
-  return path.join(os.homedir(), '.moxxy', 'vault.json');
+  return moxxyPath('vault.json');
 }
 
 export function buildVaultPlugin(opts: BuildVaultPluginOptions = {}): { plugin: Plugin; vault: VaultStore } {

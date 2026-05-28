@@ -1,4 +1,4 @@
-import { MoxxyError } from '@moxxy/sdk';
+import { classifyHttpStatus, MoxxyError } from '@moxxy/sdk';
 import { pollUntil, type PollOutcome } from './poll-until.js';
 import { parseTokenResponse } from './token-exchange.js';
 import type { DeviceFlowOptions, TokenSet } from './types.js';
@@ -37,7 +37,14 @@ export async function runDeviceCodeFlow(opts: DeviceFlowOptions): Promise<TokenS
   });
   if (!deviceRes.ok) {
     const text = await deviceRes.text().catch(() => '');
-    throw new Error(`device-code request failed (HTTP ${deviceRes.status}): ${text.slice(0, 300)}`);
+    throw (
+      classifyHttpStatus(deviceRes.status, { url: opts.deviceUrl, body: text }) ??
+      new MoxxyError({
+        code: 'AUTH_INVALID',
+        message: `device-code request failed (HTTP ${deviceRes.status}): ${text.slice(0, 300)}`,
+        context: { status: deviceRes.status, url: opts.deviceUrl },
+      })
+    );
   }
   const deviceJson = (await deviceRes.json()) as Record<string, unknown>;
   const deviceCode = typeof deviceJson.device_code === 'string' ? deviceJson.device_code : null;
@@ -55,9 +62,10 @@ export async function runDeviceCodeFlow(opts: DeviceFlowOptions): Promise<TokenS
   const expiresIn = typeof deviceJson.expires_in === 'number' ? deviceJson.expires_in : 600;
   const interval = typeof deviceJson.interval === 'number' ? deviceJson.interval : 5;
   if (!deviceCode || !userCode || !verificationUri) {
-    throw new Error(
-      `device-code response missing required fields: ${JSON.stringify(deviceJson).slice(0, 200)}`,
-    );
+    throw new MoxxyError({
+      code: 'PROVIDER_UNKNOWN_RESPONSE',
+      message: `device-code response missing required fields: ${JSON.stringify(deviceJson).slice(0, 200)}`,
+    });
   }
 
   opts.onPrompt({

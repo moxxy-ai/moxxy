@@ -1,4 +1,4 @@
-import { defineTool, z } from '@moxxy/sdk';
+import { defineTool, MoxxyError, z } from '@moxxy/sdk';
 import { ensureDarwin, runProcess } from '../shell.js';
 
 const MODIFIER_NAMES = ['cmd', 'shift', 'option', 'control'] as const;
@@ -77,18 +77,22 @@ export const keyTool = defineTool({
       const literal = `"${key.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
       script = `tell application "System Events" to keystroke ${literal}${usingClause}`;
     } else {
-      throw new Error(
-        `unknown key "${key}". Use a single character or one of: ${Object.keys(KEY_CODES).join(', ')}.`,
-      );
+      throw new MoxxyError({
+        code: 'INTERNAL',
+        message: `unknown key "${key}". Use a single character or one of: ${Object.keys(KEY_CODES).join(', ')}.`,
+        context: { tool: 'computer_key', key },
+      });
     }
     const proc = await runProcess('osascript', ['-e', script], {
       ...(ctx.signal ? { signal: ctx.signal } : {}),
       timeoutMs: 10_000,
     });
     if (proc.exitCode !== 0) {
-      throw new Error(
-        `key failed (exit ${proc.exitCode}): ${proc.stderr.trim() || '(check Accessibility permission)'}`,
-      );
+      throw new MoxxyError({
+        code: 'INTERNAL',
+        message: `key failed (exit ${proc.exitCode}): ${proc.stderr.trim() || '(check Accessibility permission)'}`,
+        context: { tool: 'computer_key', exitCode: proc.exitCode },
+      });
     }
     return { ok: true, key, modifiers: mods };
   },

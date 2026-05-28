@@ -30,7 +30,6 @@
   },
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
-    "@moxxy/core": "workspace:*",
     "ulid": "^2.3.0",
     "zod": "catalog:"
   },

@@ -26,7 +26,15 @@
     "plugin": {
       "entry": "./dist/index.js",
       "kind": "mode"
-    }
+    },
+    "requirements": [
+      {
+        "kind": "plugin",
+        "name": "@moxxy/plugin-subagents",
+        "state": "registered",
+        "hint": "Enable @moxxy/plugin-subagents — deep-research fans out sub-queries via ctx.subagents."
+      }
+    ]
   },
   "dependencies": {
     "@moxxy/sdk": "workspace:*"

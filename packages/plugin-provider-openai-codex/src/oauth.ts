@@ -6,10 +6,12 @@
  */
 
 import { Buffer } from 'node:buffer';
-import { webcrypto } from 'node:crypto';
 import {
   buildAuthUrl,
+  computeCodeChallenge,
   exchangeCodeForToken as oauthExchangeCodeForToken,
+  generateCodeVerifier,
+  generateState as oauthGenerateState,
   refreshAccessToken,
   type TokenSet,
 } from '@moxxy/plugin-oauth';
@@ -32,30 +34,18 @@ export const DEFAULT_REDIRECT_URI = `http://localhost:${DEFAULT_CALLBACK_PORT}${
 export const SCOPES = 'openid profile email offline_access';
 export const ORIGINATOR = 'moxxy';
 
-const PKCE_CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
-const PKCE_VERIFIER_LEN = 64;
-
-function base64UrlEncode(buf: ArrayBuffer | Uint8Array): string {
-  const view = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
-  return Buffer.from(view).toString('base64url');
-}
-
-function randomString(length: number, charset: string): string {
-  const bytes = webcrypto.getRandomValues(new Uint8Array(length));
-  let out = '';
-  for (let i = 0; i < length; i++) out += charset[bytes[i]! % charset.length];
-  return out;
-}
-
+/**
+ * PKCE pair for the Codex flow. Delegates to `@moxxy/plugin-oauth`'s shared
+ * primitives (S256 verifier -> challenge) instead of hand-rolling crypto;
+ * kept as a thin wrapper so it returns the `PkceCodes` shape and stays a
+ * stable public export.
+ */
 export async function generatePKCE(): Promise<PkceCodes> {
-  const verifier = randomString(PKCE_VERIFIER_LEN, PKCE_CHARSET);
-  const hash = await webcrypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
-  return { verifier, challenge: base64UrlEncode(hash) };
+  const verifier = generateCodeVerifier();
+  return { verifier, challenge: computeCodeChallenge(verifier) };
 }
 
-export function generateState(): string {
-  return base64UrlEncode(webcrypto.getRandomValues(new Uint8Array(32)));
-}
+export const generateState = oauthGenerateState;
 
 /**
  * Thin wrapper over `@moxxy/plugin-oauth`'s generic `buildAuthUrl` that

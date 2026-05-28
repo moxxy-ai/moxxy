@@ -6,6 +6,7 @@ import {
   projectMessages,
   runCompactionIfNeeded,
   runElisionIfNeeded,
+  stableHash,
   usageEventFields,
   type ModeContext,
 } from '@moxxy/sdk';
@@ -190,5 +191,8 @@ function buildStepNudge(step: string, stepIndex: number, total: number): string 
 }
 
 function signatureFor(name: string, input: unknown): string {
-  return `${name}::${JSON.stringify(input ?? null)}`;
+  // stableHash canonicalises key order so {a:1,b:2} and {b:2,a:1} hash the
+  // same — a plain JSON.stringify would miss key-reordered repeats and let
+  // the model loop on the "same" call.
+  return `${name}::${stableHash(input)}`;
 }

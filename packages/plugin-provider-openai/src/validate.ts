@@ -7,16 +7,25 @@ export interface ValidateKeyDeps {
   readonly client?: (apiKey: string) => {
     models: { list: () => Promise<unknown> };
   };
+  /**
+   * Endpoint to probe. Omit for OpenAI itself; pass a vendor base URL to
+   * validate an OpenAI-compatible provider (groq, deepseek, openrouter, …)
+   * against its own `/v1/models`. Lets `@moxxy/plugin-provider-admin` reuse
+   * this validator instead of duplicating the OpenAI-compatible probe.
+   */
+  readonly baseURL?: string;
 }
 
 /**
- * "Is this key accepted by OpenAI?" Lists models — free, no inference cost.
+ * "Is this key accepted by the endpoint?" Lists models — free, no inference
+ * cost. Validates OpenAI by default, or an OpenAI-compatible vendor when a
+ * `baseURL` is supplied.
  */
 export async function validateKey(key: string, deps: ValidateKeyDeps = {}): Promise<ValidationResult> {
   if (!key || key.trim().length < 8) {
     return { ok: false, message: 'key looks too short' };
   }
-  const make = deps.client ?? defaultMaker;
+  const make = deps.client ?? ((k: string) => defaultMaker(k, deps.baseURL));
   try {
     const client = make(key);
     await client.models.list();
@@ -26,6 +35,8 @@ export async function validateKey(key: string, deps: ValidateKeyDeps = {}): Prom
   }
 }
 
-function defaultMaker(apiKey: string): { models: { list: () => Promise<unknown> } } {
-  return new OpenAI({ apiKey }) as unknown as { models: { list: () => Promise<unknown> } };
+function defaultMaker(apiKey: string, baseURL?: string): { models: { list: () => Promise<unknown> } } {
+  return new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) }) as unknown as {
+    models: { list: () => Promise<unknown> };
+  };
 }

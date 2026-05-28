@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { addModelTotals, type ModelUsageTotals } from '@moxxy/sdk';
+import { addModelTotals, createMutex, writeFileAtomic, type ModelUsageTotals } from '@moxxy/sdk';
 
 /**
  * Cross-session token usage, persisted at ~/.moxxy/usage.json. A forward-going
@@ -59,13 +59,13 @@ export async function loadUsageStats(filePath: string = usageStatsPath()): Promi
 }
 
 async function writeAtomic(file: UsageStatsFile, filePath: string): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  // Atomic-ish write: temp file + rename so a crash mid-write can't leave a
-  // half-flushed blob that fails to parse on the next boot.
-  const tmp = `${filePath}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(file, null, 2) + '\n', 'utf8');
-  await fs.rename(tmp, filePath);
+  await writeFileAtomic(filePath, JSON.stringify(file, null, 2) + '\n');
 }
+
+// Serializes the read-modify-write in `mergeUsageStats` so two concurrent
+// merges (e.g. overlapping shutdowns) can't both read the same snapshot and
+// have the second write clobber the first's delta.
+const mergeMutex = createMutex();
 
 /**
  * Merge a session's per-model delta into the persisted aggregate and write it
@@ -79,30 +79,32 @@ export async function mergeUsageStats(
   delta: Record<string, ModelUsageTotals>,
   filePath: string = usageStatsPath(),
 ): Promise<UsageStatsFile> {
-  const keys = Object.keys(delta);
-  const current = await loadUsageStats(filePath);
-  if (keys.length === 0) return current;
+  return mergeMutex.run(async () => {
+    const keys = Object.keys(delta);
+    const current = await loadUsageStats(filePath);
+    if (keys.length === 0) return current;
 
-  const now = new Date().toISOString();
-  const models: Record<string, StoredModelUsage> = { ...current.models };
-  for (const key of keys) {
-    const d = delta[key]!;
-    if (d.calls === 0) continue;
-    const existing = models[key];
-    models[key] = existing
-      ? { ...addModelTotals(existing, d), firstSeen: existing.firstSeen, lastSeen: now }
-      : { ...d, firstSeen: now, lastSeen: now };
-  }
-  const next: UsageStatsFile = { version: 1, updatedAt: now, models };
-  try {
-    await writeAtomic(next, filePath);
-  } catch (err) {
-    process.stderr.write(
-      `moxxy: failed to persist usage stats to ${filePath}: ` +
-        `${err instanceof Error ? err.message : String(err)}\n`,
-    );
-  }
-  return next;
+    const now = new Date().toISOString();
+    const models: Record<string, StoredModelUsage> = { ...current.models };
+    for (const key of keys) {
+      const d = delta[key]!;
+      if (d.calls === 0) continue;
+      const existing = models[key];
+      models[key] = existing
+        ? { ...addModelTotals(existing, d), firstSeen: existing.firstSeen, lastSeen: now }
+        : { ...d, firstSeen: now, lastSeen: now };
+    }
+    const next: UsageStatsFile = { version: 1, updatedAt: now, models };
+    try {
+      await writeAtomic(next, filePath);
+    } catch (err) {
+      process.stderr.write(
+        `moxxy: failed to persist usage stats to ${filePath}: ` +
+          `${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    }
+    return next;
+  });
 }
 
 /** Reset the aggregate to empty (the user-facing `/usage clear`). */

@@ -3,7 +3,7 @@ import {
   type DeferredPermissionResolver,
   type DeferredPermissionResolverOptions,
   type PermissionPromptHandler,
-} from '@moxxy/core';
+} from '@moxxy/sdk';
 
 export type { PermissionPromptHandler };
 
@@ -15,7 +15,7 @@ export interface InteractivePermissionResolverOptions extends DeferredPermission
  * the previous import path.
  *
  * For new code, prefer importing `createDeferredPermissionResolver` from
- * `@moxxy/core` directly: the same resolver shape is shared with other
+ * `@moxxy/sdk` directly: the same resolver shape is shared with other
  * channels (Telegram, future web/Slack).
  */
 export function createInteractivePermissionResolver(

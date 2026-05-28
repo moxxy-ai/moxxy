@@ -1,6 +1,5 @@
-import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import type { Skill } from '@moxxy/sdk';
+import { writeFileAtomic, type Skill } from '@moxxy/sdk';
 import type { McpServerConfig, McpToolDescriptor } from '../types.js';
 import type { AdminSkillRegistryLike } from './types.js';
 
@@ -54,8 +53,8 @@ export function createMcpUsageSkillWriter(
       `- Auto-generated when the MCP server was registered. Edit this file by hand to refine the playbook.`;
     const raw = `${frontmatter}\n${body}\n`;
     const filePath = path.join(userSkillsDir, `${skillName}.md`);
-    await fs.mkdir(userSkillsDir, { recursive: true });
-    await fs.writeFile(filePath, raw, 'utf8');
+    // writeFileAtomic creates parent dirs and does a crash-safe tmp+rename.
+    await writeFileAtomic(filePath, raw);
     if (skillRegistry) {
       // Build a Skill object that mirrors what discoverSkills would
       // produce so /skills, the system-prompt index, and load_skill all

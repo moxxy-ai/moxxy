@@ -1,7 +1,6 @@
 import { promises as fs } from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
-import type { EmbeddingProvider } from '@moxxy/sdk';
+import { createMutex, moxxyPath, writeFileAtomic, type EmbeddingProvider, type Mutex } from '@moxxy/sdk';
 import { renderFrontmatter } from './parse.js';
 import { TfIdfEmbedder } from './tfidf.js';
 import { EmbeddingIndex } from './embedding-cache.js';
@@ -12,7 +11,7 @@ import {
   type MemoryType,
   type RecallMode,
 } from './store/types.js';
-import { isEnoent, listEntries, readEntry, safeRead, writeFileAtomic, writeIndex } from './store/io.js';
+import { isEnoent, listEntries, readEntry, safeRead, writeIndex } from './store/io.js';
 import { rankByKeywords, recallVector, type RankedMemory } from './store/search.js';
 
 export {
@@ -43,17 +42,17 @@ export interface MemoryStoreOptions {
 }
 
 export function defaultMemoryDir(): string {
-  return path.join(os.homedir(), '.moxxy', 'memory');
+  return moxxyPath('memory');
 }
 
 export class MemoryStore {
   readonly dir: string;
   private readonly embedder: EmbeddingProvider | null;
   private readonly index: EmbeddingIndex | null;
-  // Per-instance mutex. save/update/forget each read-modify-write the entry
-  // file, MEMORY.md, and the embedding index; without serialization two
+  // Per-instance mutex. save/update/forget/recall each read-modify-write the
+  // entry file, MEMORY.md, and the embedding index; without serialization two
   // overlapping calls clobber MEMORY.md and race the embedding cache.
-  private writeChain: Promise<unknown> = Promise.resolve();
+  private readonly mutex: Mutex = createMutex();
 
   constructor(opts: MemoryStoreOptions = {}) {
     this.dir = opts.dir ?? defaultMemoryDir();
@@ -87,20 +86,10 @@ export class MemoryStore {
     return readEntry(this.fileFor(name));
   }
 
-  /** Run `fn` under the per-instance mutex (kept alive across rejections). */
-  private serialize<T>(fn: () => Promise<T>): Promise<T> {
-    const next = this.writeChain.then(fn, fn);
-    this.writeChain = next.then(
-      () => undefined,
-      () => undefined,
-    );
-    return next;
-  }
-
   save(
     input: Omit<MemoryFrontmatter, 'createdAt' | 'updatedAt'> & { body: string },
   ): Promise<MemoryEntry> {
-    return this.serialize(() => this.writeEntry(input));
+    return this.mutex.run(() => this.writeEntry(input));
   }
 
   update(
@@ -109,7 +98,7 @@ export class MemoryStore {
   ): Promise<MemoryEntry | null> {
     // Read-modify-write under the mutex; calls the internal (unserialized)
     // writer so it doesn't deadlock on its own chain.
-    return this.serialize(async () => {
+    return this.mutex.run(async () => {
       const existing = await readEntry(this.fileFor(name));
       if (!existing) return null;
       const mergedTags = patch.tags ?? existing.frontmatter.tags;
@@ -124,7 +113,7 @@ export class MemoryStore {
   }
 
   forget(name: string): Promise<boolean> {
-    return this.serialize(async () => {
+    return this.mutex.run(async () => {
       const filePath = this.fileFor(name);
       try {
         await fs.unlink(filePath);
@@ -177,7 +166,7 @@ export class MemoryStore {
 
     const useVector = mode === 'vector' || (mode === 'auto' && this.embedder !== null);
     if (useVector && this.embedder) {
-      return recallVector(all, query, limit, this.embedder, this.index);
+      return recallVector(all, query, limit, this.embedder, this.index, this.mutex);
     }
     return rankByKeywords(all, query, limit);
   }

@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { defineTool, z } from '@moxxy/sdk';
+import { defineTool, MoxxyError, z } from '@moxxy/sdk';
 import { ensureDarwin, runProcess } from '../shell.js';
 
 const regionSchema = z.object({
@@ -90,9 +90,11 @@ export const screenshotTool = defineTool({
       timeoutMs: 15_000,
     });
     if (cap.exitCode !== 0) {
-      throw new Error(
-        `screencapture failed (exit ${cap.exitCode}): ${cap.stderr.trim() || '(no stderr — likely Screen Recording permission missing — grant in System Settings → Privacy & Security)'}`,
-      );
+      throw new MoxxyError({
+        code: 'INTERNAL',
+        message: `screencapture failed (exit ${cap.exitCode}): ${cap.stderr.trim() || '(no stderr — likely Screen Recording permission missing — grant in System Settings → Privacy & Security)'}`,
+        context: { tool: 'computer_screenshot', exitCode: cap.exitCode },
+      });
     }
 
     // Resize + format-convert in one sips call. `-Z N` fits within N
@@ -122,18 +124,23 @@ export const screenshotTool = defineTool({
     await fs.rm(captureTmp, { force: true });
     if (sip.exitCode !== 0) {
       await fs.rm(outTmp, { force: true });
-      throw new Error(
-        `sips resize/convert failed (exit ${sip.exitCode}): ${sip.stderr.trim() || '(no error message)'}`,
-      );
+      throw new MoxxyError({
+        code: 'INTERNAL',
+        message: `sips resize/convert failed (exit ${sip.exitCode}): ${sip.stderr.trim() || '(no error message)'}`,
+        context: { tool: 'computer_screenshot', exitCode: sip.exitCode },
+      });
     }
 
     try {
       const bytes = await fs.readFile(outTmp);
       if (bytes.length > MAX_BYTES) {
-        throw new Error(
-          `screenshot exceeded ${MAX_BYTES} bytes after compression (got ${bytes.length}). ` +
+        throw new MoxxyError({
+          code: 'INTERNAL',
+          message:
+            `screenshot exceeded ${MAX_BYTES} bytes after compression (got ${bytes.length}). ` +
             `Lower maxDim (currently ${dim}) or quality (currently ${q}), or pass a smaller region.`,
-        );
+          context: { tool: 'computer_screenshot', byteLength: bytes.length },
+        });
       }
       return {
         mediaType: fmt === 'jpeg' ? ('image/jpeg' as const) : ('image/png' as const),

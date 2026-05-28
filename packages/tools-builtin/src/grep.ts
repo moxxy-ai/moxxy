@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { defineTool, z } from '@moxxy/sdk';
+import { MoxxyError, defineTool, z } from '@moxxy/sdk';
 import { clampString, globToRegExp, resolveSafe } from './util.js';
 
 export const grepTool = defineTool({
@@ -34,7 +34,10 @@ export const grepTool = defineTool({
     } catch (e) {
       // A malformed user pattern would otherwise throw a raw SyntaxError;
       // surface it as a clean, actionable tool error instead.
-      throw new Error(`Grep: invalid regular expression ${JSON.stringify(pattern)}: ${(e as Error).message}`);
+      throw new MoxxyError({
+        code: 'INTERNAL',
+        message: `Grep: invalid regular expression ${JSON.stringify(pattern)}: ${(e as Error).message}`,
+      });
     }
     const fileRe = glob ? globToRegExp(glob) : null;
     const matches: string[] = [];

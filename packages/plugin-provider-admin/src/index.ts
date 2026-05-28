@@ -1,4 +1,4 @@
-import { defineTool, definePlugin, type Plugin, type ProviderDef, z } from '@moxxy/sdk';
+import { defineTool, definePlugin, MoxxyError, type Plugin, type ProviderDef, z } from '@moxxy/sdk';
 import { buildProviderDef, validateOpenAICompatKey } from './factory.js';
 import {
   providersConfigPath,
@@ -112,10 +112,12 @@ export function buildProviderAdminPlugin(opts: BuildProviderAdminPluginOptions):
             createdAt: new Date().toISOString(),
           };
           if (!entry.models.some((m) => m.id === entry.defaultModel)) {
-            throw new Error(
-              `provider_add: defaultModel "${entry.defaultModel}" is not in the models list. ` +
+            throw new MoxxyError({
+              code: 'CONFIG_INVALID',
+              message:
+                `provider_add: defaultModel "${entry.defaultModel}" is not in the models list. ` +
                 `Add it to the array or pick one of: ${entry.models.map((m) => m.id).join(', ')}.`,
-            );
+            });
           }
           const def = buildProviderDef(entry);
           const wasRegistered = providerRegistry.list().some((p) => p.name === entry.name);
@@ -195,7 +197,7 @@ export function buildProviderAdminPlugin(opts: BuildProviderAdminPluginOptions):
           '{ ok: false, message } with the vendor error verbatim.',
         inputSchema: testProviderInput,
         permission: { action: 'prompt' },
-        handler: async ({ baseURL, apiKey }) => validateOpenAICompatKey(apiKey, baseURL),
+        handler: async ({ baseURL, apiKey }) => validateOpenAICompatKey(apiKey, { baseURL }),
       }),
     ],
     hooks: {

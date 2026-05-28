@@ -2,6 +2,7 @@ import {
   buildSystemPromptWithSkills,
   collectProviderStream,
   runCompactionIfNeeded,
+  runElisionIfNeeded,
   usageEventFields,
   type ModeContext,
   type ProviderMessage,
@@ -53,6 +54,7 @@ async function streamSingleShot(
   messages: ProviderMessage[],
 ): Promise<string | null> {
   await runCompactionIfNeeded(ctx);
+  await runElisionIfNeeded(ctx);
 
   await ctx.emit({
     type: 'provider_request',

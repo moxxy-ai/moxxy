@@ -1,7 +1,6 @@
 import { defineTool, z, type ToolDef } from '@moxxy/sdk';
-import { readMcpConfig, writeMcpConfig } from '../config-io.js';
+import { mutateMcpConfig } from '../config-io.js';
 import { serverNameSchema } from '../schema.js';
-import type { McpStoredConfig } from '../types.js';
 
 export interface RemoveServerToolDeps {
   detachServer(name: string): Promise<boolean>;
@@ -17,14 +16,17 @@ export function buildRemoveServerTool(deps: RemoveServerToolDeps): ToolDef {
     inputSchema: z.object({ name: serverNameSchema }),
     permission: { action: 'prompt' },
     handler: async ({ name }) => {
-      const cfg = await readMcpConfig();
-      const before = cfg.servers.length;
-      const next: McpStoredConfig = {
-        servers: cfg.servers.filter((s) => s.name !== name),
-      };
-      const persisted = next.servers.length !== before;
+      // Read-modify-write under the shared config mutex so a concurrent
+      // add/remove can't clobber the file.
+      const persisted = await mutateMcpConfig((cfg) => {
+        const filtered = cfg.servers.filter((s) => s.name !== name);
+        if (filtered.length === cfg.servers.length) {
+          // Nothing matched — return the same reference to skip the write.
+          return { next: cfg, result: false };
+        }
+        return { next: { servers: filtered }, result: true };
+      });
       const detached = await detachServer(name);
-      if (persisted) await writeMcpConfig(next);
       if (!persisted && !detached) {
         return { removed: false, name, note: `No MCP server named "${name}" was registered.` };
       }

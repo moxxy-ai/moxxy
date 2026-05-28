@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, statSync, unlinkSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
+import { moxxyPath } from '@moxxy/sdk';
 import type { DetectedImagePath } from './image-attachments.js';
 
 /**
@@ -17,10 +17,7 @@ import type { DetectedImagePath } from './image-attachments.js';
  * so a hung clipboard tool can't freeze input.
  */
 
-const CACHE_DIR = path.join(
-  process.env.MOXXY_HOME ?? path.join(homedir(), '.moxxy'),
-  'image-cache',
-);
+const CACHE_DIR = moxxyPath('image-cache');
 
 function ensureCacheDir(): string {
   mkdirSync(CACHE_DIR, { recursive: true });

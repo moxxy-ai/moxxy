@@ -1,4 +1,4 @@
-import { defineTool, z, type AgentDef, type SubagentSpec } from '@moxxy/sdk';
+import { defineTool, MoxxyError, z, type AgentDef, type SubagentSpec } from '@moxxy/sdk';
 
 const agentSpecSchema = z.object({
   prompt: z
@@ -88,9 +88,12 @@ export function buildDispatchAgentTool(deps: DispatchAgentDeps) {
     }),
     handler: async (input, ctx) => {
       if (!ctx.subagents) {
-        throw new Error(
-          'dispatch_agent: no subagent spawner available — this tool must be invoked from a run-turn loop.',
-        );
+        throw new MoxxyError({
+          code: 'INTERNAL',
+          message:
+            'dispatch_agent: no subagent spawner available — this tool must be invoked from a run-turn loop.',
+          hint: 'Invoke dispatch_agent from within a run-turn loop so the subagent spawner is wired into the tool context.',
+        });
       }
       const specs: SubagentSpec[] = (input.agents as AgentSpecInput[]).map((s) =>
         resolveSpec(s, deps),

@@ -30,10 +30,10 @@
   },
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
-    "@moxxy/core": "workspace:*",
     "ws": "catalog:"
   },
   "devDependencies": {
+    "@moxxy/core": "workspace:*",
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "@types/node": "catalog:",

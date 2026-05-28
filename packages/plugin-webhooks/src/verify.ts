@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { bearerTokenMatches } from '@moxxy/sdk';
 import type { WebhookTrigger, WebhookVerification } from './store.js';
 
 /**
@@ -54,11 +55,12 @@ export function verifyDelivery(input: VerificationInput): VerificationResult {
   if (v.type === 'bearer') {
     const auth = lower(input.headers, 'authorization');
     if (!auth) return { ok: false, reason: 'missing Authorization header' };
-    const expected = `Bearer ${v.secret}`;
-    const a = Buffer.from(auth);
-    const b = Buffer.from(expected);
-    if (a.length !== b.length) return { ok: false, reason: 'token mismatch' };
-    if (!timingSafeEqual(a, b)) return { ok: false, reason: 'token mismatch' };
+    // Compare the whole `Authorization` header against the expected
+    // `Bearer <secret>` in constant time (length mismatch short-circuits
+    // without leaking via timingSafeEqual's throw on unequal lengths).
+    if (!bearerTokenMatches(auth, `Bearer ${v.secret}`)) {
+      return { ok: false, reason: 'token mismatch' };
+    }
     return { ok: true };
   }
 

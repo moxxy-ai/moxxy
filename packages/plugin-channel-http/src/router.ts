@@ -1,6 +1,6 @@
-import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { readRequestBody, bearerTokenMatches } from '@moxxy/sdk';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type { MoxxyEvent } from '@moxxy/sdk';
 
@@ -44,40 +44,19 @@ export async function handleHealth(
 
 function checkAuth(req: IncomingMessage, expected: string | null): boolean {
   if (!expected) return true;
-  const got = Buffer.from(req.headers.authorization ?? '');
-  const want = Buffer.from(`Bearer ${expected}`);
-  // Constant-time compare so the token isn't recoverable byte-by-byte via
-  // response-timing. (The length check short-circuits unequal lengths — that
-  // only leaks length, which is fine for a fixed-format bearer token.)
-  return got.length === want.length && timingSafeEqual(got, want);
+  // Constant-time compare of the full `Bearer <token>` header so the token
+  // isn't recoverable byte-by-byte via response timing.
+  return bearerTokenMatches(req.headers.authorization, `Bearer ${expected}`);
 }
 
 async function readBody(req: IncomingMessage, max = 64 * 1024): Promise<string> {
-  return (await readBodyBytes(req, max)).toString('utf8');
+  return (await readRequestBody(req, max)).toString('utf8');
 }
 
 /** Audio uploads need a much larger cap than JSON; 10 MB covers a few
  *  minutes of Opus voice (Telegram caps voice notes at 50 MB, but
  *  realistic notes are well under that). */
 const DEFAULT_AUDIO_MAX = 10 * 1024 * 1024;
-
-async function readBodyBytes(req: IncomingMessage, max: number): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > max) {
-        reject(new Error('request body too large'));
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-}
 
 function reply(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json' });
@@ -162,7 +141,7 @@ export async function handleTurnAudio(
 
   let bytes: Buffer;
   try {
-    bytes = await readBodyBytes(req, DEFAULT_AUDIO_MAX);
+    bytes = await readRequestBody(req, DEFAULT_AUDIO_MAX);
   } catch (err) {
     reply(res, 413, { error: 'payload_too_large', message: err instanceof Error ? err.message : String(err) });
     return;

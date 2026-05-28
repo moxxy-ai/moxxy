@@ -21,9 +21,11 @@ function makeJwt(claims: Record<string, unknown>): string {
 }
 
 describe('generatePKCE', () => {
-  it('produces a 64-char verifier and a 43-char SHA-256 base64url challenge', async () => {
+  it('produces a spec-length verifier and a 43-char SHA-256 base64url challenge', async () => {
     const { verifier, challenge } = await generatePKCE();
-    expect(verifier).toHaveLength(64);
+    // 96 bytes of entropy -> 128 base64url chars (the @moxxy/plugin-oauth
+    // shared verifier; spec allows 43–128).
+    expect(verifier).toHaveLength(128);
     expect(verifier).toMatch(/^[A-Za-z0-9\-._~]+$/);
     expect(challenge).toHaveLength(43);
     expect(challenge).toMatch(/^[A-Za-z0-9_-]+$/);

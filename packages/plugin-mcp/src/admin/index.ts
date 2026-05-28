@@ -1,6 +1,4 @@
-import * as os from 'node:os';
-import * as path from 'node:path';
-import { definePlugin, type Plugin } from '@moxxy/sdk';
+import { definePlugin, moxxyPath, type Plugin } from '@moxxy/sdk';
 import { readMcpConfig } from './config-io.js';
 import { createMcpRuntime } from './runtime.js';
 import { createMcpUsageSkillWriter } from './skill.js';
@@ -54,7 +52,7 @@ function buildMcpAdminPluginInternal(
 ): { plugin: Plugin; api: McpAdminApi } {
   const registry = opts.toolRegistry;
   const skillRegistry = opts.skillRegistry ?? null;
-  const userSkillsDir = opts.userSkillsDir ?? path.join(os.homedir(), '.moxxy', 'skills');
+  const userSkillsDir = opts.userSkillsDir ?? moxxyPath('skills');
 
   const runtime = createMcpRuntime(registry);
   const writeMcpUsageSkill = createMcpUsageSkillWriter({ skillRegistry, userSkillsDir });

@@ -1,7 +1,13 @@
-import OpenAI from 'openai';
-import { defineProvider, type ProviderDef, type ProviderKeyValidation } from '@moxxy/sdk';
-import { OpenAIProvider } from '@moxxy/plugin-provider-openai';
+import { defineProvider, MoxxyError, type ProviderDef } from '@moxxy/sdk';
+import { OpenAIProvider, validateOpenAICompatKey } from '@moxxy/plugin-provider-openai';
 import type { StoredProvider } from './types.js';
+
+/**
+ * Re-export the shared OpenAI-compatible key validator so existing
+ * consumers (and `index.ts`) keep a single import surface. The probe
+ * lives in `@moxxy/plugin-provider-openai` — we don't keep a local copy.
+ */
+export { validateOpenAICompatKey };
 
 /**
  * Build a runtime ProviderDef from a stored entry. For `openai-compat`
@@ -20,30 +26,11 @@ export function buildProviderDef(entry: StoredProvider): ProviderDef {
           baseURL: entry.baseURL,
           defaultModel: entry.defaultModel,
         }),
-      validateKey: (key) => validateOpenAICompatKey(key, entry.baseURL),
+      validateKey: (key) => validateOpenAICompatKey(key, { baseURL: entry.baseURL }),
     });
   }
-  throw new Error(`provider-admin: unsupported kind ${(entry as { kind: string }).kind}`);
-}
-
-/**
- * Cheap "is this key accepted by the vendor?" probe via the OpenAI
- * `/models` endpoint. Most OpenAI-compatible vendors implement it; the
- * few that don't (or that return a non-2xx for other reasons) surface
- * the raw error so the user can decide whether to proceed.
- */
-export async function validateOpenAICompatKey(
-  key: string,
-  baseURL: string,
-): Promise<ProviderKeyValidation> {
-  if (!key || key.trim().length < 4) {
-    return { ok: false, message: 'key looks too short' };
-  }
-  try {
-    const client = new OpenAI({ apiKey: key, baseURL });
-    await client.models.list();
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : String(err) };
-  }
+  throw new MoxxyError({
+    code: 'CONFIG_INVALID',
+    message: `provider-admin: unsupported kind ${(entry as { kind: string }).kind}`,
+  });
 }

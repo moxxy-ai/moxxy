@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { MoxxyError } from '@moxxy/sdk';
 
 export const IS_DARWIN = process.platform === 'darwin';
 
@@ -146,8 +147,10 @@ export function runProcessBinary(
 /** Throw a clear error when a tool is invoked on a non-darwin host. */
 export function ensureDarwin(toolName: string): void {
   if (!IS_DARWIN) {
-    throw new Error(
-      `${toolName}: @moxxy/plugin-computer-control currently only supports macOS (process.platform = ${process.platform})`,
-    );
+    throw new MoxxyError({
+      code: 'INTERNAL',
+      message: `${toolName}: @moxxy/plugin-computer-control currently only supports macOS (process.platform = ${process.platform})`,
+      context: { tool: toolName, platform: process.platform },
+    });
   }
 }

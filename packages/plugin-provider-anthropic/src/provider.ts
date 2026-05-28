@@ -6,7 +6,7 @@ import type {
   ProviderRequest,
   StopReason,
 } from '@moxxy/sdk';
-import { toFriendlyError } from '@moxxy/sdk';
+import { estimateTextTokens, toFriendlyError } from '@moxxy/sdk';
 import { toAnthropicMessages, toAnthropicTools } from './translate.js';
 
 export interface AnthropicProviderConfig {
@@ -212,7 +212,7 @@ export class AnthropicProvider implements LLMProvider {
         (system ?? '') +
         messages.map((m) => JSON.stringify(m.content)).join('') +
         JSON.stringify(tools ?? []);
-      return Math.ceil(blob.length / 4);
+      return estimateTextTokens(blob);
     }
   }
 }

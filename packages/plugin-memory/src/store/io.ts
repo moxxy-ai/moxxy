@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
+import { writeFileAtomic } from '@moxxy/sdk';
 import { parseMdFile } from '../parse.js';
 import {
   memoryFrontmatterSchema,
@@ -24,18 +25,6 @@ export async function safeRead(
 
 export function isEnoent(err: unknown): boolean {
   return err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT';
-}
-
-/**
- * Crash-atomic write: serialize to a sibling tmp file then rename. POSIX rename
- * is atomic, so a crash mid-write leaves the previous file intact rather than
- * truncated. The tmp name never ends in `.md`, so `listEntries` won't pick up a
- * transient tmp as a memory entry.
- */
-export async function writeFileAtomic(filePath: string, content: string): Promise<void> {
-  const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}`;
-  await fs.writeFile(tmp, content, 'utf8');
-  await fs.rename(tmp, filePath);
 }
 
 export async function listEntries(

@@ -9,6 +9,7 @@
  *   4. Handle `authorization_pending` / `slow_down` / fatal codes per spec.
  */
 
+import { classifyHttpStatus, MoxxyError } from '@moxxy/sdk';
 import { parseTokenResponse } from '../oauth/token-exchange.js';
 import type { TokenSet } from '../oauth/types.js';
 import type {
@@ -44,7 +45,14 @@ export function rfc8628DeviceFlow(opts: Rfc8628AdapterOpts): DeviceFlowAdapter {
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        throw new Error(`device-code request failed (HTTP ${res.status}): ${text.slice(0, 300)}`);
+        throw (
+          classifyHttpStatus(res.status, { url: opts.deviceUrl, body: text }) ??
+          new MoxxyError({
+            code: 'AUTH_INVALID',
+            message: `device-code request failed (HTTP ${res.status}): ${text.slice(0, 300)}`,
+            context: { status: res.status, url: opts.deviceUrl },
+          })
+        );
       }
       const json = (await res.json()) as Record<string, unknown>;
       const deviceCode = typeof json.device_code === 'string' ? json.device_code : null;
@@ -62,9 +70,10 @@ export function rfc8628DeviceFlow(opts: Rfc8628AdapterOpts): DeviceFlowAdapter {
       const expiresIn = typeof json.expires_in === 'number' ? json.expires_in : 600;
       const interval = typeof json.interval === 'number' ? json.interval : 5;
       if (!deviceCode || !userCode || !verificationUri) {
-        throw new Error(
-          `device-code response missing required fields: ${JSON.stringify(json).slice(0, 200)}`,
-        );
+        throw new MoxxyError({
+          code: 'PROVIDER_UNKNOWN_RESPONSE',
+          message: `device-code response missing required fields: ${JSON.stringify(json).slice(0, 200)}`,
+        });
       }
       return {
         userCode,
@@ -100,13 +109,25 @@ export function rfc8628DeviceFlow(opts: Rfc8628AdapterOpts): DeviceFlowAdapter {
         return { pending: true };
       }
       if (err === 'access_denied') {
-        throw new Error('OAuth device flow: user denied authorization');
+        throw new MoxxyError({
+          code: 'OAUTH_FLOW_DENIED',
+          message: 'You declined the device authorization.',
+          hint: 'Re-run the login command and approve the consent screen on your browser device.',
+        });
       }
       if (err === 'expired_token') {
-        throw new Error('OAuth device flow: device_code expired before approval');
+        throw new MoxxyError({
+          code: 'OAUTH_FLOW_TIMEOUT',
+          message: 'The device code expired before you finished signing in.',
+          hint: 'Re-run the login command — a new code will be generated.',
+        });
       }
       const desc = typeof json.error_description === 'string' ? json.error_description : '';
-      throw new Error(`OAuth device flow failed: ${err}${desc ? ` — ${desc}` : ''}`);
+      throw new MoxxyError({
+        code: 'AUTH_INVALID',
+        message: `OAuth device flow failed: ${err}${desc ? ` — ${desc}` : ''}.`,
+        context: { provider_error: String(err), ...(desc ? { description: desc } : {}) },
+      });
     },
   };
 }

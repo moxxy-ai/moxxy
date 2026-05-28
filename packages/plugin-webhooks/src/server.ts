@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { readRequestBody } from '@moxxy/sdk';
 import { DeliveryDedupeCache } from './dedupe.js';
 import { shouldFire } from './filter.js';
 import type { WebhookDispatcher } from './runner.js';
@@ -136,7 +137,7 @@ export class WebhookServer {
 
     let body: Buffer;
     try {
-      body = await readBody(req, this.maxBodyBytes);
+      body = await readRequestBody(req, this.maxBodyBytes);
     } catch (err) {
       res.writeHead(413, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: 'payload_too_large', message: String(err) }));
@@ -195,22 +196,4 @@ export class WebhookServer {
     // Fire-and-forget. Errors are logged inside the dispatcher.
     void this.opts.dispatcher.fire(trigger, prompt, idempKey);
   }
-}
-
-function readBody(req: IncomingMessage, max: number): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > max) {
-        reject(new Error(`body exceeds ${max} bytes`));
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
 }

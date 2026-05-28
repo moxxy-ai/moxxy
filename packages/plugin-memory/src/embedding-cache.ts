@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
+import { writeFileAtomic } from '@moxxy/sdk';
 
 const INDEX_FILE = '.embeddings.json';
 const INDEX_VERSION = 1;
@@ -100,8 +101,7 @@ export class EmbeddingIndex {
       ...(this.dim !== undefined ? { dim: this.dim } : {}),
       entries: Object.fromEntries(this.cache),
     };
-    await fs.mkdir(this.dir, { recursive: true });
-    await fs.writeFile(this.filePath, JSON.stringify(data), { mode: 0o600 });
+    await writeFileAtomic(this.filePath, JSON.stringify(data), { mode: 0o600 });
     this.dirty = false;
   }
 

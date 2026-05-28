@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { moxxyHome } from '@moxxy/sdk';
 import { mergeConfigs } from './merge.js';
 import { moxxyConfigSchema, type MoxxyConfig } from './schema.js';
 
@@ -38,7 +38,7 @@ export async function loadConfig(opts: LoadConfigOptions): Promise<LoadedConfig>
   const configs: MoxxyConfig[] = [];
 
   if (!opts.skipUser) {
-    const userPath = await findFile(path.join(os.homedir(), '.moxxy'), USER_CONFIG_NAMES);
+    const userPath = await findFile(moxxyHome(), USER_CONFIG_NAMES);
     if (userPath) {
       const cfg = await loadOne(userPath);
       configs.push(cfg);

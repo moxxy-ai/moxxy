@@ -1,4 +1,4 @@
-import { defineTool, z } from '@moxxy/sdk';
+import { defineTool, MoxxyError, z } from '@moxxy/sdk';
 import { ensureDarwin, runProcess } from '../shell.js';
 
 export const openTool = defineTool({
@@ -30,7 +30,11 @@ export const openTool = defineTool({
   async handler({ target, app }, ctx) {
     ensureDarwin('computer_open');
     if (!target && !app) {
-      throw new Error('computer_open: at least one of `target` or `app` is required');
+      throw new MoxxyError({
+        code: 'INTERNAL',
+        message: 'computer_open: at least one of `target` or `app` is required',
+        context: { tool: 'computer_open' },
+      });
     }
     const args: string[] = [];
     if (app) {
@@ -44,9 +48,11 @@ export const openTool = defineTool({
       timeoutMs: 10_000,
     });
     if (proc.exitCode !== 0) {
-      throw new Error(
-        `open failed (exit ${proc.exitCode}): ${proc.stderr.trim() || '(no error message)'}`,
-      );
+      throw new MoxxyError({
+        code: 'INTERNAL',
+        message: `open failed (exit ${proc.exitCode}): ${proc.stderr.trim() || '(no error message)'}`,
+        context: { tool: 'computer_open', exitCode: proc.exitCode },
+      });
     }
     return { ok: true, app, target };
   },

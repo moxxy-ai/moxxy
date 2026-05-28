@@ -1,4 +1,4 @@
-import { asTurnId, defineTool, type MoxxyEvent } from '@moxxy/sdk';
+import { MoxxyError, asTurnId, defineTool, type MoxxyEvent } from '@moxxy/sdk';
 import { z } from 'zod';
 
 const MAX_FULL_CHARS = 200_000;
@@ -67,25 +67,36 @@ export const recallTool = defineTool({
           e.type === 'tool_call_requested' && e.callId === callId,
       );
       if (req) return present(`${req.name}(${safeJson(req.input)})`, summarize);
-      throw new Error(`recall: no event found for callId "${callId}".`);
+      throw new MoxxyError({ code: 'INTERNAL', message: `recall: no event found for callId "${callId}".` });
     }
 
     if (seq != null) {
       const e = ctx.log.at(seq);
-      if (!e) throw new Error(`recall: no event at seq ${seq}.`);
+      if (!e) throw new MoxxyError({ code: 'INTERNAL', message: `recall: no event at seq ${seq}.` });
       const text = renderEvent(e);
-      if (!text) throw new Error(`recall: event at seq ${seq} has no recallable content.`);
+      if (!text)
+        throw new MoxxyError({
+          code: 'INTERNAL',
+          message: `recall: event at seq ${seq} has no recallable content.`,
+        });
       return present(text, summarize);
     }
 
     if (turnId) {
       const turnEvents = ctx.log.byTurn(asTurnId(turnId));
       const body = turnEvents.map(renderEvent).filter(Boolean).join('\n\n');
-      if (!body) throw new Error(`recall: no recallable content for turn "${turnId}".`);
+      if (!body)
+        throw new MoxxyError({
+          code: 'INTERNAL',
+          message: `recall: no recallable content for turn "${turnId}".`,
+        });
       return present(body, summarize);
     }
 
-    throw new Error('recall: provide one of `callId`, `seq`, or `turnId`.');
+    throw new MoxxyError({
+      code: 'INTERNAL',
+      message: 'recall: provide one of `callId`, `seq`, or `turnId`.',
+    });
   },
 });
 

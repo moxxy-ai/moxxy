@@ -1,6 +1,5 @@
-import type { PendingToolCall, PermissionDecision } from '@moxxy/sdk';
+import { createMutex, writeFileAtomic, type Mutex, type PendingToolCall, type PermissionDecision } from '@moxxy/sdk';
 import { promises as fs } from 'node:fs';
-import * as path from 'node:path';
 import { z } from 'zod';
 
 /**
@@ -38,21 +37,11 @@ export class PermissionEngine {
   // Per-instance mutex. Mutators read-modify-write `this.policy` then persist;
   // without serialization two overlapping calls both read the same snapshot,
   // each append one rule, and the second write clobbers the first's rule.
-  private writeChain: Promise<void> = Promise.resolve();
+  private mutex: Mutex = createMutex();
 
   constructor(policy: PermissionPolicy = emptyPolicy, policyPath: string | null = null) {
     this.policy = policy;
     this.policyPath = policyPath;
-  }
-
-  /** Run `fn` under the per-instance mutex (kept alive across rejections). */
-  private serialize<T>(fn: () => Promise<T>): Promise<T> {
-    const next = this.writeChain.then(fn, fn);
-    this.writeChain = next.then(
-      () => undefined,
-      () => undefined,
-    );
-    return next;
   }
 
   static async load(policyPath: string): Promise<PermissionEngine> {
@@ -83,7 +72,7 @@ export class PermissionEngine {
   }
 
   async addAllow(rule: PolicyRule): Promise<void> {
-    return this.serialize(async () => {
+    return this.mutex.run(async () => {
       this.policy = {
         ...this.policy,
         allow: [...this.policy.allow, sanitizeRule(rule)],
@@ -93,7 +82,7 @@ export class PermissionEngine {
   }
 
   async addDeny(rule: PolicyRule): Promise<void> {
-    return this.serialize(async () => {
+    return this.mutex.run(async () => {
       this.policy = {
         ...this.policy,
         deny: [...this.policy.deny, sanitizeRule(rule)],
@@ -104,7 +93,7 @@ export class PermissionEngine {
 
   /** Remove every rule (allow + deny) whose name matches exactly. Returns the count removed. */
   async removeByName(name: string): Promise<number> {
-    return this.serialize(async () => {
+    return this.mutex.run(async () => {
       const allowBefore = this.policy.allow.length;
       const denyBefore = this.policy.deny.length;
       this.policy = {
@@ -118,7 +107,7 @@ export class PermissionEngine {
   }
 
   async clear(): Promise<void> {
-    return this.serialize(async () => {
+    return this.mutex.run(async () => {
       this.policy = { allow: [], deny: [] };
       await this.persist();
     });
@@ -126,11 +115,7 @@ export class PermissionEngine {
 
   private async persist(): Promise<void> {
     if (!this.policyPath) return;
-    await fs.mkdir(path.dirname(this.policyPath), { recursive: true });
-    // Crash-atomic write: tmp + rename.
-    const tmp = `${this.policyPath}.tmp.${process.pid}.${Date.now()}`;
-    await fs.writeFile(tmp, JSON.stringify(this.policy, null, 2));
-    await fs.rename(tmp, this.policyPath);
+    await writeFileAtomic(this.policyPath, JSON.stringify(this.policy, null, 2));
   }
 
   get policySnapshot(): PermissionPolicy {

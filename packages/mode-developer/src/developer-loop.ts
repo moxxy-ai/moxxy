@@ -1,6 +1,7 @@
 import { toolUseMode } from '@moxxy/mode-tool-use';
 import {
   asToolCallId,
+  dispatchToolCall,
   type ModeContext,
   type MoxxyEvent,
 } from '@moxxy/sdk';
@@ -203,8 +204,8 @@ export async function* runDeveloperMode(ctx: ModeContext): AsyncIterable<MoxxyEv
   }
 
   // approve OR edit — run git add + git commit via the Bash tool so the
-  // call goes through the same hooks + permission resolver as any other
-  // tool. The mode never bypasses permissions for git ops.
+  // call goes through dispatchToolCall (hooks + permission resolver) like
+  // any other tool. The mode never bypasses permissions for git ops.
   const message = gate.message;
   yield* runGitCommit(ctx, message);
 }
@@ -279,57 +280,26 @@ async function* runGitCommit(
     input: bashInput,
   });
 
-  const decision = await ctx.permissions.check(
-    { callId, name: 'Bash', input: bashInput },
-    { sessionId: String(ctx.sessionId), toolDescription: ctx.tools.get('Bash')?.description },
-  );
-  if (decision.mode === 'deny') {
-    yield await ctx.emit({
-      type: 'tool_call_denied',
-      sessionId: ctx.sessionId,
-      turnId: ctx.turnId,
-      source: 'system',
-      callId,
-      decidedBy: 'resolver',
-      reason: decision.reason ?? 'denied',
-    });
-    yield await ctx.emit({
-      type: 'tool_result',
-      sessionId: ctx.sessionId,
-      turnId: ctx.turnId,
-      source: 'tool',
-      callId,
-      ok: false,
-      error: { kind: 'denied', message: decision.reason ?? 'denied' },
-    });
-    return;
-  }
-  yield await ctx.emit({
-    type: 'tool_call_approved',
-    sessionId: ctx.sessionId,
-    turnId: ctx.turnId,
-    source: 'system',
-    callId,
-    decidedBy: 'resolver',
-    mode: decision.mode,
-  });
+  // Route the commit through dispatchToolCall so hooks run before the
+  // permission check (the contract: dispatchToolCall is the one place that
+  // fires tool-call hooks). Its events reach the log via ctx.emit; iteration
+  // is 0 since the commit isn't part of a numbered loop iteration.
+  yield* dispatchToolCall(ctx, { id: String(callId), name: 'Bash', input: bashInput }, 0);
 
-  try {
-    const output = await ctx.tools.execute('Bash', bashInput, ctx.signal, {
-      callId: String(callId),
-      sessionId: String(ctx.sessionId),
-      turnId: String(ctx.turnId),
-      log: ctx.log,
-    });
-    yield await ctx.emit({
-      type: 'tool_result',
-      sessionId: ctx.sessionId,
-      turnId: ctx.turnId,
-      source: 'tool',
-      callId,
-      ok: true,
-      output,
-    });
+  // Emit the commit-created plugin_event only when the commit actually ran
+  // and succeeded. Find the last tool_result for this callId in the log —
+  // dispatchToolCall always emits one (ok:true on success, ok:false on
+  // deny/hook-deny/throw).
+  const events = ctx.log.slice();
+  let committed = false;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e?.type === 'tool_result' && e.callId === callId) {
+      committed = e.ok;
+      break;
+    }
+  }
+  if (committed) {
     yield await ctx.emit({
       type: 'plugin_event',
       sessionId: ctx.sessionId,
@@ -338,19 +308,6 @@ async function* runGitCommit(
       pluginId: DEVELOPER_PLUGIN_ID,
       subtype: 'developer_commit_created',
       payload: { message },
-    });
-  } catch (err) {
-    yield await ctx.emit({
-      type: 'tool_result',
-      sessionId: ctx.sessionId,
-      turnId: ctx.turnId,
-      source: 'tool',
-      callId,
-      ok: false,
-      error: {
-        kind: ctx.signal.aborted ? 'aborted' : 'threw',
-        message: err instanceof Error ? err.message : String(err),
-      },
     });
   }
 }

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, promises as fs, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { writeFileAtomic } from '@moxxy/sdk';
 import { newTxnId } from './transaction.js';
 
 /**
@@ -181,11 +182,8 @@ export function repoDir(moxxyDir: string): string {
 
 export async function writeCoreJournal(moxxyDir: string, j: CoreJournal): Promise<void> {
   j.updatedAt = new Date().toISOString();
-  const dir = coreTxnDir(moxxyDir, j.txnId);
-  await fs.mkdir(dir, { recursive: true });
-  const file = path.join(dir, 'journal.json');
-  await fs.writeFile(`${file}.tmp`, JSON.stringify(j, null, 2) + '\n', 'utf8');
-  await fs.rename(`${file}.tmp`, file);
+  const file = path.join(coreTxnDir(moxxyDir, j.txnId), 'journal.json');
+  await writeFileAtomic(file, JSON.stringify(j, null, 2) + '\n');
 }
 
 export async function readCoreJournal(moxxyDir: string, txnId: string): Promise<CoreJournal> {
@@ -395,10 +393,9 @@ export async function overlayPackages(opts: {
     await fs.rm(bak, { recursive: true, force: true });
     applied.push(pkgName);
   }
-  await fs.writeFile(
+  await writeFileAtomic(
     path.join(opts.snapshotDir, 'applied.json'),
     JSON.stringify({ packages: applied, at: new Date().toISOString() }, null, 2),
-    'utf8',
   );
   return { ok: true, message: `overlaid ${applied.length} package(s)`, applied };
 }

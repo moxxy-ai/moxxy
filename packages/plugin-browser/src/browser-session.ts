@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { defineTool, z } from '@moxxy/sdk';
+import { MoxxyError, defineTool, z } from '@moxxy/sdk';
 
 /**
  * Heavy-tier browser: spawns the Playwright sidecar over stdio JSON-RPC and
@@ -29,7 +29,10 @@ type Action =
 const actionSchema: z.ZodType<Action> = z.union([
   z.object({
     kind: z.literal('goto'),
-    url: z.string().url(),
+    // `z.string().url()` accepts file:// and javascript: URLs, which would be
+    // forwarded verbatim to Playwright `page.goto`. Restrict to http(s) — the
+    // same scheme guard web_fetch enforces via assertPublicUrl.
+    url: z.string().url().refine((u) => /^https?:\/\//i.test(u), 'only http(s) URLs allowed'),
     waitUntil: z.enum(['load', 'domcontentloaded', 'networkidle']).optional(),
     timeoutMs: z.number().int().positive().max(120_000).optional(),
   }),
@@ -142,7 +145,10 @@ class Sidecar {
       }
     });
     this.child.once('exit', (code) => {
-      const err = new Error(`browser sidecar exited unexpectedly (code=${code ?? 'null'})`);
+      const err = new MoxxyError({
+        code: 'INTERNAL',
+        message: `browser sidecar exited unexpectedly (code=${code ?? 'null'})`,
+      });
       for (const [, p] of this.pending) p.reject(err);
       this.pending.clear();
       this.child = null;
@@ -176,7 +182,9 @@ class Sidecar {
         p.resolve(reply.result);
       }
     } else {
-      p.reject(new Error(reply.error?.message ?? 'sidecar error'));
+      p.reject(
+        new MoxxyError({ code: 'INTERNAL', message: reply.error?.message ?? 'sidecar error' }),
+      );
     }
   }
 
@@ -186,8 +194,8 @@ class Sidecar {
     signal?: AbortSignal,
   ): Promise<unknown> {
     await this.ensure();
-    if (!this.child) throw new Error('sidecar not running');
-    if (signal?.aborted) throw new Error('browser_session aborted');
+    if (!this.child) throw new MoxxyError({ code: 'INTERNAL', message: 'sidecar not running' });
+    if (signal?.aborted) throw new MoxxyError({ code: 'NETWORK_ABORTED', message: 'browser_session aborted' });
     const id = randomUUID();
     const req = { id, method, params };
     return new Promise<unknown>((resolve, reject) => {
@@ -195,7 +203,8 @@ class Sidecar {
       // NOT kill the shared singleton sidecar, which other concurrent calls
       // depend on. A late reply for this id is then ignored (not in `pending`).
       const onAbort = (): void => {
-        if (this.pending.delete(id)) reject(new Error('browser_session aborted'));
+        if (this.pending.delete(id))
+          reject(new MoxxyError({ code: 'NETWORK_ABORTED', message: 'browser_session aborted' }));
       };
       const cleanup = (): void => signal?.removeEventListener('abort', onAbort);
       this.pending.set(id, {
@@ -268,6 +277,21 @@ export function buildBrowserSessionTool(deps?: BrowserSessionDeps) {
       action: actionSchema,
     }),
     permission: { action: 'prompt' },
+    // Honest capability surface: browser_session spawns the Playwright sidecar
+    // (a child process) which drives a real browser to arbitrary hosts and may
+    // auto-install browser binaries into Playwright's cache on first use.
+    // Modeled on the Bash tool's declaration — these caps are advisory until
+    // @moxxy/plugin-security is enabled, at which point an isolator enforces them.
+    isolation: {
+      capabilities: {
+        subprocess: true,
+        net: { mode: 'any' },
+        // Sidecar may download/unpack browser binaries into the Playwright cache.
+        fs: { read: ['$cwd/**', '/tmp/**'], write: ['$cwd/**', '/tmp/**'] },
+        env: ['PATH', 'HOME', 'USER', 'PLAYWRIGHT_BROWSERS_PATH'],
+        timeMs: 120_000,
+      },
+    },
     async handler({ action }, ctx) {
       const sidecar = getSidecar(deps);
       // Surface install-progress lines (and any other sidecar status writes)

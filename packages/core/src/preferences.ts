@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { writeFileAtomic } from '@moxxy/sdk';
 
 /**
  * User-level runtime preferences persisted at ~/.moxxy/preferences.json.
@@ -53,12 +54,7 @@ export async function savePreferences(patch: Partial<MoxxyPreferences>): Promise
   const next: MoxxyPreferences = { ...current, ...patch };
   const target = preferencesPath();
   try {
-    await fs.mkdir(path.dirname(target), { recursive: true });
-    // Atomic-ish write: temp file + rename so a crash mid-write can't
-    // leave a half-flushed JSON blob that fails to parse next boot.
-    const tmp = `${target}.${process.pid}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(next, null, 2) + '\n', 'utf8');
-    await fs.rename(tmp, target);
+    await writeFileAtomic(target, JSON.stringify(next, null, 2) + '\n');
   } catch (err) {
     process.stderr.write(
       `moxxy: failed to persist preferences to ${target}: ` +

@@ -1,4 +1,4 @@
-import { defineTool, z } from '@moxxy/sdk';
+import { defineTool, MoxxyError, z } from '@moxxy/sdk';
 import { ensureDarwin, runProcess } from '../shell.js';
 
 export const applescriptTool = defineTool({
@@ -27,9 +27,11 @@ export const applescriptTool = defineTool({
       timeoutMs: 30_000,
     });
     if (proc.exitCode !== 0) {
-      throw new Error(
-        `osascript failed (exit ${proc.exitCode}): ${proc.stderr.trim() || '(no error message)'}`,
-      );
+      throw new MoxxyError({
+        code: 'INTERNAL',
+        message: `osascript failed (exit ${proc.exitCode}): ${proc.stderr.trim() || '(no error message)'}`,
+        context: { tool: 'computer_applescript', exitCode: proc.exitCode },
+      });
     }
     return { ok: true, output: proc.stdout.trim() };
   },

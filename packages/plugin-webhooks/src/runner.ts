@@ -1,6 +1,5 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import path from 'node:path';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk';
 import type { WebhookStore, WebhookTrigger } from './store.js';
 
 /**
@@ -33,11 +32,7 @@ export interface InboxOptions {
 }
 
 export function defaultWebhookInboxDir(): string {
-  return path.join(
-    process.env.MOXXY_HOME ?? path.join(homedir(), '.moxxy'),
-    'inbox',
-    'webhooks',
-  );
+  return moxxyPath('inbox', 'webhooks');
 }
 
 async function writeInbox(
@@ -47,7 +42,6 @@ async function writeInbox(
   opts: InboxOptions = {},
 ): Promise<string> {
   const dir = opts.dir ?? defaultWebhookInboxDir();
-  await mkdir(dir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const file = path.join(dir, `${stamp}-${trigger.name}.md`);
   const header = [
@@ -62,7 +56,7 @@ async function writeInbox(
     .filter((line) => line !== null)
     .join('\n');
   const body = result.error ? `**error:** ${result.error}\n\n${result.text}` : result.text;
-  await writeFile(file, header + body + '\n', 'utf8');
+  await writeFileAtomic(file, header + body + '\n');
   return file;
 }
 

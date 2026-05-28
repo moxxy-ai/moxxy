@@ -18,6 +18,7 @@
  * verification URI and the `client_id`.
  */
 
+import { classifyHttpStatus, MoxxyError } from '@moxxy/sdk';
 import type { TokenSet } from '../oauth/types.js';
 import { parseTokenResponse } from '../oauth/token-exchange.js';
 import type {
@@ -61,7 +62,14 @@ export function openaiDeviceFlow(opts: OpenaiDeviceFlowOpts): DeviceFlowAdapter 
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        throw new Error(`device auth init failed: ${res.status} ${text || res.statusText}`);
+        throw (
+          classifyHttpStatus(res.status, { url: initUrl, body: text || res.statusText }) ??
+          new MoxxyError({
+            code: 'AUTH_INVALID',
+            message: `device auth init failed: ${res.status} ${text || res.statusText}`,
+            context: { status: res.status, url: initUrl },
+          })
+        );
       }
       const data = (await res.json()) as {
         device_auth_id: string;
@@ -119,8 +127,16 @@ export function openaiDeviceFlow(opts: OpenaiDeviceFlowOpts): DeviceFlowAdapter 
         });
         if (!exchangeRes.ok) {
           const text = await exchangeRes.text().catch(() => '');
-          throw new Error(
-            `Token endpoint returned ${exchangeRes.status}: ${text || exchangeRes.statusText}`,
+          throw (
+            classifyHttpStatus(exchangeRes.status, {
+              url: opts.tokenUrl,
+              body: text || exchangeRes.statusText,
+            }) ??
+            new MoxxyError({
+              code: 'AUTH_INVALID',
+              message: `Token endpoint returned ${exchangeRes.status}: ${text || exchangeRes.statusText}`,
+              context: { status: exchangeRes.status, url: opts.tokenUrl },
+            })
           );
         }
         const json = (await exchangeRes.json()) as Record<string, unknown>;
@@ -131,7 +147,14 @@ export function openaiDeviceFlow(opts: OpenaiDeviceFlowOpts): DeviceFlowAdapter 
         return { pending: true };
       }
       const text = await res.text().catch(() => '');
-      throw new Error(`Device auth poll failed: ${res.status} ${text || res.statusText}`);
+      throw (
+        classifyHttpStatus(res.status, { url: pollUrl, body: text || res.statusText }) ??
+        new MoxxyError({
+          code: 'AUTH_INVALID',
+          message: `Device auth poll failed: ${res.status} ${text || res.statusText}`,
+          context: { status: res.status, url: pollUrl },
+        })
+      );
     },
   };
 }

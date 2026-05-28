@@ -1,7 +1,6 @@
 import { promises as fs } from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
-import { z, defineTool, definePlugin, type Plugin } from '@moxxy/sdk';
+import { z, defineTool, definePlugin, moxxyPath, writeFileAtomic, type Plugin } from '@moxxy/sdk';
 import { loadConfig } from './loader.js';
 import { moxxyConfigSchema, type MoxxyConfig } from './schema.js';
 
@@ -27,7 +26,7 @@ type Scope = z.infer<typeof scopeSchema>;
 // explicit operator action, not an inferred one.
 const scopeSchemaOptional = scopeSchema.optional().default('project');
 
-const USER_YAML = (): string => path.join(os.homedir(), '.moxxy', 'config.yaml');
+const USER_YAML = (): string => moxxyPath('config.yaml');
 
 async function findScopePath(scope: Scope, cwd: string): Promise<string | null> {
   if (scope === 'user') {
@@ -171,7 +170,7 @@ export function buildConfigPlugin(
                 JSON.stringify(validated.error.issues, null, 2),
             );
           }
-          await fs.writeFile(target, candidate);
+          await writeFileAtomic(target, candidate);
 
           // If a runtime applier is wired, try to reflect the change live.
           let runtime: ConfigApplyResult = { applied: [], pending: [] };
@@ -225,7 +224,7 @@ provider:
   model: claude-sonnet-4-6
 mode: tool-use
 `;
-          await fs.writeFile(target, template);
+          await writeFileAtomic(target, template);
           return { path: target, created: true };
         },
       }),

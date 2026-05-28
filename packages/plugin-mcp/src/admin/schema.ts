@@ -1,4 +1,4 @@
-import { z } from '@moxxy/sdk';
+import { MoxxyError, z } from '@moxxy/sdk';
 import type { McpServerConfig } from '../types.js';
 
 export const serverNameSchema = z
@@ -66,9 +66,10 @@ export function validateAddServerInput(input: AddServerInput): McpServerConfig {
   void input.autoSkill;
   if (input.kind === 'stdio') {
     if (!input.command) {
-      throw new Error(
-        'mcp_add_server: kind="stdio" requires a `command` field (e.g. "npx", "uv", "python").',
-      );
+      throw new MoxxyError({
+        code: 'CONFIG_INVALID',
+        message: 'mcp_add_server: kind="stdio" requires a `command` field (e.g. "npx", "uv", "python").',
+      });
     }
     const out: McpServerConfig = {
       kind: 'stdio',
@@ -81,9 +82,10 @@ export function validateAddServerInput(input: AddServerInput): McpServerConfig {
     return out;
   }
   if (!input.url) {
-    throw new Error(
-      `mcp_add_server: kind="${input.kind}" requires a \`url\` field (the remote MCP endpoint).`,
-    );
+    throw new MoxxyError({
+      code: 'CONFIG_INVALID',
+      message: `mcp_add_server: kind="${input.kind}" requires a \`url\` field (the remote MCP endpoint).`,
+    });
   }
   return {
     kind: input.kind,

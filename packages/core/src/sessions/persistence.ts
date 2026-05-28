@@ -19,7 +19,7 @@
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { MoxxyEvent, SessionId } from '@moxxy/sdk';
+import { createMutex, writeFileAtomic, type Mutex, type MoxxyEvent, type SessionId } from '@moxxy/sdk';
 import type { EventLog } from '../events/log.js';
 
 export interface SessionMeta {
@@ -61,11 +61,11 @@ export class SessionPersistence {
   private meta: SessionMeta;
   private indexUpdateScheduled = false;
   /**
-   * In-flight writes are serialized through this promise so the file
+   * In-flight writes are serialized through this mutex so the file
    * stays append-ordered even when events arrive faster than the disk
    * can flush.
    */
-  private writeQueue: Promise<void> = Promise.resolve();
+  private writeQueue: Mutex = createMutex();
   private closed = false;
 
   constructor(opts: SessionPersistenceOpts) {
@@ -135,9 +135,8 @@ export class SessionPersistence {
     };
     this.scheduleIndexWrite();
     const line = JSON.stringify(event) + '\n';
-    this.writeQueue = this.writeQueue
-      .then(() => fs.appendFile(this.logPath, line, 'utf8'))
-      .catch(() => undefined); // never propagate a write error into the listener chain
+    // never propagate a write error into the listener chain
+    void this.writeQueue.run(() => fs.appendFile(this.logPath, line, 'utf8')).catch(() => undefined);
   }
 
   private scheduleIndexWrite(): void {
@@ -281,9 +280,7 @@ function metaPath(dir: string, id: string): string {
 }
 
 async function writeJsonAtomic(target: string, value: unknown): Promise<void> {
-  const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(value, null, 2) + '\n', 'utf8');
-  await fs.rename(tmp, target);
+  await writeFileAtomic(target, JSON.stringify(value, null, 2) + '\n');
 }
 
 function isSessionMeta(v: unknown): v is SessionMeta {

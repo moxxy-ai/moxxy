@@ -1,6 +1,4 @@
-import { promises as fs } from 'node:fs';
-import * as path from 'node:path';
-import { defineTool, z } from '@moxxy/sdk';
+import { MoxxyError, defineTool, writeFileAtomic, z } from '@moxxy/sdk';
 import { resolveSafe } from './util.js';
 
 export const writeTool = defineTool({
@@ -25,8 +23,14 @@ export const writeTool = defineTool({
   },
   async handler({ file_path, content }, ctx) {
     const resolved = resolveSafe(ctx.cwd, file_path);
-    await fs.mkdir(path.dirname(resolved), { recursive: true });
-    await fs.writeFile(resolved, content, 'utf8');
+    // Bail before touching disk if the turn was already aborted: a partial
+    // write here would corrupt the user's file for no benefit.
+    if (ctx.signal.aborted) {
+      throw new MoxxyError({ code: 'INTERNAL', message: `Write aborted before start: ${resolved}` });
+    }
+    // Atomic whole-file write (tmp + rename) so a crash/abort mid-write can't
+    // leave a truncated file. writeFileAtomic creates parent dirs.
+    await writeFileAtomic(resolved, content);
     return `wrote ${content.length} chars to ${resolved}`;
   },
 });

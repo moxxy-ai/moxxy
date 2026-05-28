@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import * as path from 'node:path';
+import { writeFileAtomic, createMutex, type Mutex } from '@moxxy/sdk';
 import { decrypt, encrypt, generateSalt, type EncryptedBlob } from './crypto.js';
 import type { MasterKeySource } from './keysource.js';
 
@@ -68,7 +68,7 @@ export class VaultStore {
   // writers don't clobber each other through the read-modify-write +
   // whole-file rewrite. open() is also chained through this so two
   // parallel `open()` calls never both derive a fresh salt.
-  private writeChain: Promise<unknown> = Promise.resolve();
+  private readonly mutex: Mutex = createMutex();
 
   constructor(opts: VaultStoreOptions) {
     this.filePath = opts.filePath;
@@ -77,7 +77,7 @@ export class VaultStore {
 
   async open(): Promise<void> {
     if (this.file && this.masterKey) return;
-    return this.serialize(async () => {
+    return this.mutex.run(async () => {
       if (this.file && this.masterKey) return;
       await this.load();
     });
@@ -151,28 +151,16 @@ export class VaultStore {
   /**
    * Crash-atomic write: serialize to a sibling tmp file, then rename. POSIX
    * rename is atomic, so a crash mid-write leaves the previous vault intact
-   * rather than truncated.
+   * rather than truncated. mode 0o600 keeps the secret store owner-only.
    */
   private async persist(): Promise<void> {
     if (!this.file) return;
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    const tmp = `${this.filePath}.tmp.${process.pid}.${Date.now()}`;
-    await fs.writeFile(tmp, JSON.stringify(this.file, null, 2), { mode: 0o600 });
-    await fs.rename(tmp, this.filePath);
-  }
-
-  /** Run `fn` under the per-instance mutex. */
-  private serialize<T>(fn: () => Promise<T>): Promise<T> {
-    const next = this.writeChain.then(fn, fn);
-    // Keep the chain alive even if `fn` rejects, so subsequent calls aren't
-    // poisoned by a single failure.
-    this.writeChain = next.catch(() => undefined);
-    return next;
+    await writeFileAtomic(this.filePath, JSON.stringify(this.file, null, 2), { mode: 0o600 });
   }
 
   async set(name: string, value: string, tags?: ReadonlyArray<string>): Promise<void> {
     await this.open();
-    return this.serialize(async () => {
+    return this.mutex.run(async () => {
       if (!this.file || !this.masterKey) throw new Error('vault not open');
       const now = new Date().toISOString();
       const existing = this.file.entries[name];
@@ -208,7 +196,7 @@ export class VaultStore {
 
   async delete(name: string): Promise<boolean> {
     await this.open();
-    return this.serialize(async () => {
+    return this.mutex.run(async () => {
       if (!this.file) return false;
       if (!(name in this.file.entries)) return false;
       const { [name]: _removed, ...rest } = this.file.entries;

@@ -1,6 +1,6 @@
 import { isIP } from 'node:net';
 import { lookup as dnsLookup } from 'node:dns/promises';
-import { defineTool, z } from '@moxxy/sdk';
+import { MoxxyError, defineTool, z } from '@moxxy/sdk';
 import { htmlToMarkdown, htmlToPlainText } from './html-extract.js';
 
 /**
@@ -71,17 +71,27 @@ async function assertPublicUrl(raw: string): Promise<void> {
   try {
     u = new URL(raw);
   } catch {
-    throw new Error(`web_fetch: invalid URL: ${raw}`);
+    throw new MoxxyError({ code: 'INTERNAL', message: `web_fetch: invalid URL: ${raw}` });
   }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') {
-    throw new Error(`web_fetch: refusing non-HTTP(S) scheme "${u.protocol}"`);
+    throw new MoxxyError({
+      code: 'INTERNAL',
+      message: `web_fetch: refusing non-HTTP(S) scheme "${u.protocol}"`,
+    });
   }
   const host = u.hostname.replace(/^\[|\]$/g, '');
   if (host === 'localhost' || host.endsWith('.localhost')) {
-    throw new Error(`web_fetch: refusing to fetch loopback host "${host}"`);
+    throw new MoxxyError({
+      code: 'INTERNAL',
+      message: `web_fetch: refusing to fetch loopback host "${host}"`,
+    });
   }
   if (isIP(host)) {
-    if (isBlockedIp(host)) throw new Error(`web_fetch: refusing private/loopback address "${host}"`);
+    if (isBlockedIp(host))
+      throw new MoxxyError({
+        code: 'INTERNAL',
+        message: `web_fetch: refusing private/loopback address "${host}"`,
+      });
     return;
   }
   // Resolve the name and block if it maps to a private range (internal name or
@@ -95,7 +105,10 @@ async function assertPublicUrl(raw: string): Promise<void> {
   }
   for (const addr of addrs) {
     if (isBlockedIp(addr)) {
-      throw new Error(`web_fetch: host "${host}" resolves to a private/loopback address (${addr})`);
+      throw new MoxxyError({
+        code: 'INTERNAL',
+        message: `web_fetch: host "${host}" resolves to a private/loopback address (${addr})`,
+      });
     }
   }
 }
@@ -225,7 +238,10 @@ async function fetchFollowRedirects(
       body: res.body,
     };
   }
-  throw new Error(`Too many redirects (>${opts.maxRedirects}) starting at ${initialUrl}`);
+  throw new MoxxyError({
+    code: 'INTERNAL',
+    message: `Too many redirects (>${opts.maxRedirects}) starting at ${initialUrl}`,
+  });
 }
 
 interface CappedBody {

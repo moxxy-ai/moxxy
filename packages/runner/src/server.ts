@@ -152,11 +152,14 @@ export class RunnerServer {
     }
     client.role = params.role;
     client.attached = true;
-    // Replay history so the client's mirror catches up. This loop is fully
-    // synchronous, so no live event can interleave before it finishes - every
-    // later event arrives exactly once via broadcast.
-    const since = params.sinceSeq ?? 0;
-    for (const event of this.session.log.slice(since)) {
+    // Always replay the full history from seq 0, regardless of params.sinceSeq.
+    // The client's mirror is a fresh EventLog whose `ingest` accepts only the
+    // next-expected seq (contiguous from 0), so a partial replay starting at
+    // sinceSeq>0 would drop every event and permanently desync the mirror.
+    // `sinceSeq` stays on the wire for compatibility but is intentionally
+    // ignored. This loop is fully synchronous, so no live event can interleave
+    // before it finishes - every later event arrives exactly once via broadcast.
+    for (const event of this.session.log.slice(0)) {
       client.peer.notify(RunnerNotification.Event, { event });
     }
     return {

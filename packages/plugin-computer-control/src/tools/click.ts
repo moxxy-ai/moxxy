@@ -1,4 +1,4 @@
-import { defineTool, z } from '@moxxy/sdk';
+import { defineTool, MoxxyError, z } from '@moxxy/sdk';
 import { ensureDarwin, runProcess } from '../shell.js';
 
 export const clickTool = defineTool({
@@ -38,9 +38,11 @@ export const clickTool = defineTool({
       timeoutMs: 10_000,
     });
     if (proc.exitCode !== 0) {
-      throw new Error(
-        `click failed (exit ${proc.exitCode}): ${proc.stderr.trim() || '(check Accessibility permission in System Settings → Privacy & Security → Accessibility)'}`,
-      );
+      throw new MoxxyError({
+        code: 'INTERNAL',
+        message: `click failed (exit ${proc.exitCode}): ${proc.stderr.trim() || '(check Accessibility permission in System Settings → Privacy & Security → Accessibility)'}`,
+        context: { tool: 'computer_click', exitCode: proc.exitCode },
+      });
     }
     return { ok: true, x, y, count: n };
   },

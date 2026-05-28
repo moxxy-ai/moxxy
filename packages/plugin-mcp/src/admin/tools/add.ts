@@ -1,10 +1,9 @@
-import { defineTool, type ToolDef } from '@moxxy/sdk';
+import { defineTool, MoxxyError, type ToolDef } from '@moxxy/sdk';
 import type { McpServerConfig, McpToolDescriptor } from '../../types.js';
-import { mcpConfigPath, readMcpConfig, writeMcpConfig } from '../config-io.js';
+import { mcpConfigPath, mutateMcpConfig, readMcpConfig } from '../config-io.js';
 import { addServerInput, validateAddServerInput } from '../schema.js';
 import type {
   AdminToolRegistryLike,
-  McpStoredConfig,
   McpStoredServer,
 } from '../types.js';
 
@@ -35,10 +34,12 @@ export function buildAddServerTool(deps: AddServerToolDeps): ToolDef {
       const server = validateAddServerInput(input);
       const cfg = await readMcpConfig();
       if (cfg.servers.some((s) => s.name === server.name)) {
-        throw new Error(
-          `mcp_add_server: an MCP server named "${server.name}" already exists. ` +
+        throw new MoxxyError({
+          code: 'CONFIG_INVALID',
+          message:
+            `mcp_add_server: an MCP server named "${server.name}" already exists. ` +
             `Use mcp_remove_server first, or pick a different name.`,
-        );
+        });
       }
       // Hot-attach: connect + register tools BEFORE persisting. If
       // attach fails (bad URL, missing command, schema mismatch),
@@ -47,8 +48,21 @@ export function buildAddServerTool(deps: AddServerToolDeps): ToolDef {
       // Cache descriptors so next boot can register lazy stubs
       // without paying the connection cost up-front.
       const stored: McpStoredServer = { ...server, cachedTools: descriptors };
-      const next: McpStoredConfig = { servers: [...cfg.servers, stored] };
-      await writeMcpConfig(next);
+      // Persist under the shared config mutex, re-reading the latest
+      // catalog so a concurrent add/remove can't clobber the file. The
+      // duplicate check is repeated against the fresh read to catch a race
+      // where two adds for the same name both passed the initial check.
+      await mutateMcpConfig((current) => {
+        if (current.servers.some((s) => s.name === server.name)) {
+          throw new MoxxyError({
+            code: 'CONFIG_INVALID',
+            message:
+              `mcp_add_server: an MCP server named "${server.name}" already exists. ` +
+              `Use mcp_remove_server first, or pick a different name.`,
+          });
+        }
+        return { next: { servers: [...current.servers, stored] }, result: undefined };
+      });
       // Auto-create the usage skill so /skills surfaces the new
       // server alongside hand-authored skills. Best-effort — if
       // skill writing fails, the MCP attach still succeeded.

@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { defineTool, z } from '@moxxy/sdk';
+import { MoxxyError, defineTool, writeFileAtomic, z } from '@moxxy/sdk';
 import { resolveSafe } from './util.js';
 
 export const editTool = defineTool({
@@ -26,23 +26,33 @@ export const editTool = defineTool({
   },
   async handler({ file_path, old_string, new_string, replace_all }, ctx) {
     const resolved = resolveSafe(ctx.cwd, file_path);
+    // Bail before reading/writing if the turn was already aborted: a partial
+    // write here would corrupt the user's file for no benefit.
+    if (ctx.signal.aborted) {
+      throw new MoxxyError({ code: 'INTERNAL', message: `Edit aborted before start: ${resolved}` });
+    }
     const original = await fs.readFile(resolved, 'utf8');
     let updated: string;
     if (replace_all) {
       updated = original.split(old_string).join(new_string);
-      if (updated === original) throw new Error(`old_string not found in ${resolved}`);
+      if (updated === original)
+        throw new MoxxyError({ code: 'INTERNAL', message: `old_string not found in ${resolved}` });
     } else {
       const first = original.indexOf(old_string);
-      if (first === -1) throw new Error(`old_string not found in ${resolved}`);
+      if (first === -1)
+        throw new MoxxyError({ code: 'INTERNAL', message: `old_string not found in ${resolved}` });
       const next = original.indexOf(old_string, first + old_string.length);
       if (next !== -1) {
-        throw new Error(
-          `old_string is not unique in ${resolved}. Provide more context or set replace_all: true.`,
-        );
+        throw new MoxxyError({
+          code: 'INTERNAL',
+          message: `old_string is not unique in ${resolved}. Provide more context or set replace_all: true.`,
+        });
       }
       updated = original.slice(0, first) + new_string + original.slice(first + old_string.length);
     }
-    await fs.writeFile(resolved, updated, 'utf8');
+    // Atomic whole-file write (tmp + rename) so a crash/abort mid-write can't
+    // leave a truncated file.
+    await writeFileAtomic(resolved, updated);
     const occurrences = replace_all
       ? (original.split(old_string).length - 1)
       : 1;

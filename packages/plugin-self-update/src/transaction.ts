@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
+import { writeFileAtomic } from '@moxxy/sdk';
 
 /**
  * Transactional bookkeeping for self-update. Every change to a user-scope
@@ -137,12 +138,8 @@ export async function beginTransaction(opts: {
 
 export async function writeJournal(moxxyDir: string, journal: Journal): Promise<void> {
   journal.updatedAt = new Date().toISOString();
-  const dir = txnDir(moxxyDir, journal.txnId);
-  await fs.mkdir(dir, { recursive: true });
-  const file = path.join(dir, 'journal.json');
-  const tmp = `${file}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(journal, null, 2) + '\n', 'utf8');
-  await fs.rename(tmp, file);
+  const file = path.join(txnDir(moxxyDir, journal.txnId), 'journal.json');
+  await writeFileAtomic(file, JSON.stringify(journal, null, 2) + '\n');
 }
 
 export async function readJournal(moxxyDir: string, txnId: string): Promise<Journal> {

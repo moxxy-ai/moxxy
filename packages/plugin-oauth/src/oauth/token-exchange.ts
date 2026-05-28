@@ -1,3 +1,4 @@
+import { classifyHttpStatus, MoxxyError } from '@moxxy/sdk';
 import type { TokenSet } from './types.js';
 
 interface ExchangeCodeInput {
@@ -27,7 +28,14 @@ export async function exchangeCodeForToken(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`token exchange failed (HTTP ${res.status}): ${text.slice(0, 300)}`);
+    throw (
+      classifyHttpStatus(res.status, { url: input.tokenUrl, body: text }) ??
+      new MoxxyError({
+        code: 'AUTH_INVALID',
+        message: `Token exchange failed (HTTP ${res.status}): ${text.slice(0, 300)}`,
+        context: { status: res.status, url: input.tokenUrl },
+      })
+    );
   }
   const json = (await res.json()) as Record<string, unknown>;
   return parseTokenResponse(json);
@@ -61,7 +69,17 @@ export async function refreshAccessToken(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`token refresh failed (HTTP ${res.status}): ${text.slice(0, 300)}`);
+    // 401/403 here typically means the refresh_token was revoked/expired —
+    // classifyHttpStatus maps those to AUTH_INVALID/AUTH_DENIED. Surface a
+    // refresh-specific fallback for the unmapped statuses.
+    throw (
+      classifyHttpStatus(res.status, { url: input.tokenUrl, body: text }) ??
+      new MoxxyError({
+        code: 'AUTH_EXPIRED',
+        message: `Token refresh failed (HTTP ${res.status}): ${text.slice(0, 300)}`,
+        context: { status: res.status, url: input.tokenUrl },
+      })
+    );
   }
   const json = (await res.json()) as Record<string, unknown>;
   return parseTokenResponse(json);
@@ -69,7 +87,12 @@ export async function refreshAccessToken(
 
 export function parseTokenResponse(json: Record<string, unknown>): TokenSet {
   const access = typeof json.access_token === 'string' ? json.access_token : null;
-  if (!access) throw new Error(`token response missing access_token: ${JSON.stringify(json).slice(0, 200)}`);
+  if (!access) {
+    throw new MoxxyError({
+      code: 'PROVIDER_UNKNOWN_RESPONSE',
+      message: `token response missing access_token: ${JSON.stringify(json).slice(0, 200)}`,
+    });
+  }
   const refresh = typeof json.refresh_token === 'string' ? json.refresh_token : undefined;
   const expiresIn = typeof json.expires_in === 'number' ? json.expires_in : null;
   const scope = typeof json.scope === 'string' ? json.scope : undefined;

@@ -87,7 +87,7 @@ export function buildWebChannelPlugin(opts: BuildWebChannelOptions = {}): Plugin
               return { ok: false, error: `${name} is not available`, hint };
             }
             tunnels.setActive(name);
-            writeTunnelSetting(name, opts.settingsFile);
+            await writeTunnelSetting(name, opts.settingsFile);
             const url = (await opts.getControls?.()?.retunnel()) ?? null;
             return { ok: true, active: name, ...(url ? { url } : { note: 'applies when the web surface (re)starts' }) };
           },

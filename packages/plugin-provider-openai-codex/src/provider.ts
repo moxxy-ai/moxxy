@@ -4,6 +4,7 @@ import type {
   ProviderEvent,
   ProviderRequest,
 } from '@moxxy/sdk';
+import { classifyHttpStatus, estimateTextTokens } from '@moxxy/sdk';
 import { CODEX_RESPONSES_URL, refreshTokens } from './oauth.js';
 import { codexModels, DEFAULT_CODEX_MODEL } from './models.js';
 import { toResponsesBody } from './translate.js';
@@ -94,10 +95,16 @@ export class CodexProvider implements LLMProvider {
 
     if (!response.ok || !response.body) {
       const text = await response.text().catch(() => '');
+      // Derive the retryable verdict from the SDK's status classifier so it
+      // stays consistent with the rest of moxxy (429 + 5xx are retryable).
+      const classified = classifyHttpStatus(response.status);
+      const retryable =
+        classified?.code === 'PROVIDER_RATE_LIMITED' ||
+        classified?.code === 'PROVIDER_SERVER_ERROR';
       yield {
         type: 'error',
         message: `Codex /responses returned ${response.status}: ${text || response.statusText}`,
-        retryable: response.status >= 500 || response.status === 429,
+        retryable,
       };
       return;
     }
@@ -114,7 +121,7 @@ export class CodexProvider implements LLMProvider {
         .map((m) => m.content.map((c) => ('text' in c ? c.text : JSON.stringify(c))).join(''))
         .join('') +
       (req.tools ?? []).map((t) => t.name + t.description).join('');
-    return Math.ceil(blob.length / 4);
+    return estimateTextTokens(blob);
   }
 
   private postCodex(body: unknown, sessionId: string, signal: AbortSignal | undefined): Promise<Response> {

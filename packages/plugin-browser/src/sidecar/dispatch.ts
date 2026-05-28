@@ -78,6 +78,11 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
         timeoutMs?: number;
       };
       if (!url) throw badParams('url is required');
+      // Defence-in-depth: the tool schema already restricts goto to http(s),
+      // but the sidecar is a distinct process driven over JSON-RPC, so re-check
+      // here rather than trust the caller to have validated. Blocks file:// /
+      // javascript: navigation.
+      if (!/^https?:\/\//i.test(url)) throw badParams('only http(s) URLs allowed');
       try {
         await h.page.goto(url, { waitUntil: waitUntil ?? 'domcontentloaded', timeout: timeoutMs ?? 30_000 });
       } catch (err) {

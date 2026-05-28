@@ -96,8 +96,8 @@ describe('web_set_tunnel', () => {
 describe('onInit applies the persisted / default tunnel', () => {
   const fireInit = (hooks: LifecycleHooks | undefined) => (hooks?.onInit as (() => void) | undefined)?.();
 
-  it('applies a persisted setting on boot', () => {
-    writeTunnelSetting('ngrok', file);
+  it('applies a persisted setting on boot', async () => {
+    await writeTunnelSetting('ngrok', file);
     const tunnels = fakeTunnels();
     const { plugin } = build({ tunnels, settingsFile: file });
     fireInit(plugin.hooks);

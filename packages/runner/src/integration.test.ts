@@ -125,6 +125,38 @@ describe('runner end-to-end', () => {
     expect(msg?.content).toContain('first answer');
   });
 
+  it('replays full history even when a client attaches with sinceSeq>0', async () => {
+    // Regression: the runner ignores sinceSeq and always replays from seq 0.
+    // The client mirror's `ingest` only accepts contiguous seq from 0, so a
+    // partial replay starting at sinceSeq>0 would drop every event and leave
+    // the mirror permanently desynced. A late client must still see history and
+    // stay in sync with subsequent broadcast events.
+    const { socketPath } = await serve(
+      new FakeProvider({ script: [textReply('first answer'), textReply('second answer')] }),
+    );
+    const a = await attach(socketPath, 'first');
+    for await (const _event of a.runTurn('say hi')) void _event;
+
+    // The runner now holds several events (seq 0..N). Attach asking to skip
+    // ahead - the runner must ignore that and replay everything anyway.
+    const skipTo = a.log.length;
+    expect(skipTo).toBeGreaterThan(0);
+    const late = await connectRemoteSession({ socketPath, role: 'late', sinceSeq: skipTo });
+    remotes.push(late);
+
+    // Mirror is fully populated, not empty (which is what the bug produced).
+    expect(late.log.length).toBe(skipTo);
+    const replayed = late.log.ofType('assistant_message')[0] as AssistantMessageEvent | undefined;
+    expect(replayed?.content).toContain('first answer');
+
+    // And it stays in sync: a turn the late client drives extends its mirror
+    // contiguously rather than dropping events against a desynced index.
+    for await (const _event of late.runTurn('again')) void _event;
+    expect(late.log.length).toBeGreaterThan(skipTo);
+    const followups = late.log.ofType('assistant_message');
+    expect(followups[followups.length - 1]?.content).toContain('second answer');
+  });
+
   it('routes a tool-call permission prompt to the turn-owning client', async () => {
     const { socketPath } = await serve(
       new FakeProvider({ script: [toolUseReply('echo', { text: 'yo' }), textReply('done')] }),

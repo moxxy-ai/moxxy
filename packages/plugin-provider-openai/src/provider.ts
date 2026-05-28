@@ -6,7 +6,7 @@ import type {
   ProviderRequest,
   StopReason,
 } from '@moxxy/sdk';
-import { toFriendlyError } from '@moxxy/sdk';
+import { estimateTextTokens, toFriendlyError } from '@moxxy/sdk';
 import { toOpenAIMessages, toOpenAITools } from './translate.js';
 
 export interface OpenAIProviderConfig {
@@ -219,7 +219,7 @@ export class OpenAIProvider implements LLMProvider {
       (req.system ?? '') +
       req.messages.map((m) => m.content.map((c) => ('text' in c ? c.text : JSON.stringify(c))).join('')).join('') +
       (req.tools ?? []).map((t) => t.name + t.description).join('');
-    return Math.ceil(blob.length / 4);
+    return estimateTextTokens(blob);
   }
 }
 

@@ -7,8 +7,15 @@ import {
 
 export {
   buildInstallPluginTool,
+  installPluginPackage,
+  removePluginPackage,
+  userPluginsDir,
   type InstallPluginDeps,
+  type InstallPluginPackageOptions,
+  type InstallPluginPackageResult,
   type PluginSnapshot,
+  type RemovePluginPackageOptions,
+  type RemovePluginPackageResult,
 } from './install.js';
 
 export interface BuildPluginsAdminOpts {

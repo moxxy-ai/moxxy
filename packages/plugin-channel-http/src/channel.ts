@@ -1,5 +1,5 @@
 import { createServer, type Server } from 'node:http';
-import { createAllowListResolver, denyByDefaultResolver } from '@moxxy/core';
+import { createAllowListResolver, denyByDefaultResolver } from '@moxxy/sdk';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type {
   Channel,
