@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { useSidecarStatus } from './lib/runner';
-import { useRunnerSession, type Block } from './lib/runner-session';
+import { useSidecarStatus, type SidecarStatus } from './lib/runner';
+import { useRunnerSession } from './lib/runner-session';
 import { useDesks } from './lib/desks';
 import { DeskSidebar } from './desks/desk-sidebar';
+import { Composer, Transcript } from './chat';
 
 export function App(): JSX.Element {
   const status = useSidecarStatus();
@@ -34,11 +35,7 @@ export function App(): JSX.Element {
   );
 }
 
-interface SidebarHeaderProps {
-  readonly status: 'starting' | 'running' | 'crashed' | 'stopped';
-}
-
-function SidebarHeader({ status }: SidebarHeaderProps): JSX.Element {
+function SidebarHeader({ status }: { readonly status: SidecarStatus }): JSX.Element {
   const dot =
     status === 'running'
       ? 'var(--color-green)'
@@ -88,7 +85,7 @@ function EmptyState({
   status,
   ready,
 }: {
-  readonly status: 'starting' | 'running' | 'crashed' | 'stopped';
+  readonly status: SidecarStatus;
   readonly ready: boolean;
 }): JSX.Element {
   return (
@@ -111,188 +108,6 @@ function EmptyState({
   );
 }
 
-function Transcript({
-  blocks,
-}: {
-  readonly blocks: ReadonlyArray<Block>;
-}): JSX.Element {
-  return (
-    <div
-      data-testid="transcript"
-      style={{
-        position: 'absolute',
-        inset: 0,
-        bottom: 88,
-        overflowY: 'auto',
-        padding: '1.5rem 2rem',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '0.75rem',
-      }}
-    >
-      {blocks.map((b) => (
-        <BlockView key={b.id} block={b} />
-      ))}
-    </div>
-  );
-}
-
-function BlockView({ block }: { readonly block: Block }): JSX.Element {
-  if (block.kind === 'user') {
-    return (
-      <div
-        data-testid="block-user"
-        style={{
-          alignSelf: 'flex-end',
-          maxWidth: '70%',
-          padding: '0.5rem 0.75rem',
-          background: 'var(--color-bg-card)',
-          border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-block)',
-          whiteSpace: 'pre-wrap',
-        }}
-      >
-        {block.text}
-      </div>
-    );
-  }
-  if (block.kind === 'assistant') {
-    return (
-      <div
-        data-testid="block-assistant"
-        className="corner-bracket"
-        style={{
-          maxWidth: '85%',
-          padding: '0.75rem 1rem',
-          background: 'var(--color-bg-card)',
-          border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-block)',
-          whiteSpace: 'pre-wrap',
-        }}
-      >
-        {block.text}
-        {block.streaming && (
-          <span
-            aria-hidden
-            style={{ marginLeft: 4, color: 'var(--color-primary)' }}
-          >
-            ▍
-          </span>
-        )}
-      </div>
-    );
-  }
-  // tool
-  return (
-    <div
-      data-testid="block-tool"
-      className="mono"
-      style={{
-        alignSelf: 'flex-start',
-        fontSize: '0.75rem',
-        padding: '0.25rem 0.5rem',
-        color: 'var(--color-text-dim)',
-        borderLeft: '2px solid var(--color-primary)',
-      }}
-    >
-      [{block.status}] {block.name}
-    </div>
-  );
-}
-
-interface ComposerProps {
-  readonly ready: boolean;
-  readonly activeTurnId: string | null;
-  readonly onSend: (prompt: string) => void;
-  readonly onAbort: () => void;
-}
-
-function Composer({
-  ready,
-  activeTurnId,
-  onSend,
-  onAbort,
-}: ComposerProps): JSX.Element {
-  const [draft, setDraft] = useState('');
-  const disabled = !ready || activeTurnId !== null;
-
-  return (
-    <form
-      data-testid="composer"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (!draft.trim() || disabled) return;
-        onSend(draft);
-        setDraft('');
-      }}
-      style={{
-        position: 'absolute',
-        left: 0,
-        right: 0,
-        bottom: 0,
-        padding: '1rem 2rem',
-        background: 'var(--color-bg)',
-        borderTop: '1px solid var(--color-border)',
-        display: 'flex',
-        gap: '0.5rem',
-        alignItems: 'center',
-      }}
-    >
-      <input
-        data-testid="composer-input"
-        aria-label="prompt"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        placeholder={
-          ready ? 'Ask anything…' : 'Waiting for runner…'
-        }
-        disabled={disabled}
-        style={{
-          flex: 1,
-          padding: '0.5rem 0.75rem',
-          fontSize: '0.95rem',
-          color: 'var(--color-text)',
-          background: 'var(--color-bg-card)',
-          border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-block)',
-        }}
-      />
-      {activeTurnId === null ? (
-        <button
-          type="submit"
-          data-testid="composer-send"
-          disabled={disabled || !draft.trim()}
-          style={{
-            padding: '0.5rem 0.9rem',
-            background: 'var(--color-primary)',
-            color: 'var(--color-bg)',
-            borderRadius: 'var(--radius-block)',
-            fontWeight: 600,
-            opacity: disabled || !draft.trim() ? 0.4 : 1,
-          }}
-        >
-          Send
-        </button>
-      ) : (
-        <button
-          type="button"
-          data-testid="composer-abort"
-          onClick={() => onAbort()}
-          style={{
-            padding: '0.5rem 0.9rem',
-            background: 'var(--color-pink)',
-            color: 'var(--color-bg)',
-            borderRadius: 'var(--radius-block)',
-            fontWeight: 600,
-          }}
-        >
-          Abort
-        </button>
-      )}
-    </form>
-  );
-}
-
 function ErrorBanner({ message }: { readonly message: string }): JSX.Element {
   return (
     <div
@@ -300,7 +115,7 @@ function ErrorBanner({ message }: { readonly message: string }): JSX.Element {
       style={{
         position: 'absolute',
         left: '50%',
-        bottom: 96,
+        bottom: 112,
         transform: 'translateX(-50%)',
         padding: '0.5rem 0.9rem',
         background: 'var(--color-pink)',

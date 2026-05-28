@@ -20,6 +20,17 @@ export type Block =
       readonly kind: 'tool';
       readonly name: string;
       readonly status: 'running' | 'done' | 'error';
+      readonly summary?: string;
+    }
+  | {
+      readonly id: string;
+      readonly kind: 'system';
+      readonly text: string;
+    }
+  | {
+      readonly id: string;
+      readonly kind: 'error';
+      readonly text: string;
     };
 
 export interface RunnerSession {
@@ -41,7 +52,12 @@ export interface RunnerSession {
 interface RunnerEvent {
   kind?: string;
   text?: string;
-  toolCall?: { name?: string; status?: 'running' | 'done' | 'error' };
+  message?: string;
+  toolCall?: {
+    name?: string;
+    status?: 'running' | 'done' | 'error';
+    summary?: string;
+  };
 }
 
 type Action =
@@ -114,20 +130,60 @@ function reducer(state: State, action: Action): State {
           nextId: state.nextId + 1,
         };
       }
-      // Tool activity strip — runs as a side block, doesn't break the
-      // streaming assistant block. Unknown statuses default to 'running'.
+      // Tool activity strip. If a tool with this name is already
+      // 'running', updating it advances the status — otherwise we
+      // append. Keeps the transcript from accumulating duplicate rows
+      // for the running → done lifecycle.
       if (event.kind === 'tool' && event.toolCall?.name) {
+        const name = event.toolCall.name;
+        const status = event.toolCall.status ?? 'running';
+        const summary = event.toolCall.summary;
+        const existingIdx = [...state.blocks].reverse().findIndex(
+          (b) => b.kind === 'tool' && b.name === name && b.status === 'running',
+        );
+        if (existingIdx >= 0 && status !== 'running') {
+          const absoluteIdx = state.blocks.length - 1 - existingIdx;
+          const updated = state.blocks.slice();
+          const existing = updated[absoluteIdx]!;
+          if (existing.kind === 'tool') {
+            updated[absoluteIdx] = {
+              ...existing,
+              status,
+              summary: summary ?? existing.summary,
+            };
+          }
+          return { ...state, blocks: updated };
+        }
         const id = `b${state.nextId}`;
         return {
           ...state,
           blocks: [
             ...state.blocks,
-            {
-              id,
-              kind: 'tool',
-              name: event.toolCall.name,
-              status: event.toolCall.status ?? 'running',
-            },
+            { id, kind: 'tool', name, status, summary },
+          ],
+          nextId: state.nextId + 1,
+        };
+      }
+      // System message (e.g. mode switch, provider change announcement).
+      if (event.kind === 'system' && typeof event.text === 'string') {
+        const id = `b${state.nextId}`;
+        return {
+          ...state,
+          blocks: [
+            ...state.blocks,
+            { id, kind: 'system', text: event.text },
+          ],
+          nextId: state.nextId + 1,
+        };
+      }
+      // Error event (e.g. provider failure inside the turn).
+      if (event.kind === 'error' && typeof event.message === 'string') {
+        const id = `b${state.nextId}`;
+        return {
+          ...state,
+          blocks: [
+            ...state.blocks,
+            { id, kind: 'error', text: event.message },
           ],
           nextId: state.nextId + 1,
         };

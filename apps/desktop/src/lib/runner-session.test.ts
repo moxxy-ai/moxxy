@@ -93,6 +93,101 @@ describe('useRunnerSession', () => {
     );
   });
 
+  it('appends a system block for system events', async () => {
+    mockTauri.respond('runner_ready', () => true);
+    mockTauri.respond('run_turn', () => 'T-1');
+    const { result } = renderHook(() => useRunnerSession());
+    await act(async () => {
+      await result.current.send('hi');
+    });
+    act(() => {
+      mockTauri.emit('runner.event', {
+        kind: 'system',
+        text: 'switched to deep-research',
+      });
+    });
+    expect(result.current.blocks).toContainEqual(
+      expect.objectContaining({
+        kind: 'system',
+        text: 'switched to deep-research',
+      }),
+    );
+  });
+
+  it('appends an error block for error events', async () => {
+    mockTauri.respond('runner_ready', () => true);
+    mockTauri.respond('run_turn', () => 'T-1');
+    const { result } = renderHook(() => useRunnerSession());
+    await act(async () => {
+      await result.current.send('hi');
+    });
+    act(() => {
+      mockTauri.emit('runner.event', {
+        kind: 'error',
+        message: 'rate-limited',
+      });
+    });
+    expect(result.current.blocks).toContainEqual(
+      expect.objectContaining({ kind: 'error', text: 'rate-limited' }),
+    );
+  });
+
+  it('updates an existing running tool to done in place', async () => {
+    mockTauri.respond('runner_ready', () => true);
+    mockTauri.respond('run_turn', () => 'T-1');
+    const { result } = renderHook(() => useRunnerSession());
+    await act(async () => {
+      await result.current.send('hi');
+    });
+    act(() => {
+      mockTauri.emit('runner.event', {
+        kind: 'tool',
+        toolCall: { name: 'grep', status: 'running' },
+      });
+      mockTauri.emit('runner.event', {
+        kind: 'tool',
+        toolCall: { name: 'grep', status: 'done', summary: '12 matches' },
+      });
+    });
+    const tools = result.current.blocks.filter((b) => b.kind === 'tool');
+    expect(tools.length).toBe(1);
+    expect(tools[0]).toMatchObject({
+      kind: 'tool',
+      name: 'grep',
+      status: 'done',
+      summary: '12 matches',
+    });
+  });
+
+  it('keeps separate running tool calls with the same name distinct', async () => {
+    mockTauri.respond('runner_ready', () => true);
+    mockTauri.respond('run_turn', () => 'T-1');
+    const { result } = renderHook(() => useRunnerSession());
+    await act(async () => {
+      await result.current.send('hi');
+    });
+    act(() => {
+      mockTauri.emit('runner.event', {
+        kind: 'tool',
+        toolCall: { name: 'grep', status: 'running' },
+      });
+      mockTauri.emit('runner.event', {
+        kind: 'tool',
+        toolCall: { name: 'grep', status: 'done' },
+      });
+      mockTauri.emit('runner.event', {
+        kind: 'tool',
+        toolCall: { name: 'grep', status: 'running' },
+      });
+    });
+    const tools = result.current.blocks.filter((b) => b.kind === 'tool');
+    expect(tools.length).toBe(2);
+    expect(tools.map((t) => t.kind === 'tool' && t.status)).toEqual([
+      'done',
+      'running',
+    ]);
+  });
+
   it('ignores unknown event kinds without crashing', async () => {
     mockTauri.respond('runner_ready', () => true);
     mockTauri.respond('run_turn', () => 'T-1');
