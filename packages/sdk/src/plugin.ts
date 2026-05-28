@@ -3,6 +3,8 @@ import type { CacheStrategyDef } from './cache-strategy.js';
 import type { ChannelDef } from './channel.js';
 import type { CommandDef } from './command.js';
 import type { CompactorDef } from './compactor.js';
+import type { EmbedderDef } from './embedding.js';
+import type { Isolator } from './isolation.js';
 import type { LifecycleHooks } from './hooks.js';
 import type { ModeDef } from './mode.js';
 import type { ProviderDef } from './provider.js';
@@ -12,7 +14,7 @@ import type { TranscriberDef } from './transcriber.js';
 import type { ViewRendererDef } from './view-renderer.js';
 import type { TunnelProviderDef } from './tunnel.js';
 
-export type PluginKind = 'tools' | 'provider' | 'mode' | 'compactor' | 'cache-strategy' | 'view-renderer' | 'tunnel-provider' | 'mcp' | 'cli' | 'channel' | 'hooks' | 'agent' | 'command' | 'transcriber';
+export type PluginKind = 'tools' | 'provider' | 'mode' | 'compactor' | 'cache-strategy' | 'view-renderer' | 'tunnel-provider' | 'mcp' | 'cli' | 'channel' | 'hooks' | 'agent' | 'command' | 'transcriber' | 'embedder' | 'isolator';
 
 export interface PluginSpec {
   readonly name: string;
@@ -47,6 +49,22 @@ export interface PluginSpec {
    * the active provider does not advertise `supportsAudio`.
    */
   readonly transcribers?: ReadonlyArray<TranscriberDef>;
+  /**
+   * Text-embedding backends contributed by the plugin. Selected by name via
+   * `session.embedders.setActive(name, config)`; @moxxy/plugin-memory uses the
+   * active embedder for semantic recall. `createClient` is lazy so a discovered
+   * embedder plugin never pulls its (often heavy) runtime in until selected.
+   */
+  readonly embedders?: ReadonlyArray<EmbedderDef>;
+  /**
+   * Capability isolators contributed by the plugin (worker_threads, subprocess,
+   * wasm, …). Registered into the active security layer's `IsolatorRegistry`
+   * and selected by name via `security.isolator` config. Registration alone is
+   * inert — a contributed isolator is NEVER auto-activated as the sandbox
+   * boundary; the user must opt in by name (so a rogue plugin can't silently
+   * weaken isolation).
+   */
+  readonly isolators?: ReadonlyArray<Isolator>;
   /**
    * Typed subagent kinds the plugin contributes. Each becomes
    * dispatchable as `dispatch_agent({ agentType: <name>, ... })`.

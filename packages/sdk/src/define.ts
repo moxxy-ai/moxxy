@@ -3,6 +3,7 @@ import type { CacheStrategyDef } from './cache-strategy.js';
 import type { ChannelDef } from './channel.js';
 import type { CommandDef } from './command.js';
 import type { CompactorDef } from './compactor.js';
+import type { EmbedderDef } from './embedding.js';
 import type { ModeDef } from './mode.js';
 import type { PermissionRule } from './permission.js';
 import type { Plugin, PluginSpec } from './plugin.js';
@@ -101,6 +102,10 @@ export function defineSkill(spec: { frontmatter: SkillFrontmatter; body: string 
 }
 
 export function defineTranscriber(spec: TranscriberDef): TranscriberDef {
+  return Object.freeze(spec);
+}
+
+export function defineEmbedder(spec: EmbedderDef): EmbedderDef {
   return Object.freeze(spec);
 }
 

@@ -66,13 +66,27 @@ shows) report their real `package.json` version (+regression test in `discovery.
 register time) still carry their literal. Harmless — they're the framework's own packages; their
 "version" is the framework version. Could stamp from a known framework version if it ever matters.
 
-### 5. `moxxy.plugin` manifest `kind` semantically wrong for non-plugin packages — ✅ DONE
-**Cross-cut 2.10.** Confirmed the two embedders (dynamic-imported in `cli/setup/embedder.ts`) and the
-three isolators (`import { workerIsolator } from '@moxxy/isolator-worker'` etc. in
-`cli/setup/builtins.ts`) are wired by direct import, never discovery-loaded, and export no
-`definePlugin` — so a discovery attempt would only throw. Removed the vestigial `moxxy.plugin`
-manifest from all five package.json files, aligning metadata with reality. (Loader/discovery don't
-read `kind` anyway.)
+### 5. Make embedders & isolators first-class swappable blocks — ⚠️ EMBEDDERS DONE, ISOLATORS NEXT
+**Cross-cut 2.10 + user decision (make them exchangeable, not hardcoded).** The earlier "removed the
+vestigial manifest" change was superseded — instead of cementing them as hardcoded, both are being
+promoted to first-class contributable, registry-backed, swappable blocks.
+
+**Embedders — ✅ DONE:** added `EmbedderDef` + `defineEmbedder` + `PluginSpec.embedders` + the
+`'embedder'` plugin kind to `@moxxy/sdk`; added a single-active `EmbedderRegistry` to `@moxxy/core`
+with host + session wiring (+registry test). `MemoryStore` now resolves its embedder *lazily* (accepts
+a `() => EmbeddingProvider | null` resolver) so the registry-selected embedder — not known until
+plugins load — drives recall without forcing the store to be built after the session. The two
+first-party embedders (`openai`, `transformers`) and the built-in `tfidf` (from plugin-memory) now
+contribute `EmbedderDef`s + ship a discovery `definePlugin` entry + `kind: 'embedder'` manifest; the
+CLI's `selectEmbedder` activates the configured one from the registry by name (lazy-registering the
+bundled first-party ones on demand so onnx still loads only when selected). A user can now install a
+custom `kind: 'embedder'` plugin and pick it via `embeddings.provider: '<name>'`.
+
+**Isolators — NEXT:** mirror the above. `Isolator` already lives in `@moxxy/sdk`; `PluginSpec.isolators`
+is already added. Remaining: bridge `PluginSpec.isolators` into `plugin-security`'s `IsolatorRegistry`
+(via the host/session) and restore the isolator manifests with `kind: 'isolator'`, keeping the
+opt-in-by-`security.isolator` semantics so a discovered isolator is NEVER auto-activated as the
+sandbox boundary.
 
 ### 6. Add a tool/platform `MoxxyErrorCode`
 Flagged by the tools-builtin and computer-control fix agents (see Blocked §B2). `MoxxyErrorCode` is a

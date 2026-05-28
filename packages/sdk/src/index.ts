@@ -266,7 +266,7 @@ export type {
   ChannelSubcommandContext,
   ChannelCommandArgs,
 } from './channel.js';
-export type { EmbeddingProvider } from './embedding.js';
+export type { EmbeddingProvider, EmbedderDef } from './embedding.js';
 export { CachedEmbeddingProvider } from './embedding-cache.js';
 
 export type {
@@ -302,6 +302,7 @@ export {
   definePermission,
   defineSkill,
   defineTranscriber,
+  defineEmbedder,
   defineCommand,
   defineAgent,
 } from './define.js';

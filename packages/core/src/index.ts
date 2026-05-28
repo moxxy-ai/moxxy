@@ -55,6 +55,7 @@ export { ChannelRegistryImpl } from './registries/channels.js';
 export { AgentRegistry } from './registries/agents.js';
 export { CommandRegistry } from './registries/commands.js';
 export { TranscriberRegistry } from './registries/transcribers.js';
+export { EmbedderRegistry } from './registries/embedders.js';
 export { RequirementRegistry, type RequirementRegistryOptions } from './requirements.js';
 export {
   SessionPersistence,

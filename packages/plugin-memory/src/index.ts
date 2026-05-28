@@ -1,5 +1,6 @@
-import { defineTool, definePlugin, z, type Plugin } from '@moxxy/sdk';
+import { defineTool, defineEmbedder, definePlugin, z, type Plugin } from '@moxxy/sdk';
 import { MemoryStore, memoryTypeSchema, type MemoryStoreOptions } from './store.js';
+import { TfIdfEmbedder } from './tfidf.js';
 
 export {
   MemoryStore,
@@ -33,6 +34,15 @@ export function buildMemoryPlugin(opts: BuildMemoryPluginOptions = {}): { plugin
   const plugin = definePlugin({
     name: '@moxxy/plugin-memory',
     version: '0.0.0',
+    // The zero-dep TF-IDF embedder, contributed as a selectable embedder so it
+    // sits in the same registry as openai/transformers/custom ones.
+    embedders: [
+      defineEmbedder({
+        name: 'tfidf',
+        displayName: 'TF-IDF (built-in, zero-dep)',
+        createClient: () => new TfIdfEmbedder(),
+      }),
+    ],
     tools: [
       defineTool({
         name: 'memory_save',

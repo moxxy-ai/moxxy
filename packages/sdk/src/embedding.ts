@@ -20,3 +20,21 @@ export interface EmbeddingProvider {
   /** Embed a batch of strings. Returns vectors in input order. */
   embed(texts: ReadonlyArray<string>): Promise<ReadonlyArray<ReadonlyArray<number>>>;
 }
+
+/**
+ * Plugin-side definition of an embedder. Mirrors `TranscriberDef` / `ProviderDef`:
+ * a `createClient(config)` factory the `EmbedderRegistry` calls when the user
+ * activates this embedder by name. Plugins contribute these via
+ * `PluginSpec.embedders`, so a user can install a new embedder package and
+ * select it by config without forking the host.
+ *
+ * `createClient` MUST be cheap — defer heavy model loading (onnx, transformers,
+ * network clients) into the returned provider's `embed()` so that merely
+ * registering a discovered embedder plugin never pulls its runtime in.
+ */
+export interface EmbedderDef {
+  readonly name: string;
+  /** Optional human-readable label for UI surfaces. */
+  readonly displayName?: string;
+  createClient(config: Record<string, unknown>): EmbeddingProvider;
+}

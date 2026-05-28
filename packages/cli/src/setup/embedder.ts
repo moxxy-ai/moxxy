@@ -1,60 +1,83 @@
-import type { EmbeddingProvider } from '@moxxy/sdk';
+import type { Session } from '@moxxy/core';
+import type { EmbedderDef } from '@moxxy/sdk';
 import type { EmbeddingsConfig } from '@moxxy/config';
-import { TfIdfEmbedder } from '@moxxy/plugin-memory';
 
 type WarnLogger = { warn(msg: string, meta?: Record<string, unknown>): void };
 
 /**
- * Build the configured EmbeddingProvider. `undefined` and `'tfidf'` both yield
- * the built-in TfIdfEmbedder (zero deps). `'none'` returns `null` so the
- * MemoryStore falls back to keyword recall. `'openai'` and `'transformers'`
- * dynamically import their plugins so users without one or the other
- * installed don't pay the load cost.
+ * Activate the configured embedder on `session.embedders`, which
+ * @moxxy/plugin-memory reads (lazily) for semantic recall.
+ *
+ * The registry is populated by plugin discovery — any installed `kind:
+ * 'embedder'` plugin (incl. user-authored ones) is already registered by the
+ * time this runs. The two first-party embedders (`openai`, `transformers`) are
+ * bundled rather than discovered, so we lazy-register their def on demand here
+ * — keeping the property that their heavy runtimes load only when selected.
+ *
+ * `'none'` leaves no active embedder (memory falls back to keyword recall);
+ * `undefined`/`'tfidf'` selects the zero-dep TF-IDF embedder that
+ * @moxxy/plugin-memory contributes. Unknown/failed selections warn and fall
+ * back to TF-IDF.
  */
-export async function buildEmbedder(
+export async function selectEmbedder(
+  session: Session,
   cfg: EmbeddingsConfig | undefined,
   logger: WarnLogger,
-): Promise<EmbeddingProvider | null | undefined> {
-  if (!cfg || cfg.provider === 'tfidf') return new TfIdfEmbedder();
-  if (cfg.provider === 'none') return null;
-  if (cfg.provider === 'openai') return loadOpenAI(cfg, logger);
-  if (cfg.provider === 'transformers') return loadTransformers(cfg, logger);
-  return new TfIdfEmbedder();
-}
+): Promise<void> {
+  if (cfg?.provider === 'none') return;
+  const name = cfg?.provider ?? 'tfidf';
 
-async function loadOpenAI(cfg: EmbeddingsConfig, logger: WarnLogger): Promise<EmbeddingProvider> {
+  if (!session.embedders.has(name)) {
+    await registerBuiltinEmbedder(session, name, logger);
+  }
+  if (!session.embedders.has(name)) {
+    logger.warn(`embedder '${name}' is not available; falling back to TF-IDF`, {});
+    activateTfIdf(session);
+    return;
+  }
   try {
-    const mod = (await import('@moxxy/plugin-embeddings-openai')) as {
-      createOpenAIEmbedder: (opts: Record<string, unknown>) => EmbeddingProvider;
-    };
-    return mod.createOpenAIEmbedder({
-      ...(cfg.model ? { model: cfg.model } : {}),
-      ...(cfg.dimensions !== undefined ? { dimensions: cfg.dimensions } : {}),
-      ...(cfg.apiKey ? { apiKey: cfg.apiKey } : {}),
-      ...(cfg.batchSize !== undefined ? { batchSize: cfg.batchSize } : {}),
-    });
+    session.embedders.setActive(name, embedderConfig(cfg));
   } catch (err) {
-    logger.warn('failed to load @moxxy/plugin-embeddings-openai; falling back to TF-IDF', {
+    logger.warn(`failed to activate embedder '${name}'; falling back to TF-IDF`, {
       err: err instanceof Error ? err.message : String(err),
     });
-    return new TfIdfEmbedder();
+    activateTfIdf(session);
   }
 }
 
-async function loadTransformers(cfg: EmbeddingsConfig, logger: WarnLogger): Promise<EmbeddingProvider> {
+function activateTfIdf(session: Session): void {
+  if (session.embedders.has('tfidf')) session.embedders.setActive('tfidf');
+}
+
+/** Map the embeddings config onto the flat config object an embedder factory reads. */
+function embedderConfig(cfg: EmbeddingsConfig | undefined): Record<string, unknown> {
+  return {
+    ...(cfg?.model ? { model: cfg.model } : {}),
+    ...(cfg?.dimensions !== undefined ? { dimensions: cfg.dimensions } : {}),
+    ...(cfg?.apiKey ? { apiKey: cfg.apiKey } : {}),
+    ...(cfg?.batchSize !== undefined ? { batchSize: cfg.batchSize } : {}),
+    ...(cfg?.cacheDir ? { cacheDir: cfg.cacheDir } : {}),
+  };
+}
+
+/**
+ * Lazy-register a bundled first-party embedder's def. No-op for names that
+ * aren't first-party (those must arrive via a discovered plugin).
+ */
+async function registerBuiltinEmbedder(session: Session, name: string, logger: WarnLogger): Promise<void> {
+  const sources: Record<string, { pkg: string; exportName: string }> = {
+    openai: { pkg: '@moxxy/plugin-embeddings-openai', exportName: 'openaiEmbedderDef' },
+    transformers: { pkg: '@moxxy/plugin-embeddings-transformers', exportName: 'transformersEmbedderDef' },
+  };
+  const src = sources[name];
+  if (!src) return;
   try {
-    const mod = (await import('@moxxy/plugin-embeddings-transformers')) as {
-      createTransformersEmbedder: (opts: Record<string, unknown>) => EmbeddingProvider;
-    };
-    return mod.createTransformersEmbedder({
-      ...(cfg.model ? { model: cfg.model } : {}),
-      ...(cfg.dimensions !== undefined ? { dimensions: cfg.dimensions } : {}),
-      ...(cfg.cacheDir ? { cacheDir: cfg.cacheDir } : {}),
-    });
+    const mod = (await import(src.pkg)) as Record<string, unknown>;
+    const def = mod[src.exportName] as EmbedderDef | undefined;
+    if (def && !session.embedders.has(def.name)) session.embedders.register(def);
   } catch (err) {
-    logger.warn('failed to load @moxxy/plugin-embeddings-transformers; falling back to TF-IDF', {
+    logger.warn(`failed to load ${src.pkg}; falling back to TF-IDF`, {
       err: err instanceof Error ? err.message : String(err),
     });
-    return new TfIdfEmbedder();
   }
 }

@@ -30,8 +30,13 @@ export interface MemoryStoreOptions {
    * Optional embedding provider. When supplied, `recall()` uses cosine
    * similarity over dense vectors. When omitted, the built-in TF-IDF
    * embedder is used. Pass `embedder: null` to force keyword-only recall.
+   *
+   * May also be a lazy resolver `() => EmbeddingProvider | null`, resolved once
+   * on first recall — so the host can wire the registry-selected embedder
+   * (`() => session.embedders.tryGetActive()`) that isn't known until plugins
+   * have loaded, without forcing the store to be built after the session.
    */
-  readonly embedder?: EmbeddingProvider | null;
+  readonly embedder?: EmbeddingProvider | null | (() => EmbeddingProvider | null);
   /**
    * Cache computed embeddings on disk (`<dir>/.embeddings.json`) so unchanged
    * memories aren't re-embedded on every recall. Defaults to true for all
@@ -47,8 +52,13 @@ export function defaultMemoryDir(): string {
 
 export class MemoryStore {
   readonly dir: string;
-  private readonly embedder: EmbeddingProvider | null;
-  private readonly index: EmbeddingIndex | null;
+  private readonly resolveEmbedder: () => EmbeddingProvider | null;
+  private readonly persistOpt: boolean | undefined;
+  // Embedder + index are resolved LAZILY on first recall (memoized), so a host
+  // that selects the embedder from a registry after plugins load can pass a
+  // resolver here without the store needing to be built after the session.
+  private embedderCache: EmbeddingProvider | null | undefined;
+  private indexCache: EmbeddingIndex | null | undefined;
   // Per-instance mutex. save/update/forget/recall each read-modify-write the
   // entry file, MEMORY.md, and the embedding index; without serialization two
   // overlapping calls clobber MEMORY.md and race the embedding cache.
@@ -56,26 +66,40 @@ export class MemoryStore {
 
   constructor(opts: MemoryStoreOptions = {}) {
     this.dir = opts.dir ?? defaultMemoryDir();
-    if (opts.embedder === null) {
-      this.embedder = null;
-    } else if (opts.embedder !== undefined) {
-      this.embedder = opts.embedder;
+    this.persistOpt = opts.persistEmbeddings;
+    const e = opts.embedder;
+    if (typeof e === 'function') {
+      this.resolveEmbedder = e;
+    } else if (e === null) {
+      this.resolveEmbedder = () => null;
+    } else if (e !== undefined) {
+      this.resolveEmbedder = () => e;
     } else {
-      this.embedder = new TfIdfEmbedder();
+      const tfidf = new TfIdfEmbedder();
+      this.resolveEmbedder = () => tfidf;
     }
-    // TF-IDF's vocab depends on the whole corpus, so per-entry caching is
-    // useless — recompute every recall. For neural embedders, caching is
-    // a big win since each entry's vector is corpus-independent.
-    const isTfIdf = this.embedder instanceof TfIdfEmbedder;
-    const persist = opts.persistEmbeddings ?? (this.embedder !== null && !isTfIdf);
-    this.index =
-      persist && this.embedder
-        ? new EmbeddingIndex(this.dir, this.embedder.name, this.embedder.dim)
-        : null;
+  }
+
+  private getEmbedder(): EmbeddingProvider | null {
+    if (this.embedderCache === undefined) this.embedderCache = this.resolveEmbedder();
+    return this.embedderCache;
+  }
+
+  private getIndex(): EmbeddingIndex | null {
+    if (this.indexCache === undefined) {
+      const emb = this.getEmbedder();
+      // TF-IDF's vocab depends on the whole corpus, so per-entry caching is
+      // useless — recompute every recall. For neural embedders, caching is
+      // a big win since each entry's vector is corpus-independent.
+      const isTfIdf = emb instanceof TfIdfEmbedder;
+      const persist = this.persistOpt ?? (emb !== null && !isTfIdf);
+      this.indexCache = persist && emb ? new EmbeddingIndex(this.dir, emb.name, emb.dim) : null;
+    }
+    return this.indexCache;
   }
 
   get embedderName(): string {
-    return this.embedder?.name ?? 'keyword';
+    return this.getEmbedder()?.name ?? 'keyword';
   }
 
   list(filterType?: MemoryType): Promise<ReadonlyArray<MemoryEntry>> {
@@ -164,9 +188,10 @@ export class MemoryStore {
     const all = await this.list(opts.type);
     if (all.length === 0) return [];
 
-    const useVector = mode === 'vector' || (mode === 'auto' && this.embedder !== null);
-    if (useVector && this.embedder) {
-      return recallVector(all, query, limit, this.embedder, this.index, this.mutex);
+    const embedder = this.getEmbedder();
+    const useVector = mode === 'vector' || (mode === 'auto' && embedder !== null);
+    if (useVector && embedder) {
+      return recallVector(all, query, limit, embedder, this.getIndex(), this.mutex);
     }
     return rankByKeywords(all, query, limit);
   }
