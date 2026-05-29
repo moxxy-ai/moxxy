@@ -22,10 +22,14 @@ import { Icon } from '@/lib/Icon';
 type Mode = 'dot' | 'menu' | 'text' | 'voice';
 
 const MODE_DIMENSIONS: Record<Mode, { width: number; height: number }> = {
-  dot: { width: 64, height: 64 },
-  menu: { width: 240, height: 72 },
-  text: { width: 380, height: 200 },
-  voice: { width: 380, height: 220 },
+  // Small floating tile, just big enough for the brand mark. The
+  // OS card chrome that wraps it draws the rounded-rect; we keep
+  // the visible content centred and tiny.
+  dot: { width: 44, height: 44 },
+  // Toolbar — also tightened so it doesn't read as a status bar.
+  menu: { width: 200, height: 52 },
+  text: { width: 340, height: 180 },
+  voice: { width: 340, height: 200 },
 };
 
 export function FocusWidget(): JSX.Element {

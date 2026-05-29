@@ -79,11 +79,11 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
   }
 
   const work = screen.getPrimaryDisplay().workArea;
-  // Start small — the dot. 64×64 fully-transparent window with a
-  // 56px circular logo centred inside. The renderer's FocusWidget
-  // calls focus.resize when the user clicks to expand to the menu.
-  const width = 64;
-  const height = 64;
+  // Start small — a 44×44 floating tile holding the logo. The
+  // renderer's FocusWidget calls focus.resize when the user clicks
+  // to expand to the menu (200×52) or the full panel (340×…).
+  const width = 44;
+  const height = 44;
   const margin = 24;
   const win = new BrowserWindow({
     title: 'MoxxyAI · Focus',
@@ -91,8 +91,8 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
     height,
     x: work.x + work.width - width - margin,
     y: work.y + work.height - height - margin,
-    minWidth: 56,
-    minHeight: 56,
+    minWidth: 40,
+    minHeight: 40,
     maxWidth: 520,
     maxHeight: 320,
     frame: false,
