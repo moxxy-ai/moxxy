@@ -110,8 +110,26 @@ function Active({
   const chat = useChat(workspaceId);
   const [phase, setPhase] = useState<RecPhase>('idle');
   const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
+  // Hide the mic button entirely when the runner reports no active
+  // transcriber. Null = unknown (loading); true / false = answer.
+  const [hasTranscriber, setHasTranscriber] = useState<boolean | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api()
+      .invoke('session.hasTranscriber')
+      .then((has) => {
+        if (!cancelled) setHasTranscriber(Boolean(has));
+      })
+      .catch(() => {
+        if (!cancelled) setHasTranscriber(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const stop = (): void => {
     const rec = recorderRef.current;
@@ -193,23 +211,6 @@ function Active({
     else void start();
   };
 
-  // Space toggles mic when the widget has focus. We listen at the
-  // window level (the focus widget's renderer) so the shortcut works
-  // even when the user hasn't clicked a button yet.
-  useEffect(() => {
-    const onKey = (ev: KeyboardEvent): void => {
-      if (ev.code !== 'Space') return;
-      // Don't fight an input that captures the spacebar.
-      const target = ev.target as HTMLElement | null;
-      if (target && /INPUT|TEXTAREA/.test(target.tagName)) return;
-      ev.preventDefault();
-      toggleMic();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, workspaceId]);
-
   // Clean up the mic on unmount.
   useEffect(() => {
     return () => {
@@ -234,13 +235,15 @@ function Active({
       </button>
       <div style={style.activeDivider} aria-hidden />
       <div style={style.activeActions}>
-        <ActionButton
-          onClick={toggleMic}
-          aria-label={recording ? 'Stop recording (Space)' : 'Record voice (Space)'}
-          variant={recording ? 'voiceOn' : undefined}
-        >
-          {phase === 'transcribing' ? <Dot delay={0} /> : <MicIcon />}
-        </ActionButton>
+        {hasTranscriber && (
+          <ActionButton
+            onClick={toggleMic}
+            aria-label={recording ? 'Stop recording' : 'Record voice'}
+            variant={recording ? 'voiceOn' : undefined}
+          >
+            {phase === 'transcribing' ? <Dot delay={0} /> : <MicIcon />}
+          </ActionButton>
+        )}
         <ActionButton onClick={onText} aria-label="Text">
           <PencilIcon />
         </ActionButton>
@@ -258,34 +261,7 @@ function Active({
           <XIcon />
         </ActionButton>
       </div>
-      {/* Subtle Space hint pinned to the right of the mic — only
-       *  shows when idle so it doesn't compete with the spectrum. */}
-      {phase === 'idle' && <KeyHint label="Space" />}
     </div>
-  );
-}
-
-function KeyHint({ label }: { readonly label: string }): JSX.Element {
-  return (
-    <span
-      aria-hidden
-      style={{
-        position: 'absolute',
-        bottom: 3,
-        right: 8,
-        fontFamily: 'ui-monospace, SF Mono, Menlo, monospace',
-        fontSize: 9,
-        color: 'rgba(15, 23, 42, 0.45)',
-        padding: '1px 5px',
-        borderRadius: 3,
-        background: 'rgba(15, 23, 42, 0.05)',
-        letterSpacing: '0.02em',
-        pointerEvents: 'none',
-        zIndex: 2,
-      }}
-    >
-      {label}
-    </span>
   );
 }
 

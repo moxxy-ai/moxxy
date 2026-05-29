@@ -54,6 +54,9 @@ function installFakeApi(): IpcSpy {
       if (channel === 'session.runTurn') {
         return Promise.resolve({ turnId: 't-1' });
       }
+      if (channel === 'session.hasTranscriber') {
+        return Promise.resolve(true);
+      }
       return Promise.resolve(undefined);
     }) as never,
     subscribe: ((channel: string, cb: (payload: unknown) => void) => {
@@ -100,7 +103,6 @@ describe('FocusWidget stages', () => {
     const spy = installFakeApi();
     render(<FocusWidget />);
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
-    expect(screen.getByRole('button', { name: /record voice.*space/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /^text$/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /open main window/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /close focus mode/i })).toBeTruthy();
@@ -124,14 +126,33 @@ describe('FocusWidget stages', () => {
     expect(screen.getByRole('button', { name: /^send$/i })).toBeTruthy();
   });
 
-  it('active stage exposes a voice button with Space shortcut hint', () => {
+  it('shows the mic button when the runner has a transcriber', async () => {
     installFakeApi();
     render(<FocusWidget />);
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
-    // Voice happens inline in the active panel — clicking the mic
-    // toggles recording, no separate stage. The aria-label includes
-    // 'Space' so the keyboard shortcut is discoverable.
-    expect(screen.getByRole('button', { name: /record voice.*space/i })).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^record voice$/i })).toBeTruthy();
+    });
+  });
+
+  it('hides the mic button when the runner has no transcriber', async () => {
+    // Custom fake — hasTranscriber returns false.
+    __setApiOverride({
+      invoke: ((channel: string) => {
+        if (channel === 'connection.snapshotAll') return Promise.resolve([]);
+        if (channel === 'connection.activeWorkspace') return Promise.resolve('ws-test');
+        if (channel === 'session.hasTranscriber') return Promise.resolve(false);
+        return Promise.resolve(undefined);
+      }) as never,
+      subscribe: (() => () => undefined) as never,
+    } as never);
+    render(<FocusWidget />);
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    // Text / restore / close stay visible; mic is gone.
+    expect(screen.getByRole('button', { name: /^text$/i })).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /record voice/i })).toBeNull();
+    });
   });
 
   it('mini-text → back returns to the active stage', () => {
@@ -140,8 +161,7 @@ describe('FocusWidget stages', () => {
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
     fireEvent.click(screen.getByRole('button', { name: /^back$/i }));
-    // Voice mic button is back (in the active row), text composer is gone.
-    expect(screen.getByRole('button', { name: /record voice.*space/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^text$/i })).toBeTruthy();
     expect(screen.queryByPlaceholderText(/ask moxxy/i)).toBeNull();
   });
 

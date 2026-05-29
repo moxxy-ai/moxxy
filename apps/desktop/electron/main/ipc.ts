@@ -139,35 +139,9 @@ export function registerIpcHandlers(pool: RunnerPool, desks: DeskStore): void {
   });
   handle('session.transcribe', async ({ audioBase64, mimeType }) => {
     const session = mustRemote(pool);
-    let transcriber = session.transcribers.tryGetActive();
-    // Out-of-the-box transcription: if no transcriber is active but
-    // the OpenAI Whisper plugin is registered (it's a built-in for
-    // the desktop bundle), auto-activate it on first transcribe
-    // attempt. The Whisper backend reads OPENAI_API_KEY from the
-    // runner's env if no apiKey is passed in the config — which
-    // matches the runner's existing provider-key resolution path.
+    const transcriber = session.transcribers.tryGetActive();
     if (!transcriber) {
-      const candidates = [
-        'openai-whisper-1',
-        'openai-gpt-4o-transcribe',
-        'openai-gpt-4o-mini-transcribe',
-      ];
-      for (const name of candidates) {
-        if (session.transcribers.has(name)) {
-          try {
-            transcriber = session.transcribers.setActive(name);
-            break;
-          } catch {
-            // Try the next candidate (e.g. config missing).
-          }
-        }
-      }
-    }
-    if (!transcriber) {
-      throw new Error(
-        'No transcriber is configured. Set OPENAI_API_KEY in your environment ' +
-          'or activate a transcriber plugin in your moxxy config.',
-      );
+      throw new Error('no active transcriber on the runner');
     }
     const audio = Buffer.from(audioBase64, 'base64');
     const result = await transcriber.transcribe(
