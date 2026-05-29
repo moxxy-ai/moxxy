@@ -115,6 +115,14 @@ export interface RemoteSessionOptions {
    * own transport AND want the mismatch error to surface unchanged.
    */
   readonly skipMismatchRecovery?: boolean;
+  /**
+   * Extra TCP ports to free during mismatch recovery, in addition
+   * to the well-known {@link DEFAULT_RUNNER_PORTS}. The desktop
+   * supervisor and per-workspace runners can list whatever ports
+   * their channels bind (Telegram, MCP, HTTP) so a stale daemon
+   * doesn't leave them locked.
+   */
+  readonly extraPortsToFree?: ReadonlyArray<number>;
 }
 
 /**
@@ -575,89 +583,152 @@ function defaultApproval(request: ApprovalRequest): ApprovalDecision {
  *
  * Protocol-mismatch recovery: when the server is on a lower protocol
  * version than this client (i.e. the user upgraded moxxy but left an
- * older `moxxy serve` daemon running), the attach throws with
- * "protocol mismatch: server vX, client vY". This is unambiguously
- * fatal — the older daemon can never speak our protocol — so we
- * proactively kill it and unlink the socket before re-throwing. The
- * next attach attempt (CLI's self-host fallback, desktop supervisor's
- * retry) finds a clean slate and binds successfully.
+ * older `moxxy serve` daemon running), the attach throws "protocol
+ * mismatch: server vX, client vY". This is unambiguously fatal — the
+ * older daemon can never speak our protocol — so we proactively kill
+ * it and unlink the socket. The caller's next attempt (CLI's
+ * self-host fallback, desktop supervisor's retry) finds a clean slate.
+ *
+ * Default ports also cleared: 4040 (web surface — locks out a fresh
+ * `moxxy serve` even after the daemon is dead).
  */
+const DEFAULT_RUNNER_PORTS: ReadonlyArray<number> = [4040];
+
 export async function connectRemoteSession(
   opts: RemoteSessionOptions = {},
 ): Promise<RemoteSession> {
   const socketPath = opts.socketPath ?? runnerSocketPath();
   const transport =
-    opts.transport ?? (await connectWithRetry(socketPath, opts.connectRetries ?? 5));
+    opts.transport ??
+    (await connectWithRetry(socketPath, opts.connectRetries ?? 5));
   const session = new RemoteSession(transport);
   try {
     await session.attach(opts.role ?? 'client', opts.sinceSeq ?? 0);
+    return session;
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (/protocol mismatch/i.test(msg) && !opts.transport && !opts.skipMismatchRecovery) {
-      try {
-        await killAndUnlinkRunner(socketPath);
-      } catch {
-        /* best-effort */
-      }
-    }
+    await maybeRecoverFromMismatch(err, socketPath, opts);
     throw err;
   }
-  return session;
 }
 
-/** Kill whatever PID is holding a unix socket, then unlink the
- *  socket file so the next bind succeeds. Best-effort, macOS / Linux
- *  only (lsof not available on Windows). Exported so the desktop
- *  supervisor can reuse it.
- */
-export async function killAndUnlinkRunner(socketPath: string): Promise<void> {
-  if (process.platform === 'win32') {
-    try {
-      const fs = await import('node:fs');
-      fs.unlinkSync(socketPath);
-    } catch {
-      /* ignore */
-    }
-    return;
+/** Run recovery if (a) the error is a protocol mismatch, (b) the
+ *  caller didn't inject a fake transport, and (c) the caller didn't
+ *  opt out. Swallows recovery errors — the original attach error is
+ *  what the caller needs to see. */
+async function maybeRecoverFromMismatch(
+  err: unknown,
+  socketPath: string,
+  opts: RemoteSessionOptions,
+): Promise<void> {
+  if (opts.transport || opts.skipMismatchRecovery) return;
+  const msg = err instanceof Error ? err.message : String(err);
+  if (!/protocol mismatch/i.test(msg)) return;
+  try {
+    await killAndUnlinkRunner(socketPath, [...DEFAULT_RUNNER_PORTS, ...(opts.extraPortsToFree ?? [])]);
+  } catch {
+    /* best-effort — every step is already swallowed individually */
   }
+}
+
+/** Kill the process holding `socketPath` (and any processes listening
+ *  on the given TCP ports), then unlink the socket file so the next
+ *  bind succeeds. Best-effort throughout — every individual step is
+ *  swallowed so a partial environment (no `lsof`, no permission to
+ *  kill, etc.) still progresses through the rest of the recovery.
+ */
+export async function killAndUnlinkRunner(
+  socketPath: string,
+  ports: ReadonlyArray<number> = DEFAULT_RUNNER_PORTS,
+): Promise<void> {
+  await killProcessOwning(socketPath);
+  for (const port of ports) {
+    await killProcessOnPort(port);
+  }
+  await unlinkSocket(socketPath);
+}
+
+// ---- internals: process hunting -----------------------------------------
+
+/** Kill whatever process is bound to a unix-domain socket file. */
+async function killProcessOwning(socketPath: string): Promise<void> {
+  const pids = await pidsListeningOnSocket(socketPath);
+  for (const pid of pids) await terminate(pid);
+}
+
+/** Kill whatever process is listening on a TCP port. */
+async function killProcessOnPort(port: number): Promise<void> {
+  const pids = await pidsListeningOnPort(port);
+  for (const pid of pids) await terminate(pid);
+}
+
+/** SIGTERM, grace, SIGKILL. Skips self. Swallows EPERM / ESRCH. */
+async function terminate(pid: number): Promise<void> {
+  if (!Number.isFinite(pid) || pid <= 0 || pid === process.pid) return;
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch {
+    /* may already be dead, or we lack permission */
+  }
+  await new Promise((r) => setTimeout(r, 400));
+  try {
+    process.kill(pid, 0); // 0 = liveness probe
+    process.kill(pid, 'SIGKILL');
+  } catch {
+    /* dead → good */
+  }
+}
+
+/** Find every PID with an open file descriptor for a unix socket. */
+async function pidsListeningOnSocket(socketPath: string): Promise<ReadonlyArray<number>> {
+  if (process.platform === 'win32') return [];
+  return await runLsof(['-t', socketPath]);
+}
+
+/** Find every PID listening on a TCP port. */
+async function pidsListeningOnPort(port: number): Promise<ReadonlyArray<number>> {
+  if (process.platform === 'win32') return [];
+  // `-iTCP:PORT -sTCP:LISTEN` only catches actively listening sockets,
+  // not transient client connections to that port.
+  return await runLsof(['-t', `-iTCP:${port}`, '-sTCP:LISTEN']);
+}
+
+/** Run lsof with the given args and return the PIDs it prints (one per
+ *  line). Returns empty on error / missing binary. */
+async function runLsof(args: ReadonlyArray<string>): Promise<ReadonlyArray<number>> {
   const { spawn } = await import('node:child_process');
-  const pid = await new Promise<number | null>((resolve) => {
+  return await new Promise<ReadonlyArray<number>>((resolve) => {
     let out = '';
     try {
-      const child = spawn('lsof', ['-t', socketPath], {
+      const child = spawn('lsof', [...args], {
         stdio: ['ignore', 'pipe', 'ignore'],
       });
       child.stdout.on('data', (b) => {
         out += b.toString();
       });
-      child.on('error', () => resolve(null));
-      child.on('close', () => {
-        const parsed = parseInt(out.trim().split('\n')[0] ?? '', 10);
-        resolve(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
-      });
+      child.on('error', () => resolve([]));
+      child.on('close', () => resolve(parsePids(out)));
     } catch {
-      resolve(null);
+      resolve([]);
     }
   });
-  if (pid && pid !== process.pid) {
-    try {
-      process.kill(pid, 'SIGTERM');
-    } catch {
-      /* ignore */
-    }
-    await new Promise((r) => setTimeout(r, 400));
-    try {
-      process.kill(pid, 0);
-      process.kill(pid, 'SIGKILL');
-    } catch {
-      /* already dead */
-    }
+}
+
+function parsePids(out: string): ReadonlyArray<number> {
+  const seen = new Set<number>();
+  for (const line of out.split('\n')) {
+    const n = parseInt(line.trim(), 10);
+    if (Number.isFinite(n) && n > 0) seen.add(n);
   }
+  return [...seen];
+}
+
+/** Remove a unix-socket file. No-op if it's already gone. */
+async function unlinkSocket(socketPath: string): Promise<void> {
   try {
     const fs = await import('node:fs');
     fs.unlinkSync(socketPath);
   } catch {
-    /* may already be gone */
+    /* fine — already removed, or never existed */
   }
 }
 
