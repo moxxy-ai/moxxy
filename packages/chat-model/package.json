@@ -1,8 +1,8 @@
 {
-  "name": "@moxxy/plugin-cli",
+  "name": "@moxxy/chat-model",
   "private": true,
   "version": "0.0.1",
-  "description": "Ink-based interactive TUI components + interactive PermissionResolver for moxxy.",
+  "description": "UI-framework-neutral chat model: the event→block fold (tool/result pairing, skill + subagent + live-tool grouping), formatting helpers, a markdown AST, and a chunked append log. Shared by the Ink TUI, the desktop renderer, and future channels.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./markdown": {
+      "types": "./dist/markdown/index.d.ts",
+      "import": "./dist/markdown/index.js"
     }
   },
   "files": [
@@ -22,27 +26,14 @@
     "test": "vitest run",
     "clean": "rm -rf dist .turbo"
   },
-  "moxxy": {
-    "plugin": {
-      "entry": "./dist/index.js",
-      "kind": "cli"
-    }
-  },
   "dependencies": {
-    "@moxxy/chat-model": "workspace:*",
-    "@moxxy/core": "workspace:*",
-    "@moxxy/plugin-mcp": "workspace:*",
-    "@moxxy/sdk": "workspace:*",
-    "ink": "catalog:",
-    "react": "catalog:"
+    "@moxxy/sdk": "workspace:*"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "@types/node": "catalog:",
-    "@types/react": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:",
-    "yaml": "^2.6.0"
+    "vitest": "catalog:"
   }
 }

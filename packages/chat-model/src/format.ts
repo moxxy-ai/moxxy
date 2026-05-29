@@ -17,10 +17,17 @@ export function oneLine(s: string): string {
   return s.replace(/[\r\n\t]+/g, ' ').replace(/  +/g, ' ').trim();
 }
 
+/** `12s` → `3m 04s` → `1h 02m`. Superset of the previously-duplicated
+ *  copies (the hour branch came from StatusLine's variant). */
 export function formatElapsed(ms: number): string {
-  const s = Math.max(0, Math.floor(ms / 1000));
-  if (s < 60) return `${s}s`;
-  return `${Math.floor(s / 60)}m ${(s % 60).toString().padStart(2, '0')}s`;
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  if (totalSec < 60) return `${totalSec}s`;
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  if (min < 60) return `${min}m ${sec.toString().padStart(2, '0')}s`;
+  const hr = Math.floor(min / 60);
+  const remMin = min % 60;
+  return `${hr}h ${remMin.toString().padStart(2, '0')}m`;
 }
 
 // Hard cap on the full argument-summary string. Joining lots of fields
