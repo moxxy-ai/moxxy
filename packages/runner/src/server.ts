@@ -289,7 +289,7 @@ export class RunnerServer {
 
   private async handleTranscribe(raw: unknown): Promise<TranscribeResult> {
     const params = transcribeParamsSchema.parse(raw);
-    const transcriber = this.session.transcribers.tryGetActive();
+    const transcriber = this.resolveTranscriberForRequest();
     if (!transcriber) throw new Error('no active transcriber on the runner');
     const audio = new Uint8Array(Buffer.from(params.audio, 'base64'));
     return transcriber.transcribe(audio, {
@@ -297,6 +297,29 @@ export class RunnerServer {
       ...(params.language ? { language: params.language } : {}),
       ...(params.prompt ? { prompt: params.prompt } : {}),
     });
+  }
+
+  /** Return whatever transcriber the session has active; if none is
+   *  active, lazily promote the first *registered* one to active.
+   *  This mirrors what the TUI does inside its voice-input hook:
+   *  rather than requiring the host to pre-`setActive(...)` at boot,
+   *  we activate on first use so newly-installed plugins "just work".
+   *  Agnostic to the transcriber name — whichever plugin happens to
+   *  register one (Whisper, Codex, a local provider, etc.) gets
+   *  promoted. */
+  private resolveTranscriberForRequest(): ReturnType<typeof this.session.transcribers.tryGetActive> {
+    const active = this.session.transcribers.tryGetActive();
+    if (active) return active;
+    const registered = this.session.transcribers.list();
+    for (const def of registered) {
+      try {
+        return this.session.transcribers.setActive(def.name);
+      } catch {
+        // Constructor failed (missing config / API key / auth) —
+        // try the next candidate.
+      }
+    }
+    return null;
   }
 
   // --- MCP (delegates to session.mcpAdmin if the plugin is loaded) ----------
@@ -445,5 +468,24 @@ export async function startRunnerServer(
 ): Promise<RunnerServer> {
   const transport =
     opts.transport ?? (await createUnixSocketServer(opts.socketPath ?? runnerSocketPath()));
+  // Eagerly promote the first registered transcriber to "active" so
+  // remote clients see `info.activeTranscriber` populated on attach
+  // (they probe this to decide whether to show a mic affordance,
+  // without ever having to hit the Transcribe RPC just to find out).
+  // Agnostic to which transcriber wins — first one whose constructor
+  // succeeds. Failures are silent: clients gracefully see "none."
+  promoteFirstAvailableTranscriber(session);
   return new RunnerServer(session, transport);
+}
+
+function promoteFirstAvailableTranscriber(session: Session): void {
+  if (session.transcribers.getActiveName()) return;
+  for (const def of session.transcribers.list()) {
+    try {
+      session.transcribers.setActive(def.name);
+      return;
+    } catch {
+      // Next candidate.
+    }
+  }
 }

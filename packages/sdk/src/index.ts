@@ -344,4 +344,10 @@ export {
   type InstallTarget,
 } from './install-hints.js';
 
+export {
+  checkTranscriberReady,
+  pickFirstAvailableTranscriber,
+  resolveTranscriber,
+} from './voice.js';
+
 export { z } from 'zod';
