@@ -151,19 +151,26 @@ const brandedClerkAppearance = {
     footerAction: { display: 'none' },
     socialButtons: { gap: 8 },
     socialButtonsBlockButton: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
       border: '1px solid var(--color-card-border)',
       background: '#fff',
       color: 'var(--color-text)',
       fontWeight: 600,
       borderRadius: 10,
       boxShadow: 'none',
-      height: 40,
-      paddingLeft: 12,
-      paddingRight: 12,
+      height: 42,
+      minHeight: 42,
+      lineHeight: 1,
+      padding: '0 14px',
+      overflow: 'visible',
       '&:hover': { background: '#f7f8fc', border: '1px solid var(--color-card-border-strong)' },
       '&::after': { display: 'none' },
+      '&::before': { display: 'none' },
     },
-    socialButtonsBlockButtonText: { fontWeight: 600, fontSize: 13 },
+    socialButtonsBlockButtonText: { fontWeight: 600, fontSize: 13, lineHeight: 1 },
     socialButtonsBlockButtonArrow: { display: 'none' },
     dividerLine: { background: 'var(--color-card-border)' },
     dividerText: {
@@ -180,12 +187,14 @@ const brandedClerkAppearance = {
     },
     formFieldInput: {
       width: '100%',
-      height: 40,
+      height: 42,
+      minHeight: 42,
       background: '#f7f8fc',
       border: '1px solid var(--color-card-border)',
       borderRadius: 10,
       padding: '0 12px',
       fontSize: 14,
+      lineHeight: 1.2,
       color: 'var(--color-text)',
       boxShadow: 'none',
       transition: 'border-color 120ms ease, box-shadow 120ms ease',
@@ -197,8 +206,15 @@ const brandedClerkAppearance = {
       '&::placeholder': { color: 'var(--color-text-dim)' },
     },
     formButtonPrimary: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
       width: '100%',
-      height: 40,
+      height: 42,
+      minHeight: 42,
+      lineHeight: 1,
+      padding: '0 16px',
       background: 'var(--grad-cta)',
       color: '#fff',
       fontWeight: 600,
@@ -207,10 +223,13 @@ const brandedClerkAppearance = {
       boxShadow: '0 8px 18px -12px rgba(236, 72, 153, 0.55)',
       textTransform: 'none',
       letterSpacing: 0,
+      overflow: 'visible',
       '&:hover': { filter: 'brightness(1.05)' },
       '&::after': { display: 'none' },
+      '&::before': { display: 'none' },
     },
     formButtonPrimaryArrow: { display: 'none' },
+    spinner: { color: '#fff' },
     identityPreviewEditButton: { color: 'var(--color-primary-strong)' },
   },
 } as const;
@@ -1028,10 +1047,13 @@ const pickerBtnStyle: React.CSSProperties = {
 
 /** Outer wrapper that draws our card chrome so the SignIn component
  *  (whose own card is now hidden via appearance.elements.card) sits
- *  inside the same chrome as every other onboarding step. */
+ *  inside the same chrome as every other onboarding step. overflow
+ *  stays visible so the embedded button's box-shadow halo isn't
+ *  clipped at the card edge. */
 const authCardStyle: React.CSSProperties = {
-  padding: '18px 18px 16px',
+  padding: '20px 18px 18px',
   background: 'var(--color-card-bg)',
   border: '1px solid var(--color-card-border)',
   borderRadius: 12,
+  overflow: 'visible',
 };
