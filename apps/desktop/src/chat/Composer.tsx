@@ -9,14 +9,22 @@ import { Icon } from '@/lib/Icon';
 import { api } from '@/lib/api';
 import { AgentPicker } from './AgentPicker';
 import { CommandPalette } from './CommandPalette';
-import { FILE_INSERT_EVENT } from '@/shell/WorkspaceFiles';
+import { FILE_INSERT_EVENT, type FileInsertDetail } from '@/shell/WorkspaceFiles';
+
+interface ComposerAttachment {
+  readonly path: string;
+  readonly name: string;
+}
 
 interface ComposerProps {
   readonly ready: boolean;
   readonly sending: boolean;
   readonly activeTurnId: string | null;
   readonly workspaceId: string;
-  readonly onSend: (prompt: string) => void;
+  readonly onSend: (
+    prompt: string,
+    attachments?: ReadonlyArray<ComposerAttachment>,
+  ) => void;
   readonly onAbort: () => void;
 }
 
@@ -51,22 +59,31 @@ export function Composer({
   const [voice, setVoice] = useState<VoiceState>({ kind: 'idle' });
   const [hasTranscriber, setHasTranscriber] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
+  /** Files the user picked from the rail or the native picker. Each
+   *  one ships as a UserPromptAttachment with kind: 'file' + content:
+   *  absolute path so the agent's read_file / cat tools find it. */
+  const [attachments, setAttachments] = useState<ReadonlyArray<ComposerAttachment>>([]);
   const taRef = useRef<HTMLTextAreaElement>(null);
+
+  const addAttachment = (att: ComposerAttachment): void => {
+    setAttachments((cur) => (cur.some((a) => a.path === att.path) ? cur : [...cur, att]));
+  };
+  const removeAttachment = (path: string): void => {
+    setAttachments((cur) => cur.filter((a) => a.path !== path));
+  };
   const inFlight = activeTurnId !== null || sending;
-  const canSubmit = ready && !inFlight && draft.trim().length > 0;
+  const canSubmit =
+    ready && !inFlight && (draft.trim().length > 0 || attachments.length > 0);
 
   // The context rail's file tree fires a CustomEvent when the user
-  // clicks a file; append it as an `@<path>` mention so the agent
-  // can resolve it as a workspace-relative reference.
+  // clicks a file. We treat it as an attachment, not text — the
+  // absolute path is what the agent needs, the chip in the input
+  // is what the user wants to see.
   useEffect(() => {
     const handler = (ev: Event): void => {
-      const detail = (ev as CustomEvent<{ path: string }>).detail;
-      if (!detail?.path) return;
-      const mention = `@${detail.path}`;
-      setDraft((d) => {
-        const sep = d.length === 0 || /\s$/.test(d) ? '' : ' ';
-        return `${d}${sep}${mention} `;
-      });
+      const detail = (ev as CustomEvent<FileInsertDetail>).detail;
+      if (!detail?.absPath) return;
+      addAttachment({ path: detail.absPath, name: detail.name });
       window.setTimeout(() => taRef.current?.focus(), 0);
     };
     window.addEventListener(FILE_INSERT_EVENT, handler);
@@ -92,9 +109,10 @@ export function Composer({
 
   const submit = useCallback(() => {
     if (!canSubmit) return;
-    onSend(draft);
+    onSend(draft, attachments.length > 0 ? attachments : undefined);
     setDraft('');
-  }, [canSubmit, draft, onSend]);
+    setAttachments([]);
+  }, [canSubmit, draft, attachments, onSend]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
     // Enter alone submits; Shift+Enter inserts a newline (the browser
@@ -115,8 +133,8 @@ export function Composer({
     try {
       const path = await api().invoke('session.pickAttachment');
       if (!path) return;
-      const tag = `[attached: ${path}]`;
-      setDraft((d) => (d ? `${d.trimEnd()}\n${tag}\n` : `${tag}\n`));
+      const name = path.split('/').pop() ?? path;
+      addAttachment({ path, name });
       taRef.current?.focus();
     } catch {
       /* noop — file picker errors are non-fatal */
@@ -182,6 +200,25 @@ export function Composer({
         gap: 10,
       }}
     >
+      {attachments.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 6,
+            paddingBottom: 4,
+          }}
+        >
+          {attachments.map((a) => (
+            <AttachmentChip
+              key={a.path}
+              name={a.name}
+              path={a.path}
+              onRemove={() => removeAttachment(a.path)}
+            />
+          ))}
+        </div>
+      )}
       <textarea
         ref={taRef}
         data-testid="composer-input"
@@ -189,7 +226,13 @@ export function Composer({
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={onKeyDown}
-        placeholder={ready ? 'Send a message to the agent…' : 'Waiting for runner…'}
+        placeholder={
+          attachments.length > 0
+            ? 'Ask about the attached file…'
+            : ready
+              ? 'Send a message to the agent…'
+              : 'Waiting for runner…'
+        }
         disabled={!ready || inFlight}
         rows={Math.min(8, Math.max(1, draft.split('\n').length))}
         style={{
@@ -365,6 +408,71 @@ function ToolChip({
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * Pill rendered above the textarea for each attached file. Shows the
+ * basename and a tiny × to drop it. The full absolute path lives on
+ * the title= attr so a hover reveals where on disk the agent will
+ * read it from.
+ */
+function AttachmentChip({
+  name,
+  path,
+  onRemove,
+}: {
+  readonly name: string;
+  readonly path: string;
+  readonly onRemove: () => void;
+}): JSX.Element {
+  return (
+    <span
+      title={path}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '4px 4px 4px 10px',
+        background: 'var(--color-primary-soft)',
+        border: '1px solid var(--color-primary)',
+        borderRadius: 999,
+        fontSize: 12,
+        color: 'var(--color-primary-strong)',
+        fontWeight: 600,
+        maxWidth: 280,
+      }}
+    >
+      <Icon name="attach" size={12} />
+      <span
+        className="mono"
+        style={{
+          maxWidth: 200,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+      >
+        @{name}
+      </span>
+      <button
+        type="button"
+        aria-label={`Remove ${name}`}
+        onClick={onRemove}
+        style={{
+          width: 18,
+          height: 18,
+          borderRadius: '50%',
+          background: 'rgba(236, 72, 153, 0.18)',
+          color: 'var(--color-primary-strong)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Icon name="x" size={11} />
+      </button>
+    </span>
   );
 }
 

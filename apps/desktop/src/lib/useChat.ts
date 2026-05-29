@@ -19,7 +19,10 @@ export interface UseChat {
   readonly activeTurnId: string | null;
   readonly sending: boolean;
   readonly error: string | null;
-  readonly send: (prompt: string) => Promise<void>;
+  readonly send: (
+    prompt: string,
+    attachments?: ReadonlyArray<{ path: string; name: string }>,
+  ) => Promise<void>;
   readonly abort: () => Promise<void>;
   readonly clear: () => void;
 }
@@ -80,21 +83,26 @@ export function useChat(workspaceId: string | null): UseChat {
   );
 
   const send = useCallback(
-    async (prompt: string): Promise<void> => {
+    async (
+      prompt: string,
+      attachments?: ReadonlyArray<{ path: string; name: string }>,
+    ): Promise<void> => {
       if (!workspaceId) return;
       const trimmed = prompt.trim();
-      if (!trimmed) return;
+      if (!trimmed && (!attachments || attachments.length === 0)) return;
       const model = chatStore.getModel(workspaceId);
       try {
         const { turnId } = await api().invoke('session.runTurn', {
           workspaceId,
           prompt: trimmed,
           ...(model ? { model } : {}),
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
         });
         chatStore.dispatch(workspaceId, {
           type: 'send_started',
           turnId,
           prompt: trimmed,
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
         });
       } catch (e) {
         chatStore.dispatch(workspaceId, {

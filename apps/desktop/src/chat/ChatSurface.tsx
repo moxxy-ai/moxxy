@@ -143,7 +143,7 @@ export function ChatSurface({
         sending={chat.sending}
         activeTurnId={chat.activeTurnId}
         workspaceId={workspaceId}
-        onSend={(p) => void chat.send(p)}
+        onSend={(p, atts) => void chat.send(p, atts)}
         onAbort={() => void chat.abort()}
       />
       {chat.error && <ErrorToast text={chat.error} />}

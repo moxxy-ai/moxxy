@@ -95,11 +95,11 @@ export function registerIpcHandlers(pool: RunnerPool, desks: DeskStore): void {
     const session = sup?.remote();
     return session ? session.getInfo() : null;
   });
-  handle('session.runTurn', async ({ workspaceId, prompt, model }) => {
+  handle('session.runTurn', async ({ workspaceId, prompt, model, attachments }) => {
     const id = workspaceId ?? pool.activeWorkspaceId();
     if (!id) throw new Error('no active workspace');
     const driver = mustDriver(id);
-    return driver.runTurn(prompt, model);
+    return driver.runTurn(prompt, model, attachments);
   });
   handle('session.abortTurn', async ({ workspaceId, turnId }) => {
     const id = workspaceId ?? pool.activeWorkspaceId();

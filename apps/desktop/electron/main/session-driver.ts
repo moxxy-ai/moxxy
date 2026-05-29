@@ -56,18 +56,40 @@ export class SessionDriver {
    * The `turn.complete` channel fires once when the iterable drains
    * (success or error).
    */
-  async runTurn(prompt: string, model?: string): Promise<{ turnId: string }> {
+  async runTurn(
+    prompt: string,
+    model?: string,
+    attachments?: ReadonlyArray<{ path: string; name: string }>,
+  ): Promise<{ turnId: string }> {
     const id = randomUUID();
     const controller = new AbortController();
 
     const pump = (async () => {
       let error: string | null = null;
       try {
-        const opts: { signal: AbortSignal; model?: string } = {
+        const opts: {
+          signal: AbortSignal;
+          model?: string;
+          attachments?: ReadonlyArray<{
+            kind: 'file';
+            content: string;
+            name: string;
+          }>;
+        } = {
           signal: controller.signal,
         };
         if (model) opts.model = model;
-        for await (const event of this.session.runTurn(prompt, opts)) {
+        if (attachments && attachments.length > 0) {
+          opts.attachments = attachments.map((a) => ({
+            kind: 'file',
+            content: a.path,
+            name: a.name,
+          }));
+        }
+        // RemoteSession's runTurn forwards opts.attachments verbatim
+        // to the runner's RunTurnParams, where each becomes a
+        // UserPromptAttachment on the resulting user_prompt event.
+        for await (const event of this.session.runTurn(prompt, opts as never)) {
           // Events also arrive through log.subscribe; this loop just
           // drains so we know when the turn finishes (the AsyncIterable
           // throws on error and returns on clean end).

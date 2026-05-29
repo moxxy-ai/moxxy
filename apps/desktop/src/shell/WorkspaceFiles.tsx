@@ -28,11 +28,21 @@ interface DirNode {
 
 export const FILE_INSERT_EVENT = 'moxxy:insert-path';
 
-/** Broadcast a path so the Composer can append it to the current
+export interface FileInsertDetail {
+  /** Workspace-relative path (e.g. "src/index.ts"). */
+  readonly relPath: string;
+  /** Absolute path the agent should read. Joined client-side from the
+   *  workspace's cwd so the listener doesn't need to plumb cwd. */
+  readonly absPath: string;
+  /** Basename for display. */
+  readonly name: string;
+}
+
+/** Broadcast a path so the Composer can attach it to the current
  *  draft. Plain DOM event keeps the wiring decoupled from React refs
- *  / context. The composer attaches a single window listener. */
-export function emitInsertPath(relPath: string): void {
-  const ev = new CustomEvent(FILE_INSERT_EVENT, { detail: { path: relPath } });
+ *  / context. */
+export function emitInsertPath(detail: FileInsertDetail): void {
+  const ev = new CustomEvent(FILE_INSERT_EVENT, { detail });
   window.dispatchEvent(ev);
 }
 
@@ -41,6 +51,7 @@ export function WorkspaceFiles({
 }: {
   readonly workspaceId: string;
 }): JSX.Element {
+  const [cwd, setCwd] = useState<string | null>(null);
   const [nodes, setNodes] = useState<Record<string, DirNode>>({});
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set(['.']));
 
@@ -60,6 +71,10 @@ export function WorkspaceFiles({
           workspaceId,
           path: relPath === '.' ? undefined : relPath,
         });
+        // Stash the cwd reported by the IPC so we can build absolute
+        // paths client-side when the user clicks a file. The cwd is
+        // identical for every call so first response wins.
+        setCwd((cur) => cur ?? result.cwd);
         setNodes((cur) => ({
           ...cur,
           [relPath]: {
@@ -106,7 +121,14 @@ export function WorkspaceFiles({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <DirRow path="." level={0} expanded={expanded} nodes={nodes} onToggle={toggle} />
+      <DirRow
+        path="."
+        level={0}
+        expanded={expanded}
+        nodes={nodes}
+        onToggle={toggle}
+        cwd={cwd}
+      />
     </div>
   );
 }
@@ -117,12 +139,14 @@ function DirRow({
   expanded,
   nodes,
   onToggle,
+  cwd,
 }: {
   readonly path: string;
   readonly level: number;
   readonly expanded: ReadonlySet<string>;
   readonly nodes: Record<string, DirNode>;
   readonly onToggle: (path: string) => void;
+  readonly cwd: string | null;
 }): JSX.Element {
   const node = nodes[path];
   const open = expanded.has(path);
@@ -165,6 +189,7 @@ function DirRow({
                   expanded={expanded}
                   nodes={nodes}
                   onToggle={onToggle}
+                  cwd={cwd}
                 />
               );
             }
@@ -174,6 +199,7 @@ function DirRow({
                 name={entry.name}
                 path={child}
                 level={path === '.' ? 0 : level + 1}
+                cwd={cwd}
               />
             );
           })}
@@ -187,10 +213,12 @@ function FileRow({
   name,
   path,
   level,
+  cwd,
 }: {
   readonly name: string;
   readonly path: string;
   readonly level: number;
+  readonly cwd: string | null;
 }): JSX.Element {
   return (
     <Row
@@ -199,7 +227,15 @@ function FileRow({
       level={level}
       kind="file"
       title={path}
-      onClick={() => emitInsertPath(path)}
+      onClick={() => {
+        // Build the absolute path locally so the composer doesn't
+        // need to know the workspace cwd. cwd is filled in on the
+        // first listDir response; if for any reason it hasn't loaded
+        // yet, fall back to the relative path (still usable as a
+        // mention, the agent's cwd-rooted tools will resolve it).
+        const absPath = cwd ? `${cwd.replace(/\/+$/, '')}/${path}` : path;
+        emitInsertPath({ relPath: path, absPath, name });
+      }}
     />
   );
 }

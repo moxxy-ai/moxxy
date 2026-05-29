@@ -146,9 +146,19 @@ export interface DesksOverview {
 
 // ---------- Chat -----------------------------------------------------------
 
+export interface PromptAttachment {
+  /** Local-file path the agent should be able to read. Absolute when
+   *  picked from the workspace file tree, native-picker path when
+   *  picked via Attach. */
+  readonly path: string;
+  /** Display name (basename of `path`). */
+  readonly name: string;
+}
+
 export interface RunTurnArgs {
   prompt: string;
   model?: string;
+  attachments?: ReadonlyArray<PromptAttachment>;
 }
 
 export interface RunTurnResult {

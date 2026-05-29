@@ -7,8 +7,13 @@
 
 import type { MoxxyEvent } from '@moxxy/sdk';
 
+export interface ChatAttachment {
+  readonly path: string;
+  readonly name: string;
+}
+
 export type Block =
-  | { kind: 'user'; id: string; text: string }
+  | { kind: 'user'; id: string; text: string; attachments?: ReadonlyArray<ChatAttachment> }
   | {
       kind: 'assistant';
       id: string;
@@ -66,7 +71,12 @@ export const initialChatState: ChatState = {
 
 export type ChatAction =
   | { type: 'event'; event: MoxxyEvent }
-  | { type: 'send_started'; turnId: string; prompt: string }
+  | {
+      type: 'send_started';
+      turnId: string;
+      prompt: string;
+      attachments?: ReadonlyArray<ChatAttachment>;
+    }
   | { type: 'send_failed'; message: string }
   | { type: 'turn_complete'; turnId: string; error: string | null }
   /** Bordered result card for a slash command (text / error / notice). */
@@ -90,6 +100,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         kind: 'user',
         id: `u-${state.seq}`,
         text: action.prompt,
+        ...(action.attachments && action.attachments.length > 0
+          ? { attachments: action.attachments }
+          : {}),
       };
       return {
         ...state,
