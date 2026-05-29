@@ -387,20 +387,14 @@ function MiniVoice({
 }
 
 // ---- SpectroBackground ---------------------------------------------------
-// Ambient blurred-blob audio visualiser used as the background of
-// the mini-voice panel. Inspired by the "lava lamp" + "Siri orb"
-// patterns popular on iOS and modern voice-first UIs: a few large
-// translucent gradient circles, each tied to a frequency band,
-// scaled by amplitude and softly blurred so the whole panel feels
-// alive while still letting the foreground mic button + text read.
+// Beautiful music-visualizer style: glowing frequency bars rising
+// from the BOTTOM of the panel. Each bar maps to one frequency band,
+// is filled with a vertical pink → fuchsia → violet gradient (moxxy
+// brand), gets a rounded cap, and is haloed by a strong canvas
+// shadowBlur for the live-glow look popular on music-app
+// visualisers (Spotify Wrapped, Apple Music animated artwork, etc).
 
-const SPECTRO_BLOBS = [
-  { x: 0.18, y: 0.32, baseR: 70, color: 'rgba(236, 72, 153, 0.55)' },
-  { x: 0.82, y: 0.28, baseR: 80, color: 'rgba(217, 70, 239, 0.5)' },
-  { x: 0.5, y: 0.74, baseR: 90, color: 'rgba(167, 139, 250, 0.45)' },
-  { x: 0.28, y: 0.82, baseR: 55, color: 'rgba(244, 114, 182, 0.45)' },
-  { x: 0.72, y: 0.85, baseR: 60, color: 'rgba(192, 132, 252, 0.4)' },
-];
+const SPECTRO_BARS = 44;
 
 function SpectroBackground({
   analyser,
@@ -408,9 +402,9 @@ function SpectroBackground({
   readonly analyser: AnalyserNode;
 }): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  // EMA smoothing keeps the blobs "breathing" instead of jittering
-  // on every frame's noise.
-  const smoothedRef = useRef<number[]>(SPECTRO_BLOBS.map(() => 0));
+  // EMA smoothing per bar — the raw FFT data is noisy and a hard
+  // mapping looks like jitter. Smoothing makes the bars breathe.
+  const smoothedRef = useRef<number[]>(new Array(SPECTRO_BARS).fill(0));
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -442,36 +436,70 @@ function SpectroBackground({
       const h = canvas.clientHeight;
       if (w === 0 || h === 0) return;
 
-      // Bucket the frequency bins into one band per blob.
-      const binsPerBlob = Math.max(1, Math.floor(bufferLength / SPECTRO_BLOBS.length));
+      // Logarithmic-ish bin mapping: low frequencies get fewer bins
+      // (they matter more for voice), high frequencies are grouped
+      // into wider bars. Produces a more musical visualisation than
+      // a flat linear split where the high end dominates the bar
+      // count but carries no information for speech.
       const smoothed = smoothedRef.current;
-      for (let i = 0; i < SPECTRO_BLOBS.length; i++) {
+      const useableBins = Math.min(bufferLength, 256);
+      for (let i = 0; i < SPECTRO_BARS; i++) {
+        const t = i / SPECTRO_BARS;
+        const start = Math.floor(Math.pow(t, 1.5) * useableBins);
+        const end = Math.floor(Math.pow((i + 1) / SPECTRO_BARS, 1.5) * useableBins);
         let sum = 0;
-        for (let j = 0; j < binsPerBlob; j++) {
-          sum += data[i * binsPerBlob + j] ?? 0;
-        }
-        const amp = sum / binsPerBlob / 255;
-        // EMA: 0.18 toward the new value, 0.82 toward the prior.
+        const count = Math.max(1, end - start);
+        for (let j = start; j < end; j++) sum += data[j] ?? 0;
+        const amp = sum / count / 255;
+        // EMA with a slow attack so quiet moments settle gently,
+        // not pop down.
         smoothed[i] = (smoothed[i] ?? 0) * 0.82 + amp * 0.18;
       }
 
       ctx.clearRect(0, 0, w, h);
-      ctx.globalCompositeOperation = 'screen';
-      for (let i = 0; i < SPECTRO_BLOBS.length; i++) {
-        const blob = SPECTRO_BLOBS[i]!;
+
+      const gap = 2;
+      const totalGap = gap * (SPECTRO_BARS - 1);
+      const barW = Math.max(1, (w - totalGap) / SPECTRO_BARS);
+      const maxBarH = h * 0.85;
+      // Minimum visible height even at silence — gives the bars an
+      // idle "alive" presence instead of vanishing entirely.
+      const minBarH = Math.max(3, h * 0.06);
+
+      // Glow effect: canvas shadowBlur paints a soft pink halo
+      // around every bar — the signature look of music
+      // visualisers.
+      ctx.shadowColor = 'rgba(236, 72, 153, 0.55)';
+      ctx.shadowBlur = 14;
+
+      for (let i = 0; i < SPECTRO_BARS; i++) {
         const amp = smoothed[i] ?? 0;
-        const r = blob.baseR + amp * 60;
-        const cx = blob.x * w;
-        const cy = blob.y * h;
-        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-        grad.addColorStop(0, blob.color);
-        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        const barH = Math.max(minBarH, amp * maxBarH);
+        const x = i * (barW + gap);
+        const y = h - barH;
+
+        // Vertical gradient per bar — fuchsia at top, pink at base.
+        const grad = ctx.createLinearGradient(0, y, 0, h);
+        grad.addColorStop(0, 'rgba(217, 70, 239, 0.95)');
+        grad.addColorStop(0.55, 'rgba(236, 72, 153, 0.95)');
+        grad.addColorStop(1, 'rgba(244, 114, 182, 0.85)');
         ctx.fillStyle = grad;
+
+        // Rounded-rect helper. We round the top so the bar looks
+        // like a cap rather than a hard rectangle.
+        const r = Math.min(barW / 2, 3);
         ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + barW - r, y);
+        ctx.quadraticCurveTo(x + barW, y, x + barW, y + r);
+        ctx.lineTo(x + barW, h);
+        ctx.lineTo(x, h);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
         ctx.fill();
       }
-      ctx.globalCompositeOperation = 'source-over';
+      ctx.shadowBlur = 0;
     };
     draw();
     return () => {
@@ -489,13 +517,12 @@ function SpectroBackground({
         inset: 0,
         width: '100%',
         height: '100%',
-        // Heavy blur fuses the individual blobs into a single
-        // organic gradient cloud, so the user perceives a
-        // continuous reactive glow rather than discrete circles.
-        filter: 'blur(28px) saturate(1.1)',
-        WebkitFilter: 'blur(28px) saturate(1.1)',
         zIndex: 0,
         pointerEvents: 'none',
+        // Subtle blur softens the bars into a continuous flowing
+        // visualisation while keeping the shape recognisable.
+        filter: 'blur(2px) saturate(1.15)',
+        WebkitFilter: 'blur(2px) saturate(1.15)',
       }}
     />
   );
