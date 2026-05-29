@@ -18,6 +18,8 @@
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.0.0",
+    "@moxxy/plugin-stt-whisper-codex": "workspace:*",
+    "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/runner": "workspace:*",
     "@moxxy/sdk": "workspace:*",
     "react": "catalog:",

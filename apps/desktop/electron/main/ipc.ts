@@ -32,6 +32,20 @@ import { installMoxxyCli, probeNode } from './installer';
 import { SessionDriver } from './session-driver';
 import { DeskStore } from './desks';
 import { dialog, shell, BrowserWindow as BrowserWindowApi } from 'electron';
+import { buildInProcessPlugins, type InProcessPlugins } from './in-process-plugins';
+
+/**
+ * Lazily-built bag of in-process plugins (Codex transcriber today,
+ * extensible to more). Built on first access so the cost of the
+ * keychain / vault probe is paid only when the user actually exercises
+ * one of these capabilities. Re-used across IPC calls so the
+ * underlying VaultStore caches its master key.
+ */
+let pluginsCache: InProcessPlugins | null = null;
+function getInProcessPlugins(): InProcessPlugins {
+  if (!pluginsCache) pluginsCache = buildInProcessPlugins();
+  return pluginsCache;
+}
 
 export function registerIpcHandlers(pool: RunnerPool, desks: DeskStore): void {
   // ---- Connection ----------------------------------------------------------
@@ -132,17 +146,31 @@ export function registerIpcHandlers(pool: RunnerPool, desks: DeskStore): void {
     return result;
   });
   handle('session.hasTranscriber', async () => {
-    const sup = pool.active();
-    const session = sup?.remote();
-    if (!session) return false;
-    return session.transcribers.getActiveName() !== null;
+    // Voice is wired through the desktop's *in-process* Codex
+    // transcriber (mirrors the TUI's self-host setup: same vault,
+    // same plugin class). Affordance gating: probe the vault for
+    // ANY entry under the Codex OAuth namespace
+    // (`oauth/openai-codex/*`) — same key prefix the Codex login
+    // command writes to. If something's stored, the user has a
+    // login → show the mic.
+    try {
+      const { vault } = getInProcessPlugins();
+      // Stored Codex creds are written under `oauth/openai-codex/...`
+      // by `moxxy login openai-codex`. We check the canonical
+      // refresh-token key; the transcriber's own resolver does the
+      // detailed validation when transcribe() is called.
+      const refresh = await vault.get('oauth/openai-codex/refresh_token');
+      return refresh != null;
+    } catch {
+      return false;
+    }
   });
   handle('session.transcribe', async ({ audioBase64, mimeType }) => {
-    const session = mustRemote(pool);
-    const transcriber = session.transcribers.tryGetActive();
-    if (!transcriber) {
-      throw new Error('no active transcriber on the runner');
-    }
+    // Run the transcribe through the in-process Codex transcriber —
+    // same plugin class, same vault, identical to the TUI's voice
+    // path. No round-trip through the runner socket needed (and no
+    // RemoteSession.setActive throw to work around).
+    const { transcriber } = getInProcessPlugins();
     const audio = Buffer.from(audioBase64, 'base64');
     const result = await transcriber.transcribe(
       audio,
