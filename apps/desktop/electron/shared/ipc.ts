@@ -328,6 +328,9 @@ export interface IpcCommands {
   // Focus-mode window control (from the floating widget back to main).
   'focus.close': () => Promise<void>;
   'focus.restoreMain': () => Promise<void>;
+  /** Resize the focus window. Keeps the bottom-right corner pinned
+   *  so the dot stays in the corner as the widget expands. */
+  'focus.resize': (args: { width: number; height: number }) => Promise<void>;
 
   /** Provider list for the given workspace (defaults to active). */
   'settings.providers': (args?: { workspaceId?: string }) => Promise<ReadonlyArray<ProviderEntry>>;

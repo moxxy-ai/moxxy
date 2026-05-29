@@ -400,9 +400,44 @@ function EmptyState({ ready }: { readonly ready: boolean }): JSX.Element {
             ? 'Send a message to kick off this workspace.'
             : 'Waiting for the runner to come online…'}
         </p>
+        {ready && (
+          <p
+            style={{
+              margin: '14px 0 0',
+              color: 'var(--color-text-muted)',
+              fontSize: 12,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            Or pop the mini-widget with
+            <kbd
+              style={{
+                padding: '2px 7px',
+                background: '#fff',
+                border: '1px solid var(--color-card-border)',
+                borderRadius: 6,
+                fontFamily: 'var(--font-mono)',
+                fontSize: 11,
+                fontWeight: 600,
+                color: 'var(--color-text)',
+                boxShadow: '0 1px 0 var(--color-card-border)',
+              }}
+            >
+              {focusHotkeyLabel()}
+            </kbd>
+          </p>
+        )}
       </div>
     </div>
   );
+}
+
+function focusHotkeyLabel(): string {
+  const isMac =
+    typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.platform);
+  return isMac ? '⌘ ⇧ M' : 'Ctrl ⇧ M';
 }
 
 function SuggestedActions({

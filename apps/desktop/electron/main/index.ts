@@ -24,9 +24,11 @@ import { sweepStaleSockets } from './sweep-sockets';
 import {
   bindMainWindowMinimize,
   closeFocusWindow,
+  resizeFocusWindow,
+  showFocusWindow,
   toggleFocusWindow,
 } from './focus-window';
-import { ipcMain, Tray, Menu, nativeImage } from 'electron';
+import { ipcMain, Tray, Menu, nativeImage, globalShortcut } from 'electron';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -165,6 +167,105 @@ async function createWindow(): Promise<void> {
     mainWindow?.focus();
     closeFocusWindow();
   });
+  ipcMain.removeHandler('focus.resize');
+  ipcMain.handle('focus.resize', (_evt, { width, height }: { width: number; height: number }) => {
+    resizeFocusWindow(width, height);
+  });
+
+  // App menu — "View → Focus Mode" with a keyboard shortcut.
+  installApplicationMenu(() => void toggleFocusWindow(focusOpts), () => mainWindow?.show());
+
+  // System-wide shortcut so the user can summon the widget even when
+  // moxxy isn't the focused app. Cmd+Shift+M on mac / Ctrl+Shift+M
+  // elsewhere — the same chord the menu shows.
+  try {
+    globalShortcut.unregister('CommandOrControl+Shift+M');
+    globalShortcut.register('CommandOrControl+Shift+M', () => {
+      void toggleFocusWindow(focusOpts).then(() => {
+        if (!mainWindow?.isVisible()) void showFocusWindow(focusOpts);
+      });
+    });
+  } catch {
+    /* shortcut may already be claimed — non-fatal */
+  }
+}
+
+function installApplicationMenu(
+  toggleFocus: () => void,
+  openMain: () => void,
+): void {
+  const isMac = process.platform === 'darwin';
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(isMac
+      ? ([
+          {
+            label: 'MoxxyAI Workspaces',
+            submenu: [
+              { role: 'about' as const },
+              { type: 'separator' as const },
+              { role: 'services' as const },
+              { type: 'separator' as const },
+              { role: 'hide' as const },
+              { role: 'hideOthers' as const },
+              { role: 'unhide' as const },
+              { type: 'separator' as const },
+              { role: 'quit' as const },
+            ],
+          },
+        ] satisfies Electron.MenuItemConstructorOptions[])
+      : []),
+    {
+      label: 'File',
+      submenu: [
+        { label: 'Open main window', click: openMain },
+        { type: 'separator' },
+        isMac ? { role: 'close' } : { role: 'quit' },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        {
+          label: 'Toggle Focus Mode',
+          accelerator: 'CommandOrControl+Shift+M',
+          click: toggleFocus,
+        },
+        { type: 'separator' },
+        { role: 'reload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
+    {
+      label: 'Window',
+      submenu: isMac
+        ? [
+            { role: 'minimize' },
+            { role: 'zoom' },
+            { type: 'separator' },
+            { role: 'front' },
+          ]
+        : [{ role: 'minimize' }, { role: 'close' }],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 let trayInstance: Tray | null = null;
@@ -222,6 +323,14 @@ app.on('before-quit', (event) => {
   isQuitting = true;
   event.preventDefault();
   void shutdown().finally(() => app.exit(0));
+});
+
+app.on('will-quit', () => {
+  try {
+    globalShortcut.unregisterAll();
+  } catch {
+    /* nothing to clean up */
+  }
 });
 
 async function shutdown(): Promise<void> {

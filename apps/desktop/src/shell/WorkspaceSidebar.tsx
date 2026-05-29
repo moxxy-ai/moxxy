@@ -555,13 +555,16 @@ function ProfilePill(): JSX.Element {
         >
           <Icon name="agent" size={14} />
         </span>
-        <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ flex: 1, minWidth: 0, lineHeight: 1.25 }}>
           <span
             style={{
               display: 'block',
               fontSize: 13,
               fontWeight: 700,
               color: 'var(--color-primary-strong)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
             }}
           >
             Sign in
@@ -569,12 +572,15 @@ function ProfilePill(): JSX.Element {
           <span
             style={{
               display: 'block',
-              fontSize: 11,
+              fontSize: 10.5,
               color: 'var(--color-text-muted)',
-              marginTop: 2,
+              marginTop: 1,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
             }}
           >
-            Sync settings across machines
+            for full potential
           </span>
         </span>
         <Icon name="chevron-right" size={14} />

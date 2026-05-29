@@ -45,6 +45,32 @@ export function closeFocusWindow(): void {
 /** Spawn (or focus) the floating widget. Anchored to the bottom-
  *  right of the primary display by default; user-draggable while
  *  open. */
+/** Pin the bottom-right corner so resizes feel anchored to the
+ *  screen corner instead of sliding the window around. */
+export function resizeFocusWindow(width: number, height: number): void {
+  if (!focusWindow || focusWindow.isDestroyed()) return;
+  const work = screen.getPrimaryDisplay().workArea;
+  const margin = 24;
+  const [prevW = 0, prevH = 0] = focusWindow.getSize();
+  const [prevX = 0, prevY = 0] = focusWindow.getPosition();
+  const snapBottomRight =
+    Math.abs(prevX + prevW - (work.x + work.width)) < 80 &&
+    Math.abs(prevY + prevH - (work.y + work.height)) < 80;
+  focusWindow.setBounds(
+    {
+      x: snapBottomRight
+        ? work.x + work.width - width - margin
+        : prevX + (prevW - width),
+      y: snapBottomRight
+        ? work.y + work.height - height - margin
+        : prevY + (prevH - height),
+      width,
+      height,
+    },
+    true,
+  );
+}
+
 export async function showFocusWindow(opts: CreateOpts): Promise<void> {
   if (focusWindow && !focusWindow.isDestroyed()) {
     focusWindow.show();
@@ -53,8 +79,10 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
   }
 
   const work = screen.getPrimaryDisplay().workArea;
-  const width = 380;
-  const height = 200;
+  // Start collapsed as a small floating dot. The renderer's
+  // FocusWidget calls focus.resize as the user expands it.
+  const width = 64;
+  const height = 64;
   const margin = 24;
   const win = new BrowserWindow({
     title: 'MoxxyAI · Focus',
@@ -62,8 +90,8 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
     height,
     x: work.x + work.width - width - margin,
     y: work.y + work.height - height - margin,
-    minWidth: 320,
-    minHeight: 160,
+    minWidth: 56,
+    minHeight: 56,
     maxWidth: 520,
     maxHeight: 320,
     frame: false,
