@@ -3,6 +3,30 @@ import react from '@vitejs/plugin-react';
 import path from 'node:path';
 
 /**
+ * Workspace packages the main process imports at runtime. They MUST be
+ * bundled INTO the main/preload output rather than left as bare
+ * `require('@moxxy/…')` calls: electron-builder packs only `dist` /
+ * `dist-electron` (not the pnpm symlink farm under node_modules), so an
+ * externalized workspace import would `MODULE_NOT_FOUND` in the packaged
+ * app. Excluding them from `externalizeDepsPlugin` inlines them.
+ */
+const BUNDLED_WORKSPACE_DEPS = [
+  '@moxxy/runner',
+  '@moxxy/sdk',
+  '@moxxy/plugin-vault',
+  '@moxxy/plugin-stt-whisper-codex',
+];
+
+/**
+ * Native / optional modules that must stay external even though they ride
+ * in on a bundled workspace dep. `keytar` is loaded via a guarded dynamic
+ * `import('keytar')` (plugin-vault falls back to a disk/passphrase key
+ * when it is absent), so it is never statically required — keep it out of
+ * the bundle and let it resolve (or gracefully fail) at runtime.
+ */
+const EXTERNAL_NATIVE = ['keytar'];
+
+/**
  * electron-vite manages three build targets (main / preload / renderer)
  * with one config. Each has its own output dir under `dist-electron/`,
  * and the renderer also writes to `dist/` so it can be served by Vite
@@ -10,20 +34,22 @@ import path from 'node:path';
  */
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({ exclude: BUNDLED_WORKSPACE_DEPS })],
     build: {
       outDir: 'dist-electron/main',
       rollupOptions: {
         input: { index: path.resolve('electron/main/index.ts') },
+        external: EXTERNAL_NATIVE,
       },
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({ exclude: BUNDLED_WORKSPACE_DEPS })],
     build: {
       outDir: 'dist-electron/preload',
       rollupOptions: {
         input: { index: path.resolve('electron/preload/index.ts') },
+        external: EXTERNAL_NATIVE,
       },
     },
   },

@@ -14,7 +14,7 @@
     "lint": "eslint .",
     "test": "turbo run test",
     "test:watch": "turbo run test:watch --concurrency=1",
-    "check:deps": "depcruise --config .dependency-cruiser.cjs packages",
+    "check:deps": "depcruise --config .dependency-cruiser.cjs packages apps/desktop/electron",
     "clean": "turbo run clean && rm -rf node_modules .turbo"
   },
   "devDependencies": {
