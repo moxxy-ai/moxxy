@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.0.0",
+    "@clerk/elements": "^0.20.0",
     "@moxxy/runner": "workspace:*",
     "@moxxy/sdk": "workspace:*",
     "react": "catalog:",

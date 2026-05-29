@@ -20,14 +20,16 @@
  * Clerk app configured aren't blocked.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ClerkProvider,
   SignedIn,
   SignedOut,
-  SignIn,
   useUser,
 } from '@clerk/clerk-react';
+import * as Clerk from '@clerk/elements/common';
+import * as SignIn from '@clerk/elements/sign-in';
+import * as SignUp from '@clerk/elements/sign-up';
 import { api } from '@/lib/api';
 import { usePrefs } from '@/lib/usePrefs';
 import { useDesks } from '@/lib/useDesks';
@@ -72,31 +74,16 @@ export function FirstRunWizard({ onComplete }: Props): JSX.Element {
     </Shell>
   );
 
-  // Wrap the wizard in a ClerkProvider so the SignIn component has
-  // its context. When no publishable key is configured we skip the
-  // provider entirely — the AuthStep handles that branch.
+  // ClerkProvider wraps the wizard so Elements primitives have access
+  // to the Clerk client. Without a publishable key we skip it and the
+  // AuthStep degrades to a "local mode" message.
   if (CLERK_KEY) {
     return (
-      <ClerkProvider publishableKey={CLERK_KEY} appearance={clerkAppearance}>
-        {content}
-      </ClerkProvider>
+      <ClerkProvider publishableKey={CLERK_KEY}>{content}</ClerkProvider>
     );
   }
   return content;
 }
-
-const clerkAppearance = {
-  variables: {
-    colorPrimary: '#ec4899',
-    colorBackground: '#ffffff',
-    colorText: '#0f172a',
-    colorTextSecondary: '#475569',
-    colorInputBackground: '#f7f8fc',
-    borderRadius: '10px',
-    fontFamily:
-      "'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-  },
-};
 
 // ---------- Shell ----------------------------------------------------------
 
@@ -319,21 +306,236 @@ function AuthStep({
   return (
     <StepCard title="Sign in" sub="So your settings sync across machines.">
       <SignedOut>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'center',
-            paddingBlock: 4,
-          }}
-        >
-          <SignIn routing="virtual" forceRedirectUrl="#" />
-        </div>
+        <AuthForm />
       </SignedOut>
       <SignedIn>
         <SignedInPanel onNext={onNext} />
       </SignedIn>
       <Nav onBack={onBack} onNext={onNext} nextLabel="Skip" />
     </StepCard>
+  );
+}
+
+/**
+ * Custom sign-in / sign-up form built from Clerk Elements primitives
+ * so it matches the rest of the wizard (white card, brand inputs,
+ * pink CTA, no Clerk branding visible).
+ */
+function AuthForm(): JSX.Element {
+  const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in');
+  return mode === 'sign-in' ? (
+    <SignInForm onSwitch={() => setMode('sign-up')} />
+  ) : (
+    <SignUpForm onSwitch={() => setMode('sign-in')} />
+  );
+}
+
+function SignInForm({ onSwitch }: { readonly onSwitch: () => void }): JSX.Element {
+  return (
+    <div style={authCardStyle}>
+      <SignIn.Root>
+        <SignIn.Step name="start" style={authStepStyle}>
+          <OAuthRow />
+          <Divider label="or" />
+          <FieldEmail />
+          <ContinueButton label="Continue" />
+          <SwitchLink prompt="Don't have an account?" action="Sign up" onSwitch={onSwitch} />
+        </SignIn.Step>
+
+        <SignIn.Step name="verifications" style={authStepStyle}>
+          <SignIn.Strategy name="password">
+            <FieldPassword />
+            <ContinueButton label="Sign in" />
+          </SignIn.Strategy>
+          <SignIn.Strategy name="email_code">
+            <FieldCode label="Email verification code" />
+            <ContinueButton label="Verify" />
+          </SignIn.Strategy>
+          <SwitchLink prompt="Wrong email?" action="Start over" onSwitch={() => window.location.reload()} />
+        </SignIn.Step>
+      </SignIn.Root>
+    </div>
+  );
+}
+
+function SignUpForm({ onSwitch }: { readonly onSwitch: () => void }): JSX.Element {
+  return (
+    <div style={authCardStyle}>
+      <SignUp.Root>
+        <SignUp.Step name="start" style={authStepStyle}>
+          <OAuthRow />
+          <Divider label="or" />
+          <FieldEmail />
+          <ContinueButton label="Create account" />
+          <SwitchLink prompt="Already have an account?" action="Sign in" onSwitch={onSwitch} />
+        </SignUp.Step>
+
+        <SignUp.Step name="verifications" style={authStepStyle}>
+          <SignUp.Strategy name="email_code">
+            <FieldCode label="Email verification code" />
+            <ContinueButton label="Verify" />
+          </SignUp.Strategy>
+        </SignUp.Step>
+
+        <SignUp.Step name="continue" style={authStepStyle}>
+          <FieldUsername />
+          <ContinueButton label="Continue" />
+        </SignUp.Step>
+      </SignUp.Root>
+    </div>
+  );
+}
+
+// ---------- Auth primitives -----------------------------------------------
+
+function OAuthRow(): JSX.Element {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+      <Clerk.Connection name="google" asChild>
+        <button type="button" style={oauthBtnStyle}>
+          <GoogleGlyph />
+          Google
+        </button>
+      </Clerk.Connection>
+      <Clerk.Connection name="apple" asChild>
+        <button type="button" style={oauthBtnStyle}>
+          <AppleGlyph />
+          Apple
+        </button>
+      </Clerk.Connection>
+    </div>
+  );
+}
+
+function FieldEmail(): JSX.Element {
+  return (
+    <Clerk.Field name="identifier" style={fieldRowStyle}>
+      <Clerk.Label style={labelStyle}>Email address</Clerk.Label>
+      <Clerk.Input type="email" required asChild>
+        <input style={inputStyle} placeholder="you@example.com" autoComplete="email" />
+      </Clerk.Input>
+      <Clerk.FieldError style={fieldErrorStyle} />
+    </Clerk.Field>
+  );
+}
+
+function FieldPassword(): JSX.Element {
+  return (
+    <Clerk.Field name="password" style={fieldRowStyle}>
+      <Clerk.Label style={labelStyle}>Password</Clerk.Label>
+      <Clerk.Input type="password" required asChild>
+        <input style={inputStyle} placeholder="••••••••" autoComplete="current-password" />
+      </Clerk.Input>
+      <Clerk.FieldError style={fieldErrorStyle} />
+    </Clerk.Field>
+  );
+}
+
+function FieldUsername(): JSX.Element {
+  return (
+    <Clerk.Field name="username" style={fieldRowStyle}>
+      <Clerk.Label style={labelStyle}>Username</Clerk.Label>
+      <Clerk.Input asChild>
+        <input style={inputStyle} placeholder="moxxy_fan" autoComplete="username" />
+      </Clerk.Input>
+      <Clerk.FieldError style={fieldErrorStyle} />
+    </Clerk.Field>
+  );
+}
+
+function FieldCode({ label }: { readonly label: string }): JSX.Element {
+  return (
+    <Clerk.Field name="code" style={fieldRowStyle}>
+      <Clerk.Label style={labelStyle}>{label}</Clerk.Label>
+      <Clerk.Input asChild>
+        <input
+          style={{ ...inputStyle, letterSpacing: '0.3em', textAlign: 'center', fontFamily: 'var(--font-mono)' }}
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          placeholder="123456"
+        />
+      </Clerk.Input>
+      <Clerk.FieldError style={fieldErrorStyle} />
+    </Clerk.Field>
+  );
+}
+
+function ContinueButton({ label }: { readonly label: string }): JSX.Element {
+  return (
+    <SignIn.Action submit asChild>
+      <button type="button" style={authCtaStyle}>
+        {label}
+      </button>
+    </SignIn.Action>
+  );
+}
+
+function Divider({ label }: { readonly label: string }): JSX.Element {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--color-text-dim)' }}>
+      <span style={{ flex: 1, height: 1, background: 'var(--color-card-border)' }} />
+      <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</span>
+      <span style={{ flex: 1, height: 1, background: 'var(--color-card-border)' }} />
+    </div>
+  );
+}
+
+function SwitchLink({
+  prompt,
+  action,
+  onSwitch,
+}: {
+  readonly prompt: string;
+  readonly action: string;
+  readonly onSwitch: () => void;
+}): JSX.Element {
+  return (
+    <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--color-text-dim)', textAlign: 'center' }}>
+      {prompt}{' '}
+      <button
+        type="button"
+        onClick={onSwitch}
+        style={{
+          color: 'var(--color-primary-strong)',
+          fontWeight: 600,
+          background: 'transparent',
+          padding: 0,
+        }}
+      >
+        {action}
+      </button>
+    </p>
+  );
+}
+
+function GoogleGlyph(): JSX.Element {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden>
+      <path
+        fill="#4285F4"
+        d="M22.5 12.27c0-.79-.07-1.55-.2-2.27H12v4.32h5.92a5.06 5.06 0 0 1-2.2 3.33v2.77h3.56c2.08-1.92 3.22-4.74 3.22-8.15z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.56-2.77c-.99.67-2.25 1.07-3.72 1.07-2.86 0-5.28-1.93-6.15-4.53H2.18v2.84A11 11 0 0 0 12 23z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.85 14.11A6.57 6.57 0 0 1 5.5 12c0-.73.12-1.44.35-2.11V7.05H2.18A11 11 0 0 0 1 12c0 1.78.42 3.46 1.18 4.95l3.67-2.84z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 5.38c1.62 0 3.07.56 4.21 1.65l3.15-3.15C17.45 2.13 14.97 1 12 1A11 11 0 0 0 2.18 7.05l3.67 2.84C6.72 7.3 9.14 5.38 12 5.38z"
+      />
+    </svg>
+  );
+}
+
+function AppleGlyph(): JSX.Element {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M16.36 12.97c-.02-2.06 1.69-3.06 1.77-3.11-.97-1.41-2.47-1.6-3-1.62-1.27-.13-2.49.75-3.13.75-.65 0-1.65-.74-2.72-.72-1.4.02-2.69.81-3.4 2.06-1.46 2.52-.37 6.24 1.04 8.29.7 1 1.51 2.12 2.58 2.08 1.04-.04 1.43-.67 2.69-.67 1.25 0 1.6.67 2.69.65 1.11-.02 1.81-1.01 2.49-2.02.79-1.16 1.11-2.29 1.13-2.34-.02-.01-2.16-.83-2.18-3.28zM14.5 6.83c.57-.69.96-1.65.85-2.6-.83.03-1.83.55-2.42 1.24-.52.61-.99 1.59-.87 2.52.92.07 1.87-.47 2.44-1.16z" />
+    </svg>
   );
 }
 
@@ -906,6 +1108,54 @@ const pickerBtnStyle: React.CSSProperties = {
   width: '100%',
 };
 
-// Suppress an unused-import lint since useMemo is exported in case
-// the SignIn config grows. Keep it real-used:
-void useMemo;
+// --- Auth styles -----------------------------------------------------------
+
+const authCardStyle: React.CSSProperties = {
+  padding: '18px 18px 16px',
+  background: 'var(--color-card-bg)',
+  border: '1px solid var(--color-card-border)',
+  borderRadius: 12,
+};
+
+const authStepStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+};
+
+const fieldRowStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: 12.5,
+  fontWeight: 600,
+  color: 'var(--color-text-muted)',
+};
+
+const fieldErrorStyle: React.CSSProperties = {
+  fontSize: 11.5,
+  color: 'var(--color-red)',
+};
+
+const oauthBtnStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 8,
+  padding: '10px 12px',
+  fontSize: 13,
+  fontWeight: 600,
+  color: 'var(--color-text)',
+  background: '#fff',
+  border: '1px solid var(--color-card-border)',
+  borderRadius: 10,
+};
+
+const authCtaStyle: React.CSSProperties = {
+  ...primaryBtnStyle,
+  width: '100%',
+  justifyContent: 'center',
+};
