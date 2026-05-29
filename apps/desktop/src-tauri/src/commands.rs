@@ -8,6 +8,7 @@ use tauri_plugin_dialog::DialogExt;
 use crate::app_state::AppState;
 use moxxy_desktop_core::desks::{Desk, DeskId};
 use moxxy_desktop_core::error::AppResult;
+use moxxy_desktop_core::requirements::{InstallHint, RequirementsStatus};
 use moxxy_desktop_core::runner_bridge::{RunTurnParams, RunnerBridge};
 use moxxy_desktop_core::schedule::{
     is_basic_valid_cron, NewSchedule, ScheduleEntry, ScheduleId, SchedulePatch,
@@ -308,6 +309,41 @@ pub async fn schedules_set_enabled(
 #[tauri::command]
 pub fn schedules_validate_cron(expr: String) -> bool {
     is_basic_valid_cron(&expr)
+}
+
+// ---- Requirements / onboarding ----------------------------------------------
+
+/// Probe the system for Node, the moxxy CLI, and provider config.
+/// Returns the full status the wizard renders.
+#[tauri::command]
+pub async fn requirements_check() -> RequirementsStatus {
+    crate::requirements::detect().await
+}
+
+/// Run an install hint. For `Command` variants the child is spawned and
+/// stdout/stderr stream to the webview as `requirements.install.progress`
+/// events; for `OpenUrl` the Tauri opener plugin shells out to the OS.
+/// Returns the exit code (0 = success) or an error string.
+#[tauri::command]
+pub async fn requirements_install<R: Runtime>(
+    app: AppHandle<R>,
+    hint: InstallHint,
+) -> Result<i32, String> {
+    match hint {
+        InstallHint::Command { program, args, .. } => {
+            crate::requirements::run_install_command(&app, program, args).await
+        }
+        InstallHint::OpenUrl { url, .. } => {
+            // Open in the default browser. Tauri-plugin-shell exposes
+            // this; we fall back to the OS opener if the plugin call
+            // fails for any reason.
+            use tauri_plugin_shell::ShellExt;
+            app.shell()
+                .open(url, None)
+                .map_err(|e| e.to_string())?;
+            Ok(0)
+        }
+    }
 }
 
 // ---- Dialogs ----------------------------------------------------------------

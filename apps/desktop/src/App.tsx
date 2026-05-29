@@ -3,10 +3,12 @@ import { useSidecarStatus, type SidecarStatus } from './lib/runner';
 import { useRunnerSession } from './lib/runner-session';
 import { useDesks } from './lib/desks';
 import { useWindows } from './lib/windows';
+import { useRequirements } from './lib/requirements';
 import { isMainWindow } from './lib/window-context';
 import { DeskSidebar } from './desks/desk-sidebar';
 import { Composer, Transcript } from './chat';
 import { SchedulePanel } from './schedules';
+import { RequirementsScreen } from './requirements';
 
 type View = 'chat' | 'schedules';
 
@@ -15,9 +17,30 @@ export function App(): JSX.Element {
   const session = useRunnerSession();
   const desks = useDesks();
   const windows = useWindows();
+  const requirements = useRequirements();
   const [theme] = useState<'dark' | 'light'>('dark');
   const [view, setView] = useState<View>('chat');
   const showWindowControls = isMainWindow();
+
+  // While the system isn't ready (Node missing, moxxy CLI not on
+  // PATH, no provider config), block the main UI with the setup
+  // screen — it's the only sane state for the user to land on.
+  // Only the main window guards on requirements; session windows
+  // assume their parent already cleared this.
+  const blockOnRequirements =
+    isMainWindow() &&
+    requirements.status !== null &&
+    !requirements.status.allMet;
+
+  if (blockOnRequirements) {
+    return (
+      <div className="app-shell" data-theme={theme} style={{ gridTemplateColumns: '1fr' }}>
+        <main className="app-main bp-grid-fade">
+          <RequirementsScreen api={requirements} />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="app-shell" data-theme={theme}>

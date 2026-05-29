@@ -20,6 +20,7 @@ pub mod desks;
 pub mod error;
 pub mod jsonrpc;
 pub mod pool;
+pub mod requirements;
 pub mod runner_bridge;
 pub mod schedule;
 pub mod sidecar;

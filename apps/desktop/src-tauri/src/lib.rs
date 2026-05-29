@@ -19,6 +19,7 @@
 pub mod app_state;
 pub mod boot;
 pub mod commands;
+pub mod requirements;
 
 // Re-export the core for downstream Tauri code that wants the traits in
 // the same path as before.
@@ -68,6 +69,8 @@ pub fn run() {
             commands::schedules_delete,
             commands::schedules_set_enabled,
             commands::schedules_validate_cron,
+            commands::requirements_check,
+            commands::requirements_install,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
