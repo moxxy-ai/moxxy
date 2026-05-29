@@ -5,20 +5,15 @@
  * to keep its surface tight — this re-export is the seam.
  */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 import * as mod from './useChat';
+import type { ChatAction, ChatState } from './useChat';
 
 interface Internals {
-  initial: () => unknown;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  apply: (state: any, action: any) => any;
+  initial: () => ChatState;
+  apply: (state: ChatState, action: ChatAction) => ChatState;
 }
 
 export const reducerForTest: Internals = ((): Internals => {
-  // Pull the internals via a tiny test-only export pattern: useChat
-  // exports symbols at runtime for the test module. We attach them
-  // here in module load order.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const m = mod as unknown as { __reducerForTest?: Internals };
   if (!m.__reducerForTest) {
     throw new Error(

@@ -28,6 +28,7 @@ export default defineConfig({
     },
   },
   renderer: {
+    root: '.',
     plugins: [react()],
     resolve: {
       alias: {
@@ -37,6 +38,9 @@ export default defineConfig({
     },
     build: {
       outDir: 'dist',
+      rollupOptions: {
+        input: { index: path.resolve(__dirname, 'index.html') },
+      },
     },
   },
 });

@@ -54,7 +54,7 @@ async function readPreferences(home: string): Promise<Preferences | null> {
   }
 }
 
-async function readVaultKeys(home: string): Promise<string[]> {
+export async function readVaultKeys(home: string): Promise<string[]> {
   try {
     const body = await readFile(path.join(home, '.moxxy', 'vault.json'), 'utf8');
     const doc = JSON.parse(body) as { entries?: Record<string, unknown> };

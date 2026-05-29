@@ -28,7 +28,7 @@ export type Block =
     }
   | { kind: 'system'; id: string; text: string; tone: 'info' | 'error' };
 
-interface ChatState {
+export interface ChatState {
   blocks: Block[];
   activeTurnId: string | null;
   sending: boolean;
@@ -46,12 +46,13 @@ const initial: ChatState = {
   seq: 0,
 };
 
-type Action =
+export type ChatAction =
   | { type: 'event'; event: MoxxyEvent }
   | { type: 'send_started'; turnId: string; prompt: string }
   | { type: 'send_failed'; message: string }
   | { type: 'turn_complete'; turnId: string; error: string | null }
   | { type: 'clear' };
+type Action = ChatAction;
 
 function reducer(state: ChatState, action: Action): ChatState {
   switch (action.type) {

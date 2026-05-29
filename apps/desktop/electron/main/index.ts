@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 import { RunnerSupervisor } from './runner-supervisor';
 import { bindWindow, registerIpcHandlers } from './ipc';
+import { DeskStore } from './desks';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -56,10 +57,13 @@ async function createWindow(): Promise<void> {
 
 app.whenReady().then(async () => {
   supervisor = new RunnerSupervisor();
-  registerIpcHandlers(supervisor);
-  // Kick the loop — runs in the background; the renderer's first
-  // `connection.snapshot` invoke or `connection.changed` event will
-  // describe whatever phase we're in.
+  const desks = new DeskStore();
+  // If there's an active desk, prime the supervisor with its cwd
+  // BEFORE the run loop starts so the first spawn lands in the right
+  // directory.
+  const initialActive = await desks.getActive();
+  if (initialActive) await supervisor.setCwd(initialActive.cwd);
+  registerIpcHandlers(supervisor, desks);
   void supervisor.run();
 
   await createWindow();

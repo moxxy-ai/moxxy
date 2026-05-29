@@ -3,34 +3,38 @@ import { useConnection, isConnected } from './lib/useConnection';
 import { ConnectionScreen } from './connection/ConnectionScreen';
 import { OnboardingWizard } from './onboarding/OnboardingWizard';
 import { ChatSurface } from './chat/ChatSurface';
+import { DeskSidebar } from './desks/DeskSidebar';
+import { WorkflowsPanel } from './workflows/WorkflowsPanel';
+import { SettingsPanel } from './settings/SettingsPanel';
+
+type View = 'chat' | 'workflows' | 'settings';
 
 /**
- * Phase 1 skeleton. The single source of truth for what to render is
- * the supervisor's `phase`:
+ * Top-level shell. Three layers of gating, in order:
  *
- *   - anything other than `connected`     → ConnectionScreen
- *   - `connected`                         → ChatSurface (TBD in Phase 3)
- *
- * The onboarding wizard + chat surface land in subsequent phases so
- * each one can be focused and individually verified.
+ *   1. CLI / provider onboarding takes the whole pane while either
+ *      condition is unmet.
+ *   2. While the runner is connecting (any phase that isn't
+ *      `connected`), the ConnectionScreen owns the pane.
+ *   3. Once connected, the main shell renders: DeskSidebar on the
+ *      left + the active view (chat / workflows / settings).
  */
 export function App(): JSX.Element {
   const { snapshot, retry } = useConnection();
   const phase = snapshot?.phase;
   const [forceWizard, setForceWizard] = useState(false);
+  const [view, setView] = useState<View>('chat');
 
   const cliMissing = phase?.phase === 'cli-missing';
   const connectedWithoutProvider =
     phase?.phase === 'connected' && phase.activeProvider === null;
 
-  // Onboarding takes over when the CLI isn't installed yet, or when
-  // we connected but no provider is configured. The wizard auto-
-  // closes when the underlying state changes (provider configured /
-  // CLI install completed → supervisor reconnects → we land in
-  // `connected` with a provider).
   if (forceWizard || cliMissing || connectedWithoutProvider) {
     return (
-      <OnboardingWizard phase={phase} onComplete={() => setForceWizard(false)} />
+      <OnboardingWizard
+        phase={phase}
+        onComplete={() => setForceWizard(false)}
+      />
     );
   }
 
@@ -38,6 +42,12 @@ export function App(): JSX.Element {
     return <ConnectionScreen snapshot={snapshot} onRetry={() => void retry()} />;
   }
 
-  return <ChatSurface phase={phase!} />;
+  return (
+    <div className="app-shell" style={{ flexDirection: 'row' }}>
+      <DeskSidebar view={view} onView={setView} />
+      {view === 'chat' && <ChatSurface phase={phase!} />}
+      {view === 'workflows' && <WorkflowsPanel />}
+      {view === 'settings' && <SettingsPanel />}
+    </div>
+  );
 }
-

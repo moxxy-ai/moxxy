@@ -54,12 +54,45 @@ export class RunnerSupervisor extends EventEmitter {
   private child: ChildProcess | null = null;
   private retryNotify: () => void = () => {};
   private stopped = false;
+  /**
+   * Currently active desk's cwd. The supervisor passes this as the
+   * spawned moxxy serve's cwd so moxxy's config loader picks up the
+   * desk's project-local `moxxy.config.yaml` + scopes its session
+   * log there. Switching desks calls [`setCwd`] which restarts.
+   */
+  private cwd: string | null = null;
 
   constructor(
     private readonly socketPath: string = process.env.MOXXY_RUNNER_SOCKET ??
       path.join(homedir(), '.moxxy', 'serve.sock'),
   ) {
     super();
+  }
+
+  /**
+   * Tell the supervisor which directory the runner should treat as
+   * its cwd. If we're already attached, tear down and reconnect so
+   * the new desk's config + session files take effect.
+   */
+  async setCwd(cwd: string | null): Promise<void> {
+    if (this.cwd === cwd) return;
+    this.cwd = cwd;
+    if (this.session) {
+      // Close the session — the run loop will then attempt to spawn
+      // a fresh runner in the new directory.
+      const session = this.session;
+      this.session = null;
+      try {
+        await session.close();
+      } catch {
+        /* ignore */
+      }
+      if (this.child) {
+        this.child.kill();
+        this.child = null;
+      }
+      this.forceRetry();
+    }
   }
 
   snapshot(): ConnectionSnapshot {
@@ -236,13 +269,15 @@ export class RunnerSupervisor extends EventEmitter {
       ...process.env,
       MOXXY_RUNNER_SOCKET: this.socketPath,
     };
+    const spawnOpts: import('node:child_process').SpawnOptions = {
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    };
+    if (this.cwd) spawnOpts.cwd = this.cwd;
     const proc =
       cli.kind === 'direct'
-        ? spawn(cli.bin, ['serve'], { env, stdio: ['ignore', 'pipe', 'pipe'] })
-        : spawn('node', [cli.entry, 'serve'], {
-            env,
-            stdio: ['ignore', 'pipe', 'pipe'],
-          });
+        ? spawn(cli.bin, ['serve'], spawnOpts)
+        : spawn('node', [cli.entry, 'serve'], spawnOpts);
 
     proc.stdout?.on('data', (chunk) => this.consumeLog('stdout', chunk));
     proc.stderr?.on('data', (chunk) => this.consumeLog('stderr', chunk));

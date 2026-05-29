@@ -76,6 +76,64 @@ export interface InstallProgressLine {
   line: string;
 }
 
+// ---------- Workflows ------------------------------------------------------
+
+export interface WorkflowSummary {
+  name: string;
+  description: string;
+  enabled: boolean;
+  scope: string;
+  steps: number;
+  triggers: string;
+}
+
+export interface WorkflowRun {
+  ok: boolean;
+  output: string;
+  error?: string;
+  steps: ReadonlyArray<{ id: string; status: string; error?: string }>;
+}
+
+// ---------- Settings -------------------------------------------------------
+
+export interface ProviderEntry {
+  name: string;
+  /** True when the runner has activated this provider (credentials
+   *  resolved). False = entry exists but key is missing or invalid. */
+  ready: boolean;
+}
+
+export interface McpServerEntry {
+  name: string;
+  enabled: boolean;
+  connected: boolean;
+}
+
+export interface VaultEntryName {
+  name: string;
+}
+
+export interface SkillFile {
+  name: string;
+  /** True if the file is editable (lives under ~/.moxxy/skills/). */
+  editable: boolean;
+}
+
+// ---------- Desks ---------------------------------------------------------
+
+export interface Desk {
+  id: string;
+  name: string;
+  cwd: string;
+  color: string;
+  createdAt: number;
+}
+
+export interface DesksOverview {
+  desks: Desk[];
+  activeId: string | null;
+}
+
 // ---------- Chat -----------------------------------------------------------
 
 export interface RunTurnArgs {
@@ -135,6 +193,14 @@ export interface IpcCommands {
    *  so the next turn picks it up without a relaunch. */
   'onboarding.saveProviderKey': (args: { provider: string; secret: string }) => Promise<void>;
 
+  'desks.list': () => Promise<DesksOverview>;
+  'desks.create': (args: { name: string; cwd: string }) => Promise<Desk>;
+  'desks.remove': (args: { id: string }) => Promise<void>;
+  'desks.setActive': (args: { id: string }) => Promise<void>;
+  /** Open a native folder picker; resolves to the absolute path or null
+   *  if the user cancelled. */
+  'desks.pickFolder': () => Promise<string | null>;
+
   /** Returns the runner's SessionInfo snapshot. */
   'session.info': () => Promise<unknown | null>;
   /** Issue a new turn. Events stream back via 'runner.event'. */
@@ -146,6 +212,20 @@ export interface IpcCommands {
   'session.setProvider': (args: { provider: string }) => Promise<void>;
   /** Switch the active mode. */
   'session.setMode': (args: { mode: string }) => Promise<void>;
+
+  // Workflows
+  'workflows.list': () => Promise<ReadonlyArray<WorkflowSummary>>;
+  'workflows.setEnabled': (args: { name: string; enabled: boolean }) => Promise<void>;
+  'workflows.run': (args: { name: string }) => Promise<WorkflowRun>;
+
+  // Settings
+  'settings.providers': () => Promise<ReadonlyArray<ProviderEntry>>;
+  'settings.mcpServers': () => Promise<ReadonlyArray<McpServerEntry>>;
+  'settings.mcpToggle': (args: { name: string; enabled: boolean }) => Promise<void>;
+  'settings.vaultEntries': () => Promise<ReadonlyArray<VaultEntryName>>;
+  'settings.skills': () => Promise<ReadonlyArray<SkillFile>>;
+  'settings.readSkill': (args: { name: string }) => Promise<string>;
+  'settings.writeSkill': (args: { name: string; body: string }) => Promise<void>;
 }
 
 /** Names of every command, derived. */

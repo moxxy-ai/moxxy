@@ -12,13 +12,16 @@ const baseEvt = {
   seq: 0,
   turnId: 'T1' as unknown as MoxxyEvent['turnId'],
   at: 1,
+  ts: 1,
+  sessionId: 'S' as unknown as MoxxyEvent['sessionId'],
+  source: 'test',
 };
 
 function userPrompt(text: string): MoxxyEvent {
-  return { ...baseEvt, type: 'user_prompt', text };
+  return { ...baseEvt, type: 'user_prompt', text } as MoxxyEvent;
 }
 function chunk(delta: string): MoxxyEvent {
-  return { ...baseEvt, type: 'assistant_chunk', delta };
+  return { ...baseEvt, type: 'assistant_chunk', delta } as MoxxyEvent;
 }
 function assistant(content: string, stopReason = 'end_turn'): MoxxyEvent {
   return {
@@ -26,25 +29,25 @@ function assistant(content: string, stopReason = 'end_turn'): MoxxyEvent {
     type: 'assistant_message',
     content,
     stopReason: stopReason as 'end_turn',
-  };
+  } as MoxxyEvent;
 }
 function toolRequested(callId: string, name: string, input: unknown): MoxxyEvent {
   return {
     ...baseEvt,
     type: 'tool_call_requested',
-    callId: callId as unknown as MoxxyEvent['id'],
+    callId: callId as unknown as { readonly [k: string]: unknown },
     name,
     input,
-  };
+  } as unknown as MoxxyEvent;
 }
 function toolResult(callId: string, ok: boolean, output?: unknown): MoxxyEvent {
   const base = {
     ...baseEvt,
     type: 'tool_result' as const,
-    callId: callId as unknown as MoxxyEvent['id'],
+    callId: callId as unknown as { readonly [k: string]: unknown },
     ok,
   };
-  return output === undefined ? base : { ...base, output };
+  return (output === undefined ? base : { ...base, output }) as unknown as MoxxyEvent;
 }
 function errorEvent(message: string): MoxxyEvent {
   return {
@@ -52,7 +55,7 @@ function errorEvent(message: string): MoxxyEvent {
     type: 'error',
     kind: 'fatal',
     message,
-  };
+  } as MoxxyEvent;
 }
 
 describe('useChat reducer', () => {
@@ -141,10 +144,10 @@ describe('useChat reducer', () => {
       event: {
         ...baseEvt,
         type: 'tool_result',
-        callId: 'c1' as unknown as MoxxyEvent['id'],
+        callId: 'c1' as unknown as { readonly [k: string]: unknown },
         ok: false,
         error: { message: 'boom', kind: 'threw' },
-      } as MoxxyEvent,
+      } as unknown as MoxxyEvent,
     });
     const tool = s.blocks.find((b) => b.kind === 'tool');
     expect(tool).toMatchObject({ status: 'error', error: 'boom' });

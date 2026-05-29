@@ -20,13 +20,18 @@ import type {
   IpcCommands,
   IpcEvents,
 } from '../shared/ipc';
+import type { SessionLike } from '@moxxy/sdk';
 import { RunnerSupervisor } from './runner-supervisor';
 import { probeOnboarding, saveProviderKey } from './onboarding';
 import { installMoxxyCli, probeNode } from './installer';
 import { SessionDriver } from './session-driver';
-import { shell, BrowserWindow as BrowserWindowApi } from 'electron';
+import { DeskStore } from './desks';
+import { dialog, shell, BrowserWindow as BrowserWindowApi } from 'electron';
 
-export function registerIpcHandlers(supervisor: RunnerSupervisor): void {
+export function registerIpcHandlers(
+  supervisor: RunnerSupervisor,
+  desks: DeskStore,
+): void {
   handle('connection.snapshot', async () => supervisor.snapshot());
   handle('connection.retry', async () => {
     supervisor.forceRetry();
@@ -73,6 +78,97 @@ export function registerIpcHandlers(supervisor: RunnerSupervisor): void {
   handle('session.setMode', async ({ mode }) => {
     const session = mustHaveSession(supervisor);
     session.modes.setActive(mode);
+  });
+
+  handle('desks.list', async () => {
+    const list = await desks.list();
+    const active = await desks.getActive();
+    return { desks: list, activeId: active?.id ?? null };
+  });
+  handle('desks.create', async ({ name, cwd }) => desks.create({ name, cwd }));
+  handle('desks.remove', async ({ id }) => {
+    await desks.remove(id);
+    const active = await desks.getActive();
+    await supervisor.setCwd(active?.cwd ?? null);
+  });
+  handle('desks.setActive', async ({ id }) => {
+    await desks.setActive(id);
+    const active = await desks.getActive();
+    await supervisor.setCwd(active?.cwd ?? null);
+  });
+  handle('desks.pickFolder', async () => {
+    const window =
+      BrowserWindowApi.getFocusedWindow() ?? BrowserWindowApi.getAllWindows()[0];
+    const result = await dialog.showOpenDialog(window ?? null!, {
+      title: 'Bind a desk to a folder',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0]!;
+  });
+
+  // Workflows
+  handle('workflows.list', async () => {
+    const session = sessionLike(supervisor);
+    const view = session.workflows;
+    if (!view) return [];
+    return await view.list();
+  });
+  handle('workflows.setEnabled', async ({ name, enabled }) => {
+    const session = sessionLike(supervisor);
+    if (session.workflows) await session.workflows.setEnabled(name, enabled);
+  });
+  handle('workflows.run', async ({ name }) => {
+    const session = sessionLike(supervisor);
+    if (!session.workflows) throw new Error('workflows plugin not loaded');
+    return await session.workflows.run(name);
+  });
+
+  // Settings — providers (read from SessionInfo + ready flag)
+  handle('settings.providers', async () => {
+    const session = supervisor.remote();
+    if (!session) return [];
+    const info = session.getInfo();
+    const readySet = new Set(info.readyProviders ?? []);
+    return info.providers.map((p) => ({
+      name: p.name,
+      ready: readySet.has(p.name),
+    }));
+  });
+
+  // MCP admin
+  handle('settings.mcpServers', async () => {
+    const session = sessionLike(supervisor);
+    if (!session.mcpAdmin) return [];
+    return await session.mcpAdmin.listServers();
+  });
+  handle('settings.mcpToggle', async ({ name, enabled }) => {
+    const session = sessionLike(supervisor);
+    if (!session.mcpAdmin) throw new Error('mcp admin not available');
+    if (enabled) await session.mcpAdmin.enableAndAttach(name);
+    else await session.mcpAdmin.detach(name);
+  });
+
+  // Vault entries (read entry names without decrypting)
+  handle('settings.vaultEntries', async () => {
+    const { readVaultKeys } = await import('./onboarding');
+    const home = (await import('node:os')).homedir();
+    const names = await readVaultKeys(home);
+    return names.map((name) => ({ name }));
+  });
+
+  // Skills
+  handle('settings.skills', async () => {
+    const { listSkills } = await import('./skills');
+    return listSkills();
+  });
+  handle('settings.readSkill', async ({ name }) => {
+    const { readSkill } = await import('./skills');
+    return readSkill(name);
+  });
+  handle('settings.writeSkill', async ({ name, body }) => {
+    const { writeSkill } = await import('./skills');
+    await writeSkill(name, body);
   });
 }
 
@@ -133,6 +229,17 @@ function mustHaveSession(supervisor: RunnerSupervisor) {
   const session = supervisor.remote();
   if (!session) throw new Error('not connected to a runner');
   return session;
+}
+
+/**
+ * Same as {@link mustHaveSession} but typed as `SessionLike` so we can
+ * reach the optional `workflows` / `mcpAdmin` views. The runner exposes
+ * these views on the wire even though `RemoteSession`'s class shape
+ * doesn't declare them; this assertion narrows the type for callers
+ * that handle the `undefined` case explicitly.
+ */
+function sessionLike(supervisor: RunnerSupervisor): SessionLike {
+  return mustHaveSession(supervisor) as unknown as SessionLike;
 }
 
 function mustHaveDriver(): SessionDriver {
