@@ -1,3 +1,20 @@
+/**
+ * Middle column — "the agent at a glance."
+ *
+ * Five stacked zones (top to bottom):
+ *
+ *   1. Status bar — active pill + collapse handle.
+ *   2. Hero — brand avatar + mode/provider, with quick `Workspace`
+ *      footer line (clickable: opens the new-workspace folder picker,
+ *      reuses the sidebar's flow).
+ *   3. Workspace section — name + cwd (mono, truncated).
+ *   4. Capabilities — what this agent can act on.
+ *   5. References — where its data lives.
+ *
+ * The whole rail is white now; visual rhythm comes from uppercase
+ * mini-headers + thin hairlines rather than nested cards.
+ */
+
 import { useDesks } from '@/lib/useDesks';
 import { Icon } from '@/lib/Icon';
 
@@ -7,184 +24,299 @@ interface Props {
   readonly onClose: () => void;
 }
 
-/**
- * Middle column. Mirrors the reference design's three stacked cards:
- *
- *   1. Active agent — the runner's active mode + provider, with a
- *      configure shortcut.
- *   2. Capabilities — broad categories the agent can act on.
- *   3. Context — where the agent's data is coming from.
- *
- * Static for now; replaced by live runner state once SessionInfo
- * exposes those slots.
- */
 export function ContextRail({ mode, provider, onClose }: Props): JSX.Element {
   const desks = useDesks();
   const active = desks.desks.find((d) => d.id === desks.activeId);
+  const accent = active?.color ?? 'var(--color-primary)';
 
   return (
     <section className="col-rail">
-      <Card>
-        <header
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            fontSize: 12.5,
-            fontWeight: 600,
-            color: 'var(--color-text-muted)',
-          }}
-        >
-          <span
-            style={{
-              width: 7,
-              height: 7,
-              borderRadius: '50%',
-              background: 'var(--color-green)',
-              display: 'inline-block',
-            }}
+      <StatusBar onClose={onClose} />
+      <Hero mode={mode} provider={provider} accent={accent} />
+      <Divider />
+
+      <Section title="Workspace">
+        {active ? (
+          <>
+            <Row
+              icon={<ColorDot color={active.color} />}
+              title={active.name}
+              subtitle="Active workspace"
+            />
+            <Path text={active.cwd} />
+          </>
+        ) : (
+          <Row
+            icon={<Icon name="workspace" size={14} />}
+            title="No workspace bound"
+            subtitle="Create one in the sidebar"
           />
-          <span style={{ flex: 1 }}>Active agent</span>
-          <SmallButton aria-label="Collapse rail" onClick={onClose}>
-            <Icon name="chevron-right" size={14} style={{ transform: 'rotate(180deg)' }} />
-          </SmallButton>
-        </header>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0 }}>
-          <Avatar color={active?.color ?? '#ec4899'} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div
-              style={{
-                fontSize: 13.5,
-                fontWeight: 600,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-              title={mode ?? 'Default agent'}
-            >
-              {mode ?? 'Default agent'}
-            </div>
-            <div
-              style={{
-                fontSize: 12,
-                color: 'var(--color-text-dim)',
-                marginTop: 2,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-              title={provider ? `Powered by ${provider}` : 'Pick a provider in Settings.'}
-            >
-              {provider
-                ? `Powered by ${provider}`
-                : 'Pick a provider in Settings.'}
-            </div>
-          </div>
-        </div>
-      </Card>
+        )}
+      </Section>
+      <Divider />
 
-      <Card>
-        <CardHeader>Capabilities</CardHeader>
-        <CapabilityRow icon="spark" title="Analyze data" sub="Tools + transcript history" />
-        <CapabilityRow icon="edit" title="Author + edit files" sub="Workspace cwd: limited" />
-        <CapabilityRow icon="rotate" title="Run workflows" sub="From the Workflows panel" />
-        <CapabilityRow icon="mic" title="Voice in" sub="Hold the mic to dictate" />
-      </Card>
+      <Section title="Capabilities">
+        <Capability icon="spark" title="Analyze data" sub="Tools + transcript history" />
+        <Capability icon="edit" title="Author + edit files" sub="Scoped to the workspace cwd" />
+        <Capability icon="rotate" title="Run workflows" sub="From the Workflows panel" />
+        <Capability icon="mic" title="Voice in" sub="Hold the mic to dictate" />
+      </Section>
+      <Divider />
 
-      <Card>
-        <CardHeader>Context</CardHeader>
-        <ContextRow
-          title="Workspace"
-          value={active?.cwd ?? '—'}
-          subtitle={active?.name ?? 'No workspace selected'}
-        />
-        <ContextRow
-          title="Skills"
-          value="~/.moxxy/skills"
-          subtitle="Edit from Settings → Skills"
-        />
-        <ContextRow
-          title="Vault"
-          value="OS keychain"
-          subtitle="Encrypted at rest"
-        />
-      </Card>
+      <Section title="References">
+        <RefRow icon="edit" label="Skills" path="~/.moxxy/skills" />
+        <RefRow icon="plug" label="Vault" path="OS keychain" />
+      </Section>
     </section>
   );
 }
 
-function Card({ children }: { readonly children: React.ReactNode }): JSX.Element {
+function StatusBar({ onClose }: { readonly onClose: () => void }): JSX.Element {
   return (
-    <section
-      style={{
-        padding: '6px 0 12px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 10,
-        borderBottom: '1px solid var(--color-card-border)',
-      }}
-    >
-      {children}
-    </section>
-  );
-}
-
-function CardHeader({
-  children,
-  badge,
-}: {
-  readonly children: React.ReactNode;
-  readonly badge?: string;
-}): JSX.Element {
-  return (
-    <header
+    <div
       style={{
         display: 'flex',
         alignItems: 'center',
         gap: 8,
-        fontSize: 12.5,
-        fontWeight: 600,
-        color: 'var(--color-text-muted)',
+        padding: '12px 16px',
+        borderBottom: '1px solid var(--color-card-border)',
+        position: 'sticky',
+        top: 0,
+        background: 'var(--color-card-bg)',
+        zIndex: 1,
       }}
     >
-      {badge && (
-        <span
-          style={{
-            width: 7,
-            height: 7,
-            borderRadius: '50%',
-            background: 'var(--color-green)',
-            display: 'inline-block',
-          }}
-        />
-      )}
-      {children}
-    </header>
+      <span
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: '50%',
+          background: 'var(--color-green)',
+          boxShadow: '0 0 6px rgba(16, 185, 129, 0.6)',
+        }}
+      />
+      <span
+        style={{
+          fontSize: 11.5,
+          fontWeight: 600,
+          color: 'var(--color-text-muted)',
+          textTransform: 'uppercase',
+          letterSpacing: '0.07em',
+        }}
+      >
+        Active agent
+      </span>
+      <span style={{ flex: 1 }} />
+      <button
+        type="button"
+        aria-label="Collapse rail"
+        onClick={onClose}
+        style={iconBtnStyle}
+      >
+        <Icon name="chevron-right" size={14} style={{ transform: 'rotate(180deg)' }} />
+      </button>
+    </div>
   );
 }
 
-function Avatar({ color }: { readonly color: string }): JSX.Element {
+function Hero({
+  mode,
+  provider,
+  accent,
+}: {
+  readonly mode: string | null;
+  readonly provider: string | null;
+  readonly accent: string;
+}): JSX.Element {
+  return (
+    <div
+      style={{
+        padding: '20px 18px 18px',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        textAlign: 'center',
+        gap: 12,
+        background: `radial-gradient(ellipse at top, ${hexToRgba(accent, 0.07)}, transparent 70%)`,
+      }}
+    >
+      <div
+        aria-hidden
+        style={{
+          position: 'relative',
+          width: 96,
+          height: 96,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <span
+          aria-hidden
+          style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: '50%',
+            background: `radial-gradient(circle at center, ${hexToRgba(accent, 0.18)}, transparent 70%)`,
+          }}
+        />
+        <img
+          src="/avatar.png"
+          alt=""
+          width={88}
+          height={88}
+          style={{
+            position: 'relative',
+            imageRendering: 'pixelated',
+            filter: 'drop-shadow(0 8px 10px rgba(236, 72, 153, 0.22))',
+          }}
+        />
+      </div>
+      <div style={{ width: '100%' }}>
+        <div
+          style={{
+            fontSize: 15,
+            fontWeight: 700,
+            letterSpacing: '-0.01em',
+            color: 'var(--color-text)',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+          title={mode ?? 'Default agent'}
+        >
+          {mode ?? 'Default agent'}
+        </div>
+        <div
+          style={{
+            marginTop: 2,
+            fontSize: 12,
+            color: 'var(--color-text-dim)',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+          title={provider ?? ''}
+        >
+          {provider ? `Powered by ${provider}` : 'Pick a provider in the composer'}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Section({
+  title,
+  children,
+}: {
+  readonly title: string;
+  readonly children: React.ReactNode;
+}): JSX.Element {
+  return (
+    <section style={{ padding: '14px 16px 16px' }}>
+      <header
+        style={{
+          fontSize: 10.5,
+          fontWeight: 700,
+          color: 'var(--color-text-dim)',
+          textTransform: 'uppercase',
+          letterSpacing: '0.08em',
+          marginBottom: 10,
+        }}
+      >
+        {title}
+      </header>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{children}</div>
+    </section>
+  );
+}
+
+function Row({
+  icon,
+  title,
+  subtitle,
+}: {
+  readonly icon: React.ReactNode;
+  readonly title: string;
+  readonly subtitle?: string;
+}): JSX.Element {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <span
+        aria-hidden
+        style={{
+          width: 26,
+          height: 26,
+          borderRadius: 8,
+          background: 'var(--color-primary-soft)',
+          color: 'var(--color-primary-strong)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}
+      >
+        {icon}
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: 'var(--color-text)',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {title}
+        </div>
+        {subtitle && (
+          <div style={{ fontSize: 11.5, color: 'var(--color-text-dim)' }}>{subtitle}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Path({ text }: { readonly text: string }): JSX.Element {
+  return (
+    <div
+      className="mono"
+      title={text}
+      style={{
+        fontSize: 11.5,
+        color: 'var(--color-text-muted)',
+        background: '#f7f8fc',
+        padding: '8px 10px',
+        borderRadius: 8,
+        border: '1px solid var(--color-card-border)',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
+function ColorDot({ color }: { readonly color: string }): JSX.Element {
   return (
     <span
       aria-hidden
       style={{
-        width: 38,
-        height: 38,
-        borderRadius: 10,
-        background: `${color}1f`,
-        color,
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexShrink: 0,
+        width: 12,
+        height: 12,
+        borderRadius: '50%',
+        background: color,
+        boxShadow: `0 0 0 3px ${hexToRgba(color, 0.18)}`,
       }}
-    >
-      <Icon name="agent" size={20} />
-    </span>
+    />
   );
 }
 
-function CapabilityRow({
+function Capability({
   icon,
   title,
   sub,
@@ -193,99 +325,109 @@ function CapabilityRow({
   readonly title: string;
   readonly sub: string;
 }): JSX.Element {
+  return <Row icon={<Icon name={icon} size={14} />} title={title} subtitle={sub} />;
+}
+
+function RefRow({
+  icon,
+  label,
+  path,
+}: {
+  readonly icon: Parameters<typeof Icon>[0]['name'];
+  readonly label: string;
+  readonly path: string;
+}): JSX.Element {
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '4px 0' }}>
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '6px 8px',
+        borderRadius: 8,
+        transition: 'background 120ms ease',
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-sidebar-bg-hover)')}
+      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+    >
       <span
         aria-hidden
         style={{
-          width: 28,
-          height: 28,
-          borderRadius: 8,
+          width: 22,
+          height: 22,
+          borderRadius: 6,
           background: 'var(--color-primary-soft)',
-          color: 'var(--color-primary)',
+          color: 'var(--color-primary-strong)',
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
           flexShrink: 0,
         }}
       >
-        <Icon name={icon} size={15} />
+        <Icon name={icon} size={12} />
       </span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600 }}>{title}</div>
-        <div style={{ fontSize: 11.5, color: 'var(--color-text-dim)' }}>{sub}</div>
-      </div>
-    </div>
-  );
-}
-
-function ContextRow({
-  title,
-  value,
-  subtitle,
-}: {
-  readonly title: string;
-  readonly value: string;
-  readonly subtitle: string;
-}): JSX.Element {
-  return (
-    <div
-      style={{
-        padding: '4px 0',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 2,
-      }}
-    >
-      <div
+      <span
         style={{
-          fontSize: 11,
+          fontSize: 12.5,
           fontWeight: 600,
-          color: 'var(--color-text-dim)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.06em',
+          color: 'var(--color-text)',
         }}
       >
-        {title}
-      </div>
-      <div
+        {label}
+      </span>
+      <span
         className="mono"
+        title={path}
         style={{
-          fontSize: 12,
-          color: 'var(--color-text)',
+          flex: 1,
+          textAlign: 'right',
+          fontSize: 11,
+          color: 'var(--color-text-dim)',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
         }}
       >
-        {value}
-      </div>
-      <div style={{ fontSize: 11, color: 'var(--color-text-dim)' }}>{subtitle}</div>
+        {path}
+      </span>
     </div>
   );
 }
 
-function SmallButton({
-  children,
-  ...rest
-}: React.ButtonHTMLAttributes<HTMLButtonElement>): JSX.Element {
+function Divider(): JSX.Element {
   return (
-    <button
-      type="button"
+    <hr
       style={{
-        width: 30,
-        height: 30,
-        borderRadius: 8,
-        color: 'var(--color-text-dim)',
-        border: '1px solid var(--color-card-border)',
-        background: '#fff',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
+        border: 'none',
+        borderTop: '1px solid var(--color-card-border)',
+        margin: '0 16px',
       }}
-      {...rest}
-    >
-      {children}
-    </button>
+    />
   );
+}
+
+const iconBtnStyle: React.CSSProperties = {
+  width: 26,
+  height: 26,
+  borderRadius: 7,
+  color: 'var(--color-text-dim)',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  border: '1px solid var(--color-card-border)',
+  background: '#fff',
+};
+
+/** Convert a CSS hex (#rrggbb or a var) into an rgba string. When the
+ *  input doesn't look like a hex we fall back to the colour itself
+ *  (caller will get something like `var(--…)` which the alpha helper
+ *  can't tint — that's fine for the radial fades). */
+function hexToRgba(input: string, alpha: number): string {
+  if (!input.startsWith('#') || input.length !== 7) {
+    return `rgba(236, 72, 153, ${alpha})`;
+  }
+  const r = parseInt(input.slice(1, 3), 16);
+  const g = parseInt(input.slice(3, 5), 16);
+  const b = parseInt(input.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
