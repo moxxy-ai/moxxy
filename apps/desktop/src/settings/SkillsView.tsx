@@ -403,7 +403,7 @@ function EmptyHero({
     >
       <div>
         <img
-          src="/avatar.png"
+          src="/avatar.gif"
           alt=""
           aria-hidden
           style={{ width: 140, height: 'auto', imageRendering: 'pixelated', marginBottom: 14 }}
@@ -472,7 +472,7 @@ function LoadingHero(): JSX.Element {
       }}
     >
       <img
-        src="/avatar.png"
+        src="/avatar.gif"
         alt=""
         aria-hidden
         className="moxxy-avatar-loader moxxy-avatar-loader--sm"

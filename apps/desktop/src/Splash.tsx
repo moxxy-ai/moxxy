@@ -29,7 +29,7 @@ export function Splash({
       }}
     >
       <img
-        src="/avatar.png"
+        src="/avatar.gif"
         alt=""
         aria-hidden="true"
         className="moxxy-avatar-loader"

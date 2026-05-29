@@ -370,7 +370,7 @@ function WelcomeStep({ onNext }: { readonly onNext: () => void }): JSX.Element {
       style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 18 }}
     >
       <img
-        src="/avatar.png"
+        src="/avatar.gif"
         alt=""
         aria-hidden
         className="moxxy-avatar-loader"
@@ -935,7 +935,7 @@ function DoneStep({ onComplete }: { readonly onComplete: () => void }): JSX.Elem
       }}
     >
       <img
-        src="/avatar.png"
+        src="/avatar.gif"
         alt=""
         aria-hidden
         style={{ width: 200, height: 'auto', imageRendering: 'pixelated' }}
@@ -1085,7 +1085,7 @@ function Pulse({ label }: { readonly label: string }): JSX.Element {
       }}
     >
       <img
-        src="/avatar.png"
+        src="/avatar.gif"
         alt=""
         aria-hidden
         className="moxxy-avatar-loader moxxy-avatar-loader--sm"

@@ -199,7 +199,7 @@ function ReconnectBanner({ label }: { readonly label: string }): JSX.Element {
       }}
     >
       <img
-        src="/avatar.png"
+        src="/avatar.gif"
         alt=""
         aria-hidden="true"
         className="moxxy-avatar-loader moxxy-avatar-loader--sm"

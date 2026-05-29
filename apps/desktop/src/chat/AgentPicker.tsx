@@ -151,6 +151,7 @@ function ChipButton({
   return (
     <button
       type="button"
+      className="btn-chip"
       onClick={onClick}
       disabled={disabled}
       style={{
@@ -202,6 +203,7 @@ function ChipSelect({
 }): JSX.Element {
   return (
     <label
+      className="btn-chip"
       title={label}
       style={{
         position: 'relative',
@@ -216,6 +218,7 @@ function ChipSelect({
         gap: 6,
         opacity: disabled ? 0.5 : 1,
         cursor: disabled ? 'not-allowed' : 'pointer',
+        transition: 'border-color 140ms ease, box-shadow 140ms ease',
       }}
     >
       <span style={{ color: 'var(--color-text-dim)' }}>{label}:</span>
