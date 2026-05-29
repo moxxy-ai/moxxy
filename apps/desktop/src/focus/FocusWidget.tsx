@@ -114,7 +114,7 @@ function DotMode({
       className="focus-dot"
       data-busy={sending ? 'true' : 'false'}
     >
-      <img src="/logo.png" alt="moxxy" width={36} height={36} draggable={false} />
+      <img src="/logo.png" alt="moxxy" draggable={false} />
     </button>
   );
 }
