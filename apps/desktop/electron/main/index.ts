@@ -130,6 +130,14 @@ async function createWindow(): Promise<void> {
     devUrl: isDev ? process.env['ELECTRON_RENDERER_URL'] : undefined,
     preloadPath: path.join(__dirname, '..', 'preload', 'index.mjs'),
     indexHtml: path.join(__dirname, '..', '..', 'dist', 'index.html'),
+    /** Bind the focus widget to the same runner pool as the main
+     *  window so it sees connection state + every runner event, but
+     *  pass claimGlobal: false so the IPC RPC routing (runTurn /
+     *  abortTurn / …) still goes through the main window's driver. */
+    attach: (win: BrowserWindow) => {
+      if (!pool) return () => undefined;
+      return bindWindow(pool, win, { claimGlobal: false });
+    },
   };
   bindMainWindowMinimize(mainWindow, focusOpts);
 

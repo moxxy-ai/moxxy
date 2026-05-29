@@ -336,8 +336,23 @@ export function registerIpcHandlers(pool: RunnerPool, desks: DeskStore): void {
  * `connection.changed` to the renderer, manage per-workspace
  * SessionDrivers so streamed events get the right workspaceId tag,
  * and tear everything down when the window closes.
+ *
+ * `claimGlobal` controls whether this window's drivers register
+ * themselves in the module-level `drivers` map that IPC RPCs
+ * (runTurn, abortTurn, …) look up. Pass true for the *primary*
+ * window (the main app) and false for secondary surfaces like the
+ * focus widget — secondary surfaces still receive every runner
+ * event via their own local SessionDriver subscriptions, but the
+ * RPC entry-points keep routing through the primary's driver so
+ * turn book-keeping (the turns map on the driver) doesn't get
+ * split between processes.
  */
-export function bindWindow(pool: RunnerPool, window: BrowserWindow): () => void {
+export function bindWindow(
+  pool: RunnerPool,
+  window: BrowserWindow,
+  opts: { readonly claimGlobal?: boolean } = {},
+): () => void {
+  const claimGlobal = opts.claimGlobal ?? true;
   const send = <K extends keyof IpcEvents>(channel: K, payload: IpcEvents[K]): void => {
     if (window.isDestroyed()) return;
     window.webContents.send(channel, payload);
@@ -354,10 +369,10 @@ export function bindWindow(pool: RunnerPool, window: BrowserWindow): () => void 
     if (session) {
       const driver = new SessionDriver(session, window, id);
       localDrivers.set(id, driver);
-      drivers.set(id, driver);
+      if (claimGlobal) drivers.set(id, driver);
     } else {
       localDrivers.delete(id);
-      drivers.delete(id);
+      if (claimGlobal) drivers.delete(id);
     }
   };
 
@@ -391,7 +406,10 @@ export function bindWindow(pool: RunnerPool, window: BrowserWindow): () => void 
     pool.off('change', onPoolChange);
     for (const driver of localDrivers.values()) driver.dispose();
     localDrivers.clear();
-    drivers.clear();
+    // Only the primary window owns the global driver map; secondary
+    // surfaces must not wipe it on close, that would orphan the main
+    // window's RPCs.
+    if (claimGlobal) drivers.clear();
   };
 }
 

@@ -19,6 +19,11 @@ interface CreateOpts {
   readonly devUrl?: string;
   readonly preloadPath: string;
   readonly indexHtml: string;
+  /** Called the moment the focus window is created so the caller
+   *  can wire IPC event forwarding (runner.event, turn.complete,
+   *  connection.changed) into the secondary surface. Returns an
+   *  unbind fn that runs when the window closes. */
+  readonly attach?: (win: BrowserWindow) => () => void;
 }
 
 export function isFocusOpen(): boolean {
@@ -146,7 +151,9 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
   }
 
   focusWindow = win;
+  const unbindAttach = opts.attach?.(win);
   win.on('closed', () => {
+    unbindAttach?.();
     if (focusWindow === win) focusWindow = null;
   });
 
