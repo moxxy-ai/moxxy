@@ -8,7 +8,10 @@ export interface UseDesks {
   readonly loading: boolean;
   readonly error: string | null;
   readonly refresh: () => Promise<void>;
-  readonly create: (name: string) => Promise<Desk | null>;
+  /** Create a desk with an already-picked folder. Callers that need a
+   *  one-shot "pick a folder, prompt for name, create" UX should call
+   *  {@link pickFolder} first. */
+  readonly create: (name: string, cwd: string) => Promise<Desk | null>;
   readonly remove: (id: string) => Promise<void>;
   readonly setActive: (id: string) => Promise<void>;
   readonly pickFolder: () => Promise<string | null>;
@@ -44,9 +47,7 @@ export function useDesks(): UseDesks {
   );
 
   const create = useCallback(
-    async (name: string): Promise<Desk | null> => {
-      const cwd = await pickFolder();
-      if (!cwd) return null;
+    async (name: string, cwd: string): Promise<Desk | null> => {
       try {
         const desk = await api().invoke('desks.create', { name, cwd });
         await refresh();
@@ -56,7 +57,7 @@ export function useDesks(): UseDesks {
         return null;
       }
     },
-    [pickFolder, refresh],
+    [refresh],
   );
 
   const remove = useCallback(

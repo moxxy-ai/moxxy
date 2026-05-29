@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState, type KeyboardEvent } from 'react';
+import { Icon } from '@/lib/Icon';
 
 interface ComposerProps {
   readonly ready: boolean;
@@ -90,9 +91,17 @@ export function Composer({
         }}
       />
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <ToolChip label="Add">+</ToolChip>
-        <ToolChip label="Attach file">📎 Attach</ToolChip>
-        <ToolChip label="Add context">＋ Context</ToolChip>
+        <ToolChip label="Add">
+          <Icon name="plus" size={16} />
+        </ToolChip>
+        <ToolChip label="Attach file">
+          <Icon name="attach" size={16} />
+          <span>Attach</span>
+        </ToolChip>
+        <ToolChip label="Add context">
+          <Icon name="context" size={16} />
+          <span>Context</span>
+        </ToolChip>
         <span style={{ flex: 1 }} />
         {inFlight ? (
           <button
@@ -102,7 +111,7 @@ export function Composer({
             style={sendBtn('var(--color-red)', true)}
             aria-label="Abort"
           >
-            ◼
+            <Icon name="stop" size={16} />
           </button>
         ) : (
           <button
@@ -112,7 +121,7 @@ export function Composer({
             style={sendBtn('var(--color-send)', canSubmit)}
             aria-label="Send"
           >
-            ➤
+            <Icon name="send" size={16} />
           </button>
         )}
       </div>

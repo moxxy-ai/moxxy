@@ -1,4 +1,5 @@
 import type { Block } from '@/lib/useChat';
+import { Icon } from '@/lib/Icon';
 
 /**
  * One transcript block. Layout follows the workspace-chat reference:
@@ -128,12 +129,10 @@ function Avatar(): JSX.Element {
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        fontWeight: 700,
-        fontSize: 14,
         flexShrink: 0,
       }}
     >
-      ◈
+      <Icon name="agent" size={18} />
     </span>
   );
 }
@@ -187,10 +186,18 @@ function ActionRow(): JSX.Element {
         color: 'var(--color-text-dim)',
       }}
     >
-      <IconBtn label="Copy">⎘</IconBtn>
-      <IconBtn label="Good response">▲</IconBtn>
-      <IconBtn label="Bad response">▼</IconBtn>
-      <IconBtn label="More">⋯</IconBtn>
+      <IconBtn label="Copy">
+        <Icon name="copy" size={15} />
+      </IconBtn>
+      <IconBtn label="Good response">
+        <Icon name="thumbs-up" size={15} />
+      </IconBtn>
+      <IconBtn label="Bad response">
+        <Icon name="thumbs-down" size={15} />
+      </IconBtn>
+      <IconBtn label="More">
+        <Icon name="more" size={15} />
+      </IconBtn>
     </div>
   );
 }
@@ -207,11 +214,13 @@ function IconBtn({
       type="button"
       aria-label={label}
       style={{
-        width: 26,
-        height: 26,
+        width: 28,
+        height: 28,
         borderRadius: 8,
-        fontSize: 12,
         color: 'var(--color-text-dim)',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.background = 'var(--color-bg-card-hover)';

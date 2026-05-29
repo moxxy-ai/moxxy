@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useDesks } from '@/lib/useDesks';
 import { Skeleton } from '@/lib/Skeleton';
+import { Icon } from '@/lib/Icon';
 
 export type View = 'chat' | 'workflows' | 'settings';
 
@@ -9,10 +10,14 @@ interface Props {
   readonly onView: (v: View) => void;
 }
 
-const MENU_ITEMS: ReadonlyArray<{ id: View; label: string; icon: string }> = [
-  { id: 'chat', label: 'Chat', icon: '◇' },
-  { id: 'workflows', label: 'Workflows', icon: '⏱' },
-  { id: 'settings', label: 'Settings', icon: '⚙' },
+const MENU_ITEMS: ReadonlyArray<{
+  id: View;
+  label: string;
+  icon: Parameters<typeof Icon>[0]['name'];
+}> = [
+  { id: 'chat', label: 'Chat', icon: 'chat' },
+  { id: 'workflows', label: 'Workflows', icon: 'workflow' },
+  { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
 /**
@@ -37,7 +42,7 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element {
         folder.split('/').filter(Boolean).pop() ?? 'New workspace',
       );
       if (!name?.trim()) return;
-      const desk = await desks.create(name.trim());
+      const desk = await desks.create(name.trim(), folder);
       if (desk) await desks.setActive(desk.id);
     } finally {
       setBusy(false);
@@ -84,9 +89,22 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element {
             color: 'var(--color-sidebar-text-dim)',
             borderRadius: 10,
             opacity: busy ? 0.6 : 1,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
           }}
         >
-          {busy ? 'Picking folder…' : '＋  New workspace'}
+          <span
+            style={{
+              width: 20,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Icon name="plus" size={16} />
+          </span>
+          {busy ? 'Picking folder…' : 'New workspace'}
         </button>
 
         <SectionHeader title="Menu" style={{ marginTop: 20 }} />
@@ -115,8 +133,16 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element {
                   fontWeight: view === m.id ? 600 : 500,
                 }}
               >
-                <span aria-hidden style={{ width: 18, textAlign: 'center', opacity: 0.85 }}>
-                  {m.icon}
+                <span
+                  style={{
+                    width: 20,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: 0.85,
+                  }}
+                >
+                  <Icon name={m.icon} size={17} />
                 </span>
                 <span>{m.label}</span>
               </button>

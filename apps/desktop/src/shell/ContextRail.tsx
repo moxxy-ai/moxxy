@@ -1,4 +1,5 @@
 import { useDesks } from '@/lib/useDesks';
+import { Icon } from '@/lib/Icon';
 
 interface Props {
   readonly mode: string | null;
@@ -42,16 +43,18 @@ export function ContextRail({ mode, provider }: Props): JSX.Element {
                 : 'Pick a provider in Settings.'}
             </div>
           </div>
-          <SmallButton aria-label="Configure">⋯</SmallButton>
+          <SmallButton aria-label="Configure">
+            <Icon name="sliders" size={14} />
+          </SmallButton>
         </div>
       </Card>
 
       <Card>
         <CardHeader>Capabilities</CardHeader>
-        <CapabilityRow icon="✦" title="Analyze data" sub="Tools + transcript history" />
-        <CapabilityRow icon="✎" title="Author + edit files" sub="Workspace cwd: limited" />
-        <CapabilityRow icon="↻" title="Run workflows" sub="From the Workflows panel" />
-        <CapabilityRow icon="◐" title="Voice in" sub="Hold the mic to dictate" />
+        <CapabilityRow icon="spark" title="Analyze data" sub="Tools + transcript history" />
+        <CapabilityRow icon="edit" title="Author + edit files" sub="Workspace cwd: limited" />
+        <CapabilityRow icon="rotate" title="Run workflows" sub="From the Workflows panel" />
+        <CapabilityRow icon="mic" title="Voice in" sub="Hold the mic to dictate" />
       </Card>
 
       <Card>
@@ -134,12 +137,10 @@ function Avatar({ color }: { readonly color: string }): JSX.Element {
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        fontWeight: 700,
-        fontSize: 16,
         flexShrink: 0,
       }}
     >
-      ◈
+      <Icon name="agent" size={20} />
     </span>
   );
 }
@@ -149,7 +150,7 @@ function CapabilityRow({
   title,
   sub,
 }: {
-  readonly icon: string;
+  readonly icon: Parameters<typeof Icon>[0]['name'];
   readonly title: string;
   readonly sub: string;
 }): JSX.Element {
@@ -166,12 +167,10 @@ function CapabilityRow({
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontWeight: 700,
-          fontSize: 13,
           flexShrink: 0,
         }}
       >
-        {icon}
+        <Icon name={icon} size={15} />
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 600 }}>{title}</div>
@@ -238,12 +237,15 @@ function SmallButton({
     <button
       type="button"
       style={{
-        width: 28,
-        height: 28,
+        width: 30,
+        height: 30,
         borderRadius: 8,
         color: 'var(--color-text-dim)',
         border: '1px solid var(--color-card-border)',
         background: '#fff',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
       }}
       {...rest}
     >

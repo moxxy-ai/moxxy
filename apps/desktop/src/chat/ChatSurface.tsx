@@ -2,6 +2,7 @@ import { useChat } from '@/lib/useChat';
 import type { ConnectionPhase } from '@shared/ipc';
 import { Transcript } from './Transcript';
 import { Composer } from './Composer';
+import { Icon } from '@/lib/Icon';
 
 interface ChatSurfaceProps {
   readonly phase: ConnectionPhase;
@@ -96,9 +97,15 @@ function Header({ phase }: { readonly phase: ConnectionPhase }): JSX.Element {
         {sub}
       </span>
       <span style={{ flex: 1 }} />
-      <IconButton aria-label="Search">⌕</IconButton>
-      <IconButton aria-label="Notifications">⌁</IconButton>
-      <IconButton aria-label="New conversation">✎</IconButton>
+      <IconButton aria-label="Search">
+        <Icon name="search" size={18} />
+      </IconButton>
+      <IconButton aria-label="Notifications">
+        <Icon name="bell" size={18} />
+      </IconButton>
+      <IconButton aria-label="New conversation">
+        <Icon name="pencil" size={18} />
+      </IconButton>
     </header>
   );
 }
@@ -111,11 +118,13 @@ function IconButton({
     <button
       type="button"
       style={{
-        width: 32,
-        height: 32,
-        borderRadius: 8,
+        width: 34,
+        height: 34,
+        borderRadius: 9,
         color: 'var(--color-text-muted)',
-        fontSize: 14,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
       }}
       onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-bg-card-hover)')}
       onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
@@ -149,12 +158,10 @@ function EmptyState({ ready }: { readonly ready: boolean }): JSX.Element {
             color: 'var(--color-primary-strong)',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: 22,
-            fontWeight: 700,
             marginBottom: 14,
           }}
         >
-          ◈
+          <Icon name="agent" size={28} />
         </span>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
           {ready ? 'Ready when you are' : 'Connecting…'}
