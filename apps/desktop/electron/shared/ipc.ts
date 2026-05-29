@@ -61,6 +61,21 @@ export interface OnboardingStatus {
   activeProvider: string | null;
 }
 
+/**
+ * Node.js detection snapshot — drives the first onboarding step
+ * (we can't install or run moxxy without Node).
+ */
+export interface NodeProbe {
+  installed: boolean;
+  version: string | null;
+  bin: string | null;
+}
+
+/** One line of streamed install output. */
+export interface InstallProgressLine {
+  line: string;
+}
+
 // ---------- Chat -----------------------------------------------------------
 
 export interface RunTurnArgs {
@@ -84,6 +99,10 @@ export interface IpcEvents {
   'runner.event': MoxxyEvent;
   'runner.turn.complete': { turnId: string; error: string | null };
   'runner.info.changed': unknown;
+  /** Streamed during `onboarding.installMoxxyCli`. One event per
+   *  stdout/stderr line; the invoke() also returns the final exit
+   *  code so callers can short-circuit on success. */
+  'onboarding.install.progress': string;
 }
 
 // ---------- Invokable commands (renderer → main) --------------------------
@@ -102,6 +121,15 @@ export interface IpcCommands {
   'connection.retry': () => Promise<void>;
 
   'onboarding.status': () => Promise<OnboardingStatus>;
+  /** Probe Node.js — used by the first wizard step before we offer
+   *  the install. */
+  'onboarding.probeNode': () => Promise<NodeProbe>;
+  /** Run `npm install -g @moxxy/cli`. Streams progress via
+   *  `onboarding.install.progress`. Returns the exit code (0 = ok). */
+  'onboarding.installMoxxyCli': () => Promise<number>;
+  /** Open a URL in the user's default browser. Used for the Node.js
+   *  install fallback (we never pretend to install Node ourselves). */
+  'onboarding.openExternal': (args: { url: string }) => Promise<void>;
   /** Run `moxxy vault set <NAME>_API_KEY` with the given secret piped
    *  on stdin, then call `provider.setActive` on the running session
    *  so the next turn picks it up without a relaunch. */

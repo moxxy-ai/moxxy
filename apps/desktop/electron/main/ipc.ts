@@ -22,7 +22,9 @@ import type {
 } from '../shared/ipc';
 import { RunnerSupervisor } from './runner-supervisor';
 import { probeOnboarding, saveProviderKey } from './onboarding';
+import { installMoxxyCli, probeNode } from './installer';
 import { SessionDriver } from './session-driver';
+import { shell, BrowserWindow as BrowserWindowApi } from 'electron';
 
 export function registerIpcHandlers(supervisor: RunnerSupervisor): void {
   handle('connection.snapshot', async () => supervisor.snapshot());
@@ -31,6 +33,19 @@ export function registerIpcHandlers(supervisor: RunnerSupervisor): void {
   });
 
   handle('onboarding.status', () => probeOnboarding());
+  handle('onboarding.probeNode', () => probeNode());
+  handle('onboarding.installMoxxyCli', async () => {
+    const target = BrowserWindowApi.getFocusedWindow() ?? BrowserWindowApi.getAllWindows()[0];
+    if (!target) throw new Error('no window to stream install progress to');
+    const code = await installMoxxyCli(target);
+    // After a successful install, retry the supervisor immediately so
+    // the connection screen recovers without the user pressing Retry.
+    if (code === 0) supervisor.forceRetry();
+    return code;
+  });
+  handle('onboarding.openExternal', async ({ url }) => {
+    await shell.openExternal(url);
+  });
   handle('onboarding.saveProviderKey', async ({ provider, secret }) => {
     await saveProviderKey(provider, secret);
     const session = supervisor.remote();
