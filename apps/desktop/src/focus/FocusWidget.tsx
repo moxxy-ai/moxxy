@@ -128,6 +128,11 @@ function DotMode({
 }): JSX.Element {
   const drag = { WebkitAppRegion: 'drag' } as React.CSSProperties;
   const noDrag = { WebkitAppRegion: 'no-drag' } as React.CSSProperties;
+  // Track whether the logo PNG failed to load so we can swap in a
+  // text fallback. Previously when the bundler couldn't resolve
+  // /logo.png in the focus window's renderer, the dot rendered as
+  // a featureless white tile with no clickable affordance.
+  const [logoFailed, setLogoFailed] = useState(false);
   return (
     <div className="focus-dot__shell" style={drag}>
       <button
@@ -138,7 +143,26 @@ function DotMode({
         data-busy={sending ? 'true' : 'false'}
         style={noDrag}
       >
-        <img src="/logo.png" alt="moxxy" draggable={false} />
+        {logoFailed ? (
+          <span
+            style={{
+              fontSize: 18,
+              fontWeight: 800,
+              color: 'var(--color-primary-strong)',
+              letterSpacing: '-0.02em',
+            }}
+            aria-hidden
+          >
+            m
+          </span>
+        ) : (
+          <img
+            src="./logo.png"
+            alt="moxxy"
+            draggable={false}
+            onError={() => setLogoFailed(true)}
+          />
+        )}
       </button>
     </div>
   );
@@ -180,7 +204,17 @@ function MenuMode({
         aria-label="Collapse to logo"
         style={noDrag}
       >
-        <img src="/logo.png" alt="" aria-hidden draggable={false} />
+        <img
+          src="./logo.png"
+          alt=""
+          aria-hidden
+          draggable={false}
+          onError={(e) => {
+            // Hide a broken image silently — collapse button still
+            // works without the brand mark.
+            e.currentTarget.style.display = 'none';
+          }}
+        />
       </button>
       <div className="focus-menu__actions" style={noDrag}>
         <button

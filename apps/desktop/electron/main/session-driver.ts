@@ -35,30 +35,27 @@ export class SessionDriver {
   private readonly windows = new Set<BrowserWindow>();
 
   constructor(
-    session: RemoteSession,
+    private readonly session: RemoteSession,
     primaryWindow: BrowserWindow,
     /** Workspace id this driver was created for. Stamped on every
      *  event so the renderer can route it to the right per-workspace
      *  chat state. */
     private readonly workspaceId: string,
   ) {
-    this.session = session;
     this.windows.add(primaryWindow);
 
     // Mirror every event the runner emits.
-    const logUnsub = session.log.subscribe((event) => {
+    const logUnsub = this.session.log.subscribe((event) => {
       this.send('runner.event', { workspaceId, event });
     });
     this.disposes.push(logUnsub);
 
     // Drop everything when the session closes. The supervisor's loop
     // will spin up a fresh driver on the next attach.
-    session.onClose(() => {
+    this.session.onClose(() => {
       this.dispose();
     });
   }
-
-  private readonly session: RemoteSession;
 
   /** Subscribe a secondary window so it receives every `runner.event`
    *  and `turn.complete` this driver emits. Returns an unsubscribe. */
