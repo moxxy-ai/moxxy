@@ -81,6 +81,42 @@ describe('useWorkflows', () => {
     });
   });
 
+  it('flips enabled optimistically before the IPC resolves', async () => {
+    let resolveToggle: (() => void) | null = null;
+    let serverEnabled = true;
+    const invoke = vi.fn(async (cmd: string, args?: unknown) => {
+      if (cmd === 'workflows.list') return [{ ...sample, enabled: serverEnabled }];
+      if (cmd === 'workflows.setEnabled') {
+        await new Promise<void>((r) => {
+          resolveToggle = r;
+        });
+        serverEnabled = (args as { enabled: boolean }).enabled;
+        return undefined;
+      }
+      throw new Error(`unexpected ${cmd}`);
+    });
+    __setApiOverride(fakeApi(invoke as unknown as MoxxyApi['invoke']));
+
+    const { result } = renderHook(() => useWorkflows());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.list[0]?.enabled).toBe(true);
+
+    // Trigger the toggle but DON'T await — assert the optimistic flip
+    // is visible while the IPC promise is still pending.
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = result.current.setEnabled('daily-summary', false);
+    });
+    await waitFor(() => expect(result.current.list[0]?.enabled).toBe(false));
+
+    // Finalise the IPC + the refresh, ensuring nothing throws.
+    resolveToggle?.();
+    await act(async () => {
+      await pending;
+    });
+    expect(result.current.list[0]?.enabled).toBe(false);
+  });
+
   it('stashes the last run', async () => {
     const run: WorkflowRun = {
       ok: true,

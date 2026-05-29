@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSettings } from '@/lib/useSettings';
+import { Skeleton } from '@/lib/Skeleton';
 
 type Tab = 'providers' | 'mcp' | 'skills' | 'vault';
 
@@ -80,10 +81,20 @@ export function SettingsPanel(): JSX.Element {
           {s.error}
         </p>
       )}
-      {tab === 'providers' && <ProvidersTab providers={s.providers} />}
-      {tab === 'mcp' && <McpTab servers={s.mcp} onToggle={s.toggleMcp} />}
-      {tab === 'skills' && <SkillsTab s={s} />}
-      {tab === 'vault' && <VaultTab vault={s.vault} />}
+      {s.loading ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <Skeleton.Card />
+          <Skeleton.Card />
+          <Skeleton.Card />
+        </div>
+      ) : (
+        <>
+          {tab === 'providers' && <ProvidersTab providers={s.providers} />}
+          {tab === 'mcp' && <McpTab servers={s.mcp} onToggle={s.toggleMcp} />}
+          {tab === 'skills' && <SkillsTab s={s} />}
+          {tab === 'vault' && <VaultTab vault={s.vault} />}
+        </>
+      )}
     </main>
   );
 }

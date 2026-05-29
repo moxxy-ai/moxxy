@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useDesks } from '@/lib/useDesks';
+import { Skeleton } from '@/lib/Skeleton';
 
 interface DeskSidebarProps {
   /** Currently selected view tab — drives the highlighted entry in
@@ -45,7 +46,17 @@ export function DeskSidebar({ view, onView }: DeskSidebarProps): JSX.Element {
         overflowY: 'auto',
       }}
     >
-      <Section title="Desks" hint={`${desks.desks.length}`}>
+      <Section
+        title="Desks"
+        hint={desks.loading ? '…' : `${desks.desks.length}`}
+      >
+        {desks.loading && desks.desks.length === 0 && (
+          <>
+            <Skeleton.Row />
+            <Skeleton.Row />
+            <Skeleton.Row />
+          </>
+        )}
         <ul role="list" style={listStyle}>
           {desks.desks.map((d) => (
             <li

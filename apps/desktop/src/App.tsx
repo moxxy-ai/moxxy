@@ -6,6 +6,7 @@ import { ChatSurface } from './chat/ChatSurface';
 import { DeskSidebar } from './desks/DeskSidebar';
 import { WorkflowsPanel } from './workflows/WorkflowsPanel';
 import { SettingsPanel } from './settings/SettingsPanel';
+import { Splash } from './Splash';
 
 type View = 'chat' | 'workflows' | 'settings';
 
@@ -24,6 +25,14 @@ export function App(): JSX.Element {
   const phase = snapshot?.phase;
   const [forceWizard, setForceWizard] = useState(false);
   const [view, setView] = useState<View>('chat');
+
+  // First snapshot hasn't arrived yet — keep the splash on until we know
+  // whether to show onboarding, the connection screen, or the chat
+  // shell. Without this gate a flash of "ConnectionScreen / connecting"
+  // shows for the few hundred ms before snapshot resolves.
+  if (!snapshot) {
+    return <Splash />;
+  }
 
   const cliMissing = phase?.phase === 'cli-missing';
   const connectedWithoutProvider =

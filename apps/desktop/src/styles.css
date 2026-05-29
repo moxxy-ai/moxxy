@@ -72,3 +72,21 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .elev {
   box-shadow: 0 1px 0 #ffffff05 inset, 0 18px 40px -24px #000c;
 }
+
+@keyframes moxxy-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes moxxy-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes moxxy-pulse {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; }
+}

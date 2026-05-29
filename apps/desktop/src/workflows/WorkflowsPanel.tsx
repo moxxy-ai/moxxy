@@ -1,4 +1,5 @@
 import { useWorkflows } from '@/lib/useWorkflows';
+import { Skeleton } from '@/lib/Skeleton';
 
 /**
  * List of workflows registered on the connected runner, with
@@ -52,8 +53,12 @@ export function WorkflowsPanel(): JSX.Element {
           {wf.error}
         </p>
       )}
-      {wf.loading ? (
-        <p style={{ color: 'var(--color-text-dim)' }}>Loading…</p>
+      {wf.loading && wf.list.length === 0 ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <Skeleton.Card />
+          <Skeleton.Card />
+          <Skeleton.Card />
+        </div>
       ) : wf.list.length === 0 ? (
         <p style={{ color: 'var(--color-text-dim)' }}>
           No workflows registered on this runner.

@@ -73,14 +73,21 @@ export function useDesks(): UseDesks {
 
   const setActive = useCallback(
     async (id: string): Promise<void> => {
+      // Optimistic: flip the active id immediately so the sidebar
+      // highlight follows the click without waiting for the IPC + the
+      // supervisor's full re-resolve. We still refresh after — the IPC
+      // is the source of truth and corrects any drift.
+      const prev = overview.activeId;
+      setOverview((o) => ({ ...o, activeId: id }));
       try {
         await api().invoke('desks.setActive', { id });
         await refresh();
       } catch (e) {
+        setOverview((o) => ({ ...o, activeId: prev }));
         setError(e instanceof Error ? e.message : String(e));
       }
     },
-    [refresh],
+    [overview.activeId, refresh],
   );
 
   return {

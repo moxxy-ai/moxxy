@@ -37,14 +37,19 @@ export function useWorkflows(): UseWorkflows {
 
   const setEnabled = useCallback(
     async (name: string, enabled: boolean): Promise<void> => {
+      // Optimistic flip — flicker-free toggle, IPC + refresh corrects
+      // if the runner rejects (e.g. workflow doesn't exist).
+      const prev = list;
+      setList((cur) => cur.map((w) => (w.name === name ? { ...w, enabled } : w)));
       try {
         await api().invoke('workflows.setEnabled', { name, enabled });
         await refresh();
       } catch (e) {
+        setList(prev);
         setError(e instanceof Error ? e.message : String(e));
       }
     },
-    [refresh],
+    [list, refresh],
   );
 
   const run = useCallback(
