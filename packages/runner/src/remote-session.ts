@@ -109,6 +109,12 @@ export interface RemoteSessionOptions {
    * socket isn't quite accepting yet (or is mid-restart).
    */
   readonly connectRetries?: number;
+  /**
+   * Disable the kill-and-unlink-on-mismatch recovery (defaults to
+   * enabled). Tests that drive a fake server typically pass their
+   * own transport AND want the mismatch error to surface unchanged.
+   */
+  readonly skipMismatchRecovery?: boolean;
 }
 
 /**
@@ -566,16 +572,93 @@ function defaultApproval(request: ApprovalRequest): ApprovalDecision {
 /**
  * Connect to a running runner and return an attached {@link RemoteSession}.
  * Throws if no runner is listening (callers decide whether to self-host).
+ *
+ * Protocol-mismatch recovery: when the server is on a lower protocol
+ * version than this client (i.e. the user upgraded moxxy but left an
+ * older `moxxy serve` daemon running), the attach throws with
+ * "protocol mismatch: server vX, client vY". This is unambiguously
+ * fatal — the older daemon can never speak our protocol — so we
+ * proactively kill it and unlink the socket before re-throwing. The
+ * next attach attempt (CLI's self-host fallback, desktop supervisor's
+ * retry) finds a clean slate and binds successfully.
  */
 export async function connectRemoteSession(
   opts: RemoteSessionOptions = {},
 ): Promise<RemoteSession> {
+  const socketPath = opts.socketPath ?? runnerSocketPath();
   const transport =
-    opts.transport ??
-    (await connectWithRetry(opts.socketPath ?? runnerSocketPath(), opts.connectRetries ?? 5));
+    opts.transport ?? (await connectWithRetry(socketPath, opts.connectRetries ?? 5));
   const session = new RemoteSession(transport);
-  await session.attach(opts.role ?? 'client', opts.sinceSeq ?? 0);
+  try {
+    await session.attach(opts.role ?? 'client', opts.sinceSeq ?? 0);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/protocol mismatch/i.test(msg) && !opts.transport && !opts.skipMismatchRecovery) {
+      try {
+        await killAndUnlinkRunner(socketPath);
+      } catch {
+        /* best-effort */
+      }
+    }
+    throw err;
+  }
   return session;
+}
+
+/** Kill whatever PID is holding a unix socket, then unlink the
+ *  socket file so the next bind succeeds. Best-effort, macOS / Linux
+ *  only (lsof not available on Windows). Exported so the desktop
+ *  supervisor can reuse it.
+ */
+export async function killAndUnlinkRunner(socketPath: string): Promise<void> {
+  if (process.platform === 'win32') {
+    try {
+      const fs = await import('node:fs');
+      fs.unlinkSync(socketPath);
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+  const { spawn } = await import('node:child_process');
+  const pid = await new Promise<number | null>((resolve) => {
+    let out = '';
+    try {
+      const child = spawn('lsof', ['-t', socketPath], {
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      child.stdout.on('data', (b) => {
+        out += b.toString();
+      });
+      child.on('error', () => resolve(null));
+      child.on('close', () => {
+        const parsed = parseInt(out.trim().split('\n')[0] ?? '', 10);
+        resolve(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+  if (pid && pid !== process.pid) {
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {
+      /* ignore */
+    }
+    await new Promise((r) => setTimeout(r, 400));
+    try {
+      process.kill(pid, 0);
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      /* already dead */
+    }
+  }
+  try {
+    const fs = await import('node:fs');
+    fs.unlinkSync(socketPath);
+  } catch {
+    /* may already be gone */
+  }
 }
 
 /** Connect, retrying with linear backoff to ride over a brief runner hiccup. */
