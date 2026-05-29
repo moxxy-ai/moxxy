@@ -336,18 +336,16 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   50%      { transform: translateY(-2px); }
 }
 
-/* Branded avatar loader. Gentle bob + soft pink glow under the feet
- * so it reads as "she's working" instead of "your app is frozen."
- * Used in Splash, ReconnectBanner, and inline "Loading…" heroes. */
+/* Branded avatar loader. Gentle bob so it reads as "she's working"
+ * instead of "your app is frozen."  Used in Splash, ReconnectBanner,
+ * and inline "Loading…" heroes. */
 .moxxy-avatar-loader {
   display: inline-block;
   animation: moxxy-bob 2.2s ease-in-out infinite;
-  filter: drop-shadow(0 12px 14px rgba(236, 72, 153, 0.30));
 }
 
 .moxxy-avatar-loader--sm {
   animation: moxxy-mini-bob 1.6s ease-in-out infinite;
-  filter: drop-shadow(0 4px 6px rgba(236, 72, 153, 0.28));
 }
 
 @media (prefers-reduced-motion: reduce) {
