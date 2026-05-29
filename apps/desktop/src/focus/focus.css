@@ -69,53 +69,72 @@ body[data-mode='focus'] #root {
 }
 
 /* --- 2) menu ------------------------------------------------------------ */
+/* Square-ish floating card. The two .focus-menu__grip strips on the
+ * left/right edges are explicit drag handles so the user always has
+ * a safe surface to grab when corner-dragging the widget; the body
+ * itself is also draggable but the grips are the visual hint. */
 
 .focus-menu {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 4px;
-  height: 52px;
-  margin: 4px;
-  padding: 4px 6px 4px 4px;
-  background: rgba(255, 255, 255, 0.92);
+  gap: 6px;
+  height: 60px;
+  margin: 6px;
+  padding: 6px 12px 6px 8px;
+  background: rgba(255, 255, 255, 0.96);
   border: 1px solid var(--color-card-border);
-  border-radius: 999px;
+  border-radius: 16px;
   box-shadow:
-    0 18px 36px -12px rgba(15, 23, 42, 0.3),
+    0 18px 36px -12px rgba(15, 23, 42, 0.32),
     0 4px 10px -4px rgba(15, 23, 42, 0.18);
   backdrop-filter: blur(18px) saturate(120%);
   -webkit-backdrop-filter: blur(18px) saturate(120%);
 }
-.focus-menu__handle {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: transparent;
-  border: none;
+.focus-menu[data-busy='true'] {
+  border-color: rgba(236, 72, 153, 0.55);
+  box-shadow:
+    0 18px 36px -12px rgba(236, 72, 153, 0.3),
+    0 0 0 1px rgba(236, 72, 153, 0.35);
+}
+
+/* Drag grips — small vertical bars on the inner left/right edges.
+ * Cosmetic hint that the widget is draggable; the whole card has
+ * WebkitAppRegion: drag anyway. */
+.focus-menu__grip {
+  width: 3px;
+  height: 22px;
+  background: var(--color-card-border);
+  border-radius: 2px;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.focus-menu__brand {
+  width: 36px;
+  height: 36px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
   flex-shrink: 0;
+  pointer-events: none; /* purely cosmetic — drag-zone still works */
 }
-.focus-menu__handle img {
-  border-radius: 50%;
-}
-.focus-menu__split {
-  width: 1px;
+.focus-menu__brand img {
+  width: 28px;
   height: 28px;
-  background: var(--color-card-border);
-  margin: 0 4px;
-  flex-shrink: 0;
+  border-radius: 50%;
+  display: block;
 }
+
 .focus-menu__actions {
   display: flex;
   gap: 4px;
+  margin-left: auto;
 }
 .focus-menu__btn {
   width: 36px;
   height: 36px;
-  border-radius: 12px;
+  border-radius: 10px;
   background: transparent;
   color: var(--color-text-muted);
   display: inline-flex;

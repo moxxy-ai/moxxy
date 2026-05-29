@@ -19,11 +19,10 @@ import { chatStore } from '@/lib/chatStore';
 import { ConnectionBridge, useActiveWorkspaceId } from '@/lib/useConnection';
 import { Icon } from '@/lib/Icon';
 
-type Mode = 'dot' | 'menu' | 'text' | 'voice';
+type Mode = 'menu' | 'text' | 'voice';
 
 const MODE_DIMENSIONS: Record<Mode, { width: number; height: number }> = {
-  dot: { width: 64, height: 64 },
-  menu: { width: 244, height: 60 },
+  menu: { width: 240, height: 72 },
   text: { width: 380, height: 200 },
   voice: { width: 380, height: 220 },
 };
@@ -40,7 +39,7 @@ export function FocusWidget(): JSX.Element {
 }
 
 function FocusContent({ workspaceId }: { readonly workspaceId: string | null }): JSX.Element {
-  const [mode, setMode] = useState<Mode>('dot');
+  const [mode, setMode] = useState<Mode>('menu');
   const chat = useChat(workspaceId);
 
   // Resize the BrowserWindow whenever the mode changes so the chrome
@@ -64,13 +63,12 @@ function FocusContent({ workspaceId }: { readonly workspaceId: string | null }):
     },
   );
 
-  if (mode === 'dot') return <DotMode onExpand={() => setMode('menu')} sending={chat.sending} />;
   if (mode === 'menu')
     return (
       <MenuMode
         onText={() => setMode('text')}
         onVoice={() => setMode('voice')}
-        onDot={() => setMode('dot')}
+        sending={chat.sending}
       />
     );
   if (mode === 'voice')
@@ -92,61 +90,36 @@ function FocusContent({ workspaceId }: { readonly workspaceId: string | null }):
   );
 }
 
-// --- dot ------------------------------------------------------------------
-
-function DotMode({
-  onExpand,
-  sending,
-}: {
-  readonly onExpand: () => void;
-  readonly sending: boolean;
-}): JSX.Element {
-  // Important: NO -webkit-app-region: drag on the button — that
-  // makes the element a window-drag target on macOS and clicks are
-  // absorbed by the OS instead of reaching React. The dot has no
-  // "empty space" to drag from anyway; just make the whole circle a
-  // click target.
-  return (
-    <button
-      type="button"
-      onClick={onExpand}
-      aria-label="moxxy · click to open"
-      className="focus-dot"
-      data-busy={sending ? 'true' : 'false'}
-    >
-      <img src="/logo.png" alt="moxxy" draggable={false} />
-    </button>
-  );
-}
-
 // --- menu (logo + voice + text + restore + close) -------------------------
+//
+// Layout intent (per user feedback):
+//   - Square-ish rounded-rect, not a pill — drag-feels like a small
+//     widget, not a status bar.
+//   - The entire card is a drag handle (WebkitAppRegion: drag), the
+//     individual buttons opt OUT with WebkitAppRegion: no-drag so
+//     they remain clickable. The grippy "rails" along the left and
+//     right edges are visual hints for where the safe drag zones
+//     are even when buttons cover the centre.
 
 function MenuMode({
   onText,
   onVoice,
-  onDot,
+  sending,
 }: {
   readonly onText: () => void;
   readonly onVoice: () => void;
-  readonly onDot: () => void;
+  readonly sending: boolean;
 }): JSX.Element {
-  // Note: React drops keys with leading hyphens silently in some
-  // versions, so we use the WebkitAppRegion camelCase form which
-  // both React and Electron understand.
+  // CamelCase WebkitAppRegion — React drops leading-hyphen keys in
+  // some versions, this form is recognised by both React and Electron.
   const drag = { WebkitAppRegion: 'drag' } as React.CSSProperties;
   const noDrag = { WebkitAppRegion: 'no-drag' } as React.CSSProperties;
   return (
-    <div className="focus-menu" style={drag}>
-      <button
-        type="button"
-        className="focus-menu__handle"
-        onClick={onDot}
-        aria-label="Collapse"
-        style={noDrag}
-      >
-        <img src="/logo.png" alt="" aria-hidden width={26} height={26} draggable={false} />
-      </button>
-      <div className="focus-menu__split" />
+    <div className="focus-menu" style={drag} data-busy={sending ? 'true' : 'false'}>
+      <span aria-hidden className="focus-menu__grip focus-menu__grip--left" />
+      <div className="focus-menu__brand" style={noDrag}>
+        <img src="/logo.png" alt="" aria-hidden draggable={false} />
+      </div>
       <div className="focus-menu__actions" style={noDrag}>
         <button
           type="button"
@@ -181,6 +154,7 @@ function MenuMode({
           <Icon name="x" size={13} />
         </button>
       </div>
+      <span aria-hidden className="focus-menu__grip focus-menu__grip--right" />
     </div>
   );
 }
