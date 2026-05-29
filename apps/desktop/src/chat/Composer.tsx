@@ -344,6 +344,6 @@ function sendBtn(bg: string, enabled: boolean): React.CSSProperties {
     alignItems: 'center',
     justifyContent: 'center',
     opacity: enabled ? 1 : 0.45,
-    boxShadow: enabled ? '0 8px 20px -10px rgba(59, 130, 246, 0.5)' : 'none',
+    boxShadow: enabled ? '0 8px 20px -10px rgba(236, 72, 153, 0.55)' : 'none',
   };
 }

@@ -158,7 +158,7 @@ function ReconnectBanner({ label }: { readonly label: string }): JSX.Element {
         left: '50%',
         bottom: 24,
         transform: 'translateX(-50%)',
-        padding: '8px 14px',
+        padding: '6px 14px 6px 6px',
         background: 'var(--color-card-bg)',
         border: '1px solid var(--color-card-border)',
         borderRadius: 999,
@@ -171,16 +171,14 @@ function ReconnectBanner({ label }: { readonly label: string }): JSX.Element {
         zIndex: 50,
       }}
     >
-      <span
-        aria-hidden
-        style={{
-          width: 12,
-          height: 12,
-          borderRadius: '50%',
-          border: '2px solid var(--color-card-border)',
-          borderTopColor: 'var(--color-primary)',
-          animation: 'moxxy-spin 0.8s linear infinite',
-        }}
+      <img
+        src="/avatar.png"
+        alt=""
+        aria-hidden="true"
+        className="moxxy-avatar-loader moxxy-avatar-loader--sm"
+        width={28}
+        height={28}
+        style={{ imageRendering: 'pixelated' }}
       />
       {label}
     </div>

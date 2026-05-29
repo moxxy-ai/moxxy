@@ -336,22 +336,18 @@ function EmptyState({ ready }: { readonly ready: boolean }): JSX.Element {
       }}
     >
       <div>
-        <span
-          aria-hidden
+        <img
+          src="/avatar.png"
+          alt=""
+          aria-hidden="true"
+          className={ready ? '' : 'moxxy-avatar-loader'}
+          width={140}
+          height={140}
           style={{
-            display: 'inline-flex',
-            width: 56,
-            height: 56,
-            borderRadius: 16,
-            background: 'var(--color-primary-soft)',
-            color: 'var(--color-primary-strong)',
-            alignItems: 'center',
-            justifyContent: 'center',
+            imageRendering: 'pixelated',
             marginBottom: 14,
           }}
-        >
-          <Icon name="agent" size={28} />
-        </span>
+        />
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
           {ready ? 'Ready when you are' : 'Connecting…'}
         </h2>

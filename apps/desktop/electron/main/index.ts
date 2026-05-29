@@ -40,7 +40,7 @@ async function createWindow(): Promise<void> {
     height: 760,
     minWidth: 720,
     minHeight: 480,
-    backgroundColor: '#f7f8fc',
+    backgroundColor: '#f1f2f9',
     autoHideMenuBar: true,
     icon: iconPath,
     webPreferences: {

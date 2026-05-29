@@ -180,8 +180,9 @@ export function registerIpcHandlers(pool: RunnerPool, desks: DeskStore): void {
 
   // ---- Settings -----------------------------------------------------------
 
-  handle('settings.providers', async () => {
-    const session = pool.active()?.remote();
+  handle('settings.providers', async (args) => {
+    const sup = resolveSupervisor(pool, args?.workspaceId);
+    const session = sup?.remote();
     if (!session) return [];
     const info = session.getInfo();
     const readySet = new Set(info.readyProviders ?? []);
@@ -190,13 +191,13 @@ export function registerIpcHandlers(pool: RunnerPool, desks: DeskStore): void {
       ready: readySet.has(p.name),
     }));
   });
-  handle('settings.mcpServers', async () => {
-    const session = mustSession(pool);
+  handle('settings.mcpServers', async (args) => {
+    const session = mustSession(pool, args?.workspaceId);
     if (!session.mcpAdmin) return [];
     return await session.mcpAdmin.listServers();
   });
-  handle('settings.mcpToggle', async ({ name, enabled }) => {
-    const session = mustSession(pool);
+  handle('settings.mcpToggle', async ({ workspaceId, name, enabled }) => {
+    const session = mustSession(pool, workspaceId);
     if (!session.mcpAdmin) throw new Error('mcp admin not available');
     if (enabled) await session.mcpAdmin.enableAndAttach(name);
     else await session.mcpAdmin.detach(name);

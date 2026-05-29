@@ -50,7 +50,7 @@ export function ContextRail({ mode, provider, onClose }: Props): JSX.Element {
           </SmallButton>
         </header>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0 }}>
-          <Avatar color={active?.color ?? '#818cf8'} />
+          <Avatar color={active?.color ?? '#ec4899'} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div
               style={{

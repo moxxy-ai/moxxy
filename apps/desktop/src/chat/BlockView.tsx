@@ -54,7 +54,7 @@ function UserBlock({ text }: { readonly text: string }): JSX.Element {
         whiteSpace: 'pre-wrap',
         lineHeight: 1.55,
         fontSize: 14.5,
-        boxShadow: '0 6px 18px -10px rgba(99, 102, 241, 0.6)',
+        boxShadow: '0 6px 18px -10px rgba(236, 72, 153, 0.55)',
       }}
     >
       {text}

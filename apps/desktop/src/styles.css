@@ -6,19 +6,19 @@
  */
 
 :root {
-  /* App canvas (slightly cooler off-white, matches reference) */
-  --color-app-bg:        #f7f8fc;
+  /* App canvas — cool lavender to match the landing site's hero. */
+  --color-app-bg:        #f1f2f9;
   --color-card-bg:       #ffffff;
-  --color-card-border:   #ebedf5;
-  --color-card-border-strong: #d6d9ea;
+  --color-card-border:   #e3e5f0;
+  --color-card-border-strong: #cdd1e3;
   --color-card-shadow:   0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 24px -18px rgba(15, 23, 42, 0.10);
 
-  /* Text on light — high-contrast navy/black for headings, slate for dim */
+  /* Text — same high-contrast navy as the landing headlines. */
   --color-text:          #0f172a;
   --color-text-muted:    #475569;
   --color-text-dim:      #94a3b8;
 
-  /* Sidebar — deep navy (#1f2235) like the reference */
+  /* Sidebar — deep navy, anchors the brand-coloured surfaces. */
   --color-sidebar-bg:        #1f2235;
   --color-sidebar-bg-hover:  #282c44;
   --color-sidebar-bg-active: #2e3354;
@@ -26,20 +26,23 @@
   --color-sidebar-text-dim:  #8087a6;
   --color-sidebar-border:    #2a2e48;
 
-  /* Accents */
-  --color-primary:       #7c81f8;   /* periwinkle indigo — user bubble    */
-  --color-primary-strong:#6366f1;
-  --color-primary-soft:  #eef0fe;
-  --color-send:          #3b82f6;   /* blue send button on light card     */
-  --color-accent:        #22d3ee;
-  --color-purple:        #8b5cf6;
-  --color-green:         #10b981;
-  --color-amber:         #f59e0b;
-  --color-pink:          #ec4899;
-  --color-red:           #ef4444;
+  /* Accents — pink primary (CTA), cyan secondary, emerald success. */
+  --color-primary:        #ec4899;   /* hot pink — CTAs, send button, focus glow */
+  --color-primary-strong: #db2777;
+  --color-primary-soft:   #fdf2f8;
+  --color-send:           #ec4899;   /* CTA / send share the brand pink */
+  --color-accent:         #22d3ee;   /* cyan — the "your AI" gradient stop */
+  --color-accent-strong:  #06b6d4;
+  --color-purple:         #8b5cf6;
+  --color-green:          #10b981;
+  --color-amber:          #f59e0b;
+  --color-pink:           #ec4899;
+  --color-red:            #ef4444;
 
-  /* User message bubble — single hue, matches reference */
-  --grad-user: linear-gradient(135deg, #6f74f5 0%, #8b8ffa 100%);
+  /* Brand gradients */
+  --grad-user:    linear-gradient(135deg, #ec4899 0%, #f472b6 100%);
+  --grad-cta:     linear-gradient(135deg, #ec4899 0%, #db2777 100%);
+  --grad-accent:  linear-gradient(135deg, #38bdf8 0%, #22d3ee 100%);
 
   /* Typography */
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
@@ -173,6 +176,30 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 @keyframes moxxy-cursor {
   0%, 49%   { opacity: 1; }
   50%, 100% { opacity: 0; }
+}
+
+@keyframes moxxy-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-8px); }
+}
+
+@keyframes moxxy-mini-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-2px); }
+}
+
+/* Branded avatar loader. Gentle bob + soft pink glow under the feet
+ * so it reads as "she's working" instead of "your app is frozen."
+ * Used in Splash, ReconnectBanner, and inline "Loading…" heroes. */
+.moxxy-avatar-loader {
+  display: inline-block;
+  animation: moxxy-bob 2.2s ease-in-out infinite;
+  filter: drop-shadow(0 12px 14px rgba(236, 72, 153, 0.30));
+}
+
+.moxxy-avatar-loader--sm {
+  animation: moxxy-mini-bob 1.6s ease-in-out infinite;
+  filter: drop-shadow(0 4px 6px rgba(236, 72, 153, 0.28));
 }
 
 @media (prefers-reduced-motion: reduce) {

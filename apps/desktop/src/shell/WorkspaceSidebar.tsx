@@ -411,7 +411,7 @@ function WorkspaceRow({
               borderRadius: '50%',
               background: 'var(--color-primary)',
               flexShrink: 0,
-              boxShadow: '0 0 8px rgba(124, 129, 248, 0.6)',
+              boxShadow: '0 0 8px rgba(236, 72, 153, 0.6)',
             }}
           />
         )}

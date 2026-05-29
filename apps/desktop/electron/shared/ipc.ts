@@ -263,10 +263,17 @@ export interface IpcCommands {
   'workflows.run': (args: { name: string }) => Promise<WorkflowRun>;
 
   // Settings
-  'settings.providers': () => Promise<ReadonlyArray<ProviderEntry>>;
-  'settings.mcpServers': () => Promise<ReadonlyArray<McpServerEntry>>;
-  'settings.mcpToggle': (args: { name: string; enabled: boolean }) => Promise<void>;
+  /** Provider list for the given workspace (defaults to active). */
+  'settings.providers': (args?: { workspaceId?: string }) => Promise<ReadonlyArray<ProviderEntry>>;
+  'settings.mcpServers': (args?: { workspaceId?: string }) => Promise<ReadonlyArray<McpServerEntry>>;
+  'settings.mcpToggle': (args: {
+    workspaceId?: string;
+    name: string;
+    enabled: boolean;
+  }) => Promise<void>;
+  /** Vault entries are global per-user — no workspaceId. */
   'settings.vaultEntries': () => Promise<ReadonlyArray<VaultEntryName>>;
+  /** Skills under ~/.moxxy/skills are global per-user — no workspaceId. */
   'settings.skills': () => Promise<ReadonlyArray<SkillFile>>;
   'settings.readSkill': (args: { name: string }) => Promise<string>;
   'settings.writeSkill': (args: { name: string; body: string }) => Promise<void>;
