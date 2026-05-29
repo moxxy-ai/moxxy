@@ -301,7 +301,19 @@ export class Session implements ClientSession, SessionRuntime {
       sessionId: this.id,
       cwd: this.cwd,
       activeProvider: active,
-      providers: this.providers.list().map((p) => ({ name: p.name, models: p.models })),
+      providers: this.providers.list().map((p) => ({
+        name: p.name,
+        models: p.models,
+        authKind: p.auth?.kind === 'oauth' ? 'oauth' : 'api-key',
+        // Built-in providers ship hard-coded model lists, so live
+        // discovery on /v1/models isn't required from the host. Admin-
+        // registered providers (kind: 'apiKey' without a builtin def)
+        // are the ones the desktop's "Fetch live" affordance targets;
+        // they advertise this via the provider-admin factory by
+        // setting `supportsLiveModelDiscovery: true` on their def.
+        supportsLiveModelDiscovery:
+          (p as { supportsLiveModelDiscovery?: boolean }).supportsLiveModelDiscovery === true,
+      })),
       activeMode,
       modes: this.modes.list().map((m) => m.name),
       tools: this.tools.list().map((t) => ({

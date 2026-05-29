@@ -114,8 +114,9 @@ export function App(): JSX.Element {
 
   const connected = isConnected(phase);
   const shellPhase = connected ? phase! : lastConnected!;
-  const activeMode = shellPhase.phase === 'connected' ? shellPhase.activeMode : null;
-  const activeProvider = shellPhase.phase === 'connected' ? shellPhase.activeProvider : null;
+  // (mode + provider were previously surfaced as a chip in the chat
+  // header; that's been dropped in favour of the workspace path.
+  // Keep this comment so the variable's absence is intentional.)
 
   return (
     <div className="app-shell">
@@ -124,19 +125,13 @@ export function App(): JSX.Element {
       <WorkspaceSidebar view={view} onView={setView} />
       {view === 'chat' && (
         <>
-          {railOpen && (
-            <ContextRail
-              mode={activeMode}
-              provider={activeProvider}
-              onClose={() => setRailOpen(false)}
-            />
-          )}
           <ChatSurface
             phase={shellPhase}
             workspaceId={activeWorkspaceId}
             railOpen={railOpen}
             onShowRail={() => setRailOpen(true)}
           />
+          {railOpen && <ContextRail onClose={() => setRailOpen(false)} />}
         </>
       )}
       {view === 'workflows' && (

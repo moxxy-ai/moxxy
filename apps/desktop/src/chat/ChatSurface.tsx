@@ -194,7 +194,7 @@ function RenameWorkspaceModal({
 }
 
 function Header({
-  phase,
+  phase: _phase,
   railOpen,
   onShowRail,
   searchQuery,
@@ -210,18 +210,14 @@ function Header({
   readonly canRename: boolean;
   readonly onRename: () => void;
 }): JSX.Element {
-  const connected = phase.phase === 'connected';
-  const sub =
-    phase.phase === 'connected'
-      ? `${phase.activeProvider ?? 'no provider'} · ${phase.activeMode ?? 'no mode'}`
-      : phase.phase;
   const [searchOpen, setSearchOpen] = useState(searchQuery !== null);
   return (
     <header
       style={{
-        // Locked to the same height as the agent rail's StatusBar so
-        // the two columns share one continuous top rule.
         height: 64,
+        minHeight: 64,
+        flexShrink: 0,
+        boxSizing: 'border-box',
         padding: '0 24px',
         borderBottom: '1px solid var(--color-card-border)',
         display: 'flex',
@@ -229,27 +225,10 @@ function Header({
         gap: 12,
       }}
     >
-      {!railOpen && (
-        <IconButton aria-label="Show context rail" onClick={onShowRail}>
-          <Icon name="workspace" size={18} />
-        </IconButton>
-      )}
       <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em' }}>
         Chat
       </h1>
-      <span
-        className="mono"
-        style={{
-          fontSize: 11,
-          padding: '3px 8px',
-          borderRadius: 999,
-          color: connected ? 'var(--color-green)' : 'var(--color-text-dim)',
-          background: connected ? '#dcfce7' : '#eef0f6',
-          fontWeight: 600,
-        }}
-      >
-        {sub}
-      </span>
+      {/* workspace path lives in the right-hand context rail now */}
       <span style={{ flex: 1 }} />
       {searchOpen ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -298,6 +277,11 @@ function Header({
       >
         <Icon name="pencil" size={18} />
       </IconButton>
+      {!railOpen && (
+        <IconButton aria-label="Show context rail" onClick={onShowRail}>
+          <Icon name="workspace" size={18} />
+        </IconButton>
+      )}
     </header>
   );
 }

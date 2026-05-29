@@ -121,8 +121,20 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   flex-direction: column;
   gap: 0;
   overflow-y: auto;
-  border-right: 1px solid var(--color-card-border);
   background: var(--color-card-bg);
+}
+
+/* Right-hand context rail variant: border lives on the left edge so
+ * the column reads as separate from the chat instead of bleeding into
+ * the workspace sidebar. */
+.col-rail--right {
+  border-left: 1px solid var(--color-card-border);
+}
+
+/* Left-hand rails keep the right border. (Kept around in case any
+ * future view re-introduces a left-side rail without `--right`.) */
+.col-rail:not(.col-rail--right) {
+  border-right: 1px solid var(--color-card-border);
 }
 
 .col-main {

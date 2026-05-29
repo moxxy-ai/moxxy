@@ -4,6 +4,7 @@ import { Skeleton } from '@/lib/Skeleton';
 import { Icon } from '@/lib/Icon';
 import { Modal, ConfirmModal } from '@/lib/Modal';
 import { useUnreadWorkspaces } from '@/lib/useChat';
+import { usePrefs } from '@/lib/usePrefs';
 import type { Desk } from '@shared/ipc';
 
 export type View = 'chat' | 'workflows' | 'settings';
@@ -449,6 +450,19 @@ function WorkspaceRow({
 }
 
 function ProfilePill(): JSX.Element {
+  const { prefs } = usePrefs();
+  const signedIn = !!prefs?.clerkUserId;
+  const displayName = prefs?.clerkDisplayName?.trim() || (signedIn ? 'Signed in' : 'Guest');
+  const subtitle = signedIn ? 'Signed in' : 'Not signed in';
+  // Two initials from display name when available, else "G" for guest.
+  const initials = signedIn
+    ? displayName
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((p) => p[0]!.toUpperCase())
+        .join('') || displayName[0]!.toUpperCase()
+    : 'G';
   return (
     <div
       style={{
@@ -468,19 +482,23 @@ function ProfilePill(): JSX.Element {
           width: 32,
           height: 32,
           borderRadius: '50%',
-          background: 'linear-gradient(135deg, #f59e0b, #f472b6)',
+          background: signedIn
+            ? 'linear-gradient(135deg, #f59e0b, #f472b6)'
+            : 'linear-gradient(135deg, #cbd5e1, #94a3b8)',
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
           color: '#fff',
           fontWeight: 700,
-          fontSize: 13,
+          fontSize: 11.5,
+          letterSpacing: '0.04em',
         }}
       >
-        ●
+        {initials}
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
+          title={displayName}
           style={{
             fontSize: 12.5,
             fontWeight: 600,
@@ -490,10 +508,10 @@ function ProfilePill(): JSX.Element {
             textOverflow: 'ellipsis',
           }}
         >
-          You
+          {displayName}
         </div>
         <div style={{ fontSize: 10.5, color: 'var(--color-sidebar-text-dim)' }}>
-          Connected
+          {subtitle}
         </div>
       </div>
     </div>
