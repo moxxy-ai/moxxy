@@ -18,6 +18,26 @@ function formatTier(raw: unknown): string {
   return 'Free';
 }
 
+/** Tier-coloured pill. Free is intentionally calm — a slate chip on
+ *  the dark sidebar reads as "default, no upsell." Paid tiers get the
+ *  brand pink + gradient so an upgrade visibly changes the badge. */
+function tierBadgeStyle(tier: string): React.CSSProperties {
+  const isFree = tier.toLowerCase() === 'free';
+  return {
+    padding: '1px 7px',
+    borderRadius: 999,
+    fontWeight: 700,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    fontSize: 9.5,
+    background: isFree
+      ? 'rgba(148, 163, 184, 0.16)'
+      : 'linear-gradient(135deg, rgba(236, 72, 153, 0.85), rgba(217, 70, 239, 0.85))',
+    color: isFree ? 'var(--color-sidebar-text)' : '#fff',
+    border: isFree ? '1px solid rgba(148, 163, 184, 0.28)' : 'none',
+  };
+}
+
 export type View = 'chat' | 'workflows' | 'settings';
 
 interface Props {
@@ -560,23 +580,11 @@ function ProfilePill(): JSX.Element {
             gap: 6,
           }}
         >
-          <span
-            style={{
-              padding: '1px 6px',
-              borderRadius: 999,
-              background: signedIn
-                ? 'rgba(236, 72, 153, 0.18)'
-                : 'rgba(148, 163, 184, 0.22)',
-              color: signedIn ? '#fce7f3' : 'var(--color-sidebar-text-dim)',
-              fontWeight: 700,
-              letterSpacing: '0.04em',
-              textTransform: 'uppercase',
-              fontSize: 9.5,
-            }}
-          >
-            {tier}
-          </span>
-          <span>{!isLoaded ? '…' : signedIn ? 'Signed in' : 'Not signed in'}</span>
+          {!isLoaded ? (
+            <span>…</span>
+          ) : (
+            <span style={tierBadgeStyle(tier)}>{tier}</span>
+          )}
         </div>
       </div>
       {signedIn && (
