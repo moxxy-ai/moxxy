@@ -3,12 +3,11 @@ import { useConnection, isConnected } from './lib/useConnection';
 import { ConnectionScreen } from './connection/ConnectionScreen';
 import { OnboardingWizard } from './onboarding/OnboardingWizard';
 import { ChatSurface } from './chat/ChatSurface';
-import { DeskSidebar } from './desks/DeskSidebar';
+import { WorkspaceSidebar, type View } from './shell/WorkspaceSidebar';
+import { ContextRail } from './shell/ContextRail';
 import { WorkflowsPanel } from './workflows/WorkflowsPanel';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { Splash } from './Splash';
-
-type View = 'chat' | 'workflows' | 'settings';
 
 /**
  * Top-level shell. Three layers of gating, in order:
@@ -17,8 +16,8 @@ type View = 'chat' | 'workflows' | 'settings';
  *      condition is unmet.
  *   2. While the runner is connecting (any phase that isn't
  *      `connected`), the ConnectionScreen owns the pane.
- *   3. Once connected, the main shell renders: DeskSidebar on the
- *      left + the active view (chat / workflows / settings).
+ *   3. Once connected, the workspace shell renders:
+ *      WorkspaceSidebar | ContextRail | <active view>.
  */
 export function App(): JSX.Element {
   const { snapshot, retry } = useConnection();
@@ -26,13 +25,9 @@ export function App(): JSX.Element {
   const [forceWizard, setForceWizard] = useState(false);
   const [view, setView] = useState<View>('chat');
 
-  // First snapshot hasn't arrived yet — keep the splash on until we know
-  // whether to show onboarding, the connection screen, or the chat
-  // shell. Without this gate a flash of "ConnectionScreen / connecting"
-  // shows for the few hundred ms before snapshot resolves.
-  if (!snapshot) {
-    return <Splash />;
-  }
+  // Hold the splash until the first snapshot arrives — prevents a
+  // flash of "ConnectionScreen / resolving" during cold boot.
+  if (!snapshot) return <Splash />;
 
   const cliMissing = phase?.phase === 'cli-missing';
   const connectedWithoutProvider =
@@ -51,12 +46,38 @@ export function App(): JSX.Element {
     return <ConnectionScreen snapshot={snapshot} onRetry={() => void retry()} />;
   }
 
+  const activeMode = phase!.phase === 'connected' ? phase!.activeMode : null;
+  const activeProvider = phase!.phase === 'connected' ? phase!.activeProvider : null;
+
   return (
-    <div className="app-shell" style={{ flexDirection: 'row' }}>
-      <DeskSidebar view={view} onView={setView} />
-      {view === 'chat' && <ChatSurface phase={phase!} />}
-      {view === 'workflows' && <WorkflowsPanel />}
-      {view === 'settings' && <SettingsPanel />}
+    <div className="app-shell">
+      <WorkspaceSidebar view={view} onView={setView} />
+      {view === 'chat' && (
+        <>
+          <ContextRail mode={activeMode} provider={activeProvider} />
+          <ChatSurface phase={phase!} />
+        </>
+      )}
+      {view === 'workflows' && (
+        <main className="col-main" style={{ paddingLeft: 18 }}>
+          <article
+            className="card"
+            style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}
+          >
+            <WorkflowsPanel />
+          </article>
+        </main>
+      )}
+      {view === 'settings' && (
+        <main className="col-main" style={{ paddingLeft: 18 }}>
+          <article
+            className="card"
+            style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}
+          >
+            <SettingsPanel />
+          </article>
+        </main>
+      )}
     </div>
   );
 }

@@ -82,7 +82,7 @@ describe('useWorkflows', () => {
   });
 
   it('flips enabled optimistically before the IPC resolves', async () => {
-    let resolveToggle: (() => void) | null = null;
+    let resolveToggle: (() => void) | undefined;
     let serverEnabled = true;
     const invoke = vi.fn(async (cmd: string, args?: unknown) => {
       if (cmd === 'workflows.list') return [{ ...sample, enabled: serverEnabled }];
@@ -110,7 +110,7 @@ describe('useWorkflows', () => {
     await waitFor(() => expect(result.current.list[0]?.enabled).toBe(false));
 
     // Finalise the IPC + the refresh, ensuring nothing throws.
-    resolveToggle?.();
+    resolveToggle!();
     await act(async () => {
       await pending;
     });

@@ -32,12 +32,12 @@ interface DeskDoc {
 
 const DESK_FILE = path.join(homedir(), '.moxxy', 'desktop', 'desks.json');
 const DEFAULT_COLORS = [
-  '#818cf8',
-  '#22d3ee',
-  '#a78bfa',
-  '#34d399',
-  '#fb923c',
-  '#f472b6',
+  '#3b82f6', // blue   — Growth Team accent
+  '#ef4444', // red    — Product Launch accent
+  '#10b981', // green  — Sales Ops accent
+  '#8b5cf6', // purple — Research Hub accent
+  '#f59e0b', // amber  — Personal accent
+  '#06b6d4', // cyan
 ];
 
 export class DeskStore {

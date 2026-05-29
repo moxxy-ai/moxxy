@@ -1,9 +1,15 @@
 import type { Block } from '@/lib/useChat';
 
 /**
- * One transcript block. Kept as a tiny component-per-kind so a
- * future markdown renderer / tool-input inspector slots in without
- * touching the parent.
+ * One transcript block. Layout follows the workspace-chat reference:
+ *
+ *   - user     → right-aligned periwinkle bubble, white text, no avatar.
+ *   - assistant→ left-aligned: avatar + name + timestamp + plain text
+ *               (no bubble) + action row (copy, thumbs, …). A blinking
+ *               block-cursor at the tail of the text while streaming
+ *               makes the in-flight chunks visible.
+ *   - tool     → small mono summary with status-coloured left bar.
+ *   - system   → centered low-key separator.
  */
 export function BlockView({ block }: { readonly block: Block }): JSX.Element {
   switch (block.kind) {
@@ -38,12 +44,15 @@ function UserBlock({ text }: { readonly text: string }): JSX.Element {
       data-testid="block-user"
       style={{
         alignSelf: 'flex-end',
-        maxWidth: '70%',
-        padding: '0.55rem 0.85rem',
-        background: 'var(--color-bg-card)',
-        border: '1px solid var(--color-border)',
-        borderRadius: 'var(--radius-block)',
+        maxWidth: '78%',
+        padding: '12px 16px',
+        background: 'var(--grad-user)',
+        color: '#fff',
+        borderRadius: '16px 16px 4px 16px',
         whiteSpace: 'pre-wrap',
+        lineHeight: 1.55,
+        fontSize: 14.5,
+        boxShadow: '0 6px 18px -10px rgba(99, 102, 241, 0.6)',
       }}
     >
       {text}
@@ -65,40 +74,156 @@ function AssistantBlock({
       data-testid="block-assistant"
       data-streaming={streaming}
       style={{
-        maxWidth: '90%',
-        padding: '0.75rem 1rem',
-        background: 'var(--color-bg-card)',
-        border: '1px solid var(--color-border)',
-        borderRadius: 'var(--radius-block)',
-        whiteSpace: 'pre-wrap',
-        lineHeight: 1.7,
+        alignSelf: 'stretch',
+        display: 'flex',
+        gap: 12,
+        maxWidth: '92%',
       }}
     >
-      {text}
-      {streaming && (
-        <span
-          aria-hidden
-          style={{ marginLeft: 4, color: 'var(--color-primary)' }}
+      <Avatar />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <Header streaming={streaming} />
+        <div
+          style={{
+            marginTop: 6,
+            whiteSpace: 'pre-wrap',
+            lineHeight: 1.7,
+            fontSize: 14.5,
+            color: 'var(--color-text)',
+          }}
         >
-          ▍
-        </span>
-      )}
-      {stopReason && stopReason !== 'end_turn' && (
+          {text}
+          {streaming && <span aria-hidden className="streaming-cursor" />}
+        </div>
+        {stopReason && stopReason !== 'end_turn' && (
+          <div
+            className="mono"
+            style={{
+              marginTop: 6,
+              fontSize: 10.5,
+              color: 'var(--color-text-dim)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+            }}
+          >
+            stop: {stopReason.replace(/_/g, ' ')}
+          </div>
+        )}
+        {!streaming && <ActionRow />}
+      </div>
+    </div>
+  );
+}
+
+function Avatar(): JSX.Element {
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: 34,
+        height: 34,
+        borderRadius: 10,
+        background: 'var(--color-primary-soft)',
+        color: 'var(--color-primary-strong)',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontWeight: 700,
+        fontSize: 14,
+        flexShrink: 0,
+      }}
+    >
+      ◈
+    </span>
+  );
+}
+
+function Header({ streaming }: { readonly streaming: boolean }): JSX.Element {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ fontWeight: 600, fontSize: 13.5 }}>Assistant</span>
+      {streaming ? (
         <span
           className="mono"
           style={{
-            display: 'block',
-            marginTop: '0.4rem',
-            fontSize: '0.65rem',
-            color: 'var(--color-text-dim)',
-            textTransform: 'uppercase',
-            letterSpacing: '0.06em',
+            fontSize: 11,
+            color: 'var(--color-primary)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
           }}
         >
-          stop: {stopReason.replace(/_/g, ' ')}
+          <span
+            aria-hidden
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: 'var(--color-primary)',
+              animation: 'moxxy-pulse 1.2s ease-in-out infinite',
+            }}
+          />
+          typing…
+        </span>
+      ) : (
+        <span
+          className="mono"
+          style={{ fontSize: 11, color: 'var(--color-text-dim)' }}
+        >
+          {hhmm(Date.now())}
         </span>
       )}
     </div>
+  );
+}
+
+function ActionRow(): JSX.Element {
+  return (
+    <div
+      style={{
+        marginTop: 10,
+        display: 'flex',
+        gap: 2,
+        color: 'var(--color-text-dim)',
+      }}
+    >
+      <IconBtn label="Copy">⎘</IconBtn>
+      <IconBtn label="Good response">▲</IconBtn>
+      <IconBtn label="Bad response">▼</IconBtn>
+      <IconBtn label="More">⋯</IconBtn>
+    </div>
+  );
+}
+
+function IconBtn({
+  children,
+  label,
+}: {
+  readonly children: React.ReactNode;
+  readonly label: string;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      style={{
+        width: 26,
+        height: 26,
+        borderRadius: 8,
+        fontSize: 12,
+        color: 'var(--color-text-dim)',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = 'var(--color-bg-card-hover)';
+        e.currentTarget.style.color = 'var(--color-text)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'transparent';
+        e.currentTarget.style.color = 'var(--color-text-dim)';
+      }}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -117,7 +242,7 @@ function ToolBlock({
 }): JSX.Element {
   const accent =
     status === 'error'
-      ? 'var(--color-pink)'
+      ? 'var(--color-red)'
       : status === 'ok'
         ? 'var(--color-green)'
         : 'var(--color-primary)';
@@ -129,22 +254,23 @@ function ToolBlock({
       className="mono"
       style={{
         alignSelf: 'flex-start',
-        maxWidth: '90%',
-        fontSize: '0.75rem',
+        maxWidth: '92%',
+        marginLeft: 46,
+        fontSize: 12,
         color: 'var(--color-text-dim)',
         borderLeft: `2px solid ${accent}`,
-        paddingLeft: '0.5rem',
+        paddingLeft: 10,
       }}
     >
       <summary
         style={{
           cursor: 'pointer',
           display: 'flex',
-          gap: '0.4rem',
+          gap: 8,
           alignItems: 'baseline',
         }}
       >
-        <span style={{ color: accent }}>[{status}]</span>
+        <span style={{ color: accent, fontWeight: 600 }}>[{status}]</span>
         <span style={{ color: 'var(--color-text-muted)' }}>{name}</span>
         {summary && (
           <span
@@ -153,7 +279,7 @@ function ToolBlock({
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
-              maxWidth: 360,
+              maxWidth: 420,
             }}
           >
             {summary}
@@ -162,15 +288,15 @@ function ToolBlock({
       </summary>
       <div
         style={{
-          marginTop: '0.4rem',
+          marginTop: 6,
           display: 'flex',
           flexDirection: 'column',
-          gap: '0.3rem',
+          gap: 6,
         }}
       >
         <pre style={preStyle}>{stringify(input)}</pre>
         {output !== undefined && <pre style={preStyle}>{stringify(output)}</pre>}
-        {error && <pre style={{ ...preStyle, color: 'var(--color-pink)' }}>{error}</pre>}
+        {error && <pre style={{ ...preStyle, color: 'var(--color-red)' }}>{error}</pre>}
       </div>
     </details>
   );
@@ -183,7 +309,7 @@ function SystemBlock({
   readonly text: string;
   readonly tone: 'info' | 'error';
 }): JSX.Element {
-  const color = tone === 'error' ? 'var(--color-pink)' : 'var(--color-text-dim)';
+  const color = tone === 'error' ? 'var(--color-red)' : 'var(--color-text-dim)';
   return (
     <div
       data-testid="block-system"
@@ -191,8 +317,8 @@ function SystemBlock({
       className="mono"
       style={{
         alignSelf: 'center',
-        fontSize: '0.7rem',
-        padding: '0.3rem 0.6rem',
+        fontSize: 11,
+        padding: '4px 10px',
         color,
         textTransform: 'lowercase',
         letterSpacing: '0.04em',
@@ -206,11 +332,11 @@ function SystemBlock({
 
 const preStyle: React.CSSProperties = {
   margin: 0,
-  padding: '0.4rem 0.5rem',
-  background: 'var(--color-bg)',
-  border: '1px solid var(--color-border)',
-  borderRadius: 4,
-  fontSize: '0.7rem',
+  padding: '8px 10px',
+  background: '#f6f7fc',
+  border: '1px solid var(--color-card-border)',
+  borderRadius: 6,
+  fontSize: 11,
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
   maxHeight: 280,
@@ -235,4 +361,9 @@ function stringify(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function hhmm(ts: number): string {
+  const d = new Date(ts);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }

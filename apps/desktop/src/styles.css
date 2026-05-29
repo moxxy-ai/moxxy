@@ -1,25 +1,65 @@
 /*
- * Minimal global styles. Design tokens kept inline here for now —
- * the standalone @moxxy/ui-tokens package was deleted in the reset
- * and will be reintroduced once the surfaces stabilize.
+ * Design tokens — mixed-mode workspace UI: dark left rail + light main
+ * surface. Modeled after the agent-workspace reference design (see
+ * the redesign brief). Keep this file the single source of truth so
+ * every component reads from CSS variables, not hard-coded values.
  */
 
 :root {
-  --color-bg: #08080c;
-  --color-bg-card: #111119;
-  --color-bg-card-hover: #16161f;
-  --color-border: #20202c;
-  --color-border-light: #32324a;
-  --color-text: #e8e8f2;
-  --color-text-muted: #9595ac;
-  --color-text-dim: #686d86;
-  --color-primary: #818cf8;
-  --color-accent: #22d3ee;
-  --color-green: #34d399;
-  --color-pink: #f472b6;
+  /* App canvas (slightly cooler off-white, matches reference) */
+  --color-app-bg:        #f7f8fc;
+  --color-card-bg:       #ffffff;
+  --color-card-border:   #ebedf5;
+  --color-card-border-strong: #d6d9ea;
+  --color-card-shadow:   0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 24px -18px rgba(15, 23, 42, 0.10);
+
+  /* Text on light — high-contrast navy/black for headings, slate for dim */
+  --color-text:          #0f172a;
+  --color-text-muted:    #475569;
+  --color-text-dim:      #94a3b8;
+
+  /* Sidebar — deep navy (#1f2235) like the reference */
+  --color-sidebar-bg:        #1f2235;
+  --color-sidebar-bg-hover:  #282c44;
+  --color-sidebar-bg-active: #2e3354;
+  --color-sidebar-text:      #e6e8f3;
+  --color-sidebar-text-dim:  #8087a6;
+  --color-sidebar-border:    #2a2e48;
+
+  /* Accents */
+  --color-primary:       #7c81f8;   /* periwinkle indigo — user bubble    */
+  --color-primary-strong:#6366f1;
+  --color-primary-soft:  #eef0fe;
+  --color-send:          #3b82f6;   /* blue send button on light card     */
+  --color-accent:        #22d3ee;
+  --color-purple:        #8b5cf6;
+  --color-green:         #10b981;
+  --color-amber:         #f59e0b;
+  --color-pink:          #ec4899;
+  --color-red:           #ef4444;
+
+  /* User message bubble — single hue, matches reference */
+  --grad-user: linear-gradient(135deg, #6f74f5 0%, #8b8ffa 100%);
+
+  /* Typography */
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
-  --radius-block: 6px;
+  --radius-block: 8px;
+  --radius-card:  14px;
+  --radius-pill:  9999px;
+
+  color-scheme: light;
+}
+
+/* Legacy aliases — older components still read these names. Map them
+ * to the new tokens so we don't have to touch every file in one go.
+ */
+:root {
+  --color-bg:              var(--color-app-bg);
+  --color-bg-card:         var(--color-card-bg);
+  --color-bg-card-hover:   #f4f5fa;
+  --color-border:          var(--color-card-border);
+  --color-border-light:    #d8dbeb;
 }
 
 * { box-sizing: border-box; }
@@ -30,10 +70,10 @@ html, body, #root {
   height: 100%;
   width: 100%;
   font-family: var(--font-sans);
-  background: var(--color-bg);
+  background: var(--color-app-bg);
   color: var(--color-text);
-  letter-spacing: -0.01em;
-  line-height: 1.6;
+  letter-spacing: -0.005em;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -44,34 +84,67 @@ button {
   background: transparent;
   border: none;
   cursor: pointer;
+  padding: 0;
 }
 
 code, kbd, pre, .mono { font-family: var(--font-mono); }
 
+/* --- Layout primitives ----------------------------------------- */
+
 .app-shell {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   height: 100vh;
+  background: var(--color-app-bg);
+  overflow: hidden;
 }
 
-.bp-grid {
-  background-image:
-    radial-gradient(circle at center, transparent 0%, var(--color-bg) 80%),
-    linear-gradient(to right, #818cf80f 1px, transparent 1px),
-    linear-gradient(to bottom, #818cf80f 1px, transparent 1px);
-  background-size: 100% 100%, 24px 24px, 24px 24px;
+.col-sidebar {
+  width: 232px;
+  flex-shrink: 0;
+  background: var(--color-sidebar-bg);
+  color: var(--color-sidebar-text);
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--color-sidebar-border);
 }
 
-.grad-text {
-  background: linear-gradient(135deg, #818cf8, #a78bfa 50%, #22d3ee);
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
+.col-rail {
+  width: 296px;
+  flex-shrink: 0;
+  padding: 16px 14px 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
 }
 
-.elev {
-  box-shadow: 0 1px 0 #ffffff05 inset, 0 18px 40px -24px #000c;
+.col-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 18px 16px 4px;
+  min-width: 0;
 }
+
+.card {
+  background: var(--color-card-bg);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--color-card-shadow);
+}
+
+/* --- Scrollbars: thin + on-hover only -------------------------- */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-card-border-strong) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--color-card-border-strong); border-radius: 4px; }
+
+/* --- Misc animations ------------------------------------------- */
 
 @keyframes moxxy-shimmer {
   0%   { background-position: 200% 0; }
@@ -87,6 +160,24 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   50%      { opacity: 1; }
 }
 
+@keyframes moxxy-cursor {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; }
+}
+
+/* --- Streaming cursor (assistant tail) ------------------------- */
+
+.streaming-cursor {
+  display: inline-block;
+  vertical-align: -2px;
+  width: 7px;
+  height: 14px;
+  margin-left: 3px;
+  background: var(--color-primary);
+  border-radius: 2px;
+  animation: moxxy-cursor 1s steps(2, end) infinite;
 }
