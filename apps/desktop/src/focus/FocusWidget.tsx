@@ -1,29 +1,28 @@
 /**
  * FocusWidget — the floating mini surface.
  *
- * Three stages:
+ * Stages:
  *
- *   1. INACTIVE  44×44   Small square with the moxxy mark.
- *                        Click → ACTIVE.
+ *   inactive    44×44   logo only.
+ *                       Top 8 px = visible drag handle (only drag zone).
+ *                       The rest = click target → ACTIVE.
  *
- *   2. ACTIVE    220×56  Mark + voice + text + restore-main + close.
- *                        Click mark → INACTIVE.
- *                        Click voice → MINI_VOICE.
- *                        Click text  → MINI_TEXT.
+ *   active     220×56   logo + voice + text + restore-main + close.
+ *                       Left 10 px = visible drag-grip column.
+ *                       Buttons + logo are no-drag, clickable.
  *
- *   3. MINI      360×220 Compact panel for a single quick prompt.
- *                        Header has back-to-active + restore-main.
- *                        Body is either a text composer (mini-text)
- *                        or a push-to-talk button (mini-voice).
+ *   mini-text  360×220  compact composer (input + send).
+ *                       Header bar = drag region.
  *
- * Resizing happens by IPC: every stage transition sends focus.resize
- * to the main process which moves the BrowserWindow. Window position
- * is pinned by the main process (bottom-right corner OR centre,
- * depending on where the user dragged the widget).
+ *   mini-voice 360×220  push-to-talk + transcript.
+ *                       Header bar = drag region.
  *
- * Inline styles throughout — we deliberately don't depend on any
- * external CSS file. Past regressions were stylesheet races where
- * the dot collapsed to 0×0 before focus.css finished parsing.
+ * Resize is handled by the main process. Manual resize via window
+ * edges is disabled in focus-window.ts; setBounds still works.
+ *
+ * Every stage is flat, sharp-cornered, shadowless — per user spec.
+ * Drag is constrained to explicit handles; clicking buttons never
+ * triggers window drag.
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
@@ -36,10 +35,12 @@ type Stage = 'inactive' | 'active' | 'mini-text' | 'mini-voice';
 
 const SIZE: Record<Stage, { width: number; height: number }> = {
   inactive: { width: 44, height: 44 },
-  active: { width: 220, height: 56 },
+  active: { width: 232, height: 56 },
   'mini-text': { width: 360, height: 220 },
   'mini-voice': { width: 360, height: 220 },
 };
+
+const ASSET_LOGO = './avatar.gif';
 
 // ---- Top-level wrapper ---------------------------------------------------
 
@@ -47,9 +48,6 @@ export function FocusWidget(): JSX.Element {
   const workspaceId = useActiveWorkspaceId();
   return (
     <>
-      {/* Bridges receive IPC events and feed chatStore / connection
-       *  state. They render null. Mounted at the top level so events
-       *  flow even while we're sitting in inactive/active stages. */}
       <ConnectionBridge />
       <ChatStoreBridge />
       <Surface workspaceId={workspaceId} />
@@ -64,18 +62,14 @@ function Surface({
 }): JSX.Element {
   const [stage, setStage] = useState<Stage>('inactive');
 
-  // Tell the main process to resize the BrowserWindow whenever the
-  // stage changes. Always runs (including on initial mount) so the
-  // window grows from the seed 44×44 to its first stage's size.
   useEffect(() => {
     const { width, height } = SIZE[stage];
     void api().invoke('focus.resize', { width, height }).catch(() => undefined);
   }, [stage]);
 
-  if (stage === 'inactive') {
+  if (stage === 'inactive')
     return <Inactive onActivate={() => setStage('active')} />;
-  }
-  if (stage === 'active') {
+  if (stage === 'active')
     return (
       <Active
         onCollapse={() => setStage('inactive')}
@@ -83,15 +77,8 @@ function Surface({
         onVoice={() => setStage('mini-voice')}
       />
     );
-  }
-  if (stage === 'mini-text') {
-    return (
-      <MiniText
-        workspaceId={workspaceId}
-        onBack={() => setStage('active')}
-      />
-    );
-  }
+  if (stage === 'mini-text')
+    return <MiniText workspaceId={workspaceId} onBack={() => setStage('active')} />;
   return (
     <MiniVoice
       workspaceId={workspaceId}
@@ -102,29 +89,26 @@ function Surface({
 }
 
 // ---- Stage 1: inactive ---------------------------------------------------
-// Just a small square button with the moxxy mark. The window itself is
-// 44×44; we paint a 36×36 white tile in the centre, 4 px transparent
-// ring around it acts as the drag handle.
 
 function Inactive({ onActivate }: { readonly onActivate: () => void }): JSX.Element {
   return (
-    <div style={style.dragShell}>
+    <div style={style.inactiveRoot}>
+      <div style={style.inactiveHandle} aria-hidden>
+        <DragGlyph />
+      </div>
       <button
         type="button"
         onClick={onActivate}
         aria-label="moxxy · click to expand"
-        style={style.markButton}
+        style={style.inactiveButton}
       >
-        <MarkGlyph />
+        <LogoMark />
       </button>
     </div>
   );
 }
 
 // ---- Stage 2: active -----------------------------------------------------
-// Mark + voice + text + restore-main + close. The card fills the
-// window; the inner row stays clickable while the wrapping div is a
-// drag handle.
 
 function Active({
   onCollapse,
@@ -136,22 +120,25 @@ function Active({
   readonly onVoice: () => void;
 }): JSX.Element {
   return (
-    <div style={style.card}>
+    <div style={style.activeRoot}>
+      <div style={style.activeGrip} aria-hidden>
+        <DragGlyph vertical />
+      </div>
       <button
         type="button"
         onClick={onCollapse}
         aria-label="Collapse"
-        style={style.cardBrand}
+        style={style.activeBrand}
       >
-        <MarkGlyph small />
+        <LogoMark size={26} />
       </button>
-      <div style={style.divider} aria-hidden />
-      <div style={style.cardActions}>
+      <div style={style.activeDivider} aria-hidden />
+      <div style={style.activeActions}>
         <ActionButton onClick={onVoice} aria-label="Voice">
           <MicIcon />
         </ActionButton>
         <ActionButton onClick={onText} aria-label="Text">
-          <EditIcon />
+          <PencilIcon />
         </ActionButton>
         <ActionButton
           onClick={() => void api().invoke('focus.restoreMain').catch(() => undefined)}
@@ -200,9 +187,7 @@ function MiniText({
           <LatestLine block={latest} />
         ) : (
           <IdleLine
-            label={
-              workspaceId ? 'Type a quick prompt below.' : 'No active workspace.'
-            }
+            label={workspaceId ? 'Type a quick prompt below.' : 'No active workspace.'}
           />
         )}
       </div>
@@ -249,7 +234,10 @@ function MiniVoice({
 }): JSX.Element {
   const [phase, setPhase] = useState<VoicePhase>('idle');
   const [transcript, setTranscript] = useState('');
+  const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const startedRef = useRef(false);
 
   const start = async (): Promise<void> => {
     try {
@@ -263,11 +251,32 @@ function MiniVoice({
       });
       rec.addEventListener('stop', () => {
         stream.getTracks().forEach((t) => t.stop());
+        audioContextRef.current?.close().catch(() => undefined);
+        audioContextRef.current = null;
+        setAnalyser(null);
         void finalize(chunks, rec.mimeType);
       });
       rec.start();
       recorderRef.current = rec;
       setPhase('recording');
+
+      // Wire up an AnalyserNode for the spectroscope. Same stream as
+      // the MediaRecorder; just a parallel tap.
+      const Ctor = (window as unknown as {
+        AudioContext?: typeof AudioContext;
+        webkitAudioContext?: typeof AudioContext;
+      });
+      const Audio = Ctor.AudioContext ?? Ctor.webkitAudioContext;
+      if (Audio) {
+        const ctx = new Audio();
+        audioContextRef.current = ctx;
+        const source = ctx.createMediaStreamSource(stream);
+        const an = ctx.createAnalyser();
+        an.fftSize = 256;
+        an.smoothingTimeConstant = 0.7;
+        source.connect(an);
+        setAnalyser(an);
+      }
     } catch {
       setPhase('unavailable');
       window.setTimeout(() => setPhase('idle'), 1500);
@@ -306,6 +315,27 @@ function MiniVoice({
     onSent();
   };
 
+  // Auto-start recording on mount. The user clicked the mic icon in
+  // the active row — they expect recording to begin immediately.
+  // StrictMode is OFF in the focus window so this fires exactly once.
+  useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    void start();
+    return () => {
+      // Stop the mic when the user navigates away from the voice
+      // mini panel.
+      const rec = recorderRef.current;
+      if (rec?.state === 'recording') {
+        rec.stop();
+        recorderRef.current = null;
+      }
+      audioContextRef.current?.close().catch(() => undefined);
+      audioContextRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div style={style.panel}>
       <MiniHeader title="Voice" onBack={onBack} />
@@ -315,9 +345,10 @@ function MiniVoice({
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: 10,
+          gap: 8,
         }}
       >
+        {analyser && phase === 'recording' && <Spectroscope analyser={analyser} />}
         <button
           type="button"
           onClick={() => (phase === 'recording' ? stop() : void start())}
@@ -338,12 +369,12 @@ function MiniVoice({
         ) : (
           <div style={style.hint}>
             {phase === 'recording'
-              ? 'Listening…'
+              ? 'Listening — tap mic to stop.'
               : phase === 'transcribing'
                 ? 'Transcribing…'
                 : phase === 'unavailable'
                   ? 'No mic / transcriber.'
-                  : 'Tap the mic and speak.'}
+                  : 'Tap to record.'}
           </div>
         )}
         {transcript && phase === 'idle' && (
@@ -356,6 +387,72 @@ function MiniVoice({
   );
 }
 
+// ---- Spectroscope --------------------------------------------------------
+// Render the live audio spectrum as bars in moxxy pink. Reads
+// frequency data from an AnalyserNode on each animation frame and
+// paints to a canvas.
+
+function Spectroscope({ analyser }: { readonly analyser: AnalyserNode }): JSX.Element {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const bufferLength = analyser.frequencyBinCount;
+    const data = new Uint8Array(bufferLength);
+    let frame = 0;
+    let raf = 0;
+
+    const dpr = window.devicePixelRatio || 1;
+    const cssWidth = 280;
+    const cssHeight = 36;
+    canvas.width = Math.round(cssWidth * dpr);
+    canvas.height = Math.round(cssHeight * dpr);
+    canvas.style.width = `${cssWidth}px`;
+    canvas.style.height = `${cssHeight}px`;
+    ctx.scale(dpr, dpr);
+
+    const barCount = 24;
+    const barWidth = (cssWidth - (barCount - 1) * 3) / barCount;
+
+    const draw = (): void => {
+      raf = requestAnimationFrame(draw);
+      analyser.getByteFrequencyData(data);
+      ctx.clearRect(0, 0, cssWidth, cssHeight);
+      const gradient = ctx.createLinearGradient(0, 0, cssWidth, 0);
+      gradient.addColorStop(0, '#ec4899');
+      gradient.addColorStop(1, '#d946ef');
+      ctx.fillStyle = gradient;
+
+      // Group analyser bins into `barCount` bars (linear binning is
+      // fine for this small a visualisation).
+      const binsPerBar = Math.floor(bufferLength / barCount) || 1;
+      for (let i = 0; i < barCount; i++) {
+        let sum = 0;
+        for (let j = 0; j < binsPerBar; j++) {
+          sum += data[i * binsPerBar + j] ?? 0;
+        }
+        const avg = sum / binsPerBar / 255;
+        const h = Math.max(2, Math.round(avg * cssHeight));
+        const x = i * (barWidth + 3);
+        const y = cssHeight - h;
+        ctx.fillRect(x, y, barWidth, h);
+      }
+      frame++;
+    };
+    draw();
+    return () => {
+      cancelAnimationFrame(raf);
+      void frame;
+    };
+  }, [analyser]);
+
+  return <canvas ref={canvasRef} aria-hidden style={{ display: 'block' }} />;
+}
+
 // ---- Helpers -------------------------------------------------------------
 
 interface LatestBlock {
@@ -363,10 +460,6 @@ interface LatestBlock {
   readonly text: string;
 }
 
-// Cache the latest-block snapshot per workspace so useSyncExternalStore
-// receives a stable reference when nothing actually changed. Returning
-// a fresh `{ who, text }` object every call would re-trigger render
-// loops infinitely — useSyncExternalStore strictly compares snapshots.
 const latestBlockCache = new Map<string, { key: string; block: LatestBlock }>();
 
 function readLatestBlock(workspaceId: string | null): LatestBlock | null {
@@ -402,17 +495,17 @@ function MiniHeader({
 }): JSX.Element {
   return (
     <header style={style.miniHeader}>
-      <button type="button" onClick={onBack} style={style.miniBack} aria-label="Back">
-        <ChevronIcon />
+      <button type="button" onClick={onBack} style={style.headerButton} aria-label="Back">
+        <ChevronLeftIcon />
       </button>
       <div style={style.miniTitle}>
-        <MarkGlyph small />
+        <LogoMark size={16} />
         <span>{title}</span>
       </div>
       <button
         type="button"
         onClick={() => void api().invoke('focus.restoreMain').catch(() => undefined)}
-        style={style.miniRestore}
+        style={style.headerButton}
         aria-label="Open main window"
       >
         <WindowIcon />
@@ -443,8 +536,8 @@ function ActionButton({
         ...style.actionBtn,
         ...(hover
           ? variant === 'danger'
-            ? { background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }
-            : { background: 'rgba(15, 23, 42, 0.07)', color: '#0f172a' }
+            ? { background: 'rgba(239, 68, 68, 0.12)', color: '#ef4444' }
+            : { background: 'rgba(15, 23, 42, 0.06)', color: '#0f172a' }
           : null),
       }}
       aria-label={rest['aria-label']}
@@ -454,26 +547,46 @@ function ActionButton({
   );
 }
 
-function MarkGlyph({ small = false }: { readonly small?: boolean }): JSX.Element {
-  const dim = small ? 22 : 24;
+// Logo mark — uses the avatar.gif served from public/. Fallback to
+// a typed glyph if the image fails to load (offline / dist mis-copy).
+function LogoMark({ size = 24 }: { readonly size?: number }): JSX.Element {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <span
+        aria-hidden
+        style={{
+          width: size,
+          height: size,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: 'Inter, system-ui, sans-serif',
+          fontSize: Math.round(size * 0.7),
+          fontWeight: 800,
+          color: '#ec4899',
+        }}
+      >
+        m
+      </span>
+    );
+  }
   return (
-    <span
+    <img
+      src={ASSET_LOGO}
+      width={size}
+      height={size}
+      alt=""
       aria-hidden
+      draggable={false}
+      onError={() => setFailed(true)}
       style={{
-        width: dim,
-        height: dim,
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontFamily: 'Inter, system-ui, sans-serif',
-        fontSize: small ? 14 : 16,
-        fontWeight: 800,
-        color: '#ec4899',
-        letterSpacing: '-0.04em',
+        width: size,
+        height: size,
+        display: 'block',
+        objectFit: 'cover',
       }}
-    >
-      m
-    </span>
+    />
   );
 }
 
@@ -493,7 +606,6 @@ function LatestLine({ block }: { readonly block: LatestBlock }): JSX.Element {
   return (
     <div
       style={{
-        ...style.lineRow,
         whiteSpace: 'nowrap',
         overflow: 'hidden',
         textOverflow: 'ellipsis',
@@ -501,6 +613,7 @@ function LatestLine({ block }: { readonly block: LatestBlock }): JSX.Element {
         fontSize: 13,
         color: '#0f172a',
         lineHeight: 1.4,
+        width: '100%',
       }}
       title={block.text}
     >
@@ -535,57 +648,106 @@ function Dot({ delay }: { readonly delay: number }): JSX.Element {
   );
 }
 
-// ---- Icons (inline SVG — no external dependency, always renders) ---------
+// ---- Icons --------------------------------------------------------------
+// Better SVG icons — fully inline, no font dependency. Stroke weights
+// tuned for the 14–16 px size we use in the active row.
 
-function MicIcon({ big = false }: { readonly big?: boolean }): JSX.Element {
-  const size = big ? 26 : 15;
+function DragGlyph({ vertical = false }: { readonly vertical?: boolean }): JSX.Element {
+  // 6 dots in a 2x3 grid (or 3x2 if vertical). A standard drag-handle
+  // affordance — readable at any size, no font dep.
+  const dots = vertical
+    ? [
+        [0, 0],
+        [0, 1],
+        [0, 2],
+        [1, 0],
+        [1, 1],
+        [1, 2],
+      ]
+    : [
+        [0, 0],
+        [1, 0],
+        [2, 0],
+        [0, 1],
+        [1, 1],
+        [2, 1],
+      ];
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <rect x="9" y="3" width="6" height="12" rx="3" stroke="currentColor" strokeWidth="2" />
-      <path d="M5 11a7 7 0 0014 0M12 18v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    <svg
+      width={vertical ? 6 : 14}
+      height={vertical ? 14 : 6}
+      viewBox={vertical ? '0 0 6 14' : '0 0 14 6'}
+      aria-hidden
+    >
+      {dots.map(([x, y], i) => (
+        <circle
+          key={i}
+          cx={vertical ? (x ?? 0) * 4 + 1 : (x ?? 0) * 4 + 1}
+          cy={vertical ? (y ?? 0) * 4 + 1 : (y ?? 0) * 4 + 1}
+          r="1"
+          fill="rgba(15, 23, 42, 0.35)"
+        />
+      ))}
     </svg>
   );
 }
-function EditIcon(): JSX.Element {
+function MicIcon({ big = false }: { readonly big?: boolean }): JSX.Element {
+  const size = big ? 28 : 16;
   return (
-    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" aria-hidden>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect x="9" y="3" width="6" height="11" rx="3" stroke="currentColor" strokeWidth="1.8" />
       <path
-        d="M4 20h4l10-10-4-4L4 16v4zM14 6l4 4"
+        d="M5 11a7 7 0 0014 0M12 18v3M9 21h6"
         stroke="currentColor"
-        strokeWidth="2"
+        strokeWidth="1.8"
         strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+function PencilIcon(): JSX.Element {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M16.4 3.6a2 2 0 012.8 2.8L7 18.6 3 19l.4-4z"
+        stroke="currentColor"
+        strokeWidth="1.8"
         strokeLinejoin="round"
       />
+      <path d="M13.6 5.4l3 3" stroke="currentColor" strokeWidth="1.8" />
     </svg>
   );
 }
 function WindowIcon(): JSX.Element {
   return (
-    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="2" />
-      <path d="M3 9h18" stroke="currentColor" strokeWidth="2" />
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M3 9h18" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="6.5" cy="6.5" r="0.6" fill="currentColor" />
+      <circle cx="9" cy="6.5" r="0.6" fill="currentColor" />
+      <circle cx="11.5" cy="6.5" r="0.6" fill="currentColor" />
     </svg>
   );
 }
 function XIcon(): JSX.Element {
   return (
-    <svg width={12} height={12} viewBox="0 0 24 24" fill="none" aria-hidden>
+    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
         d="M6 6l12 12M18 6L6 18"
         stroke="currentColor"
-        strokeWidth="2.4"
+        strokeWidth="2.2"
         strokeLinecap="round"
       />
     </svg>
   );
 }
-function ChevronIcon(): JSX.Element {
+function ChevronLeftIcon(): JSX.Element {
   return (
-    <svg width={12} height={12} viewBox="0 0 24 24" fill="none" aria-hidden>
+    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
         d="M15 6l-6 6 6 6"
         stroke="currentColor"
-        strokeWidth="2.4"
+        strokeWidth="2.2"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -594,14 +756,14 @@ function ChevronIcon(): JSX.Element {
 }
 function SendIcon(): JSX.Element {
   return (
-    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" aria-hidden>
+    <svg width={15} height={15} viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
-        d="M3 12l18-9-7 18-3-8-8-1z"
+        d="M3 12l18-8-7 19-3-9-8-2z"
         stroke="currentColor"
-        strokeWidth="2"
+        strokeWidth="1.6"
         strokeLinejoin="round"
         fill="currentColor"
-        fillOpacity="0.85"
+        fillOpacity="0.9"
       />
     </svg>
   );
@@ -618,62 +780,75 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
   return btoa(binary);
 }
 
-// ---- Styles (inline objects — no external stylesheet dependency) --------
+// ---- Styles --------------------------------------------------------------
+// Inline. Flat. Sharp-cornered. No transitions on the things that
+// resize/relayout (those caused the bounce on collapse).
 
 const drag = { WebkitAppRegion: 'drag' as const };
 const noDrag = { WebkitAppRegion: 'no-drag' as const };
 
+const PANEL_BG = '#ffffff';
+const PANEL_BORDER = '1px solid rgba(15, 23, 42, 0.14)';
+
 const style: Record<string, React.CSSProperties> = {
-  dragShell: {
+  // ---- inactive --------------------------------------------------------
+  inactiveRoot: {
     width: '100%',
+    height: '100%',
+    background: PANEL_BG,
+    border: PANEL_BORDER,
+    boxSizing: 'border-box',
+    display: 'grid',
+    gridTemplateRows: '10px 1fr',
+    ...noDrag,
+  },
+  inactiveHandle: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'grab',
+    ...drag,
+  },
+  inactiveButton: {
+    border: 'none',
+    background: 'transparent',
+    padding: 0,
+    margin: 0,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...noDrag,
+  },
+
+  // ---- active ----------------------------------------------------------
+  activeRoot: {
+    width: '100%',
+    height: '100%',
+    background: PANEL_BG,
+    border: PANEL_BORDER,
+    boxSizing: 'border-box',
+    display: 'flex',
+    alignItems: 'center',
+    padding: '0 8px 0 0',
+    ...noDrag,
+  },
+  activeGrip: {
+    width: 10,
     height: '100%',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 4,
-    boxSizing: 'border-box',
+    cursor: 'grab',
     ...drag,
   },
-  markButton: {
+  activeBrand: {
     width: 36,
     height: 36,
     padding: 0,
     margin: 0,
-    background: '#ffffff',
-    border: '1px solid rgba(15, 23, 42, 0.12)',
-    borderRadius: 10,
-    boxShadow:
-      '0 6px 14px -6px rgba(15, 23, 42, 0.25), 0 2px 4px -2px rgba(15, 23, 42, 0.15)',
-    cursor: 'pointer',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    transition: 'transform 120ms ease, box-shadow 200ms ease',
-    ...noDrag,
-  },
-  card: {
-    width: '100%',
-    height: '100%',
-    boxSizing: 'border-box',
-    padding: '6px 10px 6px 8px',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    background: '#ffffff',
-    border: '1px solid rgba(15, 23, 42, 0.12)',
-    borderRadius: 12,
-    boxShadow:
-      '0 10px 24px -10px rgba(15, 23, 42, 0.25), 0 4px 10px -6px rgba(15, 23, 42, 0.15)',
-    ...drag,
-  },
-  cardBrand: {
-    width: 32,
-    height: 32,
-    padding: 0,
-    margin: 0,
     background: 'transparent',
     border: 'none',
-    borderRadius: 8,
     cursor: 'pointer',
     display: 'inline-flex',
     alignItems: 'center',
@@ -681,55 +856,55 @@ const style: Record<string, React.CSSProperties> = {
     flexShrink: 0,
     ...noDrag,
   },
-  divider: {
+  activeDivider: {
     width: 1,
-    height: 24,
+    height: 26,
     background: 'rgba(15, 23, 42, 0.12)',
+    margin: '0 6px',
     flexShrink: 0,
   },
-  cardActions: {
+  activeActions: {
     display: 'flex',
     gap: 2,
     marginLeft: 'auto',
     ...noDrag,
   },
   actionBtn: {
-    width: 32,
-    height: 32,
+    width: 34,
+    height: 34,
     padding: 0,
     margin: 0,
     border: 'none',
     background: 'transparent',
-    borderRadius: 8,
     color: '#64748b',
     cursor: 'pointer',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    transition: 'background-color 140ms ease, color 140ms ease',
   },
+
+  // ---- mini -----------------------------------------------------------
   panel: {
     width: '100%',
     height: '100%',
     boxSizing: 'border-box',
     display: 'flex',
     flexDirection: 'column',
-    background: '#ffffff',
-    border: '1px solid rgba(15, 23, 42, 0.12)',
-    borderRadius: 14,
-    boxShadow:
-      '0 18px 36px -12px rgba(15, 23, 42, 0.28), 0 6px 14px -8px rgba(15, 23, 42, 0.18)',
+    background: PANEL_BG,
+    border: PANEL_BORDER,
     overflow: 'hidden',
+    ...noDrag,
   },
   miniHeader: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '8px 10px',
+    padding: '6px 8px',
     borderBottom: '1px solid rgba(15, 23, 42, 0.08)',
+    cursor: 'grab',
     ...drag,
   },
-  miniBack: {
+  headerButton: {
     width: 24,
     height: 24,
     padding: 0,
@@ -751,18 +926,6 @@ const style: Record<string, React.CSSProperties> = {
     textTransform: 'uppercase',
     letterSpacing: '0.05em',
     color: '#64748b',
-  },
-  miniRestore: {
-    width: 24,
-    height: 24,
-    padding: 0,
-    background: 'transparent',
-    border: 'none',
-    color: '#64748b',
-    cursor: 'pointer',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
     ...noDrag,
   },
   panelBody: {
@@ -794,7 +957,6 @@ const style: Record<string, React.CSSProperties> = {
     color: '#0f172a',
     background: '#f8fafc',
     border: '1px solid rgba(15, 23, 42, 0.12)',
-    borderRadius: 8,
     outline: 'none',
     fontFamily: 'inherit',
   },
@@ -802,7 +964,6 @@ const style: Record<string, React.CSSProperties> = {
     width: 32,
     height: 32,
     border: 'none',
-    borderRadius: 8,
     background: 'linear-gradient(135deg, #ec4899, #d946ef)',
     color: '#fff',
     cursor: 'pointer',
@@ -815,19 +976,15 @@ const style: Record<string, React.CSSProperties> = {
     width: 72,
     height: 72,
     border: 'none',
-    borderRadius: 36,
     background: 'linear-gradient(135deg, #ec4899, #d946ef)',
     color: '#fff',
     cursor: 'pointer',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow: '0 12px 24px -10px rgba(236, 72, 153, 0.55)',
-    transition: 'transform 120ms ease, background 200ms ease',
   },
   micButtonRecording: {
     background: '#ef4444',
-    boxShadow: '0 0 0 4px rgba(239, 68, 68, 0.25), 0 12px 24px -10px rgba(239, 68, 68, 0.55)',
   },
   micButtonDisabled: {
     opacity: 0.6,
@@ -839,7 +996,6 @@ const style: Record<string, React.CSSProperties> = {
     padding: '6px 10px',
     background: '#f8fafc',
     border: '1px solid rgba(15, 23, 42, 0.12)',
-    borderRadius: 8,
     maxWidth: '100%',
     textAlign: 'center',
   },
@@ -850,7 +1006,6 @@ const style: Record<string, React.CSSProperties> = {
   },
   transcriptSend: {
     padding: '6px 14px',
-    borderRadius: 999,
     fontSize: 12,
     fontWeight: 700,
     border: 'none',
@@ -860,8 +1015,7 @@ const style: Record<string, React.CSSProperties> = {
   },
 };
 
-// ---- Keyframe for the thinking dots --------------------------------------
-// Injected once on first import — avoids relying on an external CSS file.
+// ---- Keyframes -----------------------------------------------------------
 
 if (typeof document !== 'undefined' && !document.getElementById('focus-keyframes')) {
   const styleTag = document.createElement('style');

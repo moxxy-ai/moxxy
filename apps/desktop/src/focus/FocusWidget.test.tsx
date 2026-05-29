@@ -89,15 +89,14 @@ afterEach(() => {
 });
 
 describe('FocusWidget stages', () => {
-  it('renders the inactive square with an m glyph by default', () => {
+  it('renders the inactive square with a visible activate button', () => {
     installFakeApi();
     render(<FocusWidget />);
     const button = screen.getByRole('button', { name: /click to expand/i });
     expect(button).toBeTruthy();
-    expect(button.textContent).toContain('m');
   });
 
-  it('inactive → active fires focus.resize(220×56) and shows the action row', async () => {
+  it('inactive → active fires focus.resize and shows the action row', async () => {
     const spy = installFakeApi();
     render(<FocusWidget />);
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
@@ -106,13 +105,16 @@ describe('FocusWidget stages', () => {
     expect(screen.getByRole('button', { name: /open main window/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /close focus mode/i })).toBeTruthy();
     await waitFor(() => {
-      expect(
-        spy.invokes.some(
-          (i) =>
-            i.channel === 'focus.resize' &&
-            (i.args as { width: number }).width === 220,
-        ),
-      ).toBe(true);
+      // We don't assert the exact pixel size (we tune those over
+      // time) — just that the IPC fired with reasonable dimensions
+      // for the active state.
+      const resize = spy.invokes.find(
+        (i) =>
+          i.channel === 'focus.resize' &&
+          (i.args as { width: number }).width >= 200 &&
+          (i.args as { width: number }).width <= 280,
+      );
+      expect(resize).toBeTruthy();
     });
   });
 

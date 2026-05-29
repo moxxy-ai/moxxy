@@ -55,16 +55,15 @@ export function closeFocusWindow(): void {
  *  open. */
 /** Pin the bottom-right corner so resizes feel anchored to the
  *  screen corner instead of sliding the window around. */
-/** Resize the widget while keeping it visually anchored to its current
- *  spot. Anchor rule:
+/** Resize the widget by ALWAYS pinning its right edge.
  *
- *    - If the widget sits in the bottom-right corner (within 80 px of
- *      the work-area edges) → pin its bottom-right corner. This is
- *      the default spawn position so collapses/expands snap nicely.
- *    - Otherwise → pin the widget's *centre*. Pinning a corner when
- *      the user has dragged the widget into the middle of the screen
- *      causes the jarring "it flew sideways" behaviour the user
- *      reported on expand / collapse. */
+ *  Rationale: the small "inactive" form factor is most useful when
+ *  it sits against the right side of the screen. Collapsing the
+ *  active panel should leave the icon there instead of stranding
+ *  it in the middle of where the panel used to be. Pinning the
+ *  right edge means: expand grows leftward, collapse retreats
+ *  rightward — the user's eye stays on the right side of the work
+ *  area where they last clicked the tray. */
 export function resizeFocusWindow(width: number, height: number): void {
   if (!focusWindow || focusWindow.isDestroyed()) return;
   const work = screen.getPrimaryDisplay().workArea;
@@ -72,29 +71,31 @@ export function resizeFocusWindow(width: number, height: number): void {
   const [prevW = 0, prevH = 0] = focusWindow.getSize();
   const [prevX = 0, prevY = 0] = focusWindow.getPosition();
 
-  const inBottomRightZone =
-    Math.abs(prevX + prevW - (work.x + work.width)) < 80 &&
-    Math.abs(prevY + prevH - (work.y + work.height)) < 80;
-
-  let nextX: number;
-  let nextY: number;
-  if (inBottomRightZone) {
-    nextX = work.x + work.width - width - margin;
-    nextY = work.y + work.height - height - margin;
+  // Right edge stays where it was; new X comes from "right edge
+  // minus new width".
+  const rightEdge = prevX + prevW;
+  let nextX = rightEdge - width;
+  let nextY = prevY + (prevH - height) / 2;
+  // For the very first resize (window spawned at width 44/etc.) we
+  // want to anchor flush with the work-area right edge.
+  if (Math.abs(prevX + prevW - (work.x + work.width)) > 80) {
+    // User has dragged us off the right edge — just pin centre Y
+    // instead of bottom-right.
+    nextY = prevY + (prevH - height) / 2;
   } else {
-    // Pin the centre of the previous bounds to the centre of the new
-    // bounds so the user's eyes follow the widget naturally.
-    const cx = prevX + prevW / 2;
-    const cy = prevY + prevH / 2;
-    nextX = Math.round(cx - width / 2);
-    nextY = Math.round(cy - height / 2);
+    nextX = work.x + work.width - width - margin;
+    nextY = prevY + (prevH - height) / 2;
   }
 
-  // Clamp so we never end up off-screen after a resize.
+  // Clamp so we never end up off-screen.
   nextX = Math.max(work.x + 4, Math.min(nextX, work.x + work.width - width - 4));
   nextY = Math.max(work.y + 4, Math.min(nextY, work.y + work.height - height - 4));
 
-  focusWindow.setBounds({ x: nextX, y: nextY, width, height }, true);
+  // animate=false → no bounce / overshoot during the resize step.
+  focusWindow.setBounds(
+    { x: Math.round(nextX), y: Math.round(nextY), width, height },
+    false,
+  );
 }
 
 export async function showFocusWindow(opts: CreateOpts): Promise<void> {
@@ -123,7 +124,9 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
     maxHeight: 320,
     frame: false,
     transparent: true,
-    resizable: true,
+    // User asked for fixed dimensions per stage — no edge-resize
+    // grabs. setBounds from focus.resize IPC still works.
+    resizable: false,
     movable: true,
     minimizable: false,
     maximizable: false,
@@ -131,11 +134,7 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
     alwaysOnTop: true,
     skipTaskbar: true,
     backgroundColor: '#00000000',
-    // Important: OS shadow + vibrancy fill the *window rect*, not
-    // the CSS-rounded shape inside it. With the widget collapsed to
-    // a 64×64 dot, that drew a visible rectangle around the circle.
-    // We get a softer, shape-matching look from the CSS box-shadow /
-    // backdrop-filter the renderer applies to each mode.
+    // No OS shadow — the user asked for a flat square look.
     hasShadow: false,
     webPreferences: {
       preload: opts.preloadPath,

@@ -166,8 +166,30 @@ function closeStreamingAssistant(blocks: Block[]): Block[] {
 
 function apply(state: ChatState, event: MoxxyEvent): ChatState {
   switch (event.type) {
-    case 'user_prompt':
-      return state;
+    case 'user_prompt': {
+      // The originating window already added a user block via
+      // `send_started` for its local UI feedback — if that block
+      // happens to be the most recent one and matches this event's
+      // text, we de-dup. Any *other* window receiving the same
+      // runner event will see its last block as something else
+      // (assistant, system, …) and will add the user block from
+      // this branch — which is what enables cross-window sync of
+      // the focus widget's sent prompts back into the main window.
+      const last = state.blocks[state.blocks.length - 1];
+      if (last && last.kind === 'user' && last.text === event.text) {
+        return state;
+      }
+      const block: Block = {
+        kind: 'user',
+        id: `u-${state.seq}`,
+        text: event.text,
+      };
+      return {
+        ...state,
+        blocks: [...state.blocks, block],
+        seq: state.seq + 1,
+      };
+    }
     case 'assistant_chunk': {
       const last = state.blocks[state.blocks.length - 1];
       if (last && last.kind === 'assistant' && last.streaming) {
