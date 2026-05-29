@@ -50,7 +50,7 @@ export function AgentPicker({
   const refresh = (): void => {
     void api()
       .invoke('session.info', { workspaceId })
-      .then((raw) => setInfo(raw as SessionInfo | null))
+      .then((raw) => setInfo(raw))
       .catch(() => {});
   };
 
@@ -59,18 +59,12 @@ export function AgentPicker({
     void api()
       .invoke('session.info', { workspaceId })
       .then((raw) => {
-        if (!cancelled) setInfo(raw as SessionInfo | null);
+        if (!cancelled) setInfo(raw);
       })
       .catch(() => {});
-    const off = api().subscribe('runner.info.changed', () => {
-      if (!cancelled) refresh();
-    });
     return () => {
       cancelled = true;
-      off();
     };
-    // refresh is stable enough for the lifetime of this workspaceId
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId]);
 
   if (!info) return null;

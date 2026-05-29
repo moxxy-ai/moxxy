@@ -139,52 +139,6 @@ function Section({
   );
 }
 
-function EmptyZone({
-  icon,
-  headline,
-  body,
-}: {
-  readonly icon: Parameters<typeof Icon>[0]['name'];
-  readonly headline: string;
-  readonly body: string;
-}): JSX.Element {
-  return (
-    <div
-      style={{
-        padding: '14px 14px 16px',
-        background: '#f7f8fc',
-        border: '1px dashed var(--color-card-border-strong)',
-        borderRadius: 12,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-      }}
-    >
-      <span
-        aria-hidden
-        style={{
-          width: 28,
-          height: 28,
-          borderRadius: 8,
-          background: 'var(--color-primary-soft)',
-          color: 'var(--color-primary-strong)',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Icon name={icon} size={15} />
-      </span>
-      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>
-        {headline}
-      </div>
-      <div style={{ fontSize: 11.5, color: 'var(--color-text-dim)', lineHeight: 1.55 }}>
-        {body}
-      </div>
-    </div>
-  );
-}
-
 function Row({
   icon,
   title,

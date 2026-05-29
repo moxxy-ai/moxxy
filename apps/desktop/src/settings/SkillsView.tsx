@@ -17,7 +17,6 @@
  */
 
 import { useEffect, useState } from 'react';
-import { useUnreadWorkspaces } from '@/lib/useChat';
 import { useActiveWorkspaceId } from '@/lib/useConnection';
 import { chatStore } from '@/lib/chatStore';
 import { api } from '@/lib/api';
@@ -26,8 +25,6 @@ import { Modal, ConfirmModal } from '@/lib/Modal';
 import { MarkdownBody } from '@/chat/MarkdownBody';
 import type { useSettings } from '@/lib/useSettings';
 import type { MoxxyEvent } from '@moxxy/sdk';
-
-void useUnreadWorkspaces;
 
 const SKILL_PROMPT_TEMPLATE = (description: string): string => `You are
 generating a new \`moxxy\` skill file. Skills are short Markdown docs

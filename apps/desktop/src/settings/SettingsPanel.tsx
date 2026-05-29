@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useSettings } from '@/lib/useSettings';
 import { Skeleton } from '@/lib/Skeleton';
 import { SkillsView } from './SkillsView';
@@ -165,91 +165,6 @@ function McpTab({
         </li>
       ))}
     </ul>
-  );
-}
-
-function SkillsTab({
-  s,
-}: {
-  readonly s: ReturnType<typeof useSettings>;
-}): JSX.Element {
-  const [active, setActive] = useState<string | null>(null);
-  const [body, setBody] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!active) return;
-    setLoading(true);
-    void s.readSkill(active).then((b) => {
-      setBody(b);
-      setLoading(false);
-    });
-  }, [active, s]);
-
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: '1rem' }}>
-      <ul role="list" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-        {s.skills.length === 0 && (
-          <li
-            className="mono"
-            style={{ fontSize: '0.75rem', color: 'var(--color-text-dim)' }}
-          >
-            No skills under ~/.moxxy/skills/
-          </li>
-        )}
-        {s.skills.map((skill) => (
-          <li key={skill.name}>
-            <button
-              type="button"
-              data-testid={`skill-${skill.name}`}
-              data-active={active === skill.name}
-              onClick={() => setActive(skill.name)}
-              style={{
-                width: '100%',
-                textAlign: 'left',
-                padding: '0.35rem 0.6rem',
-                fontSize: '0.8rem',
-                color: active === skill.name ? 'var(--color-text)' : 'var(--color-text-muted)',
-                background: active === skill.name ? 'var(--color-bg-card-hover)' : 'transparent',
-                borderRadius: 'var(--radius-block)',
-                fontFamily: 'var(--font-mono)',
-              }}
-            >
-              {skill.name}
-            </button>
-          </li>
-        ))}
-      </ul>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        <textarea
-          data-testid="skill-editor"
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          disabled={!active || loading}
-          placeholder={active ? '' : 'Pick a skill to edit'}
-          style={{
-            minHeight: 320,
-            padding: '0.6rem 0.75rem',
-            fontSize: '0.8rem',
-            background: 'var(--color-bg-card)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-block)',
-            color: 'var(--color-text)',
-            fontFamily: 'var(--font-mono)',
-            resize: 'vertical',
-            outline: 'none',
-          }}
-        />
-        <button
-          type="button"
-          disabled={!active}
-          onClick={() => active && void s.writeSkill(active, body)}
-          style={pill('var(--color-primary)')}
-        >
-          Save
-        </button>
-      </div>
-    </div>
   );
 }
 

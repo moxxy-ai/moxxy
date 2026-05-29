@@ -504,18 +504,6 @@ function ProfilePill(): JSX.Element {
       claims['account_type'] ??
       (user?.unsafeMetadata as Record<string, unknown> | undefined)?.accountType,
   );
-  const initials = signedIn
-    ? (displayName.match(/\b\w/g) ?? [displayName[0] ?? 'U'])
-        .slice(0, 2)
-        .join('')
-        .toUpperCase()
-    : 'G';
-
-  // Sign-out now lives inside ProfileView; this pill is just a
-  // trigger button.
-  void initials;
-  void clerk;
-
   // Not signed in: the pill becomes a clear sign-in prompt instead of
   // the Guest/Free pair, which read as a permanent state rather than
   // an invitation.

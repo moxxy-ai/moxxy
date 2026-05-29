@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { api } from './api';
 import type { ConnectionPhase, ConnectionSnapshot } from '@moxxy/desktop-ipc-contract';
 
@@ -67,8 +67,6 @@ export interface UseConnection {
  * {@link ChatStoreBridge}.
  */
 export function ConnectionBridge(): null {
-  const [primed, setPrimed] = useState(false);
-
   useEffect(() => {
     let cancelled = false;
     void api()
@@ -82,9 +80,6 @@ export function ConnectionBridge(): null {
       })
       .catch(() => {
         /* preload missing */
-      })
-      .finally(() => {
-        if (!cancelled) setPrimed(true);
       });
     void api()
       .invoke('connection.activeWorkspace')
@@ -118,8 +113,6 @@ export function ConnectionBridge(): null {
     };
   }, []);
 
-  // Silence "unused" — primed is just a render trigger.
-  void primed;
   return null;
 }
 

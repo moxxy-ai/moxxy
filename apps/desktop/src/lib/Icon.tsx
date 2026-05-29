@@ -15,7 +15,6 @@ type IconName =
   | 'send'
   | 'stop'
   | 'plus'
-  | 'paperclip'
   | 'attach'
   | 'context'
   | 'copy'
@@ -89,7 +88,6 @@ const paths: Record<IconName, JSX.Element> = {
       <path d="M5 12h14" />
     </>
   ),
-  paperclip: <path d="m21 12-8.5 8.5a5 5 0 0 1-7-7L14 5a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8" />,
   attach: <path d="m21 12-8.5 8.5a5 5 0 0 1-7-7L14 5a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8" />,
   context: (
     <>

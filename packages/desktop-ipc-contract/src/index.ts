@@ -191,7 +191,6 @@ export interface IpcEvents {
     turnId: string;
     error: string | null;
   };
-  'runner.info.changed': { workspaceId: string; info: unknown };
   /** Streamed during `onboarding.installMoxxyCli`. One event per
    *  stdout/stderr line; the invoke() also returns the final exit
    *  code so callers can short-circuit on success. */

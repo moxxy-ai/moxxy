@@ -33,7 +33,6 @@ export function App(): JSX.Element {
   const { snapshot, hasEverConnected, retry } = useConnection(activeWorkspaceId);
   const { prefs, loading: prefsLoading } = usePrefs();
   const phase = snapshot?.phase;
-  const [forceWizard, setForceWizard] = useState(false);
   const [view, setView] = useState<View>('chat');
   // Context rail starts collapsed — the chat surface is what matters
   // on first launch; the user can open the rail when they want to
@@ -92,14 +91,17 @@ export function App(): JSX.Element {
   const connectedWithoutProvider =
     phase?.phase === 'connected' && phase.activeProvider === null;
 
-  if (forceWizard || cliMissing || connectedWithoutProvider) {
+  if (cliMissing || connectedWithoutProvider) {
     return (
       <>
         <ConnectionBridge />
         <ChatStoreBridge />
         <OnboardingWizard
           phase={phase}
-          onComplete={() => setForceWizard(false)}
+          // Nothing to do on completion: finishing the wizard (CLI
+          // installed / provider added) flips the connection phase, which
+          // re-renders this gate and drops the wizard on its own.
+          onComplete={() => undefined}
         />
       </>
     );
