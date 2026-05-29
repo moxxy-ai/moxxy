@@ -141,21 +141,29 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
 }
 
 /** Re-show the widget when the main window is minimized. Called from
- *  index.ts wiring. */
+ *  index.ts wiring.
+ *
+ *  Important: we used to listen on 'hide' too, but on macOS the
+ *  full-screen transition fires 'hide' on the main window for a few
+ *  frames while it slides into its own Space — which made entering
+ *  full-screen pop the mini widget. The widget should only appear on
+ *  an *explicit* minimize / restore from the user. */
 export function bindMainWindowMinimize(
   mainWindow: BrowserWindow,
   opts: CreateOpts,
 ): void {
   mainWindow.on('minimize', () => {
+    if (mainWindow.isFullScreen()) return;
     void showFocusWindow(opts);
   });
   mainWindow.on('restore', () => {
     closeFocusWindow();
   });
-  // On macOS the close button hides instead of quits by default —
-  // route to the focus widget too so the user has a way back.
-  mainWindow.on('hide', () => {
-    if (process.platform === 'darwin') void showFocusWindow(opts);
+  // Full-screen transitions: if the user enters full-screen and the
+  // widget was already open, dismiss it — focus mode is for "I
+  // minimized to work," not for "I'm presenting full-screen."
+  mainWindow.on('enter-full-screen', () => {
+    closeFocusWindow();
   });
 }
 
