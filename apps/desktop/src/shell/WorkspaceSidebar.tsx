@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useDesks } from '@/lib/useDesks';
 import { Skeleton } from '@/lib/Skeleton';
 import { Icon } from '@/lib/Icon';
+import { Modal, ConfirmModal } from '@/lib/Modal';
+import type { Desk } from '@shared/ipc';
 
 export type View = 'chat' | 'workflows' | 'settings';
 
@@ -31,22 +33,27 @@ const MENU_ITEMS: ReadonlyArray<{
 export function WorkspaceSidebar({ view, onView }: Props): JSX.Element {
   const desks = useDesks();
   const [busy, setBusy] = useState(false);
+  /** Folder the user picked; null when no naming flow is in progress. */
+  const [pendingFolder, setPendingFolder] = useState<string | null>(null);
+  /** Workspace queued for removal; null when no confirm is open. */
+  const [pendingRemove, setPendingRemove] = useState<Desk | null>(null);
 
-  const onNewWorkspace = async (): Promise<void> => {
+  const onStartNewWorkspace = async (): Promise<void> => {
     setBusy(true);
     try {
       const folder = await desks.pickFolder();
-      if (!folder) return;
-      const name = window.prompt(
-        'Name this workspace',
-        folder.split('/').filter(Boolean).pop() ?? 'New workspace',
-      );
-      if (!name?.trim()) return;
-      const desk = await desks.create(name.trim(), folder);
-      if (desk) await desks.setActive(desk.id);
+      if (folder) setPendingFolder(folder);
     } finally {
       setBusy(false);
     }
+  };
+
+  const onCreateWorkspace = async (name: string): Promise<void> => {
+    if (!pendingFolder) return;
+    const folder = pendingFolder;
+    setPendingFolder(null);
+    const desk = await desks.create(name.trim(), folder);
+    if (desk) await desks.setActive(desk.id);
   };
 
   return (
@@ -67,18 +74,14 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element {
               desk={d}
               active={desks.activeId === d.id}
               onClick={() => void desks.setActive(d.id)}
-              onRemove={() => {
-                if (window.confirm(`Remove workspace "${d.name}"?`)) {
-                  void desks.remove(d.id);
-                }
-              }}
+              onRemove={() => setPendingRemove(d)}
             />
           ))}
         </ul>
         <button
           type="button"
           data-testid="desk-new"
-          onClick={() => void onNewWorkspace()}
+          onClick={() => void onStartNewWorkspace()}
           disabled={busy}
           style={{
             width: '100%',
@@ -151,7 +154,127 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element {
         </ul>
       </div>
       <ProfilePill />
+      {pendingFolder && (
+        <NameWorkspaceModal
+          defaultName={pendingFolder.split('/').filter(Boolean).pop() ?? 'New workspace'}
+          folder={pendingFolder}
+          onCancel={() => setPendingFolder(null)}
+          onSubmit={(name) => void onCreateWorkspace(name)}
+        />
+      )}
+      {pendingRemove && (
+        <ConfirmModal
+          title="Remove workspace?"
+          message={`The workspace "${pendingRemove.name}" will disappear from the sidebar. Files in ${pendingRemove.cwd} are not touched.`}
+          confirmLabel="Remove"
+          destructive
+          onCancel={() => setPendingRemove(null)}
+          onConfirm={() => {
+            void desks.remove(pendingRemove.id);
+            setPendingRemove(null);
+          }}
+        />
+      )}
     </aside>
+  );
+}
+
+function NameWorkspaceModal({
+  defaultName,
+  folder,
+  onSubmit,
+  onCancel,
+}: {
+  readonly defaultName: string;
+  readonly folder: string;
+  readonly onSubmit: (name: string) => void;
+  readonly onCancel: () => void;
+}): JSX.Element {
+  const [name, setName] = useState(defaultName);
+  const canSubmit = name.trim().length > 0;
+  return (
+    <Modal title="New workspace" onClose={onCancel}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (canSubmit) onSubmit(name);
+        }}
+        style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
+      >
+        <label
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            fontSize: 12.5,
+            fontWeight: 600,
+            color: 'var(--color-text-muted)',
+          }}
+        >
+          Name
+          <input
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            style={{
+              padding: '9px 12px',
+              fontSize: 14,
+              color: 'var(--color-text)',
+              background: '#fff',
+              border: '1px solid var(--color-card-border)',
+              borderRadius: 10,
+              outline: 'none',
+            }}
+          />
+        </label>
+        <div
+          className="mono"
+          style={{
+            fontSize: 11.5,
+            color: 'var(--color-text-dim)',
+            wordBreak: 'break-all',
+            padding: '8px 10px',
+            background: '#f7f8fc',
+            border: '1px solid var(--color-card-border)',
+            borderRadius: 8,
+          }}
+        >
+          {folder}
+        </div>
+        <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+          <button
+            type="button"
+            onClick={onCancel}
+            style={{
+              padding: '8px 14px',
+              fontSize: 13,
+              color: 'var(--color-text-muted)',
+              border: '1px solid var(--color-card-border)',
+              borderRadius: 10,
+              background: '#fff',
+              fontWeight: 600,
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            style={{
+              padding: '8px 14px',
+              fontSize: 13,
+              color: '#fff',
+              background: 'var(--color-primary-strong)',
+              borderRadius: 10,
+              fontWeight: 600,
+              opacity: canSubmit ? 1 : 0.5,
+            }}
+          >
+            Create
+          </button>
+        </footer>
+      </form>
+    </Modal>
   );
 }
 
