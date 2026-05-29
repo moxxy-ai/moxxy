@@ -18,14 +18,23 @@ import { WorkspaceFiles } from './WorkspaceFiles';
 
 interface Props {
   readonly onClose: () => void;
+  /** Controlled open state. The rail stays mounted in both states
+   *  so the CSS width transition can play; content is hidden via
+   *  the `data-open="false"` selector that also collapses the
+   *  border. Keeps the workspace + file tree alive between toggles
+   *  so re-open is instant. */
+  readonly open: boolean;
 }
 
-export function ContextRail({ onClose }: Props): JSX.Element {
+export function ContextRail({ onClose, open }: Props): JSX.Element {
   const desks = useDesks();
   const active = desks.desks.find((d) => d.id === desks.activeId);
 
   return (
-    <section className="col-rail col-rail--right">
+    <section
+      className="col-rail col-rail--right"
+      data-open={open}
+      aria-hidden={!open}>
       <Header onClose={onClose} />
 
       <Section title="Workspace">

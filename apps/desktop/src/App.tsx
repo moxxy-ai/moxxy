@@ -134,7 +134,7 @@ export function App(): JSX.Element {
             railOpen={railOpen}
             onShowRail={() => setRailOpen(true)}
           />
-          {railOpen && <ContextRail onClose={() => setRailOpen(false)} />}
+          <ContextRail open={railOpen} onClose={() => setRailOpen(false)} />
         </>
       )}
       {view === 'workflows' && (
