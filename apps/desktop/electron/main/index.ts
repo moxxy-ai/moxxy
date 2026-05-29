@@ -143,9 +143,19 @@ async function createWindow(): Promise<void> {
       if (process.platform === 'darwin') icon.setTemplateImage(false);
       trayInstance = new Tray(icon);
       trayInstance.setToolTip('MoxxyAI Workspaces');
+      const openMainAndCloseFocus = (): void => {
+        closeFocusWindow();
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+        // macOS: ensure the app is foregrounded even if the window
+        // was hidden behind another Space.
+        if (process.platform === 'darwin') app.focus({ steal: true });
+      };
       trayInstance.setContextMenu(
         Menu.buildFromTemplate([
-          { label: 'Open main window', click: () => mainWindow?.show() },
+          { label: 'Open main window', click: openMainAndCloseFocus },
           { label: 'Toggle focus mode', click: () => void toggleFocusWindow(focusOpts) },
           { type: 'separator' },
           { role: 'quit' },
@@ -163,9 +173,12 @@ async function createWindow(): Promise<void> {
   });
   ipcMain.removeHandler('focus.restoreMain');
   ipcMain.handle('focus.restoreMain', () => {
-    mainWindow?.show();
-    mainWindow?.focus();
     closeFocusWindow();
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    if (process.platform === 'darwin') app.focus({ steal: true });
   });
   ipcMain.removeHandler('focus.resize');
   ipcMain.handle('focus.resize', (_evt, { width, height }: { width: number; height: number }) => {
@@ -173,7 +186,17 @@ async function createWindow(): Promise<void> {
   });
 
   // App menu — "View → Focus Mode" with a keyboard shortcut.
-  installApplicationMenu(() => void toggleFocusWindow(focusOpts), () => mainWindow?.show());
+  installApplicationMenu(
+    () => void toggleFocusWindow(focusOpts),
+    () => {
+      closeFocusWindow();
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+      if (process.platform === 'darwin') app.focus({ steal: true });
+    },
+  );
 
   // System-wide shortcut so the user can summon the widget even when
   // moxxy isn't the focused app. Cmd+Shift+M on mac / Ctrl+Shift+M

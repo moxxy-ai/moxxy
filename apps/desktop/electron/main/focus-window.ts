@@ -104,12 +104,12 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
     alwaysOnTop: true,
     skipTaskbar: true,
     backgroundColor: '#00000000',
-    hasShadow: true,
-    // macOS-only: hud / popover vibrancy makes the chrome match
-    // native floating widgets (Translate / Stickies / etc.).
-    ...(process.platform === 'darwin'
-      ? { vibrancy: 'under-window' as const, visualEffectState: 'active' as const }
-      : {}),
+    // Important: OS shadow + vibrancy fill the *window rect*, not
+    // the CSS-rounded shape inside it. With the widget collapsed to
+    // a 64×64 dot, that drew a visible rectangle around the circle.
+    // We get a softer, shape-matching look from the CSS box-shadow /
+    // backdrop-filter the renderer applies to each mode.
+    hasShadow: false,
     webPreferences: {
       preload: opts.preloadPath,
       contextIsolation: true,

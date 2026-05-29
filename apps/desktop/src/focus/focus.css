@@ -4,8 +4,20 @@
 html,
 body,
 #root {
-  background: transparent;
+  background: transparent !important;
   overflow: hidden;
+  /* The frameless widget's only chrome comes from the inner
+   * mode-specific cards. Force the body's margin/padding off so
+   * the dot floats naked instead of inside an off-white pad. */
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+}
+#root {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* --- 1) dot ------------------------------------------------------------- */
