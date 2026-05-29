@@ -90,6 +90,30 @@ button {
   border: none;
   cursor: pointer;
   padding: 0;
+  /* Everything that animates on hover/active feels consistent if
+   * the transitions match. 120ms is just under perception threshold. */
+  transition:
+    background-color 140ms ease,
+    color 140ms ease,
+    border-color 140ms ease,
+    box-shadow 160ms ease,
+    transform 90ms ease,
+    filter 140ms ease,
+    opacity 140ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+button:active:not(:disabled) {
+  /* Subtle press — gives every interactive thing a tactile feel
+   * without making the layout shift. */
+  transform: scale(0.97);
+}
+button:disabled {
+  cursor: not-allowed;
+}
+button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: inherit;
 }
 
 code, kbd, pre, .mono { font-family: var(--font-mono); }

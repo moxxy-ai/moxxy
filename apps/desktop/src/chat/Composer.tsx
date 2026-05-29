@@ -214,6 +214,7 @@ export function Composer({
         {inFlight ? (
           <button
             type="button"
+            className="btn-cta"
             data-testid="composer-abort"
             onClick={onAbort}
             style={sendBtn('var(--color-red)', true)}
@@ -224,6 +225,7 @@ export function Composer({
         ) : (
           <button
             type="submit"
+            className="btn-cta"
             data-testid="composer-send"
             disabled={!canSubmit}
             style={sendBtn('var(--color-send)', canSubmit)}
@@ -304,6 +306,8 @@ function ToolChip({
   readonly onClick?: () => void;
   readonly tone?: 'idle' | 'recording' | 'busy';
 }): JSX.Element {
+  /** Hover effect is provided by the global .btn-chip class — adds
+   *  a subtle bg + border darken on hover. */
   const palette =
     tone === 'recording'
       ? { bg: '#fee2e2', color: '#dc2626', border: '#fecaca' }
@@ -313,6 +317,7 @@ function ToolChip({
   return (
     <button
       type="button"
+      className="btn-chip"
       aria-label={label}
       onClick={onClick}
       style={{

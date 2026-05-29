@@ -18,9 +18,13 @@ import { api } from '@/lib/api';
 import { chatStore } from '@/lib/chatStore';
 import { Modal } from '@/lib/Modal';
 
+/** Subset of SessionInfo's ProviderInfo we actually render. Model id
+ *  is the model identifier the runner uses (e.g. "gpt-4o") — earlier
+ *  versions of this code read `models[i].name` which doesn't exist on
+ *  ModelDescriptor, so the right column always rendered empty. */
 interface ProviderInfo {
   readonly name: string;
-  readonly models: ReadonlyArray<{ readonly name: string }>;
+  readonly models: ReadonlyArray<{ readonly id: string }>;
 }
 
 interface SessionInfo {
@@ -298,11 +302,11 @@ function ProviderModelPicker({
   }>({ provider: null, status: 'idle' });
 
   const advertised =
-    providers.find((p) => p.name === hoveredProvider)?.models.map((m) => m.name) ?? [];
+    providers.find((p) => p.name === hoveredProvider)?.models.map((m) => m.id) ?? [];
   const merged = Array.from(
     new Set([...advertised, ...(fetched[hoveredProvider] ?? [])]),
   ).sort();
-  const currentModels = merged.map((name) => ({ name }));
+  const currentModels = merged.map((id) => ({ id }));
 
   const onFetch = async (): Promise<void> => {
     setFetchState({ provider: hoveredProvider, status: 'loading' });
@@ -514,14 +518,14 @@ function ProviderModelPicker({
             )}
             {currentModels.map((m) => {
               const isCurrent =
-                hoveredProvider === activeProvider && activeModel === m.name;
+                hoveredProvider === activeProvider && activeModel === m.id;
               return (
-                <li key={m.name}>
+                <li key={m.id}>
                   <button
                     type="button"
                     role="option"
                     aria-selected={isCurrent}
-                    onClick={() => onPick(hoveredProvider, m.name)}
+                    onClick={() => onPick(hoveredProvider, m.id)}
                     style={modelRowStyle(isCurrent)}
                   >
                     <span
@@ -533,7 +537,7 @@ function ProviderModelPicker({
                         textOverflow: 'ellipsis',
                       }}
                     >
-                      {m.name}
+                      {m.id}
                     </span>
                   </button>
                 </li>

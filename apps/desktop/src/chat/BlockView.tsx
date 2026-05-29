@@ -204,6 +204,7 @@ function IconBtn({
   return (
     <button
       type="button"
+      className="btn-icon"
       aria-label={label}
       onClick={onClick}
       style={{
@@ -214,14 +215,6 @@ function IconBtn({
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background = 'var(--color-bg-card-hover)';
-        e.currentTarget.style.color = 'var(--color-text)';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = 'transparent';
-        e.currentTarget.style.color = 'var(--color-text-dim)';
       }}
     >
       {children}

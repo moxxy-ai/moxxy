@@ -293,6 +293,7 @@ function IconButton({
   return (
     <button
       type="button"
+      className="btn-icon"
       style={{
         width: 34,
         height: 34,
@@ -302,8 +303,6 @@ function IconButton({
         alignItems: 'center',
         justifyContent: 'center',
       }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-bg-card-hover)')}
-      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
       {...rest}
     >
       {children}

@@ -398,6 +398,7 @@ function WorkspaceRow({
         data-testid={`desk-row-${desk.id}`}
         data-active={active}
         onClick={onClick}
+        className={active ? undefined : 'row-button'}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -408,12 +409,6 @@ function WorkspaceRow({
           background: active ? 'var(--color-sidebar-bg-active)' : 'transparent',
           color: active ? 'var(--color-sidebar-text)' : 'var(--color-sidebar-text-dim)',
           fontWeight: active ? 600 : 500,
-        }}
-        onMouseEnter={(e) => {
-          if (!active) e.currentTarget.style.background = 'var(--color-sidebar-bg-hover)';
-        }}
-        onMouseLeave={(e) => {
-          if (!active) e.currentTarget.style.background = 'transparent';
         }}
       >
         <span

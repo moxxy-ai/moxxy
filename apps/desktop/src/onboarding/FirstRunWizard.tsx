@@ -1022,6 +1022,7 @@ function PrimaryButton({
     <button
       type="button"
       {...rest}
+      className={`btn-cta ${rest.className ?? ''}`.trim()}
       style={{
         ...primaryBtnStyle,
         opacity: rest.disabled ? 0.5 : 1,
