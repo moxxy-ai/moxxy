@@ -91,13 +91,11 @@ function Surface({
 // ---- Stage 1: inactive ---------------------------------------------------
 
 function Inactive({ onActivate }: { readonly onActivate: () => void }): JSX.Element {
-  // Layout: 10px | 1fr — drag handle on the LEFT, click target on
-  // the right. iOS-style vertical pill as the grip glyph.
+  // The whole window background is the drag region; the icon
+  // button sits on top with a higher z-index so the click reaches
+  // React, never the drag layer.
   return (
     <div style={style.inactiveRoot}>
-      <div style={style.inactiveHandle} aria-hidden>
-        <PillHandle />
-      </div>
       <button
         type="button"
         onClick={onActivate}
@@ -121,12 +119,11 @@ function Active({
   readonly onText: () => void;
   readonly onVoice: () => void;
 }): JSX.Element {
-  // Layout: [grip-on-left] [brand] [divider] [actions]
+  // The whole panel background is the drag region; every button
+  // sits on top with no-drag + higher z-index so clicks reach
+  // React. Drag from any empty space.
   return (
     <div style={style.activeRoot}>
-      <div style={style.activeGrip} aria-hidden>
-        <PillHandle />
-      </div>
       <button
         type="button"
         onClick={onCollapse}
@@ -655,24 +652,6 @@ function Dot({ delay }: { readonly delay: number }): JSX.Element {
 // Better SVG icons — fully inline, no font dependency. Stroke weights
 // tuned for the 14–16 px size we use in the active row.
 
-function PillHandle(): JSX.Element {
-  // iOS-style grabber: thin vertical pill, ~3 px wide × 22 px tall,
-  // medium opacity gray. Same shape iOS uses on its bottom-sheet
-  // drag indicators (rotated 90° because we're a side handle, not
-  // a top handle).
-  return (
-    <span
-      aria-hidden
-      style={{
-        display: 'inline-block',
-        width: 3,
-        height: 24,
-        borderRadius: 2,
-        background: 'rgba(15, 23, 42, 0.32)',
-      }}
-    />
-  );
-}
 function MicIcon({ big = false }: { readonly big?: boolean }): JSX.Element {
   const size = big ? 28 : 16;
   return (
@@ -780,15 +759,11 @@ const style: Record<string, React.CSSProperties> = {
     background: PANEL_BG,
     border: PANEL_BORDER,
     boxSizing: 'border-box',
-    display: 'grid',
-    // Drag handle column on the left, click target fills the rest.
-    gridTemplateColumns: '10px 1fr',
-    ...noDrag,
-  },
-  inactiveHandle: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    // Whole window is the drag region; the inner button cuts a
+    // no-drag hole over its area.
     cursor: 'grab',
     ...drag,
   },
@@ -801,6 +776,10 @@ const style: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    // z-index keeps the click target on top of any future overlay
+    // chrome we might add (busy-state ring, etc.).
+    position: 'relative',
+    zIndex: 1,
     ...noDrag,
   },
 
@@ -813,17 +792,10 @@ const style: Record<string, React.CSSProperties> = {
     boxSizing: 'border-box',
     display: 'flex',
     alignItems: 'center',
-    // Padding on the right for the trailing action buttons; the
-    // grip column owns the left edge.
-    padding: '0 8px 0 0',
-    ...noDrag,
-  },
-  activeGrip: {
-    width: 10,
-    height: '100%',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+    padding: '0 8px',
+    // Whole panel is the drag region; the brand button + action
+    // row both opt out with no-drag + position:relative so they
+    // sit on top of the drag layer.
     cursor: 'grab',
     ...drag,
   },
@@ -839,6 +811,8 @@ const style: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
+    position: 'relative',
+    zIndex: 1,
     ...noDrag,
   },
   activeDivider: {
@@ -852,6 +826,8 @@ const style: Record<string, React.CSSProperties> = {
     display: 'flex',
     gap: 2,
     marginLeft: 'auto',
+    position: 'relative',
+    zIndex: 1,
     ...noDrag,
   },
   actionBtn: {
