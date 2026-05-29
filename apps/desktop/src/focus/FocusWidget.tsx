@@ -40,7 +40,7 @@ const SIZE: Record<Stage, { width: number; height: number }> = {
   'mini-voice': { width: 360, height: 220 },
 };
 
-const ASSET_LOGO = './avatar.gif';
+const ASSET_LOGO = './logo.png';
 
 // ---- Top-level wrapper ---------------------------------------------------
 
