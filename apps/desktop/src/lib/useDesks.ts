@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
+import { connectionStore } from './useConnection';
 import type { Desk, DesksOverview } from '@shared/ipc';
 
 export interface UseDesks {
@@ -75,16 +76,22 @@ export function useDesks(): UseDesks {
   const setActive = useCallback(
     async (id: string): Promise<void> => {
       // Optimistic: flip the active id immediately so the sidebar
-      // highlight follows the click without waiting for the IPC + the
-      // supervisor's full re-resolve. We still refresh after — the IPC
-      // is the source of truth and corrects any drift.
+      // highlight + active workspace follow the click without waiting
+      // for the IPC + the supervisor's full re-resolve. Also pre-bind
+      // the connection store's active id so the chat surface,
+      // context rail, and chat store all swap to the new workspace
+      // in the same render — without this they wait for the main
+      // process to push a `connection.changed` for the new workspace,
+      // and meanwhile the UI is still wired to the old chat state.
       const prev = overview.activeId;
       setOverview((o) => ({ ...o, activeId: id }));
+      connectionStore.setActive(id);
       try {
         await api().invoke('desks.setActive', { id });
         await refresh();
       } catch (e) {
         setOverview((o) => ({ ...o, activeId: prev }));
+        if (prev) connectionStore.setActive(prev);
         setError(e instanceof Error ? e.message : String(e));
       }
     },
