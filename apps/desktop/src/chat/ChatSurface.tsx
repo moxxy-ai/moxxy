@@ -391,7 +391,6 @@ function EmptyState({ ready }: { readonly ready: boolean }): JSX.Element {
             display: 'block',
             margin: '0 auto 20px',
             imageRendering: 'pixelated',
-            filter: 'drop-shadow(0 16px 18px rgba(236, 72, 153, 0.22))',
           }}
         />
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
