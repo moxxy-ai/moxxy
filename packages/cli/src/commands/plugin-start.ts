@@ -145,7 +145,9 @@ export async function startSessionSelectionServer(
     if (req.method === 'GET') {
       writeJson(res, 200, {
         status: selected ? 'ready' : 'selecting',
-        sessions: selected ? [] : (await readSessions()).map(sessionMetaToSelectionOption),
+        sessions: selected ? [] : (await readSessions())
+          .filter(isSelectableSession)
+          .map(sessionMetaToSelectionOption),
       });
       return;
     }
@@ -641,6 +643,10 @@ function sessionMetaToSelectionOption(meta: SessionMeta): Record<string, unknown
     provider: meta.provider,
     model: meta.model,
   };
+}
+
+function isSelectableSession(meta: SessionMeta): boolean {
+  return meta.eventCount > 0 && Boolean(meta.firstPrompt?.trim());
 }
 
 function hasBearer(header: string | string[] | undefined, token: string): boolean {

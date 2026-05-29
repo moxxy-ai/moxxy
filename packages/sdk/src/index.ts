@@ -53,6 +53,11 @@ export type {
   WorkflowsView,
   WorkflowSummaryView,
   WorkflowRunView,
+  WorkflowDetailView,
+  WorkflowValidationView,
+  WorkflowDraftView,
+  WorkflowCapabilityItemView,
+  WorkflowCapabilitiesView,
 } from './session-like.js';
 
 export type {
@@ -223,6 +228,10 @@ export type {
   WorkflowStepErrorMode,
   WorkflowInputSpec,
   WorkflowDelivery,
+  WorkflowUiLayoutNode,
+  WorkflowUiViewport,
+  WorkflowUiLayout,
+  WorkflowUi,
   WorkflowToolRunner,
   WorkflowLookup,
   WorkflowEventSubtype,

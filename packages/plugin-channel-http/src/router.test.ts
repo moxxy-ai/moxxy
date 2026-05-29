@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -13,11 +13,14 @@ import {
   handleHealth,
   handleAgentRun,
   handleCommands,
+  handleDeskGet,
+  handleDeskPut,
   handleInputCapabilities,
   handleMediaPreview,
   handleRunCommand,
   handleTranscription,
   handleTurnAudio,
+  workspaceDeskId,
   turnRequestSchema,
 } from './router.js';
 import { OfficeAgentRuntime } from './office-agent-runtime.js';
@@ -139,6 +142,298 @@ describe('routeRequest', () => {
     expect(routeRequest(makeIncoming({ method: 'POST', url: '/v1/agents/session/mcp' }))).not.toBeNull();
     expect(routeRequest(makeIncoming({ method: 'DELETE', url: '/v1/agents/session/mcp/filesystem' }))).not.toBeNull();
     expect(routeRequest(makeIncoming({ method: 'POST', url: '/v1/agents/session/mcp/filesystem/test' }))).not.toBeNull();
+  });
+
+  it('matches Virtual Office workflow builder endpoints', () => {
+    const cases = [
+      ['GET', '/v1/workflows'],
+      ['GET', '/v1/workflows/capabilities'],
+      ['POST', '/v1/desk/0/workflows/office-flow/run'],
+      ['POST', '/v1/workflows/draft'],
+      ['POST', '/v1/workflows/validate'],
+      ['POST', '/v1/workflows'],
+      ['GET', '/v1/workflows/daily-digest'],
+      ['PUT', '/v1/workflows/daily-digest'],
+      ['DELETE', '/v1/workflows/daily-digest'],
+      ['POST', '/v1/workflows/daily-digest/enabled'],
+      ['POST', '/v1/workflows/daily-digest/run'],
+    ] as const;
+    for (const [method, url] of cases) {
+      expect(routeRequest(makeIncoming({ method, url }))).not.toBeNull();
+    }
+  });
+
+  it('matches Virtual Office desk persistence endpoints', () => {
+    expect(routeRequest(makeIncoming({ method: 'GET', url: '/v1/desk/4' }))).toBe(handleDeskGet);
+    expect(routeRequest(makeIncoming({ method: 'PUT', url: '/v1/desk/4' }))).toBe(handleDeskPut);
+  });
+});
+
+describe('Virtual Office desk persistence endpoints', () => {
+  const previousHome = process.env.MOXXY_HOME;
+
+  afterEach(async () => {
+    if (previousHome === undefined) delete process.env.MOXXY_HOME;
+    else process.env.MOXXY_HOME = previousHome;
+  });
+
+  it('seeds, stores atomically and isolates desk state per workspace and computer', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'moxxy-desk-'));
+    const cwd = join(home, 'workspace');
+    process.env.MOXXY_HOME = home;
+
+    try {
+      const ctx = {
+        session: { id: 'session-1', cwd },
+        authToken: 'x',
+        logger: silentLogger,
+      } as never;
+
+      const seedRes = makeResponse();
+      await dispatchRoute(
+        makeIncoming({
+          method: 'GET',
+          url: '/v1/desk/4',
+          headers: { authorization: 'Bearer x' },
+        }),
+        seedRes,
+        ctx,
+      );
+
+      expect(seedRes._status).toBe(200);
+      expect(JSON.parse(seedRes._body)).toEqual({ version: 1 });
+
+      const deskFour = {
+        version: 1,
+        fileSystem: { rootId: 'root-a', nodes: {} },
+        workflows: {
+          selected: { workflow: { name: 'draft-a' } },
+        },
+      };
+      const putRes = makeResponse();
+      await dispatchRoute(
+        makeIncoming({
+          method: 'PUT',
+          url: '/v1/desk/4',
+          headers: { authorization: 'Bearer x' },
+          body: JSON.stringify(deskFour),
+        }),
+        putRes,
+        ctx,
+      );
+
+      expect(putRes._status).toBe(200);
+      expect(JSON.parse(putRes._body)).toEqual(deskFour);
+
+      const deskFive = {
+        version: 1,
+        fileSystem: { rootId: 'root-b', nodes: {} },
+      };
+      const putOtherDeskRes = makeResponse();
+      await dispatchRoute(
+        makeIncoming({
+          method: 'PUT',
+          url: '/v1/desk/5',
+          headers: { authorization: 'Bearer x' },
+          body: JSON.stringify(deskFive),
+        }),
+        putOtherDeskRes,
+        ctx,
+      );
+
+      const reloadRes = makeResponse();
+      await dispatchRoute(
+        makeIncoming({
+          method: 'GET',
+          url: '/v1/desk/4',
+          headers: { authorization: 'Bearer x' },
+        }),
+        reloadRes,
+        ctx,
+      );
+
+      expect(JSON.parse(reloadRes._body)).toEqual(deskFour);
+
+      const file = join(home, 'desk', workspaceDeskId(cwd), 'desk-4.json');
+      await expect(stat(file)).resolves.toMatchObject({ size: expect.any(Number) });
+      await expect(readFile(file, 'utf8')).resolves.toContain('draft-a');
+
+      const otherWorkspaceRes = makeResponse();
+      await dispatchRoute(
+        makeIncoming({
+          method: 'GET',
+          url: '/v1/desk/4',
+          headers: { authorization: 'Bearer x' },
+        }),
+        otherWorkspaceRes,
+        { session: { id: 'session-2', cwd: join(home, 'other-workspace') }, authToken: 'x', logger: silentLogger } as never,
+      );
+
+      expect(JSON.parse(otherWorkspaceRes._body)).toEqual({ version: 1 });
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('Virtual Office workflow endpoints', () => {
+  const sampleWorkflow = {
+    name: 'daily-digest',
+    description: 'Daily digest.',
+    version: 1,
+    enabled: true,
+    inputs: {},
+    concurrency: 1,
+    steps: [
+      {
+        id: 'summarize',
+        prompt: 'Summarize today',
+        needs: [],
+        onError: 'fail',
+        retries: 0,
+      },
+    ],
+    ui: { layout: { nodes: { summarize: { x: 120, y: 80 } } } },
+  };
+
+  function workflowCtx(overrides: Record<string, unknown> = {}) {
+    const workflows = {
+      list: vi.fn(async () => [{ name: 'daily-digest', description: 'Daily digest.', enabled: true, scope: 'user', steps: 1, triggers: 'on-demand' }]),
+      capabilities: vi.fn(async () => ({
+        skills: [{ name: 'gmail', description: 'Send mail' }],
+        tools: [{ name: 'web_fetch', description: 'Fetch URL' }],
+        mcp: [{ name: 'mcp__exa__search', description: 'Exa search' }],
+        workflows: [{ name: 'daily-digest', description: 'Daily digest.' }],
+      })),
+      draft: vi.fn(async () => ({ workflow: sampleWorkflow, raw: 'name: daily-digest', errors: [] })),
+      validate: vi.fn(async () => ({ ok: true, errors: [] })),
+      create: vi.fn(async () => ({ workflow: sampleWorkflow, scope: 'user' })),
+      get: vi.fn(async () => ({ workflow: sampleWorkflow, scope: 'user', yaml: 'name: daily-digest' })),
+      update: vi.fn(async (_name: string, workflow: unknown) => ({ workflow, scope: 'user' })),
+      delete: vi.fn(async () => ({ ok: true })),
+      setEnabled: vi.fn(async () => {}),
+      run: vi.fn(async () => ({ ok: true, output: 'done', steps: [{ id: 'summarize', status: 'completed' }] })),
+      ...overrides,
+    };
+    return {
+      workflows,
+      ctx: { session: { workflows }, authToken: 'x', logger: silentLogger } as never,
+    };
+  }
+
+  it('returns 404 when workflow support is unavailable', async () => {
+    const res = makeResponse();
+    await dispatchRoute(
+      makeIncoming({
+        method: 'GET',
+        url: '/v1/workflows',
+        headers: { authorization: 'Bearer x' },
+      }),
+      res,
+      { session: {}, authToken: 'x', logger: silentLogger } as never,
+    );
+
+    expect(res._status).toBe(404);
+    expect(JSON.parse(res._body)).toMatchObject({ error: 'not_found' });
+  });
+
+  it('maps workflow GUI calls to the session workflows view', async () => {
+    const { workflows, ctx } = workflowCtx();
+
+    const listRes = makeResponse();
+    await dispatchRoute(makeIncoming({ method: 'GET', url: '/v1/workflows', headers: { authorization: 'Bearer x' } }), listRes, ctx);
+    expect(listRes._status).toBe(200);
+    expect(JSON.parse(listRes._body)[0]).toMatchObject({ name: 'daily-digest' });
+
+    const capsRes = makeResponse();
+    await dispatchRoute(makeIncoming({ method: 'GET', url: '/v1/workflows/capabilities', headers: { authorization: 'Bearer x' } }), capsRes, ctx);
+    expect(capsRes._status).toBe(200);
+    expect(JSON.parse(capsRes._body).tools[0]).toMatchObject({ name: 'web_fetch' });
+
+    const draftRes = makeResponse();
+    await dispatchRoute(
+      makeIncoming({
+        method: 'POST',
+        url: '/v1/workflows/draft',
+        headers: { authorization: 'Bearer x' },
+        body: JSON.stringify({ intent: 'send a digest every morning' }),
+      }),
+      draftRes,
+      ctx,
+    );
+    expect(draftRes._status).toBe(200);
+    expect(workflows.draft).toHaveBeenCalledWith('send a digest every morning');
+
+    const validateRes = makeResponse();
+    await dispatchRoute(
+      makeIncoming({
+        method: 'POST',
+        url: '/v1/workflows/validate',
+        headers: { authorization: 'Bearer x' },
+        body: JSON.stringify({ workflow: sampleWorkflow }),
+      }),
+      validateRes,
+      ctx,
+    );
+    expect(validateRes._status).toBe(200);
+    expect(workflows.validate).toHaveBeenCalledWith(sampleWorkflow);
+
+    const createRes = makeResponse();
+    await dispatchRoute(
+      makeIncoming({
+        method: 'POST',
+        url: '/v1/workflows',
+        headers: { authorization: 'Bearer x' },
+        body: JSON.stringify({ workflow: sampleWorkflow, scope: 'user' }),
+      }),
+      createRes,
+      ctx,
+    );
+    expect(createRes._status).toBe(200);
+    expect(workflows.create).toHaveBeenCalledWith(sampleWorkflow, 'user');
+
+    const getRes = makeResponse();
+    await dispatchRoute(makeIncoming({ method: 'GET', url: '/v1/workflows/daily-digest', headers: { authorization: 'Bearer x' } }), getRes, ctx);
+    expect(getRes._status).toBe(200);
+    expect(workflows.get).toHaveBeenCalledWith('daily-digest');
+
+    const updateRes = makeResponse();
+    await dispatchRoute(
+      makeIncoming({
+        method: 'PUT',
+        url: '/v1/workflows/daily-digest',
+        headers: { authorization: 'Bearer x' },
+        body: JSON.stringify({ workflow: { ...sampleWorkflow, description: 'Updated' } }),
+      }),
+      updateRes,
+      ctx,
+    );
+    expect(updateRes._status).toBe(200);
+    expect(workflows.update).toHaveBeenCalledWith('daily-digest', { ...sampleWorkflow, description: 'Updated' });
+
+    const enableRes = makeResponse();
+    await dispatchRoute(
+      makeIncoming({
+        method: 'POST',
+        url: '/v1/workflows/daily-digest/enabled',
+        headers: { authorization: 'Bearer x' },
+        body: JSON.stringify({ enabled: false }),
+      }),
+      enableRes,
+      ctx,
+    );
+    expect(enableRes._status).toBe(200);
+    expect(workflows.setEnabled).toHaveBeenCalledWith('daily-digest', false);
+
+    const runRes = makeResponse();
+    await dispatchRoute(makeIncoming({ method: 'POST', url: '/v1/workflows/daily-digest/run', headers: { authorization: 'Bearer x' } }), runRes, ctx);
+    expect(runRes._status).toBe(200);
+    expect(JSON.parse(runRes._body)).toMatchObject({ ok: true, output: 'done' });
+
+    const deleteRes = makeResponse();
+    await dispatchRoute(makeIncoming({ method: 'DELETE', url: '/v1/workflows/daily-digest', headers: { authorization: 'Bearer x' } }), deleteRes, ctx);
+    expect(deleteRes._status).toBe(200);
+    expect(workflows.delete).toHaveBeenCalledWith('daily-digest');
   });
 });
 

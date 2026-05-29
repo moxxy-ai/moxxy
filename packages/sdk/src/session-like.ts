@@ -5,6 +5,7 @@ import type { ApprovalResolver } from './mode.js';
 import type { PermissionResolver } from './permission.js';
 import type { ModelDescriptor } from './provider.js';
 import type { ToolCompactPresentation } from './tool.js';
+import type { Workflow } from './workflow.js';
 
 /**
  * Options accepted by `SessionLike.runTurn`. Defined here (rather than in
@@ -140,6 +141,37 @@ export interface WorkflowRunView {
   readonly steps: ReadonlyArray<{ readonly id: string; readonly status: string; readonly error?: string }>;
 }
 
+export interface WorkflowDetailView {
+  readonly workflow: Workflow;
+  readonly scope: string;
+  readonly path?: string;
+  readonly yaml?: string;
+}
+
+export interface WorkflowValidationView {
+  readonly ok: boolean;
+  readonly errors: ReadonlyArray<string>;
+}
+
+export interface WorkflowDraftView {
+  readonly workflow: Workflow | null;
+  readonly raw: string;
+  readonly errors: ReadonlyArray<string>;
+}
+
+export interface WorkflowCapabilityItemView {
+  readonly name: string;
+  readonly description: string;
+}
+
+export interface WorkflowCapabilitiesView {
+  readonly skills: ReadonlyArray<WorkflowCapabilityItemView>;
+  readonly tools: ReadonlyArray<WorkflowCapabilityItemView>;
+  /** MCP tools namespaced as `mcp__<server>__<tool>`. */
+  readonly mcp: ReadonlyArray<WorkflowCapabilityItemView>;
+  readonly workflows: ReadonlyArray<WorkflowCapabilityItemView>;
+}
+
 /**
  * The slice of the workflows API a channel needs to drive the `/workflows`
  * modal (list, enable/disable toggle, run). Present on a local Session when
@@ -148,8 +180,17 @@ export interface WorkflowRunView {
  */
 export interface WorkflowsView {
   list(): Promise<ReadonlyArray<WorkflowSummaryView>>;
+  get(name: string): Promise<WorkflowDetailView | null>;
+  create(workflow: Workflow, scope?: 'user' | 'project'): Promise<WorkflowDetailView>;
+  update(name: string, workflow: Workflow): Promise<WorkflowDetailView>;
+  delete(name: string): Promise<{ readonly ok: boolean; readonly reason?: string }>;
+  validate(workflow: unknown): Promise<WorkflowValidationView>;
+  draft(intent: string): Promise<WorkflowDraftView>;
+  capabilities(): Promise<WorkflowCapabilitiesView>;
   setEnabled(name: string, enabled: boolean): Promise<void>;
   run(name: string): Promise<WorkflowRunView>;
+  /** Run a workflow definition without persisting it (desk-local office-flow). */
+  runInline?(workflow: import('./workflow.js').Workflow): Promise<WorkflowRunView>;
 }
 
 /**

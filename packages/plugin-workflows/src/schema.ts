@@ -67,6 +67,18 @@ const inputSpecSchema = z.object({
   description: z.string().optional(),
 });
 
+const uiLayoutSchema = z.object({
+  nodes: z.record(z.object({
+    x: z.number(),
+    y: z.number(),
+  })).default({}),
+  viewport: z.object({
+    x: z.number(),
+    y: z.number(),
+    zoom: z.number().positive(),
+  }).optional(),
+});
+
 export const workflowSchema = z
   .object({
     name: z.string().min(1).max(120).regex(SLUG_RE, 'name must be slug-like'),
@@ -81,6 +93,9 @@ export const workflowSchema = z
         inbox: z.boolean().default(true),
       })
       .optional(),
+    ui: z.object({
+      layout: uiLayoutSchema.optional(),
+    }).optional(),
     concurrency: z.number().int().min(1).max(8).default(4),
     steps: z.array(stepSchema).min(1).max(40),
   })

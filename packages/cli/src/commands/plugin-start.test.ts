@@ -354,6 +354,16 @@ describe('startUiPlugin', () => {
     const port = 54000 + Math.floor(Math.random() * 1000);
     const sessions: SessionMeta[] = [
       {
+        id: 'session-empty',
+        cwd: '/repo/empty',
+        startedAt: '2026-05-25T09:00:00.000Z',
+        lastActivity: '2026-05-25T09:00:00.000Z',
+        eventCount: 0,
+        firstPrompt: null,
+        provider: null,
+        model: 'model',
+      },
+      {
         id: 'session-old',
         cwd: '/repo/one',
         startedAt: '2026-05-25T10:00:00.000Z',

@@ -46,6 +46,41 @@ describe('workflow schema', () => {
     expect(reparsed.workflow!.steps).toHaveLength(3);
   });
 
+  it('accepts and preserves UI layout metadata for the visual builder', () => {
+    const r = parseWorkflowYaml(`
+name: visual-flow
+description: Edited in the Office workflow builder.
+ui:
+  layout:
+    nodes:
+      fetch:
+        x: 120
+        y: 80
+      summarize:
+        x: 420
+        y: 160
+    viewport:
+      x: -40
+      y: 12
+      zoom: 0.85
+steps:
+  - id: fetch
+    tool: web_fetch
+    args: { url: "https://example.test" }
+  - id: summarize
+    needs: [fetch]
+    prompt: "Summarize {{ steps.fetch.output }}"
+`);
+
+    expect(r.ok).toBe(true);
+    expect(r.workflow!.ui?.layout.nodes.fetch).toEqual({ x: 120, y: 80 });
+    expect(r.workflow!.ui?.layout.viewport).toEqual({ x: -40, y: 12, zoom: 0.85 });
+
+    const reparsed = parseWorkflowYaml(serializeWorkflow(r.workflow!));
+    expect(reparsed.ok).toBe(true);
+    expect(reparsed.workflow!.ui?.layout.nodes.summarize).toEqual({ x: 420, y: 160 });
+  });
+
   it('rejects a cycle in `needs`', () => {
     const r = validateWorkflow({
       name: 'cyc',

@@ -268,4 +268,45 @@ describe('eventToVirtualOfficeEnvelope', () => {
       sensitive: false,
     });
   });
+
+  it('maps workflow lifecycle plugin events for Office workflow highlighting', () => {
+    const base = {
+      id: asEventId('evt-workflow'),
+      seq: 50,
+      ts: 123,
+      sessionId: asSessionId('sess-1'),
+      turnId: asTurnId('turn-workflow'),
+      source: 'plugin' as const,
+      type: 'plugin_event' as const,
+      pluginId: asPluginId('@moxxy/plugin-workflows'),
+    };
+
+    expect(eventToVirtualOfficeEnvelope({
+      ...base,
+      subtype: 'workflow_started',
+      payload: { name: 'daily-digest', steps: 2 },
+    })).toMatchObject({
+      agent_id: 'session',
+      event_type: 'workflow.started',
+      payload: { name: 'daily-digest', steps: 2 },
+    });
+    expect(eventToVirtualOfficeEnvelope({
+      ...base,
+      seq: 51,
+      subtype: 'workflow_step_started',
+      payload: { id: 'collect', label: 'Collect' },
+    })).toMatchObject({
+      event_type: 'workflow.step.started',
+      payload: { id: 'collect', label: 'Collect' },
+    });
+    expect(eventToVirtualOfficeEnvelope({
+      ...base,
+      seq: 52,
+      subtype: 'workflow_completed',
+      payload: { name: 'daily-digest', output: 'done' },
+    })).toMatchObject({
+      event_type: 'workflow.completed',
+      payload: { name: 'daily-digest', output: 'done' },
+    });
+  });
 });

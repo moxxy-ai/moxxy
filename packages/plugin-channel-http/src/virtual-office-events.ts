@@ -138,6 +138,17 @@ function pluginEventToVirtualOfficeEnvelope(
       payload: { ...payload },
     };
   }
+  const workflowEventType = workflowSubtypeToEventType(event.subtype);
+  if (workflowEventType) {
+    const payload = event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
+      ? (event.payload as Record<string, unknown>)
+      : {};
+    return {
+      ...base,
+      event_type: workflowEventType,
+      payload: { ...payload },
+    };
+  }
   if (typeof event.subtype !== 'string' || !event.subtype.startsWith('subagent_')) return null;
   const payload = event.payload && typeof event.payload === 'object'
     ? (event.payload as Record<string, unknown>)
@@ -228,6 +239,27 @@ function pluginEventToVirtualOfficeEnvelope(
     };
   }
   return null;
+}
+
+function workflowSubtypeToEventType(subtype: string): string | null {
+  switch (subtype) {
+    case 'workflow_started':
+      return 'workflow.started';
+    case 'workflow_step_started':
+      return 'workflow.step.started';
+    case 'workflow_step_completed':
+      return 'workflow.step.completed';
+    case 'workflow_step_skipped':
+      return 'workflow.step.skipped';
+    case 'workflow_step_failed':
+      return 'workflow.step.failed';
+    case 'workflow_completed':
+      return 'workflow.completed';
+    case 'workflow_failed':
+      return 'workflow.failed';
+    default:
+      return null;
+  }
 }
 
 function normalizeError(value: unknown): string {

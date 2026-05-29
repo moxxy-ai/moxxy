@@ -67,6 +67,27 @@ export interface WorkflowDelivery {
   readonly inbox: boolean;
 }
 
+/** Visual editor metadata. Runtime executors must ignore this field. */
+export interface WorkflowUiLayoutNode {
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface WorkflowUiViewport {
+  readonly x: number;
+  readonly y: number;
+  readonly zoom: number;
+}
+
+export interface WorkflowUiLayout {
+  readonly nodes: Record<string, WorkflowUiLayoutNode>;
+  readonly viewport?: WorkflowUiViewport;
+}
+
+export interface WorkflowUi {
+  readonly layout?: WorkflowUiLayout;
+}
+
 export interface Workflow {
   readonly name: string;
   readonly description: string;
@@ -80,6 +101,8 @@ export interface Workflow {
   readonly inputs: Record<string, WorkflowInputSpec>;
   readonly on?: WorkflowTrigger;
   readonly delivery?: WorkflowDelivery;
+  /** GUI-only metadata persisted with the YAML artifact. */
+  readonly ui?: WorkflowUi;
   /** Max steps to run concurrently in one ready-set round. */
   readonly concurrency: number;
   readonly steps: ReadonlyArray<WorkflowStep>;

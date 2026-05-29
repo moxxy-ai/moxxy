@@ -1,8 +1,8 @@
-import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises';
 import { z } from 'zod';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import * as path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import {
@@ -25,6 +25,7 @@ import {
   type MoxxyEvent,
   type ProviderDef,
   type UserPromptAttachment,
+  type Workflow,
 } from '@moxxy/sdk';
 import { OfficeAgentRuntime } from './office-agent-runtime.js';
 import { eventToVirtualOfficeEnvelope } from './virtual-office-events.js';
@@ -101,6 +102,33 @@ const mcpServerCreateRequestSchema = z.object({
   }
 });
 
+const workflowCreateRequestSchema = z.object({
+  workflow: z.unknown(),
+  scope: z.enum(['user', 'project']).optional(),
+});
+
+const workflowUpdateRequestSchema = z.object({
+  workflow: z.unknown(),
+});
+
+const workflowDraftRequestSchema = z.object({
+  intent: z.string().min(1),
+});
+
+const workflowValidateRequestSchema = z.object({
+  workflow: z.unknown(),
+});
+
+const workflowEnabledRequestSchema = z.object({
+  enabled: z.boolean(),
+});
+
+const deskIdSchema = z.string().trim().regex(/^[A-Za-z0-9_-]{1,64}$/);
+
+const deskStateSchema = z.object({
+  version: z.number().int().min(1).default(1),
+}).passthrough();
+
 const permissionDecisionSchema = z.object({
   mode: z.enum(['allow', 'allow_session', 'allow_always', 'deny']),
   reason: z.string().optional(),
@@ -139,6 +167,21 @@ export function routeRequest(req: IncomingMessage): RouteHandler | null {
   if (req.method === 'GET' && pathname === '/v1/graveyard') return handleGraveyard;
   if (req.method === 'GET' && pathname === '/v1/commands') return handleCommands;
   if (req.method === 'POST' && pathname === '/v1/commands') return handleRunCommand;
+  if (req.method === 'GET' && pathname === '/v1/workflows') return handleWorkflowsList;
+  if (req.method === 'GET' && pathname === '/v1/workflows/capabilities') return handleWorkflowsCapabilities;
+  if (req.method === 'POST' && pathname === '/v1/workflows/draft') return handleWorkflowDraft;
+  if (req.method === 'POST' && pathname === '/v1/workflows/validate') return handleWorkflowValidate;
+  if (req.method === 'POST' && pathname === '/v1/workflows') return handleWorkflowCreate;
+  if (req.method === 'POST' && /^\/v1\/desk\/[^/]+\/workflows\/office-flow\/run$/.test(pathname)) {
+    return handleDeskOfficeFlowRun;
+  }
+  if (req.method === 'GET' && /^\/v1\/desk\/[^/]+$/.test(pathname)) return handleDeskGet;
+  if (req.method === 'PUT' && /^\/v1\/desk\/[^/]+$/.test(pathname)) return handleDeskPut;
+  if (req.method === 'POST' && /^\/v1\/workflows\/[^/]+\/enabled$/.test(pathname)) return handleWorkflowSetEnabled;
+  if (req.method === 'POST' && /^\/v1\/workflows\/[^/]+\/run$/.test(pathname)) return handleWorkflowRun;
+  if (req.method === 'GET' && /^\/v1\/workflows\/[^/]+$/.test(pathname)) return handleWorkflowGet;
+  if (req.method === 'PUT' && /^\/v1\/workflows\/[^/]+$/.test(pathname)) return handleWorkflowUpdate;
+  if (req.method === 'DELETE' && /^\/v1\/workflows\/[^/]+$/.test(pathname)) return handleWorkflowDelete;
   if (req.method === 'GET' && pathname === '/v1/vault/secrets') return handleVaultListSecrets;
   if (req.method === 'POST' && pathname === '/v1/vault/secrets') return handleVaultCreateSecret;
   if (req.method === 'DELETE' && /^\/v1\/vault\/secrets\/[^/]+$/.test(pathname)) return handleVaultDeleteSecret;
@@ -809,6 +852,381 @@ export async function handleRunCommand(
       message: err instanceof Error ? err.message : String(err),
     });
   }
+}
+
+function workflowsView(res: ServerResponse, ctx: RouterContext): NonNullable<Session['workflows']> | null {
+  if (ctx.session.workflows) return ctx.session.workflows;
+  reply(res, 404, { error: 'not_found', message: 'workflows are not available in this session' });
+  return null;
+}
+
+function replyWorkflowError(res: ServerResponse, err: unknown): void {
+  reply(res, 502, {
+    error: 'workflow_failed',
+    message: err instanceof Error ? err.message : String(err),
+  });
+}
+
+export async function handleWorkflowsList(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  const workflows = workflowsView(res, ctx);
+  if (!workflows) return;
+  try {
+    reply(res, 200, await workflows.list());
+  } catch (err) {
+    replyWorkflowError(res, err);
+  }
+}
+
+export async function handleWorkflowsCapabilities(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  const workflows = workflowsView(res, ctx);
+  if (!workflows) return;
+  try {
+    reply(res, 200, await workflows.capabilities());
+  } catch (err) {
+    replyWorkflowError(res, err);
+  }
+}
+
+export async function handleWorkflowDraft(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  const workflows = workflowsView(res, ctx);
+  if (!workflows) return;
+  let body: z.infer<typeof workflowDraftRequestSchema>;
+  try {
+    const raw = await readBody(req);
+    body = workflowDraftRequestSchema.parse(raw.trim() ? JSON.parse(raw) : {});
+  } catch (err) {
+    reply(res, 400, { error: 'bad_request', message: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+  try {
+    reply(res, 200, await workflows.draft(body.intent));
+  } catch (err) {
+    replyWorkflowError(res, err);
+  }
+}
+
+export async function handleWorkflowValidate(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  const workflows = workflowsView(res, ctx);
+  if (!workflows) return;
+  let body: z.infer<typeof workflowValidateRequestSchema>;
+  try {
+    const raw = await readBody(req);
+    body = workflowValidateRequestSchema.parse(raw.trim() ? JSON.parse(raw) : {});
+  } catch (err) {
+    reply(res, 400, { error: 'bad_request', message: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+  try {
+    reply(res, 200, await workflows.validate(body.workflow));
+  } catch (err) {
+    replyWorkflowError(res, err);
+  }
+}
+
+export async function handleWorkflowCreate(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  const workflows = workflowsView(res, ctx);
+  if (!workflows) return;
+  let body: z.infer<typeof workflowCreateRequestSchema>;
+  try {
+    const raw = await readBody(req);
+    body = workflowCreateRequestSchema.parse(raw.trim() ? JSON.parse(raw) : {});
+  } catch (err) {
+    reply(res, 400, { error: 'bad_request', message: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+  try {
+    reply(res, 200, await workflows.create(body.workflow as Workflow, body.scope ?? 'user'));
+  } catch (err) {
+    replyWorkflowError(res, err);
+  }
+}
+
+export async function handleWorkflowGet(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  const workflows = workflowsView(res, ctx);
+  if (!workflows) return;
+  try {
+    const detail = await workflows.get(pathPart(req, 3));
+    if (!detail) {
+      reply(res, 404, { error: 'not_found', message: 'workflow not found' });
+      return;
+    }
+    reply(res, 200, detail);
+  } catch (err) {
+    replyWorkflowError(res, err);
+  }
+}
+
+export async function handleWorkflowUpdate(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  const workflows = workflowsView(res, ctx);
+  if (!workflows) return;
+  let body: z.infer<typeof workflowUpdateRequestSchema>;
+  try {
+    const raw = await readBody(req);
+    body = workflowUpdateRequestSchema.parse(raw.trim() ? JSON.parse(raw) : {});
+  } catch (err) {
+    reply(res, 400, { error: 'bad_request', message: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+  try {
+    reply(res, 200, await workflows.update(pathPart(req, 3), body.workflow as Workflow));
+  } catch (err) {
+    replyWorkflowError(res, err);
+  }
+}
+
+export async function handleWorkflowDelete(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  const workflows = workflowsView(res, ctx);
+  if (!workflows) return;
+  try {
+    const result = await workflows.delete(pathPart(req, 3));
+    reply(res, result.ok ? 200 : 409, result);
+  } catch (err) {
+    replyWorkflowError(res, err);
+  }
+}
+
+export async function handleWorkflowSetEnabled(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  const workflows = workflowsView(res, ctx);
+  if (!workflows) return;
+  let body: z.infer<typeof workflowEnabledRequestSchema>;
+  try {
+    const raw = await readBody(req);
+    body = workflowEnabledRequestSchema.parse(raw.trim() ? JSON.parse(raw) : {});
+  } catch (err) {
+    reply(res, 400, { error: 'bad_request', message: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+  try {
+    await workflows.setEnabled(pathPart(req, 3), body.enabled);
+    reply(res, 200, { ok: true });
+  } catch (err) {
+    replyWorkflowError(res, err);
+  }
+}
+
+export async function handleWorkflowRun(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  const workflows = workflowsView(res, ctx);
+  if (!workflows) return;
+  try {
+    reply(res, 200, await workflows.run(pathPart(req, 3)));
+  } catch (err) {
+    replyWorkflowError(res, err);
+  }
+}
+
+const deskOfficeFlowRunRequestSchema = z.object({
+  workflow: z.unknown(),
+});
+
+export async function handleDeskOfficeFlowRun(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  const workflows = workflowsView(res, ctx);
+  if (!workflows?.runInline) {
+    reply(res, 404, { error: 'not_found', message: 'desk office-flow runs are not available in this session' });
+    return;
+  }
+  let body: z.infer<typeof deskOfficeFlowRunRequestSchema>;
+  try {
+    const raw = await readBody(req);
+    body = deskOfficeFlowRunRequestSchema.parse(raw.trim() ? JSON.parse(raw) : {});
+  } catch (err) {
+    reply(res, 400, { error: 'bad_request', message: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+  try {
+    reply(res, 200, await workflows.runInline(body.workflow as Workflow));
+  } catch (err) {
+    replyWorkflowError(res, err);
+  }
+}
+
+export async function handleDeskGet(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+
+  let filePath: string;
+  try {
+    filePath = deskStatePath(ctx.session, pathPart(req, 3));
+  } catch (err) {
+    reply(res, 400, { error: 'bad_request', message: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+
+  try {
+    const raw = await readFile(filePath, 'utf8');
+    reply(res, 200, deskStateSchema.parse(JSON.parse(raw)));
+  } catch (err) {
+    if (isMissingFileError(err)) {
+      reply(res, 200, createSeedDeskState());
+      return;
+    }
+    reply(res, 502, { error: 'desk_failed', message: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+export async function handleDeskPut(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+
+  let filePath: string;
+  try {
+    filePath = deskStatePath(ctx.session, pathPart(req, 3));
+  } catch (err) {
+    reply(res, 400, { error: 'bad_request', message: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+
+  let state: z.infer<typeof deskStateSchema>;
+  try {
+    const raw = await readBody(req, 2 * 1024 * 1024);
+    state = deskStateSchema.parse(raw.trim() ? JSON.parse(raw) : {});
+  } catch (err) {
+    reply(res, 400, { error: 'bad_request', message: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+
+  try {
+    await writeDeskState(filePath, state);
+    reply(res, 200, state);
+  } catch (err) {
+    reply(res, 502, { error: 'desk_failed', message: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+function createSeedDeskState(): z.infer<typeof deskStateSchema> {
+  return { version: 1 };
+}
+
+export function workspaceDeskId(cwd: string): string {
+  return createHash('sha256').update(path.resolve(cwd)).digest('hex').slice(0, 16);
+}
+
+function deskStatePath(session: Session, deskId: string): string {
+  const parsed = deskIdSchema.parse(deskId);
+  return path.join(moxxyHome(), 'desk', workspaceDeskId(session.cwd), `desk-${parsed}.json`);
+}
+
+const deskWriteLocks = new Map<string, Promise<void>>();
+
+async function writeDeskState(filePath: string, state: z.infer<typeof deskStateSchema>): Promise<void> {
+  const previous = deskWriteLocks.get(filePath) ?? Promise.resolve();
+  const next = previous
+    .catch(() => undefined)
+    .then(async () => {
+      await mkdir(path.dirname(filePath), { recursive: true });
+      const tmp = `${filePath}.${randomUUID()}.tmp`;
+      await writeFile(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+      await rename(tmp, filePath);
+    });
+  deskWriteLocks.set(filePath, next);
+  try {
+    await next;
+  } finally {
+    if (deskWriteLocks.get(filePath) === next) deskWriteLocks.delete(filePath);
+  }
+}
+
+function isMissingFileError(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && 'code' in err && (err as { code?: unknown }).code === 'ENOENT';
 }
 
 class AdminToolUnavailableError extends Error {
