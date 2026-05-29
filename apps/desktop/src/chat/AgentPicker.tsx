@@ -265,8 +265,41 @@ function ProviderModelPicker({
   const [hoveredProvider, setHoveredProvider] = useState<string>(
     activeProvider ?? providers[0]?.name ?? '',
   );
-  const currentModels =
-    providers.find((p) => p.name === hoveredProvider)?.models ?? [];
+  // Per-provider cache of models fetched live from the provider's API.
+  // We merge these with whatever the runner already advertised so the
+  // user can refresh once and not lose the additions on tab switch.
+  const [fetched, setFetched] = useState<Record<string, ReadonlyArray<string>>>(
+    {},
+  );
+  const [fetchState, setFetchState] = useState<{
+    provider: string | null;
+    status: 'idle' | 'loading' | 'error';
+    error?: string;
+  }>({ provider: null, status: 'idle' });
+
+  const advertised =
+    providers.find((p) => p.name === hoveredProvider)?.models.map((m) => m.name) ?? [];
+  const merged = Array.from(
+    new Set([...advertised, ...(fetched[hoveredProvider] ?? [])]),
+  ).sort();
+  const currentModels = merged.map((name) => ({ name }));
+
+  const onFetch = async (): Promise<void> => {
+    setFetchState({ provider: hoveredProvider, status: 'loading' });
+    try {
+      const ids = await api().invoke('settings.fetchProviderModels', {
+        provider: hoveredProvider,
+      });
+      setFetched((cur) => ({ ...cur, [hoveredProvider]: ids }));
+      setFetchState({ provider: hoveredProvider, status: 'idle' });
+    } catch (e) {
+      setFetchState({
+        provider: hoveredProvider,
+        status: 'error',
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  };
 
   return (
     <Modal title="Pick provider & model" onClose={onClose} width={620}>
@@ -346,77 +379,151 @@ function ProviderModelPicker({
             );
           })}
         </ul>
-        <ul
-          role="listbox"
-          aria-label="Models"
+        <div
           style={{
-            listStyle: 'none',
-            margin: 0,
-            padding: 6,
+            display: 'flex',
+            flexDirection: 'column',
             background: '#fff',
-            overflowY: 'auto',
-            maxHeight: 360,
+            overflow: 'hidden',
           }}
         >
-          {currentModels.length === 0 && (
-            <li
+          <header
+            style={{
+              padding: '8px 10px',
+              borderBottom: '1px solid var(--color-card-border)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <span
               style={{
-                padding: '8px 10px',
-                fontSize: 12,
+                flex: 1,
+                fontSize: 11.5,
+                fontWeight: 700,
                 color: 'var(--color-text-dim)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
               }}
             >
-              No models advertised for this provider. Use{' '}
-              <em>Default</em> below — the runner picks per its
-              config.
-            </li>
-          )}
-          <li>
+              Models · {hoveredProvider || '—'}
+            </span>
             <button
               type="button"
-              role="option"
-              aria-selected={
-                hoveredProvider === activeProvider && activeModel === null
+              onClick={() => void onFetch()}
+              disabled={
+                !hoveredProvider ||
+                fetchState.status === 'loading'
               }
-              onClick={() => onPick(hoveredProvider, null)}
-              style={modelRowStyle(
-                hoveredProvider === activeProvider && activeModel === null,
-              )}
+              title="Fetch the live model list from the provider's API"
+              style={{
+                fontSize: 11.5,
+                padding: '4px 10px',
+                borderRadius: 8,
+                color: 'var(--color-primary-strong)',
+                border: '1px solid var(--color-primary-soft)',
+                background: 'var(--color-primary-soft)',
+                fontWeight: 600,
+                opacity:
+                  fetchState.status === 'loading' || !hoveredProvider
+                    ? 0.6
+                    : 1,
+              }}
             >
-              <span style={{ flex: 1, fontStyle: 'italic' }}>Default</span>
-              <span style={{ fontSize: 11, color: 'var(--color-text-dim)' }}>
-                runner's config
-              </span>
+              {fetchState.provider === hoveredProvider &&
+              fetchState.status === 'loading'
+                ? 'Fetching…'
+                : 'Fetch live'}
             </button>
-          </li>
-          {currentModels.map((m) => {
-            const isCurrent =
-              hoveredProvider === activeProvider && activeModel === m.name;
-            return (
-              <li key={m.name}>
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={isCurrent}
-                  onClick={() => onPick(hoveredProvider, m.name)}
-                  style={modelRowStyle(isCurrent)}
-                >
-                  <span
-                    className="mono"
-                    style={{
-                      flex: 1,
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                    }}
-                  >
-                    {m.name}
-                  </span>
-                </button>
+          </header>
+          <ul
+            role="listbox"
+            aria-label="Models"
+            style={{
+              listStyle: 'none',
+              margin: 0,
+              padding: 6,
+              overflowY: 'auto',
+              maxHeight: 360,
+            }}
+          >
+            <li>
+              <button
+                type="button"
+                role="option"
+                aria-selected={
+                  hoveredProvider === activeProvider && activeModel === null
+                }
+                onClick={() => onPick(hoveredProvider, null)}
+                style={modelRowStyle(
+                  hoveredProvider === activeProvider && activeModel === null,
+                )}
+              >
+                <span style={{ flex: 1, fontStyle: 'italic' }}>Default</span>
+                <span style={{ fontSize: 11, color: 'var(--color-text-dim)' }}>
+                  runner's config
+                </span>
+              </button>
+            </li>
+            {currentModels.length === 0 && (
+              <li
+                style={{
+                  padding: '12px 10px',
+                  fontSize: 12,
+                  color: 'var(--color-text-dim)',
+                }}
+              >
+                No models advertised by this provider. Tap{' '}
+                <strong>Fetch live</strong> to query the provider's
+                /v1/models endpoint.
               </li>
-            );
-          })}
-        </ul>
+            )}
+            {currentModels.map((m) => {
+              const isCurrent =
+                hoveredProvider === activeProvider && activeModel === m.name;
+              return (
+                <li key={m.name}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={isCurrent}
+                    onClick={() => onPick(hoveredProvider, m.name)}
+                    style={modelRowStyle(isCurrent)}
+                  >
+                    <span
+                      className="mono"
+                      style={{
+                        flex: 1,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {m.name}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+            {fetchState.provider === hoveredProvider &&
+              fetchState.status === 'error' && (
+                <li
+                  role="alert"
+                  style={{
+                    padding: '10px',
+                    margin: '6px 4px 0',
+                    fontSize: 11.5,
+                    color: 'var(--color-red)',
+                    background: '#fef2f2',
+                    border: '1px solid #fecaca',
+                    borderRadius: 8,
+                  }}
+                >
+                  {fetchState.error}
+                </li>
+              )}
+          </ul>
+        </div>
       </div>
     </Modal>
   );

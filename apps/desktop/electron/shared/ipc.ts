@@ -265,6 +265,10 @@ export interface IpcCommands {
   // Settings
   /** Provider list for the given workspace (defaults to active). */
   'settings.providers': (args?: { workspaceId?: string }) => Promise<ReadonlyArray<ProviderEntry>>;
+  /** Hit the provider's /v1/models endpoint and return the model ids
+   *  it advertises. Useful for admin-registered providers whose
+   *  providers.json entry didn't enumerate models upfront. */
+  'settings.fetchProviderModels': (args: { provider: string }) => Promise<ReadonlyArray<string>>;
   'settings.mcpServers': (args?: { workspaceId?: string }) => Promise<ReadonlyArray<McpServerEntry>>;
   'settings.mcpToggle': (args: {
     workspaceId?: string;

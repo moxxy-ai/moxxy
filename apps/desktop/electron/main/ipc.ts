@@ -180,6 +180,10 @@ export function registerIpcHandlers(pool: RunnerPool, desks: DeskStore): void {
 
   // ---- Settings -----------------------------------------------------------
 
+  handle('settings.fetchProviderModels', async ({ provider }) => {
+    const { fetchProviderModels } = await import('./provider-discovery');
+    return await fetchProviderModels(provider);
+  });
   handle('settings.providers', async (args) => {
     const sup = resolveSupervisor(pool, args?.workspaceId);
     const session = sup?.remote();

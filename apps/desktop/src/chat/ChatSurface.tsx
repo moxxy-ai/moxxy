@@ -341,8 +341,8 @@ function EmptyState({ ready }: { readonly ready: boolean }): JSX.Element {
           alt=""
           aria-hidden="true"
           className={ready ? '' : 'moxxy-avatar-loader'}
-          width={300}
-          height={300}
+          width={200}
+          height={200}
           style={{
             imageRendering: 'pixelated',
             marginBottom: 20,
