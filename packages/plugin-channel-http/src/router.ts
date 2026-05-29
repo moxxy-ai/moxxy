@@ -178,6 +178,9 @@ export function routeRequest(req: IncomingMessage): RouteHandler | null {
   if (req.method === 'GET' && /^\/v1\/desk\/[^/]+$/.test(pathname)) return handleDeskGet;
   if (req.method === 'PUT' && /^\/v1\/desk\/[^/]+$/.test(pathname)) return handleDeskPut;
   if (req.method === 'POST' && /^\/v1\/workflows\/[^/]+\/enabled$/.test(pathname)) return handleWorkflowSetEnabled;
+  if (req.method === 'POST' && /^\/v1\/workflows\/runs\/[^/]+\/reply$/.test(pathname)) {
+    return handleWorkflowRunReply;
+  }
   if (req.method === 'POST' && /^\/v1\/workflows\/[^/]+\/run$/.test(pathname)) return handleWorkflowRun;
   if (req.method === 'GET' && /^\/v1\/workflows\/[^/]+$/.test(pathname)) return handleWorkflowGet;
   if (req.method === 'PUT' && /^\/v1\/workflows\/[^/]+$/.test(pathname)) return handleWorkflowUpdate;
@@ -1076,6 +1079,10 @@ export async function handleWorkflowSetEnabled(
   }
 }
 
+const workflowRunRequestSchema = z.object({
+  inputs: z.record(z.unknown()).optional(),
+});
+
 export async function handleWorkflowRun(
   req: IncomingMessage,
   res: ServerResponse,
@@ -1087,8 +1094,49 @@ export async function handleWorkflowRun(
   }
   const workflows = workflowsView(res, ctx);
   if (!workflows) return;
+  let body: z.infer<typeof workflowRunRequestSchema> = {};
   try {
-    reply(res, 200, await workflows.run(pathPart(req, 3)));
+    const raw = await readBody(req);
+    if (raw.trim()) body = workflowRunRequestSchema.parse(JSON.parse(raw));
+  } catch (err) {
+    reply(res, 400, { error: 'bad_request', message: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+  try {
+    reply(res, 200, await workflows.run(pathPart(req, 3), body.inputs));
+  } catch (err) {
+    replyWorkflowError(res, err);
+  }
+}
+
+const workflowRunReplySchema = z.object({
+  message: z.string().min(1),
+});
+
+export async function handleWorkflowRunReply(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: RouterContext,
+): Promise<void> {
+  if (!checkAuth(req, ctx.authToken)) {
+    reply(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  const workflows = workflowsView(res, ctx);
+  if (!workflows?.reply) {
+    reply(res, 404, { error: 'not_found', message: 'workflow reply is not available in this session' });
+    return;
+  }
+  let body: z.infer<typeof workflowRunReplySchema>;
+  try {
+    const raw = await readBody(req);
+    body = workflowRunReplySchema.parse(raw.trim() ? JSON.parse(raw) : {});
+  } catch (err) {
+    reply(res, 400, { error: 'bad_request', message: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+  try {
+    reply(res, 200, await workflows.reply(pathPart(req, 4), body.message));
   } catch (err) {
     replyWorkflowError(res, err);
   }
@@ -1096,6 +1144,7 @@ export async function handleWorkflowRun(
 
 const deskOfficeFlowRunRequestSchema = z.object({
   workflow: z.unknown(),
+  inputs: z.record(z.unknown()).optional(),
 });
 
 export async function handleDeskOfficeFlowRun(
@@ -1121,7 +1170,7 @@ export async function handleDeskOfficeFlowRun(
     return;
   }
   try {
-    reply(res, 200, await workflows.runInline(body.workflow as Workflow));
+    reply(res, 200, await workflows.runInline(body.workflow as Workflow, body.inputs));
   } catch (err) {
     replyWorkflowError(res, err);
   }

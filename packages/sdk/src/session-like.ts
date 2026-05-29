@@ -136,8 +136,12 @@ export interface WorkflowSummaryView {
 /** Result of running a workflow from the modal. */
 export interface WorkflowRunView {
   readonly ok: boolean;
+  readonly status: 'completed' | 'paused' | 'failed';
   readonly output: string;
   readonly error?: string;
+  readonly runId?: string;
+  readonly pendingStepId?: string;
+  readonly interactionAgentId?: string;
   readonly steps: ReadonlyArray<{ readonly id: string; readonly status: string; readonly error?: string }>;
 }
 
@@ -188,9 +192,14 @@ export interface WorkflowsView {
   draft(intent: string): Promise<WorkflowDraftView>;
   capabilities(): Promise<WorkflowCapabilitiesView>;
   setEnabled(name: string, enabled: boolean): Promise<void>;
-  run(name: string): Promise<WorkflowRunView>;
+  run(name: string, inputs?: Record<string, unknown>): Promise<WorkflowRunView>;
   /** Run a workflow definition without persisting it (desk-local office-flow). */
-  runInline?(workflow: import('./workflow.js').Workflow): Promise<WorkflowRunView>;
+  runInline?(
+    workflow: import('./workflow.js').Workflow,
+    inputs?: Record<string, unknown>,
+  ): Promise<WorkflowRunView>;
+  /** Resume a paused workflow after operator replies to an awaitInput step. */
+  reply?(runId: string, message: string): Promise<WorkflowRunView>;
 }
 
 /**

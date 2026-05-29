@@ -151,4 +151,57 @@ steps:
     const r = validateWorkflow({ name: 'Bad Name!', description: 'x', steps: [{ id: 'a', prompt: 'a' }] });
     expect(r.ok).toBe(false);
   });
+
+  it('accepts bridge, condition, and switch steps', () => {
+    const r = validateWorkflow({
+      name: 'logic-flow',
+      description: 'x',
+      steps: [
+        { id: 'parse', bridge: 'extract vars.x' },
+        {
+          id: 'gate',
+          needs: ['parse'],
+          condition: 'if vars.x > 1',
+          then: ['heavy'],
+          else: ['light'],
+        },
+        { id: 'heavy', needs: ['gate'], prompt: 'h' },
+        { id: 'light', needs: ['gate'], prompt: 'l' },
+        {
+          id: 'route',
+          needs: ['parse'],
+          switch: 'pick animal',
+          cases: { pies: ['dog'], kot: ['cat'] },
+          default: ['other'],
+        },
+        { id: 'dog', needs: ['route'], prompt: 'd' },
+        { id: 'cat', needs: ['route'], prompt: 'c' },
+        { id: 'other', needs: ['route'], prompt: 'o' },
+      ],
+    });
+    expect(r.ok).toBe(true);
+    expect(r.workflow!.steps[1]!.then).toEqual(['heavy']);
+  });
+
+  it('rejects condition without then/else', () => {
+    const r = validateWorkflow({
+      name: 'bad-cond',
+      description: 'x',
+      steps: [{ id: 'g', condition: 'x' }],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join('\n')).toMatch(/then|else/);
+  });
+
+  it('rejects unknown branch step references', () => {
+    const r = validateWorkflow({
+      name: 'bad-branch',
+      description: 'x',
+      steps: [
+        { id: 'g', condition: 'x', then: ['ghost'], else: [] },
+      ],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join('\n')).toMatch(/unknown branch step/);
+  });
 });

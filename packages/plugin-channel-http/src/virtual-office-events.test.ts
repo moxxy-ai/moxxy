@@ -302,6 +302,24 @@ describe('eventToVirtualOfficeEnvelope', () => {
     expect(eventToVirtualOfficeEnvelope({
       ...base,
       seq: 52,
+      subtype: 'workflow_step_awaiting_input',
+      payload: { id: 'collect', label: 'Collect', childSessionId: 'child-wf', preview: 'What brief?' },
+    })).toMatchObject({
+      event_type: 'workflow.step.awaiting_input',
+      payload: { id: 'collect', childSessionId: 'child-wf' },
+    });
+    expect(eventToVirtualOfficeEnvelope({
+      ...base,
+      seq: 53,
+      subtype: 'workflow_paused',
+      payload: { runId: 'run-01', stepId: 'collect', childSessionId: 'child-wf' },
+    })).toMatchObject({
+      event_type: 'workflow.paused',
+      payload: { runId: 'run-01', childSessionId: 'child-wf' },
+    });
+    expect(eventToVirtualOfficeEnvelope({
+      ...base,
+      seq: 54,
       subtype: 'workflow_completed',
       payload: { name: 'daily-digest', output: 'done' },
     })).toMatchObject({

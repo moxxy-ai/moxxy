@@ -426,9 +426,15 @@ describe('Virtual Office workflow endpoints', () => {
     expect(workflows.setEnabled).toHaveBeenCalledWith('daily-digest', false);
 
     const runRes = makeResponse();
-    await dispatchRoute(makeIncoming({ method: 'POST', url: '/v1/workflows/daily-digest/run', headers: { authorization: 'Bearer x' } }), runRes, ctx);
+    await dispatchRoute(makeIncoming({
+      method: 'POST',
+      url: '/v1/workflows/daily-digest/run',
+      headers: { authorization: 'Bearer x', 'content-type': 'application/json' },
+      body: JSON.stringify({ inputs: { region: 'EU' } }),
+    }), runRes, ctx);
     expect(runRes._status).toBe(200);
     expect(JSON.parse(runRes._body)).toMatchObject({ ok: true, output: 'done' });
+    expect(workflows.run).toHaveBeenCalledWith('daily-digest', { region: 'EU' });
 
     const deleteRes = makeResponse();
     await dispatchRoute(makeIncoming({ method: 'DELETE', url: '/v1/workflows/daily-digest', headers: { authorization: 'Bearer x' } }), deleteRes, ctx);

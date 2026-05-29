@@ -253,6 +253,12 @@ function workflowSubtypeToEventType(subtype: string): string | null {
       return 'workflow.step.skipped';
     case 'workflow_step_failed':
       return 'workflow.step.failed';
+    case 'workflow_step_awaiting_input':
+      return 'workflow.step.awaiting_input';
+    case 'workflow_paused':
+      return 'workflow.paused';
+    case 'workflow_resumed':
+      return 'workflow.resumed';
     case 'workflow_completed':
       return 'workflow.completed';
     case 'workflow_failed':

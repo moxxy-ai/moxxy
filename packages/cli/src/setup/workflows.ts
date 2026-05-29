@@ -20,6 +20,7 @@ import {
   buildWorkflowsPlugin,
   defaultUserWorkflowsDir,
   draftWorkflow,
+  resumeWorkflowRun,
   runWorkflow,
   validateWorkflow,
 } from '@moxxy/plugin-workflows';
@@ -74,9 +75,17 @@ export function buildWorkflowsIntegration(args: {
     trigger?: string;
   }): Promise<WorkflowRunResult> {
     const entry = await store.get(input.name);
-    if (!entry) return { ok: false, steps: [], output: '', error: `no workflow named "${input.name}"` };
+    if (!entry) {
+      return { ok: false, status: 'failed', steps: [], output: '', error: `no workflow named "${input.name}"` };
+    }
     if (inFlight.has(input.name)) {
-      return { ok: false, steps: [], output: '', error: `workflow "${input.name}" is already running` };
+      return {
+        ok: false,
+        status: 'failed',
+        steps: [],
+        output: '',
+        error: `workflow "${input.name}" is already running`,
+      };
     }
     inFlight.add(input.name);
     try {
@@ -195,8 +204,15 @@ export function buildWorkflowsIntegration(args: {
         return { workflow: null, raw: '', errors: ['no active provider is available to draft workflows'] };
       }
       const drafted = await draftWorkflow(provider, activeModel(session), intent, session.signal, {
-        availableSkills: session.skills.list().map((s) => s.frontmatter.name),
-        availableTools: session.tools.list().map((t) => t.name),
+        availableSkills: session.skills.list().map((s) => ({
+          name: s.frontmatter.name,
+          description: s.frontmatter.description ?? '',
+        })),
+        availableTools: session.tools.list().map((t) => ({
+          name: t.name,
+          description: t.description ?? '',
+        })),
+        maxTokens: 4096,
       });
       return {
         workflow: drafted.parse.workflow ?? null,
@@ -229,20 +245,31 @@ export function buildWorkflowsIntegration(args: {
       if (!updated) throw new Error(`no workflow named "${name}"`);
       await resyncTriggers();
     },
-    run: async (name) => {
-      const r = await runNow({ name, trigger: 'manual' });
+    run: async (name, inputs) => {
+      const r = await runNow({ name, trigger: 'manual', ...(inputs ? { inputs } : {}) });
       return formatWorkflowRunView(r);
     },
-    runInline: async (workflow) => {
-      const r = await runInlineWorkflow(workflow, 'manual');
+    runInline: async (workflow, inputs) => {
+      const r = await runInlineWorkflow(workflow, 'manual', inputs);
       return formatWorkflowRunView(r);
     },
+    reply,
   };
 
-  async function runInlineWorkflow(workflow: Workflow, trigger: string): Promise<WorkflowRunResult> {
+  async function runInlineWorkflow(
+    workflow: Workflow,
+    trigger: string,
+    inputs?: Record<string, unknown>,
+  ): Promise<WorkflowRunResult> {
     const runKey = `inline:${workflow.name}`;
     if (inFlight.has(runKey)) {
-      return { ok: false, steps: [], output: '', error: `workflow "${workflow.name}" is already running` };
+      return {
+        ok: false,
+        status: 'failed',
+        steps: [],
+        output: '',
+        error: `workflow "${workflow.name}" is already running`,
+      };
     }
     inFlight.add(runKey);
     try {
@@ -263,6 +290,7 @@ export function buildWorkflowsIntegration(args: {
             workflow: (n) => store.lookup(n),
           },
           signal: session.signal,
+          ...(inputs ? { inputs } : {}),
           trigger,
           now: () => Date.now(),
           emit: (subtype, payload) =>
@@ -284,11 +312,52 @@ export function buildWorkflowsIntegration(args: {
     }
   }
 
+  async function reply(runId: string, message: string) {
+    const turnId = session.startTurn().turnId;
+    const spawner = createSubagentSpawner({
+      parentSession: session,
+      parentTurnId: turnId,
+      parentSignal: session.signal,
+      parentModel: activeModel(session),
+    });
+    const r = await resumeWorkflowRun(
+      runId,
+      message,
+      {
+        spawner,
+        tools: session.tools,
+        lookup: {
+          skill: (n) => session.skills.byName(n),
+          workflow: (n) => store.lookup(n),
+        },
+        signal: session.signal,
+        trigger: 'manual',
+        now: () => Date.now(),
+        emit: (subtype, payload) =>
+          void session.log.append({
+            type: 'plugin_event',
+            sessionId: session.id,
+            turnId,
+            source: 'plugin',
+            pluginId: PLUGIN_ID,
+            subtype,
+            payload,
+          } as EmittedEvent),
+        ...(logger ? { logger } : {}),
+      },
+    );
+    return formatWorkflowRunView(r);
+  }
+
   function formatWorkflowRunView(r: WorkflowRunResult) {
     return {
       ok: r.ok,
+      status: r.status,
       output: r.output,
       ...(r.error ? { error: r.error } : {}),
+      ...(r.runId ? { runId: r.runId } : {}),
+      ...(r.pendingStepId ? { pendingStepId: r.pendingStepId } : {}),
+      ...(r.interactionAgentId ? { interactionAgentId: r.interactionAgentId } : {}),
       steps: r.steps.map((s) => ({ id: s.id, status: s.status, ...(s.error ? { error: s.error } : {}) })),
     };
   }
@@ -388,8 +457,14 @@ export function buildWorkflowsIntegration(args: {
     appendEvent: (e) => session.log.append(e),
     ...(logger ? { logger } : {}),
     provider: () => safeActiveProvider(session),
-    listSkills: () => session.skills.list().map((s) => s.frontmatter.name),
-    listTools: () => session.tools.list().map((t) => t.name),
+    listSkills: () => session.skills.list().map((s) => ({
+      name: s.frontmatter.name,
+      description: s.frontmatter.description ?? '',
+    })),
+    listTools: () => session.tools.list().map((t) => ({
+      name: t.name,
+      description: t.description ?? '',
+    })),
     onChanged: resyncTriggers,
     runNow,
     userDir: defaultUserWorkflowsDir(),

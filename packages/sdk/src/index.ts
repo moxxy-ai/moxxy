@@ -111,6 +111,7 @@ export { ISOLATION_RANK } from './isolation.js';
 export type {
   SubagentSpec,
   SubagentResult,
+  SubagentContinueArgs,
   SubagentSpawner,
 } from './subagent.js';
 
@@ -224,6 +225,7 @@ export type { Skill, SkillDef, SkillFrontmatter, SkillScope, SkillSchedule } fro
 export type {
   Workflow,
   WorkflowStep,
+  WorkflowLogicStepFormat,
   WorkflowTrigger,
   WorkflowStepErrorMode,
   WorkflowInputSpec,
@@ -236,6 +238,7 @@ export type {
   WorkflowLookup,
   WorkflowEventSubtype,
   WorkflowRunDeps,
+  WorkflowRunStatus,
   WorkflowStepStatus,
   WorkflowStepResult,
   WorkflowRunResult,
