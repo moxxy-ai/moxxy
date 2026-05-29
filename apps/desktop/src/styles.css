@@ -18,11 +18,11 @@
   --color-text-muted:    #475569;
   --color-text-dim:      #94a3b8;
 
-  /* Sidebar — pure white. The lavender app canvas + the hairline
-   * right border on `.col-sidebar` are enough to separate the column
-   * without a fill tint. */
-  --color-sidebar-bg:        #ffffff;
-  --color-sidebar-bg-hover:  #f4f5fb;
+  /* Sidebar — soft off-white with a subtle cool gray tint, so the
+   * column reads as "lite white" against the lavender canvas without
+   * looking flat. */
+  --color-sidebar-bg:        #f8f9fc;
+  --color-sidebar-bg-hover:  #eef0f6;
   --color-sidebar-bg-active: #fdf2f8;   /* brand-pink wash for the active row */
   --color-sidebar-text:      #0f172a;
   --color-sidebar-text-dim:  #6b7194;
