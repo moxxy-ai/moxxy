@@ -193,7 +193,10 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   flex-direction: column;
   padding: 16px 18px 16px 4px;
   min-width: 0;
-  background: var(--color-card-bg);
+  /* Near-white with a faint cool tint — sits a hair off pure white
+   * so the column reads as separate from any adjacent white surface
+   * without being grey. */
+  background: rgb(252, 252, 255);
 }
 
 /* `col-main--flat` removes the inset gutters so the chat content
