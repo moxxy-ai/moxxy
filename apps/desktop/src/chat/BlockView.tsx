@@ -1,5 +1,6 @@
 import type { Block } from '@/lib/useChat';
 import { Icon } from '@/lib/Icon';
+import { MarkdownBody } from './MarkdownBody';
 
 /**
  * One transcript block. Layout follows the workspace-chat reference:
@@ -84,16 +85,8 @@ function AssistantBlock({
       <Avatar />
       <div style={{ flex: 1, minWidth: 0 }}>
         <Header streaming={streaming} />
-        <div
-          style={{
-            marginTop: 6,
-            whiteSpace: 'pre-wrap',
-            lineHeight: 1.7,
-            fontSize: 14.5,
-            color: 'var(--color-text)',
-          }}
-        >
-          {text}
+        <div style={{ marginTop: 6 }}>
+          <MarkdownBody text={text} />
           {streaming && <span aria-hidden className="streaming-cursor" />}
         </div>
         {stopReason && stopReason !== 'end_turn' && (

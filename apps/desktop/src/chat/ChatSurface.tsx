@@ -6,6 +6,8 @@ import { Icon } from '@/lib/Icon';
 
 interface ChatSurfaceProps {
   readonly phase: ConnectionPhase;
+  readonly railOpen: boolean;
+  readonly onShowRail: () => void;
 }
 
 const SUGGESTIONS: ReadonlyArray<string> = [
@@ -23,48 +25,45 @@ const SUGGESTIONS: ReadonlyArray<string> = [
  * trails the assistant text while chunks are still arriving). Auto-
  * scroll follows the bottom unless the user scrolls up to read.
  */
-export function ChatSurface({ phase }: ChatSurfaceProps): JSX.Element {
+export function ChatSurface({ phase, railOpen, onShowRail }: ChatSurfaceProps): JSX.Element {
   const chat = useChat();
   const ready = phase.phase === 'connected';
 
   return (
-    <main className="col-main">
-      <article
-        className="card"
-        style={{
-          flex: 1,
-          minHeight: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
-        <Header phase={phase} />
-        {chat.blocks.length === 0 ? (
-          <EmptyState ready={ready} />
-        ) : (
-          <Transcript blocks={chat.blocks} />
-        )}
-        {ready && !chat.sending && chat.blocks.length > 0 && (
-          <SuggestedActions
-            suggestions={SUGGESTIONS}
-            onPick={(p) => void chat.send(p)}
-          />
-        )}
-        <Composer
-          ready={ready}
-          sending={chat.sending}
-          activeTurnId={chat.activeTurnId}
-          onSend={(p) => void chat.send(p)}
-          onAbort={() => void chat.abort()}
+    <main className="col-main col-main--flat">
+      <Header phase={phase} railOpen={railOpen} onShowRail={onShowRail} />
+      {chat.blocks.length === 0 ? (
+        <EmptyState ready={ready} />
+      ) : (
+        <Transcript blocks={chat.blocks} />
+      )}
+      {ready && !chat.sending && chat.blocks.length > 0 && (
+        <SuggestedActions
+          suggestions={SUGGESTIONS}
+          onPick={(p) => void chat.send(p)}
         />
-      </article>
+      )}
+      <Composer
+        ready={ready}
+        sending={chat.sending}
+        activeTurnId={chat.activeTurnId}
+        onSend={(p) => void chat.send(p)}
+        onAbort={() => void chat.abort()}
+      />
       {chat.error && <ErrorToast text={chat.error} />}
     </main>
   );
 }
 
-function Header({ phase }: { readonly phase: ConnectionPhase }): JSX.Element {
+function Header({
+  phase,
+  railOpen,
+  onShowRail,
+}: {
+  readonly phase: ConnectionPhase;
+  readonly railOpen: boolean;
+  readonly onShowRail: () => void;
+}): JSX.Element {
   const connected = phase.phase === 'connected';
   const sub =
     phase.phase === 'connected'
@@ -80,6 +79,11 @@ function Header({ phase }: { readonly phase: ConnectionPhase }): JSX.Element {
         gap: 12,
       }}
     >
+      {!railOpen && (
+        <IconButton aria-label="Show context rail" onClick={onShowRail}>
+          <Icon name="workspace" size={18} />
+        </IconButton>
+      )}
       <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em' }}>
         Chat
       </h1>

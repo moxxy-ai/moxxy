@@ -4,6 +4,7 @@ import { Icon } from '@/lib/Icon';
 interface Props {
   readonly mode: string | null;
   readonly provider: string | null;
+  readonly onClose: () => void;
 }
 
 /**
@@ -17,18 +18,50 @@ interface Props {
  * Static for now; replaced by live runner state once SessionInfo
  * exposes those slots.
  */
-export function ContextRail({ mode, provider }: Props): JSX.Element {
+export function ContextRail({ mode, provider, onClose }: Props): JSX.Element {
   const desks = useDesks();
   const active = desks.desks.find((d) => d.id === desks.activeId);
 
   return (
     <section className="col-rail">
       <Card>
-        <CardHeader badge="active">Active agent</CardHeader>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+        <header
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: 12.5,
+            fontWeight: 600,
+            color: 'var(--color-text-muted)',
+          }}
+        >
+          <span
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: '50%',
+              background: 'var(--color-green)',
+              display: 'inline-block',
+            }}
+          />
+          <span style={{ flex: 1 }}>Active agent</span>
+          <SmallButton aria-label="Collapse rail" onClick={onClose}>
+            <Icon name="chevron-right" size={14} style={{ transform: 'rotate(180deg)' }} />
+          </SmallButton>
+        </header>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0 }}>
           <Avatar color={active?.color ?? '#818cf8'} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 600 }}>
+            <div
+              style={{
+                fontSize: 13.5,
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+              title={mode ?? 'Default agent'}
+            >
               {mode ?? 'Default agent'}
             </div>
             <div
@@ -36,7 +69,11 @@ export function ContextRail({ mode, provider }: Props): JSX.Element {
                 fontSize: 12,
                 color: 'var(--color-text-dim)',
                 marginTop: 2,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
               }}
+              title={provider ? `Powered by ${provider}` : 'Pick a provider in Settings.'}
             >
               {provider
                 ? `Powered by ${provider}`
@@ -81,12 +118,17 @@ export function ContextRail({ mode, provider }: Props): JSX.Element {
 
 function Card({ children }: { readonly children: React.ReactNode }): JSX.Element {
   return (
-    <article
-      className="card"
-      style={{ padding: '14px 14px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}
+    <section
+      style={{
+        padding: '6px 0 12px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        borderBottom: '1px solid var(--color-card-border)',
+      }}
     >
       {children}
-    </article>
+    </section>
   );
 }
 
@@ -192,10 +234,7 @@ function ContextRow({
   return (
     <div
       style={{
-        padding: '10px 12px',
-        borderRadius: 10,
-        background: '#f6f7fc',
-        border: '1px solid var(--color-card-border)',
+        padding: '4px 0',
         display: 'flex',
         flexDirection: 'column',
         gap: 2,

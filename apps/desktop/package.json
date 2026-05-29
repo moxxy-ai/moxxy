@@ -20,7 +20,9 @@
     "@moxxy/runner": "workspace:*",
     "@moxxy/sdk": "workspace:*",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "react-markdown": "^9.0.1",
+    "remark-gfm": "^4.0.0"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",

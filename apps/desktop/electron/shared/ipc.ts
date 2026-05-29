@@ -212,6 +212,18 @@ export interface IpcCommands {
   'session.setProvider': (args: { provider: string }) => Promise<void>;
   /** Switch the active mode. */
   'session.setMode': (args: { mode: string }) => Promise<void>;
+  /** True when the runner has an active transcriber plugin. UI uses
+   *  this to enable/disable the mic button. */
+  'session.hasTranscriber': () => Promise<boolean>;
+  /** Forward an audio blob to the runner's active transcriber.
+   *  Audio must be base64-encoded; returns the recognised text. */
+  'session.transcribe': (args: {
+    audioBase64: string;
+    mimeType?: string;
+  }) => Promise<string>;
+  /** Open a native file picker and return the absolute path the user
+   *  chose. Null when cancelled. */
+  'session.pickAttachment': () => Promise<string | null>;
 
   // Workflows
   'workflows.list': () => Promise<ReadonlyArray<WorkflowSummary>>;

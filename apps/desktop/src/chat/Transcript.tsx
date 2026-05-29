@@ -1,15 +1,43 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { Block } from '@/lib/useChat';
 import { BlockView } from './BlockView';
+import { ToolGroupView } from './ToolGroupView';
+
+type ToolBlock = Extract<Block, { kind: 'tool' }>;
 
 /**
- * Auto-scrolling transcript. Stays glued to the bottom while new
- * blocks arrive unless the user has scrolled up — then we leave them
- * alone so they can read history without being yanked.
- *
- * Renders inside the chat card; padding here is content-side spacing,
- * not the card chrome.
+ * Render blocks grouped — consecutive tool blocks collapse into a
+ * single ToolGroupView so the transcript stays readable when the
+ * agent fires off several tool calls in a row.
  */
+type RenderItem =
+  | { kind: 'single'; key: string; block: Block }
+  | { kind: 'tools'; key: string; tools: ReadonlyArray<ToolBlock> };
+
+function groupBlocks(blocks: ReadonlyArray<Block>): RenderItem[] {
+  const out: RenderItem[] = [];
+  let toolBuf: ToolBlock[] = [];
+  const flush = (): void => {
+    if (toolBuf.length === 0) return;
+    out.push({
+      kind: 'tools',
+      key: `tools-${toolBuf[0]!.id}`,
+      tools: toolBuf,
+    });
+    toolBuf = [];
+  };
+  for (const b of blocks) {
+    if (b.kind === 'tool') {
+      toolBuf.push(b);
+    } else {
+      flush();
+      out.push({ kind: 'single', key: b.id, block: b });
+    }
+  }
+  flush();
+  return out;
+}
+
 export function Transcript({
   blocks,
 }: {
@@ -17,11 +45,11 @@ export function Transcript({
 }): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
-  // Track total streaming-text length so the auto-scroll also re-runs
-  // on each assistant_chunk, not only when a new block is pushed.
   const streamLen = blocks
     .filter((b) => b.kind === 'assistant')
     .reduce((acc, b) => acc + (b.kind === 'assistant' ? b.text.length : 0), 0);
+
+  const items = useMemo(() => groupBlocks(blocks), [blocks]);
 
   useEffect(() => {
     if (!follow.current) return;
@@ -50,9 +78,13 @@ export function Transcript({
         gap: 16,
       }}
     >
-      {blocks.map((b) => (
-        <BlockView key={b.id} block={b} />
-      ))}
+      {items.map((item) =>
+        item.kind === 'tools' ? (
+          <ToolGroupView key={item.key} tools={item.tools} />
+        ) : (
+          <BlockView key={item.key} block={item.block} />
+        ),
+      )}
     </div>
   );
 }

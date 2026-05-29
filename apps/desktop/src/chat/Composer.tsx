@@ -1,5 +1,12 @@
-import { useCallback, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react';
 import { Icon } from '@/lib/Icon';
+import { api } from '@/lib/api';
 
 interface ComposerProps {
   readonly ready: boolean;
@@ -9,14 +16,24 @@ interface ComposerProps {
   readonly onAbort: () => void;
 }
 
+type VoiceState =
+  | { kind: 'idle' }
+  | { kind: 'recording'; recorder: MediaRecorder; chunks: Blob[] }
+  | { kind: 'transcribing' }
+  | { kind: 'unavailable'; reason: string };
+
 /**
  * Composer rendered as a rounded white card flush against the chat
- * pane bottom. Mirrors the reference shot: leading + button, attach +
- * context chips, trailing send button (blue when armed).
+ * pane bottom.
  *
- *   ⌘↵ / Ctrl+↵   submit
- *   Shift+↵       newline
+ *   Enter         submit
+ *   Shift+Enter   newline
+ *   ⌘↵ / Ctrl+↵   submit (kept for terminal muscle memory)
  *   Esc           clear draft
+ *
+ * Tooling chips: Attach (file picker → appends a file: reference to
+ * the draft) and Voice (push-to-record with MediaRecorder, transcribed
+ * via the runner's active transcriber — disabled if none is set).
  */
 export function Composer({
   ready,
@@ -26,9 +43,28 @@ export function Composer({
   onAbort,
 }: ComposerProps): JSX.Element {
   const [draft, setDraft] = useState('');
+  const [voice, setVoice] = useState<VoiceState>({ kind: 'idle' });
+  const [hasTranscriber, setHasTranscriber] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const inFlight = activeTurnId !== null || sending;
   const canSubmit = ready && !inFlight && draft.trim().length > 0;
+
+  // Probe transcriber availability when the connection comes up.
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    void api()
+      .invoke('session.hasTranscriber')
+      .then((has) => {
+        if (!cancelled) setHasTranscriber(has);
+      })
+      .catch(() => {
+        if (!cancelled) setHasTranscriber(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready]);
 
   const submit = useCallback(() => {
     if (!canSubmit) return;
@@ -37,7 +73,10 @@ export function Composer({
   }, [canSubmit, draft, onSend]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    // Enter alone submits; Shift+Enter inserts a newline (the browser
+    // default). ⌘↵ / Ctrl+↵ also submit so terminal-muscle-memory
+    // users aren't surprised.
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       submit();
       return;
@@ -47,6 +86,58 @@ export function Composer({
       setDraft('');
     }
   };
+
+  const onAttach = useCallback(async () => {
+    try {
+      const path = await api().invoke('session.pickAttachment');
+      if (!path) return;
+      const tag = `[attached: ${path}]`;
+      setDraft((d) => (d ? `${d.trimEnd()}\n${tag}\n` : `${tag}\n`));
+      taRef.current?.focus();
+    } catch {
+      /* noop — file picker errors are non-fatal */
+    }
+  }, []);
+
+  const onVoiceToggle = useCallback(async () => {
+    if (voice.kind === 'recording') {
+      voice.recorder.stop();
+      return;
+    }
+    if (voice.kind !== 'idle') return;
+    if (!hasTranscriber) {
+      setVoice({
+        kind: 'unavailable',
+        reason: 'No transcriber configured on the runner.',
+      });
+      setTimeout(() => setVoice({ kind: 'idle' }), 2500);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = pickMimeType();
+      const recorder = new MediaRecorder(
+        stream,
+        mimeType ? { mimeType } : undefined,
+      );
+      const chunks: Blob[] = [];
+      recorder.addEventListener('dataavailable', (ev) => {
+        if (ev.data.size > 0) chunks.push(ev.data);
+      });
+      recorder.addEventListener('stop', () => {
+        stream.getTracks().forEach((t) => t.stop());
+        void finalizeRecording(chunks, recorder.mimeType, setVoice, setDraft);
+      });
+      recorder.start();
+      setVoice({ kind: 'recording', recorder, chunks });
+    } catch (e) {
+      setVoice({
+        kind: 'unavailable',
+        reason: e instanceof Error ? e.message : 'mic unavailable',
+      });
+      setTimeout(() => setVoice({ kind: 'idle' }), 2500);
+    }
+  }, [hasTranscriber, voice]);
 
   return (
     <form
@@ -91,16 +182,29 @@ export function Composer({
         }}
       />
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <ToolChip label="Add">
-          <Icon name="plus" size={16} />
-        </ToolChip>
-        <ToolChip label="Attach file">
+        <ToolChip label="Attach file" onClick={() => void onAttach()}>
           <Icon name="attach" size={16} />
           <span>Attach</span>
         </ToolChip>
-        <ToolChip label="Add context">
-          <Icon name="context" size={16} />
-          <span>Context</span>
+        <ToolChip
+          label={voice.kind === 'recording' ? 'Stop recording' : 'Voice input'}
+          onClick={() => void onVoiceToggle()}
+          tone={
+            voice.kind === 'recording'
+              ? 'recording'
+              : voice.kind === 'transcribing'
+                ? 'busy'
+                : 'idle'
+          }
+        >
+          <Icon name="mic" size={16} />
+          <span>
+            {voice.kind === 'recording'
+              ? 'Listening…'
+              : voice.kind === 'transcribing'
+                ? 'Transcribing…'
+                : 'Voice'}
+          </span>
         </ToolChip>
         <span style={{ flex: 1 }} />
         {inFlight ? (
@@ -125,29 +229,83 @@ export function Composer({
           </button>
         )}
       </div>
-      <p
-        style={{
-          margin: 0,
-          textAlign: 'center',
-          fontSize: 11,
-          color: 'var(--color-text-dim)',
-        }}
-      >
-        Agent may make mistakes. Verify important information. · ⌘↵ to send
-      </p>
+      {voice.kind === 'unavailable' && (
+        <p
+          role="status"
+          style={{
+            margin: 0,
+            textAlign: 'center',
+            fontSize: 11,
+            color: 'var(--color-red)',
+          }}
+        >
+          {voice.reason}
+        </p>
+      )}
     </form>
   );
+}
+
+function pickMimeType(): string | undefined {
+  const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+  if (typeof MediaRecorder === 'undefined') return undefined;
+  return candidates.find((m) => MediaRecorder.isTypeSupported(m));
+}
+
+async function finalizeRecording(
+  chunks: ReadonlyArray<Blob>,
+  mimeType: string,
+  setVoice: (v: VoiceState) => void,
+  setDraft: (mutator: (draft: string) => string) => void,
+): Promise<void> {
+  setVoice({ kind: 'transcribing' });
+  try {
+    const blob = new Blob([...chunks], { type: mimeType });
+    const buf = await blob.arrayBuffer();
+    const audioBase64 = arrayBufferToBase64(buf);
+    const text = await api().invoke('session.transcribe', {
+      audioBase64,
+      mimeType,
+    });
+    if (text?.trim()) {
+      setDraft((d) => (d ? `${d.trimEnd()} ${text.trim()}` : text.trim()));
+    }
+    setVoice({ kind: 'idle' });
+  } catch (e) {
+    setVoice({
+      kind: 'unavailable',
+      reason: e instanceof Error ? e.message : 'transcription failed',
+    });
+    setTimeout(() => setVoice({ kind: 'idle' }), 2500);
+  }
+}
+
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]!);
+  }
+  return btoa(binary);
 }
 
 function ToolChip({
   children,
   label,
   onClick,
+  tone = 'idle',
 }: {
   readonly children: React.ReactNode;
   readonly label: string;
   readonly onClick?: () => void;
+  readonly tone?: 'idle' | 'recording' | 'busy';
 }): JSX.Element {
+  const palette =
+    tone === 'recording'
+      ? { bg: '#fee2e2', color: '#dc2626', border: '#fecaca' }
+      : tone === 'busy'
+        ? { bg: 'var(--color-primary-soft)', color: 'var(--color-primary-strong)', border: 'var(--color-primary-soft)' }
+        : { bg: '#fff', color: 'var(--color-text-muted)', border: 'var(--color-card-border)' };
   return (
     <button
       type="button"
@@ -156,13 +314,13 @@ function ToolChip({
       style={{
         padding: '6px 10px',
         fontSize: 12.5,
-        color: 'var(--color-text-muted)',
-        border: '1px solid var(--color-card-border)',
+        color: palette.color,
+        border: `1px solid ${palette.border}`,
         borderRadius: 10,
         display: 'inline-flex',
         alignItems: 'center',
         gap: 6,
-        background: '#fff',
+        background: palette.bg,
       }}
     >
       {children}

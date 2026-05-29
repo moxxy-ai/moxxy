@@ -9,11 +9,18 @@ import type { ConnectionPhase, ConnectionSnapshot } from '@shared/ipc';
  */
 export interface UseConnection {
   readonly snapshot: ConnectionSnapshot | null;
+  /** Sticky flag: true the moment we first land on `connected` and
+   *  never flips back. Lets the UI distinguish a cold-start "we have
+   *  never connected" (show full ConnectionScreen) from a transient
+   *  reconnect after a workspace switch (keep the shell, show a
+   *  banner). */
+  readonly hasEverConnected: boolean;
   readonly retry: () => Promise<void>;
 }
 
 export function useConnection(): UseConnection {
   const [snapshot, setSnapshot] = useState<ConnectionSnapshot | null>(null);
+  const [hasEverConnected, setHasEverConnected] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -21,13 +28,16 @@ export function useConnection(): UseConnection {
     void api()
       .invoke('connection.snapshot')
       .then((s) => {
-        if (!cancelled) setSnapshot(s);
+        if (cancelled) return;
+        setSnapshot(s);
+        if (s.phase.phase === 'connected') setHasEverConnected(true);
       })
       .catch(() => {
         /* preload missing — leave null */
       });
 
     const unsub = api().subscribe('connection.changed', (phase: ConnectionPhase) => {
+      if (phase.phase === 'connected') setHasEverConnected(true);
       setSnapshot((prev) => {
         if (prev) return { ...prev, phase };
         return {
@@ -53,7 +63,7 @@ export function useConnection(): UseConnection {
     }
   }, []);
 
-  return { snapshot, retry };
+  return { snapshot, hasEverConnected, retry };
 }
 
 export function isConnected(phase: ConnectionPhase | undefined): boolean {

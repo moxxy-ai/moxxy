@@ -79,6 +79,32 @@ export function registerIpcHandlers(
     const session = mustHaveSession(supervisor);
     session.modes.setActive(mode);
   });
+  handle('session.hasTranscriber', async () => {
+    const session = supervisor.remote();
+    if (!session) return false;
+    return session.transcribers.getActiveName() !== null;
+  });
+  handle('session.transcribe', async ({ audioBase64, mimeType }) => {
+    const session = mustHaveSession(supervisor);
+    const transcriber = session.transcribers.tryGetActive();
+    if (!transcriber) throw new Error('no active transcriber on the runner');
+    const audio = Buffer.from(audioBase64, 'base64');
+    const result = await transcriber.transcribe(
+      audio,
+      mimeType ? { mimeType } : undefined,
+    );
+    return result.text;
+  });
+  handle('session.pickAttachment', async () => {
+    const window =
+      BrowserWindowApi.getFocusedWindow() ?? BrowserWindowApi.getAllWindows()[0];
+    const result = await dialog.showOpenDialog(window ?? null!, {
+      title: 'Attach a file to the next prompt',
+      properties: ['openFile'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0]!;
+  });
 
   handle('desks.list', async () => {
     const list = await desks.list();
