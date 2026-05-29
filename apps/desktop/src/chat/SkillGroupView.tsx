@@ -1,76 +1,84 @@
 /**
- * Renders a skill activation + the tools it ran as a single
- * collapsible block. Visually mirrors ToolGroupView so skills and
- * tools share the same column rhythm, but uses a brand-pink avatar
- * to distinguish them.
+ * Renders a chat-model `skill-scope` block — a skill activation plus the
+ * tools it ran — as one collapsible group. Mirrors the assistant column
+ * rhythm with a brand-pink spark avatar.
  *
- *   ┌── [icon] Skill · web-research · 9 ok                       ▾
- *   │     load_skill { "name": "web-research" }     (the loader)
- *   │     web_fetch { "url": "https://…" }
+ *   ┌── [spark] Skill · web-research · 9 ok                       ▾
  *   │     web_fetch { "url": "https://…" }
  *   │     ...
  *   └────
  */
 
 import { useState } from 'react';
-import type { Block } from '@/lib/useChat';
+import {
+  oneLine,
+  summarizeArgs,
+  type Block as FoldedBlock,
+  type ToolCallBlockData,
+} from '@moxxy/chat-model';
 import { Icon } from '@/lib/Icon';
 
-type ToolBlock = Extract<Block, { kind: 'tool' }>;
+type SkillScope = Extract<FoldedBlock, { kind: 'skill-scope' }>;
 
-interface Props {
+interface ToolRowData {
+  readonly id: string;
   readonly name: string;
-  readonly reason: string;
-  readonly loadTool?: ToolBlock;
-  readonly tools: ReadonlyArray<ToolBlock>;
+  readonly input: unknown;
+  readonly outcome: ToolCallBlockData['outcome'];
 }
 
-export function SkillGroupView({ name, reason, loadTool, tools }: Props): JSX.Element {
+/** Flatten a skill scope's children into tool rows — tool-calls plus the
+ *  calls inside any live-tools aggregate. Non-tool children (rare; the
+ *  fold keeps assistant text at root) are dropped from the row list. */
+function collectTools(children: ReadonlyArray<FoldedBlock>): ToolRowData[] {
+  const out: ToolRowData[] = [];
+  for (const c of children) {
+    if (c.kind === 'tool-call') {
+      out.push({ id: c.id, name: c.request.name, input: c.request.input, outcome: c.outcome });
+    } else if (c.kind === 'live-tools') {
+      for (const call of c.calls) {
+        out.push({ id: call.id, name: call.request.name, input: call.request.input, outcome: call.outcome });
+      }
+    }
+  }
+  return out;
+}
+
+function statusOf(outcome: ToolCallBlockData['outcome']): 'running' | 'ok' | 'error' {
+  if (outcome === null) return 'running';
+  if (outcome.type === 'denied') return 'error';
+  return outcome.ok ? 'ok' : 'error';
+}
+
+export function SkillGroupView({ scope }: { readonly scope: SkillScope }): JSX.Element {
   const [open, setOpen] = useState(false);
-  const all = loadTool ? [loadTool, ...tools] : tools;
-  const counts = all.reduce(
-    (acc, t) => ({ ...acc, [t.status]: (acc[t.status] ?? 0) + 1 }),
-    {} as Record<string, number>,
-  );
+  const tools = collectTools(scope.children);
+  const counts = tools.reduce<Record<string, number>>((acc, t) => {
+    const s = statusOf(t.outcome);
+    acc[s] = (acc[s] ?? 0) + 1;
+    return acc;
+  }, {});
   const subtitle = Object.entries(counts)
     .map(([k, v]) => `${v} ${k}`)
     .join(' · ');
 
   return (
-    <div
-      data-testid="block-skill"
-      style={{
-        alignSelf: 'stretch',
-        display: 'flex',
-        gap: 12,
-        maxWidth: '92%',
-      }}
-    >
+    <div data-testid="block-skill" style={{ alignSelf: 'stretch', display: 'flex', gap: 12, maxWidth: '92%' }}>
       <Avatar />
       <div style={{ flex: 1, minWidth: 0 }}>
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '2px 0',
-            width: '100%',
-            textAlign: 'left',
-          }}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0', width: '100%', textAlign: 'left' }}
         >
           <span style={{ fontWeight: 600, fontSize: 13.5 }}>
             Skill
             <span style={{ color: 'var(--color-text-dim)', fontWeight: 500, marginLeft: 6 }}>
-              · {name}
+              · {scope.skillEvent.name}
             </span>
           </span>
-          <span
-            className="mono"
-            style={{ fontSize: 11, color: 'var(--color-text-dim)' }}
-          >
+          <span className="mono" style={{ fontSize: 11, color: 'var(--color-text-dim)' }}>
             {subtitle}
           </span>
           <span style={{ flex: 1 }} />
@@ -87,21 +95,14 @@ export function SkillGroupView({ name, reason, loadTool, tools }: Props): JSX.El
           </span>
         </button>
         {!open && (
-          <div
-            style={{
-              marginTop: 4,
-              fontSize: 11,
-              color: 'var(--color-text-dim)',
-              fontStyle: 'italic',
-            }}
-          >
-            {reason.replace(/_/g, ' ')}
+          <div style={{ marginTop: 4, fontSize: 11, color: 'var(--color-text-dim)', fontStyle: 'italic' }}>
+            {scope.skillEvent.reason.replace(/_/g, ' ')}
           </div>
         )}
         {open && (
           <ul role="list" style={{ listStyle: 'none', margin: '6px 0 0', padding: 0 }}>
-            {all.map((t) => (
-              <ToolRow key={t.id} block={t} />
+            {tools.map((t) => (
+              <ToolRow key={t.id} tool={t} />
             ))}
           </ul>
         )}
@@ -131,25 +132,24 @@ function Avatar(): JSX.Element {
   );
 }
 
-function ToolRow({ block }: { readonly block: ToolBlock }): JSX.Element {
+function ToolRow({ tool }: { readonly tool: ToolRowData }): JSX.Element {
   const [open, setOpen] = useState(false);
+  const status = statusOf(tool.outcome);
   const accent =
-    block.status === 'error'
-      ? 'var(--color-red)'
-      : block.status === 'ok'
-        ? 'var(--color-green)'
-        : 'var(--color-primary)';
-  const tone =
-    block.status === 'error'
-      ? '#fee2e2'
-      : block.status === 'ok'
-        ? '#ecfdf5'
-        : 'var(--color-primary-soft)';
-  const summary = summarise(block.input);
+    status === 'error' ? 'var(--color-red)' : status === 'ok' ? 'var(--color-green)' : 'var(--color-primary)';
+  const tint = status === 'error' ? '#fee2e2' : status === 'ok' ? '#ecfdf5' : 'var(--color-primary-soft)';
+  const summary = summarizeArgs(tool.input);
+  const output = tool.outcome && tool.outcome.type === 'tool_result' ? tool.outcome.output : undefined;
+  const error =
+    tool.outcome === null
+      ? undefined
+      : tool.outcome.type === 'denied'
+        ? tool.outcome.reason
+        : tool.outcome.error?.message;
   return (
     <li
       style={{
-        background: tone,
+        background: tint,
         border: '1px solid var(--color-card-border)',
         borderLeft: `3px solid ${accent}`,
         borderRadius: 10,
@@ -163,17 +163,10 @@ function ToolRow({ block }: { readonly block: ToolBlock }): JSX.Element {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        style={{
-          display: 'flex',
-          width: '100%',
-          alignItems: 'center',
-          gap: 8,
-          color: 'var(--color-text)',
-          textAlign: 'left',
-        }}
+        style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 8, color: 'var(--color-text)', textAlign: 'left' }}
       >
-        <span style={{ color: accent, fontWeight: 600 }}>[{block.status}]</span>
-        <span style={{ fontWeight: 600 }}>{block.name}</span>
+        <span style={{ color: accent, fontWeight: 600 }}>[{status}]</span>
+        <span style={{ fontWeight: 600 }}>{tool.name}</span>
         {summary && (
           <span
             style={{
@@ -185,19 +178,15 @@ function ToolRow({ block }: { readonly block: ToolBlock }): JSX.Element {
               textOverflow: 'ellipsis',
             }}
           >
-            {summary}
+            {oneLine(summary)}
           </span>
         )}
       </button>
       {open && (
         <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <pre style={preStyle}>{stringify(block.input)}</pre>
-          {block.output !== undefined && (
-            <pre style={preStyle}>{stringify(block.output)}</pre>
-          )}
-          {block.error && (
-            <pre style={{ ...preStyle, color: 'var(--color-red)' }}>{block.error}</pre>
-          )}
+          <pre style={preStyle}>{pretty(tool.input)}</pre>
+          {output !== undefined && <pre style={preStyle}>{pretty(output)}</pre>}
+          {error && <pre style={{ ...preStyle, color: 'var(--color-red)' }}>{error}</pre>}
         </div>
       )}
     </li>
@@ -217,18 +206,7 @@ const preStyle: React.CSSProperties = {
   overflow: 'auto',
 };
 
-function summarise(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'string') return value.length > 100 ? value.slice(0, 100) + '…' : value;
-  try {
-    const s = JSON.stringify(value);
-    return s.length > 100 ? s.slice(0, 100) + '…' : s;
-  } catch {
-    return '';
-  }
-}
-
-function stringify(value: unknown): string {
+function pretty(value: unknown): string {
   if (typeof value === 'string') return value;
   try {
     return JSON.stringify(value, null, 2);

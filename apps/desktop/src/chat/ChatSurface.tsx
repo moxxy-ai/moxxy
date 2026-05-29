@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import type { MoxxyEvent } from '@moxxy/sdk';
 import { useChat } from '@/lib/useChat';
 import { useDesks } from '@/lib/useDesks';
 import type { ConnectionPhase } from '@shared/ipc';
@@ -13,6 +14,10 @@ interface ChatSurfaceProps {
   readonly railOpen: boolean;
   readonly onShowRail: () => void;
 }
+
+/** Stable empty reference for the searching code path (no extensions
+ *  while a search filter is active). */
+const EMPTY_EXTENSIONS: ReadonlyArray<import('@/lib/useChat').Extension> = Object.freeze([]);
 
 /** Hand-tuned starter prompts shown when the transcript is empty. */
 const COLD_START_SUGGESTIONS: ReadonlyArray<string> = [
@@ -35,24 +40,24 @@ const COLD_START_SUGGESTIONS: ReadonlyArray<string> = [
  *   - Last block is an error → "Try a different approach".
  *   - Otherwise → generic continuation prompts.
  */
-function deriveSuggestions(blocks: ReadonlyArray<import('@/lib/useChat').Block>): ReadonlyArray<string> {
-  if (blocks.length === 0) return COLD_START_SUGGESTIONS.slice(0, 3);
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    const b = blocks[i]!;
-    if (b.kind === 'assistant') {
-      const topic = pickTopic(b.text);
+function deriveSuggestions(events: ReadonlyArray<MoxxyEvent>): ReadonlyArray<string> {
+  if (events.length === 0) return COLD_START_SUGGESTIONS.slice(0, 3);
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i]!;
+    if (e.type === 'assistant_message') {
+      const topic = pickTopic(e.content);
       const list = ['Continue', 'Tell me more'];
       if (topic) list.push(`Show an example of ${topic}`);
       else list.push('Show an example');
       return list.slice(0, 3);
     }
-    if (b.kind === 'tool') {
+    if (e.type === 'tool_call_requested' || e.type === 'tool_result') {
       return ['Explain what just happened', 'Re-run with different inputs', 'Move on'];
     }
-    if (b.kind === 'system' && b.tone === 'error') {
+    if (e.type === 'error') {
       return ['Try a different approach', 'Show me the logs', 'Skip this for now'];
     }
-    if (b.kind === 'user') {
+    if (e.type === 'user_prompt') {
       return ['Tell me more', 'Continue', 'Show an example'];
     }
   }
@@ -100,21 +105,22 @@ export function ChatSurface({
   const [renameOpen, setRenameOpen] = useState(false);
   const activeDesk = desks.desks.find((d) => d.id === workspaceId);
 
-  const filteredBlocks = useMemo(() => {
-    if (!searchQuery) return chat.blocks;
+  const filteredEvents = useMemo(() => {
+    if (!searchQuery) return chat.events;
     const q = searchQuery.toLowerCase();
-    return chat.blocks.filter((b) => {
-      if (b.kind === 'user' || b.kind === 'assistant') return b.text.toLowerCase().includes(q);
-      if (b.kind === 'tool') {
+    return chat.events.filter((e) => {
+      if (e.type === 'user_prompt') return e.text.toLowerCase().includes(q);
+      if (e.type === 'assistant_message') return e.content.toLowerCase().includes(q);
+      if (e.type === 'tool_call_requested') {
         return (
-          b.name.toLowerCase().includes(q) ||
-          JSON.stringify(b.input).toLowerCase().includes(q)
+          e.name.toLowerCase().includes(q) ||
+          JSON.stringify(e.input).toLowerCase().includes(q)
         );
       }
-      if (b.kind === 'system') return b.text.toLowerCase().includes(q);
+      if (e.type === 'error') return e.message.toLowerCase().includes(q);
       return false;
     });
-  }, [chat.blocks, searchQuery]);
+  }, [chat.events, searchQuery]);
 
   return (
     <main className="col-main col-main--flat">
@@ -127,14 +133,20 @@ export function ChatSurface({
         canRename={activeDesk !== undefined}
         onRename={() => setRenameOpen(true)}
       />
-      {chat.blocks.length === 0 ? (
+      {chat.isEmpty ? (
         <EmptyState ready={ready} />
       ) : (
-        <Transcript blocks={filteredBlocks} sending={chat.sending} workspaceId={workspaceId} />
+        <Transcript
+          events={filteredEvents}
+          extensions={searchQuery ? EMPTY_EXTENSIONS : chat.extensions}
+          streamingText={searchQuery ? '' : chat.streamingText}
+          sending={chat.sending}
+          workspaceId={workspaceId}
+        />
       )}
-      {ready && !chat.sending && chat.blocks.length > 0 && (
+      {ready && !chat.sending && !chat.isEmpty && (
         <SuggestedActions
-          suggestions={deriveSuggestions(chat.blocks)}
+          suggestions={deriveSuggestions(chat.events)}
           onPick={(p) => void chat.send(p)}
         />
       )}

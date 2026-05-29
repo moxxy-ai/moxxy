@@ -682,14 +682,9 @@ function GenerateSkillModal({
         prompt: SKILL_PROMPT_TEMPLATE(description.trim()),
       });
       setTurnId(id);
-      // Avoid littering the chat with the seed prompt. (It still
-      // shows in the transcript as usual — pruning is out of scope
-      // for this MVP.)
-      chatStore.dispatch(workspaceId, {
-        type: 'send_started',
-        turnId: id,
-        prompt: '✨ Generating skill…',
-      });
+      // Mark the workspace busy; the runner echoes the seed prompt as a
+      // user_prompt event, so the transcript fills itself in.
+      chatStore.dispatch(workspaceId, { type: 'send_started', turnId: id });
     } catch (e) {
       setPhase('error');
       setError(e instanceof Error ? e.message : String(e));

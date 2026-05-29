@@ -1,204 +1,87 @@
 import { useState } from 'react';
-import type { Block } from '@/lib/useChat';
-import { chatStore } from '@/lib/chatStore';
+import type { MoxxyEvent } from '@moxxy/sdk';
+import {
+  oneLine,
+  summarizeArgs,
+  type Block as FoldedBlock,
+  type ToolCallBlockData,
+} from '@moxxy/chat-model';
 import { Icon } from '@/lib/Icon';
 import { MarkdownBody } from './MarkdownBody';
+import { SkillGroupView } from './SkillGroupView';
 
 /**
- * One transcript block. Layout follows the workspace-chat reference:
+ * One transcript block, rendered from the shared @moxxy/chat-model fold.
  *
- *   - user     → right-aligned periwinkle bubble, white text, no avatar.
- *   - assistant→ left-aligned: avatar + name + timestamp + plain text
- *               (no bubble) + action row (copy, thumbs, …). A blinking
- *               block-cursor at the tail of the text while streaming
- *               makes the in-flight chunks visible.
- *   - tool     → small mono summary with status-coloured left bar.
- *   - system   → centered low-key separator.
+ *   - event(user_prompt)      → right-aligned periwinkle bubble.
+ *   - event(assistant_message)→ avatar + name + markdown + copy action.
+ *   - event(error/abort)      → centered system note.
+ *   - tool-call               → mono summary with status-coloured bar.
+ *   - skill-scope             → SkillGroupView (banner + nested children).
+ *   - subagent                → one-line agent row.
+ *   - live-tools              → each call rendered as a tool row.
+ *
+ * The in-flight streaming assistant text is NOT a block — Transcript
+ * renders it via {@link StreamingAssistant} at the tail.
  */
-export function BlockView({
-  block,
-  workspaceId,
-}: {
-  readonly block: Block;
-  /** Needed so action_result's dismiss button can dispatch into the
-   *  right per-workspace chat slot. */
-  readonly workspaceId?: string;
-}): JSX.Element {
+export function BlockView({ block }: { readonly block: FoldedBlock }): JSX.Element | null {
   switch (block.kind) {
-    case 'user':
-      return <UserBlock text={block.text} attachments={block.attachments} />;
-    case 'assistant':
-      return (
-        <AssistantBlock
-          text={block.text}
-          streaming={block.streaming}
-          stopReason={block.stopReason}
-        />
-      );
-    case 'tool':
+    case 'event':
+      return <EventBlockView event={block.event} />;
+    case 'tool-call':
       return (
         <ToolBlock
-          name={block.name}
-          input={block.input}
-          status={block.status}
-          output={block.output}
-          error={block.error}
+          name={block.request.name}
+          input={block.request.input}
+          outcome={block.outcome}
         />
       );
-    case 'system':
-      return <SystemBlock text={block.text} tone={block.tone} />;
-    case 'skill_marker':
-      // Skill markers are handled by Transcript's grouping logic and
-      // bundled into a SkillGroupView; if one slips through ungrouped
-      // (no surrounding tool calls) fall back to a quiet system note.
+    case 'skill-scope':
+      return <SkillGroupView scope={block} />;
+    case 'subagent':
+      return <SubagentView block={block} />;
+    case 'live-tools':
       return (
-        <SystemBlock text={`skill ${block.name} (${block.reason.replace(/_/g, ' ')})`} tone="info" />
-      );
-    case 'action_result':
-      return (
-        <ActionResultBlock
-          id={block.id}
-          commandName={block.commandName}
-          argsLine={block.argsLine}
-          tone={block.tone}
-          text={block.text}
-          workspaceId={workspaceId}
-        />
+        <>
+          {block.calls.map((c) => (
+            <ToolBlock
+              key={c.id}
+              name={c.request.name}
+              input={c.request.input}
+              outcome={c.outcome}
+            />
+          ))}
+        </>
       );
   }
 }
 
-function ActionResultBlock({
-  id,
-  commandName,
-  argsLine,
-  tone,
-  text,
-  workspaceId,
-}: {
-  readonly id: string;
-  readonly commandName: string;
-  readonly argsLine: string;
-  readonly tone: 'info' | 'error' | 'notice';
-  readonly text: string;
-  readonly workspaceId?: string;
-}): JSX.Element {
-  const accent =
-    tone === 'error'
-      ? 'var(--color-red)'
-      : tone === 'notice'
-        ? 'var(--color-amber)'
-        : 'var(--color-primary-strong)';
-  const tint =
-    tone === 'error' ? '#fef2f2' : tone === 'notice' ? '#fffbeb' : '#fdf2f8';
-  const onDismiss = (): void => {
-    if (workspaceId) chatStore.dispatch(workspaceId, { type: 'dismiss_block', blockId: id });
-  };
-  return (
-    <article
-      data-testid="block-action"
-      style={{
-        alignSelf: 'stretch',
-        maxWidth: '92%',
-        background: '#fff',
-        border: `1px solid var(--color-card-border)`,
-        borderLeft: `3px solid ${accent}`,
-        borderRadius: 12,
-        boxShadow: 'var(--color-card-shadow)',
-        overflow: 'hidden',
-      }}
-    >
-      <header
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '8px 12px',
-          background: tint,
-          borderBottom: text ? `1px solid var(--color-card-border)` : 'none',
-        }}
-      >
-        <span
-          aria-hidden
-          style={{
-            color: accent,
-            display: 'inline-flex',
-            alignItems: 'center',
-          }}
-        >
-          <Icon
-            name={tone === 'error' ? 'x' : tone === 'notice' ? 'bell' : 'spark'}
-            size={14}
-          />
-        </span>
-        <span
-          style={{
-            fontSize: 12.5,
-            fontWeight: 700,
-            color: accent,
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em',
-          }}
-        >
-          Action · {commandName}
-        </span>
-        {argsLine && (
-          <span
-            className="mono"
-            title={argsLine}
-            style={{
-              fontSize: 11,
-              color: 'var(--color-text-dim)',
-              maxWidth: 240,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {argsLine}
-          </span>
-        )}
-        <span style={{ flex: 1 }} />
-        <button
-          type="button"
-          aria-label="Dismiss"
-          onClick={onDismiss}
-          className="btn-icon"
-          style={{
-            width: 24,
-            height: 24,
-            borderRadius: 6,
-            color: 'var(--color-text-dim)',
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Icon name="x" size={12} />
-        </button>
-      </header>
-      {text.trim() && (
-        <div style={{ padding: '12px 14px', fontSize: 13.5 }}>
-          {tone === 'error' ? (
-            <pre
-              className="mono"
-              style={{
-                margin: 0,
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                color: 'var(--color-red)',
-                fontSize: 12,
-              }}
-            >
-              {text}
-            </pre>
-          ) : (
-            <MarkdownBody text={text} />
-          )}
-        </div>
-      )}
-    </article>
-  );
+function EventBlockView({ event }: { readonly event: MoxxyEvent }): JSX.Element | null {
+  switch (event.type) {
+    case 'user_prompt':
+      return (
+        <UserBlock
+          text={event.text}
+          attachments={event.attachments?.map((a) => a.name ?? a.kind)}
+        />
+      );
+    case 'assistant_message':
+      return <AssistantBlock text={event.content} streaming={false} stopReason={event.stopReason} />;
+    case 'error':
+      return <SystemBlock text={event.message} tone="error" />;
+    case 'abort':
+      return <SystemBlock text={`aborted: ${event.reason}`} tone="info" />;
+    default:
+      // skill_invoked is consumed into skill-scope; everything else is
+      // bookkeeping the chat surface doesn't render.
+      return null;
+  }
+}
+
+/** Live assistant text while chunks are still arriving — rendered by
+ *  Transcript from the store's separate `streamingText`, not a block. */
+export function StreamingAssistant({ text }: { readonly text: string }): JSX.Element {
+  return <AssistantBlock text={text} streaming />;
 }
 
 function UserBlock({
@@ -206,7 +89,7 @@ function UserBlock({
   attachments,
 }: {
   readonly text: string;
-  readonly attachments?: ReadonlyArray<{ readonly path: string; readonly name: string }>;
+  readonly attachments?: ReadonlyArray<string>;
 }): JSX.Element {
   const hasAttachments = (attachments?.length ?? 0) > 0;
   return (
@@ -222,18 +105,11 @@ function UserBlock({
       }}
     >
       {hasAttachments && (
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 4,
-            justifyContent: 'flex-end',
-          }}
-        >
-          {attachments!.map((a) => (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end' }}>
+          {attachments!.map((name, i) => (
             <span
-              key={a.path}
-              title={a.path}
+              key={`${name}-${i}`}
+              title={name}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -258,7 +134,7 @@ function UserBlock({
                   textOverflow: 'ellipsis',
                 }}
               >
-                @{a.name}
+                @{name}
               </span>
             </span>
           ))}
@@ -297,16 +173,11 @@ function AssistantBlock({
     <div
       data-testid="block-assistant"
       data-streaming={streaming}
-      style={{
-        alignSelf: 'stretch',
-        display: 'flex',
-        gap: 12,
-        maxWidth: '92%',
-      }}
+      style={{ alignSelf: 'stretch', display: 'flex', gap: 12, maxWidth: '92%' }}
     >
       <Avatar />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <Header streaming={streaming} />
+        <AssistantHeader streaming={streaming} />
         <div style={{ marginTop: 6 }}>
           <MarkdownBody text={text} streaming={streaming} />
         </div>
@@ -351,11 +222,11 @@ function Avatar(): JSX.Element {
   );
 }
 
-function Header({ streaming }: { readonly streaming: boolean }): JSX.Element {
+function AssistantHeader({ streaming }: { readonly streaming: boolean }): JSX.Element {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <span style={{ fontWeight: 600, fontSize: 13.5 }}>Assistant</span>
-      {streaming ? (
+      {streaming && (
         <span
           className="mono"
           style={{
@@ -378,24 +249,13 @@ function Header({ streaming }: { readonly streaming: boolean }): JSX.Element {
           />
           typing…
         </span>
-      ) : (
-        <span
-          className="mono"
-          style={{ fontSize: 11, color: 'var(--color-text-dim)' }}
-        >
-          {hhmm(Date.now())}
-        </span>
       )}
     </div>
   );
 }
 
 function ActionRow({ text }: { readonly text: string }): JSX.Element {
-  // Two-stage feedback: flash a green check that fades out, plus a
-  // "Copied" pill so the change is visible whether the user is staring
-  // at the icon or at the row text.
   const [copied, setCopied] = useState(false);
-
   const onCopy = async (): Promise<void> => {
     try {
       await navigator.clipboard.writeText(text);
@@ -407,124 +267,60 @@ function ActionRow({ text }: { readonly text: string }): JSX.Element {
   };
   return (
     <div
-      style={{
-        marginTop: 10,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 6,
-        color: 'var(--color-text-dim)',
-      }}
+      style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6, color: 'var(--color-text-dim)' }}
     >
-      <IconBtn
-        label={copied ? 'Copied!' : 'Copy'}
+      <button
+        type="button"
+        className="btn-icon"
+        aria-label={copied ? 'Copied!' : 'Copy'}
         onClick={() => void onCopy()}
-      >
-        {/* Cross-fade between the copy + check icons inside the button
-         *  so the swap reads as state, not flicker. */}
-        <span
-          aria-hidden
-          style={{
-            position: 'relative',
-            display: 'inline-flex',
-            width: 15,
-            height: 15,
-          }}
-        >
-          <Icon
-            name="copy"
-            size={15}
-            style={{
-              position: 'absolute',
-              inset: 0,
-              opacity: copied ? 0 : 1,
-              transition: 'opacity 140ms ease, transform 200ms ease',
-              transform: copied ? 'scale(0.6)' : 'scale(1)',
-            }}
-          />
-          <Icon
-            name="check"
-            size={15}
-            style={{
-              position: 'absolute',
-              inset: 0,
-              color: 'var(--color-green)',
-              opacity: copied ? 1 : 0,
-              transition: 'opacity 140ms ease, transform 200ms ease',
-              transform: copied ? 'scale(1)' : 'scale(0.6)',
-            }}
-          />
-        </span>
-      </IconBtn>
-      <span
-        aria-hidden={!copied}
         style={{
-          fontSize: 11,
-          fontWeight: 600,
-          color: 'var(--color-green)',
-          letterSpacing: '0.04em',
-          textTransform: 'uppercase',
-          opacity: copied ? 1 : 0,
-          transform: copied ? 'translateX(0)' : 'translateX(-4px)',
-          transition: 'opacity 180ms ease, transform 220ms ease',
-          pointerEvents: 'none',
+          width: 28,
+          height: 28,
+          borderRadius: 8,
+          color: copied ? 'var(--color-green)' : 'var(--color-text-dim)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
         }}
       >
-        Copied
-      </span>
+        <Icon name={copied ? 'check' : 'copy'} size={15} />
+      </button>
     </div>
-  );
-}
-
-function IconBtn({
-  children,
-  label,
-  onClick,
-}: {
-  readonly children: React.ReactNode;
-  readonly label: string;
-  readonly onClick?: () => void;
-}): JSX.Element {
-  return (
-    <button
-      type="button"
-      className="btn-icon"
-      aria-label={label}
-      onClick={onClick}
-      style={{
-        width: 28,
-        height: 28,
-        borderRadius: 8,
-        color: 'var(--color-text-dim)',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      {children}
-    </button>
   );
 }
 
 function ToolBlock({
   name,
   input,
-  status,
-  output,
-  error,
+  outcome,
 }: {
   readonly name: string;
   readonly input: unknown;
-  readonly status: 'running' | 'ok' | 'error';
-  readonly output?: unknown;
-  readonly error?: string;
+  readonly outcome: ToolCallBlockData['outcome'];
 }): JSX.Element {
+  const status: 'running' | 'ok' | 'error' =
+    outcome === null
+      ? 'running'
+      : outcome.type === 'denied'
+        ? 'error'
+        : outcome.ok
+          ? 'ok'
+          : 'error';
   const accent =
     status === 'error'
       ? 'var(--color-red)'
       : status === 'ok'
         ? 'var(--color-green)'
         : 'var(--color-primary)';
-  const summary = summarise(input);
+  const summary = summarizeArgs(input);
+  const output = outcome && outcome.type === 'tool_result' ? outcome.output : undefined;
+  const error =
+    outcome === null
+      ? undefined
+      : outcome.type === 'denied'
+        ? outcome.reason
+        : outcome.error?.message;
   return (
     <details
       data-testid="block-tool"
@@ -540,14 +336,7 @@ function ToolBlock({
         paddingLeft: 10,
       }}
     >
-      <summary
-        style={{
-          cursor: 'pointer',
-          display: 'flex',
-          gap: 8,
-          alignItems: 'baseline',
-        }}
-      >
+      <summary style={{ cursor: 'pointer', display: 'flex', gap: 8, alignItems: 'baseline' }}>
         <span style={{ color: accent, fontWeight: 600 }}>[{status}]</span>
         <span style={{ color: 'var(--color-text-muted)' }}>{name}</span>
         {summary && (
@@ -560,23 +349,50 @@ function ToolBlock({
               maxWidth: 420,
             }}
           >
-            {summary}
+            {oneLine(summary)}
           </span>
         )}
       </summary>
-      <div
-        style={{
-          marginTop: 6,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 6,
-        }}
-      >
-        <pre style={preStyle}>{stringify(input)}</pre>
-        {output !== undefined && <pre style={preStyle}>{stringify(output)}</pre>}
+      <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <pre style={preStyle}>{pretty(input)}</pre>
+        {output !== undefined && <pre style={preStyle}>{pretty(output)}</pre>}
         {error && <pre style={{ ...preStyle, color: 'var(--color-red)' }}>{error}</pre>}
       </div>
     </details>
+  );
+}
+
+function SubagentView({
+  block,
+}: {
+  readonly block: Extract<FoldedBlock, { kind: 'subagent' }>;
+}): JSX.Element {
+  const running = block.completedAtMs === null && block.error === null;
+  const accent = block.error
+    ? 'var(--color-red)'
+    : running
+      ? 'var(--color-primary)'
+      : 'var(--color-green)';
+  return (
+    <div
+      data-testid="block-subagent"
+      className="mono"
+      style={{
+        alignSelf: 'flex-start',
+        marginLeft: 46,
+        fontSize: 12,
+        color: 'var(--color-text-dim)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+      }}
+    >
+      <span style={{ color: accent }}>◆</span>
+      <span style={{ color: 'var(--color-text-muted)' }}>agent {block.label}</span>
+      <span>· {running ? 'running' : block.error ? 'failed' : 'done'}</span>
+      <span>· {block.toolCallCount} tool calls</span>
+      {block.error && <span style={{ color: 'var(--color-red)' }}>· {oneLine(block.error)}</span>}
+    </div>
   );
 }
 
@@ -621,27 +437,13 @@ const preStyle: React.CSSProperties = {
   overflow: 'auto',
 };
 
-function summarise(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'string') return value.length > 80 ? value.slice(0, 80) + '…' : value;
-  try {
-    const stringified = JSON.stringify(value);
-    return stringified.length > 80 ? stringified.slice(0, 80) + '…' : stringified;
-  } catch {
-    return '';
-  }
-}
-
-function stringify(value: unknown): string {
+/** Pretty 2-space JSON for the expanded tool body (distinct from
+ *  chat-model's single-line `stringify`, which feeds summaries). */
+function pretty(value: unknown): string {
   if (typeof value === 'string') return value;
   try {
     return JSON.stringify(value, null, 2);
   } catch {
     return String(value);
   }
-}
-
-function hhmm(ts: number): string {
-  const d = new Date(ts);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }

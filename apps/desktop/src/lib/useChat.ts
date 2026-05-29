@@ -1,24 +1,23 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { api } from './api';
 import type { MoxxyEvent } from '@moxxy/sdk';
-import { chatStore } from './chatStore';
-import {
-  chatReducer,
-  initialChatState,
-  type Block as ReducerBlock,
-  type ChatAction as ReducerAction,
-  type ChatState as ReducerState,
-} from './chatReducer';
+import { chatStore, EMPTY_SNAPSHOT } from './chatStore';
+import type { Extension } from './chatModel';
 
-export type Block = ReducerBlock;
-export type ChatAction = ReducerAction;
-export type ChatState = ReducerState;
+export type { Extension, RenderNode, FoldedBlock } from './chatModel';
+export { buildRenderNodes } from './chatModel';
 
 export interface UseChat {
-  readonly blocks: ReadonlyArray<Block>;
-  readonly activeTurnId: string | null;
+  /** Committed runner events (reference-stable across streaming-only ticks). */
+  readonly events: ReadonlyArray<MoxxyEvent>;
+  /** Desktop-only timeline cards (slash-command results, notices). */
+  readonly extensions: ReadonlyArray<Extension>;
+  /** In-flight assistant text, rendered as a live preview at the tail. */
+  readonly streamingText: string;
   readonly sending: boolean;
+  readonly activeTurnId: string | null;
   readonly error: string | null;
+  readonly isEmpty: boolean;
   readonly send: (
     prompt: string,
     attachments?: ReadonlyArray<{ path: string; name: string }>,
@@ -27,16 +26,11 @@ export interface UseChat {
   readonly clear: () => void;
 }
 
-// Test-only export of the pure reducer + initial state. Preserved so
-// existing reducer tests keep working after the chatStore refactor.
-// eslint-disable-next-line @typescript-eslint/naming-convention
-export const __reducerForTest = {
-  initial: () => initialChatState,
-  apply: chatReducer,
-};
-
-/** Fire a turn against the runner without queueing checks. Shared by
- *  the public `useChat().send` and the queue drainer. */
+/** Fire a turn against the runner without queueing checks. Shared by the
+ *  public `useChat().send` and the queue drainer. The runner echoes a
+ *  `user_prompt` event back to every window, so we no longer add an
+ *  optimistic transcript block here — the event log is the single
+ *  source of truth. */
 async function sendImmediate(
   workspaceId: string,
   prompt: string,
@@ -50,12 +44,7 @@ async function sendImmediate(
       ...(model ? { model } : {}),
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
     });
-    chatStore.dispatch(workspaceId, {
-      type: 'send_started',
-      turnId,
-      prompt,
-      ...(attachments && attachments.length > 0 ? { attachments } : {}),
-    });
+    chatStore.dispatch(workspaceId, { type: 'send_started', turnId });
   } catch (e) {
     chatStore.dispatch(workspaceId, {
       type: 'send_failed',
@@ -67,9 +56,8 @@ async function sendImmediate(
 /**
  * Bridge component — forwards `runner.event` / `runner.turn.complete`
  * from the main process into the workspace-keyed {@link chatStore},
- * drains the per-workspace queue when a turn completes, and
- * rehydrates the persisted conversation on first mount so transcripts
- * survive restarts.
+ * drains the per-workspace queue when a turn completes, and rehydrates
+ * persisted transcripts on first mount.
  */
 export function ChatStoreBridge(): null {
   useEffect(() => {
@@ -92,12 +80,8 @@ export function ChatStoreBridge(): null {
         error: string | null;
       }) => {
         chatStore.dispatch(workspaceId, { type: 'turn_complete', turnId, error });
-        // Drain one queued turn (if any). The next turn.complete will
-        // drain the one after that, etc.
         const next = chatStore.shiftQueue(workspaceId);
-        if (next) {
-          void sendImmediate(workspaceId, next.prompt, next.attachments);
-        }
+        if (next) void sendImmediate(workspaceId, next.prompt, next.attachments);
       },
     );
     return () => {
@@ -108,13 +92,10 @@ export function ChatStoreBridge(): null {
   return null;
 }
 
-/** Stable empty-array reference so useSyncExternalStore identity
- *  checks pass when there's no workspace bound yet. */
 const EMPTY_QUEUE_SNAPSHOT: ReadonlyArray<{ readonly id: string; readonly prompt: string }> =
   Object.freeze([]);
 
-/** Read the queue snapshot for a workspace. Used by the composer to
- *  render the pending-sends preview. */
+/** Read the queue snapshot for a workspace (composer pending-sends preview). */
 export function useQueuedTurns(
   workspaceId: string | null,
 ): ReadonlyArray<{ readonly id: string; readonly prompt: string }> {
@@ -124,13 +105,12 @@ export function useQueuedTurns(
 }
 
 /**
- * Per-workspace chat handle. Send/abort/clear are bound to the
- * workspace so the UI can also target background workspaces (start
- * a follow-up turn in A while viewing B).
+ * Per-workspace chat handle. Send/abort/clear are bound to the workspace
+ * so the UI can target background workspaces too.
  */
 export function useChat(workspaceId: string | null): UseChat {
-  const state = useSyncExternalStore(chatStore.subscribe, () =>
-    workspaceId ? chatStore.getChat(workspaceId) : initialChatState,
+  const snap = useSyncExternalStore(chatStore.subscribe, () =>
+    workspaceId ? chatStore.getChat(workspaceId) : EMPTY_SNAPSHOT,
   );
 
   const send = useCallback(
@@ -141,11 +121,6 @@ export function useChat(workspaceId: string | null): UseChat {
       if (!workspaceId) return;
       const trimmed = prompt.trim();
       if (!trimmed && (!attachments || attachments.length === 0)) return;
-      // If a turn is already running for this workspace, queue this
-      // one instead of firing it immediately. The QueueDrainer (in
-      // ChatStoreBridge) pops the queue on turn_complete and sends
-      // the next one — same path as if the user had hit Enter
-      // manually right after the previous turn finished.
       const cur = chatStore.getChat(workspaceId);
       if (cur.activeTurnId !== null || cur.sending) {
         chatStore.enqueue(workspaceId, trimmed, attachments);
@@ -157,30 +132,27 @@ export function useChat(workspaceId: string | null): UseChat {
   );
 
   const abort = useCallback(async (): Promise<void> => {
-    if (!workspaceId || !state.activeTurnId) return;
+    if (!workspaceId || !snap.activeTurnId) return;
     try {
-      await api().invoke('session.abortTurn', {
-        workspaceId,
-        turnId: state.activeTurnId,
-      });
+      await api().invoke('session.abortTurn', { workspaceId, turnId: snap.activeTurnId });
     } catch {
       /* best-effort */
     }
-  }, [workspaceId, state.activeTurnId]);
+  }, [workspaceId, snap.activeTurnId]);
 
   const clear = useCallback((): void => {
     if (!workspaceId) return;
-    // Use the store's clear() rather than dispatching a 'clear'
-    // action so the persisted localStorage blob is removed in the
-    // same step.
     chatStore.clear(workspaceId);
   }, [workspaceId]);
 
   return {
-    blocks: state.blocks,
-    activeTurnId: state.activeTurnId,
-    sending: state.sending,
-    error: state.error,
+    events: snap.events,
+    extensions: snap.extensions,
+    streamingText: snap.streamingText,
+    sending: snap.sending,
+    activeTurnId: snap.activeTurnId,
+    error: snap.error,
+    isEmpty: snap.isEmpty,
     send,
     abort,
     clear,
@@ -189,7 +161,5 @@ export function useChat(workspaceId: string | null): UseChat {
 
 /** Snapshot of workspace ids that currently carry unread activity. */
 export function useUnreadWorkspaces(): ReadonlyArray<string> {
-  return useSyncExternalStore(chatStore.subscribe, () =>
-    chatStore.unreadWorkspaces(),
-  );
+  return useSyncExternalStore(chatStore.subscribe, () => chatStore.unreadWorkspaces());
 }

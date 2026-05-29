@@ -489,19 +489,34 @@ const latestBlockCache = new Map<string, { key: string; block: LatestBlock }>();
 
 function readLatestBlock(workspaceId: string | null): LatestBlock | null {
   if (!workspaceId) return null;
-  const blocks = chatStore.getChat(workspaceId).blocks;
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    const b = blocks[i]!;
-    if ((b.kind === 'assistant' || b.kind === 'user') && b.text.trim()) {
-      const key = `${b.kind}:${b.text.length}:${b.text.slice(0, 64)}`;
-      const cached = latestBlockCache.get(workspaceId);
-      if (cached?.key === key) return cached.block;
-      const block: LatestBlock = { who: b.kind, text: b.text };
-      latestBlockCache.set(workspaceId, { key, block });
-      return block;
+  const snap = chatStore.getChat(workspaceId);
+  // Live assistant text (still streaming) wins — it's the freshest line.
+  const candidate = latestLineFromSnapshot(snap);
+  if (!candidate) {
+    if (latestBlockCache.has(workspaceId)) latestBlockCache.delete(workspaceId);
+    return null;
+  }
+  const key = `${candidate.who}:${candidate.text.length}:${candidate.text.slice(0, 64)}`;
+  const cached = latestBlockCache.get(workspaceId);
+  if (cached?.key === key) return cached.block;
+  latestBlockCache.set(workspaceId, { key, block: candidate });
+  return candidate;
+}
+
+function latestLineFromSnapshot(snap: {
+  readonly events: ReadonlyArray<import('@moxxy/sdk').MoxxyEvent>;
+  readonly streamingText: string;
+}): LatestBlock | null {
+  if (snap.streamingText.trim()) return { who: 'assistant', text: snap.streamingText };
+  for (let i = snap.events.length - 1; i >= 0; i--) {
+    const e = snap.events[i]!;
+    if (e.type === 'assistant_message' && e.content.trim()) {
+      return { who: 'assistant', text: e.content };
+    }
+    if (e.type === 'user_prompt' && e.text.trim()) {
+      return { who: 'user', text: e.text };
     }
   }
-  if (latestBlockCache.has(workspaceId)) latestBlockCache.delete(workspaceId);
   return null;
 }
 

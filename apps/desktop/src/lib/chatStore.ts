@@ -1,22 +1,36 @@
 /**
- * Renderer-side store of every workspace's chat state. Lives at the
- * module level so a workspace's history survives the user switching
- * away and back. Events stream in on `runner.event` tagged with the
- * workspace id; the store routes each into the matching reducer.
+ * Renderer-side store of every workspace's chat state. Module-level so a
+ * workspace's history survives the user switching away and back.
  *
- * Unread tracking: every state-changing dispatch bumps a per-chat
- * `seq` counter. The currently-foregrounded workspace's
- * `lastSeenSeq` is bumped on activation, so anything that arrives
- * for a *different* workspace bumps seq above lastSeenSeq → unread
- * dot shows in the sidebar until the user opens that workspace.
+ * Each workspace owns a {@link ChatRuntime} — an append-only
+ * `ChunkedBlockLog` of committed runner events plus the in-flight
+ * streaming text. Events stream in on `runner.event` tagged with the
+ * workspace id; the store routes each into the matching runtime via
+ * {@link applyAction}. A per-workspace cached {@link ChatSnapshot} keeps
+ * `useSyncExternalStore` happy: it is rebuilt only when `rev` changes,
+ * and its `events` array reference is preserved across streaming-only
+ * ticks so the transcript never re-folds while a chunk is arriving.
+ *
+ * Unread tracking: `rev` bumps on every change; the foreground
+ * workspace's `lastSeenRev` is advanced on activation, so activity in a
+ * *different* workspace pushes rev past lastSeenRev → unread dot.
  */
 
+import type { MoxxyEvent } from '@moxxy/sdk';
 import {
-  chatReducer,
-  initialChatState,
+  applyAction,
+  createRuntime,
   type ChatAction,
-  type ChatState,
-} from './chatReducer';
+  type ChatRuntime,
+  type Extension,
+} from './chatModel';
+import {
+  loadPersistedEvents,
+  persistEvents,
+  removePersisted,
+  loadAllPersisted,
+  type PersistedChat,
+} from './chatPersistence';
 
 /** One queued turn — the user hit Enter while a previous turn was in
  *  flight. Drained automatically when the active turn completes. */
@@ -26,126 +40,69 @@ export interface QueuedTurn {
   readonly attachments?: ReadonlyArray<{ path: string; name: string }>;
 }
 
-interface InternalChat extends ChatState {
-  lastSeenSeq: number;
-  /** Per-workspace model override. The runner exposes runTurn(prompt,
-   *  {model}) per-turn; we sticky it client-side so the user can pick
-   *  once in the configure modal and have it apply to every send. */
+/** Immutable view handed to the renderer. `events` is reference-stable
+ *  across chunk-only changes so `Transcript`'s fold memo holds. */
+export interface ChatSnapshot {
+  readonly rev: number;
+  readonly eventsVersion: number;
+  readonly events: ReadonlyArray<MoxxyEvent>;
+  readonly extensions: ReadonlyArray<Extension>;
+  readonly streamingText: string;
+  readonly sending: boolean;
+  readonly activeTurnId: string | null;
+  readonly error: string | null;
+  readonly isEmpty: boolean;
+}
+
+interface Slot {
+  readonly rt: ChatRuntime;
+  snap: ChatSnapshot | null;
   model: string | null;
-  /** Pending sends queued while a previous turn is still in flight. */
+  lastSeenRev: number;
   queue: ReadonlyArray<QueuedTurn>;
 }
 
-const blankChat = (): InternalChat => ({
-  ...initialChatState,
-  lastSeenSeq: 0,
-  model: null,
-  queue: [],
+const EMPTY_QUEUE: ReadonlyArray<QueuedTurn> = Object.freeze([]);
+const EMPTY_EVENTS: ReadonlyArray<MoxxyEvent> = Object.freeze([]);
+const EMPTY_EXTENSIONS: ReadonlyArray<Extension> = Object.freeze([]);
+
+export const EMPTY_SNAPSHOT: ChatSnapshot = Object.freeze({
+  rev: 0,
+  eventsVersion: 0,
+  events: EMPTY_EVENTS,
+  extensions: EMPTY_EXTENSIONS,
+  streamingText: '',
+  sending: false,
+  activeTurnId: null,
+  error: null,
+  isEmpty: true,
 });
 
-/** localStorage namespace prefix. One key per workspace
- *  (`moxxy:chat:<id>`) so a corrupt blob never takes everything down. */
-const STORAGE_PREFIX = 'moxxy:chat:';
-const STORAGE_VERSION = 1;
-
-/** Stable empty-array reference returned from getQueue / getModel when
- *  the workspace has no state yet. useSyncExternalStore compares the
- *  snapshot by reference identity, so returning a fresh [] each call
- *  trips an infinite re-render loop. */
-const EMPTY_QUEUE: ReadonlyArray<QueuedTurn> = Object.freeze([]);
-
-/** Hard cap on persisted blocks per workspace. localStorage has a
- *  ~5MB total budget across the whole origin; large tool outputs can
- *  blow that out fast. Cap at the most recent N blocks; older history
- *  drops out of the persisted log but stays in memory while the
- *  session is alive. */
-const PERSIST_MAX_BLOCKS = 400;
-
 class ChatStore {
-  private chats = new Map<string, InternalChat>();
+  private slots = new Map<string, Slot>();
   private activeId: string | null = null;
   private listeners = new Set<() => void>();
-  /** Per-workspace persist debounce so we don't write on every
-   *  assistant_chunk (could be 50/sec while streaming). */
   private persistTimers = new Map<string, number>();
-  /** Memoised unread-workspace snapshot. useSyncExternalStore calls
-   *  getSnapshot every render — returning a fresh array each time is
-   *  the textbook "Maximum update depth exceeded" foot-gun. We rebuild
-   *  it lazily and only when dispatch/setActive invalidates the
-   *  cache. */
   private cachedUnread: ReadonlyArray<string> = [];
   private unreadDirty = true;
 
-  /**
-   * Rehydrate every workspace's chat from localStorage. Call once at
-   * app boot so the conversations users had before the last restart
-   * come back instead of disappearing.
-   */
+  // ---- hydration ---------------------------------------------------------
+
+  /** Rehydrate persisted transcripts at app boot so conversations from
+   *  before the last restart come back. */
   hydrate(): void {
-    if (typeof window === 'undefined' || !window.localStorage) return;
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key?.startsWith(STORAGE_PREFIX)) continue;
-      const id = key.slice(STORAGE_PREFIX.length);
-      try {
-        const raw = localStorage.getItem(key);
-        if (!raw) continue;
-        const parsed = JSON.parse(raw) as
-          | (InternalChat & { version?: number })
-          | null;
-        if (!parsed || parsed.version !== STORAGE_VERSION) continue;
-        // Reset any in-flight flags — anything that was streaming
-        // when the app closed is definitely not streaming now.
-        const restored: InternalChat = {
-          ...parsed,
-          activeTurnId: null,
-          sending: false,
-          blocks: parsed.blocks.map((b) =>
-            b.kind === 'assistant' && b.streaming ? { ...b, streaming: false } : b,
-          ),
-        };
-        this.chats.set(id, restored);
-      } catch {
-        /* corrupt blob → drop it */
-      }
+    for (const { id, events } of loadAllPersisted()) {
+      const slot = this.ensure(id);
+      // Direct log seed — bypass applyEvent so we don't re-run the
+      // assistant_chunk/streaming logic on already-committed events.
+      for (const e of events) slot.rt.log.append(e);
+      slot.rt.rev += 1;
     }
     this.unreadDirty = true;
     this.emit();
   }
 
-  private persist(workspaceId: string): void {
-    if (typeof window === 'undefined' || !window.localStorage) return;
-    const existing = this.persistTimers.get(workspaceId);
-    if (existing !== undefined) window.clearTimeout(existing);
-    const handle = window.setTimeout(() => {
-      this.persistTimers.delete(workspaceId);
-      const chat = this.chats.get(workspaceId);
-      if (!chat) {
-        localStorage.removeItem(STORAGE_PREFIX + workspaceId);
-        return;
-      }
-      const trimmed: InternalChat & { version: number } = {
-        ...chat,
-        // Cap the persisted block list; oldest first goes.
-        blocks:
-          chat.blocks.length > PERSIST_MAX_BLOCKS
-            ? chat.blocks.slice(-PERSIST_MAX_BLOCKS)
-            : chat.blocks,
-        version: STORAGE_VERSION,
-      };
-      try {
-        localStorage.setItem(
-          STORAGE_PREFIX + workspaceId,
-          JSON.stringify(trimmed),
-        );
-      } catch {
-        /* QuotaExceeded — drop persistence rather than crash */
-      }
-    }, 250);
-    this.persistTimers.set(workspaceId, handle);
-  }
-
-  // ---- subscription -------------------------------------------------------
+  // ---- subscription ------------------------------------------------------
 
   subscribe = (fn: () => void): (() => void) => {
     this.listeners.add(fn);
@@ -164,101 +121,92 @@ class ChatStore {
     return this.activeId;
   }
 
-  /** Returns the workspace's chat state, creating an empty one if
-   *  this is the first reference. */
-  getChat(workspaceId: string): ChatState {
-    return this.ensure(workspaceId);
+  /** Snapshot of a workspace's chat, rebuilt only when its `rev`
+   *  changed. Returns a frozen empty snapshot for unknown workspaces. */
+  getChat(workspaceId: string): ChatSnapshot {
+    const slot = this.slots.get(workspaceId);
+    if (!slot) return EMPTY_SNAPSHOT;
+    const { rt } = slot;
+    if (slot.snap && slot.snap.rev === rt.rev) return slot.snap;
+    // Reuse the previous events array unless a committed event landed —
+    // streaming-only ticks keep the same reference so the fold memo holds.
+    const eventsChanged = !slot.snap || slot.snap.eventsVersion !== rt.log.version;
+    const events = eventsChanged ? rt.log.toArray() : slot.snap!.events;
+    slot.snap = {
+      rev: rt.rev,
+      eventsVersion: rt.log.version,
+      events,
+      extensions: rt.extensions,
+      streamingText: rt.streamingText,
+      sending: rt.sending,
+      activeTurnId: rt.activeTurnId,
+      error: rt.error,
+      isEmpty: events.length === 0 && rt.extensions.length === 0 && rt.streamingText === '',
+    };
+    return slot.snap;
   }
 
-  /** Selected model override for this workspace, or null if the
-   *  runner's default should be used. */
   getModel(workspaceId: string): string | null {
-    return this.chats.get(workspaceId)?.model ?? null;
+    return this.slots.get(workspaceId)?.model ?? null;
   }
 
   setModel(workspaceId: string, model: string | null): void {
-    const cur = this.ensure(workspaceId);
-    if (cur.model === model) return;
-    cur.model = model;
+    const slot = this.ensure(workspaceId);
+    if (slot.model === model) return;
+    slot.model = model;
     this.emit();
   }
 
-  /** Read the queue for a workspace. Returns a stable empty-array
-   *  reference when nothing is queued (or the workspace hasn't been
-   *  initialised) — useSyncExternalStore identity-checks getSnapshot's
-   *  return value, so producing a fresh [] every call would trigger
-   *  "Maximum update depth exceeded." */
   getQueue(workspaceId: string): ReadonlyArray<QueuedTurn> {
-    return this.chats.get(workspaceId)?.queue ?? EMPTY_QUEUE;
+    return this.slots.get(workspaceId)?.queue ?? EMPTY_QUEUE;
   }
 
-  /** Push a turn onto the queue. Returns the queued turn id. */
   enqueue(
     workspaceId: string,
     prompt: string,
     attachments?: ReadonlyArray<{ path: string; name: string }>,
   ): string {
-    const cur = this.ensure(workspaceId);
-    const id = `q-${cur.seq}-${cur.queue.length}`;
-    cur.queue = [
-      ...cur.queue,
-      attachments && attachments.length > 0
-        ? { id, prompt, attachments }
-        : { id, prompt },
+    const slot = this.ensure(workspaceId);
+    const id = `q-${slot.rt.rev}-${slot.queue.length}`;
+    slot.queue = [
+      ...slot.queue,
+      attachments && attachments.length > 0 ? { id, prompt, attachments } : { id, prompt },
     ];
-    this.persist(workspaceId);
     this.emit();
     return id;
   }
 
-  /** Pop the head of the queue (called when a turn completes and the
-   *  bridge wants to send the next one). */
   shiftQueue(workspaceId: string): QueuedTurn | null {
-    const cur = this.chats.get(workspaceId);
-    if (!cur || cur.queue.length === 0) return null;
-    const [head, ...rest] = cur.queue;
-    cur.queue = rest;
-    this.persist(workspaceId);
+    const slot = this.slots.get(workspaceId);
+    if (!slot || slot.queue.length === 0) return null;
+    const [head, ...rest] = slot.queue;
+    slot.queue = rest;
     this.emit();
     return head ?? null;
   }
 
-  /** Remove an entry from the queue (user hit × on a pending chip). */
   dropFromQueue(workspaceId: string, id: string): void {
-    const cur = this.chats.get(workspaceId);
-    if (!cur) return;
-    cur.queue = cur.queue.filter((q) => q.id !== id);
-    this.persist(workspaceId);
+    const slot = this.slots.get(workspaceId);
+    if (!slot) return;
+    slot.queue = slot.queue.filter((q) => q.id !== id);
     this.emit();
   }
 
-  /** True when there are events past the last time the user opened
-   *  this workspace. Always false for the active workspace. */
   hasUnread(workspaceId: string): boolean {
     if (workspaceId === this.activeId) return false;
-    const c = this.chats.get(workspaceId);
-    if (!c) return false;
-    return c.seq > c.lastSeenSeq;
+    const slot = this.slots.get(workspaceId);
+    if (!slot) return false;
+    return slot.rt.rev > slot.lastSeenRev;
   }
 
-  /** Snapshot of all workspaces that have ever received events. Used
-   *  by the sidebar to render unread dots. The result is memoised so
-   *  useSyncExternalStore's same-reference identity check holds across
-   *  renders. */
   unreadWorkspaces(): ReadonlyArray<string> {
     if (!this.unreadDirty) return this.cachedUnread;
     const next: string[] = [];
-    for (const [id, c] of this.chats) {
-      if (id !== this.activeId && c.seq > c.lastSeenSeq) next.push(id);
+    for (const [id, slot] of this.slots) {
+      if (id !== this.activeId && slot.rt.rev > slot.lastSeenRev) next.push(id);
     }
-    // Preserve the previous reference when nothing changed — avoids
-    // gratuitous re-renders even when an unrelated chat dispatch
-    // marks the cache dirty.
     const prev = this.cachedUnread;
-    if (
-      prev.length === next.length &&
-      prev.every((v, i) => v === next[i])
-    ) {
+    if (prev.length === next.length && prev.every((v, i) => v === next[i])) {
       this.unreadDirty = false;
       return prev;
     }
@@ -273,61 +221,78 @@ class ChatStore {
     if (this.activeId === workspaceId) return;
     this.activeId = workspaceId;
     if (workspaceId !== null) {
-      // Foregrounding clears unread for that workspace.
-      const c = this.ensure(workspaceId);
-      c.lastSeenSeq = c.seq;
+      const slot = this.ensure(workspaceId);
+      slot.lastSeenRev = slot.rt.rev;
     }
     this.unreadDirty = true;
     this.emit();
   }
 
   dispatch(workspaceId: string, action: ChatAction): void {
-    const cur = this.ensure(workspaceId);
-    const next = chatReducer(cur, action) as InternalChat;
-    if (next === cur) return;
-    next.model = cur.model;
-    // Carry over the unread cursor; if this workspace IS active,
-    // bump it forward so it never trips the unread check.
-    next.lastSeenSeq =
-      this.activeId === workspaceId ? next.seq : cur.lastSeenSeq;
-    this.chats.set(workspaceId, next);
+    const slot = this.ensure(workspaceId);
+    const changed = applyAction(slot.rt, action);
+    if (!changed) return;
+    if (this.activeId === workspaceId) slot.lastSeenRev = slot.rt.rev;
     this.unreadDirty = true;
-    this.persist(workspaceId);
+    this.schedulePersist(workspaceId);
     this.emit();
   }
 
-  /** Drop one workspace's state — used when the user removes a desk
-   *  OR clears the conversation from the chat header. */
+  /** Drop one workspace's state — desk removed or conversation cleared
+   *  out entirely. */
   drop(workspaceId: string): void {
-    if (this.chats.delete(workspaceId)) {
+    if (this.slots.delete(workspaceId)) {
       this.unreadDirty = true;
-      if (typeof window !== 'undefined' && window.localStorage) {
-        localStorage.removeItem(STORAGE_PREFIX + workspaceId);
-      }
+      removePersisted(workspaceId);
       this.emit();
     }
   }
 
-  /** Reset one workspace's transcript without removing the workspace
-   *  itself. Used by the "Clear conversation" action. */
+  /** Reset a workspace's transcript without removing the workspace. */
   clear(workspaceId: string): void {
-    const blank = blankChat();
-    blank.model = this.chats.get(workspaceId)?.model ?? null;
-    this.chats.set(workspaceId, blank);
+    const slot = this.ensure(workspaceId);
+    applyAction(slot.rt, { type: 'clear' });
+    slot.snap = null;
     this.unreadDirty = true;
-    this.persist(workspaceId);
+    removePersisted(workspaceId);
     this.emit();
   }
 
   // ---- internals ---------------------------------------------------------
 
-  private ensure(workspaceId: string): InternalChat {
-    let c = this.chats.get(workspaceId);
-    if (!c) {
-      c = blankChat();
-      this.chats.set(workspaceId, c);
+  private schedulePersist(workspaceId: string): void {
+    const existing = this.persistTimers.get(workspaceId);
+    if (existing !== undefined && typeof window !== 'undefined') {
+      window.clearTimeout(existing);
     }
-    return c;
+    if (typeof window === 'undefined') return;
+    const handle = window.setTimeout(() => {
+      this.persistTimers.delete(workspaceId);
+      const slot = this.slots.get(workspaceId);
+      if (!slot) {
+        removePersisted(workspaceId);
+        return;
+      }
+      const persisted: PersistedChat = { events: slot.rt.log.toArray() };
+      persistEvents(workspaceId, persisted);
+    }, 250);
+    this.persistTimers.set(workspaceId, handle);
+  }
+
+  private ensure(workspaceId: string): Slot {
+    let slot = this.slots.get(workspaceId);
+    if (!slot) {
+      const seed = loadPersistedEvents(workspaceId);
+      slot = {
+        rt: createRuntime(seed?.events ?? []),
+        snap: null,
+        model: null,
+        lastSeenRev: 0,
+        queue: EMPTY_QUEUE,
+      };
+      this.slots.set(workspaceId, slot);
+    }
+    return slot;
   }
 }
 
