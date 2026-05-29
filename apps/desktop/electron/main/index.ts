@@ -147,21 +147,20 @@ async function createWindow(): Promise<void> {
       const trayIconPath = isDev
         ? path.join(__dirname, '..', '..', '..', 'public', 'logo.png')
         : path.join(__dirname, '..', '..', 'dist', 'logo.png');
-      // Render at 22×22 which is the macOS menu-bar standard
-      // (scales cleanly to 44×44 on retina). 18 was too small to be
-      // recognisable on a busy menu bar.
       const raw = nativeImage.createFromPath(trayIconPath);
       const icon = raw.isEmpty()
         ? nativeImage.createEmpty()
-        : raw.resize({ width: 22, height: 22, quality: 'best' });
+        : raw.resize({ width: 18, height: 18, quality: 'best' });
       if (raw.isEmpty()) {
         // eslint-disable-next-line no-console
         console.warn(`[moxxy] tray icon source missing or unreadable: ${trayIconPath}`);
       }
+      // Template image on macOS: AppKit tints the alpha mask to
+      // match the menu bar (white on dark mode, black on light) so
+      // the moxxy silhouette reads as the system foreground colour.
+      if (process.platform === 'darwin') icon.setTemplateImage(true);
       trayInstance = new Tray(icon);
-      // Text label so the tray is *always* visible, even if the
-      // icon failed to load or the user's menu bar is busy.
-      trayInstance.setTitle(' moxxy');
+      // No title text now — the templated silhouette is the brand.
       trayInstance.setToolTip('MoxxyAI Workspaces');
       const openMainAndCloseFocus = (): void => {
         closeFocusWindow();
