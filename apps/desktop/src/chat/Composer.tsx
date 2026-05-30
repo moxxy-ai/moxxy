@@ -7,12 +7,8 @@ import {
 } from 'react';
 import { Icon } from '@/lib/Icon';
 import { api } from '@/lib/api';
-import {
-  audioToPcm16,
-  uint8ArrayToBase64,
-  MOXXY_PCM16_24KHZ_MIME,
-} from '@/lib/audioToPcm16';
 import { useQueuedTurns } from '@/lib/useChat';
+import { useVoiceRecorder } from '@/lib/useVoiceRecorder';
 import { chatStore } from '@/lib/chatStore';
 import { AgentPicker } from './AgentPicker';
 import { CommandPalette } from './CommandPalette';
@@ -34,12 +30,6 @@ interface ComposerProps {
   ) => void;
   readonly onAbort: () => void;
 }
-
-type VoiceState =
-  | { kind: 'idle' }
-  | { kind: 'recording'; recorder: MediaRecorder; chunks: Blob[] }
-  | { kind: 'transcribing' }
-  | { kind: 'unavailable'; reason: string };
 
 /**
  * Composer rendered as a rounded white card flush against the chat
@@ -63,8 +53,11 @@ export function Composer({
   onAbort,
 }: ComposerProps): JSX.Element {
   const [draft, setDraft] = useState('');
-  const [voice, setVoice] = useState<VoiceState>({ kind: 'idle' });
   const [hasTranscriber, setHasTranscriber] = useState(false);
+  const [noTranscriberMsg, setNoTranscriberMsg] = useState<string | null>(null);
+  const voice = useVoiceRecorder({
+    onTranscript: (t) => setDraft((d) => (d ? `${d.trimEnd()} ${t}` : t)),
+  });
   const [actionsOpen, setActionsOpen] = useState(false);
   /** Files the user picked from the rail or the native picker. Each
    *  one ships as a UserPromptAttachment with kind: 'file' + content:
@@ -152,44 +145,17 @@ export function Composer({
     }
   }, []);
 
-  const onVoiceToggle = useCallback(async () => {
-    if (voice.kind === 'recording') {
-      voice.recorder.stop();
+  const onVoiceClick = useCallback(() => {
+    if (voice.phase === 'recording') {
+      voice.toggle();
       return;
     }
-    if (voice.kind !== 'idle') return;
     if (!hasTranscriber) {
-      setVoice({
-        kind: 'unavailable',
-        reason: 'No transcriber configured on the runner.',
-      });
-      setTimeout(() => setVoice({ kind: 'idle' }), 2500);
+      setNoTranscriberMsg('No transcriber configured on the runner.');
+      window.setTimeout(() => setNoTranscriberMsg(null), 2500);
       return;
     }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = pickMimeType();
-      const recorder = new MediaRecorder(
-        stream,
-        mimeType ? { mimeType } : undefined,
-      );
-      const chunks: Blob[] = [];
-      recorder.addEventListener('dataavailable', (ev) => {
-        if (ev.data.size > 0) chunks.push(ev.data);
-      });
-      recorder.addEventListener('stop', () => {
-        stream.getTracks().forEach((t) => t.stop());
-        void finalizeRecording(chunks, recorder.mimeType, setVoice, setDraft);
-      });
-      recorder.start();
-      setVoice({ kind: 'recording', recorder, chunks });
-    } catch (e) {
-      setVoice({
-        kind: 'unavailable',
-        reason: e instanceof Error ? e.message : 'mic unavailable',
-      });
-      setTimeout(() => setVoice({ kind: 'idle' }), 2500);
-    }
+    voice.toggle();
   }, [hasTranscriber, voice]);
 
   return (
@@ -277,21 +243,21 @@ export function Composer({
           <span>Attach</span>
         </ToolChip>
         <ToolChip
-          label={voice.kind === 'recording' ? 'Stop recording' : 'Voice input'}
-          onClick={() => void onVoiceToggle()}
+          label={voice.phase === 'recording' ? 'Stop recording' : 'Voice input'}
+          onClick={onVoiceClick}
           tone={
-            voice.kind === 'recording'
+            voice.phase === 'recording'
               ? 'recording'
-              : voice.kind === 'transcribing'
+              : voice.phase === 'transcribing'
                 ? 'busy'
                 : 'idle'
           }
         >
           <Icon name="mic" size={16} />
           <span>
-            {voice.kind === 'recording'
+            {voice.phase === 'recording'
               ? 'Listening…'
-              : voice.kind === 'transcribing'
+              : voice.phase === 'transcribing'
                 ? 'Transcribing…'
                 : 'Voice'}
           </span>
@@ -321,7 +287,7 @@ export function Composer({
           </button>
         )}
       </div>
-      {voice.kind === 'unavailable' && (
+      {(voice.errorReason ?? noTranscriberMsg) && (
         <p
           role="status"
           style={{
@@ -331,7 +297,7 @@ export function Composer({
             color: 'var(--color-red)',
           }}
         >
-          {voice.reason}
+          {voice.errorReason ?? noTranscriberMsg}
         </p>
       )}
       {actionsOpen && (
@@ -342,43 +308,6 @@ export function Composer({
       )}
     </form>
   );
-}
-
-function pickMimeType(): string | undefined {
-  const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
-  if (typeof MediaRecorder === 'undefined') return undefined;
-  return candidates.find((m) => MediaRecorder.isTypeSupported(m));
-}
-
-async function finalizeRecording(
-  chunks: ReadonlyArray<Blob>,
-  mimeType: string,
-  setVoice: (v: VoiceState) => void,
-  setDraft: (mutator: (draft: string) => string) => void,
-): Promise<void> {
-  setVoice({ kind: 'transcribing' });
-  try {
-    const blob = new Blob([...chunks], { type: mimeType });
-    // Convert to PCM16 mono 24 kHz — the format moxxy's Codex
-    // transcriber expects. Same role ffmpeg plays in the TUI's
-    // voice path; AudioContext does it inline here without the
-    // ffmpeg dependency.
-    const pcm = await audioToPcm16(blob);
-    const text = await api().invoke('session.transcribe', {
-      audioBase64: uint8ArrayToBase64(pcm),
-      mimeType: MOXXY_PCM16_24KHZ_MIME,
-    });
-    if (text?.trim()) {
-      setDraft((d) => (d ? `${d.trimEnd()} ${text.trim()}` : text.trim()));
-    }
-    setVoice({ kind: 'idle' });
-  } catch (e) {
-    setVoice({
-      kind: 'unavailable',
-      reason: e instanceof Error ? e.message : 'transcription failed',
-    });
-    setTimeout(() => setVoice({ kind: 'idle' }), 2500);
-  }
 }
 
 function ToolChip({

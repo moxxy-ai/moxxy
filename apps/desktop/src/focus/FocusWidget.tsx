@@ -25,11 +25,7 @@ import { api } from '@/lib/api';
 import { ChatStoreBridge, useChat } from '@/lib/useChat';
 import { chatStore } from '@/lib/chatStore';
 import { ConnectionBridge, useActiveWorkspaceId } from '@/lib/useConnection';
-import {
-  audioToPcm16,
-  uint8ArrayToBase64,
-  MOXXY_PCM16_24KHZ_MIME,
-} from '@/lib/audioToPcm16';
+import { useVoiceRecorder } from '@/lib/useVoiceRecorder';
 
 type Stage = 'inactive' | 'active' | 'mini-text';
 
@@ -130,7 +126,6 @@ function Inactive({ onActivate }: { readonly onActivate: () => void }): JSX.Elem
 
 // ---- Stage 2: active -----------------------------------------------------
 
-type RecPhase = 'idle' | 'recording' | 'transcribing' | 'error';
 
 function Active({
   workspaceId,
@@ -144,102 +139,18 @@ function Active({
   readonly onText: () => void;
 }): JSX.Element {
   const chat = useChat(workspaceId);
-  const [phase, setPhase] = useState<RecPhase>('idle');
   const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-
-  const stop = (): void => {
-    const rec = recorderRef.current;
-    if (rec?.state === 'recording') rec.stop();
-    recorderRef.current = null;
-  };
-
-  const finalize = async (
-    chunks: ReadonlyArray<Blob>,
-    mimeType: string,
-  ): Promise<void> => {
-    setPhase('transcribing');
-    try {
-      const blob = new Blob([...chunks], { type: mimeType });
-      // Convert to PCM16 mono 24 kHz (the format moxxy's Codex
-      // transcriber expects). Mirrors the TUI's ffmpeg conversion.
-      const pcm = await audioToPcm16(blob);
-      const text = await api().invoke('session.transcribe', {
-        audioBase64: uint8ArrayToBase64(pcm),
-        mimeType: MOXXY_PCM16_24KHZ_MIME,
-      });
-      if (text?.trim() && workspaceId) {
-        // Send straight as a turn — the visualiser snaps back to
-        // idle and the focus widget's StatusLine + main window pick
-        // up the user_prompt event.
-        void chat.send(text.trim());
-      }
-      setPhase('idle');
-    } catch {
-      setPhase('error');
-      window.setTimeout(() => setPhase('idle'), 1800);
-    }
-  };
-
-  const start = async (): Promise<void> => {
-    if (phase !== 'idle') return;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
-      const mimeType = candidates.find((m) => MediaRecorder.isTypeSupported(m));
-      const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      const chunks: Blob[] = [];
-      rec.addEventListener('dataavailable', (ev) => {
-        if (ev.data.size > 0) chunks.push(ev.data);
-      });
-      rec.addEventListener('stop', () => {
-        stream.getTracks().forEach((t) => t.stop());
-        audioContextRef.current?.close().catch(() => undefined);
-        audioContextRef.current = null;
-        setAnalyser(null);
-        void finalize(chunks, rec.mimeType);
-      });
-      rec.start();
-      recorderRef.current = rec;
-      setPhase('recording');
-
-      // Wire AnalyserNode for the inline spectrum.
-      const Ctor = window as unknown as {
-        AudioContext?: typeof AudioContext;
-        webkitAudioContext?: typeof AudioContext;
-      };
-      const Audio = Ctor.AudioContext ?? Ctor.webkitAudioContext;
-      if (Audio) {
-        const ctx = new Audio();
-        audioContextRef.current = ctx;
-        const source = ctx.createMediaStreamSource(stream);
-        const an = ctx.createAnalyser();
-        an.fftSize = 256;
-        an.smoothingTimeConstant = 0.7;
-        source.connect(an);
-        setAnalyser(an);
-      }
-    } catch {
-      setPhase('error');
-      window.setTimeout(() => setPhase('idle'), 1800);
-    }
-  };
-
-  const toggleMic = (): void => {
-    if (phase === 'recording') stop();
-    else void start();
-  };
-
-  // Clean up the mic on unmount.
-  useEffect(() => {
-    return () => {
-      const rec = recorderRef.current;
-      if (rec?.state === 'recording') rec.stop();
-      recorderRef.current = null;
-      audioContextRef.current?.close().catch(() => undefined);
-    };
-  }, []);
+  const voice = useVoiceRecorder({
+    onTranscript: (text) => {
+      // Send straight as a turn — the visualiser snaps back to idle and
+      // the focus widget's StatusLine + main window pick up the
+      // user_prompt event.
+      if (workspaceId) void chat.send(text);
+    },
+    onAnalyser: setAnalyser,
+  });
+  const phase = voice.phase;
+  const toggleMic = voice.toggle;
 
   const recording = phase === 'recording';
   return (
