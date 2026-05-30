@@ -3,6 +3,7 @@ import { api } from './api';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { chatStore, EMPTY_SNAPSHOT } from './chatStore';
 import { createIpcPersistence, migrateLegacyChats } from './chatPersistence';
+import { wireAskBridge } from './askStore';
 import { toErrorMessage } from './errors';
 import type { Extension } from './chatModel';
 
@@ -97,9 +98,11 @@ export function ChatStoreBridge(): null {
         if (next) void sendImmediate(workspaceId, next.prompt, next.attachments);
       },
     );
+    const offAsk = wireAskBridge();
     return () => {
       offEvent();
       offComplete();
+      offAsk();
     };
   }, []);
   return null;

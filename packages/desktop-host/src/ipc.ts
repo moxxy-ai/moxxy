@@ -35,6 +35,7 @@ import { DeskStore } from './desks';
 import { dialog, shell, BrowserWindow as BrowserWindowApi } from 'electron';
 import { buildInProcessPlugins, type InProcessPlugins } from './in-process-plugins';
 import { assertSafeExternalUrl } from './security';
+import { answerAsk } from './ask-broker';
 
 /**
  * Lazily-built bag of in-process plugins (Codex transcriber today,
@@ -50,6 +51,12 @@ function getInProcessPlugins(): InProcessPlugins {
 }
 
 export function registerIpcHandlers(pool: RunnerPool, desks: DeskStore): void {
+  // ---- Interactive ask (permission/approval bottom sheet) ------------------
+
+  handle('ask.respond', async ({ requestId, response }) => {
+    answerAsk(requestId, response);
+  });
+
   // ---- Connection ----------------------------------------------------------
 
   handle('connection.snapshot', async (args) => {

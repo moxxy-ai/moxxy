@@ -84,6 +84,20 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     limit: z.number().int().positive().max(1000),
   }),
   'chat.clearLog': z.object({ workspaceId: z.string().min(1).max(256) }),
+  // Permission/approval reply — security-sensitive (it decides a tool call),
+  // so the shape is locked down: a known requestId + a strict response.
+  'ask.respond': z
+    .object({
+      requestId: z.string().min(1).max(128),
+      response: z
+        .object({
+          mode: z.enum(['allow', 'allow_session', 'allow_always', 'deny']).optional(),
+          optionId: z.string().max(128).optional(),
+          text: z.string().max(10_000).optional(),
+        })
+        .strict(),
+    })
+    .strict(),
 };
 
 /**

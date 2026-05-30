@@ -18,6 +18,7 @@ import type { BrowserWindow } from 'electron';
 import type { RemoteSession } from '@moxxy/runner';
 
 import type { IpcEvents } from '@moxxy/desktop-ipc-contract';
+import { openAsk, cancelAsksFor } from './ask-broker.js';
 
 interface ActiveTurn {
   controller: AbortController;
@@ -48,6 +49,42 @@ export class SessionDriver {
       this.send('runner.event', { workspaceId, event });
     });
     this.disposes.push(logUnsub);
+
+    // Forward the runner's permission + approval decisions to the renderer's
+    // bottom sheet. Declaring these resolvers tells the runner this client
+    // handles permissions/approvals, so loop strategies (plan-execute, BMAD)
+    // actually pause and ask instead of assuming. Without them the runner
+    // falls back to deny/auto and barrels ahead.
+    this.session.setPermissionResolver({
+      name: 'desktop-ask',
+      check: async (call, ctx) => {
+        const res = await openAsk(
+          {
+            workspaceId,
+            kind: 'permission',
+            tool: {
+              name: call.name,
+              input: call.input,
+              ...(ctx.toolDescription ? { description: ctx.toolDescription } : {}),
+            },
+          },
+          (channel, payload) => this.send(channel, payload),
+        );
+        return { mode: res.mode ?? 'deny' };
+      },
+    });
+    this.session.setApprovalResolver({
+      name: 'desktop-ask',
+      confirm: async (request) => {
+        const res = await openAsk(
+          { workspaceId, kind: 'approval', approval: request },
+          (channel, payload) => this.send(channel, payload),
+        );
+        const optionId =
+          res.optionId ?? request.defaultOptionId ?? request.options[0]?.id ?? 'cancel';
+        return { optionId, ...(res.text ? { text: res.text } : {}) };
+      },
+    });
 
     // Drop everything when the session closes. The supervisor's loop
     // will spin up a fresh driver on the next attach.
@@ -136,6 +173,9 @@ export class SessionDriver {
   }
 
   dispose(): void {
+    // Deny any in-flight prompt so the runner doesn't block on a sheet that's
+    // about to vanish with the driver.
+    cancelAsksFor(this.workspaceId);
     for (const turn of this.turns.values()) turn.controller.abort();
     this.turns.clear();
     for (const fn of this.disposes) {

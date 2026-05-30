@@ -10,7 +10,43 @@
  * across three places.
  */
 
-import type { MoxxyEvent, SessionInfo } from '@moxxy/sdk';
+import type {
+  MoxxyEvent,
+  SessionInfo,
+  ApprovalRequest,
+  ApprovalOption,
+  PermissionMode,
+} from '@moxxy/sdk';
+
+export type { ApprovalRequest, ApprovalOption, PermissionMode };
+
+// ---------- Interactive ask (permission / approval prompts) ---------------
+
+/**
+ * A decision the runner needs from the user, forwarded from the connected
+ * session to the renderer. `kind: 'permission'` gates a tool call;
+ * `kind: 'approval'` is a loop-strategy confirmation (plan-execute, BMAD, …).
+ * The renderer renders a bottom sheet and replies with {@link AskResponse}
+ * keyed by `requestId`.
+ */
+export interface AskRequest {
+  readonly requestId: string;
+  readonly workspaceId: string;
+  readonly kind: 'permission' | 'approval';
+  /** Present for `kind: 'permission'`. */
+  readonly tool?: { readonly name: string; readonly input: unknown; readonly description?: string };
+  /** Present for `kind: 'approval'`. */
+  readonly approval?: ApprovalRequest;
+}
+
+export interface AskResponse {
+  /** Permission verdict (kind: 'permission'). */
+  readonly mode?: PermissionMode;
+  /** Chosen approval option id (kind: 'approval'). */
+  readonly optionId?: string;
+  /** Free-text follow-up when the chosen approval option requested it. */
+  readonly text?: string;
+}
 
 export type { SessionInfo };
 // `validateIpcInput` / `ipcInputSchemas` are exposed via the
@@ -195,6 +231,9 @@ export interface IpcEvents {
    *  stdout/stderr line; the invoke() also returns the final exit
    *  code so callers can short-circuit on success. */
   'onboarding.install.progress': string;
+  /** The runner needs a permission/approval decision — the renderer
+   *  shows a bottom sheet and replies via `ask.respond`. */
+  'ask.request': AskRequest;
 }
 
 // ---------- Invokable commands (renderer → main) --------------------------
@@ -205,6 +244,8 @@ export interface IpcEvents {
  * renderer is a type error rather than a silent runtime failure.
  */
 export interface IpcCommands {
+  /** Reply to an `ask.request` (permission/approval bottom sheet). */
+  'ask.respond': (args: { requestId: string; response: AskResponse }) => Promise<void>;
   /** Returns the snapshot for the given workspace. Defaults to the
    *  pool's active workspace. */
   'connection.snapshot': (args?: { workspaceId?: string }) => Promise<

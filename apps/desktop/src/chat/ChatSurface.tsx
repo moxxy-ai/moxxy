@@ -5,6 +5,8 @@ import { useDesks } from '@/lib/useDesks';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { Transcript } from './Transcript';
 import { Composer } from './Composer';
+import { AskSheet } from './AskSheet';
+import { useActiveAsk } from '@/lib/askStore';
 import { Icon } from '@/lib/Icon';
 import { Modal } from '@/lib/Modal';
 
@@ -100,6 +102,7 @@ export function ChatSurface({
 }: ChatSurfaceProps): JSX.Element {
   const chat = useChat(workspaceId);
   const desks = useDesks();
+  const activeAsk = useActiveAsk(workspaceId);
   const ready = phase.phase === 'connected';
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -162,6 +165,7 @@ export function ChatSurface({
           onPick={(p) => void chat.send(p)}
         />
       )}
+      {activeAsk && <AskSheet ask={activeAsk} />}
       <Composer
         ready={ready}
         sending={chat.sending}
