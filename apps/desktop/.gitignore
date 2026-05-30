@@ -4,3 +4,4 @@ dist-electron
 release
 .turbo
 .vite
+resources/moxxy-cli/

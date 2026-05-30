@@ -12,7 +12,7 @@
 import { spawn } from 'node:child_process';
 import { dirname } from 'node:path';
 import { type BrowserWindow } from 'electron';
-import { augmentedPaths, resolveMoxxyCli, spawnPath } from './cli-resolver';
+import { augmentedPaths, nodeLauncher, resolveMoxxyCli, spawnPath } from './cli-resolver';
 import { assertSafeProviderName } from './security';
 
 export interface NodeProbe {
@@ -125,13 +125,18 @@ export async function runProviderLogin(
   const env = { ...process.env, PATH: spawnPath([cliDir]) };
 
   return new Promise<number>((resolve, reject) => {
-    const proc =
-      cli.kind === 'direct'
-        ? spawn(cli.bin, ['login', provider], { stdio: ['ignore', 'pipe', 'pipe'], env })
-        : spawn('node', [cli.entry, 'login', provider], {
-            stdio: ['ignore', 'pipe', 'pipe'],
-            env,
-          });
+    let proc;
+    if (cli.kind === 'direct') {
+      proc = spawn(cli.bin, ['login', provider], { stdio: ['ignore', 'pipe', 'pipe'], env });
+    } else {
+      // No system `node` on a GUI launch — run the bundled CLI with
+      // Electron's own Node (ELECTRON_RUN_AS_NODE), merged onto the PATH env.
+      const { command, env: nodeEnv } = nodeLauncher();
+      proc = spawn(command, [cli.entry, 'login', provider], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...env, ...nodeEnv },
+      });
+    }
     proc.stdout?.on('data', (b: Buffer) => stream(window, b.toString()));
     proc.stderr?.on('data', (b: Buffer) => stream(window, b.toString()));
     proc.on('error', reject);
