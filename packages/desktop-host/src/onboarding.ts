@@ -15,6 +15,7 @@ import type { OnboardingStatus } from '@moxxy/desktop-ipc-contract';
 import {
   augmentedPaths,
   resolveMoxxyCli,
+  spawnPath,
   type CliInvocation,
 } from './cli-resolver';
 import { assertSafeProviderName } from './security';
@@ -80,10 +81,14 @@ export async function saveProviderKey(provider: string, secret: string): Promise
 
 function runCli(cli: CliInvocation, args: string[], stdin?: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
+    // GUI launches lack the shell PATH; put node's dir (= the resolved CLI's
+    // dir) on PATH so moxxy's `#!/usr/bin/env node` shebang resolves.
+    const cliDir = cli.kind === 'direct' ? path.dirname(cli.bin) : path.dirname(cli.entry);
+    const env = { ...process.env, PATH: spawnPath([cliDir]) };
     const child =
       cli.kind === 'direct'
-        ? spawn(cli.bin, args, { stdio: ['pipe', 'pipe', 'pipe'] })
-        : spawn('node', [cli.entry, ...args], { stdio: ['pipe', 'pipe', 'pipe'] });
+        ? spawn(cli.bin, args, { stdio: ['pipe', 'pipe', 'pipe'], env })
+        : spawn('node', [cli.entry, ...args], { stdio: ['pipe', 'pipe', 'pipe'], env });
     let stderr = '';
     child.stderr?.on('data', (b: Buffer) => {
       stderr += b.toString();

@@ -4,6 +4,7 @@
  */
 
 import { usePrefs } from '@/lib/usePrefs';
+import { asset } from '@/lib/asset';
 import { Icon } from '@/lib/Icon';
 import { PrimaryButton } from '../chrome';
 
@@ -24,7 +25,7 @@ export function DoneStep({ onComplete }: { readonly onComplete: () => void }): J
       }}
     >
       <img
-        src="/avatar.gif"
+        src={asset('avatar.gif')}
         alt=""
         aria-hidden
         style={{ width: 200, height: 'auto', imageRendering: 'pixelated' }}

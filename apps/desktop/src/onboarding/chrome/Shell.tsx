@@ -6,6 +6,7 @@
  */
 
 import { Icon } from '@/lib/Icon';
+import { asset } from '@/lib/asset';
 
 export function Shell({
   steps,
@@ -40,7 +41,7 @@ export function Shell({
       >
         <header style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <img
-            src="/logo.png"
+            src={asset('logo.png')}
             alt=""
             aria-hidden
             width={32}

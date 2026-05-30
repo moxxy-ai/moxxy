@@ -7,6 +7,7 @@
  */
 
 import { Icon } from '@/lib/Icon';
+import { asset } from '@/lib/asset';
 import { primaryBtnStyle, secondaryBtnStyle } from './styles';
 
 // ---- StepCard -------------------------------------------------------------
@@ -142,7 +143,7 @@ export function Pulse({ label }: { readonly label: string }): JSX.Element {
       }}
     >
       <img
-        src="/avatar.gif"
+        src={asset('avatar.gif')}
         alt=""
         aria-hidden
         className="moxxy-avatar-loader moxxy-avatar-loader--sm"

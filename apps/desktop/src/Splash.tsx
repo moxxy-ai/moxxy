@@ -6,6 +6,7 @@
  */
 
 import './styles.css';
+import { asset } from '@/lib/asset';
 
 export function Splash({
   message = 'Starting moxxy…',
@@ -31,7 +32,7 @@ export function Splash({
       }}
     >
       <img
-        src="/avatar.gif"
+        src={asset('avatar.gif')}
         alt=""
         aria-hidden="true"
         className="moxxy-avatar-loader"

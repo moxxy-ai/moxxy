@@ -70,6 +70,27 @@ export function augmentedPaths(): string[] {
   return out;
 }
 
+/**
+ * Build the PATH to use when SPAWNING the moxxy CLI / npm from the desktop.
+ *
+ * macOS Finder/Dock launches don't inherit the shell PATH, so `node` — which
+ * moxxy's (and npm's) `#!/usr/bin/env node` shebang needs, and which lives in
+ * the SAME bin dir as the resolved `moxxy`/`npm` (nvm, homebrew, global npm) —
+ * isn't found by the child. Without this, `moxxy serve` exits 127 and
+ * `moxxy login <provider>` dies with "env: node: No such file or directory".
+ *
+ * Prepend the caller-supplied dirs (typically the resolved binary's own
+ * directory) plus the known install locations, then the inherited PATH.
+ */
+export function spawnPath(extraDirs: ReadonlyArray<string> = []): string {
+  const dirs = [
+    ...extraDirs,
+    ...augmentedPaths(),
+    ...(process.env.PATH ?? '').split(delimiter),
+  ].filter(Boolean);
+  return [...new Set(dirs)].join(delimiter);
+}
+
 function isReadableFile(p: string): boolean {
   try {
     return statSync(p).isFile();

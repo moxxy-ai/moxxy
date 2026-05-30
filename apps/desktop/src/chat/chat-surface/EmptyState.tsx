@@ -1,3 +1,4 @@
+import { asset } from '@/lib/asset';
 export function EmptyState({ ready }: { readonly ready: boolean }): JSX.Element {
   return (
     <div
@@ -11,7 +12,7 @@ export function EmptyState({ ready }: { readonly ready: boolean }): JSX.Element 
     >
       <div>
         <img
-          src="/avatar.gif"
+          src={asset('avatar.gif')}
           alt=""
           aria-hidden="true"
           className={ready ? '' : 'moxxy-avatar-loader'}

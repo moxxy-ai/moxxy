@@ -5,6 +5,7 @@
  */
 
 import { Icon } from '@/lib/Icon';
+import { asset } from '@/lib/asset';
 import { PrimaryButton } from '../chrome';
 
 export function WelcomeStep({ onNext }: { readonly onNext: () => void }): JSX.Element {
@@ -13,7 +14,7 @@ export function WelcomeStep({ onNext }: { readonly onNext: () => void }): JSX.El
       style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 18 }}
     >
       <img
-        src="/avatar.gif"
+        src={asset('avatar.gif')}
         alt=""
         aria-hidden
         className="moxxy-avatar-loader"

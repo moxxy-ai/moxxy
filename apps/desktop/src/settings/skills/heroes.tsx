@@ -5,6 +5,7 @@
  */
 
 import { Icon } from '@/lib/Icon';
+import { asset } from '@/lib/asset';
 
 export function EmptyHero({
   onCreate,
@@ -25,7 +26,7 @@ export function EmptyHero({
     >
       <div>
         <img
-          src="/avatar.gif"
+          src={asset('avatar.gif')}
           alt=""
           aria-hidden
           style={{ width: 140, height: 'auto', imageRendering: 'pixelated', marginBottom: 14 }}
@@ -94,7 +95,7 @@ export function LoadingHero(): JSX.Element {
       }}
     >
       <img
-        src="/avatar.gif"
+        src={asset('avatar.gif')}
         alt=""
         aria-hidden
         className="moxxy-avatar-loader moxxy-avatar-loader--sm"

@@ -10,8 +10,9 @@
  */
 
 import { spawn } from 'node:child_process';
+import { dirname } from 'node:path';
 import { type BrowserWindow } from 'electron';
-import { augmentedPaths } from './cli-resolver';
+import { augmentedPaths, resolveMoxxyCli, spawnPath } from './cli-resolver';
 import { assertSafeProviderName } from './security';
 
 export interface NodeProbe {
@@ -85,6 +86,9 @@ export async function installMoxxyCli(window: BrowserWindow): Promise<number> {
   return new Promise<number>((resolve, reject) => {
     const proc = spawn(npm, ['install', '-g', '@moxxy/cli'], {
       stdio: ['ignore', 'pipe', 'pipe'],
+      // npm is itself a `#!/usr/bin/env node` shebang; a GUI-launched app
+      // lacks the shell PATH, so put node's dir (= npm's dir) on PATH.
+      env: { ...process.env, PATH: spawnPath([dirname(npm)]) },
     });
     proc.stdout?.on('data', (b: Buffer) => stream(window, b.toString()));
     proc.stderr?.on('data', (b: Buffer) => stream(window, b.toString()));
@@ -108,18 +112,25 @@ export async function runProviderLogin(
   window: BrowserWindow,
 ): Promise<number> {
   assertSafeProviderName(provider);
-  const { resolveMoxxyCli, augmentedPaths } = await import('./cli-resolver');
   const cli = resolveMoxxyCli({ extraPaths: augmentedPaths() });
   if (!cli) throw new Error('moxxy CLI not found — run the install step first');
 
   emit(window, `$ moxxy login ${provider}`);
 
+  // GUI launches lack the shell PATH, so moxxy's `#!/usr/bin/env node`
+  // shebang can't find node → `moxxy login` died with
+  // "env: node: No such file or directory". Put node's dir (= the resolved
+  // CLI's dir) + the known install locations on PATH for the OAuth child.
+  const cliDir = cli.kind === 'direct' ? dirname(cli.bin) : dirname(cli.entry);
+  const env = { ...process.env, PATH: spawnPath([cliDir]) };
+
   return new Promise<number>((resolve, reject) => {
     const proc =
       cli.kind === 'direct'
-        ? spawn(cli.bin, ['login', provider], { stdio: ['ignore', 'pipe', 'pipe'] })
+        ? spawn(cli.bin, ['login', provider], { stdio: ['ignore', 'pipe', 'pipe'], env })
         : spawn('node', [cli.entry, 'login', provider], {
             stdio: ['ignore', 'pipe', 'pipe'],
+            env,
           });
     proc.stdout?.on('data', (b: Buffer) => stream(window, b.toString()));
     proc.stderr?.on('data', (b: Buffer) => stream(window, b.toString()));

@@ -1,3 +1,4 @@
+import { asset } from '@/lib/asset';
 /**
  * Sidebar masthead — the pixel-art MoxxyAI mark plus the "Workspaces"
  * wordmark stacked beside it. Sits flush at the top of the dark rail.
@@ -13,7 +14,7 @@ export function Logo(): JSX.Element {
       }}
     >
       <img
-        src="/logo.png"
+        src={asset('logo.png')}
         alt="MoxxyAI Workspaces"
         width={32}
         height={32}

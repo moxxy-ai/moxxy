@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { asset } from '@/lib/asset';
 import {
   ConnectionBridge,
   isConnected,
@@ -209,7 +210,7 @@ function ReconnectBanner({ label }: { readonly label: string }): JSX.Element {
       }}
     >
       <img
-        src="/avatar.gif"
+        src={asset('avatar.gif')}
         alt=""
         aria-hidden="true"
         className="moxxy-avatar-loader moxxy-avatar-loader--sm"

@@ -36,6 +36,7 @@ import type {
 import {
   augmentedPaths,
   resolveMoxxyCli,
+  spawnPath,
   type CliInvocation,
 } from './cli-resolver';
 import { redactSecrets } from './security';
@@ -311,8 +312,14 @@ export class RunnerSupervisor extends EventEmitter {
   }
 
   private spawnServe(cli: CliInvocation): ChildProcess {
+    const cliDir = cli.kind === 'direct' ? path.dirname(cli.bin) : path.dirname(cli.entry);
     const env = {
       ...process.env,
+      // GUI launches lack the shell PATH, so moxxy's `#!/usr/bin/env node`
+      // shebang can't find node → serve exits 127 and the desktop loops on
+      // "Lost the runner. Reconnecting…". Put node's dir (= the resolved
+      // CLI's dir) + the known install locations on PATH.
+      PATH: spawnPath([cliDir]),
       MOXXY_RUNNER_SOCKET: this.socketPath,
       // Desktop owns the UI; we don't need the co-attached web
       // surface, and binding its fixed port (4040) breaks the moment
