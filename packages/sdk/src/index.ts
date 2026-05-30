@@ -181,7 +181,11 @@ export {
 export { dispatchToolCall } from './tool-dispatch.js';
 
 export type { TokenBudget, CompactContext, CompactorDef } from './compactor.js';
-export { estimateContextTokens, runCompactionIfNeeded } from './compactor-helpers.js';
+export {
+  estimateContextTokens,
+  runCompactionIfNeeded,
+  isContextOverflowError,
+} from './compactor-helpers.js';
 export {
   runElisionIfNeeded,
   resolveElisionSettings,
