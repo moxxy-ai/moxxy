@@ -13,8 +13,9 @@ export const GOAL_PLUGIN_ID = asPluginId('@moxxy/mode-goal');
 export const GOAL_MAX_ROUNDS = 25;
 
 /**
- * Per-round soft cap on the tool-use sub-loop (mirrors mode-developer's dialed
- * down cap — punchy rounds, the outer round loop provides persistence).
+ * Per-round soft cap on each tool-use phase. Dialed down from tool-use's own
+ * default (500) so rounds stay punchy — the outer round loop, not a single
+ * giant phase, is what provides persistence.
  */
 export const GOAL_WORK_MAX_ITERATIONS = 60;
 
@@ -36,10 +37,10 @@ Operating rules:
 - If you catch yourself repeating the same failing action, change approach instead of retrying it unchanged.`;
 
 /**
- * Asked AFTER each work round to decide whether to stop or loop again. Mirrors
- * mode-developer's VERIFY_SYSTEM_PROMPT shape: it may run a real check (for code
- * objectives, the project's build/tests) and must answer in a fixed format the
- * runtime parses. Kept separate so it only appears on the check turn.
+ * Layered over the tool-use loop for the check phase that runs after each work
+ * round to decide whether to stop or loop again. It may run a real check (for
+ * code objectives, the project's build/tests) and must answer in a fixed format
+ * the runtime parses. Kept separate so it only drives the verification turn.
  */
 export const COMPLETION_CHECK_SYSTEM_PROMPT = `You are checking whether the user's original objective has been FULLY delivered. Do this once, then stop.
 

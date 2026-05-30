@@ -1,8 +1,8 @@
 import { toolUseMode } from '@moxxy/mode-tool-use';
 import type { ModeContext, MoxxyEvent } from '@moxxy/sdk';
 
-import { runCompletionCheck } from './completion-check.js';
 import {
+  COMPLETION_CHECK_SYSTEM_PROMPT,
   GOAL_MAX_ROUNDS,
   GOAL_PLUGIN_ID,
   GOAL_SYSTEM_PROMPT,
@@ -11,15 +11,17 @@ import {
 import { parseCompletion } from './parse-completion.js';
 
 /**
- * Goal mode driver. Each ROUND is: a tool-use work phase under a goal-flavored
- * system prompt, then a completion check that decides GOAL_MET / GOAL_NOT_MET.
- * On GOAL_NOT_MET it injects a continuation nudge and loops; on GOAL_MET it
- * reports and stops. It also stops on user interrupt, when the model is blocked
- * awaiting the user, or at the GOAL_MAX_ROUNDS safety cap.
+ * Goal mode driver. Each ROUND runs the standard tool-use loop twice: once to
+ * do the work (under a goal system prompt), then once to verify (under a
+ * completion-check system prompt that has the model run build/tests and emit a
+ * GOAL_MET / GOAL_NOT_MET verdict). On GOAL_NOT_MET it injects a continuation
+ * nudge and loops; on GOAL_MET it reports and stops. It also stops on user
+ * interrupt, when the model is blocked awaiting the user, or at the
+ * GOAL_MAX_ROUNDS safety cap.
  *
- * Structurally a sibling of mode-developer's runDeveloperMode: same trick of
- * wrapping ctx and delegating the inner loop to toolUseMode rather than forking
- * its iteration logic.
+ * Both phases delegate to @moxxy/mode-tool-use rather than forking its
+ * iteration logic — goal mode only layers the outer round loop + verdict gate
+ * on top of the standard tool-use loop.
  */
 export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> {
   if (ctx.signal.aborted) {
@@ -58,14 +60,9 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
       payload: { round },
     });
 
-    // --- Work phase: delegate to the standard tool-use loop with the goal
-    // system prompt layered on. No fork of the iteration logic.
-    const workCtx: ModeContext = {
-      ...ctx,
-      systemPrompt: composeSystemPrompts(ctx.systemPrompt, GOAL_SYSTEM_PROMPT),
-      maxIterations: ctx.maxIterations ?? GOAL_WORK_MAX_ITERATIONS,
-    };
-    for await (const ev of toolUseMode.run(workCtx)) yield ev;
+    // --- Work phase: run the standard tool-use loop with the goal system
+    // prompt layered on. No fork of the iteration logic.
+    for await (const ev of toolUseMode.run(withSystemPrompt(ctx, GOAL_SYSTEM_PROMPT))) yield ev;
 
     if (ctx.signal.aborted) return;
 
@@ -85,10 +82,24 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
       return;
     }
 
-    // --- Completion check: stop or loop?
-    const verdictText = yield* runCompletionCheck(ctx, goal);
-    if (verdictText === null || ctx.signal.aborted) return;
-    const verdict = parseCompletion(verdictText);
+    // --- Completion check: re-run the tool-use loop under a verify-flavored
+    // system prompt so the model can run build/tests and reply with a verdict.
+    // A checkpoint user message triggers the verification turn.
+    yield await ctx.emit({
+      type: 'user_prompt',
+      sessionId: ctx.sessionId,
+      turnId: ctx.turnId,
+      source: 'system',
+      text:
+        `Checkpoint — confirm whether this objective is now FULLY delivered, then reply ` +
+        `with the VERDICT block exactly as specified:\n\n${goal}`,
+    });
+    const checkStart = ctx.log.slice().length;
+    for await (const ev of toolUseMode.run(withSystemPrompt(ctx, COMPLETION_CHECK_SYSTEM_PROMPT))) {
+      yield ev;
+    }
+    if (ctx.signal.aborted) return;
+    const verdict = parseCompletion(lastAssistantTextSince(ctx, checkStart));
 
     yield await ctx.emit({
       type: 'plugin_event',
@@ -122,8 +133,7 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
     }
 
     // Not met — inject a continuation nudge into the log so the next work
-    // round picks up where this left off (same log.append injection the vault
-    // command uses), then loop.
+    // round picks up where this left off, then loop.
     const remainingNote = verdict.remaining
       ? `The objective is not yet fully delivered. Still remaining:\n${verdict.remaining}\n\nKeep working on these, then stop and I'll re-check.`
       : `The objective is not yet fully delivered. Keep working toward it, then stop and I'll re-check.`;
@@ -149,6 +159,17 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
   });
 }
 
+/** Wrap the context with a phase-specific system prompt (layered over any
+ *  user-supplied one) and the goal per-round iteration cap, so a single
+ *  toolUseMode.run() behaves as one work / check phase. */
+function withSystemPrompt(ctx: ModeContext, layer: string): ModeContext {
+  return {
+    ...ctx,
+    systemPrompt: composeSystemPrompts(ctx.systemPrompt, layer),
+    maxIterations: ctx.maxIterations ?? GOAL_WORK_MAX_ITERATIONS,
+  };
+}
+
 function composeSystemPrompts(user: string | undefined, layer: string): string {
   if (!user || user.trim() === '') return layer;
   return `${layer}\n\n---\n\n${user}`;
@@ -166,10 +187,21 @@ function extractObjective(ctx: ModeContext): string {
   return '';
 }
 
+/** Last assistant message emitted at/after `fromIndex` — i.e. the verdict the
+ *  completion-check phase just produced, ignoring earlier work-phase output. */
+function lastAssistantTextSince(ctx: ModeContext, fromIndex: number): string {
+  const events = ctx.log.slice();
+  for (let i = events.length - 1; i >= fromIndex; i--) {
+    const e = events[i];
+    if (e?.type === 'assistant_message') return e.content;
+  }
+  return '';
+}
+
 /** Did the last work round end with the model asking the user a question or
- *  requesting an action? Inspects the most recent assistant message. Mirrors
- *  mode-developer's lastTurnAwaitsUser/messageAwaitsUser (kept local to avoid a
- *  cross-mode dependency). */
+ *  requesting an action? Inspects the most recent assistant message — a local,
+ *  self-contained heuristic so a round that's genuinely blocked on the user
+ *  pauses instead of spinning or fabricating progress. */
 function lastTurnAwaitsUser(ctx: ModeContext): boolean {
   const events = ctx.log.slice();
   for (let i = events.length - 1; i >= 0; i--) {
