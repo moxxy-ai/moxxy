@@ -49,11 +49,15 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     const session = mustRemote(pool, workspaceId);
     session.providers.setActive(provider);
     await waitForSessionState(session, (info) => info.activeProvider === provider);
+    // Re-emit the connection phase so the renderer sees the new activeProvider
+    // — otherwise the onboarding `connectedWithoutProvider` gate never clears.
+    resolveSupervisor(pool, workspaceId)?.refreshConnectedInfo();
   });
   handle('session.setMode', async ({ workspaceId, mode }) => {
     const session = mustRemote(pool, workspaceId);
     session.modes.setActive(mode);
     await waitForSessionState(session, (info) => info.activeMode === mode);
+    resolveSupervisor(pool, workspaceId)?.refreshConnectedInfo();
   });
   handle('session.runCommand', async ({ workspaceId, name, args }) => {
     const session = mustRemote(pool, workspaceId);

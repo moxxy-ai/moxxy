@@ -113,6 +113,29 @@ export class RunnerSupervisor extends EventEmitter {
     return this.session;
   }
 
+  /**
+   * Re-read the runner's session info and re-emit the `connected` phase, so
+   * the renderer sees state that changed mid-session — notably `activeProvider`
+   * after a `setProvider` (the runner boots with no provider during onboarding;
+   * without this re-emit the app's `connectedWithoutProvider` gate never clears
+   * and onboarding loops). No-op unless currently connected.
+   */
+  refreshConnectedInfo(): void {
+    if (!this.session || this.currentPhase.phase !== 'connected') return;
+    try {
+      const info = this.session.getInfo();
+      this.setPhase({
+        phase: 'connected',
+        socket: this.socketPath,
+        sessionId: String(info.sessionId ?? '(unknown)'),
+        activeProvider: info.activeProvider ?? null,
+        activeMode: info.activeMode ?? null,
+      });
+    } catch {
+      /* session torn down mid-refresh — the run loop re-derives the phase */
+    }
+  }
+
   /** Kick the loop out of a backoff wait so the user's Retry button
    *  is responsive. No-op when already trying. */
   forceRetry(): void {

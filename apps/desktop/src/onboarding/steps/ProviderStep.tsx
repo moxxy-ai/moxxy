@@ -77,6 +77,16 @@ export function ProviderStep({
     return off;
   }, []);
 
+  // After a credential lands in the vault, tell the RUNNING runner to activate
+  // this provider. The runner booted with no active provider (no creds existed
+  // yet, so `serve` tolerated it), so without this it never gains an
+  // activeProvider — the app's `connectedWithoutProvider` gate never clears and
+  // onboarding loops forever. setProvider re-resolves the credential from the
+  // vault and makes the runner usable; the gate then drops on its own.
+  const activateProvider = async (): Promise<void> => {
+    await api().invoke('session.setProvider', { provider });
+  };
+
   const saveKey = async (): Promise<void> => {
     if (!secret.trim()) return;
     setSaving(true);
@@ -87,6 +97,7 @@ export function ProviderStep({
         secret: secret.trim(),
       });
       setSecret('');
+      await activateProvider();
       setDone(true);
     } catch (e) {
       setError(toErrorMessage(e));
@@ -101,8 +112,12 @@ export function ProviderStep({
     setLoginLog([]);
     try {
       const code = await api().invoke('onboarding.runProviderLogin', { provider });
-      if (code === 0) setDone(true);
-      else setError(`moxxy login exit ${code}`);
+      if (code !== 0) {
+        setError(`moxxy login exit ${code}`);
+        return;
+      }
+      await activateProvider();
+      setDone(true);
     } catch (e) {
       setError(toErrorMessage(e));
     } finally {
