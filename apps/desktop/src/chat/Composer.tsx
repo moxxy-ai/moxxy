@@ -23,6 +23,8 @@ interface ComposerAttachment {
 interface ComposerProps {
   readonly ready: boolean;
   readonly sending: boolean;
+  /** Runner is compacting the context — lock the composer entirely. */
+  readonly compacting: boolean;
   readonly activeTurnId: string | null;
   readonly workspaceId: string;
   readonly onSend: (
@@ -48,6 +50,7 @@ interface ComposerProps {
 export function Composer({
   ready,
   sending,
+  compacting,
   activeTurnId,
   workspaceId,
   onSend,
@@ -75,9 +78,10 @@ export function Composer({
   const inFlight = activeTurnId !== null || sending;
   // The user can type / submit even while a turn is running — the
   // send() call queues it; the drainer ships it the moment the
-  // current turn completes.
+  // current turn completes. A compaction is the one exception: the
+  // composer locks fully until the runner finishes summarizing.
   const canSubmit =
-    ready && (draft.trim().length > 0 || attachments.length > 0);
+    ready && !compacting && (draft.trim().length > 0 || attachments.length > 0);
   const queued = useQueuedTurns(workspaceId);
 
   // The context rail's file tree fires a CustomEvent when the user
@@ -204,6 +208,36 @@ export function Composer({
           ))}
         </div>
       )}
+      {compacting && (
+        <div
+          role="status"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '7px 10px',
+            marginBottom: 6,
+            fontSize: 12.5,
+            fontWeight: 600,
+            color: 'var(--color-primary-strong)',
+            background: 'var(--color-primary-soft)',
+            borderRadius: 9,
+          }}
+        >
+          <span
+            aria-hidden
+            style={{
+              width: 13,
+              height: 13,
+              borderRadius: '50%',
+              border: '2px solid var(--color-primary-soft)',
+              borderTopColor: 'var(--color-primary)',
+              animation: 'moxxy-spin 0.8s linear infinite',
+            }}
+          />
+          Compacting context — summarizing older turns to free up the window…
+        </div>
+      )}
       <textarea
         ref={taRef}
         data-testid="composer-input"
@@ -212,13 +246,15 @@ export function Composer({
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={onKeyDown}
         placeholder={
-          attachments.length > 0
-            ? 'Ask about the attached file…'
-            : ready
-              ? 'Send a message to the agent…'
-              : 'Waiting for runner…'
+          compacting
+            ? 'Compacting context…'
+            : attachments.length > 0
+              ? 'Ask about the attached file…'
+              : ready
+                ? 'Send a message to the agent…'
+                : 'Waiting for runner…'
         }
-        disabled={!ready}
+        disabled={!ready || compacting}
         rows={Math.min(8, Math.max(1, draft.split('\n').length))}
         style={{
           width: '100%',

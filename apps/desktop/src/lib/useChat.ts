@@ -22,6 +22,8 @@ export interface UseChat {
   readonly isEmpty: boolean;
   /** First on-open disk read is still loading; show a transcript spinner. */
   readonly loading: boolean;
+  /** A manual compaction is in flight — composer is locked. */
+  readonly compacting: boolean;
   readonly send: (
     prompt: string,
     attachments?: ReadonlyArray<{ path: string; name: string }>,
@@ -143,6 +145,8 @@ export function useChat(workspaceId: string | null): UseChat {
       const trimmed = prompt.trim();
       if (!trimmed && (!attachments || attachments.length === 0)) return;
       const cur = chatStore.getChat(workspaceId);
+      // Locked while the runner is compacting — don't send or even queue.
+      if (cur.compacting) return;
       if (cur.activeTurnId !== null || cur.sending) {
         chatStore.enqueue(workspaceId, trimmed, attachments);
         return;
@@ -175,6 +179,7 @@ export function useChat(workspaceId: string | null): UseChat {
     error: snap.error,
     isEmpty: snap.isEmpty,
     loading: snap.loading,
+    compacting: snap.compacting,
     send,
     abort,
     clear,

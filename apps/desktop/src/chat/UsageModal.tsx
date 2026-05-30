@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Modal } from '@/lib/Modal';
 import { api } from '@/lib/api';
 import { Icon } from '@/lib/Icon';
+import { chatStore } from '@/lib/chatStore';
 import type { ContextUsage } from '@/lib/useContextUsage';
 
 /** Compact token formatter — 1.2k / 3.40M / 812. */
@@ -50,6 +51,9 @@ export function UsageModal({
   const onCompact = async (): Promise<void> => {
     setCompacting(true);
     setNote(null);
+    // Lock the composer for the whole workspace while the runner summarizes —
+    // a mid-compaction send would race the context rewrite.
+    chatStore.setCompacting(workspaceId, true);
     try {
       const r = await api().invoke('session.runCommand', {
         workspaceId,
@@ -65,6 +69,7 @@ export function UsageModal({
       setNote({ kind: 'error', text: 'compaction failed' });
     } finally {
       setCompacting(false);
+      chatStore.setCompacting(workspaceId, false);
     }
   };
 

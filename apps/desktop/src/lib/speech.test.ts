@@ -36,4 +36,9 @@ describe('toSpeakableText', () => {
   it('leaves snake_case identifiers intact', () => {
     expect(toSpeakableText('call run_turn now')).toBe('call run_turn now.');
   });
+
+  it('strips bare URLs so they are not read aloud', () => {
+    expect(toSpeakableText('See https://example.com/x?y=1 for more')).toBe('See for more.');
+    expect(toSpeakableText('visit www.example.com today')).toBe('visit today.');
+  });
 });

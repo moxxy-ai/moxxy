@@ -90,9 +90,12 @@ export function toSpeakableText(markdown: string): string {
     // Fenced code → a short spoken aside, not line-by-line source.
     .replace(/```[\s\S]*?```/g, ' (code block) ')
     .replace(/~~~[\s\S]*?~~~/g, ' (code block) ')
-    // Images / links → their human-readable text.
+    // Images / links → their human-readable text (the URL is dropped, never
+    // spoken). Bare URLs in prose are stripped too so the engine doesn't read
+    // out "h-t-t-p-s-colon-slash-slash…".
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/\b(?:https?:\/\/|www\.)\S+/gi, '')
     // Inline code + emphasis → bare content. The `_italic_` rule requires
     // both underscores so snake_case identifiers survive.
     .replace(/`([^`]+)`/g, '$1')

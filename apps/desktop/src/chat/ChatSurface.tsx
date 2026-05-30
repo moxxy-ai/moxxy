@@ -157,6 +157,7 @@ export function ChatSurface({
       <Composer
         ready={ready}
         sending={chat.sending}
+        compacting={chat.compacting}
         activeTurnId={chat.activeTurnId}
         workspaceId={workspaceId}
         onSend={(p, atts) => void chat.send(p, atts)}

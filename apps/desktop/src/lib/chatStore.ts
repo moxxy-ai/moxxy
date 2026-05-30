@@ -56,6 +56,9 @@ export interface ChatSnapshot {
   /** First on-open disk read is still in flight and nothing has rendered
    *  yet — the transcript shows an initial-loading spinner. */
   readonly loading: boolean;
+  /** A manual compaction is in flight — lock the composer so the user can't
+   *  send (or queue) while the runner is summarizing the context. */
+  readonly compacting: boolean;
 }
 
 interface Slot {
@@ -75,6 +78,8 @@ interface Slot {
   loadingOlder: boolean;
   /** Token accounting folded from provider_response events (context meter). */
   usage: UsageSnapshot;
+  /** Manual compaction in flight (composer lock). */
+  compacting: boolean;
 }
 
 const EMPTY_QUEUE: ReadonlyArray<QueuedTurn> = Object.freeze([]);
@@ -93,6 +98,7 @@ export const EMPTY_SNAPSHOT: ChatSnapshot = Object.freeze({
   isEmpty: true,
   hasOlder: false,
   loading: false,
+  compacting: false,
 });
 
 /**
@@ -122,6 +128,13 @@ export const EMPTY_USAGE: UsageSnapshot = Object.freeze({
   totalCacheCreation: 0,
   totalOutput: 0,
 });
+
+/** Compact token count for notices — 1.2k / 3.4M / 812. */
+function formatTokensShort(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(Math.round(n));
+}
 
 type ProviderResponse = Extract<MoxxyEvent, { type: 'provider_response' }>;
 
@@ -211,6 +224,7 @@ class ChatStore {
         events.length === 0 &&
         rt.extensions.length === 0 &&
         rt.streamingText === '',
+      compacting: slot.compacting,
     };
     return slot.snap;
   }
@@ -223,6 +237,15 @@ class ChatStore {
    *  Reference-stable until the next response lands (safe for useSyncExternalStore). */
   getUsage(workspaceId: string): UsageSnapshot {
     return this.slots.get(workspaceId)?.usage ?? EMPTY_USAGE;
+  }
+
+  /** Toggle the manual-compaction lock for a workspace (composer disable). */
+  setCompacting(workspaceId: string, value: boolean): void {
+    const slot = this.ensure(workspaceId);
+    if (slot.compacting === value) return;
+    slot.compacting = value;
+    slot.snap = null;
+    this.emit();
   }
 
   setModel(workspaceId: string, model: string | null): void {
@@ -380,6 +403,37 @@ class ChatStore {
       return;
     }
 
+    // compaction summarizes old turns and shrinks the live context. It's not a
+    // rendered event either, so: drop the context meter by the freed tokens,
+    // and surface a visible notice in the transcript so the user sees it kick
+    // in (whether triggered manually or by the 75% auto-compactor).
+    if (action.type === 'event' && action.event.type === 'compaction') {
+      const saved = action.event.tokensSaved ?? 0;
+      if (saved > 0) {
+        if (slot.usage.latestPrompt != null) {
+          slot.usage = {
+            ...slot.usage,
+            latestPrompt: Math.max(0, slot.usage.latestPrompt - saved),
+          };
+        }
+        slot.rt.extensions = [
+          ...slot.rt.extensions,
+          {
+            kind: 'notice',
+            id: action.event.id,
+            afterCount: slot.rt.log.length,
+            tone: 'info',
+            text: `Context compacted — freed ~${formatTokensShort(saved)} tokens`,
+          },
+        ];
+        slot.rt.rev += 1;
+        slot.snap = null;
+        this.unreadDirty = true;
+        this.emit();
+      }
+      return;
+    }
+
     const before = slot.rt.log.length;
     const changed = applyAction(slot.rt, action);
     if (!changed) return;
@@ -434,6 +488,7 @@ class ChatStore {
         loadingInitial: false,
         loadingOlder: false,
         usage: EMPTY_USAGE,
+        compacting: false,
       };
       this.slots.set(workspaceId, slot);
     }
