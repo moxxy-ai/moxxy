@@ -27,9 +27,12 @@
  *   4. After all publishes are done, commit any tombstone-driven bumps
  *      back to the repository so the next release does not have to walk
  *      the same dead slots again. Only runs inside GitHub Actions.
- *   5. Emit `🦋  New tag: <pkg>@<ver>` lines on success so
- *      `changesets/action` still picks them up and creates GitHub
- *      releases.
+ *   5. Create the `<pkg>@<ver>` git tag for each published package and
+ *      emit the `🦋  New tag: <pkg>@<ver>` lines, so `changesets/action`
+ *      can push the tags and create GitHub releases. (The stock
+ *      `changeset publish` creates these tags; this wrapper replaces it,
+ *      so it must create them too — otherwise the action's tag push fails
+ *      with "src refspec <tag> does not match any".)
  *
  * Exit codes: 0 on full success, 1 if anything failed for a reason other
  * than tombstone-exhaustion (those are reported but do not block the
@@ -130,6 +133,23 @@ function inGitHubActions() {
   return process.env.GITHUB_ACTIONS === 'true';
 }
 
+function createGitTag(name, version) {
+  // After parsing our `🦋  New tag:` lines, changesets/action runs
+  // `git push origin <tag>` to create each GitHub Release. The stock
+  // `changeset publish` leaves those tags behind locally; this custom
+  // publisher must create them itself, or the push fails with
+  // "error: src refspec <tag> does not match any". CI-only: that push
+  // only happens inside changesets/action.
+  if (!inGitHubActions()) return;
+  const tag = `${name}@${version}`;
+  const r = spawnSync('git', ['tag', tag], { encoding: 'utf8' });
+  if (r.status === 0) return;
+  // A pre-existing tag (e.g. a re-run over the same version) is fine —
+  // the subsequent push still creates/refreshes the release.
+  if (/already exists/i.test(r.stderr ?? '')) return;
+  console.warn(`Could not create git tag ${tag}: ${(r.stderr ?? '').trim()}`);
+}
+
 function commitBumps(bumps) {
   if (bumps.length === 0) return;
   if (!inGitHubActions()) {
@@ -181,6 +201,7 @@ for (const { dir, pkg } of packages) {
     const r = tryPublish(dir);
     if (r.code === 0) {
       console.log(`  ✓ published ${current.name}@${current.version}`);
+      createGitTag(current.name, current.version);
       announceTag(current.name, current.version);
       outcome = { status: 'published', version: current.version };
       break;
