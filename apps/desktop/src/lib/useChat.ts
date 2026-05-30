@@ -8,7 +8,7 @@ import { toErrorMessage } from './errors';
 import type { Extension } from './chatModel';
 
 export type { Extension, RenderNode, FoldedBlock } from './chatModel';
-export { buildRenderNodes } from './chatModel';
+export { buildRenderNodes, groupToolNodes } from './chatModel';
 
 export interface UseChat {
   /** Committed runner events (reference-stable across streaming-only ticks). */

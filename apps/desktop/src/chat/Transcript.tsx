@@ -2,8 +2,9 @@ import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso } from 'react-virtuoso';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { blocksEquivalent, type Block as FoldedBlock } from '@moxxy/chat-model';
-import { buildRenderNodes, type Extension, type RenderNode } from '@/lib/useChat';
+import { buildRenderNodes, groupToolNodes, type Extension, type RenderNode } from '@/lib/useChat';
 import { BlockView, StreamingAssistant } from './BlockView';
+import { ToolGroupView } from './ToolGroupView';
 import { ExtensionCard } from './ExtensionCard';
 import { ThinkingIndicator } from './ThinkingIndicator';
 
@@ -37,7 +38,9 @@ const MemoBlock = memo(
 const ROW: React.CSSProperties = { padding: '8px 24px', display: 'flex', flexDirection: 'column' };
 
 function keyOf(node: RenderNode): string {
-  return node.kind === 'ext' ? node.ext.id : node.block.id;
+  if (node.kind === 'ext') return node.ext.id;
+  if (node.kind === 'tool-group') return node.id;
+  return node.block.id;
 }
 
 function Row({ node, workspaceId }: { readonly node: RenderNode; readonly workspaceId?: string }): JSX.Element {
@@ -45,6 +48,8 @@ function Row({ node, workspaceId }: { readonly node: RenderNode; readonly worksp
     <div style={ROW}>
       {node.kind === 'ext' ? (
         <ExtensionCard ext={node.ext} workspaceId={workspaceId} />
+      ) : node.kind === 'tool-group' ? (
+        <ToolGroupView tools={node.tools} />
       ) : (
         <MemoBlock block={node.block} />
       )}
@@ -75,7 +80,10 @@ export function Transcript({
 }: TranscriptProps): JSX.Element {
   // Fold only when committed events / extensions change — never on a
   // streaming tick (the events array reference is stable across chunks).
-  const nodes = useMemo(() => buildRenderNodes(events, extensions), [events, extensions]);
+  const nodes = useMemo(
+    () => groupToolNodes(buildRenderNodes(events, extensions)),
+    [events, extensions],
+  );
 
   // Track how many rows have been prepended so far and shift
   // firstItemIndex by that amount. Detect a prepend by finding where the

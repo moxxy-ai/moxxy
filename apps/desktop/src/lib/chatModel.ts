@@ -21,6 +21,7 @@ import {
   newBlockId,
   pairToolEvents,
   type Block as FoldedBlock,
+  type ToolCallBlockData,
 } from '@moxxy/chat-model';
 
 export type { FoldedBlock };
@@ -51,11 +52,43 @@ export type Extension =
       readonly text: string;
     };
 
-/** One node of the rendered transcript: a folded chat-model block, or a
- *  desktop extension card. */
+/** One node of the rendered transcript: a folded chat-model block, a desktop
+ *  extension card, or a run of ≥2 consecutive standalone tool calls collapsed
+ *  into one group (see {@link groupToolNodes}). */
 export type RenderNode =
   | { readonly kind: 'block'; readonly block: FoldedBlock }
-  | { readonly kind: 'ext'; readonly ext: Extension };
+  | { readonly kind: 'ext'; readonly ext: Extension }
+  | { readonly kind: 'tool-group'; readonly id: string; readonly tools: ReadonlyArray<ToolCallBlockData> };
+
+/**
+ * Collapse runs of ≥2 consecutive top-level `tool-call` nodes into a single
+ * `tool-group` node so a burst of back-to-back Writes/fetches reads as one
+ * collapsible "Tools (N)" block instead of N stacked rows. A lone tool keeps
+ * its own top-level block; anything non-tool (assistant text, a skill scope,
+ * an extension) breaks the run.
+ */
+export function groupToolNodes(nodes: ReadonlyArray<RenderNode>): RenderNode[] {
+  const out: RenderNode[] = [];
+  let run: ToolCallBlockData[] = [];
+  const flush = (): void => {
+    if (run.length >= 2) {
+      out.push({ kind: 'tool-group', id: `toolgroup:${run[0]!.id}`, tools: run });
+    } else if (run.length === 1) {
+      out.push({ kind: 'block', block: run[0]! });
+    }
+    run = [];
+  };
+  for (const n of nodes) {
+    if (n.kind === 'block' && n.block.kind === 'tool-call') {
+      run.push(n.block);
+    } else {
+      flush();
+      out.push(n);
+    }
+  }
+  flush();
+  return out;
+}
 
 export type ChatAction =
   | { type: 'event'; event: MoxxyEvent }

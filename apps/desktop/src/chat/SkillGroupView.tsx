@@ -20,7 +20,7 @@ import { Icon } from '@/lib/Icon';
 
 type SkillScope = Extract<FoldedBlock, { kind: 'skill-scope' }>;
 
-interface ToolRowData {
+export interface ToolRowData {
   readonly id: string;
   readonly name: string;
   readonly input: unknown;
@@ -44,7 +44,7 @@ function collectTools(children: ReadonlyArray<FoldedBlock>): ToolRowData[] {
   return out;
 }
 
-function statusOf(outcome: ToolCallBlockData['outcome']): 'running' | 'ok' | 'error' {
+export function statusOf(outcome: ToolCallBlockData['outcome']): 'running' | 'ok' | 'error' {
   if (outcome === null) return 'running';
   if (outcome.type === 'denied') return 'error';
   return outcome.ok ? 'ok' : 'error';
@@ -132,7 +132,7 @@ function Avatar(): JSX.Element {
   );
 }
 
-function ToolRow({ tool }: { readonly tool: ToolRowData }): JSX.Element {
+export function ToolRow({ tool }: { readonly tool: ToolRowData }): JSX.Element {
   const [open, setOpen] = useState(false);
   const status = statusOf(tool.outcome);
   const accent =
