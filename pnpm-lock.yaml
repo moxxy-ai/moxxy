@@ -568,6 +568,15 @@ importers:
         specifier: workspace:*
         version: link:../sdk
     devDependencies:
+      '@moxxy/core':
+        specifier: workspace:*
+        version: link:../core
+      '@moxxy/mode-plan-execute':
+        specifier: workspace:*
+        version: link:../mode-plan-execute
+      '@moxxy/testing':
+        specifier: workspace:*
+        version: link:../testing
       '@moxxy/tsconfig':
         specifier: workspace:*
         version: link:../../tooling/tsconfig
@@ -9089,6 +9098,14 @@ snapshots:
     optionalDependencies:
       vite: 5.4.21(@types/node@22.19.18)
 
+  '@vitest/mocker@2.1.9(vite@5.4.21(@types/node@24.12.3))':
+    dependencies:
+      '@vitest/spy': 2.1.9
+      estree-walker: 3.0.3
+      magic-string: 0.30.21
+    optionalDependencies:
+      vite: 5.4.21(@types/node@24.12.3)
+
   '@vitest/pretty-format@2.1.9':
     dependencies:
       tinyrainbow: 1.2.0
@@ -13686,7 +13703,7 @@ snapshots:
   vitest@2.1.9(@types/node@24.12.3)(jsdom@25.0.1):
     dependencies:
       '@vitest/expect': 2.1.9
-      '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@22.19.18))
+      '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@24.12.3))
       '@vitest/pretty-format': 2.1.9
       '@vitest/runner': 2.1.9
       '@vitest/snapshot': 2.1.9

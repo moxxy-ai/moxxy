@@ -95,6 +95,14 @@ export class SessionDriver {
     });
   }
 
+  /** True when this driver is bridging `session` — used by the IPC
+   *  layer to skip a needless dispose+recreate on a redundant
+   *  `connected` pool change (which would otherwise abort an in-flight
+   *  turn, e.g. while a plan-execute approval sheet is open). */
+  wraps(session: RemoteSession): boolean {
+    return this.session === session;
+  }
+
   /** Subscribe a secondary window so it receives every `runner.event`
    *  and `turn.complete` this driver emits. Returns an unsubscribe. */
   attachWindow(win: BrowserWindow): () => void {

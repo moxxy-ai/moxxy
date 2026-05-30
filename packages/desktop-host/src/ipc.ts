@@ -459,8 +459,17 @@ export function bindWindow(
   const ensureDriverFor = (id: string, sup: RunnerSupervisor): void => {
     const session = sup.remote();
     if (claimGlobal) {
-      // Primary: own the driver as before.
+      // Primary: own the driver.
       const existing = localDrivers.get(id);
+      // A `connected` pool change can fire more than once for the SAME
+      // live session (e.g. a secondary window binding, a redundant
+      // supervisor re-emit). Disposing+recreating the driver in that
+      // case aborts whatever turn is in flight — fatal for plan-execute,
+      // whose human-in-the-loop approval keeps a turn parked for many
+      // seconds. Only rebuild when the underlying session actually
+      // changed (a genuine reconnect); otherwise leave the running
+      // driver — and its in-flight turn — untouched.
+      if (existing && session && existing.wraps(session)) return;
       if (existing) existing.dispose();
       if (session) {
         const driver = new SessionDriver(session, window, id);
