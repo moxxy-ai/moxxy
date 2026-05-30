@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/mode-bmad",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "BMAD (Breakthrough Method for Agile AI Development) loop strategy for moxxy: Analysis → Planning → Solutioning → Implementation, with per-phase artifacts and approval gates.",
   "type": "module",
   "main": "./dist/index.js",

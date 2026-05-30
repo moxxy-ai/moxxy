@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-self-update",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Model-callable self-update: guardrailed, transactional editing of moxxy's own plugins/skills (Tier 1, hot-reloaded) and core packages (Tier 2, build+overlay+restart). Every change is approval-gated, verified, and auto-rolled-back on failure. Disable to lock the code base.",
   "type": "module",
   "main": "./dist/index.js",

@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-provider-openai",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "OpenAI LLMProvider plugin for moxxy. Streams Chat Completions with tool_calls; translates moxxy ProviderRequest/Event ↔ OpenAI wire shape.",
   "type": "module",
   "main": "./dist/index.js",
