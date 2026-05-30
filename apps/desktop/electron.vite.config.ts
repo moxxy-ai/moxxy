@@ -21,12 +21,14 @@ const BUNDLED_WORKSPACE_DEPS = [
 
 /**
  * Native / optional modules that must stay external even though they ride
- * in on a bundled workspace dep. `keytar` is loaded via a guarded dynamic
- * `import('keytar')` (plugin-vault falls back to a disk/passphrase key
- * when it is absent), so it is never statically required — keep it out of
- * the bundle and let it resolve (or gracefully fail) at runtime.
+ * in on a bundled workspace dep. `@napi-rs/keyring` is loaded via a guarded
+ * dynamic `import('@napi-rs/keyring')` (plugin-vault falls back to a
+ * disk/passphrase key when it is absent), so it is never statically
+ * required — keep it out of the bundle (its NAPI-RS loader reassigns
+ * `commonjsRequire`, which Rollup can't inline) and let it resolve (or
+ * gracefully fail) at runtime.
  */
-const EXTERNAL_NATIVE = ['keytar'];
+const EXTERNAL_NATIVE = ['@napi-rs/keyring'];
 
 /**
  * electron-vite manages three build targets (main / preload / renderer)

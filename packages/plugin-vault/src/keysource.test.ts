@@ -6,14 +6,15 @@ import { createCombinedKeySource, createStaticKeySource } from './keysource.js';
 import { generateSalt } from './crypto.js';
 
 // ---------------------------------------------------------------------------
-// Fake keytar.
+// Fake @napi-rs/keyring.
 //
-// keysource.ts reaches the OS keychain via a *dynamic* `import('keytar')`.
-// We replace that module with an in-memory store so the tests never touch the
-// real macOS/Linux/Windows keychain. The mock factory must not close over
-// outer mutable bindings directly (vi.mock is hoisted above them), so we keep
-// the backing store on a stable object created inside the factory and expose
-// it through the mocked module's own helpers.
+// keysource.ts reaches the OS keychain via a *dynamic* `import('@napi-rs/keyring')`
+// and its synchronous `Entry` class. We replace that module with an in-memory
+// store so the tests never touch the real macOS/Linux/Windows keychain. Like
+// the real library, `getPassword()` THROWS when no entry exists (rather than
+// returning null). The mock factory must not close over outer mutable bindings
+// directly (vi.mock is hoisted above them), so the backing store lives on a
+// stable object the class methods read at call time.
 // ---------------------------------------------------------------------------
 const keytarState: { store: Map<string, string>; failGet: boolean; failSet: boolean } = {
   store: new Map(),
@@ -21,15 +22,23 @@ const keytarState: { store: Map<string, string>; failGet: boolean; failSet: bool
   failSet: false,
 };
 
-vi.mock('keytar', () => ({
-  getPassword: vi.fn(async (svc: string, acct: string) => {
-    if (keytarState.failGet) throw new Error('keychain locked');
-    return keytarState.store.get(`${svc}:${acct}`) ?? null;
-  }),
-  setPassword: vi.fn(async (svc: string, acct: string, password: string) => {
-    if (keytarState.failSet) throw new Error('keychain refused');
-    keytarState.store.set(`${svc}:${acct}`, password);
-  }),
+vi.mock('@napi-rs/keyring', () => ({
+  Entry: class {
+    private readonly mapKey: string;
+    constructor(service: string, account: string) {
+      this.mapKey = `${service}:${account}`;
+    }
+    getPassword(): string {
+      if (keytarState.failGet) throw new Error('keychain locked');
+      const v = keytarState.store.get(this.mapKey);
+      if (v == null) throw new Error('No matching entry found in secure storage');
+      return v;
+    }
+    setPassword(password: string): void {
+      if (keytarState.failSet) throw new Error('keychain refused');
+      keytarState.store.set(this.mapKey, password);
+    }
+  },
 }));
 
 const KEYTAR_KEY = 'moxxy:vault-master-key';
@@ -134,7 +143,7 @@ describe('createCombinedKeySource', () => {
     const key = await src.obtain(generateSalt());
 
     expect(key.toString('base64')).toBe(keytarVal);
-    expect(src.name).toBe('keytar');
+    expect(src.name).toBe('keychain');
 
     // Disk is backfilled with the keytar value (overwriting the stale disk val).
     const onDisk = await waitForFile(diskKeyPath, keytarVal);
