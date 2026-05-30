@@ -82,8 +82,17 @@ export class SessionDriver {
           { workspaceId, kind: 'approval', approval: request },
           (channel, payload) => this.send(channel, payload),
         );
+        // The renderer always returns an `optionId` for an approval. A response
+        // WITHOUT one means the ask was cancelled (broker teardown — the driver
+        // was disposed / window closed). Cancelling must NOT fall through to the
+        // default option (often "approve/proceed"); pick the danger/abort option
+        // so a vanished sheet never silently green-lights a risky step.
         const optionId =
-          res.optionId ?? request.defaultOptionId ?? request.options[0]?.id ?? 'cancel';
+          res.optionId ??
+          request.options.find((o) => o.danger)?.id ??
+          request.defaultOptionId ??
+          request.options[0]?.id ??
+          'cancel';
         return { optionId, ...(res.text ? { text: res.text } : {}) };
       },
     });
