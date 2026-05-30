@@ -34,7 +34,7 @@ export class VaultPassphraseError extends Error {
       `Wrong vault passphrase for ${filePath}.\n` +
         `  If you've forgotten it, wipe the vault and key cache, then re-run \`moxxy init\`:\n` +
         `    rm ${filePath} ~/.moxxy/vault.key\n` +
-        `  (If keytar is installed, also clear the entry: \`security delete-generic-password -s moxxy\` on macOS.)\n` +
+        `  (If the OS keychain holds a cached key, also clear it: \`security delete-generic-password -s moxxy\` on macOS.)\n` +
         `  Or set MOXXY_VAULT_PASSPHRASE to a known value to skip the prompt entirely.`,
     );
     this.name = 'VaultPassphraseError';

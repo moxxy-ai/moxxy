@@ -18,11 +18,14 @@ const here = path.dirname(fileURLToPath(import.meta.url));
  *                     discovered third-party plugins share it with the builtins
  *   - zod             sdk's peer dep; must be the SAME instance the builtins and
  *                     third-party plugins use, or cross-boundary schemas diverge
- *   - keytar          native module, cannot be bundled (vault degrades to disk key)
- *   - playwright      huge; optional (browser plugin throws a clear hint if absent)
- *   - @huggingface/transformers  huge; optional (embedder falls back to TF-IDF)
- * keytar/playwright/transformers are loaded via dynamic import() with graceful
- * fallback already; @moxxy/sdk + zod ship as real runtime dependencies.
+ *   - @napi-rs/keyring  native module, cannot be bundled (vault degrades to disk key);
+ *                       shipped as an optionalDependency
+ *   - playwright      huge; install-on-demand (browser plugin throws a clear hint if absent)
+ *   - @huggingface/transformers  huge; install-on-demand (embedder falls back to TF-IDF)
+ * All three are loaded via dynamic import() with graceful fallback already, so
+ * playwright/transformers stay external (bundled plugins import them lazily)
+ * even though they are no longer installed by default; @moxxy/sdk + zod ship as
+ * real runtime dependencies.
  */
 export default defineConfig({
   entry: {
@@ -50,7 +53,7 @@ export default defineConfig({
   clean: true,
   dts: false, // a binary ships no types; `tsc --noEmit` still typechecks
   shims: false, // code uses import.meta.url directly; no __dirname shims
-  external: ['@moxxy/sdk', 'zod', 'keytar', 'playwright', '@huggingface/transformers'],
+  external: ['@moxxy/sdk', 'zod', '@napi-rs/keyring', 'playwright', '@huggingface/transformers'],
   // Several bundled CJS deps (ulid, jiti, …) call require() for node builtins.
   // ESM output has no `require`, so esbuild's __require stub throws. Inject a
   // real createRequire-backed `require` so those calls resolve. esbuild keeps

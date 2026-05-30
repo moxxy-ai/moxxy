@@ -2,7 +2,7 @@
   "name": "@moxxy/plugin-vault",
   "private": true,
   "version": "0.0.2",
-  "description": "Encrypted secret storage for moxxy. AES-256-GCM at rest. Master key from OS keychain (keytar) or passphrase fallback.",
+  "description": "Encrypted secret storage for moxxy. AES-256-GCM at rest. Master key from OS keychain (@napi-rs/keyring) or passphrase fallback.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -33,7 +33,7 @@
     "zod": "catalog:"
   },
   "optionalDependencies": {
-    "keytar": "^7.9.0"
+    "@napi-rs/keyring": "^1.3.0"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",
