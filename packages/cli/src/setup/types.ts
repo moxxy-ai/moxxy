@@ -17,6 +17,14 @@ export interface SetupOptions {
   readonly configPath?: string;
   readonly skipUserConfig?: boolean;
   readonly disableKeytar?: boolean;
+  /**
+   * Custom prompt for the vault master-key passphrase (first run only, when
+   * no env var / OS keychain / disk key is present). When omitted the vault
+   * uses a bare `readline` prompt, or throws in a non-TTY. `moxxy init` passes
+   * a `@clack/prompts`-styled prompt so the passphrase step matches the rest
+   * of the setup wizard.
+   */
+  readonly passphrasePrompt?: () => Promise<string>;
   /** Skip the interactive API-key prompt when no key is found. Useful for headless tooling that wants a hard error instead of a hang. */
   readonly skipKeyPrompt?: boolean;
   /**
