@@ -140,7 +140,11 @@ export function App(): JSX.Element {
             railOpen={railOpen}
             onShowRail={() => setRailOpen(true)}
           />
-          <ContextRail open={railOpen} onClose={() => setRailOpen(false)} />
+          <ContextRail
+            open={railOpen}
+            onClose={() => setRailOpen(false)}
+            workspaceId={activeWorkspaceId}
+          />
         </>
       )}
       {view === 'workflows' && (

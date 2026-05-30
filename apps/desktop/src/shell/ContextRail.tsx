@@ -24,11 +24,16 @@ interface Props {
    *  border. Keeps the workspace + file tree alive between toggles
    *  so re-open is instant. */
   readonly open: boolean;
+  /** The workspace the rest of the UI is showing. The rail is
+   *  workspace-scoped (info + file tree), so it must track the SAME id
+   *  the chat does — deriving its own from `desks.activeId` let it lag
+   *  behind a switch and show the wrong workspace's (empty) files. */
+  readonly workspaceId: string | null;
 }
 
-export function ContextRail({ onClose, open }: Props): JSX.Element {
+export function ContextRail({ onClose, open, workspaceId }: Props): JSX.Element {
   const desks = useDesks();
-  const active = desks.desks.find((d) => d.id === desks.activeId);
+  const active = desks.desks.find((d) => d.id === workspaceId);
 
   return (
     <section

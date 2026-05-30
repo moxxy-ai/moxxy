@@ -120,8 +120,36 @@ export function WorkspaceFiles({
     });
   };
 
+  // Reload the root + every expanded folder — picks up files the agent
+  // wrote or the user added since the tree was first read.
+  const refresh = (): void => {
+    void load('.');
+    for (const p of expanded) if (p !== '.') void load(p);
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <button
+        type="button"
+        onClick={refresh}
+        title="Reload files"
+        style={{
+          alignSelf: 'flex-end',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 5,
+          padding: '3px 8px',
+          marginBottom: 2,
+          fontSize: 11,
+          color: 'var(--color-text-dim)',
+          border: '1px solid var(--color-card-border)',
+          borderRadius: 7,
+          background: '#fff',
+        }}
+      >
+        <Icon name="rotate" size={12} />
+        Reload
+      </button>
       <DirRow
         path="."
         level={0}
