@@ -8,6 +8,8 @@ import { cliVersion } from '../version.js';
 import { runSetupWizard } from '../wizard/run-setup-wizard.js';
 import { buildProviderAuthContext } from '../wizard/auth-context.js';
 import { renderLogo } from '../logo.js';
+import { cancel, isCancel, note, password } from '@clack/prompts';
+import { colors } from '../colors.js';
 import type { ProviderAuthKind } from '@moxxy/plugin-cli';
 import { MoxxyError, type ProviderDef } from '@moxxy/sdk';
 
@@ -23,31 +25,35 @@ import { MoxxyError, type ProviderDef } from '@moxxy/sdk';
  * enough to make it appear here; no CLI-side branch table.
  */
 export async function runInitCommand(argv: ParsedArgv): Promise<number> {
+  const interactive = Boolean(process.stdin.isTTY);
+
   // `skipProviderActivation` is critical here: without it, the activation
   // loop calls `vault.get()` for every candidate provider, which opens the
-  // vault, which on a first-time-no-keytar install triggers an invisible
-  // readline passphrase prompt that hangs the wizard. The init flow is
-  // *itself* what populates the vault — running activation pre-mount is
-  // both pointless and a UX trap.
+  // vault and would fire the passphrase prompt before the wizard even
+  // starts. The init flow is *itself* what populates the vault — running
+  // activation pre-mount is both pointless and a UX trap.
+  //
+  // `passphrasePrompt` (TTY only) swaps the vault's bare readline prompt for
+  // a @clack/prompts step, so the first-run passphrase reads as part of the
+  // setup wizard rather than an unstyled prompt before it.
   const { session, vault } = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,
     skipProviderActivation: true,
+    ...(interactive ? { passphrasePrompt: promptVaultPassphrase } : {}),
   });
 
-  if (!process.stdin.isTTY) {
+  if (!interactive) {
     return await runHeadlessInit(session, vault);
   }
 
-  // Pre-warm the vault BEFORE starting the wizard. A first-time install
-  // (no keytar entry yet) needs to prompt for a passphrase via readline;
-  // doing that mid-clack would garble the rendering. Opening here while
-  // the terminal is in cooked mode keeps the prompt clean.
-  await vault.open();
-
-  // Banner above the wizard intro. The clack `intro()` line will land
-  // immediately under this with a `┌` corner, giving the impression that
-  // the whole flow flows out of the moxxy logo.
+  // Logo first, so the whole flow reads as one screen: the (first-run only)
+  // vault passphrase step and the wizard's `intro()` both render beneath it.
   process.stdout.write(renderLogo());
+
+  // Open the vault as the first pre-requirement step. On a first run (no env
+  // var, OS keychain, or disk key) this invokes `promptVaultPassphrase`;
+  // otherwise it unlocks silently and the wizard starts immediately.
+  await vault.open();
 
   const providerDefs = session.providers.list();
   const defsByName = new Map(providerDefs.map((d) => [d.name, d] as const));
@@ -158,6 +164,34 @@ async function runHeadlessInit(
   }
   process.stderr.write(`moxxy init: saved ${saved} key(s) to vault.\n`);
   return 0;
+}
+
+/**
+ * First-run vault passphrase, styled to match the setup wizard. The vault
+ * encrypts API keys at rest; on first run a passphrase derives the master key
+ * (then cached in the OS keychain / `~/.moxxy/vault.key` so later runs are
+ * silent). TTY-only — headless init relies on `MOXXY_VAULT_PASSPHRASE` and the
+ * vault's own non-TTY guard, so this is never wired up there.
+ */
+async function promptVaultPassphrase(): Promise<string> {
+  note(
+    [
+      'moxxy keeps your API keys in a local encrypted vault.',
+      "Choose a passphrase to protect it — it's cached in your OS keychain",
+      `(or ${colors.dim('~/.moxxy/vault.key')}) so you won't be asked again.`,
+      `Tip: set ${colors.bold('MOXXY_VAULT_PASSPHRASE')} to skip this prompt.`,
+    ].join('\n'),
+    'Step 0 — Vault passphrase',
+  );
+  const value = await password({
+    message: 'Set a vault passphrase',
+    validate: (v) => (v && v.trim().length > 0 ? undefined : 'Enter a passphrase (esc to cancel).'),
+  });
+  if (isCancel(value)) {
+    cancel('Setup cancelled. Run `moxxy init` again when you are ready.');
+    process.exit(1);
+  }
+  return (value as string).trim();
 }
 
 function providerAuthKind(def: ProviderDef): ProviderAuthKind {

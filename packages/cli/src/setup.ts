@@ -49,7 +49,10 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   });
   progress({ kind: 'config-loaded', sources: sources.length });
 
-  const { plugin: vaultPlugin, vault } = buildVaultPlugin({ disableKeytar: opts.disableKeytar });
+  const { plugin: vaultPlugin, vault } = buildVaultPlugin({
+    disableKeytar: opts.disableKeytar,
+    ...(opts.passphrasePrompt ? { passphrasePrompt: opts.passphrasePrompt } : {}),
+  });
 
   // MCP servers are now lazy-loaded: the admin plugin's onInit hook
   // reads ~/.moxxy/mcp.json and registers stub tools using each
