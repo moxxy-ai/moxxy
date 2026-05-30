@@ -323,6 +323,9 @@ importers:
       '@moxxy/mode-developer':
         specifier: workspace:*
         version: link:../mode-developer
+      '@moxxy/mode-goal':
+        specifier: workspace:*
+        version: link:../mode-goal
       '@moxxy/mode-plan-execute':
         specifier: workspace:*
         version: link:../mode-plan-execute
@@ -753,6 +756,40 @@ importers:
         version: 3.25.76
 
   packages/mode-developer:
+    dependencies:
+      '@moxxy/mode-tool-use':
+        specifier: workspace:*
+        version: link:../mode-tool-use
+      '@moxxy/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+    devDependencies:
+      '@moxxy/core':
+        specifier: workspace:*
+        version: link:../core
+      '@moxxy/testing':
+        specifier: workspace:*
+        version: link:../testing
+      '@moxxy/tsconfig':
+        specifier: workspace:*
+        version: link:../../tooling/tsconfig
+      '@moxxy/vitest-preset':
+        specifier: workspace:*
+        version: link:../../tooling/vitest-preset
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.19.18
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 2.1.9(@types/node@22.19.18)(jsdom@25.0.1)
+      zod:
+        specifier: 'catalog:'
+        version: 3.25.76
+
+  packages/mode-goal:
     dependencies:
       '@moxxy/mode-tool-use':
         specifier: workspace:*
