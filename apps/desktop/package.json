@@ -60,7 +60,6 @@
   "build": {
     "appId": "ai.moxxy.desktop",
     "productName": "MoxxyAI Workspaces",
-    "executableName": "moxxy-desktop",
     "afterPack": "build/after-pack.cjs",
     "directories": {
       "output": "release"
@@ -79,7 +78,11 @@
     "mac": {
       "category": "public.app-category.productivity",
       "target": "dmg",
-      "icon": "public/logo.png"
+      "icon": "public/logo.png",
+      "extendInfo": {
+        "CFBundleName": "MoxxyAI Workspaces",
+        "CFBundleDisplayName": "MoxxyAI Workspaces"
+      }
     },
     "linux": {
       "target": [
@@ -89,6 +92,7 @@
       "category": "Utility",
       "maintainer": "MoxxyAI <noreply@moxxy.ai>",
       "icon": "public/logo.png",
+      "executableName": "moxxy-desktop",
       "artifactName": "moxxy-desktop-${version}-${arch}.${ext}"
     },
     "deb": {
