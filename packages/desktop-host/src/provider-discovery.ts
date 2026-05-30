@@ -19,7 +19,7 @@ import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { resolveMoxxyCli, augmentedPaths, spawnPath } from './cli-resolver';
+import { resolveMoxxyCli, augmentedPaths, nodeLauncher, spawnPath } from './cli-resolver';
 
 interface StoredProvider {
   readonly kind: 'openai-compat';
@@ -63,16 +63,21 @@ function vaultGet(key: string): Promise<string> {
     // dir) on PATH so moxxy's `#!/usr/bin/env node` shebang resolves.
     const cliDir = cli.kind === 'direct' ? path.dirname(cli.bin) : path.dirname(cli.entry);
     const env = { ...process.env, PATH: spawnPath([cliDir]) };
-    const child =
-      cli.kind === 'direct'
-        ? spawn(cli.bin, ['vault', 'get', key], {
-            stdio: ['ignore', 'pipe', 'pipe'],
-            env,
-          })
-        : spawn('node', [cli.entry, 'vault', 'get', key], {
-            stdio: ['ignore', 'pipe', 'pipe'],
-            env,
-          });
+    let child;
+    if (cli.kind === 'direct') {
+      child = spawn(cli.bin, ['vault', 'get', key], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env,
+      });
+    } else {
+      // No system `node` on a GUI launch — run the bundled CLI with
+      // Electron's own Node (ELECTRON_RUN_AS_NODE), merged onto the PATH env.
+      const { command, env: nodeEnv } = nodeLauncher();
+      child = spawn(command, [cli.entry, 'vault', 'get', key], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...env, ...nodeEnv },
+      });
+    }
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (b) => {

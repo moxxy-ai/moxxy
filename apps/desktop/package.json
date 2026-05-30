@@ -22,6 +22,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "bundle:cli": "rm -rf resources/moxxy-cli && pnpm --filter @moxxy/cli --legacy deploy --prod resources/moxxy-cli",
     "clean": "rm -rf dist dist-electron .turbo node_modules/.vite"
   },
   "dependencies": {
@@ -74,6 +75,12 @@
     "files": [
       "dist-electron/**",
       "dist/**"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/moxxy-cli",
+        "to": "moxxy-cli"
+      }
     ],
     "mac": {
       "category": "public.app-category.productivity",

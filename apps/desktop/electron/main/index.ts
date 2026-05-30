@@ -14,8 +14,32 @@ import { app, BrowserWindow } from 'electron';
 // menu bar / Dock and Windows taskbar pick it up. Falls through to
 // the packaged productName for the bundled .app/.exe.
 app.setName('MoxxyAI Workspaces');
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// In a packaged build there is no global `moxxy` (and a GUI launch has no
+// shell PATH / system `node`). Point the CLI resolver at a self-contained,
+// pinned CLI run via Electron's own Node (ELECTRON_RUN_AS_NODE), preferring a
+// version the user updated from within the app over the one bundled with this
+// release. Respects an explicit MOXXY_CLI_ENTRY override (dev / power users).
+if (app.isPackaged && !process.env.MOXXY_CLI_ENTRY) {
+  // Updatable copy (installed by the in-app "update CLI" action into writable
+  // userData) wins over the read-only copy bundled in resources, so users can
+  // move to a newer CLI without waiting for a full app update.
+  const updatedCli = path.join(
+    app.getPath('userData'),
+    'cli',
+    'node_modules',
+    '@moxxy',
+    'cli',
+    'dist',
+    'bin.js',
+  );
+  const bundledCli = path.join(process.resourcesPath, 'moxxy-cli', 'dist', 'bin.js');
+  const entry = [updatedCli, bundledCli].find((p) => existsSync(p));
+  if (entry) process.env.MOXXY_CLI_ENTRY = entry;
+}
 
 import {
   RunnerPool,

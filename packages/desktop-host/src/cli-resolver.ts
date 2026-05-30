@@ -91,6 +91,19 @@ export function spawnPath(extraDirs: ReadonlyArray<string> = []): string {
   return [...new Set(dirs)].join(delimiter);
 }
 
+/**
+ * How to launch a Node script from the desktop. In a packaged Electron app
+ * there is no system `node`, but the Electron binary runs as Node when
+ * ELECTRON_RUN_AS_NODE=1 — use that so the bundled CLI runs with zero external
+ * dependencies. Falls back to `node` (dev / tests / non-Electron).
+ */
+export function nodeLauncher(): { command: string; env: NodeJS.ProcessEnv } {
+  if (process.versions.electron) {
+    return { command: process.execPath, env: { ELECTRON_RUN_AS_NODE: '1' } };
+  }
+  return { command: 'node', env: {} };
+}
+
 function isReadableFile(p: string): boolean {
   try {
     return statSync(p).isFile();

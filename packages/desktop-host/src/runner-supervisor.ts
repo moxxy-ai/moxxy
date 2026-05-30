@@ -35,6 +35,7 @@ import type {
 } from '@moxxy/desktop-ipc-contract';
 import {
   augmentedPaths,
+  nodeLauncher,
   resolveMoxxyCli,
   spawnPath,
   type CliInvocation,
@@ -331,10 +332,19 @@ export class RunnerSupervisor extends EventEmitter {
       stdio: ['ignore', 'pipe', 'pipe'],
     };
     if (this.cwd) spawnOpts.cwd = this.cwd;
-    const proc =
-      cli.kind === 'direct'
-        ? spawn(cli.bin, ['serve'], spawnOpts)
-        : spawn('node', [cli.entry, 'serve'], spawnOpts);
+    let proc: ChildProcess;
+    if (cli.kind === 'direct') {
+      proc = spawn(cli.bin, ['serve'], spawnOpts);
+    } else {
+      // No system `node` on a GUI launch — run the bundled CLI with
+      // Electron's own Node (ELECTRON_RUN_AS_NODE), merged onto the PATH
+      // env above. Falls back to plain `node` outside Electron.
+      const { command, env: nodeEnv } = nodeLauncher();
+      proc = spawn(command, [cli.entry, 'serve'], {
+        ...spawnOpts,
+        env: { ...env, ...nodeEnv },
+      });
+    }
 
     proc.stdout?.on('data', (chunk) => this.consumeLog('stdout', chunk));
     proc.stderr?.on('data', (chunk) => this.consumeLog('stderr', chunk));
