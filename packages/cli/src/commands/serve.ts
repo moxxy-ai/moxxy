@@ -219,7 +219,16 @@ async function runServeForeground(
   except: Set<string>,
   all: boolean,
 ): Promise<number> {
-  const setup = await bootSessionWithConfig(argv, { skipKeyPrompt: true });
+  // tolerateNoProvider: the runner must come up and bind its socket even when
+  // no provider key is configured yet — otherwise `serve` exits 1
+  // (AUTH_NO_CREDENTIALS) before binding, and clients (e.g. the desktop) loop
+  // forever on "lost the runner / reconnecting" instead of being able to
+  // connect and walk the user through adding a provider. Turns still fail with
+  // a clear "no provider" error until one is configured.
+  const setup = await bootSessionWithConfig(argv, {
+    skipKeyPrompt: true,
+    tolerateNoProvider: true,
+  });
   const { session, vault, config, scheduler, webhooks } = setup;
   const setupHandle: SetupHandle = { scheduler, webhooks };
 
