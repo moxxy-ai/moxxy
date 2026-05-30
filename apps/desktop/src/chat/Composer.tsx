@@ -3,6 +3,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type KeyboardEvent,
 } from 'react';
 import { Icon } from '@/lib/Icon';
@@ -11,6 +12,7 @@ import { useQueuedTurns } from '@/lib/useChat';
 import { useVoiceRecorder } from '@/lib/useVoiceRecorder';
 import { chatStore } from '@/lib/chatStore';
 import { AgentPicker } from './AgentPicker';
+import { SESSION_INFO_REFRESH_EVENT } from './agent-picker/types';
 import { ContextMeter } from './ContextMeter';
 import { CommandPalette } from './CommandPalette';
 import { FILE_INSERT_EVENT, type FileInsertDetail } from '@/shell/WorkspaceFiles';
@@ -87,6 +89,11 @@ export function Composer({
   const canSubmit =
     ready && !compacting && (draft.trim().length > 0 || attachments.length > 0);
   const queued = useQueuedTurns(workspaceId);
+  // Auto-approve ("yolo") for this workspace — mirrored to the runner-side
+  // driver so tool calls skip the approval sheet. Goal mode turns it on.
+  const autoApprove = useSyncExternalStore(chatStore.subscribe, () =>
+    chatStore.getAutoApprove(workspaceId),
+  );
 
   // The context rail's file tree fires a CustomEvent when the user
   // clicks a file. We treat it as an attachment, not text — the
@@ -120,12 +127,54 @@ export function Composer({
     };
   }, [ready]);
 
+  // The auto-approve flag lives on the per-workspace driver, which is
+  // recreated when the runner reconnects (resetting to off). Re-apply our
+  // known state whenever the connection comes (back) up so a reconnect
+  // mid-goal-run doesn't silently start prompting again.
+  useEffect(() => {
+    if (!ready) return;
+    if (chatStore.getAutoApprove(workspaceId)) {
+      void api()
+        .invoke('session.setAutoApprove', { workspaceId, enabled: true })
+        .catch(() => {});
+    }
+  }, [ready, workspaceId]);
+
   const submit = useCallback(() => {
     if (!canSubmit) return;
     onSend(draft, attachments.length > 0 ? attachments : undefined);
     setDraft('');
     setAttachments([]);
   }, [canSubmit, draft, attachments, onSend]);
+
+  const setAutoApprove = useCallback(
+    (enabled: boolean): void => {
+      chatStore.setAutoApprove(workspaceId, enabled);
+      void api()
+        .invoke('session.setAutoApprove', { workspaceId, enabled })
+        .catch(() => {});
+    },
+    [workspaceId],
+  );
+
+  // One-click goal: switch to goal mode, turn auto-approve ON, and start
+  // working on the typed objective. Mirrors the TUI's `/goal <objective>`
+  // (switch mode + yolo + submit). Needs an objective in the draft.
+  const startGoal = useCallback(() => {
+    if (!ready) return;
+    const objective = draft.trim();
+    if (!objective) {
+      taRef.current?.focus();
+      return;
+    }
+    void api().invoke('session.setMode', { workspaceId, mode: 'goal' }).catch(() => {});
+    setAutoApprove(true);
+    // Refresh the Mode chip so it reflects the switch immediately.
+    window.dispatchEvent(new CustomEvent(SESSION_INFO_REFRESH_EVENT));
+    onSend(objective, attachments.length > 0 ? attachments : undefined);
+    setDraft('');
+    setAttachments([]);
+  }, [ready, draft, attachments, workspaceId, onSend, setAutoApprove]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
     // Enter alone submits; Shift+Enter inserts a newline (the browser
@@ -302,6 +351,25 @@ export function Composer({
                 ? 'Transcribing…'
                 : 'Voice'}
           </span>
+        </ToolChip>
+        <ToolChip
+          label="Goal — work autonomously until the objective is delivered"
+          onClick={startGoal}
+        >
+          <Icon name="spark" size={15} />
+          <span>Goal</span>
+        </ToolChip>
+        <ToolChip
+          label={
+            autoApprove
+              ? 'Auto-approve is ON — tap to require approval for tool calls again'
+              : 'Auto-approve tool calls (no approval prompts)'
+          }
+          onClick={() => setAutoApprove(!autoApprove)}
+          tone={autoApprove ? 'armed' : 'idle'}
+        >
+          <Icon name="check" size={15} />
+          <span>{autoApprove ? 'Auto-approve ON' : 'Auto-approve'}</span>
         </ToolChip>
         <span style={{ flex: 1 }} />
         <ContextMeter workspaceId={workspaceId} />

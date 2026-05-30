@@ -108,6 +108,17 @@ class ChatStore {
     this.emit();
   }
 
+  getAutoApprove(workspaceId: string): boolean {
+    return this.slots.get(workspaceId)?.autoApprove ?? false;
+  }
+
+  setAutoApprove(workspaceId: string, value: boolean): void {
+    const slot = this.ensure(workspaceId);
+    if (slot.autoApprove === value) return;
+    slot.autoApprove = value;
+    this.emit();
+  }
+
   getQueue(workspaceId: string): ReadonlyArray<QueuedTurn> {
     return this.slots.get(workspaceId)?.queue ?? EMPTY_QUEUE;
   }

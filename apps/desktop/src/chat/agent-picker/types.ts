@@ -19,3 +19,10 @@ export interface SessionInfo {
   readonly activeProvider: string | null;
   readonly activeMode: string | null;
 }
+
+/**
+ * Window event the AgentPicker listens for to re-fetch session.info. The
+ * composer dispatches it after switching the mode out-of-band (e.g. the Goal
+ * button) so the Mode chip reflects the change without waiting for a remount.
+ */
+export const SESSION_INFO_REFRESH_EVENT = 'moxxy:session-info-refresh';

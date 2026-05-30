@@ -22,7 +22,7 @@ import { chatStore } from '@/lib/chatStore';
 import { ChipButton } from './ChipButton';
 import { ChipSelect } from './ChipSelect';
 import { ProviderModelPicker } from './ProviderModelPicker';
-import type { SessionInfo } from './types';
+import { SESSION_INFO_REFRESH_EVENT, type SessionInfo } from './types';
 
 export function AgentPicker({
   workspaceId,
@@ -46,14 +46,21 @@ export function AgentPicker({
 
   useEffect(() => {
     let cancelled = false;
-    void api()
-      .invoke('session.info', { workspaceId })
-      .then((raw) => {
-        if (!cancelled) setInfo(raw);
-      })
-      .catch(() => {});
+    const fetchInfo = (): void => {
+      void api()
+        .invoke('session.info', { workspaceId })
+        .then((raw) => {
+          if (!cancelled) setInfo(raw);
+        })
+        .catch(() => {});
+    };
+    fetchInfo();
+    // Re-fetch when something switched the mode out-of-band (e.g. the Goal
+    // button) so the Mode chip doesn't show a stale value.
+    window.addEventListener(SESSION_INFO_REFRESH_EVENT, fetchInfo);
     return () => {
       cancelled = true;
+      window.removeEventListener(SESSION_INFO_REFRESH_EVENT, fetchInfo);
     };
   }, [workspaceId]);
 

@@ -65,6 +65,9 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   }),
   'session.setProvider': z.object({ workspaceId: optionalWorkspace, provider: providerName }),
   'session.setMode': z.object({ workspaceId: optionalWorkspace, mode: z.string().min(1).max(64) }),
+  // Security-sensitive: this bypasses the approval sheet, so validate it at
+  // the boundary like the other dangerous commands.
+  'session.setAutoApprove': z.object({ workspaceId: optionalWorkspace, enabled: z.boolean() }),
   'workspace.listDir': z.object({
     workspaceId: z.string().min(1).max(256),
     path: z.string().max(4096).optional(),

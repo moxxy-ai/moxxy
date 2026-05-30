@@ -319,6 +319,15 @@ export interface IpcCommands {
   }) => Promise<void>;
   /** Switch the active mode. */
   'session.setMode': (args: { workspaceId?: string; mode: string }) => Promise<void>;
+  /** Toggle auto-approve ("yolo") for the workspace's session: when
+   *  enabled, tool calls are allowed WITHOUT showing the approval sheet.
+   *  Goal mode turns this on for hands-off autonomous runs. Lives on the
+   *  per-workspace SessionDriver, so it resets to off if the runner
+   *  reconnects (the renderer re-applies it on connect). */
+  'session.setAutoApprove': (args: {
+    workspaceId?: string;
+    enabled: boolean;
+  }) => Promise<void>;
   /** Run a slash command on the workspace's runner. The runner returns
    *  a CommandOutput (text / session-action / noop / error) which the
    *  caller renders inline in the transcript. */
