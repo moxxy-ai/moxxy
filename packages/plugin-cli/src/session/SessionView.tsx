@@ -236,6 +236,17 @@ export const SessionView: React.FC<SessionViewProps> = ({
         queueRef: turn.queueRef,
         setQueueCount: turn.setQueueCount,
         performSessionAction,
+        // Start a turn directly (e.g. /goal kicking off autonomous work)
+        // without clearing the just-set system notice. Objectives are plain
+        // text, so no image-attachment resolution is needed.
+        submitPrompt: (prompt: string) => {
+          if (turn.busyRef.current) {
+            turn.queueRef.current.push({ text: prompt, attachments: [] });
+            turn.setQueueCount(turn.queueRef.current.length);
+            return;
+          }
+          void turn.runTurnWith(prompt, []);
+        },
       });
       return;
     }

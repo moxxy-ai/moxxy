@@ -7,7 +7,7 @@ export function ToolChip({
   readonly children: React.ReactNode;
   readonly label: string;
   readonly onClick?: () => void;
-  readonly tone?: 'idle' | 'recording' | 'busy';
+  readonly tone?: 'idle' | 'recording' | 'busy' | 'armed';
 }): JSX.Element {
   /** Hover effect is provided by the global .btn-chip class — adds
    *  a subtle bg + border darken on hover. */
@@ -16,7 +16,9 @@ export function ToolChip({
       ? { bg: '#fee2e2', color: '#dc2626', border: '#fecaca' }
       : tone === 'busy'
         ? { bg: 'var(--color-primary-soft)', color: 'var(--color-primary-strong)', border: 'var(--color-primary-soft)' }
-        : { bg: '#fff', color: 'var(--color-text-muted)', border: 'var(--color-card-border)' };
+        : tone === 'armed'
+          ? { bg: '#fef3c7', color: '#b45309', border: '#fde68a' }
+          : { bg: '#fff', color: 'var(--color-text-muted)', border: 'var(--color-card-border)' };
   return (
     <button
       type="button"

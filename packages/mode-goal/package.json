@@ -1,0 +1,45 @@
+{
+  "name": "@moxxy/mode-goal",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Goal loop strategy for moxxy: works autonomously, re-checking after each round, until the objective is verifiably delivered or the user interrupts.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "mode"
+    }
+  },
+  "dependencies": {
+    "@moxxy/sdk": "workspace:*",
+    "@moxxy/mode-tool-use": "workspace:*"
+  },
+  "devDependencies": {
+    "@moxxy/core": "workspace:*",
+    "@moxxy/testing": "workspace:*",
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "zod": "catalog:"
+  }
+}

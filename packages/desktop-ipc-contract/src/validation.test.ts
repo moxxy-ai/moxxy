@@ -33,6 +33,15 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('prefs.update', { evil: 'x' })).toThrow();
   });
 
+  it('requires a boolean for setAutoApprove', () => {
+    expect(() =>
+      validateIpcInput('session.setAutoApprove', { workspaceId: 'ws', enabled: true }),
+    ).not.toThrow();
+    expect(() => validateIpcInput('session.setAutoApprove', { enabled: false })).not.toThrow();
+    expect(() => validateIpcInput('session.setAutoApprove', { enabled: 'yes' })).toThrow();
+    expect(() => validateIpcInput('session.setAutoApprove', {})).toThrow();
+  });
+
   it('is a no-op for commands without a schema', () => {
     expect(() => validateIpcInput('desks.list', undefined)).not.toThrow();
     expect(() => validateIpcInput('connection.snapshotAll', undefined)).not.toThrow();

@@ -10,6 +10,7 @@ import { editTool } from './edit.js';
 import { bashTool } from './bash.js';
 import { grepTool } from './grep.js';
 import { globTool } from './glob.js';
+import { sleepTool, resolveSleepMs, MAX_SLEEP_MS } from './sleep.js';
 import { resolvePath, resolveWithinCwd, resolveSafe } from './util.js';
 
 let tmp: string;
@@ -221,5 +222,44 @@ describe('path resolution helpers', () => {
 
   it('resolveWithinCwd rejects traversal escape', () => {
     expect(() => resolveWithinCwd('/work', '../outside')).toThrow(/escapes cwd/);
+  });
+});
+
+describe('sleepTool', () => {
+  describe('resolveSleepMs', () => {
+    it('converts seconds to ms', () => {
+      expect(resolveSleepMs({ seconds: 2 })).toBe(2000);
+    });
+    it('passes ms through', () => {
+      expect(resolveSleepMs({ ms: 500 })).toBe(500);
+    });
+    it('sums seconds and ms', () => {
+      expect(resolveSleepMs({ seconds: 1, ms: 500 })).toBe(1500);
+    });
+    it('clamps to MAX_SLEEP_MS', () => {
+      expect(resolveSleepMs({ seconds: 9999 })).toBe(MAX_SLEEP_MS);
+    });
+  });
+
+  it('resolves after the requested delay', async () => {
+    const start = Date.now();
+    const out = (await sleepTool.handler({ ms: 20 }, baseCtx())) as string;
+    expect(Date.now() - start).toBeGreaterThanOrEqual(15);
+    expect(out).toBe('slept 20ms');
+  });
+
+  it('throws when the signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const ctx = { ...baseCtx(), signal: controller.signal };
+    await expect(sleepTool.handler({ ms: 50 }, ctx)).rejects.toThrow(/aborted before start/);
+  });
+
+  it('aborts mid-sleep when the signal fires', async () => {
+    const controller = new AbortController();
+    const ctx = { ...baseCtx(), signal: controller.signal };
+    const p = sleepTool.handler({ seconds: 5 }, ctx) as Promise<string>;
+    setTimeout(() => controller.abort(), 20);
+    await expect(p).rejects.toThrow(/interrupted/);
   });
 });

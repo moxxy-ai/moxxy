@@ -42,6 +42,11 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<SlashCommand> = [
   },
   { name: 'mcp', description: 'Enable / disable / remove MCP servers' },
   {
+    name: 'goal',
+    description: 'Work autonomously until the objective is delivered (switches mode + auto-approves; Esc stops)',
+    argumentHint: '<objective>',
+  },
+  {
     name: 'yolo',
     description: 'Toggle auto-approve mode — every tool call allowed without asking',
     aliases: ['auto-approve'],
