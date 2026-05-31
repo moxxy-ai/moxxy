@@ -1,4 +1,4 @@
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 import { MarkdownBody } from '../MarkdownBody';
 import { ActionRow } from './ActionRow';
 

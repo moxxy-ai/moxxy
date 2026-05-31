@@ -1,0 +1,45 @@
+{
+  "name": "@moxxy/mode-goal",
+  "private": true,
+  "version": "0.0.2",
+  "description": "Goal mode: state a goal once and the agent works autonomously across many turns until it calls goal_complete (or goal_abandon), guarded by an iteration cap, a token budget, a stuck-loop detector, no-progress detection, and the user's abort.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "mode"
+    }
+  },
+  "dependencies": {
+    "@moxxy/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@moxxy/core": "workspace:*",
+    "@moxxy/testing": "workspace:*",
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "zod": "catalog:"
+  }
+}

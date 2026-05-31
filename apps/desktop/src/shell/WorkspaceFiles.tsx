@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { toErrorMessage } from '@/lib/errors';
 import { api } from '@/lib/api';
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 
 interface Entry {
   readonly name: string;

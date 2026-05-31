@@ -4,7 +4,7 @@
  * inside the editor while a skill's body streams in from disk.
  */
 
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 import { asset } from '@/lib/asset';
 
 export function EmptyHero({

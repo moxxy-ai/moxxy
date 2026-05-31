@@ -230,6 +230,7 @@ export default defineConfig({
 @moxxy/mode-tool-use                ← default loop strategy (Claude Code-style)
 @moxxy/mode-plan-execute            ← plan-then-execute strategy
 @moxxy/mode-developer               ← implement → verify → commit strategy
+@moxxy/mode-goal                    ← autonomous goal loop (runs until goal_complete; tools auto-approved)
 @moxxy/mode-bmad                    ← BMAD multi-persona strategy
 @moxxy/mode-deep-research           ← multi-query research + synthesis strategy
 @moxxy/plugin-provider-anthropic    ← LLM provider
@@ -269,8 +270,9 @@ export default defineConfig({
 @moxxy/testing                      ← FakeProvider + record/replay harness
 @moxxy/chat-model                   ← UI-neutral chat model (event→block fold + markdown AST + chunked log); shared by the TUI and desktop
 apps/desktop                        ← Electron desktop app (attaches to @moxxy/runner)
-@moxxy/desktop-ipc-contract         ← typed desktop IPC boundary (channels + payloads + Zod validation)
+@moxxy/desktop-ipc-contract         ← typed desktop IPC boundary (channels + payloads + Zod validation + error envelope)
 @moxxy/desktop-host                 ← desktop Electron main process (runner pool/supervisor, IPC, NDJSON chat log, security)
+@moxxy/desktop-ui                    ← framework-light React UI primitives (Icon set, Modal, Skeleton); shared by the renderer
 ```
 
 The hard invariant: `@moxxy/sdk` has zero internal deps; `@moxxy/core` doesn't import any plugin. Enforced in CI via `pnpm check:deps`.

@@ -8,7 +8,7 @@
 
 import type { SVGProps } from 'react';
 
-type IconName =
+export type IconName =
   | 'search'
   | 'bell'
   | 'pencil'
@@ -39,7 +39,7 @@ type IconName =
   | 'agent'
   | 'workspace';
 
-interface IconProps extends SVGProps<SVGSVGElement> {
+export interface IconProps extends SVGProps<SVGSVGElement> {
   readonly name: IconName;
   readonly size?: number;
 }

@@ -7,7 +7,7 @@
  * the surrounding chrome.
  */
 
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 import { TabHeader } from './TabHeader';
 
 export function SearchBox({

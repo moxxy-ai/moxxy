@@ -29,7 +29,8 @@ import type { RunnerSupervisor } from './runner-supervisor';
 import type { RunnerPool } from './runner-pool';
 import { SessionDriver } from './session-driver';
 import type { DeskStore } from './desks';
-import { drivers } from './ipc/shared';
+import { sendEvent } from './send-event';
+import { drivers, publishDriver, unpublishDriver, whenDriverReady } from './ipc/shared';
 import { registerAskHandlers } from './ipc/ask';
 import { registerConnectionHandlers } from './ipc/connection';
 import { registerOnboardingHandlers } from './ipc/onboarding';
@@ -78,10 +79,8 @@ export function bindWindow(
   opts: { readonly claimGlobal?: boolean } = {},
 ): () => void {
   const claimGlobal = opts.claimGlobal ?? true;
-  const send = <K extends keyof IpcEvents>(channel: K, payload: IpcEvents[K]): void => {
-    if (window.isDestroyed()) return;
-    window.webContents.send(channel, payload);
-  };
+  const send = <K extends keyof IpcEvents>(channel: K, payload: IpcEvents[K]): void =>
+    sendEvent(window, channel, payload);
 
   // Maintain one SessionDriver per workspace for the lifetime of its
   // active RemoteSession.
@@ -110,10 +109,13 @@ export function bindWindow(
       if (session) {
         const driver = new SessionDriver(session, window, id);
         localDrivers.set(id, driver);
-        drivers.set(id, driver);
+        // publishDriver (not drivers.set) so any secondary window that bound
+        // while we were already connected — and is parked on whenDriverReady —
+        // attaches the moment this driver exists.
+        publishDriver(id, driver);
       } else {
         localDrivers.delete(id);
-        drivers.delete(id);
+        unpublishDriver(id);
       }
       return;
     }
@@ -124,11 +126,19 @@ export function bindWindow(
     attachUnsubs.get(id)?.();
     attachUnsubs.delete(id);
     if (session) {
-      const existing = drivers.get(id);
-      if (existing) attachUnsubs.set(id, existing.attachWindow(window));
-      // If the primary's driver hasn't been built yet, the secondary
-      // will pick it up on the next pool change (we re-run this fn
-      // every time the supervisor flips state).
+      // Attach now if the driver exists, otherwise register to attach the
+      // moment the primary publishes one. (A bare `drivers.get` here missed
+      // the case where the supervisor is already `connected` before the
+      // primary built its driver — no later pool change re-runs this fn, so
+      // the secondary would never attach.) whenDriverReady fires synchronously
+      // when the driver already exists, so this covers both timings.
+      const cancel = whenDriverReady(id, (driver) => {
+        if (window.isDestroyed()) return;
+        attachUnsubs.set(id, driver.attachWindow(window));
+      });
+      // If the waiter hasn't fired yet (driver not ready), the stored cleanup
+      // unregisters it; once it fires it overwrites this with the real detach.
+      if (!attachUnsubs.has(id)) attachUnsubs.set(id, cancel);
     }
   };
 
@@ -146,7 +156,7 @@ export function bindWindow(
         if (existing) {
           existing.dispose();
           localDrivers.delete(id);
-          drivers.delete(id);
+          unpublishDriver(id);
         }
       } else {
         attachUnsubs.get(id)?.();

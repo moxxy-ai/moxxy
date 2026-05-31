@@ -22,7 +22,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { toErrorMessage } from '@/lib/errors';
 import { api } from '@/lib/api';
 import { chatStore } from '@/lib/chatStore';
-import { Modal } from '@/lib/Modal';
+import { Modal } from '@moxxy/desktop-ui';
 import { ArgsForm } from './ArgsForm';
 import { humanize, quote, stepsForCommand } from './steppers';
 import type { ArgStep, CommandInfo, SessionInfoSlice } from './types';

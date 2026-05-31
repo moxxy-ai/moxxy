@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuth, useClerk, useUser } from '@clerk/clerk-react';
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 import { usePrefs } from '@/lib/usePrefs';
 import { ProfileView } from '../ProfileView';
 

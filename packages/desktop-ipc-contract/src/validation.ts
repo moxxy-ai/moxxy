@@ -65,6 +65,26 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   }),
   'session.setProvider': z.object({ workspaceId: optionalWorkspace, provider: providerName }),
   'session.setMode': z.object({ workspaceId: optionalWorkspace, mode: z.string().min(1).max(64) }),
+  // A turn's prompt + optional attachments cross from the renderer into the
+  // model. Bound the shape so a hostile renderer can't OOM the main process
+  // with a giant prompt or a flood of attachment entries. The attachment
+  // PATHS themselves are authorized separately (a path must be user-picked or
+  // live under the workspace cwd) — see `attachment-authz.ts` — because shape
+  // validation alone can't tell a legit absolute path from an injected one.
+  'session.runTurn': z.object({
+    workspaceId: optionalWorkspace,
+    prompt: z.string().max(1_000_000),
+    model: z.string().min(1).max(256).optional(),
+    attachments: z
+      .array(
+        z.object({
+          path: z.string().min(1).max(4096),
+          name: z.string().min(1).max(1024),
+        }),
+      )
+      .max(64)
+      .optional(),
+  }),
   'workspace.listDir': z.object({
     workspaceId: z.string().min(1).max(256),
     path: z.string().max(4096).optional(),
@@ -74,6 +94,12 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'settings.readSkill': z.object({ name: skillName }),
   'settings.deleteSkill': z.object({ name: skillName }),
   'desks.create': z.object({ name: z.string().min(1).max(200), cwd: z.string().min(1).max(4096) }),
+  // Mirror desks.create's name bounds — rename writes the name into the desks
+  // JSON, so an unbounded string would let a renderer bloat the state file.
+  'desks.rename': z.object({
+    id: z.string().min(1).max(256),
+    name: z.string().min(1).max(200),
+  }),
   // Whitelist the fields a renderer may write — `version` is managed by
   // the main process; unknown keys are rejected (.strict()).
   'prefs.update': z
@@ -94,6 +120,20 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     limit: z.number().int().positive().max(1000),
   }),
   'chat.clearLog': z.object({ workspaceId: z.string().min(1).max(256) }),
+  // chat.migrate writes the supplied events straight into per-workspace NDJSON
+  // logs on disk, so it's a filesystem-touching command: bound both the number
+  // of workspaces and the events per workspace, and lock the workspaceId to a
+  // non-empty bounded slug so it can't traverse out of the log directory.
+  'chat.migrate': z.object({
+    workspaces: z
+      .array(
+        z.object({
+          workspaceId: z.string().min(1).max(256),
+          events: z.array(z.unknown()).max(10_000),
+        }),
+      )
+      .max(100),
+  }),
   // Vault writes are security-sensitive: lock the key name to a safe slug
   // (letters/digits + . _ / - , no traversal) and bound the secret size.
   'settings.vaultSet': z.object({

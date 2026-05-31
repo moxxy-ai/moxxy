@@ -30,6 +30,7 @@
     "@moxxy/chat-model": "workspace:*",
     "@moxxy/desktop-host": "workspace:*",
     "@moxxy/desktop-ipc-contract": "workspace:*",
+    "@moxxy/desktop-ui": "workspace:*",
     "@moxxy/plugin-stt-whisper-codex": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/runner": "workspace:*",

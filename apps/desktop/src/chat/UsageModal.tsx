@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { Modal } from '@/lib/Modal';
+import { Modal, Icon } from '@moxxy/desktop-ui';
 import { api } from '@/lib/api';
-import { Icon } from '@/lib/Icon';
 import { chatStore } from '@/lib/chatStore';
 import type { ContextUsage } from '@/lib/useContextUsage';
 

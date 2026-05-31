@@ -1,5 +1,5 @@
 import { useWorkflows } from '@/lib/useWorkflows';
-import { Skeleton } from '@/lib/Skeleton';
+import { Skeleton } from '@moxxy/desktop-ui';
 
 /**
  * List of workflows registered on the connected runner, with

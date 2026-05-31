@@ -6,7 +6,7 @@
 
 import { useState } from 'react';
 import { useDesks } from '@/lib/useDesks';
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 import { StepCard, Nav, PrimaryButton, SuccessRow, inputStyle, pickerBtnStyle } from '../chrome';
 
 export function WorkspaceStep({

@@ -212,12 +212,15 @@ class ChatStore {
       this.prependFresh(slot, events);
       slot.oldestCursor = prevCursor;
       slot.hasOlder = prevCursor !== null;
-      slot.snap = null;
-      this.emit();
     } catch {
       /* leave hasOlder set so the user can retry by scrolling */
     } finally {
+      // Reset snap + emit in finally (like loadInitial) so the error path
+      // also notifies subscribers — otherwise loadingOlder flips to false
+      // with no re-render and the spinner/snapshot can wedge.
       slot.loadingOlder = false;
+      slot.snap = null;
+      this.emit();
     }
   }
 

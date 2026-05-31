@@ -7,7 +7,7 @@
  */
 
 import { useState } from 'react';
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 import { Section, Tile, Badge, EmptyState } from './settings-primitives';
 
 export function VaultTab({

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal } from '@/lib/Modal';
+import { Modal } from '@moxxy/desktop-ui';
 
 export function RenameWorkspaceModal({
   desk,

@@ -1,4 +1,4 @@
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 
 /**
  * Pill rendered above the textarea for each attached file. Shows the

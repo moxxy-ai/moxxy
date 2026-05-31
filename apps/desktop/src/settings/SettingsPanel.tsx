@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useSettings } from '@/lib/useSettings';
-import { Skeleton } from '@/lib/Skeleton';
-import { Icon } from '@/lib/Icon';
+import { Skeleton, Icon } from '@moxxy/desktop-ui';
 import { SkillsView } from './SkillsView';
 import { ProvidersTab } from './ProvidersTab';
 import { McpTab } from './McpTab';

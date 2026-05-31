@@ -5,7 +5,7 @@ import {
   useState,
   type KeyboardEvent,
 } from 'react';
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 import { api } from '@/lib/api';
 import { useQueuedTurns } from '@/lib/useChat';
 import { useVoiceRecorder } from '@/lib/useVoiceRecorder';
@@ -72,6 +72,10 @@ export function Composer({
    *  absolute path so the agent's read_file / cat tools find it. */
   const [attachments, setAttachments] = useState<ReadonlyArray<ComposerAttachment>>([]);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  // The "no transcriber" toast auto-clears after a delay; track the timer so
+  // repeated voice clicks don't stack timers and so it can't fire setState
+  // after the composer unmounts (workspace switch).
+  const noTranscriberTimer = useRef<number | undefined>(undefined);
 
   const addAttachment = (att: ComposerAttachment): void => {
     setAttachments((cur) => (cur.some((a) => a.path === att.path) ? cur : [...cur, att]));
@@ -161,11 +165,24 @@ export function Composer({
     }
     if (!hasTranscriber) {
       setNoTranscriberMsg('No transcriber configured on the runner.');
-      window.setTimeout(() => setNoTranscriberMsg(null), 2500);
+      if (noTranscriberTimer.current !== undefined) {
+        window.clearTimeout(noTranscriberTimer.current);
+      }
+      noTranscriberTimer.current = window.setTimeout(() => setNoTranscriberMsg(null), 2500);
       return;
     }
     voice.toggle();
   }, [hasTranscriber, voice]);
+
+  // Clear the pending "no transcriber" toast timer on unmount.
+  useEffect(
+    () => () => {
+      if (noTranscriberTimer.current !== undefined) {
+        window.clearTimeout(noTranscriberTimer.current);
+      }
+    },
+    [],
+  );
 
   return (
     <form

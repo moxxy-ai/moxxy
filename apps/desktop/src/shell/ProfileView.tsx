@@ -14,8 +14,7 @@
 
 import { useState } from 'react';
 import { useClerk, useUser } from '@clerk/clerk-react';
-import { Modal, ConfirmModal } from '@/lib/Modal';
-import { Icon } from '@/lib/Icon';
+import { Modal, ConfirmModal, Icon } from '@moxxy/desktop-ui';
 import { usePrefs } from '@/lib/usePrefs';
 
 interface Props {

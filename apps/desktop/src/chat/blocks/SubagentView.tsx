@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { oneLine, summarizeArgs, type Block as FoldedBlock } from '@moxxy/chat-model';
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 import { preStyle } from './block-shared';
 
 export function SubagentView({

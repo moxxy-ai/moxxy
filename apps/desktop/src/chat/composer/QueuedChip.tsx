@@ -1,4 +1,4 @@
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 
 /**
  * Pending-turn chip for messages the user queued while a previous
