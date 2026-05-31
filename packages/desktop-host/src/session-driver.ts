@@ -31,6 +31,12 @@ interface ActiveTurn {
 export class SessionDriver {
   private readonly turns = new Map<string, ActiveTurn>();
   private readonly disposes: Array<() => void> = [];
+  /** Auto-approve ("yolo"): when true, the permission resolver allows every
+   *  tool call without opening the renderer's approval sheet. Toggled via the
+   *  `session.setAutoApprove` IPC (goal mode turns it on). Defaults off and is
+   *  not persisted across driver recreation — the renderer re-applies it on
+   *  reconnect. */
+  private autoApprove = false;
   /** Every window subscribed to this driver's events. Mutated by
    *  attachWindow / detachWindow so secondary surfaces (focus widget,
    *  future tray pop-up, etc.) receive the same `runner.event` and
@@ -65,6 +71,10 @@ export class SessionDriver {
     this.session.setPermissionResolver({
       name: 'desktop-ask',
       check: async (call, ctx) => {
+        // Auto-approve ("yolo") short-circuit: allow without prompting so
+        // goal mode (and any opted-in run) works hands-off. Mirrors the TUI's
+        // yolo flag, which the permission queue checks before showing a prompt.
+        if (this.autoApprove) return { mode: 'allow' };
         const res = await openAsk(
           {
             workspaceId,
@@ -196,6 +206,12 @@ export class SessionDriver {
 
   abortTurn(turnId: string): void {
     this.turns.get(turnId)?.controller.abort();
+  }
+
+  /** Toggle auto-approve. When on, the permission resolver allows every tool
+   *  call without opening the renderer's approval sheet. */
+  setAutoApprove(on: boolean): void {
+    this.autoApprove = on;
   }
 
   dispose(): void {

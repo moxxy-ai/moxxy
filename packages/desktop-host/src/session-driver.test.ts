@@ -228,3 +228,57 @@ async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void
     await new Promise((r) => setTimeout(r, 5));
   }
 }
+
+/**
+ * Minimal RemoteSession stand-in that just captures the permission resolver
+ * the driver installs, so we can exercise auto-approve without a real runner.
+ */
+interface PermissionCheck {
+  check: (
+    call: { name: string; input: unknown },
+    ctx: { toolDescription?: string },
+  ) => Promise<{ mode: string }>;
+}
+function fakeRemote(): { remote: RemoteSession; captured: { permission?: PermissionCheck } } {
+  const captured: { permission?: PermissionCheck } = {};
+  const remote = {
+    log: { subscribe: () => () => undefined },
+    setPermissionResolver: (r: PermissionCheck) => {
+      captured.permission = r;
+    },
+    setApprovalResolver: () => undefined,
+    onClose: () => undefined,
+  };
+  return { remote: remote as unknown as RemoteSession, captured };
+}
+
+describe('SessionDriver auto-approve', () => {
+  it('allows tool calls without raising an ask when auto-approve is on', async () => {
+    const { remote, captured } = fakeRemote();
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws');
+    driver.setAutoApprove(true);
+
+    const res = await captured.permission!.check({ name: 'Write', input: {} }, {});
+
+    expect(res).toEqual({ mode: 'allow' });
+    expect(sent.some((f) => f.channel === 'ask.request')).toBe(false);
+    driver.dispose();
+  });
+
+  it('falls back to asking the renderer when auto-approve is off', async () => {
+    const { remote, captured } = fakeRemote();
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws');
+
+    // Don't answer — leave the ask parked, like a user still deciding.
+    const p = captured.permission!.check({ name: 'Write', input: {} }, {});
+    await waitFor(() => sent.some((f) => f.channel === 'ask.request'));
+    expect(sent.some((f) => f.channel === 'ask.request')).toBe(true);
+
+    // Disposing cancels the parked ask; the resolver fails closed to deny.
+    driver.dispose();
+    const res = await p;
+    expect(res.mode).toBe('deny');
+  });
+});

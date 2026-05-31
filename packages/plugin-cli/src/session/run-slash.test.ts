@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { runSlash, type SlashDeps } from './run-slash.js';
+
+// run-slash.ts imports savePreferences/clearUsageStats from @moxxy/core; stub
+// them so /goal's preference save doesn't touch ~/.moxxy during the unit test.
+vi.mock('@moxxy/core', () => ({
+  savePreferences: vi.fn(async () => undefined),
+  clearUsageStats: vi.fn(async () => undefined),
+}));
 
 describe('runSlash', () => {
   it('shows a pending notice before awaiting a long-running registered command', async () => {
@@ -37,6 +44,60 @@ describe('runSlash', () => {
   });
 });
 
+describe('runSlash /goal', () => {
+  function goalDeps() {
+    const calls = {
+      setActive: [] as string[],
+      yolo: [] as boolean[],
+      submitted: [] as string[],
+      notices: [] as Array<string | null>,
+    };
+    const deps = {
+      ...baseDeps(),
+      session: {
+        id: 'sess-1',
+        commands: { get: () => undefined },
+        modes: {
+          list: () => [{ name: 'goal' }, { name: 'tool-use' }],
+          setActive: (n: string) => calls.setActive.push(n),
+        },
+      },
+      setYolo: (u: boolean | ((p: boolean) => boolean)) =>
+        calls.yolo.push(typeof u === 'function' ? u(false) : u),
+      submitPrompt: (t: string) => calls.submitted.push(t),
+      setSystemNotice: (n: string | null) => calls.notices.push(n),
+    } as unknown as SlashDeps;
+    return { deps, calls };
+  }
+
+  it('switches to goal mode, forces yolo on, and starts work with the objective', () => {
+    const { deps, calls } = goalDeps();
+    runSlash('/goal build the widget and make the tests pass', deps);
+    expect(calls.setActive).toEqual(['goal']);
+    expect(calls.yolo).toEqual([true]);
+    expect(calls.submitted).toEqual(['build the widget and make the tests pass']);
+  });
+
+  it('bare /goal arms the mode without submitting a turn', () => {
+    const { deps, calls } = goalDeps();
+    runSlash('/goal', deps);
+    expect(calls.setActive).toEqual(['goal']);
+    expect(calls.yolo).toEqual([true]);
+    expect(calls.submitted).toEqual([]);
+  });
+
+  it('reports when goal mode is not registered', () => {
+    const { deps, calls } = goalDeps();
+    (deps.session as unknown as { modes: { list: () => unknown[] } }).modes.list = () => [
+      { name: 'tool-use' },
+    ];
+    runSlash('/goal do a thing', deps);
+    expect(calls.setActive).toEqual([]);
+    expect(calls.submitted).toEqual([]);
+    expect(calls.notices.some((n) => typeof n === 'string' && /not available/.test(n))).toBe(true);
+  });
+});
+
 function baseDeps(): SlashDeps {
   return {
     session: {
@@ -53,5 +114,6 @@ function baseDeps(): SlashDeps {
     queueRef: { current: [] },
     setQueueCount: () => undefined,
     performSessionAction: () => undefined,
+    submitPrompt: () => undefined,
   } as unknown as SlashDeps;
 }

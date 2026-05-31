@@ -52,6 +52,10 @@ const optionalWorkspace = z.string().min(1).max(256).optional();
 const MAX_AUDIO_BASE64 = 40_000_000;
 
 export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
+  // No-arg, but spawns a child process (npm install) — pin the payload to
+  // "nothing" so a hostile renderer can't smuggle args across.
+  'app.cliInfo': z.undefined(),
+  'app.updateCli': z.undefined(),
   'onboarding.openExternal': z.object({ url: httpUrl }),
   'onboarding.saveProviderKey': z.object({
     provider: providerName,
@@ -85,6 +89,9 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       .max(64)
       .optional(),
   }),
+  // Security-sensitive: this bypasses the approval sheet, so validate it at
+  // the boundary like the other dangerous commands.
+  'session.setAutoApprove': z.object({ workspaceId: optionalWorkspace, enabled: z.boolean() }),
   'workspace.listDir': z.object({
     workspaceId: z.string().min(1).max(256),
     path: z.string().max(4096).optional(),

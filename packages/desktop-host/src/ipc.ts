@@ -31,6 +31,7 @@ import { SessionDriver } from './session-driver';
 import type { DeskStore } from './desks';
 import { sendEvent } from './send-event';
 import { drivers, publishDriver, unpublishDriver, whenDriverReady } from './ipc/shared';
+import { registerAppHandlers } from './ipc/app';
 import { registerAskHandlers } from './ipc/ask';
 import { registerConnectionHandlers } from './ipc/connection';
 import { registerOnboardingHandlers } from './ipc/onboarding';
@@ -45,6 +46,7 @@ import { registerChatHandlers } from './ipc/chat';
 
 export function registerIpcHandlers(pool: RunnerPool, desks: DeskStore): void {
   registerAskHandlers();
+  registerAppHandlers(pool);
   registerConnectionHandlers(pool);
   registerOnboardingHandlers(pool);
   registerSessionHandlers(pool);

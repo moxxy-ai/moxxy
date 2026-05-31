@@ -5,9 +5,10 @@ import { globTool } from './glob.js';
 import { grepTool } from './grep.js';
 import { readTool } from './read.js';
 import { recallTool } from './recall.js';
+import { sleepTool } from './sleep.js';
 import { writeTool } from './write.js';
 
-export { bashTool, editTool, globTool, grepTool, readTool, recallTool, writeTool };
+export { bashTool, editTool, globTool, grepTool, readTool, recallTool, sleepTool, writeTool };
 
 // dispatch_agent moved to @moxxy/plugin-subagents so subagent support
 // is itself a swappable block. Without that plugin installed, the model
@@ -21,6 +22,7 @@ export const builtinTools: ReadonlyArray<ToolDef> = [
   grepTool,
   globTool,
   recallTool,
+  sleepTool,
 ];
 
 export const builtinToolsPlugin = definePlugin({
