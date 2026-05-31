@@ -53,9 +53,17 @@ describe('unix-socket transport (NDJSON framing)', () => {
     const srv = await serverSide;
 
     const received: unknown[] = [];
-    srv.onFrame((f) => received.push(f));
+    // Wait until all five frames land rather than racing a fixed delay: the
+    // frames arrive in a single 'data' event, so a too-short timeout flakes to
+    // an empty array under CI load. The test's own timeout catches a genuine loss.
+    const got5 = new Promise<void>((resolve) => {
+      srv.onFrame((f) => {
+        received.push(f);
+        if (received.length === 5) resolve();
+      });
+    });
     for (let i = 0; i < 5; i++) client.send({ i });
-    await new Promise((r) => setTimeout(r, 30));
+    await got5;
     expect(received).toEqual([{ i: 0 }, { i: 1 }, { i: 2 }, { i: 3 }, { i: 4 }]);
   });
 

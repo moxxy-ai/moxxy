@@ -153,6 +153,43 @@ describe('toolUseMode end-to-end', () => {
     // around iteration 3, well below the 500-iteration cap.
     const toolCalls = events.filter((e) => e.type === 'tool_call_requested');
     expect(toolCalls.length).toBeLessThan(10);
+    // Regression: a stuck trip must NOT leave an orphan tool_call_requested.
+    // The detector fires AFTER the final request is emitted but the turn ends
+    // before executeToolUses runs it — without synthesizing a result, that
+    // request renders as a tool stuck "running" forever (and the provider
+    // rejects it next turn). Every emitted request must have a paired result.
+    const results = events.filter((e) => e.type === 'tool_result');
+    expect(results.length).toBe(toolCalls.length);
+  });
+
+  it('emits a paired result for every request even when the stuck loop trips', async () => {
+    // Distinct callIds per turn so the assertion is per-call, mirroring how the
+    // desktop fold (pair-events) matches tool_result back to tool_call_requested
+    // by callId. A leftover orphan here is the exact "tool spins forever, flips
+    // to error on the next message" symptom.
+    const provider = new FakeProvider({
+      script: Array.from({ length: 20 }, (_, i) => toolUseReply('loop', {}, `c${i}`)),
+    });
+    const session = sessionWith(provider);
+    session.tools.register(
+      defineTool({
+        name: 'loop',
+        description: '',
+        inputSchema: z.object({}),
+        handler: () => 'ok',
+      }),
+    );
+
+    const events = await collectTurn(session, 'spin');
+    const requestedIds = new Set(
+      events.filter((e) => e.type === 'tool_call_requested').map((e) => e.callId),
+    );
+    const resolvedIds = new Set(
+      events.filter((e) => e.type === 'tool_result').map((e) => e.callId),
+    );
+    // No requested call may be left without a result.
+    const orphans = [...requestedIds].filter((id) => !resolvedIds.has(id));
+    expect(orphans).toEqual([]);
   });
 
   it('respects an explicit maxIterations cap when no stuck loop fires', async () => {
