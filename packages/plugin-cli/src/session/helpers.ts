@@ -1,4 +1,4 @@
-import type { ClientSession as Session } from '@moxxy/sdk';
+import type { ClientSession as Session, ModeBadge } from '@moxxy/sdk';
 import {
   BUILTIN_SLASH_COMMANDS,
   type SlashCommand,
@@ -60,6 +60,20 @@ export function getModeName(session: Session): string {
     return session.modes.getActive().name;
   } catch {
     return '(none)';
+  }
+}
+
+/**
+ * Presentation badge for the active mode, if it declares one. Sourced from
+ * the serializable `getInfo()` snapshot rather than `modes.getActive().badge`
+ * so it also resolves over the thin-client transport (a `RemoteSession`'s
+ * mode objects are name-only stubs). `null` when no badge / no active mode.
+ */
+export function getModeBadge(session: Session): ModeBadge | null {
+  try {
+    return session.getInfo().activeModeBadge;
+  } catch {
+    return null;
   }
 }
 

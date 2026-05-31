@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { definePlugin } from '@moxxy/sdk';
+import { defineMode, definePlugin } from '@moxxy/sdk';
 import { Session } from './session.js';
 
 describe('Session', () => {
@@ -85,6 +85,7 @@ describe('Session', () => {
     // Bare session: nothing active yet, all lists empty, no transcriber.
     expect(info.activeProvider).toBeNull();
     expect(info.activeMode).toBeNull();
+    expect(info.activeModeBadge).toBeNull();
     expect(info.providers).toEqual([]);
     expect(info.modes).toEqual([]);
     expect(info.tools).toEqual([]);
@@ -93,6 +94,26 @@ describe('Session', () => {
     expect(info.hasTranscriber).toBe(false);
     // The snapshot must survive a JSON round-trip (it crosses the wire).
     expect(JSON.parse(JSON.stringify(info))).toEqual(info);
+  });
+
+  it('getInfo surfaces the active mode badge (and null for unbadged modes)', () => {
+    const s = new Session({ cwd: '/tmp', silent: true });
+    // First registration auto-activates — a badged mode lights up the snapshot
+    // so channels can render a persistent indicator (e.g. goal mode).
+    s.modes.register(
+      defineMode({
+        name: 'goal',
+        badge: { label: 'GOAL', tone: 'attention' },
+        run: async function* () {},
+      }),
+    );
+    expect(s.getInfo().activeModeBadge).toEqual({ label: 'GOAL', tone: 'attention' });
+
+    // Switching to a mode with no badge clears it back to null.
+    s.modes.register(defineMode({ name: 'plain', run: async function* () {} }));
+    s.modes.setActive('plain');
+    expect(s.getInfo().activeMode).toBe('plain');
+    expect(s.getInfo().activeModeBadge).toBeNull();
   });
 
   it('exposes runTurn as a method (SessionLike conformance)', () => {

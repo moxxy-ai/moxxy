@@ -59,3 +59,12 @@ export function contextColor(pct: number): typeof Colors[keyof typeof Colors] | 
   if (pct >= 60) return Colors.busy;
   return undefined;
 }
+
+/**
+ * Background color for a persistent mode badge (reverse-video pill, black
+ * text). `attention` — magenta — for autonomous modes the user must always
+ * notice (e.g. goal mode); anything else falls back to gray chrome.
+ */
+export function badgeBackground(tone: 'attention' | 'info' | undefined): string {
+  return tone === 'attention' ? Colors.mode : Colors.chrome;
+}

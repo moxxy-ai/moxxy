@@ -1,7 +1,7 @@
 import type { MoxxyEvent, UserPromptAttachment } from './events.js';
 import type { SessionId, TurnId } from './ids.js';
 import type { EventLogReader } from './log.js';
-import type { ApprovalResolver } from './mode.js';
+import type { ApprovalResolver, ModeBadge } from './mode.js';
 import type { PermissionResolver } from './permission.js';
 import type { ModelDescriptor } from './provider.js';
 import type { ToolCompactPresentation } from './tool.js';
@@ -96,6 +96,13 @@ export interface SessionInfo {
   readonly activeProvider: string | null;
   readonly providers: ReadonlyArray<ProviderInfo>;
   readonly activeMode: string | null;
+  /**
+   * Presentation hint for the active mode, when it advertises one (see
+   * {@link ModeBadge}). Lets channels render a persistent accent badge for
+   * autonomous modes like goal mode. `null` when no mode is active or the
+   * active mode declares no badge.
+   */
+  readonly activeModeBadge: ModeBadge | null;
   readonly modes: ReadonlyArray<string>;
   readonly tools: ReadonlyArray<ToolInfo>;
   readonly skills: ReadonlyArray<SkillInfo>;

@@ -316,8 +316,13 @@ export class Session implements ClientSession, SessionRuntime {
    */
   getInfo(): SessionInfo {
     let activeMode: string | null = null;
+    let activeModeBadge: SessionInfo['activeModeBadge'] = null;
     try {
-      activeMode = this.modes.getActive().name;
+      const mode = this.modes.getActive();
+      activeMode = mode.name;
+      // Surface the active mode's presentation hint so channels can render a
+      // persistent badge (e.g. goal mode) without hard-coding mode names.
+      activeModeBadge = mode.badge ? { label: mode.badge.label, ...(mode.badge.tone ? { tone: mode.badge.tone } : {}) } : null;
     } catch {
       // No mode active yet (registry empty pre-boot) - report null.
     }
@@ -341,6 +346,7 @@ export class Session implements ClientSession, SessionRuntime {
           (p as { supportsLiveModelDiscovery?: boolean }).supportsLiveModelDiscovery === true,
       })),
       activeMode,
+      activeModeBadge,
       modes: this.modes.list().map((m) => m.name),
       tools: this.tools.list().map((t) => ({
         name: t.name,

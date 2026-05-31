@@ -74,10 +74,14 @@ export function AgentPicker({
     setInfo((cur) => (cur ? { ...cur, activeMode: next } : cur));
     try {
       await api().invoke('session.setMode', { workspaceId, mode: next });
-      refresh();
     } catch {
-      refresh();
+      /* fall through — the refresh below restores the true value */
     }
+    // Canonical "mode changed" signal: this picker's own listener re-reads
+    // (confirming the flip + the new badge), and the composer's goal banner
+    // lights up / clears — so a chip-driven switch behaves like the Goal
+    // button, which already dispatches this event.
+    window.dispatchEvent(new CustomEvent(SESSION_INFO_REFRESH_EVENT));
   };
 
   const onPickProviderModel = async (
@@ -112,6 +116,7 @@ export function AgentPicker({
         label="Mode"
         value={info.activeMode ?? ''}
         options={[...info.modes]}
+        badge={info.activeModeBadge}
         disabled={disabled || info.modes.length === 0}
         onChange={(v) => void onMode(v)}
       />

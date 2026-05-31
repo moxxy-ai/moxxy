@@ -10,6 +10,7 @@ import { estimateContextTokens } from '../context-estimate.js';
 import {
   buildSlashSuggestions,
   clearTerminalScreen,
+  getModeBadge,
   getModeName,
   resolveActiveDescriptor,
   resolveActiveModel,
@@ -145,6 +146,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   // this stays well under a millisecond even on busy logs.
   const contextUsed = estimateContextTokens(session.log);
   const modeName = getModeName(session);
+  const modeBadge = getModeBadge(session);
 
   // Shift+Tab (and /mode) advance to the next registered mode, wrapping
   // around. Mirrors the model/loop picker's persistence so the choice
@@ -354,6 +356,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         }
         queueCount={turn.queueCount}
         modeName={modeName}
+        modeBadge={modeBadge}
         provider={providerName}
         model={activeModel}
         mcp={mcpStatus}

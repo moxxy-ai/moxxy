@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
+import type { ModeBadge } from '@moxxy/sdk';
 import { formatElapsed } from '@moxxy/chat-model';
-import { Colors, Glyphs, contextColor } from '../theme.js';
+import { Colors, Glyphs, contextColor, badgeBackground } from '../theme.js';
 import { Spinner } from './Spinner.js';
 import { ModeFooter } from './ModeFooter.js';
 
@@ -15,6 +16,13 @@ export interface StatusLineProps {
    * hint); replaced by the "Thinking" marker while a turn is in flight.
    */
   readonly modeName: string;
+  /**
+   * Presentation badge for the active mode, when it declares one (e.g. goal
+   * mode). Unlike `modeName` this stays pinned to the left *even while a turn
+   * is in flight*, so an autonomous mode is always visible — the whole point
+   * being the user must never lose track that the agent is driving itself.
+   */
+  readonly modeBadge?: ModeBadge | null;
   /** Active provider name — rendered as a badge on the right. */
   readonly provider: string;
   /** Active model id — dim, after the badge. */
@@ -38,6 +46,7 @@ export const StatusLine: React.FC<StatusLineProps> = ({
   busyStartedAt,
   queueCount,
   modeName,
+  modeBadge,
   provider,
   model,
   mcp,
@@ -48,18 +57,37 @@ export const StatusLine: React.FC<StatusLineProps> = ({
   const showQueue = (queueCount ?? 0) > 0;
   const showMcp = !!(mcp && mcp.enabled > 0);
   const showCtx = !!(contextWindow && contextWindow > 0);
+  const queuedTail = showQueue ? (
+    <>
+      <Text dimColor>{'  '}</Text>
+      <Text dimColor>{`${Glyphs.contextUp} ${queueCount} queued`}</Text>
+    </>
+  ) : null;
   return (
     <Box justifyContent="space-between">
       <Box>
-        {busy ? (
+        {modeBadge ? (
+          // Badged (autonomous) mode: the pill is pinned left at all times,
+          // with the busy marker / idle hint trailing it — so the user always
+          // sees the mode even mid-run, when a plain footer would be hidden.
+          <>
+            <ModeBadgePill badge={modeBadge} />
+            <Text>{' '}</Text>
+            {busy ? (
+              <>
+                <BusyMarker startedAt={busyStartedAt!} />
+                {queuedTail}
+              </>
+            ) : (
+              <Text color={Colors.chrome} dimColor>
+                {'Esc stops · shift+tab to change'}
+              </Text>
+            )}
+          </>
+        ) : busy ? (
           <>
             <BusyMarker startedAt={busyStartedAt!} />
-            {showQueue ? (
-              <>
-                <Text dimColor>{'  '}</Text>
-                <Text dimColor>{`${Glyphs.contextUp} ${queueCount} queued`}</Text>
-              </>
-            ) : null}
+            {queuedTail}
           </>
         ) : (
           <ModeFooter modeName={modeName} />
@@ -88,6 +116,17 @@ export const StatusLine: React.FC<StatusLineProps> = ({
 
 const ProviderBadge: React.FC<{ name: string }> = ({ name }) => (
   <Text backgroundColor={Colors.chrome} color="black" bold>{` ${name} `}</Text>
+);
+
+/**
+ * Reverse-video pill for a badged mode (e.g. ` GOAL `). The accent
+ * background is the mode's most prominent signal — it reads as "this
+ * session is in a special, autonomous state" at a glance.
+ */
+const ModeBadgePill: React.FC<{ badge: ModeBadge }> = ({ badge }) => (
+  <Text backgroundColor={badgeBackground(badge.tone)} color="black" bold>
+    {` ${badge.label} `}
+  </Text>
 );
 
 const BusyMarker: React.FC<{ startedAt: number }> = ({ startedAt }) => {

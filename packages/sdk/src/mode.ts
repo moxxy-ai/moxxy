@@ -135,6 +135,28 @@ export interface ApprovalResolver {
   confirm(req: ApprovalRequest): Promise<ApprovalDecision>;
 }
 
+/**
+ * Optional presentation hint a mode can advertise so channels render a
+ * persistent, accent-coloured badge while it is active — even mid-run,
+ * when the usual mode footer is hidden behind a "Thinking" marker. This
+ * lets a high-autonomy mode (e.g. goal mode, which auto-approves tools and
+ * keeps working unattended) always be obvious to the user. Modes that omit
+ * it get the plain `mode: <name>` footer treatment.
+ *
+ * Carried on {@link SessionInfo.activeModeBadge} so thin clients (desktop
+ * over RPC) see it too — keep it plain data (it crosses the wire).
+ */
+export interface ModeBadge {
+  /** Short, uppercase label for the badge (e.g. "GOAL"). Keep it tiny. */
+  readonly label: string;
+  /**
+   * Accent tone each channel maps to its palette. `attention` for
+   * elevated / autonomous modes the user must always notice; `info` for a
+   * quieter highlight. Defaults to `info` when omitted.
+   */
+  readonly tone?: 'attention' | 'info';
+}
+
 export interface ModeDef {
   readonly name: string;
   /**
@@ -143,5 +165,10 @@ export interface ModeDef {
    * memorising plugin internals. Keep short — the picker truncates.
    */
   readonly description?: string;
+  /**
+   * Optional presentation hint. When set, channels surface a persistent
+   * accent badge while this mode is active. See {@link ModeBadge}.
+   */
+  readonly badge?: ModeBadge;
   run(ctx: ModeContext): AsyncIterable<MoxxyEvent>;
 }

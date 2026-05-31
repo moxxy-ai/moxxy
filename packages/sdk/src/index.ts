@@ -255,6 +255,7 @@ export type {
   PluginHostHandle,
   ModeContext,
   ModeDef,
+  ModeBadge,
   ElisionSettings,
   ApprovalResolver,
   ApprovalRequest,

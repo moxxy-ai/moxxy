@@ -12,9 +12,11 @@ import { Icon } from '@moxxy/desktop-ui';
 import { api } from '@/lib/api';
 import { useQueuedTurns } from '@/lib/useChat';
 import { useVoiceRecorder } from '@/lib/useVoiceRecorder';
+import { useActiveModeBadge } from '@/lib/useActiveModeBadge';
 import { chatStore } from '@/lib/chatStore';
 import { AgentPicker } from './AgentPicker';
 import { SESSION_INFO_REFRESH_EVENT } from './agent-picker/types';
+import { ModeBanner } from './composer/ModeBanner';
 import { ContextMeter } from './ContextMeter';
 import { CommandPalette } from './CommandPalette';
 import { FILE_INSERT_EVENT, type FileInsertDetail } from '@/shell/WorkspaceFiles';
@@ -135,6 +137,10 @@ export function Composer({
   const autoApprove = useSyncExternalStore(chatStore.subscribe, () =>
     chatStore.getAutoApprove(workspaceId),
   );
+  // Presentation badge of the active mode (goal mode advertises one). When
+  // set, the composer wears a persistent accent banner so the user always
+  // knows an autonomous mode is driving the session.
+  const modeBadge = useActiveModeBadge(workspaceId);
 
   // The context rail's file tree fires a CustomEvent when the user
   // clicks a file. We treat it as an attachment, not text — the
@@ -340,6 +346,7 @@ export function Composer({
         gap: 10,
       }}
     >
+      {modeBadge && <ModeBanner badge={modeBadge} />}
       {(attachments.length > 0 || queued.length > 0) && (
         <div
           style={{

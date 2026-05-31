@@ -13,11 +13,22 @@ export interface ProviderInfo {
   readonly models: ReadonlyArray<{ readonly id: string }>;
 }
 
+/**
+ * Presentation hint the active mode advertises (subset of the SDK's
+ * `ModeBadge`). When present the composer renders a persistent accent banner
+ * + an accented Mode chip so an autonomous mode (goal mode) is unmistakable.
+ */
+export interface ModeBadge {
+  readonly label: string;
+  readonly tone?: 'attention' | 'info';
+}
+
 export interface SessionInfo {
   readonly providers: ReadonlyArray<ProviderInfo>;
   readonly modes: ReadonlyArray<string>;
   readonly activeProvider: string | null;
   readonly activeMode: string | null;
+  readonly activeModeBadge: ModeBadge | null;
 }
 
 /**
