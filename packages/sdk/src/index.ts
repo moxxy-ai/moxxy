@@ -64,6 +64,7 @@ export type {
   SkillsClientView,
   AgentsClientView,
   TranscribersClientView,
+  SynthesizersClientView,
   RequirementsClientView,
   PermissionsClientView,
 } from './client-session.js';
@@ -311,6 +312,14 @@ export type {
   TranscribeOptions,
 } from './transcriber.js';
 
+export type {
+  Synthesizer,
+  SynthesizerDef,
+  SynthesizerCreateContext,
+  SynthesisResult,
+  SynthesizeOptions,
+} from './synthesizer.js';
+
 export interface PluginLoader {
   load(manifest: import('./plugin.js').ResolvedPluginManifest): Promise<import('./plugin.js').Plugin>;
 }
@@ -328,6 +337,7 @@ export {
   definePermission,
   defineSkill,
   defineTranscriber,
+  defineSynthesizer,
   defineEmbedder,
   defineCommand,
   defineAgent,

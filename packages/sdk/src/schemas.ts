@@ -15,6 +15,7 @@ const pluginKindSchema = z.enum([
   'agent',
   'command',
   'transcriber',
+  'synthesizer',
 ]);
 
 export const requirementSchema = z.object({
@@ -23,6 +24,7 @@ export const requirementSchema = z.object({
     'provider',
     'tool',
     'transcriber',
+    'synthesizer',
     'mode',
     'compactor',
     'channel',

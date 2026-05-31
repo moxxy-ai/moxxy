@@ -12,6 +12,7 @@ import type { SkillDef, SkillFrontmatter } from './skill.js';
 import type { ToolCompactPresentation, ToolContext, ToolDef } from './tool.js';
 import type { ToolIsolationSpec } from './isolation.js';
 import type { TranscriberDef } from './transcriber.js';
+import type { SynthesizerDef } from './synthesizer.js';
 import type { ViewRendererDef } from './view-renderer.js';
 import type { TunnelProviderDef } from './tunnel.js';
 import type { WorkflowExecutorDef } from './workflow.js';
@@ -103,6 +104,10 @@ export function defineSkill(spec: { frontmatter: SkillFrontmatter; body: string 
 }
 
 export function defineTranscriber(spec: TranscriberDef): TranscriberDef {
+  return Object.freeze(spec);
+}
+
+export function defineSynthesizer(spec: SynthesizerDef): SynthesizerDef {
   return Object.freeze(spec);
 }
 

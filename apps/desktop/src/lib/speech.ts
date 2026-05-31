@@ -161,6 +161,46 @@ export function cancelSpeech(): void {
   synth()?.cancel();
 }
 
+export interface AudioClipHandle {
+  /** Stop playback and release the element. Idempotent. */
+  stop(): void;
+}
+
+/**
+ * Play a base64-encoded audio clip (the output of a runner-side synthesizer
+ * plugin, e.g. ElevenLabs) via an `<audio>` element. Returns a handle whose
+ * `stop()` halts playback — the read-aloud button uses it to toggle off and to
+ * clean up on unmount. `onend`/`onerror` mirror {@link SpeakOptions} so callers
+ * treat local and remote TTS uniformly.
+ */
+export function playAudioClip(
+  base64: string,
+  mimeType: string,
+  opts: SpeakOptions = {},
+): AudioClipHandle {
+  const audio = new Audio(`data:${mimeType};base64,${base64}`);
+  let done = false;
+  const finish = (cb?: () => void): void => {
+    if (done) return;
+    done = true;
+    cb?.();
+  };
+  audio.onended = () => finish(opts.onend);
+  audio.onerror = () => finish(opts.onerror);
+  void audio.play().catch(() => finish(opts.onerror));
+  return {
+    stop: () => {
+      try {
+        audio.pause();
+        audio.src = '';
+      } catch {
+        /* already gone */
+      }
+      finish();
+    },
+  };
+}
+
 /** Whether this environment can speak at all (gates the affordance). */
 export function isSpeechSupported(): boolean {
   return synth() !== null;

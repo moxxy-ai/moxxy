@@ -105,6 +105,11 @@ export interface SessionInfo {
   readonly hasTranscriber: boolean;
   /** Name of the active transcriber, or null. Lets a thin client proxy STT. */
   readonly activeTranscriber: string | null;
+  /** Whether any text-to-speech backend is registered. */
+  readonly hasSynthesizer: boolean;
+  /** Name of the active synthesizer, or null. Lets a thin client proxy TTS
+   *  (the desktop routes "Read aloud" through it; null → OS voice fallback). */
+  readonly activeSynthesizer: string | null;
 }
 
 /**

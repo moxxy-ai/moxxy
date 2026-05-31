@@ -91,11 +91,20 @@ export class RunnerSupervisor extends EventEmitter {
         /* ignore */
       }
       if (this.child) {
-        this.child.kill();
+        // Graceful SIGTERM→SIGKILL: a bare kill() returns before the child has
+        // released its socket, so the run loop's immediate respawn would race
+        // it and hit EADDRINUSE. terminateChild waits for the child to go.
+        await terminateChild(this.child);
         this.child = null;
       }
       this.forceRetry();
     }
+  }
+
+  /** The directory the runner treats as its cwd (null when unbound). Used to
+   *  authorize attachment paths against the workspace root. */
+  getCwd(): string | null {
+    return this.cwd;
   }
 
   snapshot(): ConnectionSnapshot {
@@ -290,7 +299,9 @@ export class RunnerSupervisor extends EventEmitter {
     });
     this.session = null;
     if (this.child) {
-      this.child.kill();
+      // Same as setCwd: wait for the child to actually exit before the loop
+      // respawns, so the new serve can bind the socket without colliding.
+      await terminateChild(this.child);
       this.child = null;
     }
   }
@@ -349,6 +360,12 @@ export class RunnerSupervisor extends EventEmitter {
       // surface, and binding its fixed port (4040) breaks the moment
       // a second workspace runner spawns.
       MOXXY_NO_WEB_SURFACE: '1',
+      // Hide the Tier-2 self_update_core_* tools: patching @moxxy/core
+      // (git clone + build + dist overlay + restart) can't work inside a
+      // read-only packaged .app. Tier-1 (author/swap plugins + skills under
+      // ~/.moxxy) stays fully available — that's how the desktop "patches"
+      // itself.
+      MOXXY_NO_CORE_UPDATE: '1',
     };
     const spawnOpts: import('node:child_process').SpawnOptions = {
       env,
@@ -419,22 +436,38 @@ export class RunnerSupervisor extends EventEmitter {
   }
 
   private async waitForSocket(child: ChildProcess | null = null): Promise<void> {
-    const deadline = Date.now() + SOCKET_WAIT_MS;
-    while (Date.now() < deadline) {
-      if (await this.probeSocket()) return;
-      // The serve we spawned died before binding — no point polling for
-      // 20 s; surface it now so the run loop retries / reports.
-      if (child && (child.exitCode !== null || child.signalCode !== null)) {
-        throw new Error(
-          `moxxy serve exited before binding ${this.socketPath} ` +
-            `(code=${child.exitCode} signal=${child.signalCode})`,
-        );
+    // Detect a child that dies before binding via its 'exit' EVENT rather than
+    // by polling child.exitCode: the event fires the moment Node observes the
+    // exit, closing the race where the process is already gone but exitCode
+    // hasn't been set yet at the instant we happen to poll.
+    let exited: { code: number | null; signal: NodeJS.Signals | null } | null =
+      child && (child.exitCode !== null || child.signalCode !== null)
+        ? { code: child.exitCode, signal: child.signalCode }
+        : null;
+    const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+      exited = { code, signal };
+    };
+    child?.once('exit', onExit);
+    try {
+      const deadline = Date.now() + SOCKET_WAIT_MS;
+      while (Date.now() < deadline) {
+        if (await this.probeSocket()) return;
+        // The serve we spawned died before binding — no point polling for
+        // 20 s; surface it now so the run loop retries / reports.
+        if (exited) {
+          throw new Error(
+            `moxxy serve exited before binding ${this.socketPath} ` +
+              `(code=${exited.code} signal=${exited.signal})`,
+          );
+        }
+        await sleep(SOCKET_POLL_MS);
       }
-      await sleep(SOCKET_POLL_MS);
+      throw new Error(
+        `moxxy serve did not bind ${this.socketPath} within ${SOCKET_WAIT_MS} ms`,
+      );
+    } finally {
+      child?.removeListener('exit', onExit);
     }
-    throw new Error(
-      `moxxy serve did not bind ${this.socketPath} within ${SOCKET_WAIT_MS} ms`,
-    );
   }
 
   private async waitForRetry(): Promise<void> {

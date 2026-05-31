@@ -11,11 +11,12 @@ import type { ProviderDef } from './provider.js';
 import type { MoxxyRequirement } from './requirements.js';
 import type { ToolDef } from './tool.js';
 import type { TranscriberDef } from './transcriber.js';
+import type { SynthesizerDef } from './synthesizer.js';
 import type { ViewRendererDef } from './view-renderer.js';
 import type { TunnelProviderDef } from './tunnel.js';
 import type { WorkflowExecutorDef } from './workflow.js';
 
-export type PluginKind = 'tools' | 'provider' | 'mode' | 'compactor' | 'cache-strategy' | 'view-renderer' | 'tunnel-provider' | 'mcp' | 'cli' | 'channel' | 'hooks' | 'agent' | 'command' | 'transcriber' | 'embedder' | 'isolator' | 'workflow-executor';
+export type PluginKind = 'tools' | 'provider' | 'mode' | 'compactor' | 'cache-strategy' | 'view-renderer' | 'tunnel-provider' | 'mcp' | 'cli' | 'channel' | 'hooks' | 'agent' | 'command' | 'transcriber' | 'synthesizer' | 'embedder' | 'isolator' | 'workflow-executor';
 
 export interface PluginSpec {
   readonly name: string;
@@ -50,6 +51,14 @@ export interface PluginSpec {
    * the active provider does not advertise `supportsAudio`.
    */
   readonly transcribers?: ReadonlyArray<TranscriberDef>;
+  /**
+   * Text-to-speech backends contributed by the plugin. Selected by name via
+   * `session.synthesizers.setActive(name)`; read-aloud surfaces (the desktop's
+   * "Read aloud" button) call `session.synthesizers.getActive()` to turn text
+   * into audio. One active at a time; absent → the surface falls back to the
+   * OS voice.
+   */
+  readonly synthesizers?: ReadonlyArray<SynthesizerDef>;
   /**
    * Text-embedding backends contributed by the plugin. Selected by name via
    * `session.embedders.setActive(name, config)`; @moxxy/plugin-memory uses the

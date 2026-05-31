@@ -16,12 +16,13 @@
 import { dialog, BrowserWindow as BrowserWindowApi } from 'electron';
 
 import type { RunnerPool } from '../runner-pool';
+import { authorizeAttachments, rememberPickedAttachment } from '../attachment-authz';
 import {
   drivers,
   getInProcessPlugins,
   handle,
   mustDriver,
-  mustRemote,
+  resolveCtx,
   resolveSupervisor,
   waitForSessionState,
 } from './shared';
@@ -35,10 +36,25 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     return session ? session.getInfo() : null;
   });
   handle('session.runTurn', async ({ workspaceId, prompt, model, attachments }) => {
-    const id = workspaceId ?? pool.activeWorkspaceId();
-    if (!id) throw new Error('no active workspace');
+    // requireSession:false — the turn is dispatched through the driver, not the
+    // RemoteSession directly, so we only need the id + supervisor (for cwd).
+    const { workspaceId: id, supervisor } = resolveCtx(pool, { workspaceId }, { requireSession: false });
     const driver = mustDriver(id);
-    return driver.runTurn(prompt, model, attachments);
+    // Gate attachment paths on provenance before buildAttachments reads them:
+    // only user-picked paths or paths under the workspace cwd are allowed, so
+    // a hostile renderer can't inline arbitrary files into the prompt.
+    let safe = attachments;
+    if (attachments && attachments.length > 0) {
+      const cwd = supervisor.getCwd();
+      const { authorized, dropped } = await authorizeAttachments(attachments, cwd ? [cwd] : []);
+      if (dropped.length > 0) {
+        console.warn(
+          `[session.runTurn] dropped ${dropped.length} unauthorized attachment(s): ${dropped.join(', ')}`,
+        );
+      }
+      safe = authorized;
+    }
+    return driver.runTurn(prompt, model, safe);
   });
   handle('session.abortTurn', async ({ workspaceId, turnId }) => {
     const id = workspaceId ?? pool.activeWorkspaceId();
@@ -46,21 +62,21 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     drivers.get(id)?.abortTurn(turnId);
   });
   handle('session.setProvider', async ({ workspaceId, provider }) => {
-    const session = mustRemote(pool, workspaceId);
+    const { session, supervisor } = resolveCtx(pool, { workspaceId });
     session.providers.setActive(provider);
     await waitForSessionState(session, (info) => info.activeProvider === provider);
     // Re-emit the connection phase so the renderer sees the new activeProvider
     // — otherwise the onboarding `connectedWithoutProvider` gate never clears.
-    resolveSupervisor(pool, workspaceId)?.refreshConnectedInfo();
+    supervisor.refreshConnectedInfo();
   });
   handle('session.setMode', async ({ workspaceId, mode }) => {
-    const session = mustRemote(pool, workspaceId);
+    const { session, supervisor } = resolveCtx(pool, { workspaceId });
     session.modes.setActive(mode);
     await waitForSessionState(session, (info) => info.activeMode === mode);
-    resolveSupervisor(pool, workspaceId)?.refreshConnectedInfo();
+    supervisor.refreshConnectedInfo();
   });
   handle('session.runCommand', async ({ workspaceId, name, args }) => {
-    const session = mustRemote(pool, workspaceId);
+    const { session } = resolveCtx(pool, { workspaceId });
     const def = session.commands.get(name);
     if (!def) return { kind: 'error', message: `unknown command: /${name}` } as const;
     // The runner doesn't care about the channel name beyond logging,
@@ -107,6 +123,21 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     );
     return result.text;
   });
+  handle('session.synthesize', async ({ workspaceId, text }) => {
+    // Text-to-speech routes through the RUNNER's active synthesizer (unlike
+    // STT, which uses the in-process Codex transcriber): a user-authored TTS
+    // plugin (e.g. ElevenLabs) lives in ~/.moxxy/plugins, loaded by the runner.
+    // Returns null when no synthesizer is active so the renderer falls back to
+    // the OS `speechSynthesis` voice.
+    const session = resolveSupervisor(pool, workspaceId)?.remote();
+    const synth = session?.synthesizers.tryGetActive();
+    if (!synth) return null;
+    const result = await synth.synthesize(text);
+    return {
+      audioBase64: Buffer.from(result.audio).toString('base64'),
+      mimeType: result.mimeType,
+    };
+  });
   handle('session.pickAttachment', async () => {
     const window =
       BrowserWindowApi.getFocusedWindow() ?? BrowserWindowApi.getAllWindows()[0];
@@ -132,6 +163,10 @@ export function registerSessionHandlers(pool: RunnerPool): void {
       ],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0]!;
+    const picked = result.filePaths[0]!;
+    // Remember the user's choice so the later runTurn that references it is
+    // authorized even though it lives outside the workspace cwd.
+    await rememberPickedAttachment(picked);
+    return picked;
   });
 }
