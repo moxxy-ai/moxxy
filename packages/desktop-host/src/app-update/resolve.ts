@@ -1,0 +1,277 @@
+/**
+ * The self-update GATE: given the desktop's writable userData, decide which app
+ * bundle to run — a verified, user-installed override under
+ * `<userData>/app/<version>/`, or null to mean "use the bundled floor".
+ *
+ * This runs inside the immutable bootstrap, so it is dependency-free (node
+ * built-ins only) and fully SYNCHRONOUS — it must not delay process start. Every
+ * failure mode (missing/poisoned/incompatible/unsigned/malformed) resolves to
+ * `null`, i.e. fall back to the floor. A bundle is only ever returned after its
+ * manifest's Ed25519 signature, version binding, and Electron/ABI compatibility
+ * all pass.
+ *
+ * On-disk layout under `<userData>/app/`:
+ *   active.json        { version }       — the version the bootstrap should load
+ *   bad.json           { versions: [] }  — versions poisoned by a failed boot
+ *   last-attempt.json  { version, ts }   — breadcrumb written before loading an override
+ *   confirmed.json     { version }       — last version that booted healthily
+ *   <version>/         the extracted bundle (dist/ + dist-electron/ + manifest.json)
+ */
+
+import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, rmSync, readdirSync } from 'node:fs';
+import path from 'node:path';
+
+import { type AppManifest, parseManifest, verifyManifestSignature } from './manifest.js';
+
+export interface ShellInfo {
+  /** `process.versions.electron`. */
+  electron: string;
+  /** `process.versions.modules` — the Node ABI the shell provides. */
+  nodeAbi: string;
+}
+
+export interface ResolvedBundle {
+  /** Absolute bundle root (contains `dist/` + `dist-electron/`). */
+  root: string;
+  version: string;
+}
+
+/** A bundle version must be a safe path segment — no traversal, no separators —
+ *  since it names a directory under userData and comes from on-disk state. */
+const SAFE_VERSION = /^[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$/;
+
+export function isSafeVersion(v: string): boolean {
+  return SAFE_VERSION.test(v) && !v.includes('..');
+}
+
+export function appUpdateDir(userDataDir: string): string {
+  return path.join(userDataDir, 'app');
+}
+export function bundleRoot(userDataDir: string, version: string): string {
+  return path.join(appUpdateDir(userDataDir), version);
+}
+const activePath = (d: string): string => path.join(appUpdateDir(d), 'active.json');
+const badPath = (d: string): string => path.join(appUpdateDir(d), 'bad.json');
+const breadcrumbPath = (d: string): string => path.join(appUpdateDir(d), 'last-attempt.json');
+const confirmedPath = (d: string): string => path.join(appUpdateDir(d), 'confirmed.json');
+
+function tryRead(p: string): string | null {
+  try {
+    return readFileSync(p, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/** tmp-write + rename so a crash can't leave a half-written pointer. */
+function writeJsonAtomic(p: string, value: unknown): void {
+  mkdirSync(path.dirname(p), { recursive: true });
+  const tmp = `${p}.tmp-${process.pid}-${Date.now()}`;
+  writeFileSync(tmp, JSON.stringify(value, null, 2));
+  renameSync(tmp, p);
+}
+
+export function readActiveVersion(userDataDir: string): string | null {
+  const raw = tryRead(activePath(userDataDir));
+  if (!raw) return null;
+  try {
+    const v = (JSON.parse(raw) as { version?: unknown }).version;
+    return typeof v === 'string' && isSafeVersion(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setActiveVersion(userDataDir: string, version: string): void {
+  writeJsonAtomic(activePath(userDataDir), { version });
+}
+
+export function readBadVersions(userDataDir: string): Set<string> {
+  const raw = tryRead(badPath(userDataDir));
+  if (!raw) return new Set();
+  try {
+    const arr = (JSON.parse(raw) as { versions?: unknown }).versions;
+    return new Set(Array.isArray(arr) ? arr.filter((v): v is string => typeof v === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/** Poison a version so it is never loaded again, and clear `active` if it points
+ *  there (so the next launch falls straight through to the floor). */
+export function markBad(userDataDir: string, version: string): void {
+  const bad = readBadVersions(userDataDir);
+  bad.add(version);
+  writeJsonAtomic(badPath(userDataDir), { versions: [...bad] });
+  if (readActiveVersion(userDataDir) === version) {
+    try {
+      rmSync(activePath(userDataDir), { force: true });
+    } catch {
+      /* best effort */
+    }
+  }
+}
+
+export function writeBreadcrumb(userDataDir: string, version: string, now = Date.now()): void {
+  writeJsonAtomic(breadcrumbPath(userDataDir), { version, ts: now });
+}
+
+export function readBreadcrumb(userDataDir: string): { version: string; ts: number } | null {
+  const raw = tryRead(breadcrumbPath(userDataDir));
+  if (!raw) return null;
+  try {
+    const o = JSON.parse(raw) as { version?: unknown; ts?: unknown };
+    if (typeof o.version === 'string' && typeof o.ts === 'number') {
+      return { version: o.version, ts: o.ts };
+    }
+  } catch {
+    /* fall through */
+  }
+  return null;
+}
+
+export function markConfirmed(userDataDir: string, version: string): void {
+  writeJsonAtomic(confirmedPath(userDataDir), { version });
+}
+
+export function readConfirmed(userDataDir: string): string | null {
+  const raw = tryRead(confirmedPath(userDataDir));
+  if (!raw) return null;
+  try {
+    const v = (JSON.parse(raw) as { version?: unknown }).version;
+    return typeof v === 'string' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Numeric major.minor.patch compare (ignores any prerelease/build suffix). */
+export function compareSemver(a: string, b: string): number {
+  const parse = (s: string): number[] =>
+    (s.split('-')[0] ?? '')
+      .split('.')
+      .map((n) => Number.parseInt(n, 10) || 0);
+  const pa = parse(a);
+  const pb = parse(b);
+  for (let i = 0; i < 3; i += 1) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d < 0 ? -1 : 1;
+  }
+  return 0;
+}
+
+/** True iff the running shell satisfies the bundle's Electron + ABI floor. A
+ *  false result means this update needs a NEW shell (Tier-2), not a JS swap. An
+ *  empty manifest `nodeAbi` is a wildcard (skip the ABI check). */
+export function isCompatible(m: AppManifest, shell: ShellInfo): boolean {
+  if (compareSemver(shell.electron, m.minElectron) < 0) return false;
+  return m.nodeAbi === '' || shell.nodeAbi === m.nodeAbi;
+}
+
+export interface ResolveOpts {
+  userDataDir: string;
+  /** Baked Ed25519 public key (SPKI PEM). Empty disables all overrides. */
+  publicKeyPem: string;
+  shell: ShellInfo;
+}
+
+/**
+ * The gate. Returns the override bundle to load, or null to use the floor.
+ *
+ * Order matters — cheapest + most-decisive checks first, signature before any
+ * trust is extended, compatibility last:
+ *   key configured → active version is safe + not poisoned → manifest present,
+ *   well-formed, and bound to the active version → signature valid →
+ *   Electron/ABI compatible → real main exists on disk.
+ */
+export function resolveActiveBundle(opts: ResolveOpts): ResolvedBundle | null {
+  const { userDataDir, publicKeyPem, shell } = opts;
+  if (!publicKeyPem) return null; // self-update disabled → floor
+
+  const version = readActiveVersion(userDataDir);
+  if (!version) return null;
+  if (readBadVersions(userDataDir).has(version)) return null;
+
+  const root = bundleRoot(userDataDir, version);
+  const manifestRaw = tryRead(path.join(root, 'manifest.json'));
+  if (!manifestRaw) return null;
+  const manifest = parseManifest(manifestRaw);
+  if (!manifest || manifest.version !== version) return null;
+  if (!verifyManifestSignature(manifest, publicKeyPem)) return null;
+  if (!isCompatible(manifest, shell)) return null;
+
+  const mainEntry = path.join(root, 'dist-electron', 'main', 'index.js');
+  if (!existsSync(mainEntry)) return null;
+
+  return { root, version };
+}
+
+export interface BootRecovery {
+  /** A version poisoned because it was loaded but never confirmed healthy. */
+  poisoned: string | null;
+  /** The confirmed-good version `active` was rolled back to (if available). */
+  rolledBackTo: string | null;
+}
+
+/**
+ * Detect a bundle that loaded last launch but never reached a healthy render
+ * (white-screen / async main crash) and poison it. The breadcrumb records the
+ * version the bootstrap last *attempted*; the app writes `confirmed` only after
+ * the renderer mounts. So `attempted === active && confirmed !== attempted`
+ * means "it failed to boot" — poison it, and roll `active` back to the last
+ * confirmed-good if that bundle is still installed.
+ *
+ * Gives a freshly-installed version exactly ONE chance (its breadcrumb is only
+ * written when it's actually loaded), then auto-recovers on the next launch.
+ * Runs in the bootstrap BEFORE {@link resolveActiveBundle}.
+ */
+export function recoverFromFailedBoot(userDataDir: string): BootRecovery {
+  const crumb = readBreadcrumb(userDataDir);
+  if (!crumb) return { poisoned: null, rolledBackTo: null };
+
+  const active = readActiveVersion(userDataDir);
+  const confirmed = readConfirmed(userDataDir);
+  if (!active || active !== crumb.version || confirmed === crumb.version) {
+    return { poisoned: null, rolledBackTo: null };
+  }
+
+  markBad(userDataDir, crumb.version); // also clears `active`
+  if (
+    confirmed &&
+    confirmed !== crumb.version &&
+    isSafeVersion(confirmed) &&
+    !readBadVersions(userDataDir).has(confirmed) &&
+    existsSync(path.join(bundleRoot(userDataDir, confirmed), 'manifest.json'))
+  ) {
+    setActiveVersion(userDataDir, confirmed);
+    return { poisoned: crumb.version, rolledBackTo: confirmed };
+  }
+  return { poisoned: crumb.version, rolledBackTo: null };
+}
+
+/**
+ * Drop installed bundle dirs except the ones in `keep` (typically the active +
+ * previous-good). Never touches the floor (which lives in resources, not here)
+ * and tolerates a partially-populated `app/` dir. Best-effort; runs at launch
+ * before resolution.
+ */
+export function pruneBundles(userDataDir: string, keep: ReadonlyArray<string>): void {
+  const dir = appUpdateDir(userDataDir);
+  const keepSet = new Set(keep);
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of entries) {
+    if (!isSafeVersion(name)) continue; // only ever remove version dirs
+    if (keepSet.has(name)) continue;
+    if (!existsSync(path.join(dir, name, 'manifest.json'))) continue; // not a bundle dir
+    try {
+      rmSync(path.join(dir, name), { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  }
+}

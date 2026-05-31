@@ -35,6 +35,10 @@ import {
   preferredCliEntry,
 } from '@moxxy/desktop-host';
 
+import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
+import { readConfirmed, markBad } from '@moxxy/desktop-host/app-update';
+import { initShellUpdater } from './shell-updater.js';
+
 // In a packaged build there is no global `moxxy` (and a GUI launch has no
 // shell PATH / system `node`). Point the CLI resolver at a self-contained,
 // pinned CLI run via Electron's own Node (ELECTRON_RUN_AS_NODE), preferring a
@@ -413,6 +417,43 @@ function installApplicationMenu(
 
 let trayInstance: Tray | null = null;
 
+/** How long a hot-updated bundle has to confirm a healthy render before the
+ *  probe assumes it white-screened and reverts to the floor. Generous so a slow
+ *  cold start / Clerk network round-trip can't false-trip it. */
+const BOOT_PROBE_TIMEOUT_MS = 15_000;
+
+/**
+ * In-session safety net for a hot-updated bundle: if the renderer loads but its
+ * React tree never mounts (white-screen) — so `app.appBooted` never fires and no
+ * `confirmed.json` lands — poison this version and relaunch. The bootstrap then
+ * picks the previous-good bundle (or the floor). A no-op on the bundled floor
+ * (no override version), and on the bundled floor we never re-arm, so there's no
+ * relaunch loop. The cross-launch `recoverFromFailedBoot` is the belt to this
+ * braces — either one alone recovers the app.
+ */
+function armBootProbe(window: BrowserWindow): void {
+  const version = process.env.MOXXY_APP_BUNDLE_VERSION;
+  if (!version) return; // running the floor — nothing to probe
+  const userData = app.getPath('userData');
+  window.webContents.once('did-finish-load', () => {
+    setTimeout(() => {
+      if (window.isDestroyed()) return;
+      if (readConfirmed(userData) === version) return; // confirmed healthy
+      console.error(
+        `[moxxy] boot-probe: bundle ${version} did not confirm a healthy render in ` +
+          `${BOOT_PROBE_TIMEOUT_MS}ms; reverting to the previous bundle`,
+      );
+      try {
+        markBad(userData, version);
+      } catch {
+        /* best effort */
+      }
+      app.relaunch();
+      app.quit();
+    }, BOOT_PROBE_TIMEOUT_MS);
+  });
+}
+
 app.whenReady().then(async () => {
   // Apply the Content-Security-Policy to our own document responses
   // before any window loads. Skipped in dev (Vite HMR needs a loose
@@ -448,9 +489,22 @@ app.whenReady().then(async () => {
     await pool.getOrCreate(UNBOUND_ID, null);
     pool.setActive(UNBOUND_ID);
   }
-  registerIpcHandlers(pool, desks);
+  registerIpcHandlers(pool, desks, {
+    update: {
+      publicKeyPem: BUNDLED_UPDATE_PUBLIC_KEY,
+      // Dev/test escape hatch: point the updater at a local manifest. Ignored in
+      // packaged builds (the handler pins the source) so it can't be abused.
+      manifestUrl: process.env.MOXXY_UPDATE_URL,
+    },
+  });
 
   await createWindow();
+  if (mainWindow) armBootProbe(mainWindow);
+
+  // Tier-2: background download of a new native shell where supported
+  // (Windows/Linux); a no-op on dev + unsigned macOS. Tier-1 JS hot-updates
+  // (the common case) are independent of this.
+  initShellUpdater();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) void createWindow();

@@ -7,6 +7,7 @@
 
 export { RunnerPool, UNBOUND_ID } from './runner-pool.js';
 export { bindWindow, registerIpcHandlers } from './ipc.js';
+export { type UpdateConfig } from './ipc/update.js';
 export { preferredCliEntry } from './cli-resolver.js';
 export { DeskStore } from './desks.js';
 export { sweepStaleSockets } from './sweep-sockets.js';

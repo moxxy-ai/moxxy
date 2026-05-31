@@ -42,7 +42,15 @@ export default defineConfig({
     build: {
       outDir: 'dist-electron/main',
       rollupOptions: {
-        input: { index: path.resolve('electron/main/index.ts') },
+        // `bootstrap` is the packaged entry (package.json#main) — a tiny,
+        // dependency-free loader that picks which app bundle's `index.js` (the
+        // real main) to run. It imports no workspace deps, so Rollup keeps it
+        // out of `index.js`'s chunk graph and it stays the immutable "floor"
+        // that hot-updates can never replace.
+        input: {
+          index: path.resolve('electron/main/index.ts'),
+          bootstrap: path.resolve('electron/main/bootstrap.ts'),
+        },
         external: EXTERNAL_NATIVE,
       },
     },

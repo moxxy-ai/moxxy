@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { toErrorMessage } from '@/lib/errors';
 import { Section } from './settings-primitives';
+import { DashboardUpdateSection } from './DashboardUpdateSection';
 
 export function AboutTab(): JSX.Element {
   const [info, setInfo] = useState<{ version: string | null; path: string | null } | null>(null);
@@ -64,10 +65,12 @@ export function AboutTab(): JSX.Element {
   };
 
   return (
-    <Section
-      title="moxxy CLI"
-      description="The desktop runs a bundled moxxy CLI. Update to the latest published version without reinstalling the app."
-    >
+    <>
+      <DashboardUpdateSection />
+      <Section
+        title="moxxy CLI"
+        description="The desktop runs a bundled moxxy CLI. Update to the latest published version without reinstalling the app."
+      >
       <div
         style={{
           display: 'flex',
@@ -165,6 +168,7 @@ export function AboutTab(): JSX.Element {
           </pre>
         )}
       </div>
-    </Section>
+      </Section>
+    </>
   );
 }

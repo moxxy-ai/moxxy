@@ -265,6 +265,38 @@ export interface RunTurnResult {
   turnId: string;
 }
 
+/** The app bundle ("dashboard") the desktop is currently running. */
+export interface AppUpdateInfo {
+  /** Running bundle version. */
+  version: string;
+  /** Whether it's the one baked into the .app or a hot-updated override. */
+  source: 'bundled' | 'updated';
+  /** True when this build has a signing key baked in (self-update enabled). */
+  channelConfigured: boolean;
+}
+
+/** Result of checking the published manifest for a newer dashboard. */
+export interface AppUpdateCheck {
+  /** A newer, signature-valid bundle is published. */
+  available: boolean;
+  currentVersion: string;
+  latestVersion: string | null;
+  /** False ⇒ the update needs a newer shell (a Tier-2 / installer update). */
+  compatible: boolean;
+  notes?: string;
+  releaseUrl?: string;
+  /** Set when the check itself failed (offline, not configured, …). */
+  error?: string;
+}
+
+/** Streamed progress while a dashboard update downloads + installs. */
+export interface AppUpdateProgress {
+  phase: 'download' | 'verify' | 'extract' | 'activate';
+  received?: number;
+  total?: number;
+  message?: string;
+}
+
 // ---------- Events the renderer subscribes to ------------------------------
 
 /**
@@ -289,6 +321,9 @@ export interface IpcEvents {
    *  stdout/stderr line; the invoke() also returns the final exit
    *  code so callers can short-circuit on success. */
   'onboarding.install.progress': string;
+  /** Streamed during `app.updateDashboard` — one event per download/verify/
+   *  extract/activate step so the Updates UI can show a progress bar. */
+  'app.update.progress': AppUpdateProgress;
   /** The runner needs a permission/approval decision — the renderer
    *  shows a bottom sheet and replies via `ask.respond`. */
   'ask.request': AskRequest;
@@ -326,6 +361,25 @@ export interface IpcCommands {
    *  `onboarding.install.progress`. Returns the exit code (0 = ok) and
    *  the post-update version. */
   'app.updateCli': () => Promise<{ code: number; version: string | null }>;
+
+  /** The dashboard (app bundle) the desktop is currently running. */
+  'app.updateInfo': () => Promise<AppUpdateInfo>;
+  /** Fetch + verify the published manifest and report whether a newer
+   *  dashboard is available (and whether it fits this shell). Never throws —
+   *  failures come back in `error`. */
+  'app.checkUpdate': () => Promise<AppUpdateCheck>;
+  /** Download + verify + install the latest compatible dashboard bundle into
+   *  the writable userData copy, streaming `app.update.progress`. On success
+   *  the new bundle activates on the next launch (the UI offers a relaunch).
+   *  The update SOURCE is resolved entirely main-side — the renderer passes no
+   *  URL. */
+  'app.updateDashboard': () => Promise<{ ok: boolean; version: string | null; error?: string }>;
+  /** Relaunch the app so a freshly-installed dashboard bundle takes effect. */
+  'app.relaunch': () => Promise<void>;
+  /** Renderer → main heartbeat: the React tree mounted past the splash. Clears
+   *  the boot-probe so a hot-updated bundle is marked healthy (no-op on the
+   *  bundled floor). */
+  'app.appBooted': () => Promise<void>;
 
   'onboarding.status': () => Promise<OnboardingStatus>;
   /** Probe Node.js — used by the first wizard step before we offer

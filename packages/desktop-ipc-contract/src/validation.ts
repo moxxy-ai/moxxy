@@ -56,6 +56,14 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // "nothing" so a hostile renderer can't smuggle args across.
   'app.cliInfo': z.undefined(),
   'app.updateCli': z.undefined(),
+  // Self-update: all no-arg. The update SOURCE (manifest/bundle URL) is resolved
+  // main-side only — a hostile renderer must never be able to point the loader
+  // at an attacker URL, so these accept nothing.
+  'app.updateInfo': z.undefined(),
+  'app.checkUpdate': z.undefined(),
+  'app.updateDashboard': z.undefined(),
+  'app.relaunch': z.undefined(),
+  'app.appBooted': z.undefined(),
   'onboarding.openExternal': z.object({ url: httpUrl }),
   'onboarding.saveProviderKey': z.object({
     provider: providerName,

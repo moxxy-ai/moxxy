@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./app-update": {
+      "types": "./dist/app-update/index.d.ts",
+      "import": "./dist/app-update/index.js"
     }
   },
   "files": [

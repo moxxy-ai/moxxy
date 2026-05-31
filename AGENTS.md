@@ -58,9 +58,9 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 @moxxy/chat-model  UI-neutral chat model: event→block fold (tool/skill/subagent grouping) + format helpers + markdown AST + a chunked append log; shared by the Ink TUI and the desktop
 @moxxy/cli         the `moxxy` binary
 
-apps/desktop                 Electron desktop app — attaches to @moxxy/runner, renders a TUI-equivalent chat surface
+apps/desktop                 Electron desktop app — attaches to @moxxy/runner, renders a TUI-equivalent chat surface. Self-updates its JS layers (renderer+main+preload+IPC) via a signed app bundle behind an immutable bootstrap loader (electron/main/bootstrap.ts) — no reinstall; native-shell bumps go through electron-updater (Tier 2). See docs/desktop-self-update.md.
 @moxxy/desktop-ipc-contract  typed IPC boundary (channel names + payloads + Zod validation) shared by the desktop's main / preload / renderer
-@moxxy/desktop-host          the desktop's Electron main process: runner pool + supervisor, session driver, IPC handlers, append-only NDJSON chat log, security gates
+@moxxy/desktop-host          the desktop's Electron main process: runner pool + supervisor, session driver, IPC handlers, append-only NDJSON chat log, security gates, and the self-update gate/stager (the node-only @moxxy/desktop-host/app-update subpath baked into the bootstrap)
 @moxxy/desktop-ui            framework-light, dependency-free React UI primitives (single-file SVG Icon set, Modal/ConfirmModal portal, Skeleton placeholders); shared by the renderer and a future web channel
 ```
 

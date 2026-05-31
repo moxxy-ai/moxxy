@@ -16,7 +16,9 @@ import { WorkspaceSidebar, type View } from './shell/WorkspaceSidebar';
 import { ContextRail } from './shell/ContextRail';
 import { WorkflowsPanel } from './workflows/WorkflowsPanel';
 import { SettingsPanel } from './settings/SettingsPanel';
+import { UpdateBanner } from './shell/UpdateBanner';
 import { Splash } from './Splash';
+import { api } from './lib/api';
 
 /**
  * Top-level shell. Three layers of gating, in order:
@@ -52,6 +54,12 @@ export function App(): JSX.Element {
   useEffect(() => {
     chatStore.setActive(activeWorkspaceId);
   }, [activeWorkspaceId]);
+
+  // Boot-probe heartbeat: the React tree mounted, so a hot-updated bundle is
+  // healthy — tell main to confirm it (no-op on the bundled floor). Fired once.
+  useEffect(() => {
+    void api().invoke('app.appBooted').catch(() => undefined);
+  }, []);
 
   // First-run gate. Block on prefs loading so we never flash the
   // main UI before deciding whether onboarding is needed.
@@ -132,6 +140,7 @@ export function App(): JSX.Element {
     <div className="app-shell">
       <ConnectionBridge />
       <ChatStoreBridge />
+      <UpdateBanner />
       <WorkspaceSidebar view={view} onView={setView} />
       {view === 'chat' && (
         <>

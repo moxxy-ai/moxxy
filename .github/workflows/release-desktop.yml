@@ -98,6 +98,28 @@ jobs:
       - name: Build workspace
         run: pnpm build
 
+      # Tier-1 self-update assets: a gzipped {renderer + main + preload + IPC}
+      # bundle and an Ed25519-signed manifest, so the SAME dist that gets
+      # packaged below can also be hot-installed by existing clients without a
+      # reinstall. OS-independent JS → built once, on the Linux leg. Skipped when
+      # the signing key isn't configured (forks / PRs) — the floor still ships.
+      - name: Build + sign app update bundle
+        if: matrix.os == 'ubuntu-latest' && env.MOXXY_UPDATE_SIGNING_KEY != ''
+        env:
+          MOXXY_UPDATE_SIGNING_KEY: ${{ secrets.MOXXY_UPDATE_SIGNING_KEY }}
+          MOXXY_BUNDLE_NOTES: ${{ github.ref_name }}
+        run: node scripts/build-app-bundle.mjs
+
+      - name: Upload app update bundle
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-update-bundle
+          path: |
+            apps/desktop/release/update/moxxy-app-manifest.json
+            apps/desktop/release/update/moxxy-app-bundle-*.json.gz
+          if-no-files-found: ignore
+
       # Bundle a self-contained, pinned moxxy CLI INTO the app so the desktop
       # never depends on a globally-installed moxxy (or a system node — it's
       # run via Electron's Node). electron-builder ships resources/moxxy-cli
@@ -189,6 +211,8 @@ jobs:
             apps/desktop/release/*.exe
             apps/desktop/release/*.deb
             apps/desktop/release/*.AppImage
+            apps/desktop/release/*.yml
+            apps/desktop/release/*.blockmap
           if-no-files-found: ignore
 
   release:
@@ -204,6 +228,11 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+      # NOTE: self-update needs PUBLISHED assets. The release is created as a
+      # DRAFT (human review of the unsigned build); the moxxy-app-manifest.json /
+      # bundle (Tier-1) and the electron-updater latest*.yml feed (Tier-2) only
+      # become downloadable via `releases/latest/download/...` once a human
+      # PUBLISHES this release. So: review → Publish → clients can update.
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:

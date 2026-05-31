@@ -32,6 +32,7 @@ import type { DeskStore } from './desks';
 import { sendEvent } from './send-event';
 import { drivers, publishDriver, unpublishDriver, whenDriverReady } from './ipc/shared';
 import { registerAppHandlers } from './ipc/app';
+import { registerUpdateHandlers, type UpdateConfig } from './ipc/update';
 import { registerAskHandlers } from './ipc/ask';
 import { registerConnectionHandlers } from './ipc/connection';
 import { registerOnboardingHandlers } from './ipc/onboarding';
@@ -44,9 +45,17 @@ import { registerSettingsHandlers } from './ipc/settings';
 import { registerVaultHandlers } from './ipc/vault';
 import { registerChatHandlers } from './ipc/chat';
 
-export function registerIpcHandlers(pool: RunnerPool, desks: DeskStore): void {
+export function registerIpcHandlers(
+  pool: RunnerPool,
+  desks: DeskStore,
+  opts: { readonly update?: UpdateConfig } = {},
+): void {
   registerAskHandlers();
   registerAppHandlers(pool);
+  // Self-update handlers. The baked signing key is supplied by the app's main
+  // (it owns `update-key.ts`); an empty/absent config means updates report as
+  // unavailable rather than erroring.
+  registerUpdateHandlers(opts.update ?? { publicKeyPem: '' });
   registerConnectionHandlers(pool);
   registerOnboardingHandlers(pool);
   registerSessionHandlers(pool);
