@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/mode-plan-execute",
   "private": true,
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Plan-and-execute loop strategy for moxxy: model produces a plan, then executes each step as a focused tool-use sub-loop.",
   "type": "module",
   "main": "./dist/index.js",

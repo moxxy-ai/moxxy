@@ -1,5 +1,12 @@
 # @moxxy/plugin-channel-web
 
+## 0.0.3
+
+### Patch Changes
+
+- Updated dependencies [0afd61d]
+  - @moxxy/sdk@0.2.0
+
 ## 0.0.2
 
 ### Patch Changes
