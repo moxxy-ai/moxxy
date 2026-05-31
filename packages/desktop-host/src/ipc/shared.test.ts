@@ -1,4 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// `./shared` value-imports `ipcMain` from electron, whose index.js throws at
+// import time unless the platform binary is installed (CI Node 24 doesn't
+// install it). These are pure-plumbing unit tests that never touch the real
+// runtime, so stub electron — importing it must not require the GUI binary.
+vi.mock('electron', () => ({ ipcMain: { handle: () => undefined } }));
 
 import {
   drivers,
