@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api';
+import { toErrorMessage } from './errors';
 import { audioToPcm16, uint8ArrayToBase64, MOXXY_PCM16_24KHZ_MIME } from './audioToPcm16';
 
 /**
@@ -84,17 +85,38 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
       setPhase('transcribing');
       try {
         const blob = new Blob([...chunks], { type: mimeType });
+        // Nothing captured (an instant tap, a muted mic) — don't round-trip
+        // empty audio to the transcriber; just tell the user plainly.
+        if (blob.size === 0) {
+          fail('No speech detected — try again');
+          return;
+        }
         // PCM16 mono 24 kHz — the format moxxy's Codex transcriber
         // expects; AudioContext stands in for the TUI's ffmpeg step.
         const pcm = await audioToPcm16(blob);
+        if (pcm.length === 0) {
+          fail('No speech detected — try again');
+          return;
+        }
         const text = await api().invoke('session.transcribe', {
           audioBase64: uint8ArrayToBase64(pcm),
           mimeType: MOXXY_PCM16_24KHZ_MIME,
         });
-        if (text?.trim()) onTranscriptRef.current(text.trim());
-        setPhase('idle');
+        const trimmed = text?.trim();
+        if (trimmed) {
+          onTranscriptRef.current(trimmed);
+          setPhase('idle');
+        } else {
+          // A well-formed but empty transcript means the clip held no
+          // intelligible speech. Surface a hint instead of silently dropping it
+          // (mirrors the TUI's "voice: empty transcript" notice).
+          fail('No speech detected — try again');
+        }
       } catch (e) {
-        fail(e instanceof Error ? e.message : 'transcription failed');
+        // Decode the IPC error envelope so the user sees a clean message
+        // (a login hint, a network error, …) rather than the raw
+        // `MOXXY_IPC_ERR:{…}` wire encoding Electron would otherwise surface.
+        fail(toErrorMessage(e));
       }
     },
     [fail, setPhase],

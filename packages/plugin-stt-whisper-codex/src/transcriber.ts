@@ -104,19 +104,28 @@ export class CodexOAuthTranscriber implements Transcriber {
       });
     }
 
-    const text =
-      payload && typeof payload === 'object' && typeof (payload as { text?: unknown }).text === 'string'
-        ? (payload as { text: string }).text.trim()
-        : '';
-    if (!text) {
+    // A 200 with a string `text` field is a SUCCESS even when that string is
+    // empty/whitespace — that just means the clip held no intelligible speech
+    // (silence, a clipped tap, a muted mic). Return `{ text: '' }` so callers
+    // take their graceful "no speech" path (the TUI shows a notice, the desktop
+    // a hint, Telegram/HTTP their own empty-text replies) instead of treating a
+    // normal outcome as a provider failure — every caller already guards on an
+    // empty transcript, and this is the one backend that used to throw past
+    // them. Only a response MISSING the `text` field (or whose `text` isn't a
+    // string) is a real contract violation worth throwing on.
+    if (
+      !payload ||
+      typeof payload !== 'object' ||
+      typeof (payload as { text?: unknown }).text !== 'string'
+    ) {
       throw new MoxxyError({
         code: 'PROVIDER_UNKNOWN_RESPONSE',
-        message: 'Codex transcription returned an empty transcript.',
+        message: 'Codex transcription response was missing a text field.',
         context: { provider: CODEX_PROVIDER_ID, url: this.endpoint },
       });
     }
 
-    return { text };
+    return { text: (payload as { text: string }).text.trim() };
   }
 
   private async loadTokens(): Promise<CodexTokens> {

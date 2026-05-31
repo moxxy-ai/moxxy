@@ -106,6 +106,7 @@ Run `pnpm check:deps` to verify after structural changes.
 | Create a new `@moxxy/plugin-*` package | `.claude/agents/plugin-author.md` |
 | Add one tool to a plugin | `.claude/agents/tool-author.md` |
 | Implement an `LLMProvider` for a new model API | `.claude/agents/provider-author.md` |
+| Build a text-to-speech `Synthesizer` plugin (ElevenLabs / OpenAI TTS / local) | `.claude/agents/synthesizer-author.md` |
 | Build a new loop strategy | `.claude/agents/loop-strategy-author.md` |
 | Build a new `Compactor` | `.claude/agents/compactor-author.md` |
 | Build a new `CacheStrategy` (prompt-cache breakpoints) | `.claude/agents/cache-strategy-author.md` |

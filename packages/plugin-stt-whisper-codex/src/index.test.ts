@@ -171,7 +171,7 @@ describe('CodexOAuthTranscriber', () => {
     }
   });
 
-  it('rejects non-2xx and empty transcript responses', async () => {
+  it('rejects non-2xx and malformed responses, and treats an empty transcript as a valid empty result', async () => {
     const vault = await makeVault();
     await persistCodexTokens(vault, {
       access: 'access-token',
@@ -192,17 +192,34 @@ describe('CodexOAuthTranscriber', () => {
       await badServer.close();
     }
 
+    // A well-formed 200 with an all-whitespace transcript means "no intelligible
+    // speech" — a valid empty RESULT, not an error. Callers (TUI/desktop/Telegram/
+    // HTTP) all have their own empty-text path; the transcriber must not throw past
+    // them.
     const emptyServer = await startServer((_request, res) => {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ text: '   ' }));
     });
     try {
       const transcriber = new CodexOAuthTranscriber({ vault, baseUrl: emptyServer.baseUrl });
-      await expect(transcriber.transcribe(new Uint8Array([1]), { mimeType: 'audio/wav' }))
-        .rejects
-        .toThrow(/empty transcript/);
+      const result = await transcriber.transcribe(new Uint8Array([1]), { mimeType: 'audio/wav' });
+      expect(result.text).toBe('');
     } finally {
       await emptyServer.close();
+    }
+
+    // A 200 that's missing the `text` field IS a contract violation → throw.
+    const malformedServer = await startServer((_request, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ notText: 1 }));
+    });
+    try {
+      const transcriber = new CodexOAuthTranscriber({ vault, baseUrl: malformedServer.baseUrl });
+      await expect(transcriber.transcribe(new Uint8Array([1]), { mimeType: 'audio/wav' }))
+        .rejects
+        .toThrow(/missing a text field/);
+    } finally {
+      await malformedServer.close();
     }
   });
 });
