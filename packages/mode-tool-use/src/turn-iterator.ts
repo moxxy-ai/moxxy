@@ -170,6 +170,16 @@ async function* emitRequestsAndDetectStuck(
   toolUses: ReadonlyArray<CollectedToolUse>,
   detector: StuckLoopDetector,
 ): AsyncGenerator<MoxxyEvent, boolean, unknown> {
+  // Requests emitted this batch. A stuck trip bails WITHOUT running
+  // executeToolUses, so every request emitted so far would otherwise be left
+  // as an orphan tool_call_requested (no tool_result). That orphan is the bug
+  // behind "tool stuck running forever, flips to error on the next message":
+  // the turn ends cleanly (composer re-enables) yet the call never resolves,
+  // so the desktop's pair-events fold can only clear it via the next
+  // user_prompt's markOrphansAtTurnBoundary. The provider also rejects an
+  // unresolved tool_use block next turn. Synthesize a failed result for each —
+  // same contract as executeToolUses' abort path.
+  const emitted: CollectedToolUse[] = [];
   for (const t of toolUses) {
     yield await ctx.emit({
       type: 'tool_call_requested',
@@ -180,8 +190,20 @@ async function* emitRequestsAndDetectStuck(
       name: t.name,
       input: t.input,
     });
+    emitted.push(t);
     const sig = detector.record(t.name, t.input);
     if (sig.stuck) {
+      for (const r of emitted) {
+        yield await ctx.emit({
+          type: 'tool_result',
+          sessionId: ctx.sessionId,
+          turnId: ctx.turnId,
+          source: 'tool',
+          callId: asToolCallId(r.id),
+          ok: false,
+          error: { kind: 'aborted', message: 'tool-use loop aborted (stuck pattern) before this call ran' },
+        });
+      }
       const how =
         sig.kind === 'near'
           ? 'against the same target (only volatile args like maxBytes varied)'

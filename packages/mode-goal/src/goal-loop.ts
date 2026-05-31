@@ -335,6 +335,13 @@ async function* emitRequestsAndDetectStuck(
   toolUses: ReadonlyArray<CollectedToolUse>,
   detector: StuckLoopDetector,
 ): AsyncGenerator<MoxxyEvent, boolean, unknown> {
+  // A stuck trip bails WITHOUT running executeToolUses, so any request emitted
+  // so far would be orphaned (a tool_call_requested with no tool_result) —
+  // which renders as a tool stuck "running" forever and only clears when the
+  // next user_prompt arrives. Synthesize a failed result for each before
+  // returning, mirroring executeToolUses' abort path. See the same fix in
+  // mode-tool-use's turn-iterator.
+  const emitted: CollectedToolUse[] = [];
   for (const t of toolUses) {
     yield await ctx.emit({
       type: 'tool_call_requested',
@@ -345,8 +352,20 @@ async function* emitRequestsAndDetectStuck(
       name: t.name,
       input: t.input,
     });
+    emitted.push(t);
     const sig = detector.record(t.name, t.input);
     if (sig.stuck) {
+      for (const r of emitted) {
+        yield await ctx.emit({
+          type: 'tool_result',
+          sessionId: ctx.sessionId,
+          turnId: ctx.turnId,
+          source: 'tool',
+          callId: asToolCallId(r.id),
+          ok: false,
+          error: { kind: 'aborted', message: 'goal mode aborted (stuck pattern) before this call ran' },
+        });
+      }
       const how =
         sig.kind === 'near'
           ? 'against the same target (only volatile args varied)'
