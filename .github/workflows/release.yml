@@ -7,6 +7,12 @@ name: Release
 #   2. The Version Packages PR has just been merged: publish every
 #      non-private workspace package whose version is not yet on npm.
 #
+# After either mode, a final step cuts the desktop release: when the merged
+# Version Packages PR bumped @moxxy/desktop (a private, apps/ package that
+# safe-publish.mjs never touches and never tags), it pushes the matching
+# `desktop-v<version>` tag and dispatches release-desktop.yml. See that step
+# for why it dispatches rather than relying on the tag-push trigger.
+#
 # Mode 2 runs through `scripts/safe-publish.mjs` rather than the default
 # `changesets publish`. That wrapper:
 #   - skips packages whose current version is already on the registry
@@ -32,6 +38,9 @@ permissions:
   contents: write
   pull-requests: write
   id-token: write
+  # Lets the desktop-release step below dispatch release-desktop.yml
+  # (workflow_dispatch == POST .../actions/workflows/.../dispatches).
+  actions: write
 
 jobs:
   release:
@@ -75,3 +84,34 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Cut the desktop release when the merged Version Packages PR bumped
+      # @moxxy/desktop. The version on main is the source of truth: if there's
+      # no `desktop-v<version>` tag yet, this bump hasn't been released. (On a
+      # mode-1 run that only opens the Version PR, main still carries the old,
+      # already-tagged version, so this is a cheap no-op.)
+      #
+      # Why dispatch instead of just pushing the tag: a tag pushed with the
+      # default GITHUB_TOKEN does NOT start a new workflow run — GitHub's guard
+      # against recursive runs means release-desktop.yml's `on: push: tags`
+      # would never fire. workflow_dispatch (and repository_dispatch) are the
+      # documented exceptions that DO fire under GITHUB_TOKEN. We still push
+      # the tag first so dispatching `--ref desktop-v<version>` resolves, which
+      # also makes release-desktop's `startsWith(github.ref, 'refs/tags/
+      # desktop-v')` gate pass — so the GitHub Release publishes exactly as a
+      # manual `git push origin desktop-v*` would.
+      - name: Cut desktop release on version bump
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="$(node -p "require('./apps/desktop/package.json').version")"
+          tag="desktop-v$version"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null \
+            || git ls-remote --exit-code --tags origin "$tag" >/dev/null 2>&1; then
+            echo "$tag already exists — desktop $version is already released."
+            exit 0
+          fi
+          echo "Desktop bumped to $version with no $tag tag — releasing."
+          git tag "$tag"
+          git push origin "$tag"
+          gh workflow run release-desktop.yml --ref "$tag"
