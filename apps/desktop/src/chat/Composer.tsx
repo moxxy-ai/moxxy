@@ -19,6 +19,8 @@ import { ContextMeter } from './ContextMeter';
 import { CommandPalette } from './CommandPalette';
 import { FILE_INSERT_EVENT, type FileInsertDetail } from '@/shell/WorkspaceFiles';
 import { ToolChip } from './composer/ToolChip';
+import { OverflowMenu } from './composer/OverflowMenu';
+import { GoalModal } from './composer/GoalModal';
 import { QueuedChip } from './composer/QueuedChip';
 import { AttachmentChip } from './composer/AttachmentChip';
 import { sendBtn } from './composer/composer-styles';
@@ -103,6 +105,7 @@ export function Composer({
     onTranscript: (t) => setDraft((d) => (d ? `${d.trimEnd()} ${t}` : t)),
   });
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [goalOpen, setGoalOpen] = useState(false);
   /** Files the user picked from the rail or the native picker. Each
    *  one ships as a UserPromptAttachment with kind: 'file' + content:
    *  absolute path so the agent's read_file / cat tools find it. */
@@ -210,21 +213,22 @@ export function Composer({
   // One-click goal: switch to goal mode, turn auto-approve ON, and start
   // working on the typed objective. Mirrors the TUI's `/goal <objective>`
   // (switch mode + yolo + submit). Needs an objective in the draft.
-  const startGoal = useCallback(() => {
-    if (!ready) return;
-    const objective = draft.trim();
-    if (!objective) {
-      taRef.current?.focus();
-      return;
-    }
-    void api().invoke('session.setMode', { workspaceId, mode: 'goal' }).catch(() => {});
-    setAutoApprove(true);
-    // Refresh the Mode chip so it reflects the switch immediately.
-    window.dispatchEvent(new CustomEvent(SESSION_INFO_REFRESH_EVENT));
-    onSend(objective, attachments.length > 0 ? attachments : undefined);
-    setDraft('');
-    setAttachments([]);
-  }, [ready, draft, attachments, workspaceId, onSend, setAutoApprove]);
+  const startGoal = useCallback(
+    (objective: string): void => {
+      if (!ready) return;
+      const trimmed = objective.trim();
+      if (!trimmed) return;
+      void api().invoke('session.setMode', { workspaceId, mode: 'goal' }).catch(() => {});
+      setAutoApprove(true);
+      // Refresh the Mode chip so it reflects the switch immediately.
+      window.dispatchEvent(new CustomEvent(SESSION_INFO_REFRESH_EVENT));
+      onSend(trimmed, attachments.length > 0 ? attachments : undefined);
+      setDraft('');
+      setAttachments([]);
+      setGoalOpen(false);
+    },
+    [ready, attachments, workspaceId, onSend, setAutoApprove],
+  );
 
   /** Persist a pasted/dropped image blob to a temp file via the main
    *  process, then add the returned path as a regular attachment so it
@@ -427,11 +431,20 @@ export function Composer({
         }}
       />
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <OverflowMenu
+          highlighted={autoApprove}
+          items={[
+            { icon: 'spark', label: 'Actions', onClick: () => setActionsOpen(true) },
+            { icon: 'agent', label: 'Goal', onClick: () => setGoalOpen(true) },
+            {
+              icon: 'check',
+              label: autoApprove ? 'Auto-approve ON' : 'Auto-approve',
+              onClick: () => setAutoApprove(!autoApprove),
+              active: autoApprove,
+            },
+          ]}
+        />
         <AgentPicker workspaceId={workspaceId} disabled={!ready || inFlight} />
-        <ToolChip label="Actions" onClick={() => setActionsOpen(true)}>
-          <Icon name="spark" size={14} />
-          <span>Actions</span>
-        </ToolChip>
         <ToolChip label="Attach file" onClick={() => void onAttach()}>
           <Icon name="attach" size={16} />
           <span>Attach</span>
@@ -455,25 +468,6 @@ export function Composer({
                 ? 'Transcribing…'
                 : 'Voice'}
           </span>
-        </ToolChip>
-        <ToolChip
-          label="Goal — work autonomously until the objective is delivered"
-          onClick={startGoal}
-        >
-          <Icon name="spark" size={15} />
-          <span>Goal</span>
-        </ToolChip>
-        <ToolChip
-          label={
-            autoApprove
-              ? 'Auto-approve is ON — tap to require approval for tool calls again'
-              : 'Auto-approve tool calls (no approval prompts)'
-          }
-          onClick={() => setAutoApprove(!autoApprove)}
-          tone={autoApprove ? 'armed' : 'idle'}
-        >
-          <Icon name="check" size={15} />
-          <span>{autoApprove ? 'Auto-approve ON' : 'Auto-approve'}</span>
         </ToolChip>
         <span style={{ flex: 1 }} />
         <ContextMeter workspaceId={workspaceId} />
@@ -518,6 +512,13 @@ export function Composer({
         <CommandPalette
           workspaceId={workspaceId}
           onClose={() => setActionsOpen(false)}
+        />
+      )}
+      {goalOpen && (
+        <GoalModal
+          defaultObjective={draft}
+          onCancel={() => setGoalOpen(false)}
+          onStart={startGoal}
         />
       )}
     </form>

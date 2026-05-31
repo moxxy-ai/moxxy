@@ -87,6 +87,13 @@ export class SessionDriver {
           },
           (channel, payload) => this.send(channel, payload),
         );
+        // "Always allow" must persist so the runner's permission engine
+        // skips the prompt on the next call. The resolver only decides
+        // THIS call; without recording the rule, allow_always behaves
+        // exactly like allow_session and the sheet reappears every time.
+        if (res.mode === 'allow_always') {
+          void this.session.permissions.addAllow({ name: call.name });
+        }
         return { mode: res.mode ?? 'deny' };
       },
     });
