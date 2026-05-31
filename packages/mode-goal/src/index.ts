@@ -4,9 +4,7 @@ import { GOAL_MODE_NAME } from './constants.js';
 import { goalTools } from './goal-tools.js';
 import { runGoalMode } from './goal-loop.js';
 
-export { GOAL_MODE_NAME, GOAL_COMPLETE_TOOL, GOAL_ABANDON_TOOL } from './constants.js';
-export { detectGoalTerminal } from './completion.js';
-export { goalCompleteTool, goalAbandonTool, goalTools } from './goal-tools.js';
+export { GOAL_MODE_NAME } from './constants.js';
 
 export const goalMode = defineMode({
   name: GOAL_MODE_NAME,

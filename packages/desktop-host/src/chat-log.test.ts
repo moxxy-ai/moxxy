@@ -3,13 +3,7 @@ import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { MoxxyEvent } from '@moxxy/sdk';
-import {
-  appendEvents,
-  loadSegment,
-  clearLog,
-  listWorkspaces,
-  migrate,
-} from './chat-log';
+import { appendEvents, loadSegment, clearLog, migrate } from './chat-log';
 
 let dir: string;
 
@@ -65,12 +59,6 @@ describe('chat-log NDJSON backend', () => {
     await appendEvents('w1', [ev(0)]);
     await clearLog('w1');
     expect((await loadSegment('w1', null, 10)).events).toEqual([]);
-  });
-
-  it('listWorkspaces returns workspaces with a log', async () => {
-    await appendEvents('w1', [ev(0)]);
-    await appendEvents('w2', [ev(0)]);
-    expect((await listWorkspaces()).sort()).toEqual(['w1', 'w2']);
   });
 
   it('migrate seeds new logs but never clobbers an existing one', async () => {

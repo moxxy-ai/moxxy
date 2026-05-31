@@ -15,11 +15,10 @@
  * directly).
  */
 
-import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { resolveMoxxyCli, augmentedPaths, nodeLauncher, spawnPath } from './cli-resolver';
+import { resolveMoxxyCli, augmentedPaths, spawnCli } from './cli-resolver';
 
 interface StoredProvider {
   readonly kind: 'openai-compat';
@@ -48,6 +47,16 @@ async function readStoredProviders(): Promise<StoredProvidersConfig> {
 }
 
 /**
+ * Names of the admin-registered (OpenAI-compat) providers in
+ * providers.json. The single reader behind the settings dropdown / catalog —
+ * tolerant of a missing or malformed file (returns []).
+ */
+export async function readAdminProviderNames(): Promise<string[]> {
+  const { providers } = await readStoredProviders();
+  return providers.map((p) => p.name).filter((n): n is string => typeof n === 'string');
+}
+
+/**
  * Spawn `moxxy vault get <key>` and resolve to stdout (trimmed). The
  * CLI prints the decrypted value to stdout and any UX scaffolding to
  * stderr; we drop stderr. Throws on non-zero exit.
@@ -59,31 +68,13 @@ function vaultGet(key: string): Promise<string> {
       reject(new Error('moxxy CLI not on PATH'));
       return;
     }
-    // GUI launches lack the shell PATH; put node's dir (= the resolved CLI's
-    // dir) on PATH so moxxy's `#!/usr/bin/env node` shebang resolves.
-    const cliDir = cli.kind === 'direct' ? path.dirname(cli.bin) : path.dirname(cli.entry);
-    const env = { ...process.env, PATH: spawnPath([cliDir]) };
-    let child;
-    if (cli.kind === 'direct') {
-      child = spawn(cli.bin, ['vault', 'get', key], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env,
-      });
-    } else {
-      // No system `node` on a GUI launch — run the bundled CLI with
-      // Electron's own Node (ELECTRON_RUN_AS_NODE), merged onto the PATH env.
-      const { command, env: nodeEnv } = nodeLauncher();
-      child = spawn(command, [cli.entry, 'vault', 'get', key], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...env, ...nodeEnv },
-      });
-    }
+    const child = spawnCli(cli, ['vault', 'get', key]);
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (b) => {
+    child.stdout?.on('data', (b) => {
       stdout += b.toString();
     });
-    child.stderr.on('data', (b) => {
+    child.stderr?.on('data', (b) => {
       stderr += b.toString();
     });
     child.on('error', reject);
@@ -148,10 +139,4 @@ export async function fetchProviderModels(
     .map((m) => m.id)
     .filter((id): id is string => typeof id === 'string' && id.length > 0);
   return ids.sort();
-}
-
-/** Is this provider admin-registered (so live fetch makes sense)? */
-export async function isAdminRegistered(providerName: string): Promise<boolean> {
-  const stored = await readStoredProviders();
-  return stored.providers.some((p) => p.name === providerName);
 }

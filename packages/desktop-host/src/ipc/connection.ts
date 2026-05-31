@@ -9,18 +9,12 @@
  * RPCs are for cold-start priming and the manual Retry button.
  */
 
-import { UNBOUND_ID, type RunnerPool } from '../runner-pool';
+import { type RunnerPool } from '../runner-pool';
 import { handle } from './shared';
 
 export function registerConnectionHandlers(pool: RunnerPool): void {
   // ---- Connection ----------------------------------------------------------
 
-  handle('connection.snapshot', async (args) => {
-    const id = args?.workspaceId ?? pool.activeWorkspaceId() ?? UNBOUND_ID;
-    const sup = pool.get(id);
-    if (!sup) throw new Error(`no supervisor for ${id}`);
-    return { workspaceId: id, ...sup.snapshot() };
-  });
   handle('connection.snapshotAll', async () =>
     pool.list().map((e) => ({ workspaceId: e.id, ...e.supervisor.snapshot() })),
   );

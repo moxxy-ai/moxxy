@@ -26,11 +26,6 @@ import {
 
 export type { FoldedBlock };
 
-export interface ChatAttachment {
-  readonly path: string;
-  readonly name: string;
-}
-
 /** Slash-command result card or a locally-generated notice — desktop UI
  *  that has no corresponding runner event. `afterCount` anchors it after
  *  the Nth committed event so it renders in chronological order. */

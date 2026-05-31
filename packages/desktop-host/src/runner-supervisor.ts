@@ -33,13 +33,7 @@ import type {
   ConnectionPhase,
   ConnectionSnapshot,
 } from '@moxxy/desktop-ipc-contract';
-import {
-  augmentedPaths,
-  nodeLauncher,
-  resolveMoxxyCli,
-  spawnPath,
-  type CliInvocation,
-} from './cli-resolver';
+import { augmentedPaths, resolveMoxxyCli, spawnCli, type CliInvocation } from './cli-resolver';
 import { redactSecrets } from './security';
 
 const PROBE_TIMEOUT_MS = 250;
@@ -367,45 +361,22 @@ export class RunnerSupervisor extends EventEmitter {
   }
 
   private spawnServe(cli: CliInvocation): ChildProcess {
-    const cliDir = cli.kind === 'direct' ? path.dirname(cli.bin) : path.dirname(cli.entry);
-    const env = {
-      ...process.env,
-      // GUI launches lack the shell PATH, so moxxy's `#!/usr/bin/env node`
-      // shebang can't find node → serve exits 127 and the desktop loops on
-      // "Lost the runner. Reconnecting…". Put node's dir (= the resolved
-      // CLI's dir) + the known install locations on PATH.
-      PATH: spawnPath([cliDir]),
-      MOXXY_RUNNER_SOCKET: this.socketPath,
-      // Desktop owns the UI; we don't need the co-attached web
-      // surface, and binding its fixed port (4040) breaks the moment
-      // a second workspace runner spawns.
-      MOXXY_NO_WEB_SURFACE: '1',
-      // Hide the Tier-2 self_update_core_* tools: patching @moxxy/core
-      // (git clone + build + dist overlay + restart) can't work inside a
-      // read-only packaged .app. Tier-1 (author/swap plugins + skills under
-      // ~/.moxxy) stays fully available — that's how the desktop "patches"
-      // itself.
-      MOXXY_NO_CORE_UPDATE: '1',
-    };
-    const spawnOpts: import('node:child_process').SpawnOptions = {
-      env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    };
-    if (this.cwd) spawnOpts.cwd = this.cwd;
-    let proc: ChildProcess;
-    if (cli.kind === 'direct') {
-      proc = spawn(cli.bin, ['serve'], spawnOpts);
-    } else {
-      // No system `node` on a GUI launch — run the bundled CLI with
-      // Electron's own Node (ELECTRON_RUN_AS_NODE), merged onto the PATH
-      // env above. Falls back to plain `node` outside Electron.
-      const { command, env: nodeEnv } = nodeLauncher();
-      proc = spawn(command, [cli.entry, 'serve'], {
-        ...spawnOpts,
-        env: { ...env, ...nodeEnv },
-      });
-    }
-
+    const proc = spawnCli(cli, ['serve'], {
+      env: {
+        MOXXY_RUNNER_SOCKET: this.socketPath,
+        // Desktop owns the UI; we don't need the co-attached web
+        // surface, and binding its fixed port (4040) breaks the moment
+        // a second workspace runner spawns.
+        MOXXY_NO_WEB_SURFACE: '1',
+        // Hide the Tier-2 self_update_core_* tools: patching @moxxy/core
+        // (git clone + build + dist overlay + restart) can't work inside a
+        // read-only packaged .app. Tier-1 (author/swap plugins + skills under
+        // ~/.moxxy) stays fully available — that's how the desktop "patches"
+        // itself.
+        MOXXY_NO_CORE_UPDATE: '1',
+      },
+      ...(this.cwd ? { cwd: this.cwd } : {}),
+    });
     proc.stdout?.on('data', (chunk) => this.consumeLog('stdout', chunk));
     proc.stderr?.on('data', (chunk) => this.consumeLog('stderr', chunk));
     return proc;

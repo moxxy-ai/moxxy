@@ -1,4 +1,4 @@
-import { decodeIpcError, type MoxxyIpcError, type MoxxyIpcErrorCode } from '@moxxy/desktop-ipc-contract';
+import { decodeIpcError, type MoxxyIpcError } from '@moxxy/desktop-ipc-contract';
 
 /**
  * Decode a rejected `window.moxxy.invoke()` failure into the uniform
@@ -19,11 +19,4 @@ export function decodeError(e: unknown): MoxxyIpcError {
  *  across the renderer's catch blocks. */
 export function toErrorMessage(e: unknown): string {
   return decodeError(e).message;
-}
-
-/** True when the failure carries the given IPC error code. Lets callers branch
- *  on a stable code (e.g. ignore `not-connected` noise during reconnect)
- *  instead of string-matching English messages. */
-export function isIpcErrorCode(e: unknown, code: MoxxyIpcErrorCode): boolean {
-  return decodeError(e).code === code;
 }

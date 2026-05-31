@@ -13,20 +13,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { createMutex, writeFileAtomic } from '@moxxy/sdk';
-
-export interface DesktopPrefs {
-  /** True once the first-run wizard has been completed at least once. */
-  onboardingComplete: boolean;
-  /** Clerk user id, persisted so the desktop knows who last signed in.
-   *  The actual Clerk session token lives in Clerk's own cookie store. */
-  clerkUserId: string | null;
-  /** Human-friendly display name for the signed-in user. */
-  clerkDisplayName: string | null;
-  /** Timestamp of the last successful sign-in. */
-  signedInAt: number | null;
-  /** Schema version. Bump when the shape changes incompatibly. */
-  version: 1;
-}
+import type { DesktopPrefs } from '@moxxy/desktop-ipc-contract';
 
 const DEFAULTS: DesktopPrefs = {
   onboardingComplete: false,

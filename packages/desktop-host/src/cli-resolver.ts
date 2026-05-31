@@ -14,6 +14,7 @@
  * tests skip it so PATH isolation actually isolates.
  */
 
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { delimiter } from 'node:path';
@@ -126,6 +127,33 @@ export function nodeLauncher(): { command: string; env: NodeJS.ProcessEnv } {
   return { command: 'node', env: {} };
 }
 
+/**
+ * Spawn the resolved moxxy CLI with `args`, hiding the
+ * direct-bin-vs-Electron-Node branch and the GUI-launch PATH dance that every
+ * caller otherwise hand-rolls. `opts.env` is merged onto `process.env`, then
+ * PATH is forced to the spawn PATH (caller env can't clobber it) so moxxy's
+ * `#!/usr/bin/env node` shebang resolves even on a Finder/Dock launch. `stdio`
+ * defaults to ignore-stdin / piped stdout+stderr. The returned child is
+ * unhandled — callers attach their own stdout/stderr/stdin/exit wiring.
+ */
+export function spawnCli(
+  cli: CliInvocation,
+  args: ReadonlyArray<string>,
+  opts: { env?: NodeJS.ProcessEnv; stdio?: SpawnOptions['stdio']; cwd?: string } = {},
+): ChildProcess {
+  const cliDir = cli.kind === 'direct' ? path.dirname(cli.bin) : path.dirname(cli.entry);
+  const env = { ...process.env, ...opts.env, PATH: spawnPath([cliDir]) };
+  const spawnOpts: SpawnOptions = { env, stdio: opts.stdio ?? ['ignore', 'pipe', 'pipe'] };
+  if (opts.cwd) spawnOpts.cwd = opts.cwd;
+  if (cli.kind === 'direct') {
+    return spawn(cli.bin, [...args], spawnOpts);
+  }
+  // No system `node` on a GUI launch — run the bundled CLI with Electron's own
+  // Node (ELECTRON_RUN_AS_NODE), merged onto the PATH env above.
+  const { command, env: nodeEnv } = nodeLauncher();
+  return spawn(command, [cli.entry, ...args], { ...spawnOpts, env: { ...env, ...nodeEnv } });
+}
+
 function isReadableFile(p: string): boolean {
   try {
     return statSync(p).isFile();
@@ -134,7 +162,11 @@ function isReadableFile(p: string): boolean {
   }
 }
 
-function findExecutable(name: string, extra: ReadonlyArray<string>): string | null {
+/**
+ * First `name` found in PATH (plus `extra` dirs), or null. Used both to resolve
+ * `moxxy` and — by the installer — to locate `node`/`npm` on a GUI-launch PATH.
+ */
+export function findExecutable(name: string, extra: ReadonlyArray<string>): string | null {
   const pathEnv = process.env.PATH ?? '';
   const dirs = pathEnv.split(delimiter).concat(extra).filter(Boolean);
   for (const dir of dirs) {

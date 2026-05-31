@@ -119,10 +119,7 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
     const nudge =
       noop === 0 ? undefined : noop >= GOAL_MAX_NOOP_ITERATIONS - 1 ? STALL_NUDGE : CONTINUE_NUDGE;
 
-    const baseSystem =
-      buildSystemPromptWithSkills(goalCtx.systemPrompt, goalCtx.skills.list()) ??
-      goalCtx.systemPrompt ??
-      '';
+    const baseSystem = buildSystemPromptWithSkills(goalCtx.systemPrompt, goalCtx.skills.list()) ?? '';
     const { messages, stablePrefixIndex } = projectMessages(goalCtx, {
       ...(baseSystem ? { systemPrompt: baseSystem } : {}),
       ...(nudge ? { trailingUserText: nudge } : {}),

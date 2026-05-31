@@ -15,7 +15,7 @@
  * search across thousands of messages later becomes a hard requirement.
  */
 
-import { appendFile, mkdir, open, readFile, readdir, rm } from 'node:fs/promises';
+import { appendFile, mkdir, open, readFile, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import type { MoxxyEvent } from '@moxxy/sdk';
@@ -86,16 +86,6 @@ export async function clearLog(workspaceId: string): Promise<void> {
     await rm(fileFor(workspaceId));
   } catch {
     /* already gone */
-  }
-}
-
-/** Workspace ids that have a persisted log on disk. */
-export async function listWorkspaces(): Promise<string[]> {
-  try {
-    const names = await readdir(chatsDir());
-    return names.filter((n) => n.endsWith('.jsonl')).map((n) => n.slice(0, -'.jsonl'.length));
-  } catch {
-    return [];
   }
 }
 

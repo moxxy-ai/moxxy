@@ -20,45 +20,16 @@ export function registerSettingsHandlers(pool: RunnerPool): void {
     return await fetchProviderModels(provider);
   });
   handle('settings.adminProviders', async () => {
-    try {
-      const { readFile } = await import('node:fs/promises');
-      const { homedir } = await import('node:os');
-      const path = await import('node:path');
-      const body = await readFile(
-        path.join(homedir(), '.moxxy', 'providers.json'),
-        'utf8',
-      );
-      const json = JSON.parse(body) as { providers?: ReadonlyArray<{ name?: string }> };
-      return (json.providers ?? [])
-        .map((p) => p.name)
-        .filter((n): n is string => typeof n === 'string');
-    } catch {
-      return [];
-    }
+    const { readAdminProviderNames } = await import('../provider-discovery');
+    return readAdminProviderNames();
   });
   handle('settings.providerCatalog', async () => {
     // Built-ins are always pickable. Admin-registered ones come from
     // providers.json so the onboarding dropdown reflects whatever the
     // user already added via `provider_add` (zai, openrouter, …).
     const builtins = ['anthropic', 'openai', 'openai-codex'];
-    let admin: string[] = [];
-    try {
-      const { readFile } = await import('node:fs/promises');
-      const { homedir } = await import('node:os');
-      const path = await import('node:path');
-      const body = await readFile(
-        path.join(homedir(), '.moxxy', 'providers.json'),
-        'utf8',
-      );
-      const json = JSON.parse(body) as {
-        providers?: ReadonlyArray<{ name?: string }>;
-      };
-      admin = (json.providers ?? [])
-        .map((p) => p.name)
-        .filter((n): n is string => typeof n === 'string');
-    } catch {
-      /* missing or malformed providers.json → builtins only */
-    }
+    const { readAdminProviderNames } = await import('../provider-discovery');
+    const admin = await readAdminProviderNames();
     const seen = new Set<string>();
     return [...builtins, ...admin].filter((name) => {
       if (seen.has(name)) return false;

@@ -13,22 +13,17 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path, { dirname } from 'node:path';
 import { type BrowserWindow } from 'electron';
-import { augmentedPaths, nodeLauncher, resolveMoxxyCli, spawnPath } from './cli-resolver';
+import type { NodeProbe } from '@moxxy/desktop-ipc-contract';
+import { augmentedPaths, findExecutable, resolveMoxxyCli, spawnCli, spawnPath } from './cli-resolver';
 import { assertSafeProviderName } from './security';
 import { sendEvent } from './send-event';
-
-export interface NodeProbe {
-  installed: boolean;
-  version: string | null;
-  bin: string | null;
-}
 
 /**
  * Spawn `node --version` and return the trimmed string. Fast (250ms
  * budget); a hung child can't block the wizard.
  */
 export async function probeNode(): Promise<NodeProbe> {
-  const bin = findNodeBin();
+  const bin = findExecutable('node', augmentedPaths());
   if (!bin) return { installed: false, version: null, bin: null };
   return new Promise<NodeProbe>((resolve) => {
     const proc = spawn(bin, ['--version'], {
@@ -54,22 +49,6 @@ export async function probeNode(): Promise<NodeProbe> {
   });
 }
 
-function findNodeBin(): string | null {
-  const PATH = process.env.PATH ?? '';
-  const dirs = PATH.split(':').concat(augmentedPaths()).filter(Boolean);
-  for (const dir of dirs) {
-    const candidate = `${dir}/node`;
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { statSync } = require('node:fs');
-      if (statSync(candidate).isFile()) return candidate;
-    } catch {
-      /* keep looking */
-    }
-  }
-  return null;
-}
-
 /**
  * Run `npm install -g @moxxy/cli`. Streams every stdout/stderr line
  * to the renderer as `onboarding.install.progress` events. Returns the
@@ -80,7 +59,7 @@ function findNodeBin(): string | null {
  * say.
  */
 export async function installMoxxyCli(window: BrowserWindow): Promise<number> {
-  const npm = findExe('npm');
+  const npm = findExecutable('npm', augmentedPaths());
   if (!npm) throw new Error('npm not found on PATH');
 
   emit(window, '$ npm install -g @moxxy/cli');
@@ -170,7 +149,7 @@ function readPackageVersion(pkgPath: string, expectName: string): string | null 
  */
 export async function updateCli(userDataDir: string, window: BrowserWindow): Promise<number> {
   const target = path.join(userDataDir, 'cli');
-  const npm = findExe('npm');
+  const npm = findExecutable('npm', augmentedPaths());
   if (!npm) throw new Error('npm not found on PATH — install Node.js to update the CLI');
 
   emit(window, `$ npm install @moxxy/cli@latest --prefix ${target}`);
@@ -209,53 +188,17 @@ export async function runProviderLogin(
 
   emit(window, `$ moxxy login ${provider} --browser`);
 
-  // GUI launches lack the shell PATH, so moxxy's `#!/usr/bin/env node`
-  // shebang can't find node → `moxxy login` died with
-  // "env: node: No such file or directory". Put node's dir (= the resolved
-  // CLI's dir) + the known install locations on PATH for the OAuth child.
-  const cliDir = cli.kind === 'direct' ? dirname(cli.bin) : dirname(cli.entry);
-  const env = { ...process.env, PATH: spawnPath([cliDir]) };
-
   // `--browser` forces the loopback flow (which opens the system browser
   // automatically + catches the localhost callback) instead of the headless
   // device-code flow `moxxy login` would otherwise pick because we spawn it
   // with piped stdio (no TTY). The desktop is a GUI — no code copying.
-  const loginArgs = ['login', provider, '--browser'];
-
+  const proc = spawnCli(cli, ['login', provider, '--browser']);
   return new Promise<number>((resolve, reject) => {
-    let proc;
-    if (cli.kind === 'direct') {
-      proc = spawn(cli.bin, loginArgs, { stdio: ['ignore', 'pipe', 'pipe'], env });
-    } else {
-      // No system `node` on a GUI launch — run the bundled CLI with
-      // Electron's own Node (ELECTRON_RUN_AS_NODE), merged onto the PATH env.
-      const { command, env: nodeEnv } = nodeLauncher();
-      proc = spawn(command, [cli.entry, ...loginArgs], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...env, ...nodeEnv },
-      });
-    }
     proc.stdout?.on('data', (b: Buffer) => stream(window, b.toString()));
     proc.stderr?.on('data', (b: Buffer) => stream(window, b.toString()));
     proc.on('error', reject);
     proc.on('exit', (code) => resolve(code ?? -1));
   });
-}
-
-function findExe(name: string): string | null {
-  const PATH = process.env.PATH ?? '';
-  const dirs = PATH.split(':').concat(augmentedPaths()).filter(Boolean);
-  for (const dir of dirs) {
-    const candidate = `${dir}/${name}`;
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { statSync } = require('node:fs');
-      if (statSync(candidate).isFile()) return candidate;
-    } catch {
-      /* keep looking */
-    }
-  }
-  return null;
 }
 
 function stream(window: BrowserWindow, chunk: string): void {

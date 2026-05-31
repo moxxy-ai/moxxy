@@ -174,11 +174,6 @@ export interface NodeProbe {
   bin: string | null;
 }
 
-/** One line of streamed install output. */
-export interface InstallProgressLine {
-  line: string;
-}
-
 // ---------- Desktop preferences (first-run + auth state) -------------------
 
 export interface DesktopPrefs {
@@ -309,11 +304,6 @@ export interface IpcEvents {
 export interface IpcCommands {
   /** Reply to an `ask.request` (permission/approval bottom sheet). */
   'ask.respond': (args: { requestId: string; response: AskResponse }) => Promise<void>;
-  /** Returns the snapshot for the given workspace. Defaults to the
-   *  pool's active workspace. */
-  'connection.snapshot': (args?: { workspaceId?: string }) => Promise<
-    ConnectionSnapshot & { workspaceId: string }
-  >;
   /** Snapshot every supervised workspace (active + background). Used
    *  on cold start so the renderer learns about running background
    *  workspaces without waiting for events. */
@@ -480,8 +470,6 @@ export interface IpcCommands {
   }) => Promise<{ events: ReadonlyArray<MoxxyEvent>; prevCursor: number | null }>;
   /** Truncate a workspace's log (Clear conversation). */
   'chat.clearLog': (args: { workspaceId: string }) => Promise<void>;
-  /** Workspace ids that have a persisted log on disk. */
-  'chat.listWorkspaces': () => Promise<ReadonlyArray<string>>;
   /** One-time migration: the renderer hands up the events it parsed from
    *  the legacy localStorage blobs; the main process seeds the NDJSON
    *  logs. Idempotent — skips workspaces whose log already exists. */

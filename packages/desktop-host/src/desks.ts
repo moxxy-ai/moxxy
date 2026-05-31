@@ -15,14 +15,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createMutex, writeFileAtomic, type Mutex } from '@moxxy/sdk';
-
-export interface Desk {
-  id: string;
-  name: string;
-  cwd: string;
-  color: string;
-  createdAt: number;
-}
+import type { Desk } from '@moxxy/desktop-ipc-contract';
 
 interface DeskDoc {
   version: 1;

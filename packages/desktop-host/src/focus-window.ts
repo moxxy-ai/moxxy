@@ -10,7 +10,7 @@
  * out plus the next-action affordances (input + mic).
  */
 
-import { BrowserWindow, app, screen } from 'electron';
+import { BrowserWindow, screen } from 'electron';
 import { lockDownNavigation } from './security';
 
 let focusWindow: BrowserWindow | null = null;
@@ -197,18 +197,4 @@ export function bindMainWindowMinimize(
   mainWindow.on('focus', () => {
     closeFocusWindow();
   });
-}
-
-/** Send a payload to the focus widget if it's open. Used by the
- *  bridge to push status updates (active workspace, latest assistant
- *  text). */
-export function sendToFocus<K extends string>(channel: K, payload: unknown): void {
-  if (!focusWindow || focusWindow.isDestroyed()) return;
-  if (focusWindow.webContents.isDestroyed()) return;
-  focusWindow.webContents.send(channel, payload);
-}
-
-/** Quit helper for the tray menu. */
-export function quit(): void {
-  app.quit();
 }

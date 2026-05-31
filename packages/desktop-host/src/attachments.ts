@@ -34,11 +34,6 @@ const IMAGE_MEDIA_TYPES: Readonly<Record<string, string>> = {
 const MAX_TEXT_BYTES = 512 * 1024; // 512 KB of text
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MB image
 
-/** True for the image extensions we accept. */
-export function isImagePath(p: string): boolean {
-  return path.extname(p).toLowerCase() in IMAGE_MEDIA_TYPES;
-}
-
 export async function buildAttachments(
   files: ReadonlyArray<{ path: string; name: string }>,
 ): Promise<UserPromptAttachment[]> {

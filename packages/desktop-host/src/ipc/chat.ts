@@ -24,10 +24,6 @@ export function registerChatHandlers(): void {
     const { clearLog } = await import('../chat-log');
     await clearLog(workspaceId);
   });
-  handle('chat.listWorkspaces', async () => {
-    const { listWorkspaces } = await import('../chat-log');
-    return listWorkspaces();
-  });
   handle('chat.migrate', async ({ workspaces }) => {
     const { migrate } = await import('../chat-log');
     await migrate(workspaces);

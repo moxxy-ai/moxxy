@@ -6,19 +6,12 @@
  * CLI's responsibility.
  */
 
-import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
 import type { OnboardingStatus } from '@moxxy/desktop-ipc-contract';
-import {
-  augmentedPaths,
-  nodeLauncher,
-  resolveMoxxyCli,
-  spawnPath,
-  type CliInvocation,
-} from './cli-resolver';
+import { augmentedPaths, resolveMoxxyCli, spawnCli, type CliInvocation } from './cli-resolver';
 import { assertSafeProviderName } from './security';
 
 export async function probeOnboarding(): Promise<OnboardingStatus> {
@@ -82,22 +75,8 @@ export async function saveProviderKey(provider: string, secret: string): Promise
 
 function runCli(cli: CliInvocation, args: string[], stdin?: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    // GUI launches lack the shell PATH; put node's dir (= the resolved CLI's
-    // dir) on PATH so moxxy's `#!/usr/bin/env node` shebang resolves.
-    const cliDir = cli.kind === 'direct' ? path.dirname(cli.bin) : path.dirname(cli.entry);
-    const env = { ...process.env, PATH: spawnPath([cliDir]) };
-    let child;
-    if (cli.kind === 'direct') {
-      child = spawn(cli.bin, args, { stdio: ['pipe', 'pipe', 'pipe'], env });
-    } else {
-      // No system `node` on a GUI launch — run the bundled CLI with
-      // Electron's own Node (ELECTRON_RUN_AS_NODE), merged onto the PATH env.
-      const { command, env: nodeEnv } = nodeLauncher();
-      child = spawn(command, [cli.entry, ...args], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...env, ...nodeEnv },
-      });
-    }
+    // 'pipe' stdin so we can feed the secret to `vault set`.
+    const child = spawnCli(cli, args, { stdio: ['pipe', 'pipe', 'pipe'] });
     let stderr = '';
     child.stderr?.on('data', (b: Buffer) => {
       stderr += b.toString();

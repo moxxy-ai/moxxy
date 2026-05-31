@@ -9,10 +9,4 @@
 export { CLERK_KEY, brandedClerkAppearance } from './chrome/clerk-appearance';
 export { Shell } from './chrome/Shell';
 export { StepCard, Nav, PrimaryButton, SuccessRow, Pulse } from './chrome/primitives';
-export {
-  inputStyle,
-  primaryBtnStyle,
-  secondaryBtnStyle,
-  pickerBtnStyle,
-  authCardStyle,
-} from './chrome/styles';
+export { inputStyle, secondaryBtnStyle, pickerBtnStyle, authCardStyle } from './chrome/styles';

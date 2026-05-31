@@ -8,12 +8,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-
-export interface SkillFile {
-  name: string;
-  editable: boolean;
-  description?: string;
-}
+import type { SkillFile } from '@moxxy/desktop-ipc-contract';
 
 /** Pull the frontmatter `description` (cheap regex — no YAML dep) so the
  *  Skills gallery can show what each skill is for without opening it. */
