@@ -14,6 +14,8 @@
 
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { Button } from './Button.js';
+import { IconButton } from './Button.js';
 import { Icon } from './Icon.js';
 
 interface ModalProps {
@@ -78,22 +80,9 @@ export function Modal({
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
         >
           <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{title}</h2>
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={onClose}
-            style={{
-              width: 30,
-              height: 30,
-              borderRadius: 8,
-              color: 'var(--color-text-dim)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
+          <IconButton aria-label="Close" onClick={onClose} size={30}>
             <Icon name="x" size={16} />
-          </button>
+          </IconButton>
         </header>
         {children}
       </div>
@@ -127,36 +116,12 @@ export function ConfirmModal({
         {message}
       </p>
       <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
-        <button
-          type="button"
-          onClick={onCancel}
-          style={{
-            padding: '8px 14px',
-            fontSize: 13,
-            color: 'var(--color-text-muted)',
-            border: '1px solid var(--color-card-border)',
-            borderRadius: 10,
-            background: '#fff',
-            fontWeight: 600,
-          }}
-        >
+        <Button variant="secondary" onClick={onCancel}>
           {cancelLabel}
-        </button>
-        <button
-          type="button"
-          onClick={onConfirm}
-          autoFocus
-          style={{
-            padding: '8px 14px',
-            fontSize: 13,
-            color: '#fff',
-            background: destructive ? 'var(--color-red)' : 'var(--color-primary-strong)',
-            borderRadius: 10,
-            fontWeight: 600,
-          }}
-        >
+        </Button>
+        <Button variant={destructive ? 'danger' : 'primary'} onClick={onConfirm} autoFocus>
           {confirmLabel}
-        </button>
+        </Button>
       </footer>
     </Modal>
   );

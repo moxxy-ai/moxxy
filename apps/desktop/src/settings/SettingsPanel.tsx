@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useSettings } from '@/lib/useSettings';
-import { Skeleton, Icon } from '@moxxy/desktop-ui';
+import { Button, Skeleton, Icon } from '@moxxy/desktop-ui';
 import { SkillsView } from './SkillsView';
 import { ProvidersTab } from './ProvidersTab';
 import { McpTab } from './McpTab';
@@ -93,26 +93,10 @@ export function SettingsPanel(): JSX.Element {
           })}
         </nav>
         <span style={{ flex: 1 }} />
-        <button
-          type="button"
-          className="btn-chip"
-          onClick={() => void s.refresh()}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            fontSize: 12.5,
-            fontWeight: 600,
-            color: 'var(--color-text-muted)',
-            border: '1px solid var(--color-card-border)',
-            borderRadius: 9,
-            padding: '6px 12px',
-            background: '#fff',
-          }}
-        >
+        <Button variant="chip" onClick={() => void s.refresh()} style={{ borderRadius: 9 }}>
           <Icon name="rotate" size={14} />
           Refresh
-        </button>
+        </Button>
       </header>
 
       {/* About is independent of the runner-backed settings slice — render

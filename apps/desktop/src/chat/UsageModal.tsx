@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, Icon } from '@moxxy/desktop-ui';
+import { Button, Modal, Icon } from '@moxxy/desktop-ui';
 import { api } from '@/lib/api';
 import { chatStore } from '@/lib/chatStore';
 import type { ContextUsage } from '@/lib/useContextUsage';
@@ -135,27 +135,15 @@ export function UsageModal({
           <span style={{ fontSize: 11.5, color: 'var(--color-text-dim)', lineHeight: 1.4 }}>
             Summarises older turns to free up the window. Takes effect on your next message.
           </span>
-          <button
-            type="button"
+          <Button
+            variant="primary"
             onClick={() => void onCompact()}
             disabled={compacting}
-            style={{
-              flexShrink: 0,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 7,
-              padding: '8px 14px',
-              fontSize: 13,
-              fontWeight: 600,
-              color: '#fff',
-              background: 'var(--color-primary-strong)',
-              borderRadius: 10,
-              opacity: compacting ? 0.6 : 1,
-            }}
+            style={{ flexShrink: 0, gap: 7, opacity: compacting ? 0.6 : 1 }}
           >
             <Icon name={compacting ? 'rotate' : 'spark'} size={15} />
             {compacting ? 'Compacting…' : 'Compact now'}
-          </button>
+          </Button>
         </div>
       </footer>
     </Modal>

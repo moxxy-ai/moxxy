@@ -6,7 +6,7 @@
  */
 
 import { useState } from 'react';
-import { Icon, Modal } from '@moxxy/desktop-ui';
+import { Button, Icon, Modal, TextInput } from '@moxxy/desktop-ui';
 import { humanize } from './steppers';
 import type { ArgStep, CommandInfo } from './types';
 
@@ -49,7 +49,9 @@ export function ArgsForm({
             <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
               {step.label}
             </span>
-            <input
+            <TextInput
+              tone="soft"
+              mono={!step.secret}
               autoFocus={i === 0}
               type={step.secret ? 'password' : 'text'}
               value={values[i]}
@@ -62,16 +64,7 @@ export function ArgsForm({
               spellCheck={false}
               autoComplete="off"
               disabled={running}
-              style={{
-                padding: '9px 12px',
-                fontSize: 14,
-                fontFamily: step.secret ? 'inherit' : 'var(--font-mono)',
-                color: 'var(--color-text)',
-                background: '#f7f8fc',
-                border: '1px solid var(--color-card-border)',
-                borderRadius: 10,
-                outline: 'none',
-              }}
+              style={step.secret ? { fontFamily: 'inherit' } : undefined}
             />
             {step.help && (
               <span style={{ fontSize: 11, color: 'var(--color-text-dim)' }}>{step.help}</span>
@@ -86,61 +79,22 @@ export function ArgsForm({
             alignItems: 'center',
           }}
         >
-          <button
-            type="button"
-            onClick={onBack}
-            disabled={running}
-            className="btn-ghost"
-            style={{
-              padding: '8px 14px',
-              fontSize: 13,
-              fontWeight: 600,
-              color: 'var(--color-text-muted)',
-              borderRadius: 10,
-              background: 'transparent',
-            }}
-          >
+          <Button variant="ghost" onClick={onBack} disabled={running}>
             ← Back
-          </button>
+          </Button>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              type="button"
-              onClick={onCancel}
-              disabled={running}
-              className="btn-outline"
-              style={{
-                padding: '8px 14px',
-                fontSize: 13,
-                fontWeight: 600,
-                color: 'var(--color-text-muted)',
-                border: '1px solid var(--color-card-border)',
-                borderRadius: 10,
-                background: '#fff',
-              }}
-            >
+            <Button variant="secondary" onClick={onCancel} disabled={running}>
               Cancel
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="cta"
               onClick={() => onRun(values)}
               disabled={!canRun}
-              className="btn-cta"
-              style={{
-                padding: '8px 14px',
-                fontSize: 13,
-                fontWeight: 600,
-                color: '#fff',
-                background: 'var(--grad-cta)',
-                borderRadius: 10,
-                opacity: canRun ? 1 : 0.5,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-              }}
+              style={{ opacity: canRun ? 1 : 0.5 }}
             >
               {running ? 'Running…' : 'Run'}
               <Icon name="send" size={13} />
-            </button>
+            </Button>
           </div>
         </footer>
       </div>

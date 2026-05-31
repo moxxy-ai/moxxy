@@ -4,7 +4,7 @@
  * inside the editor while a skill's body streams in from disk.
  */
 
-import { Icon } from '@moxxy/desktop-ui';
+import { Button, Icon } from '@moxxy/desktop-ui';
 import { asset } from '@/lib/asset';
 
 export function EmptyHero({
@@ -36,45 +36,14 @@ export function EmptyHero({
           Skills are Markdown files I'll read on demand to learn how to do something specific.
         </p>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-          <button
-            type="button"
-            onClick={onCreate}
-            className="btn-cta"
-            style={{
-              padding: '10px 16px',
-              background: 'var(--grad-cta)',
-              color: '#fff',
-              fontWeight: 600,
-              borderRadius: 10,
-              fontSize: 13,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
+          <Button variant="cta" onClick={onCreate} style={{ padding: '10px 16px' }}>
             <Icon name="plus" size={14} />
             Blank skill
-          </button>
-          <button
-            type="button"
-            onClick={onGenerate}
-            className="btn-outline"
-            style={{
-              padding: '10px 16px',
-              border: '1px solid var(--color-card-border)',
-              background: '#fff',
-              color: 'var(--color-text-muted)',
-              fontWeight: 600,
-              borderRadius: 10,
-              fontSize: 13,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
+          </Button>
+          <Button variant="secondary" onClick={onGenerate} style={{ padding: '10px 16px' }}>
             <Icon name="spark" size={14} />
             Generate with AI
-          </button>
+          </Button>
         </div>
       </div>
     </div>

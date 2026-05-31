@@ -5,7 +5,7 @@
  */
 
 import { useState } from 'react';
-import { Icon } from '@moxxy/desktop-ui';
+import { Button, Icon } from '@moxxy/desktop-ui';
 import type { useSettings } from '@/lib/useSettings';
 import { TabHeader } from '../TabHeader';
 import { EmptyHero } from './heroes';
@@ -37,45 +37,18 @@ export function SkillGallery({
         description="Reusable instructions the agent loads when your message matches a skill's triggers. Create one, or generate it with AI."
         actions={
           <>
-            <button
-              type="button"
-              className="btn-chip"
+            <Button
+              variant="chip"
               onClick={onGenerate}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 7,
-                padding: '8px 13px',
-                fontSize: 13,
-                fontWeight: 600,
-                color: 'var(--color-text-muted)',
-                border: '1px solid var(--color-card-border)',
-                borderRadius: 10,
-                background: '#fff',
-              }}
+              style={{ fontSize: 13, padding: '8px 13px', gap: 7 }}
             >
               <Icon name="spark" size={14} />
               Generate with AI
-            </button>
-            <button
-              type="button"
-              className="btn-cta"
-              onClick={onCreate}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 7,
-                padding: '8px 14px',
-                fontSize: 13,
-                fontWeight: 600,
-                color: '#fff',
-                background: 'var(--grad-cta)',
-                borderRadius: 10,
-              }}
-            >
+            </Button>
+            <Button variant="cta" onClick={onCreate} style={{ gap: 7 }}>
               <Icon name="plus" size={14} />
               New skill
-            </button>
+            </Button>
           </>
         }
       />

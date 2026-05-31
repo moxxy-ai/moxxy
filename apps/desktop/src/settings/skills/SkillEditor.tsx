@@ -12,7 +12,7 @@
  * back via callbacks.
  */
 
-import { Icon } from '@moxxy/desktop-ui';
+import { Button, Icon, IconButton } from '@moxxy/desktop-ui';
 import { MarkdownBody } from '@/chat/MarkdownBody';
 import { LoadingHero } from './heroes';
 
@@ -90,43 +90,23 @@ export function SkillEditor({
         )}
         <span style={{ flex: 1 }} />
         <SegmentedToggle value={mode} onChange={onModeChange} />
-        <button
-          type="button"
-          className="btn-icon"
-          aria-label="Delete skill"
-          onClick={onDelete}
-          style={{
-            width: 30,
-            height: 30,
-            borderRadius: 8,
-            color: 'var(--color-text-dim)',
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
+        <IconButton size={30} aria-label="Delete skill" onClick={onDelete}>
           <Icon name="x" size={14} />
-        </button>
-        <button
-          type="button"
-          className="btn-cta"
+        </IconButton>
+        <Button
+          variant="cta"
           onClick={onSave}
           disabled={!dirty || saving}
           style={{
             padding: '6px 14px',
+            borderRadius: 9,
             background: dirty ? 'var(--grad-cta)' : '#e5e7eb',
             color: dirty ? '#fff' : 'var(--color-text-dim)',
-            fontWeight: 600,
-            borderRadius: 9,
-            fontSize: 13,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
           }}
         >
           <Icon name="check" size={14} />
           {saving ? 'Saving…' : 'Save'}
-        </button>
+        </Button>
       </header>
       <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
         {loading && <LoadingHero />}

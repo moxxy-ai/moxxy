@@ -7,7 +7,7 @@
  */
 
 import { useState } from 'react';
-import { Icon } from '@moxxy/desktop-ui';
+import { Button, Icon, IconButton, TextInput } from '@moxxy/desktop-ui';
 import { Section, Tile, Badge, EmptyState } from './settings-primitives';
 
 export function VaultTab({
@@ -29,25 +29,10 @@ export function VaultTab({
       description="Secrets stored by the moxxy CLI. Names only — values are encrypted at rest and never leave the host."
       search={search}
       actions={
-        <button
-          type="button"
-          className="btn-cta"
-          onClick={() => setAdding((v) => !v)}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 7,
-            padding: '8px 14px',
-            fontSize: 13,
-            fontWeight: 600,
-            color: '#fff',
-            background: 'var(--grad-cta)',
-            borderRadius: 10,
-          }}
-        >
+        <Button variant="cta" onClick={() => setAdding((v) => !v)} style={{ gap: 7 }}>
           <Icon name={adding ? 'x' : 'plus'} size={14} />
           {adding ? 'Close' : 'Add key'}
-        </button>
+        </Button>
       }
     >
       {adding && (
@@ -124,15 +109,15 @@ function AddKeyForm({
         borderRadius: 14,
       }}
     >
-      <input
+      <TextInput
         autoFocus
         value={name}
         onChange={(e) => setName(e.target.value)}
         placeholder="KEY_NAME (e.g. OPENAI_API_KEY)"
         className="mono"
-        style={vaultInputStyle}
+        style={vaultFieldStyle}
       />
-      <input
+      <TextInput
         type="password"
         value={value}
         onChange={(e) => setValue(e.target.value)}
@@ -140,7 +125,7 @@ function AddKeyForm({
         onKeyDown={(e) => {
           if (e.key === 'Enter') void submit();
         }}
-        style={vaultInputStyle}
+        style={vaultFieldStyle}
       />
       {name.trim() && !validName && (
         <span style={{ fontSize: 11.5, color: 'var(--color-red)' }}>
@@ -154,53 +139,34 @@ function AddKeyForm({
       )}
       {error && <span style={{ fontSize: 11.5, color: 'var(--color-red)' }}>{error}</span>}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-        <button
-          type="button"
+        <Button
+          variant="secondary"
           onClick={onCancel}
-          style={{
-            padding: '7px 13px',
-            fontSize: 12.5,
-            fontWeight: 600,
-            color: 'var(--color-text-muted)',
-            border: '1px solid var(--color-card-border)',
-            borderRadius: 9,
-            background: '#fff',
-          }}
+          style={{ padding: '7px 13px', fontSize: 12.5, borderRadius: 9 }}
         >
           Cancel
-        </button>
-        <button
-          type="button"
-          className="btn-cta"
+        </Button>
+        <Button
+          variant="cta"
           onClick={() => void submit()}
           disabled={!(validName && value.length > 0) || busy}
           style={{
             padding: '7px 14px',
             fontSize: 12.5,
-            fontWeight: 600,
-            color: '#fff',
-            background: 'var(--grad-cta)',
             borderRadius: 9,
             opacity: validName && value.length > 0 && !busy ? 1 : 0.5,
           }}
         >
           {busy ? 'Saving…' : exists ? 'Overwrite' : 'Save key'}
-        </button>
+        </Button>
       </div>
     </div>
   );
 }
 
-const vaultInputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '9px 12px',
-  fontSize: 13,
-  color: 'var(--color-text)',
-  background: '#fff',
-  border: '1px solid var(--color-card-border)',
-  borderRadius: 9,
-  outline: 'none',
-};
+// Deltas from the shared TextInput default: full-width, the vault's slightly
+// tighter 13px/radius-9 sizing.
+const vaultFieldStyle: React.CSSProperties = { width: '100%', fontSize: 13, borderRadius: 9 };
 
 /** Password-manager-style credential tile: a key glyph, the secret name,
  *  and a masked value — distinct from the provider/MCP row list so the
@@ -244,25 +210,16 @@ function VaultKeyCard({
         >
           {name}
         </span>
-        <button
-          type="button"
-          className="btn-icon"
+        <IconButton
+          size={26}
+          radius={7}
           aria-label={`Delete ${name}`}
           title="Delete key"
           onClick={onRemove}
-          style={{
-            width: 26,
-            height: 26,
-            flexShrink: 0,
-            borderRadius: 7,
-            color: 'var(--color-text-dim)',
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
+          style={{ flexShrink: 0 }}
         >
           <Icon name="x" size={14} />
-        </button>
+        </IconButton>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <span

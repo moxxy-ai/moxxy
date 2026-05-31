@@ -21,7 +21,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Icon, ConfirmModal } from '@moxxy/desktop-ui';
+import { Button, Icon, ConfirmModal } from '@moxxy/desktop-ui';
 import { SkillGallery } from './skills/SkillGallery';
 import { SkillEditor } from './skills/SkillEditor';
 import { CreateSkillModal } from './skills/CreateSkillModal';
@@ -78,27 +78,14 @@ export function SkillsView({
         />
       )}
       {active && (
-        <button
-          type="button"
-          className="btn-chip"
+        <Button
+          variant="chip"
           onClick={() => setActive(null)}
-          style={{
-            alignSelf: 'flex-start',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '6px 12px',
-            fontSize: 12.5,
-            fontWeight: 600,
-            color: 'var(--color-text-muted)',
-            border: '1px solid var(--color-card-border)',
-            borderRadius: 9,
-            background: '#fff',
-          }}
+          style={{ alignSelf: 'flex-start', borderRadius: 9 }}
         >
           <Icon name="chevron-right" size={14} style={{ transform: 'rotate(180deg)' }} />
           All skills
-        </button>
+        </Button>
       )}
       {active && (
         <SkillEditor

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal } from '@moxxy/desktop-ui';
+import { Button, Modal, TextInput } from '@moxxy/desktop-ui';
 
 export function RenameWorkspaceModal({
   desk,
@@ -29,20 +29,7 @@ export function RenameWorkspaceModal({
           <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
             Name
           </span>
-          <input
-            autoFocus
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            style={{
-              padding: '9px 12px',
-              fontSize: 14,
-              color: 'var(--color-text)',
-              background: '#fff',
-              border: '1px solid var(--color-card-border)',
-              borderRadius: 10,
-              outline: 'none',
-            }}
-          />
+          <TextInput autoFocus value={name} onChange={(e) => setName(e.target.value)} />
         </label>
         <div
           className="mono"
@@ -55,36 +42,17 @@ export function RenameWorkspaceModal({
           {desk.cwd}
         </div>
         <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              padding: '8px 14px',
-              fontSize: 13,
-              color: 'var(--color-text-muted)',
-              border: '1px solid var(--color-card-border)',
-              borderRadius: 10,
-              background: '#fff',
-              fontWeight: 600,
-            }}
-          >
+          <Button variant="secondary" onClick={onClose}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
             type="submit"
             disabled={!canSubmit || busy}
-            style={{
-              padding: '8px 14px',
-              fontSize: 13,
-              color: '#fff',
-              background: 'var(--color-primary-strong)',
-              borderRadius: 10,
-              fontWeight: 600,
-              opacity: canSubmit && !busy ? 1 : 0.5,
-            }}
+            style={{ opacity: canSubmit && !busy ? 1 : 0.5 }}
           >
             {busy ? 'Renaming…' : 'Rename'}
-          </button>
+          </Button>
         </footer>
       </form>
     </Modal>

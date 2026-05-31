@@ -14,7 +14,7 @@
 
 import { useState } from 'react';
 import { useClerk, useUser } from '@clerk/clerk-react';
-import { Modal, ConfirmModal, Icon } from '@moxxy/desktop-ui';
+import { Button, Modal, ConfirmModal, Icon } from '@moxxy/desktop-ui';
 import { usePrefs } from '@/lib/usePrefs';
 
 interface Props {
@@ -150,42 +150,18 @@ export function ProfileView({ tier, onClose }: Props): JSX.Element {
           </dl>
 
           <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
-            <button
-              type="button"
-              onClick={onClose}
-              className="btn-outline"
-              style={{
-                padding: '8px 14px',
-                fontSize: 13,
-                fontWeight: 600,
-                color: 'var(--color-text-muted)',
-                border: '1px solid var(--color-card-border)',
-                borderRadius: 10,
-                background: '#fff',
-              }}
-            >
+            <Button variant="secondary" onClick={onClose}>
               Close
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="cta"
               onClick={() => setConfirmSignOut(true)}
               disabled={busy}
-              className="btn-cta"
-              style={{
-                padding: '8px 14px',
-                fontSize: 13,
-                fontWeight: 600,
-                color: '#fff',
-                background: 'var(--color-red)',
-                borderRadius: 10,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-              }}
+              style={{ background: 'var(--color-red)' }}
             >
               <Icon name="x" size={13} />
               Sign out
-            </button>
+            </Button>
           </footer>
         </div>
       </Modal>

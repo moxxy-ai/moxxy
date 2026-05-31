@@ -12,7 +12,7 @@ import { toErrorMessage } from '@/lib/errors';
 import { useActiveWorkspaceId } from '@/lib/useConnection';
 import { chatStore } from '@/lib/chatStore';
 import { api } from '@/lib/api';
-import { Icon, Modal } from '@moxxy/desktop-ui';
+import { Button, Icon, Modal, TextArea } from '@moxxy/desktop-ui';
 import { MarkdownBody } from '@/chat/MarkdownBody';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { SKILL_PROMPT_TEMPLATE } from './skill-prompt';
@@ -97,24 +97,13 @@ export function GenerateSkillModal({
           <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
             Describe the skill
           </span>
-          <textarea
+          <TextArea
+            tone="soft"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="e.g. A skill that summarises long URLs by fetching them, extracting the headline and key bullets, and citing each source link."
             disabled={phase === 'streaming'}
-            style={{
-              minHeight: 110,
-              padding: '12px 14px',
-              fontSize: 13,
-              lineHeight: 1.6,
-              color: 'var(--color-text)',
-              background: '#f7f8fc',
-              border: '1px solid var(--color-card-border)',
-              borderRadius: 10,
-              outline: 'none',
-              resize: 'vertical',
-              fontFamily: 'inherit',
-            }}
+            style={{ minHeight: 110, padding: '12px 14px', fontSize: 13, lineHeight: 1.6 }}
           />
         </label>
         <span style={{ fontSize: 11.5, color: 'var(--color-text-dim)' }}>
@@ -171,22 +160,9 @@ export function GenerateSkillModal({
           </p>
         )}
         <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="btn-outline"
-            style={{
-              padding: '8px 14px',
-              fontSize: 13,
-              fontWeight: 600,
-              color: 'var(--color-text-muted)',
-              border: '1px solid var(--color-card-border)',
-              borderRadius: 10,
-              background: '#fff',
-            }}
-          >
+          <Button variant="secondary" onClick={onCancel}>
             Cancel
-          </button>
+          </Button>
           {(() => {
             // One primary action that morphs by phase: Generate → Generating…
             // → Use this skill (shown in the same spot once a draft exists).
@@ -194,23 +170,11 @@ export function GenerateSkillModal({
             const canGenerate = !!workspaceId && description.trim().length > 0;
             const disabled = phase === 'streaming' || (!ready && !canGenerate);
             return (
-              <button
-                type="button"
+              <Button
+                variant="cta"
                 onClick={ready ? () => onUseGenerated(generated) : () => void onGenerate()}
                 disabled={disabled}
-                className="btn-cta"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '8px 16px',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: '#fff',
-                  background: 'var(--grad-cta)',
-                  borderRadius: 10,
-                  opacity: disabled ? 0.5 : 1,
-                }}
+                style={{ padding: '8px 16px', opacity: disabled ? 0.5 : 1 }}
               >
                 <Icon name={ready ? 'check' : 'spark'} size={14} />
                 {phase === 'streaming'
@@ -218,7 +182,7 @@ export function GenerateSkillModal({
                   : ready
                     ? 'Use this skill'
                     : 'Generate'}
-              </button>
+              </Button>
             );
           })()}
         </footer>

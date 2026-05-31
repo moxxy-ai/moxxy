@@ -1,6 +1,6 @@
 import type { Extension } from '@/lib/useChat';
 import { chatStore } from '@/lib/chatStore';
-import { Icon } from '@moxxy/desktop-ui';
+import { Icon, IconButton } from '@moxxy/desktop-ui';
 import { MarkdownBody } from './MarkdownBody';
 
 /**
@@ -38,9 +38,9 @@ export function ExtensionCard({
         }}
       >
         <span>— {ext.text} —</span>
-        <button type="button" aria-label="Dismiss" onClick={dismiss} className="btn-icon" style={dismissBtn}>
+        <IconButton size={24} radius={6} aria-label="Dismiss" onClick={dismiss}>
           <Icon name="x" size={11} />
-        </button>
+        </IconButton>
       </div>
     );
   }
@@ -106,9 +106,9 @@ export function ExtensionCard({
           </span>
         )}
         <span style={{ flex: 1 }} />
-        <button type="button" aria-label="Dismiss" onClick={dismiss} className="btn-icon" style={dismissBtn}>
+        <IconButton size={24} radius={6} aria-label="Dismiss" onClick={dismiss}>
           <Icon name="x" size={12} />
-        </button>
+        </IconButton>
       </header>
       {ext.text.trim() && (
         <div style={{ padding: '12px 14px', fontSize: 13.5 }}>
@@ -134,12 +134,3 @@ export function ExtensionCard({
   );
 }
 
-const dismissBtn: React.CSSProperties = {
-  width: 24,
-  height: 24,
-  borderRadius: 6,
-  color: 'var(--color-text-dim)',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-};

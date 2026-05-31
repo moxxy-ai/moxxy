@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal } from '@moxxy/desktop-ui';
+import { Button, Modal, TextInput } from '@moxxy/desktop-ui';
 
 /**
  * Naming dialog shown after the user picks a folder for a new workspace.
@@ -39,20 +39,7 @@ export function NameWorkspaceModal({
           }}
         >
           Name
-          <input
-            autoFocus
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            style={{
-              padding: '9px 12px',
-              fontSize: 14,
-              color: 'var(--color-text)',
-              background: '#fff',
-              border: '1px solid var(--color-card-border)',
-              borderRadius: 10,
-              outline: 'none',
-            }}
-          />
+          <TextInput autoFocus value={name} onChange={(e) => setName(e.target.value)} />
         </label>
         <div
           className="mono"
@@ -69,36 +56,17 @@ export function NameWorkspaceModal({
           {folder}
         </div>
         <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
-          <button
-            type="button"
-            onClick={onCancel}
-            style={{
-              padding: '8px 14px',
-              fontSize: 13,
-              color: 'var(--color-text-muted)',
-              border: '1px solid var(--color-card-border)',
-              borderRadius: 10,
-              background: '#fff',
-              fontWeight: 600,
-            }}
-          >
+          <Button variant="secondary" onClick={onCancel}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
             type="submit"
             disabled={!canSubmit}
-            style={{
-              padding: '8px 14px',
-              fontSize: 13,
-              color: '#fff',
-              background: 'var(--color-primary-strong)',
-              borderRadius: 10,
-              fontWeight: 600,
-              opacity: canSubmit ? 1 : 0.5,
-            }}
+            style={{ opacity: canSubmit ? 1 : 0.5 }}
           >
             Create
-          </button>
+          </Button>
         </footer>
       </form>
     </Modal>

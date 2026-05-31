@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Button } from '@moxxy/desktop-ui';
 import { useContextUsage } from '@/lib/useContextUsage';
 import { UsageModal } from './UsageModal';
 
@@ -24,24 +25,12 @@ export function ContextMeter({ workspaceId }: { readonly workspaceId: string }):
 
   return (
     <>
-      <button
-        type="button"
-        className="btn-chip"
+      <Button
+        variant="chip"
         aria-label={`Context ${label} used — open usage`}
         title={`Context ${label} used · click for usage & compaction`}
         onClick={() => setOpen(true)}
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 7,
-          padding: '6px 10px',
-          fontSize: 12,
-          fontWeight: 600,
-          color: 'var(--color-text-muted)',
-          border: '1px solid var(--color-card-border)',
-          borderRadius: 10,
-          background: '#fff',
-        }}
+        style={{ gap: 7, padding: '6px 10px', fontSize: 12 }}
       >
         <span
           aria-hidden
@@ -65,7 +54,7 @@ export function ContextMeter({ workspaceId }: { readonly workspaceId: string }):
           />
         </span>
         <span style={{ fontVariantNumeric: 'tabular-nums' }}>{label}</span>
-      </button>
+      </Button>
       {open && <UsageModal usage={usage} workspaceId={workspaceId} onClose={() => setOpen(false)} />}
     </>
   );

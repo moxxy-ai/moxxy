@@ -6,7 +6,7 @@
  */
 
 import { useState } from 'react';
-import { Modal } from '@moxxy/desktop-ui';
+import { Button, Modal, TextArea, TextInput } from '@moxxy/desktop-ui';
 
 export function CreateSkillModal({
   initial,
@@ -58,21 +58,13 @@ Describe the inputs, the steps to take, and any constraints here.
           <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
             Filename
           </span>
-          <input
+          <TextInput
+            tone="soft"
+            mono
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="my-skill.md"
             spellCheck={false}
-            style={{
-              padding: '9px 12px',
-              fontSize: 14,
-              fontFamily: 'var(--font-mono)',
-              color: 'var(--color-text)',
-              background: '#f7f8fc',
-              border: '1px solid var(--color-card-border)',
-              borderRadius: 10,
-              outline: 'none',
-            }}
           />
           {!isMd && (
             <span style={{ fontSize: 11.5, color: 'var(--color-red)' }}>
@@ -89,7 +81,8 @@ Describe the inputs, the steps to take, and any constraints here.
           <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
             Markdown body
           </span>
-          <textarea
+          <TextArea
+            mono
             value={body}
             onChange={(e) => setBody(e.target.value)}
             spellCheck={false}
@@ -98,49 +91,22 @@ Describe the inputs, the steps to take, and any constraints here.
               padding: '12px 14px',
               fontSize: 12.5,
               lineHeight: 1.55,
-              fontFamily: 'var(--font-mono)',
-              color: 'var(--color-text)',
               background: '#fbfcff',
-              border: '1px solid var(--color-card-border)',
-              borderRadius: 10,
-              outline: 'none',
-              resize: 'vertical',
             }}
           />
         </label>
         <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="btn-outline"
-            style={{
-              padding: '8px 14px',
-              fontSize: 13,
-              fontWeight: 600,
-              color: 'var(--color-text-muted)',
-              border: '1px solid var(--color-card-border)',
-              borderRadius: 10,
-              background: '#fff',
-            }}
-          >
+          <Button variant="secondary" onClick={onCancel}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="cta"
             type="submit"
             disabled={!canSubmit}
-            className="btn-cta"
-            style={{
-              padding: '8px 14px',
-              fontSize: 13,
-              fontWeight: 600,
-              color: '#fff',
-              background: 'var(--grad-cta)',
-              borderRadius: 10,
-              opacity: canSubmit ? 1 : 0.5,
-            }}
+            style={{ opacity: canSubmit ? 1 : 0.5 }}
           >
             {busy ? 'Saving…' : 'Create skill'}
-          </button>
+          </Button>
         </footer>
       </form>
     </Modal>
