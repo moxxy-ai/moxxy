@@ -72,6 +72,11 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     resolver: opts.resolver,
     resumeSessionId: opts.resumeSessionId,
     logger,
+    // Surface vault secrets to tool handlers as `ctx.getSecret(name)`. The
+    // value never enters the model's context or `process.env` — only the
+    // handler that asks receives it. `vault.get` lazily opens the vault and
+    // returns null for unknown names.
+    secretResolver: (name) => vault.get(name),
   });
 
   // Built AFTER the session so it can pull the registry-selected embedder

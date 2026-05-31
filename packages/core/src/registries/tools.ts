@@ -30,10 +30,22 @@ export class ToolRegistryImpl implements ToolRegistry {
   private readonly tools = new Map<string, ToolDef>();
   private readonly defaultLogger: Logger;
   private readonly defaultCwd: string;
+  /**
+   * Vault-backed secret resolver, when the host wires one. Surfaced to
+   * every tool handler as `ctx.getSecret(name)` so plugins can read an
+   * API key at call time without the value ever entering the model's
+   * context or `process.env`.
+   */
+  private readonly secretResolver?: (name: string) => Promise<string | null>;
 
-  constructor(opts: { logger: Logger; cwd: string }) {
+  constructor(opts: {
+    logger: Logger;
+    cwd: string;
+    secretResolver?: (name: string) => Promise<string | null>;
+  }) {
     this.defaultLogger = opts.logger;
     this.defaultCwd = opts.cwd;
+    this.secretResolver = opts.secretResolver;
   }
 
   list(): ReadonlyArray<ToolDef> {
@@ -93,6 +105,7 @@ export class ToolRegistryImpl implements ToolRegistry {
       log: opts.log ?? emptyLog(),
       logger: opts.logger ?? this.defaultLogger,
       ...(opts.subagents ? { subagents: opts.subagents } : {}),
+      ...(this.secretResolver ? { getSecret: this.secretResolver } : {}),
     };
 
     const result = await tool.handler(parsed, ctx);

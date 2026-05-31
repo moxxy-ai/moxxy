@@ -31,7 +31,7 @@ Naming: use slug-style names like `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `slack_
 ## Using a stored secret
 
 - In `moxxy.config.ts` / `moxxy.config.yaml`: write `${vault:OPENAI_API_KEY}` anywhere a string is expected. The CLI resolves it on session start.
-- For a tool/integration that needs the value at call time: pass the `${vault:NAME}` reference where supported, or let the integration resolve it — do not fetch and inline the plaintext.
+- **From plugin/tool code that needs the value at call time:** read it with `const key = await ctx.getSecret('OPENAI_API_KEY')` (the `ToolContext` passed to every tool handler). The plaintext goes straight to your handler — it never enters the model's context or `process.env`. This is the way an authored plugin should consume an API key; do **not** read `process.env`, and do not fetch-and-inline the plaintext anywhere the model can see it.
 
 ## Where things live
 
