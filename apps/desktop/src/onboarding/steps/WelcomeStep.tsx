@@ -4,7 +4,7 @@
  * ONBOARDING_STEPS); no gating logic of its own.
  */
 
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 import { asset } from '@/lib/asset';
 import { PrimaryButton } from '../chrome';
 

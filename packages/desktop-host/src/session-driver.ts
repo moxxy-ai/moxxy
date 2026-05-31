@@ -21,6 +21,7 @@ import type { UserPromptAttachment } from '@moxxy/sdk';
 import type { IpcEvents } from '@moxxy/desktop-ipc-contract';
 import { openAsk, cancelAsksFor } from './ask-broker.js';
 import { buildAttachments } from './attachments.js';
+import { sendEvent } from './send-event.js';
 
 interface ActiveTurn {
   controller: AbortController;
@@ -41,6 +42,10 @@ export class SessionDriver {
    *  future tray pop-up, etc.) receive the same `runner.event` and
    *  `turn.complete` stream as the primary window. */
   private readonly windows = new Set<BrowserWindow>();
+  /** Per-attached-window cleanup, so attachWindow is idempotent: a second
+   *  attach of the same window returns the existing unsub instead of stacking
+   *  another 'closed' listener (which a re-bound focus widget would leak). */
+  private readonly attachCleanups = new Map<BrowserWindow, () => void>();
 
   constructor(
     private readonly session: RemoteSession,
@@ -125,13 +130,20 @@ export class SessionDriver {
   /** Subscribe a secondary window so it receives every `runner.event`
    *  and `turn.complete` this driver emits. Returns an unsubscribe. */
   attachWindow(win: BrowserWindow): () => void {
+    // Idempotent: re-attaching an already-attached window (a re-bound focus
+    // widget on a redundant 'connected' pool change) must not register a
+    // second 'closed' listener — return the existing cleanup instead.
+    const already = this.attachCleanups.get(win);
+    if (already) return already;
     this.windows.add(win);
     const cleanup = (): void => {
       this.windows.delete(win);
+      this.attachCleanups.delete(win);
       // Also drop the 'closed' listener so detaching a still-open window
       // (e.g. the focus widget re-binding) doesn't leak it.
       win.removeListener('closed', cleanup);
     };
+    this.attachCleanups.set(win, cleanup);
     win.once('closed', cleanup);
     return cleanup;
   }
@@ -208,6 +220,15 @@ export class SessionDriver {
     cancelAsksFor(this.workspaceId);
     for (const turn of this.turns.values()) turn.controller.abort();
     this.turns.clear();
+    // Drop 'closed' listeners on any still-open attached (secondary) windows
+    // so disposing this driver doesn't leave dangling listeners on them.
+    for (const cleanup of [...this.attachCleanups.values()]) {
+      try {
+        cleanup();
+      } catch {
+        /* ignore */
+      }
+    }
     for (const fn of this.disposes) {
       try {
         fn();
@@ -221,13 +242,6 @@ export class SessionDriver {
   // ---- internals ----
 
   private send<K extends keyof IpcEvents>(channel: K, payload: IpcEvents[K]): void {
-    for (const win of this.windows) {
-      if (win.isDestroyed()) continue;
-      try {
-        win.webContents.send(channel, payload);
-      } catch {
-        // Renderer can vanish mid-broadcast; nothing to do.
-      }
-    }
+    for (const win of this.windows) sendEvent(win, channel, payload);
   }
 }

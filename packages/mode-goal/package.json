@@ -1,8 +1,8 @@
 {
   "name": "@moxxy/mode-goal",
   "private": true,
-  "version": "0.0.0",
-  "description": "Goal loop strategy for moxxy: works autonomously, re-checking after each round, until the objective is verifiably delivered or the user interrupts.",
+  "version": "0.0.2",
+  "description": "Goal mode: state a goal once and the agent works autonomously across many turns until it calls goal_complete (or goal_abandon), guarded by an iteration cap, a token budget, a stuck-loop detector, no-progress detection, and the user's abort.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -20,6 +20,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "test:watch": "vitest",
     "clean": "rm -rf dist .turbo"
   },
   "moxxy": {
@@ -29,8 +30,7 @@
     }
   },
   "dependencies": {
-    "@moxxy/sdk": "workspace:*",
-    "@moxxy/mode-tool-use": "workspace:*"
+    "@moxxy/sdk": "workspace:*"
   },
   "devDependencies": {
     "@moxxy/core": "workspace:*",

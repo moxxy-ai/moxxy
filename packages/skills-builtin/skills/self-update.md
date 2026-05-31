@@ -126,6 +126,82 @@ export default definePlugin({
 });
 ```
 
+### API keys / secrets in a plugin
+
+If the plugin needs an API key (e.g. to call a third-party API), **read it at call
+time from the vault via `ctx.getSecret(name)`** — never `process.env`, and never ask
+the user to paste the key into the chat. Tell the user to store it once with
+`/vault set NAME <value>` (or the desktop Secrets UI); the plaintext only ever reaches
+your handler, not the model's context.
+
+```js
+import { definePlugin, defineTool, z } from '@moxxy/sdk';
+
+export default definePlugin({
+  name: 'elevenlabs',
+  version: '0.0.0',
+  tools: [
+    defineTool({
+      name: 'elevenlabs_tts',
+      description: 'Synthesize speech from text via ElevenLabs.',
+      inputSchema: z.object({ text: z.string() }),
+      permission: { action: 'prompt' },
+      handler: async ({ text }, ctx) => {
+        const key = await ctx.getSecret?.('ELEVENLABS_API_KEY');
+        if (!key) throw new Error('Set the key first: /vault set ELEVENLABS_API_KEY <value>');
+        const res = await fetch('https://api.elevenlabs.io/v1/text-to-speech/...', {
+          method: 'POST',
+          headers: { 'xi-api-key': key, 'content-type': 'application/json' },
+          body: JSON.stringify({ text }),
+        });
+        // ... return result
+      },
+    }),
+  ],
+});
+```
+
+### Text-to-speech (read-aloud) plugins
+
+To give the app a new voice (e.g. ElevenLabs) for the "Read aloud" button,
+register a **synthesizer** — `synthesizers: [SynthesizerDef]` — not a tool. The
+`create({ getSecret })` factory reads the API key from the vault the same way;
+return `{ audio: Uint8Array, mimeType }`. A newly registered synthesizer
+**auto-activates**, so read-aloud uses it immediately. The user switches back
+with `set_voice system`, or between voices with `set_voice <name>`.
+
+```js
+import { definePlugin } from '@moxxy/sdk';
+
+export default definePlugin({
+  name: 'elevenlabs-voice',
+  version: '0.0.0',
+  synthesizers: [
+    {
+      name: 'elevenlabs',
+      displayName: 'ElevenLabs',
+      create: ({ getSecret }) => ({
+        name: 'elevenlabs',
+        async synthesize(text) {
+          const key = await getSecret?.('ELEVENLABS_API_KEY');
+          if (!key) throw new Error('Set the key: /vault set ELEVENLABS_API_KEY <value>');
+          const res = await fetch(
+            'https://api.elevenlabs.io/v1/text-to-speech/<voiceId>',
+            {
+              method: 'POST',
+              headers: { 'xi-api-key': key, 'content-type': 'application/json' },
+              body: JSON.stringify({ text, model_id: 'eleven_multilingual_v2' }),
+            },
+          );
+          if (!res.ok) throw new Error(`ElevenLabs ${res.status}`);
+          return { audio: new Uint8Array(await res.arrayBuffer()), mimeType: 'audio/mpeg' };
+        },
+      }),
+    },
+  ],
+});
+```
+
 ## Don't
 
 - **Don't skip the transaction.** Always `self_update_begin` before editing so

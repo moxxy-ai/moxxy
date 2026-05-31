@@ -40,17 +40,19 @@ export function useWorkflows(): UseWorkflows {
     async (name: string, enabled: boolean): Promise<void> => {
       // Optimistic flip — flicker-free toggle, IPC + refresh corrects
       // if the runner rejects (e.g. workflow doesn't exist).
-      const prev = list;
       setList((cur) => cur.map((w) => (w.name === name ? { ...w, enabled } : w)));
       try {
         await api().invoke('workflows.setEnabled', { name, enabled });
         await refresh();
       } catch (e) {
-        setList(prev);
+        // Revert ONLY our own flip via a functional update, not a stale
+        // whole-list snapshot captured at call time — a concurrent refresh()
+        // may have legitimately changed other entries in between.
+        setList((cur) => cur.map((w) => (w.name === name ? { ...w, enabled: !enabled } : w)));
         setError(toErrorMessage(e));
       }
     },
-    [list, refresh],
+    [refresh],
   );
 
   const run = useCallback(

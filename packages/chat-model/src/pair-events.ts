@@ -178,6 +178,10 @@ export function pairToolEvents(
       markOrphansAtTurnBoundary();
       pendingLoadSkillCallId = null;
       continuationSkillEvent = null;
+      // Suppression is a within-turn concern (a load_skill call folded into a
+      // skill scope). Clearing it at the turn boundary stops a later turn that
+      // happens to reuse a callId from having its tool_result silently dropped.
+      suppressedCallIds.clear();
       root.push({ kind: 'event', id: e.id, event: e });
       continue;
     }
@@ -282,6 +286,12 @@ export function pairToolEvents(
         continuationSkillEvent = openScope.skillEvent;
         openScope.closed = true;
         openScope = null;
+      } else {
+        // A second consecutive assistant_message (no skill scope open and no
+        // intervening tool call) means the one-message continuation window has
+        // passed. Clear it so later tool calls don't get pulled back under a
+        // stale skill banner two messages later.
+        continuationSkillEvent = null;
       }
       root.push({ kind: 'event', id: e.id, event: e });
       continue;

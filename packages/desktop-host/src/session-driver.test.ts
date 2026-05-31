@@ -36,7 +36,8 @@ function tmpSocket(): string {
 }
 
 /** Minimal stand-in for an Electron BrowserWindow — SessionDriver only
- *  touches webContents.send / isDestroyed / once / removeListener. */
+ *  touches window.isDestroyed / webContents.isDestroyed / webContents.send /
+ *  once / removeListener. */
 function fakeWindow(): {
   win: BrowserWindow;
   sent: Array<{ channel: string; payload: unknown }>;
@@ -46,6 +47,7 @@ function fakeWindow(): {
   const win = {
     isDestroyed: () => false,
     webContents: {
+      isDestroyed: () => false,
       send: (channel: string, payload: unknown) => sent.push({ channel, payload }),
     },
     once: (ev: string, fn: () => void) => emitter.once(ev, fn),

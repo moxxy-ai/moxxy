@@ -7,6 +7,7 @@ import type { SessionLike, SessionLogReader } from './session-like.js';
 import type { Skill } from './skill.js';
 import type { ToolDef } from './tool.js';
 import type { Transcriber } from './transcriber.js';
+import type { Synthesizer } from './synthesizer.js';
 
 /**
  * `ClientSession` widens {@link SessionLike} with the read-and-act registry
@@ -65,6 +66,15 @@ export interface TranscribersClientView {
   setActive(name: string, config?: Record<string, unknown>): Transcriber;
 }
 
+export interface SynthesizersClientView {
+  getActiveName(): string | null;
+  has(name: string): boolean;
+  getActive(): Synthesizer;
+  /** Active synthesizer or null. Read-aloud surfaces guard on this for TTS. */
+  tryGetActive(): Synthesizer | null;
+  setActive(name: string, config?: Record<string, unknown>): Synthesizer;
+}
+
 export interface RequirementsClientView {
   check(requirements: ReadonlyArray<MoxxyRequirement>): RequirementCheck;
 }
@@ -83,6 +93,7 @@ export interface ClientSession extends SessionLike {
   readonly skills: SkillsClientView;
   readonly agents: AgentsClientView;
   readonly transcribers: TranscribersClientView;
+  readonly synthesizers: SynthesizersClientView;
   readonly requirements: RequirementsClientView;
   readonly permissions: PermissionsClientView;
 }

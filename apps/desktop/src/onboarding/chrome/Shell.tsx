@@ -5,7 +5,7 @@
  * list, highlights `currentIndex`, and slots `children` into the pane.
  */
 
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 import { asset } from '@/lib/asset';
 
 export function Shell({

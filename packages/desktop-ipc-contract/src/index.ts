@@ -8,6 +8,16 @@
  * Keeping this in one file means a new feature is one shape addition
  * here + a main-process handler + a renderer call — no string typos
  * across three places.
+ *
+ * Design note (the "generic comms" story): this is *intentionally* a single
+ * generic typed RPC over Electron's native `ipcRenderer.invoke` /
+ * `ipcMain.handle` — `invoke<K>` / `subscribe<K>` are the only two transport
+ * primitives, request/response correlation is Electron's, and validation is
+ * centralized at one `handle()` choke point. We deliberately do NOT hand-roll a
+ * bespoke RPC framework. The one piece that was missing — a uniform error
+ * shape — is the {@link MoxxyIpcError} envelope below: every handler failure is
+ * encoded with a stable `code` so the renderer branches on that instead of
+ * string-matching English messages.
  */
 
 import type {
@@ -53,6 +63,57 @@ export type { SessionInfo };
 // `@moxxy/desktop-ipc-contract/validation` subpath (not re-exported here)
 // so the contract types stay a leaf — validation depends on the types,
 // not the other way around.
+
+// ---------- Uniform error envelope ----------------------------------------
+
+/**
+ * Stable classification for any error a main-process handler surfaces. The
+ * renderer branches on `code` instead of string-matching English messages
+ * (which drift). `message` is the human-readable detail.
+ *
+ *   - `invalid-payload` — runtime validation rejected the renderer's input.
+ *   - `not-connected`   — no runner/session bound for the target workspace.
+ *   - `no-workspace`    — no active workspace and none specified.
+ *   - `runner-error`    — the runner/handler threw while doing the work.
+ *   - `unknown`         — anything not otherwise classified.
+ */
+export type MoxxyIpcErrorCode =
+  | 'invalid-payload'
+  | 'not-connected'
+  | 'no-workspace'
+  | 'runner-error'
+  | 'unknown';
+
+export interface MoxxyIpcError {
+  readonly code: MoxxyIpcErrorCode;
+  readonly message: string;
+}
+
+/** Marker the envelope is wrapped in so the renderer can recover it from the
+ *  Electron-prefixed `Error invoking remote method …` string. */
+const IPC_ERROR_PREFIX = 'MOXXY_IPC_ERR:';
+
+/** Serialize an envelope into a thrown Error's message (main side). */
+export function encodeIpcError(err: MoxxyIpcError): string {
+  return IPC_ERROR_PREFIX + JSON.stringify(err);
+}
+
+/** Recover an envelope from a rejected invoke()'s message, or null if the
+ *  string isn't one of ours (renderer side). Electron prefixes the message,
+ *  so we search for the marker rather than expecting it at index 0. */
+export function decodeIpcError(message: string): MoxxyIpcError | null {
+  const at = message.indexOf(IPC_ERROR_PREFIX);
+  if (at < 0) return null;
+  try {
+    const parsed = JSON.parse(message.slice(at + IPC_ERROR_PREFIX.length)) as MoxxyIpcError;
+    if (parsed && typeof parsed.code === 'string' && typeof parsed.message === 'string') {
+      return parsed;
+    }
+  } catch {
+    /* trailing text wasn't valid JSON — not our envelope */
+  }
+  return null;
+}
 
 // ---------- Connection lifecycle -------------------------------------------
 
@@ -361,6 +422,14 @@ export interface IpcCommands {
     audioBase64: string;
     mimeType?: string;
   }) => Promise<string>;
+  /** Synthesize text to speech via the runner's active synthesizer (e.g. a
+   *  user-authored ElevenLabs plugin). Returns base64 audio + its MIME type,
+   *  or null when no synthesizer is active (the renderer then falls back to
+   *  the OS `speechSynthesis` voice). */
+  'session.synthesize': (args: {
+    workspaceId?: string;
+    text: string;
+  }) => Promise<{ audioBase64: string; mimeType: string } | null>;
   /** Open a native file picker and return the absolute path the user
    *  chose. Null when cancelled. */
   'session.pickAttachment': () => Promise<string | null>;

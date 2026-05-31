@@ -32,11 +32,15 @@ export function tokenizeInline(input: string): InlineTok[] {
   return out;
 }
 
-/** Drop inline markdown markup, leaving the bare text. */
+/** Drop inline markdown markup, leaving the bare text. The patterns mirror
+ *  {@link tokenizeInline} exactly (no newlines inside code/bold/italic, no
+ *  whitespace in a link URL) so stripping and tokenizing agree on what counts
+ *  as markup — otherwise a string could strip a span that tokenize leaves as
+ *  plain text, or vice versa. */
 export function stripInline(s: string): string {
   return s
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+    .replace(/`([^`\n]+)`/g, '$1')
+    .replace(/\*\*([^*\n]+)\*\*/g, '$1')
+    .replace(/\*([^*\n]+)\*/g, '$1')
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '$1');
 }

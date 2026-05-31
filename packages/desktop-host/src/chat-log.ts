@@ -15,7 +15,7 @@
  * search across thousands of messages later becomes a hard requirement.
  */
 
-import { appendFile, mkdir, readFile, readdir, rm, access } from 'node:fs/promises';
+import { appendFile, mkdir, open, readFile, readdir, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import type { MoxxyEvent } from '@moxxy/sdk';
@@ -30,15 +30,6 @@ function chatsDir(): string {
 function fileFor(workspaceId: string): string {
   const safe = workspaceId.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 128) || 'unnamed';
   return path.join(chatsDir(), `${safe}.jsonl`);
-}
-
-async function exists(p: string): Promise<boolean> {
-  try {
-    await access(p);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 async function readLines(workspaceId: string): Promise<MoxxyEvent[]> {
@@ -113,6 +104,11 @@ export async function listWorkspaces(): Promise<string[]> {
  * parses its `moxxy:chat:*` keys and hands the events up; we seed the
  * NDJSON log for any workspace that doesn't already have one. Idempotent
  * — never clobbers an existing log.
+ *
+ * Seeding opens the file with the `wx` flag (O_CREAT|O_EXCL), so the
+ * existence check and the write are a SINGLE atomic syscall: a second migrate
+ * call, or a live `appendEvents` that created the log first, loses the race
+ * cleanly with EEXIST and we skip it — no duplicated seed events.
  */
 export async function migrate(
   workspaces: ReadonlyArray<{ workspaceId: string; events: ReadonlyArray<MoxxyEvent> }>,
@@ -121,7 +117,19 @@ export async function migrate(
   await mkdir(chatsDir(), { recursive: true });
   for (const { workspaceId, events } of workspaces) {
     if (events.length === 0) continue;
-    if (await exists(fileFor(workspaceId))) continue;
-    await appendEvents(workspaceId, events);
+    const lines = events.map((e) => JSON.stringify(e)).join('\n') + '\n';
+    let handle;
+    try {
+      handle = await open(fileFor(workspaceId), 'wx');
+    } catch (err) {
+      // Log already exists (migrated before, or a live append beat us) → skip.
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') continue;
+      throw err;
+    }
+    try {
+      await handle.writeFile(lines, 'utf8');
+    } finally {
+      await handle.close();
+    }
   }
 }

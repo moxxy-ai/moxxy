@@ -1,4 +1,4 @@
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 
 export function UserBlock({
   text,

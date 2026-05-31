@@ -90,18 +90,17 @@ export function ConnectionBridge(): null {
 
     const unsub = api().subscribe(
       'connection.changed',
-      ({
-        workspaceId,
-        phase,
-      }: {
-        workspaceId: string;
-        phase: ConnectionPhase;
-      }) => {
+      // payload type is inferred from the channel literal via SubscribeFn.
+      ({ workspaceId, phase }) => {
         const prev = connectionStore.get(workspaceId);
         connectionStore.setSnapshot(workspaceId, {
           phase,
-          cliPath: prev?.cliPath ?? null,
-          attempts: prev?.attempts ?? 0,
+          // Prefer values carried by the fresh phase over the previous
+          // snapshot — otherwise a rapid reconnect (where snapshotAll hasn't
+          // re-primed) shows a stale cliPath / attempt count. `log` only ever
+          // arrives via snapshotAll, so it still falls back to prev.
+          cliPath: 'cliPath' in phase ? phase.cliPath : (prev?.cliPath ?? null),
+          attempts: phase.phase === 'reconnecting' ? phase.attempt : (prev?.attempts ?? 0),
           log: prev?.log ?? [],
         });
       },

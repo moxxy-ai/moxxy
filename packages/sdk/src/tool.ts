@@ -127,6 +127,19 @@ export interface ToolContext {
    * `caps.subprocess` + optional `caps.commands` allowlist.
    */
   readonly exec?: BrokeredExec;
+  /**
+   * Read a named secret from the host's secret store (the vault) at call
+   * time. Present when the session is wired with a vault-backed resolver
+   * (the CLI/runner does this). Returns the plaintext value, or `null` if
+   * no such secret exists.
+   *
+   * This is the blessed way for a tool/plugin to consume an API key or
+   * token: the plaintext only ever reaches the handler that asks for it —
+   * it is never placed in the model's context or in `process.env`. Store
+   * the secret once via `/vault set NAME …` (or the desktop Secrets UI),
+   * then read it here, e.g. `const key = await ctx.getSecret('ELEVENLABS_API_KEY')`.
+   */
+  readonly getSecret?: (name: string) => Promise<string | null>;
 }
 
 /**

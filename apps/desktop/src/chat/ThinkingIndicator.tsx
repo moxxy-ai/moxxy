@@ -7,7 +7,7 @@
  * doing something, not the app being stuck.
  */
 
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 
 export function ThinkingIndicator(): JSX.Element {
   return (

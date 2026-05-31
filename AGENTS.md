@@ -16,6 +16,7 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 @moxxy/mode-tool-use              default loop strategy (Claude Code-style)
 @moxxy/mode-plan-execute          plan-then-execute loop strategy
 @moxxy/mode-developer             implement → verify → commit loop strategy
+@moxxy/mode-goal                  autonomous goal loop — works across turns until goal_complete (tools auto-approved)
 @moxxy/mode-bmad                  BMAD multi-persona loop strategy
 @moxxy/mode-deep-research         multi-query research + synthesis loop strategy
 @moxxy/compactor-summarize        default summarize-old-turns compactor
@@ -60,6 +61,7 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 apps/desktop                 Electron desktop app — attaches to @moxxy/runner, renders a TUI-equivalent chat surface
 @moxxy/desktop-ipc-contract  typed IPC boundary (channel names + payloads + Zod validation) shared by the desktop's main / preload / renderer
 @moxxy/desktop-host          the desktop's Electron main process: runner pool + supervisor, session driver, IPC handlers, append-only NDJSON chat log, security gates
+@moxxy/desktop-ui            framework-light, dependency-free React UI primitives (single-file SVG Icon set, Modal/ConfirmModal portal, Skeleton placeholders); shared by the renderer and a future web channel
 ```
 
 **State model.** Every interaction appends to an immutable event log; derived state is a pure fold. Any session can be replayed from its log.

@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
@@ -63,7 +63,31 @@ describe('DeskStore', () => {
   it('atomic write leaves no tmp file behind', async () => {
     const s = new DeskStore(storePath);
     await s.create({ name: 'X', cwd: '/x' });
-    expect(existsTmp(storePath)).toBe(false);
+    const leftovers = readdirSync(tmp).filter((n) => n.includes('.tmp'));
+    expect(leftovers).toEqual([]);
+  });
+
+  it('serializes concurrent creates without clobbering (no lost desks)', async () => {
+    const s = new DeskStore(storePath);
+    // Fire 8 creates concurrently. Without the mutex each would read the same
+    // empty doc and the last save would win, leaving far fewer than 8 desks.
+    await Promise.all(
+      Array.from({ length: 8 }, (_unused, i) => s.create({ name: `D${i}`, cwd: `/d${i}` })),
+    );
+    expect(await s.list()).toHaveLength(8);
+  });
+
+  it('remove racing setActive never strands activeId on a deleted desk', async () => {
+    const s = new DeskStore(storePath);
+    const a = await s.create({ name: 'A', cwd: '/a' });
+    const b = await s.create({ name: 'B', cwd: '/b' });
+    // Interleave the two mutations; whatever the order, activeId must point at
+    // a desk that still exists (or be null if everything was removed).
+    await Promise.all([s.remove(a.id), s.setActive(a.id).catch(() => {})]);
+    const active = await s.getActive();
+    const ids = (await s.list()).map((d) => d.id);
+    if (active) expect(ids).toContain(active.id);
+    expect(ids).toContain(b.id);
   });
 
   it('write uses pretty JSON', async () => {
@@ -74,13 +98,3 @@ describe('DeskStore', () => {
     expect(body).toContain('"name": "X"');
   });
 });
-
-function existsTmp(target: string): boolean {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { statSync } = require('node:fs');
-    return statSync(target + '.tmp').isFile();
-  } catch {
-    return false;
-  }
-}

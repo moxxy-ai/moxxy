@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { oneLine, summarizeArgs, type ToolCallBlockData } from '@moxxy/chat-model';
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 import { preStyle, pretty } from './block-shared';
 
 export function ToolBlock({

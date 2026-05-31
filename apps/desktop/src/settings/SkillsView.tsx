@@ -21,8 +21,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Icon } from '@/lib/Icon';
-import { ConfirmModal } from '@/lib/Modal';
+import { Icon, ConfirmModal } from '@moxxy/desktop-ui';
 import { SkillGallery } from './skills/SkillGallery';
 import { SkillEditor } from './skills/SkillEditor';
 import { CreateSkillModal } from './skills/CreateSkillModal';

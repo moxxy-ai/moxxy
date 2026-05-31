@@ -5,7 +5,7 @@
 
 import { usePrefs } from '@/lib/usePrefs';
 import { asset } from '@/lib/asset';
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 import { PrimaryButton } from '../chrome';
 
 export function DoneStep({ onComplete }: { readonly onComplete: () => void }): JSX.Element {

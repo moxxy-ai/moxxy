@@ -32,12 +32,14 @@ import {
   runTurnParamsSchema,
   setResolverParamsSchema,
   transcribeParamsSchema,
+  synthesizeParamsSchema,
   workflowRunParamsSchema,
   workflowSetEnabledParamsSchema,
   type AttachResult,
   type CommandRunResult,
   type RunTurnResult,
   type TranscribeResult,
+  type SynthesizeResult,
 } from './protocol.js';
 
 /** One attached client and what it has opted into answering. */
@@ -137,6 +139,7 @@ export class RunnerServer {
     peer.handle(RunnerMethod.PermissionAddAllow, (raw) => this.handlePermissionAddAllow(raw));
     peer.handle(RunnerMethod.CommandRun, (raw) => this.handleCommandRun(raw));
     peer.handle(RunnerMethod.Transcribe, (raw) => this.handleTranscribe(raw));
+    peer.handle(RunnerMethod.Synthesize, (raw) => this.handleSynthesize(raw));
     peer.handle(RunnerMethod.McpListServers, () => this.handleMcpListServers());
     peer.handle(RunnerMethod.McpEnableAndAttach, (raw) =>
       this.handleMcpEnableAndAttach(raw),
@@ -315,6 +318,22 @@ export class RunnerServer {
       }
     }
     throw lastErr;
+  }
+
+  private async handleSynthesize(raw: unknown): Promise<SynthesizeResult> {
+    const params = synthesizeParamsSchema.parse(raw);
+    const synth = this.session.synthesizers.tryGetActive();
+    if (!synth) throw new Error('no active synthesizer on the runner');
+    const opts = {
+      ...(params.voice ? { voice: params.voice } : {}),
+      ...(params.language ? { language: params.language } : {}),
+      ...(typeof params.rate === 'number' ? { rate: params.rate } : {}),
+    };
+    const result = await synth.synthesize(params.text, opts);
+    return {
+      audio: Buffer.from(result.audio).toString('base64'),
+      mimeType: result.mimeType,
+    };
   }
 
   /** Ordered candidate list for a transcribe call.

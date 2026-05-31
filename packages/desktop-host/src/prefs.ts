@@ -4,13 +4,15 @@
  * desktop's local UI state: whether the user has finished onboarding,
  * which Clerk user they were last signed in as, ui prefs, etc.
  *
- * Atomic write via tmp + rename so a crashed save can't corrupt the
- * file. Lives under ~/.moxxy/desktop/prefs.json next to desks.json.
+ * Crash-atomic write via the framework's writeFileAtomic (unique temp +
+ * rename) so a crashed save can't corrupt the file. Lives under
+ * ~/.moxxy/desktop/prefs.json next to desks.json.
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { createMutex, writeFileAtomic } from '@moxxy/sdk';
 
 export interface DesktopPrefs {
   /** True once the first-run wizard has been completed at least once. */
@@ -38,10 +40,11 @@ function prefsPath(): string {
   return path.join(homedir(), '.moxxy', 'desktop', 'prefs.json');
 }
 
-function ensureDir(): void {
-  const dir = path.dirname(prefsPath());
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-}
+/** Serializes update read-merge-write cycles. The read+write are split by an
+ *  await (writeFileAtomic), so two concurrent prefs.update calls could
+ *  otherwise both read the same snapshot and the second would clobber the
+ *  first; the lock makes the second see the first's merged result. */
+const writeMutex = createMutex();
 
 export function readPrefs(): DesktopPrefs {
   try {
@@ -56,16 +59,15 @@ export function readPrefs(): DesktopPrefs {
   return { ...DEFAULTS };
 }
 
-export function writePrefs(next: DesktopPrefs): void {
-  ensureDir();
-  const tmp = prefsPath() + '.tmp';
-  writeFileSync(tmp, JSON.stringify(next, null, 2));
-  renameSync(tmp, prefsPath());
+export async function writePrefs(next: DesktopPrefs): Promise<void> {
+  await writeFileAtomic(prefsPath(), JSON.stringify(next, null, 2));
 }
 
-export function updatePrefs(patch: Partial<DesktopPrefs>): DesktopPrefs {
-  const current = readPrefs();
-  const next = { ...current, ...patch, version: 1 as const };
-  writePrefs(next);
-  return next;
+export function updatePrefs(patch: Partial<DesktopPrefs>): Promise<DesktopPrefs> {
+  return writeMutex.run(async () => {
+    const current = readPrefs();
+    const next = { ...current, ...patch, version: 1 as const };
+    await writePrefs(next);
+    return next;
+  });
 }

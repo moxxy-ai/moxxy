@@ -16,7 +16,7 @@ import {
   type Block as FoldedBlock,
   type ToolCallBlockData,
 } from '@moxxy/chat-model';
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 
 type SkillScope = Extract<FoldedBlock, { kind: 'skill-scope' }>;
 

@@ -5,7 +5,7 @@
  */
 
 import { useState } from 'react';
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 import type { useSettings } from '@/lib/useSettings';
 import { TabHeader } from '../TabHeader';
 import { EmptyHero } from './heroes';

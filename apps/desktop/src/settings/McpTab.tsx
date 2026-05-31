@@ -4,7 +4,7 @@
  * persisted `enabled` flag, so toggling on enables+attaches and off detaches.
  */
 
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 import { Section, CardList, Row, Tile, Switch, EmptyState } from './settings-primitives';
 
 export function McpTab({

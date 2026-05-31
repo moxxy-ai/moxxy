@@ -46,6 +46,8 @@ export const RunnerMethod = {
   CommandRun: 'command.run',
   /** client->server: transcribe audio using the runner's active transcriber. */
   Transcribe: 'transcribe',
+  /** client->server: synthesize text to audio using the runner's active synthesizer. */
+  Synthesize: 'synthesize',
   /** client->server: list every MCP server the runner knows about. */
   McpListServers: 'mcp.listServers',
   /** client->server: enable an MCP server + attach its tools. */
@@ -249,6 +251,20 @@ export const transcribeParamsSchema = z.object({
   language: z.string().optional(),
   prompt: z.string().optional(),
 });
+
+export const synthesizeParamsSchema = z.object({
+  text: z.string(),
+  voice: z.string().optional(),
+  language: z.string().optional(),
+  rate: z.number().optional(),
+});
+
+/** Wire result for `synthesize`: base64-encoded audio + its MIME type. */
+export interface SynthesizeResult {
+  /** Base64-encoded audio bytes. */
+  readonly audio: string;
+  readonly mimeType: string;
+}
 
 export const mcpEnableAndAttachParamsSchema = z.object({ name: z.string() });
 export const mcpDetachParamsSchema = z.object({ name: z.string() });

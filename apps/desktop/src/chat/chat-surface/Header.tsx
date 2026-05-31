@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 
 export function Header({
   phase: _phase,

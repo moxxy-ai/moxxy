@@ -83,4 +83,42 @@ describe('ToolRegistryImpl', () => {
     reg.unregister('echo');
     expect(reg.has('echo')).toBe(false);
   });
+
+  it('exposes ctx.getSecret backed by the secretResolver', async () => {
+    const secrets: Record<string, string> = { ELEVENLABS_API_KEY: 'sk-123' };
+    const reg = new ToolRegistryImpl({
+      logger: silentLogger,
+      cwd: '/tmp',
+      secretResolver: async (name) => secrets[name] ?? null,
+    });
+    reg.register(
+      defineTool({
+        name: 'reads_secret',
+        description: 'reads a secret',
+        inputSchema: z.object({ name: z.string() }),
+        handler: async ({ name }, ctx) => ({
+          hasGetSecret: typeof ctx.getSecret === 'function',
+          value: (await ctx.getSecret?.(name)) ?? null,
+        }),
+      }),
+    );
+    const hit = await reg.execute('reads_secret', { name: 'ELEVENLABS_API_KEY' }, new AbortController().signal);
+    expect(hit).toEqual({ hasGetSecret: true, value: 'sk-123' });
+    const miss = await reg.execute('reads_secret', { name: 'NOPE' }, new AbortController().signal);
+    expect(miss).toEqual({ hasGetSecret: true, value: null });
+  });
+
+  it('omits ctx.getSecret when no secretResolver is wired', async () => {
+    const reg = make();
+    reg.register(
+      defineTool({
+        name: 'no_secret',
+        description: 'no secret resolver',
+        inputSchema: z.object({}),
+        handler: async (_i, ctx) => ({ hasGetSecret: typeof ctx.getSecret === 'function' }),
+      }),
+    );
+    const result = await reg.execute('no_secret', {}, new AbortController().signal);
+    expect(result).toEqual({ hasGetSecret: false });
+  });
 });

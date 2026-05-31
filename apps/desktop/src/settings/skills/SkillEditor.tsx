@@ -12,7 +12,7 @@
  * back via callbacks.
  */
 
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 import { MarkdownBody } from '@/chat/MarkdownBody';
 import { LoadingHero } from './heroes';
 

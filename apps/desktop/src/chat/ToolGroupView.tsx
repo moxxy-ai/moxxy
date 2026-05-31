@@ -9,7 +9,7 @@
 
 import { useState } from 'react';
 import type { ToolCallBlockData } from '@moxxy/chat-model';
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 import { ToolRow, statusOf, type ToolRowData } from './SkillGroupView';
 
 export function ToolGroupView({

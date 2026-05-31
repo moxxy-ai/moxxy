@@ -8,7 +8,7 @@
 
 import { useEffect } from 'react';
 import { SignedIn, SignedOut, SignIn, useUser } from '@clerk/clerk-react';
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 import { usePrefs } from '@/lib/usePrefs';
 import {
   CLERK_KEY,

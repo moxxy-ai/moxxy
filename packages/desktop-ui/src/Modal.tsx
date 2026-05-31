@@ -14,7 +14,7 @@
 
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Icon } from './Icon';
+import { Icon } from './Icon.js';
 
 interface ModalProps {
   readonly title: string;

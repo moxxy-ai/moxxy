@@ -10,11 +10,11 @@
  * truncate the file.
  */
 
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { createMutex, writeFileAtomic, type Mutex } from '@moxxy/sdk';
 
 export interface Desk {
   id: string;
@@ -42,6 +42,11 @@ const DEFAULT_COLORS = [
 
 export class DeskStore {
   private readonly path: string;
+  /** Serializes every load→modify→save cycle. Without it two concurrent
+   *  mutations (create/remove/setActive/rename) both read the same doc and the
+   *  second save clobbers the first — losing a desk or stranding activeId on a
+   *  deleted desk. The lock makes each mutation see the previous one's result. */
+  private readonly mutex: Mutex = createMutex();
 
   constructor(filePath: string = DESK_FILE) {
     this.path = filePath;
@@ -65,11 +70,9 @@ export class DeskStore {
   }
 
   async save(doc: DeskDoc): Promise<void> {
-    const dir = path.dirname(this.path);
-    if (!existsSync(dir)) await mkdir(dir, { recursive: true });
-    const tmp = this.path + '.tmp';
-    await writeFile(tmp, JSON.stringify(doc, null, 2));
-    await rename(tmp, this.path);
+    // Crash-atomic write (unique temp + rename, dir created as needed) via the
+    // framework's shared helper — no truncated file if a write is interrupted.
+    await writeFileAtomic(this.path, JSON.stringify(doc, null, 2));
   }
 
   async list(): Promise<Desk[]> {
@@ -82,48 +85,56 @@ export class DeskStore {
   }
 
   async create(input: { name: string; cwd: string; color?: string }): Promise<Desk> {
-    const doc = await this.load();
-    const desk: Desk = {
-      id: randomUUID(),
-      name: input.name.trim() || 'Unnamed desk',
-      cwd: input.cwd,
-      color:
-        input.color ??
-        DEFAULT_COLORS[doc.desks.length % DEFAULT_COLORS.length]!,
-      createdAt: Date.now(),
-    };
-    doc.desks.push(desk);
-    // First desk auto-becomes active.
-    if (!doc.activeId) doc.activeId = desk.id;
-    await this.save(doc);
-    return desk;
+    return this.mutex.run(async () => {
+      const doc = await this.load();
+      const desk: Desk = {
+        id: randomUUID(),
+        name: input.name.trim() || 'Unnamed desk',
+        cwd: input.cwd,
+        color:
+          input.color ??
+          DEFAULT_COLORS[doc.desks.length % DEFAULT_COLORS.length]!,
+        createdAt: Date.now(),
+      };
+      doc.desks.push(desk);
+      // First desk auto-becomes active.
+      if (!doc.activeId) doc.activeId = desk.id;
+      await this.save(doc);
+      return desk;
+    });
   }
 
   async remove(id: string): Promise<void> {
-    const doc = await this.load();
-    doc.desks = doc.desks.filter((d) => d.id !== id);
-    if (doc.activeId === id) doc.activeId = doc.desks[0]?.id ?? null;
-    await this.save(doc);
+    return this.mutex.run(async () => {
+      const doc = await this.load();
+      doc.desks = doc.desks.filter((d) => d.id !== id);
+      if (doc.activeId === id) doc.activeId = doc.desks[0]?.id ?? null;
+      await this.save(doc);
+    });
   }
 
   async setActive(id: string): Promise<void> {
-    const doc = await this.load();
-    if (!doc.desks.some((d) => d.id === id)) {
-      throw new Error(`unknown desk: ${id}`);
-    }
-    doc.activeId = id;
-    await this.save(doc);
+    return this.mutex.run(async () => {
+      const doc = await this.load();
+      if (!doc.desks.some((d) => d.id === id)) {
+        throw new Error(`unknown desk: ${id}`);
+      }
+      doc.activeId = id;
+      await this.save(doc);
+    });
   }
 
   async rename(id: string, name: string): Promise<Desk> {
     const trimmed = name.trim();
     if (!trimmed) throw new Error('name must not be empty');
-    const doc = await this.load();
-    const desk = doc.desks.find((d) => d.id === id);
-    if (!desk) throw new Error(`unknown desk: ${id}`);
-    desk.name = trimmed;
-    await this.save(doc);
-    return desk;
+    return this.mutex.run(async () => {
+      const doc = await this.load();
+      const desk = doc.desks.find((d) => d.id === id);
+      if (!desk) throw new Error(`unknown desk: ${id}`);
+      desk.name = trimmed;
+      await this.save(doc);
+      return desk;
+    });
   }
 }
 

@@ -15,6 +15,7 @@ import path, { dirname } from 'node:path';
 import { type BrowserWindow } from 'electron';
 import { augmentedPaths, nodeLauncher, resolveMoxxyCli, spawnPath } from './cli-resolver';
 import { assertSafeProviderName } from './security';
+import { sendEvent } from './send-event';
 
 export interface NodeProbe {
   installed: boolean;
@@ -264,6 +265,7 @@ function stream(window: BrowserWindow, chunk: string): void {
 }
 
 function emit(window: BrowserWindow, line: string): void {
-  if (window.isDestroyed()) return;
-  window.webContents.send('onboarding.install.progress', line);
+  // Typed channel + destroyed-window guard live in sendEvent — a renamed
+  // event is now a compile error rather than a silently dead literal.
+  sendEvent(window, 'onboarding.install.progress', line);
 }

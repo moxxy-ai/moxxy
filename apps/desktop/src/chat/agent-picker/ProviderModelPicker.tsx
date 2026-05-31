@@ -14,7 +14,7 @@
 import { useEffect, useState } from 'react';
 import { toErrorMessage } from '@/lib/errors';
 import { api } from '@/lib/api';
-import { Modal } from '@/lib/Modal';
+import { Modal } from '@moxxy/desktop-ui';
 import type { ProviderInfo } from './types';
 
 export function ProviderModelPicker({

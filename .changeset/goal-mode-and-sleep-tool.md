@@ -8,8 +8,10 @@ Add a `Sleep` built-in tool and a new `goal` mode (`/goal <objective>`).
   5 minutes, abort-aware) to wait on an external/async process before re-checking, instead of
   busy-looping.
 - **`goal` mode + `/goal`** — `/goal <objective>` switches into the new `goal` mode,
-  auto-approves tool calls (yolo), and starts working immediately. The mode runs the normal
-  tool-use loop, then re-checks after each round (running the project's build/tests for code
-  objectives) and keeps going until the objective is verifiably delivered — stopping on a
-  verified completion, when it's blocked awaiting the user, on a safety-cap, or when the user
-  interrupts (Esc/Ctrl-C). Available in every channel via `/mode goal`.
+  auto-approves every tool call (yolo) for the run, and starts working immediately. Unlike
+  tool-use, the loop does NOT end when the model stops emitting tools — it keeps re-prompting
+  the model to continue until the model explicitly calls the `goal_complete` tool (success,
+  with a summary + evidence) or `goal_abandon` (blocked, needs the user). Every run is bounded
+  by an iteration cap, a cumulative token budget, a stuck-loop detector, and no-progress
+  detection, and stops immediately on user interrupt (Esc/Ctrl-C). Available in every channel
+  via `/mode goal`.

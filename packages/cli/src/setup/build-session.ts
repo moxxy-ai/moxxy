@@ -18,6 +18,13 @@ export interface BuildSessionArgs {
   readonly resolver?: PermissionResolver;
   readonly resumeSessionId?: string;
   readonly logger: Logger;
+  /**
+   * Vault-backed secret resolver, surfaced to every tool handler as
+   * `ctx.getSecret(name)`. The caller wires this to the session vault's
+   * `get` so authored plugins can read an API key at call time without the
+   * value entering the model's context or `process.env`.
+   */
+  readonly secretResolver?: (name: string) => Promise<string | null>;
 }
 
 /**
@@ -60,6 +67,7 @@ export async function buildSession(args: BuildSessionArgs): Promise<Session> {
     // scan, so pluginHost.reload() (install_plugin, self-update) rediscovers
     // and preserves runtime-installed / scaffolded plugins.
     pluginDiscoveryPaths: [userPluginsDir, path.join(userPluginsDir, 'node_modules')],
+    ...(args.secretResolver ? { secretResolver: args.secretResolver } : {}),
     ...(args.resumeSessionId ? { sessionId: args.resumeSessionId as SessionId } : {}),
     // Seed restored events directly into the log so subscribers don't
     // re-fire side effects for historical events. New appends from this

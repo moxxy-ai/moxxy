@@ -1,65 +1,64 @@
 import { asPluginId } from '@moxxy/sdk';
 
 export const GOAL_MODE_NAME = 'goal';
-
 export const GOAL_PLUGIN_ID = asPluginId('@moxxy/mode-goal');
 
-/**
- * Outer safety cap on how many work→check rounds goal mode will run before
- * giving up. "Work until delivered" must still be bounded so a model that
- * can't actually finish doesn't burn the budget forever. Stops are: objective
- * verified delivered, user interrupt, blocked-on-user, or this cap.
- */
-export const GOAL_MAX_ROUNDS = 25;
+/** Tool the model MUST call to declare the goal achieved (the terminator). */
+export const GOAL_COMPLETE_TOOL = 'goal_complete';
+/** Tool the model calls to give up gracefully (blocked, needs the user). */
+export const GOAL_ABANDON_TOOL = 'goal_abandon';
 
 /**
- * Per-round soft cap on each tool-use phase. Dialed down from tool-use's own
- * default (500) so rounds stay punchy — the outer round loop, not a single
- * giant phase, is what provides persistence.
+ * Hard cap on autonomous iterations. Goal mode keeps re-prompting the model to
+ * continue until it calls {@link GOAL_COMPLETE_TOOL}; this is the backstop that
+ * guarantees the loop terminates even if the model never declares done. High
+ * enough for a substantial multi-step task, low enough to bound a runaway.
  */
-export const GOAL_WORK_MAX_ITERATIONS = 60;
+export const GOAL_MAX_ITERATIONS = 150;
 
 /**
- * Layered on top of any user-supplied system prompt for each WORK round. The
- * point of goal mode is autonomy: do the work, don't stop early, don't ask for
- * permission on routine steps — but DO stop and ask when genuinely blocked on
- * something only the user can provide (a secret, a decision, missing info).
- * The runtime — not the model — runs the completion check between rounds, so
- * the prompt doesn't mention it.
+ * Consecutive iterations where the model emits NO tool calls and hasn't
+ * completed. After this many we stop (a stall) rather than spin forever
+ * nudging a model that has decided it's done without saying so.
  */
-export const GOAL_SYSTEM_PROMPT = `You are working autonomously to FULLY DELIVER an objective for the user. You keep going across multiple rounds until the objective is genuinely met — you are not done just because you produced some output.
-
-Operating rules:
-- Do real work with your tools. Make concrete progress every round; don't just describe what you would do.
-- Don't stop early and don't ask permission for routine, reversible steps — just do them.
-- When you believe the objective is delivered, briefly state what you accomplished and stop. The system will independently verify before ending; if anything is missing you'll be asked to continue.
-- ONLY stop to ask the user when you are genuinely blocked on something they alone can resolve — a secret/credential, a product decision, or missing information you cannot obtain yourself. In that case, ask one clear, specific question and stop. Do NOT invent answers or thrash on something you can't resolve.
-- If you catch yourself repeating the same failing action, change approach instead of retrying it unchanged.`;
+export const GOAL_MAX_NOOP_ITERATIONS = 3;
 
 /**
- * Layered over the tool-use loop for the check phase that runs after each work
- * round to decide whether to stop or loop again. It may run a real check (for
- * code objectives, the project's build/tests) and must answer in a fixed format
- * the runtime parses. Kept separate so it only drives the verification turn.
+ * Cumulative token ceiling (input + output across the whole goal run). A second
+ * backstop alongside the iteration cap — a few long-context iterations can burn
+ * a lot of tokens even under the iteration limit. Generous; the iteration cap
+ * is usually the binding guard.
  */
-export const COMPLETION_CHECK_SYSTEM_PROMPT = `You are checking whether the user's original objective has been FULLY delivered. Do this once, then stop.
+export const GOAL_TOKEN_BUDGET = 4_000_000;
 
-1. VERIFY: Re-read the objective and inspect the current state to confirm it is actually met — not just attempted. If the objective involves code, run the project's test/typecheck/build command(s) via Bash to confirm (look at package.json scripts, Makefile, Cargo.toml, etc.) — run AT MOST ONE verify command. Don't re-run a command that already passed.
+/**
+ * Layered on top of any user system prompt for the whole goal run. The framing
+ * is the inverse of normal chat: stopping is NOT the signal to end — the model
+ * keeps going until it explicitly calls goal_complete. It runs unattended with
+ * tool calls auto-approved, so it must be conservative about irreversible
+ * actions and decisive about declaring done.
+ */
+export const GOAL_SYSTEM_PROMPT = `You are operating in GOAL MODE. The user has given you a goal and you will work on it AUTONOMOUSLY, across as many steps as it takes, until it is genuinely done. You are running unattended — the user is not watching each step and your tool calls are auto-approved — so act like a careful senior engineer who has been handed the keys.
 
-2. REPORT: Reply with EXACTLY this format and nothing else.
+How goal mode ends — this is the most important rule:
+- The loop does NOT end when you stop talking. It ends ONLY when you call the \`${GOAL_COMPLETE_TOOL}\` tool. If you produce a message without tool calls, you will simply be prompted to continue.
+- When (and only when) the goal is FULLY achieved AND you have verified it, call \`${GOAL_COMPLETE_TOOL}\` with a short summary and concrete evidence (commands you ran and their results, files you changed, tests that passed).
+- If you become genuinely blocked — a missing credential, a destructive action you shouldn't take unattended, or a requirement too ambiguous to proceed on — call \`${GOAL_ABANDON_TOOL}\` with the reason and exactly what you need from the user. Do NOT spin on something you cannot resolve.
 
-If the objective is fully met:
-VERDICT: GOAL_MET
-SUMMARY: <one or two lines on what was delivered and how you confirmed it>
+While working:
+- Break the goal into steps and just do them — don't stop to ask for confirmation on routine work; you have autonomy for this run.
+- Verify your work as you go (run the project's tests / build / linter when relevant) before declaring the goal complete.
+- Be careful with irreversible or destructive operations (deleting data, force-pushing, external side effects). When something is high-stakes and reversible-only-by-the-user, prefer to \`${GOAL_ABANDON_TOOL}\` and ask rather than guess.
+- Don't repeat the same failing action. If an approach isn't working, change it; if nothing works, abandon with a clear explanation.
+- Don't declare the goal complete prematurely. "I think this should work" is not done — verify first.`;
 
-If anything is still missing or unverified:
-VERDICT: GOAL_NOT_MET
-REMAINING:
-- <specific item still to do>
-- <specific item still to do>
+/** Trailing nudge appended when the model idles (no tool calls) without
+ *  completing — reminds it the loop only ends via the completion tool. */
+export const CONTINUE_NUDGE =
+  `You stopped without calling \`${GOAL_COMPLETE_TOOL}\`. If the goal is fully achieved AND verified, ` +
+  `call \`${GOAL_COMPLETE_TOOL}\` now. Otherwise, take the next concrete step toward it.`;
 
-Hard rules:
-- Be strict: if you cannot confirm a part of the objective, it is GOAL_NOT_MET.
-- Do not narrate ("Let me check…"). Run the check, then output the VERDICT block.
-- Do not call the same Bash command twice in a row.
-- Output nothing after the SUMMARY / REMAINING block.`;
+/** Sharper nudge once the model has idled repeatedly. */
+export const STALL_NUDGE =
+  `You have produced no tool calls for several turns. Either take a concrete next action toward the goal, ` +
+  `or call \`${GOAL_COMPLETE_TOOL}\` (if done) / \`${GOAL_ABANDON_TOOL}\` (if blocked). Do not reply with only text again.`;

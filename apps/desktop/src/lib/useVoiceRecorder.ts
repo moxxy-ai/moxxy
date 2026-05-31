@@ -46,6 +46,9 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const phaseRef = useRef<VoicePhase>('idle');
+  // The error→idle reset timer, tracked so it can't fire setState after the
+  // component unmounts (and so a rapid second failure doesn't stack timers).
+  const errorTimerRef = useRef<number | undefined>(undefined);
   // Latest callbacks in refs so the stable start/stop closures see them.
   const onTranscriptRef = useRef(opts.onTranscript);
   const onAnalyserRef = useRef(opts.onAnalyser);
@@ -61,7 +64,8 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
     (reason: string): void => {
       setErrorReason(reason);
       setPhase('error');
-      window.setTimeout(() => {
+      if (errorTimerRef.current !== undefined) window.clearTimeout(errorTimerRef.current);
+      errorTimerRef.current = window.setTimeout(() => {
         setPhase('idle');
         setErrorReason(null);
       }, ERROR_RESET_MS);
@@ -146,13 +150,14 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
     else void start();
   }, [start, stop]);
 
-  // Tear down the mic on unmount.
+  // Tear down the mic + cancel the pending error-reset timer on unmount.
   useEffect(() => {
     return () => {
       const rec = recorderRef.current;
       if (rec?.state === 'recording') rec.stop();
       recorderRef.current = null;
       audioContextRef.current?.close().catch(() => undefined);
+      if (errorTimerRef.current !== undefined) window.clearTimeout(errorTimerRef.current);
     };
   }, []);
 

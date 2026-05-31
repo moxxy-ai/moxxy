@@ -12,6 +12,7 @@ import type {
   ProviderDef,
   ToolDef,
   TranscriberDef,
+  SynthesizerDef,
 } from '@moxxy/sdk';
 
 export interface RequirementChecker {
@@ -45,6 +46,10 @@ export interface RequirementRegistryOptions {
   };
   readonly transcribers: {
     list(): ReadonlyArray<TranscriberDef>;
+    getActiveName(): string | null;
+  };
+  readonly synthesizers: {
+    list(): ReadonlyArray<SynthesizerDef>;
     getActiveName(): string | null;
   };
 }
@@ -162,6 +167,12 @@ export class RequirementRegistry {
         const def = this.opts.transcribers.list().find((t) => t.name === name);
         return def
           ? { kind, name, active: this.opts.transcribers.getActiveName() === name }
+          : null;
+      }
+      case 'synthesizer': {
+        const def = this.opts.synthesizers.list().find((s) => s.name === name);
+        return def
+          ? { kind, name, active: this.opts.synthesizers.getActiveName() === name }
           : null;
       }
       case 'mode': {

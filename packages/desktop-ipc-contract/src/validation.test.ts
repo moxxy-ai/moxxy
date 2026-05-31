@@ -33,6 +33,50 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('prefs.update', { evil: 'x' })).toThrow();
   });
 
+  it('bounds session.runTurn prompt + attachments', () => {
+    expect(() => validateIpcInput('session.runTurn', { prompt: 'hi' })).not.toThrow();
+    expect(() =>
+      validateIpcInput('session.runTurn', {
+        prompt: '',
+        attachments: [{ path: '/abs/file.txt', name: 'file.txt' }],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('session.runTurn', { prompt: 'x'.repeat(1_000_001) }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('session.runTurn', {
+        prompt: 'x',
+        attachments: Array.from({ length: 65 }, () => ({ path: '/a', name: 'a' })),
+      }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('session.runTurn', { prompt: 'x', attachments: [{ name: 'a' }] }),
+    ).toThrow();
+  });
+
+  it('bounds chat.migrate workspaces + events', () => {
+    expect(() =>
+      validateIpcInput('chat.migrate', { workspaces: [{ workspaceId: 'w1', events: [] }] }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('chat.migrate', { workspaces: [{ workspaceId: '', events: [] }] }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('chat.migrate', {
+        workspaces: [{ workspaceId: 'w1', events: Array.from({ length: 10_001 }, () => ({})) }],
+      }),
+    ).toThrow();
+  });
+
+  it('bounds desks.rename name', () => {
+    expect(() => validateIpcInput('desks.rename', { id: 'd1', name: 'New name' })).not.toThrow();
+    expect(() => validateIpcInput('desks.rename', { id: 'd1', name: '' })).toThrow();
+    expect(() =>
+      validateIpcInput('desks.rename', { id: 'd1', name: 'x'.repeat(201) }),
+    ).toThrow();
+  });
+
   it('requires a boolean for setAutoApprove', () => {
     expect(() =>
       validateIpcInput('session.setAutoApprove', { workspaceId: 'ws', enabled: true }),

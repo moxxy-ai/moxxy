@@ -6,8 +6,7 @@
  */
 
 import { useState } from 'react';
-import { Icon } from '@/lib/Icon';
-import { Modal } from '@/lib/Modal';
+import { Icon, Modal } from '@moxxy/desktop-ui';
 import { humanize } from './steppers';
 import type { ArgStep, CommandInfo } from './types';
 

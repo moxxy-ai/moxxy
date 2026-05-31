@@ -6,7 +6,7 @@
  * module is otherwise self-contained so it stays a dependency leaf.
  */
 
-import { Icon } from '@/lib/Icon';
+import { Icon } from '@moxxy/desktop-ui';
 import { asset } from '@/lib/asset';
 import { primaryBtnStyle, secondaryBtnStyle } from './styles';
 

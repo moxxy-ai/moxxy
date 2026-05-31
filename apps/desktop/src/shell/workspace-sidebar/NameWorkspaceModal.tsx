@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal } from '@/lib/Modal';
+import { Modal } from '@moxxy/desktop-ui';
 
 /**
  * Naming dialog shown after the user picks a folder for a new workspace.
