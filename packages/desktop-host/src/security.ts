@@ -9,7 +9,6 @@
  * the diagnostics the renderer is allowed to see.
  */
 
-import { systemPreferences } from 'electron';
 import type { BrowserWindow, Session } from 'electron';
 
 // ---- IPC input validation -------------------------------------------------
@@ -179,23 +178,32 @@ export function installContentSecurityPolicy(
  * macOS trap: without this, `getUserMedia` does NOT reject — it resolves with a
  * SILENT stream, so recordings transcribe to empty text and the UI shows a
  * misleading "No speech detected" (an auth failure would instead throw). On
- * macOS we trigger the system prompt via {@link systemPreferences.askForMediaAccess}
- * and grant from its result; this also requires `NSMicrophoneUsageDescription`
- * in Info.plist (package.json#build.mac.extendInfo) and, on a hardened-runtime
- * signed build, the `com.apple.security.device.audio-input` entitlement. Other
- * platforms grant the media request directly. Non-media requests keep the prior
- * allow-by-default behaviour.
+ * macOS we ask the OS for mic access via the injected `askForMicAccess`
+ * (the caller wires `systemPreferences.askForMediaAccess('microphone')` — kept
+ * OUT of this module so the pure security helpers don't drag the electron
+ * runtime into unit tests) and grant from its result; this also requires
+ * `NSMicrophoneUsageDescription` in Info.plist (package.json#build.mac.extendInfo)
+ * and, on a hardened-runtime signed build, the
+ * `com.apple.security.device.audio-input` entitlement. Other platforms grant the
+ * media request directly. Non-media requests keep the prior allow-by-default
+ * behaviour.
  */
-export function installMediaPermissions(session: Session): void {
+export interface MediaPermissionDeps {
+  /** macOS only: request OS-level microphone access (returns granted?). Omit
+   *  elsewhere — the media request is then granted directly. */
+  readonly askForMicAccess?: () => Promise<boolean>;
+}
+
+export function installMediaPermissions(session: Session, deps: MediaPermissionDeps = {}): void {
   session.setPermissionRequestHandler((_wc, permission, callback) => {
     // getUserMedia surfaces as the `media` permission in the request handler
     // (`audioCapture`/`videoCapture` only appear in the check handler below).
     if (permission === 'media') {
-      if (process.platform === 'darwin') {
+      if (deps.askForMicAccess) {
         // Triggers the macOS mic prompt (first run) and reflects the user's
         // System Settings → Privacy → Microphone choice thereafter.
-        void systemPreferences
-          .askForMediaAccess('microphone')
+        void deps
+          .askForMicAccess()
           .then((granted) => callback(granted))
           .catch(() => callback(false));
         return;
