@@ -34,6 +34,7 @@ import {
   lockDownNavigation,
   isSafeExternalUrl,
   preferredCliEntry,
+  ensureDesktopVaultKey,
 } from '@moxxy/desktop-host';
 
 import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
@@ -473,6 +474,12 @@ app.whenReady().then(async () => {
         ? () => systemPreferences.askForMediaAccess('microphone')
         : undefined,
   });
+
+  // Seed a disk-backed vault key on a fresh setup so saving a provider key /
+  // `moxxy login` works without an interactive passphrase prompt the desktop
+  // can't answer — the first provider install otherwise fails on Windows (no OS
+  // keychain) with "vault: passphrase required but no interactive terminal".
+  ensureDesktopVaultKey();
 
   // Reap any orphan runners from a previous crashed desktop process
   // before we try to spawn new ones. Without this, the first workspace
