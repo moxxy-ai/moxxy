@@ -17,4 +17,7 @@
  * The PEM must be the literal multi-line block, including the
  * -----BEGIN/END PUBLIC KEY----- lines.
  */
-export const BUNDLED_UPDATE_PUBLIC_KEY = '';
+export const BUNDLED_UPDATE_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAALQzzfvrq54zt+cgfcisTH5F25gO2dSFkw8UW3eS0Uw=
+-----END PUBLIC KEY-----
+`;
