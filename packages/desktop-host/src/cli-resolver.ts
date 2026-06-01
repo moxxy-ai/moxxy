@@ -67,15 +67,31 @@ export function resolveMoxxyCli(opts: ResolveOptions = {}): CliInvocation | null
 }
 
 /**
- * Directories where a working `moxxy` install commonly lives that
- * are not always on a GUI-launch PATH. The supervisor passes these
- * as `extraPaths` so a user with moxxy in nvm + a desktop launched
- * from Finder still resolves it.
+ * Directories where a working `moxxy` / `node` / `npm` commonly lives that
+ * are not always on a GUI-launch PATH. The supervisor + onboarding probe pass
+ * these as `extraPaths` so a user with moxxy in nvm + a desktop launched from
+ * Finder still resolves it — and, critically on Windows, so a Node installed
+ * AFTER the desktop launched is found on the next "re-check" even though the
+ * running process's PATH never picked up the installer's SYSTEM-PATH edit.
  */
-export function augmentedPaths(): string[] {
+export function augmentedPaths(platform: NodeJS.Platform = process.platform): string[] {
   const out: string[] = [];
-  if (process.platform === 'darwin') {
+  if (platform === 'darwin') {
     out.push('/usr/local/bin', '/opt/homebrew/bin');
+  } else if (platform === 'win32') {
+    // The official Node installer drops node.exe / npm.cmd in <ProgramFiles>\nodejs
+    // and edits the SYSTEM PATH — which a process started before the install
+    // never sees. Consult the standard install dirs directly so the onboarding
+    // "Install Node → re-check" loop clears without an app restart.
+    for (const key of ['ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432']) {
+      const base = process.env[key];
+      if (base) out.push(path.join(base, 'nodejs'));
+    }
+    const localAppData = process.env.LOCALAPPDATA;
+    if (localAppData) out.push(path.join(localAppData, 'Programs', 'nodejs'));
+    // nvm-windows keeps the active version behind this "current" symlink.
+    const nvmSymlink = process.env.NVM_SYMLINK;
+    if (nvmSymlink) out.push(nvmSymlink);
   }
   const home = process.env.HOME;
   if (home) {
@@ -163,15 +179,40 @@ function isReadableFile(p: string): boolean {
 }
 
 /**
+ * Filenames to try for executable `name` on `platform`. On Windows an
+ * executable carries an extension (`node.exe`, `npm.cmd`), so a bare `node`
+ * NEVER resolves — expand to the PATHEXT variants. Elsewhere the bare name IS
+ * the executable. If `name` already has an extension it's used verbatim.
+ */
+export function executableCandidates(
+  name: string,
+  platform: NodeJS.Platform = process.platform,
+  pathext: string | undefined = process.env.PATHEXT,
+): string[] {
+  if (platform !== 'win32' || path.extname(name)) return [name];
+  const exts = (pathext ?? '.COM;.EXE;.BAT;.CMD')
+    .split(';')
+    .map((e) => e.trim())
+    .filter(Boolean)
+    .map((e) => (e.startsWith('.') ? e : `.${e}`).toLowerCase());
+  // Bare name first (a few tools ship extensionless), then the PATHEXT variants.
+  return [name, ...exts.map((e) => name + e)];
+}
+
+/**
  * First `name` found in PATH (plus `extra` dirs), or null. Used both to resolve
- * `moxxy` and — by the installer — to locate `node`/`npm` on a GUI-launch PATH.
+ * `moxxy` and — by the installer/onboarding probe — to locate `node`/`npm` on a
+ * GUI-launch PATH. Tries the platform's executable extensions (Windows).
  */
 export function findExecutable(name: string, extra: ReadonlyArray<string>): string | null {
   const pathEnv = process.env.PATH ?? '';
   const dirs = pathEnv.split(delimiter).concat(extra).filter(Boolean);
+  const candidates = executableCandidates(name);
   for (const dir of dirs) {
-    const candidate = path.join(dir, name);
-    if (isReadableFile(candidate)) return candidate;
+    for (const candidate of candidates) {
+      const full = path.join(dir, candidate);
+      if (isReadableFile(full)) return full;
+    }
   }
   return null;
 }

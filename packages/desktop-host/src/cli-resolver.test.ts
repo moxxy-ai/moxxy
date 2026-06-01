@@ -3,7 +3,12 @@ import { mkdtempSync, writeFileSync, mkdirSync, chmodSync, realpathSync } from '
 import path from 'node:path';
 import os from 'node:os';
 
-import { resolveMoxxyCli } from './cli-resolver';
+import {
+  resolveMoxxyCli,
+  executableCandidates,
+  augmentedPaths,
+  findExecutable,
+} from './cli-resolver';
 
 let tmp: string;
 const originalEnv = { ...process.env };
@@ -113,5 +118,60 @@ describe('vi sanity', () => {
     process.env.PATH = '/foo';
     expect(process.env.PATH).toBe('/foo');
     vi.restoreAllMocks();
+  });
+});
+
+describe('executableCandidates (Windows .exe / PATHEXT resolution)', () => {
+  it('returns just the bare name off Windows', () => {
+    expect(executableCandidates('node', 'linux')).toEqual(['node']);
+    expect(executableCandidates('node', 'darwin')).toEqual(['node']);
+  });
+
+  it('expands to PATHEXT variants on Windows (so node → node.exe, npm → npm.cmd)', () => {
+    const got = executableCandidates('node', 'win32', '.COM;.EXE;.BAT;.CMD');
+    expect(got).toEqual(['node', 'node.com', 'node.exe', 'node.bat', 'node.cmd']);
+    expect(executableCandidates('npm', 'win32', '.EXE;.CMD')).toContain('npm.cmd');
+  });
+
+  it('falls back to a default PATHEXT when the env var is absent', () => {
+    expect(executableCandidates('node', 'win32', undefined)).toContain('node.exe');
+  });
+
+  it('uses an already-extensioned name verbatim', () => {
+    expect(executableCandidates('node.exe', 'win32')).toEqual(['node.exe']);
+  });
+});
+
+describe('augmentedPaths', () => {
+  it('includes the standard Windows Node install dirs (stale-PATH re-check)', () => {
+    process.env['ProgramFiles'] = 'C:\\Program Files';
+    process.env.LOCALAPPDATA = 'C:\\Users\\me\\AppData\\Local';
+    const paths = augmentedPaths('win32');
+    expect(paths).toContain(path.join('C:\\Program Files', 'nodejs'));
+    expect(paths).toContain(path.join('C:\\Users\\me\\AppData\\Local', 'Programs', 'nodejs'));
+  });
+
+  it('includes the homebrew/usr-local dirs on macOS', () => {
+    expect(augmentedPaths('darwin')).toEqual(expect.arrayContaining(['/opt/homebrew/bin']));
+  });
+
+  it('adds no platform dirs on linux', () => {
+    delete process.env.HOME;
+    expect(augmentedPaths('linux')).toEqual([]);
+  });
+});
+
+describe('findExecutable', () => {
+  it('finds a bare-name binary in an extra dir (POSIX)', () => {
+    if (process.platform === 'win32') return; // bare name only resolves off Windows
+    const bin = path.join(tmp, 'mybin');
+    writeFileSync(bin, '#!/bin/sh\necho v1');
+    chmodSync(bin, 0o755);
+    const found = findExecutable('mybin', [tmp]);
+    expect(found && path.basename(found)).toBe('mybin');
+  });
+
+  it('returns null when the binary is absent', () => {
+    expect(findExecutable('definitely-not-here', [tmp])).toBeNull();
   });
 });
