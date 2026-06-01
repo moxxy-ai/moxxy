@@ -6,6 +6,7 @@
  */
 import os from 'node:os';
 import path from 'node:path';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Session, autoAllowResolver, silentLogger } from '@moxxy/core';
 import {
@@ -224,6 +225,66 @@ describe('runner end-to-end', () => {
       session: remote,
     });
     expect(result).toEqual({ kind: 'text', text: 'pong' });
+  });
+
+  it('persists the picked provider to preferences so the next runner inherits it', async () => {
+    // Regression: a remote `providers.setActive` only mutated THIS runner's
+    // in-memory state. The desktop spawns one `moxxy serve` PER workspace, so
+    // creating a workspace after connecting a (non-default) provider booted a
+    // fresh runner that defaulted back to `anthropic`, found no key, came up
+    // `connected` but provider-less, and bounced the user to "Connect a
+    // provider". The runner must persist the pick to ~/.moxxy/preferences.json
+    // (like the TUI / Telegram pickers) so the next runner picks it up.
+    const home = await mkdtemp(path.join(os.tmpdir(), 'moxxy-prefs-'));
+    const prevHome = process.env.HOME;
+    const prevUserProfile = process.env.USERPROFILE;
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
+    try {
+      const socketPath = tmpSocket();
+      const provider = new FakeProvider({ script: [textReply('hi')] });
+      const session = buildSession(provider);
+      // A second provider to switch to — `fake` is active at boot.
+      session.pluginHost.registerStatic(
+        definePlugin({
+          name: 'runner-test-second-provider',
+          providers: [
+            defineProvider({
+              name: 'fake2',
+              models: [...provider.models],
+              createClient: () => provider,
+            }),
+          ],
+        }),
+      );
+      const server = await startRunnerServer(session, { socketPath });
+      servers.push(server);
+      const remote = await attach(socketPath);
+
+      remote.providers.setActive('fake2');
+      await waitFor(() => session.providers.getActiveName() === 'fake2');
+
+      // savePreferences is fire-and-forget inside the handler, so poll the
+      // file until the async write lands.
+      const prefsPath = path.join(home, '.moxxy', 'preferences.json');
+      const deadline = Date.now() + 2000;
+      let persisted: { providerName?: string } = {};
+      while (persisted.providerName !== 'fake2' && Date.now() < deadline) {
+        try {
+          persisted = JSON.parse(await readFile(prefsPath, 'utf8')) as { providerName?: string };
+        } catch {
+          /* not written yet */
+        }
+        if (persisted.providerName !== 'fake2') await new Promise((r) => setTimeout(r, 5));
+      }
+      expect(persisted.providerName).toBe('fake2');
+    } finally {
+      if (prevHome === undefined) delete process.env.HOME;
+      else process.env.HOME = prevHome;
+      if (prevUserProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = prevUserProfile;
+      await rm(home, { recursive: true, force: true });
+    }
   });
 
   it('broadcasts a turn started by one client to other attached clients', async () => {
