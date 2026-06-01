@@ -13,6 +13,12 @@ name: Release
 # `desktop-v<version>` tag and dispatches release-desktop.yml. See that step
 # for why it dispatches rather than relying on the tag-push trigger.
 #
+# The desktop also AUTO-BUMPS: when desktop-relevant code (apps/desktop +
+# desktop-host / desktop-ipc-contract / desktop-ui / chat-model) changes after
+# its last release, the "Auto-bump desktop on source change" step increments the
+# patch version and commits it, so merging a desktop PR ships a release with no
+# hand-edited version. It defers to explicit/changeset-driven bumps.
+#
 # Mode 2 runs through `scripts/safe-publish.mjs` rather than the default
 # `changesets publish`. That wrapper:
 #   - skips packages whose current version is already on the registry
@@ -100,6 +106,60 @@ jobs:
       # also makes release-desktop's `startsWith(github.ref, 'refs/tags/
       # desktop-v')` gate pass — so the GitHub Release publishes exactly as a
       # manual `git push origin desktop-v*` would.
+      # Auto-bump the desktop on a source change so a release happens without a
+      # hand-edited version. When the CURRENT desktop version is already
+      # released (its `desktop-v<version>` tag exists) and any desktop-relevant
+      # path has changed since that tag, bump the patch version and commit it to
+      # main — the "Cut desktop release" step below then tags + dispatches.
+      #
+      # Defers to explicit bumps: a version that is NOT yet tagged is a pending
+      # release (a manual bump, or a changeset-driven one) and is left for the
+      # cut step. A pending changeset that already targets @moxxy/desktop is also
+      # honored (we skip, so changesets owns the bump). So this never
+      # double-bumps. The bump commit is pushed with GITHUB_TOKEN, which by
+      # design does NOT re-trigger this workflow — so we tag + dispatch in THIS
+      # same run (the cut step) rather than waiting for a re-run.
+      - name: Auto-bump desktop on source change
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./apps/desktop/package.json').version")"
+          tag="desktop-v$version"
+
+          # A pending changeset for the desktop will bump it via the Version PR —
+          # don't race it.
+          if ls .changeset/*.md >/dev/null 2>&1 && \
+             grep -lE '"@moxxy/desktop"\s*:' .changeset/*.md >/dev/null 2>&1; then
+            echo "A pending changeset targets @moxxy/desktop — letting changesets drive the bump."
+            exit 0
+          fi
+
+          # Fetch the current version's release tag; its absence means this
+          # version hasn't shipped yet (pending) — leave it for the cut step.
+          if ! git fetch --quiet origin "refs/tags/$tag:refs/tags/$tag" 2>/dev/null; then
+            echo "$version is not yet released ($tag missing) — pending; cut step will handle it."
+            exit 0
+          fi
+
+          # Has any desktop-relevant code changed since that release?
+          paths="apps/desktop packages/desktop-host packages/desktop-ipc-contract packages/desktop-ui packages/chat-model"
+          if git diff --quiet "$tag" HEAD -- $paths; then
+            echo "No desktop changes since $tag — nothing to release."
+            exit 0
+          fi
+
+          # Bump the patch version (formatting-preserving: only the version
+          # string is rewritten) and commit it back to main.
+          new="$(node -e "const v=require('./apps/desktop/package.json').version.split('.').map(Number); v[2]+=1; console.log(v.join('.'))")"
+          echo "Desktop changed since $tag — bumping $version → $new and releasing."
+          node -e "const fs=require('fs'),f='apps/desktop/package.json';let s=fs.readFileSync(f,'utf8');s=s.replace(/\"version\":\s*\"[^\"]+\"/, '\"version\": \"$new\"');fs.writeFileSync(f,s)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/desktop/package.json
+          git commit -m "chore(desktop): auto-bump to $new"
+          git push origin HEAD:main
+
       - name: Cut desktop release on version bump
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
