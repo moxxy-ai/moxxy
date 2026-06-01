@@ -169,3 +169,52 @@ export function installContentSecurityPolicy(
     });
   });
 }
+
+/**
+ * Let the renderer capture the microphone for voice input.
+ *
+ * The renderer is a Chromium page, so `getUserMedia` needs the web-layer
+ * `media` permission AND, on macOS, OS-level microphone access (TCC). The
+ * macOS trap: without this, `getUserMedia` does NOT reject — it resolves with a
+ * SILENT stream, so recordings transcribe to empty text and the UI shows a
+ * misleading "No speech detected" (an auth failure would instead throw). On
+ * macOS we ask the OS for mic access via the injected `askForMicAccess`
+ * (the caller wires `systemPreferences.askForMediaAccess('microphone')` — kept
+ * OUT of this module so the pure security helpers don't drag the electron
+ * runtime into unit tests) and grant from its result; this also requires
+ * `NSMicrophoneUsageDescription` in Info.plist (package.json#build.mac.extendInfo)
+ * and, on a hardened-runtime signed build, the
+ * `com.apple.security.device.audio-input` entitlement. Other platforms grant the
+ * media request directly. Non-media requests keep the prior allow-by-default
+ * behaviour.
+ */
+export interface MediaPermissionDeps {
+  /** macOS only: request OS-level microphone access (returns granted?). Omit
+   *  elsewhere — the media request is then granted directly. */
+  readonly askForMicAccess?: () => Promise<boolean>;
+}
+
+export function installMediaPermissions(session: Session, deps: MediaPermissionDeps = {}): void {
+  session.setPermissionRequestHandler((_wc, permission, callback) => {
+    // getUserMedia surfaces as the `media` permission in the request handler
+    // (`audioCapture`/`videoCapture` only appear in the check handler below).
+    if (permission === 'media') {
+      if (deps.askForMicAccess) {
+        // Triggers the macOS mic prompt (first run) and reflects the user's
+        // System Settings → Privacy → Microphone choice thereafter.
+        void deps
+          .askForMicAccess()
+          .then((granted) => callback(granted))
+          .catch(() => callback(false));
+        return;
+      }
+      callback(true);
+      return;
+    }
+    // Preserve Electron's prior default (no handler ⇒ grant) for the rest.
+    callback(true);
+  });
+  // Chromium also CHECKS permission synchronously before requesting it; approve
+  // so getUserMedia isn't short-circuited before the request handler runs.
+  session.setPermissionCheckHandler(() => true);
+}

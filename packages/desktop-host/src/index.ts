@@ -21,6 +21,7 @@ export {
 } from './focus-window.js';
 export {
   installContentSecurityPolicy,
+  installMediaPermissions,
   lockDownNavigation,
   isSafeExternalUrl,
 } from './security.js';

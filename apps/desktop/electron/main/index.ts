@@ -30,6 +30,7 @@ import {
   showFocusWindow,
   toggleFocusWindow,
   installContentSecurityPolicy,
+  installMediaPermissions,
   lockDownNavigation,
   isSafeExternalUrl,
   preferredCliEntry,
@@ -50,7 +51,7 @@ if (app.isPackaged && !process.env.MOXXY_CLI_ENTRY) {
   const entry = preferredCliEntry(app.getPath('userData'), process.resourcesPath);
   if (entry) process.env.MOXXY_CLI_ENTRY = entry;
 }
-import { ipcMain, Tray, Menu, nativeImage, globalShortcut, session, shell } from 'electron';
+import { ipcMain, Tray, Menu, nativeImage, globalShortcut, session, shell, systemPreferences } from 'electron';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -459,6 +460,19 @@ app.whenReady().then(async () => {
   // before any window loads. Skipped in dev (Vite HMR needs a loose
   // policy); third-party + OAuth responses are left untouched.
   installContentSecurityPolicy(session.defaultSession, { isDev });
+
+  // Allow the renderer's voice recorder to reach the microphone. Without this,
+  // macOS hands getUserMedia a SILENT stream (no rejection), so voice
+  // transcription comes back empty ("No speech detected"). The macOS OS-level
+  // request is injected here (electron stays out of desktop-host's pure security
+  // helpers); pairs with NSMicrophoneUsageDescription + the audio-input
+  // entitlement in the build config.
+  installMediaPermissions(session.defaultSession, {
+    askForMicAccess:
+      process.platform === 'darwin'
+        ? () => systemPreferences.askForMediaAccess('microphone')
+        : undefined,
+  });
 
   // Reap any orphan runners from a previous crashed desktop process
   // before we try to spawn new ones. Without this, the first workspace

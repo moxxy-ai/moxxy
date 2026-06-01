@@ -94,7 +94,8 @@
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
         "CFBundleName": "MoxxyAI Workspaces",
-        "CFBundleDisplayName": "MoxxyAI Workspaces"
+        "CFBundleDisplayName": "MoxxyAI Workspaces",
+        "NSMicrophoneUsageDescription": "MoxxyAI Workspaces uses the microphone for voice input (speech-to-text)."
       }
     },
     "linux": {
