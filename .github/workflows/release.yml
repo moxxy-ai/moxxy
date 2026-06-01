@@ -79,6 +79,7 @@ jobs:
         run: pnpm build
 
       - name: Create Release PR or publish
+        id: changesets
         uses: changesets/action@v1
         with:
           version: pnpm dlx @changesets/cli@2.27.10 version
@@ -88,16 +89,26 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      # Decide whether to cut a desktop release. The desktop version on main is
-      # the source of truth: if there is no `desktop-v<version>` tag yet, this
-      # bump hasn't been released. (On a mode-1 run that only opens the Version
-      # PR, main still carries the old, already-tagged version, so this is a
-      # cheap no-op.) Pushing the tag here gives the build + GitHub Release a
-      # stable name; the desktop jobs below are gated by the `release` output,
-      # NOT by the tag — so there's no cross-workflow dispatch to coax past
-      # GitHub's "GITHUB_TOKEN tag pushes don't start runs" guard.
+      # Decide whether to cut a desktop release. The desktop version COMMITTED on
+      # main is the source of truth: if there is no `desktop-v<version>` tag yet,
+      # this bump hasn't been released. Pushing the tag here gives the build +
+      # GitHub Release a stable name; the desktop jobs below are gated by the
+      # `release` output, NOT by the tag — so there's no cross-workflow dispatch
+      # to coax past GitHub's "GITHUB_TOKEN tag pushes don't start runs" guard.
+      #
+      # GUARD (`hasChangesets == 'false'`): only run on a publish run, never on a
+      # mode-1 run that just opened/updated the Version PR. In mode 1 the `version`
+      # command above has ALREADY bumped apps/desktop/package.json IN THE WORKING
+      # TREE to the next, still-unreleased version — reading it here would tag
+      # `desktop-v<next>` prematurely while the desktop-build job (which checks out
+      # the un-bumped commit) ships lower-versioned artifacts under that tag. That
+      # is exactly how desktop-v0.0.17 ended up carrying 0.0.16 builds (and a
+      # missing moxxy-app-bundle-0.0.17.json.gz → updater 404). When
+      # `hasChangesets == 'false'` the Version PR has merged (or there was nothing
+      # to version): the working tree equals main HEAD, so the version is real.
       - name: Cut desktop release on version bump
         id: cut
+        if: steps.changesets.outputs.hasChangesets == 'false'
         run: |
           version="$(node -p "require('./apps/desktop/package.json').version")"
           tag="desktop-v$version"
@@ -126,7 +137,11 @@ jobs:
     if: needs.version-publish.outputs.desktop-release == 'true'
     runs-on: ubuntu-latest
     steps:
+      # Check out the EXACT tagged commit, not main's HEAD — so the guard scans
+      # (and every desktop job builds from) precisely what ships under this tag.
       - uses: actions/checkout@v4
+        with:
+          ref: desktop-v${{ needs.version-publish.outputs.desktop-version }}
       # A pk_live_ Clerk key must never live in the repo (only the public
       # pk_test_ belongs in .env.example). Fail loudly if one slips in.
       - name: Scan for a live Clerk key
@@ -154,7 +169,12 @@ jobs:
           - os: ubuntu-latest
             artifact: deb-appimage
     steps:
+      # Build from the EXACT tagged commit so artifact versions (installers, the
+      # self-update bundle name, and the manifest) always match the
+      # desktop-v<version> tag — never main's HEAD, which may have moved on.
       - uses: actions/checkout@v4
+        with:
+          ref: desktop-v${{ needs.version-publish.outputs.desktop-version }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
