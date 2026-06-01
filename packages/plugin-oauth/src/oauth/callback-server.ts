@@ -1,4 +1,4 @@
-import { createServer, type Server } from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { MoxxyError } from '@moxxy/sdk';
 
 interface WaitForCallbackOpts {
@@ -11,7 +11,13 @@ interface WaitForCallbackOpts {
 
 export function waitForCallback(opts: WaitForCallbackOpts): Promise<string> {
   return new Promise<string>((resolve, reject) => {
-    let server: Server | null = null;
+    // Bind BOTH loopback stacks. The redirect_uri uses `localhost`, which
+    // Windows resolves to `::1` (IPv6) first while macOS/Linux use `127.0.0.1`
+    // (IPv4). A v4-only listener therefore never receives the redirect on
+    // Windows → the login hangs on "waiting for the browser". IPv4 is required;
+    // IPv6 is best-effort (a host without it still works, since there
+    // `localhost` is IPv4 anyway).
+    const servers: Server[] = [];
     let settled = false;
     const settle = (fn: () => void): void => {
       if (settled) return;
@@ -21,7 +27,7 @@ export function waitForCallback(opts: WaitForCallbackOpts): Promise<string> {
       // dangling timer nor a lingering signal listener is left behind.
       clearTimeout(timer);
       opts.signal?.removeEventListener('abort', onAbort);
-      if (server) server.close();
+      for (const s of servers) s.close();
       fn();
     };
 
@@ -51,7 +57,7 @@ export function waitForCallback(opts: WaitForCallbackOpts): Promise<string> {
     };
     opts.signal?.addEventListener('abort', onAbort, { once: true });
 
-    server = createServer((req, res) => {
+    const handleRequest = (req: IncomingMessage, res: ServerResponse): void => {
       const url = new URL(req.url ?? '/', `http://localhost:${opts.port}`);
       if (url.pathname !== opts.path) {
         res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -117,13 +123,11 @@ export function waitForCallback(opts: WaitForCallbackOpts): Promise<string> {
       }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(htmlPage('Authorized', 'You can close this window — moxxy received the token.'));
-      clearTimeout(timer);
       settle(() => resolve(code));
-    });
-    server.on('error', (e) => {
-      clearTimeout(timer);
-      const code = (e as NodeJS.ErrnoException).code;
-      if (code === 'EADDRINUSE') {
+    };
+
+    const onFatalError = (e: NodeJS.ErrnoException): void => {
+      if (e.code === 'EADDRINUSE') {
         settle(() =>
           reject(
             new MoxxyError({
@@ -147,8 +151,22 @@ export function waitForCallback(opts: WaitForCallbackOpts): Promise<string> {
           }),
         ),
       );
-    });
-    server.listen(opts.port, '127.0.0.1');
+    };
+
+    // IPv4 loopback — the required listener; its bind/port errors are fatal.
+    const v4 = createServer(handleRequest);
+    v4.on('error', onFatalError);
+    v4.listen(opts.port, '127.0.0.1');
+    servers.push(v4);
+
+    // IPv6 loopback — Windows resolves `localhost` to ::1 first, so the
+    // redirect lands here. Best-effort: swallow bind errors (host without IPv6,
+    // or ::1 already bound), since the IPv4 listener above is the guaranteed
+    // path and on such hosts `localhost` is IPv4 anyway.
+    const v6 = createServer(handleRequest);
+    v6.on('error', () => undefined);
+    v6.listen(opts.port, '::1');
+    servers.push(v6);
   });
 }
 
