@@ -16,6 +16,8 @@ import { EventEmitter } from 'node:events';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
+import { platformSocket } from '@moxxy/runner';
+
 import { RunnerSupervisor } from './runner-supervisor';
 
 /** Workspace id used for the "no workspace bound" runner. Stable across
@@ -124,12 +126,23 @@ export class RunnerPool extends EventEmitter {
  * `~/.moxxy/serve.sock` path so external tools (TUI, `moxxy attach`)
  * keep working when the user hasn't bound a workspace yet.
  */
-export function socketFor(id: string): string {
+export function socketFor(id: string, platform: NodeJS.Platform = process.platform): string {
+  // platformSocket() owns the unix-path-vs-Windows-named-pipe split (a raw
+  // .sock path can't be bound on Windows). The unbound runner derives the same
+  // address as the runner's own default (runnerSocketPath) so an external
+  // `moxxy tui` / attach still finds it; bound workspaces get a distinct one.
   if (id === UNBOUND_ID) {
-    return process.env.MOXXY_RUNNER_SOCKET ?? path.join(homedir(), '.moxxy', 'serve.sock');
+    return (
+      process.env.MOXXY_RUNNER_SOCKET ??
+      platformSocket('serve', path.join(homedir(), '.moxxy', 'serve.sock'), platform)
+    );
   }
-  // Workspace-bound sockets sit under ~/.moxxy/desktop/sockets/ so a
-  // single deleted workspace's stale .sock doesn't pollute the home
-  // dir's top level.
-  return path.join(homedir(), '.moxxy', 'desktop', 'sockets', `serve-${id}.sock`);
+  // Workspace-bound sockets sit under ~/.moxxy/desktop/sockets/ on unix so a
+  // single deleted workspace's stale .sock doesn't pollute the home dir's top
+  // level; on Windows they become `\\.\pipe\moxxy-serve-<id>`.
+  return platformSocket(
+    `serve-${id}`,
+    path.join(homedir(), '.moxxy', 'desktop', 'sockets', `serve-${id}.sock`),
+    platform,
+  );
 }

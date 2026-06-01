@@ -11,11 +11,42 @@ import path from 'node:path';
  * `MOXXY_RUNNER_SOCKET` overrides it - useful for tests and for running
  * multiple isolated runners on one machine.
  */
+/**
+ * THE single source of truth for the OS difference in runner IPC addressing.
+ *
+ * Map a logical runner NAME to a platform-correct endpoint: a Windows NAMED PIPE
+ * (`\\.\pipe\moxxy-<name>`) or, on unix/macOS, the supplied filesystem socket
+ * path. A raw filesystem `.sock` path is NOT a valid Windows pipe name — binding
+ * it makes `moxxy serve` fail to start (it exits, and the desktop reports "lost
+ * the runner" / "not connected"). Both the listening side (`moxxy serve`) and
+ * every client (CLI, desktop pool/supervisor) MUST derive their address from
+ * here so they always agree, instead of hand-rolling `if (win32)` branches.
+ */
+export function platformSocket(
+  name: string,
+  posixPath: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (platform === 'win32') {
+    // The Windows pipe namespace is flat — sanitize the name to one safe segment.
+    return `\\\\.\\pipe\\moxxy-${name.replace(/[^A-Za-z0-9_-]/g, '_')}`;
+  }
+  return posixPath;
+}
+
+/**
+ * True for a Windows named-pipe address. Such endpoints have NO parent directory
+ * and are NOT filesystem entries (they self-clean when the owning process
+ * exits), so callers must skip `mkdir`/`unlink`/`chmod`/`existsSync` on them.
+ */
+export function isNamedPipe(address: string): boolean {
+  return address.startsWith('\\\\.\\pipe\\') || address.startsWith('//./pipe/');
+}
+
 export function runnerSocketPath(): string {
   const override = process.env.MOXXY_RUNNER_SOCKET;
   if (override) return override;
-  if (process.platform === 'win32') return '\\\\.\\pipe\\moxxy-serve';
-  return path.join(os.homedir(), '.moxxy', 'serve.sock');
+  return platformSocket('serve', path.join(os.homedir(), '.moxxy', 'serve.sock'));
 }
 
 /**

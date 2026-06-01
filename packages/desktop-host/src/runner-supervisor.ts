@@ -26,6 +26,8 @@ import { Socket } from 'node:net';
 
 import {
   connectRemoteSession,
+  isNamedPipe,
+  platformSocket,
   type RemoteSession,
 } from '@moxxy/runner';
 
@@ -60,8 +62,12 @@ export class RunnerSupervisor extends EventEmitter {
   private cwd: string | null = null;
 
   constructor(
+    // The pool passes socketFor() explicitly; this default keeps a bare
+    // supervisor correct too. platformSocket() gives a named pipe on Windows
+    // (a raw .sock can't bind there, so `moxxy serve` would exit → "lost the
+    // runner").
     private readonly socketPath: string = process.env.MOXXY_RUNNER_SOCKET ??
-      path.join(homedir(), '.moxxy', 'serve.sock'),
+      platformSocket('serve', path.join(homedir(), '.moxxy', 'serve.sock')),
   ) {
     super();
   }
@@ -336,6 +342,9 @@ export class RunnerSupervisor extends EventEmitter {
   }
 
   private ensureSocketDir(): void {
+    // Named pipes (Windows) have no parent directory — `mkdirSync('\\.\pipe')`
+    // would throw. Nothing to create.
+    if (isNamedPipe(this.socketPath)) return;
     const dir = path.dirname(this.socketPath);
     if (!existsSync(dir)) {
       try {
@@ -347,6 +356,9 @@ export class RunnerSupervisor extends EventEmitter {
   }
 
   private cleanupStaleSocket(): void {
+    // Named pipes (Windows) aren't filesystem entries and self-clean when the
+    // owning process exits — there's nothing to unlink.
+    if (isNamedPipe(this.socketPath)) return;
     if (existsSync(this.socketPath)) {
       try {
         unlinkSync(this.socketPath);
