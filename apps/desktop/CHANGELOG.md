@@ -1,5 +1,11 @@
 # @moxxy/desktop
 
+## 0.0.6
+
+### Minor Changes
+
+- Self-update: the desktop now hot-updates its JS layers (renderer + main + preload + IPC contract) as one Ed25519-signed app bundle, activated by an immutable bootstrap loader — no reinstall. Rare native/Electron bumps fall back to electron-updater (Tier 2). Signature + SHA-256 + host-pin verified in the immutable floor; a boot-probe reverts a bundle that fails to render. See `docs/desktop-self-update.md`.
+
 ## 0.0.5
 
 ### Patch Changes
