@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Session } from '@moxxy/core';
-import { newTurnId } from '@moxxy/core';
+import { newTurnId, savePreferences } from '@moxxy/core';
 import type {
   ApprovalDecision,
   ApprovalRequest,
@@ -263,6 +263,16 @@ export class RunnerServer {
     const def = this.session.providers.list().find((p) => p.name === name);
     if (def) this.session.providers.replace(def);
     this.session.providers.setActive(name, cfg);
+    // Persist the pick to ~/.moxxy/preferences.json so it survives to the NEXT
+    // freshly-spawned runner. Without this, a remote client (e.g. the desktop)
+    // that switches provider only mutates THIS runner's in-memory state — so
+    // spawning another runner (the desktop spawns one `moxxy serve` per
+    // workspace) boots back on the default provider with no key, comes up
+    // `connected` but provider-less, and bounces the user to "Connect a
+    // provider". Mirrors the TUI / Telegram pickers, which already persist.
+    // Best-effort: savePreferences swallows its own write errors and never
+    // throws, so a read-only home can't fail the setActive RPC.
+    void savePreferences({ providerName: name });
     this.broadcastInfo();
     return {};
   }
