@@ -1,5 +1,11 @@
 # @moxxy/desktop
 
+## 0.0.7
+
+### Patch Changes
+
+- Fix voice transcription returning "No speech detected": grant the renderer microphone access (macOS `NSMicrophoneUsageDescription` + audio-input entitlement + a media permission handler that triggers the system mic prompt), since macOS otherwise hands `getUserMedia` a silent stream. A captured-but-silent clip now reports an actionable microphone-access message instead.
+
 ## 0.0.6
 
 ### Minor Changes
