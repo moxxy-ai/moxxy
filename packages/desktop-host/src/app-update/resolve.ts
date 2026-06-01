@@ -112,6 +112,19 @@ export function markBad(userDataDir: string, version: string): void {
   }
 }
 
+/** Clear a version's poison mark. Called when the user EXPLICITLY (re)installs
+ *  that version, so a one-off failed boot — e.g. a slow first render that tripped
+ *  the boot-probe, or a transient white-screen — can't wedge it as permanently
+ *  unloadable: without this, the freshly re-staged copy is rejected by
+ *  {@link resolveActiveBundle} on the very next launch and the app silently stays
+ *  on the floor forever. The boot-probe still re-poisons the version if the fresh
+ *  copy is genuinely broken, so this only ever grants ONE more attempt. */
+export function unmarkBad(userDataDir: string, version: string): void {
+  const bad = readBadVersions(userDataDir);
+  if (!bad.delete(version)) return; // not poisoned → nothing to rewrite
+  writeJsonAtomic(badPath(userDataDir), { versions: [...bad] });
+}
+
 export function writeBreadcrumb(userDataDir: string, version: string, now = Date.now()): void {
   writeJsonAtomic(breadcrumbPath(userDataDir), { version, ts: now });
 }

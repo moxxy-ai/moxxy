@@ -29,6 +29,7 @@ import {
   isCompatible,
   isSafeVersion,
   setActiveVersion,
+  unmarkBad,
 } from './resolve.js';
 
 /** Only these hosts (and subdomains) are ever fetched — GitHub's API, web, and
@@ -312,6 +313,12 @@ export async function downloadAndStage(
     if (existsSync(finalRoot)) rmSync(finalRoot, { recursive: true, force: true });
     renameSync(incoming, finalRoot);
     setActiveVersion(userDataDir, manifest.version);
+    // The user explicitly chose to install this version — clear any prior poison
+    // mark so a one-off failed boot can't leave it permanently unloadable (the
+    // freshly-staged copy would otherwise be rejected as `bad` on the next launch
+    // and the app would silently stay on the floor). The boot-probe re-poisons it
+    // if this copy is genuinely broken, so this grants exactly one fresh attempt.
+    unmarkBad(userDataDir, manifest.version);
   } finally {
     if (existsSync(incoming)) rmSync(incoming, { recursive: true, force: true });
   }

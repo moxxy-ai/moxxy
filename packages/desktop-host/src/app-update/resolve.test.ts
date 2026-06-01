@@ -13,6 +13,7 @@ import {
   setActiveVersion,
   readActiveVersion,
   markBad,
+  unmarkBad,
   readBadVersions,
   writeBreadcrumb,
   markConfirmed,
@@ -123,6 +124,35 @@ describe('markBad', () => {
     markBad(tmp, '0.0.6');
     expect(readBadVersions(tmp).has('0.0.6')).toBe(true);
     expect(resolveActiveBundle({ userDataDir: tmp, publicKeyPem: PUBKEY, shell: SHELL })).toBeNull();
+  });
+});
+
+describe('unmarkBad', () => {
+  it('removes a version from the bad set so a reinstall can load it again', () => {
+    installBundle('0.0.6');
+    markBad(tmp, '0.0.6'); // poisoned by a prior failed boot
+    expect(readBadVersions(tmp).has('0.0.6')).toBe(true);
+
+    // Re-stage it (markBad cleared `active`, so point it back as a reinstall would).
+    setActiveVersion(tmp, '0.0.6');
+    unmarkBad(tmp, '0.0.6');
+
+    expect(readBadVersions(tmp).has('0.0.6')).toBe(false);
+    // The previously-wedged version is loadable again.
+    expect(resolveActiveBundle({ userDataDir: tmp, publicKeyPem: PUBKEY, shell: SHELL })?.version).toBe(
+      '0.0.6',
+    );
+  });
+
+  it('leaves other poisoned versions intact and is a no-op when not poisoned', () => {
+    markBad(tmp, '0.0.5');
+    markBad(tmp, '0.0.6');
+    unmarkBad(tmp, '0.0.6');
+    expect(readBadVersions(tmp).has('0.0.6')).toBe(false);
+    expect(readBadVersions(tmp).has('0.0.5')).toBe(true);
+    // No-op for a version that was never poisoned.
+    unmarkBad(tmp, '9.9.9');
+    expect(readBadVersions(tmp).has('0.0.5')).toBe(true);
   });
 });
 

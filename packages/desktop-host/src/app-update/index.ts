@@ -29,6 +29,7 @@ export {
   setActiveVersion,
   readBadVersions,
   markBad,
+  unmarkBad,
   writeBreadcrumb,
   readBreadcrumb,
   markConfirmed,

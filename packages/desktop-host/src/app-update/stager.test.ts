@@ -6,7 +6,7 @@ import os from 'node:os';
 
 import { buildAppBundle } from './build';
 import { checkForUpdate, downloadAndStage, isAllowedUpdateHost } from './stager';
-import { bundleRoot, type ShellInfo } from './resolve';
+import { bundleRoot, markBad, readBadVersions, readActiveVersion, type ShellInfo } from './resolve';
 
 const SHELL: ShellInfo = { electron: '33.4.11', nodeAbi: '115' };
 const keys = generateKeyPairSync('ed25519');
@@ -144,5 +144,33 @@ describe('downloadAndStage hardening', () => {
     await expect(
       downloadAndStage({ userDataDir: tmp, manifest, publicKeyPem: otherKey }, { fetchImpl }),
     ).rejects.toThrow(/signature/i);
+  });
+
+  it('clears a prior poison mark on the version it installs (un-wedges a reinstall)', async () => {
+    const { manifest, bundleGz } = buildAppBundle({
+      version: '0.0.6',
+      minElectron: '33.0.0',
+      nodeAbi: '',
+      bundleUrl: GH,
+      privateKeyPem: PRIVKEY,
+      files: {
+        'dist/index.html': Buffer.from('x'),
+        'dist-electron/main/index.js': Buffer.from('// main'),
+      },
+    });
+    // A prior failed boot poisoned this version; without un-poisoning, the
+    // freshly re-staged copy would be rejected on the next launch forever.
+    markBad(tmp, '0.0.6');
+    expect(readBadVersions(tmp).has('0.0.6')).toBe(true);
+
+    const fetchImpl = (async () => new Response(new Uint8Array(bundleGz))) as unknown as typeof fetch;
+    const { version } = await downloadAndStage(
+      { userDataDir: tmp, manifest, publicKeyPem: PUBKEY },
+      { fetchImpl },
+    );
+
+    expect(version).toBe('0.0.6');
+    expect(readBadVersions(tmp).has('0.0.6')).toBe(false); // poison cleared
+    expect(readActiveVersion(tmp)).toBe('0.0.6'); // and activated
   });
 });
