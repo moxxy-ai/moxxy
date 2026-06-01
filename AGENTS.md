@@ -131,7 +131,7 @@ Run `pnpm check:deps` to verify after structural changes.
 - **Wire every lifecycle hook.** `onEvent` needs `EventLog.subscribe → dispatcher.dispatchEvent`. `onShutdown` needs `Session.close()`. Declaring a hook without dispatching it is a silent dead-letter (we shipped that bug once — don't repeat).
 - **Use `Session.setPermissionResolver(r)`** to swap resolvers. Never `(session as unknown as {resolver}).resolver = ...`.
 - **Use `defineX(spec): XDef` factories.** They `Object.freeze` the spec and (for `definePlugin`) stamp `__moxxy: 'plugin'` and a default `version`.
-- **Add a changeset to every PR that changes a published package.** Run `pnpm changeset` (or hand-write `.changeset/<name>.md`) and pick the bump for `@moxxy/cli` / `@moxxy/sdk`. No changeset → no version bump → nothing publishes. See [Releasing](#releasing-changesets).
+- **Add a changeset to EVERY PR — CI enforces it.** Run `pnpm changeset` (or hand-write `.changeset/<name>.md`) and pick the bump for `@moxxy/cli` / `@moxxy/sdk` / `@moxxy/desktop`. No changeset → no version bump → nothing ships. The `Changeset present` CI job fails any PR without one. For a change that releases nothing (docs / CI / tests), say so on purpose with `pnpm changeset --empty`. See [Releasing](#releasing-changesets).
 
 ### Don't
 
@@ -147,9 +147,9 @@ Run `pnpm check:deps` to verify after structural changes.
 
 ## Releasing (changesets)
 
-Versioning and publishing are driven by **changesets** — there is no manual `npm version` / `npm publish`. **Every PR that changes a published package must include a changeset**; a PR without one bumps nothing and ships nothing.
+Versioning and publishing are driven by **changesets** — there is no manual `npm version` / `npm publish`. **Every PR must include a changeset — CI (the `Changeset present` job) fails the PR without one.** A change that releases nothing (docs / CI / tests) still needs one: add an empty changeset with `pnpm changeset --empty`.
 
-- **Published packages:** only `@moxxy/cli` and `@moxxy/sdk` (everything else is `private` and bundled into the CLI binary by tsup). A changeset only ever lists those two.
+- **Published packages:** only `@moxxy/cli` and `@moxxy/sdk` (everything else is `private` and bundled into the CLI binary by tsup). The private **`@moxxy/desktop`** also rides changesets — naming it cuts a desktop installer release (it is never published to npm), and because the desktop depends on `@moxxy/cli` / `@moxxy/sdk`, a CLI/SDK bump cascades a patch bump to it automatically.
 - **Add one:** `pnpm changeset` → pick the package(s) + bump (patch / minor / major) + write a one-line summary. This drops a file in `.changeset/`. Commit it with your PR.
 - **What happens on merge to `main`** (`.github/workflows/release.yml`):
   1. Pending changesets → `changesets/action` opens/updates a **"Version Packages" PR** that bumps `package.json` versions, writes changelogs, and deletes the consumed changesets.

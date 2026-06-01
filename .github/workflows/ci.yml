@@ -14,6 +14,39 @@ permissions:
   contents: read
 
 jobs:
+  # Every PR must add a changeset — it is the switch that drives version bumps,
+  # the npm publish (@moxxy/cli + @moxxy/sdk), AND the desktop installer release
+  # (@moxxy/desktop rides changesets too). A PR without one ships nothing. For a
+  # change that genuinely releases nothing (docs / CI / tests), record that on
+  # purpose with an EMPTY changeset: `pnpm changeset --empty`.
+  changeset:
+    name: Changeset present
+    runs-on: ubuntu-latest
+    # Only PRs have a base branch to diff against; the push-to-main run is the
+    # merge result and doesn't need the gate.
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need history back to the merge-base so the diff below resolves.
+          fetch-depth: 0
+      - name: Require a changeset
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Real changeset markdown added/modified in this PR (exclude the
+          # template README and the non-markdown config). `|| true` so a
+          # no-match grep under `set -eo pipefail` doesn't abort before the
+          # friendly error below.
+          added="$( { git diff --name-only --diff-filter=AM "$BASE_SHA"...HEAD -- '.changeset/' \
+            | grep -E '\.md$' | grep -vE '(^|/)README\.md$'; } || true )"
+          if [ -z "$added" ]; then
+            echo "::error::No changeset in this PR. Run 'pnpm changeset' (or 'pnpm changeset --empty' for a no-release change) and commit the file under .changeset/."
+            exit 1
+          fi
+          echo "Changeset(s) found in this PR:"
+          printf '%s\n' "$added"
+
   build-and-test:
     name: Build + test (Node ${{ matrix.node }})
     runs-on: ubuntu-latest

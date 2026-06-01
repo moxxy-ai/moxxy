@@ -1,7 +1,7 @@
 // Ad-hoc code-sign the macOS .app before it's wrapped into the DMG.
 //
 // Builds here are unsigned (no Developer ID — see CSC_IDENTITY_AUTO_DISCOVERY
-// in release-desktop.yml). On Apple Silicon a quarantined app with NO
+// in release.yml). On Apple Silicon a quarantined app with NO
 // signature at all is reported as "is damaged and can't be opened" — a state
 // the user cannot clear from the UI. An ad-hoc signature (`codesign -s -`)
 // downgrades that to the normal "unverified developer" prompt, which users

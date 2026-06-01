@@ -1,36 +1,30 @@
 name: Release
 
-# On push to main this workflow has two modes:
+# One pipeline for everything we ship, driven entirely by changesets.
 #
-#   1. There are pending changesets in `.changeset/`: open or update a
-#      "Version Packages" PR that bumps versions + changelogs.
-#   2. The Version Packages PR has just been merged: publish every
-#      non-private workspace package whose version is not yet on npm.
+# On push to main the first job has two modes:
+#   1. Pending changesets in `.changeset/`: open or update a "Version
+#      Packages" PR that bumps versions + changelogs.
+#   2. The Version Packages PR has just merged: publish every non-private
+#      workspace package whose version is not yet on npm.
 #
-# After either mode, a final step cuts the desktop release: when the merged
-# Version Packages PR bumped @moxxy/desktop (a private, apps/ package that
-# safe-publish.mjs never touches and never tags), it pushes the matching
-# `desktop-v<version>` tag and dispatches release-desktop.yml. See that step
-# for why it dispatches rather than relying on the tag-push trigger.
+# The desktop rides the same rails. `@moxxy/desktop` is private (npm never
+# touches it) but it is NOT in `.changeset` ignore, so changesets versions it
+# like any other package — directly when a changeset names it, or via
+# `updateInternalDependencies: patch` when a dependency it declares (e.g.
+# @moxxy/cli, @moxxy/sdk) is released. So "release the desktop when it changes"
+# is just "include it in a changeset" — no bespoke change detection.
 #
-# The desktop also auto-proposes releases: when desktop-relevant code
-# (apps/desktop or any packages/** — the desktop ships its renderer/main AND a
-# bundled moxxy CLI that pulls in nearly every package) changes after its last
-# release, the "Open desktop release PR" step opens (and keeps updating) a
-# one-line `auto/desktop-release` PR that bumps the patch version. Merging that
-# PR lands the bump on main, and the cut step above ships
-# the release — so cutting a desktop release is a one-click merge, never a
-# hand-edited version. It defers to explicit/changeset-driven bumps.
+# When the merged Version PR bumped the desktop, the `version-publish` job's
+# "cut" step pushes a `desktop-v<version>` tag and flips a job output; the
+# `desktop-build` matrix and `desktop-release` jobs then build + ship the
+# installers in the SAME run. No cross-workflow dispatch, no auto-opened PR.
 #
-# Mode 2 runs through `scripts/safe-publish.mjs` rather than the default
-# `changesets publish`. That wrapper:
-#   - skips packages whose current version is already on the registry
-#     (matches the behaviour of `changesets publish` for unchanged packages),
-#   - auto-bumps past tombstoned versions until a free slot is found, and
-#     commits those bumps back to main so the next release does not have
-#     to walk them again,
-#   - emits the `🦋  New tag: ...` markers `changesets/action` greps for so
-#     GitHub releases continue to be created automatically.
+# Mode 2 runs through `scripts/safe-publish.mjs` rather than `changesets
+# publish`. That wrapper skips packages already on the registry, auto-bumps
+# past tombstoned versions (committing those bumps back to main), and emits the
+# `🦋  New tag: ...` markers `changesets/action` greps for so GitHub releases
+# are still created automatically.
 #
 # Required repo secret:
 #   - NPM_TOKEN: npm automation token with publish rights for the @moxxy scope.
@@ -47,14 +41,14 @@ permissions:
   contents: write
   pull-requests: write
   id-token: write
-  # Lets the desktop-release step below dispatch release-desktop.yml
-  # (workflow_dispatch == POST .../actions/workflows/.../dispatches).
-  actions: write
 
 jobs:
-  release:
+  version-publish:
     name: Version / publish
     runs-on: ubuntu-latest
+    outputs:
+      desktop-release: ${{ steps.cut.outputs.release }}
+      desktop-version: ${{ steps.cut.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -94,102 +88,274 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      # Cut the desktop release when the merged Version Packages PR bumped
-      # @moxxy/desktop. The version on main is the source of truth: if there's
-      # no `desktop-v<version>` tag yet, this bump hasn't been released. (On a
-      # mode-1 run that only opens the Version PR, main still carries the old,
-      # already-tagged version, so this is a cheap no-op.)
-      #
-      # Why dispatch instead of just pushing the tag: a tag pushed with the
-      # default GITHUB_TOKEN does NOT start a new workflow run — GitHub's guard
-      # against recursive runs means release-desktop.yml's `on: push: tags`
-      # would never fire. workflow_dispatch (and repository_dispatch) are the
-      # documented exceptions that DO fire under GITHUB_TOKEN. We still push
-      # the tag first so dispatching `--ref desktop-v<version>` resolves, which
-      # also makes release-desktop's `startsWith(github.ref, 'refs/tags/
-      # desktop-v')` gate pass — so the GitHub Release publishes exactly as a
-      # manual `git push origin desktop-v*` would.
+      # Decide whether to cut a desktop release. The desktop version on main is
+      # the source of truth: if there is no `desktop-v<version>` tag yet, this
+      # bump hasn't been released. (On a mode-1 run that only opens the Version
+      # PR, main still carries the old, already-tagged version, so this is a
+      # cheap no-op.) Pushing the tag here gives the build + GitHub Release a
+      # stable name; the desktop jobs below are gated by the `release` output,
+      # NOT by the tag — so there's no cross-workflow dispatch to coax past
+      # GitHub's "GITHUB_TOKEN tag pushes don't start runs" guard.
       - name: Cut desktop release on version bump
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        id: cut
         run: |
           version="$(node -p "require('./apps/desktop/package.json').version")"
           tag="desktop-v$version"
           if git rev-parse -q --verify "refs/tags/$tag" >/dev/null \
             || git ls-remote --exit-code --tags origin "$tag" >/dev/null 2>&1; then
             echo "$tag already exists — desktop $version is already released."
+            echo "release=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "Desktop bumped to $version with no $tag tag — releasing."
           git tag "$tag"
           git push origin "$tag"
-          gh workflow run release-desktop.yml --ref "$tag"
+          echo "release=true" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      # Auto-OPEN A PR that bumps the desktop when its code changed since the
-      # last release — so a release needs only a one-click merge, never a
-      # hand-edited version. Runs AFTER the cut step so the cut step reads the
-      # committed (released) version, not the bump we stage here.
-      #
-      # Acts only when the current version is already released (tag exists) and a
-      # desktop-relevant path changed since that tag. Defers to in-flight bumps:
-      # an untagged version (pending manual/changeset bump → the cut step ships
-      # it) and a pending changeset already targeting @moxxy/desktop are both
-      # skipped, so it never competes. Merging the opened PR lands the bump on
-      # main, and the cut step above releases it on that run.
-      - name: Stage desktop bump on source change
-        id: deskbump
+  # ── Desktop installers ─────────────────────────────────────────────────────
+  # The next three jobs build the desktop (.dmg / .exe / .deb + AppImage) on a
+  # matrix of native runners and attach them to a GitHub Release. They run ONLY
+  # when the version-publish job cut a release above. Installers are UNSIGNED by
+  # default (Gatekeeper/SmartScreen will warn); add the signing secrets to ship
+  # signed builds. See docs/desktop-code-signing.md.
+
+  desktop-guard:
+    name: Guard — no live Clerk key committed
+    needs: version-publish
+    if: needs.version-publish.outputs.desktop-release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # A pk_live_ Clerk key must never live in the repo (only the public
+      # pk_test_ belongs in .env.example). Fail loudly if one slips in.
+      - name: Scan for a live Clerk key
         run: |
-          set -euo pipefail
-          version="$(node -p "require('./apps/desktop/package.json').version")"
-          tag="desktop-v$version"
-
-          if ls .changeset/*.md >/dev/null 2>&1 && \
-             grep -lE '"@moxxy/desktop"\s*:' .changeset/*.md >/dev/null 2>&1; then
-            echo "A pending changeset targets @moxxy/desktop — letting changesets drive the bump."
-            echo "bump=false" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          if ! git fetch --quiet origin "refs/tags/$tag:refs/tags/$tag" 2>/dev/null; then
-            echo "$version is not yet released ($tag missing) — pending; cut step will handle it."
-            echo "bump=false" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          # The desktop ships its own renderer/main AND a bundled moxxy CLI
-          # (resources/moxxy-cli = @moxxy/cli + nearly every package: providers,
-          # plugins, runner, sdk, modes). So any apps/desktop or packages/**
-          # change can alter what the desktop installs — watch them all, not just
-          # the UI packages (a fix in e.g. plugin-oauth must still cut a release).
-          paths="apps/desktop packages"
-          if git diff --quiet "$tag" HEAD -- $paths; then
-            echo "No desktop changes since $tag — nothing to release."
-            echo "bump=false" >> "$GITHUB_OUTPUT"; exit 0
+          # Match the prefix followed by real key chars so this workflow's
+          # own mentions of the bare prefix don't trip it.
+          if grep -rInE --exclude-dir=.git 'pk_live_[A-Za-z0-9]{6,}' .; then
+            echo "::error::A live Clerk key is committed — remove it." >&2
+            exit 1
           fi
 
-          new="$(node -e "const v=require('./apps/desktop/package.json').version.split('.').map(Number); v[2]+=1; console.log(v.join('.'))")"
-          echo "Desktop changed since $tag — staging bump $version → $new for a release PR."
-          # Formatting-preserving: only the version string is rewritten.
-          node -e "const fs=require('fs'),f='apps/desktop/package.json';let s=fs.readFileSync(f,'utf8');s=s.replace(/\"version\":\s*\"[^\"]+\"/, '\"version\": \"$new\"');fs.writeFileSync(f,s)"
-          echo "new=$new" >> "$GITHUB_OUTPUT"
-          echo "bump=true" >> "$GITHUB_OUTPUT"
+  desktop-build:
+    name: Build desktop (${{ matrix.os }})
+    needs: [version-publish, desktop-guard]
+    if: needs.version-publish.outputs.desktop-release == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifact: dmg
+          - os: windows-latest
+            artifact: exe
+          - os: ubuntu-latest
+            artifact: deb-appimage
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Open desktop release PR
-        if: steps.deskbump.outputs.bump == 'true'
-        uses: peter-evans/create-pull-request@v6
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          branch: auto/desktop-release
-          base: main
-          add-paths: apps/desktop/package.json
-          commit-message: "chore(desktop): release v${{ steps.deskbump.outputs.new }}"
-          title: "chore(desktop): release v${{ steps.deskbump.outputs.new }}"
+          version: 10.30.0
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Bake the Clerk publishable key BEFORE building. `pnpm build` runs
+      # electron-vite, which INLINES VITE_CLERK_PUBLISHABLE_KEY into the
+      # renderer bundle — so .env must already exist here. Provisioning it
+      # after the build is a no-op (the bundle is baked, and the package
+      # step only repackages dist/), which is exactly how shipped builds
+      # ended up keyless and white-screened (useUser threw with no
+      # <ClerkProvider>).
+      # Prefer the CLERK_PUBLISHABLE_KEY repo secret (set a pk_live_ key
+      # there for real releases); fall back to the public pk_test_ key in
+      # .env.example so forks / PR builds without the secret still build.
+      # `shell: bash` runs on all three runners (Windows included).
+      - name: Provision .env
+        shell: bash
+        env:
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+        run: |
+          if [ -n "$CLERK_PUBLISHABLE_KEY" ]; then
+            echo "VITE_CLERK_PUBLISHABLE_KEY=$CLERK_PUBLISHABLE_KEY" > apps/desktop/.env
+            echo "Using CLERK_PUBLISHABLE_KEY secret."
+          else
+            echo "CLERK_PUBLISHABLE_KEY not set; falling back to the public test key in .env.example."
+            cp apps/desktop/.env.example apps/desktop/.env
+          fi
+
+      # The desktop bundles its workspace deps, so the rest of the repo
+      # must be built first (turbo handles ordering + cache). .env above is
+      # in place, so electron-vite bakes the Clerk key into the renderer.
+      - name: Build workspace
+        run: pnpm build
+
+      # Tier-1 self-update assets: a gzipped {renderer + main + preload + IPC}
+      # bundle and an Ed25519-signed manifest, so the SAME dist that gets
+      # packaged below can also be hot-installed by existing clients without a
+      # reinstall. OS-independent JS → built once, on the Linux leg. Skipped when
+      # the signing key isn't configured (forks / PRs) — the floor still ships.
+      - name: Build + sign app update bundle
+        if: matrix.os == 'ubuntu-latest' && env.MOXXY_UPDATE_SIGNING_KEY != ''
+        env:
+          MOXXY_UPDATE_SIGNING_KEY: ${{ secrets.MOXXY_UPDATE_SIGNING_KEY }}
+          MOXXY_BUNDLE_NOTES: ${{ github.ref_name }}
+        run: node scripts/build-app-bundle.mjs
+
+      - name: Upload app update bundle
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-update-bundle
+          path: |
+            apps/desktop/release/update/moxxy-app-manifest.json
+            apps/desktop/release/update/moxxy-app-bundle-*.json.gz
+          if-no-files-found: ignore
+
+      # Bundle a self-contained, pinned moxxy CLI INTO the app so the desktop
+      # never depends on a globally-installed moxxy (or a system node — it's
+      # run via Electron's Node). electron-builder ships resources/moxxy-cli
+      # via extraResources.
+      - name: Bundle moxxy CLI
+        # `shell: bash` so `rm -rf` works on the Windows runner too (its
+        # default shell is PowerShell, where `rm -rf` is invalid). Git Bash
+        # ships on GitHub's windows-latest image.
+        shell: bash
+        run: |
+          rm -rf apps/desktop/resources/moxxy-cli
+          pnpm --filter @moxxy/cli --legacy deploy --prod apps/desktop/resources/moxxy-cli
+          # pnpm `deploy` leaves a self-referential symlink for the deployed
+          # package itself at node_modules/.pnpm/node_modules/@moxxy/cli ->
+          # ../../../../packages/cli (the source workspace). It resolves fine
+          # here, but the moment electron-builder copies the bundle into the
+          # .app it dangles — and @electron/osx-sign walks the bundle with
+          # fs.stat (which follows symlinks), so signing dies on ENOENT and
+          # electron-builder masks it as "Above command failed, retrying 3 more
+          # times". Drop the one symlink that points outside the bundle.
+          rm -f apps/desktop/resources/moxxy-cli/node_modules/.pnpm/node_modules/@moxxy/cli
+
+      # Developer ID signing + notarization turn on ONLY when the CSC_LINK
+      # secret exists; otherwise the build stays ad-hoc/unsigned (today's
+      # behaviour). See docs/desktop-code-signing.md. macOS only.
+      #   - no CSC_LINK  → CSC_IDENTITY_AUTO_DISCOVERY=false (electron-builder
+      #                    skips signing; after-pack.cjs ad-hoc signs).
+      #   - CSC_LINK set → discovery on; if notarization creds are present too,
+      #                    decode the API key to a file and enable notarize.
+      - name: Configure macOS signing
+        id: signing
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          APPLE_API_KEY_B64: ${{ secrets.APPLE_API_KEY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+        run: |
+          if [ -z "$CSC_LINK" ]; then
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+            echo "notarize=false" >> "$GITHUB_OUTPUT"
+            echo "No CSC_LINK secret — building unsigned (ad-hoc)."
+            exit 0
+          fi
+          echo "CSC_IDENTITY_AUTO_DISCOVERY=true" >> "$GITHUB_ENV"
+          if [ -n "$APPLE_API_KEY_B64" ]; then
+            KEY="$RUNNER_TEMP/AuthKey.p8"
+            printf '%s' "$APPLE_API_KEY_B64" | base64 --decode > "$KEY"
+            echo "APPLE_API_KEY=$KEY" >> "$GITHUB_ENV"
+            echo "notarize=true" >> "$GITHUB_OUTPUT"
+            echo "Signing + notarizing (App Store Connect API key)."
+          elif [ -n "$APPLE_ID" ]; then
+            echo "notarize=true" >> "$GITHUB_OUTPUT"
+            echo "Signing + notarizing (Apple ID)."
+          else
+            echo "notarize=false" >> "$GITHUB_OUTPUT"
+            echo "CSC_LINK set but no notarization creds — signing without notarizing."
+          fi
+
+      # electron-builder reads the per-OS targets from apps/desktop's
+      # package.json#build and emits to apps/desktop/release/. Signing /
+      # notarization env is consumed only when the secrets are present
+      # (empty secrets are harmless no-ops). `-c.mac.notarize=true` is added
+      # only when notarization creds were configured above.
+      - name: Package installers
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          EXTRA=""
+          if [ "${{ steps.signing.outputs.notarize }}" = "true" ]; then
+            EXTRA="-c.mac.notarize=true"
+          fi
+          pnpm --filter @moxxy/desktop exec electron-builder --publish never $EXTRA
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.artifact }}
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.deb
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.yml
+            apps/desktop/release/*.blockmap
+          if-no-files-found: ignore
+
+  desktop-release:
+    name: Publish desktop GitHub Release
+    needs: [version-publish, desktop-build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all installers
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      # NOTE: self-update needs PUBLISHED assets. The release is created as a
+      # DRAFT (human review of the unsigned build); the moxxy-app-manifest.json /
+      # bundle (Tier-1) and the electron-updater latest*.yml feed (Tier-2) only
+      # become downloadable via `releases/latest/download/...` once a human
+      # PUBLISHES this release. So: review → Publish → clients can update.
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: desktop-v${{ needs.version-publish.outputs.desktop-version }}
+          files: artifacts/*
+          draft: true
+          generate_release_notes: true
           body: |
-            Automated desktop release bump — desktop-relevant code changed since
-            the last release (`apps/desktop` + desktop-host / desktop-ipc-contract
-            / desktop-ui / chat-model).
+            MoxxyAI Workspaces desktop build.
 
-            Merging this bumps `@moxxy/desktop` to
-            **${{ steps.deskbump.outputs.new }}**; the release workflow then tags
-            `desktop-v${{ steps.deskbump.outputs.new }}` and builds + publishes the
-            installers (and the self-update bundle).
+            **Unsigned (ad-hoc signed only)** — these builds are not notarized,
+            so Gatekeeper / SmartScreen will warn on first launch.
 
-            This PR auto-updates as more desktop changes land — just merge when
-            you want to cut the release.
-          delete-branch: true
+            **macOS:** right-click the app → **Open**, then confirm. If macOS
+            still says the app "is damaged" or "can't be opened", clear the
+            download quarantine and launch:
+
+            ```sh
+            xattr -dr com.apple.quarantine "/Applications/MoxxyAI Workspaces.app"
+            ```
+
+            **Windows:** "More info → Run anyway" on the SmartScreen prompt.
+
+            A clean, prompt-free install needs a Developer ID certificate +
+            notarization (set the signing secrets and drop
+            `CSC_IDENTITY_AUTO_DISCOVERY=false`).
