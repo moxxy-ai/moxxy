@@ -92,6 +92,9 @@ importers:
       '@moxxy/chat-model':
         specifier: workspace:*
         version: link:../../packages/chat-model
+      '@moxxy/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
       '@moxxy/desktop-host':
         specifier: workspace:*
         version: link:../../packages/desktop-host

@@ -96,9 +96,9 @@ it (and skips the bundle if it's absent — forks/PRs still build).
 
 ### 4. Publish the release
 
-`release-desktop.yml` builds + signs the bundle and uploads
+`release.yml` builds + signs the bundle and uploads
 `moxxy-app-manifest.json` + `moxxy-app-bundle-<version>.json.gz` (Tier 1) and the
-`latest*.yml` + blockmaps (Tier 2) on each `desktop-v*` tag.
+`latest*.yml` + blockmaps (Tier 2) on each desktop release (tagged `desktop-v*`).
 
 > **The release must be PUBLISHED, not left as a draft.** Clients fetch via
 > `releases/latest/download/...`, which only resolves to published releases. The

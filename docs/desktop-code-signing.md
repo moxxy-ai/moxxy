@@ -9,10 +9,11 @@ You only need a **paid Apple Developer Program** membership
 (<https://developer.apple.com/programs/> — \$99/yr). Everything below is done
 once; after that, every `desktop-v*` release is signed automatically by CI.
 
-The release workflow (`.github/workflows/release-desktop.yml`) is already wired
+The release workflow (`.github/workflows/release.yml`) is already wired
 to **activate signing automatically when the secrets exist** and fall back to
 the current ad-hoc/unsigned build when they don't. So the entire task is:
-**create the credentials → paste them into GitHub Secrets → tag a release.**
+**create the credentials → paste them into GitHub Secrets → cut a release**
+(merge a changeset that bumps `@moxxy/desktop`).
 
 ---
 
@@ -148,7 +149,7 @@ When the secrets above exist, CI does all of this — you don't edit anything:
   and points at **`build/entitlements.mac.plist`** (Electron needs the JIT /
   unsigned-executable-memory entitlements under the hardened runtime). These are
   no-ops when the build isn't signed.
-- **`release-desktop.yml`** has a **Configure signing** step that, when
+- **`release.yml`** has a **Configure macOS signing** step that, when
   `CSC_LINK` is set, flips `CSC_IDENTITY_AUTO_DISCOVERY` on and enables
   `--config.mac.notarize` for the package step (electron-builder reads the
   `APPLE_*` env vars). When `CSC_LINK` is absent it leaves the ad-hoc path

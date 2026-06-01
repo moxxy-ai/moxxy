@@ -28,6 +28,7 @@
   "dependencies": {
     "@clerk/clerk-react": "^5.0.0",
     "@moxxy/chat-model": "workspace:*",
+    "@moxxy/cli": "workspace:*",
     "@moxxy/desktop-host": "workspace:*",
     "@moxxy/desktop-ipc-contract": "workspace:*",
     "@moxxy/desktop-ui": "workspace:*",
