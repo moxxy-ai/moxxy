@@ -14,10 +14,11 @@ name: Release
 # for why it dispatches rather than relying on the tag-push trigger.
 #
 # The desktop also auto-proposes releases: when desktop-relevant code
-# (apps/desktop + desktop-host / desktop-ipc-contract / desktop-ui / chat-model)
-# changes after its last release, the "Open desktop release PR" step opens (and
-# keeps updating) a one-line `auto/desktop-release` PR that bumps the patch
-# version. Merging that PR lands the bump on main, and the cut step above ships
+# (apps/desktop or any packages/** — the desktop ships its renderer/main AND a
+# bundled moxxy CLI that pulls in nearly every package) changes after its last
+# release, the "Open desktop release PR" step opens (and keeps updating) a
+# one-line `auto/desktop-release` PR that bumps the patch version. Merging that
+# PR lands the bump on main, and the cut step above ships
 # the release — so cutting a desktop release is a one-click merge, never a
 # hand-edited version. It defers to explicit/changeset-driven bumps.
 #
@@ -151,7 +152,12 @@ jobs:
             echo "$version is not yet released ($tag missing) — pending; cut step will handle it."
             echo "bump=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          paths="apps/desktop packages/desktop-host packages/desktop-ipc-contract packages/desktop-ui packages/chat-model"
+          # The desktop ships its own renderer/main AND a bundled moxxy CLI
+          # (resources/moxxy-cli = @moxxy/cli + nearly every package: providers,
+          # plugins, runner, sdk, modes). So any apps/desktop or packages/**
+          # change can alter what the desktop installs — watch them all, not just
+          # the UI packages (a fix in e.g. plugin-oauth must still cut a release).
+          paths="apps/desktop packages"
           if git diff --quiet "$tag" HEAD -- $paths; then
             echo "No desktop changes since $tag — nothing to release."
             echo "bump=false" >> "$GITHUB_OUTPUT"; exit 0
