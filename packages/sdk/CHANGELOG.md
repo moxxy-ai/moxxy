@@ -1,5 +1,17 @@
 # @moxxy/sdk
 
+## 0.3.0
+
+### Minor Changes
+
+- d362a6b: Support sending documents (PDFs, Office/text) to the model. Adds a `document`
+  `ContentBlock`, a `supportsDocuments` flag on `ModelDescriptor`, and a
+  `'document'` `UserPromptAttachment` kind; `projectMessages` routes document
+  attachments to the native block. The Anthropic, OpenAI, and Codex providers
+  translate documents to their native shapes (Anthropic `document`, OpenAI
+  `file`, Responses `input_file`), so attached files now reach the model for
+  analysis instead of being dropped.
+
 ## 0.2.0
 
 ### Minor Changes

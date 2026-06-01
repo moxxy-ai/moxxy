@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-marketplace",
   "private": true,
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Plugin marketplace for moxxy: `moxxy marketplace` lists, installs, removes, enables, disables, and opens plugins from a catalog, npm, GitHub, or a local path.",
   "type": "module",
   "main": "./dist/index.js",
