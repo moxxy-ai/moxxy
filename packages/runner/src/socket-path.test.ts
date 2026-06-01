@@ -1,7 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { runnerSocketPath, isRunnerUp } from './socket-path.js';
+import { runnerSocketPath, isRunnerUp, platformSocket, isNamedPipe } from './socket-path.js';
 import { createUnixSocketServer } from './unix-socket.js';
 import type { TransportServer } from './transport.js';
 
@@ -31,6 +31,39 @@ describe('runnerSocketPath', () => {
     } else {
       expect(runnerSocketPath()).toBe(path.join(os.homedir(), '.moxxy', 'serve.sock'));
     }
+  });
+});
+
+describe('platformSocket — the OS socket-address split', () => {
+  it('returns a Windows named pipe (NOT the .sock path) on win32', () => {
+    expect(platformSocket('serve', '/home/u/.moxxy/serve.sock', 'win32')).toBe(
+      '\\\\.\\pipe\\moxxy-serve',
+    );
+  });
+
+  it('returns the supplied filesystem path on unix/macOS', () => {
+    expect(platformSocket('serve', '/home/u/.moxxy/serve.sock', 'linux')).toBe(
+      '/home/u/.moxxy/serve.sock',
+    );
+    expect(platformSocket('serve', '/Users/u/.moxxy/serve.sock', 'darwin')).toBe(
+      '/Users/u/.moxxy/serve.sock',
+    );
+  });
+
+  it('sanitizes the name into a single legal pipe segment on Windows', () => {
+    expect(platformSocket('serve-a/b\\c:d', '/x', 'win32')).toBe('\\\\.\\pipe\\moxxy-serve-a_b_c_d');
+  });
+});
+
+describe('isNamedPipe', () => {
+  it('recognizes Windows pipe addresses', () => {
+    expect(isNamedPipe('\\\\.\\pipe\\moxxy-serve')).toBe(true);
+    expect(isNamedPipe('//./pipe/moxxy-serve')).toBe(true);
+  });
+
+  it('rejects filesystem socket paths', () => {
+    expect(isNamedPipe('/home/u/.moxxy/serve.sock')).toBe(false);
+    expect(isNamedPipe('C:\\Users\\u\\.moxxy\\serve.sock')).toBe(false);
   });
 });
 

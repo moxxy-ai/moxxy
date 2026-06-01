@@ -9,7 +9,7 @@ export {
   createUnixSocketServer,
   connectUnixSocket,
 } from './unix-socket.js';
-export { runnerSocketPath, isRunnerUp } from './socket-path.js';
+export { runnerSocketPath, isRunnerUp, platformSocket, isNamedPipe } from './socket-path.js';
 export { RunnerServer, startRunnerServer } from './server.js';
 export {
   RemoteSession,
