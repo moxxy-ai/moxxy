@@ -31,8 +31,8 @@ export interface UpdateConfig {
   manifestUrl?: string;
 }
 
-const DEFAULT_MANIFEST_URL =
-  'https://github.com/moxxy-ai/moxxy/releases/latest/download/moxxy-app-manifest.json';
+/** The GitHub repo whose `desktop-v*` releases the updater pulls from. */
+const GH_REPO = 'moxxy-ai/moxxy';
 
 function runningVersion(): string {
   return process.env.MOXXY_APP_BUNDLE_VERSION ?? app.getVersion();
@@ -48,10 +48,13 @@ function messageOf(e: unknown): string {
 
 export function registerUpdateHandlers(config: UpdateConfig): void {
   const { publicKeyPem } = config;
-  // The manifest URL only ever differs from the default in dev/test (never in a
-  // packaged build) so a shipped app can't be pointed at an attacker origin.
-  const manifestUrl = app.isPackaged ? DEFAULT_MANIFEST_URL : config.manifestUrl ?? DEFAULT_MANIFEST_URL;
+  // A manifest-URL override is honored ONLY in dev/test (never in a packaged
+  // build) so a shipped app can't be pointed at an attacker origin; in prod the
+  // updater discovers the latest desktop release from GH_REPO's API.
+  const manifestUrlOverride = app.isPackaged ? undefined : config.manifestUrl;
   const enabled = (): boolean => !!publicKeyPem && app.isPackaged;
+  const check = (currentVersion: string): ReturnType<typeof checkForUpdate> =>
+    checkForUpdate({ repo: GH_REPO, currentVersion, publicKeyPem, shell: shellInfo(), manifestUrlOverride });
 
   handle('app.updateInfo', async () => ({
     version: runningVersion(),
@@ -72,12 +75,7 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
           : 'Updates run only in the packaged app.',
       };
     }
-    const res = await checkForUpdate({
-      manifestUrl,
-      currentVersion,
-      publicKeyPem,
-      shell: shellInfo(),
-    });
+    const res = await check(currentVersion);
     return {
       available: res.available,
       currentVersion,
@@ -85,6 +83,7 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
       compatible: res.compatible,
       ...(res.notes ? { notes: res.notes } : {}),
       ...(res.releaseUrl ? { releaseUrl: res.releaseUrl } : {}),
+      ...(res.error ? { error: res.error } : {}),
     };
   });
 
@@ -95,14 +94,9 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
     }
     const target = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null;
 
-    const res = await checkForUpdate({
-      manifestUrl,
-      currentVersion,
-      publicKeyPem,
-      shell: shellInfo(),
-    });
+    const res = await check(currentVersion);
     if (!res.available || !res.manifest) {
-      return { ok: false, version: null, error: 'No update available.' };
+      return { ok: false, version: null, error: res.error ?? 'No update available.' };
     }
     if (!res.compatible) {
       return {
@@ -117,6 +111,7 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
         userDataDir: app.getPath('userData'),
         manifest: res.manifest,
         publicKeyPem,
+        ...(res.bundleUrl ? { bundleUrl: res.bundleUrl } : {}),
         onProgress: (p) => {
           if (target) sendEvent(target, 'app.update.progress', p);
         },

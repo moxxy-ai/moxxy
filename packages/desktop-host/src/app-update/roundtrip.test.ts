@@ -54,7 +54,7 @@ describe('build → stage → resolve round-trip', () => {
 
     // check: a newer, compatible bundle is offered
     const check = await checkForUpdate(
-      { manifestUrl: MANIFEST_URL, currentVersion: '0.0.5', publicKeyPem: PUBKEY, shell: SHELL },
+      { repo: 'moxxy-ai/moxxy', manifestUrlOverride: MANIFEST_URL, currentVersion: '0.0.5', publicKeyPem: PUBKEY, shell: SHELL },
       { fetchImpl },
     );
     expect(check.available).toBe(true);
@@ -123,7 +123,7 @@ describe('build → stage → resolve round-trip', () => {
       files: FILES,
     });
     const check = await checkForUpdate(
-      { manifestUrl: MANIFEST_URL, currentVersion: '0.0.5', publicKeyPem: PUBKEY, shell: SHELL },
+      { repo: 'moxxy-ai/moxxy', manifestUrlOverride: MANIFEST_URL, currentVersion: '0.0.5', publicKeyPem: PUBKEY, shell: SHELL },
       { fetchImpl: stubFetch(manifestJson, bundleGz) },
     );
     expect(check.available).toBe(true);

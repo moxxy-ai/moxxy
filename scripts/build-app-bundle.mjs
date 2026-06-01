@@ -68,10 +68,16 @@ function main() {
     minElectron = `${ev.split('.')[0]}.0.0`;
   }
   const nodeAbi = process.env.MOXXY_BUNDLE_NODE_ABI ?? '';
+  // Per-TAG asset URLs (not `releases/latest/...`). In a monorepo that also cuts
+  // `@moxxy/cli@x` releases, GitHub's "latest release" is usually NOT the
+  // desktop, so `releases/latest/download/...` 404s. The desktop release is
+  // tagged `desktop-v<version>`; pin the asset URLs to it.
+  const tag = `desktop-v${version}`;
   const baseUrl =
     process.env.MOXXY_BUNDLE_BASE_URL ??
-    'https://github.com/moxxy-ai/moxxy/releases/latest/download';
-  const releaseUrl = process.env.MOXXY_RELEASE_URL ?? 'https://github.com/moxxy-ai/moxxy/releases/latest';
+    `https://github.com/moxxy-ai/moxxy/releases/download/${tag}`;
+  const releaseUrl =
+    process.env.MOXXY_RELEASE_URL ?? `https://github.com/moxxy-ai/moxxy/releases/tag/${tag}`;
   const bundleName = `moxxy-app-bundle-${version}.json.gz`;
   const bundleUrl = `${baseUrl}/${bundleName}`;
 
