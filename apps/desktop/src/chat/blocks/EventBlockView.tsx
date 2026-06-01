@@ -5,12 +5,7 @@ import { AssistantBlock } from './AssistantBlock';
 export function EventBlockView({ event }: { readonly event: MoxxyEvent }): JSX.Element | null {
   switch (event.type) {
     case 'user_prompt':
-      return (
-        <UserBlock
-          text={event.text}
-          attachments={event.attachments?.map((a) => a.name ?? a.kind)}
-        />
-      );
+      return <UserBlock text={event.text} attachments={event.attachments} />;
     case 'assistant_message':
       return <AssistantBlock text={event.content} streaming={false} stopReason={event.stopReason} />;
     case 'error':

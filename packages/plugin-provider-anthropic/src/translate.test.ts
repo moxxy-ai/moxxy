@@ -26,6 +26,39 @@ describe('toAnthropicMessages', () => {
     expect(messages[1].content[0]).toMatchObject({ type: 'tool_use', id: 'c1', name: 'Read' });
   });
 
+  it('translates an image block to a base64 image source', () => {
+    const { messages } = toAnthropicMessages([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'what is this?' },
+          { type: 'image', mediaType: 'image/png', data: 'AAAA' },
+        ],
+      },
+    ]);
+    expect(messages[0].content[1]).toEqual({
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/png', data: 'AAAA' },
+    });
+  });
+
+  it('translates a document block to a native base64 document with title', () => {
+    const { messages } = toAnthropicMessages([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'summarize this' },
+          { type: 'document', mediaType: 'application/pdf', data: 'JVBERi0=', name: 'report.pdf' },
+        ],
+      },
+    ]);
+    expect(messages[0].content[1]).toEqual({
+      type: 'document',
+      source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERi0=' },
+      title: 'report.pdf',
+    });
+  });
+
   it('merges adjacent tool_result messages into a user message', () => {
     const { messages } = toAnthropicMessages([
       { role: 'user', content: [{ type: 'text', text: 'q' }] },

@@ -58,8 +58,18 @@ export function estimateContextTokens(log: EventLogReader): number {
 
 function eventChars(e: MoxxyEvent): number {
   switch (e.type) {
-    case 'user_prompt':
-      return e.text.length;
+    case 'user_prompt': {
+      let n = e.text.length;
+      // Inlined text attachments (file/stdin — incl. text extracted from
+      // Office docs) cost real prompt tokens, so count them. Image/document
+      // bytes are tokenized specially by the provider; char-counting their
+      // base64 would wildly over-estimate (an 8 MB image ≈ millions of
+      // "tokens"), so skip those.
+      for (const att of e.attachments ?? []) {
+        if (att.kind === 'file' || att.kind === 'stdin') n += att.content.length;
+      }
+      return n;
+    }
     case 'assistant_message':
       return e.content.length;
     case 'tool_call_requested':

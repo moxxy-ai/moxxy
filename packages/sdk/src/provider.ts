@@ -10,7 +10,16 @@ export type ContentBlock =
   | { readonly type: 'tool_use'; readonly id: string; readonly name: string; readonly input: unknown }
   | { readonly type: 'tool_result'; readonly toolUseId: string; readonly content: string; readonly isError?: boolean }
   | { readonly type: 'image'; readonly mediaType: string; readonly data: string }
-  | { readonly type: 'audio'; readonly mediaType: string; readonly data: string };
+  | { readonly type: 'audio'; readonly mediaType: string; readonly data: string }
+  /**
+   * A document the model reads natively (e.g. a PDF). `data` is base64-encoded
+   * bytes and `mediaType` the document MIME (e.g. `application/pdf`). Providers
+   * that support documents translate it to their native shape (Anthropic
+   * `document`, OpenAI `file`, Responses `input_file`); those that don't degrade
+   * to a text placeholder. Text/Office files are inlined as `text` instead — only
+   * formats a model ingests as bytes become `document` blocks.
+   */
+  | { readonly type: 'document'; readonly mediaType: string; readonly data: string; readonly name?: string };
 
 /**
  * Provider-neutral instruction for where a prompt-cache breakpoint should be
@@ -68,6 +77,13 @@ export interface ModelDescriptor {
    * refuses or warns instead of silently dropping the bytes.
    */
   readonly supportsImages?: boolean;
+  /**
+   * Whether this model accepts `document` ContentBlocks (e.g. native PDF) in
+   * user messages. When false, the desktop reader extracts text instead of
+   * shipping the raw bytes, so the attachment still reaches the model — just
+   * without full-document fidelity (figures/layout).
+   */
+  readonly supportsDocuments?: boolean;
   /**
    * Whether this model accepts `audio` ContentBlocks in user messages
    * (GPT-4o, Gemini-Live-class models). When false, channels with audio

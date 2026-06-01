@@ -60,6 +60,30 @@ describe('toOpenAIMessages', () => {
     ]);
   });
 
+  it('emits a file content part when a user message has a document', () => {
+    const out = toOpenAIMessages([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'summarize this' },
+          { type: 'document', mediaType: 'application/pdf', data: 'JVBERi0=', name: 'report.pdf' },
+        ],
+      },
+    ]);
+    expect(out).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'summarize this' },
+          {
+            type: 'file',
+            file: { filename: 'report.pdf', file_data: 'data:application/pdf;base64,JVBERi0=' },
+          },
+        ],
+      },
+    ]);
+  });
+
   it('keeps user content as plain text when no images are present', () => {
     const out = toOpenAIMessages([
       { role: 'user', content: [{ type: 'text', text: 'hello' }, { type: 'text', text: 'world' }] },

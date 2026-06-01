@@ -31,7 +31,8 @@
     "@moxxy/plugin-stt-whisper-codex": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/runner": "workspace:*",
-    "@moxxy/sdk": "workspace:*"
+    "@moxxy/sdk": "workspace:*",
+    "officeparser": "~5.1.1"
   },
   "devDependencies": {
     "@moxxy/core": "workspace:*",

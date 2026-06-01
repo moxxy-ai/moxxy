@@ -22,6 +22,12 @@ export type AnthropicContentBlock =
       type: 'image';
       source: { type: 'base64'; media_type: string; data: string };
       cache_control?: CacheControl;
+    }
+  | {
+      type: 'document';
+      source: { type: 'base64'; media_type: string; data: string };
+      title?: string;
+      cache_control?: CacheControl;
     };
 
 export interface AnthropicToolDef {
@@ -129,6 +135,13 @@ function toAnthropicBlock(block: ContentBlock): AnthropicContentBlock {
       return {
         type: 'image',
         source: { type: 'base64', media_type: block.mediaType, data: block.data },
+      };
+    case 'document':
+      // Native document support (PDF). Claude reads text + figures/layout.
+      return {
+        type: 'document',
+        source: { type: 'base64', media_type: block.mediaType, data: block.data },
+        ...(block.name ? { title: block.name } : {}),
       };
     case 'audio':
       // Anthropic's Messages API does not accept native audio yet. Channels

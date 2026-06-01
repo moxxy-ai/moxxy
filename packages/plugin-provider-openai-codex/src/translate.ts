@@ -14,7 +14,8 @@ type ResponsesInputItem =
 type ResponsesContent =
   | { type: 'input_text'; text: string }
   | { type: 'output_text'; text: string }
-  | { type: 'input_image'; image_url: string };
+  | { type: 'input_image'; image_url: string }
+  | { type: 'input_file'; filename?: string; file_data: string };
 
 interface ResponsesTool {
   type: 'function';
@@ -47,6 +48,12 @@ function contentBlocksToInputText(
       out.push(role === 'assistant' ? { type: 'output_text', text: block.text } : { type: 'input_text', text: block.text });
     } else if (block.type === 'image') {
       out.push({ type: 'input_image', image_url: `data:${block.mediaType};base64,${block.data}` });
+    } else if (block.type === 'document') {
+      out.push({
+        type: 'input_file',
+        ...(block.name ? { filename: block.name } : {}),
+        file_data: `data:${block.mediaType};base64,${block.data}`,
+      });
     }
   }
   return out;

@@ -3,7 +3,8 @@ import { zodToJsonSchema } from '@moxxy/sdk';
 
 export type OpenAIUserContentPart =
   | { type: 'text'; text: string }
-  | { type: 'image_url'; image_url: { url: string } };
+  | { type: 'image_url'; image_url: { url: string } }
+  | { type: 'file'; file: { filename?: string; file_data: string } };
 
 export interface OpenAIChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -35,12 +36,13 @@ export function toOpenAIMessages(messages: ReadonlyArray<ProviderMessage>): Open
       continue;
     }
     if (msg.role === 'user') {
-      const hasImage = msg.content.some((c) => c.type === 'image');
-      if (hasImage) {
-        // Vision-capable user message: emit content as a parts array so
-        // base64 images ride alongside text. Non-vision OpenAI models
-        // will 400 on this shape — callers gate by `supportsImages` on
-        // the model descriptor before attaching images.
+      const hasRichPart = msg.content.some((c) => c.type === 'image' || c.type === 'document');
+      if (hasRichPart) {
+        // Vision/document user message: emit content as a parts array so
+        // base64 images and documents (PDFs) ride alongside text. Non-vision
+        // / non-document OpenAI models will 400 on this shape — callers gate
+        // by `supportsImages` / `supportsDocuments` on the model descriptor
+        // before attaching.
         const parts: OpenAIUserContentPart[] = [];
         for (const c of msg.content) {
           if (c.type === 'text') {
@@ -49,6 +51,14 @@ export function toOpenAIMessages(messages: ReadonlyArray<ProviderMessage>): Open
             parts.push({
               type: 'image_url',
               image_url: { url: `data:${c.mediaType};base64,${c.data}` },
+            });
+          } else if (c.type === 'document') {
+            parts.push({
+              type: 'file',
+              file: {
+                ...(c.name ? { filename: c.name } : {}),
+                file_data: `data:${c.mediaType};base64,${c.data}`,
+              },
             });
           }
         }

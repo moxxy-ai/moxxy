@@ -13,19 +13,22 @@ export interface EventBase {
 }
 
 export interface UserPromptAttachment {
-  readonly kind: 'stdin' | 'file' | 'image' | 'audio';
+  readonly kind: 'stdin' | 'file' | 'image' | 'document' | 'audio';
   /**
-   * Inline payload. For images this is base64-encoded bytes; for audio it
-   * is either base64-encoded bytes (when the channel hands raw audio
-   * straight through to a model with `supportsAudio`) or the transcript
-   * (when the channel pre-transcribed via the session's Transcriber).
-   * Channels SHOULD set `name` to disambiguate the two; `mediaType` is
-   * required when carrying raw audio bytes.
+   * Inline payload. Depends on `kind`:
+   *   - `image` / `document` — base64-encoded bytes (a PDF is a `document`).
+   *   - `file` / `stdin` — inline UTF-8 text (a text/code file, or text
+   *     extracted from an Office doc). Oversized files carry a head excerpt
+   *     plus a note pointing at a path the agent can `read_file` on demand.
+   *   - `audio` — either base64-encoded bytes (when the channel hands raw
+   *     audio straight through to a model with `supportsAudio`) or the
+   *     transcript (when the channel pre-transcribed via the session's
+   *     Transcriber). Channels SHOULD set `name` to disambiguate the two.
    */
   readonly content: string;
   /** Human-readable label, e.g. the file path, `image.png`, or `voice.ogg`. */
   readonly name?: string;
-  /** MIME type — required for images and raw audio so providers translate correctly. */
+  /** MIME type — required for `image`, `document`, and raw `audio` so providers translate correctly. */
   readonly mediaType?: string;
 }
 

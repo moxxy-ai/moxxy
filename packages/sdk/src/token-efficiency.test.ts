@@ -457,3 +457,61 @@ describe('applyLazyTools', () => {
     expect(messages).toBe(baseMsgs); // same reference → byte-stable
   });
 });
+
+describe('attachment projection in projectMessagesFromLog', () => {
+  it('projects an image attachment to an image content block', () => {
+    const msgs = projectMessagesFromLog({
+      log: reader([
+        event(0, {
+          type: 'user_prompt',
+          turnId: t1,
+          source: 'user',
+          text: 'what is this?',
+          attachments: [{ kind: 'image', content: 'AAAA', mediaType: 'image/png', name: 'pic.png' }],
+        }),
+      ]),
+    });
+    expect(msgs[0].content).toEqual([
+      { type: 'text', text: 'what is this?' },
+      { type: 'image', mediaType: 'image/png', data: 'AAAA' },
+    ]);
+  });
+
+  it('projects a document attachment to a native document content block', () => {
+    const msgs = projectMessagesFromLog({
+      log: reader([
+        event(0, {
+          type: 'user_prompt',
+          turnId: t1,
+          source: 'user',
+          text: 'summarize this',
+          attachments: [
+            { kind: 'document', content: 'JVBERi0=', mediaType: 'application/pdf', name: 'r.pdf' },
+          ],
+        }),
+      ]),
+    });
+    expect(msgs[0].content).toEqual([
+      { type: 'text', text: 'summarize this' },
+      { type: 'document', mediaType: 'application/pdf', data: 'JVBERi0=', name: 'r.pdf' },
+    ]);
+  });
+
+  it('inlines a file attachment as a labeled text block', () => {
+    const msgs = projectMessagesFromLog({
+      log: reader([
+        event(0, {
+          type: 'user_prompt',
+          turnId: t1,
+          source: 'user',
+          text: 'review',
+          attachments: [{ kind: 'file', content: 'const x = 1;', name: 'a.ts' }],
+        }),
+      ]),
+    });
+    expect(msgs[0].content).toEqual([
+      { type: 'text', text: 'review' },
+      { type: 'text', text: '[file a.ts]\nconst x = 1;' },
+    ]);
+  });
+});

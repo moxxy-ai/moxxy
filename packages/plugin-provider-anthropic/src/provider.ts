@@ -17,9 +17,9 @@ export interface AnthropicProviderConfig {
 }
 
 export const anthropicModels: ReadonlyArray<ModelDescriptor> = [
-  { id: 'claude-opus-4-7', contextWindow: 800_000, maxOutputTokens: 8000, supportsTools: true, supportsStreaming: true, supportsImages: true },
-  { id: 'claude-sonnet-4-6', contextWindow: 200_000, maxOutputTokens: 8000, supportsTools: true, supportsStreaming: true, supportsImages: true },
-  { id: 'claude-haiku-4-5-20251001', contextWindow: 200_000, maxOutputTokens: 8000, supportsTools: true, supportsStreaming: true, supportsImages: true },
+  { id: 'claude-opus-4-7', contextWindow: 800_000, maxOutputTokens: 8000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
+  { id: 'claude-sonnet-4-6', contextWindow: 200_000, maxOutputTokens: 8000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
+  { id: 'claude-haiku-4-5-20251001', contextWindow: 200_000, maxOutputTokens: 8000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
 ];
 
 export class AnthropicProvider implements LLMProvider {

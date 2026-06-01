@@ -267,6 +267,13 @@ export function projectMessages(
                 mediaType: att.mediaType ?? 'image/png',
                 data: att.content,
               });
+            } else if (att.kind === 'document') {
+              blocks.push({
+                type: 'document',
+                mediaType: att.mediaType ?? 'application/pdf',
+                data: att.content,
+                ...(att.name ? { name: att.name } : {}),
+              });
             } else {
               blocks.push({
                 type: 'text',

@@ -152,13 +152,15 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     const result = await dialog.showOpenDialog(window ?? null!, {
       title: 'Attach a file to the next prompt',
       properties: ['openFile'],
-      // Restrict to what the agent can actually use: images + text/code.
-      // buildAttachments is the real gate (it drops binary/oversized), but
-      // the filter steers the picker so the user doesn't pick a 4 GB video.
+      // Steer the picker toward what the agent can actually use: documents,
+      // images, and text/code. buildAttachments is the real gate (it reads the
+      // bytes and routes / drops as needed), but the filter keeps the user from
+      // picking a 4 GB video.
       filters: [
         {
           name: 'Attachable files',
           extensions: [
+            'pdf', 'docx', 'xlsx', 'pptx', 'odt', 'ods', 'odp',
             'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp',
             'txt', 'md', 'markdown', 'json', 'yaml', 'yml', 'csv', 'tsv', 'log', 'sql',
             'js', 'jsx', 'ts', 'tsx', 'py', 'rb', 'go', 'rs', 'java', 'kt', 'c', 'h',
@@ -166,6 +168,7 @@ export function registerSessionHandlers(pool: RunnerPool): void {
             'xml', 'toml', 'ini', 'env', 'conf',
           ],
         },
+        { name: 'Documents', extensions: ['pdf', 'docx', 'xlsx', 'pptx', 'odt', 'ods', 'odp'] },
         { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] },
         { name: 'All files', extensions: ['*'] },
       ],
