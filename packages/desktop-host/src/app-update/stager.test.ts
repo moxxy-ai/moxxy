@@ -19,11 +19,11 @@ beforeEach(() => {
 });
 
 describe('isAllowedUpdateHost', () => {
-  it('allows GitHub + its release-asset CDN over https only', () => {
-    expect(isAllowedUpdateHost('https://github.com/o/r/releases/latest/download/m.json')).toBe(true);
+  it('allows GitHub (api/web) + its release-asset CDN over https only', () => {
+    expect(isAllowedUpdateHost('https://github.com/o/r/releases/download/desktop-v1/m.json')).toBe(true);
+    expect(isAllowedUpdateHost('https://api.github.com/repos/o/r/releases')).toBe(true);
     expect(isAllowedUpdateHost('https://objects.githubusercontent.com/x')).toBe(true);
     expect(isAllowedUpdateHost('https://release-assets.githubusercontent.com/x')).toBe(true);
-    expect(isAllowedUpdateHost('https://codeload.github.com/x')).toBe(true);
   });
 
   it('rejects other hosts, http, and junk', () => {
@@ -34,19 +34,63 @@ describe('isAllowedUpdateHost', () => {
   });
 });
 
-describe('checkForUpdate guards', () => {
-  it('returns "no update" without ever fetching a non-allowlisted manifest URL', async () => {
-    let fetched = false;
-    const fetchImpl = (async () => {
-      fetched = true;
-      return new Response('{}');
-    }) as unknown as typeof fetch;
+describe('checkForUpdate', () => {
+  it('reports an error (not silent "up to date") when the release API is unreachable', async () => {
+    const fetchImpl = (async () => new Response('nope', { status: 500 })) as unknown as typeof fetch;
     const res = await checkForUpdate(
-      { manifestUrl: 'https://evil.test/m.json', currentVersion: '0.0.5', publicKeyPem: PUBKEY, shell: SHELL },
+      { repo: 'moxxy-ai/moxxy', currentVersion: '0.0.5', publicKeyPem: PUBKEY, shell: SHELL },
       { fetchImpl },
     );
     expect(res.available).toBe(false);
-    expect(fetched).toBe(false);
+    expect(res.error).toBeTruthy(); // a real failure, surfaced — not masked as up-to-date
+  });
+
+  it('discovers the newest desktop-v* release via the API and offers its manifest', async () => {
+    const { manifest, manifestJson, bundleGz } = buildAppBundle({
+      version: '0.0.9',
+      minElectron: '33.0.0',
+      nodeAbi: '',
+      bundleUrl: 'https://github.com/moxxy-ai/moxxy/releases/download/desktop-v0.0.9/moxxy-app-bundle-0.0.9.json.gz',
+      privateKeyPem: PRIVKEY,
+      files: { 'dist/index.html': Buffer.from('x') },
+    });
+    const manifestAssetUrl =
+      'https://github.com/moxxy-ai/moxxy/releases/download/desktop-v0.0.9/moxxy-app-manifest.json';
+    const releasesJson = JSON.stringify([
+      // an unrelated, newer npm-package release (the one that breaks releases/latest)
+      { tag_name: '@moxxy/cli@9.9.9', draft: false, prerelease: false, assets: [] },
+      {
+        tag_name: 'desktop-v0.0.8',
+        draft: false,
+        prerelease: false,
+        assets: [{ name: 'moxxy-app-manifest.json', browser_download_url: 'https://github.com/x/old' }],
+      },
+      {
+        tag_name: 'desktop-v0.0.9',
+        draft: false,
+        prerelease: false,
+        assets: [
+          { name: 'moxxy-app-manifest.json', browser_download_url: manifestAssetUrl },
+          { name: 'moxxy-app-bundle-0.0.9.json.gz', browser_download_url: manifest.bundleUrl },
+        ],
+      },
+    ]);
+    const fetchImpl = (async (url: string | URL): Promise<Response> => {
+      const u = String(url);
+      if (u.startsWith('https://api.github.com/')) return new Response(releasesJson);
+      if (u === manifestAssetUrl) return new Response(manifestJson);
+      if (u === manifest.bundleUrl) return new Response(new Uint8Array(bundleGz));
+      return new Response('not found', { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const res = await checkForUpdate(
+      { repo: 'moxxy-ai/moxxy', currentVersion: '0.0.7', publicKeyPem: PUBKEY, shell: SHELL },
+      { fetchImpl },
+    );
+    expect(res.available).toBe(true);
+    expect(res.latestVersion).toBe('0.0.9'); // highest desktop-v*, not the cli release
+    expect(res.bundleUrl).toBe(manifest.bundleUrl);
+    expect(res.error).toBeUndefined();
   });
 });
 

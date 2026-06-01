@@ -45,6 +45,9 @@ export function DashboardUpdateSection(): JSX.Element {
       ? Math.min(100, Math.round((progress.received / progress.total) * 100))
       : null;
   const status = statusLine(state, check?.latestVersion ?? null);
+  // Surface a failed check (404 / offline / bad signature) — previously these
+  // were swallowed and shown as "up to date".
+  const shownError = error ?? check?.error ?? null;
 
   return (
     <Section
@@ -102,9 +105,9 @@ export function DashboardUpdateSection(): JSX.Element {
           </div>
         )}
 
-        {error && (
+        {shownError && (
           <p role="alert" style={{ margin: 0, fontSize: 12.5, color: 'var(--color-red)', lineHeight: 1.5 }}>
-            {error}
+            {shownError}
           </p>
         )}
 
