@@ -30,6 +30,7 @@ import {
   showFocusWindow,
   toggleFocusWindow,
   installContentSecurityPolicy,
+  installMediaPermissions,
   lockDownNavigation,
   isSafeExternalUrl,
   preferredCliEntry,
@@ -459,6 +460,12 @@ app.whenReady().then(async () => {
   // before any window loads. Skipped in dev (Vite HMR needs a loose
   // policy); third-party + OAuth responses are left untouched.
   installContentSecurityPolicy(session.defaultSession, { isDev });
+
+  // Allow the renderer's voice recorder to reach the microphone. Without this,
+  // macOS hands getUserMedia a SILENT stream (no rejection), so voice
+  // transcription comes back empty ("No speech detected"). Pairs with the
+  // NSMicrophoneUsageDescription + audio-input entitlement in the build config.
+  installMediaPermissions(session.defaultSession);
 
   // Reap any orphan runners from a previous crashed desktop process
   // before we try to spawn new ones. Without this, the first workspace

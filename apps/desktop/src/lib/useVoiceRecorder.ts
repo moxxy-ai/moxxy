@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api';
 import { toErrorMessage } from './errors';
-import { audioToPcm16, uint8ArrayToBase64, MOXXY_PCM16_24KHZ_MIME } from './audioToPcm16';
+import { audioToPcm16, pcm16Peak, uint8ArrayToBase64, MOXXY_PCM16_24KHZ_MIME } from './audioToPcm16';
 
 /**
  * Push-to-record voice capture, shared by the composer (appends the
@@ -96,6 +96,14 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
         const pcm = await audioToPcm16(blob);
         if (pcm.length === 0) {
           fail('No speech detected — try again');
+          return;
+        }
+        // A captured-but-silent clip means the mic track resolved yet carried
+        // only zeros — almost always mic access denied / muted / wrong input
+        // device, NOT "you didn't speak". Surface that instead of a useless
+        // round-trip to the transcriber (which would just return empty text).
+        if (pcm16Peak(pcm) < 0.005) {
+          fail('No sound from the microphone — check microphone access and the selected input device.');
           return;
         }
         const text = await api().invoke('session.transcribe', {

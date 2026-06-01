@@ -16,5 +16,10 @@
     <true/>
     <key>com.apple.security.cs.disable-library-validation</key>
     <true/>
+    <!-- Microphone access for voice input (speech-to-text). Without this a
+         hardened-runtime signed build is denied the mic and recordings come
+         back silent. Pairs with NSMicrophoneUsageDescription in package.json. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
   </dict>
 </plist>

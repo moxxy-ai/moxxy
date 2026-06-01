@@ -56,6 +56,22 @@ export async function audioToPcm16(blob: Blob): Promise<Uint8Array> {
   return new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength);
 }
 
+/**
+ * Largest absolute sample (0..1) in a PCM16 LE buffer. Used to distinguish a
+ * SILENT capture (mic access denied / muted / wrong input device — the audio
+ * track resolved but carries only zeros) from genuine silence the user could
+ * fix by speaking up, so the UI can point at the real cause.
+ */
+export function pcm16Peak(bytes: Uint8Array): number {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let peak = 0;
+  for (let i = 0; i + 1 < bytes.byteLength; i += 2) {
+    const s = Math.abs(view.getInt16(i, true));
+    if (s > peak) peak = s;
+  }
+  return peak / 0x8000;
+}
+
 /** Base64-encode a Uint8Array without spilling the entire string into
  *  a single `String.fromCharCode(...)` call (which blows the V8 stack
  *  past ~120 KB). Chunks the conversion so multi-second clips work. */
