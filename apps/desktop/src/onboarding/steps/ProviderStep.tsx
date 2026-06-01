@@ -7,8 +7,9 @@
  */
 
 import { useEffect, useState } from 'react';
-import { toErrorMessage } from '@/lib/errors';
+import { decodeError, toErrorMessage } from '@/lib/errors';
 import { api } from '@/lib/api';
+import { retryWhileReconnecting } from '@/lib/runner-retry';
 import { StepCard, Nav, PrimaryButton, SuccessRow, inputStyle } from '../chrome';
 
 export function ProviderStep({
@@ -83,8 +84,17 @@ export function ProviderStep({
   // activeProvider — the app's `connectedWithoutProvider` gate never clears and
   // onboarding loops forever. setProvider re-resolves the credential from the
   // vault and makes the runner usable; the gate then drops on its own.
+  //
+  // The runner link can be MID-RECONNECT here: the OAuth flow takes the user on
+  // a long browser detour, and on Windows the runner socket sometimes drops over
+  // that window — the supervisor re-establishes within a few seconds, but a
+  // setProvider fired into the gap throws "not connected to a runner". So retry
+  // across a reconnect (only on that specific error) instead of failing the
+  // whole login the user just completed.
   const activateProvider = async (): Promise<void> => {
-    await api().invoke('session.setProvider', { provider });
+    await retryWhileReconnecting(() => api().invoke('session.setProvider', { provider }), {
+      isReconnecting: (e) => decodeError(e).code === 'not-connected',
+    });
   };
 
   const saveKey = async (): Promise<void> => {
