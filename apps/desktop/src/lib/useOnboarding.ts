@@ -17,6 +17,7 @@ export interface UseOnboarding {
   readonly node: NodeProbe | null;
   readonly loading: boolean;
   readonly install: InstallController;
+  readonly installNode: NodeInstallController;
   readonly refresh: () => Promise<void>;
   readonly openExternal: (url: string) => Promise<void>;
   readonly saveProviderKey: (args: {
@@ -34,6 +35,15 @@ interface InstallController {
   readonly reset: () => void;
 }
 
+/** Auto-install of the official Node LTS into the app data dir. Shares the
+ *  `onboarding.install.progress` log stream with the CLI install. */
+interface NodeInstallController {
+  readonly running: boolean;
+  readonly progress: ReadonlyArray<string>;
+  readonly error: string | null;
+  readonly run: () => Promise<boolean>;
+}
+
 export function useOnboarding(phase?: ConnectionPhase): UseOnboarding {
   const [status, setStatus] = useState<OnboardingStatus | null>(null);
   const [node, setNode] = useState<NodeProbe | null>(null);
@@ -43,6 +53,9 @@ export function useOnboarding(phase?: ConnectionPhase): UseOnboarding {
   const [installing, setInstalling] = useState(false);
   const [lastExitCode, setLastExitCode] = useState<number | null>(null);
   const [installError, setInstallError] = useState<string | null>(null);
+
+  const [nodeInstalling, setNodeInstalling] = useState(false);
+  const [nodeInstallError, setNodeInstallError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -95,6 +108,23 @@ export function useOnboarding(phase?: ConnectionPhase): UseOnboarding {
     setInstallError(null);
   }, []);
 
+  const runInstallNode = useCallback(async (): Promise<boolean> => {
+    setNodeInstalling(true);
+    setNodeInstallError(null);
+    setProgress([]);
+    try {
+      const res = await api().invoke('onboarding.installNode');
+      await refresh();
+      if (!res.ok) setNodeInstallError('Node install did not complete.');
+      return res.ok;
+    } catch (e) {
+      setNodeInstallError(toErrorMessage(e));
+      return false;
+    } finally {
+      setNodeInstalling(false);
+    }
+  }, [refresh]);
+
   const openExternal = useCallback(async (url: string) => {
     await api().invoke('onboarding.openExternal', { url });
   }, []);
@@ -118,6 +148,12 @@ export function useOnboarding(phase?: ConnectionPhase): UseOnboarding {
       error: installError,
       run,
       reset,
+    },
+    installNode: {
+      running: nodeInstalling,
+      progress,
+      error: nodeInstallError,
+      run: runInstallNode,
     },
     refresh,
     openExternal,

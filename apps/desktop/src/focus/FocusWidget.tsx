@@ -6,28 +6,28 @@
  *   inactive    44×44   logo only. Click → ACTIVE.
  *
  *   active     232×56   logo + voice + text + restore-main + close.
- *                       Mic button starts an in-place recording
- *                       overlay (spectrum visualiser fills the panel
- *                       background) instead of opening a separate
- *                       window. Press Space anywhere on the widget
- *                       to start / stop recording.
+ *                       Mic button starts an in-place recording overlay
+ *                       (spectrum visualiser fills the panel background).
+ *                       Stopping the recording pops open the mini-text
+ *                       panel so the transcript + answer are visible.
  *
- *   mini-text  360×220  compact composer (input + send).
+ *   mini-text  380×440  scrollable, markdown transcript of the latest turn
+ *                       + a composer. The user can drag the window edges to
+ *                       resize it (the only stage that's edge-resizable).
  *
- * Resize is handled by the main process. Manual resize via window
- * edges is disabled in focus-window.ts; setBounds still works.
+ * Resize is driven from here via the `focus.resize` IPC (size + whether
+ * edge-resize is allowed); the main process applies it (focus-window.ts).
+ *
+ * Voice capture lives in this orchestrator (not in Active) so a recording
+ * that's still transcribing survives the active → mini-text stage switch.
  *
  * Every stage is flat, sharp-cornered, shadowless.
- *
- * This module is the thin orchestrator: it owns the stage state machine
- * and the resize IPC, delegating each stage's chrome to its own module
- * (Inactive / Active / MiniText). Styles, icons, primitives, the
- * visualiser, and the latest-line hook live alongside in `./focus/*`.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
-import { ChatStoreBridge } from '@/lib/useChat';
+import { ChatStoreBridge, useChat } from '@/lib/useChat';
+import { useVoiceRecorder } from '@/lib/useVoiceRecorder';
 import { ConnectionBridge, useActiveWorkspaceId } from '@/lib/useConnection';
 import { Inactive } from './Inactive';
 import { Active } from './Active';
@@ -45,7 +45,9 @@ const ACTIVE_WIDTH_WITHOUT_MIC = 196;
 const SIZE: Record<Stage, { width: number; height: number }> = {
   inactive: { width: 44, height: 44 },
   active: { width: ACTIVE_WIDTH_WITH_MIC, height: 56 },
-  'mini-text': { width: 360, height: 220 },
+  // Taller default so a few lines of the latest message are readable
+  // before the user even resizes; the panel scrolls + is drag-resizable.
+  'mini-text': { width: 380, height: 440 },
 };
 
 // ---- Top-level wrapper ---------------------------------------------------
@@ -70,6 +72,28 @@ function Surface({
   // Lifted from Active so the resize IPC knows whether to tighten
   // the panel before painting (no flicker on first activation).
   const [hasTranscriber, setHasTranscriber] = useState<boolean | null>(null);
+  const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
+  const chat = useChat(workspaceId);
+
+  // Voice capture lives here, not in Active: when the user stops a
+  // recording we switch to the mini-text stage (which unmounts Active),
+  // and the in-flight transcription + send must keep running.
+  const voice = useVoiceRecorder({
+    onTranscript: (text) => {
+      if (workspaceId) void chat.send(text);
+    },
+    onAnalyser: setAnalyser,
+  });
+
+  // Stopping a recording (recording → transcribing) opens the mini-text
+  // panel so the user watches the transcript + streaming answer there.
+  const prevVoicePhase = useRef(voice.phase);
+  useEffect(() => {
+    if (prevVoicePhase.current === 'recording' && voice.phase === 'transcribing') {
+      setStage('mini-text');
+    }
+    prevVoicePhase.current = voice.phase;
+  }, [voice.phase]);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,7 +116,9 @@ function Surface({
     if (stage === 'active' && hasTranscriber === false) {
       width = ACTIVE_WIDTH_WITHOUT_MIC;
     }
-    void api().invoke('focus.resize', { width, height }).catch(() => undefined);
+    void api()
+      .invoke('focus.resize', { width, height, resizable: stage === 'mini-text' })
+      .catch(() => undefined);
   }, [stage, hasTranscriber]);
 
   if (stage === 'inactive')
@@ -100,11 +126,20 @@ function Surface({
   if (stage === 'active')
     return (
       <Active
-        workspaceId={workspaceId}
         hasTranscriber={hasTranscriber === true}
+        recording={voice.phase === 'recording'}
+        transcribing={voice.phase === 'transcribing'}
+        analyser={analyser}
+        onToggleMic={voice.toggle}
         onCollapse={() => setStage('inactive')}
         onText={() => setStage('mini-text')}
       />
     );
-  return <MiniText workspaceId={workspaceId} onBack={() => setStage('active')} />;
+  return (
+    <MiniText
+      workspaceId={workspaceId}
+      transcribing={voice.phase === 'transcribing'}
+      onBack={() => setStage('active')}
+    />
+  );
 }

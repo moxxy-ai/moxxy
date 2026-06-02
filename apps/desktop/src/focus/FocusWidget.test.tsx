@@ -7,14 +7,15 @@
  *   2. Stage transitions are wired correctly (inactive → active →
  *      mini-text / mini-voice → back).
  *   3. Every transition fires focus.resize so the BrowserWindow
- *      grows / shrinks with the content.
+ *      grows / shrinks with the content — and the mini-text stage
+ *      enables edge-resize (`resizable: true`).
  *   4. The text composer in mini-text actually invokes
  *      session.runTurn for the active workspace (the bidirectional
  *      sync test — the focus widget must send to the runner just
  *      like the main window does).
  *   5. A runner.event arriving on the runner.event channel updates
- *      the focus widget's latest-line preview (the receive side of
- *      the bidirectional sync).
+ *      the focus widget's latest preview, rendered as Markdown
+ *      (the receive side of the bidirectional sync).
  */
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
@@ -126,6 +127,21 @@ describe('FocusWidget stages', () => {
     expect(screen.getByRole('button', { name: /^send$/i })).toBeTruthy();
   });
 
+  it('active → mini-text enables edge-resize via focus.resize', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+    await waitFor(() => {
+      const resize = spy.invokes.find(
+        (i) =>
+          i.channel === 'focus.resize' &&
+          (i.args as { resizable?: boolean }).resizable === true,
+      );
+      expect(resize).toBeTruthy();
+    });
+  });
+
   it('shows the mic button when the runner has a transcriber', async () => {
     installFakeApi();
     render(<FocusWidget />);
@@ -233,6 +249,29 @@ describe('FocusWidget bidirectional sync', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/response from the main window/i)).toBeTruthy();
+    });
+  });
+
+  it('renders the latest assistant message as Markdown, not raw text', async () => {
+    installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+
+    chatStore.dispatch('ws-test', {
+      type: 'event',
+      event: {
+        type: 'assistant_chunk',
+        turnId: 't-md',
+        delta: 'Fetched the **newest** page',
+      } as never,
+    });
+
+    // The `**newest**` must render as a <strong>, not literal asterisks —
+    // this is the fix for the mini-text showing raw markdown on one line.
+    await waitFor(() => {
+      expect(screen.getByText('newest').tagName).toBe('STRONG');
     });
   });
 });

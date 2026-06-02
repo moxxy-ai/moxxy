@@ -69,8 +69,16 @@ export function closeFocusWindow(): void {
  *  Y axis: just keep the previous centre Y so the widget doesn't
  *  jump vertically when its height changes.
  */
-export function resizeFocusWindow(width: number, height: number): void {
+export function resizeFocusWindow(
+  width: number,
+  height: number,
+  resizable = false,
+): void {
   if (!focusWindow || focusWindow.isDestroyed()) return;
+  // Edge-resize grabs are only wanted for the mini-text panel; the small
+  // inactive tile / active pill stay fixed. Toggle before setBounds so the
+  // new size isn't clamped by a stale resizable state.
+  focusWindow.setResizable(resizable);
   const work = screen.getPrimaryDisplay().workArea;
   const [prevW = 0, prevH = 0] = focusWindow.getSize();
   const [prevX = 0, prevY = 0] = focusWindow.getPosition();
@@ -124,12 +132,16 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
     y: work.y + work.height - height - margin,
     minWidth: 40,
     minHeight: 40,
-    maxWidth: 520,
-    maxHeight: 320,
+    // Generous ceiling so the mini-text panel can be dragged bigger to
+    // read a long answer. The inactive tile / active pill keep their
+    // small canonical sizes via focus.resize.
+    maxWidth: 800,
+    maxHeight: 800,
     frame: false,
     transparent: true,
-    // User asked for fixed dimensions per stage — no edge-resize
-    // grabs. setBounds from focus.resize IPC still works.
+    // Starts fixed (the inactive tile). resizeFocusWindow toggles this
+    // per stage — on for mini-text so the user can drag the edges, off
+    // for the tile / pill. setBounds from focus.resize works either way.
     resizable: false,
     movable: true,
     minimizable: false,

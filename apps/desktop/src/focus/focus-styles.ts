@@ -169,10 +169,14 @@ export const style: Record<string, React.CSSProperties> = {
   },
   panelBody: {
     flex: 1,
-    padding: '10px 14px',
-    display: 'flex',
-    alignItems: 'center',
+    padding: '12px 14px',
+    // Reads top-down like a transcript; the latest message scrolls and
+    // MiniText auto-scrolls it to the bottom as the answer streams in.
+    display: 'block',
+    overflowY: 'auto',
     minHeight: 0,
+    fontSize: 13,
+    color: '#0f172a',
   },
   lineRow: {
     display: 'inline-flex',
@@ -213,14 +217,28 @@ export const style: Record<string, React.CSSProperties> = {
   },
 };
 
-// ---- Keyframes -----------------------------------------------------------
-// Injected once on module load so the spinner dots + mic-pulse
-// animations resolve regardless of which stage mounts first.
+// ---- Keyframes + theme vars ----------------------------------------------
+// Injected once on module load so the spinner dots + mic-pulse animations
+// resolve regardless of which stage mounts first. The focus document loads
+// its own bundle and does NOT import the app's styles.css (that would set a
+// non-transparent body background and break the floating window), so the
+// handful of CSS custom properties MarkdownBody reads are mirrored here —
+// values kept in sync with src/styles.css `:root`.
 
 if (typeof document !== 'undefined' && !document.getElementById('focus-keyframes')) {
   const styleTag = document.createElement('style');
   styleTag.id = 'focus-keyframes';
   styleTag.textContent = `
+    :root {
+      --color-text: #0f172a;
+      --color-text-muted: #475569;
+      --color-text-dim: #94a3b8;
+      --color-primary: #ec4899;
+      --color-primary-strong: #db2777;
+      --color-card-border: #e3e5f0;
+      --color-card-border-strong: #cdd1e3;
+      --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    }
     @keyframes focus-thinking {
       0%, 100% { transform: translateY(0); opacity: 0.4; }
       50%      { transform: translateY(-3px); opacity: 1; }

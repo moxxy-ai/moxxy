@@ -9,7 +9,7 @@ import './styles.css';
 import { asset } from '@/lib/asset';
 
 export function Splash({
-  message = 'Starting moxxy…',
+  message = 'Getting things ready…',
 }: {
   readonly message?: string;
 }): JSX.Element {
@@ -32,15 +32,16 @@ export function Splash({
       }}
     >
       <img
-        src={asset('avatar.gif')}
+        src={asset('new-animation.gif')}
         alt=""
         aria-hidden="true"
         className="moxxy-avatar-loader"
         width={160}
-        height={160}
         style={{
           width: 160,
-          height: 160,
+          // Auto height keeps the portrait animation from being squashed
+          // into a square.
+          height: 'auto',
         }}
       />
       <p
