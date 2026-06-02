@@ -35,6 +35,7 @@ import {
   isSafeExternalUrl,
   preferredCliEntry,
   ensureDesktopVaultKey,
+  activateManagedNode,
 } from '@moxxy/desktop-host';
 
 import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
@@ -317,9 +318,15 @@ async function createWindow(): Promise<void> {
     if (process.platform === 'darwin') app.focus({ steal: true });
   });
   ipcMain.removeHandler('focus.resize');
-  ipcMain.handle('focus.resize', (_evt, { width, height }: { width: number; height: number }) => {
-    resizeFocusWindow(width, height);
-  });
+  ipcMain.handle(
+    'focus.resize',
+    (
+      _evt,
+      { width, height, resizable }: { width: number; height: number; resizable?: boolean },
+    ) => {
+      resizeFocusWindow(width, height, resizable);
+    },
+  );
 
   // System-wide shortcut so the user can summon the widget even when
   // moxxy isn't the focused app. Cmd+Shift+M on mac / Ctrl+Shift+M
@@ -480,6 +487,11 @@ app.whenReady().then(async () => {
   // can't answer — the first provider install otherwise fails on Windows (no OS
   // keychain) with "vault: passphrase required but no interactive terminal".
   ensureDesktopVaultKey();
+
+  // If the user auto-installed Node on a previous run (onboarding's "Install
+  // automatically"), put that managed Node back on PATH before any runner
+  // spawns so `moxxy serve` / npm resolve it without a manual PATH edit.
+  activateManagedNode(app.getPath('userData'));
 
   // Reap any orphan runners from a previous crashed desktop process
   // before we try to spawn new ones. Without this, the first workspace

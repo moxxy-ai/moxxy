@@ -1,15 +1,18 @@
 /**
- * Stage 3a: mini-text — the 360×220 compact composer (input + send) plus
- * a single-line preview of the latest turn. Sending invokes the same
- * runner turn as the main window (bidirectional sync).
+ * Stage 3: mini-text — a scrollable, markdown-rendered view of the latest
+ * turn plus a composer. The body shows the full freshest message (the user
+ * prompt or the streaming assistant answer), auto-scrolling to the bottom as
+ * text arrives. Sending invokes the same runner turn as the main window
+ * (bidirectional sync); the window itself is drag-resizable.
  *
  * Hosts the mini-text-only line primitives (header, thinking / latest /
  * idle preview lines) since nothing else consumes them.
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { useChat } from '@/lib/useChat';
+import { MarkdownBody } from '@/chat/MarkdownBody';
 import { Dot, LogoMark } from './focus-primitives';
 import { ChevronLeftIcon, SendIcon, WindowIcon } from './focus-icons';
 import { useLatestBlock } from './useLatestBlock';
@@ -19,13 +22,24 @@ import { style } from './focus-styles';
 export function MiniText({
   workspaceId,
   onBack,
+  transcribing = false,
 }: {
   readonly workspaceId: string | null;
   readonly onBack: () => void;
+  /** True while a voice clip is being transcribed (before it's sent) — so
+   *  opening the panel on mic-stop shows progress, not a stale message. */
+  readonly transcribing?: boolean;
 }): JSX.Element {
   const [draft, setDraft] = useState('');
   const chat = useChat(workspaceId);
   const latest = useLatestBlock(workspaceId);
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  // Keep the freshest text in view as the answer streams / transcript lands.
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [latest?.text, chat.sending, transcribing]);
 
   const submit = (): void => {
     if (!workspaceId || !draft.trim()) return;
@@ -33,15 +47,21 @@ export function MiniText({
     setDraft('');
   };
 
+  // Show a "working" indicator while transcribing speech, or while a turn is
+  // in flight but the assistant hasn't produced any text yet (otherwise the
+  // user's own prompt would sit there with no sign of progress).
+  const showThinking =
+    transcribing || (chat.sending && (!latest || latest.who === 'user'));
+
   return (
     <div style={style.panel}>
       <MiniHeader title="Text" onBack={onBack} />
-      <div style={style.panelBody}>
-        {chat.sending ? (
-          <ThinkingLine />
-        ) : latest ? (
-          <LatestLine block={latest} />
-        ) : (
+      <div ref={bodyRef} style={style.panelBody}>
+        {latest && <LatestMessage block={latest} />}
+        {showThinking && (
+          <ThinkingLine label={transcribing ? 'transcribing…' : 'working…'} />
+        )}
+        {!latest && !showThinking && (
           <IdleLine
             label={workspaceId ? 'Type a quick prompt below.' : 'No active workspace.'}
           />
@@ -105,37 +125,37 @@ function MiniHeader({
   );
 }
 
-function ThinkingLine(): JSX.Element {
+function ThinkingLine({ label }: { readonly label: string }): JSX.Element {
   return (
-    <div style={style.lineRow}>
+    <div style={{ ...style.lineRow, marginTop: 8 }}>
       <Dot delay={0} />
       <Dot delay={160} />
       <Dot delay={320} />
-      <span style={{ color: '#ec4899', fontWeight: 600, fontSize: 13 }}>working…</span>
+      <span style={{ color: '#ec4899', fontWeight: 600, fontSize: 13 }}>{label}</span>
     </div>
   );
 }
 
-function LatestLine({ block }: { readonly block: LatestBlock }): JSX.Element {
-  const prefix = block.who === 'user' ? 'you · ' : '';
+/** Full latest message, markdown-rendered. A small "You" label tags the
+ *  user's own turn; assistant turns render bare so they read like a reply. */
+function LatestMessage({ block }: { readonly block: LatestBlock }): JSX.Element {
   return (
-    <div
-      style={{
-        whiteSpace: 'nowrap',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        display: 'block',
-        fontSize: 13,
-        color: '#0f172a',
-        lineHeight: 1.4,
-        width: '100%',
-      }}
-      title={block.text}
-    >
-      {prefix && (
-        <span style={{ opacity: 0.55, fontWeight: 600, marginRight: 4 }}>{prefix}</span>
+    <div style={{ width: '100%' }}>
+      {block.who === 'user' && (
+        <div
+          style={{
+            fontSize: 10.5,
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+            color: '#94a3b8',
+            marginBottom: 6,
+          }}
+        >
+          You
+        </div>
       )}
-      {block.text.trim().split(/\n/)[0]}
+      <MarkdownBody text={block.text} />
     </div>
   );
 }

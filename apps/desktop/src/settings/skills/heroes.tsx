@@ -26,7 +26,7 @@ export function EmptyHero({
     >
       <div>
         <img
-          src={asset('avatar.gif')}
+          src={asset('new-animation.gif')}
           alt=""
           aria-hidden
           style={{ width: 140, height: 'auto', imageRendering: 'pixelated', marginBottom: 14 }}
@@ -64,7 +64,7 @@ export function LoadingHero(): JSX.Element {
       }}
     >
       <img
-        src={asset('avatar.gif')}
+        src={asset('new-animation.gif')}
         alt=""
         aria-hidden
         className="moxxy-avatar-loader moxxy-avatar-loader--sm"

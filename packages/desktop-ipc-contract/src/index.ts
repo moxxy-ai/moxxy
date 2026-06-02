@@ -388,8 +388,13 @@ export interface IpcCommands {
   /** Run `npm install -g @moxxy/cli`. Streams progress via
    *  `onboarding.install.progress`. Returns the exit code (0 = ok). */
   'onboarding.installMoxxyCli': () => Promise<number>;
+  /** Download + extract the official Node LTS for this machine into the
+   *  app's data dir and put it on PATH (no admin / package manager).
+   *  Streams progress via `onboarding.install.progress`; resolves with
+   *  the installed version on success. */
+  'onboarding.installNode': () => Promise<{ ok: boolean; version: string | null }>;
   /** Open a URL in the user's default browser. Used for the Node.js
-   *  install fallback (we never pretend to install Node ourselves). */
+   *  install fallback (the manual nodejs.org download). */
   'onboarding.openExternal': (args: { url: string }) => Promise<void>;
   /** Run `moxxy vault set <NAME>_API_KEY` with the given secret piped
    *  on stdin, then call `provider.setActive` on the running session
@@ -544,9 +549,15 @@ export interface IpcCommands {
   // Focus-mode window control (from the floating widget back to main).
   'focus.close': () => Promise<void>;
   'focus.restoreMain': () => Promise<void>;
-  /** Resize the focus window. Keeps the bottom-right corner pinned
-   *  so the dot stays in the corner as the widget expands. */
-  'focus.resize': (args: { width: number; height: number }) => Promise<void>;
+  /** Resize the focus window. Keeps the nearer screen edge pinned so the
+   *  widget stays in its corner as it expands. `resizable` toggles OS
+   *  edge-resize grabs — on for the mini-text panel (so the user can drag
+   *  it bigger), off for the small inactive tile / active pill. */
+  'focus.resize': (args: {
+    width: number;
+    height: number;
+    resizable?: boolean;
+  }) => Promise<void>;
 
   /** Provider list for the given workspace (defaults to active). */
   'settings.providers': (args?: { workspaceId?: string }) => Promise<ReadonlyArray<ProviderEntry>>;

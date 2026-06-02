@@ -21,8 +21,6 @@ export interface OnboardingCtx {
   readonly nodeInstalled: boolean;
   readonly nodeProbed: boolean;
   readonly cliMissing: boolean;
-  readonly signedIn: boolean;
-  readonly clerkConfigured: boolean;
 }
 
 /**
@@ -33,12 +31,9 @@ export interface OnboardingCtx {
  */
 export const ONBOARDING_STEPS: ReadonlyArray<FlowStep<OnboardingCtx>> = [
   { id: 'welcome', label: 'Welcome', applies: (c) => c.full },
-  {
-    id: 'auth',
-    label: 'Sign in',
-    applies: (c) => c.full,
-    satisfied: (c) => c.signedIn || !c.clerkConfigured,
-  },
+  // Sign-in is no longer an onboarding step — it lives in the sidebar
+  // profile pill (Clerk's own modal via clerk.openSignIn()), so first
+  // run no longer blocks on auth.
   {
     id: 'node',
     label: 'Install Node',

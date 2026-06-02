@@ -88,6 +88,31 @@ export function PrimaryButton({
   );
 }
 
+// ---- SecondaryButton ------------------------------------------------------
+
+/** Outline button for the lower-emphasis action next to a PrimaryButton
+ *  (e.g. "Open nodejs.org" beside "Install automatically"). */
+export function SecondaryButton({
+  children,
+  style,
+  ...rest
+}: React.ButtonHTMLAttributes<HTMLButtonElement>): JSX.Element {
+  return (
+    <button
+      type="button"
+      {...rest}
+      style={{
+        ...secondaryBtnStyle,
+        opacity: rest.disabled ? 0.5 : 1,
+        cursor: rest.disabled ? 'not-allowed' : 'pointer',
+        ...style,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
 // ---- SuccessRow -----------------------------------------------------------
 
 export function SuccessRow({ text }: { readonly text: string }): JSX.Element {
@@ -143,7 +168,7 @@ export function Pulse({ label }: { readonly label: string }): JSX.Element {
       }}
     >
       <img
-        src={asset('avatar.gif')}
+        src={asset('new-animation.gif')}
         alt=""
         aria-hidden
         className="moxxy-avatar-loader moxxy-avatar-loader--sm"

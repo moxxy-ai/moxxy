@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth, useClerk, useUser } from '@clerk/clerk-react';
 import { Icon } from '@moxxy/desktop-ui';
 import { usePrefs } from '@/lib/usePrefs';
@@ -6,24 +6,50 @@ import { ProfileView } from '../ProfileView';
 
 /**
  * Bottom-of-rail profile row. Doubles as a presence indicator: signed-out
- * renders a "Sign in" prompt; signed-in shows the display name plus a
- * tier badge and opens the full account view on click. A top border
- * separates it from the scrolling workspace list above.
+ * renders a "Sign in" prompt that opens Clerk's own modal
+ * (`clerk.openSignIn()` — this is the only sign-in entry point, no longer
+ * an onboarding step); signed-in shows the display name plus a tier badge
+ * and opens the full account view on click. There is no "Guest" state — the
+ * row is always either Sign in or the profile. A top border separates it
+ * from the scrolling workspace list above.
  */
 export function ProfilePill(): JSX.Element {
   const { user, isLoaded } = useUser();
   const { sessionClaims } = useAuth();
   const clerk = useClerk();
-  const { prefs } = usePrefs();
+  const { prefs, update } = usePrefs();
   const [profileOpen, setProfileOpen] = useState(false);
 
   const signedIn = !!user;
+
+  // Persist the resolved Clerk identity into desktop prefs on a fresh
+  // sign-in (the old AuthStep did this during onboarding). Gated on the id
+  // actually changing so we don't rewrite `signedInAt` on every launch.
+  // Mirrors the sign-out clear in ProfileView.
+  useEffect(() => {
+    if (!user) return;
+    if (prefs?.clerkUserId === user.id) return;
+    void update({
+      clerkUserId: user.id,
+      clerkDisplayName:
+        user.fullName ??
+        user.primaryEmailAddress?.emailAddress ??
+        user.username ??
+        null,
+      signedInAt: Date.now(),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, prefs?.clerkUserId]);
+
+  // Treat a prior on-disk identity as "signed in" while Clerk is still
+  // loading so returning users don't flash a "Sign in" prompt on launch.
+  const showProfile = signedIn || (!isLoaded && !!prefs?.clerkUserId);
   const displayName =
     user?.fullName ??
     user?.primaryEmailAddress?.emailAddress ??
     user?.username ??
     prefs?.clerkDisplayName ??
-    (signedIn ? 'Signed in' : 'Guest');
+    'Account';
   // Account tier — try every place a client legitimately can read it:
   //   1. publicMetadata.accountType         (server-set, client-readable)
   //   2. session-token claim "accountType"  (recommended for private
@@ -39,9 +65,10 @@ export function ProfilePill(): JSX.Element {
       (user?.unsafeMetadata as Record<string, unknown> | undefined)?.accountType,
   );
   // Single-line profile row, no background — a top border separates it
-  // from the workspace list above. Signed-out reads as a sign-in prompt.
+  // from the workspace list above. Signed-out reads as a sign-in prompt;
+  // there is no "Guest" middle state.
   const row =
-    isLoaded && !signedIn ? (
+    !showProfile ? (
       <button
         type="button"
         className="row-button"

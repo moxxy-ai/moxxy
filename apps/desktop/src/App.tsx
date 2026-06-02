@@ -219,13 +219,12 @@ function ReconnectBanner({ label }: { readonly label: string }): JSX.Element {
       }}
     >
       <img
-        src={asset('avatar.gif')}
+        src={asset('new-animation.gif')}
         alt=""
         aria-hidden="true"
         className="moxxy-avatar-loader moxxy-avatar-loader--sm"
-        width={28}
         height={28}
-        style={{ imageRendering: 'pixelated' }}
+        style={{ height: 28, width: 'auto', objectFit: 'contain', imageRendering: 'pixelated' }}
       />
       {label}
     </div>

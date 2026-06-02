@@ -1,9 +1,9 @@
 /**
  * Shared inline style tokens for the onboarding chrome and steps — the
- * input / button / picker / auth-card `React.CSSProperties` consts every
- * step reuses so the wizard's controls stay visually identical. A
- * dependency leaf (no React component code), imported by both the
- * primitives and the individual step components.
+ * input / button / picker `React.CSSProperties` consts every step reuses
+ * so the wizard's controls stay visually identical. A dependency leaf
+ * (no React component code), imported by both the primitives and the
+ * individual step components.
  */
 
 export const inputStyle: React.CSSProperties = {
@@ -52,19 +52,4 @@ export const pickerBtnStyle: React.CSSProperties = {
   borderRadius: 10,
   textAlign: 'left',
   width: '100%',
-};
-
-// ---- Auth styles ----------------------------------------------------------
-
-/** Outer wrapper that draws our card chrome so the SignIn component
- *  (whose own card is now hidden via appearance.elements.card) sits
- *  inside the same chrome as every other onboarding step. overflow
- *  stays visible so the embedded button's box-shadow halo isn't
- *  clipped at the card edge. */
-export const authCardStyle: React.CSSProperties = {
-  padding: '20px 18px 18px',
-  background: 'var(--color-card-bg)',
-  border: '1px solid var(--color-card-border)',
-  borderRadius: 12,
-  overflow: 'visible',
 };

@@ -1,12 +1,18 @@
 /**
- * The onboarding wizard Shell — the fixed two-column frame (branded
- * sidebar with the step list + progress, scrolling content pane) that
- * wraps whichever step is current. Stateless: it renders the passed step
- * list, highlights `currentIndex`, and slots `children` into the pane.
+ * The onboarding wizard Shell — the fixed two-column frame (a calm, near-white
+ * step rail on the left + a scrolling content pane on the right) that wraps
+ * whichever step is current. Stateless: it renders the passed step list,
+ * highlights `currentIndex`, and slots `children` into the pane.
+ *
+ * The palette matches the splash / loading / chat surfaces (near-white
+ * `rgb(252,252,255)`) so first-run feels continuous with the rest of the app.
  */
 
 import { Icon } from '@moxxy/desktop-ui';
 import { asset } from '@/lib/asset';
+
+const SURFACE = 'rgb(252, 252, 255)';
+const RAIL_BG = 'rgb(248, 248, 252)';
 
 export function Shell({
   steps,
@@ -23,32 +29,30 @@ export function Shell({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'var(--color-app-bg)',
+        background: SURFACE,
         display: 'grid',
-        gridTemplateColumns: '320px 1fr',
+        gridTemplateColumns: '300px 1fr',
         overflow: 'hidden',
       }}
     >
       <aside
         style={{
-          background: 'var(--color-card-bg)',
+          background: RAIL_BG,
           borderRight: '1px solid var(--color-card-border)',
-          padding: '24px 22px',
+          padding: '28px 24px',
           display: 'flex',
           flexDirection: 'column',
-          gap: 22,
+          gap: 28,
         }}
       >
-        <header style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <header style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <img
-            src={asset('logo.png')}
+            src={asset('new-animation.gif')}
             alt=""
             aria-hidden
-            width={32}
-            height={32}
-            style={{ imageRendering: 'pixelated', borderRadius: 8 }}
+            style={{ height: 40, width: 'auto', objectFit: 'contain', imageRendering: 'pixelated' }}
           />
-          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
             <span style={{ fontSize: 14, fontWeight: 700 }}>MoxxyAI</span>
             <span
               style={{
@@ -62,12 +66,14 @@ export function Shell({
             </span>
           </div>
         </header>
-        <h1 style={{ margin: 0, fontSize: 19, fontWeight: 700 }}>
-          Let&rsquo;s get you set up.
-        </h1>
-        <p style={{ margin: 0, color: 'var(--color-text-muted)', fontSize: 13.5 }}>
-          A few quick steps and you&rsquo;ll have your own AI workspace running locally.
-        </p>
+        <div>
+          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em' }}>
+            Let&rsquo;s get you set up
+          </h1>
+          <p style={{ margin: '6px 0 0', color: 'var(--color-text-muted)', fontSize: 13, lineHeight: 1.6 }}>
+            A few quick steps and your own AI workspace is running locally.
+          </p>
+        </div>
         <ol
           style={{
             listStyle: 'none',
@@ -75,7 +81,7 @@ export function Shell({
             padding: 0,
             display: 'flex',
             flexDirection: 'column',
-            gap: 6,
+            gap: 4,
           }}
         >
           {steps.map((s, i) => {
@@ -88,9 +94,9 @@ export function Shell({
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 10,
-                  padding: '7px 10px',
-                  borderRadius: 9,
+                  gap: 12,
+                  padding: '8px 10px',
+                  borderRadius: 10,
                   background: current ? 'var(--color-primary-soft)' : 'transparent',
                   color: current
                     ? 'var(--color-primary-strong)'
@@ -99,6 +105,7 @@ export function Shell({
                       : 'var(--color-text-dim)',
                   fontWeight: current ? 600 : 500,
                   fontSize: 13,
+                  transition: 'background 120ms ease, color 120ms ease',
                 }}
               >
                 <span
@@ -106,6 +113,7 @@ export function Shell({
                   style={{
                     width: 22,
                     height: 22,
+                    flexShrink: 0,
                     borderRadius: 999,
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -114,8 +122,9 @@ export function Shell({
                       ? 'var(--color-green)'
                       : current
                         ? 'var(--color-primary)'
-                        : 'var(--color-card-border)',
-                    color: '#fff',
+                        : 'transparent',
+                    border: done || current ? 'none' : '1.5px solid var(--color-card-border-strong)',
+                    color: done || current ? '#fff' : 'var(--color-text-dim)',
                     fontSize: 11,
                     fontWeight: 700,
                   }}
@@ -128,22 +137,20 @@ export function Shell({
           })}
         </ol>
         <span style={{ flex: 1 }} />
-        <footer
-          className="mono"
-          style={{ fontSize: 10.5, color: 'var(--color-text-dim)' }}
-        >
-          You can run through this again from Settings → About at any time.
+        <footer style={{ fontSize: 11, color: 'var(--color-text-dim)', lineHeight: 1.5 }}>
+          You can revisit this anytime from Settings → About.
         </footer>
       </aside>
       <main
         style={{
+          background: SURFACE,
           display: 'grid',
           placeItems: 'center',
-          padding: '24px 32px',
+          padding: '32px 40px',
           overflowY: 'auto',
         }}
       >
-        <div style={{ width: '100%', maxWidth: 540 }}>{children}</div>
+        <div style={{ width: '100%', maxWidth: 520 }}>{children}</div>
       </main>
     </div>
   );

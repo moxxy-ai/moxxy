@@ -12,7 +12,7 @@ export function EmptyState({ ready }: { readonly ready: boolean }): JSX.Element 
     >
       <div>
         <img
-          src={asset('avatar.gif')}
+          src={asset('new-animation.gif')}
           alt=""
           aria-hidden="true"
           className={ready ? '' : 'moxxy-avatar-loader'}
@@ -24,12 +24,12 @@ export function EmptyState({ ready }: { readonly ready: boolean }): JSX.Element 
           }}
         />
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
-          {ready ? 'Ready when you are' : 'Connecting…'}
+          {ready ? 'Ready when you are' : 'Getting your workspace ready…'}
         </h2>
         <p style={{ margin: '6px 0 0', color: 'var(--color-text-dim)', fontSize: 13.5 }}>
           {ready
             ? 'Send a message to kick off this workspace.'
-            : 'Waiting for the runner to come online…'}
+            : 'Hang tight — this only takes a moment.'}
         </p>
       </div>
     </div>

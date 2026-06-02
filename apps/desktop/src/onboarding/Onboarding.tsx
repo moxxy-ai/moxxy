@@ -4,29 +4,26 @@
  * engine:
  *
  *   - First run (until `prefs.onboardingComplete`): a linear walk through
- *     welcome → sign-in → (node) → CLI → provider → workspace → done.
+ *     welcome → (node) → CLI → provider → workspace → done.
  *   - Recovery gate (a prerequisite went missing while the app runs): the
  *     same steps, but only the unmet ones apply and the flow auto-resolves
  *     + closes itself once satisfied.
  *
  * This module is the thin orchestrator: it assembles the gate context,
  * runs the step-flow engine, and dispatches to the per-step components in
- * ./steps. The Shell + step primitives + the branded Clerk appearance live
- * in ./chrome. The Clerk publishable key comes from
- * `VITE_CLERK_PUBLISHABLE_KEY`; if unset the auth step is auto-satisfied so
- * dev builds without a Clerk app configured aren't blocked.
+ * ./steps. The Shell + step primitives live in ./chrome. Sign-in is no
+ * longer part of onboarding — it lives in the sidebar profile pill (Clerk's
+ * own modal), so first run never blocks on auth.
  */
 
 import { usePrefs } from '@/lib/usePrefs';
 import { useOnboarding } from '@/lib/useOnboarding';
-import { useUser } from '@clerk/clerk-react';
 import { useStepFlow } from '@/lib/step-flow';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 
-import { CLERK_KEY, Shell } from './chrome';
+import { Shell } from './chrome';
 import { ONBOARDING_STEPS, type OnboardingCtx } from './flow';
 import { WelcomeStep } from './steps/WelcomeStep';
-import { AuthStep } from './steps/AuthStep';
 import { NodeStep } from './steps/NodeStep';
 import { CliStep } from './steps/CliStep';
 import { ProviderStep } from './steps/ProviderStep';
@@ -46,7 +43,6 @@ interface Props {
 export function Onboarding({ phase, onComplete }: Props): JSX.Element {
   const { prefs } = usePrefs();
   const ob = useOnboarding(phase);
-  const { user } = useUser();
 
   const ctx: OnboardingCtx = {
     full: !(prefs?.onboardingComplete ?? false),
@@ -55,8 +51,6 @@ export function Onboarding({ phase, onComplete }: Props): JSX.Element {
     nodeInstalled: ob.node?.installed ?? false,
     nodeProbed: ob.node !== null,
     cliMissing: phase?.phase === 'cli-missing',
-    signedIn: !!user,
-    clerkConfigured: !!CLERK_KEY,
   };
   // First run = a linear walk; a recovery gate auto-resolves to the
   // unmet prerequisite and closes itself once satisfied.
@@ -82,8 +76,6 @@ function renderStep(
   switch (id) {
     case 'welcome':
       return <WelcomeStep onNext={next} />;
-    case 'auth':
-      return <AuthStep onNext={next} onBack={onBack} />;
     case 'node':
       return <NodeStep onNext={next} onBack={onBack} />;
     case 'cli':
