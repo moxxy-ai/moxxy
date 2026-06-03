@@ -34,6 +34,18 @@ import {
 
 import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
 
+// MUST run before any `app.getPath('userData')` below. `userData` resolves to
+// `…/Application Support/<app.getName()>`, and in a packaged build Electron
+// derives `getName()` from the app package.json `name` (`@moxxy/desktop`), NOT
+// electron-builder's `productName`. The real main (`index.js`) calls
+// `app.setName('MoxxyAI Workspaces')` too — but it loads LATER, so without
+// setting the name HERE the bootstrap would read the self-update state
+// (active.json / staged bundles) from a DIFFERENT userData dir than the one the
+// updater writes to. That mismatch made every staged update invisible to the
+// loader, so the app silently kept booting the floor. Keep this string in sync
+// with `index.ts`.
+app.setName('MoxxyAI Workspaces');
+
 /** Dir holding this bootstrap + the baked floor `index.js` (…/dist-electron/main). */
 const floorMainDir = import.meta.dirname;
 /** The floor bundle root: the dir that contains `dist-electron/` + `dist/`. */
