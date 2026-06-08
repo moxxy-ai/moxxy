@@ -40,7 +40,7 @@ import {
 } from '@moxxy/desktop-host';
 
 import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
-import { readConfirmed, markBad } from '@moxxy/desktop-host/app-update';
+import { readConfirmed, markBad, appendBootLog } from '@moxxy/desktop-host/app-update';
 import { initShellUpdater } from './shell-updater.js';
 
 // In a packaged build there is no global `moxxy` (and a GUI launch has no
@@ -473,6 +473,7 @@ function armBootProbe(window: BrowserWindow): void {
   const version = process.env.MOXXY_APP_BUNDLE_VERSION;
   if (!version) return; // running the floor — nothing to probe
   const userData = app.getPath('userData');
+  const shell = { electron: process.versions.electron, nodeAbi: process.versions.modules ?? '' };
   window.webContents.once('did-finish-load', () => {
     setTimeout(() => {
       if (window.isDestroyed()) return;
@@ -481,6 +482,14 @@ function armBootProbe(window: BrowserWindow): void {
         `[moxxy] boot-probe: bundle ${version} did not confirm a healthy render in ` +
           `${BOOT_PROBE_TIMEOUT_MS}ms; reverting to the previous bundle`,
       );
+      // Record the revert BEFORE relaunching so the next launch's Diagnostics
+      // panel shows why the update didn't stick (the renderer never confirmed).
+      appendBootLog(userData, {
+        phase: 'probe',
+        picked: version,
+        reason: 'no-confirm-within-timeout',
+        ...shell,
+      });
       try {
         markBad(userData, version);
       } catch {

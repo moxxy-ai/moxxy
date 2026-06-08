@@ -11,7 +11,13 @@ you introduce or notice gets written down the moment you see it. See AGENTS.md �
 (merged, PR #6). What remains below is what was deliberately deferred, what was blocked
 as unsafe to do mechanically, and debt accrued since.
 
-**Last refreshed:** 2026-06-08 — re-verified every open item against `HEAD` and folded
+**Last refreshed:** 2026-06-09 — the "update flows" work (CLI `moxxy update` + TUI version
+banner + desktop self-update observability) **retired the self-update typed-error sub-bullet
+of P1 #5** (re-scoped as won't-fix-by-design — see it) and closed the long-standing
+*silent* desktop fall-back-to-the-floor by adding a persisted boot-decision log; the one
+remaining piece (confirming the runtime root cause on a packaged build) is logged as #10.
+
+2026-06-08 — re-verified every open item against `HEAD` and folded
 in findings from the desktop-resume / claude-code-provider / plugins-admin work that
 landed after the original audit. All prior "✅ DONE" items were re-checked and confirmed
 still in place (no regressions); they're collapsed into the ledger at the bottom. The same
@@ -95,8 +101,13 @@ raw throws are internal registry/broker invariants that should stay plain):
 - oauth input/usage validation — `plugin-oauth/src/tools.ts:114,146`.
 - vault config-resolution throws (user-facing) — `plugin-vault/src/placeholder.ts:20`,
   `index.ts:150`, `store.ts:164,186`.
-- desktop self-update **security** failures (signature/hash/unsafe-path) throw raw Error —
-  `desktop-host/src/app-update/stager.ts:258-302`; candidates for a typed error code.
+- ~~desktop self-update **security** failures (signature/hash/unsafe-path) throw raw Error —
+  `desktop-host/src/app-update/stager.ts`; candidates for a typed error code.~~ **RETIRED
+  2026-06-09 (won't-fix by design).** `app-update/*` is intentionally dependency-free (node
+  built-ins only) so it can be baked verbatim into the immutable bootstrap — importing the
+  SDK error types there would break that constraint. The throw *messages* are already
+  surfaced to the renderer as `error` strings, and the new boot-log now records a structured
+  reject **reason** per gate (see #10), which covers the diagnosability this bullet was after.
 
 ---
 
@@ -129,6 +140,21 @@ To fully sever channel→core, hoist these provider-neutral helpers into `@moxxy
   hardcodes the model list (incl. `claude-opus-4-7` at 800k context) and re-exports it to
   `plugin-provider-claude-code/src/index.ts:11`, so the subscription provider inherits the
   API-key provider's model set verbatim. Drift-prone; should be derived/config.
+
+### 10. Desktop self-update: confirm the runtime root cause of "downloads but reverts" — 🔴 NEW
+**Found 2026-06-09.** The publishing side is provably healthy (latest `desktop-v*` is signed
++ verifies against the baked key; the pure resolve/stage/build path is test-covered). The
+user-reported failure — *updates, relaunches, still old* — therefore lives in the runtime
+confirmation path, which used to fall back to the floor **silently** (`console.*` only, in a
+packaged app no one sees). This pass made it observable: a persisted boot-decision log
+(`app-update/boot-log.ts` → `<userData>/app/boot-log.json`), a reject **reason** per gate
+(`resolveActiveBundleDetailed`), an `app.updateDiagnostics` IPC + Settings → Dashboard
+readout, and a hardened renderer heartbeat (retry + `app.bootHeartbeatFailed`). **Remaining:**
+confirm the actual cause on a real packaged two-version update via the new Diagnostics panel
+(suspects, in order: heartbeat never confirmed → 15s boot-probe revert; staged-main import
+throw; a resolve gate). Once the log names it on a real build, apply the targeted fix and
+prune whichever of the belt/braces (cross-launch recovery vs. in-session probe vs. heartbeat
+retry) is then redundant. **Severity med** (can't be closed from the dev box — needs a build).
 
 ---
 

@@ -64,6 +64,10 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'app.updateDashboard': z.undefined(),
   'app.relaunch': z.undefined(),
   'app.appBooted': z.undefined(),
+  'app.updateDiagnostics': z.undefined(),
+  // Renderer-reported confirm failure — bound the message so a hostile renderer
+  // can't bloat the on-disk boot-log.
+  'app.bootHeartbeatFailed': z.object({ error: z.string().max(2048) }),
   'onboarding.openExternal': z.object({ url: httpUrl }),
   'onboarding.saveProviderKey': z.object({
     provider: providerName,

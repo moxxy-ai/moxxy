@@ -122,7 +122,7 @@ const { plugin } = buildSecurityPlugin({
 });
 ```
 
-See [`.claude/agents/isolator-author.md`](https://github.com/moxxy-ai/new_moxxy/blob/main/.claude/agents/isolator-author.md)
+See [`.claude/agents/isolator-author.md`](https://github.com/moxxy-ai/moxxy/blob/main/.claude/agents/isolator-author.md)
 for the full author guide — particularly the section on **handler
 marshalling**, which is the hard problem any out-of-process isolator
 must solve before its strength claim is real.

@@ -25,10 +25,11 @@ import { app } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
-  resolveActiveBundle,
+  resolveActiveBundleDetailed,
   recoverFromFailedBoot,
   writeBreadcrumb,
   markBad,
+  appendBootLog,
   setupNativeResolution,
 } from '@moxxy/desktop-host/app-update';
 
@@ -57,18 +58,22 @@ async function load(entry: string): Promise<void> {
   await import(pathToFileURL(entry).href);
 }
 
+/** Shell identity stamped onto every boot-log entry, for cross-launch context. */
+const shell = { electron: process.versions.electron, nodeAbi: process.versions.modules ?? '' };
+
 async function boot(): Promise<void> {
   // Let a userData bundle resolve the shell's optional native deps (keychain).
   setupNativeResolution(floorRoot);
 
   let entry = floorEntry;
   let overrideVersion: string | null = null;
+  let userData: string | null = null;
 
   // Self-update is packaged-only; in dev the renderer is served from Vite and
   // there is no userData bundle to prefer.
   if (app.isPackaged) {
     try {
-      const userData = app.getPath('userData');
+      userData = app.getPath('userData');
       // Poison a bundle that loaded last launch but never confirmed healthy
       // (white-screen / async crash), rolling `active` back to the last good one.
       const recovery = recoverFromFailedBoot(userData);
@@ -77,13 +82,23 @@ async function boot(): Promise<void> {
           `[moxxy] bootstrap: bundle ${recovery.poisoned} never confirmed healthy; poisoned` +
             (recovery.rolledBackTo ? `, rolled back to ${recovery.rolledBackTo}` : ', using floor'),
         );
+        appendBootLog(userData, {
+          phase: 'recover',
+          picked: recovery.poisoned,
+          reason: 'unconfirmed-previous-boot',
+          ...(recovery.rolledBackTo ? { recoveredTo: recovery.rolledBackTo } : {}),
+          ...shell,
+        });
       }
-      const picked = resolveActiveBundle({
+      // Detailed resolve so a fall-to-floor records WHY (the reject reason) —
+      // turning a previously-silent revert into a copy-pasteable diagnostic.
+      const resolved = resolveActiveBundleDetailed({
         userDataDir: userData,
         publicKeyPem: BUNDLED_UPDATE_PUBLIC_KEY,
-        shell: { electron: process.versions.electron, nodeAbi: process.versions.modules ?? '' },
+        shell,
       });
-      if (picked) {
+      if (resolved.bundle) {
+        const picked = resolved.bundle;
         entry = path.join(picked.root, 'dist-electron', 'main', 'index.js');
         overrideVersion = picked.version;
         // Tell the running main which bundle it is — drives `app.updateInfo` and
@@ -94,11 +109,19 @@ async function boot(): Promise<void> {
         // confirm itself healthy, the next launch sees an unconfirmed attempt
         // and poisons it.
         writeBreadcrumb(userData, picked.version);
+        appendBootLog(userData, { phase: 'boot', picked: picked.version, ...shell });
+      } else {
+        // `disabled`/`no-active` are the normal "nothing staged" cases; anything
+        // else is a staged bundle we declined — exactly what we want visible.
+        appendBootLog(userData, { phase: 'boot', picked: 'floor', reason: resolved.reason, ...shell });
       }
-    } catch {
+    } catch (err) {
       // Any resolution failure → run the floor.
       entry = floorEntry;
       overrideVersion = null;
+      if (userData) {
+        appendBootLog(userData, { phase: 'boot', picked: 'floor', reason: 'resolve-threw', error: messageOf(err), ...shell });
+      }
     }
   }
 
@@ -113,6 +136,11 @@ async function boot(): Promise<void> {
       } catch {
         /* best effort */
       }
+      // Record the ACTUAL import error (previously console-only, so invisible in
+      // a packaged build) — this is the prime suspect for "updates but reverts".
+      if (userData) {
+        appendBootLog(userData, { phase: 'load-error', picked: overrideVersion, error: messageOf(err), ...shell });
+      }
       delete process.env.MOXXY_APP_BUNDLE_ROOT;
       delete process.env.MOXXY_APP_BUNDLE_VERSION;
       console.error(
@@ -124,6 +152,10 @@ async function boot(): Promise<void> {
       throw err;
     }
   }
+}
+
+function messageOf(e: unknown): string {
+  return e instanceof Error ? `${e.message}` : String(e);
 }
 
 void boot().catch((err) => {

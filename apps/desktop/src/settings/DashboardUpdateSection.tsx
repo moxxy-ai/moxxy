@@ -36,8 +36,19 @@ function statusLine(state: UpdateState, latest: string | null): string | null {
 }
 
 export function DashboardUpdateSection(): JSX.Element {
-  const { info, check, state, progress, error, stagedVersion, runCheck, runUpdate, relaunch } =
-    useAppUpdate();
+  const {
+    info,
+    check,
+    state,
+    progress,
+    error,
+    stagedVersion,
+    diagnostics,
+    runCheck,
+    runUpdate,
+    loadDiagnostics,
+    relaunch,
+  } = useAppUpdate();
 
   const configured = info?.channelConfigured ?? false;
   const pct =
@@ -151,10 +162,71 @@ export function DashboardUpdateSection(): JSX.Element {
             v{stagedVersion} will load on the next start.
           </p>
         )}
+
+        {/* Troubleshooting: if an update "downloads but the app stays old", the
+            boot-log here names the exact reason (the previously-silent revert). */}
+        <details
+          style={{ marginTop: 2 }}
+          onToggle={(e) => {
+            if ((e.currentTarget as HTMLDetailsElement).open) void loadDiagnostics();
+          }}
+        >
+          <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--color-text-dim)' }}>
+            Diagnostics
+          </summary>
+          {diagnostics ? (
+            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontSize: 11.5, color: 'var(--color-text-dim)', lineHeight: 1.6 }}>
+                running <b className="mono">{diagnostics.running}</b> · active{' '}
+                <span className="mono">{diagnostics.active ?? '—'}</span> · confirmed{' '}
+                <span className="mono">{diagnostics.confirmed ?? '—'}</span>
+                <br />
+                staged <span className="mono">{diagnostics.staged.join(', ') || '—'}</span> · bad{' '}
+                <span className="mono">{diagnostics.bad.join(', ') || '—'}</span>
+              </div>
+              <pre style={logBox}>
+                {diagnostics.log.length === 0
+                  ? '(no boot-log entries yet)'
+                  : diagnostics.log
+                      .map(
+                        (e) =>
+                          `${new Date(e.ts).toISOString()}  ${e.phase.padEnd(11)} ${e.picked ?? ''}` +
+                          (e.reason ? `  reason=${e.reason}` : '') +
+                          (e.recoveredTo ? `  → ${e.recoveredTo}` : '') +
+                          (e.error ? `  error=${e.error}` : ''),
+                      )
+                      .join('\n')}
+              </pre>
+              <button
+                type="button"
+                style={{ ...primaryBtn(false), background: 'var(--color-card-border-strong)' }}
+                onClick={() => void navigator.clipboard.writeText(JSON.stringify(diagnostics, null, 2)).catch(() => undefined)}
+              >
+                Copy diagnostics
+              </button>
+            </div>
+          ) : (
+            <p style={{ marginTop: 8, fontSize: 11.5, color: 'var(--color-text-dim)' }}>Loading…</p>
+          )}
+        </details>
       </div>
     </Section>
   );
 }
+
+const logBox: React.CSSProperties = {
+  margin: 0,
+  padding: '10px 12px',
+  maxHeight: 220,
+  overflow: 'auto',
+  fontSize: 11,
+  lineHeight: 1.5,
+  whiteSpace: 'pre',
+  background: 'var(--color-card-bg)',
+  border: '1px solid var(--color-card-border)',
+  borderRadius: 10,
+  color: 'var(--color-text-muted)',
+};
 
 const card: React.CSSProperties = {
   display: 'flex',

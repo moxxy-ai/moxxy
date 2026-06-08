@@ -48,6 +48,12 @@ export interface InteractiveSessionProps {
    */
   readonly version?: string;
   /**
+   * A newer published `@moxxy/cli` the caller discovered (cheaply, from a
+   * cached check). When set, the chat view shows a one-line, auto-dismissing
+   * "update available" notice. Omitted ⇒ no banner.
+   */
+  readonly updateAvailable?: { readonly latest: string };
+  /**
    * Skip the splash screen and land directly in the chat view. Used by
    * `moxxy resume` so the seeded event log is visible immediately
    * without the user having to type a first prompt.

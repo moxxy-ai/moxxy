@@ -35,6 +35,7 @@ interface SessionViewProps {
   readonly registerInteractiveResolver: InteractiveSessionProps['registerInteractiveResolver'];
   readonly model?: string;
   readonly version?: string;
+  readonly updateAvailable?: { readonly latest: string };
   /**
    * Prompt typed on the splash screen. Submitted automatically on mount
    * so the user's first message kicks off the first turn — they don't
@@ -47,6 +48,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
   session,
   registerInteractiveResolver,
   model,
+  version,
+  updateAvailable,
   initialPrompt,
 }) => {
   const { exit } = useApp();
@@ -291,6 +294,17 @@ export const SessionView: React.FC<SessionViewProps> = ({
     // root lint config; re-add a disable directive here if it is.)
   }, [initialPrompt]);
 
+  // One-line "update available" banner, shown once on mount via the same
+  // auto-dismissing notice strip as voice/queue messages (clears on first
+  // submit). Skipped when an initial prompt is already running — that turn
+  // would clear it instantly anyway.
+  const firedUpdateNotice = useRef(false);
+  useEffect(() => {
+    if (firedUpdateNotice.current || !updateAvailable || initialPrompt) return;
+    firedUpdateNotice.current = true;
+    setSystemNotice(`✨ moxxy ${updateAvailable.latest} available — run \`moxxy update\``);
+  }, [updateAvailable, initialPrompt]);
+
   return (
     <Box flexDirection="column">
       <ChatView
@@ -362,6 +376,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
         mcp={mcpStatus}
         contextUsed={contextUsed}
         {...(contextWindow ? { contextWindow } : {})}
+        {...(version ? { version } : {})}
+        {...(updateAvailable ? { updateLatest: updateAvailable.latest } : {})}
       />
     </Box>
   );

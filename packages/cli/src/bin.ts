@@ -22,6 +22,7 @@ import { runServeCommand } from './commands/serve.js';
 import { runSessionsCommand } from './commands/sessions.js';
 import { runSecurityCommand } from './commands/security.js';
 import { runSelfUpdateCommand } from './commands/self-update.js';
+import { runUpdateCommand } from './commands/update.js';
 import { setupSessionWithConfig } from './setup.js';
 import { renderLogo } from './logo.js';
 import { colors } from './colors.js';
@@ -54,6 +55,7 @@ const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyA
       ['login <provider>', 'OAuth sign-in for providers that don\'t use API keys'],
       ['login status|logout', 'inspect / remove stored OAuth credentials'],
       ['doctor [--check-keys]', 'diagnose config, vault, providers, channels, memory'],
+      ['update [--check|--yes]', 'upgrade the moxxy CLI to the latest published version'],
     ],
   },
   {
@@ -195,6 +197,7 @@ const COMMANDS: Record<string, CommandHandler> = {
   mcp: runMcpCommand,
   schedule: runScheduleCommand,
   doctor: runDoctorCommand,
+  update: runUpdateCommand,
   prompt: runPromptCommand,
   tui: runTuiCommand,
   resume: runResumeCommand,

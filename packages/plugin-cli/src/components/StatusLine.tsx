@@ -33,6 +33,10 @@ export interface StatusLineProps {
   readonly contextUsed?: number;
   /** Active model's context window size. Required for the bar. */
   readonly contextWindow?: number;
+  /** Running CLI version — shown as a dim chip on the far right. */
+  readonly version?: string;
+  /** A newer published version, if any — turns the chip into an update hint. */
+  readonly updateLatest?: string;
 }
 
 /**
@@ -52,6 +56,8 @@ export const StatusLine: React.FC<StatusLineProps> = ({
   mcp,
   contextUsed,
   contextWindow,
+  version,
+  updateLatest,
 }) => {
   const busy = busyStartedAt != null;
   const showQueue = (queueCount ?? 0) > 0;
@@ -107,6 +113,16 @@ export const StatusLine: React.FC<StatusLineProps> = ({
           <>
             <Text dimColor>{`  ${Glyphs.midDot}  `}</Text>
             <ContextMeter used={contextUsed ?? 0} total={contextWindow!} />
+          </>
+        ) : null}
+        {version ? (
+          <>
+            <Text dimColor>{`  ${Glyphs.midDot}  `}</Text>
+            {updateLatest ? (
+              <Text color="yellow">{`v${version} ${Glyphs.contextUp}${updateLatest}`}</Text>
+            ) : (
+              <Text dimColor>{`v${version}`}</Text>
+            )}
           </>
         ) : null}
       </Box>
