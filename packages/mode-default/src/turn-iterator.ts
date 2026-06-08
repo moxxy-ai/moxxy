@@ -1,19 +1,17 @@
 import {
-  asToolCallId,
   buildSystemPromptWithSkills,
   collectProviderStream,
   createStuckLoopDetector,
-  dispatchToolCall,
+  emitRequestsAndDetectStuck,
+  executeToolUses,
   isContextOverflowError,
   projectMessages,
   runCompactionIfNeeded,
   runElisionIfNeeded,
   usageEventFields,
-  type CollectedToolUse,
   type ModeContext,
   type MoxxyEvent,
   type ProjectedMessages,
-  type StuckLoopDetector,
 } from '@moxxy/sdk';
 
 export const DEFAULT_MODE_NAME = 'default';
@@ -126,7 +124,14 @@ export async function* runDefaultMode(ctx: ModeContext): AsyncIterable<MoxxyEven
     // Clean provider call — reset the overflow-recovery budget.
     reactiveCompactions = 0;
 
-    const stuck = yield* emitRequestsAndDetectStuck(ctx, toolUses, detector);
+    const stuck = yield* emitRequestsAndDetectStuck(ctx, toolUses, detector, {
+      abortedResultMessage: 'default mode loop aborted (stuck pattern) before this call ran',
+      nearHint: 'against the same target (only volatile args like maxBytes varied)',
+      fatalMessage: ({ toolName, count, how }) =>
+        `default mode loop aborted — detected stuck pattern: tool "${toolName}" called ` +
+        `${count} times ${how}. The model is likely looping on the same call; ` +
+        `reset or rephrase.`,
+    });
     if (stuck) return;
 
     if (text || stopReason === 'end_turn' || toolUses.length === 0) {
@@ -161,114 +166,6 @@ export async function* runDefaultMode(ctx: ModeContext): AsyncIterable<MoxxyEven
     kind: 'fatal',
     message: `default mode loop exceeded maxIterations (${maxIterations})`,
   });
-}
-
-/** Emit tool_call_requested for each tool use and check the stuck-loop
- *  detector. Returns `true` when the detector tripped (caller should stop). */
-async function* emitRequestsAndDetectStuck(
-  ctx: ModeContext,
-  toolUses: ReadonlyArray<CollectedToolUse>,
-  detector: StuckLoopDetector,
-): AsyncGenerator<MoxxyEvent, boolean, unknown> {
-  // Requests emitted this batch. A stuck trip bails WITHOUT running
-  // executeToolUses, so every request emitted so far would otherwise be left
-  // as an orphan tool_call_requested (no tool_result). That orphan is the bug
-  // behind "tool stuck running forever, flips to error on the next message":
-  // the turn ends cleanly (composer re-enables) yet the call never resolves,
-  // so the desktop's pair-events fold can only clear it via the next
-  // user_prompt's markOrphansAtTurnBoundary. The provider also rejects an
-  // unresolved tool_use block next turn. Synthesize a failed result for each —
-  // same contract as executeToolUses' abort path.
-  const emitted: CollectedToolUse[] = [];
-  for (const t of toolUses) {
-    yield await ctx.emit({
-      type: 'tool_call_requested',
-      sessionId: ctx.sessionId,
-      turnId: ctx.turnId,
-      source: 'model',
-      callId: asToolCallId(t.id),
-      name: t.name,
-      input: t.input,
-    });
-    emitted.push(t);
-    const sig = detector.record(t.name, t.input);
-    if (sig.stuck) {
-      for (const r of emitted) {
-        yield await ctx.emit({
-          type: 'tool_result',
-          sessionId: ctx.sessionId,
-          turnId: ctx.turnId,
-          source: 'tool',
-          callId: asToolCallId(r.id),
-          ok: false,
-          error: { kind: 'aborted', message: 'default mode loop aborted (stuck pattern) before this call ran' },
-        });
-      }
-      const how =
-        sig.kind === 'near'
-          ? 'against the same target (only volatile args like maxBytes varied)'
-          : 'with identical input';
-      yield await ctx.emit({
-        type: 'error',
-        sessionId: ctx.sessionId,
-        turnId: ctx.turnId,
-        source: 'system',
-        kind: 'fatal',
-        message:
-          `default mode loop aborted — detected stuck pattern: tool "${t.name}" called ` +
-          `${sig.count} times ${how}. The model is likely looping on the same call; ` +
-          `reset or rephrase.`,
-      });
-      return true;
-    }
-  }
-  return false;
-}
-
-/** Execute tool uses, handling mid-batch abort. Returns `true` when the
- *  caller should `return` (abort observed). */
-async function* executeToolUses(
-  ctx: ModeContext,
-  toolUses: ReadonlyArray<CollectedToolUse>,
-  iteration: number,
-): AsyncGenerator<MoxxyEvent, boolean, unknown> {
-  // Tracks tool_call_requested events that haven't yet emitted a paired
-  // tool_result. On any early-exit (abort, unexpected throw), we synthesize
-  // results for the leftovers so the event log can't end with orphan
-  // tool_call_requested events.
-  const unresolved = new Set<string>(toolUses.map((t) => t.id));
-
-  for (const t of toolUses) {
-    if (ctx.signal.aborted) {
-      for (const orphanId of unresolved) {
-        yield await ctx.emit({
-          type: 'tool_result',
-          sessionId: ctx.sessionId,
-          turnId: ctx.turnId,
-          source: 'tool',
-          callId: asToolCallId(orphanId),
-          ok: false,
-          error: { kind: 'aborted', message: 'turn aborted before tool ran' },
-        });
-      }
-      unresolved.clear();
-      yield await ctx.emit({
-        type: 'abort',
-        sessionId: ctx.sessionId,
-        turnId: ctx.turnId,
-        source: 'system',
-        reason: 'signal aborted during tool execution',
-      });
-      return true;
-    }
-
-    try {
-      yield* dispatchToolCall(ctx, t, iteration);
-    } finally {
-      unresolved.delete(t.id);
-    }
-  }
-  return false;
 }
 
 function buildMessages(ctx: ModeContext): ProjectedMessages {

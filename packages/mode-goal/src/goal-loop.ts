@@ -1,19 +1,17 @@
 import {
-  asToolCallId,
   buildSystemPromptWithSkills,
   collectProviderStream,
   createStuckLoopDetector,
-  dispatchToolCall,
+  emitRequestsAndDetectStuck,
+  executeToolUses,
   isContextOverflowError,
   projectMessages,
   runCompactionIfNeeded,
   runElisionIfNeeded,
   usageEventFields,
-  type CollectedToolUse,
   type ModeContext,
   type MoxxyEvent,
   type PermissionResolver,
-  type StuckLoopDetector,
 } from '@moxxy/sdk';
 
 import { detectGoalTerminal } from './completion.js';
@@ -206,7 +204,24 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
       return;
     }
 
-    const stuck = yield* emitRequestsAndDetectStuck(ctx, toolUses, detector);
+    const stuck = yield* emitRequestsAndDetectStuck(ctx, toolUses, detector, {
+      abortedResultMessage: 'goal mode aborted (stuck pattern) before this call ran',
+      nearHint: 'against the same target (only volatile args varied)',
+      extraOnStuck: ({ toolName, count, kind }) => [
+        {
+          type: 'plugin_event',
+          sessionId: ctx.sessionId,
+          turnId: ctx.turnId,
+          source: 'plugin',
+          pluginId: GOAL_PLUGIN_ID,
+          subtype: 'goal_stuck',
+          payload: { tool: toolName, count, kind },
+        },
+      ],
+      fatalMessage: ({ toolName, count, how }) =>
+        `goal mode aborted — stuck pattern: tool "${toolName}" called ${count} times ${how}. ` +
+        `The model is looping on the same call; send another message to redirect it.`,
+    });
     if (stuck) return;
 
     if (text || stopReason === 'end_turn' || toolUses.length === 0) {
@@ -326,111 +341,4 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
 function composeSystemPrompts(user: string | undefined, layer: string): string {
   if (!user || user.trim() === '') return layer;
   return `${layer}\n\n---\n\n${user}`;
-}
-
-/** Emit tool_call_requested for each tool use and check the stuck-loop
- *  detector. Returns `true` when the detector tripped (caller should stop). */
-async function* emitRequestsAndDetectStuck(
-  ctx: ModeContext,
-  toolUses: ReadonlyArray<CollectedToolUse>,
-  detector: StuckLoopDetector,
-): AsyncGenerator<MoxxyEvent, boolean, unknown> {
-  // A stuck trip bails WITHOUT running executeToolUses, so any request emitted
-  // so far would be orphaned (a tool_call_requested with no tool_result) —
-  // which renders as a tool stuck "running" forever and only clears when the
-  // next user_prompt arrives. Synthesize a failed result for each before
-  // returning, mirroring executeToolUses' abort path. See the same fix in
-  // mode-tool-use's turn-iterator.
-  const emitted: CollectedToolUse[] = [];
-  for (const t of toolUses) {
-    yield await ctx.emit({
-      type: 'tool_call_requested',
-      sessionId: ctx.sessionId,
-      turnId: ctx.turnId,
-      source: 'model',
-      callId: asToolCallId(t.id),
-      name: t.name,
-      input: t.input,
-    });
-    emitted.push(t);
-    const sig = detector.record(t.name, t.input);
-    if (sig.stuck) {
-      for (const r of emitted) {
-        yield await ctx.emit({
-          type: 'tool_result',
-          sessionId: ctx.sessionId,
-          turnId: ctx.turnId,
-          source: 'tool',
-          callId: asToolCallId(r.id),
-          ok: false,
-          error: { kind: 'aborted', message: 'goal mode aborted (stuck pattern) before this call ran' },
-        });
-      }
-      const how =
-        sig.kind === 'near'
-          ? 'against the same target (only volatile args varied)'
-          : 'with identical input';
-      yield await ctx.emit({
-        type: 'plugin_event',
-        sessionId: ctx.sessionId,
-        turnId: ctx.turnId,
-        source: 'plugin',
-        pluginId: GOAL_PLUGIN_ID,
-        subtype: 'goal_stuck',
-        payload: { tool: t.name, count: sig.count, kind: sig.kind },
-      });
-      yield await ctx.emit({
-        type: 'error',
-        sessionId: ctx.sessionId,
-        turnId: ctx.turnId,
-        source: 'system',
-        kind: 'fatal',
-        message:
-          `goal mode aborted — stuck pattern: tool "${t.name}" called ${sig.count} times ${how}. ` +
-          `The model is looping on the same call; send another message to redirect it.`,
-      });
-      return true;
-    }
-  }
-  return false;
-}
-
-/** Execute tool uses, handling mid-batch abort. Returns `true` when the
- *  caller should stop (abort observed). Mirrors mode-tool-use. */
-async function* executeToolUses(
-  ctx: ModeContext,
-  toolUses: ReadonlyArray<CollectedToolUse>,
-  iteration: number,
-): AsyncGenerator<MoxxyEvent, boolean, unknown> {
-  const unresolved = new Set<string>(toolUses.map((t) => t.id));
-  for (const t of toolUses) {
-    if (ctx.signal.aborted) {
-      for (const orphanId of unresolved) {
-        yield await ctx.emit({
-          type: 'tool_result',
-          sessionId: ctx.sessionId,
-          turnId: ctx.turnId,
-          source: 'tool',
-          callId: asToolCallId(orphanId),
-          ok: false,
-          error: { kind: 'aborted', message: 'turn aborted before tool ran' },
-        });
-      }
-      unresolved.clear();
-      yield await ctx.emit({
-        type: 'abort',
-        sessionId: ctx.sessionId,
-        turnId: ctx.turnId,
-        source: 'system',
-        reason: 'signal aborted during tool execution',
-      });
-      return true;
-    }
-    try {
-      yield* dispatchToolCall(ctx, t, iteration);
-    } finally {
-      unresolved.delete(t.id);
-    }
-  }
-  return false;
 }
