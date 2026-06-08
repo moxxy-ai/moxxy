@@ -92,6 +92,31 @@ function safeJsonLen(v: unknown): number {
 }
 
 /**
+ * Resolve the active model's context window for the proactive
+ * compaction / elision thresholds.
+ *
+ * `config.model` is a free-form, unvalidated string, and providers happily
+ * serve ids that aren't in their fixed descriptor list — a newer release
+ * (`claude-opus-4-8`), a dated id, or a model registered at runtime via
+ * provider-admin. So an exact `models.find(m => m.id === ctx.model)` often
+ * MISSES, and both auto-compaction and auto-elision used to silently turn into
+ * permanent no-ops for the whole session (the context then grows unbounded and
+ * the agent "loses its context"). Falling back to the provider's first
+ * descriptor — exactly what the TUI context meter already does
+ * (`resolveContextWindow` in @moxxy/plugin-cli) — keeps both features alive on
+ * an unrecognised id. Returns null only when the provider exposes no usable
+ * window at all (no models / a zero window).
+ */
+export function resolveModelContext(
+  ctx: ModeContext,
+): { readonly contextWindow: number; readonly reserveForOutput: number } | null {
+  const descriptor = ctx.provider.models.find((m) => m.id === ctx.model) ?? ctx.provider.models[0];
+  const contextWindow = descriptor?.contextWindow;
+  if (!contextWindow || contextWindow <= 0) return null;
+  return { contextWindow, reserveForOutput: descriptor?.maxOutputTokens ?? 0 };
+}
+
+/**
  * Auto-compaction hook every mode calls once per iteration, right
  * before building messages for the next provider call. Reads the
  * active model's real `contextWindow` (not a magic max-int sentinel),
@@ -101,9 +126,8 @@ function safeJsonLen(v: unknown): number {
  * already honors compaction events, so the next provider call sees
  * the summarized prefix automatically.
  *
- * Designed to be tolerant: no compactor, no model descriptor, no
- * contextWindow, or a compactor throw all degrade to a no-op so a
- * compactor bug can't kill the turn. Failures emit a non-fatal
+ * Designed to be tolerant: no compactor or a compactor throw degrade to a
+ * no-op so a compactor bug can't kill the turn. Failures emit a non-fatal
  * `error` event for observability.
  */
 export async function runCompactionIfNeeded(
@@ -113,20 +137,22 @@ export async function runCompactionIfNeeded(
   const compactor = ctx.compactor;
   if (!compactor) return false;
 
-  // Resolve the active model's descriptor so we use the *real* context
-  // window. `Number.MAX_SAFE_INTEGER` (the old /compact behavior) made
-  // threshold-based compactors always look comfortable, even at 99%.
-  const descriptor = ctx.provider.models.find((m) => m.id === ctx.model);
-  const contextWindow = descriptor?.contextWindow;
-  if (!contextWindow || contextWindow <= 0) return false;
+  // Resolve the active model's real context window (with a models[0] fallback
+  // for unlisted ids). A reactive `force` compaction must still run when the
+  // window can't be resolved — the provider has already told us the prompt
+  // overflowed — so only the proactive threshold path requires a window. The
+  // shipped compactor ignores `contextWindow` inside `compact()`, so the
+  // sentinel below only affects `shouldCompact`, which `force` bypasses.
+  const resolved = resolveModelContext(ctx);
+  if (!resolved && !opts.force) return false;
 
   const events = ctx.log.slice();
   if (events.length === 0) return false;
 
   const budget = {
-    contextWindow,
+    contextWindow: resolved?.contextWindow ?? Number.MAX_SAFE_INTEGER,
     estimatedTokens: estimateContextTokens(ctx.log),
-    reserveForOutput: descriptor?.maxOutputTokens ?? 0,
+    reserveForOutput: resolved?.reserveForOutput ?? 0,
   } as const;
 
   // `force` skips the threshold gate — used reactively after the provider
