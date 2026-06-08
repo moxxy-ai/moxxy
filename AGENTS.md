@@ -41,6 +41,7 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 @moxxy/isolator-subprocess        subprocess Isolator (kernel-enforced process boundary)
 @moxxy/isolator-wasm              WebAssembly Isolator (zero ambient authority; experimental)
 @moxxy/plugin-provider-openai-codex  ChatGPT OAuth provider (Responses API)
+@moxxy/plugin-provider-claude-code  Claude Pro/Max OAuth provider (Messages API, bearer token)
 @moxxy/plugin-provider-admin      register OpenAI-compatible providers at runtime
 @moxxy/plugin-oauth               generic OAuth 2.0 + PKCE / device-code
 @moxxy/plugin-stt-whisper         Whisper transcriber (voice in); `-codex` variant reuses ChatGPT creds

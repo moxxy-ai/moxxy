@@ -1,0 +1,44 @@
+{
+  "name": "@moxxy/plugin-provider-claude-code",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Claude subscription (Pro/Max) LLMProvider plugin for moxxy. Talks to the standard Anthropic Messages API using a Claude Code OAuth token from `claude setup-token` or an in-app sign-in.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "provider"
+    }
+  },
+  "dependencies": {
+    "@moxxy/sdk": "workspace:*",
+    "@moxxy/plugin-oauth": "workspace:*",
+    "@moxxy/plugin-provider-anthropic": "workspace:*"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "zod": "catalog:"
+  }
+}

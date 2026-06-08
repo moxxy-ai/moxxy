@@ -5,8 +5,9 @@
  * dance is identical regardless of which provider plugin owns it.
  */
 
-import type { ProviderAuthContext, ProviderDef } from '@moxxy/sdk';
+import { MoxxyError, type ProviderAuthContext, type ProviderDef } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
+import { isCancel, password, text } from '@clack/prompts';
 
 export interface BuildAuthContextOptions {
   readonly headless: boolean;
@@ -21,12 +22,26 @@ export function buildProviderAuthContext(
   return {
     headless: opts.headless,
     write: opts.write ?? ((s) => process.stdout.write(s)),
+    // A TTY-only single-line input used by out-of-band / paste flows (e.g.
+    // claude-code). Omitted in headless mode so those flows fail fast with a
+    // "set the env var instead" message rather than hanging on a dead stdin.
+    ...(opts.headless ? {} : { prompt: clackPrompt }),
     vault: {
       get: (key) => vault.get(key),
       set: (key, value, tags) => vault.set(key, value, tags ? [...tags] : undefined),
       delete: (key) => vault.delete(key),
     },
   };
+}
+
+async function clackPrompt(question: string, opts?: { readonly mask?: boolean }): Promise<string> {
+  const answer = opts?.mask
+    ? await password({ message: question })
+    : await text({ message: question });
+  if (isCancel(answer)) {
+    throw new MoxxyError({ code: 'AUTH_DENIED', message: 'Sign-in cancelled.' });
+  }
+  return typeof answer === 'string' ? answer : '';
 }
 
 /** True if the provider plugin advertises an OAuth login flow. */

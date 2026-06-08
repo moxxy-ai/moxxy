@@ -136,6 +136,15 @@ export interface ProviderAuthContext {
    * whether they're running inside a wizard or a one-shot command.
    */
   readonly write: (chunk: string) => void;
+  /**
+   * Optional single-line input prompt. Present when the host has an
+   * interactive TTY; absent in headless runs. Flows that need the user to
+   * paste something back — out-of-band / manual authorization-code flows,
+   * or an existing-token paste — call this; flows that capture the code via
+   * a loopback server (e.g. openai-codex) ignore it. Pass `{ mask: true }`
+   * for secrets so the host can hide the echoed characters.
+   */
+  readonly prompt?: (question: string, opts?: { readonly mask?: boolean }) => Promise<string>;
 }
 
 export interface ProviderOAuthResult {

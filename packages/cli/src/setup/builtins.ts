@@ -6,6 +6,7 @@ import type { MoxxyConfig } from '@moxxy/config';
 import { anthropicPlugin } from '@moxxy/plugin-provider-anthropic';
 import { openaiPlugin } from '@moxxy/plugin-provider-openai';
 import { openaiCodexPlugin } from '@moxxy/plugin-provider-openai-codex';
+import { claudeCodePlugin } from '@moxxy/plugin-provider-claude-code';
 import { buildWhisperPlugin } from '@moxxy/plugin-stt-whisper';
 import { buildWhisperCodexPlugin } from '@moxxy/plugin-stt-whisper-codex';
 import { builtinToolsPlugin } from '@moxxy/tools-builtin';
@@ -74,6 +75,7 @@ export const BUILTIN_REQUIREMENT_DECISIONS: Readonly<Record<string, BuiltinRequi
   '@moxxy/plugin-provider-anthropic': { hardRequirements: false, reason: 'provider is independently activatable' },
   '@moxxy/plugin-provider-openai': { hardRequirements: false, reason: 'provider is independently activatable' },
   '@moxxy/plugin-provider-openai-codex': { hardRequirements: false, reason: 'provider owns its OAuth flow' },
+  '@moxxy/plugin-provider-claude-code': { hardRequirements: false, reason: 'provider owns its OAuth flow' },
   '@moxxy/plugin-provider-admin': { hardRequirements: false, reason: 'provider registry access is injected by bootstrap closure' },
   '@moxxy/tools-builtin': { hardRequirements: false, reason: 'core tool pack has no plugin dependency' },
   '@moxxy/mode-tool-use': { hardRequirements: false, reason: 'mode has no plugin dependency' },
@@ -157,6 +159,7 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
     { name: '@moxxy/plugin-provider-anthropic', plugin: anthropicPlugin },
     { name: '@moxxy/plugin-provider-openai', plugin: openaiPlugin },
     { name: '@moxxy/plugin-provider-openai-codex', plugin: openaiCodexPlugin },
+    { name: '@moxxy/plugin-provider-claude-code', plugin: claudeCodePlugin },
     { name: '@moxxy/tools-builtin', plugin: builtinToolsPlugin },
     { name: '@moxxy/mode-tool-use', plugin: toolUseModePlugin },
     { name: '@moxxy/mode-plan-execute', plugin: planExecuteModePlugin },

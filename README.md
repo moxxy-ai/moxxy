@@ -236,6 +236,7 @@ export default defineConfig({
 @moxxy/plugin-provider-anthropic    ← LLM provider
 @moxxy/plugin-provider-openai       ← LLM provider
 @moxxy/plugin-provider-openai-codex ← ChatGPT OAuth provider
+@moxxy/plugin-provider-claude-code  ← Claude Pro/Max OAuth provider
 @moxxy/plugin-provider-admin        ← register OpenAI-compatible providers at runtime
 @moxxy/plugin-mcp                   ← MCP servers as tool sources
 @moxxy/plugin-vault                 ← encrypted secrets

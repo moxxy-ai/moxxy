@@ -14,6 +14,38 @@ export interface AnthropicProviderConfig {
   readonly baseURL?: string;
   readonly defaultModel?: string;
   readonly client?: Anthropic;
+  /**
+   * Override the reported provider name (used in error context). Defaults
+   * to `'anthropic'`. The `claude-code` subscription provider reuses this
+   * class with `name: 'claude-code'` so errors/metering attribute correctly.
+   */
+  readonly name?: string;
+  /**
+   * OAuth (Claude subscription) mode. When set, the client authenticates
+   * with `Authorization: Bearer <oauthToken>` instead of an `x-api-key`,
+   * and the request/response is otherwise the standard Messages API. Used
+   * by `@moxxy/plugin-provider-claude-code`; the plain `anthropic` provider
+   * leaves all of these unset and behaves exactly as before.
+   */
+  readonly oauthToken?: string;
+  /** `anthropic-beta` values sent with every OAuth-mode request (joined by `,`). */
+  readonly oauthBeta?: ReadonlyArray<string>;
+  /**
+   * Text injected as the FIRST system block in OAuth mode. Claude rejects
+   * subscription tokens unless the system prompt leads with the Claude Code
+   * identity line, so the provider prepends this ahead of the real system
+   * prompt (which follows as the next block).
+   */
+  readonly systemPreamble?: string;
+  /** Epoch-ms expiry of `oauthToken`, if known — drives proactive refresh. */
+  readonly oauthExpiresAt?: number;
+  /**
+   * Refresh callback. Returns a fresh access token (and its expiry). Invoked
+   * proactively just before a request when the current token is near expiry,
+   * and once more reactively if a request still comes back 401. Omit for
+   * non-refreshable tokens (e.g. a pasted `claude setup-token`).
+   */
+  readonly oauthRefresh?: () => Promise<{ readonly token: string; readonly expiresAt?: number }>;
 }
 
 export const anthropicModels: ReadonlyArray<ModelDescriptor> = [
@@ -23,19 +55,107 @@ export const anthropicModels: ReadonlyArray<ModelDescriptor> = [
 ];
 
 export class AnthropicProvider implements LLMProvider {
-  readonly name = 'anthropic';
+  readonly name: string;
   readonly models = anthropicModels;
-  private readonly client: Anthropic;
+  // Mutable so OAuth-mode refresh can swap in a client carrying the new
+  // bearer token; the plain apiKey client never changes after construction.
+  private client: Anthropic;
   private readonly defaultModel: string;
+  private readonly baseURL?: string;
+  // Present only in OAuth (Claude subscription) mode.
+  private readonly oauth?: {
+    readonly beta: ReadonlyArray<string>;
+    readonly systemPreamble?: string;
+    readonly refresh?: () => Promise<{ readonly token: string; readonly expiresAt?: number }>;
+  };
+  private oauthToken?: string;
+  private oauthExpiresAt?: number;
 
   constructor(config: AnthropicProviderConfig = {}) {
-    this.client =
-      config.client ??
-      new Anthropic({
-        apiKey: config.apiKey ?? process.env.ANTHROPIC_API_KEY,
-        ...(config.baseURL ? { baseURL: config.baseURL } : {}),
-      });
+    this.name = config.name ?? 'anthropic';
     this.defaultModel = config.defaultModel ?? 'claude-sonnet-4-6';
+    if (config.baseURL) this.baseURL = config.baseURL;
+
+    if (config.oauthToken) {
+      this.oauthToken = config.oauthToken;
+      this.oauthExpiresAt = config.oauthExpiresAt;
+      this.oauth = {
+        beta: config.oauthBeta ?? [],
+        ...(config.systemPreamble ? { systemPreamble: config.systemPreamble } : {}),
+        ...(config.oauthRefresh ? { refresh: config.oauthRefresh } : {}),
+      };
+      this.client = config.client ?? this.makeOauthClient(config.oauthToken);
+    } else {
+      this.client =
+        config.client ??
+        new Anthropic({
+          apiKey: config.apiKey ?? process.env.ANTHROPIC_API_KEY,
+          ...(config.baseURL ? { baseURL: config.baseURL } : {}),
+        });
+    }
+  }
+
+  /**
+   * Build an Anthropic client in OAuth (bearer) mode. `apiKey: null` stops
+   * the SDK from falling back to `ANTHROPIC_API_KEY` and suppresses the
+   * `x-api-key` header (its `apiKeyAuth()` returns `{}` when apiKey is null),
+   * so only `Authorization: Bearer <token>` goes out, plus the beta header.
+   */
+  private makeOauthClient(token: string): Anthropic {
+    const beta = this.oauth?.beta ?? [];
+    return new Anthropic({
+      apiKey: null,
+      authToken: token,
+      ...(beta.length > 0 ? { defaultHeaders: { 'anthropic-beta': beta.join(',') } } : {}),
+      ...(this.baseURL ? { baseURL: this.baseURL } : {}),
+    });
+  }
+
+  /** Proactively refresh the bearer token when it's within the skew window. */
+  private async ensureFreshOauth(): Promise<void> {
+    if (!this.oauth?.refresh) return;
+    if (this.oauthExpiresAt === undefined) return;
+    if (Date.now() + 60_000 < this.oauthExpiresAt) return;
+    await this.refreshOauthNow();
+  }
+
+  /** Force a token refresh and rebuild the client with the new bearer. */
+  private async refreshOauthNow(): Promise<void> {
+    if (!this.oauth?.refresh) throw new Error('no refresh callback');
+    const next = await this.oauth.refresh();
+    this.oauthToken = next.token;
+    this.oauthExpiresAt = next.expiresAt;
+    this.client = this.makeOauthClient(next.token);
+  }
+
+  /**
+   * Build the `system` request field. In OAuth mode the Claude Code identity
+   * preamble MUST lead, so we always emit block form with the preamble first;
+   * the real system prompt follows (carrying the cache breakpoint if set).
+   * In apiKey mode the behaviour is unchanged: a bare string, upgraded to a
+   * single cache-marked block only when a system cache hint is present.
+   */
+  private buildSystemParam(
+    system: string | undefined,
+    cacheSystem: boolean,
+  ): string | undefined | Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> {
+    const preamble = this.oauth?.systemPreamble;
+    if (preamble) {
+      const blocks: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> = [
+        { type: 'text', text: preamble },
+      ];
+      if (system) {
+        blocks.push(
+          cacheSystem
+            ? { type: 'text', text: system, cache_control: { type: 'ephemeral' } }
+            : { type: 'text', text: system },
+        );
+      }
+      return blocks;
+    }
+    return cacheSystem && system
+      ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }]
+      : system;
   }
 
   async *stream(req: ProviderRequest): AsyncIterable<ProviderEvent> {
@@ -56,35 +176,69 @@ export class AnthropicProvider implements LLMProvider {
       req.tools && req.tools.length > 0
         ? toAnthropicTools(req.tools, { cacheLast: cacheTools })
         : undefined;
-    // To carry cache_control the system prompt must be sent in block form.
-    const systemParam =
-      cacheSystem && system
-        ? [{ type: 'text' as const, text: system, cache_control: { type: 'ephemeral' as const } }]
-        : system;
+    // OAuth mode prepends the Claude Code identity preamble as the first
+    // system block; apiKey mode keeps the prior string/cache-block behaviour.
+    const systemParam = this.buildSystemParam(system, cacheSystem);
     const model = req.model || this.defaultModel;
 
     yield { type: 'message_start', model };
 
-    let stream: AsyncIterable<unknown>;
-    try {
-      stream = this.client.messages.stream(
-        {
-          model,
-          max_tokens: req.maxTokens ?? 4096,
-          system: systemParam,
-          messages,
-          tools,
-          ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
-        } as Parameters<typeof this.client.messages.stream>[0],
-        // Pass the AbortSignal into the SDK request options so cancelling
-        // tears down the underlying HTTP request. Without this, Esc only
-        // stopped our loop while the model kept generating upstream.
-        req.signal ? { signal: req.signal } : undefined,
-      );
-    } catch (err) {
-      yield { type: 'error', ...toFriendlyError(err, { provider: 'anthropic' }) };
-      return;
+    // In OAuth mode refresh the bearer proactively when it's near expiry, so
+    // we don't fire a request on a token we already knew was about to die.
+    if (this.oauth) {
+      try {
+        await this.ensureFreshOauth();
+      } catch (err) {
+        yield { type: 'error', ...toFriendlyError(err, { provider: this.name }) };
+        return;
+      }
     }
+
+    const requestBody: Record<string, unknown> = {
+      model,
+      max_tokens: req.maxTokens ?? 4096,
+      system: systemParam,
+      messages,
+      tools,
+      ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+    };
+
+    // A 401 always arrives before any SSE body, so in OAuth mode we can force
+    // a single refresh and replay the request with no risk of duplicate output.
+    try {
+      yield* this.streamOnce(requestBody, req.signal);
+    } catch (err) {
+      if (this.oauth?.refresh && isUnauthorized(err)) {
+        try {
+          await this.refreshOauthNow();
+          yield* this.streamOnce(requestBody, req.signal);
+          return;
+        } catch (retryErr) {
+          yield { type: 'error', ...toFriendlyError(retryErr, { provider: this.name }) };
+          return;
+        }
+      }
+      yield { type: 'error', ...toFriendlyError(err, { provider: this.name }) };
+    }
+  }
+
+  /**
+   * One streaming attempt. THROWS on transport/HTTP errors so `stream()` can
+   * decide whether to refresh-and-replay (OAuth 401) or surface the error;
+   * yields content events plus a terminal `message_end` on the happy path.
+   * Abort is terminal here (yields the abort error and returns).
+   */
+  private async *streamOnce(
+    requestBody: Record<string, unknown>,
+    signal: AbortSignal | undefined,
+  ): AsyncIterable<ProviderEvent> {
+    const stream = this.client.messages.stream(
+      requestBody as unknown as Parameters<typeof this.client.messages.stream>[0],
+      // Pass the AbortSignal into the SDK request options so cancelling
+      // tears down the underlying HTTP request. Without this, Esc only
+      // stopped our loop while the model kept generating upstream.
+      signal ? { signal } : undefined,
+    );
 
     const pendingToolUses = new Map<string, { name: string; partial: string }>();
     // Anthropic's stream events carry a block `index` on every delta/stop;
@@ -98,7 +252,7 @@ export class AnthropicProvider implements LLMProvider {
 
     try {
       for await (const event of stream as AsyncIterable<AnthropicStreamEvent>) {
-        if (req.signal?.aborted) {
+        if (signal?.aborted) {
           yield { type: 'error', message: 'aborted', retryable: false };
           return;
         }
@@ -189,8 +343,14 @@ export class AnthropicProvider implements LLMProvider {
         }
       }
     } catch (err) {
-      yield { type: 'error', ...toFriendlyError(err, { provider: 'anthropic' }) };
-      return;
+      // A cancel surfaces as a thrown AbortError mid-await — report it as the
+      // clean terminal 'aborted' event. Every other error propagates so
+      // `stream()` can classify it (OAuth 401 → refresh+replay; else error).
+      if (signal?.aborted) {
+        yield { type: 'error', message: 'aborted', retryable: false };
+        return;
+      }
+      throw err;
     }
 
     yield { type: 'message_end', stopReason, usage };
@@ -199,17 +359,21 @@ export class AnthropicProvider implements LLMProvider {
   async countTokens(req: Pick<ProviderRequest, 'model' | 'messages' | 'system' | 'tools'>): Promise<number> {
     const { system, messages } = toAnthropicMessages(req.messages);
     const tools = req.tools && req.tools.length > 0 ? toAnthropicTools(req.tools) : undefined;
+    // Mirror stream(): in OAuth mode the request carries the identity preamble
+    // as an extra system block, so count it too for a faithful estimate.
+    const preamble = this.oauth?.systemPreamble;
+    const systemForCount = preamble ? `${preamble}\n\n${system ?? ''}` : system;
     try {
       const result = await (this.client.messages as unknown as { countTokens: (args: unknown) => Promise<{ input_tokens: number }> }).countTokens({
         model: req.model || this.defaultModel,
-        system,
+        system: systemForCount,
         messages,
         tools,
       });
       return result.input_tokens;
     } catch {
       const blob =
-        (system ?? '') +
+        (systemForCount ?? '') +
         messages.map((m) => JSON.stringify(m.content)).join('') +
         JSON.stringify(tools ?? []);
       return estimateTextTokens(blob);
@@ -266,4 +430,15 @@ function mapStopReason(s: string): StopReason {
   if (s === 'stop_sequence') return 'stop_sequence';
   if (s === 'end_turn') return 'end_turn';
   return 'error';
+}
+
+/**
+ * True when the SDK error is an HTTP 401. The Anthropic SDK throws
+ * `APIError` instances carrying a numeric `status`; an expired/revoked OAuth
+ * bearer is the only 401 we want to refresh-and-retry on.
+ */
+function isUnauthorized(err: unknown): boolean {
+  return typeof (err as { status?: unknown } | null | undefined)?.status === 'number'
+    ? (err as { status: number }).status === 401
+    : false;
 }
