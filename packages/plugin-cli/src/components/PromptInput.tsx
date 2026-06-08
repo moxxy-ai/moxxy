@@ -100,7 +100,8 @@ export const PromptInput: React.FC<PromptInputProps> = ({
 
   const slashEligible = state.buffer.startsWith('/') && !state.buffer.includes('\n');
   const slashMatches: ReadonlyArray<SlashCommand> = slashEligible
-    ? matchSlash(state.buffer, slashCommands)
+    ? // No cap — the dropdown windows/scrolls the full match set itself.
+      matchSlash(state.buffer, slashCommands, Number.MAX_SAFE_INTEGER)
     : [];
   const slashMatchesRef = useRef(slashMatches);
   slashMatchesRef.current = slashMatches;

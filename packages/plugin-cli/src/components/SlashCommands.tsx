@@ -85,15 +85,30 @@ export function matchSlash(
 /**
  * Inline autocomplete dropdown rendered above the prompt input when the
  * buffer starts with `/`. `cursor` is the index of the highlighted entry.
+ *
+ * The list scrolls: it shows a window of at most `maxVisible` rows that
+ * follows the cursor (with `↑ N more` / `↓ N more` markers), so the full
+ * command set is reachable with ↑↓ instead of being truncated.
  */
 export const SlashSuggestions: React.FC<{
   matches: ReadonlyArray<SlashCommand>;
   cursor: number;
-}> = ({ matches, cursor }) => {
+  maxVisible?: number;
+}> = ({ matches, cursor, maxVisible = 8 }) => {
   if (matches.length === 0) return null;
+  let start = 0;
+  if (matches.length > maxVisible) {
+    const half = Math.floor(maxVisible / 2);
+    start = Math.min(Math.max(0, cursor - half), matches.length - maxVisible);
+  }
+  const end = Math.min(matches.length, start + maxVisible);
+  const moreAbove = start;
+  const moreBelow = matches.length - end;
   return (
     <Box flexDirection="column">
-      {matches.map((m, i) => {
+      {moreAbove > 0 ? <Text dimColor>{`  ↑ ${moreAbove} more`}</Text> : null}
+      {matches.slice(start, end).map((m, idx) => {
+        const i = start + idx;
         const focused = i === cursor;
         return (
           <Box key={m.name}>
@@ -103,7 +118,8 @@ export const SlashSuggestions: React.FC<{
           </Box>
         );
       })}
-      <Text dimColor>  tab to complete · enter to send · esc to dismiss</Text>
+      {moreBelow > 0 ? <Text dimColor>{`  ↓ ${moreBelow} more`}</Text> : null}
+      <Text dimColor>  ↑↓ navigate · tab to complete · enter to send · esc to dismiss</Text>
     </Box>
   );
 };

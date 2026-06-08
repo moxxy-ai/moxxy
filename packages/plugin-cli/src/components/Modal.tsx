@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Text, useInput } from 'ink';
-import { Border, Colors } from '../theme.js';
+import { Border } from '../theme.js';
 
 export interface ModalTab {
   readonly id: string;
@@ -115,96 +115,51 @@ export const Modal: React.FC<ModalProps> = ({
   );
 };
 
-const BAND_BG = Colors.chrome;       // mid-tone gray fill for the heading row
-const ACTIVE_TAB_BG = 'white';       // inverse pill that pops off the gray band
+const ACTIVE_TAB_BG = 'white';       // inverse pill marking the current tab
 const ACTIVE_TAB_FG = 'black';
-const INACTIVE_TAB_FG = 'white';     // visible-but-quiet against the gray band
+const INACTIVE_TAB_FG = 'white';
 
 /**
- * Full-row gray heading band carrying the title and optional tabs.
- * The band sits flush against the box borders (no outer padding) and
- * carries its own internal padding so the title has breathing room
- * without indenting the band itself.
+ * Clean heading row carrying the title and optional tabs as plain text on
+ * the terminal background — no filled band (which rendered as dark "bars" on
+ * many terminals). A `marginTop` separates it from the top border.
  *
- * Width is computed from `process.stdout.columns` minus the 2 border
- * cells. The min floor (20) is a safety net for narrow terminals;
- * Ink truncates beyond the box width anyway.
- *
- * Tabs render inline on the band:
- * - Active tab → inverse white pill (white bg, black bold) — pops off
- *   the gray band so it reads as the current view at a glance.
- * - Inactive tab → gray-on-gray cell with plain white text — the band
- *   bg is preserved so the row feels like one cohesive surface.
+ * Tabs render inline after the title:
+ * - Active tab → inverse white pill (white bg, black bold) so the current
+ *   view reads at a glance.
+ * - Inactive tab → plain text, separated by a few spaces.
  */
 const HeaderBand: React.FC<{
   title: string;
   tabs: ReadonlyArray<ModalTab> | undefined;
   activeTabId: string | undefined;
 }> = ({ title, tabs, activeTabId }) => {
-  const termWidth = process.stdout.columns ?? 80;
-  const innerWidth = Math.max(20, termWidth - 2);
-
-  // Internal padding lives inside the band so the title and tabs feel
-  // like proper inset "chips" rather than text glued to the band edge.
-  // Title: 6 cells of band on each side. Tabs: 4 cells of pill bg on
-  // each side. Inter-tab gap: 4 band cells so adjacent tabs read as
-  // distinct chips, not a continuous strip.
-  const titleText = `      ${title}      `;
-  let used = titleText.length;
-
   const tabNodes: React.ReactNode[] = [];
   if (tabs && tabs.length > 0) {
     tabs.forEach((tab, i) => {
-      if (i > 0) {
-        tabNodes.push(
-          <Text key={`gap-${tab.id}`} backgroundColor={BAND_BG}>
-            {'  '}
-          </Text>,
-        );
-        used += 2;
-      }
+      if (i > 0) tabNodes.push(<Text key={`gap-${tab.id}`}>{'   '}</Text>);
       const focused = tab.id === activeTabId;
-      const label = ` ${tab.label} `;
       tabNodes.push(
         focused ? (
           <Text key={tab.id} backgroundColor={ACTIVE_TAB_BG} color={ACTIVE_TAB_FG} bold>
-            {label}
+            {` ${tab.label} `}
           </Text>
         ) : (
-          <Text key={tab.id} backgroundColor={BAND_BG} color={INACTIVE_TAB_FG}>
-            {label}
+          <Text key={tab.id} color={INACTIVE_TAB_FG}>
+            {tab.label}
           </Text>
         ),
       );
-      used += label.length;
     });
   }
 
-  const trailingPadding = ' '.repeat(Math.max(0, innerWidth - used));
-  // Full-width blank band row used as vertical padding above and below
-  // the content row so the heading reads as a proper title block, not a
-  // single tight line. `height={1}` is required — without it Ink can
-  // collapse a Box whose only child is a whitespace `Text` to zero
-  // height, which would surface as a dark gap between the border and
-  // the band.
-  const blankBandRow = ' '.repeat(innerWidth);
-  const renderBlankRow = (key: string): React.ReactElement => (
-    <Box key={key} width="100%" height={1}>
-      <Text backgroundColor={BAND_BG}>{blankBandRow}</Text>
-    </Box>
-  );
-
   return (
-    <Box flexDirection="column" width="100%">
-      {renderBlankRow('top')}
-      <Box width="100%" height={1}>
-        <Text backgroundColor={BAND_BG} color="white" bold>
-          {titleText}
-        </Text>
-        {tabNodes}
-        <Text backgroundColor={BAND_BG}>{trailingPadding}</Text>
-      </Box>
-      {renderBlankRow('bottom')}
+    <Box width="100%" paddingX={1} marginTop={1}>
+      <Text color="white" bold>
+        {title}
+      </Text>
+      {tabNodes.length > 0 ? <Text>{'     '}</Text> : null}
+      {tabNodes}
     </Box>
   );
 };

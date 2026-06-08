@@ -274,26 +274,19 @@ export interface OpenPluginsPickerDeps {
   setSystemNotice: (msg: string | null) => void;
 }
 
-/** Maps a plugin's primary contribution kind to a friendly picker tab. */
+/** Maps a plugin's primary contribution kind to one of a few basic picker
+ *  tabs. Everything that isn't a provider / mode / channel / tool lands in
+ *  "Others" (embedders, voice, isolators, compactors, cache strategies, …). */
 const PLUGIN_KIND_TAB: Record<string, { id: string; label: string }> = {
   provider: { id: 'providers', label: 'Providers' },
   mode: { id: 'modes', label: 'Modes' },
   channel: { id: 'channels', label: 'Channels' },
-  tool: { id: 'tools', label: 'Tools & Agents' },
-  agent: { id: 'tools', label: 'Tools & Agents' },
-  command: { id: 'tools', label: 'Tools & Agents' },
-  embedder: { id: 'memory', label: 'Memory' },
-  transcriber: { id: 'voice', label: 'Voice' },
-  synthesizer: { id: 'voice', label: 'Voice' },
-  isolator: { id: 'security', label: 'Security' },
-  compactor: { id: 'context', label: 'Context' },
-  cacheStrategy: { id: 'context', label: 'Context' },
+  tool: { id: 'tools', label: 'Tools' },
+  agent: { id: 'tools', label: 'Tools' },
+  command: { id: 'tools', label: 'Tools' },
 };
-const OTHER_TAB = { id: 'other', label: 'Other' };
-const PLUGIN_TAB_ORDER = [
-  'providers', 'modes', 'channels', 'tools', 'memory',
-  'voice', 'context', 'security', 'other', 'disabled', 'installable',
-];
+const OTHER_TAB = { id: 'others', label: 'Others' };
+const PLUGIN_TAB_ORDER = ['providers', 'modes', 'channels', 'tools', 'others'];
 
 function shortPluginName(name: string): string {
   return name.replace(/^@moxxy\/(?:plugin-|mode-|compactor-|cache-strategy-)?/, '');
@@ -337,32 +330,28 @@ export function openPluginsPicker(deps: OpenPluginsPickerDeps): void {
       badgeColor: 'green',
     });
   }
+  // Disabled plugins have no live contribution kind to group by, so they live
+  // under "Others" with an [off] badge — still discoverable + re-enableable.
+  for (const name of [...disabled].sort()) {
+    ensureTab(OTHER_TAB.id, OTHER_TAB.label).options.push({
+      id: `${name}::enable`,
+      label: shortPluginName(name),
+      description: name,
+      badge: 'off',
+      badgeColor: 'gray',
+    });
+  }
 
   const tabs: ListPickerTab[] = [];
   for (const id of PLUGIN_TAB_ORDER) {
     const t = byTab.get(id);
-    if (t && t.options.length) {
-      tabs.push({ id, label: `${t.label} (${t.options.length})`, options: t.options });
-    }
-  }
-  if (disabled.length > 0) {
-    tabs.push({
-      id: 'disabled',
-      label: `Disabled (${disabled.length})`,
-      options: [...disabled].sort().map((name) => ({
-        id: `${name}::enable`,
-        label: shortPluginName(name),
-        description: name,
-        badge: 'off',
-        badgeColor: 'gray' as const,
-      })),
-    });
+    if (t && t.options.length) tabs.push({ id, label: t.label, options: t.options });
   }
   const installable = catalog.filter((e) => !installed.has(e.packageName));
   if (installable.length > 0) {
     tabs.push({
       id: 'installable',
-      label: `Installable (${installable.length})`,
+      label: 'Installable',
       options: installable.map((e) => ({
         id: `${e.id}::install`,
         label: e.label,
@@ -379,7 +368,7 @@ export function openPluginsPicker(deps: OpenPluginsPickerDeps): void {
   }
   deps.setPicker({
     kind: 'plugins',
-    title: 'Plugins — Enter toggles · Tab switches kind',
+    title: 'Plugins',
     tabs,
     searchable: true,
     searchPlaceholder: 'filter plugins',
