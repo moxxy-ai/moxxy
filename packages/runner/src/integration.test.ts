@@ -6,23 +6,20 @@
  */
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { afterEach, describe, expect, it } from 'vitest';
 import { Session, autoAllowResolver, silentLogger } from '@moxxy/core';
 import {
   defineMode,
   definePlugin,
   defineProvider,
+  defineSynthesizer,
   defineTool,
   defineTranscriber,
   z,
 } from '@moxxy/sdk';
-import type {
-  AssistantMessageEvent,
-  CommandOutput,
-  ScheduleCreateInput,
-  ScheduleUpdateInput,
-  SchedulerView,
-} from '@moxxy/sdk';
+import type { AssistantMessageEvent, CommandOutput } from '@moxxy/sdk';
+import type { ScheduleCreateInput, ScheduleUpdateInput, SchedulerView } from '@moxxy/sdk';
 import { FakeProvider, textReply, toolUseReply } from '@moxxy/testing';
 import { toolUseModePlugin } from '@moxxy/mode-tool-use';
 import { startRunnerServer, type RunnerServer } from './server.js';
@@ -232,53 +229,64 @@ describe('runner end-to-end', () => {
     expect(result).toEqual({ kind: 'text', text: 'pong' });
   });
 
-  it('proxies scheduler reads and mutations to the runner session', async () => {
-    const { session, socketPath } = await serve(new FakeProvider({ script: [textReply('hi')] }));
-    const schedule = {
-      id: 'manual-1',
-      name: 'Morning brief',
-      prompt: 'Summarize the morning context.',
-      enabled: true,
-      source: 'manual' as const,
-      skillName: null,
-      workflowName: null,
-      cron: '0 9 * * *',
-      runAt: null,
-      timeZone: 'Europe/Warsaw',
-      channel: 'tui',
-      model: null,
-      createdAt: '2026-05-30T07:00:00.000Z',
-      lastRunAt: null,
-      lastResult: null,
-      lastError: null,
-      nextFireAt: 1_780_000_000_000,
-      nextFireIso: '2026-06-01T07:00:00.000Z',
-      editable: true,
-      runnable: true,
-    };
-    const scheduler: SchedulerView = {
-      list: vi.fn(async () => [schedule]),
-      create: vi.fn(async (input: ScheduleCreateInput) => ({ ...schedule, ...input, id: 'manual-created' })),
-      update: vi.fn(async (_id: string, input: ScheduleUpdateInput) => ({ ...schedule, ...input })),
-      setEnabled: vi.fn(async (_id: string, enabled: boolean) => ({ ...schedule, enabled })),
-      delete: vi.fn(async () => ({ ok: true })),
-      runNow: vi.fn(async () => ({ ok: true, text: 'queued for run', inboxPath: '/tmp/inbox.md' })),
-    };
-    session.scheduler = scheduler;
+  it('persists the picked provider to preferences so the next runner inherits it', async () => {
+    // Regression: a remote `providers.setActive` only mutated THIS runner's
+    // in-memory state. The desktop spawns one `moxxy serve` PER workspace, so
+    // creating a workspace after connecting a (non-default) provider booted a
+    // fresh runner that defaulted back to `anthropic`, found no key, came up
+    // `connected` but provider-less, and bounced the user to "Connect a
+    // provider". The runner must persist the pick to ~/.moxxy/preferences.json
+    // (like the TUI / Telegram pickers) so the next runner picks it up.
+    const home = await mkdtemp(path.join(os.tmpdir(), 'moxxy-prefs-'));
+    const prevHome = process.env.HOME;
+    const prevUserProfile = process.env.USERPROFILE;
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
+    try {
+      const socketPath = tmpSocket();
+      const provider = new FakeProvider({ script: [textReply('hi')] });
+      const session = buildSession(provider);
+      // A second provider to switch to — `fake` is active at boot.
+      session.pluginHost.registerStatic(
+        definePlugin({
+          name: 'runner-test-second-provider',
+          providers: [
+            defineProvider({
+              name: 'fake2',
+              models: [...provider.models],
+              createClient: () => provider,
+            }),
+          ],
+        }),
+      );
+      const server = await startRunnerServer(session, { socketPath });
+      servers.push(server);
+      const remote = await attach(socketPath);
 
-    const remote = await attach(socketPath);
+      remote.providers.setActive('fake2');
+      await waitFor(() => session.providers.getActiveName() === 'fake2');
 
-    await expect(remote.scheduler.list({ source: 'all', includeDisabled: true })).resolves.toEqual([schedule]);
-    expect(scheduler.list).toHaveBeenCalledWith({ source: 'all', includeDisabled: true });
-
-    await expect(remote.scheduler.create({ name: 'Manual', prompt: 'Do it', cron: '0 9 * * *' })).resolves.toMatchObject({
-      id: 'manual-created',
-      name: 'Manual',
-    });
-    expect(scheduler.create).toHaveBeenCalledWith({ name: 'Manual', prompt: 'Do it', cron: '0 9 * * *' });
-
-    await expect(remote.scheduler.setEnabled('manual-1', false)).resolves.toMatchObject({ enabled: false });
-    await expect(remote.scheduler.runNow('manual-1')).resolves.toMatchObject({ ok: true, text: 'queued for run' });
+      // savePreferences is fire-and-forget inside the handler, so poll the
+      // file until the async write lands.
+      const prefsPath = path.join(home, '.moxxy', 'preferences.json');
+      const deadline = Date.now() + 2000;
+      let persisted: { providerName?: string } = {};
+      while (persisted.providerName !== 'fake2' && Date.now() < deadline) {
+        try {
+          persisted = JSON.parse(await readFile(prefsPath, 'utf8')) as { providerName?: string };
+        } catch {
+          /* not written yet */
+        }
+        if (persisted.providerName !== 'fake2') await new Promise((r) => setTimeout(r, 5));
+      }
+      expect(persisted.providerName).toBe('fake2');
+    } finally {
+      if (prevHome === undefined) delete process.env.HOME;
+      else process.env.HOME = prevHome;
+      if (prevUserProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = prevUserProfile;
+      await rm(home, { recursive: true, force: true });
+    }
   });
 
   it('broadcasts a turn started by one client to other attached clients', async () => {
@@ -442,6 +450,42 @@ describe('runner end-to-end', () => {
     expect(result.text).toBe('transcribed on the runner');
   });
 
+  it('proxies speech synthesis to the runner synthesizer', async () => {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('hi')] }));
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'runner-test-tts',
+        synthesizers: [
+          defineSynthesizer({
+            name: 'fake-tts',
+            create: () => ({
+              name: 'fake-tts',
+              synthesize: async () => ({
+                audio: new Uint8Array([4, 5, 6]),
+                mimeType: 'audio/mpeg',
+              }),
+            }),
+          }),
+        ],
+      }),
+    );
+    const server = await startRunnerServer(session, { socketPath });
+    servers.push(server);
+    const remote = await attach(socketPath);
+
+    expect(remote.getInfo().activeSynthesizer).toBe('fake-tts');
+    const synthesizer = remote.synthesizers.tryGetActive();
+    expect(synthesizer).not.toBeNull();
+    const result = await synthesizer!.synthesize('read this', {
+      voice: 'demo',
+      language: 'en',
+      rate: 1,
+    });
+    expect([...result.audio]).toEqual([4, 5, 6]);
+    expect(result.mimeType).toBe('audio/mpeg');
+  });
+
   it('keeps routing installed when a self-hosting client sets its own resolvers', async () => {
     const socketPath = tmpSocket();
     const session = buildSession(new FakeProvider({ script: [textReply('hi')] }));
@@ -456,5 +500,62 @@ describe('runner end-to-end', () => {
 
     expect(session.approvalResolver?.name).toBe('runner-routing');
     expect(session.resolver.name).toBe('runner-routing');
+  });
+
+  it('proxies scheduler reads and mutations to the runner session', async () => {
+    const { session, socketPath } = await serve(new FakeProvider({ script: [textReply('hi')] }));
+    const schedule = {
+      id: 'manual-1',
+      name: 'Morning brief',
+      prompt: 'Summarize the morning context.',
+      enabled: true,
+      source: 'manual' as const,
+      skillName: null,
+      workflowName: null,
+      cron: '0 9 * * *',
+      runAt: null,
+      timeZone: 'Europe/Warsaw',
+      channel: 'tui',
+      model: null,
+      createdAt: '2026-05-30T07:00:00.000Z',
+      lastRunAt: null,
+      lastResult: null,
+      lastError: null,
+      nextFireAt: 1_780_000_000_000,
+      nextFireIso: '2026-06-01T07:00:00.000Z',
+      editable: true,
+      runnable: true,
+    };
+    const listCalls: unknown[] = [];
+    const createCalls: ScheduleCreateInput[] = [];
+    const scheduler: SchedulerView = {
+      list: async (input) => {
+        listCalls.push(input);
+        return [schedule];
+      },
+      create: async (input: ScheduleCreateInput) => {
+        createCalls.push(input);
+        return { ...schedule, ...input, id: 'manual-created' };
+      },
+      update: async (_id: string, input: ScheduleUpdateInput) => ({ ...schedule, ...input }),
+      setEnabled: async (_id: string, enabled: boolean) => ({ ...schedule, enabled }),
+      delete: async () => ({ ok: true }),
+      runNow: async () => ({ ok: true, text: 'queued for run', inboxPath: '/tmp/inbox.md' }),
+    };
+    session.scheduler = scheduler;
+
+    const remote = await attach(socketPath);
+
+    await expect(remote.scheduler.list({ source: 'all', includeDisabled: true })).resolves.toEqual([schedule]);
+    expect(listCalls).toEqual([{ source: 'all', includeDisabled: true }]);
+
+    await expect(remote.scheduler.create({ name: 'Manual', prompt: 'Do it', cron: '0 9 * * *' })).resolves.toMatchObject({
+      id: 'manual-created',
+      name: 'Manual',
+    });
+    expect(createCalls).toEqual([{ name: 'Manual', prompt: 'Do it', cron: '0 9 * * *' }]);
+
+    await expect(remote.scheduler.setEnabled('manual-1', false)).resolves.toMatchObject({ enabled: false });
+    await expect(remote.scheduler.runNow('manual-1')).resolves.toMatchObject({ ok: true, text: 'queued for run' });
   });
 });

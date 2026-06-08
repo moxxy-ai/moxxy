@@ -56,6 +56,7 @@ export { ChannelRegistryImpl } from './registries/channels.js';
 export { AgentRegistry } from './registries/agents.js';
 export { CommandRegistry } from './registries/commands.js';
 export { TranscriberRegistry } from './registries/transcribers.js';
+export { SynthesizerRegistry } from './registries/synthesizers.js';
 export { EmbedderRegistry } from './registries/embedders.js';
 export { IsolatorRegistry as ContributedIsolatorRegistry } from './registries/isolators.js';
 export { RequirementRegistry, type RequirementRegistryOptions } from './requirements.js';

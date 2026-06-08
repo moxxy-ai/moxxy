@@ -1,7 +1,22 @@
 import { z } from 'zod';
-import { PLUGIN_KINDS } from './plugin-kind.js';
 
-const pluginKindSchema = z.enum(PLUGIN_KINDS);
+const pluginKindSchema = z.enum([
+  'tools',
+  'provider',
+  'mode',
+  'compactor',
+  'cache-strategy',
+  'view-renderer',
+  'tunnel-provider',
+  'mcp',
+  'cli',
+  'channel',
+  'hooks',
+  'agent',
+  'command',
+  'transcriber',
+  'synthesizer',
+]);
 
 export const requirementSchema = z.object({
   kind: z.enum([
@@ -9,6 +24,7 @@ export const requirementSchema = z.object({
     'provider',
     'tool',
     'transcriber',
+    'synthesizer',
     'mode',
     'compactor',
     'channel',
@@ -57,11 +73,16 @@ export const skillFrontmatterSchema = z.object({
 
 const portSchema = z.number().int().min(1).max(65535);
 
+const pluginManifestKindSchema = z.union([
+  pluginKindSchema,
+  z.enum(['embedder', 'isolator', 'workflow-executor', 'ui']),
+]);
+
 export const pluginManifestSchema = z
   .object({
     entry: z.string().min(1),
     kind: z
-      .union([pluginKindSchema, z.array(pluginKindSchema)])
+      .union([pluginManifestKindSchema, z.array(pluginManifestKindSchema)])
       .optional(),
     /** Bind port for UI plugins. Required when kind includes 'ui'. */
     port: portSchema.optional(),

@@ -219,11 +219,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   // commands registered in `session.commands`. The actual TUI state
   // mutations (clearing scrollback, aborting turns, exiting Ink) live
   // here because the registry handlers are channel-agnostic.
-  const performSessionAction = (
-    action: 'new' | 'clear' | 'exit',
-    notice?: string,
-    command = `/${action}`,
-  ): void => {
+  const performSessionAction = (action: 'new' | 'clear' | 'exit', notice?: string): void => {
     if (action === 'exit') {
       exit();
       return;
@@ -241,7 +237,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
     resetSessionUi(notice);
     session.log.clear();
     void appendCommandSessionAction(session, {
-      command,
+      command: `/${action}`,
       action: 'new',
       target: 'session',
       origin_channel: 'tui',
@@ -288,6 +284,17 @@ export const SessionView: React.FC<SessionViewProps> = ({
         queueRef: turn.queueRef,
         setQueueCount: turn.setQueueCount,
         performSessionAction,
+        // Start a turn directly (e.g. /goal kicking off autonomous work)
+        // without clearing the just-set system notice. Objectives are plain
+        // text, so no image-attachment resolution is needed.
+        submitPrompt: (prompt: string) => {
+          if (turn.busyRef.current) {
+            turn.queueRef.current.push({ text: prompt, attachments: [] });
+            turn.setQueueCount(turn.queueRef.current.length);
+            return;
+          }
+          void turn.runTurnWith(prompt, []);
+        },
       });
       return;
     }

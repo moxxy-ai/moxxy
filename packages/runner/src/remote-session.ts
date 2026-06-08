@@ -42,6 +42,8 @@ import type {
   Transcriber,
   TranscribersClientView,
   TranscriptionResult,
+  Synthesizer,
+  SynthesizersClientView,
   TurnId,
   WorkflowRunView,
   WorkflowSummaryView,
@@ -61,13 +63,14 @@ import {
   type InfoChangedNotification,
   type PermissionCheckParams,
   type RunTurnResult,
+  type SynthesizeResult,
+  type TurnCompleteNotification,
   type SchedulerCreateResult,
   type SchedulerDeleteResult,
   type SchedulerListResult,
   type SchedulerRunNowResult,
   type SchedulerSetEnabledResult,
   type SchedulerUpdateResult,
-  type TurnCompleteNotification,
 } from './protocol.js';
 
 /**
@@ -164,6 +167,7 @@ export class RemoteSession implements ClientSession {
   readonly skills: SkillsClientView;
   readonly agents: AgentsClientView;
   readonly transcribers: TranscribersClientView;
+  readonly synthesizers: SynthesizersClientView;
   readonly requirements: RequirementsClientView;
   readonly permissions: PermissionsClientView;
   readonly scheduler: SchedulerView;
@@ -229,6 +233,7 @@ export class RemoteSession implements ClientSession {
     this.skills = this.makeSkillsView();
     this.agents = { list: () => [] };
     this.transcribers = this.makeTranscribersView();
+    this.synthesizers = this.makeSynthesizersView();
     this.requirements = { check: () => ({ ready: false, issues: [] }) };
     this.permissions = this.makePermissionsView();
     this.scheduler = this.makeSchedulerView();
@@ -452,6 +457,43 @@ export class RemoteSession implements ClientSession {
       tryGetActive: () => (this.info?.activeTranscriber ? proxy() : null),
       setActive: () => {
         throw new Error('switch the active transcriber on the runner, not the attached client');
+      },
+    };
+  }
+
+  private makeSynthesizersView(): SynthesizersClientView {
+    // TTS is a server-side capability. When the runner has an active
+    // synthesizer, expose a proxy whose synthesize() ships the text to the
+    // runner over the `synthesize` RPC and decodes the base64 audio it returns.
+    // Read-aloud surfaces (`tryGetActive()?.synthesize(text)`) "just work"
+    // while attached; absent → the caller falls back to the OS voice.
+    const proxy = (): Synthesizer => ({
+      name: this.info?.activeSynthesizer ?? 'runner',
+      synthesize: async (text, opts) => {
+        const res = await this.peer.request<SynthesizeResult>(RunnerMethod.Synthesize, {
+          text,
+          ...(opts?.voice ? { voice: opts.voice } : {}),
+          ...(opts?.language ? { language: opts.language } : {}),
+          ...(typeof opts?.rate === 'number' ? { rate: opts.rate } : {}),
+        });
+        return {
+          audio: new Uint8Array(Buffer.from(res.audio, 'base64')),
+          mimeType: res.mimeType,
+        };
+      },
+    });
+    return {
+      getActiveName: () => this.info?.activeSynthesizer ?? null,
+      has: (name) => name === this.info?.activeSynthesizer,
+      getActive: () => {
+        if (!this.info?.activeSynthesizer) {
+          throw new Error('no active synthesizer on the runner');
+        }
+        return proxy();
+      },
+      tryGetActive: () => (this.info?.activeSynthesizer ? proxy() : null),
+      setActive: () => {
+        throw new Error('switch the active synthesizer on the runner, not the attached client');
       },
     };
   }

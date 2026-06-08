@@ -17,7 +17,10 @@ export interface SlashDeps {
   setPicker: React.Dispatch<React.SetStateAction<Picker>>;
   queueRef: React.MutableRefObject<Array<{ text: string; attachments: UserPromptAttachment[] }>>;
   setQueueCount: React.Dispatch<React.SetStateAction<number>>;
-  performSessionAction: (action: 'new' | 'clear' | 'exit', notice?: string, command?: string) => void;
+  performSessionAction: (action: 'new' | 'clear' | 'exit', notice?: string) => void;
+  /** Start a turn with the given text (used by /goal to kick off autonomous
+   *  work immediately). Does not clear the system notice, unlike handleSubmit. */
+  submitPrompt: (text: string) => void;
 }
 
 export function runSlash(cmd: string, deps: SlashDeps): void {
@@ -51,7 +54,7 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
         if (result.kind === 'text') {
           deps.setSystemNotice(result.text);
         } else if (result.kind === 'session-action') {
-          deps.performSessionAction(result.action, result.notice, `/${name}`);
+          deps.performSessionAction(result.action, result.notice);
         } else if (result.kind === 'error') {
           deps.setSystemNotice(`error: ${result.message}`);
         }
@@ -106,6 +109,8 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
     case '/mode':
     case '/loop':
       return openModePicker(deps, args);
+    case '/goal':
+      return startGoal(deps, args);
     case '/yolo':
     case '/auto-approve':
       deps.setYolo((y) => {
@@ -257,6 +262,41 @@ export function openMcpPicker(deps: OpenMcpPickerDeps): void {
       );
     }
   })();
+}
+
+/**
+ * `/goal <objective>` — the autonomous "deliver the outcome" entry point.
+ * Switches to the `goal` mode (which keeps working, re-checking each round,
+ * until the objective is verifiably delivered), turns on yolo so routine tool
+ * calls don't interrupt the run, and — when an objective is given — starts work
+ * immediately. Bare `/goal` just arms the mode and waits for the next message.
+ * Interrupt anytime with Esc/Ctrl-C.
+ */
+function startGoal(deps: SlashDeps, arg: string): void {
+  const objective = arg.trim();
+  const GOAL_MODE = 'goal';
+  // The mode is registered globally; if it's somehow absent, say so rather
+  // than silently arming yolo with no behavior change.
+  if (!deps.session.modes.list().some((m) => m.name === GOAL_MODE)) {
+    deps.setSystemNotice('goal mode is not available (mode-goal plugin not loaded)');
+    return;
+  }
+  try {
+    deps.session.modes.setActive(GOAL_MODE);
+    void savePreferences({ mode: GOAL_MODE });
+  } catch (err) {
+    deps.setSystemNotice(
+      `failed to switch to goal mode: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return;
+  }
+  deps.setYolo(() => true);
+  deps.setSystemNotice(
+    objective
+      ? '🎯 goal mode — tools auto-approved; working until the objective is delivered. Press Esc to stop.'
+      : '🎯 goal mode on — tools auto-approved. Send your objective as the next message (Esc stops).',
+  );
+  if (objective) deps.submitPrompt(objective);
 }
 
 function openModePicker(deps: SlashDeps, arg = ''): void {

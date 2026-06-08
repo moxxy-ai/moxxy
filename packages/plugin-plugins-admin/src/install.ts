@@ -170,6 +170,48 @@ export function buildInstallPluginTool(deps: InstallPluginDeps) {
   });
 }
 
+export function buildUninstallPluginTool(deps: InstallPluginDeps) {
+  return defineTool({
+    name: 'uninstall_plugin',
+    description:
+      'Uninstall an npm-installed moxxy plugin from the user plugin directory ' +
+      '(~/.moxxy/plugins/) via `npm uninstall`, then hot-reload the plugin host so ' +
+      'its tools / agents / providers / modes / channels disappear from the current ' +
+      'session. Requires `npm` on PATH. Returns the diff of what got unregistered. ' +
+      'Use this when the user asks to remove a plugin they installed. NOTE: this only ' +
+      'removes npm packages — a scaffolded plugin authored under ~/.moxxy/plugins ' +
+      'is removed by rolling back its self-update transaction instead.',
+    inputSchema: z.object({
+      packageName: z
+        .string()
+        .min(1)
+        .refine((s) => NPM_NAME_RE.test(s), {
+          message: 'must be a valid npm package name (e.g. @moxxy/agent-researcher)',
+        })
+        .describe('npm package name to uninstall. Scoped (@org/pkg) or bare.'),
+    }),
+    permission: { action: 'prompt' },
+    isolation: {
+      capabilities: {
+        subprocess: true,
+        commands: ['npm'],
+        fs: { read: ['$cwd/**'], write: [`${userPluginsDir()}/**`] },
+      },
+    },
+    handler: async ({ packageName }, ctx) => {
+      const before = deps.snapshot();
+      const { removed } = await removePluginPackage({ packageName, signal: ctx.signal });
+      await deps.reload();
+      const after = deps.snapshot();
+      return {
+        removed,
+        // before-minus-after == contributions the removed package had provided.
+        unregistered: diffSnapshot(after, before),
+      };
+    },
+  });
+}
+
 /**
  * Make sure `~/.moxxy/plugins/package.json` exists so `npm install`
  * runs cleanly. Created with `private: true` so a stray `npm publish`

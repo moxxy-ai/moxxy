@@ -13,6 +13,7 @@ export const PLUGIN_KINDS = [
   'agent',
   'command',
   'transcriber',
+  'synthesizer',
   'embedder',
   'isolator',
   'workflow-executor',

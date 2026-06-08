@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Session } from '@moxxy/core';
-import { newTurnId } from '@moxxy/core';
+import { newTurnId, savePreferences } from '@moxxy/core';
 import type {
   ApprovalDecision,
   ApprovalRequest,
@@ -37,6 +37,7 @@ import {
   schedulerSetEnabledParamsSchema,
   schedulerUpdateParamsSchema,
   setResolverParamsSchema,
+  synthesizeParamsSchema,
   transcribeParamsSchema,
   workflowRunParamsSchema,
   workflowSetEnabledParamsSchema,
@@ -49,6 +50,7 @@ import {
   type SchedulerRunNowResult,
   type SchedulerSetEnabledResult,
   type SchedulerUpdateResult,
+  type SynthesizeResult,
   type TranscribeResult,
 } from './protocol.js';
 
@@ -147,14 +149,9 @@ export class RunnerServer {
     peer.handle(RunnerMethod.ModeSetActive, (raw) => this.handleModeSetActive(raw));
     peer.handle(RunnerMethod.ProviderSetActive, (raw) => this.handleProviderSetActive(raw));
     peer.handle(RunnerMethod.PermissionAddAllow, (raw) => this.handlePermissionAddAllow(raw));
-    peer.handle(RunnerMethod.CommandRun, (raw) => this.handleCommandRun(client, raw));
+    peer.handle(RunnerMethod.CommandRun, (raw) => this.handleCommandRun(raw));
     peer.handle(RunnerMethod.Transcribe, (raw) => this.handleTranscribe(raw));
-    peer.handle(RunnerMethod.SchedulerList, (raw) => this.handleSchedulerList(raw));
-    peer.handle(RunnerMethod.SchedulerCreate, (raw) => this.handleSchedulerCreate(raw));
-    peer.handle(RunnerMethod.SchedulerUpdate, (raw) => this.handleSchedulerUpdate(raw));
-    peer.handle(RunnerMethod.SchedulerSetEnabled, (raw) => this.handleSchedulerSetEnabled(raw));
-    peer.handle(RunnerMethod.SchedulerDelete, (raw) => this.handleSchedulerDelete(raw));
-    peer.handle(RunnerMethod.SchedulerRunNow, (raw) => this.handleSchedulerRunNow(raw));
+    peer.handle(RunnerMethod.Synthesize, (raw) => this.handleSynthesize(raw));
     peer.handle(RunnerMethod.McpListServers, () => this.handleMcpListServers());
     peer.handle(RunnerMethod.McpEnableAndAttach, (raw) =>
       this.handleMcpEnableAndAttach(raw),
@@ -165,6 +162,12 @@ export class RunnerServer {
       this.handleWorkflowSetEnabled(raw),
     );
     peer.handle(RunnerMethod.WorkflowRun, (raw) => this.handleWorkflowRun(raw));
+    peer.handle(RunnerMethod.SchedulerList, (raw) => this.handleSchedulerList(raw));
+    peer.handle(RunnerMethod.SchedulerCreate, (raw) => this.handleSchedulerCreate(raw));
+    peer.handle(RunnerMethod.SchedulerUpdate, (raw) => this.handleSchedulerUpdate(raw));
+    peer.handle(RunnerMethod.SchedulerSetEnabled, (raw) => this.handleSchedulerSetEnabled(raw));
+    peer.handle(RunnerMethod.SchedulerDelete, (raw) => this.handleSchedulerDelete(raw));
+    peer.handle(RunnerMethod.SchedulerRunNow, (raw) => this.handleSchedulerRunNow(raw));
 
     peer.onClose(() => this.onDisconnect(client));
   }
@@ -273,15 +276,21 @@ export class RunnerServer {
     const { name, config } = providerSetActiveParamsSchema.parse(raw);
     // Mirror the in-process picker: resolve credentials (the CLI stashes a
     // resolver on the session at boot), drop any cached instance, re-activate.
-    const resolver = (
-      this.session as unknown as {
-        credentialResolver?: (n: string) => Promise<Record<string, unknown>>;
-      }
-    ).credentialResolver;
+    const resolver = this.session.credentialResolver;
     const cfg = config ?? (resolver ? await resolver(name) : {});
     const def = this.session.providers.list().find((p) => p.name === name);
     if (def) this.session.providers.replace(def);
     this.session.providers.setActive(name, cfg);
+    // Persist the pick to ~/.moxxy/preferences.json so it survives to the NEXT
+    // freshly-spawned runner. Without this, a remote client (e.g. the desktop)
+    // that switches provider only mutates THIS runner's in-memory state — so
+    // spawning another runner (the desktop spawns one `moxxy serve` per
+    // workspace) boots back on the default provider with no key, comes up
+    // `connected` but provider-less, and bounces the user to "Connect a
+    // provider". Mirrors the TUI / Telegram pickers, which already persist.
+    // Best-effort: savePreferences swallows its own write errors and never
+    // throws, so a read-only home can't fail the setActive RPC.
+    void savePreferences({ providerName: name });
     this.broadcastInfo();
     return {};
   }
@@ -292,14 +301,10 @@ export class RunnerServer {
     return {};
   }
 
-  private async handleCommandRun(
-    client: ConnectedClient,
-    raw: unknown,
-  ): Promise<CommandRunResult> {
+  private async handleCommandRun(raw: unknown): Promise<CommandRunResult> {
     const { name, args, channel } = commandRunParamsSchema.parse(raw);
     const cmd = this.session.commands.get(name);
     if (!cmd) return { kind: 'error', message: `unknown command: /${name}` };
-    void client;
     const result = await cmd.handler({
       channel,
       sessionId: this.session.id,
@@ -328,9 +333,9 @@ export class RunnerServer {
     const candidates = this.transcribeCandidates();
     if (candidates.length === 0) throw new Error('no active transcriber on the runner');
     let lastErr: unknown = new Error('no active transcriber on the runner');
-    for (const def of candidates) {
+    for (const name of candidates) {
       try {
-        const transcriber = this.session.transcribers.setActive(def.name);
+        const transcriber = this.session.transcribers.setActive(name);
         const result = await transcriber.transcribe(audio, opts);
         // Surface the change so remote clients observe activeTranscriber
         // tracking the one that actually worked.
@@ -343,19 +348,31 @@ export class RunnerServer {
     throw lastErr;
   }
 
+  private async handleSynthesize(raw: unknown): Promise<SynthesizeResult> {
+    const params = synthesizeParamsSchema.parse(raw);
+    const synth = this.session.synthesizers.tryGetActive();
+    if (!synth) throw new Error('no active synthesizer on the runner');
+    const opts = {
+      ...(params.voice ? { voice: params.voice } : {}),
+      ...(params.language ? { language: params.language } : {}),
+      ...(typeof params.rate === 'number' ? { rate: params.rate } : {}),
+    };
+    const result = await synth.synthesize(params.text, opts);
+    return {
+      audio: Buffer.from(result.audio).toString('base64'),
+      mimeType: result.mimeType,
+    };
+  }
+
   /** Ordered candidate list for a transcribe call.
    *  - First the active one (if any) — respects an explicit host /
    *    user choice.
    *  - Then every other registered transcriber. */
-  private transcribeCandidates(): ReadonlyArray<{ readonly name: string }> {
+  private transcribeCandidates(): ReadonlyArray<string> {
     const activeName = this.session.transcribers.getActiveName();
-    const all = this.session.transcribers.list();
-    if (!activeName) return all.map((d) => ({ name: d.name }));
-    const head = all.find((d) => d.name === activeName);
-    const tail = all.filter((d) => d.name !== activeName);
-    return head
-      ? [{ name: head.name }, ...tail.map((d) => ({ name: d.name }))]
-      : tail.map((d) => ({ name: d.name }));
+    const names = this.session.transcribers.list().map((d) => d.name);
+    if (!activeName || !names.includes(activeName)) return names;
+    return [activeName, ...names.filter((n) => n !== activeName)];
   }
 
   // --- MCP (delegates to session.mcpAdmin if the plugin is loaded) ----------

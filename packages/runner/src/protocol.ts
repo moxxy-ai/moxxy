@@ -50,18 +50,8 @@ export const RunnerMethod = {
   CommandRun: 'command.run',
   /** client->server: transcribe audio using the runner's active transcriber. */
   Transcribe: 'transcribe',
-  /** client->server: list schedules from the runner's scheduler store. */
-  SchedulerList: 'scheduler.list',
-  /** client->server: create a manual schedule. */
-  SchedulerCreate: 'scheduler.create',
-  /** client->server: update a manual schedule. */
-  SchedulerUpdate: 'scheduler.update',
-  /** client->server: enable or pause a manual schedule. */
-  SchedulerSetEnabled: 'scheduler.setEnabled',
-  /** client->server: delete a manual schedule. */
-  SchedulerDelete: 'scheduler.delete',
-  /** client->server: run any schedule immediately. */
-  SchedulerRunNow: 'scheduler.runNow',
+  /** client->server: synthesize text to audio using the runner's active synthesizer. */
+  Synthesize: 'synthesize',
   /** client->server: list every MCP server the runner knows about. */
   McpListServers: 'mcp.listServers',
   /** client->server: enable an MCP server + attach its tools. */
@@ -74,6 +64,18 @@ export const RunnerMethod = {
   WorkflowSetEnabled: 'workflow.setEnabled',
   /** client->server: run a workflow now. */
   WorkflowRun: 'workflow.run',
+  /** client->server: list schedules from the runner's scheduler store. */
+  SchedulerList: 'scheduler.list',
+  /** client->server: create a manual schedule. */
+  SchedulerCreate: 'scheduler.create',
+  /** client->server: update a manual schedule. */
+  SchedulerUpdate: 'scheduler.update',
+  /** client->server: enable or pause a manual schedule. */
+  SchedulerSetEnabled: 'scheduler.setEnabled',
+  /** client->server: delete a manual schedule. */
+  SchedulerDelete: 'scheduler.delete',
+  /** client->server: run any schedule immediately. */
+  SchedulerRunNow: 'scheduler.runNow',
   /** server->client: ask this client to decide a tool-call permission. */
   PermissionCheck: 'permission.check',
   /** server->client: ask this client to confirm an approval checkpoint. */
@@ -161,6 +163,21 @@ export interface TranscribeParams {
 }
 export type TranscribeResult = TranscriptionResult;
 
+export interface McpEnableAndAttachParams {
+  readonly name: string;
+}
+export interface McpDetachParams {
+  readonly name: string;
+}
+
+export interface WorkflowSetEnabledParams {
+  readonly name: string;
+  readonly enabled: boolean;
+}
+export interface WorkflowRunParams {
+  readonly name: string;
+}
+
 export type SchedulerListParams = ScheduleListOptions;
 export type SchedulerListResult = ReadonlyArray<ScheduleEntryView>;
 
@@ -190,21 +207,6 @@ export interface SchedulerRunNowParams {
   readonly id: string;
 }
 export type SchedulerRunNowResult = ScheduleRunNowView;
-
-export interface McpEnableAndAttachParams {
-  readonly name: string;
-}
-export interface McpDetachParams {
-  readonly name: string;
-}
-
-export interface WorkflowSetEnabledParams {
-  readonly name: string;
-  readonly enabled: boolean;
-}
-export interface WorkflowRunParams {
-  readonly name: string;
-}
 
 export interface PermissionCheckParams {
   readonly turnId: string;
@@ -296,6 +298,29 @@ export const transcribeParamsSchema = z.object({
   prompt: z.string().optional(),
 });
 
+export const synthesizeParamsSchema = z.object({
+  text: z.string(),
+  voice: z.string().optional(),
+  language: z.string().optional(),
+  rate: z.number().optional(),
+});
+
+/** Wire result for `synthesize`: base64-encoded audio + its MIME type. */
+export interface SynthesizeResult {
+  /** Base64-encoded audio bytes. */
+  readonly audio: string;
+  readonly mimeType: string;
+}
+
+export const mcpEnableAndAttachParamsSchema = z.object({ name: z.string() });
+export const mcpDetachParamsSchema = z.object({ name: z.string() });
+
+export const workflowSetEnabledParamsSchema = z.object({
+  name: z.string(),
+  enabled: z.boolean(),
+});
+export const workflowRunParamsSchema = z.object({ name: z.string() });
+
 const scheduleSourceSchema = z.enum(['all', 'manual', 'skill', 'workflow']);
 
 export const schedulerListParamsSchema = z.object({
@@ -335,12 +360,3 @@ export const schedulerSetEnabledParamsSchema = z.object({
 
 export const schedulerDeleteParamsSchema = z.object({ id: z.string().min(1) });
 export const schedulerRunNowParamsSchema = z.object({ id: z.string().min(1) });
-
-export const mcpEnableAndAttachParamsSchema = z.object({ name: z.string() });
-export const mcpDetachParamsSchema = z.object({ name: z.string() });
-
-export const workflowSetEnabledParamsSchema = z.object({
-  name: z.string(),
-  enabled: z.boolean(),
-});
-export const workflowRunParamsSchema = z.object({ name: z.string() });

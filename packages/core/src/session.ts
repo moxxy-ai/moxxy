@@ -27,6 +27,7 @@ import { ToolRegistryImpl, type ToolRegistry } from './registries/tools.js';
 import { AgentRegistry } from './registries/agents.js';
 import { CommandRegistry } from './registries/commands.js';
 import { TranscriberRegistry } from './registries/transcribers.js';
+import { SynthesizerRegistry } from './registries/synthesizers.js';
 import { EmbedderRegistry } from './registries/embedders.js';
 import { IsolatorRegistry } from './registries/isolators.js';
 import { WorkflowExecutorRegistry } from './registries/workflow-executors.js';
@@ -72,6 +73,14 @@ export interface SessionOptions {
    */
   readonly pluginDiscoveryPaths?: ReadonlyArray<string>;
   /**
+   * Vault-backed secret resolver. When provided, every tool handler gets
+   * `ctx.getSecret(name)` so plugins can read an API key / token at call
+   * time. The plaintext never enters the model's context or `process.env`;
+   * only the handler that asks receives it. The CLI/runner wires this to
+   * the session vault's `get`.
+   */
+  readonly secretResolver?: (name: string) => Promise<string | null>;
+  /**
    * Pre-seeded event log. Used by `moxxy resume` to restore the
    * conversation from a persisted JSONL. Subscribers don't re-fire for
    * seeded events (the constructor pushes them directly), so plugin
@@ -97,6 +106,7 @@ export class Session implements ClientSession, SessionRuntime {
   readonly agents: AgentRegistry;
   readonly commands: CommandRegistry;
   readonly transcribers: TranscriberRegistry;
+  readonly synthesizers: SynthesizerRegistry;
   readonly embedders: EmbedderRegistry;
   readonly isolators: IsolatorRegistry;
   readonly workflowExecutors: WorkflowExecutorRegistry;
@@ -140,7 +150,11 @@ export class Session implements ClientSession, SessionRuntime {
     this.cwd = opts.cwd;
     this.logger = opts.logger ?? (opts.silent ? silentLogger : createLogger());
     this.log = opts.log ?? new EventLog();
-    this.tools = new ToolRegistryImpl({ logger: this.logger, cwd: this.cwd });
+    this.tools = new ToolRegistryImpl({
+      logger: this.logger,
+      cwd: this.cwd,
+      ...(opts.secretResolver ? { secretResolver: opts.secretResolver } : {}),
+    });
     this.providers = new ProviderRegistry();
     this.modes = new ModeRegistry();
     this.compactors = new CompactorRegistry();
@@ -158,6 +172,9 @@ export class Session implements ClientSession, SessionRuntime {
     this.agents = new AgentRegistry();
     this.commands = new CommandRegistry();
     this.transcribers = new TranscriberRegistry();
+    this.synthesizers = new SynthesizerRegistry({
+      ...(opts.secretResolver ? { secretResolver: opts.secretResolver } : {}),
+    });
     this.embedders = new EmbedderRegistry();
     this.isolators = new IsolatorRegistry();
     this.workflowExecutors = new WorkflowExecutorRegistry();
@@ -170,6 +187,7 @@ export class Session implements ClientSession, SessionRuntime {
       agents: this.agents,
       commands: this.commands,
       transcribers: this.transcribers,
+      synthesizers: this.synthesizers,
     });
     this.permissions = opts.permissionEngine ?? new PermissionEngine();
     // Always wrap the user-supplied resolver with the persistent
@@ -201,6 +219,7 @@ export class Session implements ClientSession, SessionRuntime {
       agents: this.agents,
       commands: this.commands,
       transcribers: this.transcribers,
+      synthesizers: this.synthesizers,
       embedders: this.embedders,
       isolators: this.isolators,
       workflowExecutors: this.workflowExecutors,
@@ -299,8 +318,13 @@ export class Session implements ClientSession, SessionRuntime {
    */
   getInfo(): SessionInfo {
     let activeMode: string | null = null;
+    let activeModeBadge: SessionInfo['activeModeBadge'] = null;
     try {
-      activeMode = this.modes.getActive().name;
+      const mode = this.modes.getActive();
+      activeMode = mode.name;
+      // Surface the active mode's presentation hint so channels can render a
+      // persistent badge (e.g. goal mode) without hard-coding mode names.
+      activeModeBadge = mode.badge ? { label: mode.badge.label, ...(mode.badge.tone ? { tone: mode.badge.tone } : {}) } : null;
     } catch {
       // No mode active yet (registry empty pre-boot) - report null.
     }
@@ -324,6 +348,7 @@ export class Session implements ClientSession, SessionRuntime {
           (p as { supportsLiveModelDiscovery?: boolean }).supportsLiveModelDiscovery === true,
       })),
       activeMode,
+      activeModeBadge,
       modes: this.modes.list().map((m) => m.name),
       tools: this.tools.list().map((t) => ({
         name: t.name,
@@ -347,6 +372,8 @@ export class Session implements ClientSession, SessionRuntime {
       // any registered transcriber means "voice is wired."
       hasTranscriber: this.transcribers.list().length > 0,
       activeTranscriber: this.transcribers.getActiveName(),
+      hasSynthesizer: this.synthesizers.list().length > 0,
+      activeSynthesizer: this.synthesizers.getActiveName(),
     };
   }
 

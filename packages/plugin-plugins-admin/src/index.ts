@@ -1,19 +1,14 @@
 import { definePlugin, type Plugin } from '@moxxy/sdk';
 import {
   buildInstallPluginTool,
-  installPluginPackage,
-  removePluginPackage,
-  userPluginsDir,
+  buildUninstallPluginTool,
   type InstallPluginDeps,
-  type InstallPluginPackageOptions,
-  type InstallPluginPackageResult,
-  type RemovePluginPackageOptions,
-  type RemovePluginPackageResult,
   type PluginSnapshot,
 } from './install.js';
 
 export {
   buildInstallPluginTool,
+  buildUninstallPluginTool,
   installPluginPackage,
   removePluginPackage,
   userPluginsDir,
@@ -40,16 +35,16 @@ export interface BuildPluginsAdminOpts {
 }
 
 /**
- * `@moxxy/plugin-plugins-admin` — exposes the `install_plugin` tool so
- * the model can install new moxxy plugins on the user's behalf. The
- * tool shells out to `npm install --prefix ~/.moxxy/plugins` then
- * hot-reloads the host. Disable this plugin to lock the plugin set.
+ * `@moxxy/plugin-plugins-admin` — exposes the `install_plugin` and
+ * `uninstall_plugin` tools so the model can add/remove moxxy plugins on
+ * the user's behalf. Both shell out to `npm --prefix ~/.moxxy/plugins`
+ * then hot-reload the host. Disable this plugin to lock the plugin set.
  */
 export function buildPluginsAdminPlugin(opts: BuildPluginsAdminOpts): Plugin {
   const deps: InstallPluginDeps = { reload: opts.reload, snapshot: opts.snapshot };
   return definePlugin({
     name: '@moxxy/plugin-plugins-admin',
     version: '0.0.0',
-    tools: [buildInstallPluginTool(deps)],
+    tools: [buildInstallPluginTool(deps), buildUninstallPluginTool(deps)],
   });
 }

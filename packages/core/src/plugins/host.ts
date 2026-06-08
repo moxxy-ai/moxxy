@@ -14,6 +14,7 @@ import type {
   ResolvedPluginManifest,
   ToolDef,
   TranscriberDef,
+  SynthesizerDef,
   EmbedderDef,
   Isolator,
   ViewRendererDef,
@@ -33,6 +34,7 @@ import type { ModeRegistry } from '../registries/modes.js';
 import type { ProviderRegistry } from '../registries/providers.js';
 import type { ToolRegistry } from '../registries/tools.js';
 import type { TranscriberRegistry } from '../registries/transcribers.js';
+import type { SynthesizerRegistry } from '../registries/synthesizers.js';
 import type { EmbedderRegistry } from '../registries/embedders.js';
 import type { IsolatorRegistry } from '../registries/isolators.js';
 import type { WorkflowExecutorRegistry } from '../registries/workflow-executors.js';
@@ -55,6 +57,7 @@ export interface PluginHostOptions {
   readonly agents: AgentRegistry;
   readonly commands: CommandRegistry;
   readonly transcribers: TranscriberRegistry;
+  readonly synthesizers: SynthesizerRegistry;
   readonly embedders: EmbedderRegistry;
   readonly isolators: IsolatorRegistry;
   readonly workflowExecutors: WorkflowExecutorRegistry;
@@ -126,6 +129,7 @@ interface LoadedRecord {
   readonly agentNames: ReadonlyArray<string>;
   readonly commandNames: ReadonlyArray<string>;
   readonly transcriberNames: ReadonlyArray<string>;
+  readonly synthesizerNames: ReadonlyArray<string>;
   readonly embedderNames: ReadonlyArray<string>;
   readonly isolatorNames: ReadonlyArray<string>;
   readonly workflowExecutorNames: ReadonlyArray<string>;
@@ -254,6 +258,7 @@ export class PluginHost implements PluginHostHandle {
     for (const agentName of record.agentNames) this.opts.agents.unregister(agentName);
     for (const cmdName of record.commandNames) this.opts.commands.unregister(cmdName);
     for (const transcriberName of record.transcriberNames) this.opts.transcribers.unregister(transcriberName);
+    for (const synthName of record.synthesizerNames) this.opts.synthesizers.unregister(synthName);
     for (const embedderName of record.embedderNames) this.opts.embedders.unregister(embedderName);
     for (const isolatorName of record.isolatorNames) this.opts.isolators.unregister(isolatorName);
     for (const wfxName of record.workflowExecutorNames)
@@ -294,6 +299,7 @@ export class PluginHost implements PluginHostHandle {
     const agentNames = (plugin.agents ?? []).map((a: AgentDef) => a.name);
     const commandNames = (plugin.commands ?? []).map((c: CommandDef) => c.name);
     const transcriberNames = (plugin.transcribers ?? []).map((t: TranscriberDef) => t.name);
+    const synthesizerNames = (plugin.synthesizers ?? []).map((s: SynthesizerDef) => s.name);
     const embedderNames = (plugin.embedders ?? []).map((e: EmbedderDef) => e.name);
     const isolatorNames = (plugin.isolators ?? []).map((i: Isolator) => i.name);
     const workflowExecutorNames = (plugin.workflowExecutors ?? []).map(
@@ -314,6 +320,7 @@ export class PluginHost implements PluginHostHandle {
     for (const agent of plugin.agents ?? []) this.opts.agents.register(agent);
     for (const cmd of plugin.commands ?? []) this.opts.commands.register(cmd);
     for (const transcriber of plugin.transcribers ?? []) this.opts.transcribers.register(transcriber);
+    for (const synth of plugin.synthesizers ?? []) this.opts.synthesizers.register(synth);
     for (const embedder of plugin.embedders ?? []) this.opts.embedders.register(embedder);
     for (const isolator of plugin.isolators ?? []) this.opts.isolators.register(isolator);
     for (const wfx of plugin.workflowExecutors ?? [])
@@ -333,6 +340,7 @@ export class PluginHost implements PluginHostHandle {
       agentNames,
       commandNames,
       transcriberNames,
+      synthesizerNames,
       embedderNames,
       isolatorNames,
       workflowExecutorNames,
