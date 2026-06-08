@@ -1,5 +1,19 @@
 # @moxxy/desktop
 
+## 0.0.28
+
+### Patch Changes
+
+- Updated dependencies [eac83e5]
+  - @moxxy/sdk@0.6.0
+  - @moxxy/chat-model@0.0.8
+  - @moxxy/cli@0.5.5
+  - @moxxy/desktop-host@0.0.9
+  - @moxxy/desktop-ipc-contract@0.0.9
+  - @moxxy/plugin-stt-whisper-codex@0.0.8
+  - @moxxy/plugin-vault@0.0.8
+  - @moxxy/runner@0.0.8
+
 ## 0.0.27
 
 ### Patch Changes
