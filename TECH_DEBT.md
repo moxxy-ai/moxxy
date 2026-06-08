@@ -37,32 +37,35 @@ yet compile against a bare `RemoteSession`. Retype the handler params to the min
 work, not standalone. (The `RemoteSession` casts at `desktop-host/src/ipc/session.ts:105`
 and `ipc/shared.ts:164` are the same seam — see P3.)
 
-### 2. Desktop persists every conversation twice — pick one source of truth — 🔴 NEW
-**Found 2026-06-08 (the "NDJSON-vs-replay redundancy" follow-up, now characterized).**
-Every committed event is written to disk in **two** independent stores:
-- runner session log — `~/.moxxy/sessions/<id>.jsonl`, replayed on attach
-  (`runner/src/server.ts:184`; `desktop-host/src/runner-supervisor.ts:79,435`);
+### 2. Desktop persists every conversation twice — pick one source of truth — ⚠️ PARTIALLY DONE
+**Found 2026-06-08 (the "NDJSON-vs-replay redundancy" follow-up).** Every committed event
+is written to disk in **two** independent stores:
+- runner session log — `~/.moxxy/sessions/<id>.jsonl`, replayed in full on every attach
+  (`runner/src/server.ts:184` — always replays from seq 0);
 - desktop NDJSON chat-log — `~/.moxxy/chats/<workspaceId>.jsonl`
-  (`desktop-host/src/chat-log.ts:30-33`), loaded by
-  `apps/desktop/src/lib/chat-store/store.ts:187`.
+  (`desktop-host/src/chat-log.ts`), the renderer's windowed mirror.
 
-Two concrete defects fall out of the redundancy:
-- **Desync window on `/new`.** Reset wipes both via two separate IPC calls
-  (`CommandPalette.tsx:91-92`: `chatStore.clear()` then `session.newSession`). If the
-  second fails or the app dies between them, the renderer is cleared but the runner is
-  still primed → old context resurrects on the next turn/restart.
-- **Unbounded NDJSON growth.** On restart `seenIds` starts empty; the runner replays its
-  full history on attach; each replayed event misses `seenIds`, so `dispatch` re-appends
-  it to the NDJSON log (`store.ts:317-326`). `loadOlder` dedups only on read
-  (`store.ts:240-243`), so the on-disk file bloats by a full copy every restart.
+**Fixed (2026-06-08):** the **unbounded NDJSON growth** defect. Because the runner replays
+the full history on every restart and the renderer re-appends each replayed event, the
+NDJSON log used to grow by a complete copy of the conversation per restart — and since
+`loadSegment`'s cursor is a line index, the doubled file also corrupted scroll-up
+pagination. `appendEvents` is now **idempotent by event id** (lazy file-path-keyed id cache),
+so the log holds one copy and its cursors stay stable. +5 chat-log tests.
 
-**Action:** decide the single source of truth. The runner already persists + replays the
-full history, so the desktop NDJSON store is arguably entirely redundant — either drop it
-and read from the runner replay, or stop re-persisting replayed events and make `/new` a
-single atomic reset. **Whichever way: this path has zero tests** — no `store.test.ts`, and
-`resetSession`/`newSession`/`deleteSession` in `runner-supervisor.ts` are uncovered. Add
-tests for append-on-dispatch, the restart double-append, `loadOlder` dedup, and the
-`/new` dual-clear as part of the fix.
+**Remaining (the real decision):** the redundancy itself. The runner replay already
+delivers the complete history to the renderer on every attach, so the desktop NDJSON store
+is arguably entirely redundant — dropping it (read history from the runner replay only)
+would also kill the redundant on-restart append IPC and the `/new` desync below. Counter-risk:
+legacy localStorage→NDJSON-migrated chats may live ONLY in NDJSON, not in any runner session
+log, so a naive drop loses early-adopter history. **Needs a product call + desktop-app
+verification — not a mechanical change.**
+
+**Also remaining (lives on `fix/desktop-resume-session`, not yet on main):** the **`/new`
+desync window**. Reset wipes the renderer + NDJSON and resets the runner via separate IPC
+calls; if one fails or the app dies between them, the two desync and old context resurrects.
+Make `/new` reset the runner FIRST and only clear the renderer/NDJSON on success (or a single
+atomic IPC). Fold this in when that branch lands. The renderer `chat-store/store.ts`
+persistence path is also still untested (`store.test.ts` absent).
 
 ---
 

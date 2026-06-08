@@ -32,6 +32,33 @@ function fileFor(workspaceId: string): string {
   return path.join(chatsDir(), `${safe}.jsonl`);
 }
 
+/**
+ * Per-log set of event ids already written, so {@link appendEvents} is
+ * idempotent by id without re-reading the whole file each turn. Keyed by the
+ * resolved FILE PATH (not the workspace id) so tests pointing `MOXXY_CHATS_DIR`
+ * at different tmp dirs never share a cache entry.
+ *
+ * Why idempotent: on every desktop restart the runner replays its FULL event
+ * history to each attaching client (runner attach replays from seq 0), and the
+ * renderer re-appends every replayed event here. Without dedup the NDJSON log
+ * grew by a complete copy of the conversation on each restart — and because
+ * {@link loadSegment}'s cursor is a line index, a doubled file also corrupted
+ * scroll-up pagination. Deduping by id keeps the log one copy and its cursors
+ * stable. (The runner session log remains the source of truth on replay; this
+ * file is the renderer's windowed mirror.)
+ */
+const writtenIds = new Map<string, Set<string>>();
+
+async function knownIds(workspaceId: string): Promise<Set<string>> {
+  const key = fileFor(workspaceId);
+  let set = writtenIds.get(key);
+  if (!set) {
+    set = new Set((await readLines(workspaceId)).map((e) => e.id));
+    writtenIds.set(key, set);
+  }
+  return set;
+}
+
 async function readLines(workspaceId: string): Promise<MoxxyEvent[]> {
   let body: string;
   try {
@@ -51,16 +78,21 @@ async function readLines(workspaceId: string): Promise<MoxxyEvent[]> {
   return out;
 }
 
-/** Append committed events to the workspace's log. No-op for an empty
- *  batch; creates the dir lazily on first write. */
+/** Append committed events to the workspace's log, skipping any whose id is
+ *  already on disk (idempotent — see {@link writtenIds}). No-op for an empty
+ *  batch or one that is wholly duplicate; creates the dir lazily on first write. */
 export async function appendEvents(
   workspaceId: string,
   events: ReadonlyArray<MoxxyEvent>,
 ): Promise<void> {
   if (events.length === 0) return;
+  const seen = await knownIds(workspaceId);
+  const fresh = events.filter((e) => !seen.has(e.id));
+  if (fresh.length === 0) return;
   await mkdir(chatsDir(), { recursive: true });
-  const lines = events.map((e) => JSON.stringify(e)).join('\n') + '\n';
+  const lines = fresh.map((e) => JSON.stringify(e)).join('\n') + '\n';
   await appendFile(fileFor(workspaceId), lines, 'utf8');
+  for (const e of fresh) seen.add(e.id);
 }
 
 /**
@@ -80,8 +112,10 @@ export async function loadSegment(
   return { events: all.slice(start, end), prevCursor: start > 0 ? start : null };
 }
 
-/** Truncate a workspace's log (Clear conversation). */
+/** Truncate a workspace's log (Clear conversation). Also drops the
+ *  idempotency cache so re-adding the same ids writes them again. */
 export async function clearLog(workspaceId: string): Promise<void> {
+  writtenIds.delete(fileFor(workspaceId));
   try {
     await rm(fileFor(workspaceId));
   } catch {
@@ -118,6 +152,9 @@ export async function migrate(
     }
     try {
       await handle.writeFile(lines, 'utf8');
+      // Force a re-hydrate of the idempotency cache from the freshly-seeded
+      // file, in case a live append had already cached this log as empty.
+      writtenIds.delete(fileFor(workspaceId));
     } finally {
       await handle.close();
     }
