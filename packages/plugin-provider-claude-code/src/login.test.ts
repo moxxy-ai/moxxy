@@ -10,6 +10,7 @@ import {
   refreshClaudeAccessToken,
   __setClaudeFetch,
   __setClaudeOpenBrowser,
+  __setClaudeSleep,
 } from './login.js';
 
 interface FakeVault extends OAuthVault {
@@ -51,6 +52,7 @@ const META = { clientId: CLAUDE_CLIENT_ID, tokenUrl: CLAUDE_TOKEN_URL };
 
 beforeEach(() => {
   __setClaudeOpenBrowser(async () => {});
+  __setClaudeSleep(async () => {}); // don't actually back off under test
   __setClaudeFetch(async () => {
     throw new Error('unexpected fetch — a test forgot to stub __setClaudeFetch');
   });
@@ -99,6 +101,46 @@ describe('claudeLogin', () => {
     expect(vault.store.get('oauth/claude-code/refresh_token')).toBe('refresh-1');
     expect(vault.store.get('oauth/claude-code/extras')).toContain('me@example.com');
     expect(res.accountId).toBe('me@example.com');
+  });
+
+  it('retries a transient 5xx from the token endpoint and then succeeds', async () => {
+    const vault = makeVault();
+    let calls = 0;
+    __setClaudeFetch(async () => {
+      calls++;
+      if (calls < 3) return jsonResponse({ error: { type: 'api_error', message: 'Internal server error' } }, 500);
+      return jsonResponse({ access_token: 'access-after-retry', token_type: 'Bearer', expires_in: 3600 });
+    });
+
+    const res = await claudeLogin(makeCtx(vault, ['', 'AUTHCODE']));
+
+    expect(calls).toBe(3); // two 500s, third attempt wins
+    expect(vault.store.get('oauth/claude-code/access_token')).toBe('access-after-retry');
+    expect(res.expiresAt).toBeGreaterThan(0);
+  });
+
+  it('does NOT retry a deterministic 4xx — surfaces it immediately', async () => {
+    const vault = makeVault();
+    let calls = 0;
+    __setClaudeFetch(async () => {
+      calls++;
+      return jsonResponse({ error: { type: 'invalid_request', message: 'invalid_grant' } }, 400);
+    });
+
+    await expect(claudeLogin(makeCtx(vault, ['', 'AUTHCODE']))).rejects.toThrow(/HTTP 400/);
+    expect(calls).toBe(1);
+  });
+
+  it('gives a transient-retry hint after exhausting attempts on persistent 5xx', async () => {
+    const vault = makeVault();
+    let calls = 0;
+    __setClaudeFetch(async () => {
+      calls++;
+      return jsonResponse({ error: { type: 'api_error', message: 'Internal server error' } }, 500);
+    });
+
+    await expect(claudeLogin(makeCtx(vault, ['', 'AUTHCODE']))).rejects.toThrow(/after 3 attempts/);
+    expect(calls).toBe(3);
   });
 
   it('splits a pasted `code#state` and rejects a mismatched state', async () => {

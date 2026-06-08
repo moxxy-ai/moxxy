@@ -91,7 +91,9 @@ export async function claudeLogin(ctx: ProviderAuthContext): Promise<ProviderOAu
   ctx.write(
     `\nSign in to ${CLAUDE_CODE_SERVICE_NAME} to authorize moxxy.\n\n` +
       `If your browser doesn't open automatically, paste this URL:\n\n  ${authUrl}\n\n` +
-      `After approving, copy the authorization code shown and paste it back here.\n\n`,
+      `After approving, copy the authorization code shown and paste it back here.\n` +
+      `(Anthropic's sign-in page sometimes shows "Internal server error" on the\n` +
+      ` first attempt — just click "Try again" and it goes through.)\n\n`,
   );
   try {
     await openBrowserImpl(authUrl);
@@ -218,6 +220,22 @@ export function __setClaudeOpenBrowser(f: (url: string) => Promise<void>): void 
   openBrowserImpl = f;
 }
 
+/** Test seam so the retry backoff doesn't actually sleep under test. */
+let sleepImpl = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+export function __setClaudeSleep(f: (ms: number) => Promise<void>): void {
+  sleepImpl = f;
+}
+
+/**
+ * Anthropic's OAuth endpoints (both `claude.ai/oauth/authorize` and the token
+ * endpoint) intermittently return a transient HTTP 500 — the *same* request
+ * then succeeds on retry. So retry 5xx/429/network failures with a short
+ * backoff before giving up. 4xx (bad/expired/already-used code, invalid_grant)
+ * is deterministic and surfaced immediately, never retried.
+ */
+const TOKEN_POST_MAX_ATTEMPTS = 3;
+const TOKEN_POST_BACKOFF_MS = [600, 1800] as const;
+
 async function exchangeClaudeCode(
   code: string,
   state: string,
@@ -265,21 +283,48 @@ async function persistClaudeTokens(
 }
 
 async function postClaudeToken(body: Record<string, string>): Promise<ClaudeExchangeResult> {
-  const res = await fetchImpl(CLAUDE_TOKEN_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
+  let transient = '';
+  for (let attempt = 1; attempt <= TOKEN_POST_MAX_ATTEMPTS; attempt++) {
+    if (attempt > 1) await sleepImpl(TOKEN_POST_BACKOFF_MS[attempt - 2] ?? 1800);
+
+    let res: Response;
+    try {
+      res = await fetchImpl(CLAUDE_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      transient = `network error (${err instanceof Error ? err.message : String(err)})`;
+      continue;
+    }
+
+    if (res.ok) {
+      const json = (await res.json()) as Record<string, unknown>;
+      return { tokenSet: parseTokenResponse(json), ...extractAccountEmail(json) };
+    }
+
     const text = await res.text().catch(() => '');
-    throw new MoxxyError({
-      code: res.status === 401 || res.status === 403 ? 'AUTH_DENIED' : 'AUTH_INVALID',
-      message: `Claude token endpoint returned HTTP ${res.status}: ${text.slice(0, 300)}`,
-      context: { provider: CLAUDE_CODE_PROVIDER_ID, status: res.status },
-    });
+    // Deterministic client errors: surface immediately, don't burn retries.
+    if (res.status < 500 && res.status !== 429) {
+      throw new MoxxyError({
+        code: res.status === 401 || res.status === 403 ? 'AUTH_DENIED' : 'AUTH_INVALID',
+        message: `Claude token endpoint returned HTTP ${res.status}: ${text.slice(0, 300)}`,
+        context: { provider: CLAUDE_CODE_PROVIDER_ID, status: res.status },
+      });
+    }
+    // 5xx / 429 — Anthropic-side flake; loop and try the same request again.
+    transient = `HTTP ${res.status}: ${text.slice(0, 200)}`;
   }
-  const json = (await res.json()) as Record<string, unknown>;
-  return { tokenSet: parseTokenResponse(json), ...extractAccountEmail(json) };
+
+  throw new MoxxyError({
+    code: 'AUTH_INVALID',
+    message: `Claude token endpoint kept failing after ${TOKEN_POST_MAX_ATTEMPTS} attempts (last: ${transient}).`,
+    hint:
+      "Anthropic's OAuth endpoint is returning transient errors right now — " +
+      'wait a few seconds and run `moxxy login claude-code` again.',
+    context: { provider: CLAUDE_CODE_PROVIDER_ID },
+  });
 }
 
 function extractAccountEmail(json: Record<string, unknown>): { accountEmail?: string } {
