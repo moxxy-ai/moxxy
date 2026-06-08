@@ -98,29 +98,17 @@ raw throws are internal registry/broker invariants that should stay plain):
 - desktop self-update **security** failures (signature/hash/unsafe-path) throw raw Error —
   `desktop-host/src/app-update/stager.ts:258-302`; candidates for a typed error code.
 
-### 6. Mode loop scaffolding is copy-pasted across mode-default and mode-goal — 🔴 NEW
-**Found 2026-06-08.** The mode-slimming PR (#93) collapsed the mode list but left the
-per-iteration loop duplicated: `mode-default/src/turn-iterator.ts:168-272` vs
-`mode-goal/src/goal-loop.ts:333-436`. `executeToolUses` differs only in comments/whitespace;
-`emitRequestsAndDetectStuck` differs only in error strings; the provider-request/response +
-overflow/reactive-compaction block (`turn-iterator.ts:67-127` vs `goal-loop.ts:128-182`)
-is near-identical. Critically, the **orphan-tool-result / stuck-loop fix** (load-bearing —
-the comments literally say "See the same fix in mode-tool-use") is copy-pasted, so any fix
-must be hand-mirrored. **Action:** hoist the shared iteration scaffolding into an SDK
-`mode-helpers` building block (per the repo's "prefer swappable blocks" guideline) so both
-modes compose it. **Severity med.**
-
 ---
 
 ## P3 — Low / per-package nits
 
-### 7. plugin-memory caches embeddings via a parallel `EmbeddingIndex` — OPEN
+### 6. plugin-memory caches embeddings via a parallel `EmbeddingIndex` — OPEN
 **Cross-cut 1.11.** `plugin-memory/src/store.ts:6,88-96` still uses its own `EmbeddingIndex`
 cache instead of the SDK `CachedEmbeddingProvider`. **Deferred:** now that the atomic-write +
 recall-race bugs are fixed, this is pure dedup of caching logic over a subtle mutex-guarded
 recall path — low value, real risk. Fold in only if the recall path is touched anyway.
 
-### 8. Channel→core prod dependency — OPEN
+### 7. Channel→core prod dependency — OPEN
 `plugin-cli`/`plugin-telegram` keep real `@moxxy/core` prod imports (`savePreferences`,
 `clearUsageStats`, `newTurnId`, `loadUsageStats`, `PermissionEngine` — e.g.
 `plugin-cli/src/session/run-slash.ts:2`, `plugin-telegram/src/channel/turn-runner.ts:2`).
@@ -128,7 +116,7 @@ To fully sever channel→core, hoist these provider-neutral helpers into `@moxxy
 (cross-cut 2.14). (`plugin-subagents`/`plugin-view` keep core as a **dev**Dep only — their
 `*.test.ts` import core; correct, leave them.)
 
-### 9. Small casts / hardcoded values — NEW, low
+### 8. Small casts / hardcoded values — NEW, low
 - **Type the exec allowlist.** `plugin-security/src/broker.ts:343` reads
   `(caps as unknown as { commands? }).commands` — a forward-compat field not on
   `CapabilitySpec`. It gates the **exec allowlist**, so it's worth typing properly on
@@ -149,6 +137,13 @@ To fully sever channel→core, hoist these provider-neutral helpers into `@moxxy
 Collapsed from full write-ups; each was re-checked against `HEAD` and confirmed — no
 regressions. Restore the detail from git history (`TECH_DEBT.md` @ `b014c3a`) if needed.
 
+- **Mode loop scaffolding hoisted to the SDK** (2026-06-08, was P2 #6). The load-bearing
+  stuck-loop orphan-result fix + the tool-batch abort path were copy-pasted across
+  `mode-default` and `mode-goal` (a fix to one had to be hand-mirrored). Both now compose
+  `executeToolUses` + `emitRequestsAndDetectStuck` from `@moxxy/sdk` (`tool-dispatch.ts`),
+  parameterized by a `StuckLoopReport` for each mode's wording + goal's `goal_stuck` event.
+  Pure refactor, no behavior change; mode-default 9/9 + mode-goal 10/10 green. (The outer
+  loop bodies stay per-mode by design — different strategies.)
 - **plugins-admin CLI install hardening + dedup** (2026-06-08, was P2 #7/#8). The imperative
   `installPluginPackage`/`removePluginPackage` now reject a flag-like spec via
   `assertSafeNpmSpec` (a leading `-` is argument injection) — and crucially still accept the

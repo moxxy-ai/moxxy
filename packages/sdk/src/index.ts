@@ -183,7 +183,12 @@ export {
   type StuckLoopDetector,
   type StuckSignal,
 } from './mode-helpers.js';
-export { dispatchToolCall } from './tool-dispatch.js';
+export {
+  dispatchToolCall,
+  executeToolUses,
+  emitRequestsAndDetectStuck,
+  type StuckLoopReport,
+} from './tool-dispatch.js';
 
 export type { TokenBudget, CompactContext, CompactorDef } from './compactor.js';
 export {
