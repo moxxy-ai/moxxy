@@ -82,6 +82,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     config,
     resolver: opts.resolver,
     resumeSessionId: opts.resumeSessionId,
+    sessionId: opts.sessionId,
     logger,
     isPluginDisabled: (pkg) => disabledPackages.has(pkg),
     // Surface vault secrets to tool handlers as `ctx.getSecret(name)`. The

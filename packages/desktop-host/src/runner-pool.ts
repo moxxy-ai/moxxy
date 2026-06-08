@@ -46,7 +46,11 @@ export class RunnerPool extends EventEmitter {
       return existing.supervisor;
     }
     const socketPath = socketFor(id);
-    const supervisor = new RunnerSupervisor(socketPath);
+    // Pass the workspace id as the runner's sticky session id so each
+    // workspace resumes its own conversation + model context across app
+    // restarts (the runner persists to ~/.moxxy/sessions/<id>.jsonl and
+    // resumes it next launch) instead of booting an empty session every time.
+    const supervisor = new RunnerSupervisor(socketPath, id);
     if (cwd) await supervisor.setCwd(cwd);
     this.entries.set(id, { id, supervisor });
     // Forward every supervisor's change event upward, tagged with the

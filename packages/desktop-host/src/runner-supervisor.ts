@@ -24,6 +24,7 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { Socket } from 'node:net';
 
+import { deleteSession } from '@moxxy/core';
 import {
   connectRemoteSession,
   isNamedPipe,
@@ -68,6 +69,14 @@ export class RunnerSupervisor extends EventEmitter {
     // runner").
     private readonly socketPath: string = process.env.MOXXY_RUNNER_SOCKET ??
       platformSocket('serve', path.join(homedir(), '.moxxy', 'serve.sock')),
+    /**
+     * Sticky session id for the spawned runner (resume-if-present). The pool
+     * passes the workspace's desk id so the runner resumes that workspace's
+     * conversation + model context across app restarts. Forwarded to `serve`
+     * as `MOXXY_SESSION_ID`. Undefined → the runner mints a fresh id (the old
+     * behavior, and what a bare supervisor uses).
+     */
+    private readonly sessionId?: string,
   ) {
     super();
   }
@@ -99,6 +108,42 @@ export class RunnerSupervisor extends EventEmitter {
       }
       this.forceRetry();
     }
+  }
+
+  /**
+   * Start a fresh conversation for this workspace (the `/new` command). With
+   * sticky sessions the runner resumes `~/.moxxy/sessions/<sessionId>.jsonl`
+   * every launch, so "new" must (1) tear the runner down, (2) delete that
+   * persisted log, and (3) respawn — the run loop comes back up and
+   * sticky-resume finds no file, yielding an empty session under the same id.
+   * Wiping the file (not just the in-memory log) is what makes the reset
+   * durable across the next app restart. The renderer clears its own transcript
+   * separately.
+   */
+  async resetSession(): Promise<void> {
+    const session = this.session;
+    this.session = null;
+    if (session) {
+      try {
+        await session.close();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (this.child) {
+      // Wait for the child to release its socket before deleting + respawning,
+      // mirroring setCwd — a bare kill races the respawn into EADDRINUSE.
+      await terminateChild(this.child);
+      this.child = null;
+    }
+    if (this.sessionId) {
+      try {
+        await deleteSession(this.sessionId);
+      } catch {
+        // Best-effort: a missing file just means there was nothing to clear.
+      }
+    }
+    this.forceRetry();
   }
 
   /** The directory the runner treats as its cwd (null when unbound). Used to
@@ -386,6 +431,8 @@ export class RunnerSupervisor extends EventEmitter {
         // ~/.moxxy) stays fully available — that's how the desktop "patches"
         // itself.
         MOXXY_NO_CORE_UPDATE: '1',
+        // Resume this workspace's conversation across restarts (see ctor).
+        ...(this.sessionId ? { MOXXY_SESSION_ID: this.sessionId } : {}),
       },
       ...(this.cwd ? { cwd: this.cwd } : {}),
     });

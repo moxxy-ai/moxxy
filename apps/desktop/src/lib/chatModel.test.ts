@@ -87,6 +87,38 @@ describe('chat model runtime', () => {
     expect(ev).toMatchObject({ type: 'assistant_message', content: 'hi.' });
   });
 
+  it('drops a replayed/duplicate event by id (idempotent re-attach)', () => {
+    const rt = createRuntime();
+    const u = userPrompt('hello');
+    const a = assistant('hi.', 'end_turn');
+    expect(applyEvent(rt, u)).toBe(true);
+    expect(applyEvent(rt, a)).toBe(true);
+    expect(rt.log.length).toBe(2);
+    // Same ids arrive again (full-history replay on re-attach) → no-ops.
+    expect(applyEvent(rt, u)).toBe(false);
+    expect(applyEvent(rt, a)).toBe(false);
+    expect(rt.log.length).toBe(2);
+    expect(blocksOf(rt)).toHaveLength(2);
+  });
+
+  it('seeds seenIds from initial events so a replay of them is de-duped', () => {
+    const u = userPrompt('seeded');
+    const rt = createRuntime([u]);
+    expect(rt.log.length).toBe(1);
+    expect(applyEvent(rt, u)).toBe(false); // already seeded
+    expect(rt.log.length).toBe(1);
+  });
+
+  it('clear() resets seenIds so the same id can be re-added afterwards', () => {
+    const rt = createRuntime();
+    const u = userPrompt('x');
+    applyEvent(rt, u);
+    applyAction(rt, { type: 'clear' });
+    expect(rt.log.length).toBe(0);
+    expect(applyEvent(rt, u)).toBe(true); // not blocked by a stale seenId
+    expect(rt.log.length).toBe(1);
+  });
+
   it('renders a user_prompt event as a user block', () => {
     const rt = createRuntime();
     applyEvent(rt, userPrompt('hello'));

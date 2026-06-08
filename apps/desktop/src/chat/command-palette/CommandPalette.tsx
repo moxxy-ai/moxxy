@@ -77,11 +77,19 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
         name: command.name,
         args: argString,
       });
-      // 'clear' is a side-effect-only directive — wipe transcript
-      // BEFORE dispatching, otherwise the result card would land in
+      // Session-action directives are side-effect-only. Wipe the transcript
+      // BEFORE dispatching the notice card below, otherwise it would land in
       // the cleared transcript and immediately disappear.
       if (result.kind === 'session-action' && result.action === 'clear') {
         chatStore.clear(workspaceId);
+      } else if (result.kind === 'session-action' && result.action === 'new') {
+        // `/new`: clear the transcript AND reset the runner to a fresh, empty
+        // session — dropping the model's context and the persisted history so
+        // it doesn't resurrect on the next launch. Without the runner reset,
+        // clearing only the renderer would leave the model still primed with
+        // the old conversation (and a restart would replay it back).
+        chatStore.clear(workspaceId);
+        await api().invoke('session.newSession', { workspaceId });
       }
       // Don't render an action_result block for pure side-effects /
       // noops; the empty header bar that we used to leave in the

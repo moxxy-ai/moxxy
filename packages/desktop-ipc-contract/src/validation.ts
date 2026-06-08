@@ -77,6 +77,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   }),
   'session.setProvider': z.object({ workspaceId: optionalWorkspace, provider: providerName }),
   'session.setMode': z.object({ workspaceId: optionalWorkspace, mode: z.string().min(1).max(64) }),
+  'session.newSession': z.object({ workspaceId: optionalWorkspace }),
   // A turn's prompt + optional attachments cross from the renderer into the
   // model. Bound the shape so a hostile renderer can't OOM the main process
   // with a giant prompt or a flood of attachment entries. The attachment
