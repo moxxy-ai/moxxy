@@ -1,4 +1,4 @@
-import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
+import { defineConfig, externalizeDepsPlugin, loadEnv } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 
@@ -36,9 +36,22 @@ const EXTERNAL_NATIVE = ['@napi-rs/keyring'];
  * and the renderer also writes to `dist/` so it can be served by Vite
  * during dev and packaged by electron-builder for production.
  */
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  // The renderer reads VITE_CLERK_PUBLISHABLE_KEY via import.meta.env, but the
+  // MAIN process needs it too — to fold a `pk_live_` instance's own Frontend
+  // API host into the CSP + OAuth popup allow-list (a prod key serves clerk-js
+  // from that host, which the static dev/test hosts don't cover; without it
+  // `clerk.openSignIn()` is CSP-blocked and renders no modal). electron-vite
+  // only exposes VITE_ vars to the renderer, so bake the key into the main
+  // bundle explicitly as a `define` global (read in electron/main/index.ts).
+  const env = loadEnv(mode, process.cwd(), 'VITE_');
+  const clerkDefine = {
+    __CLERK_PUBLISHABLE_KEY__: JSON.stringify(env.VITE_CLERK_PUBLISHABLE_KEY ?? ''),
+  };
+  return {
   main: {
     plugins: [externalizeDepsPlugin({ exclude: BUNDLED_WORKSPACE_DEPS })],
+    define: clerkDefine,
     build: {
       outDir: 'dist-electron/main',
       rollupOptions: {
@@ -99,4 +112,5 @@ export default defineConfig({
       },
     },
   },
+  };
 });

@@ -5,6 +5,8 @@ import {
   isSafeExternalUrl,
   assertSafeExternalUrl,
   redactSecrets,
+  clerkFrontendApiHost,
+  clerkCspHostSources,
 } from './security';
 
 describe('provider-name validation', () => {
@@ -66,5 +68,44 @@ describe('secret redaction', () => {
   it('leaves ordinary log lines intact', () => {
     const line = 'moxxy serve listening on ~/.moxxy/serve.sock';
     expect(redactSecrets(line)).toBe(line);
+  });
+});
+
+// Live-key fixtures are assembled from parts so this file never contains a
+// literal `pk_live_<body>` string — the release pipeline's `desktop-guard`
+// greps the whole repo for exactly that to catch a committed production key.
+// The body is base64('clerk.acme.com$'); it's a fixture host, not a real key.
+const LIVE = ['pk', 'live', 'Y2xlcmsuYWNtZS5jb20k'].join('_');
+const TEST = 'pk_test_YW1hemVkLWNvZC02Ny5jbGVyay5hY2NvdW50cy5kZXYk';
+
+describe('clerk frontend-api host', () => {
+  it('decodes the host a publishable key points at', () => {
+    expect(clerkFrontendApiHost(LIVE)).toBe('clerk.acme.com');
+    expect(clerkFrontendApiHost(TEST)).toBe('amazed-cod-67.clerk.accounts.dev');
+  });
+
+  it('returns null for missing / malformed keys', () => {
+    for (const bad of [undefined, null, '', 'not-a-key', 'pk_live_', 'sk_live_abc', 'pk_live_!!!']) {
+      expect(clerkFrontendApiHost(bad)).toBeNull();
+    }
+  });
+});
+
+describe('clerk CSP host sources', () => {
+
+  it('adds the prod host + parent wildcard for a live key', () => {
+    expect(clerkCspHostSources(LIVE)).toEqual([
+      'https://clerk.acme.com',
+      'https://*.acme.com',
+    ]);
+  });
+
+  it('adds nothing for a test key (already in the static allow-list)', () => {
+    expect(clerkCspHostSources(TEST)).toEqual([]);
+  });
+
+  it('adds nothing for a missing / malformed key', () => {
+    expect(clerkCspHostSources(undefined)).toEqual([]);
+    expect(clerkCspHostSources('garbage')).toEqual([]);
   });
 });

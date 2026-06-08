@@ -33,6 +33,7 @@ import {
   installMediaPermissions,
   lockDownNavigation,
   isSafeExternalUrl,
+  clerkFrontendApiHost,
   preferredCliEntry,
   ensureDesktopVaultKey,
   activateManagedNode,
@@ -59,6 +60,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL'];
 
+// The Clerk publishable key, baked into the main bundle at build time by
+// electron-vite's `define` (see electron.vite.config.ts) from the same
+// VITE_CLERK_PUBLISHABLE_KEY the renderer reads. The main process needs it to
+// allow the instance's prod Frontend API host through the CSP + OAuth popup
+// allow-list — a `pk_live_` key serves clerk-js from the instance's own
+// domain, which the static dev/test hosts don't cover. '' when unset.
+declare const __CLERK_PUBLISHABLE_KEY__: string;
+const CLERK_PUBLISHABLE_KEY =
+  typeof __CLERK_PUBLISHABLE_KEY__ === 'string' ? __CLERK_PUBLISHABLE_KEY__ : '';
+
 let pool: RunnerPool | null = null;
 let mainWindow: BrowserWindow | null = null;
 
@@ -82,6 +93,24 @@ async function createWindow(): Promise<void> {
     /^https:\/\/appleid\.apple\.com$/,
     /^https:\/\/github\.com$/,
   ];
+  // A `pk_live_` instance runs OAuth through its OWN Frontend API host
+  // (e.g. clerk.acme.com) and account portal (accounts.acme.com), neither
+  // covered above — add the exact host plus a wildcard on its parent domain
+  // so the prod sign-in popup isn't denied. Test keys resolve to a host
+  // already matched above, so this adds nothing for them.
+  const clerkFapiHost = clerkFrontendApiHost(CLERK_PUBLISHABLE_KEY);
+  if (
+    clerkFapiHost &&
+    !clerkFapiHost.endsWith('.clerk.accounts.dev') &&
+    !clerkFapiHost.endsWith('.clerk.com')
+  ) {
+    const reEsc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    OAUTH_HOST_PATTERNS.push(new RegExp(`^https://${reEsc(clerkFapiHost)}$`));
+    const parent = clerkFapiHost.split('.').slice(1).join('.');
+    if (parent.split('.').length >= 2) {
+      OAUTH_HOST_PATTERNS.push(new RegExp(`^https://(?:[a-z0-9-]+\\.)+${reEsc(parent)}$`));
+    }
+  }
 
   mainWindow = new BrowserWindow({
     title: 'MoxxyAI Workspaces',
@@ -467,7 +496,10 @@ app.whenReady().then(async () => {
   // Apply the Content-Security-Policy to our own document responses
   // before any window loads. Skipped in dev (Vite HMR needs a loose
   // policy); third-party + OAuth responses are left untouched.
-  installContentSecurityPolicy(session.defaultSession, { isDev });
+  installContentSecurityPolicy(session.defaultSession, {
+    isDev,
+    clerkPublishableKey: CLERK_PUBLISHABLE_KEY,
+  });
 
   // Allow the renderer's voice recorder to reach the microphone. Without this,
   // macOS hands getUserMedia a SILENT stream (no rejection), so voice

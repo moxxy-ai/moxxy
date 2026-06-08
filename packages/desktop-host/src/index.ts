@@ -26,4 +26,6 @@ export {
   installMediaPermissions,
   lockDownNavigation,
   isSafeExternalUrl,
+  clerkFrontendApiHost,
+  clerkCspHostSources,
 } from './security.js';

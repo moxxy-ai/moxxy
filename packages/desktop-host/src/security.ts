@@ -118,6 +118,60 @@ export function lockDownNavigation(
   }
 }
 
+// ---- Clerk Frontend API host ----------------------------------------------
+
+/**
+ * Decode the Frontend API host a Clerk publishable key points at.
+ *
+ * A publishable key is `pk_test_` / `pk_live_` followed by the base64 of
+ * `<frontend-api-host>$` — e.g. the public dev key decodes to
+ * `amazed-cod-67.clerk.accounts.dev`, and a production `pk_live_` key
+ * decodes to the instance's OWN domain (e.g. `clerk.acme.com`). clerk-js
+ * is then loaded FROM that host (`https://<host>/npm/@clerk/clerk-js…`) and
+ * all its API calls go there too. So the host the CSP / OAuth allow-list
+ * must permit is encoded in the key itself — there is no fixed prod domain.
+ *
+ * Returns null for a missing or malformed key (caller falls back to the
+ * static *.clerk.accounts.dev / *.clerk.com allow-list, which is all a
+ * test key ever needs).
+ */
+export function clerkFrontendApiHost(publishableKey?: string | null): string | null {
+  if (typeof publishableKey !== 'string') return null;
+  const m = /^pk_(?:test|live)_([A-Za-z0-9+/=_-]+)$/.exec(publishableKey.trim());
+  const body = m?.[1];
+  if (!body) return null;
+  let decoded: string;
+  try {
+    decoded = Buffer.from(body, 'base64').toString('utf8');
+  } catch {
+    return null;
+  }
+  // The encoded value is the host with a trailing `$` delimiter. Guard that
+  // what we decoded is a plain dotted hostname so a corrupt key can't smuggle
+  // arbitrary CSP source tokens (spaces, schemes, paths) into the header.
+  const host = decoded.replace(/\$+$/, '');
+  return /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(host) ? host : null;
+}
+
+/**
+ * CSP host-source tokens a Clerk instance needs beyond the static
+ * `*.clerk.accounts.dev` / `*.clerk.com` entries: the exact prod Frontend
+ * API host plus a wildcard on its parent domain (so the instance's own
+ * `accounts.` / `img.` / `clerk.` subdomains are all covered). Empty for a
+ * missing/malformed key, and empty for a test key whose host is already in
+ * the static list — only a `pk_live_` instance on its own domain adds anything.
+ */
+export function clerkCspHostSources(publishableKey?: string | null): string[] {
+  const host = clerkFrontendApiHost(publishableKey);
+  if (!host) return [];
+  if (host.endsWith('.clerk.accounts.dev') || host.endsWith('.clerk.com')) return [];
+  const sources = [`https://${host}`];
+  const parent = host.split('.').slice(1).join('.');
+  // Only wildcard a real registrable parent (≥ 2 labels) — never a bare TLD.
+  if (parent.split('.').length >= 2) sources.push(`https://*.${parent}`);
+  return sources;
+}
+
 // ---- Content-Security-Policy ----------------------------------------------
 
 /**
@@ -126,22 +180,26 @@ export function lockDownNavigation(
  * no `'unsafe-inline'`/`'unsafe-eval'` because the bundle ships only
  * external module scripts). Styles allow `'unsafe-inline'` because the
  * UI uses inline style objects + the splash `<style>` block + Google
- * Fonts.
+ * Fonts. `extraClerkHosts` are the prod Frontend API sources derived from
+ * the publishable key (see {@link clerkCspHostSources}); empty for test keys.
  */
-const CSP_DIRECTIVES = [
-  "default-src 'self'",
-  "script-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "img-src 'self' data: blob: https://img.clerk.com https://*.clerk.com",
-  "font-src 'self' data: https://fonts.gstatic.com",
-  "connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com",
-  "worker-src 'self' blob:",
-  "frame-src https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-].join('; ');
+function buildCspDirectives(extraClerkHosts: readonly string[]): string {
+  const extra = extraClerkHosts.length ? ` ${extraClerkHosts.join(' ')}` : '';
+  return [
+    "default-src 'self'",
+    `script-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    `img-src 'self' data: blob: https://img.clerk.com https://*.clerk.com${extra}`,
+    "font-src 'self' data: https://fonts.gstatic.com",
+    `connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com${extra}`,
+    "worker-src 'self' blob:",
+    `frame-src https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join('; ');
+}
 
 /**
  * Inject the CSP onto the app's own `file://` document responses only.
@@ -150,12 +208,19 @@ const CSP_DIRECTIVES = [
  * untouched — slapping our CSP on them would break sign-in. Dev is
  * skipped entirely: Vite's HMR needs `'unsafe-eval'` + ws: and a strict
  * policy would break the dev server.
+ *
+ * `clerkPublishableKey` is the renderer's `VITE_CLERK_PUBLISHABLE_KEY`. A
+ * `pk_live_` key serves clerk-js from the instance's OWN domain, which the
+ * static dev/test hosts don't cover — so without folding that host in here
+ * the prod clerk-js script is CSP-blocked and `clerk.openSignIn()` silently
+ * renders no modal. Test/absent keys add nothing (the static list suffices).
  */
 export function installContentSecurityPolicy(
   session: Session,
-  opts: { readonly isDev: boolean },
+  opts: { readonly isDev: boolean; readonly clerkPublishableKey?: string | null },
 ): void {
   if (opts.isDev) return;
+  const directives = buildCspDirectives(clerkCspHostSources(opts.clerkPublishableKey));
   session.webRequest.onHeadersReceived((details, callback) => {
     if (!details.url.startsWith('file://')) {
       callback({ responseHeaders: details.responseHeaders });
@@ -164,7 +229,7 @@ export function installContentSecurityPolicy(
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': [CSP_DIRECTIVES],
+        'Content-Security-Policy': [directives],
       },
     });
   });
