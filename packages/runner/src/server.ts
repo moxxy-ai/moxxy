@@ -37,8 +37,8 @@ import {
   schedulerSetEnabledParamsSchema,
   schedulerUpdateParamsSchema,
   setResolverParamsSchema,
-  synthesizeParamsSchema,
   transcribeParamsSchema,
+  synthesizeParamsSchema,
   workflowRunParamsSchema,
   workflowSetEnabledParamsSchema,
   type AttachResult,
@@ -50,8 +50,8 @@ import {
   type SchedulerRunNowResult,
   type SchedulerSetEnabledResult,
   type SchedulerUpdateResult,
-  type SynthesizeResult,
   type TranscribeResult,
+  type SynthesizeResult,
 } from './protocol.js';
 
 /** One attached client and what it has opted into answering. */
