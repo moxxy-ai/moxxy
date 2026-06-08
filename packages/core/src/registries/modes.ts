@@ -1,4 +1,4 @@
-import type { ModeDef } from '@moxxy/sdk';
+import { migrateModeName, type ModeDef } from '@moxxy/sdk';
 
 export class ModeRegistry {
   private readonly modes = new Map<string, ModeDef>();
@@ -46,7 +46,11 @@ export class ModeRegistry {
   }
 
   setActive(name: string): void {
-    const mode = this.modes.get(name);
+    // Prefer the literal name; only when it isn't registered fall back to the
+    // legacy-name map (e.g. a persisted "tool-use" → "default"). This never
+    // overrides a validly-registered name and keeps an old config / preference
+    // / setMode RPC value from crashing a session with "Mode not registered".
+    const mode = this.modes.get(name) ?? this.modes.get(migrateModeName(name));
     if (!mode) throw new Error(`Mode not registered: ${name}`);
     this.activate(mode);
   }

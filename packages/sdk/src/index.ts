@@ -348,6 +348,8 @@ export {
   defineWorkflowExecutor,
 } from './define.js';
 
+export { migrateModeName } from './mode.js';
+
 export {
   skillFrontmatterSchema,
   pluginManifestSchema,

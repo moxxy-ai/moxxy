@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { writeFileAtomic } from '@moxxy/sdk';
+import { migrateModeName, writeFileAtomic } from '@moxxy/sdk';
 
 /**
  * User-level runtime preferences persisted at ~/.moxxy/preferences.json.
@@ -20,17 +20,6 @@ export interface MoxxyPreferences {
   readonly mode?: string;
 }
 
-/**
- * Legacy mode-name → current-name map. Mode strings were renamed
- * ("tool-use" → "default", "deep-research" → "research"); existing
- * ~/.moxxy/preferences.json files still carry the old names, so we
- * coerce them on read rather than silently dropping the user's choice.
- */
-const MODE_NAME_MIGRATIONS: Readonly<Record<string, string>> = {
-  'tool-use': 'default',
-  'deep-research': 'research',
-};
-
 export function preferencesPath(): string {
   return path.join(os.homedir(), '.moxxy', 'preferences.json');
 }
@@ -46,8 +35,7 @@ export async function loadPreferences(): Promise<MoxxyPreferences> {
     const parsed = JSON.parse(raw) as unknown;
     if (parsed && typeof parsed === 'object') {
       const prefs = parsed as MoxxyPreferences;
-      const migrated = prefs.mode ? MODE_NAME_MIGRATIONS[prefs.mode] : undefined;
-      return migrated ? { ...prefs, mode: migrated } : prefs;
+      return prefs.mode ? { ...prefs, mode: migrateModeName(prefs.mode) } : prefs;
     }
     return {};
   } catch {

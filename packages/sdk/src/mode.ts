@@ -182,3 +182,25 @@ export interface ModeDef {
   readonly badge?: ModeBadge;
   run(ctx: ModeContext): AsyncIterable<MoxxyEvent>;
 }
+
+/**
+ * Legacy mode-name → current-name map for backward compatibility. Modes were
+ * renamed/slimmed: `tool-use`→`default`, `deep-research`→`research`, and the
+ * removed `plan-execute`/`bmad`/`developer` modes fall back to `default`. Any
+ * mode name arriving from persisted or external state — config files,
+ * `~/.moxxy/preferences.json`, a desktop workspace's stored mode, a runner
+ * `setMode` RPC — is funneled through {@link migrateModeName} so an old name
+ * resolves to the current one instead of crashing with "Mode not registered".
+ */
+const LEGACY_MODE_NAMES: Readonly<Record<string, string>> = {
+  'tool-use': 'default',
+  'deep-research': 'research',
+  'plan-execute': 'default',
+  bmad: 'default',
+  developer: 'default',
+};
+
+/** Map a possibly-legacy mode name to its current name (identity if unknown). */
+export function migrateModeName(name: string): string {
+  return LEGACY_MODE_NAMES[name] ?? name;
+}
