@@ -1,5 +1,12 @@
 # @moxxy/mode-default
 
+## 0.0.5
+
+### Patch Changes
+
+- Updated dependencies [b014c3a]
+  - @moxxy/sdk@0.4.0
+
 > Renamed from `@moxxy/mode-tool-use`. The default loop strategy; mode name `default`.
 
 ## 0.0.4

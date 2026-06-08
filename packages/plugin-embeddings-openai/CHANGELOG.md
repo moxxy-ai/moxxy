@@ -1,5 +1,12 @@
 # @moxxy/plugin-embeddings-openai
 
+## 0.0.5
+
+### Patch Changes
+
+- Updated dependencies [b014c3a]
+  - @moxxy/sdk@0.4.0
+
 ## 0.0.4
 
 ### Patch Changes
