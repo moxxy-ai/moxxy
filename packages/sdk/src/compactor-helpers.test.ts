@@ -6,6 +6,7 @@ import {
   estimateContextTokens,
   isContextOverflowError,
   runCompactionIfNeeded,
+  runElisionIfNeeded,
   type CompactorDef,
   type EmittedEvent,
   type EventLogReader,
@@ -131,6 +132,58 @@ describe('runCompactionIfNeeded', () => {
     expect(ctx.emitted[0]).toMatchObject({ type: 'error', kind: 'retryable' });
   });
 
+  it('still resolves a context window for a model id not in the descriptor list', async () => {
+    // Regression: an unlisted model id (e.g. a newer release the provider's
+    // fixed descriptor list doesn't enumerate) used to make shouldCompact never
+    // run, silently disabling auto-compaction for the whole session.
+    let observedWindow = -1;
+    const compactor: CompactorDef = {
+      name: 'inspect',
+      shouldCompact: (_log, budget) => {
+        observedWindow = budget.contextWindow;
+        return false;
+      },
+      compact: async () => {
+        throw new Error('should not run');
+      },
+    };
+    const ctx = makeCtx({
+      compactor,
+      model: 'claude-opus-4-7', // the listed descriptor
+      contextWindow: 800_000,
+      ctxModelId: 'claude-opus-4-8', // …but the session runs an unlisted id
+    });
+    await runCompactionIfNeeded(ctx);
+    // Falls back to models[0].contextWindow instead of bailing.
+    expect(observedWindow).toBe(800_000);
+  });
+
+  it('force-compacts even when the provider exposes no usable context window', async () => {
+    // Reactive overflow recovery: the provider already said the prompt is too
+    // big, so a missing/zero window must NOT block the forced compaction.
+    const compact = vi.fn(async () => ({
+      type: 'compaction' as const,
+      replacedRange: [0, 1] as [number, number],
+      summary: 'summary',
+      tokensSaved: 500,
+    }));
+    const compactor: CompactorDef = { name: 'gated', shouldCompact: () => false, compact };
+    const ctx = makeCtx({ compactor, emptyModels: true });
+    const did = await runCompactionIfNeeded(ctx, { force: true });
+    expect(did).toBe(true);
+    expect(compact).toHaveBeenCalledOnce();
+  });
+
+  it('is a no-op (non-force) when the provider exposes no usable context window', async () => {
+    const compact = vi.fn();
+    const shouldCompact = vi.fn().mockReturnValue(true);
+    const ctx = makeCtx({ compactor: { name: 'x', shouldCompact, compact }, emptyModels: true });
+    const did = await runCompactionIfNeeded(ctx);
+    expect(did).toBe(false);
+    expect(shouldCompact).not.toHaveBeenCalled();
+    expect(compact).not.toHaveBeenCalled();
+  });
+
   it('force compacts even when shouldCompact returns false', async () => {
     const compact = vi.fn(async () => ({
       type: 'compaction' as const,
@@ -172,11 +225,50 @@ describe('isContextOverflowError', () => {
   });
 });
 
+describe('runElisionIfNeeded', () => {
+  // Six completed turns of bulky prompts, none matching ctx.turnId (so all are
+  // "completed"). With keepRecentTurns=4 the two oldest turns are elidable.
+  const bulkyTurns: MoxxyEvent[] = Array.from({ length: 6 }, (_, i) =>
+    event(i, {
+      type: 'user_prompt',
+      turnId: asTurnId(`turn-${i}`),
+      source: 'user',
+      text: 'x'.repeat(400),
+    }),
+  );
+
+  it('elides old turns for a model id not in the descriptor list', async () => {
+    // Regression: an unlisted model id used to disable elision entirely, so the
+    // context grew unbounded and the agent lost its earlier context. With the
+    // models[0] fallback the elision high-water mark advances as expected.
+    const ctx = makeCtx({
+      compactor: null,
+      events: bulkyTurns,
+      model: 'listed-model',
+      ctxModelId: 'unlisted-model-xyz',
+      contextWindow: 1_000, // estimate (~600 tok) is well over 0.3 * window (300)
+    });
+    await runElisionIfNeeded(ctx);
+    expect(ctx.emitted.some((e) => e.type === 'elision')).toBe(true);
+  });
+
+  it('is a no-op when the provider exposes no usable context window', async () => {
+    const ctx = makeCtx({ compactor: null, events: bulkyTurns, emptyModels: true });
+    await runElisionIfNeeded(ctx);
+    expect(ctx.emitted).toHaveLength(0);
+  });
+});
+
 interface MakeCtxOpts {
   readonly compactor: CompactorDef | null;
   readonly model?: string;
   readonly contextWindow?: number;
   readonly events?: ReadonlyArray<MoxxyEvent>;
+  /** Set ctx.model to an id the provider's descriptor list does NOT contain,
+   *  so `models.find(...)` misses and the models[0] fallback must kick in. */
+  readonly ctxModelId?: string;
+  /** Give the provider an empty descriptor list (no usable context window). */
+  readonly emptyModels?: boolean;
 }
 
 function makeCtx(opts: MakeCtxOpts): ModeContext & { emitted: EmittedEvent[] } {
@@ -186,14 +278,16 @@ function makeCtx(opts: MakeCtxOpts): ModeContext & { emitted: EmittedEvent[] } {
   const log = reader(events);
   const provider = {
     name: 'fake',
-    models: [
-      {
-        id: opts.model ?? 'fake-model',
-        contextWindow: opts.contextWindow ?? 100_000,
-        supportsTools: true,
-        supportsStreaming: true,
-      },
-    ],
+    models: opts.emptyModels
+      ? []
+      : [
+          {
+            id: opts.model ?? 'fake-model',
+            contextWindow: opts.contextWindow ?? 100_000,
+            supportsTools: true,
+            supportsStreaming: true,
+          },
+        ],
     stream: async function* () { /* unused */ },
     countTokens: async () => 0,
   } as unknown as LLMProvider;
@@ -202,7 +296,9 @@ function makeCtx(opts: MakeCtxOpts): ModeContext & { emitted: EmittedEvent[] } {
   const ctx = {
     sessionId: sid,
     turnId: tid,
-    model: opts.model ?? 'fake-model',
+    // ctx.model may intentionally differ from the descriptor id to exercise the
+    // unlisted-model fallback.
+    model: opts.ctxModelId ?? opts.model ?? 'fake-model',
     provider,
     tools: { list: () => [], get: () => undefined, execute: async () => undefined },
     skills: { list: () => [], get: () => undefined, byName: () => undefined, filterByTriggers: () => [] },

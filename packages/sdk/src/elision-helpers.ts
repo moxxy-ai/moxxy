@@ -1,4 +1,4 @@
-import { estimateContextTokens } from './compactor-helpers.js';
+import { estimateContextTokens, resolveModelContext } from './compactor-helpers.js';
 import { toolResultBytes } from './elision-state.js';
 import type { EmittedEvent, MoxxyEvent } from './events.js';
 import type { ElisionSettings, ModeContext } from './mode.js';
@@ -60,9 +60,12 @@ export async function runElisionIfNeeded(ctx: ModeContext): Promise<void> {
     const s = resolveElisionSettings(ctx.elision);
     if (!s.enabled) return;
 
-    const descriptor = ctx.provider.models.find((m) => m.id === ctx.model);
-    const contextWindow = descriptor?.contextWindow;
-    if (!contextWindow || contextWindow <= 0) return;
+    // Resolve the model's real context window, with a models[0] fallback for
+    // ids not in the provider's fixed descriptor list — otherwise an
+    // unrecognised model id silently disabled elision for the whole session.
+    const resolved = resolveModelContext(ctx);
+    if (!resolved) return;
+    const contextWindow = resolved.contextWindow;
 
     // Gate: below this fill the whole history fits comfortably — eliding would
     // only add missed-context risk for no token benefit.
