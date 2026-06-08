@@ -1,7 +1,5 @@
 import { defineTool, z } from '@moxxy/sdk';
-import type { PluginSnapshot } from './install.js';
-
-const NPM_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
+import { diffSnapshot, NPM_NAME_RE, type PluginSnapshot } from './shared.js';
 
 export interface PluginToggleDeps {
   /**
@@ -70,17 +68,4 @@ export function buildEnablePluginTool(deps: PluginToggleDeps) {
       return { enabled: packageName, registered: diffSnapshot(before, after) };
     },
   });
-}
-
-function diffSnapshot(
-  before: PluginSnapshot,
-  after: PluginSnapshot,
-): Record<string, ReadonlyArray<string>> {
-  const out: Record<string, ReadonlyArray<string>> = {};
-  for (const key of ['tools', 'agents', 'providers', 'modes', 'compactors', 'channels'] as const) {
-    const b = new Set(before[key]);
-    const added = after[key].filter((n) => !b.has(n));
-    if (added.length > 0) out[key] = added;
-  }
-  return out;
 }

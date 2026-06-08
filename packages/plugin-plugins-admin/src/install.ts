@@ -2,6 +2,9 @@ import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { defineTool, moxxyPath, writeFileAtomic, z } from '@moxxy/sdk';
+import { assertSafeNpmSpec, diffSnapshot, NPM_NAME_RE, type PluginSnapshot } from './shared.js';
+
+export type { PluginSnapshot } from './shared.js';
 
 /**
  * Where third-party plugins installed at runtime live. The CLI's
@@ -13,7 +16,6 @@ export function userPluginsDir(): string {
   return moxxyPath('plugins');
 }
 
-const NPM_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
 const VERSION_RE = /^[0-9a-z.~^*<=>-]+$/i;
 
 export interface InstallPluginDeps {
@@ -28,15 +30,6 @@ export interface InstallPluginDeps {
    * package brought in. Returns names per kind.
    */
   readonly snapshot: () => PluginSnapshot;
-}
-
-export interface PluginSnapshot {
-  readonly tools: ReadonlyArray<string>;
-  readonly agents: ReadonlyArray<string>;
-  readonly providers: ReadonlyArray<string>;
-  readonly modes: ReadonlyArray<string>;
-  readonly compactors: ReadonlyArray<string>;
-  readonly channels: ReadonlyArray<string>;
 }
 
 export interface InstallPluginPackageOptions {
@@ -76,16 +69,17 @@ export interface RemovePluginPackageResult {
 export async function installPluginPackage(
   opts: InstallPluginPackageOptions,
 ): Promise<InstallPluginPackageResult> {
+  const spec = assertSafeNpmSpec(opts.packageName);
   const dir = userPluginsDir();
   await ensurePackageJson(dir);
   const { exitCode, stderr } = await runNpm(
-    ['install', '--prefix', dir, '--no-fund', '--no-audit', '--save', opts.packageName],
+    ['install', '--prefix', dir, '--no-fund', '--no-audit', '--save', spec],
     opts.signal,
   );
   if (exitCode !== 0) {
     throw new Error(`npm install failed (exit ${exitCode}): ${truncate(stderr, 400)}`);
   }
-  return { installed: opts.packageName, dir };
+  return { installed: spec, dir };
 }
 
 /**
@@ -94,16 +88,17 @@ export async function installPluginPackage(
 export async function removePluginPackage(
   opts: RemovePluginPackageOptions,
 ): Promise<RemovePluginPackageResult> {
+  const spec = assertSafeNpmSpec(opts.packageName);
   const dir = userPluginsDir();
   await ensurePackageJson(dir);
   const { exitCode, stderr } = await runNpm(
-    ['uninstall', '--prefix', dir, '--no-fund', '--no-audit', '--save', opts.packageName],
+    ['uninstall', '--prefix', dir, '--no-fund', '--no-audit', '--save', spec],
     opts.signal,
   );
   if (exitCode !== 0) {
     throw new Error(`npm uninstall failed (exit ${exitCode}): ${truncate(stderr, 400)}`);
   }
-  return { removed: opts.packageName, dir };
+  return { removed: spec, dir };
 }
 
 export function buildInstallPluginTool(deps: InstallPluginDeps) {
@@ -257,16 +252,6 @@ function runNpm(
       resolve({ exitCode: code ?? -1, stdout, stderr });
     });
   });
-}
-
-function diffSnapshot(before: PluginSnapshot, after: PluginSnapshot): Record<string, ReadonlyArray<string>> {
-  const out: Record<string, ReadonlyArray<string>> = {};
-  for (const key of ['tools', 'agents', 'providers', 'modes', 'compactors', 'channels'] as const) {
-    const b = new Set(before[key]);
-    const added = after[key].filter((n) => !b.has(n));
-    if (added.length > 0) out[key] = added;
-  }
-  return out;
 }
 
 function truncate(s: string, n: number): string {
