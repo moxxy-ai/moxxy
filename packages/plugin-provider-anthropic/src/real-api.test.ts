@@ -22,7 +22,7 @@ import {
   autoAllowResolver,
 } from '@moxxy/core';
 import { defineProvider, definePlugin, defineTool } from '@moxxy/sdk';
-import { toolUseModePlugin } from '@moxxy/mode-tool-use';
+import { defaultModePlugin } from '@moxxy/mode-default';
 import { AnthropicProvider } from './provider.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -111,7 +111,7 @@ describe('real-API smoke: tool-use turn replayed end-to-end', () => {
       }),
     );
     session.providers.setActive('anthropic');
-    session.pluginHost.registerStatic(toolUseModePlugin);
+    session.pluginHost.registerStatic(defaultModePlugin);
     session.pluginHost.registerStatic(
       definePlugin({
         name: 'realapi-tools',

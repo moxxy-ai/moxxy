@@ -63,7 +63,7 @@ ones. Both groups are published to Telegram's `/`-picker on startup.
 | Command | Effect |
 |---|---|
 | `/model` | Inline keyboard to switch provider + model for this chat. |
-| `/mode` | Switch mode (`tool-use` / `plan-execute` / `bmad`). |
+| `/mode` | Switch mode (`default` / `goal` / `research`). |
 | `/yolo` | Toggle auto-approve mode for this session. |
 | `/tools` | List the tools the active session can call. |
 | `/skills` | List discovered skills. |
@@ -72,7 +72,7 @@ ones. Both groups are published to Telegram's `/`-picker on startup.
 
 Permission and approval prompts arrive as inline-keyboard messages; the
 bot polls for the click and resumes the loop. Approvals needing text
-follow-up (e.g. plan-execute "Redraft with feedback") capture your next
+follow-up (e.g. a "Redraft with feedback" gate) capture your next
 message as the feedback.
 
 ## Tools the plugin contributes

@@ -90,7 +90,7 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
     );
   }
   if (picker) {
-    return picker.kind === 'model' ? (
+    return picker.kind === 'model' || picker.kind === 'plugins' ? (
       <ListPicker
         title={picker.title}
         tabs={picker.tabs}

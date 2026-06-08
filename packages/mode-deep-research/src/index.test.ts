@@ -8,7 +8,7 @@ import {
   buildFanoutDigest,
   buildSynthesisInput,
   deepResearchModePlugin,
-  DEEP_RESEARCH_MODE_NAME,
+  RESEARCH_MODE_NAME,
   parseFollowups,
   parseQueries,
   type RoundFinding,
@@ -87,9 +87,9 @@ describe('deepResearchMode end-to-end (headless)', () => {
     const provider = new FakeProvider({ script: [textReply('does not matter')] });
     const session = createFakeSession({ provider });
     session.pluginHost.registerStatic(deepResearchModePlugin);
-    session.modes.setActive(DEEP_RESEARCH_MODE_NAME);
+    session.modes.setActive(RESEARCH_MODE_NAME);
 
-    const realMode = session.modes.list().find((m) => m.name === DEEP_RESEARCH_MODE_NAME)!;
+    const realMode = session.modes.list().find((m) => m.name === RESEARCH_MODE_NAME)!;
     session.modes.replace({
       name: realMode.name,
       run: (ctx) => realMode.run({ ...ctx, subagents: undefined }),
@@ -116,9 +116,9 @@ describe('deepResearchMode end-to-end (headless)', () => {
 
     const session = createFakeSession({ provider });
     session.pluginHost.registerStatic(deepResearchModePlugin);
-    session.modes.setActive(DEEP_RESEARCH_MODE_NAME);
+    session.modes.setActive(RESEARCH_MODE_NAME);
 
-    const realMode = session.modes.list().find((m) => m.name === DEEP_RESEARCH_MODE_NAME)!;
+    const realMode = session.modes.list().find((m) => m.name === RESEARCH_MODE_NAME)!;
     const fakeSpawner: SubagentSpawner = {
       async spawn() {
         return fakeResult('single-spawn unused in this test');
@@ -179,7 +179,7 @@ describe('deepResearchMode end-to-end (headless)', () => {
 
     const session = createFakeSession({ provider });
     session.pluginHost.registerStatic(deepResearchModePlugin);
-    session.modes.setActive(DEEP_RESEARCH_MODE_NAME);
+    session.modes.setActive(RESEARCH_MODE_NAME);
 
     const calls: number[] = [];
     const fakeSpawner: SubagentSpawner = {
@@ -195,7 +195,7 @@ describe('deepResearchMode end-to-end (headless)', () => {
         );
       },
     };
-    const realMode = session.modes.list().find((m) => m.name === DEEP_RESEARCH_MODE_NAME)!;
+    const realMode = session.modes.list().find((m) => m.name === RESEARCH_MODE_NAME)!;
     session.modes.replace({
       name: realMode.name,
       run: (ctx) => realMode.run({ ...ctx, subagents: fakeSpawner }),

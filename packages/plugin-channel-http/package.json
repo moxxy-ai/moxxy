@@ -34,7 +34,7 @@
   },
   "devDependencies": {
     "@moxxy/core": "workspace:*",
-    "@moxxy/mode-tool-use": "workspace:*",
+    "@moxxy/mode-default": "workspace:*",
     "@moxxy/runner": "workspace:*",
     "@moxxy/testing": "workspace:*",
     "@moxxy/tools-builtin": "workspace:*",

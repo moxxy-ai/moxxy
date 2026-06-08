@@ -97,7 +97,7 @@ export class RunnerServer {
     this.transport.onConnection((t) => this.onConnection(t));
     this.logUnsub = session.log.subscribe((event) => this.broadcastEvent(event));
     // Mirror active-mode changes to clients — covers both the SetMode RPC and a
-    // mode handing off to another mode post-turn (BMAD → tool-use).
+    // mode handing off to another mode post-turn.
     this.modesUnsub = session.modes.onActiveChange(() => this.broadcastInfo());
   }
 

@@ -72,13 +72,9 @@ export async function runInitCommand(argv: ParsedArgv): Promise<number> {
   );
 
   const modes = [
-    { id: 'tool-use', label: 'tool-use', description: 'Default Claude Code-style mode (recommended)' },
-    { id: 'plan-execute', label: 'plan-execute', description: 'Plan-then-execute strategy' },
-    {
-      id: 'bmad',
-      label: 'bmad',
-      description: 'BMAD: Analysis → Planning → Solutioning → Implementation (multi-persona)',
-    },
+    { id: 'default', label: 'default', description: 'Default Claude Code-style mode (recommended)' },
+    { id: 'goal', label: 'goal', description: 'Autonomous goal loop — tools auto-approved until done' },
+    { id: 'research', label: 'research', description: 'Fan-out research: parallel queries + synthesis' },
   ];
 
   const embedders = [

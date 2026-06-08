@@ -13,12 +13,9 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 @moxxy/core    <— runtime (event log, plugin host, registries, permissions, session, skill loader)
 
 @moxxy/tools-builtin              Read/Edit/Write/Bash/Grep/Glob
-@moxxy/mode-tool-use              default loop strategy (Claude Code-style)
-@moxxy/mode-plan-execute          plan-then-execute loop strategy
-@moxxy/mode-developer             implement → verify → commit loop strategy
-@moxxy/mode-goal                  autonomous goal loop — works across turns until goal_complete (tools auto-approved)
-@moxxy/mode-bmad                  BMAD multi-persona loop strategy
-@moxxy/mode-deep-research         multi-query research + synthesis loop strategy
+@moxxy/mode-tool-use              "default" mode — Claude Code-style ReAct loop (active by default)
+@moxxy/mode-goal                  "goal" mode — autonomous auto-approve loop; works across turns until goal_complete
+@moxxy/mode-deep-research         "research" mode — multi-query fan-out + synthesis
 @moxxy/compactor-summarize        default summarize-old-turns compactor
 @moxxy/cache-strategy-stable-prefix  default prompt-cache strategy (stable-prefix breakpoints; `none` = opt-out)
 @moxxy/skills-builtin             MD skills shipped with the framework
@@ -48,7 +45,7 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 @moxxy/plugin-subagents           dispatch typed sub-agents from a turn
 @moxxy/plugin-commands            built-in slash commands (/info, /clear, /compact, …)
 @moxxy/plugin-self-update         agent edits its own plugins/skills (Tier 1) + core (Tier 2)
-@moxxy/plugin-plugins-admin       install / list / remove @moxxy plugins at runtime
+@moxxy/plugin-plugins-admin       install / remove / enable / disable plugins at runtime (model tools + `moxxy plugins` CLI + `/plugins` picker)
 @moxxy/plugin-usage-stats         per-session token + cost accounting
 @moxxy/plugin-webhooks            external-event triggers (verified HTTP listener + tunnels)
 @moxxy/runner                     bare session runner; channels attach over a unix socket (JSON-RPC)

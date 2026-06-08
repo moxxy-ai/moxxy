@@ -62,7 +62,7 @@ export async function runFanout(
   const specs: SubagentSpec[] = queries.map((q, i) => ({
     prompt: buildSubagentPrompt(q, priorFindings),
     systemPrompt: SUBAGENT_SYSTEM_PROMPT,
-    mode: 'tool-use',
+    mode: 'default',
     maxIterations: SUBAGENT_MAX_ITERATIONS,
     allowedTools: [...SUBAGENT_ALLOWED_TOOLS],
     label: `subagent-${i + 1}`,

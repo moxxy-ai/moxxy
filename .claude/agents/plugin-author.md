@@ -118,7 +118,7 @@ const researcher: AgentDef = {
     'You are a focused web researcher. Use web_fetch / browser_session to gather facts. ' +
     'Return a 200-word markdown summary with inline source URLs. Never fabricate citations.',
   allowedTools: ['web_fetch', 'browser_session'],
-  // loopStrategy: 'tool-use',  // default; only set if you ship a custom loop
+  // mode: 'default',  // default; only set to pin a child to 'goal' / 'research' or a custom mode
   // maxIterations: 30,
 };
 

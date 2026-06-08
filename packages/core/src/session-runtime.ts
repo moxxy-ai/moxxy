@@ -47,8 +47,8 @@ export interface SessionRuntime {
   readonly modes: {
     getActive(): ModeDef;
     list(): ReadonlyArray<ModeDef>;
-    /** Post-turn mode hand-off (BMAD → tool-use). Throws on an unknown name;
-     *  run-turn guards the call. */
+    /** Post-turn mode hand-off (one mode handing back to another). Throws on an
+     *  unknown name; run-turn guards the call. */
     setActive(name: string): void;
   };
   readonly compactors: { getActive(): CompactorDef | null };

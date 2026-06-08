@@ -6,7 +6,7 @@ import { askStore } from '@/lib/askStore';
 
 /**
  * Bottom sheet rendered above the composer when the runner needs a decision —
- * a tool-call permission gate or a loop-strategy approval (plan-execute,
+ * a tool-call permission gate or a loop-strategy approval (research,
  * BMAD, …). The runner blocks on the answer, so this is modal-in-spirit: the
  * user picks an option and we reply over `ask.respond`, unblocking the turn.
  */

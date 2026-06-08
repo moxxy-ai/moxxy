@@ -5,7 +5,7 @@ import {
   runSynthesisApprovalGate,
 } from './approval.js';
 import {
-  DEEP_RESEARCH_MODE_NAME,
+  RESEARCH_MODE_NAME,
   DEEP_RESEARCH_PLUGIN_ID,
   MAX_FOLLOWUPS_PER_ROUND,
   MAX_FOLLOWUP_ROUNDS,
@@ -58,8 +58,8 @@ export async function* runDeepResearchMode(ctx: ModeContext): AsyncIterable<Moxx
       source: 'system',
       kind: 'fatal',
       message:
-        'deep-research: ctx.subagents is unavailable (the @moxxy/plugin-subagents plugin appears disabled). ' +
-        'Re-enable it, or switch to plan-execute for a serial alternative.',
+        'research: ctx.subagents is unavailable (the @moxxy/plugin-subagents plugin appears disabled). ' +
+        'Re-enable it, or switch to the default mode for a serial alternative.',
     });
     return;
   }
@@ -69,7 +69,7 @@ export async function* runDeepResearchMode(ctx: ModeContext): AsyncIterable<Moxx
     sessionId: ctx.sessionId,
     turnId: ctx.turnId,
     source: 'system',
-    strategy: DEEP_RESEARCH_MODE_NAME,
+    strategy: RESEARCH_MODE_NAME,
     iteration: 0,
     routing: 'unresolved',
   });

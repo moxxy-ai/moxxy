@@ -148,7 +148,7 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
   const modeRaw = await select({
     message: 'Step 4 — Mode',
     options: toOptions(opts.modes),
-    initialValue: opts.modes[0]?.id ?? 'tool-use',
+    initialValue: opts.modes[0]?.id ?? 'default',
   });
   const mode = guard(modeRaw) as string;
 

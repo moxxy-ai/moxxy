@@ -18,7 +18,7 @@ export interface SubagentSpec {
   readonly systemPrompt?: string;
   /** Override model id; defaults to the parent's active model. */
   readonly model?: string;
-  /** Mode name to run inside the child (default: `'tool-use'`). */
+  /** Mode name to run inside the child (default: `'default'`). */
   readonly mode?: string;
   /** Per-child iteration cap (default 50). */
   readonly maxIterations?: number;

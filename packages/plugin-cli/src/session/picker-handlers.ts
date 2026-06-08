@@ -1,7 +1,7 @@
 import type { ClientSession as Session } from '@moxxy/sdk';
 import { savePreferences } from '@moxxy/core';
 import type { Picker } from './types.js';
-import { openMcpPicker } from './run-slash.js';
+import { openMcpPicker, openPluginsPicker } from './run-slash.js';
 
 export interface PickerHandlerDeps {
   session: Session;
@@ -29,7 +29,46 @@ export function makePickerHandler(deps: PickerHandlerDeps): (picker: Picker, id:
     if (kind === 'mode') {
       return handleModeSelected(id, deps);
     }
+    if (kind === 'plugins') {
+      return handlePluginAction(id, deps);
+    }
   };
+}
+
+/**
+ * Apply a `/plugins` picker selection. Option ids are `<name>::<action>`:
+ * `enable` / `disable` plug or unplug the plugin (persisted + hot-applied via
+ * session.pluginsAdmin), `install` prints the install command. After a toggle
+ * the picker re-opens so the user sees fresh state and can keep toggling.
+ */
+function handlePluginAction(id: string, deps: PickerHandlerDeps): void {
+  const admin = deps.session.pluginsAdmin;
+  const sep = id.lastIndexOf('::');
+  const name = sep >= 0 ? id.slice(0, sep) : id;
+  const action = sep >= 0 ? id.slice(sep + 2) : '';
+  if (action === 'install') {
+    deps.setSystemNotice(`to install: run \`moxxy plugins install ${name}\``);
+    return;
+  }
+  if (action !== 'enable' && action !== 'disable') return;
+  if (!admin) {
+    deps.setSystemNotice('plugin management is not available on this session');
+    return;
+  }
+  const enable = action === 'enable';
+  void (async () => {
+    try {
+      await admin.setEnabled(name, enable);
+      deps.setSystemNotice(`${enable ? '✓ enabled' : '✗ disabled'} ${name}`);
+    } catch (err) {
+      deps.setSystemNotice(
+        `plugin ${action} failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      // Re-open with refreshed loaded/disabled state so the toggle is visible.
+      openPluginsPicker(deps);
+    }
+  })();
 }
 
 function handleMcpServerSelected(id: string, deps: PickerHandlerDeps): void {

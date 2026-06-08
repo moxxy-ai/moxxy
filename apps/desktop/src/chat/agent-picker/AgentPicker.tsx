@@ -1,7 +1,7 @@
 /**
  * Inline agent pickers in the composer toolbar.
  *
- *   [ Model: openai/gpt-4o ▾ ] [ Mode: tool-use ▾ ]
+ *   [ Model: openai/gpt-4o ▾ ] [ Mode: default ▾ ]
  *
  * The Model chip is a single entry point that opens a two-column
  * modal (providers on the left, models on the right). Switching a

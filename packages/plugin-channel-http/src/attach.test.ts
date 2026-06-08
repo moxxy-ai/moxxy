@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Session, autoAllowResolver, silentLogger } from '@moxxy/core';
 import { defineProvider, definePlugin } from '@moxxy/sdk';
 import { FakeProvider, textReply } from '@moxxy/testing';
-import { toolUseModePlugin } from '@moxxy/mode-tool-use';
+import { defaultModePlugin } from '@moxxy/mode-default';
 import {
   startRunnerServer,
   connectRemoteSession,
@@ -41,7 +41,7 @@ function buildRunnerSession(): Session {
     }),
   );
   session.providers.setActive(provider.name);
-  session.pluginHost.registerStatic(toolUseModePlugin);
+  session.pluginHost.registerStatic(defaultModePlugin);
   return session;
 }
 

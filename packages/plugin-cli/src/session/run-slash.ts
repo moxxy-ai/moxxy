@@ -2,7 +2,7 @@ import type React from 'react';
 import { savePreferences, clearUsageStats } from '@moxxy/core';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type { UserPromptAttachment } from '@moxxy/sdk';
-import type { ListPickerOption } from '../components/ListPicker.js';
+import type { ListPickerOption, ListPickerTab } from '../components/ListPicker.js';
 import type { Overlay, Picker } from './types.js';
 import { formatTokensShort } from './helpers.js';
 
@@ -109,6 +109,8 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
     case '/mode':
     case '/loop':
       return openModePicker(deps, args);
+    case '/plugins':
+      return openPluginsPicker(deps);
     case '/goal':
       return startGoal(deps, args);
     case '/yolo':
@@ -262,6 +264,126 @@ export function openMcpPicker(deps: OpenMcpPickerDeps): void {
       );
     }
   })();
+}
+
+/** Subset of deps `openPluginsPicker` touches. Exported so picker-handlers can
+ *  re-open the picker after a toggle without dragging in all of SlashDeps. */
+export interface OpenPluginsPickerDeps {
+  session: Session;
+  setPicker: (p: Picker) => void;
+  setSystemNotice: (msg: string | null) => void;
+}
+
+/** Maps a plugin's primary contribution kind to a friendly picker tab. */
+const PLUGIN_KIND_TAB: Record<string, { id: string; label: string }> = {
+  provider: { id: 'providers', label: 'Providers' },
+  mode: { id: 'modes', label: 'Modes' },
+  channel: { id: 'channels', label: 'Channels' },
+  tool: { id: 'tools', label: 'Tools & Agents' },
+  agent: { id: 'tools', label: 'Tools & Agents' },
+  command: { id: 'tools', label: 'Tools & Agents' },
+  embedder: { id: 'memory', label: 'Memory' },
+  transcriber: { id: 'voice', label: 'Voice' },
+  synthesizer: { id: 'voice', label: 'Voice' },
+  isolator: { id: 'security', label: 'Security' },
+  compactor: { id: 'context', label: 'Context' },
+  cacheStrategy: { id: 'context', label: 'Context' },
+};
+const OTHER_TAB = { id: 'other', label: 'Other' };
+const PLUGIN_TAB_ORDER = [
+  'providers', 'modes', 'channels', 'tools', 'memory',
+  'voice', 'context', 'security', 'other', 'disabled', 'installable',
+];
+
+function shortPluginName(name: string): string {
+  return name.replace(/^@moxxy\/(?:plugin-|mode-|compactor-|cache-strategy-)?/, '');
+}
+
+/**
+ * `/plugins` — a tabbed picker (one tab per plugin kind, plus Disabled and
+ * Installable) for plugging/unplugging plugins. Selecting a loaded plugin
+ * disables it; selecting a disabled one re-enables it; both persist to config
+ * and apply to the live session immediately via `session.pluginsAdmin`.
+ * Installable entries print their install command. Degrades gracefully when
+ * the in-process pluginsAdmin capability is absent (e.g. a RemoteSession).
+ */
+export function openPluginsPicker(deps: OpenPluginsPickerDeps): void {
+  const admin = deps.session.pluginsAdmin;
+  if (!admin) {
+    deps.setSystemNotice('plugin management is not available on this session');
+    return;
+  }
+  const loaded = admin.loaded();
+  const disabled = admin.disabled();
+  const catalog = admin.catalog();
+  const installed = new Set<string>([...loaded.map((p) => p.name), ...disabled]);
+
+  const byTab = new Map<string, { label: string; options: ListPickerOption[] }>();
+  const ensureTab = (id: string, label: string): { label: string; options: ListPickerOption[] } => {
+    const existing = byTab.get(id);
+    if (existing) return existing;
+    const created = { label, options: [] as ListPickerOption[] };
+    byTab.set(id, created);
+    return created;
+  };
+  for (const p of [...loaded].sort((a, b) => a.name.localeCompare(b.name))) {
+    const primary = p.kinds?.[0];
+    const cat = (primary && PLUGIN_KIND_TAB[primary]) || OTHER_TAB;
+    ensureTab(cat.id, cat.label).options.push({
+      id: `${p.name}::disable`,
+      label: shortPluginName(p.name),
+      description: `${p.kinds && p.kinds.length ? p.kinds.join(', ') : 'plugin'} · @${p.version}`,
+      badge: 'on',
+      badgeColor: 'green',
+    });
+  }
+
+  const tabs: ListPickerTab[] = [];
+  for (const id of PLUGIN_TAB_ORDER) {
+    const t = byTab.get(id);
+    if (t && t.options.length) {
+      tabs.push({ id, label: `${t.label} (${t.options.length})`, options: t.options });
+    }
+  }
+  if (disabled.length > 0) {
+    tabs.push({
+      id: 'disabled',
+      label: `Disabled (${disabled.length})`,
+      options: [...disabled].sort().map((name) => ({
+        id: `${name}::enable`,
+        label: shortPluginName(name),
+        description: name,
+        badge: 'off',
+        badgeColor: 'gray' as const,
+      })),
+    });
+  }
+  const installable = catalog.filter((e) => !installed.has(e.packageName));
+  if (installable.length > 0) {
+    tabs.push({
+      id: 'installable',
+      label: `Installable (${installable.length})`,
+      options: installable.map((e) => ({
+        id: `${e.id}::install`,
+        label: e.label,
+        description: e.packageName,
+        badge: 'not installed',
+        badgeColor: 'yellow' as const,
+      })),
+    });
+  }
+
+  if (tabs.length === 0) {
+    deps.setSystemNotice('no plugins to show');
+    return;
+  }
+  deps.setPicker({
+    kind: 'plugins',
+    title: 'Plugins — Enter toggles · Tab switches kind',
+    tabs,
+    searchable: true,
+    searchPlaceholder: 'filter plugins',
+  });
 }
 
 /**

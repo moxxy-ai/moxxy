@@ -40,4 +40,4 @@ When you spot a gap, choose one:
 
 ## A note on the meta-loop
 
-If you find yourself wanting to add a meta-skill like "decide whether to create a skill", stop. The decision-to-synthesize is built into the loop strategy itself (`loop-tool-use` invokes `synthesize_skill` when no trigger matches and the user prompt is novel). Adding skills *about* skill creation creates infinite recursion. Your job is to evaluate the *outcome*, not bootstrap the process.
+If you find yourself wanting to add a meta-skill like "decide whether to create a skill", stop. The decision-to-synthesize is built into the mode itself (`mode-default` invokes `synthesize_skill` when no trigger matches and the user prompt is novel). Adding skills *about* skill creation creates infinite recursion. Your job is to evaluate the *outcome*, not bootstrap the process.

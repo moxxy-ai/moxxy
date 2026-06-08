@@ -62,7 +62,7 @@ async function runOne(rt: SubagentRuntime, spec: SubagentSpec): Promise<Subagent
   const childSessionId = newSessionId();
   const childTurnId = newTurnId();
   const label = spec.label ?? `subagent-${String(childSessionId).slice(-6)}`;
-  const requestedStrategy = spec.mode ?? 'tool-use';
+  const requestedStrategy = spec.mode ?? 'default';
 
   const resolved = await resolveStrategy(parentSession, parentTurnId, label, childSessionId, spec, requestedStrategy);
   if ('failure' in resolved) return resolved.failure;
@@ -157,23 +157,23 @@ async function resolveStrategy(
   const exact = parentSession.modes.list().find((s) => s.name === requestedStrategy);
   if (exact) return { strategy: exact, strategyName: requestedStrategy };
 
-  // Fall back to the default tool-use mode if the model invented a name
+  // Fall back to the default mode if the model invented a name
   // (e.g. "react"). Failing the child outright wastes the user's turn —
-  // any reasonable agent task can run on tool-use. We surface the
+  // any reasonable agent task can run on the default mode. We surface the
   // fallback as a non-fatal warning event so the operator sees it.
-  const fallback = parentSession.modes.list().find((s) => s.name === 'tool-use');
+  const fallback = parentSession.modes.list().find((s) => s.name === 'default');
   if (fallback) {
     await emitSubagentWarning(
       parentSession,
       parentTurnId,
       label,
       childSessionId,
-      `unknown mode "${requestedStrategy}" — falling back to "tool-use"`,
+      `unknown mode "${requestedStrategy}" — falling back to "default"`,
     );
-    return { strategy: fallback, strategyName: 'tool-use' };
+    return { strategy: fallback, strategyName: 'default' };
   }
 
-  // No tool-use either — that's a config error, not a model mistake.
+  // No default mode either — that's a config error, not a model mistake.
   await emitSubagentStart(parentSession, parentTurnId, label, childSessionId, spec, requestedStrategy);
   const errorMsg = `Subagent failed: unknown mode "${requestedStrategy}" and no fallback available`;
   await emitSubagentCompleted(parentSession, parentTurnId, label, childSessionId, '', 'error', errorMsg);

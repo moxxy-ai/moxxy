@@ -53,6 +53,9 @@ export type {
   WorkflowsView,
   WorkflowSummaryView,
   WorkflowRunView,
+  PluginsAdminView,
+  InstallablePluginView,
+  LoadedPluginView,
 } from './session-like.js';
 
 export type {

@@ -11,7 +11,7 @@ description: Modify @moxxy/core safely.
 
 1. **`@moxxy/sdk` has zero internal deps.** It depends only on `zod` (peer). Don't introduce a dep here that pulls in code from anywhere else in the workspace. dep-cruise enforces this.
 
-2. **`@moxxy/core` never imports a plugin.** Static imports from core into `@moxxy/plugin-*`, `@moxxy/loop-plan-execute`, `@moxxy/compactor-*`, or `@moxxy/skills-builtin` are forbidden by dep-cruise. Plugins are dynamically loaded — pulling them in statically inverts the dependency arrow.
+2. **`@moxxy/core` never imports a plugin.** Static imports from core into `@moxxy/plugin-*`, `@moxxy/mode-*`, `@moxxy/compactor-*`, or `@moxxy/skills-builtin` are forbidden by dep-cruise. Plugins are dynamically loaded — pulling them in statically inverts the dependency arrow.
 
 3. **The event log is append-only.** `EventLog.append` is the only way to add events. Don't add mutation methods. Compaction creates a *new* event whose `replacedRange` instructs the selector — original events stay.
 

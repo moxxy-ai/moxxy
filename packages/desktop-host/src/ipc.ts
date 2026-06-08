@@ -110,7 +110,7 @@ export function bindWindow(
       // A `connected` pool change can fire more than once for the SAME
       // live session (e.g. a secondary window binding, a redundant
       // supervisor re-emit). Disposing+recreating the driver in that
-      // case aborts whatever turn is in flight — fatal for plan-execute,
+      // case aborts whatever turn is in flight — fatal for research,
       // whose human-in-the-loop approval keeps a turn parked for many
       // seconds. Only rebuild when the underlying session actually
       // changed (a genuine reconnect); otherwise leave the running

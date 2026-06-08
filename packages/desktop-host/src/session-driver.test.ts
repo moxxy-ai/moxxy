@@ -1,12 +1,13 @@
 /**
- * Regression: a plan-execute turn parks for many seconds on its
- * human-in-the-loop approval. A redundant `connected` pool change must
- * NOT dispose+recreate the driver underneath that turn — doing so aborts
- * the runner-side turn, and the post-approval execution step then reports
- * "did not complete cleanly".
+ * Regression: a turn parked on a human-in-the-loop loop-strategy approval
+ * gate must survive a redundant pool change. A redundant `connected` pool
+ * change must NOT dispose+recreate the driver underneath that turn — doing
+ * so aborts the runner-side turn, and the post-approval execution step then
+ * reports "did not complete cleanly".
  *
- * We drive a real RunnerServer + RemoteSession running the real
- * plan-execute mode, park the turn on its approval gate, and assert:
+ * We drive a real RunnerServer + RemoteSession running a minimal mode that
+ * parks the turn on `ctx.approval.confirm` (the same gate plan-execute /
+ * research modes use), and assert:
  *   - `driver.wraps(session)` is true for the live session (the guard the
  *     IPC layer uses to skip a needless recreate), and
  *   - disposing the driver mid-approval aborts the turn (the hazard the
@@ -17,9 +18,17 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Session, autoAllowResolver, silentLogger } from '@moxxy/core';
-import { definePlugin, defineProvider, defineTool, z } from '@moxxy/sdk';
-import { FakeProvider, textReply, toolUseReply } from '@moxxy/testing';
-import { planExecuteModePlugin, PLAN_EXECUTE_MODE_NAME } from '@moxxy/mode-plan-execute';
+import {
+  asPluginId,
+  defineMode,
+  definePlugin,
+  defineProvider,
+  defineTool,
+  z,
+  type ModeContext,
+  type MoxxyEvent,
+} from '@moxxy/sdk';
+import { FakeProvider, textReply } from '@moxxy/testing';
 import {
   startRunnerServer,
   connectRemoteSession,
@@ -30,6 +39,67 @@ import type { BrowserWindow } from 'electron';
 import { SessionDriver } from './session-driver';
 import { answerAsk } from './ask-broker';
 import type { AskRequest } from '@moxxy/desktop-ipc-contract';
+
+const GATE_MODE_NAME = 'test-gate';
+
+/**
+ * Minimal test-only mode: park on an approval gate, and on approval emit a
+ * `plugin_event` with subtype `plan_completed` (the completion marker the
+ * assertions wait for). Replaces the former plan-execute dependency — the
+ * SessionDriver behaviour under test is mode-agnostic.
+ */
+const gateModePlugin = definePlugin({
+  name: '@moxxy/test-gate-mode',
+  version: '0.0.0',
+  modes: [
+    defineMode({
+      name: GATE_MODE_NAME,
+      description: 'test-only mode that parks on an approval gate then completes',
+      run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+        let approved = true;
+        if (ctx.approval) {
+          try {
+            const decision = await ctx.approval.confirm({
+              title: 'Plan ready — review before executing',
+              body: '1. step one\n2. step two',
+              kind: 'test.plan',
+              defaultOptionId: 'approve',
+              options: [
+                { id: 'approve', label: 'Approve and run', hotkey: 'a' },
+                { id: 'cancel', label: 'Cancel this turn', hotkey: 'c', danger: true },
+              ],
+            });
+            approved = decision.optionId === 'approve';
+          } catch {
+            approved = false;
+          }
+        }
+        // Disposing the driver mid-approval cancels the parked ask (resolved to
+        // the danger option) and aborts the turn — record the abort and never
+        // reach plan_completed, mirroring how mode-tool-use bails on abort.
+        if (ctx.signal.aborted || !approved) {
+          yield await ctx.emit({
+            type: 'abort',
+            sessionId: ctx.sessionId,
+            turnId: ctx.turnId,
+            source: 'system',
+            reason: 'gate cancelled',
+          });
+          return;
+        }
+        yield await ctx.emit({
+          type: 'plugin_event',
+          pluginId: asPluginId('@moxxy/test-gate-mode'),
+          subtype: 'plan_completed',
+          payload: {},
+          sessionId: ctx.sessionId,
+          turnId: ctx.turnId,
+          source: 'plugin',
+        });
+      },
+    }),
+  ],
+});
 
 function tmpSocket(): string {
   return path.join(os.tmpdir(), `moxxy-driver-${Math.random().toString(36).slice(2, 10)}.sock`);
@@ -92,21 +162,14 @@ function buildSession(provider: FakeProvider): Session {
     }),
   );
   session.providers.setActive(provider.name);
-  session.pluginHost.registerStatic(planExecuteModePlugin);
-  session.modes.setActive(PLAN_EXECUTE_MODE_NAME);
+  session.pluginHost.registerStatic(gateModePlugin);
+  session.modes.setActive(GATE_MODE_NAME);
   return session;
 }
 
-async function servePlanExecute(): Promise<RemoteSession> {
-  const provider = new FakeProvider({
-    script: [
-      textReply('PLAN:\n1. Write step1.md\n2. Write step2.md'),
-      toolUseReply('Write', { file_path: 'step1.md', content: 'a' }, 'c1'),
-      textReply('step 1 done'),
-      toolUseReply('Write', { file_path: 'step2.md', content: 'b' }, 'c2'),
-      textReply('step 2 done'),
-    ],
-  });
+async function serveGatedTurn(): Promise<RemoteSession> {
+  // The gate mode never calls the provider; a trivial script suffices.
+  const provider = new FakeProvider({ script: [textReply('ok')] });
   const socketPath = tmpSocket();
   const server = await startRunnerServer(buildSession(provider), { socketPath });
   servers.push(server);
@@ -115,19 +178,19 @@ async function servePlanExecute(): Promise<RemoteSession> {
   return remote;
 }
 
-describe('SessionDriver plan-execute survival', () => {
+describe('SessionDriver approval-gate survival', () => {
   it('wraps() identifies the live session so the IPC layer can skip a recreate', async () => {
-    const remote = await servePlanExecute();
+    const remote = await serveGatedTurn();
     const { win } = fakeWindow();
     const driver = new SessionDriver(remote, win, 'ws');
     expect(driver.wraps(remote)).toBe(true);
-    const other = await servePlanExecute();
+    const other = await serveGatedTurn();
     expect(driver.wraps(other)).toBe(false);
     driver.dispose();
   });
 
-  it('runs every plan step to completion when the driver is left in place', async () => {
-    const remote = await servePlanExecute();
+  it('runs the gated turn to completion when the driver is left in place', async () => {
+    const remote = await serveGatedTurn();
     const { win, sent } = fakeWindow();
     // The driver installs the broker-backed resolvers; the renderer (here,
     // this test) answers each ask.request through `answerAsk`. Auto-approve
@@ -152,7 +215,7 @@ describe('SessionDriver plan-execute survival', () => {
   });
 
   it('disposing the driver while parked on the approval aborts the turn (the hazard wraps() prevents)', async () => {
-    const remote = await servePlanExecute();
+    const remote = await serveGatedTurn();
     const { win, sent } = fakeWindow();
     // Auto-allow permissions, but DO NOT answer the approval ask — leave the
     // turn parked at the human-in-the-loop gate, exactly as if the user were
@@ -168,7 +231,7 @@ describe('SessionDriver plan-execute survival', () => {
     const driver = new SessionDriver(remote, win, 'ws');
     await driver.runTurn('do the work');
 
-    // Wait until the approval gate is reached (planning phase done).
+    // Wait until the approval gate is reached.
     await waitFor(() => approvalRaised);
 
     // A bad pool change disposes the driver mid-approval. dispose() cancels

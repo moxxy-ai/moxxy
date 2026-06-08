@@ -51,7 +51,7 @@ Install this if you want to use moxxy. If you want to author plugins, depend on 
 ## What you get out of the box
 
 - A complete agent stack with Anthropic, OpenAI, and ChatGPT (OAuth) providers.
-- Five loop strategies: `tool-use` (default Claude-Code-style), `plan-execute`, `bmad`, `developer`, and `deep-research`.
+- Three loop modes: `default` (Claude-Code-style ReAct loop), `goal` (autonomous auto-approve loop), and `research` (parallel-subagent fan-out + synthesis).
 - Built-in tools: Read, Edit, Write, Bash, Grep, Glob, WebFetch, computer-control (macOS), and browser-session (Playwright, optional).
 - Multi-channel by design: TUI, Telegram, HTTP, web, cron, and webhooks. One session can drive several surfaces at once.
 - Voice input on any audio-capable channel through `@moxxy/plugin-stt-whisper`.
@@ -206,9 +206,9 @@ export default defineConfig({
     model: 'claude-sonnet-4-6',
     config: { apiKey: '${vault:ANTHROPIC_API_KEY}' },   // resolved from the vault
   },
-  mode: 'tool-use',
+  mode: 'default',
   plugins: {
-    '@moxxy/mode-plan-execute': { enabled: false },     // disable per-plugin
+    '@moxxy/plugin-browser': { enabled: false },        // disable a plugin (or use `moxxy plugins disable`)
   },
 });
 ```

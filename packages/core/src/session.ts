@@ -41,6 +41,7 @@ import type {
   ElisionSettings,
   McpAdminView,
   WorkflowsView,
+  PluginsAdminView,
   PendingToolCall,
   PermissionContext,
   PermissionResolver,
@@ -71,6 +72,13 @@ export interface SessionOptions {
    * fails to pick up freshly written ones.
    */
   readonly pluginDiscoveryPaths?: ReadonlyArray<string>;
+  /**
+   * Predicate (by package name) for whether a discovered plugin is disabled.
+   * Forwarded to the PluginHost so `pluginHost.reload()` never resurrects a
+   * plugin the user turned off via config `plugins[name].enabled = false`.
+   * Reads live state, so a runtime enable/disable applies on the next reload.
+   */
+  readonly isPluginDisabled?: (packageName: string) => boolean;
   /**
    * Vault-backed secret resolver. When provided, every tool handler gets
    * `ctx.getSecret(name)` so plugins can read an API key / token at call
@@ -139,6 +147,7 @@ export class Session implements ClientSession, SessionRuntime {
   credentialResolver?: CredentialResolver;
   mcpAdmin?: McpAdminView;
   workflows?: WorkflowsView;
+  pluginsAdmin?: PluginsAdminView;
   readonly dispatcher: HookDispatcherImpl;
   readonly pluginHost: PluginHost;
   private readonly controller = new AbortController();
@@ -225,6 +234,7 @@ export class Session implements ClientSession, SessionRuntime {
       dispatcher: this.dispatcher,
       loader: opts.pluginLoader,
       ...(opts.pluginDiscoveryPaths ? { userPaths: opts.pluginDiscoveryPaths } : {}),
+      ...(opts.isPluginDisabled ? { isDisabled: opts.isPluginDisabled } : {}),
     });
 
     // Fan every appended event out to plugin `onEvent` hooks. Without this

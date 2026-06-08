@@ -16,7 +16,7 @@ const COMMAND_STEPPERS: Record<string, ReadonlyArray<ArgStep>> = {
   'vault remove': [{ label: 'Vault key', placeholder: 'OPENAI_API_KEY' }],
   'vault get': [{ label: 'Vault key', placeholder: 'OPENAI_API_KEY' }],
   'provider use': [{ label: 'Provider name', placeholder: 'anthropic' }],
-  'mode use': [{ label: 'Mode name', placeholder: 'tool-use' }],
+  'mode use': [{ label: 'Mode name', placeholder: 'default' }],
 };
 
 export function stepsForCommand(commandName: string): ReadonlyArray<ArgStep> {

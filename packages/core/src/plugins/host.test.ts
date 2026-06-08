@@ -95,7 +95,9 @@ describe('PluginHost', () => {
     expect(providers.list()).toHaveLength(1);
     expect(modes.list()).toHaveLength(1);
     expect(compactors.list()).toHaveLength(1);
-    expect(host.list()).toEqual([{ name: 'demo', version: '0.0.0', loaded: true }]);
+    expect(host.list()).toEqual([
+      { name: 'demo', version: '0.0.0', loaded: true, kinds: ['provider', 'mode', 'compactor', 'tool'] },
+    ]);
   });
 
   it('rejects double registration', () => {
@@ -279,7 +281,10 @@ describe('PluginHost', () => {
       await Promise.all(tempDirs.splice(0).map((d) => fs.rm(d, { recursive: true, force: true })));
     });
 
-    const makeHostWithUserPaths = (userPaths: ReadonlyArray<string>) => {
+    const makeHostWithUserPaths = (
+      userPaths: ReadonlyArray<string>,
+      isDisabled?: (packageName: string) => boolean,
+    ) => {
       const base = makeHost();
       const loader = {
         load: async (m: ResolvedPluginManifest): Promise<Plugin> =>
@@ -310,6 +315,7 @@ describe('PluginHost', () => {
         dispatcher: base.dispatcher,
         loader,
         userPaths,
+        ...(isDisabled ? { isDisabled } : {}),
       });
       return { host, tools: base.tools };
     };
@@ -347,6 +353,29 @@ describe('PluginHost', () => {
       await host.reload();
       expect(tools.has('userplug_tool')).toBe(false);
       expect(tools.has('builtin_tool')).toBe(true);
+    });
+
+    it('never loads a disabled discovered plugin, and a runtime toggle takes effect on reload', async () => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-host-'));
+      tempDirs.push(root);
+      const disabled = new Set<string>(['userplug']);
+      const { host, tools } = makeHostWithUserPaths([root], (pkg) => disabled.has(pkg));
+      await writeUserPlugin(root, 'userplug');
+
+      // Disabled on disk → reload must NOT load it.
+      await host.reload();
+      expect(tools.has('userplug_tool')).toBe(false);
+
+      // Runtime enable (predicate flips) → next reload discovers + loads it.
+      disabled.delete('userplug');
+      await host.reload();
+      expect(tools.has('userplug_tool')).toBe(true);
+
+      // Runtime disable of a currently-loaded plugin → reload unloads it and
+      // does not resurrect it (the bug this predicate fixes).
+      disabled.add('userplug');
+      await host.reload();
+      expect(tools.has('userplug_tool')).toBe(false);
     });
   });
 

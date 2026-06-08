@@ -1,6 +1,6 @@
 /**
- * Parse the planner's output into individual sub-question strings. Same
- * shape as mode-plan-execute's parsePlan but accepting a QUERIES: header.
+ * Parse the planner's output into individual sub-question strings — a
+ * numbered list under a QUERIES: header.
  */
 export function parseQueries(text: string): string[] {
   return parseNumberedBlock(text, /^queries\s*:?$/i);

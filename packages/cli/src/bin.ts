@@ -72,7 +72,7 @@ const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyA
     rows: [
       ['sessions list|delete', 'list / remove persisted sessions'],
       ['skills list|new|audit', 'manage skill files'],
-      ['plugins list|reload|new', 'manage plugin host'],
+      ['plugins list|search|install|remove|enable|disable|reload|new', 'find, install + manage plugins'],
       ['self-update status|rollback', 'inspect / roll back self-update transactions'],
       ['perms list|allow|deny|remove|clear|path', 'view / edit the permission policy'],
       ['memory list|audit|show|revert|prune-stale|path', 'curate long-term memory'],

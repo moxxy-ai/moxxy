@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { defineTool } from '@moxxy/sdk';
 import { FakeProvider, createFakeSession, textReply, toolUseReply } from '@moxxy/testing';
-import { toolUseModePlugin } from '@moxxy/mode-tool-use';
+import { defaultModePlugin } from '@moxxy/mode-default';
 import { collectTurn } from '@moxxy/core';
 import { buildDispatchAgentTool } from './dispatch-agent.js';
 
@@ -35,8 +35,8 @@ describe('subagents — basic spawning', () => {
       ],
     });
     const session = createFakeSession({ provider });
-    session.pluginHost.registerStatic(toolUseModePlugin);
-    session.modes.setActive('tool-use');
+    session.pluginHost.registerStatic(defaultModePlugin);
+    session.modes.setActive('default');
     session.tools.register(
       defineTool({
         name: 'Read',
@@ -58,7 +58,7 @@ describe('subagents — basic spawning', () => {
     if (started?.type === 'plugin_event') {
       const payload = started.payload as { label: string; mode: string };
       expect(payload.label).toBe('reader');
-      expect(payload.mode).toBe('tool-use');
+      expect(payload.mode).toBe('default');
     }
 
     const completed = events.find(
@@ -88,8 +88,8 @@ describe('subagents — basic spawning', () => {
       ],
     });
     const session = createFakeSession({ provider });
-    session.pluginHost.registerStatic(toolUseModePlugin);
-    session.modes.setActive('tool-use');
+    session.pluginHost.registerStatic(defaultModePlugin);
+    session.modes.setActive('default');
     session.tools.register(
       defineTool({
         name: 'Read',
@@ -145,8 +145,8 @@ describe('subagents — basic spawning', () => {
       ],
     });
     const session = createFakeSession({ provider });
-    session.pluginHost.registerStatic(toolUseModePlugin);
-    session.modes.setActive('tool-use');
+    session.pluginHost.registerStatic(defaultModePlugin);
+    session.modes.setActive('default');
     session.tools.register(dispatchAgentTool);
 
     const events = await collectTurn(session, 'spawn three');

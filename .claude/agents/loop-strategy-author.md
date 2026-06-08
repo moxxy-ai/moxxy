@@ -8,13 +8,13 @@ description: Build a new loop strategy and plug it in.
 A loop strategy turns one user prompt into one turn — possibly many provider calls and tool executions. The SDK contract:
 
 ```ts
-interface LoopStrategyDef {
+interface ModeDef {
   readonly name: string;
-  run(ctx: LoopContext): AsyncIterable<MoxxyEvent>;
+  run(ctx: ModeContext): AsyncIterable<MoxxyEvent>;
 }
 ```
 
-`@moxxy/loop-tool-use` is the reference (Claude Code-style: model emits `tool_use` → hook → permission → execute → loop). `@moxxy/loop-plan-execute` is the alternate shape (emit a plan event, then run inner micro-loops per step).
+`@moxxy/mode-default` is the reference (Claude Code-style: model emits `tool_use` → hook → permission → execute → loop). `@moxxy/mode-goal` (autonomous auto-approve loop) and `@moxxy/mode-deep-research` (plan queries → parallel subagents → cited synthesis) are the other two shipped shapes.
 
 ## Use the SDK's loop helpers — don't reimplement
 
@@ -30,9 +30,9 @@ import {
 } from '@moxxy/sdk';
 ```
 
-The two shipped loops use these directly. A new loop that reimplements stream consumption will drift — and drift is what shipped the "plan-execute skips onBeforeProviderCall" bug. Don't.
+The shipped modes use these directly. A new mode that reimplements stream consumption will drift — and drift is what shipped the "a mode skips onBeforeProviderCall" class of bugs. Don't.
 
-## `LoopContext` essentials
+## `ModeContext` essentials
 
 - `sessionId`, `turnId`, `model`, `systemPrompt`
 - `provider` — the active `LLMProvider`
@@ -52,7 +52,7 @@ Correct habit: `await ctx.emit(event)`. The runtime (`runTurn` in core) subscrib
 
 This means helper functions (consume a provider stream, run a tool) can `await ctx.emit(...)` without being generators. The SDK's `collectProviderStream` follows this pattern.
 
-## Permission + hook flow (loop-tool-use pattern, copy it)
+## Permission + hook flow (mode-default pattern, copy it)
 
 For each model-emitted tool call:
 
@@ -87,7 +87,7 @@ try {
 }
 ```
 
-If you skip `dispatchToolCall`, plugin gating is silently disabled for your loop. (This is the parity bug that hit `loop-plan-execute` before the audit.)
+If you skip `dispatchToolCall`, plugin gating is silently disabled for your mode. (This is the parity bug class that the audit caught before these were folded down to the three shipped modes.)
 
 ## Abort
 
@@ -108,15 +108,15 @@ End the strategy by `return`ing from `run`. Don't throw — capture errors with 
 ## Plug in
 
 ```ts
-import { defineLoopStrategy, definePlugin } from '@moxxy/sdk';
+import { defineMode, definePlugin } from '@moxxy/sdk';
 
 export default definePlugin({
-  name: '@moxxy/loop-<name>',
-  loopStrategies: [defineLoopStrategy({ name: 'my-loop', run: myRunFn })],
+  name: '@moxxy/mode-<name>',
+  modes: [defineMode({ name: 'my-mode', run: myRunFn })],
 });
 ```
 
-To select your strategy: `session.loops.setActive('my-loop')`. If yours is the first registered, it becomes the default (loop/compactor registries auto-activate on first register).
+To select your mode: `session.modes.setActive('my-mode')`. If yours is the first registered, it becomes the default (mode/compactor registries auto-activate on first register).
 
 ## Don't
 
@@ -124,4 +124,4 @@ To select your strategy: `session.loops.setActive('my-loop')`. If yours is the f
 - **Don't skip `dispatchToolCall`** — that silently breaks plugin gating.
 - **Don't subscribe to `session.log` directly inside the strategy.** Use `ctx.log.slice()` (synchronous read of the current state). Subscribing creates a leak you'd have to unwind on abort.
 - **Don't compute a high-water mark by hand** when calling the compactor — `Compactor.compact` already honors prior `CompactionEvent.replacedRange` (loop calls it; compactor decides).
-- **Don't assume `ctx.cwd` / `ctx.env` exist on `LoopContext`.** They don't — the dispatcher pulls those from `AppContext` separately. Pass `cwd: ''`, `env: {}` to `dispatchToolCall` (loop-tool-use does this).
+- **Don't assume `ctx.cwd` / `ctx.env` exist on `ModeContext`.** They don't — the dispatcher pulls those from `AppContext` separately. Pass `cwd: ''`, `env: {}` to `dispatchToolCall` (mode-default does this).

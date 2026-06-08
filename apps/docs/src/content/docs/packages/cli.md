@@ -27,7 +27,7 @@ placeholders, and hands a fully-wired `Session` to the chosen channel.
 | `moxxy <channel>` | Shortcut for `moxxy channels <channel>`. |
 | `moxxy sessions list\|delete [--empty]` | Manage persisted session logs. |
 | `moxxy skills list\|new\|audit` | Manage skill files. |
-| `moxxy plugins list\|reload\|new` | Manage plugin host. |
+| `moxxy plugins list\|install\|remove\|enable\|disable\|open\|reload\|new` | Install + manage plugins. |
 | `moxxy perms list\|allow\|deny\|remove\|clear\|path` | View / edit the permission policy. |
 | `moxxy memory list\|audit\|show\|revert\|prune-stale\|path` | Curate long-term memory. |
 | `moxxy mcp list\|enable\|disable\|remove\|path` | Manage MCP server catalog (`~/.moxxy/mcp.json`). |

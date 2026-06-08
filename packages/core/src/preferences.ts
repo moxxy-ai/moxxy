@@ -16,9 +16,20 @@ export interface MoxxyPreferences {
   readonly providerName?: string;
   /** Active model id under that provider (e.g. "gpt-5.4-mini"). */
   readonly model?: string;
-  /** Active loop strategy name (e.g. "tool-use", "plan-execute"). */
+  /** Active loop strategy name (e.g. "default", "research", "goal"). */
   readonly mode?: string;
 }
+
+/**
+ * Legacy mode-name → current-name map. Mode strings were renamed
+ * ("tool-use" → "default", "deep-research" → "research"); existing
+ * ~/.moxxy/preferences.json files still carry the old names, so we
+ * coerce them on read rather than silently dropping the user's choice.
+ */
+const MODE_NAME_MIGRATIONS: Readonly<Record<string, string>> = {
+  'tool-use': 'default',
+  'deep-research': 'research',
+};
 
 export function preferencesPath(): string {
   return path.join(os.homedir(), '.moxxy', 'preferences.json');
@@ -34,7 +45,9 @@ export async function loadPreferences(): Promise<MoxxyPreferences> {
     const raw = await fs.readFile(preferencesPath(), 'utf8');
     const parsed = JSON.parse(raw) as unknown;
     if (parsed && typeof parsed === 'object') {
-      return parsed as MoxxyPreferences;
+      const prefs = parsed as MoxxyPreferences;
+      const migrated = prefs.mode ? MODE_NAME_MIGRATIONS[prefs.mode] : undefined;
+      return migrated ? { ...prefs, mode: migrated } : prefs;
     }
     return {};
   } catch {

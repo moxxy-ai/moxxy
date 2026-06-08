@@ -6,7 +6,7 @@ const fakeSession = {
   id: 'sess-1',
   cwd: '/tmp',
   providers: { getActiveName: () => 'anthropic' },
-  modes: { getActive: () => ({ name: 'tool-use' }) },
+  modes: { getActive: () => ({ name: 'default' }) },
   tools: { list: () => [{}, {}, {}] },
   skills: { list: () => [{}] },
   agents: { list: () => [{ name: 'researcher', description: 'web' }] },

@@ -9,10 +9,7 @@ import { openaiCodexPlugin } from '@moxxy/plugin-provider-openai-codex';
 import { buildWhisperPlugin } from '@moxxy/plugin-stt-whisper';
 import { buildWhisperCodexPlugin } from '@moxxy/plugin-stt-whisper-codex';
 import { builtinToolsPlugin } from '@moxxy/tools-builtin';
-import { toolUseModePlugin } from '@moxxy/mode-tool-use';
-import { planExecuteModePlugin } from '@moxxy/mode-plan-execute';
-import { bmadModePlugin } from '@moxxy/mode-bmad';
-import { developerModePlugin } from '@moxxy/mode-developer';
+import { defaultModePlugin } from '@moxxy/mode-default';
 import { goalModePlugin } from '@moxxy/mode-goal';
 import { deepResearchModePlugin } from '@moxxy/mode-deep-research';
 import { summarizeCompactorPlugin } from '@moxxy/compactor-summarize';
@@ -28,7 +25,11 @@ import { httpChannelPlugin } from '@moxxy/plugin-channel-http';
 import { buildWebChannelPlugin } from '@moxxy/plugin-channel-web';
 import { browserPlugin } from '@moxxy/plugin-browser';
 import { buildSubagentsPlugin } from '@moxxy/plugin-subagents';
-import { buildPluginsAdminPlugin } from '@moxxy/plugin-plugins-admin';
+import {
+  buildPluginsAdminPlugin,
+  setPluginEnabled,
+  INSTALLABLE_PLUGIN_CATALOG,
+} from '@moxxy/plugin-plugins-admin';
 import { buildSelfUpdatePlugin } from '@moxxy/plugin-self-update';
 import { buildProviderAdminPlugin } from '@moxxy/plugin-provider-admin';
 import { buildUsageStatsPlugin } from '@moxxy/plugin-usage-stats';
@@ -76,12 +77,9 @@ export const BUILTIN_REQUIREMENT_DECISIONS: Readonly<Record<string, BuiltinRequi
   '@moxxy/plugin-provider-openai-codex': { hardRequirements: false, reason: 'provider owns its OAuth flow' },
   '@moxxy/plugin-provider-admin': { hardRequirements: false, reason: 'provider registry access is injected by bootstrap closure' },
   '@moxxy/tools-builtin': { hardRequirements: false, reason: 'core tool pack has no plugin dependency' },
-  '@moxxy/mode-tool-use': { hardRequirements: false, reason: 'mode has no plugin dependency' },
-  '@moxxy/mode-plan-execute': { hardRequirements: false, reason: 'mode has no plugin dependency' },
-  '@moxxy/mode-bmad': { hardRequirements: false, reason: 'mode has no plugin dependency' },
-  '@moxxy/mode-developer': { hardRequirements: false, reason: 'mode layers on tool-use; no hard plugin dependency' },
+  '@moxxy/mode-default': { hardRequirements: false, reason: 'default mode has no plugin dependency' },
   '@moxxy/mode-goal': { hardRequirements: false, reason: 'mode ships its own goal_complete/goal_abandon tools; no hard plugin dependency' },
-  '@moxxy/mode-deep-research': { hardRequirements: false, reason: 'mode needs @moxxy/plugin-subagents at runtime; surfaced as fatal error if absent' },
+  '@moxxy/mode-deep-research': { hardRequirements: false, reason: 'research mode needs @moxxy/plugin-subagents at runtime; surfaced as fatal error if absent' },
   '@moxxy/compactor-summarize': { hardRequirements: false, reason: 'compactor has no plugin dependency' },
   '@moxxy/cache-strategy-stable-prefix': { hardRequirements: false, reason: 'cache strategy has no plugin dependency' },
   '@moxxy/plugin-vault': { hardRequirements: false, reason: 'vault is the base secret store' },
@@ -121,6 +119,12 @@ export interface BuildBuiltinsArgs {
   readonly memoryPlugin: Plugin;
   readonly schedulerRunner: SchedulePromptRunner;
   readonly webhookRunner: WebhookPromptRunner;
+  /**
+   * Live disabled-package set shared with the PluginHost predicate and the
+   * config applier; the plugins-admin enable/disable tools mutate it so a
+   * runtime toggle survives the subsequent hot-reload.
+   */
+  readonly disabledPackages: Set<string>;
   readonly logger: { warn(msg: string, meta?: Record<string, unknown>): void };
 }
 
@@ -143,7 +147,7 @@ export interface BuiltBuiltinsCore {
  * can drive the store/poller without going through a model turn.
  */
 export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
-  const { session, rawConfig, vault, vaultPlugin, memory, memoryPlugin, schedulerRunner, webhookRunner, logger } = args;
+  const { session, rawConfig, vault, vaultPlugin, memory, memoryPlugin, schedulerRunner, webhookRunner, disabledPackages, logger } = args;
 
   // Shared handle linking the web surface to present_view: the web channel
   // publishes its live URL + view-id minter here on start; the view tool reads
@@ -153,15 +157,33 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
   // tool can switch the tunnel without a restart.
   const webControls: { current: { retunnel(): Promise<string | null> } | null } = { current: null };
 
+  // Plug/unplug a plugin from the live session AND persist it. Backs both the
+  // enable_plugin / disable_plugin model tools and the TUI `/plugins` picker.
+  // Disable → record + unload (a builtin or a discovered plugin). Enable →
+  // record + re-register a builtin or reload to re-discover an installed
+  // plugin. `disabledPackages` is the same set the PluginHost reload predicate
+  // reads, so a disable is never resurrected by a later reload. Defined before
+  // `entries` but only invoked later, so the `entries.find` lookup is safe.
+  const setPluginEnabledLive = async (packageName: string, enabled: boolean): Promise<void> => {
+    await setPluginEnabled(packageName, enabled);
+    if (!enabled) {
+      disabledPackages.add(packageName);
+      await session.pluginHost.unload(packageName);
+      return;
+    }
+    disabledPackages.delete(packageName);
+    if (session.pluginHost.list().some((p) => p.name === packageName)) return;
+    const builtin = entries.find((e) => e.name === packageName);
+    if (builtin) session.pluginHost.registerStatic(builtin.plugin);
+    else await session.pluginHost.reload();
+  };
+
   const entries: BuiltinEntry[] = [
     { name: '@moxxy/plugin-provider-anthropic', plugin: anthropicPlugin },
     { name: '@moxxy/plugin-provider-openai', plugin: openaiPlugin },
     { name: '@moxxy/plugin-provider-openai-codex', plugin: openaiCodexPlugin },
     { name: '@moxxy/tools-builtin', plugin: builtinToolsPlugin },
-    { name: '@moxxy/mode-tool-use', plugin: toolUseModePlugin },
-    { name: '@moxxy/mode-plan-execute', plugin: planExecuteModePlugin },
-    { name: '@moxxy/mode-bmad', plugin: bmadModePlugin },
-    { name: '@moxxy/mode-developer', plugin: developerModePlugin },
+    { name: '@moxxy/mode-default', plugin: defaultModePlugin },
     { name: '@moxxy/mode-goal', plugin: goalModePlugin },
     { name: '@moxxy/mode-deep-research', plugin: deepResearchModePlugin },
     { name: '@moxxy/compactor-summarize', plugin: summarizeCompactorPlugin },
@@ -246,10 +268,12 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
         getAgent: (name) => session.agents.get(name),
       }),
     },
-    // Runtime plugin installer — exposes `install_plugin` to the model.
-    // Hot-reloads via session.pluginHost.reload() so newly-npm-installed
-    // packages drop into the active registries without restart. Drop this
-    // plugin to lock the plugin set (e.g. for production deployments).
+    // Runtime plugin management — exposes install_plugin / uninstall_plugin
+    // (npm into ~/.moxxy/plugins) and enable_plugin / disable_plugin (config-
+    // backed plug/unplug of any registered plugin). Hot-reloads via
+    // session.pluginHost.reload() so changes drop into the active registries
+    // without restart. Drop this plugin to lock the plugin set (e.g. for
+    // production deployments).
     {
       name: '@moxxy/plugin-plugins-admin',
       plugin: buildPluginsAdminPlugin({
@@ -262,6 +286,7 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
           compactors: session.compactors.list().map((c) => c.name),
           channels: session.channels.list().map((c) => c.name),
         }),
+        setEnabled: setPluginEnabledLive,
       }),
     },
     // Self-update — exposes self_update_* tools so the model can author
@@ -431,6 +456,29 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
       }),
     },
   ];
+
+  // Plugin-management slice backing the TUI `/plugins` picker: the live
+  // disabled-set, the installable catalog, and the same plug/unplug closure the
+  // model tools use. A RemoteSession leaves this undefined; the picker guards.
+  session.pluginsAdmin = {
+    loaded: () =>
+      session.pluginHost.list().map((p) => ({
+        name: p.name,
+        version: p.version,
+        kinds: p.kinds,
+      })),
+    disabled: () => [...disabledPackages],
+    catalog: () =>
+      INSTALLABLE_PLUGIN_CATALOG.map((e) => ({
+        id: e.id,
+        label: e.label,
+        packageName: e.packageName,
+        installSpec: e.installSpec,
+        ...(e.kind ? { kind: e.kind } : {}),
+        ...(e.startCommand ? { startCommand: e.startCommand } : {}),
+      })),
+    setEnabled: setPluginEnabledLive,
+  };
 
   // Scheduler — fires recurring/one-shot prompts at user-defined times.
   // The runner reuses the active session for v1; scheduled prompts

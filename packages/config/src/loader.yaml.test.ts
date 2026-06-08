@@ -19,28 +19,28 @@ describe('YAML config loading', () => {
       `provider:
   name: anthropic
   model: claude-sonnet-4-6
-mode: tool-use
+mode: default
 `,
     );
     const result = await loadConfig({ cwd: tmp, skipUser: true });
     expect(result.config.provider?.name).toBe('anthropic');
     expect(result.config.provider?.model).toBe('claude-sonnet-4-6');
-    expect(result.config.mode).toBe('tool-use');
+    expect(result.config.mode).toBe('default');
     expect(result.sources[0]?.scope).toBe('project');
   });
 
   it('loads .yml extension too', async () => {
-    await fs.writeFile(path.join(tmp, 'moxxy.config.yml'), `mode: plan-execute\n`);
+    await fs.writeFile(path.join(tmp, 'moxxy.config.yml'), `mode: research\n`);
     const result = await loadConfig({ cwd: tmp, skipUser: true });
-    expect(result.config.mode).toBe('plan-execute');
+    expect(result.config.mode).toBe('research');
   });
 
   it('walks upward to find a yaml config', async () => {
     const nested = path.join(tmp, 'a/b/c');
     await fs.mkdir(nested, { recursive: true });
-    await fs.writeFile(path.join(tmp, 'moxxy.config.yaml'), `mode: tool-use\n`);
+    await fs.writeFile(path.join(tmp, 'moxxy.config.yaml'), `mode: default\n`);
     const result = await loadConfig({ cwd: nested, skipUser: true });
-    expect(result.config.mode).toBe('tool-use');
+    expect(result.config.mode).toBe('default');
   });
 
   it('rejects a yaml config whose schema is invalid', async () => {
@@ -69,7 +69,7 @@ embeddings:
   provider: openai
   model: text-embedding-3-small
 plugins:
-  '@moxxy/mode-plan-execute':
+  '@moxxy/plugin-browser':
     enabled: false
 channels:
   http:
@@ -81,7 +81,7 @@ channels:
     );
     const result = await loadConfig({ cwd: tmp, skipUser: true });
     expect(result.config.embeddings?.provider).toBe('openai');
-    expect(result.config.plugins?.['@moxxy/mode-plan-execute']?.enabled).toBe(false);
+    expect(result.config.plugins?.['@moxxy/plugin-browser']?.enabled).toBe(false);
     expect(result.config.channels?.['http']).toEqual({
       port: 8080,
       allowedTools: ['Read', 'Glob'],
@@ -91,9 +91,9 @@ channels:
   it('YAML at project level is overridden by .ts at same level (loader precedence)', async () => {
     // Both exist; first match wins per CONFIG_NAMES order. YAML is listed first
     // so it should take precedence over .ts. This codifies the order.
-    await fs.writeFile(path.join(tmp, 'moxxy.config.yaml'), `mode: tool-use\n`);
-    await fs.writeFile(path.join(tmp, 'moxxy.config.js'), `export default { mode: 'plan-execute' };`);
+    await fs.writeFile(path.join(tmp, 'moxxy.config.yaml'), `mode: default\n`);
+    await fs.writeFile(path.join(tmp, 'moxxy.config.js'), `export default { mode: 'research' };`);
     const result = await loadConfig({ cwd: tmp, skipUser: true });
-    expect(result.config.mode).toBe('tool-use');
+    expect(result.config.mode).toBe('default');
   });
 });

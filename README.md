@@ -50,7 +50,7 @@
 
 Most agent frameworks lock you in. One LLM provider. One loop topology. One frontend. One opinionated way the agent should behave.
 
-**moxxy doesn't.** Every block is a plugin. Swap Anthropic for OpenAI. Swap the default `tool-use` loop for `plan-execute` or `bmad`. Drive the agent from your terminal, from Telegram, from an HTTP endpoint, or all three at once on the same Session.
+**moxxy doesn't.** Every block is a plugin. Swap Anthropic for OpenAI. Swap the default loop for the `goal` (auto-approve) or `research` mode. Drive the agent from your terminal, from Telegram, from an HTTP endpoint, or all three at once on the same Session.
 
 |   |   |
 |---|---|
@@ -131,7 +131,7 @@ Logs land in `~/.moxxy/services/<name>.log`; units survive reboots.
 ## 🧩 What's in the box
 
 - **Providers**: Anthropic, OpenAI, Codex (ChatGPT OAuth). Add your own with one `defineProvider({})`.
-- **Loop strategies**: `tool-use` (default, Claude-Code-style), `plan-execute` (plan → validate → execute), `bmad` (analysis → planning → solutioning → implementation), `developer` (guardrailed tool-use → verify → commit-with-diff-preview gate), `deep-research` (plan queries → parallel subagent fan-out → cited synthesis).
+- **Loop strategies**: `default` (Claude-Code-style ReAct loop), `goal` (autonomous auto-approve loop — runs across turns until `goal_complete`), `research` (plan queries → parallel subagent fan-out → cited synthesis). Switch in the TUI with `/mode`.
 - **Built-in tools**: Read, Edit, Write, Bash, Grep, Glob, WebFetch, plus computer-control (macOS) and browser-session (Playwright).
 - **Prompt caching**: `@moxxy/cache-strategy-stable-prefix` places deterministic cache breakpoints (static tools/system/stable-prefix + a rolling tail) so the inner iterations of a turn read the prompt from cache instead of paying full price. A `CacheStrategy` is provider-neutral (Anthropic `cache_control` today); swap it or disable caching with the `none` strategy. Inspect savings live with `/usage`.
 - **MCP**: register any Model Context Protocol server as a tool source.
@@ -158,12 +158,12 @@ Everything below is for plugin authors, contributors, and folks embedding moxxy 
 import { Session, runTurn, autoAllowResolver } from '@moxxy/core';
 import { anthropicPlugin } from '@moxxy/plugin-provider-anthropic';
 import { builtinToolsPlugin } from '@moxxy/tools-builtin';
-import { toolUseModePlugin } from '@moxxy/mode-tool-use';
+import { defaultModePlugin } from '@moxxy/mode-default';
 
 const session = new Session({ cwd: process.cwd(), permissionResolver: autoAllowResolver });
 session.pluginHost.registerStatic(anthropicPlugin);
 session.pluginHost.registerStatic(builtinToolsPlugin);
-session.pluginHost.registerStatic(toolUseModePlugin);
+session.pluginHost.registerStatic(defaultModePlugin);
 session.providers.setActive('anthropic');
 
 for await (const event of runTurn(session, 'list TS files in cwd')) {
@@ -212,9 +212,9 @@ export default defineConfig({
     model: 'claude-sonnet-4-6',
     config: { apiKey: '${vault:ANTHROPIC_API_KEY}' },   // resolved from the vault
   },
-  loop: 'tool-use',
+  mode: 'default',
   plugins: {
-    '@moxxy/mode-plan-execute': { enabled: false },     // disable per-plugin
+    '@moxxy/plugin-browser': { enabled: false },        // disable a plugin (or use `moxxy plugins disable`)
   },
 });
 ```
@@ -227,12 +227,9 @@ export default defineConfig({
 @moxxy/sdk                          ← typed public surface (zero runtime deps)
 @moxxy/core                         ← runtime: event log, registries, plugin host, permissions, skills
 @moxxy/tools-builtin                ← Read / Edit / Write / Bash / Grep / Glob
-@moxxy/mode-tool-use                ← default loop strategy (Claude Code-style)
-@moxxy/mode-plan-execute            ← plan-then-execute strategy
-@moxxy/mode-developer               ← implement → verify → commit strategy
-@moxxy/mode-goal                    ← autonomous goal loop (runs until goal_complete; tools auto-approved)
-@moxxy/mode-bmad                    ← BMAD multi-persona strategy
-@moxxy/mode-deep-research           ← multi-query research + synthesis strategy
+@moxxy/mode-default                 ← "default" mode: Claude Code-style ReAct loop (active by default)
+@moxxy/mode-goal                    ← "goal" mode: autonomous auto-approve loop (runs until goal_complete)
+@moxxy/mode-deep-research           ← "research" mode: multi-query fan-out + cited synthesis
 @moxxy/plugin-provider-anthropic    ← LLM provider
 @moxxy/plugin-provider-openai       ← LLM provider
 @moxxy/plugin-provider-openai-codex ← ChatGPT OAuth provider
@@ -260,7 +257,7 @@ export default defineConfig({
 @moxxy/plugin-subagents             ← spawn sub-agents from a turn
 @moxxy/plugin-commands              ← built-in slash commands (/info, /clear, /compact, …)
 @moxxy/plugin-self-update           ← agent edits its own plugins/skills (Tier 1) + core (Tier 2)
-@moxxy/plugin-plugins-admin         ← install / list / remove @moxxy plugins at runtime
+@moxxy/plugin-plugins-admin         ← install / remove / enable / disable plugins at runtime (model tools + `moxxy plugins` CLI + `/plugins` picker)
 @moxxy/plugin-usage-stats           ← per-session token + cost accounting
 @moxxy/compactor-summarize          ← default context-window compactor
 @moxxy/cache-strategy-stable-prefix ← default prompt-cache strategy (deterministic breakpoints; `none` opts out)

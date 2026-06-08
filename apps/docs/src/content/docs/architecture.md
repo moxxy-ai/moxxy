@@ -9,8 +9,9 @@ description: The shape of moxxy — sdk, core, plugins, channels.
 @moxxy/sdk             <— typed public surface (zero runtime deps)
 @moxxy/core            <— runtime: event log, registries, plugin host, permissions
 @moxxy/tools-builtin   <— Read/Edit/Write/Bash/Grep/Glob
-@moxxy/mode-tool-use   <— default Claude Code-style mode
-@moxxy/mode-plan-execute  <— alternate plan-then-execute strategy
+@moxxy/mode-default    <— default Claude Code-style mode
+@moxxy/mode-goal          <— autonomous auto-approve loop (runs until goal_complete)
+@moxxy/mode-deep-research <— fan-out research mode (plan → parallel subagents → cited synthesis)
 @moxxy/plugin-provider-anthropic  <— LLM provider
 @moxxy/plugin-mcp                 <— MCP servers as tool sources
 @moxxy/plugin-vault    <— AES-256-GCM encrypted secrets

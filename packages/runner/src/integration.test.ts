@@ -19,7 +19,7 @@ import {
 } from '@moxxy/sdk';
 import type { AssistantMessageEvent, CommandOutput } from '@moxxy/sdk';
 import { FakeProvider, textReply, toolUseReply } from '@moxxy/testing';
-import { toolUseModePlugin } from '@moxxy/mode-tool-use';
+import { defaultModePlugin } from '@moxxy/mode-default';
 import { startRunnerServer, type RunnerServer } from './server.js';
 import { connectRemoteSession, type RemoteSession } from './remote-session.js';
 
@@ -51,7 +51,7 @@ function buildSession(provider: FakeProvider): Session {
     }),
   );
   session.providers.setActive(provider.name);
-  session.pluginHost.registerStatic(toolUseModePlugin);
+  session.pluginHost.registerStatic(defaultModePlugin);
   return session;
 }
 

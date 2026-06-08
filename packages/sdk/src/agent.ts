@@ -21,8 +21,8 @@ export interface AgentDef {
    */
   readonly systemPrompt?: string;
   /**
-   * Mode name for the child. Defaults to `'tool-use'`. The
-   * spawner falls back to tool-use if the named strategy isn't
+   * Mode name for the child. Defaults to `'default'`. The
+   * spawner falls back to the default mode if the named strategy isn't
    * registered (no point failing a child over a missing block).
    */
   readonly mode?: string;

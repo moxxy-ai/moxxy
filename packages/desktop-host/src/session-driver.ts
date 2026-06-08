@@ -65,7 +65,7 @@ export class SessionDriver {
 
     // Forward the runner's permission + approval decisions to the renderer's
     // bottom sheet. Declaring these resolvers tells the runner this client
-    // handles permissions/approvals, so loop strategies (plan-execute, BMAD)
+    // handles permissions/approvals, so loop strategies (research)
     // actually pause and ask instead of assuming. Without them the runner
     // falls back to deny/auto and barrels ahead.
     this.session.setPermissionResolver({
@@ -129,7 +129,7 @@ export class SessionDriver {
   /** True when this driver is bridging `session` — used by the IPC
    *  layer to skip a needless dispose+recreate on a redundant
    *  `connected` pool change (which would otherwise abort an in-flight
-   *  turn, e.g. while a plan-execute approval sheet is open). */
+   *  turn, e.g. while a research approval sheet is open). */
   wraps(session: RemoteSession): boolean {
     return this.session === session;
   }

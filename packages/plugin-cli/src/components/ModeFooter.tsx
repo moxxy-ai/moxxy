@@ -7,7 +7,7 @@ import { Colors } from '../theme.js';
  * (formerly "loop strategy") and the hotkey to switch it, mirroring
  * Claude Code's "accept edits on (shift+tab to cycle)" footer.
  *
- *   ▸▸ mode: tool-use (shift+tab to change)
+ *   ▸▸ mode: default (shift+tab to change)
  *
  * Rendered on the left of `<StatusLine>` while idle; during a turn the
  * "Thinking" marker takes that slot instead.

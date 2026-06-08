@@ -23,7 +23,7 @@ dispatch_agent({
   label?,         // short label for progress events
   systemPrompt?,  // override the kind's system prompt
   model?,         // model id override
-  mode?,  // "tool-use" (default), "plan-execute", "bmad"
+  mode?,  // "default" (default), "goal", "research"
   allowedTools?,  // restrict the child to these tool names
 })
 ```
@@ -52,7 +52,7 @@ definePlugin({
       systemPrompt: '...',
       allowedTools: ['Read', 'Grep', 'Glob', 'web_fetch'],
       maxIterations: 30,
-      mode: 'tool-use',
+      mode: 'default',
     }),
   ],
 });
@@ -77,5 +77,5 @@ default kind — `dispatch_agent` never fails over a missing kind.
 - Fan-out: "review every file in src/auth/" → one child per file.
 - Isolation: a probe that shouldn't leak its mistakes back into the
   parent's context window.
-- Specialized modes: research with `bmad`, planning with `plan-execute`,
-  while the parent stays on `tool-use`.
+- Specialized modes: fan-out research with `research`, autonomous
+  end-to-end work with `goal`, while the parent stays on `default`.

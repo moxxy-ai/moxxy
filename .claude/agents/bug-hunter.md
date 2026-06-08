@@ -42,7 +42,7 @@ Reproduce the bug as a Vitest test using `@moxxy/testing`'s harness:
 
 ```ts
 import { FakeProvider, toolUseReply, textReply, createFakeSession } from '@moxxy/testing';
-import { toolUseLoopPlugin } from '@moxxy/loop-tool-use';
+import { defaultModePlugin } from '@moxxy/mode-default';
 import { collectTurn } from '@moxxy/core';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
@@ -56,13 +56,13 @@ it('reproduces #N', async () => {
     ],
   });
   const session = createFakeSession({ provider });
-  session.pluginHost.registerStatic(toolUseLoopPlugin);
+  session.pluginHost.registerStatic(defaultModePlugin);
   session.tools.register(defineTool({
     name: 'Read',
     inputSchema: z.object({ file_path: z.string() }),
     handler: async () => { throw new Error('ENOENT'); },
   }));
-  session.loops.setActive('tool-use');
+  session.modes.setActive('default');
 
   const events = await collectTurn(session, 'read /missing.txt');
   // assert on events; the test should FAIL while the bug is live, PASS after the fix

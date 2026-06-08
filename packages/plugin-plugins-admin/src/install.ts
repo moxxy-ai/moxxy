@@ -70,8 +70,8 @@ export interface RemovePluginPackageResult {
 /**
  * Install a plugin package into `~/.moxxy/plugins/` via `npm install`.
  * Imperative counterpart to the `install_plugin` tool, used by the
- * marketplace CLI. Does NOT hot-reload — callers that need new tools to
- * appear in a live session must reload the plugin host themselves.
+ * `moxxy plugins install` CLI. Does NOT hot-reload — callers that need new
+ * tools to appear in a live session must reload the plugin host themselves.
  */
 export async function installPluginPackage(
   opts: InstallPluginPackageOptions,

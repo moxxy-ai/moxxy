@@ -36,11 +36,12 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<SlashCommand> = [
   { name: 'model', description: 'Switch provider + model — opens a picker' },
   {
     name: 'mode',
-    description: 'Switch mode (tool-use / plan-execute / bmad)',
+    description: 'Switch mode (default / goal / research)',
     argumentHint: '[mode]',
     aliases: ['loop'],
   },
   { name: 'mcp', description: 'Enable / disable / remove MCP servers' },
+  { name: 'plugins', description: 'Plug / unplug & install plugins — opens a tabbed picker' },
   {
     name: 'goal',
     description: 'Work autonomously until the objective is delivered (switches mode + auto-approves; Esc stops)',

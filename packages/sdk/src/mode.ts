@@ -32,7 +32,17 @@ export interface SkillRegistry {
 }
 
 export interface PluginHostHandle {
-  list(): ReadonlyArray<{ name: string; version: string; loaded: boolean }>;
+  list(): ReadonlyArray<{
+    name: string;
+    version: string;
+    loaded: boolean;
+    /**
+     * Contribution categories the plugin registered (e.g. `['provider']`,
+     * `['tool','command']`). Lets a UI group plugins by kind. Optional so a
+     * thin-client `RemoteSession` can omit it.
+     */
+    kinds?: ReadonlyArray<string>;
+  }>;
   reload(): Promise<void>;
 }
 

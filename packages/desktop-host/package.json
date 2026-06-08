@@ -36,7 +36,6 @@
   },
   "devDependencies": {
     "@moxxy/core": "workspace:*",
-    "@moxxy/mode-plan-execute": "workspace:*",
     "@moxxy/testing": "workspace:*",
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",

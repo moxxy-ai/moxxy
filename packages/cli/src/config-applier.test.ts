@@ -55,8 +55,8 @@ function makeSession(cwd = '/tmp'): Session {
         }),
       ],
       modes: [
-        { name: 'tool-use', run: async function* () {} },
-        { name: 'plan-execute', run: async function* () {} },
+        { name: 'default', run: async function* () {} },
+        { name: 'research', run: async function* () {} },
       ],
     }),
   );
@@ -87,8 +87,8 @@ function makeBuiltin_(name: string): { name: string; plugin: Plugin } {
 describe('buildSessionConfigApplier', () => {
   it('changes to `mode` are applied immediately', async () => {
     const session = makeSession();
-    const apply = buildSessionConfigApplier(session, { mode: 'tool-use' });
-    const r = await apply({ mode: 'plan-execute' });
+    const apply = buildSessionConfigApplier(session, { mode: 'default' });
+    const r = await apply({ mode: 'research' });
     expect(r.applied).toContain('mode');
     expect(r.pending).not.toContain('mode');
   });
@@ -183,7 +183,7 @@ describe('buildSessionConfigApplier', () => {
   });
 
   it('an unchanged config produces empty applied + pending lists', async () => {
-    const cfg = { mode: 'tool-use', compactor: 'summarize-old-turns' };
+    const cfg = { mode: 'default', compactor: 'summarize-old-turns' };
     const apply = buildSessionConfigApplier(makeSession(), cfg);
     const r = await apply(cfg);
     expect(r.applied).toEqual([]);

@@ -7,7 +7,7 @@ adoption + fixes). This file tracks what was **deliberately deferred** and what
 fix agents **blocked** as unsafe to do mechanically.
 
 Audit scoring snapshot: every package averaged ≥ 3.57/5; the default blocks
-(`compactor-summarize`, `cache-strategy-stable-prefix`, `mode-tool-use`) were
+(`compactor-summarize`, `cache-strategy-stable-prefix`, `mode-default`) were
 near-exemplary. 206 findings (18 high · 67 medium · 121 low). 11 of 18 highs are
 fixed; the remaining 7 are below (design-change or large test-suite work).
 
@@ -113,10 +113,9 @@ consume registered `TunnelProviderDef`s instead of its bespoke `tunnel.ts`.
 ### 9. `runSingleShotTurn` mode-helper — ✅ DONE
 **Cross-cut 1.9.** Added `runSingleShotTurn(ctx, messages, { maxTokens? })` to SDK `mode-helpers`
 (compaction + elision → `provider_request` → `collectProviderStream({ includeTools: false })` →
-`error`/`provider_response`). Collapsed all four duplicated blocks onto it: `mode-deep-research`
-query + synthesis, `mode-plan-execute` plan, `mode-bmad` collect. As a side effect the planner/collect
-turns now run `runElisionIfNeeded` like every other turn (the consistency the finding wanted). All
-mode suites green.
+`error`/`provider_response`). Collapsed the duplicated blocks onto it (e.g. `mode-deep-research`
+query + synthesis). As a side effect the single-shot turns now run `runElisionIfNeeded` like every
+other turn (the consistency the finding wanted). All mode suites green.
 
 ### 10. Finish MoxxyError adoption / HTTP-status classification
 **Cross-cut 1.7, 1.13, 2.6.** The clear user-facing throws were converted. Remaining: oauth

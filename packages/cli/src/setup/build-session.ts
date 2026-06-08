@@ -25,6 +25,11 @@ export interface BuildSessionArgs {
    * value entering the model's context or `process.env`.
    */
   readonly secretResolver?: (name: string) => Promise<string | null>;
+  /**
+   * Predicate (by package name) for whether a discovered plugin is disabled,
+   * forwarded to the PluginHost so `reload()` honors runtime/config disables.
+   */
+  readonly isPluginDisabled?: (packageName: string) => boolean;
 }
 
 /**
@@ -67,6 +72,7 @@ export async function buildSession(args: BuildSessionArgs): Promise<Session> {
     // scan, so pluginHost.reload() (install_plugin, self-update) rediscovers
     // and preserves runtime-installed / scaffolded plugins.
     pluginDiscoveryPaths: [userPluginsDir, path.join(userPluginsDir, 'node_modules')],
+    ...(args.isPluginDisabled ? { isPluginDisabled: args.isPluginDisabled } : {}),
     ...(args.secretResolver ? { secretResolver: args.secretResolver } : {}),
     ...(args.resumeSessionId ? { sessionId: args.resumeSessionId as SessionId } : {}),
     // Seed restored events directly into the log so subscribers don't

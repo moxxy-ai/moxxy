@@ -66,12 +66,24 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
 
   const config = await resolveConfigPlaceholders(rawConfig, vault, logger);
 
+  // Single source of truth for "is this package disabled?", seeded from the
+  // merged config (project + user `plugins[name].enabled = false`). The
+  // PluginHost reads it on every reload so a disabled plugin is never
+  // resurrected; the config applier and the plugins-admin enable/disable tools
+  // mutate it so a runtime toggle takes effect without a restart.
+  const disabledPackages = new Set<string>(
+    Object.entries(config.plugins ?? {})
+      .filter(([, settings]) => settings?.enabled === false)
+      .map(([name]) => name),
+  );
+
   const session = await buildSession({
     cwd: opts.cwd,
     config,
     resolver: opts.resolver,
     resumeSessionId: opts.resumeSessionId,
     logger,
+    isPluginDisabled: (pkg) => disabledPackages.has(pkg),
     // Surface vault secrets to tool handlers as `ctx.getSecret(name)`. The
     // value never enters the model's context or `process.env` — only the
     // handler that asks receives it. `vault.get` lazily opens the vault and
@@ -99,6 +111,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     memoryPlugin,
     schedulerRunner,
     webhookRunner,
+    disabledPackages,
     logger,
   });
 
@@ -108,7 +121,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
       name: '@moxxy/plugin-config',
       plugin: buildConfigPlugin({
         cwd: opts.cwd,
-        applier: buildSessionConfigApplier(session, config, builtinsCore),
+        applier: buildSessionConfigApplier(session, config, builtinsCore, disabledPackages),
       }),
     },
   ];

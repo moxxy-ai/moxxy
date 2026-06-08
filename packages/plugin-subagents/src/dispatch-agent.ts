@@ -35,8 +35,8 @@ const agentSpecSchema = z.object({
     .string()
     .optional()
     .describe(
-      'Loop strategy override. Valid values: "tool-use" (default), ' +
-        '"plan-execute", "bmad". OMIT for the kind\'s default — do NOT invent names.',
+      'Loop strategy override. Valid values: "default", "goal", ' +
+        '"research". OMIT for the kind\'s default — do NOT invent names.',
     ),
   allowedTools: z
     .array(z.string())

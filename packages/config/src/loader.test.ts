@@ -36,21 +36,21 @@ describe('loadConfig', () => {
     await fs.mkdir(nested, { recursive: true });
     await fs.writeFile(
       path.join(tmp, 'moxxy.config.js'),
-      `export default { mode: 'tool-use' };`,
+      `export default { mode: 'default' };`,
     );
     const result = await loadConfig({ cwd: nested, skipUser: true });
-    expect(result.config.mode).toBe('tool-use');
+    expect(result.config.mode).toBe('default');
   });
 
   it('honors explicitPath over upward search', async () => {
     await fs.writeFile(
       path.join(tmp, 'moxxy.config.js'),
-      `export default { mode: 'tool-use' };`,
+      `export default { mode: 'default' };`,
     );
     const custom = path.join(tmp, 'custom.config.js');
-    await fs.writeFile(custom, `export default { mode: 'plan-execute' };`);
+    await fs.writeFile(custom, `export default { mode: 'research' };`);
     const result = await loadConfig({ cwd: tmp, explicitPath: custom, skipUser: true });
-    expect(result.config.mode).toBe('plan-execute');
+    expect(result.config.mode).toBe('research');
     expect(result.sources[0]?.scope).toBe('explicit');
   });
 

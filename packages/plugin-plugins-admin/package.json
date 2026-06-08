@@ -29,7 +29,9 @@
     }
   },
   "dependencies": {
+    "@moxxy/config": "workspace:*",
     "@moxxy/sdk": "workspace:*",
+    "yaml": "^2.6.0",
     "zod": "catalog:"
   },
   "devDependencies": {

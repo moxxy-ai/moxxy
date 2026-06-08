@@ -35,7 +35,7 @@
   },
   "devDependencies": {
     "@moxxy/core": "workspace:*",
-    "@moxxy/mode-tool-use": "workspace:*",
+    "@moxxy/mode-default": "workspace:*",
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "@types/node": "catalog:",

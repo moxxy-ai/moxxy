@@ -10,8 +10,8 @@ export type QueryGateOutcome =
 
 /**
  * Optional approval gate after the query plan is produced. Headless
- * contexts (no resolver) auto-approve. Mirrors mode-plan-execute's
- * approval gate shape — same option ids, same redraft semantics.
+ * contexts (no resolver) auto-approve. Approve / redraft-with-feedback /
+ * cancel option ids, with bounded redraft retries.
  */
 export async function runQueryApprovalGate(
   ctx: ModeContext,

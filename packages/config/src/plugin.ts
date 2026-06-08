@@ -222,7 +222,7 @@ export function buildConfigPlugin(
 provider:
   name: anthropic
   model: claude-sonnet-4-6
-mode: tool-use
+mode: default
 `;
           await writeFileAtomic(target, template);
           return { path: target, created: true };

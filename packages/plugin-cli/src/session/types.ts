@@ -26,6 +26,14 @@ export type Picker =
       searchPlaceholder?: string;
     }
   | { kind: 'mode'; title: string; options: ReadonlyArray<ListPickerOption> }
+  | {
+      kind: 'plugins';
+      title: string;
+      tabs: ReadonlyArray<ListPickerTab>;
+      initialTabId?: string;
+      searchable?: boolean;
+      searchPlaceholder?: string;
+    }
   | { kind: 'mcp-server'; title: string; options: ReadonlyArray<ListPickerOption> }
   | {
       kind: 'mcp-action';

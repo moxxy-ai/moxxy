@@ -10,7 +10,7 @@ description: moxxy — a block-based agentic loop framework for TypeScript.
 Existing agent frameworks lock you into one LLM provider, one loop topology, one frontend, one set of opinions about how the agent should behave. moxxy starts from a typed contract — `@moxxy/sdk` — and lets you plug everything else in.
 
 - Providers are plugins (`@moxxy/plugin-provider-anthropic`, `@moxxy/plugin-provider-openai`, `@moxxy/plugin-provider-openai-codex` for the ChatGPT-OAuth backend).
-- Modes are plugins (`@moxxy/mode-tool-use`, `@moxxy/mode-plan-execute`, `@moxxy/mode-bmad`).
+- Modes are plugins (`@moxxy/mode-default`, `@moxxy/mode-goal`, `@moxxy/mode-deep-research`).
 - The CLI / TUI / Telegram bot / HTTP server are all `Channel` implementations.
 - Skills are prompt-only Markdown files the agent can author for itself.
 
@@ -41,12 +41,12 @@ Or embed the SDK directly:
 import { Session, runTurn, autoAllowResolver } from '@moxxy/core';
 import { anthropicPlugin } from '@moxxy/plugin-provider-anthropic';
 import { builtinToolsPlugin } from '@moxxy/tools-builtin';
-import { toolUseModePlugin } from '@moxxy/mode-tool-use';
+import { defaultModePlugin } from '@moxxy/mode-default';
 
 const session = new Session({ cwd: process.cwd(), permissionResolver: autoAllowResolver });
 session.pluginHost.registerStatic(anthropicPlugin);
 session.pluginHost.registerStatic(builtinToolsPlugin);
-session.pluginHost.registerStatic(toolUseModePlugin);
+session.pluginHost.registerStatic(defaultModePlugin);
 session.providers.setActive('anthropic');
 
 for await (const event of runTurn(session, 'list TS files')) {

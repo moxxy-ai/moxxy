@@ -5,7 +5,7 @@ const base = {
   apiKeys: {},
   primary: 'anthropic',
   model: 'claude-sonnet-4-6',
-  mode: 'tool-use',
+  mode: 'default',
   embedder: 'tfidf',
 };
 
@@ -16,7 +16,7 @@ describe('renderYaml', () => {
     expect(yaml).toContain('name: anthropic');
     expect(yaml).toContain('model: claude-sonnet-4-6');
     expect(yaml).toContain('apiKey: ${vault:ANTHROPIC_API_KEY}');
-    expect(yaml).toContain('mode: tool-use');
+    expect(yaml).toContain('mode: default');
     // TF-IDF is the default — no embeddings block emitted.
     expect(yaml).not.toContain('embeddings:');
     // No fallbacks for single-provider setup.
@@ -60,8 +60,8 @@ describe('renderYaml', () => {
   });
 
   it('honors the chosen mode strategy', () => {
-    const yaml = renderYaml({ ...base, providers: ['anthropic'], mode: 'plan-execute' });
-    expect(yaml).toContain('mode: plan-execute');
+    const yaml = renderYaml({ ...base, providers: ['anthropic'], mode: 'research' });
+    expect(yaml).toContain('mode: research');
   });
 
   it('output starts with a generator comment', () => {
@@ -85,7 +85,7 @@ describe('renderYaml', () => {
     expect(parsed.provider.name).toBe('anthropic');
     expect(parsed.provider.fallbacks).toEqual(['openai']);
     expect(parsed.embeddings.provider).toBe('transformers');
-    expect(parsed.mode).toBe('tool-use');
+    expect(parsed.mode).toBe('default');
   });
 
   it('omits the apiKey vault line when the primary provider authenticates via OAuth', () => {

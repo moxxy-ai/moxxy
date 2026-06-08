@@ -58,7 +58,7 @@ describe('runSlash /goal', () => {
         id: 'sess-1',
         commands: { get: () => undefined },
         modes: {
-          list: () => [{ name: 'goal' }, { name: 'tool-use' }],
+          list: () => [{ name: 'goal' }, { name: 'default' }],
           setActive: (n: string) => calls.setActive.push(n),
         },
       },
@@ -89,7 +89,7 @@ describe('runSlash /goal', () => {
   it('reports when goal mode is not registered', () => {
     const { deps, calls } = goalDeps();
     (deps.session as unknown as { modes: { list: () => unknown[] } }).modes.list = () => [
-      { name: 'tool-use' },
+      { name: 'default' },
     ];
     runSlash('/goal do a thing', deps);
     expect(calls.setActive).toEqual([]);
@@ -106,7 +106,7 @@ function baseDeps(): SlashDeps {
     },
     providerName: 'openai',
     activeModel: 'gpt-test',
-    modeName: 'tool-use',
+    modeName: 'default',
     setSystemNotice: () => undefined,
     setOverlay: () => undefined,
     setYolo: () => undefined,

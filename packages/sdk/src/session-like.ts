@@ -177,6 +177,42 @@ export interface WorkflowsView {
   run(name: string): Promise<WorkflowRunView>;
 }
 
+/** One installable plugin in {@link PluginsAdminView.catalog}. */
+export interface InstallablePluginView {
+  readonly id: string;
+  readonly label: string;
+  readonly packageName: string;
+  readonly installSpec: string;
+  readonly kind?: string;
+  readonly startCommand?: string;
+}
+
+/** One loaded plugin in {@link PluginsAdminView.loaded}, grouped by `kinds`. */
+export interface LoadedPluginView {
+  readonly name: string;
+  readonly version: string;
+  /** Contribution categories (e.g. `['provider']`, `['tool','command']`). */
+  readonly kinds: ReadonlyArray<string>;
+}
+
+/**
+ * The slice of plugin management a channel needs to drive the `/plugins`
+ * picker: which plugins are disabled, what's installable, and a persist+
+ * hot-apply enable/disable toggle (plug/unplug). Present on a local Session
+ * when `@moxxy/plugin-plugins-admin` is wired; a `RemoteSession` leaves
+ * {@link SessionLike.pluginsAdmin} undefined and the UI degrades gracefully.
+ */
+export interface PluginsAdminView {
+  /** Currently-loaded plugins with their contribution kinds (for kind tabs). */
+  loaded(): ReadonlyArray<LoadedPluginView>;
+  /** Package names currently disabled (config `plugins[name].enabled=false`). */
+  disabled(): ReadonlyArray<string>;
+  /** Curated installable-plugin catalog for the picker's "Installable" tab. */
+  catalog(): ReadonlyArray<InstallablePluginView>;
+  /** Persist `plugins[name].enabled` AND apply it to the live session. */
+  setEnabled(packageName: string, enabled: boolean): Promise<void>;
+}
+
 /**
  * The session surface a `Channel` depends on, decoupled from whether the
  * session runs in-process (`@moxxy/core`'s `Session`) or is a thin-client
@@ -213,4 +249,6 @@ export interface SessionLike {
   mcpAdmin?: McpAdminView;
   /** Workflows slice backing the `/workflows` modal. */
   workflows?: WorkflowsView;
+  /** Plugin-management slice backing the `/plugins` picker. */
+  pluginsAdmin?: PluginsAdminView;
 }

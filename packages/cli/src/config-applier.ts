@@ -36,6 +36,13 @@ export function buildSessionConfigApplier(
   session: Session,
   initial: MoxxyConfig,
   builtins: ReadonlyArray<BuiltinPluginEntry> = [],
+  /**
+   * Live disabled-package set shared with the PluginHost's `isDisabled`
+   * predicate. Kept in sync as toggles are applied so a later
+   * `pluginHost.reload()` honors the new state (esp. for discovered plugins,
+   * which the host can re-discover but must not resurrect when disabled).
+   */
+  disabledPackages?: Set<string>,
 ): ConfigApplier {
   let last: MoxxyConfig = initial;
   const builtinsByName = new Map<string, BuiltinPluginRecord>(
@@ -100,6 +107,15 @@ export function buildSessionConfigApplier(
     const toggles = await applyPluginToggles(session, builtinsByName, last, next);
     for (const t of toggles.applied) applied.push(`plugins[${t.name}].enabled=${t.enabled}`);
     for (const p of toggles.pending) pending.push(p);
+    // Keep the host's disabled-set in sync so a subsequent reload() won't
+    // re-load a freshly-disabled discovered plugin (and vice-versa). Only
+    // explicitly-mentioned names are touched, preserving boot-scope disables.
+    if (disabledPackages) {
+      for (const [name, settings] of Object.entries(next.plugins ?? {})) {
+        if (settings?.enabled === false) disabledPackages.add(name);
+        else disabledPackages.delete(name);
+      }
+    }
 
     if (!shallowEqual(last.embeddings, next.embeddings)) {
       pending.push('embeddings.* (restart required to rebuild memory embedder)');

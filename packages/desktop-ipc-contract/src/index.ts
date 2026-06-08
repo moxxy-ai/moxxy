@@ -35,7 +35,7 @@ export type { ApprovalRequest, ApprovalOption, PermissionMode };
 /**
  * A decision the runner needs from the user, forwarded from the connected
  * session to the renderer. `kind: 'permission'` gates a tool call;
- * `kind: 'approval'` is a loop-strategy confirmation (plan-execute, BMAD, …).
+ * `kind: 'approval'` is a loop-strategy confirmation (research, …).
  * The renderer renders a bottom sheet and replies with {@link AskResponse}
  * keyed by `requestId`.
  */

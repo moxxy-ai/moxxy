@@ -1,6 +1,6 @@
 import { asPluginId } from '@moxxy/sdk';
 
-export const DEEP_RESEARCH_MODE_NAME = 'deep-research';
+export const RESEARCH_MODE_NAME = 'research';
 
 export const DEEP_RESEARCH_PLUGIN_ID = asPluginId('@moxxy/mode-deep-research');
 

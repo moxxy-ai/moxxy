@@ -70,6 +70,16 @@ export interface PluginHostOptions {
    * paths and unload every user plugin, then fail to rediscover them.
    */
   readonly userPaths?: ReadonlyArray<string>;
+  /**
+   * Predicate consulted (by PACKAGE name) for discovered plugins on every
+   * `discoverAndLoad`/`reload`. Returning `true` keeps the package out of the
+   * "wanted" set, so a plugin the user disabled (config `plugins[name].enabled
+   * = false`) is never re-loaded by a reload and, if currently loaded, is
+   * unloaded. Boot-time builtins are filtered separately by register-plugins;
+   * this closes the runtime-toggle / reload hole. Reads live state, so a
+   * runtime enable/disable takes effect on the next reload without a restart.
+   */
+  readonly isDisabled?: (packageName: string) => boolean;
 }
 
 export interface PluginLoader {
@@ -140,11 +150,17 @@ export class PluginHost implements PluginHostHandle {
 
   constructor(private readonly opts: PluginHostOptions) {}
 
-  list(): ReadonlyArray<{ name: string; version: string; loaded: boolean }> {
+  list(): ReadonlyArray<{
+    name: string;
+    version: string;
+    loaded: boolean;
+    kinds: ReadonlyArray<string>;
+  }> {
     return [...this.loaded.values()].map((r) => ({
       name: r.plugin.name,
       version: r.plugin.version,
       loaded: true,
+      kinds: contributionKinds(r),
     }));
   }
 
@@ -212,6 +228,8 @@ export class PluginHost implements PluginHostHandle {
     }
     for (const manifest of ordered) {
       if (this.loaded.has(manifest.packageName)) continue;
+      // Honor a runtime/config disable: never load a package the user turned off.
+      if (this.opts.isDisabled?.(manifest.packageName)) continue;
       try {
         const plugin = await loader.load(manifest);
         this.registerDiscovered(plugin, manifest);
@@ -270,7 +288,13 @@ export class PluginHost implements PluginHostHandle {
       logger: this.opts.logger,
       ...(this.opts.userPaths ? { extraPaths: this.opts.userPaths } : {}),
     });
-    const wanted = new Set(manifests.map((m) => m.packageName));
+    // A disabled package is excluded from `wanted`, so the loop below unloads it
+    // if currently loaded and discoverAndLoad won't bring it back.
+    const wanted = new Set(
+      manifests
+        .filter((m) => !this.opts.isDisabled?.(m.packageName))
+        .map((m) => m.packageName),
+    );
     for (const [name] of [...this.loaded]) {
       // Statically-registered builtins have no manifest; never unload them on
       // reload — they aren't discovered from disk so they'd never come back.
@@ -398,4 +422,26 @@ export class PluginHost implements PluginHostHandle {
 
 function skipKey(pluginName: string): string {
   return pluginName;
+}
+
+/** The contribution categories a loaded plugin actually registered, in a
+ *  stable order — lets a UI group plugins by kind (tabs in the picker). */
+function contributionKinds(r: LoadedRecord): ReadonlyArray<string> {
+  const kinds: string[] = [];
+  if (r.providerNames.length) kinds.push('provider');
+  if (r.modeNames.length) kinds.push('mode');
+  if (r.channelNames.length) kinds.push('channel');
+  if (r.embedderNames.length) kinds.push('embedder');
+  if (r.transcriberNames.length) kinds.push('transcriber');
+  if (r.synthesizerNames.length) kinds.push('synthesizer');
+  if (r.isolatorNames.length) kinds.push('isolator');
+  if (r.compactorNames.length) kinds.push('compactor');
+  if (r.cacheStrategyNames.length) kinds.push('cacheStrategy');
+  if (r.viewRendererNames.length) kinds.push('viewRenderer');
+  if (r.tunnelProviderNames.length) kinds.push('tunnelProvider');
+  if (r.workflowExecutorNames.length) kinds.push('workflowExecutor');
+  if (r.agentNames.length) kinds.push('agent');
+  if (r.commandNames.length) kinds.push('command');
+  if (r.toolNames.length) kinds.push('tool');
+  return kinds;
 }
