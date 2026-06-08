@@ -225,9 +225,15 @@ async function runServeForeground(
   // forever on "lost the runner / reconnecting" instead of being able to
   // connect and walk the user through adding a provider. Turns still fail with
   // a clear "no provider" error until one is configured.
+  // A sticky session id (resume-if-present) can be injected via env — the
+  // desktop sets MOXXY_SESSION_ID to its per-workspace desk id so each runner
+  // resumes that workspace's conversation across app restarts instead of
+  // booting an empty session every launch.
+  const stickySessionId = process.env['MOXXY_SESSION_ID']?.trim();
   const setup = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,
     tolerateNoProvider: true,
+    ...(stickySessionId ? { sessionId: stickySessionId } : {}),
   });
   const { session, vault, config, scheduler, webhooks } = setup;
   const setupHandle: SetupHandle = { scheduler, webhooks };

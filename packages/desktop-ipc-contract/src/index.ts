@@ -439,6 +439,11 @@ export interface IpcCommands {
   }) => Promise<void>;
   /** Switch the active mode. */
   'session.setMode': (args: { workspaceId?: string; mode: string }) => Promise<void>;
+  /** Start a fresh conversation (the `/new` command): wipe the workspace's
+   *  persisted runner session and restart it so the model context resets and
+   *  doesn't resurrect on the next app launch. The renderer clears its own
+   *  transcript separately. */
+  'session.newSession': (args: { workspaceId?: string }) => Promise<void>;
   /** Toggle auto-approve ("yolo") for the workspace's session: when
    *  enabled, tool calls are allowed WITHOUT showing the approval sheet.
    *  Goal mode turns this on for hands-off autonomous runs. Lives on the

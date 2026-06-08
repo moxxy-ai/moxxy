@@ -17,6 +17,12 @@ export interface BuildSessionArgs {
   readonly config: MoxxyConfig;
   readonly resolver?: PermissionResolver;
   readonly resumeSessionId?: string;
+  /**
+   * Sticky session id (resume-if-present). Use this exact id; restore its
+   * persisted log if one exists, otherwise start a fresh session under the same
+   * id. Ignored when `resumeSessionId` is set.
+   */
+  readonly sessionId?: string;
   readonly logger: Logger;
   /**
    * Vault-backed secret resolver, surfaced to every tool handler as
@@ -42,6 +48,10 @@ export async function buildSession(args: BuildSessionArgs): Promise<Session> {
     args.config.permissions?.policyPath ?? path.join(os.homedir(), '.moxxy', 'permissions.json');
   const permissionEngine = await PermissionEngine.load(userPolicyPath);
 
+  // The effective session id: an explicit `--resume <id>` (errors if missing),
+  // or a sticky `sessionId` (resume-if-present, fresh on first run). Both reuse
+  // the id so persistence appends continue the same `<id>.jsonl`.
+  const effectiveSessionId = args.resumeSessionId ?? args.sessionId;
   let restoredEvents: ReadonlyArray<MoxxyEvent> = [];
   if (args.resumeSessionId) {
     try {
@@ -56,6 +66,14 @@ export async function buildSession(args: BuildSessionArgs): Promise<Session> {
         context: { session_id: args.resumeSessionId },
         cause: err,
       });
+    }
+  } else if (args.sessionId) {
+    // Sticky resume: a missing log just means "first run with this id" — start
+    // fresh under it rather than erroring (unlike explicit `--resume`).
+    try {
+      restoredEvents = await restoreSessionEvents(args.sessionId);
+    } catch {
+      restoredEvents = [];
     }
   }
 
@@ -74,7 +92,7 @@ export async function buildSession(args: BuildSessionArgs): Promise<Session> {
     pluginDiscoveryPaths: [userPluginsDir, path.join(userPluginsDir, 'node_modules')],
     ...(args.isPluginDisabled ? { isPluginDisabled: args.isPluginDisabled } : {}),
     ...(args.secretResolver ? { secretResolver: args.secretResolver } : {}),
-    ...(args.resumeSessionId ? { sessionId: args.resumeSessionId as SessionId } : {}),
+    ...(effectiveSessionId ? { sessionId: effectiveSessionId as SessionId } : {}),
     // Seed restored events directly into the log so subscribers don't
     // re-fire side effects for historical events. New appends from this
     // point onward fire subscribers normally (and the persistence

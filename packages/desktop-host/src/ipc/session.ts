@@ -76,6 +76,14 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     await waitForSessionState(session, (info) => info.activeMode === mode);
     supervisor.refreshConnectedInfo();
   });
+  handle('session.newSession', async ({ workspaceId }) => {
+    // `/new`: reset the runner to a fresh, empty sticky session (the renderer
+    // clears its own transcript). resolveSupervisor (not resolveCtx) because a
+    // reset deliberately tears the RemoteSession down — requiring a live one
+    // would be self-defeating.
+    const sup = resolveSupervisor(pool, workspaceId);
+    if (sup) await sup.resetSession();
+  });
   handle('session.setAutoApprove', async ({ workspaceId, enabled }) => {
     const id = workspaceId ?? pool.activeWorkspaceId();
     if (!id) return;

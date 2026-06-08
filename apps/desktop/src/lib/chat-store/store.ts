@@ -237,9 +237,14 @@ class ChatStore {
 
   private prependFresh(slot: Slot, events: ReadonlyArray<MoxxyEvent>): void {
     if (events.length === 0) return;
-    const have = new Set(slot.rt.log.toArray().map((e) => e.id));
-    const fresh = events.filter((e) => !have.has(e.id));
-    if (fresh.length > 0) slot.rt.log.prepend(fresh);
+    // `seenIds` is the authoritative membership set (kept in lockstep with the
+    // log by applyEvent + here), so a page that overlaps events already
+    // delivered by the runner's replay is de-duped without an O(n) rescan.
+    const fresh = events.filter((e) => !slot.rt.seenIds.has(e.id));
+    if (fresh.length > 0) {
+      slot.rt.log.prepend(fresh);
+      for (const e of fresh) slot.rt.seenIds.add(e.id);
+    }
   }
 
   // ---- write side --------------------------------------------------------

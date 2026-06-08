@@ -58,6 +58,16 @@ export interface SetupOptions {
    * the same file. Skip persistence entirely when this is null.
    */
   readonly resumeSessionId?: string;
+  /**
+   * Sticky session id: use this exact id for the session, resuming its
+   * persisted log if one exists and starting fresh under the same id if not.
+   * Unlike `resumeSessionId` (which errors if the log is missing — for an
+   * explicit `moxxy resume <id>`), this is "resume-if-present" and is safe on
+   * the first run. The desktop passes its per-workspace desk id here so killing
+   * and reopening the app continues the same conversation. Ignored when
+   * `resumeSessionId` is set.
+   */
+  readonly sessionId?: string;
   /** Disable session persistence (default: persistence is on). */
   readonly disableSessionPersistence?: boolean;
   /**

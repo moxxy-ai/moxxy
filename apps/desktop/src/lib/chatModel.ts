@@ -126,6 +126,16 @@ const SUBAGENT_PLUGIN_ID = '@moxxy/subagents';
  *  identity; `log.version` changes only when a committed event lands. */
 export interface ChatRuntime {
   readonly log: ChunkedBlockLog<MoxxyEvent>;
+  /**
+   * Ids of every event already in the log — both appended (live / replay) and
+   * prepended (pagination). The runner replays its FULL history on every attach
+   * (and re-attach after a reconnect), and the renderer also seeds from the
+   * durable display log, so the same event can arrive twice. This set makes
+   * ingestion idempotent: a duplicate is dropped instead of re-rendered and
+   * re-persisted. Kept in lockstep with the log by `applyEvent` and the store's
+   * `prependFresh`.
+   */
+  readonly seenIds: Set<string>;
   extensions: Extension[];
   streamingText: string;
   activeTurnId: string | null;
@@ -137,6 +147,7 @@ export interface ChatRuntime {
 export function createRuntime(initialEvents: ReadonlyArray<MoxxyEvent> = []): ChatRuntime {
   return {
     log: new ChunkedBlockLog<MoxxyEvent>(128, initialEvents),
+    seenIds: new Set(initialEvents.map((e) => e.id)),
     extensions: [],
     streamingText: '',
     activeTurnId: null,
@@ -162,13 +173,24 @@ export function applyEvent(rt: ChatRuntime, event: MoxxyEvent): boolean {
     return true;
   }
   if (event.type === 'assistant_message') {
+    // Drop a replayed/duplicate message, but still clear any live streaming
+    // preview it corresponds to so a re-attach mid-reply doesn't strand it.
+    if (rt.seenIds.has(event.id)) {
+      if (rt.streamingText === '') return false;
+      rt.streamingText = '';
+      rt.rev += 1;
+      return true;
+    }
     rt.log.append(event);
+    rt.seenIds.add(event.id);
     rt.streamingText = '';
     rt.rev += 1;
     return true;
   }
   if (!isRenderedEvent(event)) return false;
+  if (rt.seenIds.has(event.id)) return false; // idempotent replay/reconnect
   rt.log.append(event);
+  rt.seenIds.add(event.id);
   rt.rev += 1;
   return true;
 }
@@ -193,7 +215,9 @@ export function applyAction(rt: ChatRuntime, action: ChatAction): boolean {
       // Commit any streamed text the provider never sealed with an
       // assistant_message, so the reply is never lost on turn end.
       if (rt.streamingText.trim()) {
-        rt.log.append(synthAssistantMessage(rt.streamingText, action.turnId));
+        const synth = synthAssistantMessage(rt.streamingText, action.turnId);
+        rt.log.append(synth);
+        rt.seenIds.add(synth.id);
       }
       rt.streamingText = '';
       rt.sending = false;
@@ -237,6 +261,7 @@ export function applyAction(rt: ChatRuntime, action: ChatAction): boolean {
     }
     case 'clear':
       rt.log.clear();
+      rt.seenIds.clear();
       rt.extensions = [];
       rt.streamingText = '';
       rt.activeTurnId = null;
