@@ -80,8 +80,24 @@ import { argvToSetupOptions, hasBoolFlag, stringFlag } from '../argv-helpers.js'
 import { chooseClientMode } from './client-mode.js';
 import type { ParsedArgv } from '../argv.js';
 import { cliVersion } from '../version.js';
+import { readCachedCheck, refreshCheck } from '../update/check.js';
+import { detectInstall } from '../update/detect-install.js';
 import { runInitCommand } from './init.js';
 import type { Session } from '@moxxy/core';
+
+/**
+ * Cheap, non-blocking "is there a newer @moxxy/cli?" for the TUI banner.
+ * Reads only the cached answer (instant, no network on the startup path) and
+ * kicks a background refresh so the cache is warm next launch. Returns nothing
+ * for a source checkout (don't nag devs) or when there's no newer version.
+ */
+function resolveUpdateNotice(version: string | undefined): { latest: string } | undefined {
+  if (!version) return undefined;
+  if (detectInstall().manager === 'workspace') return undefined;
+  void refreshCheck(version).catch(() => undefined); // warm the cache for next time
+  const cached = readCachedCheck(version);
+  return cached?.updateAvailable ? { latest: cached.latest } : undefined;
+}
 
 /**
  * `moxxy tui`. Three modes:
@@ -148,6 +164,7 @@ async function runAttachedTui(argv: ParsedArgv, tuiOpts: RunTuiOpts): Promise<nu
   const prefs = await loadPreferences();
   const effectiveModel = stringFlag(argv, 'model') ?? prefs.model;
   const version = cliVersion();
+  const updateNotice = resolveUpdateNotice(version);
 
   let shuttingDown = false;
   const shutdown = async (): Promise<void> => {
@@ -169,6 +186,7 @@ async function runAttachedTui(argv: ParsedArgv, tuiOpts: RunTuiOpts): Promise<nu
       },
       ...(effectiveModel ? { model: effectiveModel } : {}),
       ...(version ? { version } : {}),
+      ...(updateNotice ? { updateAvailable: updateNotice } : {}),
       // Land directly in the (replayed) conversation rather than the splash.
       resumed: true,
     }),
@@ -238,6 +256,7 @@ async function runSelfHostedTui(
 
   const effectiveModel = stringFlag(argv, 'model') ?? (await loadPreferences()).model;
   const version = cliVersion();
+  const updateNotice = resolveUpdateNotice(version);
 
   // Capture the resolved session + optional runner so shutdown can fire
   // `onShutdown` hooks and release the socket.
@@ -312,6 +331,7 @@ async function runSelfHostedTui(
       },
       ...(effectiveModel ? { model: effectiveModel } : {}),
       ...(version ? { version } : {}),
+      ...(updateNotice ? { updateAvailable: updateNotice } : {}),
       ...(tuiOpts.resumeSessionId ? { resumed: true } : {}),
     }),
   );

@@ -20,6 +20,11 @@ import {
   markConfirmed,
   pruneBundles,
   readActiveVersion,
+  readConfirmed,
+  readBadVersions,
+  listStagedVersions,
+  appendBootLog,
+  readBootLog,
 } from '../app-update/index.js';
 import { sendEvent } from '../send-event';
 import { handle } from './shared';
@@ -134,8 +139,48 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
     // The running override (if any) reached a healthy render — confirm it so the
     // boot-probe doesn't poison it. No-op on the bundled floor.
     const version = process.env.MOXXY_APP_BUNDLE_VERSION;
-    if (version && readActiveVersion(app.getPath('userData')) === version) {
-      markConfirmed(app.getPath('userData'), version);
+    if (!version) return;
+    const userData = app.getPath('userData');
+    const active = readActiveVersion(userData);
+    if (active === version) {
+      markConfirmed(userData, version);
+      appendBootLog(userData, { phase: 'confirm', picked: version, ...shellInfo() });
+    } else {
+      // The confirm arrived but the active pointer no longer matches the running
+      // bundle (e.g. a concurrent re-stage) — the probe would revert a bundle the
+      // user is actively running. Record it instead of silently dropping it.
+      appendBootLog(userData, {
+        phase: 'confirm',
+        picked: version,
+        reason: `active-pointer-mismatch (active=${active ?? 'none'})`,
+        ...shellInfo(),
+      });
     }
+  });
+
+  handle('app.bootHeartbeatFailed', async (args) => {
+    // The renderer couldn't deliver its boot heartbeat — make that visible so a
+    // confirm-path failure is diagnosable rather than masquerading as a revert.
+    const version = process.env.MOXXY_APP_BUNDLE_VERSION;
+    if (!version) return;
+    appendBootLog(app.getPath('userData'), {
+      phase: 'confirm',
+      picked: version,
+      reason: 'heartbeat-delivery-failed',
+      error: args.error,
+      ...shellInfo(),
+    });
+  });
+
+  handle('app.updateDiagnostics', async () => {
+    const userData = app.getPath('userData');
+    return {
+      running: runningVersion(),
+      active: readActiveVersion(userData),
+      confirmed: readConfirmed(userData),
+      bad: [...readBadVersions(userData)],
+      staged: listStagedVersions(userData),
+      log: readBootLog(userData, 30),
+    };
   });
 }

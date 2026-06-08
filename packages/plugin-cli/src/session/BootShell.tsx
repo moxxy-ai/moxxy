@@ -20,6 +20,8 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
   bootstrap,
   registerInteractiveResolver,
   model,
+  version,
+  updateAvailable,
   resumed,
 }) => {
   const [session, setSession] = useState<Session | null>(eagerSession ?? null);
@@ -112,6 +114,8 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
       registerInteractiveResolver={registerInteractiveResolver}
       {...(initialPrompt ? { initialPrompt } : {})}
       {...(model ? { model } : {})}
+      {...(version ? { version } : {})}
+      {...(updateAvailable ? { updateAvailable } : {})}
     />
   );
 };

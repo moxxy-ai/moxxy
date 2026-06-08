@@ -188,8 +188,25 @@ export interface ResolveOpts {
   shell: ShellInfo;
 }
 
+/** Why {@link resolveActiveBundleDetailed} declined to load an override bundle.
+ *  Logged to the boot-log so a silent fall-to-floor names its exact cause. */
+export type ResolveRejectReason =
+  | 'disabled' // no signing key baked → self-update off
+  | 'no-active' // nothing staged
+  | 'poisoned' // active version is on the bad list
+  | 'manifest-missing' // no manifest.json under the bundle dir
+  | 'manifest-malformed' // manifest failed shape checks
+  | 'version-mismatch' // manifest.version ≠ active version
+  | 'bad-signature' // Ed25519 verification failed
+  | 'incompatible' // Electron/ABI floor not met (needs a shell update)
+  | 'main-missing'; // dist-electron/main/index.js absent on disk
+
+export type ResolveResult =
+  | { bundle: ResolvedBundle; reason?: undefined }
+  | { bundle: null; reason: ResolveRejectReason };
+
 /**
- * The gate. Returns the override bundle to load, or null to use the floor.
+ * The gate, with the reject reason exposed for observability.
  *
  * Order matters — cheapest + most-decisive checks first, signature before any
  * trust is extended, compatibility last:
@@ -197,26 +214,35 @@ export interface ResolveOpts {
  *   well-formed, and bound to the active version → signature valid →
  *   Electron/ABI compatible → real main exists on disk.
  */
-export function resolveActiveBundle(opts: ResolveOpts): ResolvedBundle | null {
+export function resolveActiveBundleDetailed(opts: ResolveOpts): ResolveResult {
   const { userDataDir, publicKeyPem, shell } = opts;
-  if (!publicKeyPem) return null; // self-update disabled → floor
+  if (!publicKeyPem) return { bundle: null, reason: 'disabled' };
 
   const version = readActiveVersion(userDataDir);
-  if (!version) return null;
-  if (readBadVersions(userDataDir).has(version)) return null;
+  if (!version) return { bundle: null, reason: 'no-active' };
+  if (readBadVersions(userDataDir).has(version)) return { bundle: null, reason: 'poisoned' };
 
   const root = bundleRoot(userDataDir, version);
   const manifestRaw = tryRead(path.join(root, 'manifest.json'));
-  if (!manifestRaw) return null;
+  if (!manifestRaw) return { bundle: null, reason: 'manifest-missing' };
   const manifest = parseManifest(manifestRaw);
-  if (!manifest || manifest.version !== version) return null;
-  if (!verifyManifestSignature(manifest, publicKeyPem)) return null;
-  if (!isCompatible(manifest, shell)) return null;
+  if (!manifest) return { bundle: null, reason: 'manifest-malformed' };
+  if (manifest.version !== version) return { bundle: null, reason: 'version-mismatch' };
+  if (!verifyManifestSignature(manifest, publicKeyPem)) return { bundle: null, reason: 'bad-signature' };
+  if (!isCompatible(manifest, shell)) return { bundle: null, reason: 'incompatible' };
 
   const mainEntry = path.join(root, 'dist-electron', 'main', 'index.js');
-  if (!existsSync(mainEntry)) return null;
+  if (!existsSync(mainEntry)) return { bundle: null, reason: 'main-missing' };
 
-  return { root, version };
+  return { bundle: { root, version } };
+}
+
+/**
+ * The gate. Returns the override bundle to load, or null to use the floor.
+ * Thin wrapper over {@link resolveActiveBundleDetailed} that drops the reason.
+ */
+export function resolveActiveBundle(opts: ResolveOpts): ResolvedBundle | null {
+  return resolveActiveBundleDetailed(opts).bundle;
 }
 
 export interface BootRecovery {
@@ -287,4 +313,20 @@ export function pruneBundles(userDataDir: string, keep: ReadonlyArray<string>): 
       /* best effort */
     }
   }
+}
+
+/** Installed bundle version dirs currently present under `<userData>/app/`
+ *  (those with a `manifest.json`). Read-only — used by the diagnostics IPC.
+ *  Tolerates a missing/partial `app/` dir. */
+export function listStagedVersions(userDataDir: string): string[] {
+  const dir = appUpdateDir(userDataDir);
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((name) => isSafeVersion(name) && existsSync(path.join(dir, name, 'manifest.json')))
+    .sort((a, b) => compareSemver(a, b));
 }

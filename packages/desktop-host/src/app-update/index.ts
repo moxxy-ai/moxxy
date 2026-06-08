@@ -8,6 +8,7 @@
  *   - resolve.ts           — the load-time gate + on-disk bundle state (active/bad/breadcrumb)
  *   - native-resolution.ts — make the shell's optional native deps resolvable from a bundle
  *   - stager.ts            — download → verify → atomically install a bundle (Phase 2)
+ *   - boot-log.ts          — persistent boot/update decision log (observability)
  */
 
 export {
@@ -37,10 +38,22 @@ export {
   compareSemver,
   isCompatible,
   resolveActiveBundle,
+  resolveActiveBundleDetailed,
+  type ResolveResult,
+  type ResolveRejectReason,
   recoverFromFailedBoot,
   type BootRecovery,
   pruneBundles,
+  listStagedVersions,
 } from './resolve.js';
+
+export {
+  type BootLogEntry,
+  type BootLogPhase,
+  appendBootLog,
+  readBootLog,
+  hasBootLog,
+} from './boot-log.js';
 
 export { setupNativeResolution } from './native-resolution.js';
 

@@ -162,7 +162,7 @@ The CLI ships five out of the box:
 
 Further isolators register through the same SDK `Isolator` interface —
 no plugin changes needed. See
-[`.claude/agents/isolator-author.md`](https://github.com/moxxy-ai/new_moxxy/blob/main/.claude/agents/isolator-author.md)
+[`.claude/agents/isolator-author.md`](https://github.com/moxxy-ai/moxxy/blob/main/.claude/agents/isolator-author.md)
 for the implementation guide.
 
 ### When to pick `worker`
@@ -353,6 +353,6 @@ will refuse to run.
 
 ## See also
 
-- [`.claude/agents/isolator-author.md`](https://github.com/moxxy-ai/new_moxxy/blob/main/.claude/agents/isolator-author.md) — author guide for new Isolator impls
-- [`packages/plugin-security/src/cap-check.ts`](https://github.com/moxxy-ai/new_moxxy/blob/main/packages/plugin-security/src/cap-check.ts) — capability validation source
-- [`packages/sdk/src/isolation.ts`](https://github.com/moxxy-ai/new_moxxy/blob/main/packages/sdk/src/isolation.ts) — SDK type definitions
+- [`.claude/agents/isolator-author.md`](https://github.com/moxxy-ai/moxxy/blob/main/.claude/agents/isolator-author.md) — author guide for new Isolator impls
+- [`packages/plugin-security/src/cap-check.ts`](https://github.com/moxxy-ai/moxxy/blob/main/packages/plugin-security/src/cap-check.ts) — capability validation source
+- [`packages/sdk/src/isolation.ts`](https://github.com/moxxy-ai/moxxy/blob/main/packages/sdk/src/isolation.ts) — SDK type definitions

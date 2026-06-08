@@ -21,8 +21,8 @@
   <a href="https://www.typescriptlang.org">
     <img src="https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
   </a>
-  <a href="https://github.com/moxxy-ai/new_moxxy/actions/workflows/ci.yml">
-    <img src="https://github.com/moxxy-ai/new_moxxy/actions/workflows/ci.yml/badge.svg" alt="CI" />
+  <a href="https://github.com/moxxy-ai/moxxy/actions/workflows/ci.yml">
+    <img src="https://github.com/moxxy-ai/moxxy/actions/workflows/ci.yml/badge.svg" alt="CI" />
   </a>
 </p>
 
@@ -220,7 +220,7 @@ export default definePlugin({
 });
 ```
 
-Per-block author guides for skill, plugin, tool, channel, provider, loop strategy, compactor, and cache strategy live in the monorepo at [`.claude/agents/`](https://github.com/moxxy-ai/new_moxxy/tree/main/.claude/agents).
+Per-block author guides for skill, plugin, tool, channel, provider, loop strategy, compactor, and cache strategy live in the monorepo at [`.claude/agents/`](https://github.com/moxxy-ai/moxxy/tree/main/.claude/agents).
 
 ## Architectural rules
 

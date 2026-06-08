@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   AppUpdateCheck,
+  AppUpdateDiagnostics,
   AppUpdateInfo,
   AppUpdateProgress,
 } from '@moxxy/desktop-ipc-contract';
@@ -35,8 +36,10 @@ export interface UseAppUpdate {
   progress: AppUpdateProgress | null;
   error: string | null;
   stagedVersion: string | null;
+  diagnostics: AppUpdateDiagnostics | null;
   runCheck: () => Promise<void>;
   runUpdate: () => Promise<void>;
+  loadDiagnostics: () => Promise<void>;
   relaunch: () => void;
 }
 
@@ -47,6 +50,7 @@ export function useAppUpdate(opts: { autoCheck?: boolean } = {}): UseAppUpdate {
   const [progress, setProgress] = useState<AppUpdateProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stagedVersion, setStagedVersion] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<AppUpdateDiagnostics | null>(null);
   const autoChecked = useRef(false);
 
   useEffect(() => {
@@ -96,6 +100,14 @@ export function useAppUpdate(opts: { autoCheck?: boolean } = {}): UseAppUpdate {
     }
   }, []);
 
+  const loadDiagnostics = useCallback(async (): Promise<void> => {
+    try {
+      setDiagnostics(await api().invoke('app.updateDiagnostics'));
+    } catch {
+      setDiagnostics(null);
+    }
+  }, []);
+
   const relaunch = useCallback((): void => {
     void api().invoke('app.relaunch').catch(() => undefined);
   }, []);
@@ -107,5 +119,17 @@ export function useAppUpdate(opts: { autoCheck?: boolean } = {}): UseAppUpdate {
     }
   }, [opts.autoCheck, runCheck]);
 
-  return { info, check, state, progress, error, stagedVersion, runCheck, runUpdate, relaunch };
+  return {
+    info,
+    check,
+    state,
+    progress,
+    error,
+    stagedVersion,
+    diagnostics,
+    runCheck,
+    runUpdate,
+    loadDiagnostics,
+    relaunch,
+  };
 }

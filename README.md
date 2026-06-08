@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://moxxy.ai">
-    <img src="https://moxxy.ai/moxxy-head-256.png" alt="moxxy" width="128" />
+    <img src="https://moxxy.ai/moxxy-head-256.png" alt="moxxy" width="120" />
   </a>
 </p>
 
@@ -8,12 +8,12 @@
 
 <p align="center">
   <strong>The agent framework where every block is swappable.</strong><br/>
-  Bring your own model. Bring your own loop. Bring your own tools.
+  Bring your own model. Bring your own loop. Bring your own tools — and run it from your terminal, your desktop, or a phone.
 </p>
 
 <p align="center">
-  <a href="https://github.com/moxxy-ai/new_moxxy/actions/workflows/ci.yml">
-    <img src="https://github.com/moxxy-ai/new_moxxy/actions/workflows/ci.yml/badge.svg" alt="CI" />
+  <a href="https://github.com/moxxy-ai/moxxy/actions/workflows/ci.yml">
+    <img src="https://github.com/moxxy-ai/moxxy/actions/workflows/ci.yml/badge.svg" alt="CI" />
   </a>
   <a href="https://nodejs.org">
     <img src="https://img.shields.io/badge/node-%3E%3D20.10-brightgreen?logo=node.js&logoColor=white" alt="Node ≥20.10" />
@@ -27,22 +27,60 @@
   <a href="#-license">
     <img src="https://img.shields.io/badge/license-TBD-lightgrey" alt="License" />
   </a>
-  <a href="#-contributing">
-    <img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs welcome" />
-  </a>
 </p>
 
 <p align="center">
-  <a href="#-installation">Install</a>
+  <a href="#-get-started">Get started</a>
   &nbsp;·&nbsp;
-  <a href="#-quickstart">Quickstart</a>
+  <a href="#-why-moxxy">Why moxxy</a>
   &nbsp;·&nbsp;
-  <a href="https://moxxy.ai">Docs</a>
+  <a href="#-see-it-in-action">See it</a>
+  &nbsp;·&nbsp;
+  <a href="https://docs.moxxy.ai">Docs</a>
   &nbsp;·&nbsp;
   <a href="#-channels">Channels</a>
   &nbsp;·&nbsp;
   <a href="#-developer-guide">Developer guide</a>
 </p>
+
+<!--
+  HERO DEMO  ▸ replace the placehold.co src below with a real GIF/MP4.
+  WHAT TO SHOW: a ~20–30s loop — `moxxy init` → ask a question in the TUI →
+  the agent runs a tool (e.g. edits a file / runs a command) → streams the answer.
+  Suggested size: 1280×640. Drop the file at assets/hero-demo.gif and point src there.
+-->
+<p align="center">
+  <a href="#-see-it-in-action">
+    <img src="https://placehold.co/1280x640/0d1117/58a6ff.png?text=moxxy+%E2%80%94+30-second+demo" alt="moxxy demo" width="760" />
+  </a>
+</p>
+
+---
+
+## 🚀 Get started
+
+```sh
+npm install -g @moxxy/cli      # or: npx @moxxy/cli init
+```
+
+```sh
+moxxy init      # interactive: choose a provider, paste an API key (stored in the vault)
+moxxy           # launch the interactive TUI
+```
+
+One-shot, straight from the shell:
+
+```sh
+moxxy -p "summarize the README in three bullets"
+```
+
+Already running? Keep it current:
+
+```sh
+moxxy update    # checks npm and upgrades in place (the TUI also nudges you when a new version ships)
+```
+
+**Requirements:** Node.js ≥ 20.10 and an API key for a supported provider (Anthropic, OpenAI, or ChatGPT/Claude via OAuth). `moxxy --help` lists every command.
 
 ---
 
@@ -50,56 +88,66 @@
 
 Most agent frameworks lock you in. One LLM provider. One loop topology. One frontend. One opinionated way the agent should behave.
 
-**moxxy doesn't.** Every block is a plugin. Swap Anthropic for OpenAI. Swap the default loop for the `goal` (auto-approve) or `research` mode. Drive the agent from your terminal, from Telegram, from an HTTP endpoint, or all three at once on the same Session.
+**moxxy doesn't.** Every block is a plugin. Swap Anthropic for OpenAI. Swap the default loop for `goal` (autonomous, auto-approve) or `research` (parallel fan-out + cited synthesis). Drive the same Session from your terminal, the desktop app, Telegram, or an HTTP endpoint — at the same time. Install a package and it's auto-discovered; nothing to wire by hand.
+
+<p align="center">
+  <img src="assets/moxxy-mascot.gif" alt="moxxy mascot" width="150" />
+</p>
 
 |   |   |
 |---|---|
 | 🧩 **Truly modular** | Every block is a swappable plugin: provider, loop strategy, tools, compactor, cache strategy, channel. |
 | 🔌 **Plug-and-play** | Install a package, it's auto-discovered. Hot-reload without restarting. |
-| 🤖 **Multi-channel** | TUI, Telegram, HTTP. One Session, many surfaces. |
-| 🎙 **Voice in** | Send Telegram voice notes or POST raw audio to the HTTP channel. Whisper plugin ships with the framework; swap to Deepgram or local whisper.cpp by registering a different `Transcriber`. |
+| 🤖 **Multi-channel** | TUI, desktop app, Telegram, HTTP. One Session, many surfaces. |
+| 🎙 **Voice in** | Telegram voice notes or POST raw audio to the HTTP channel. Whisper ships built-in; swap to Deepgram or local whisper.cpp by registering a different `Transcriber`. |
 | 🔐 **Secrets done right** | Built-in AES-256-GCM vault. OS keychain by default, passphrase fallback. |
 | 🧠 **Long-term memory** | Journal-based with vector recall. TF-IDF ships built-in; swap to OpenAI embeddings. |
 | 🛠 **Type-safe SDK** | Zero-runtime-dep `@moxxy/sdk` is the contract. Author plugins with full IDE support. |
-| ⏰ **Always-on** | `moxxy service install` turns any channel into a launchd / systemd background service, or `moxxy serve --background` runs everything in one shared-session process. |
-| 🔔 **Webhooks** | Any external system can fire prompts: verified (HMAC / bearer), filtered (header + JSON-path include/exclude), idempotent. Auto-tunneled with `cloudflared` for a one-command public URL. |
+| ⏰ **Always-on** | `moxxy service install` turns any channel into a launchd / systemd service, or `moxxy serve --background` runs everything in one shared-session process. |
+| 🔔 **Webhooks** | Any system can fire prompts: verified (HMAC / bearer), filtered, idempotent. Auto-tunneled with `cloudflared` for a one-command public URL. |
 | 🪪 **Permissions** | Every tool call gated. Allow-always rules learned per tool over time. |
-| 🛡 **Pluggable isolation** | Opt-in capability sandboxing. Tools declare what they need (fs paths, hosts, time / memory); an `Isolator` enforces. `inproc` ships built-in; `worker` / `subprocess` / `wasm` / `docker` drop in behind the same interface. Off by default. |
+| 🛡 **Pluggable isolation** | Opt-in capability sandboxing. Tools declare what they need (fs paths, hosts, time / memory); an `Isolator` enforces. `inproc` built-in; `worker` / `subprocess` / `wasm` / `docker` drop in behind the same interface. Off by default. |
 
-## 🚀 Installation
+---
 
-```sh
-npm install -g @moxxy/cli
-```
+## 🎬 See it in action
 
-Or run it without installing:
+<table>
+<tr>
+<td width="50%" valign="top">
 
-```sh
-npx @moxxy/cli init
-```
+**In your terminal**
 
-**Requirements**: Node.js ≥ 20.10. An API key for a supported provider (Anthropic, OpenAI, or ChatGPT via OAuth).
+<!--
+  TUI DEMO  ▸ replace src with a real GIF.
+  WHAT TO SHOW: the Ink TUI — boot splash → type a prompt → streamed answer
+  with a tool block expanding → the bottom status line (provider · model · context bar).
+  Suggested size: 1200×675. Drop at assets/tui-demo.gif and point src there.
+-->
+<img src="https://placehold.co/1200x675/0d1117/c9d1d9.png?text=moxxy+TUI+demo" alt="moxxy TUI" />
 
-## ⚡ Quickstart
+`moxxy` — a fast, keyboard-driven terminal UI. Slash commands, live tool output, voice input, `/mode` to switch loops.
 
-```sh
-moxxy init      # interactive: choose provider, paste API key (goes into the vault)
-moxxy           # launch the interactive TUI
-```
+</td>
+<td width="50%" valign="top">
 
-One-shot from the command line:
+**On your desktop**
 
-```sh
-moxxy -p "summarize the README in three bullets"
-```
+<!--
+  DESKTOP DEMO  ▸ replace src with a real GIF.
+  WHAT TO SHOW: the Electron app — multiple workspaces in the sidebar, a chat
+  turn streaming, maybe the Settings → Dashboard "update" panel.
+  Suggested size: 1200×675. Drop at assets/desktop-demo.gif and point src there.
+-->
+<img src="https://placehold.co/1200x675/0d1117/c9d1d9.png?text=moxxy+Desktop+demo" alt="moxxy Desktop" />
 
-Resume a previous conversation:
+A native workspace app (Electron) that attaches to the same runner — multiple workspaces, hot self-updates, no reinstall.
 
-```sh
-moxxy resume
-```
+</td>
+</tr>
+</table>
 
-That's it. `moxxy --help` lists every command; `moxxy <command> --help` shows per-command details.
+---
 
 ## 📺 Channels
 
@@ -107,8 +155,9 @@ Run your agent through whatever surface fits the task:
 
 | Channel | What it does | Command |
 |---|---|---|
-| **TUI** | Grok-style interactive terminal UI | `moxxy` |
-| **Telegram** | Message your agent from anywhere; voice notes get transcribed and run as turns; pairs with a 6-digit code | `moxxy telegram` |
+| **TUI** | Interactive terminal UI | `moxxy` |
+| **Desktop** | Native multi-workspace app (Electron) | [download](https://moxxy.ai) |
+| **Telegram** | Message your agent from anywhere; voice notes transcribed and run as turns; pairs with a 6-digit code | `moxxy telegram` |
 | **HTTP** | `POST /v1/turn` (JSON, SSE streaming) or `POST /v1/turn/audio` (raw bytes, iOS Shortcut friendly), bearer-token auth | `moxxy channels http` |
 | **Cron** | Time-driven prompts (cron expressions or one-shot ISO timestamps) | `moxxy schedule add …` |
 | **Webhooks** | External systems fire prompts on signed POST. HMAC + bearer + filter rules. | `moxxy serve` (auto-starts the listener) |
@@ -130,17 +179,17 @@ Logs land in `~/.moxxy/services/<name>.log`; units survive reboots.
 
 ## 🧩 What's in the box
 
-- **Providers**: Anthropic, OpenAI, Codex (ChatGPT OAuth). Add your own with one `defineProvider({})`.
+- **Providers**: Anthropic, OpenAI, Codex (ChatGPT OAuth), Claude (Pro/Max OAuth). Add your own with one `defineProvider({})`.
 - **Loop strategies**: `default` (Claude-Code-style ReAct loop), `goal` (autonomous auto-approve loop — runs across turns until `goal_complete`), `research` (plan queries → parallel subagent fan-out → cited synthesis). Switch in the TUI with `/mode`.
 - **Built-in tools**: Read, Edit, Write, Bash, Grep, Glob, WebFetch, plus computer-control (macOS) and browser-session (Playwright).
-- **Prompt caching**: `@moxxy/cache-strategy-stable-prefix` places deterministic cache breakpoints (static tools/system/stable-prefix + a rolling tail) so the inner iterations of a turn read the prompt from cache instead of paying full price. A `CacheStrategy` is provider-neutral (Anthropic `cache_control` today); swap it or disable caching with the `none` strategy. Inspect savings live with `/usage`.
+- **Prompt caching**: `@moxxy/cache-strategy-stable-prefix` places deterministic cache breakpoints (static tools/system/stable-prefix + a rolling tail) so the inner iterations of a turn read the prompt from cache instead of paying full price. Provider-neutral; swap it or disable with the `none` strategy. Inspect savings live with `/usage`.
 - **MCP**: register any Model Context Protocol server as a tool source.
 - **Skills**: prompt-only Markdown files. The agent can author new skills for itself when no existing skill fits.
 - **Memory**: long-term journal + STM event-log selectors. TF-IDF vector recall built in; swap to OpenAI embeddings via `@moxxy/plugin-embeddings-openai`.
-- **Webhooks**: `@moxxy/plugin-webhooks` ships a verified HTTP listener, include/exclude filters (headers + JSON paths), delivery idempotency, and a `cloudflared`/`ngrok` tunnel helper. Vendor-neutral — the agent walks the user through provider specifics conversationally.
-- **Voice in (STT)**: `@moxxy/plugin-stt-whisper` ships an OpenAI Whisper `Transcriber`. Wire it once and every channel with audio input (Telegram voice notes, HTTP `/v1/turn/audio`) routes through it. Swap to Deepgram, AssemblyAI, or a local `whisper.cpp` by registering a different `Transcriber`.
+- **Webhooks**: `@moxxy/plugin-webhooks` ships a verified HTTP listener, include/exclude filters (headers + JSON paths), delivery idempotency, and a `cloudflared`/`ngrok` tunnel helper.
+- **Voice in (STT)**: `@moxxy/plugin-stt-whisper` ships an OpenAI Whisper `Transcriber`. Wire it once and every channel with audio input routes through it. Swap to Deepgram, AssemblyAI, or local `whisper.cpp` by registering a different `Transcriber`.
 - **Vault**: AES-256-GCM at rest. Reference secrets in config as `${vault:KEY}`.
-- **Security / isolation**: `@moxxy/plugin-security` — opt-in capability sandboxing. Tools declare an `isolation: { capabilities }` spec on `defineTool({...})` (fs path globs, net host allowlist, env keys, `timeMs`, `memMb`); when enabled, an `Isolator` enforces those bounds at every call. Ships `none` (passthrough) and `inproc` (in-process caps + timeout) isolators; stronger modes (`worker_threads`, subprocess, wasm, Docker, …) register through the same SDK interface. Off by default — enable via `moxxy init` or `security.enabled: true`. Inspect with `moxxy security audit|status|isolators`.
+- **Security / isolation**: `@moxxy/plugin-security` — opt-in capability sandboxing. Tools declare an `isolation: { capabilities }` spec on `defineTool({...})` (fs path globs, net host allowlist, env keys, `timeMs`, `memMb`); when enabled, an `Isolator` enforces those bounds at every call. Ships `none` + `inproc`; stronger modes (`worker_threads`, subprocess, wasm, Docker) register through the same SDK interface. Off by default — enable via `moxxy init` or `security.enabled: true`.
 
 ## 📚 Docs
 
@@ -270,7 +319,7 @@ export default defineConfig({
 apps/desktop                        ← Electron desktop app (attaches to @moxxy/runner)
 @moxxy/desktop-ipc-contract         ← typed desktop IPC boundary (channels + payloads + Zod validation + error envelope)
 @moxxy/desktop-host                 ← desktop Electron main process (runner pool/supervisor, IPC, NDJSON chat log, security)
-@moxxy/desktop-ui                    ← framework-light React UI primitives (Icon set, Modal, Skeleton); shared by the renderer
+@moxxy/desktop-ui                   ← framework-light React UI primitives (Icon set, Modal, Skeleton); shared by the renderer
 ```
 
 The hard invariant: `@moxxy/sdk` has zero internal deps; `@moxxy/core` doesn't import any plugin. Enforced in CI via `pnpm check:deps`.
@@ -279,7 +328,8 @@ The hard invariant: `@moxxy/sdk` has zero internal deps; `@moxxy/core` doesn't i
 
 ```
 packages/        publishable @moxxy/* packages
-apps/            runnable examples (example-basic, example-cli, fixture-recorder, docs)
+apps/            desktop app, docs site, fixture-recorder
+assets/          README media (mascot + demo gifs)
 tooling/         shared tsconfig + eslint + vitest preset
 .claude/agents/  AI-agent author guides (skill, plugin, tool, channel, provider, compactor, cache strategy, …)
 AGENTS.md        index for AI agents working in this repo

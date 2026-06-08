@@ -21,8 +21,8 @@
   <a href="https://www.typescriptlang.org">
     <img src="https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
   </a>
-  <a href="https://github.com/moxxy-ai/new_moxxy/actions/workflows/ci.yml">
-    <img src="https://github.com/moxxy-ai/new_moxxy/actions/workflows/ci.yml/badge.svg" alt="CI" />
+  <a href="https://github.com/moxxy-ai/moxxy/actions/workflows/ci.yml">
+    <img src="https://github.com/moxxy-ai/moxxy/actions/workflows/ci.yml/badge.svg" alt="CI" />
   </a>
 </p>
 
@@ -221,7 +221,7 @@ Full documentation lives at [docs.moxxy.ai](https://docs.moxxy.ai): concepts, re
 
 ## Contributing
 
-PRs welcome. The issue tracker and author guides live in the [moxxy monorepo](https://github.com/moxxy-ai/new_moxxy).
+PRs welcome. The issue tracker and author guides live in the [moxxy monorepo](https://github.com/moxxy-ai/moxxy).
 
 ## License
 

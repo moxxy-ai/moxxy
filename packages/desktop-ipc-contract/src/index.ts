@@ -297,6 +297,37 @@ export interface AppUpdateProgress {
   message?: string;
 }
 
+/** One recorded boot/update decision (mirrors `BootLogEntry` in
+ *  `@moxxy/desktop-host/app-update`). The renderer only ever displays these. */
+export interface AppBootLogEntry {
+  ts: number;
+  phase: 'boot' | 'recover' | 'probe' | 'confirm' | 'load-error';
+  picked?: string;
+  reason?: string;
+  recoveredTo?: string;
+  error?: string;
+  electron?: string;
+  abi?: string;
+}
+
+/** Self-update troubleshooting snapshot: the on-disk pointer state plus the
+ *  recent boot-decision log, so a "downloaded but reverted" report is legible
+ *  (the Updates → Diagnostics panel renders + copies this). */
+export interface AppUpdateDiagnostics {
+  /** Bundle version the running process loaded (override or floor). */
+  running: string;
+  /** `active.json` pointer — the version the bootstrap intends to load next. */
+  active: string | null;
+  /** Last version that confirmed a healthy render. */
+  confirmed: string | null;
+  /** Versions poisoned by a failed/unconfirmed boot. */
+  bad: string[];
+  /** Bundle version dirs currently present under `<userData>/app/`. */
+  staged: string[];
+  /** Most-recent-last boot-decision entries. */
+  log: AppBootLogEntry[];
+}
+
 // ---------- Events the renderer subscribes to ------------------------------
 
 /**
@@ -380,6 +411,12 @@ export interface IpcCommands {
    *  the boot-probe so a hot-updated bundle is marked healthy (no-op on the
    *  bundled floor). */
   'app.appBooted': () => Promise<void>;
+  /** Renderer → main: the boot heartbeat could not be delivered (all retries
+   *  failed). Recorded to the boot-log so a confirm-path failure is visible
+   *  rather than silently letting the probe revert a healthy bundle. */
+  'app.bootHeartbeatFailed': (args: { error: string }) => Promise<void>;
+  /** Self-update troubleshooting snapshot (pointer state + recent boot log). */
+  'app.updateDiagnostics': () => Promise<AppUpdateDiagnostics>;
 
   'onboarding.status': () => Promise<OnboardingStatus>;
   /** Probe Node.js — used by the first wizard step before we offer

@@ -56,9 +56,35 @@ export function App(): JSX.Element {
   }, [activeWorkspaceId]);
 
   // Boot-probe heartbeat: the React tree mounted, so a hot-updated bundle is
-  // healthy — tell main to confirm it (no-op on the bundled floor). Fired once.
+  // healthy — tell main to confirm it (no-op on the bundled floor). A SINGLE
+  // swallowed invoke here was the prime suspect for "updates but reverts to the
+  // old version": if this confirm never lands (e.g. it races IPC registration),
+  // the 15s boot-probe poisons a perfectly healthy bundle and relaunches onto
+  // the floor. So retry with backoff, and if every attempt fails, report it so
+  // the failure is recorded in the boot-log rather than masquerading as a revert.
   useEffect(() => {
-    void api().invoke('app.appBooted').catch(() => undefined);
+    let cancelled = false;
+    const delays = [0, 500, 1500, 4000]; // ~6s of attempts, well within the probe's 15s
+    void (async () => {
+      let lastError = 'unknown';
+      for (const delay of delays) {
+        if (cancelled) return;
+        if (delay) await new Promise((r) => setTimeout(r, delay));
+        try {
+          await api().invoke('app.appBooted');
+          return; // confirmed
+        } catch (e) {
+          lastError = e instanceof Error ? e.message : String(e);
+        }
+      }
+      if (cancelled) return;
+      await api()
+        .invoke('app.bootHeartbeatFailed', { error: lastError })
+        .catch(() => undefined);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // First-run gate. Block on prefs loading so we never flash the
