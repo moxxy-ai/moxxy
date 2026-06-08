@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-memory",
   "private": true,
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "Journal-based long-term memory for moxxy. Markdown files at ~/.moxxy/memory/ with type/description frontmatter + an index. Plus STM selectors over the event log.",
   "type": "module",
   "main": "./dist/index.js",

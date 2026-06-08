@@ -1,5 +1,12 @@
 # @moxxy/plugin-provider-anthropic
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [b928391]
+  - @moxxy/sdk@0.5.1
+
 ## 0.1.0
 
 ### Minor Changes

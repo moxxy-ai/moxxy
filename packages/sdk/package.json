@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/sdk",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Typed public surface for the moxxy framework: event types, define* factories, lifecycle hook signatures.",
   "keywords": [
     "moxxy",
