@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-subagents",
   "private": true,
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Spawn typed subagents in parallel. Plugins contribute agent kinds via the AgentDef registry; this plugin exposes the dispatch_agent tool and an auto-detection skill.",
   "type": "module",
   "main": "./dist/index.js",

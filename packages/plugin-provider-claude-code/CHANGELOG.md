@@ -1,4 +1,4 @@
-# @moxxy/plugin-provider-anthropic
+# @moxxy/plugin-provider-claude-code
 
 ## 0.1.0
 
@@ -23,39 +23,6 @@ oauth-2025-04-20` + the required "You are Claude Code…" system preamble).
 
 - Updated dependencies [ad26425]
 - Updated dependencies [e64aa0e]
+  - @moxxy/plugin-provider-anthropic@0.1.0
   - @moxxy/sdk@0.5.0
-
-## 0.0.5
-
-### Patch Changes
-
-- Updated dependencies [b014c3a]
-  - @moxxy/sdk@0.4.0
-
-## 0.0.4
-
-### Patch Changes
-
-- Updated dependencies [d362a6b]
-  - @moxxy/sdk@0.3.0
-
-## 0.0.3
-
-### Patch Changes
-
-- Updated dependencies [0afd61d]
-  - @moxxy/sdk@0.2.0
-
-## 0.0.2
-
-### Patch Changes
-
-- Updated dependencies [93d9a2d]
-  - @moxxy/sdk@0.1.3
-
-## 0.0.1
-
-### Patch Changes
-
-- Updated dependencies [c4352f9]
-  - @moxxy/sdk@0.1.0
+  - @moxxy/plugin-oauth@0.0.6
