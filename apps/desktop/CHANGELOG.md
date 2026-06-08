@@ -1,5 +1,12 @@
 # @moxxy/desktop
 
+## 0.0.23
+
+### Patch Changes
+
+- Updated dependencies [fad9d6b]
+  - @moxxy/cli@0.5.1
+
 ## 0.0.22
 
 ### Patch Changes
