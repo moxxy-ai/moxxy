@@ -71,6 +71,58 @@ describe('chat-log NDJSON backend', () => {
     expect((await loadSegment('w2', null, 10)).events.map((e) => (e as { text: string }).text)).toEqual(['m5', 'm6']);
   });
 
+  it('is idempotent by event id — a replayed history is not duplicated', async () => {
+    // First "session": three events land live.
+    await appendEvents('w1', [ev(0), ev(1), ev(2)]);
+    // Simulate a restart: the runner replays the full history (same ids) and
+    // the renderer re-appends every event. None should be written twice.
+    await appendEvents('w1', [ev(0), ev(1), ev(2)]);
+    await appendEvents('w1', [ev(0), ev(1), ev(2)]);
+    const seg = await loadSegment('w1', null, 10);
+    expect(seg.events.map((e) => (e as { text: string }).text)).toEqual(['m0', 'm1', 'm2']);
+    expect(seg.prevCursor).toBeNull();
+  });
+
+  it('writes only the fresh events when a batch overlaps the log', async () => {
+    await appendEvents('w1', [ev(0), ev(1)]);
+    // A batch that replays e1 and adds e2 + e3 — only e2/e3 are new.
+    await appendEvents('w1', [ev(1), ev(2), ev(3)]);
+    const seg = await loadSegment('w1', null, 10);
+    expect(seg.events.map((e) => (e as { text: string }).text)).toEqual(['m0', 'm1', 'm2', 'm3']);
+  });
+
+  it('keeps the pagination cursor stable across a re-appended history', async () => {
+    await appendEvents('w1', Array.from({ length: 10 }, (_, i) => ev(i)));
+    const before = await loadSegment('w1', null, 4);
+    // Re-append the whole history (restart replay) — line count must not grow,
+    // so the line-index cursor still points at the same boundary.
+    await appendEvents('w1', Array.from({ length: 10 }, (_, i) => ev(i)));
+    const after = await loadSegment('w1', null, 4);
+    expect(after.events.map((e) => (e as { text: string }).text)).toEqual(
+      before.events.map((e) => (e as { text: string }).text),
+    );
+    expect(after.prevCursor).toBe(before.prevCursor);
+  });
+
+  it('clearLog resets idempotency so the same ids can be written again', async () => {
+    await appendEvents('w1', [ev(0), ev(1)]);
+    await clearLog('w1');
+    await appendEvents('w1', [ev(0), ev(1)]);
+    const seg = await loadSegment('w1', null, 10);
+    expect(seg.events.map((e) => (e as { text: string }).text)).toEqual(['m0', 'm1']);
+  });
+
+  it('dedupes against events already on disk from a previous process (cold cache)', async () => {
+    // Write the log directly, as a prior process would, so the in-memory cache
+    // never saw these ids — appendEvents must hydrate from the file and dedupe.
+    const fs = await import('node:fs/promises');
+    const file = path.join(dir, 'w3.jsonl');
+    await fs.writeFile(file, [ev(0), ev(1)].map((e) => JSON.stringify(e)).join('\n') + '\n');
+    await appendEvents('w3', [ev(0), ev(1), ev(2)]);
+    const seg = await loadSegment('w3', null, 10);
+    expect(seg.events.map((e) => (e as { text: string }).text)).toEqual(['m0', 'm1', 'm2']);
+  });
+
   it('skips corrupt lines instead of losing the transcript', async () => {
     await appendEvents('w1', [ev(0)]);
     const file = path.join(dir, 'w1.jsonl');
