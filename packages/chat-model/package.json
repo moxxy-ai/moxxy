@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/chat-model",
   "private": true,
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "UI-framework-neutral chat model: the event→block fold (tool/result pairing, skill + subagent + live-tool grouping), formatting helpers, a markdown AST, and a chunked append log. Shared by the Ink TUI, the desktop renderer, and future channels.",
   "type": "module",
   "main": "./dist/index.js",

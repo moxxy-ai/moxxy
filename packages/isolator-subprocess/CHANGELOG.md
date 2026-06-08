@@ -1,5 +1,14 @@
 # @moxxy/isolator-subprocess
 
+## 0.0.6
+
+### Patch Changes
+
+- Updated dependencies [ad26425]
+- Updated dependencies [e64aa0e]
+  - @moxxy/sdk@0.5.0
+  - @moxxy/plugin-security@0.0.6
+
 ## 0.0.5
 
 ### Patch Changes
