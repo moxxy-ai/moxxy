@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/desktop-ipc-contract",
   "private": true,
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "The single source of truth for the moxxy desktop IPC boundary: channel names, request/response types, the window.moxxy surface, and Zod schemas for runtime payload validation. Shared by the Electron main process, the preload bridge, and the renderer.",
   "type": "module",
   "main": "./dist/index.js",
