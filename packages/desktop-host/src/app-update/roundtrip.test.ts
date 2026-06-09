@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { generateKeyPairSync } from 'node:crypto';
+import { gunzipSync } from 'node:zlib';
 import path from 'node:path';
 import os from 'node:os';
 
@@ -52,6 +53,13 @@ describe('build → stage → resolve round-trip', () => {
     });
     const fetchImpl = stubFetch(manifestJson, bundleGz);
 
+    // The SIGNED bundle itself carries the ESM marker (authenticated via sha256,
+    // not relying on the stager's unsigned safety-net) — see build.ts.
+    const payload = JSON.parse(gunzipSync(bundleGz).toString('utf8'));
+    expect(Buffer.from(payload.files['package.json'], 'base64').toString('utf8')).toContain(
+      '"type": "module"',
+    );
+
     // check: a newer, compatible bundle is offered
     const check = await checkForUpdate(
       { repo: 'moxxy-ai/moxxy', manifestUrlOverride: MANIFEST_URL, currentVersion: '0.0.5', publicKeyPem: PUBKEY, shell: SHELL },
@@ -78,6 +86,11 @@ describe('build → stage → resolve round-trip', () => {
       'real main',
     );
     expect(existsSync(path.join(root, 'manifest.json'))).toBe(true);
+
+    // The staged root MUST declare ESM, else Node parses the real main (emitted
+    // with `import` syntax) as CommonJS and the bootstrap's `import()` dies with
+    // "Cannot use import statement outside a module", silently reverting to floor.
+    expect(JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).type).toBe('module');
 
     // the bootstrap gate accepts it
     expect(resolveActiveBundle({ userDataDir: tmp, publicKeyPem: PUBKEY, shell: SHELL })).toEqual({

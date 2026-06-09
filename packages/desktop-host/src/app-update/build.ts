@@ -12,6 +12,7 @@ import { createHash, createPrivateKey, sign as cryptoSign } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 
 import { type AppManifest, canonicalManifestBytes } from './manifest.js';
+import { ESM_MARKER_PACKAGE_JSON } from './resolve.js';
 
 export interface BuildInput {
   version: string;
@@ -35,8 +36,21 @@ export interface BuildOutput {
 }
 
 export function buildAppBundle(input: BuildInput): BuildOutput {
+  // The bootstrap loads the bundle's `dist-electron/main/index.js` as an ES
+  // module (electron-vite emits it with `import` syntax). Node decides ESM-vs-CJS
+  // from the nearest `package.json#type`, and a staged bundle under
+  // `<userData>/app/<version>/` has NO package.json above its main — so without
+  // this marker Node parses the ESM main as CommonJS and every override dies with
+  // "Cannot use import statement outside a module", silently reverting to the
+  // floor. Ship a minimal `type:module` marker at the bundle root (only if a
+  // caller didn't already provide one) so the staged tree loads as ESM.
+  const files: Record<string, Buffer> = { ...input.files };
+  if (!files['package.json']) {
+    files['package.json'] = Buffer.from(ESM_MARKER_PACKAGE_JSON, 'utf8');
+  }
+
   const filesB64: Record<string, string> = {};
-  for (const [rel, buf] of Object.entries(input.files)) {
+  for (const [rel, buf] of Object.entries(files)) {
     filesB64[rel] = buf.toString('base64');
   }
   const payload = JSON.stringify({ version: input.version, files: filesB64 });
