@@ -1,10 +1,21 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { ProviderDef, ToolDef } from '@moxxy/sdk';
+import type { ProviderDef, ToolContext, ToolDef } from '@moxxy/sdk';
 import { buildProviderAdminPlugin, type ProviderRegistryLike } from './index.js';
 import { readProvidersConfig } from './store.js';
+
+// Stub ONLY the network probe; buildProviderDef stays real. Lets the
+// provider_test tests assert what key the validator received without ever
+// hitting a vendor endpoint.
+const validateMock = vi.hoisted(() =>
+  vi.fn(async (_key: string, _opts: { baseURL?: string }) => ({ ok: true as const })),
+);
+vi.mock('./factory.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./factory.js')>();
+  return { ...actual, validateOpenAICompatKey: validateMock };
+});
 
 class FakeRegistry implements ProviderRegistryLike {
   defs = new Map<string, ProviderDef>();
@@ -122,6 +133,75 @@ describe('provider_remove', () => {
   it('is a no-op when the slug is unknown', async () => {
     const removed = (await call('provider_remove', { name: 'never-existed' })) as { ok: boolean };
     expect(removed.ok).toBe(false);
+  });
+});
+
+describe('provider_test', () => {
+  const ctxWithSecret = (secrets: Record<string, string>): ToolContext =>
+    ({ getSecret: async (name: string) => secrets[name] ?? null }) as unknown as ToolContext;
+
+  function callTest(input: Record<string, unknown>, ctx: ToolContext): Promise<unknown> {
+    const tool = tools.get('provider_test')!;
+    const parsed = tool.inputSchema.parse(input);
+    return Promise.resolve(tool.handler(parsed, ctx));
+  }
+
+  beforeEach(() => validateMock.mockClear());
+
+  it('resolves the key from the vault via ctx.getSecret and probes with it', async () => {
+    const result = (await callTest(
+      { baseURL: 'https://api.z.ai/api/coding/paas/v4', keyName: 'ZAI_API_KEY' },
+      ctxWithSecret({ ZAI_API_KEY: 'sk-plaintext-secret' }),
+    )) as { ok: boolean };
+    expect(result.ok).toBe(true);
+    expect(validateMock).toHaveBeenCalledWith('sk-plaintext-secret', {
+      baseURL: 'https://api.z.ai/api/coding/paas/v4',
+    });
+    // The plaintext key must never leak into the model-visible tool result.
+    expect(JSON.stringify(result)).not.toContain('sk-plaintext-secret');
+  });
+
+  it('returns an actionable message when the vault has no such secret', async () => {
+    const result = (await callTest(
+      { baseURL: 'https://api.deepseek.com', keyName: 'DEEPSEEK_API_KEY' },
+      ctxWithSecret({}),
+    )) as { ok: boolean; message: string };
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('DEEPSEEK_API_KEY');
+    expect(result.message).toContain('/vault set DEEPSEEK_API_KEY');
+    expect(validateMock).not.toHaveBeenCalled();
+  });
+
+  it('fails gracefully when the session has no vault wired in', async () => {
+    const result = (await callTest(
+      { baseURL: 'https://api.deepseek.com', keyName: 'DEEPSEEK_API_KEY' },
+      {} as ToolContext,
+    )) as { ok: boolean; message: string };
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/vault/i);
+    expect(validateMock).not.toHaveBeenCalled();
+  });
+
+  it('does not accept a plaintext apiKey input (schema requires keyName)', () => {
+    const tool = tools.get('provider_test')!;
+    const bad = tool.inputSchema.safeParse({
+      baseURL: 'https://api.deepseek.com',
+      apiKey: 'sk-raw-key',
+    });
+    expect(bad.success).toBe(false);
+    // lower-case / non-env-shaped names are rejected too
+    const badName = tool.inputSchema.safeParse({
+      baseURL: 'https://api.deepseek.com',
+      keyName: 'not a name',
+    });
+    expect(badName.success).toBe(false);
+  });
+
+  it('description asserts the vault-name contract', () => {
+    const tool = tools.get('provider_test')!;
+    expect(tool.description).toContain('vault');
+    expect(tool.description).toMatch(/never enters the conversation/i);
+    expect(tool.description).not.toMatch(/supplied API key/i);
   });
 });
 

@@ -5,6 +5,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { assertPublicUrl } from '../ssrf-guard.js';
 import type { BrowserKind, BrowserType, PageHandle, PlaywrightHandle } from './types.js';
 
 export interface LaunchResult {
@@ -73,8 +74,40 @@ export async function launchWithAutoInstall(
 async function launchOnce(browserType: BrowserType, headless: boolean): Promise<PlaywrightHandle> {
   const browser = await browserType.launch({ headless });
   const context = (await browser.newContext()) as PlaywrightHandle['context'];
+  await installNavigationSsrfGuard(context);
   const page = (await context.newPage()) as unknown as PageHandle;
   return { browser, context, page };
+}
+
+/**
+ * Block navigations to private/loopback origins for the lifetime of the
+ * context. The goto RPC is validated in the parent AND in dispatch, but a
+ * page reached via a legitimate public goto can then redirect or
+ * script-navigate itself to e.g. http://169.254.169.254/ — those navigations
+ * never pass through the RPC layer, so we intercept them here. Navigation
+ * requests (top-level + iframes, which covers HTTP redirect hops too) go
+ * through the same `assertPublicUrl` guard as web_fetch; everything else is
+ * passed through untouched so ordinary page loads don't pay a DNS round-trip
+ * per subresource.
+ *
+ * Residual risk (also stated in the browser_session tool description):
+ * SUBRESOURCE requests (img/fetch/script) from a loaded page are NOT
+ * filtered. The browser's same-origin policy stops the page reading those
+ * responses, but blind request side effects against internal services remain
+ * possible. Filtering every request was judged disproportionate for now.
+ */
+async function installNavigationSsrfGuard(context: PlaywrightHandle['context']): Promise<void> {
+  if (typeof context.route !== 'function') return; // loose projection: tolerate stubs without route()
+  await context.route('**/*', async (route) => {
+    const request = route.request();
+    if (!request.isNavigationRequest()) return route.continue();
+    try {
+      await assertPublicUrl(request.url(), 'browser_session navigation');
+    } catch {
+      return route.abort('blockedbyclient');
+    }
+    return route.continue();
+  });
 }
 
 function isMissingBrowserError(err: unknown): boolean {

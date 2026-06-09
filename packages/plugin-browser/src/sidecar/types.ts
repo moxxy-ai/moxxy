@@ -42,6 +42,19 @@ export interface PageHandle {
   close(): Promise<void>;
 }
 
+/** Minimal slice of Playwright's `Request` used by the navigation SSRF guard. */
+export interface RouteRequest {
+  url(): string;
+  isNavigationRequest(): boolean;
+}
+
+/** Minimal slice of Playwright's `Route` used by the navigation SSRF guard. */
+export interface RouteHandle {
+  request(): RouteRequest;
+  abort(errorCode?: string): Promise<void>;
+  continue(): Promise<void>;
+}
+
 export interface PlaywrightHandle {
   // Loosely typed so we can avoid importing the playwright types at compile time —
   // they're an optional peer dependency.
@@ -49,6 +62,8 @@ export interface PlaywrightHandle {
   readonly context: {
     newPage(): Promise<unknown>;
     close(): Promise<void>;
+    /** Optional because the type is a loose projection; real Playwright contexts always have it. */
+    route?(pattern: string, handler: (route: RouteHandle) => Promise<void> | void): Promise<void>;
   };
   readonly page: PageHandle;
 }

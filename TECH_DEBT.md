@@ -70,12 +70,17 @@ Full report incl. the medium/low backlog and refuted findings:
   calls to the session's current resolver chain — race-free for concurrent fires, no
   shared-session mutation); empty list = full tool set (now documented), and the
   tool/setup-guide text says fires run on the ACTIVE session, not an isolated one.
-- **A5 [high, security] `browser_session.goto` has no SSRF guard** — scheme check only
-  (`browser-session.ts:35`, sidecar `dispatch.ts:85`) while the comment claims parity with
-  `web_fetch`'s `assertPublicUrl`; metadata/private IPs reachable + `text`/`html`/`eval`.
+- **A5 [high, security] `browser_session.goto` has no SSRF guard** — ✅ FIXED (this PR):
+  `assertPublicUrl` hoisted into a shared `plugin-browser/src/ssrf-guard.ts` and enforced
+  in the parent goto handler, in the sidecar's goto dispatch (defence in depth), and via a
+  context-level `route()` interceptor that blocks in-page/redirect navigations to private
+  origins; subresource requests stay unfiltered (residual risk documented in the tool
+  description instead of a parity claim).
 - **A6 [high, security-adjacent] `provider_test` takes the raw API key as model-visible
-  tool input** (`plugin-provider-admin/src/index.ts:82-85`) — into model context + session
-  logs; should take a vault key name resolved via `ctx.getSecret`.
+  tool input** — ✅ FIXED (this PR): plaintext `apiKey` input removed outright; the tool
+  takes a vault `keyName` resolved at call time via `ctx.getSecret` (actionable
+  missing-secret/no-vault messages), and the add-provider skill + provider_add guidance
+  now route verification through the vault name.
 - **A7 [high, stability] channel-web kills whatever holds its port** — ✅ FIXED (this PR):
   channel EADDRINUSE recovery and the runner's protocol-mismatch recovery both verify the
   holder's `ps` command line carries a moxxy marker before any TERM/KILL (CLI now sets
@@ -103,16 +108,22 @@ Full report incl. the medium/low backlog and refuted findings:
   in lockstep, re-arming seq-0 ingest) and truncate the persistence JSONL (same hook fixes
   local `/new` resurrecting on `--resume`); TUI/Telegram call `reset()` and surface an error
   instead of claiming success when it fails.
-- **A11 [high, stability] `afterWorkflow` triggers have no cycle detection** — mutual
-  A↔B triggers loop forever (`cli/src/setup/workflows.ts:184-188`), spawning subagents and
-  burning provider tokens each round; `inFlight` clears before the next completion lands.
-- **A12 [high, stability] `safe-publish.mjs` publish-order/tombstone hazard** — readdir
-  order publishes cli before sdk with an exact `@moxxy/sdk` pin; a tombstone bump after
-  cli ships leaves it pinned to a version that will never exist (npm history shows real
-  tombstone gaps). Topo-order + re-pin dependents.
-- **A13 [high, PoC-scoped] default `moxxy mobile` prints an unconnectable QR** — binds
-  `127.0.0.1` (`plugin-channel-mobile/src/channel.ts:66`) but the QR advertises the LAN IP
-  (`channel.ts:115`); the README documents this exact flow as working.
+- **A11 [high, stability] `afterWorkflow` triggers have no cycle detection** — ✅ FIXED
+  (this PR): a per-run trigger chain now rides the `workflow_completed` payload (re-fires
+  that revisit a chain member or exceed depth 8 are refused with a warning), and static SCC
+  detection at trigger-sync time disables auto-refire for cycle members
+  (`cli/src/setup/workflows.ts`).
+- **A12 [high, stability] `safe-publish.mjs` publish-order/tombstone hazard** — ✅ FIXED
+  (this PR): publishes in topo order over `workspace:` deps (so a dependency's tombstone
+  bump, persisted to its package.json, is exactly what a later dependent pins at pack
+  time), blocks dependents of a failed publish, and a post-publish `npm view` check
+  verifies every shipped `@moxxy/*` pin exists on the registry (loud + exit 1 otherwise);
+  helpers unit-tested via `pnpm test:scripts`.
+- **A13 [high, PoC-scoped] default `moxxy mobile` prints an unconnectable QR** — ✅ FIXED
+  (this PR): the QR now advertises exactly what is bound (loopback default →
+  `ws://127.0.0.1` + a printed hint that a real phone needs `MOXXY_MOBILE_HOST`/`bindHost`
+  opt-in or a tunnel; wildcard bind → LAN IP; tunnel path unchanged), keeping the
+  loopback-by-default security posture; `apps/mobile/README.md` updated to match.
 
 ---
 

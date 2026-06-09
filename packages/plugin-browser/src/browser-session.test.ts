@@ -1,8 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PassThrough } from 'node:stream';
 import { asSessionId, asToolCallId, asTurnId } from '@moxxy/sdk';
 import type { ToolContext } from '@moxxy/sdk';
 import { buildBrowserSessionTool, closeBrowserSidecar, type SidecarStream } from './browser-session.js';
+import { setSsrfDnsResolver } from './ssrf-guard.js';
+
+// Hermetic DNS for the parent-side SSRF guard on `goto`: every hostname
+// "resolves" public so tests never hit real DNS.
+beforeEach(() => setSsrfDnsResolver(async () => ['93.184.216.34']));
+afterEach(() => setSsrfDnsResolver(null));
 
 /**
  * The sidecar is exercised via a fake `spawnFn` that drives a scripted
@@ -107,6 +113,48 @@ describe('browser_session tool (sidecar protocol)', () => {
     );
     expect(out).toBe(42);
     expect((receivedRequests[0]!.params as { expression: string }).expression).toBe('1 + 41');
+    await closeBrowserSidecar();
+  });
+});
+
+describe('browser_session SSRF guard (parent layer)', () => {
+  it.each([
+    'http://169.254.169.254/latest/meta-data/',
+    'http://localhost:3000/',
+    'http://10.0.0.5/internal',
+  ])('rejects goto %s before any RPC reaches the sidecar', async (url) => {
+    const { spawn, receivedRequests } = makeFakeSpawn(() => null);
+    const tool = buildBrowserSessionTool({ sidecarPath: '/fake.js', spawnFn: spawn });
+    await expect(
+      tool.handler({ action: { kind: 'goto', url } }, baseCtx()),
+    ).rejects.toThrow(/private|loopback/);
+    expect(receivedRequests).toHaveLength(0); // never sent to the sidecar
+    await closeBrowserSidecar();
+  });
+
+  it('rejects a hostname resolving to a private address', async () => {
+    setSsrfDnsResolver(async () => ['10.1.2.3']);
+    const { spawn, receivedRequests } = makeFakeSpawn(() => null);
+    const tool = buildBrowserSessionTool({ sidecarPath: '/fake.js', spawnFn: spawn });
+    await expect(
+      tool.handler({ action: { kind: 'goto', url: 'https://intranet.example.com/' } }, baseCtx()),
+    ).rejects.toThrow(/private|loopback/);
+    expect(receivedRequests).toHaveLength(0);
+    await closeBrowserSidecar();
+  });
+
+  it('allows a public URL through to the sidecar', async () => {
+    const { spawn, receivedRequests } = makeFakeSpawn((req) => {
+      if (req.method === 'goto') return { url: (req.params as { url: string }).url };
+      return null;
+    });
+    const tool = buildBrowserSessionTool({ sidecarPath: '/fake.js', spawnFn: spawn });
+    const out = await tool.handler(
+      { action: { kind: 'goto', url: 'https://example.com/' } },
+      baseCtx(),
+    );
+    expect(out).toEqual({ url: 'https://example.com/' });
+    expect(receivedRequests).toHaveLength(1);
     await closeBrowserSidecar();
   });
 });
