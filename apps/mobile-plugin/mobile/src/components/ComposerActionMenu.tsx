@@ -1,5 +1,6 @@
 import { Pressable, Text, View } from 'react-native';
-import { buildQuickActionItems, type QuickActionItem } from '../navigation';
+import { buildComposerAttachmentActionItems, buildQuickActionItems, type ComposerAttachmentActionItem, type QuickActionItem } from '../navigation';
+import type { MobileIconName } from './MobileIcon';
 import { MobileIcon } from './MobileIcon';
 
 interface ComposerActionMenuProps {
@@ -10,13 +11,31 @@ interface ComposerActionMenuProps {
   readonly onToggleAutoApprove: () => void;
   readonly onNewSession: () => void;
   readonly onCompact: () => void;
+  readonly onPickImage: () => void;
+  readonly onPickFile: () => void;
   readonly onCommand: (name: string, args?: string) => void;
+}
+
+interface ComposerMenuItem {
+  readonly id: string;
+  readonly icon: MobileIconName;
+  readonly label: string;
+  readonly active?: boolean;
 }
 
 export function ComposerActionMenu(props: ComposerActionMenuProps) {
   if (!props.open) return null;
 
+  const attachmentItems = buildComposerAttachmentActionItems();
   const items = buildQuickActionItems(props.autoApprove);
+  const runAttachmentAction = (id: ComposerAttachmentActionItem['id']) => {
+    if (id === 'attachImage') {
+      props.onPickImage();
+    } else {
+      props.onPickFile();
+    }
+    props.onToggleOpen();
+  };
   const runAction = (id: QuickActionItem['id']) => {
     if (id === 'goal') {
       props.onGoal();
@@ -58,6 +77,11 @@ export function ComposerActionMenu(props: ComposerActionMenuProps) {
           <MobileIcon name="x" size={18} color="#64748b" />
         </Pressable>
       </View>
+      <View style={{ gap: 4, paddingBottom: 4 }}>
+        {attachmentItems.map((item) => (
+          <MenuButton key={item.id} item={item} onPress={() => runAttachmentAction(item.id)} />
+        ))}
+      </View>
       <View>
         {items.map((item) => (
           <MenuButton key={item.id} item={item} onPress={() => runAction(item.id)} />
@@ -67,7 +91,7 @@ export function ComposerActionMenu(props: ComposerActionMenuProps) {
   );
 }
 
-function MenuButton({ item, onPress }: { readonly item: QuickActionItem; readonly onPress: () => void }) {
+function MenuButton({ item, onPress }: { readonly item: ComposerMenuItem | QuickActionItem | ComposerAttachmentActionItem; readonly onPress: () => void }) {
   return (
     <Pressable
       className={item.active ? 'bg-primarySoft' : 'bg-transparent'}

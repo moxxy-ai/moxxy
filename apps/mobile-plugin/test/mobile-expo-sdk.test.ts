@@ -44,6 +44,22 @@ describe('Expo Go compatibility', () => {
     ]));
   });
 
+  it('declares native media and document pickers for prompt attachments', async () => {
+    const pkg = JSON.parse(await readFile(join(process.cwd(), 'mobile', 'package.json'), 'utf8'));
+    const app = JSON.parse(await readFile(join(process.cwd(), 'mobile', 'app.json'), 'utf8'));
+
+    expect(pkg.dependencies['expo-image-picker']).toMatch(/^~17\./);
+    expect(pkg.dependencies['expo-document-picker']).toMatch(/^~14\./);
+    expect(app.expo.plugins).toEqual(expect.arrayContaining([
+      [
+        'expo-image-picker',
+        expect.objectContaining({
+          photosPermission: expect.stringContaining('screenshots'),
+        }),
+      ],
+    ]));
+  });
+
   it('uses a CommonJS Metro config extension when the mobile package is ESM', async () => {
     const pkg = JSON.parse(await readFile(join(process.cwd(), 'mobile', 'package.json'), 'utf8'));
 

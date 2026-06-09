@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildBottomTabs,
+  buildComposerAttachmentActionItems,
   buildMobileMenuItems,
   buildInitialCollapsedWorkspaceIds,
   buildQuickActionItems,
@@ -56,6 +57,14 @@ describe('mobile chat chrome navigation model', () => {
       label: 'Compact context',
       requiresConfirmation: true,
     });
+  });
+
+  it('keeps composer attachment actions short and leaves image paste to the input paste flow', () => {
+    const items = buildComposerAttachmentActionItems();
+
+    expect(items.map((item) => item.id)).toEqual(['attachImage', 'attachFile']);
+    expect(items.map((item) => item.label)).toEqual(['Photo or screenshot', 'File from phone']);
+    expect(items.map((item) => item.label)).not.toContain('Paste image');
   });
 
   it('builds a compact recent-session list for the full-screen hamburger menu', () => {

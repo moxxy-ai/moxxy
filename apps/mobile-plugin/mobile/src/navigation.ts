@@ -55,6 +55,13 @@ export interface QuickActionItem {
   readonly requiresConfirmation?: boolean;
 }
 
+export interface ComposerAttachmentActionItem {
+  readonly id: 'attachImage' | 'attachFile';
+  readonly label: 'Photo or screenshot' | 'File from phone';
+  readonly icon: 'camera' | 'folder';
+  readonly active?: boolean;
+}
+
 export interface ReturnToChatAction {
   readonly href: '/chat';
   readonly label: 'Chat';
@@ -260,6 +267,13 @@ export function buildQuickActionItems(autoApprove = false): QuickActionItem[] {
     },
     { id: 'compact', label: 'Compact context', icon: 'actions', active: false, requiresConfirmation: true },
     { id: 'newSession', label: 'New session', icon: 'plus', active: false },
+  ];
+}
+
+export function buildComposerAttachmentActionItems(): ComposerAttachmentActionItem[] {
+  return [
+    { id: 'attachImage', label: 'Photo or screenshot', icon: 'camera' },
+    { id: 'attachFile', label: 'File from phone', icon: 'folder' },
   ];
 }
 

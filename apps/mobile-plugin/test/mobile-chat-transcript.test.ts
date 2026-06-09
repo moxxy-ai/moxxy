@@ -44,6 +44,30 @@ describe('mobile chat transcript model', () => {
     ]);
   });
 
+  it('keeps user prompt attachments available for rendering in the chat', () => {
+    const transcript = buildChatTranscript([
+      {
+        id: 'u1',
+        type: 'user_prompt',
+        text: 'Przeanalizuj',
+        attachments: [
+          { kind: 'image', content: 'AQID', mediaType: 'image/png', name: 'screen.png' },
+        ],
+      },
+    ]);
+
+    expect(transcript).toEqual([
+      {
+        id: 'u1',
+        kind: 'user',
+        text: 'Przeanalizuj',
+        attachments: [
+          { kind: 'image', content: 'AQID', mediaType: 'image/png', name: 'screen.png' },
+        ],
+      },
+    ]);
+  });
+
   it('collapses runtime tool events into one closed tool group by default', () => {
     const transcript = buildChatTranscript([
       { id: 'u1', type: 'user_prompt', text: 'Sprawdź pliki' },

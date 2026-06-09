@@ -393,8 +393,10 @@ export function createSessionMobileBackend(session, options = {}) {
   }
 
   function startTurn(frame, owner) {
-    if (typeof frame.prompt !== 'string' || frame.prompt.trim().length === 0) {
-      broadcast({ type: 'error', message: 'runTurn requires a non-empty prompt' });
+    const attachments = normalizePromptAttachments(frame.attachments);
+    const prompt = normalizeTurnPrompt(frame.prompt, attachments);
+    if (prompt.length === 0) {
+      broadcast({ type: 'error', message: 'runTurn requires a non-empty prompt or attachment' });
       return;
     }
     const key = typeof frame.id === 'string' ? frame.id : `turn_${Date.now()}`;
@@ -411,8 +413,9 @@ export function createSessionMobileBackend(session, options = {}) {
           signal: controller.signal,
           ...(typeof frame.model === 'string' ? { model: frame.model } : {}),
           ...(typeof frame.systemPrompt === 'string' ? { systemPrompt: frame.systemPrompt } : {}),
+          ...(attachments.length > 0 ? { attachments } : {}),
         };
-        for await (const _event of session.runTurn(frame.prompt.trim(), opts)) {
+        for await (const _event of session.runTurn(prompt, opts)) {
           void _event;
         }
       } catch (err) {
@@ -777,6 +780,34 @@ function usageSnapshotsDiffer(a, b) {
     (a?.totalCacheCreation ?? 0) !== (b?.totalCacheCreation ?? 0) ||
     (a?.totalOutput ?? 0) !== (b?.totalOutput ?? 0)
   );
+}
+
+const PROMPT_ATTACHMENT_KINDS = new Set(['stdin', 'file', 'image', 'document', 'audio']);
+
+function normalizeTurnPrompt(rawPrompt, attachments) {
+  const prompt = typeof rawPrompt === 'string' ? rawPrompt.trim() : '';
+  if (prompt.length > 0) return prompt;
+  return attachments.length > 0 ? 'Analyze the attached files.' : '';
+}
+
+function normalizePromptAttachments(rawAttachments) {
+  if (!Array.isArray(rawAttachments)) return [];
+  const out = [];
+  for (const item of rawAttachments) {
+    if (!item || typeof item !== 'object') continue;
+    const kind = typeof item.kind === 'string' ? item.kind : '';
+    const content = typeof item.content === 'string' ? item.content : '';
+    if (!PROMPT_ATTACHMENT_KINDS.has(kind) || content.length === 0) continue;
+    const mediaType = typeof item.mediaType === 'string' && item.mediaType.length > 0 ? item.mediaType : undefined;
+    if ((kind === 'image' || kind === 'document' || kind === 'audio') && !mediaType) continue;
+    out.push({
+      kind,
+      content,
+      ...(typeof item.name === 'string' && item.name.length > 0 ? { name: item.name.slice(0, 160) } : {}),
+      ...(mediaType ? { mediaType } : {}),
+    });
+  }
+  return out.slice(0, 6);
 }
 
 function buildMobileSessions(session, state, info, liveSessionId, cwd) {

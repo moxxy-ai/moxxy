@@ -1,4 +1,5 @@
 import { textOf } from './utils/record';
+import type { PromptAttachment } from './clientFrames';
 
 export type TranscriptItem =
   | UserTranscriptItem
@@ -11,6 +12,7 @@ export interface UserTranscriptItem {
   readonly id: string;
   readonly kind: 'user';
   readonly text: string;
+  readonly attachments?: ReadonlyArray<PromptAttachment>;
 }
 
 export interface AssistantTranscriptItem {
@@ -165,6 +167,7 @@ export function buildChatTranscript(
         id: eventId(event, `user-${index}`),
         kind: 'user',
         text: firstText(event.text, event.content, event.message, event.body) || 'User message',
+        ...(promptAttachments(event).length > 0 ? { attachments: promptAttachments(event) } : {}),
       });
       continue;
     }
@@ -215,6 +218,17 @@ export function buildChatTranscript(
   }
 
   return items;
+}
+
+function promptAttachments(event: Record<string, unknown>): PromptAttachment[] {
+  if (!Array.isArray(event.attachments)) return [];
+  return event.attachments.filter(isPromptAttachment);
+}
+
+function isPromptAttachment(value: unknown): value is PromptAttachment {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<PromptAttachment>;
+  return typeof item.kind === 'string' && typeof item.content === 'string';
 }
 
 function upsertTool(

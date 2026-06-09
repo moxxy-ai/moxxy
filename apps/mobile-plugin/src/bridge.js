@@ -28,6 +28,7 @@ export async function streamBridgeTurn(apiUrl, token, frame, onPayload, signal) 
     prompt: String(frame.prompt ?? ''),
     ...(typeof frame.model === 'string' ? { model: frame.model } : {}),
     ...(typeof frame.systemPrompt === 'string' ? { systemPrompt: frame.systemPrompt } : {}),
+    ...(Array.isArray(frame.attachments) && frame.attachments.length > 0 ? { attachments: frame.attachments } : {}),
   };
   const res = await bridgeFetch(apiUrl, token, '/v1/turn/stream', {
     method: 'POST',

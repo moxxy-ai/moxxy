@@ -1,6 +1,8 @@
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useState } from 'react';
+import { summarizeAttachment } from '@/attachments';
 import type { AssistantTranscriptItem, SystemGroupTranscriptItem, ToolGroupTranscriptItem, TranscriptItem } from '@/chatTranscript';
+import type { PromptAttachment } from '@/clientFrames';
 import { shouldShowThinkingIndicator } from '@/chatListState';
 import { useChatListAutoScroll } from '@/hooks/useChatListAutoScroll';
 import { buildMessageActions } from '@/messageActions';
@@ -87,6 +89,13 @@ function MessageBlock({
           }}
         >
           <Text className="text-[15px] leading-6 text-white">{item.text}</Text>
+          {item.attachments && item.attachments.length > 0 ? (
+            <View style={{ gap: 5, marginTop: item.text.trim().length > 0 ? 10 : 0 }}>
+              {item.attachments.map((attachment, index) => (
+                <MessageAttachmentChip key={`${attachment.kind}:${attachment.name ?? index}:${index}`} attachment={attachment} />
+              ))}
+            </View>
+          ) : null}
         </View>
       </View>
     );
@@ -119,6 +128,32 @@ function MessageBlock({
     >
       <Text className="text-[12px] font-bold text-red">{item.label}</Text>
       <Text className="mt-1 text-[13px] leading-5 text-muted">{item.text}</Text>
+    </View>
+  );
+}
+
+function MessageAttachmentChip({ attachment }: { readonly attachment: PromptAttachment }) {
+  const summary = summarizeAttachment(attachment);
+  return (
+    <View
+      style={{
+        alignItems: 'center',
+        alignSelf: 'flex-start',
+        backgroundColor: 'rgba(255,255,255,0.18)',
+        borderColor: 'rgba(255,255,255,0.28)',
+        borderRadius: 999,
+        borderWidth: 1,
+        flexDirection: 'row',
+        gap: 6,
+        maxWidth: '100%',
+        paddingHorizontal: 9,
+        paddingVertical: 5,
+      }}
+    >
+      <Text style={{ color: '#ffffff', fontSize: 10, fontWeight: '800', opacity: 0.78 }}>{summary.detail}</Text>
+      <Text style={{ color: '#ffffff', fontSize: 11, fontWeight: '800', maxWidth: 150 }} numberOfLines={1}>
+        {summary.label}
+      </Text>
     </View>
   );
 }
