@@ -1,5 +1,48 @@
 # @moxxy/desktop
 
+## 0.0.34
+
+### Patch Changes
+
+- 95222e1: Fix packaged-app boot crash: bundle `@moxxy/ipc-server-ws` into the main-process output and load it lazily.
+
+  PR #120 added a top-level static import of `@moxxy/ipc-server-ws` to the Electron main but never added the package to `BUNDLED_WORKSPACE_DEPS`, so `externalizeDepsPlugin` left a bare specifier in `dist-electron/main/index.js` that cannot resolve in the packaged app (electron-builder ships only `dist`/`dist-electron`, no node_modules). Every packaged 0.0.33 build — and the Tier-1 hot-update bundle built from the same tree — crashed at main-process load with MODULE_NOT_FOUND, which would also have re-poisoned self-update overrides.
+
+  Two-layer fix: `@moxxy/ipc-server-ws` is now in `BUNDLED_WORKSPACE_DEPS` (with `ws`'s optional native accelerators `bufferutil`/`utf-8-validate` kept external — `ws` falls back to JS implementations), and the bridge is loaded via a guarded dynamic `import()` only when `MOXXY_WS_BRIDGE=1` (the shell-updater pattern), so the opt-in bridge can never take down boot again. Verified on a real packaged build: boots clean, and with `MOXXY_WS_BRIDGE=1` the bridge listens.
+
+- 0326fb0: Harden the desktop/mobile WebSocket bridge (2026-06-09 audit, wave 5):
+
+  - Reject browser-Origin upgrades unless allow-listed (`allowedOrigins`, default deny; native clients are unaffected).
+  - Move the pairing token out of the URL: `Authorization: Bearer` or a `Sec-WebSocket-Protocol` bearer entry are the supported presentations; the legacy `?t=` query is opt-in (`allowQueryToken`, kept on only for the mobile channel's already-paired apps). The QR still carries the token, but the app strips it before connecting.
+  - Token rotation end to end: `rotateChannelToken` (sdk, persisted with `createdAt` + 90-day staleness warning), `rotateAuthToken` on the live server (drops existing connections), `rotateWsBridgeToken` (desktop) and `MobileChannel.rotateToken`.
+  - Backpressure + lifecycle: connection cap (default 8), slow-reader eviction (backlog above 4 MB past a 10s grace terminates the socket), and `close()` now terminates clients so desktop quit doesn't burn its shutdown timeout.
+  - `WsRpcClient` no longer replays abandoned requests after reconnect (outbox cleared, queued requests rejected on disconnect) and stops reconnecting after a capped exponential backoff, surfacing a terminal `disconnected` status.
+  - Hygiene: empty `MOXXY_WS_PORT` no longer binds an ephemeral port, the server reports the actually-bound port, and the desktop bridge reuses the shared sdk token persistence (userData location kept).
+
+- Updated dependencies [2e4bc37]
+- Updated dependencies [f3c798f]
+- Updated dependencies [0326fb0]
+- Updated dependencies [05d643a]
+- Updated dependencies [2e4bc37]
+- Updated dependencies [05d643a]
+- Updated dependencies [0326fb0]
+- Updated dependencies [2e4bc37]
+- Updated dependencies [f3c798f]
+- Updated dependencies [2e4bc37]
+- Updated dependencies [f297da0]
+- Updated dependencies [0326fb0]
+  - @moxxy/cli@0.7.1
+  - @moxxy/sdk@0.8.0
+  - @moxxy/desktop-host@0.1.3
+  - @moxxy/plugin-vault@0.0.10
+  - @moxxy/runner@0.0.10
+  - @moxxy/ipc-server-ws@0.1.1
+  - @moxxy/chat-model@0.0.10
+  - @moxxy/client-core@0.1.1
+  - @moxxy/desktop-ipc-contract@0.2.1
+  - @moxxy/plugin-stt-whisper-codex@0.0.10
+  - @moxxy/client-platform-web@0.1.1
+
 ## 0.0.33
 
 ### Patch Changes

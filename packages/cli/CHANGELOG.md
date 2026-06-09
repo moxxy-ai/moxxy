@@ -1,5 +1,37 @@
 # @moxxy/cli
 
+## 0.7.1
+
+### Patch Changes
+
+- 2e4bc37: Stability hardening for the web surface and process recovery (audit A7/A8): port-conflict recovery (web channel EADDRINUSE + runner protocol-mismatch) now verifies the holder is a moxxy process before signalling it and otherwise falls back to an ephemeral port instead of killing whatever listens (e.g. ngrok's UI on 4040); inbound web-surface WS frames are zod-validated and dropped (rate-limited warn) instead of crashing the process; the CLI installs last-resort unhandledRejection/uncaughtException guards.
+- f3c798f: Stop CLI probe/light-boot sessions from leaking daemons. A new `probeSession`
+  helper boots throwaway sessions with `skipInitHooks` (no scheduler poller, no
+  webhooks listener — those now start exactly once, in the real session that
+  owns them) and `disableSessionPersistence`, and guarantees the probe is closed
+  before returning. Previously `moxxy <channel>` self-host booted three sessions
+  and the orphaned probe won the webhooks port bind, so incoming webhooks ran
+  turns on an abandoned session and duplicate scheduler pollers raced on the
+  schedule store. Converted: the TUI needs-init probe, the `moxxy <command>`
+  channel-existence probe, the channel-dispatch light-boots (`moxxy <channel>` /
+  `moxxy channels …`), `moxxy schedule` store ops, the schedule-setup telegram
+  check, and `moxxy plugins list`.
+- 2e4bc37: Security (audit A4): webhook fires now actually enforce the trigger's `allowedTools`.
+  The CLI webhook runner runs each fire against a per-fire scoped view of the active
+  session — a filtered tool registry (the model only sees the listed tools) plus a
+  wrapping permission resolver whose `check` and prompt-free `policyCheck` deny any tool
+  outside the list (so the restriction survives goal-mode auto-approve), delegating
+  allowed calls to the session's normal resolver chain. An empty `allowedTools` keeps the
+  existing full-tool-set contract; the `webhook_create` description and setup guide now
+  state exactly what is enforced and that fires run on the active session, not an
+  isolated one.
+- f297da0: Guard `afterWorkflow` triggers against cycles. Mutual triggers (A↔B, or longer loops) used to re-fire each other forever, burning provider tokens. Each run now carries its trigger chain on the `workflow_completed` event: re-fires that would revisit a workflow already in the chain, or exceed a depth cap of 8, are refused with a clear warning. On top of that, trigger sync statically detects cycles in the `afterWorkflow` graph, warns once naming the cycle, and disables auto-refire for its members (they remain runnable manually or on schedule).
+- Updated dependencies [0326fb0]
+- Updated dependencies [2e4bc37]
+- Updated dependencies [f3c798f]
+- Updated dependencies [0326fb0]
+  - @moxxy/sdk@0.8.0
+
 ## 0.7.0
 
 ### Minor Changes

@@ -1,5 +1,46 @@
 # @moxxy/desktop-host
 
+## 0.1.3
+
+### Patch Changes
+
+- 05d643a: Audit wave 4 stability + packaging fixes:
+
+  - `RunnerSupervisor.restart()` now uses the same graceful SIGTERM→SIGKILL
+    termination (awaiting actual child exit) as every other teardown path,
+    instead of a bare `child.kill()` + immediate respawn — closing the
+    EADDRINUSE race where a quick restart collided with the dying `moxxy serve`
+    still holding the runner socket.
+  - `@moxxy/desktop-host` declares `@moxxy/core` as a real dependency (it
+    imports `deleteSession` in prod source but had it under devDependencies) —
+    the same missing-prod-dependency class of bug as the A1 packaged-desktop
+    release blocker.
+  - `@moxxy/mode-goal` declares `zod` as a real dependency (runtime import in
+    `goal-tools.ts`, previously devDependencies-only).
+  - (No version bump needed) `.github/workflows/release.yml`: the
+    `desktop-v<version>` tag is now pushed only AFTER all installer builds
+    succeed — builds check out a pinned sha, and `desktop-release` creates the
+    tag + draft release together — so a failed desktop build no longer
+    permanently burns the version.
+
+- 2e4bc37: Self-update now verifies the bytes it executes (audit A2): the signed manifest
+  carries a per-file sha256 map, checked against the extracted tree at stage time
+  and re-checked by the bootstrap gate on every load (new `file-tampered` reject
+  reason). Legacy manifests without the map keep loading but get no load-time
+  verification; stripping the map from a new manifest breaks its signature.
+- Updated dependencies [0326fb0]
+- Updated dependencies [2e4bc37]
+- Updated dependencies [05d643a]
+- Updated dependencies [0326fb0]
+- Updated dependencies [f3c798f]
+- Updated dependencies [0326fb0]
+  - @moxxy/core@0.0.10
+  - @moxxy/sdk@0.8.0
+  - @moxxy/plugin-vault@0.0.10
+  - @moxxy/runner@0.0.10
+  - @moxxy/desktop-ipc-contract@0.2.1
+  - @moxxy/plugin-stt-whisper-codex@0.0.10
+
 ## 0.1.2
 
 ### Patch Changes
