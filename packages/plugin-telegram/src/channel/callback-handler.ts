@@ -16,6 +16,8 @@ export interface CallbackState {
   readonly chatId: number | null;
   readonly permissionResolver: TelegramPermissionResolver;
   readonly approvalResolver: TelegramApprovalResolver;
+  /** Pairing gate — the same authorization check the text/voice handlers enforce. */
+  readonly pairing: { isAuthorized(chatId: number): boolean };
 }
 
 export interface CallbackCallbacks {
@@ -37,6 +39,20 @@ export async function handleCallback(
 ): Promise<void> {
   const data = ctx.callbackQuery?.data;
   if (!data) return;
+
+  // Authorization gate — mirror the text/voice handlers. Button clicks can
+  // resolve permission prompts, approve plans, and switch provider/model/mode,
+  // so an unpaired chat's callbacks must be refused just like its messages
+  // (inline-keyboard messages can be forwarded to arbitrary chats).
+  const chatId = ctx.chat?.id ?? ctx.callbackQuery?.message?.chat?.id;
+  if (chatId === undefined || !state.pairing.isAuthorized(chatId)) {
+    try {
+      await ctx.answerCallbackQuery({ text: 'This bot is paired with a different chat.' });
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
 
   if (data.startsWith('perm:')) {
     await handlePerm(ctx, data, state.permissionResolver);

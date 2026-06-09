@@ -181,7 +181,7 @@ Logs land in `~/.moxxy/services/<name>.log`; units survive reboots.
 
 - **Providers**: Anthropic, OpenAI, Codex (ChatGPT OAuth), Claude (Pro/Max OAuth). Add your own with one `defineProvider({})`.
 - **Loop strategies**: `default` (Claude-Code-style ReAct loop), `goal` (autonomous auto-approve loop — runs across turns until `goal_complete`), `research` (plan queries → parallel subagent fan-out → cited synthesis). Switch in the TUI with `/mode`.
-- **Built-in tools**: Read, Edit, Write, Bash, Grep, Glob, WebFetch, plus computer-control (macOS) and browser-session (Playwright).
+- **Built-in tools**: Read, Edit, Write, Bash, Grep, Glob, recall, Sleep — plus `web_fetch` (via `@moxxy/plugin-browser`), computer-control (macOS), and browser sessions (Playwright).
 - **Prompt caching**: `@moxxy/cache-strategy-stable-prefix` places deterministic cache breakpoints (static tools/system/stable-prefix + a rolling tail) so the inner iterations of a turn read the prompt from cache instead of paying full price. Provider-neutral; swap it or disable with the `none` strategy. Inspect savings live with `/usage`.
 - **MCP**: register any Model Context Protocol server as a tool source.
 - **Skills**: prompt-only Markdown files. The agent can author new skills for itself when no existing skill fits.
@@ -270,6 +270,38 @@ export default defineConfig({
 
 `${vault:NAME}` placeholders are resolved on session start. The vault unlocks via OS keychain (`keytar`) with a passphrase fallback (`MOXXY_VAULT_PASSPHRASE` for headless boxes).
 
+## Environment variables
+
+Provider keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) are picked up automatically. Everything moxxy-specific:
+
+| Variable | Effect |
+|---|---|
+| `MOXXY_HOME` | Override the `~/.moxxy` data directory (vault, skills, sessions, services). |
+| `MOXXY_DEBUG=1` | Verbose CLI error output + process-guard diagnostics. |
+| `MOXXY_VAULT_PASSPHRASE` | Headless vault passphrase (alternative to the OS keychain). |
+| `MOXXY_SESSION_ID` | Sticky session id for `moxxy serve` — resume this persisted session instead of booting a fresh one. |
+| `MOXXY_RUNNER_SOCKET` | Override the runner's unix-socket path. |
+| `MOXXY_NO_CORE_UPDATE=1` | Don't register the Tier-2 core self-update tools. |
+| `MOXXY_FIXTURES` | `record` \| `replay` \| `passthrough` — provider fixture mode (tests). |
+| `MOXXY_TELEGRAM_TOKEN` | Override the vault-stored Telegram bot token. |
+| `MOXXY_HTTP_TOKEN` | Bearer token for the HTTP channel. |
+| `MOXXY_WEB_TOKEN` | Auth token for the web surface channel. |
+| `MOXXY_NO_WEB_SURFACE=1` | Skip starting the web surface in `moxxy serve`. |
+| `MOXXY_MOBILE_TOKEN` | Bearer token for the mobile channel's WebSocket bridge. |
+| `MOXXY_MOBILE_HOST` | Bind host for the mobile channel (default `127.0.0.1`; `0.0.0.0` exposes it on the LAN). |
+| `MOXXY_MOBILE_TUNNEL` | `localhost` \| `cloudflared` \| `ngrok` — tunnel for the mobile channel. |
+| `MOXXY_VOICE_AUDIO_DEVICE` | Audio capture device for TUI voice input. |
+| `MOXXY_MCP_STDERR=inherit` | Surface MCP server stderr (default: ignored). |
+| `MOXXY_WS_BRIDGE=1` | Desktop: enable the WebSocket IPC bridge for remote clients (the mobile app). |
+| `MOXXY_WS_PORT` / `MOXXY_WS_HOST` / `MOXXY_WS_TOKEN` | Desktop bridge port / bind host / auth token (token auto-generated when unset). |
+| `MOXXY_WS_ALLOW_QUERY_TOKEN=1` | Desktop bridge: also accept the legacy `?t=` query-string token (off by default; native clients use the `Sec-WebSocket-Protocol` bearer). |
+| `MOXXY_RUNNER_STRICT_ABORT=1` | Runner: deny cross-client turn aborts instead of allowing + audit-logging them. |
+| `MOXXY_CLI_ENTRY` | Desktop: explicit path to the CLI entry used to spawn runners. |
+| `MOXXY_CHATS_DIR` | Desktop: override the NDJSON chat-log directory (default `~/.moxxy/chats`). |
+| `MOXXY_UPDATE_URL` | Desktop: override the self-update manifest URL. |
+| `MOXXY_UPDATE_SIGNING_KEY` | CI only: private key used to sign desktop app bundles. |
+| `MOXXY_APP_BUNDLE_ROOT` / `MOXXY_APP_BUNDLE_VERSION` | Set internally by the desktop bootstrap loader — not user-set. |
+
 ## Architecture
 
 ```
@@ -297,6 +329,9 @@ export default defineConfig({
 @moxxy/plugin-cli                   ← Ink TUI + TuiChannel
 @moxxy/plugin-telegram              ← TelegramChannel via grammy (text + voice)
 @moxxy/plugin-channel-http          ← HTTP channel (POST /v1/turn, /v1/turn/stream, /v1/turn/audio)
+@moxxy/plugin-channel-web           ← web surface channel (browser app rendering view-spec UIs over a WebSocket)
+@moxxy/plugin-channel-mobile        ← mobile channel (desktop IPC contract over an authenticated WebSocket; `moxxy mobile`)
+@moxxy/plugin-view                  ← present_view tool: agent-authored JSX-like view-specs → validated AST
 @moxxy/plugin-scheduler             ← time-driven prompts
 @moxxy/plugin-webhooks              ← external-event triggers (verified HTTP listener + tunnels)
 @moxxy/plugin-workflows             ← swappable DAG engine: chain skills/prompts/tools into saved, schedulable pipelines
@@ -311,15 +346,22 @@ export default defineConfig({
 @moxxy/plugin-usage-stats           ← per-session token + cost accounting
 @moxxy/compactor-summarize          ← default context-window compactor
 @moxxy/cache-strategy-stable-prefix ← default prompt-cache strategy (deterministic breakpoints; `none` opts out)
+@moxxy/skills-builtin               ← Markdown skills bundled with the framework
 @moxxy/runner                       ← bare session runner; channels attach over a unix socket (JSON-RPC)
 @moxxy/cli                          ← the `moxxy` binary
 @moxxy/config                       ← defineConfig + moxxy.config.ts loader
 @moxxy/testing                      ← FakeProvider + record/replay harness
 @moxxy/chat-model                   ← UI-neutral chat model (event→block fold + markdown AST + chunked log); shared by the TUI and desktop
 apps/desktop                        ← Electron desktop app (attaches to @moxxy/runner)
+apps/mobile                         ← Expo (React Native) PoC: the shared client layer over the desktop's WebSocket bridge
 @moxxy/desktop-ipc-contract         ← typed desktop IPC boundary (channels + payloads + Zod validation + error envelope)
 @moxxy/desktop-host                 ← desktop Electron main process (runner pool/supervisor, IPC, NDJSON chat log, security)
 @moxxy/desktop-ui                   ← framework-light React UI primitives (Icon set, Modal, Skeleton); shared by the renderer
+@moxxy/client-core                  ← DOM-free headless client layer (stores + use* hooks + transport seam + platform capabilities)
+@moxxy/client-platform-web          ← web platform capabilities for client-core (mic capture, Web Speech TTS, localStorage KV)
+@moxxy/client-transport-ws          ← MoxxyApi over a WebSocket JSON-RPC client (global WebSocket; Metro/RN-safe)
+@moxxy/ipc-server-ws                ← serves the desktop IPC contract over an authenticated WebSocket (bearer-token handshake)
+@moxxy/design-tokens                ← framework-neutral design tokens + :root CSS-variable generator
 ```
 
 The hard invariant: `@moxxy/sdk` has zero internal deps; `@moxxy/core` doesn't import any plugin. Enforced in CI via `pnpm check:deps`.
@@ -328,7 +370,7 @@ The hard invariant: `@moxxy/sdk` has zero internal deps; `@moxxy/core` doesn't i
 
 ```
 packages/        publishable @moxxy/* packages
-apps/            desktop app, docs site, fixture-recorder
+apps/            desktop app, mobile (Expo) PoC, docs site, fixture-recorder
 assets/          README media (mascot + demo gifs)
 tooling/         shared tsconfig + eslint + vitest preset
 .claude/agents/  AI-agent author guides (skill, plugin, tool, channel, provider, compactor, cache strategy, …)

@@ -320,6 +320,32 @@ jobs:
             echo "CSC_LINK set but no notarization creds — signing without notarizing."
           fi
 
+      # Record the macOS signing outcome so the release job can write a
+      # release body that matches reality (signed+notarized builds get a clean
+      # install story; unsigned builds get the Gatekeeper/SmartScreen
+      # workarounds). One file from the macOS leg is enough — it is the only
+      # platform with a signing decision today.
+      - name: Record signing status
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/signing-status"
+          if [ "${{ steps.signing.outputs.notarize }}" = "true" ]; then
+            echo "signed-notarized" > "$RUNNER_TEMP/signing-status/signing-status.txt"
+          elif [ "${CSC_IDENTITY_AUTO_DISCOVERY:-false}" = "true" ]; then
+            echo "signed" > "$RUNNER_TEMP/signing-status/signing-status.txt"
+          else
+            echo "unsigned" > "$RUNNER_TEMP/signing-status/signing-status.txt"
+          fi
+          cat "$RUNNER_TEMP/signing-status/signing-status.txt"
+
+      - name: Upload signing status
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-signing-status
+          path: ${{ runner.temp }}/signing-status/signing-status.txt
+
       # electron-builder reads the per-OS targets from apps/desktop's
       # package.json#build and emits to apps/desktop/release/. Signing /
       # notarization env is consumed only when the secrets are present
@@ -393,11 +419,67 @@ jobs:
               -f ref="refs/tags/$tag" -f sha="$sha"
             echo "Pushed $tag at $sha."
           fi
+      # The release body reflects what THIS run actually built: the macOS leg
+      # records its signing outcome (signed-notarized / signed / unsigned) and
+      # the body is composed from it — no more hardcoded "unsigned" text on
+      # releases that CI signed and notarized. The status file is consumed
+      # here and removed so it is never attached as a release asset.
+      - name: Compose release body
+        shell: bash
+        run: |
+          version="${{ needs.version-publish.outputs.desktop-version }}"
+          status="unsigned"
+          if [ -f artifacts/signing-status.txt ]; then
+            status="$(cat artifacts/signing-status.txt)"
+            rm -f artifacts/signing-status.txt
+          fi
+          {
+            echo "MoxxyAI Workspaces desktop **v${version}**."
+            echo
+            echo "**In this release:** macOS \`.dmg\`, Windows \`.exe\`, Linux \`.deb\`/\`.AppImage\`,"
+            echo "plus the signed Tier-1 hot-update bundle (\`moxxy-app-manifest.json\` +"
+            echo "\`moxxy-app-bundle-*.json.gz\`) and the electron-updater feed (\`latest*.yml\`)."
+            echo "Existing installs self-update from these assets once the release is published."
+            echo
+            case "$status" in
+              signed-notarized)
+                echo "**macOS: Developer ID signed + notarized** — installs and launches with no"
+                echo "Gatekeeper prompts."
+                echo
+                echo "**Windows:** not Authenticode-signed yet; SmartScreen may show"
+                echo "\"More info → Run anyway\" on first launch."
+                ;;
+              signed)
+                echo "**macOS: Developer ID signed (not notarized)** — Gatekeeper may still warn"
+                echo "on first launch: right-click the app → **Open**, then confirm."
+                echo
+                echo "**Windows:** \"More info → Run anyway\" on the SmartScreen prompt."
+                ;;
+              *)
+                echo "**Unsigned (ad-hoc signed only)** — these builds are not notarized, so"
+                echo "Gatekeeper / SmartScreen will warn on first launch."
+                echo
+                echo "**macOS:** right-click the app → **Open**, then confirm. If macOS still says"
+                echo "the app \"is damaged\" or \"can't be opened\", clear the download quarantine:"
+                echo
+                echo '```sh'
+                echo 'xattr -dr com.apple.quarantine "/Applications/MoxxyAI Workspaces.app"'
+                echo '```'
+                echo
+                echo "**Windows:** \"More info → Run anyway\" on the SmartScreen prompt."
+                echo
+                echo "A clean, prompt-free install needs Developer ID + notarization — see"
+                echo "\`docs/desktop-code-signing.md\` (CI signs automatically once the secrets exist)."
+                ;;
+            esac
+          } > "$RUNNER_TEMP/release-body.md"
+          cat "$RUNNER_TEMP/release-body.md"
+
       # NOTE: self-update needs PUBLISHED assets. The release is created as a
-      # DRAFT (human review of the unsigned build); the moxxy-app-manifest.json /
-      # bundle (Tier-1) and the electron-updater latest*.yml feed (Tier-2) only
-      # become downloadable via `releases/latest/download/...` once a human
-      # PUBLISHES this release. So: review → Publish → clients can update.
+      # DRAFT (human review); the moxxy-app-manifest.json / bundle (Tier-1) and
+      # the electron-updater latest*.yml feed (Tier-2) only become downloadable
+      # via `releases/latest/download/...` once a human PUBLISHES this release.
+      # So: review → Publish → clients can update.
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
@@ -405,22 +487,4 @@ jobs:
           files: artifacts/*
           draft: true
           generate_release_notes: true
-          body: |
-            MoxxyAI Workspaces desktop build.
-
-            **Unsigned (ad-hoc signed only)** — these builds are not notarized,
-            so Gatekeeper / SmartScreen will warn on first launch.
-
-            **macOS:** right-click the app → **Open**, then confirm. If macOS
-            still says the app "is damaged" or "can't be opened", clear the
-            download quarantine and launch:
-
-            ```sh
-            xattr -dr com.apple.quarantine "/Applications/MoxxyAI Workspaces.app"
-            ```
-
-            **Windows:** "More info → Run anyway" on the SmartScreen prompt.
-
-            A clean, prompt-free install needs a Developer ID certificate +
-            notarization (set the signing secrets and drop
-            `CSC_IDENTITY_AUTO_DISCOVERY=false`).
+          body_path: ${{ runner.temp }}/release-body.md

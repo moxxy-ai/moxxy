@@ -14,6 +14,22 @@ export interface OpenAIProviderConfig {
   readonly baseURL?: string;
   readonly defaultModel?: string;
   readonly client?: OpenAI;
+  /**
+   * Override the reported provider name (events, usage stats, error
+   * context). Defaults to `'openai'`. Runtime-registered OpenAI-compatible
+   * vendors (provider_add → z.ai, deepseek, groq, …) reuse this class and
+   * MUST pass their own slug here, otherwise their traffic and errors are
+   * all misattributed to OpenAI.
+   */
+  readonly name?: string;
+  /**
+   * Override the advertised model catalog. Defaults to the OpenAI catalog.
+   * Runtime-registered vendors pass their own descriptors so context-window
+   * lookups (compaction/elision budgets) and capability gating
+   * (supportsImages/supportsDocuments) work against the vendor's models
+   * instead of missing on the OpenAI list.
+   */
+  readonly models?: ReadonlyArray<ModelDescriptor>;
 }
 
 /**
@@ -60,12 +76,14 @@ interface PendingToolCall {
 }
 
 export class OpenAIProvider implements LLMProvider {
-  readonly name = 'openai';
-  readonly models = openAIModels;
+  readonly name: string;
+  readonly models: ReadonlyArray<ModelDescriptor>;
   private readonly client: OpenAI;
   private readonly defaultModel: string;
 
   constructor(config: OpenAIProviderConfig = {}) {
+    this.name = config.name ?? 'openai';
+    this.models = config.models ?? openAIModels;
     this.client =
       config.client ??
       new OpenAI({
@@ -77,6 +95,16 @@ export class OpenAIProvider implements LLMProvider {
 
   async *stream(req: ProviderRequest): AsyncIterable<ProviderEvent> {
     const messages = toOpenAIMessages(req.messages);
+    // `req.system` is the hook-injection side channel (e.g. the memory
+    // consolidation nudge): extra system text delivered IN ADDITION to any
+    // system-role messages already in `req.messages`. Insert it right after
+    // the leading system message(s) so it reads as system guidance without
+    // reordering the conversation.
+    if (req.system) {
+      let insertAt = 0;
+      while (insertAt < messages.length && messages[insertAt]!.role === 'system') insertAt += 1;
+      messages.splice(insertAt, 0, { role: 'system', content: req.system });
+    }
     const tools = req.tools && req.tools.length > 0 ? toOpenAITools(req.tools) : undefined;
     const model = req.model || this.defaultModel;
 
@@ -113,7 +141,7 @@ export class OpenAIProvider implements LLMProvider {
         req.signal ? { signal: req.signal } : undefined,
       )) as unknown as AsyncIterable<unknown>;
     } catch (err) {
-      yield { type: 'error', ...toFriendlyError(err, { provider: 'openai' }) };
+      yield { type: 'error', ...toFriendlyError(err, { provider: this.name }) };
       return;
     }
 
@@ -180,7 +208,7 @@ export class OpenAIProvider implements LLMProvider {
         }
       }
     } catch (err) {
-      yield { type: 'error', ...toFriendlyError(err, { provider: 'openai' }) };
+      yield { type: 'error', ...toFriendlyError(err, { provider: this.name }) };
       return;
     }
 

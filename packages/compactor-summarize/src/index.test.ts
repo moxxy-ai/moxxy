@@ -84,4 +84,76 @@ describe('summarizeCompactor', () => {
     expect(result.replacedRange).toEqual([0, 0]);
     expect(result.tokensSaved).toBe(0);
   });
+
+  it('summarizes via the session provider from CompactContext when no custom summarizer is set', async () => {
+    const compactor = createSummarizeCompactor({ keepRecentTurns: 2 });
+    const seen: { system?: string; model?: string; text?: string } = {};
+    const provider = {
+      name: 'fake',
+      models: [{ id: 'fake-model', contextWindow: 100_000, supportsTools: true, supportsStreaming: true }],
+      stream: async function* (req: {
+        model: string;
+        system?: string;
+        messages: ReadonlyArray<{ content: ReadonlyArray<{ type: string; text?: string }> }>;
+      }) {
+        seen.model = req.model;
+        seen.system = req.system;
+        seen.text = req.messages[0]?.content[0]?.text;
+        yield { type: 'text_delta' as const, delta: 'a real model-written ' };
+        yield { type: 'text_delta' as const, delta: 'summary' };
+        yield { type: 'message_end' as const, stopReason: 'end_turn' as const };
+      },
+      countTokens: () => Promise.resolve(0),
+    };
+    const events: MoxxyEvent[] = [
+      ev(0, 't1', 'turn1-' + 'x'.repeat(400)),
+      ev(1, 't2', 'turn2-' + 'y'.repeat(400)),
+      ev(2, 't3', 'turn3'),
+      ev(3, 't4', 'turn4'),
+    ];
+    const result = await compactor.compact(events, {
+      log: { length: 0, at: () => undefined, slice: () => [], ofType: () => [], byTurn: () => [], toJSON: () => [] },
+      budget: { contextWindow: 100_000, estimatedTokens: 90_000, reserveForOutput: 0 },
+      signal: new AbortController().signal,
+      provider: provider as never,
+      model: 'fake-model',
+    });
+    expect(result.summary).toBe('a real model-written summary');
+    expect(seen.model).toBe('fake-model');
+    expect(seen.text).toContain('turn1');
+    expect(seen.text).toContain('turn2');
+    // Honest accounting: original ~812 chars replaced by a 28-char summary.
+    expect(result.tokensSaved).toBe(Math.ceil((812 - result.summary.length) / 4));
+  });
+
+  it('falls back to a LABELED digest truncation (no fabricated savings) without a provider', async () => {
+    const compactor = createSummarizeCompactor({ keepRecentTurns: 2 });
+    const events: MoxxyEvent[] = [
+      ev(0, 't1', 'turn1-' + 'x'.repeat(400)),
+      ev(1, 't2', 'turn2'),
+      ev(2, 't3', 'turn3'),
+      ev(3, 't4', 'turn4'),
+    ];
+    const result = await compactor.compact(events);
+    expect(result.summary).toContain('not a summary'); // honest label
+    expect(result.summary).toContain('turn1');
+    // tokensSaved derives from real char deltas, never `slice.length * 30`.
+    const originalChars = 406 + 5; // the two compacted assistant messages
+    expect(result.tokensSaved).toBe(Math.max(0, Math.ceil((originalChars - result.summary.length) / 4)));
+  });
+
+  it('reports zero savings when the "summary" would be longer than the original', async () => {
+    const compactor = createSummarizeCompactor({
+      keepRecentTurns: 2,
+      summary: () => 'Z'.repeat(5_000),
+    });
+    const events: MoxxyEvent[] = [
+      ev(0, 't1', 'tiny1'),
+      ev(1, 't2', 'tiny2'),
+      ev(2, 't3', 'turn3'),
+      ev(3, 't4', 'turn4'),
+    ];
+    const result = await compactor.compact(events);
+    expect(result.tokensSaved).toBe(0); // dispatcher will discard it
+  });
 });

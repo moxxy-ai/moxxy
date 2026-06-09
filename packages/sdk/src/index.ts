@@ -143,7 +143,7 @@ export type {
   ViewTagSpec,
   ViewRendererDef,
 } from './view-renderer.js';
-export { VIEW_PRIMITIVES, VIEW_COMPONENTS, DEFAULT_VIEW_TAGS } from './view-renderer.js';
+export { VIEW_PRIMITIVES, VIEW_COMPONENTS, DEFAULT_VIEW_TAGS, isSafeViewUrl } from './view-renderer.js';
 export type { TunnelProviderDef, TunnelHandle, TunnelOpenOptions } from './tunnel.js';
 export { isRetryableError, toFriendlyError, zodToJsonSchema, estimateTextTokens, type StopReason } from './provider-utils.js';
 export { writeFileAtomic, moxxyHome, moxxyPath, type WriteFileAtomicOptions } from './fs-utils.js';
@@ -380,11 +380,5 @@ export {
   type InstallHint,
   type InstallTarget,
 } from './install-hints.js';
-
-export {
-  checkTranscriberReady,
-  pickFirstAvailableTranscriber,
-  resolveTranscriber,
-} from './voice.js';
 
 export { z } from 'zod';

@@ -1,5 +1,6 @@
 import { defineTool, definePlugin, MoxxyError, type Plugin, type ProviderDef, z } from '@moxxy/sdk';
 import { buildProviderDef, validateOpenAICompatKey } from './factory.js';
+import { providerApiKeyName } from './key-name.js';
 import {
   providersConfigPath,
   readProvidersConfig,
@@ -11,6 +12,7 @@ import type { StoredProvider } from './types.js';
 export { providersConfigPath, readProvidersConfig, upsertStoredProvider, removeStoredProvider };
 export type { StoredProvider, StoredProviderOpenAICompat, StoredProvidersConfig } from './types.js';
 export { buildProviderDef, validateOpenAICompatKey } from './factory.js';
+export { providerApiKeyName, storedProviderApiKeyName } from './key-name.js';
 
 /**
  * Minimal subset of the in-process ProviderRegistry the admin plugin
@@ -46,6 +48,12 @@ const modelDescriptorSchema = z.object({
   supportsTools: z.boolean().default(true),
   supportsStreaming: z.boolean().default(true),
   supportsImages: z.boolean().optional(),
+  /**
+   * Whether the model ingests `document` blocks (native PDF etc.). Without
+   * this flag the desktop degrades attachments to extracted text for every
+   * runtime-registered provider — declare it for models that take files.
+   */
+  supportsDocuments: z.boolean().optional(),
   supportsAudio: z.boolean().optional(),
 });
 
@@ -138,7 +146,7 @@ export function buildProviderAdminPlugin(opts: BuildProviderAdminPluginOptions):
             providerRegistry.unregister(entry.name);
             throw err;
           }
-          const vaultKeyName = entry.envVar ?? `${entry.name.toUpperCase()}_API_KEY`;
+          const vaultKeyName = providerApiKeyName(entry);
           return {
             ok: true,
             name: entry.name,
@@ -173,7 +181,7 @@ export function buildProviderAdminPlugin(opts: BuildProviderAdminPluginOptions):
               baseURL: p.baseURL,
               defaultModel: p.defaultModel,
               models: p.models.map((m) => m.id),
-              envVar: p.envVar ?? `${p.name.toUpperCase()}_API_KEY`,
+              envVar: providerApiKeyName(p),
             })),
           };
         },

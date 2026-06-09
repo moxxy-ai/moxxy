@@ -15,7 +15,7 @@
  * search across thousands of messages later becomes a hard requirement.
  */
 
-import { appendFile, mkdir, open, readFile, rm } from 'node:fs/promises';
+import { appendFile, mkdir, open, readFile, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import type { MoxxyEvent } from '@moxxy/sdk';
@@ -48,6 +48,71 @@ function fileFor(workspaceId: string): string {
  * file is the renderer's windowed mirror.)
  */
 const writtenIds = new Map<string, Set<string>>();
+
+/**
+ * Per-file line-offset index so {@link loadSegment} reads ONLY the bytes of
+ * the requested page instead of re-reading + JSON.parsing the entire NDJSON
+ * file on every scroll-up (which made paging O(file) per page and grew with
+ * the conversation). `offsets[i]` is the byte offset of the i-th VALID event
+ * line (parse-checked once at build time — corrupt/empty lines are excluded,
+ * so these indices are exactly the cursor space `loadSegment` always used).
+ *
+ * Invalidation mirrors the {@link writtenIds} idempotency cache:
+ *   - {@link appendEvents} extends the index in place when it is provably
+ *     current (pre-append file size matches), else drops it
+ *   - {@link clearLog} / {@link migrate} drop it
+ *   - a size/mtime guard catches out-of-band file edits (tests, other
+ *     processes) and triggers a lazy rebuild
+ */
+interface LineIndex {
+  /** Byte offset of each valid event line start, in cursor order. */
+  offsets: number[];
+  /** File byte size the index describes (also the end of the last line). */
+  size: number;
+  mtimeMs: number;
+}
+
+const lineIndexes = new Map<string, LineIndex>();
+
+/** Get the (validated) line index for a file, rebuilding it if the file is
+ *  unknown or changed out-of-band. Returns null when the file doesn't exist. */
+async function lineIndexFor(file: string): Promise<LineIndex | null> {
+  let st;
+  try {
+    st = await stat(file);
+  } catch {
+    lineIndexes.delete(file);
+    return null;
+  }
+  const cached = lineIndexes.get(file);
+  if (cached && cached.size === st.size && cached.mtimeMs === st.mtimeMs) return cached;
+
+  let body: Buffer;
+  try {
+    body = await readFile(file);
+  } catch {
+    lineIndexes.delete(file);
+    return null;
+  }
+  const offsets: number[] = [];
+  let pos = 0;
+  while (pos < body.length) {
+    const nl = body.indexOf(0x0a, pos);
+    const lineEnd = nl === -1 ? body.length : nl;
+    if (lineEnd > pos) {
+      try {
+        JSON.parse(body.toString('utf8', pos, lineEnd));
+        offsets.push(pos);
+      } catch {
+        /* corrupt line — excluded from the cursor space, same as readLines */
+      }
+    }
+    pos = lineEnd + 1;
+  }
+  const built: LineIndex = { offsets, size: body.length, mtimeMs: st.mtimeMs };
+  lineIndexes.set(file, built);
+  return built;
+}
 
 async function knownIds(workspaceId: string): Promise<Set<string>> {
   const key = fileFor(workspaceId);
@@ -90,9 +155,41 @@ export async function appendEvents(
   const fresh = events.filter((e) => !seen.has(e.id));
   if (fresh.length === 0) return;
   await mkdir(chatsDir(), { recursive: true });
-  const lines = fresh.map((e) => JSON.stringify(e)).join('\n') + '\n';
-  await appendFile(fileFor(workspaceId), lines, 'utf8');
+  const file = fileFor(workspaceId);
+  const serialized = fresh.map((e) => JSON.stringify(e));
+  const lines = serialized.join('\n') + '\n';
+
+  // Extend the line index in place when it provably describes the file as it
+  // is right now (size match); otherwise drop it and let the next loadSegment
+  // rebuild lazily. Checked BEFORE the append so the new lines' offsets are
+  // computed against the verified base size.
+  const idx = lineIndexes.get(file);
+  let extendFrom: number | null = null;
+  if (idx) {
+    try {
+      extendFrom = (await stat(file)).size === idx.size ? idx.size : null;
+    } catch {
+      extendFrom = null;
+    }
+    if (extendFrom === null) lineIndexes.delete(file);
+  }
+
+  await appendFile(file, lines, 'utf8');
   for (const e of fresh) seen.add(e.id);
+
+  if (idx && extendFrom !== null) {
+    let off = extendFrom;
+    for (const line of serialized) {
+      idx.offsets.push(off);
+      off += Buffer.byteLength(line, 'utf8') + 1;
+    }
+    idx.size = off;
+    try {
+      idx.mtimeMs = (await stat(file)).mtimeMs;
+    } catch {
+      lineIndexes.delete(file);
+    }
+  }
 }
 
 /**
@@ -106,16 +203,49 @@ export async function loadSegment(
   before: number | null,
   limit: number,
 ): Promise<{ events: MoxxyEvent[]; prevCursor: number | null }> {
-  const all = await readLines(workspaceId);
-  const end = before === null ? all.length : Math.min(before, all.length);
+  const file = fileFor(workspaceId);
+  const idx = await lineIndexFor(file);
+  if (!idx || idx.offsets.length === 0) return { events: [], prevCursor: null };
+
+  const total = idx.offsets.length;
+  const end = before === null ? total : Math.min(before, total);
   const start = Math.max(0, end - limit);
-  return { events: all.slice(start, end), prevCursor: start > 0 ? start : null };
+  const prevCursor = start > 0 ? start : null;
+  if (end <= start) return { events: [], prevCursor };
+
+  // Seek-read only the page's byte range; the bytes between two valid-line
+  // offsets may contain corrupt/empty lines, which the parse loop skips —
+  // exactly the lines the index excluded, so the page equals the old
+  // whole-file slice byte for byte.
+  const byteStart = idx.offsets[start]!;
+  const byteEnd = end < total ? idx.offsets[end]! : idx.size;
+  let segment: string;
+  const handle = await open(file, 'r');
+  try {
+    const buf = Buffer.alloc(byteEnd - byteStart);
+    await handle.read(buf, 0, buf.length, byteStart);
+    segment = buf.toString('utf8');
+  } finally {
+    await handle.close();
+  }
+
+  const events: MoxxyEvent[] = [];
+  for (const line of segment.split('\n')) {
+    if (!line) continue;
+    try {
+      events.push(JSON.parse(line) as MoxxyEvent);
+    } catch {
+      /* skip a corrupt line rather than lose the page */
+    }
+  }
+  return { events, prevCursor };
 }
 
 /** Truncate a workspace's log (Clear conversation). Also drops the
  *  idempotency cache so re-adding the same ids writes them again. */
 export async function clearLog(workspaceId: string): Promise<void> {
   writtenIds.delete(fileFor(workspaceId));
+  lineIndexes.delete(fileFor(workspaceId));
   try {
     await rm(fileFor(workspaceId));
   } catch {
@@ -152,9 +282,11 @@ export async function migrate(
     }
     try {
       await handle.writeFile(lines, 'utf8');
-      // Force a re-hydrate of the idempotency cache from the freshly-seeded
-      // file, in case a live append had already cached this log as empty.
+      // Force a re-hydrate of the idempotency + line-index caches from the
+      // freshly-seeded file, in case a live append/load had already cached
+      // this log as empty.
       writtenIds.delete(fileFor(workspaceId));
+      lineIndexes.delete(fileFor(workspaceId));
     } finally {
       await handle.close();
     }

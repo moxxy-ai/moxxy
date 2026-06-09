@@ -11,7 +11,7 @@ import {
   type MemoryType,
   type RecallMode,
 } from './store/types.js';
-import { isEnoent, listEntries, readEntry, safeRead, writeIndex } from './store/io.js';
+import { isEnoent, listEntries, readEntry, safeRead, writeIndex, type IndexRow } from './store/io.js';
 import { rankByKeywords, recallVector, type RankedMemory } from './store/search.js';
 
 export {
@@ -44,7 +44,20 @@ export interface MemoryStoreOptions {
    * per-entry caching doesn't help).
    */
   readonly persistEmbeddings?: boolean;
+  /**
+   * Soft cap on the number of stored memories. WARN-ONLY by design: memories
+   * are deliberately-saved user knowledge consumed both via `recall` and via
+   * the MEMORY.md index agents read directly, so silent oldest-eviction would
+   * be silent data loss. When a save pushes the store past this cap, the save
+   * still succeeds but a warning is logged and surfaced through
+   * {@link MemoryStore.capStatus} (the `memory_save` tool relays it to the
+   * model so it can consolidate or `memory_forget` stale entries).
+   */
+  readonly maxMemories?: number;
 }
+
+/** Default soft cap — see {@link MemoryStoreOptions.maxMemories}. */
+export const DEFAULT_MAX_MEMORIES = 500;
 
 export function defaultMemoryDir(): string {
   return moxxyPath('memory');
@@ -63,10 +76,20 @@ export class MemoryStore {
   // entry file, MEMORY.md, and the embedding index; without serialization two
   // overlapping calls clobber MEMORY.md and race the embedding cache.
   private readonly mutex: Mutex = createMutex();
+  private readonly maxMemories: number;
+  // In-memory MEMORY.md rows (name → frontmatter+path), hydrated lazily from
+  // disk ONCE, then maintained incrementally on save/update/forget — so a
+  // write no longer re-reads + re-parses every memory file to rebuild the
+  // index (the old O(N)-per-write rebuild). Entries written to the dir by
+  // other processes appear after the next hydration (new store instance);
+  // within one process this store is the only writer, same assumption the
+  // mutex already makes.
+  private indexRows: Map<string, IndexRow> | null = null;
 
   constructor(opts: MemoryStoreOptions = {}) {
     this.dir = opts.dir ?? defaultMemoryDir();
     this.persistOpt = opts.persistEmbeddings;
+    this.maxMemories = opts.maxMemories ?? DEFAULT_MAX_MEMORIES;
     const e = opts.embedder;
     if (typeof e === 'function') {
       this.resolveEmbedder = e;
@@ -141,13 +164,24 @@ export class MemoryStore {
       const filePath = this.fileFor(name);
       try {
         await fs.unlink(filePath);
-        await this.rebuildIndex();
+        const rows = await this.rows();
+        rows.delete(name);
+        await this.writeIndexFromRows(rows);
         return true;
       } catch (err) {
         if (isEnoent(err)) return false;
         throw err;
       }
     });
+  }
+
+  /**
+   * Soft-cap status (see {@link MemoryStoreOptions.maxMemories}). `over` means
+   * the store holds more entries than the cap; nothing is ever evicted.
+   */
+  async capStatus(): Promise<{ count: number; max: number; over: boolean }> {
+    const rows = await this.rows();
+    return { count: rows.size, max: this.maxMemories, over: rows.size > this.maxMemories };
   }
 
   /** The actual entry write. NOT serialized — callers hold the mutex. */
@@ -169,7 +203,18 @@ export class MemoryStore {
     });
     const content = `${renderFrontmatter(frontmatter)}\n\n${input.body.trimEnd()}\n`;
     await writeFileAtomic(filePath, content);
-    await this.rebuildIndex();
+    // Incremental index maintenance: update THIS entry's row and re-render
+    // MEMORY.md from the in-memory rows — no per-write re-read of every file.
+    const rows = await this.rows();
+    rows.set(frontmatter.name, { frontmatter, path: filePath });
+    await this.writeIndexFromRows(rows);
+    if (rows.size > this.maxMemories) {
+      // Warn-only soft cap — eviction would silently destroy saved knowledge.
+      console.warn(
+        `[plugin-memory] memory store holds ${rows.size} entries (soft cap ${this.maxMemories}). ` +
+          `Nothing is evicted; consider consolidating or forgetting stale memories.`,
+      );
+    }
     return { frontmatter, body: input.body.trimEnd(), path: filePath };
   }
 
@@ -200,8 +245,25 @@ export class MemoryStore {
     return path.join(this.dir, `${name}.md`);
   }
 
-  private async rebuildIndex(): Promise<void> {
-    const entries = await this.list();
-    await writeIndex(this.dir, entries);
+  /** Hydrate the index-row cache from disk once, then serve it from memory.
+   *  Callers that mutate it hold the store mutex (writeEntry/forget). */
+  private async rows(): Promise<Map<string, IndexRow>> {
+    if (!this.indexRows) {
+      const entries = await listEntries(this.dir);
+      this.indexRows = new Map(
+        entries.map((e) => [e.frontmatter.name, { frontmatter: e.frontmatter, path: e.path }]),
+      );
+    }
+    return this.indexRows;
+  }
+
+  /** Render MEMORY.md from the cached rows, name-sorted so the output is
+   *  deterministic (readdir order, which the old full rebuild inherited,
+   *  was platform-dependent anyway). */
+  private writeIndexFromRows(rows: Map<string, IndexRow>): Promise<void> {
+    const sorted = [...rows.values()].sort((a, b) =>
+      a.frontmatter.name.localeCompare(b.frontmatter.name),
+    );
+    return writeIndex(this.dir, sorted);
   }
 }

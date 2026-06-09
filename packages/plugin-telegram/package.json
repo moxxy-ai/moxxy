@@ -33,8 +33,7 @@
     "@moxxy/core": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/sdk": "workspace:*",
-    "grammy": "^1.30.0",
-    "zod": "catalog:"
+    "grammy": "^1.30.0"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",

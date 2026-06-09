@@ -32,6 +32,13 @@ export interface CodexProviderConfig {
    */
   readonly reloadTokens?: () => Promise<CodexTokens | null>;
   readonly defaultModel?: string;
+  /**
+   * Reasoning effort sent with every request (`reasoning.effort`).
+   * Defaults to `'medium'`. Reaches here from `provider.config` in
+   * moxxy.config.ts (e.g. `{ reasoningEffort: 'high' }`); the CLI's
+   * credential resolution merges that config through to `createClient`.
+   */
+  readonly reasoningEffort?: 'low' | 'medium' | 'high';
   /** Test seam — when omitted we use the global `fetch`. */
   readonly fetch?: typeof fetch;
   /** Test seam — when omitted we use crypto.randomUUID for the per-request session id. */
@@ -42,6 +49,13 @@ export interface CodexProviderConfig {
  * LLMProvider implementation against the ChatGPT-plan Codex backend. Auth is
  * an OAuth bearer plus the optional ChatGPT-Account-Id header; the rest of
  * the request body is the OpenAI Responses-API shape.
+ *
+ * Request-param support: `req.maxTokens` maps to the Responses
+ * `max_output_tokens` field; `req.temperature` is NOT forwarded — the Codex
+ * backend only serves gpt-5-family reasoning models, which reject sampling
+ * params with a 400, so it is dropped (with a one-shot MOXXY_DEBUG note)
+ * instead of breaking the request. Reasoning effort is configurable via
+ * `CodexProviderConfig.reasoningEffort` (default `'medium'`).
  */
 export class CodexProvider implements LLMProvider {
   readonly name = 'openai-codex';
@@ -51,6 +65,7 @@ export class CodexProvider implements LLMProvider {
   private readonly onTokensRefreshed?: (next: CodexTokens) => void | Promise<void>;
   private readonly reloadTokens?: () => Promise<CodexTokens | null>;
   private readonly defaultModel: string;
+  private readonly reasoningEffort?: 'low' | 'medium' | 'high';
   private readonly fetchImpl: typeof fetch;
   private readonly sessionIdProvider: () => string;
 
@@ -59,6 +74,7 @@ export class CodexProvider implements LLMProvider {
     if (config.onTokensRefreshed) this.onTokensRefreshed = config.onTokensRefreshed;
     if (config.reloadTokens) this.reloadTokens = config.reloadTokens;
     this.defaultModel = config.defaultModel ?? DEFAULT_CODEX_MODEL;
+    if (config.reasoningEffort) this.reasoningEffort = config.reasoningEffort;
     this.fetchImpl = config.fetch ?? fetch;
     // Default to ONE id for the instance's lifetime, not a fresh uuid per call.
     // The session id becomes the `prompt_cache_key`, so it must be stable
@@ -83,7 +99,13 @@ export class CodexProvider implements LLMProvider {
     // Pass the session id as the Responses prefix-cache key so repeated turns
     // in a session reuse the cached prefix (cheaper + faster). Codex DOES
     // support this even though the Chat-Completions providers ignore cacheHints.
-    const body = toResponsesBody({ ...req, model }, { sessionHint: sessionId });
+    const body = toResponsesBody(
+      { ...req, model },
+      {
+        sessionHint: sessionId,
+        ...(this.reasoningEffort ? { reasoningEffort: this.reasoningEffort } : {}),
+      },
+    );
 
     let response: Response;
     try {

@@ -240,6 +240,104 @@ Full report incl. the medium/low backlog and refuted findings:
   model) but emits an audit log with both roles, with `MOXXY_RUNNER_STRICT_ABORT=1`
   opting into denial. Documented gap: win32 named pipes keep the default DACL (Everyone:
   read-only, no write) — Node can't set an explicit ACL; a one-time warn states this.
+- **A32 [low, docs] Docs drift reconciled** — ✅ FIXED (this PR): AGENTS.md no longer names the
+  deleted `@moxxy/mode-tool-use` as the default mode (it's `@moxxy/mode-default`; first
+  registered mode auto-activates), AGENTS.md/README.md architecture lists now cover all
+  50+ packages incl. the PR #120 client layer (client-core/platform-web/transport-ws,
+  ipc-server-ws, design-tokens, plugin-channel-mobile, apps/mobile) + plugin-channel-web/
+  plugin-view/skills-builtin, the published sdk README's examples were rewritten against the
+  real API (modes default/goal/research, ProviderDef.createClient, real hook names, real
+  isolation/compact shapes), docs tools-builtin.md states eight tools and no core dependency,
+  testing.md samples use the actual `@moxxy/testing` exports, quickstart says four providers,
+  and a complete package index page (`apps/docs/.../packages/overview.md`) covers every package.
+- **A33 [low, dead-code] Dead exports removed** — ✅ FIXED (this PR): core's unused
+  `selectPendingToolCalls`/`selectCurrentTurn` selectors (zero importers; file + tests deleted)
+  and the sdk voice helpers (`checkTranscriberReady`/`resolveTranscriber`/
+  `pickFirstAvailableTranscriber`, zero importers — the three live transcriber-activation
+  copies in channels never adopted them) are gone from the public surfaces.
+- **A34 [low, hygiene] plugin-telegram zod dep + dead turbo lint task** — ✅ FIXED (this PR):
+  removed `zod` from plugin-telegram's dependencies (never imported) and the `lint` task from
+  turbo.json (no package defines a lint script; root `pnpm lint` runs `eslint .` directly —
+  wiring lint through turbo would need per-package lint scripts, judged not worth it now).
+- **A35 [low, docs] MOXXY_* env vars documented** — ✅ FIXED (this PR): full table added to
+  README ("Environment variables", 20+ vars incl. the PR #120 WS-bridge/mobile set:
+  MOXXY_WS_BRIDGE/PORT/HOST/TOKEN, MOXXY_MOBILE_TOKEN/HOST/TUNNEL) and the CLI `--help` ENV
+  section extended with the user-facing ones + a pointer to the README table.
+- **A36 [med, inconsistency] Codex provider silently dropped req.maxTokens/req.temperature;
+  reasoningEffort pinned to 'medium'** — ✅ FIXED (this PR): `maxTokens` now maps to the
+  Responses `max_output_tokens`; `temperature` is documented-unsupported (gpt-5 reasoning
+  models 400 on sampling params) with a one-shot MOXXY_DEBUG note instead of a silent drop;
+  `reasoningEffort` is a live `CodexProviderConfig` option and the CLI's codex credential
+  resolver now merges `provider.config` through (it used to discard every configured option).
+- **A37 [med, inconsistency] Runtime-registered openai-compat providers were second-class** —
+  ✅ FIXED (this PR): the live client now reports the vendor's slug + model catalog
+  (`OpenAIProviderConfig.name`/`models`, wired from `buildProviderDef`) so usage/errors
+  attribute correctly; vault/env key naming unified into `providerApiKeyName` /
+  `storedProviderApiKeyName` in plugin-provider-admin (CLI `canonicalKey` delegates, gains
+  `-`→`_`; `resolveProviderCredentials` honors the stored `envVar` override the desktop
+  already used; desktop's `envVarFor` matches the helper's semantics verbatim); and
+  `provider_add`'s model schema accepts `supportsDocuments` (zod was stripping it, degrading
+  attachments for every runtime provider).
+- **A38 [med, dead-end] `req.system` was dead weight — hook-injected system text (memory
+  consolidation nudge) silently dropped** — ✅ FIXED (this PR): contract decided as
+  "delivered IN ADDITION to system-role messages": loop helpers no longer prefill it
+  (`collectProviderStream` dropped the duplicating `system: ctx.systemPrompt`), all three
+  HTTP providers now append it (anthropic: extra uncached system block after the cache
+  breakpoint; openai: system message after the leading prompt; codex: appended to
+  `instructions`, also de-duplicating the base prompt codex used to send twice), pinned by a
+  mode-default end-to-end test of the plugin-memory nudge pattern.
+- **A39 [med, perf] TUI estimateContextTokens re-walked the whole log per render (~30Hz)** —
+  ✅ FIXED (this PR): `plugin-cli/src/context-estimate.ts` now caches the running char total
+  per log (WeakMap) and folds in only NEW events; unchanged logs are a pure cache hit, wipes
+  (`/new`, `session.reset`) are detected by event-id identity, and elision/compaction/recall
+  events fall back to the full SDK-identical walk (result equality asserted against the SDK).
+- **A40 [med, perf] desktop chat-log loadSegment re-read+parsed the entire NDJSON per page** —
+  ✅ FIXED (this PR): per-file line-offset index (byte offsets of valid event lines, size/mtime
+  guarded) cached alongside the PR #107 id cache; pages now seek-read only their byte range,
+  appendEvents extends the index in place, clearLog/migrate drop it; public API unchanged.
+- **A41 [med, perf] MemoryStore O(N) re-index per write + unbounded growth** — ✅ FIXED (this
+  PR): MEMORY.md rows cached in memory (hydrated once, updated per save/forget under the
+  existing mutex — no per-write re-read of every file) + a configurable WARN-ONLY soft cap
+  (`maxMemories`, default 500, surfaced via `capStatus()` and the `memory_save` tool result);
+  eviction deliberately NOT implemented — memories are user knowledge, silent oldest-eviction
+  would be silent data loss.
+- **A42 [low, perf] goal-mode nudge defeated the stable-prefix rolling tail breakpoint** —
+  ✅ FIXED (this PR): the nudge is declared volatile (`volatileTailCount` →
+  `CacheStrategyContext.volatileTailMessageCount`) and stable-prefix now places its tail
+  breakpoint on the last STABLE message, so idle goal iterations re-read the cached prefix
+  instead of writing a never-read one. Also **A42b [med, missing]**: the default compactor's
+  "summary" was a first-5-lines truncation with fabricated `tokensSaved` (`slice.length * 30`)
+  — compactor-summarize now summarizes via the session's own provider/model (handed in through
+  `CompactContext`), falls back to an honest, labeled head+tail digest (with a one-time warn)
+  only when no provider is reachable, and computes `tokensSaved` from real char deltas.
+- **A43 [med, security] MCP server credentials flowed plaintext through tool args and to disk**
+  — ✅ FIXED (this PR): `${vault:NAME}` placeholders in MCP env/header values now resolve at
+  CONNECT time only (`plugin-mcp/src/admin/secrets.ts`, resolver wired from setup via the
+  vault's `resolveString`; every connect path — hot-attach, lazy, cache refresh,
+  mcp_test_server); mcp.json and tool args keep the placeholder, tool descriptions instruct
+  vault-first (mirrors A6), literal values pass through for back-compat.
+- **A44 [med, security] Agent-view links allowed `javascript:` URLs (click-XSS) — validateDoc
+  omitted URL checks and the web renderer never re-validated** — ✅ FIXED (this PR): canonical
+  `isSafeViewUrl` allow-list in the sdk (https/http/mailto/tel + relative; `data:image/*` for
+  img src only), enforced by `parseView` AND `validateDoc` (hand-built ASTs can no longer
+  smuggle schemes), and re-checked at render time by the web frontend (verbatim copy in
+  `frontend/url-safety.ts` — the browser bundle can't import the sdk root): unsafe hrefs render
+  as plain text, unsafe img srcs as an inert placeholder.
+- **A45 [med, security] web_fetch SSRF guard had a DNS-rebinding TOCTOU (check and fetch
+  resolved independently)** — ✅ FIXED (this PR): `assertPublicUrl` returns the vetted
+  addresses and every hop's fetch is pinned to them via an undici
+  `Agent({ connect: { lookup } })` dispatcher (`createPinnedLookup` in web-fetch.ts) — the
+  connection provably goes to the checked IP, per redirect hop, with SNI/cert validation
+  intact; a rebinding second DNS answer is never consulted.
+- **A46 [low, security] Telegram inline-keyboard callbacks skipped the pairing gate that
+  text/voice enforce** — ✅ FIXED (this PR): `handleCallback` now requires
+  `pairing.isAuthorized(chatId)` before any prefix dispatch (perm/appr/model/mode), denying
+  unpaired chats and chat-less inline callbacks; update-dispatcher sweep found no other
+  ungated session-reaching paths (`/start` is the pairing flow itself, by design).
+- **A47 [low, docs] desktop deployment docs drifted from the release/self-update mechanisms**
+  — ✅ FIXED (this PR): code-signing.md + desktop-self-update.md reconciled against
+  release.yml (tag-after-build), the signed per-file integrity map, DOM health-confirm,
+  ESM marker, and boot-decision log.
 
 ---
 

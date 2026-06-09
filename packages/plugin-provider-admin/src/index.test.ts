@@ -107,6 +107,29 @@ describe('provider_add', () => {
     const bad = tool.inputSchema.safeParse({ ...zaiInput, name: 'NotASlug' });
     expect(bad.success).toBe(false);
   });
+
+  it('persists supportsDocuments through the schema → ModelDescriptor chain', async () => {
+    // Previously the input schema had no supportsDocuments field, so zod
+    // STRIPPED it — attachments degraded to extracted text for every
+    // runtime-registered provider even when the vendor model takes PDFs.
+    await call('provider_add', {
+      ...zaiInput,
+      models: [
+        {
+          id: 'glm-4.6',
+          contextWindow: 200_000,
+          supportsTools: true,
+          supportsStreaming: true,
+          supportsImages: true,
+          supportsDocuments: true,
+        },
+      ],
+    });
+    const cfg = await readProvidersConfig(cfgPath);
+    expect(cfg.providers[0]!.models[0]).toMatchObject({ supportsDocuments: true });
+    const def = registry.defs.get('zai')!;
+    expect(def.models[0]).toMatchObject({ supportsDocuments: true });
+  });
 });
 
 describe('provider_list', () => {

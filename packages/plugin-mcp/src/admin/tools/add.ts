@@ -27,7 +27,10 @@ export function buildAddServerTool(deps: AddServerToolDeps): ToolDef {
       'Register a new MCP server in ~/.moxxy/mcp.json. Pick "stdio" for local commands ' +
       '(npm/uv packages, scripts); pick "http" or "sse" for remote HTTP servers. The new ' +
       'server\'s tools become available after the next moxxy restart. Call mcp_test_server ' +
-      'first if you want to verify connectivity before persisting.',
+      'first if you want to verify connectivity before persisting. NEVER pass API keys or ' +
+      'tokens in plaintext: store the secret in the vault first (vault_set), then reference ' +
+      'it as "${vault:NAME}" in the env/header value — the placeholder is what gets ' +
+      'persisted, and it is resolved only at connect time.',
     inputSchema: addServerInput,
     permission: { action: 'prompt' },
     handler: async (input) => {

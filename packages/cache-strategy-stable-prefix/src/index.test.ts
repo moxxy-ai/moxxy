@@ -51,4 +51,45 @@ describe('stable-prefix cache strategy', () => {
   it('none strategy emits no breakpoints', () => {
     expect(createNoCacheStrategy().plan(msgs, ctx())).toEqual([]);
   });
+
+  it('places the tail breakpoint before a volatile trailing message (goal-mode nudge)', () => {
+    const withNudge: ProviderMessage[] = [
+      ...msgs,
+      { role: 'user', content: [{ type: 'text', text: 'You stopped — continue or call goal_complete.' }] },
+    ];
+    const hints = strategy.plan(withNudge, ctx({ volatileTailMessageCount: 1 }));
+    expect(hints).toContainEqual({ target: { messageIndex: 3 } }); // last STABLE message
+    expect(hints).not.toContainEqual({ target: { messageIndex: 4 } }); // never the nudge
+  });
+
+  it('keeps the tail breakpoint stable across two goal iterations whose only difference is the nudge', () => {
+    // Iteration N: the model idled — projection ends with its assistant
+    // message, no nudge.
+    const iterationA: ProviderMessage[] = [
+      { role: 'system', content: [{ type: 'text', text: 'sys' }] },
+      { role: 'user', content: [{ type: 'text', text: 'the goal' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'idle reply, no tools' }] },
+    ];
+    // Iteration N+1: identical log projection plus the volatile nudge
+    // appended as the trailing user message.
+    const iterationB: ProviderMessage[] = [
+      ...iterationA,
+      { role: 'user', content: [{ type: 'text', text: 'You stopped — continue or call goal_complete.' }] },
+    ];
+    const planA = strategy.plan(iterationA, ctx());
+    const planB = strategy.plan(iterationB, ctx({ volatileTailMessageCount: 1 }));
+    // Same breakpoints byte-for-byte: the prefix cached in iteration N is the
+    // exact prefix read back in iteration N+1 — no wasted cache write on the
+    // nudge.
+    expect(planB).toEqual(planA);
+    expect(planB).toContainEqual({ target: { messageIndex: 2 } });
+  });
+
+  it('without the volatile-tail hint the nudge still gets the (legacy) tail breakpoint', () => {
+    const withNudge: ProviderMessage[] = [
+      ...msgs,
+      { role: 'user', content: [{ type: 'text', text: 'nudge' }] },
+    ];
+    expect(strategy.plan(withNudge, ctx())).toContainEqual({ target: { messageIndex: 4 } });
+  });
 });

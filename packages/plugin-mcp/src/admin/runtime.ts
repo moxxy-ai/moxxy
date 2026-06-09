@@ -3,6 +3,7 @@ import type { McpClientLike, McpServerConfig, McpToolDescriptor } from '../types
 import { defaultClientFactory } from '../client.js';
 import { wrapMcpServerTools, wrapMcpServerToolsLazy } from '../wrap.js';
 import { mutateMcpConfig } from './config-io.js';
+import { resolveServerSecrets, type McpSecretResolver } from './secrets.js';
 import type {
   AdminToolRegistryLike,
   McpRuntimeHandle,
@@ -20,7 +21,23 @@ export interface McpRuntime {
   detachServer(name: string): Promise<boolean>;
 }
 
-export function createMcpRuntime(registry: AdminToolRegistryLike | null): McpRuntime {
+export interface McpRuntimeOptions {
+  /**
+   * Resolves `${vault:NAME}` placeholders in env/header values at CONNECT
+   * time (see `secrets.ts`). The stored config — and everything persisted
+   * back to it — keeps the placeholder form.
+   */
+  readonly secretResolver?: McpSecretResolver | null;
+}
+
+export function createMcpRuntime(
+  registry: AdminToolRegistryLike | null,
+  options: McpRuntimeOptions = {},
+): McpRuntime {
+  const secretResolver = options.secretResolver ?? null;
+  /** Connect with secrets resolved; `server` itself stays placeholder-form. */
+  const connect = async (server: McpServerConfig): Promise<McpClientLike> =>
+    defaultClientFactory(await resolveServerSecrets(server, secretResolver));
   // Track hot-attached runtimes keyed by server name. We need to know
   // which tools each server contributed so `mcp_remove_server` can
   // unregister them cleanly, and which client to close on shutdown.
@@ -32,7 +49,7 @@ export function createMcpRuntime(registry: AdminToolRegistryLike | null): McpRun
    * them into mcp.json for lazy boots next time.
    */
   const attachServer: McpRuntime['attachServer'] = async (server) => {
-    const client = await defaultClientFactory(server);
+    const client = await connect(server);
     const list = await client.listTools();
     const descriptors = list.tools;
     const wrapped = await wrapMcpServerTools({ server, client });
@@ -78,7 +95,7 @@ export function createMcpRuntime(registry: AdminToolRegistryLike | null): McpRun
     const getOrConnect = async (): Promise<McpClientLike> => {
       if (!connectPromise) {
         connectPromise = (async () => {
-          const client = await defaultClientFactory(server);
+          const client = await connect(server);
           // Stash the live client on the runtime entry so shutdown can
           // close it. The entry was created with a sentinel; replace it.
           const runtime = runtimes.get(server.name);
@@ -130,7 +147,7 @@ export function createMcpRuntime(registry: AdminToolRegistryLike | null): McpRun
    * caller's subsequent `attachServerLazy` call.
    */
   const refreshServerCache: McpRuntime['refreshServerCache'] = async (server) => {
-    const client = await defaultClientFactory(server);
+    const client = await connect(server);
     try {
       const list = await client.listTools();
       const refreshed: McpStoredServer = { ...server, cachedTools: list.tools };

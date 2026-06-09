@@ -134,16 +134,22 @@ export class AnthropicProvider implements LLMProvider {
    * the real system prompt follows (carrying the cache breakpoint if set).
    * In apiKey mode the behaviour is unchanged: a bare string, upgraded to a
    * single cache-marked block only when a system cache hint is present.
+   *
+   * `extraSystem` is `ProviderRequest.system` — the hook-injection side
+   * channel (e.g. the memory consolidation nudge), delivered IN ADDITION to
+   * the message-derived system prompt. It rides as a separate block AFTER
+   * the cache-marked one so volatile per-request text never busts the
+   * stable system-prefix cache.
    */
   private buildSystemParam(
     system: string | undefined,
     cacheSystem: boolean,
+    extraSystem?: string,
   ): string | undefined | Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> {
     const preamble = this.oauth?.systemPreamble;
-    if (preamble) {
-      const blocks: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> = [
-        { type: 'text', text: preamble },
-      ];
+    if (preamble || extraSystem) {
+      const blocks: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> = [];
+      if (preamble) blocks.push({ type: 'text', text: preamble });
       if (system) {
         blocks.push(
           cacheSystem
@@ -151,7 +157,8 @@ export class AnthropicProvider implements LLMProvider {
             : { type: 'text', text: system },
         );
       }
-      return blocks;
+      if (extraSystem) blocks.push({ type: 'text', text: extraSystem });
+      return blocks.length > 0 ? blocks : undefined;
     }
     return cacheSystem && system
       ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }]
@@ -178,7 +185,8 @@ export class AnthropicProvider implements LLMProvider {
         : undefined;
     // OAuth mode prepends the Claude Code identity preamble as the first
     // system block; apiKey mode keeps the prior string/cache-block behaviour.
-    const systemParam = this.buildSystemParam(system, cacheSystem);
+    // req.system (hook-injected extra system text) is appended last.
+    const systemParam = this.buildSystemParam(system, cacheSystem, req.system);
     const model = req.model || this.defaultModel;
 
     yield { type: 'message_start', model };
@@ -360,9 +368,12 @@ export class AnthropicProvider implements LLMProvider {
     const { system, messages } = toAnthropicMessages(req.messages);
     const tools = req.tools && req.tools.length > 0 ? toAnthropicTools(req.tools) : undefined;
     // Mirror stream(): in OAuth mode the request carries the identity preamble
-    // as an extra system block, so count it too for a faithful estimate.
-    const preamble = this.oauth?.systemPreamble;
-    const systemForCount = preamble ? `${preamble}\n\n${system ?? ''}` : system;
+    // as an extra system block, and req.system (hook-injected extra system
+    // text) is appended as another — count both for a faithful estimate.
+    const parts = [this.oauth?.systemPreamble, system, req.system].filter(
+      (s): s is string => typeof s === 'string' && s.length > 0,
+    );
+    const systemForCount = parts.length > 0 ? parts.join('\n\n') : undefined;
     try {
       const result = await (this.client.messages as unknown as { countTokens: (args: unknown) => Promise<{ input_tokens: number }> }).countTokens({
         model: req.model || this.defaultModel,

@@ -36,6 +36,34 @@ describe('frontend renderNode — security (the second wall)', () => {
     expect(html).not.toContain('onclick=');
     expect(html).not.toContain('onsubmit=');
   });
+
+  it('neutralizes a javascript: href — rendered as plain text, never a clickable anchor', () => {
+    const html = render(el('view', {}, [el('link', { href: 'javascript:alert(1)' }, [txt('click me')])]));
+    expect(html).toContain('click me');
+    expect(html).not.toContain('href=');
+    expect(html).not.toContain('javascript:');
+  });
+
+  it('neutralizes a data:text href', () => {
+    const html = render(el('view', {}, [el('link', { href: 'data:text/html,<script>1</script>' }, [txt('x')])]));
+    expect(html).not.toContain('href=');
+    expect(html).not.toContain('data:text');
+  });
+
+  it('blocks an <img> with a non-image data: or javascript: src', () => {
+    for (const src of ['javascript:alert(1)', 'data:text/html,<script>1</script>']) {
+      const html = render(el('view', {}, [el('image', { src })]));
+      expect(html).not.toContain('<img');
+      expect(html.toLowerCase()).toContain('blocked image');
+    }
+  });
+
+  it('still renders safe https links and data:image sources', () => {
+    const a = render(el('view', {}, [el('link', { href: 'https://example.com' }, [txt('site')])]));
+    expect(a).toContain('href="https://example.com"');
+    const img = render(el('view', {}, [el('image', { src: 'data:image/png;base64,AAAA' })]));
+    expect(img).toContain('<img');
+  });
 });
 
 describe('frontend renderNode — correctness', () => {

@@ -22,10 +22,12 @@ describe('buildProviderDef', () => {
     const client = def.createClient({ apiKey: 'test-key' });
     expect(typeof client.stream).toBe('function');
     expect(typeof client.countTokens).toBe('function');
-    expect(client.name).toBe('openai');
-    // Models surface on the def, not the client (the client uses
-    // OpenAI's built-in catalog). The registry reads def.models for
-    // /model autocomplete, which is the user-visible side.
+    // The client reports the VENDOR's slug + catalog, not 'openai' — usage
+    // stats, provider_request/response events and error context all read
+    // these off the live client, so 'openai' here misattributed every
+    // runtime vendor and missed context-window lookups for their models.
+    expect(client.name).toBe('zai');
+    expect(client.models.map((m) => m.id)).toEqual(['glm-4.6', 'glm-4.5-air']);
   });
 
   it('throws for unknown kinds', () => {

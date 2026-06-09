@@ -66,7 +66,20 @@ export function buildMemoryPlugin(opts: BuildMemoryPluginOptions = {}): { plugin
         },
         handler: async ({ name, type, description, body, tags }) => {
           const saved = await store.save({ name, type, description, body, tags });
-          return { name: saved.frontmatter.name, path: saved.path };
+          const cap = await store.capStatus();
+          return {
+            name: saved.frontmatter.name,
+            path: saved.path,
+            // Warn-only soft cap: the save succeeded, but tell the model the
+            // store is overgrown so it consolidates / forgets stale entries.
+            ...(cap.over
+              ? {
+                  warning:
+                    `memory store holds ${cap.count} entries (soft cap ${cap.max}). ` +
+                    `Nothing was evicted — consider consolidating related memories or using memory_forget on stale ones.`,
+                }
+              : {}),
+          };
         },
       }),
       defineTool({

@@ -23,8 +23,14 @@ export function buildProviderDef(entry: StoredProvider): ProviderDef {
       createClient: (config) =>
         new OpenAIProvider({
           ...(config as Record<string, unknown>),
+          // The vendor's registered slug, NOT 'openai' — usage stats,
+          // provider_request/response events and error context all read
+          // `provider.name`, so without this every runtime vendor was
+          // misattributed to OpenAI.
+          name: entry.name,
           baseURL: entry.baseURL,
           defaultModel: entry.defaultModel,
+          models: entry.models,
         }),
       validateKey: (key) => validateOpenAICompatKey(key, { baseURL: entry.baseURL }),
     });

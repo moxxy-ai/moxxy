@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -122,5 +122,65 @@ describe('MemoryStore', () => {
     await expect(
       store.save({ name: 'Bad Name', type: 'fact', description: 'd', body: '.' } as never),
     ).rejects.toThrow();
+  });
+
+  it('maintains the index incrementally — a save does not re-read every memory file', async () => {
+    const store = newStore();
+    // First save hydrates the row cache from disk (one readdir + reads).
+    await store.save({ name: 'a', type: 'fact', description: 'A', body: 'a' });
+    const readdirSpy = vi.spyOn(fs, 'readdir');
+    const readFileSpy = vi.spyOn(fs, 'readFile');
+    try {
+      await store.save({ name: 'b', type: 'fact', description: 'B', body: 'b' });
+      await store.save({ name: 'c', type: 'preference', description: 'C', body: 'c' });
+      // No directory re-scan; the only reads are each entry's own
+      // read-modify-write (createdAt preservation), not a full re-index.
+      expect(readdirSpy).not.toHaveBeenCalled();
+      expect(readFileSpy.mock.calls.length).toBeLessThanOrEqual(2);
+    } finally {
+      readdirSpy.mockRestore();
+      readFileSpy.mockRestore();
+    }
+    const idx = await fs.readFile(path.join(tmp, 'MEMORY.md'), 'utf8');
+    expect(idx).toContain('[a](a.md)');
+    expect(idx).toContain('[b](b.md)');
+    expect(idx).toContain('[c](c.md)');
+  });
+
+  it('incremental index survives forget and a fresh store rehydrates from disk', async () => {
+    const store = newStore();
+    await store.save({ name: 'a', type: 'fact', description: 'A', body: 'a' });
+    await store.save({ name: 'b', type: 'fact', description: 'B', body: 'b' });
+    await store.forget('a');
+    const idx = await fs.readFile(path.join(tmp, 'MEMORY.md'), 'utf8');
+    expect(idx).not.toContain('[a](a.md)');
+    expect(idx).toContain('[b](b.md)');
+    // A new instance (cold cache) sees the same state.
+    const fresh = newStore();
+    await fresh.save({ name: 'c', type: 'fact', description: 'C', body: 'c' });
+    const idx2 = await fs.readFile(path.join(tmp, 'MEMORY.md'), 'utf8');
+    expect(idx2).not.toContain('[a](a.md)');
+    expect(idx2).toContain('[b](b.md)');
+    expect(idx2).toContain('[c](c.md)');
+  });
+
+  it('soft cap is warn-only: saves past maxMemories succeed, capStatus flips, nothing evicted', async () => {
+    const store = new MemoryStore({ dir: tmp, maxMemories: 2 });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await store.save({ name: 'a', type: 'fact', description: 'A', body: 'a' });
+      await store.save({ name: 'b', type: 'fact', description: 'B', body: 'b' });
+      expect((await store.capStatus()).over).toBe(false);
+      expect(warn).not.toHaveBeenCalled();
+
+      await store.save({ name: 'c', type: 'fact', description: 'C', body: 'c' });
+      const cap = await store.capStatus();
+      expect(cap).toEqual({ count: 3, max: 2, over: true });
+      expect(warn).toHaveBeenCalledOnce();
+      // Warn-only: every entry is still on disk and listed.
+      expect((await store.list()).map((e) => e.frontmatter.name).sort()).toEqual(['a', 'b', 'c']);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

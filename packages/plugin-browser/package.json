@@ -33,7 +33,8 @@
     }
   },
   "dependencies": {
-    "@moxxy/sdk": "workspace:*"
+    "@moxxy/sdk": "workspace:*",
+    "undici": "^6.26.0"
   },
   "peerDependencies": {
     "playwright": "^1.40.0"

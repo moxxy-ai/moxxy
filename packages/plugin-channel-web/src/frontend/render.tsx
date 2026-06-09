@@ -1,5 +1,6 @@
 import { createElement, type ReactNode } from 'react';
 import type { ViewNode } from '@moxxy/sdk';
+import { isSafeViewUrl } from './url-safety.js';
 
 export type Dispatch = (action: { name: string }, formValues: Record<string, string>) => void;
 
@@ -93,9 +94,20 @@ export function renderNode(node: ViewNode, h: RenderHandlers, key?: number): Rea
           {kids}
         </span>
       );
-    case 'image':
-      return <img className="v-image" src={String(p.src)} alt={p.alt ? String(p.alt) : ''} key={key} />;
-    case 'link':
+    case 'image': {
+      // Render-time URL re-validation (second wall, mirrors validateDoc):
+      // an unsafe scheme renders an inert placeholder, never an <img src>.
+      const src = String(p.src);
+      if (!isSafeViewUrl(src, 'src')) {
+        return (
+          <div className="v-unknown" key={key}>
+            [blocked image: disallowed URL scheme]
+          </div>
+        );
+      }
+      return <img className="v-image" src={src} alt={p.alt ? String(p.alt) : ''} key={key} />;
+    }
+    case 'link': {
       // A `to` link navigates client-side; otherwise it is an external anchor.
       if (node.nav) {
         return (
@@ -112,11 +124,23 @@ export function renderNode(node: ViewNode, h: RenderHandlers, key?: number): Rea
           </a>
         );
       }
+      // Render-time URL re-validation (second wall, mirrors validateDoc):
+      // an unsafe href (javascript:, data:text/*, …) renders as plain text
+      // — the click-XSS payload never becomes a clickable anchor.
+      const href = String(p.href);
+      if (!isSafeViewUrl(href, 'href')) {
+        return (
+          <span className="v-link" key={key}>
+            {kids}
+          </span>
+        );
+      }
       return (
-        <a className="v-link" href={String(p.href)} target="_blank" rel="noreferrer" key={key}>
+        <a className="v-link" href={href} target="_blank" rel="noreferrer" key={key}>
           {kids}
         </a>
       );
+    }
     case 'list':
       return p.ordered ? (
         <ol className="v-list" key={key}>{kids}</ol>

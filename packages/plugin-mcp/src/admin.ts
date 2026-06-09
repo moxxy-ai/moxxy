@@ -11,6 +11,8 @@ export {
   removeServerFromConfig,
   setServerDisabled,
   writeMcpConfig,
+  resolveServerSecrets,
+  type McpSecretResolver,
   type AdminSkillRegistryLike,
   type AdminToolRegistryLike,
   type BuildMcpAdminPluginOptions,

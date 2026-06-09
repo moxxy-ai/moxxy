@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { defineTool } from '@moxxy/sdk';
+import { definePlugin, defineTool } from '@moxxy/sdk';
 import { Session, autoAllowResolver, collectTurn, silentLogger } from '@moxxy/core';
 import { FakeProvider, textReply, toolUseReply, createFakeSession } from '@moxxy/testing';
 import { defaultModePlugin } from './index.js';
@@ -253,6 +253,46 @@ describe('defaultMode end-to-end', () => {
     if (result?.type !== 'tool_result') throw new Error('expected tool_result');
     expect(result.ok).toBe(true);
     expect(result.output).toBe('hi');
+  });
+
+  it('delivers hook-injected req.system to the provider without duplicating the system prompt', async () => {
+    const provider = new FakeProvider({ script: [textReply('ok')] });
+    const session = sessionWith(provider);
+    // The plugin-memory consolidation-nudge pattern: an onBeforeProviderCall
+    // hook appends to req.system. This must reach the provider request —
+    // previously the loop prefilled req.system with the system prompt and
+    // every provider dropped the field, so hook injections vanished.
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: '@moxxy/test-nudge',
+        version: '0.0.0',
+        hooks: {
+          onBeforeProviderCall: (req) => ({
+            ...req,
+            system: (req.system ?? '') + '[memory note] consider consolidating',
+          }),
+        },
+      }),
+    );
+
+    await collectTurn(session, 'hi', { systemPrompt: 'BASE PROMPT' });
+
+    expect(provider.received).toHaveLength(1);
+    const req = provider.received[0]!;
+    // The hook saw an UNSET req.system (no duplicated prompt) and its
+    // injection arrived verbatim.
+    expect(req.system).toBe('[memory note] consider consolidating');
+    // The composed system prompt still rides as the leading system message.
+    const first = req.messages[0]!;
+    expect(first.role).toBe('system');
+    expect(first.content[0]).toMatchObject({ type: 'text', text: 'BASE PROMPT' });
+  });
+
+  it('leaves req.system unset when no hook injects system text', async () => {
+    const provider = new FakeProvider({ script: [textReply('ok')] });
+    const session = sessionWith(provider);
+    await collectTurn(session, 'hi', { systemPrompt: 'BASE PROMPT' });
+    expect(provider.received[0]!.system).toBeUndefined();
   });
 
   it('emits abort event when session is aborted mid-stream', async () => {

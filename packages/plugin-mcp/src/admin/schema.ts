@@ -31,7 +31,11 @@ export const addServerInput = z.object({
   env: z
     .record(z.string())
     .optional()
-    .describe('Optional when kind="stdio". Environment variables for the spawned process.'),
+    .describe(
+      'Optional when kind="stdio". Environment variables for the spawned process. ' +
+        'Secrets MUST be vault references ("${vault:NAME}", stored via vault_set first), ' +
+        'never plaintext — placeholders are resolved at connect time only.',
+    ),
   cwd: z
     .string()
     .optional()
@@ -45,7 +49,11 @@ export const addServerInput = z.object({
   headers: z
     .record(z.string())
     .optional()
-    .describe('Optional when kind="http" or "sse". HTTP headers (auth, etc).'),
+    .describe(
+      'Optional when kind="http" or "sse". HTTP headers (auth, etc). Secrets MUST be ' +
+        'vault references ("${vault:NAME}", stored via vault_set first), never plaintext — ' +
+        'placeholders are resolved at connect time only.',
+    ),
   autoSkill: z
     .boolean()
     .optional()

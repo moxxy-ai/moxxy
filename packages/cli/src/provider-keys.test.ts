@@ -80,12 +80,23 @@ describe('resolveProviderApiKey', () => {
     expect(await vault.get('ANTHROPIC_API_KEY')).toBeNull();
   });
 
-  it('derives the canonical key name for any provider', async () => {
+  it('derives the canonical key name for any provider (hyphens → underscores)', async () => {
     const out = await resolveProviderApiKey('vendor-z', vault, {
       providerConfig: { apiKey: 'hi' },
     });
     expect(out.source).toBe('config');
-    expect(out.canonicalName).toBe('VENDOR-Z_API_KEY');
+    // Shared derivation with provider-admin + the desktop: the old CLI-local
+    // one produced `VENDOR-Z_API_KEY` (an invalid env-var name, and a
+    // different vault entry than the one the desktop reads).
+    expect(out.canonicalName).toBe('VENDOR_Z_API_KEY');
+  });
+
+  it('honors a keyName override (stored envVar for runtime providers)', async () => {
+    await vault.set('ZHIPU_KEY', 'sk-override');
+    const out = await resolveProviderApiKey('zai', vault, { keyName: 'ZHIPU_KEY' });
+    expect(out.source).toBe('vault');
+    expect(out.providerConfig.apiKey).toBe('sk-override');
+    expect(out.canonicalName).toBe('ZHIPU_KEY');
   });
 
   it('OPENAI_API_KEY resolves analogously for the openai provider', async () => {

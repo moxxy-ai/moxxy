@@ -90,4 +90,62 @@ describe('AnthropicProvider OAuth mode', () => {
     );
     expect(calls[0]!.system).toBe('REAL');
   });
+
+  it('delivers hook-injected req.system as an extra system block after the prompt', async () => {
+    const { client, calls } = fakeClient([{ type: 'message_stop' }]);
+    const p = new AnthropicProvider({ apiKey: 'sk-test', client });
+    await drain(
+      p.stream({
+        model: 'm',
+        system: '[memory note] consider consolidating',
+        messages: [
+          { role: 'system', content: [{ type: 'text', text: 'BASE PROMPT' }] },
+          { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+        ],
+      }),
+    );
+    const sys = calls[0]!.system as Array<{ type: string; text: string }>;
+    expect(Array.isArray(sys)).toBe(true);
+    expect(sys.map((b) => b.text)).toEqual(['BASE PROMPT', '[memory note] consider consolidating']);
+  });
+
+  it('keeps the system cache breakpoint on the stable block, not the injected tail', async () => {
+    const { client, calls } = fakeClient([{ type: 'message_stop' }]);
+    const p = new AnthropicProvider({ apiKey: 'sk-test', client });
+    await drain(
+      p.stream({
+        model: 'm',
+        system: 'VOLATILE NUDGE',
+        cacheHints: [{ target: 'system' }],
+        messages: [
+          { role: 'system', content: [{ type: 'text', text: 'BASE PROMPT' }] },
+          { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+        ],
+      }),
+    );
+    const sys = calls[0]!.system as Array<{ type: string; text: string; cache_control?: unknown }>;
+    expect(sys[0]).toEqual({ type: 'text', text: 'BASE PROMPT', cache_control: { type: 'ephemeral' } });
+    expect(sys[1]).toEqual({ type: 'text', text: 'VOLATILE NUDGE' });
+  });
+
+  it('OAuth mode appends req.system after the preamble + real system prompt', async () => {
+    const { client, calls } = fakeClient(DONE_EVENTS);
+    const p = new AnthropicProvider({
+      oauthToken: 'tok',
+      systemPreamble: 'PREAMBLE',
+      client,
+    });
+    await drain(
+      p.stream({
+        model: 'm',
+        system: 'NUDGE',
+        messages: [
+          { role: 'system', content: [{ type: 'text', text: 'REAL SYSTEM' }] },
+          { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+        ],
+      }),
+    );
+    const sys = calls[0]!.system as Array<{ type: string; text: string }>;
+    expect(sys.map((b) => b.text)).toEqual(['PREAMBLE', 'REAL SYSTEM', 'NUDGE']);
+  });
 });

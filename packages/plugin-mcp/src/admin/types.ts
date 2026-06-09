@@ -1,5 +1,6 @@
 import type { Skill, ToolDef } from '@moxxy/sdk';
 import type { McpClientLike, McpServerConfig, McpToolDescriptor } from '../types.js';
+import type { McpSecretResolver } from './secrets.js';
 
 /**
  * Minimal skill-registry shape the admin plugin needs to auto-register
@@ -72,6 +73,14 @@ export interface BuildMcpAdminPluginOptions {
    */
   readonly skillRegistry?: AdminSkillRegistryLike | null;
   readonly userSkillsDir?: string;
+  /**
+   * Resolves `${vault:NAME}` placeholders in server env/header values at
+   * CONNECT time (every connect path: hot-attach, lazy attach, cache
+   * refresh, mcp_test_server). Wired from setup with the vault's
+   * `resolveString`; literal values pass through unchanged. The persisted
+   * catalog always keeps the placeholder form, never the plaintext.
+   */
+  readonly secretResolver?: McpSecretResolver | null;
 }
 
 /**

@@ -30,6 +30,7 @@ export {
   setServerDisabled,
   writeMcpConfig,
 } from './config-io.js';
+export { resolveServerSecrets, type McpSecretResolver } from './secrets.js';
 
 export function buildMcpAdminPluginWithApi(
   opts: BuildMcpAdminPluginOptions = { toolRegistry: null },
@@ -53,8 +54,9 @@ function buildMcpAdminPluginInternal(
   const registry = opts.toolRegistry;
   const skillRegistry = opts.skillRegistry ?? null;
   const userSkillsDir = opts.userSkillsDir ?? moxxyPath('skills');
+  const secretResolver = opts.secretResolver ?? null;
 
-  const runtime = createMcpRuntime(registry);
+  const runtime = createMcpRuntime(registry, { secretResolver });
   const writeMcpUsageSkill = createMcpUsageSkillWriter({ skillRegistry, userSkillsDir });
 
   const api: McpAdminApi = {
@@ -90,7 +92,7 @@ function buildMcpAdminPluginInternal(
         writeMcpUsageSkill,
       }),
       buildRemoveServerTool({ detachServer: runtime.detachServer }),
-      buildTestServerTool(),
+      buildTestServerTool({ secretResolver }),
     ],
     hooks: {
       // On session init, register lazy stubs for every saved MCP server.

@@ -18,6 +18,15 @@ export interface CacheStrategyContext {
    * strategies should then fall back to a conservative breakpoint.
    */
   readonly stablePrefixMessageIndex?: number;
+  /**
+   * Number of trailing messages that are VOLATILE — injected for this call
+   * only and not part of the append-only history (e.g. goal mode's idle
+   * nudge, projected via `trailingUserText`). They will not appear at the
+   * same position in the next call's message list, so a breakpoint placed on
+   * or after them is a guaranteed-wasted cache write. Strategies should place
+   * their rolling tail breakpoint BEFORE these messages. Defaults to 0.
+   */
+  readonly volatileTailMessageCount?: number;
 }
 
 /**

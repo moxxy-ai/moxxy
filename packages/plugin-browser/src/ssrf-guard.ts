@@ -74,8 +74,19 @@ export function isBlockedIp(ip: string): boolean {
  * Reject `raw` unless it is an http(s) URL whose host is (and resolves to)
  * a public address. `label` prefixes the error message so each caller's
  * rejections stay attributable (e.g. "web_fetch", "browser_session").
+ *
+ * Returns the vetted resolved addresses so callers can PIN the subsequent
+ * connection to exactly what was checked (closing the DNS-rebinding TOCTOU
+ * where the guard resolves one answer and the fetch independently resolves
+ * another — see web-fetch's pinned undici dispatcher). Returns `null` when
+ * there is nothing to pin: the host is already an IP literal (vetted above,
+ * no DNS involved) or resolution failed (fail-open — a name the guard can't
+ * resolve, the fetch's identical system resolver can't reach either).
  */
-export async function assertPublicUrl(raw: string, label = 'request'): Promise<void> {
+export async function assertPublicUrl(
+  raw: string,
+  label = 'request',
+): Promise<ReadonlyArray<string> | null> {
   let u: URL;
   try {
     u = new URL(raw);
@@ -92,7 +103,7 @@ export async function assertPublicUrl(raw: string, label = 'request'): Promise<v
   if (isIP(host)) {
     if (isBlockedIp(host))
       throw new SsrfBlockedError(`${label}: refusing private/loopback address "${host}"`);
-    return;
+    return null;
   }
   // Resolve the name and block if it maps to a private range (internal name or
   // DNS rebinding). Fail OPEN on resolution error: a name we can't resolve here
@@ -101,7 +112,7 @@ export async function assertPublicUrl(raw: string, label = 'request'): Promise<v
   try {
     addrs = await resolver(host);
   } catch {
-    return;
+    return null;
   }
   for (const addr of addrs) {
     if (isBlockedIp(addr)) {
@@ -110,4 +121,5 @@ export async function assertPublicUrl(raw: string, label = 'request'): Promise<v
       );
     }
   }
+  return addrs;
 }
