@@ -33,14 +33,13 @@ import {
   installMediaPermissions,
   lockDownNavigation,
   isSafeExternalUrl,
-  clerkFrontendApiHost,
   preferredCliEntry,
   ensureDesktopVaultKey,
   activateManagedNode,
 } from '@moxxy/desktop-host';
 
 import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
-import { readConfirmed, markBad, appendBootLog } from '@moxxy/desktop-host/app-update';
+import { readConfirmed, markConfirmed, markBad, appendBootLog } from '@moxxy/desktop-host/app-update';
 import { initShellUpdater } from './shell-updater.js';
 
 // In a packaged build there is no global `moxxy` (and a GUI launch has no
@@ -59,16 +58,6 @@ import { ipcMain, Tray, Menu, nativeImage, globalShortcut, session, shell, syste
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL'];
-
-// The Clerk publishable key, baked into the main bundle at build time by
-// electron-vite's `define` (see electron.vite.config.ts) from the same
-// VITE_CLERK_PUBLISHABLE_KEY the renderer reads. The main process needs it to
-// allow the instance's prod Frontend API host through the CSP + OAuth popup
-// allow-list — a `pk_live_` key serves clerk-js from the instance's own
-// domain, which the static dev/test hosts don't cover. '' when unset.
-declare const __CLERK_PUBLISHABLE_KEY__: string;
-const CLERK_PUBLISHABLE_KEY =
-  typeof __CLERK_PUBLISHABLE_KEY__ === 'string' ? __CLERK_PUBLISHABLE_KEY__ : '';
 
 let pool: RunnerPool | null = null;
 let mainWindow: BrowserWindow | null = null;
@@ -93,24 +82,6 @@ async function createWindow(): Promise<void> {
     /^https:\/\/appleid\.apple\.com$/,
     /^https:\/\/github\.com$/,
   ];
-  // A `pk_live_` instance runs OAuth through its OWN Frontend API host
-  // (e.g. clerk.acme.com) and account portal (accounts.acme.com), neither
-  // covered above — add the exact host plus a wildcard on its parent domain
-  // so the prod sign-in popup isn't denied. Test keys resolve to a host
-  // already matched above, so this adds nothing for them.
-  const clerkFapiHost = clerkFrontendApiHost(CLERK_PUBLISHABLE_KEY);
-  if (
-    clerkFapiHost &&
-    !clerkFapiHost.endsWith('.clerk.accounts.dev') &&
-    !clerkFapiHost.endsWith('.clerk.com')
-  ) {
-    const reEsc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    OAUTH_HOST_PATTERNS.push(new RegExp(`^https://${reEsc(clerkFapiHost)}$`));
-    const parent = clerkFapiHost.split('.').slice(1).join('.');
-    if (parent.split('.').length >= 2) {
-      OAUTH_HOST_PATTERNS.push(new RegExp(`^https://(?:[a-z0-9-]+\\.)+${reEsc(parent)}$`));
-    }
-  }
 
   mainWindow = new BrowserWindow({
     title: 'MoxxyAI Workspaces',
@@ -455,41 +426,80 @@ function installApplicationMenu(
 
 let trayInstance: Tray | null = null;
 
-/** How long a hot-updated bundle has to confirm a healthy render before the
- *  probe assumes it white-screened and reverts to the floor. Generous so a slow
- *  cold start / Clerk network round-trip can't false-trip it. */
+/** How long a hot-updated bundle has to prove a healthy render before the probe
+ *  assumes it white-screened and reverts to the floor. Generous so a slow cold
+ *  start / Clerk network round-trip can't false-trip it. */
 const BOOT_PROBE_TIMEOUT_MS = 15_000;
+/** How often the probe polls the renderer DOM for a healthy mount. */
+const BOOT_PROBE_POLL_MS = 1_500;
 
 /**
- * In-session safety net for a hot-updated bundle: if the renderer loads but its
- * React tree never mounts (white-screen) — so `app.appBooted` never fires and no
- * `confirmed.json` lands — poison this version and relaunch. The bootstrap then
- * picks the previous-good bundle (or the floor). A no-op on the bundled floor
- * (no override version), and on the bundled floor we never re-arm, so there's no
- * relaunch loop. The cross-launch `recoverFromFailedBoot` is the belt to this
- * braces — either one alone recovers the app.
+ * In-session safety net for a hot-updated bundle: confirm it reached a healthy
+ * render, else poison it and relaunch onto the previous-good bundle (or floor).
+ *
+ * Health is judged from the MAIN process by inspecting the renderer DOM — NOT by
+ * waiting for the renderer's `app.appBooted` IPC heartbeat. That heartbeat proved
+ * unreliable in packaged builds: it could fail to land on a perfectly healthy
+ * bundle, so the old "no heartbeat in 15s ⇒ poison" logic poisoned *every* update
+ * (see the boot-log / `bad.json` evidence) and self-update never stuck. The DOM
+ * check has no such dependency: `index.html` ships a static `#splash-fallback`
+ * inside `#root`, and React replaces it on mount — so "`#splash-fallback` is gone"
+ * is a direct, renderer-cooperation-free signal that the app rendered. The IPC
+ * heartbeat (`app.appBooted` → `confirmed.json`) is kept only as a fast path.
+ *
+ * No-op on the bundled floor (no override version), so there's no relaunch loop.
+ * The cross-launch `recoverFromFailedBoot` is the belt to this braces.
  */
 function armBootProbe(window: BrowserWindow): void {
   const version = process.env.MOXXY_APP_BUNDLE_VERSION;
   if (!version) return; // running the floor — nothing to probe
   const userData = app.getPath('userData');
   const shell = { electron: process.versions.electron, nodeAbi: process.versions.modules ?? '' };
+
   window.webContents.once('did-finish-load', () => {
-    setTimeout(() => {
+    const deadline = Date.now() + BOOT_PROBE_TIMEOUT_MS;
+
+    const reactMounted = async (): Promise<boolean> =>
+      window.webContents
+        .executeJavaScript(
+          // True once React has taken over #root (it replaces the static
+          // #splash-fallback on mount). Defensive: never throws into the probe.
+          "(()=>{try{return !!document.getElementById('root')" +
+            " && !document.getElementById('splash-fallback')" +
+            " && document.getElementById('root').childElementCount>0;}catch(e){return false;}})()",
+          true,
+        )
+        .catch(() => false);
+
+    const tick = async (): Promise<void> => {
       if (window.isDestroyed()) return;
-      if (readConfirmed(userData) === version) return; // confirmed healthy
+      // Fast path: the renderer's heartbeat already confirmed it.
+      if (readConfirmed(userData) === version) return;
+
+      if (await reactMounted()) {
+        // The bundle rendered — confirm from the main process, independent of the
+        // (flaky) renderer heartbeat that was poisoning healthy updates.
+        try {
+          markConfirmed(userData, version);
+        } catch {
+          /* best effort */
+        }
+        appendBootLog(userData, { phase: 'confirm', picked: version, reason: 'main-side-dom', ...shell });
+        return;
+      }
+
+      if (window.isDestroyed() || readConfirmed(userData) === version) return;
+      if (Date.now() < deadline) {
+        setTimeout(() => void tick(), BOOT_PROBE_POLL_MS);
+        return;
+      }
+
+      // Never rendered within the window — treat as a real white-screen.
       console.error(
-        `[moxxy] boot-probe: bundle ${version} did not confirm a healthy render in ` +
+        `[moxxy] boot-probe: bundle ${version} never rendered within ` +
           `${BOOT_PROBE_TIMEOUT_MS}ms; reverting to the previous bundle`,
       );
-      // Record the revert BEFORE relaunching so the next launch's Diagnostics
-      // panel shows why the update didn't stick (the renderer never confirmed).
-      appendBootLog(userData, {
-        phase: 'probe',
-        picked: version,
-        reason: 'no-confirm-within-timeout',
-        ...shell,
-      });
+      appendBootLog(userData, { phase: 'probe', picked: version, reason: 'no-render-within-timeout', ...shell });
       try {
         markBad(userData, version);
       } catch {
@@ -497,7 +507,9 @@ function armBootProbe(window: BrowserWindow): void {
       }
       app.relaunch();
       app.quit();
-    }, BOOT_PROBE_TIMEOUT_MS);
+    };
+
+    void tick();
   });
 }
 
@@ -505,10 +517,7 @@ app.whenReady().then(async () => {
   // Apply the Content-Security-Policy to our own document responses
   // before any window loads. Skipped in dev (Vite HMR needs a loose
   // policy); third-party + OAuth responses are left untouched.
-  installContentSecurityPolicy(session.defaultSession, {
-    isDev,
-    clerkPublishableKey: CLERK_PUBLISHABLE_KEY,
-  });
+  installContentSecurityPolicy(session.defaultSession, { isDev });
 
   // Allow the renderer's voice recorder to reach the microphone. Without this,
   // macOS hands getUserMedia a SILENT stream (no rejection), so voice
