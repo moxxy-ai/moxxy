@@ -6,7 +6,7 @@
  * shared store/model/hook code path drives a live chat loop unchanged on RN.
  */
 
-import { useState } from 'react';
+import { useState, type ReactElement } from 'react';
 import {
   FlatList,
   Pressable,
@@ -35,7 +35,7 @@ import { bootMobile } from './boot';
 const ENV_URL = process.env.EXPO_PUBLIC_MOXXY_WS_URL;
 const ENV_TOKEN = process.env.EXPO_PUBLIC_MOXXY_WS_TOKEN;
 
-export default function App(): JSX.Element {
+export default function App(): ReactElement {
   const [connected, setConnected] = useState<boolean>(() => {
     if (ENV_URL) {
       bootMobile(ENV_URL, ENV_TOKEN);
@@ -65,7 +65,7 @@ export default function App(): JSX.Element {
 }
 
 /** Pair by scanning the QR `moxxy mobile` (or the desktop bridge) prints. */
-function ConnectScreen({ onConnect }: { onConnect: (url: string) => void }): JSX.Element {
+function ConnectScreen({ onConnect }: { onConnect: (url: string) => void }): ReactElement {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
 
@@ -112,7 +112,7 @@ function ConnectScreen({ onConnect }: { onConnect: (url: string) => void }): JSX
   );
 }
 
-function Chat(): JSX.Element {
+function Chat(): ReactElement {
   const workspaceId = useActiveWorkspaceId();
   const { snapshot } = useConnection(workspaceId);
   const { events, streamingText, sending, send } = useChat(workspaceId);
@@ -174,7 +174,7 @@ function Chat(): JSX.Element {
 
 /** Permission/approval prompt — proves the ask path works over the bridge too.
  *  The interactive resolver in the host parks the runner until we respond. */
-function AskPrompt({ workspaceId }: { workspaceId: string | null }): JSX.Element | null {
+function AskPrompt({ workspaceId }: { workspaceId: string | null }): ReactElement | null {
   const ask = useActiveAsk(workspaceId);
   if (!ask) return null;
 

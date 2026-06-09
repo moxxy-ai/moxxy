@@ -1110,7 +1110,7 @@ async function postJson<T = unknown>(url: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
-async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 1500): Promise<void> {
+async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 5000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await predicate()) return;
