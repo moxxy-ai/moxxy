@@ -52,6 +52,7 @@ export interface QuickActionItem {
   readonly label: string;
   readonly icon: 'goals' | 'bolt' | 'actions' | 'plus';
   readonly active: boolean;
+  readonly requiresConfirmation?: boolean;
 }
 
 export interface ReturnToChatAction {
@@ -257,7 +258,7 @@ export function buildQuickActionItems(autoApprove = false): QuickActionItem[] {
       icon: 'bolt',
       active: autoApprove,
     },
-    { id: 'compact', label: 'Compact context', icon: 'actions', active: false },
+    { id: 'compact', label: 'Compact context', icon: 'actions', active: false, requiresConfirmation: true },
     { id: 'newSession', label: 'New session', icon: 'plus', active: false },
   ];
 }

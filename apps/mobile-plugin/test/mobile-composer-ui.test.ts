@@ -75,6 +75,21 @@ describe('mobile composer ui model', () => {
     });
   });
 
+  it('moves bypass feedback from a text badge into the composer frame state', () => {
+    expect(buildComposerUiState({
+      text: '',
+      sending: false,
+      compacting: false,
+      actionsOpen: false,
+      autoApprove: true,
+    })).toMatchObject({
+      statusLabel: null,
+      bypassActive: true,
+      frameTone: 'bypass',
+      actionsTone: 'active',
+    });
+  });
+
   it('locks composer while browsing an archived session', () => {
     expect(buildComposerUiState({
       text: 'continue',

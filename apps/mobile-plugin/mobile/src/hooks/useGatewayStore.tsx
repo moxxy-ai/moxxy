@@ -1,6 +1,7 @@
 import { createContext, useContext, type PropsWithChildren } from 'react';
 import { useAutoApprove } from './useAutoApprove';
 import { useChatTranscript } from './useChatTranscript';
+import { useCompactContext } from './useCompactContext';
 import { useComposer } from './useComposer';
 import { useGatewaySnapshot } from './useGatewaySnapshot';
 import { useGatewaySocket } from './useGatewaySocket';
@@ -20,6 +21,11 @@ function useGatewayStoreValue() {
   const sessions = useSessions(snapshot, socket.sendFrame);
   const permissions = usePermissions(snapshot, socket.sendFrame);
   const workflows = useWorkflows(snapshot, socket.sendFrame);
+  const compact = useCompactContext({
+    workspaceId: snapshot.activeWorkspaceId,
+    readOnly: snapshot.session?.readOnly === true,
+    sendFrame: socket.sendFrame,
+  });
   return {
     pairing,
     socketStatus: socket.status,
@@ -45,6 +51,7 @@ function useGatewayStoreValue() {
       workspaceId: snapshot.activeWorkspaceId,
       sendFrame: socket.sendFrame,
     }),
+    compact,
     chat,
     chatEvents: snapshot.chatEvents,
   };

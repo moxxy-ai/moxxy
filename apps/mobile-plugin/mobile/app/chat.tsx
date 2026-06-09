@@ -1,6 +1,7 @@
 import { AskSheet } from '@/components/AskSheet';
 import { AppShell } from '@/components/AppShell';
 import { ChatList } from '@/components/ChatList';
+import { CompactContextSheet } from '@/components/CompactContextSheet';
 import { ComposerCard } from '@/components/ComposerCard';
 import { ConnectionBanner } from '@/components/ConnectionBanner';
 import { FloatingChatHeader } from '@/components/FloatingChatHeader';
@@ -15,7 +16,7 @@ import { KeyboardAvoidingView, Platform, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function ChatScreen() {
-  const { autoApprove, chat, composer, goals, pairing, permissions, session, sessions, socketStatus } = useGatewayStore();
+  const { autoApprove, chat, compact, composer, goals, pairing, permissions, session, sessions, socketStatus } = useGatewayStore();
   const chrome = useMobileChrome();
   const pendingActions = permissions.pendingAsks.length + permissions.pendingPermissions.length;
   const statusLabel = chat.sending ? 'Thinking' : session.connected ? 'Connected' : 'Offline';
@@ -59,6 +60,17 @@ export default function ChatScreen() {
                 onObjectiveChange={goals.setObjective}
                 onStart={goals.startGoal}
                 onClose={() => goals.setOpen(false)}
+              />
+            </View>
+          ) : null}
+
+          {compact.confirmOpen ? (
+            <View className="absolute z-40" style={{ bottom: 126, left: 16, position: 'absolute', right: 16, zIndex: 40 }}>
+              <CompactContextSheet
+                open={compact.confirmOpen}
+                compacting={chat.compacting}
+                onCancel={compact.cancelCompact}
+                onConfirm={compact.confirmCompact}
               />
             </View>
           ) : null}
@@ -107,6 +119,7 @@ export default function ChatScreen() {
             onVoice={composer.transcribe}
             onToggleAutoApprove={() => autoApprove.setAutoApprove(!autoApprove.enabled)}
             onNewSession={sessions.newSession}
+            onCompact={compact.requestCompact}
             onCommand={composer.runCommand}
           />
         </KeyboardAvoidingView>

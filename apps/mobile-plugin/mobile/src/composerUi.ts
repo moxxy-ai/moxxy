@@ -15,6 +15,8 @@ export interface ComposerUiState {
   readonly sendIcon: 'send' | 'stop';
   readonly sendTone: 'primary' | 'danger' | 'disabled';
   readonly actionsTone: 'neutral' | 'active';
+  readonly frameTone: 'neutral' | 'bypass';
+  readonly bypassActive: boolean;
   readonly statusLabel: string | null;
   readonly voiceLabel: 'Voice' | 'Stop' | 'Transcribing';
   readonly voiceTone: 'neutral' | 'recording' | 'transcribing';
@@ -35,15 +37,15 @@ export function buildComposerUiState(input: ComposerUiInput): ComposerUiState {
     sendIcon: input.sending ? 'stop' : 'send',
     sendTone: input.sending ? 'danger' : canSubmit ? 'primary' : 'disabled',
     actionsTone: input.actionsOpen || input.autoApprove ? 'active' : 'neutral',
+    frameTone: input.autoApprove ? 'bypass' : 'neutral',
+    bypassActive: input.autoApprove,
     statusLabel: input.compacting
       ? 'Compacting context...'
       : voicePhase === 'recording'
         ? 'Listening...'
         : voicePhase === 'transcribing'
           ? 'Transcribing...'
-          : input.autoApprove
-            ? 'Bypass ON'
-            : null,
+          : null,
     voiceLabel: voicePhase === 'recording' ? 'Stop' : voicePhase === 'transcribing' ? 'Transcribing' : 'Voice',
     voiceTone: voicePhase === 'recording' ? 'recording' : voicePhase === 'transcribing' ? 'transcribing' : 'neutral',
   };

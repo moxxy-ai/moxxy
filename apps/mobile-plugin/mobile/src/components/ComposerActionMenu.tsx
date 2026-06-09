@@ -9,6 +9,7 @@ interface ComposerActionMenuProps {
   readonly onGoal: () => void;
   readonly onToggleAutoApprove: () => void;
   readonly onNewSession: () => void;
+  readonly onCompact: () => void;
   readonly onCommand: (name: string, args?: string) => void;
 }
 
@@ -28,7 +29,7 @@ export function ComposerActionMenu(props: ComposerActionMenuProps) {
       return;
     }
     if (id === 'compact') {
-      props.onCommand('compact');
+      props.onCompact();
       props.onToggleOpen();
       return;
     }
