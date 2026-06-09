@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { buildInitialCollapsedWorkspaceIds, type WorkspaceMenuSection } from '../navigation';
+import {
+  applyWorkspaceCollapseToggles,
+  buildInitialCollapsedWorkspaceIds,
+  type WorkspaceMenuSection,
+} from '../navigation';
 
 export function useWorkspaceCollapse(
   sections: ReadonlyArray<WorkspaceMenuSection>,
@@ -41,18 +45,6 @@ export function useWorkspaceCollapse(
     collapsedWorkspaceIds,
     toggleWorkspace,
   };
-}
-
-export function applyWorkspaceCollapseToggles(
-  defaultCollapsedIds: ReadonlyArray<string>,
-  toggledWorkspaceIds: ReadonlyArray<string>,
-): string[] {
-  const collapsed = new Set(defaultCollapsedIds);
-  for (const workspaceId of toggledWorkspaceIds) {
-    if (collapsed.has(workspaceId)) collapsed.delete(workspaceId);
-    else collapsed.add(workspaceId);
-  }
-  return [...collapsed];
 }
 
 function sameSet(left: Set<string>, right: Set<string>) {

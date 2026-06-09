@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildBottomTabs,
   buildComposerAttachmentActionItems,
+  applyWorkspaceCollapseToggles,
   buildMobileMenuItems,
   buildInitialCollapsedWorkspaceIds,
   buildQuickActionItems,
@@ -11,7 +12,6 @@ import {
   filterRecentMenuSessions,
   filterWorkspaceMenuSections,
 } from '../mobile/src/navigation';
-import { applyWorkspaceCollapseToggles } from '../mobile/src/hooks/useWorkspaceCollapse';
 
 describe('mobile bottom navigation model', () => {
   it('keeps the mobile tab bar compact, icon-led, and badge-aware', () => {
