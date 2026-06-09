@@ -8,6 +8,7 @@ import { FloatingChatHeader } from '@/components/FloatingChatHeader';
 import { GoalSheet } from '@/components/GoalSheet';
 import { MobileMenuSheet } from '@/components/MobileMenuSheet';
 import { useGatewayStore } from '@/hooks/useGatewayStore';
+import { useMessageCopy } from '@/hooks/useMessageCopy';
 import { useMobileChrome } from '@/hooks/useMobileChrome';
 import { useWorkspaceCollapse } from '@/hooks/useWorkspaceCollapse';
 import { buildMobileMenuItems, buildWorkspaceMenuSections } from '@/navigation';
@@ -18,6 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 export default function ChatScreen() {
   const { autoApprove, chat, compact, composer, goals, pairing, permissions, session, sessions, socketStatus } = useGatewayStore();
   const chrome = useMobileChrome();
+  const messageCopy = useMessageCopy();
   const pendingActions = permissions.pendingAsks.length + permissions.pendingPermissions.length;
   const statusLabel = chat.sending ? 'Thinking' : session.connected ? 'Connected' : 'Offline';
   const sessionLabel = textOf(session.session?.id, 'No active session');
@@ -33,7 +35,12 @@ export default function ChatScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={0}
         >
-          <ChatList items={chat.items} sending={chat.sending} />
+          <ChatList
+            items={chat.items}
+            sending={chat.sending}
+            copiedMessageId={messageCopy.copiedMessageId}
+            onCopyMessage={messageCopy.copyMessage}
+          />
 
           {!session.connected ? (
             <View className="absolute z-10" style={{ left: 16, position: 'absolute', right: 16, top: 76, zIndex: 10 }}>

@@ -12,6 +12,8 @@ export type MobileIconName =
   | 'chevronDown'
   | 'more'
   | 'edit'
+  | 'copy'
+  | 'check'
   | 'mic'
   | 'send'
   | 'stop'
@@ -144,6 +146,15 @@ function IconPaths({ name, color, strokeWidth }: Required<Pick<MobileIconProps, 
           <Path {...props} d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5Z" />
         </>
       );
+    case 'copy':
+      return (
+        <>
+          <Path {...props} d="M8 8.5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-8a2 2 0 0 1-2-2v-10Z" />
+          <Path {...props} d="M4 14.5v-10a2 2 0 0 1 2-2h8" />
+        </>
+      );
+    case 'check':
+      return <Path {...props} d="m5 12.5 4.2 4.2L19 6.8" />;
     case 'plus':
       return (
         <>

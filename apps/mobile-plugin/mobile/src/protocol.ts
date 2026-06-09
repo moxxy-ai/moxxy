@@ -1,3 +1,5 @@
+import { textOf } from './utils/record';
+
 export interface MobileState {
   readonly connected: boolean;
   readonly activeWorkspaceId: string | null;
@@ -76,34 +78,12 @@ export function applyGatewayFrame(state: MobileState, frame: GatewayFrame): Mobi
     case 'hello':
       return { ...state, connected: true };
     case 'snapshot':
-      return {
-        ...state,
-        activeWorkspaceId: frame.snapshot.activeWorkspaceId ?? state.activeWorkspaceId,
-        workspaces: frame.snapshot.workspaces ?? state.workspaces,
-        sessions: frame.snapshot.sessions ?? state.sessions,
-        session: frame.snapshot.session ?? state.session,
-        agents: frame.snapshot.agents ?? state.agents,
-        workflows: frame.snapshot.workflows ?? state.workflows,
-        pendingPermissions: frame.snapshot.pendingPermissions ?? state.pendingPermissions,
-        pendingAsks: frame.snapshot.pendingAsks ?? state.pendingAsks,
-        commands: frame.snapshot.commands ?? state.commands,
-        chatEvents: frame.snapshot.chatEvents ? dedupeChatEvents(frame.snapshot.chatEvents) : state.chatEvents,
-        streamingText: frame.snapshot.streamingText ?? state.streamingText,
-        sending: frame.snapshot.sending ?? state.sending,
-        activeTurnId: frame.snapshot.activeTurnId ?? state.activeTurnId,
-        queue: frame.snapshot.queue ?? state.queue,
-        compacting: frame.snapshot.compacting ?? state.compacting,
-        usage: frame.snapshot.usage ?? state.usage,
-        autoApprove: frame.snapshot.autoApprove ?? state.autoApprove,
-        activeMode: frame.snapshot.activeMode ?? state.activeMode,
-        activeProvider: frame.snapshot.activeProvider ?? state.activeProvider,
-        modeBadge: frame.snapshot.modeBadge ?? state.modeBadge,
-      };
+      return applySnapshot(state, frame.snapshot);
     case 'event':
       if (!eventTargetsActiveSelection(state, frame.event)) {
         return markTargetUnread(state, eventTargetIds(frame.event)[0] ?? null);
       }
-      return { ...state, chatEvents: appendChatEvent(state.chatEvents, frame.event) };
+      return appendRuntimeEvent(state, frame.event);
     case 'permission.requested':
       return {
         ...state,
@@ -157,6 +137,55 @@ export function applyGatewayFrame(state: MobileState, frame: GatewayFrame): Mobi
   }
 }
 
+function applySnapshot(state: MobileState, snapshot: Partial<MobileState>): MobileState {
+  const nextSending = snapshot.sending ?? state.sending;
+  const normalizedChat = normalizeChatEvents({
+    events: snapshot.chatEvents ?? state.chatEvents,
+    streamingText: snapshot.streamingText ?? state.streamingText,
+    sending: nextSending,
+  });
+  return {
+    ...state,
+    activeWorkspaceId: snapshot.activeWorkspaceId ?? state.activeWorkspaceId,
+    workspaces: snapshot.workspaces ?? state.workspaces,
+    sessions: snapshot.sessions ?? state.sessions,
+    session: snapshot.session ?? state.session,
+    agents: snapshot.agents ?? state.agents,
+    workflows: snapshot.workflows ?? state.workflows,
+    pendingPermissions: snapshot.pendingPermissions ?? state.pendingPermissions,
+    pendingAsks: snapshot.pendingAsks ?? state.pendingAsks,
+    commands: snapshot.commands ?? state.commands,
+    chatEvents: normalizedChat.events,
+    streamingText: normalizedChat.streamingText,
+    sending: nextSending,
+    activeTurnId: snapshot.activeTurnId ?? state.activeTurnId,
+    queue: snapshot.queue ?? state.queue,
+    compacting: snapshot.compacting ?? state.compacting,
+    usage: snapshot.usage ?? state.usage,
+    autoApprove: snapshot.autoApprove ?? state.autoApprove,
+    activeMode: snapshot.activeMode ?? state.activeMode,
+    activeProvider: snapshot.activeProvider ?? state.activeProvider,
+    modeBadge: snapshot.modeBadge ?? state.modeBadge,
+  };
+}
+
+function appendRuntimeEvent(state: MobileState, event: Record<string, unknown>): MobileState {
+  const type = eventType(event);
+  if (type === 'assistant_chunk') {
+    const delta = textOf(event.delta, textOf(event.text, textOf(event.content)));
+    if (delta.length === 0) return state;
+    return { ...state, streamingText: `${state.streamingText}${delta}` };
+  }
+  const chatEvents = appendChatEvent(state.chatEvents, event);
+  if (type === 'assistant_message' || type === 'assistant') {
+    return { ...state, chatEvents, streamingText: '' };
+  }
+  if (resetsStreaming(type)) {
+    return { ...state, chatEvents, streamingText: '' };
+  }
+  return { ...state, chatEvents };
+}
+
 function eventTargetsActiveSelection(state: MobileState, event: Record<string, unknown>): boolean {
   const targets = eventTargetIds(event);
   if (targets.length === 0) return true;
@@ -195,6 +224,32 @@ function appendChatEvent(
   return [...events, next];
 }
 
+function normalizeChatEvents(input: {
+  readonly events: ReadonlyArray<Record<string, unknown>>;
+  readonly streamingText: string;
+  readonly sending: boolean;
+}): { readonly events: ReadonlyArray<Record<string, unknown>>; readonly streamingText: string } {
+  const dedupedEvents = dedupeChatEvents(input.events);
+  const events: Record<string, unknown>[] = [];
+  let liveStreamingText = '';
+  for (const event of dedupedEvents) {
+    const type = eventType(event);
+    if (type === 'assistant_chunk') {
+      liveStreamingText += textOf(event.delta, textOf(event.text, textOf(event.content)));
+      continue;
+    }
+    events.push(event);
+    if (type === 'assistant_message' || type === 'assistant' || resetsStreaming(type)) {
+      liveStreamingText = '';
+    }
+  }
+  const explicitStreamingText = input.streamingText.trim().length > 0 ? input.streamingText : '';
+  return {
+    events,
+    streamingText: explicitStreamingText || (input.sending ? liveStreamingText : ''),
+  };
+}
+
 function dedupeChatEvents(
   events: ReadonlyArray<Record<string, unknown>>,
 ): ReadonlyArray<Record<string, unknown>> {
@@ -213,6 +268,14 @@ function dedupeChatEvents(
 
 function eventId(event: Record<string, unknown>): string | null {
   return typeof event.id === 'string' && event.id.length > 0 ? event.id : null;
+}
+
+function eventType(event: Record<string, unknown>): string {
+  return textOf(event.type, textOf(event.role, 'event'));
+}
+
+function resetsStreaming(type: string): boolean {
+  return type === 'user_prompt' || type === 'user' || type === 'abort' || type === 'error' || type === 'turn_error';
 }
 
 function upsertById(

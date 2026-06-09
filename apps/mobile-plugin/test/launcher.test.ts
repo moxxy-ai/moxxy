@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { pathToFileURL } from 'node:url';
 import {
   buildExpoStartArgs,
+  isDirectRun,
   mobileGatewayPlugin,
+  resolveMobileAppDir,
   resolveMobileExpoOptions,
   resolveMobileGatewayOptions,
 } from '../serve.js';
@@ -49,6 +52,10 @@ describe('mobile launcher channel', () => {
     });
   });
 
+  it('resolves the bundled Expo mobile app directory', () => {
+    expect(resolveMobileAppDir()).toMatch(/apps\/mobile-plugin\/mobile$/);
+  });
+
   it('can disable Expo startup for gateway-only runs', () => {
     expect(resolveMobileExpoOptions({ 'no-expo': true })).toEqual({
       enabled: false,
@@ -67,6 +74,18 @@ describe('mobile launcher channel', () => {
       '--port',
       '8081',
     ]);
+  });
+
+  it('does not treat a bundled CLI bin import as direct serve.js execution', () => {
+    const bundledBin = '/repo/packages/cli/dist/bin.js';
+
+    expect(isDirectRun(bundledBin, pathToFileURL(bundledBin).href)).toBe(false);
+  });
+
+  it('still treats serve.js itself as direct plugin execution', () => {
+    const serve = '/repo/apps/mobile-plugin/serve.js';
+
+    expect(isDirectRun(serve, pathToFileURL(serve).href)).toBe(true);
   });
 
   it('exports a mobile channel with the open interactive command', () => {

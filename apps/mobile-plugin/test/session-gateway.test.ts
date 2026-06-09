@@ -58,6 +58,142 @@ describe('session-backed mobile gateway', () => {
     }
   });
 
+  it('broadcasts live assistant chunks and tool lifecycle states over websocket', async () => {
+    const session = createFakeSession();
+    session.runTurn = async function* runStreamingToolTurn(prompt: string) {
+      session.contextsBeforeTurn.push([...session.log.slice()]);
+      session.prompts.push(prompt);
+      yield liveEvent(session, { type: 'user_prompt', source: 'user', text: prompt });
+      yield liveEvent(session, { type: 'assistant_chunk', source: 'model', delta: 'Sprawdzam ' });
+      yield liveEvent(session, {
+        type: 'tool_call_requested',
+        source: 'model',
+        callId: 'call-live',
+        name: 'Bash',
+        input: { command: 'bad' },
+      });
+      yield liveEvent(session, {
+        type: 'tool_result',
+        source: 'tool',
+        callId: 'call-live',
+        ok: false,
+        error: { kind: 'threw', message: 'boom' },
+      });
+      yield liveEvent(session, {
+        type: 'assistant_message',
+        source: 'model',
+        content: 'Gotowe',
+        stopReason: 'end_turn',
+      });
+    };
+    const gateway = await createMobileGatewayServer({ session, port: 0 }).start();
+    try {
+      const pairing = await getJson<{ code: string }>(`${gateway.url}/mobile/v1/pairing`);
+      const paired = await postJson<{ token: string }>(`${gateway.url}/mobile/v1/pair`, { code: pairing.code });
+      const socket = new WebSocket(`${gateway.wsUrl}/mobile/v1/ws?token=${paired.token}`);
+      const messages = collectMessages(socket);
+      await waitForFrame(messages, 'snapshot');
+
+      socket.send(JSON.stringify({ type: 'runTurn', id: 'mobile-streaming-turn', prompt: 'sprawdz tool' }));
+
+      await expect(waitForEvent(messages, 'assistant_chunk')).resolves.toMatchObject({
+        type: 'event',
+        event: { type: 'assistant_chunk', delta: 'Sprawdzam ' },
+      });
+      await expect(waitForEvent(messages, 'tool_call_requested')).resolves.toMatchObject({
+        type: 'event',
+        event: { type: 'tool_call_requested', callId: 'call-live', name: 'Bash' },
+      });
+      await expect(waitForEvent(messages, 'tool_result')).resolves.toMatchObject({
+        type: 'event',
+        event: { type: 'tool_result', callId: 'call-live', ok: false },
+      });
+      await expect(waitForEvent(messages, 'assistant_message', 'Gotowe')).resolves.toMatchObject({
+        type: 'event',
+        event: { type: 'assistant_message', content: 'Gotowe' },
+      });
+      socket.close();
+    } finally {
+      await gateway.stop();
+    }
+  });
+
+  it('keeps live assistant text in snapshots while a turn is still streaming', async () => {
+    const session = createControlledStreamingSession();
+    const gateway = await createMobileGatewayServer({ session, port: 0 }).start();
+    try {
+      const pairing = await getJson<{ code: string }>(`${gateway.url}/mobile/v1/pairing`);
+      const paired = await postJson<{ token: string }>(`${gateway.url}/mobile/v1/pair`, { code: pairing.code });
+      const socket = new WebSocket(`${gateway.wsUrl}/mobile/v1/ws?token=${paired.token}`);
+      const messages = collectMessages(socket);
+      await waitForFrame(messages, 'snapshot');
+
+      socket.send(JSON.stringify({ type: 'runTurn', id: 'mobile-streaming-snapshot', prompt: 'streamuj' }));
+      await session.firstChunkEmitted;
+
+      const snapshot = await getJson<Record<string, unknown>>(`${gateway.url}/mobile/v1/snapshot`, paired.token);
+      expect(snapshot).toMatchObject({
+        sending: true,
+        streamingText: 'Piszę ',
+      });
+      expect(snapshot.chatEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'user_prompt', text: 'streamuj' }),
+      ]));
+      expect(snapshot.chatEvents).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'assistant_chunk' }),
+      ]));
+
+      session.releaseFinal();
+      await session.finalEmitted;
+      socket.close();
+    } finally {
+      await gateway.stop();
+    }
+  });
+
+  it('streams events under the selected hydrated session id while continuing an old session', async () => {
+    const sessionDir = await mkdtemp(join(tmpdir(), 'moxxy-mobile-gateway-streaming-hydrated-'));
+    const session = createControlledStreamingSession();
+    await writePersistedSession(sessionDir, 'session-old', [
+      { type: 'user_prompt', text: 'old question' },
+      { type: 'assistant_message', content: 'old answer' },
+    ], {
+      firstPrompt: 'Old session',
+    });
+    const gateway = await createMobileGatewayServer({ session, port: 0, sessionDir }).start();
+    try {
+      const pairing = await getJson<{ code: string }>(`${gateway.url}/mobile/v1/pairing`);
+      const paired = await postJson<{ token: string }>(`${gateway.url}/mobile/v1/pair`, { code: pairing.code });
+      const socket = new WebSocket(`${gateway.wsUrl}/mobile/v1/ws?token=${paired.token}`);
+      const messages = collectMessages(socket);
+      await waitForFrame(messages, 'snapshot');
+
+      socket.send(JSON.stringify({ type: 'selectSession', id: 'select-old', sessionId: 'session-old' }));
+      await waitForSnapshot(messages, 'session-old');
+
+      socket.send(JSON.stringify({ type: 'runTurn', id: 'stream-old', prompt: 'kontynuuj' }));
+      await session.firstChunkEmitted;
+
+      await expect(waitForEvent(messages, 'assistant_chunk', 'Piszę ')).resolves.toMatchObject({
+        type: 'event',
+        event: { type: 'assistant_chunk', sessionId: 'session-old', delta: 'Piszę ' },
+      });
+      const snapshot = await getJson<Record<string, unknown>>(`${gateway.url}/mobile/v1/snapshot`, paired.token);
+      expect(snapshot).toMatchObject({
+        session: { id: 'session-old' },
+        sending: true,
+        streamingText: 'Piszę ',
+      });
+
+      session.releaseFinal();
+      await session.finalEmitted;
+      socket.close();
+    } finally {
+      await gateway.stop();
+      await rm(sessionDir, { recursive: true, force: true });
+    }
+  });
+
   it('folds provider response usage into the desktop-style context percentage inputs', async () => {
     const session = createFakeSession();
     const gateway = await createMobileGatewayServer({ session, port: 0 }).start();
@@ -709,6 +845,58 @@ function createControlledTurnSession() {
   });
 }
 
+function createControlledStreamingSession() {
+  const session = createFakeSession();
+  let releaseFinal!: () => void;
+  let resolveFirstChunkEmitted!: () => void;
+  let resolveFinalEmitted!: () => void;
+  const finalGate = new Promise<void>((resolve) => {
+    releaseFinal = resolve;
+  });
+  const firstChunkEmitted = new Promise<void>((resolve) => {
+    resolveFirstChunkEmitted = resolve;
+  });
+  const finalEmitted = new Promise<void>((resolve) => {
+    resolveFinalEmitted = resolve;
+  });
+
+  session.runTurn = async function* runControlledStreamingTurn(prompt: string) {
+    session.contextsBeforeTurn.push(session.log.slice());
+    session.prompts.push(prompt);
+    const user = controlledEvent(session, {
+      type: 'user_prompt',
+      text: prompt,
+      source: 'user',
+    });
+    session.log.ingest(user);
+    yield user;
+    const chunk = controlledEvent(session, {
+      type: 'assistant_chunk',
+      delta: 'Piszę ',
+      source: 'model',
+    });
+    session.log.ingest(chunk);
+    resolveFirstChunkEmitted();
+    yield chunk;
+    await finalGate;
+    const assistant = controlledEvent(session, {
+      type: 'assistant_message',
+      content: 'Piszę dalej.',
+      source: 'model',
+      stopReason: 'end_turn',
+    });
+    session.log.ingest(assistant);
+    resolveFinalEmitted();
+    yield assistant;
+  };
+
+  return Object.assign(session, {
+    releaseFinal,
+    firstChunkEmitted,
+    finalEmitted,
+  });
+}
+
 function controlledEvent(
   session: ReturnType<typeof createFakeSession>,
   event: Record<string, unknown> & { readonly source: string },
@@ -722,6 +910,23 @@ function controlledEvent(
     turnId: 'turn-controlled',
     ...event,
   };
+}
+
+function liveEvent(
+  session: ReturnType<typeof createFakeSession>,
+  event: Record<string, unknown> & { readonly source: string },
+) {
+  const seq = session.log.length;
+  const next = {
+    id: `live-${seq}`,
+    seq,
+    ts: Date.now(),
+    sessionId: 'session-real',
+    turnId: 'turn-live',
+    ...event,
+  };
+  session.log.ingest(next);
+  return next;
 }
 
 function collectMessages(socket: WebSocket): unknown[] {
@@ -763,8 +968,8 @@ async function waitForEvent(messages: unknown[], eventType: string, text?: strin
 
 function eventMatchesText(event: { type?: string }, text?: string): boolean {
   if (typeof text !== 'string') return true;
-  const value = event as { text?: unknown; content?: unknown; message?: unknown };
-  return value.text === text || value.content === text || value.message === text;
+  const value = event as { text?: unknown; content?: unknown; message?: unknown; delta?: unknown };
+  return value.text === text || value.content === text || value.message === text || value.delta === text;
 }
 
 async function waitForSnapshotWithWorkflow(messages: unknown[], workflowName: string): Promise<{ snapshot: Record<string, unknown> }> {

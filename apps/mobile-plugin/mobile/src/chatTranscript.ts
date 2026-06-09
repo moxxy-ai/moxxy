@@ -223,7 +223,7 @@ function upsertTool(
   type: string,
   index: number,
 ): ToolTranscriptItem[] {
-  const id = firstText(event.callId, event.toolCallId, event.id) || `tool-${index}`;
+  const id = toolCallId(event) || `tool-${index}`;
   const existing = tools.find((tool) => tool.id === id);
   const status = toolStatus(type, event);
   const next: ToolTranscriptItem = {
@@ -248,7 +248,7 @@ function upsertTool(
 function toolStatus(type: string, event: Record<string, unknown>): ToolTranscriptItem['status'] {
   if (type === 'tool_call_denied') return 'error';
   if (type === 'tool_result' || type === 'tool_call_completed') {
-    if (event.ok === false || textOf(event.error).length > 0) return 'error';
+    if (event.ok === false || event.isError === true || hasErrorPayload(event.error)) return 'error';
     return 'ok';
   }
   return 'running';
@@ -288,11 +288,29 @@ function primitiveSummary(value: unknown): string {
 }
 
 function eventType(event: Record<string, unknown>): string {
-  return textOf(event.role, textOf(event.type, 'event'));
+  return textOf(event.type, textOf(event.role, 'event'));
 }
 
 function eventId(event: Record<string, unknown>, fallback: string): string {
   return firstText(event.id, event.requestId, event.callId) || fallback;
+}
+
+function toolCallId(event: Record<string, unknown>): string {
+  return firstText(
+    event.callId,
+    event.toolCallId,
+    event.toolUseId,
+    event.tool_call_id,
+    event.tool_use_id,
+    event.id,
+  );
+}
+
+function hasErrorPayload(value: unknown): boolean {
+  if (textOf(value).length > 0) return true;
+  if (!value || typeof value !== 'object') return false;
+  const error = value as Record<string, unknown>;
+  return textOf(error.message, textOf(error.reason, textOf(error.kind))).length > 0;
 }
 
 function firstText(...values: unknown[]): string {

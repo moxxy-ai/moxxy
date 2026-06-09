@@ -3,6 +3,18 @@
   "version": "0.1.0",
   "type": "module",
   "private": true,
+  "main": "./serve.js",
+  "types": "./serve.d.ts",
+  "exports": {
+    ".": {
+      "types": "./serve.d.ts",
+      "default": "./serve.js"
+    },
+    "./serve.js": {
+      "types": "./serve.d.ts",
+      "default": "./serve.js"
+    }
+  },
   "scripts": {
     "test": "vitest run",
     "build": "tsc -p tsconfig.json --noEmit",
