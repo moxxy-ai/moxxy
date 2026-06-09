@@ -1,0 +1,33 @@
+{
+  "name": "@moxxy/mobile-gateway-plugin",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "start": "node serve.js"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4",
+    "ws": "^8.17.1"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./serve.js",
+      "kind": [
+        "ui",
+        "cli"
+      ],
+      "port": 17902,
+      "title": "Moxxy Mobile Gateway",
+      "openInBrowser": false
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.9"
+  }
+}
