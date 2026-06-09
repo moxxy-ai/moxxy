@@ -1,0 +1,72 @@
+# Live end-to-end tests against the REAL OpenAI API.
+#
+# Manual only — this spends real tokens, so it never runs on push/PR. It boots
+# the built `moxxy` CLI one-shot (`moxxy -p`) with the `openai` provider +
+# gpt-4o-mini and asserts real provider streaming, a tool-use round-trip, and
+# the web_fetch SSRF guard refusing the cloud-metadata endpoint.
+#
+# Trigger it from the CLI:
+#   gh workflow run e2e-live.yml --ref <branch>
+#   gh run list --workflow=e2e-live.yml          # find the run id
+#   gh run watch <run-id>                         # follow it
+#   gh run view <run-id> --log-failed             # read failures
+#
+# Or from the GitHub UI: Actions → "E2E (live OpenAI)" → Run workflow.
+#
+# Requires the OPENAI_API_KEY repo secret. The harness keeps cost tiny: three
+# short turns, at most a couple of tool hops, on the cheap gpt-4o-mini model.
+name: E2E (live OpenAI)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  # One live run at a time — they all hit the same paid API.
+  group: e2e-live
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-live:
+    name: Live E2E (openai / gpt-4o-mini)
+    runs-on: ubuntu-latest
+    env:
+      # Replay fixtures are for the unit suite; the live harness must hit the
+      # real API, so do NOT set MOXXY_FIXTURES here.
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      # Fail fast (and clearly) if the secret is missing — e.g. a fork run or a
+      # repo where the secret was never added — so the job errors instead of
+      # mysteriously hanging on an auth wall.
+      - name: Require OPENAI_API_KEY
+        run: |
+          if [ -z "${OPENAI_API_KEY}" ]; then
+            echo "::error::OPENAI_API_KEY secret is empty. Add it under Settings → Secrets and variables → Actions before running this workflow."
+            exit 1
+          fi
+          echo "OPENAI_API_KEY is present."
+
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.0
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Run live E2E harness
+        run: node scripts/e2e-live.mjs
