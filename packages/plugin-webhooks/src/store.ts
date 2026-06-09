@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, rename } from 'node:fs/promises';
 import { createMutex, moxxyPath, writeFileAtomic, type Mutex } from '@moxxy/sdk';
 import { ulid } from 'ulid';
 import { z } from 'zod';
@@ -8,6 +8,15 @@ import { z } from 'zod';
  * `~/.moxxy/webhooks.json`. Mutations serialize through a write mutex;
  * writes land via an atomic whole-file write so a crash mid-write leaves
  * the previous state intact (same pattern as the scheduler/vault).
+ *
+ * Corruption is never silently swallowed: a file that exists but cannot
+ * be parsed (or doesn't match the file schema) is renamed aside to
+ * `webhooks.json.corrupt-<timestamp>` BEFORE the store starts empty, so a
+ * subsequent write can never clobber the only copy of the triggers (and
+ * their secrets). Individually invalid entries inside an otherwise valid
+ * file are quarantined to `webhooks.json.quarantine-<timestamp>` and the
+ * valid ones kept. Either way the condition is logged and surfaced to the
+ * tools via {@link WebhookStore.loadWarning}.
  *
  * The store knows nothing about HTTP or verification — it just owns
  * the entry records. The server and verifier read from it.
@@ -114,14 +123,26 @@ export const webhookTriggerSchema = z.object({
 
 export type WebhookTrigger = z.infer<typeof webhookTriggerSchema>;
 
-const fileSchema = z.object({
+/**
+ * Top-level file shape, validated loosely first so a single bad entry
+ * doesn't condemn the whole file: entries are re-validated one by one
+ * against {@link webhookTriggerSchema} and bad ones quarantined.
+ */
+const looseFileSchema = z.object({
   version: z.literal(1),
-  triggers: z.array(webhookTriggerSchema),
+  triggers: z.array(z.unknown()),
 });
+
+export interface WebhookStoreLogger {
+  warn?(msg: string, meta?: Record<string, unknown>): void;
+  error?(msg: string, meta?: Record<string, unknown>): void;
+}
 
 export interface WebhookStoreOptions {
   /** Override path — primarily for tests. Defaults to `~/.moxxy/webhooks.json`. */
   readonly file?: string;
+  /** Where corruption/quarantine events are reported. */
+  readonly logger?: WebhookStoreLogger;
 }
 
 export function defaultWebhooksFile(): string {
@@ -130,15 +151,30 @@ export function defaultWebhooksFile(): string {
 
 export class WebhookStore {
   private readonly file: string;
+  private readonly logger: WebhookStoreLogger | undefined;
   private cache: WebhookTrigger[] | null = null;
+  private loadWarningMsg: string | null = null;
   private readonly mutex: Mutex = createMutex();
 
   constructor(opts: WebhookStoreOptions = {}) {
     this.file = opts.file ?? defaultWebhooksFile();
+    this.logger = opts.logger;
   }
 
   invalidate(): void {
     this.cache = null;
+    this.loadWarningMsg = null;
+  }
+
+  /**
+   * Human-readable description of any corruption encountered while loading
+   * the store file (corrupt file preserved aside, or invalid entries
+   * quarantined), or `null` when the load was clean. Tools surface this so
+   * the user learns about it instead of silently losing triggers.
+   */
+  async loadWarning(): Promise<string | null> {
+    await this.ensureLoaded();
+    return this.loadWarningMsg;
   }
 
   async list(): Promise<ReadonlyArray<WebhookTrigger>> {
@@ -228,17 +264,115 @@ export class WebhookStore {
 
   private async ensureLoaded(): Promise<void> {
     if (this.cache) return;
+    this.loadWarningMsg = null;
+
+    let raw: string;
     try {
-      const raw = await readFile(this.file, 'utf8');
-      const parsed = fileSchema.safeParse(JSON.parse(raw));
-      this.cache = parsed.success ? [...parsed.data.triggers] : [];
+      raw = await readFile(this.file, 'utf8');
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        // File absent = legitimate fresh start.
         this.cache = [];
-      } else {
-        this.cache = [];
+        return;
       }
+      // Present but unreadable (permissions, I/O, ...): refuse to operate.
+      // Treating this as empty would let the next persist() overwrite the
+      // only copy of every trigger and its secrets.
+      throw new Error(
+        `webhooks store: cannot read ${this.file}: ` +
+          `${err instanceof Error ? err.message : String(err)} — ` +
+          'refusing to load (and write) until the file is readable again',
+      );
     }
+
+    let json: unknown;
+    try {
+      json = JSON.parse(raw);
+    } catch {
+      await this.preserveCorruptFile('is not valid JSON');
+      return;
+    }
+
+    const file = looseFileSchema.safeParse(json);
+    if (!file.success) {
+      await this.preserveCorruptFile(
+        'does not match the expected { version: 1, triggers: [...] } shape',
+      );
+      return;
+    }
+
+    const valid: WebhookTrigger[] = [];
+    const invalid: Array<{ index: number; entry: unknown; issues: string }> = [];
+    file.data.triggers.forEach((entry, index) => {
+      const parsed = webhookTriggerSchema.safeParse(entry);
+      if (parsed.success) {
+        valid.push(parsed.data);
+      } else {
+        invalid.push({
+          index,
+          entry,
+          issues: parsed.error.issues
+            .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
+            .join('; '),
+        });
+      }
+    });
+    if (invalid.length > 0) await this.quarantineEntries(invalid);
+    this.cache = valid;
+  }
+
+  /**
+   * The file exists but is unparseable/mis-shaped. Rename it aside (rename,
+   * not copy — nothing may remain at the live path that a later persist()
+   * could clobber while it is the only copy), then start empty. If the
+   * rename itself fails the error propagates and the store refuses to
+   * operate, which is the safe direction.
+   */
+  private async preserveCorruptFile(reason: string): Promise<void> {
+    const preserved = `${this.file}.corrupt-${timestampSlug()}`;
+    await rename(this.file, preserved);
+    this.loadWarningMsg =
+      `the webhook trigger store (${this.file}) ${reason}; the original file was preserved ` +
+      `at ${preserved} and the store restarted empty. Previously configured triggers (and ` +
+      'their secrets) are recoverable from that file — repair it by hand or recreate the triggers.';
+    this.logger?.error?.('webhooks: store file corrupt — preserved aside, starting empty', {
+      file: this.file,
+      preserved,
+      reason,
+    });
+    this.cache = [];
+  }
+
+  /**
+   * The file parses but some entries fail validation. Keep the valid ones,
+   * write the rest (verbatim, with their zod issues) to a 0600 sidecar so
+   * they stay recoverable after the next persist() drops them.
+   */
+  private async quarantineEntries(
+    invalid: ReadonlyArray<{ index: number; entry: unknown; issues: string }>,
+  ): Promise<void> {
+    const quarantine = `${this.file}.quarantine-${timestampSlug()}`;
+    const payload = JSON.stringify(
+      {
+        quarantinedAt: new Date().toISOString(),
+        source: this.file,
+        entries: invalid,
+      },
+      null,
+      2,
+    );
+    // 0600 — quarantined entries may carry verification secrets.
+    await writeFileAtomic(quarantine, payload, { mode: 0o600 });
+    this.loadWarningMsg =
+      `${invalid.length} trigger entr${invalid.length === 1 ? 'y' : 'ies'} in ${this.file} ` +
+      `failed schema validation and ${invalid.length === 1 ? 'was' : 'were'} quarantined to ` +
+      `${quarantine} (valid triggers were kept). Inspect that file to repair or recreate them.`;
+    this.logger?.error?.('webhooks: invalid trigger entries quarantined', {
+      file: this.file,
+      quarantine,
+      count: invalid.length,
+      issues: invalid.map((i) => ({ index: i.index, issues: i.issues })),
+    });
   }
 
   private async mutate(
@@ -256,4 +390,9 @@ export class WebhookStore {
     const payload = JSON.stringify({ version: 1, triggers }, null, 2);
     await writeFileAtomic(this.file, payload);
   }
+}
+
+/** Filesystem-safe timestamp for `.corrupt-*` / `.quarantine-*` sidecars. */
+function timestampSlug(): string {
+  return new Date().toISOString().replace(/[:.]/g, '-');
 }

@@ -69,6 +69,9 @@ export class VaultStore {
   // whole-file rewrite. open() is also chained through this so two
   // parallel `open()` calls never both derive a fresh salt.
   private readonly mutex: Mutex = createMutex();
+  // stat() fingerprint of the file as of our last load/sync/persist; lets
+  // syncFromDisk() skip the read+parse when nothing else has written.
+  private lastSynced: { mtimeMs: number; size: number } | null = null;
 
   constructor(opts: VaultStoreOptions) {
     this.filePath = opts.filePath;
@@ -149,6 +152,49 @@ export class VaultStore {
   }
 
   /**
+   * Fold other writers' entries in from the on-disk file. Historically the
+   * vault persisted a whole-file snapshot of THIS instance's memory, so a
+   * write from any other `VaultStore` (another moxxy process, or a second
+   * instance in this one) was silently clobbered by our next persist —
+   * last-writer-wins, fatal for single-use rotated OAuth refresh tokens.
+   * Now every read and every mutation first re-reads the file (mtime/size
+   * gated, so the common no-other-writer case costs one `stat`) and merges:
+   *   - key on both sides → newer `updatedAt` wins (ISO timestamps);
+   *   - key only on disk  → adopt it (another writer added it);
+   *   - key only in memory → drop it (every mutation persists before
+   *     returning, so a key missing on disk was deleted by another writer).
+   * Skipped when the on-disk salt differs (vault wiped/recreated — those
+   * entries are undecryptable under our master key) or the file is
+   * unreadable/corrupt (keep memory; the next persist restores a good file).
+   *
+   * Must be called while holding `this.mutex`.
+   */
+  private async syncFromDisk(): Promise<void> {
+    if (!this.file) return;
+    let st: { mtimeMs: number; size: number };
+    try {
+      st = await fs.stat(this.filePath);
+    } catch (err) {
+      if (isEnoent(err)) return; // deleted out from under us — keep memory
+      throw err;
+    }
+    if (this.lastSynced && st.mtimeMs === this.lastSynced.mtimeMs && st.size === this.lastSynced.size) {
+      return;
+    }
+    let parsed: VaultFile;
+    try {
+      parsed = JSON.parse(await fs.readFile(this.filePath, 'utf8')) as VaultFile;
+    } catch {
+      return;
+    }
+    if (parsed.version !== 1 || parsed.kdf !== 'scrypt' || parsed.salt !== this.file.salt) return;
+    this.file = { ...this.file, entries: mergeEntries(this.file.entries, parsed.entries ?? {}) };
+    // Fingerprint from BEFORE the read: if a write landed in between, the
+    // next sync simply re-reads — never the other way around.
+    this.lastSynced = { mtimeMs: st.mtimeMs, size: st.size };
+  }
+
+  /**
    * Crash-atomic write: serialize to a sibling tmp file, then rename. POSIX
    * rename is atomic, so a crash mid-write leaves the previous vault intact
    * rather than truncated. mode 0o600 keeps the secret store owner-only.
@@ -156,12 +202,19 @@ export class VaultStore {
   private async persist(): Promise<void> {
     if (!this.file) return;
     await writeFileAtomic(this.filePath, JSON.stringify(this.file, null, 2), { mode: 0o600 });
+    try {
+      const st = await fs.stat(this.filePath);
+      this.lastSynced = { mtimeMs: st.mtimeMs, size: st.size };
+    } catch {
+      this.lastSynced = null;
+    }
   }
 
   async set(name: string, value: string, tags?: ReadonlyArray<string>): Promise<void> {
     await this.open();
     return this.mutex.run(async () => {
       if (!this.file || !this.masterKey) throw new Error('vault not open');
+      await this.syncFromDisk();
       const now = new Date().toISOString();
       const existing = this.file.entries[name];
       const blob = encrypt(value, this.masterKey);
@@ -183,6 +236,7 @@ export class VaultStore {
 
   async get(name: string): Promise<string | null> {
     await this.open();
+    await this.mutex.run(() => this.syncFromDisk());
     if (!this.file || !this.masterKey) throw new Error('vault not open');
     const entry = this.file.entries[name];
     if (!entry) return null;
@@ -191,6 +245,7 @@ export class VaultStore {
 
   async has(name: string): Promise<boolean> {
     await this.open();
+    await this.mutex.run(() => this.syncFromDisk());
     return Boolean(this.file?.entries[name]);
   }
 
@@ -198,6 +253,7 @@ export class VaultStore {
     await this.open();
     return this.mutex.run(async () => {
       if (!this.file) return false;
+      await this.syncFromDisk();
       if (!(name in this.file.entries)) return false;
       const { [name]: _removed, ...rest } = this.file.entries;
       void _removed;
@@ -209,6 +265,7 @@ export class VaultStore {
 
   async list(): Promise<ReadonlyArray<VaultEntryInfo>> {
     await this.open();
+    await this.mutex.run(() => this.syncFromDisk());
     if (!this.file) return [];
     return Object.entries(this.file.entries).map(([name, e]) => ({
       name,
@@ -217,6 +274,27 @@ export class VaultStore {
       tags: e.tags,
     }));
   }
+}
+
+/**
+ * Merge our in-memory entries with another writer's on-disk entries. Disk is
+ * the base (all current writers merge-before-persist, so disk is the union of
+ * everyone's persisted state); when both sides hold a key, the newer
+ * `updatedAt` wins so a stale whole-file write from an older moxxy can't roll
+ * back a fresher value (e.g. a just-rotated OAuth refresh token).
+ */
+function mergeEntries(
+  memory: Record<string, VaultEntry>,
+  disk: Record<string, VaultEntry>,
+): Record<string, VaultEntry> {
+  const merged: Record<string, VaultEntry> = { ...disk };
+  for (const [name, mine] of Object.entries(memory)) {
+    const theirs = merged[name];
+    if (theirs && theirs.updatedAt >= mine.updatedAt) continue;
+    if (!theirs) continue; // absent on disk → deleted by another writer
+    merged[name] = mine;
+  }
+  return merged;
 }
 
 function isEnoent(err: unknown): boolean {

@@ -16,9 +16,13 @@ name: Release
 # is just "include it in a changeset" — no bespoke change detection.
 #
 # When the merged Version PR bumped the desktop, the `version-publish` job's
-# "cut" step pushes a `desktop-v<version>` tag and flips a job output; the
-# `desktop-build` matrix and `desktop-release` jobs then build + ship the
-# installers in the SAME run. No cross-workflow dispatch, no auto-opened PR.
+# "cut" step decides the release (version + pinned commit sha) and flips a job
+# output; the `desktop-build` matrix builds the installers from that sha in the
+# SAME run, and only AFTER every build leg succeeds does `desktop-release` push
+# the `desktop-v<version>` tag + create the (draft) GitHub Release. Tag-last
+# ordering means a failed installer build leaves NO tag behind, so the version
+# isn't burned — the next run's cut step sees no tag and re-releases it. No
+# cross-workflow dispatch, no auto-opened PR.
 #
 # Mode 2 runs through `scripts/safe-publish.mjs` rather than `changesets
 # publish`. That wrapper skips packages already on the registry, auto-bumps
@@ -49,6 +53,7 @@ jobs:
     outputs:
       desktop-release: ${{ steps.cut.outputs.release }}
       desktop-version: ${{ steps.cut.outputs.version }}
+      desktop-sha: ${{ steps.cut.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -91,10 +96,16 @@ jobs:
 
       # Decide whether to cut a desktop release. The desktop version COMMITTED on
       # main is the source of truth: if there is no `desktop-v<version>` tag yet,
-      # this bump hasn't been released. Pushing the tag here gives the build +
-      # GitHub Release a stable name; the desktop jobs below are gated by the
-      # `release` output, NOT by the tag — so there's no cross-workflow dispatch
-      # to coax past GitHub's "GITHUB_TOKEN tag pushes don't start runs" guard.
+      # this bump hasn't been released. This step only DECIDES (version + the
+      # pinned commit sha the desktop jobs must build); the tag itself is pushed
+      # by the `desktop-release` job AFTER every installer build succeeds — see
+      # the ORDERING INVARIANT there. Pushing the tag here (the old behaviour)
+      # permanently burned the version whenever a desktop build failed: this
+      # guard would then see the existing tag and refuse to ever re-release it.
+      # The desktop jobs below are gated by the `release` output and check out
+      # the `sha` output, NOT the tag — so nothing downstream needs the tag to
+      # exist yet, and there's still no cross-workflow dispatch to coax past
+      # GitHub's "GITHUB_TOKEN tag pushes don't start runs" guard.
       #
       # GUARD (`hasChangesets == 'false'`): only run on a publish run, never on a
       # mode-1 run that just opened/updated the Version PR. In mode 1 the `version`
@@ -119,10 +130,13 @@ jobs:
             exit 0
           fi
           echo "Desktop bumped to $version with no $tag tag — releasing."
-          git tag "$tag"
-          git push origin "$tag"
           echo "release=true" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # Pin the exact commit the desktop jobs build and the eventual tag
+          # points at. HEAD here includes any follow-up bumps safe-publish
+          # committed (it pushes them to main before we get here), so artifact
+          # versions and the tag can never diverge (PR #85's invariant).
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   # ── Desktop installers ─────────────────────────────────────────────────────
   # The next three jobs build the desktop (.dmg / .exe / .deb + AppImage) on a
@@ -137,11 +151,13 @@ jobs:
     if: needs.version-publish.outputs.desktop-release == 'true'
     runs-on: ubuntu-latest
     steps:
-      # Check out the EXACT tagged commit, not main's HEAD — so the guard scans
-      # (and every desktop job builds from) precisely what ships under this tag.
+      # Check out the EXACT pinned release commit, not main's HEAD — so the
+      # guard scans (and every desktop job builds from) precisely what will
+      # ship under the desktop-v tag. The tag itself doesn't exist yet (it is
+      # pushed only after the builds succeed), which is why this is a sha.
       - uses: actions/checkout@v4
         with:
-          ref: desktop-v${{ needs.version-publish.outputs.desktop-version }}
+          ref: ${{ needs.version-publish.outputs.desktop-sha }}
       # A pk_live_ Clerk key must never live in the repo (only the public
       # pk_test_ belongs in .env.example). Fail loudly if one slips in.
       - name: Scan for a live Clerk key
@@ -169,12 +185,14 @@ jobs:
           - os: ubuntu-latest
             artifact: deb-appimage
     steps:
-      # Build from the EXACT tagged commit so artifact versions (installers, the
-      # self-update bundle name, and the manifest) always match the
-      # desktop-v<version> tag — never main's HEAD, which may have moved on.
+      # Build from the EXACT pinned release commit so artifact versions (the
+      # installers, the self-update bundle name, and the manifest) always match
+      # the desktop-v<version> tag that desktop-release will push at this same
+      # sha — never main's HEAD, which may have moved on. (The tag can't be
+      # used here: it intentionally doesn't exist until the builds succeed.)
       - uses: actions/checkout@v4
         with:
-          ref: desktop-v${{ needs.version-publish.outputs.desktop-version }}
+          ref: ${{ needs.version-publish.outputs.desktop-sha }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -348,6 +366,33 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+      # ORDERING INVARIANT — do not move this step earlier in the pipeline.
+      # The desktop-v<version> tag is created HERE, only after EVERY
+      # desktop-build matrix leg succeeded (`needs: desktop-build` with
+      # fail-fast disabled means one failed leg fails the build job, which
+      # skips this whole job). Tag-first (the pre-2026-06 ordering) burned the
+      # version permanently on any installer-build failure: the version-publish
+      # "cut" guard sees an existing tag and refuses to re-release, while the
+      # self-update stager resolves releases BY TAG — a tag with missing/
+      # mismatched assets is exactly the desktop-v0.0.17 updater-404 incident
+      # (PR #85). The tag points at the same pinned sha every build job checked
+      # out, so tag and artifacts always match. The release stays a DRAFT
+      # (created below) until a human publishes it, and the stager skips drafts
+      # (stager.ts), so the tag existing early-but-after-build is safe.
+      - name: Push release tag (builds succeeded)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="desktop-v${{ needs.version-publish.outputs.desktop-version }}"
+          sha="${{ needs.version-publish.outputs.desktop-sha }}"
+          # Idempotent for job re-runs: leave an existing tag alone.
+          if gh api "repos/${{ github.repository }}/git/ref/tags/$tag" >/dev/null 2>&1; then
+            echo "$tag already exists — leaving it in place."
+          else
+            gh api "repos/${{ github.repository }}/git/refs" \
+              -f ref="refs/tags/$tag" -f sha="$sha"
+            echo "Pushed $tag at $sha."
+          fi
       # NOTE: self-update needs PUBLISHED assets. The release is created as a
       # DRAFT (human review of the unsigned build); the moxxy-app-manifest.json /
       # bundle (Tier-1) and the electron-updater latest*.yml feed (Tier-2) only

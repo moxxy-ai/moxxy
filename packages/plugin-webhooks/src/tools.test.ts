@@ -1,0 +1,170 @@
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import type { ToolContext, ToolDef } from '@moxxy/sdk';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { WebhookConfigStore } from './config.js';
+import type { WebhookDispatcher } from './runner.js';
+import { WebhookStore } from './store.js';
+import { buildWebhookTools } from './tools.js';
+import { verifyDelivery } from './verify.js';
+import { createHmac } from 'node:crypto';
+
+const ctx = {} as ToolContext;
+
+describe('webhook tools', () => {
+  let dir: string;
+  let store: WebhookStore;
+  let config: WebhookConfigStore;
+  let tools: ReadonlyArray<ToolDef>;
+  let secretsDir: string;
+
+  const tool = (name: string): ToolDef => {
+    const found = tools.find((t) => t.name === name);
+    if (!found) throw new Error(`no tool ${name}`);
+    return found;
+  };
+
+  const call = async (name: string, input: unknown): Promise<unknown> => {
+    const t = tool(name);
+    return t.handler(t.inputSchema.parse(input), ctx);
+  };
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'moxxy-webhook-tools-'));
+    store = new WebhookStore({ file: path.join(dir, 'webhooks.json') });
+    config = new WebhookConfigStore({ file: path.join(dir, 'webhooks-config.json') });
+    secretsDir = path.join(dir, 'secrets');
+    const dispatcher = {
+      fire: async () => ({ ok: true, text: '' }),
+    } as unknown as WebhookDispatcher;
+    tools = buildWebhookTools({
+      store,
+      config,
+      dispatcher,
+      tunnelHandle: { current: null },
+      secretsDir,
+    });
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  describe('webhook_create secret handling', () => {
+    it('never returns a generated secret — only a masked preview + pickup path', async () => {
+      const result = (await call('webhook_create', {
+        name: 'gh-events',
+        prompt: 'Triage: {body_json}',
+        verification: { type: 'hmac', signatureHeader: 'X-Hub-Signature-256' },
+      })) as {
+        generatedSecret: { masked: string; path: string } | null;
+        guidance: string[];
+      };
+
+      expect(result.generatedSecret).not.toBeNull();
+      const { masked, path: secretPath } = result.generatedSecret!;
+      expect(masked).toMatch(/^[0-9a-f]{4}…$/);
+
+      // The real secret lives in the trigger store (it must verify HMACs)…
+      const trigger = await store.getByName('gh-events');
+      const verification = trigger!.verification;
+      if (verification.type !== 'hmac') throw new Error('expected hmac verification');
+      const realSecret = verification.secret;
+      expect(realSecret).toHaveLength(64);
+      expect(realSecret.startsWith(masked.slice(0, 4))).toBe(true);
+
+      // …and the full tool result never contains it.
+      expect(JSON.stringify(result)).not.toContain(realSecret);
+
+      // The out-of-band file holds the full value, owner-only.
+      expect(secretPath).toBe(path.join(secretsDir, 'gh-events.secret'));
+      expect((await readFile(secretPath, 'utf8')).trim()).toBe(realSecret);
+      expect((await stat(secretPath)).mode & 0o777).toBe(0o600);
+
+      // Guidance points at the file, not the value.
+      expect(result.guidance.join('\n')).toContain(secretPath);
+    });
+
+    it('writes no secret file when the caller supplies the secret', async () => {
+      const result = (await call('webhook_create', {
+        name: 'byo-secret',
+        prompt: 'x',
+        verification: { type: 'bearer', secret: 'user-supplied-secret' },
+      })) as { generatedSecret: unknown };
+      expect(result.generatedSecret).toBeNull();
+      await expect(stat(path.join(secretsDir, 'byo-secret.secret'))).rejects.toThrow();
+    });
+
+    it('HMAC verification works end-to-end with the out-of-band secret', async () => {
+      const result = (await call('webhook_create', {
+        name: 'hmac-e2e',
+        prompt: 'x',
+        verification: { type: 'hmac', signatureHeader: 'x-signature', prefix: 'sha256=' },
+      })) as { generatedSecret: { path: string } };
+      const secret = (await readFile(result.generatedSecret.path, 'utf8')).trim();
+
+      const trigger = await store.getByName('hmac-e2e');
+      const body = Buffer.from('{"hello":"world"}', 'utf8');
+      const sig = `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`;
+      expect(
+        verifyDelivery({
+          verification: trigger!.verification,
+          headers: { 'x-signature': sig },
+          body,
+        }),
+      ).toEqual({ ok: true });
+      expect(
+        verifyDelivery({
+          verification: trigger!.verification,
+          headers: { 'x-signature': 'sha256=deadbeef' },
+          body,
+        }).ok,
+      ).toBe(false);
+    });
+
+    it('webhook_list and webhook_create echo no stored secret values', async () => {
+      await call('webhook_create', {
+        name: 'leakcheck',
+        prompt: 'x',
+        verification: { type: 'bearer', secret: 'super-secret-token-42' },
+      });
+      const listed = await call('webhook_list', {});
+      expect(JSON.stringify(listed)).not.toContain('super-secret-token-42');
+    });
+
+    it('webhook_delete removes the secret pickup file', async () => {
+      const created = (await call('webhook_create', {
+        name: 'cleanup',
+        prompt: 'x',
+        verification: { type: 'bearer' },
+      })) as { trigger: { id: string }; generatedSecret: { path: string } };
+      await expect(stat(created.generatedSecret.path)).resolves.toBeTruthy();
+      const deleted = (await call('webhook_delete', { id: created.trigger.id })) as {
+        deleted: boolean;
+      };
+      expect(deleted.deleted).toBe(true);
+      await expect(stat(created.generatedSecret.path)).rejects.toThrow();
+    });
+  });
+
+  describe('store corruption surfacing', () => {
+    it('webhook_list and webhook_create report a storeWarning after a corrupt load', async () => {
+      await writeFile(path.join(dir, 'webhooks.json'), 'not json at all', 'utf8');
+      const listed = (await call('webhook_list', {})) as { storeWarning?: string };
+      expect(listed.storeWarning).toMatch(/preserved/);
+
+      const created = (await call('webhook_create', {
+        name: 'post-corruption',
+        prompt: 'x',
+        verification: { type: 'none' },
+      })) as { storeWarning?: string };
+      expect(created.storeWarning).toMatch(/\.corrupt-/);
+    });
+
+    it('reports no storeWarning on a healthy store', async () => {
+      const listed = (await call('webhook_list', {})) as { storeWarning?: string };
+      expect(listed.storeWarning).toBeUndefined();
+    });
+  });
+});

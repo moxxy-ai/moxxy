@@ -3,14 +3,21 @@
  * within `skewMs` of expiry (or forced), persists the rotated tokens BEFORE
  * returning so a crash mid-flight can't strand a single-use refresh_token.
  *
+ * The refresh + persist critical section runs under the per-credential lock
+ * (`withCredentialLock`): concurrent consumers — in this process or another
+ * moxxy process — coalesce into a single IdP refresh, with the followers
+ * re-reading the winner's rotated tokens from the vault instead of burning
+ * the (single-use, rotating) refresh_token a second time.
+ *
  * Returns the live TokenSet + extras the provider can use to build headers
  * (e.g. ChatGPT-Account-Id). Throws when no credential is stored or the
  * refresh fails permanently.
  */
 
 import { MoxxyError, classifyNetworkError } from '@moxxy/sdk';
-import { isExpired, readStoredCreds, storeTokenSet, type OAuthVault } from './storage.js';
+import { isExpired, readStoredCreds, storeTokenSet, type OAuthVault, type StoredCreds } from './storage.js';
 import { refreshAccessToken } from './oauth/token-exchange.js';
+import { isAuthRejection, withCredentialLock } from './credential-lock.js';
 import type { TokenSet } from './oauth/types.js';
 import type { OAuthProviderProfile } from './profile.js';
 
@@ -43,6 +50,26 @@ export async function ensureFreshTokens(
   if (!opts.force && !isExpired(stored.tokenSet, opts.skewMs)) {
     return { tokens: stored.tokenSet, extras: stored.extras };
   }
+  return withCredentialLock(`oauth-${profile.id}`, async () => {
+    // Re-read under the lock: another consumer/process may have refreshed
+    // while we waited. If the vault now holds a different, still-fresh access
+    // token, reuse it — even under `force`, which exists for 401 recovery and
+    // is satisfied by ANY rotation, not specifically ours.
+    const current = (await readStoredCreds(vault, profile.id)) ?? stored;
+    const rotatedMeanwhile = current.tokenSet.accessToken !== stored.tokenSet.accessToken;
+    if (!isExpired(current.tokenSet, opts.skewMs) && (!opts.force || rotatedMeanwhile)) {
+      return { tokens: current.tokenSet, extras: current.extras };
+    }
+    return refreshAndStore(profile, vault, current);
+  });
+}
+
+async function refreshAndStore(
+  profile: OAuthProviderProfile,
+  vault: OAuthVault,
+  stored: StoredCreds,
+  retried = false,
+): Promise<EnsureFreshResult> {
   if (!stored.tokenSet.refreshToken) {
     throw new MoxxyError({
       code: 'AUTH_EXPIRED',
@@ -60,6 +87,20 @@ export async function ensureFreshTokens(
       refreshToken: stored.tokenSet.refreshToken,
     });
   } catch (err) {
+    // Rotation-race recovery: an invalid_grant-style rejection with a
+    // DIFFERENT refresh_token now on disk means another process rotated ours
+    // away after we read it. Retry once with the fresher token before
+    // declaring re-auth necessary. Transient (network/5xx) failures are not
+    // recovered here — they aren't evidence of rotation.
+    if (!retried && isAuthRejection(err)) {
+      const latest = await readStoredCreds(vault, profile.id);
+      if (
+        latest?.tokenSet.refreshToken &&
+        latest.tokenSet.refreshToken !== stored.tokenSet.refreshToken
+      ) {
+        return refreshAndStore(profile, vault, latest, true);
+      }
+    }
     const net = classifyNetworkError(err, { url: stored.tokenUrl, provider: profile.id });
     if (net) throw net;
     throw new MoxxyError({

@@ -81,5 +81,10 @@ async function resolveOAuthCodex(vault: VaultStore): Promise<Record<string, unkn
     onTokensRefreshed: async (next: CodexTokens) => {
       await persistCodexTokens(vault, next);
     },
+    // Cross-process recovery: when a refresh hits invalid_grant because another
+    // moxxy process already rotated the single-use refresh token, the provider
+    // re-reads the vault through this hook and retries once with the fresher
+    // token instead of forcing a re-login.
+    reloadTokens: () => readStoredTokens(vault),
   };
 }

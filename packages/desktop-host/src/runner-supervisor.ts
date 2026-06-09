@@ -210,7 +210,11 @@ export class RunnerSupervisor extends EventEmitter {
       }
     }
     if (this.child) {
-      this.child.kill();
+      // Same graceful SIGTERM→SIGKILL wait as setCwd/resetSession/stop: a bare
+      // kill() returns before the child has released its socket, so the run
+      // loop's immediate respawn would race the dying process and hit
+      // EADDRINUSE — the exact race every other teardown path guards against.
+      await terminateChild(this.child);
       this.child = null;
     }
     this.forceRetry();

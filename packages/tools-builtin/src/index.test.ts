@@ -128,6 +128,85 @@ describe('bashTool', () => {
       bashTool.handler({ command: 'echo should-not-run', timeoutMs: 5000 }, ctx),
     ).rejects.toThrow(/aborted before start/);
   });
+
+  // Spawns a SIGTERM-ignoring grandchild and records its PID, so tests can
+  // assert the *whole group* dies (SIGTERM → 2s grace → SIGKILL), not just
+  // the direct shell.
+  const stubbornChildCommand = (pidFile: string): string =>
+    `sh -c 'trap "" TERM; sleep 30' & echo $! > "${pidFile}"; wait`;
+
+  const isAlive = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const waitForChildPid = async (pidFile: string): Promise<number> => {
+    for (let i = 0; i < 50; i++) {
+      try {
+        const text = await fs.readFile(pidFile, 'utf8');
+        const pid = Number.parseInt(text.trim(), 10);
+        if (Number.isFinite(pid) && pid > 0) return pid;
+      } catch {
+        // not written yet
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    throw new Error('child pid file never appeared');
+  };
+
+  const waitUntilDead = async (pid: number, timeoutMs: number): Promise<boolean> => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (!isAlive(pid)) return true;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return !isAlive(pid);
+  };
+
+  it('kills the whole process group (incl. SIGTERM-ignoring children) on timeout', async () => {
+    const pidFile = path.join(tmp, 'child.pid');
+    const p = bashTool.handler({ command: stubbornChildCommand(pidFile), timeoutMs: 300 }, baseCtx());
+    const rejection = expect(p).rejects.toThrow(/timed out/);
+    const childPid = await waitForChildPid(pidFile);
+    await rejection;
+    // SIGTERM is ignored by the grandchild; SIGKILL escalation (2s grace)
+    // must take the whole group down.
+    expect(await waitUntilDead(childPid, 4_000)).toBe(true);
+  }, 10_000);
+
+  it('kills the whole process group (incl. SIGTERM-ignoring children) on abort', async () => {
+    const pidFile = path.join(tmp, 'child.pid');
+    const controller = new AbortController();
+    const ctx = { ...baseCtx(), signal: controller.signal };
+    const p = bashTool.handler({ command: stubbornChildCommand(pidFile), timeoutMs: 30_000 }, ctx) as Promise<string>;
+    const childPid = await waitForChildPid(pidFile);
+    controller.abort();
+    // The grandchild holds our stdout pipe; without group SIGKILL the tool
+    // would hang here forever waiting for 'close'.
+    const result = await p;
+    expect(result).toMatch(/exit/);
+    expect(await waitUntilDead(childPid, 4_000)).toBe(true);
+  }, 10_000);
+
+  it('bounds output retention during streaming and reports full truncated size', async () => {
+    const total = 2_097_152; // 2 MiB of 'x' — far beyond the 200k clamp
+    const out = (await bashTool.handler(
+      { command: `head -c ${total} /dev/zero | tr '\\0' x`, timeoutMs: 30_000 },
+      baseCtx(),
+    )) as string;
+    const limit = 200_000;
+    // Retention is capped during streaming: the result can never balloon.
+    expect(out.length).toBeLessThanOrEqual(limit + 64);
+    // Marker counts the drained chars too — identical to clamping the full
+    // combined string ('[stdout]\n' + body + '\n' + '[exit 0]').
+    const fullCombinedLength = '[stdout]\n'.length + total + '\n[exit 0]'.length;
+    expect(out.endsWith(`\n... [truncated ${fullCombinedLength - limit} chars]`)).toBe(true);
+    expect(out.startsWith('[stdout]\nxxx')).toBe(true);
+  }, 30_000);
 });
 
 describe('grepTool', () => {

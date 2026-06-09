@@ -60,6 +60,15 @@ export {
   type EnsureFreshResult,
 } from './ensure-fresh.js';
 
+// Per-credential refresh serialization (in-process mutex + best-effort
+// cross-process lockfile) for providers with single-use rotating
+// refresh tokens.
+export {
+  isAuthRejection,
+  withCredentialLock,
+  type CredentialLockOptions,
+} from './credential-lock.js';
+
 // Bundled device-flow adapters. Custom dialects implement `DeviceFlowAdapter`.
 export { rfc8628DeviceFlow, type Rfc8628AdapterOpts } from './adapters/rfc8628-device-flow.js';
 export { openaiDeviceFlow, type OpenaiDeviceFlowOpts } from './adapters/openai-device-flow.js';

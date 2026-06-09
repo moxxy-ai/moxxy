@@ -124,6 +124,56 @@ Full report incl. the medium/low backlog and refuted findings:
   `ws://127.0.0.1` + a printed hint that a real phone needs `MOXXY_MOBILE_HOST`/`bindHost`
   opt-in or a tunnel; wildcard bind → LAN IP; tunnel path unchanged), keeping the
   loopback-by-default security posture; `apps/mobile/README.md` updated to match.
+- **A14 [medium, stability] Corrupt/schema-mismatched `webhooks.json` silently treated as
+  empty — the next write wipes every trigger (and its secrets)** — ✅ FIXED (this PR):
+  fail-safe load in `plugin-webhooks/src/store.ts` — a corrupt file is renamed aside to
+  `webhooks.json.corrupt-<ts>` before the store starts empty (non-ENOENT read errors refuse
+  all reads/writes instead), per-entry schema failures keep the valid triggers and
+  quarantine the rest to a 0600 sidecar, and the condition is logged + surfaced as
+  `storeWarning` in `webhook_list`/`webhook_create`/`webhook_status`.
+- **A15 [medium, security] Generated webhook secrets returned through the model's context
+  and persisted in session logs** — ✅ FIXED (this PR): `webhook_create`
+  (`plugin-webhooks/src/tools.ts`) now returns only a masked preview (`abcd…`) plus the
+  path of a 0600 file under `~/.moxxy/webhooks-secrets/` holding the full value for the
+  user to read directly (removed again on `webhook_delete`); list/status stay redacted via
+  `redactVerification`, and the tool description + setup-guide hints route the secret out
+  of band.
+- **A16 [medium, stability] Bash tool timeout/abort only SIGTERMed the shell PID** — ✅ FIXED
+  (this PR): the shell is spawned `detached` (own process group, POSIX) and timeout/abort
+  now signal the whole group (`process.kill(-pid)`) with SIGTERM → 2s grace → SIGKILL
+  escalation (ESRCH swallowed, single-PID fallback on win32); also unhangs `close` when an
+  orphan held the stdio pipes (`tools-builtin/src/bash.ts`).
+- **A17 [medium, performance] Bash tool buffered child output unboundedly before the
+  post-exit 200k clamp** — ✅ FIXED (this PR): output is now retained only up to the clamp
+  limit (+4k margin) per stream during streaming, the rest drained-and-counted so the
+  command still completes with its real exit code and the existing
+  `... [truncated N chars]` marker reports the true overflow (`tools-builtin/src/bash.ts`).
+- **A19 [medium, stability] `RunnerSupervisor.restart()` used bare `child.kill()` + immediate
+  respawn** — ✅ FIXED (this PR): restart() now awaits the same graceful `terminateChild`
+  (SIGTERM → 2s grace → SIGKILL, resolved on actual exit) every other teardown path uses, so
+  a quick post-update restart can't race the dying serve for the socket (EADDRINUSE); pinned
+  by new supervisor lifecycle tests.
+- **A20 [medium, packaging] `@moxxy/desktop-host` imported `@moxxy/core` in prod source while
+  declaring it only as a devDependency** — ✅ FIXED (this PR): moved to `dependencies`
+  (`workspace:*`); same missing-prod-dep class as the A1 release blocker.
+- **A21 [medium, packaging] `@moxxy/mode-goal` imports `zod` at runtime but declared it only
+  as a devDependency** — ✅ FIXED (this PR): moved to `dependencies` (`catalog:`), matching
+  the other zod-consuming packages.
+- **A22 [medium, release] Desktop release tag was pushed before the installers built — any
+  desktop-build failure permanently burned that version** — ✅ FIXED (this PR): the cut step
+  now only decides version + pinned sha; guard/build jobs check out the sha, and the
+  `desktop-v<version>` tag is pushed (idempotently, at that same sha) in `desktop-release`
+  only after every build leg succeeds, preserving PR #85's tag↔artifact-match invariant.
+- **A18 [medium, stability] Single-use rotating refresh tokens (claude-code, openai-codex)
+  had no cross-process or cross-consumer serialization, and vault persistence was whole-file
+  last-writer-wins from an in-memory snapshot** — ✅ FIXED (this PR): refresh+persist now runs
+  under a per-credential lock (`withCredentialLock` in plugin-oauth: in-process mutex +
+  best-effort O_EXCL lockfile under `<moxxy home>/locks` with stale takeover) with re-read
+  coalescing (followers adopt the winner's rotated tokens; one IdP call) and an
+  invalid_grant→re-read-vault→retry-once recovery in ensureFreshTokens, the claude-code
+  refresh helpers, and CodexProvider (new `reloadTokens` hook); `VaultStore` now
+  read-merge-writes (mtime-gated disk sync, newer-`updatedAt`-wins per key) instead of
+  persisting its snapshot.
 
 ---
 

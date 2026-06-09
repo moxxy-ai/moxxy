@@ -5,6 +5,7 @@ import type {
   ProviderRequest,
 } from '@moxxy/sdk';
 import { classifyHttpStatus, estimateTextTokens } from '@moxxy/sdk';
+import { isAuthRejection, withCredentialLock } from '@moxxy/plugin-oauth';
 import { CODEX_RESPONSES_URL, refreshTokens } from './oauth.js';
 import { codexModels, DEFAULT_CODEX_MODEL } from './models.js';
 import { toResponsesBody } from './translate.js';
@@ -21,6 +22,15 @@ export interface CodexProviderConfig {
    * before the next API call goes out.
    */
   readonly onTokensRefreshed?: (next: CodexTokens) => void | Promise<void>;
+  /**
+   * Re-reads the persisted token bundle (the vault) and returns it, or null
+   * when nothing is stored. The refresh token is SINGLE-USE and rotates on
+   * every refresh, so when another consumer/process refreshes first, this is
+   * how the provider picks up the rotated bundle instead of burning a dead
+   * token: it's consulted under the per-credential lock before refreshing,
+   * and once more to retry after an invalid_grant-style rejection.
+   */
+  readonly reloadTokens?: () => Promise<CodexTokens | null>;
   readonly defaultModel?: string;
   /** Test seam — when omitted we use the global `fetch`. */
   readonly fetch?: typeof fetch;
@@ -39,6 +49,7 @@ export class CodexProvider implements LLMProvider {
 
   private tokens: CodexTokens | undefined;
   private readonly onTokensRefreshed?: (next: CodexTokens) => void | Promise<void>;
+  private readonly reloadTokens?: () => Promise<CodexTokens | null>;
   private readonly defaultModel: string;
   private readonly fetchImpl: typeof fetch;
   private readonly sessionIdProvider: () => string;
@@ -46,6 +57,7 @@ export class CodexProvider implements LLMProvider {
   constructor(config: CodexProviderConfig = {}) {
     if (config.tokens) this.tokens = config.tokens;
     if (config.onTokensRefreshed) this.onTokensRefreshed = config.onTokensRefreshed;
+    if (config.reloadTokens) this.reloadTokens = config.reloadTokens;
     this.defaultModel = config.defaultModel ?? DEFAULT_CODEX_MODEL;
     this.fetchImpl = config.fetch ?? fetch;
     // Default to ONE id for the instance's lifetime, not a fresh uuid per call.
@@ -145,23 +157,62 @@ export class CodexProvider implements LLMProvider {
     await this.refreshNow();
   }
 
+  /**
+   * Refresh + persist under the per-credential lock. The refresh token is
+   * SINGLE-USE (rotated + invalidated on every refresh), so concurrent
+   * refreshers — a second stream in this process, the whisper-stt
+   * transcriber sharing this credential, or another moxxy process — must
+   * serialize and coalesce: whoever holds the lock refreshes once, everyone
+   * queued behind it adopts the rotated bundle instead of burning it.
+   */
   private async refreshNow(): Promise<void> {
-    if (!this.tokens) {
+    const entry = this.tokens;
+    if (!entry) {
       throw new Error('Cannot refresh — no stored tokens.');
     }
-    const next = await refreshTokens(this.tokens.refresh, this.fetchImpl);
-    // Preserve a previously known accountId if the refresh response didn't
-    // re-issue an id_token. Without this we'd silently lose the
-    // ChatGPT-Account-Id header on every refresh.
-    const accountId = next.accountId ?? this.tokens.accountId;
-    const merged: CodexTokens = accountId
-      ? { access: next.access, refresh: next.refresh, expires: next.expires, accountId }
-      : { access: next.access, refresh: next.refresh, expires: next.expires };
-    this.tokens = merged;
-    if (this.onTokensRefreshed) {
-      // Persist BEFORE the caller issues the API call so a crash here
-      // doesn't strand an unwritten refresh token in memory.
-      await this.onTokensRefreshed(merged);
-    }
+    await withCredentialLock(`oauth-${this.name}`, async () => {
+      // Coalesce in-process: another stream refreshed while we waited.
+      if (this.tokens && this.tokens.access !== entry.access) return;
+      // Coalesce cross-process/cross-consumer: adopt a fresher persisted
+      // bundle (and at minimum its rotated refresh token) when available.
+      let attempt = this.tokens ?? entry;
+      if (this.reloadTokens) {
+        const latest = await this.reloadTokens().catch(() => null);
+        if (latest && latest.access !== attempt.access && latest.expires > Date.now() + 60_000) {
+          this.tokens = withAccountId(latest, latest.accountId ?? attempt.accountId);
+          return;
+        }
+        if (latest?.refresh) attempt = { ...attempt, refresh: latest.refresh };
+      }
+      let next: CodexTokens;
+      try {
+        next = await refreshTokens(attempt.refresh, this.fetchImpl);
+      } catch (err) {
+        // invalid_grant-style rejection: someone rotated our refresh token
+        // away after the reload above. Re-read once and retry with the
+        // fresher token before surfacing the failure.
+        const latest = isAuthRejection(err) && this.reloadTokens
+          ? await this.reloadTokens().catch(() => null)
+          : null;
+        if (!latest?.refresh || latest.refresh === attempt.refresh) throw err;
+        next = await refreshTokens(latest.refresh, this.fetchImpl);
+      }
+      // Preserve a previously known accountId if the refresh response didn't
+      // re-issue an id_token. Without this we'd silently lose the
+      // ChatGPT-Account-Id header on every refresh.
+      const merged = withAccountId(next, next.accountId ?? attempt.accountId);
+      this.tokens = merged;
+      if (this.onTokensRefreshed) {
+        // Persist BEFORE the caller issues the API call so a crash here
+        // doesn't strand an unwritten refresh token in memory.
+        await this.onTokensRefreshed(merged);
+      }
+    });
   }
+}
+
+function withAccountId(tokens: CodexTokens, accountId: string | undefined): CodexTokens {
+  return accountId
+    ? { access: tokens.access, refresh: tokens.refresh, expires: tokens.expires, accountId }
+    : { access: tokens.access, refresh: tokens.refresh, expires: tokens.expires };
 }
