@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createConnection } from 'node:net';
-import { join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import QRCode from 'qrcode';
 import { WebSocketServer } from 'ws';
@@ -101,7 +101,8 @@ export async function startMobileRuntime(options = {}, deps = {}) {
 
 async function startExpoApp(options, deps = {}) {
   if (!options.enabled) return null;
-  const mobileDir = deps.mobileDir ?? join(PLUGIN_DIR, 'mobile');
+  const mobileDir = deps.mobileDir ?? resolveMobileAppDir();
+  if (!mobileDir) return null;
   if (!existsSync(join(mobileDir, 'package.json'))) return null;
   if (await isTcpPortOpen('127.0.0.1', options.port)) {
     console.log(`Moxxy Mobile Expo already running on http://localhost:${options.port}`);
@@ -130,6 +131,21 @@ async function startExpoApp(options, deps = {}) {
       await running;
     },
   };
+}
+
+export function resolveMobileAppDir(cwd = process.cwd()) {
+  const local = join(PLUGIN_DIR, 'mobile');
+  if (existsSync(join(local, 'package.json'))) return local;
+
+  let cursor = resolve(cwd);
+  for (let i = 0; i < 8; i += 1) {
+    const candidate = join(cursor, 'apps', 'mobile-plugin', 'mobile');
+    if (existsSync(join(candidate, 'package.json'))) return candidate;
+    const parent = dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
+  }
+  return null;
 }
 
 function createMobileLauncherChannel(deps = {}) {
@@ -468,11 +484,12 @@ function isTcpPortOpen(host, port) {
   });
 }
 
-export function isDirectRun(argvPath = process.argv[1]) {
+export function isDirectRun(argvPath = process.argv[1], moduleUrl = import.meta.url) {
   if (!argvPath) return false;
-  if (import.meta.url === pathToFileURL(argvPath).href) return true;
+  if (basename(argvPath) !== 'serve.js') return false;
+  if (moduleUrl === pathToFileURL(argvPath).href) return true;
   try {
-    return import.meta.url === pathToFileURL(realpathSync(argvPath)).href;
+    return moduleUrl === pathToFileURL(realpathSync(argvPath)).href;
   } catch {
     return false;
   }

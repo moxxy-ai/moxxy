@@ -117,6 +117,7 @@ export function createSessionMobileBackend(session, options = {}) {
   const turnControllers = new Map();
   const eventTurnSessionIds = new Map();
   const runtimeEventsBySessionId = new Map();
+  const streamingTextBySessionId = new Map();
   const usageBySessionId = new Map();
   const unreadSessionIds = new Set();
   let activeTurnId = null;
@@ -140,12 +141,14 @@ export function createSessionMobileBackend(session, options = {}) {
       unsubscribe = session.log?.subscribe?.((event) => {
         if (hydrating) return;
         const ownerSessionId = resolveIncomingEventSessionId(event);
+        const mobileEvent = eventForMobileSession(event, ownerSessionId);
+        applyLiveStreamingEvent(ownerSessionId, mobileEvent);
         const previousUsage = usageBySessionId.get(ownerSessionId) ?? null;
         cacheRuntimeEvents(ownerSessionId);
         const usageChanged = usageSnapshotsDiffer(previousUsage, usageBySessionId.get(ownerSessionId) ?? null);
-        persistRuntimeEvent(event, ownerSessionId);
+        persistRuntimeEvent(mobileEvent, ownerSessionId);
         if (getSelectedSessionId() === ownerSessionId && selectedSessionUsesRuntime()) {
-          broadcast({ type: 'event', event });
+          broadcast({ type: 'event', event: mobileEvent });
           if (usageChanged) broadcast({ type: 'snapshot', snapshot: this.snapshot() });
           return;
         }
@@ -235,6 +238,7 @@ export function createSessionMobileBackend(session, options = {}) {
           selectedSessionId = getLiveSessionId();
           hydratedSessionId = null;
           pendingRuntimeSessionId = null;
+          streamingTextBySessionId.clear();
           unreadSessionIds.delete(selectedSessionId);
           usageBySessionId.delete(selectedSessionId);
           session.log?.clear?.();
@@ -316,11 +320,13 @@ export function createSessionMobileBackend(session, options = {}) {
         await hydrateRuntimeSession(sessionId);
       }
       hydratedSessionId = null;
+      streamingTextBySessionId.delete(sessionId);
       unreadSessionIds.delete(sessionId);
       return true;
     }
     if (!(await hydrateRuntimeSession(sessionId))) return false;
     hydratedSessionId = sessionId;
+    streamingTextBySessionId.delete(sessionId);
     unreadSessionIds.delete(sessionId);
     unreadSessionIds.delete(getLiveSessionId());
     return true;
@@ -328,7 +334,7 @@ export function createSessionMobileBackend(session, options = {}) {
 
   function cacheRuntimeEvents(sessionId) {
     if (typeof sessionId !== 'string' || sessionId.length === 0) return;
-    const normalized = normalizeHydratedEvents(session.log?.slice?.(0) ?? [], sessionId);
+    const normalized = normalizeRuntimeEventsForSession(session.log?.slice?.(0) ?? [], sessionId);
     runtimeEventsBySessionId.set(sessionId, normalized);
     usageBySessionId.set(sessionId, usageFromEvents(normalized));
   }
@@ -396,6 +402,7 @@ export function createSessionMobileBackend(session, options = {}) {
     turnControllers.set(key, controller);
     activeTurnId = key;
     sending = true;
+    streamingTextBySessionId.set(getRuntimeSessionId(), '');
     broadcast({ type: 'snapshot', snapshot: thisSnapshot() });
 
     void (async () => {
@@ -410,8 +417,10 @@ export function createSessionMobileBackend(session, options = {}) {
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        const ownerSessionId = getRuntimeSessionId();
+        streamingTextBySessionId.delete(ownerSessionId);
         sendDirect(owner, { type: 'error', message });
-        broadcast({ type: 'event', event: { type: 'turn_error', message } });
+        broadcast({ type: 'event', event: eventForMobileSession({ type: 'turn_error', message }, ownerSessionId) });
       } finally {
         turnControllers.delete(key);
         if (activeTurnId === key) activeTurnId = null;
@@ -433,6 +442,7 @@ export function createSessionMobileBackend(session, options = {}) {
       hydratedSessionId,
       runtimeSessionId: getRuntimeSessionId(),
       runtimeEventsBySessionId,
+      streamingTextBySessionId,
       sessionCatalog,
       workspaceCatalog,
       desktopChatCatalog,
@@ -451,6 +461,20 @@ export function createSessionMobileBackend(session, options = {}) {
       return owner;
     }
     return getRuntimeSessionId();
+  }
+
+  function applyLiveStreamingEvent(sessionId, event) {
+    const type = typeof event?.type === 'string' ? event.type : '';
+    if (type === 'assistant_chunk') {
+      const delta = firstString(event.delta, event.text, event.content);
+      if (delta.length > 0) {
+        streamingTextBySessionId.set(sessionId, `${streamingTextBySessionId.get(sessionId) ?? ''}${delta}`);
+      }
+      return;
+    }
+    if (clearsLiveStreaming(type)) {
+      streamingTextBySessionId.delete(sessionId);
+    }
   }
 
   function abortTurn(frame) {
@@ -578,11 +602,12 @@ function buildSessionSnapshot(session, state) {
   const selectedUsesRuntime = selectedSessionId === runtimeSessionId;
   const sessions = buildMobileSessions(session, state, info, sessionId, cwd);
   const selectedSession = sessions.find((item) => item.id === selectedSessionId) ?? liveSessionRecord(session, info, sessionId, cwd, state);
-  const chatEvents = selectedUsesRuntime
-    ? session.log?.slice?.(0) ?? []
+  const runtimeEvents = selectedUsesRuntime
+    ? normalizeRuntimeEventsForSession(session.log?.slice?.(0) ?? [], selectedSessionId)
     : readStoredSessionEvents(state, selectedSessionId);
+  const chatEvents = snapshotChatEvents(runtimeEvents);
   const usage = buildUsageSnapshot(
-    state.usageBySessionId?.get(selectedSessionId) ?? usageFromEvents(chatEvents),
+    state.usageBySessionId?.get(selectedSessionId) ?? usageFromEvents(runtimeEvents),
     info,
     selectedSession,
   );
@@ -607,7 +632,9 @@ function buildSessionSnapshot(session, state) {
     pendingAsks: state.pendingAsks ?? [],
     commands: info.commands ?? [],
     chatEvents,
-    streamingText: '',
+    streamingText: selectedUsesRuntime
+      ? state.streamingTextBySessionId?.get?.(selectedSessionId) ?? streamingTextFromEvents(runtimeEvents)
+      : '',
     sending: selectedUsesRuntime && state.sending === true,
     activeTurnId: selectedUsesRuntime ? state.activeTurnId ?? null : null,
     queue: [],
@@ -618,6 +645,45 @@ function buildSessionSnapshot(session, state) {
     activeProvider: selectedSession.provider ?? info.activeProvider ?? null,
     modeBadge: selectedUsesRuntime ? info.activeModeBadge ?? null : { label: 'Archive' },
   };
+}
+
+function eventForMobileSession(event, sessionId) {
+  if (typeof sessionId !== 'string' || sessionId.length === 0) return event;
+  return {
+    ...event,
+    sessionId,
+  };
+}
+
+function normalizeRuntimeEventsForSession(events, sessionId) {
+  return normalizeHydratedEvents(events, sessionId).map((event) => eventForMobileSession(event, sessionId));
+}
+
+function snapshotChatEvents(events) {
+  return (Array.isArray(events) ? events : []).filter((event) => event?.type !== 'assistant_chunk');
+}
+
+function streamingTextFromEvents(events) {
+  let text = '';
+  for (const event of Array.isArray(events) ? events : []) {
+    if (event?.type === 'assistant_chunk') {
+      text += firstString(event.delta, event.text, event.content);
+      continue;
+    }
+    if (clearsLiveStreaming(event?.type)) text = '';
+  }
+  return text;
+}
+
+function clearsLiveStreaming(type) {
+  return type === 'assistant_message' || type === 'user_prompt' || type === 'user' || type === 'abort' || type === 'error' || type === 'turn_error';
+}
+
+function firstString(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  return '';
 }
 
 function buildUsageSnapshot(usage, info, selectedSession) {

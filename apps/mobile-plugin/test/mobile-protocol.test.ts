@@ -163,6 +163,53 @@ describe('mobile protocol reducer', () => {
     ]);
   });
 
+  it('keeps assistant chunks in live streaming text instead of committed chat events', () => {
+    const firstChunk = applyGatewayFrame(emptyMobileState(), {
+      type: 'event',
+      event: { id: 'chunk-1', type: 'assistant_chunk', delta: 'Piszę ' },
+    });
+    const secondChunk = applyGatewayFrame(firstChunk, {
+      type: 'event',
+      event: { id: 'chunk-2', type: 'assistant_chunk', delta: 'odpowiedź' },
+    });
+    const committed = applyGatewayFrame(secondChunk, {
+      type: 'event',
+      event: { id: 'assistant-1', type: 'assistant_message', content: 'Piszę odpowiedź', stopReason: 'end_turn' },
+    });
+
+    expect(firstChunk.chatEvents).toEqual([]);
+    expect(secondChunk.chatEvents).toEqual([]);
+    expect(secondChunk.streamingText).toBe('Piszę odpowiedź');
+    expect(committed.streamingText).toBe('');
+    expect(committed.chatEvents).toEqual([
+      { id: 'assistant-1', type: 'assistant_message', content: 'Piszę odpowiedź', stopReason: 'end_turn' },
+    ]);
+  });
+
+  it('normalizes replay snapshots so only chunks after the latest assistant message stream live', () => {
+    const state = applyGatewayFrame(emptyMobileState(), {
+      type: 'snapshot',
+      snapshot: {
+        sending: true,
+        chatEvents: [
+          { id: 'u1', type: 'user_prompt', text: 'Użyj toola' },
+          { id: 'old-chunk', type: 'assistant_chunk', delta: 'Zaraz ' },
+          { id: 'a1', type: 'assistant_message', content: 'Zaraz sprawdzę.', stopReason: 'tool_use' },
+          { id: 'tool-1', type: 'tool_call_requested', callId: 'call-1', name: 'Read', input: { path: 'a.ts' } },
+          { id: 'live-chunk-1', type: 'assistant_chunk', delta: 'Mam ' },
+          { id: 'live-chunk-2', type: 'assistant_chunk', delta: 'wynik' },
+        ],
+      },
+    });
+
+    expect(state.streamingText).toBe('Mam wynik');
+    expect(state.chatEvents).toEqual([
+      { id: 'u1', type: 'user_prompt', text: 'Użyj toola' },
+      { id: 'a1', type: 'assistant_message', content: 'Zaraz sprawdzę.', stopReason: 'tool_use' },
+      { id: 'tool-1', type: 'tool_call_requested', callId: 'call-1', name: 'Read', input: { path: 'a.ts' } },
+    ]);
+  });
+
   it('tracks auto-approve acknowledgements from the gateway', () => {
     const updated = applyGatewayFrame(emptyMobileState(), {
       type: 'connection',

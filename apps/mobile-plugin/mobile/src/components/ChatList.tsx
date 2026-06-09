@@ -1,20 +1,29 @@
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useState } from 'react';
 import type { AssistantTranscriptItem, SystemGroupTranscriptItem, ToolGroupTranscriptItem, TranscriptItem } from '@/chatTranscript';
+import { shouldShowThinkingIndicator } from '@/chatListState';
+import { useChatListAutoScroll } from '@/hooks/useChatListAutoScroll';
+import { buildMessageActions } from '@/messageActions';
+import { buildToolGroupUi } from '@/toolGroupUi';
 import { MobileIcon } from './MobileIcon';
 import { ThinkingIndicator } from './ThinkingIndicator';
 
 interface ChatListProps {
   readonly items: ReadonlyArray<TranscriptItem>;
   readonly sending?: boolean;
+  readonly copiedMessageId?: string | null;
+  readonly onCopyMessage?: (messageId: string, text: string) => void;
 }
 
-export function ChatList({ items, sending = false }: ChatListProps) {
+export function ChatList({ items, sending = false, copiedMessageId = null, onCopyMessage }: ChatListProps) {
+  const autoScroll = useChatListAutoScroll(items, sending);
   return (
     <ScrollView
+      ref={autoScroll.scrollRef}
       className="flex-1"
       contentContainerClassName="gap-4 px-5 pb-5 pt-20"
       contentContainerStyle={{ gap: 16, paddingBottom: 20, paddingHorizontal: 20, paddingTop: 82 }}
+      onContentSizeChange={autoScroll.scrollToEnd}
     >
       {items.length === 0 ? (
         <View className="mt-20">
@@ -25,41 +34,66 @@ export function ChatList({ items, sending = false }: ChatListProps) {
         </View>
       ) : null}
       {items.map((item) => (
-        <MessageBlock key={item.id} item={item} />
+        <MessageBlock
+          key={item.id}
+          item={item}
+          copied={copiedMessageId === item.id}
+          onCopyMessage={onCopyMessage}
+        />
       ))}
-      {sending && items.every((item) => item.kind !== 'assistant' || !item.streaming) ? <ThinkingIndicator /> : null}
+      {shouldShowThinkingIndicator({ items, sending }) ? <ThinkingIndicator /> : null}
     </ScrollView>
   );
 }
 
-function MessageBlock({ item }: { readonly item: TranscriptItem }) {
+function MessageBlock({
+  item,
+  copied,
+  onCopyMessage,
+}: {
+  readonly item: TranscriptItem;
+  readonly copied: boolean;
+  readonly onCopyMessage?: (messageId: string, text: string) => void;
+}) {
   if (item.kind === 'user') {
+    const actions = buildMessageActions(item);
     return (
       <View
-        testID="mobile-user-block"
-        style={{
-          alignSelf: 'flex-end',
-          backgroundColor: '#ec4899',
-          borderBottomLeftRadius: 16,
-          borderBottomRightRadius: 4,
-          borderTopLeftRadius: 16,
-          borderTopRightRadius: 16,
-          maxWidth: '82%',
-          paddingHorizontal: 16,
-          paddingVertical: 12,
-          shadowColor: '#ec4899',
-          shadowOffset: { width: 0, height: 6 },
-          shadowOpacity: 0.2,
-          shadowRadius: 14,
-        }}
+        style={{ alignItems: 'flex-end', alignSelf: 'flex-end', flexDirection: 'row', gap: 8, maxWidth: '88%' }}
+        testID="mobile-user-message"
       >
-        <Text className="text-[15px] leading-6 text-white">{item.text}</Text>
+        <CopyMessageButton
+          copied={copied}
+          hidden={!actions.copyText}
+          tone="user"
+          onPress={() => actions.copyText ? onCopyMessage?.(item.id, actions.copyText) : undefined}
+        />
+        <View
+          testID="mobile-user-block"
+          style={{
+            backgroundColor: '#ec4899',
+            borderBottomLeftRadius: 16,
+            borderBottomRightRadius: 4,
+            borderTopLeftRadius: 16,
+            borderTopRightRadius: 16,
+            flexShrink: 1,
+            maxWidth: '100%',
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            shadowColor: '#ec4899',
+            shadowOffset: { width: 0, height: 6 },
+            shadowOpacity: 0.2,
+            shadowRadius: 14,
+          }}
+        >
+          <Text className="text-[15px] leading-6 text-white">{item.text}</Text>
+        </View>
       </View>
     );
   }
 
   if (item.kind === 'assistant') {
-    return <AssistantMessage message={item} />;
+    return <AssistantMessage copied={copied} message={item} onCopyMessage={onCopyMessage} />;
   }
 
   if (item.kind === 'tool-group') {
@@ -89,7 +123,54 @@ function MessageBlock({ item }: { readonly item: TranscriptItem }) {
   );
 }
 
-function AssistantMessage({ message }: { readonly message: AssistantTranscriptItem }) {
+function CopyMessageButton({
+  copied,
+  hidden,
+  tone,
+  onPress,
+}: {
+  readonly copied: boolean;
+  readonly hidden: boolean;
+  readonly tone: 'assistant' | 'user';
+  readonly onPress: () => void;
+}) {
+  if (hidden) return <View style={{ height: 32, width: 32 }} />;
+  const activeColor = copied ? '#16a34a' : tone === 'user' ? '#db2777' : '#64748b';
+  return (
+    <Pressable
+      accessibilityLabel={copied ? 'Message copied' : 'Copy message'}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={{
+        alignItems: 'center',
+        backgroundColor: copied ? '#ecfdf5' : '#ffffff',
+        borderColor: copied ? '#bbf7d0' : '#e3e5f0',
+        borderRadius: 999,
+        borderWidth: 1,
+        height: 32,
+        justifyContent: 'center',
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.08,
+        shadowRadius: 10,
+        width: 32,
+      }}
+    >
+      <MobileIcon name={copied ? 'check' : 'copy'} size={15} strokeWidth={2.4} color={activeColor} />
+    </Pressable>
+  );
+}
+
+function AssistantMessage({
+  copied,
+  message,
+  onCopyMessage,
+}: {
+  readonly copied: boolean;
+  readonly message: AssistantTranscriptItem;
+  readonly onCopyMessage?: (messageId: string, text: string) => void;
+}) {
+  const actions = buildMessageActions(message);
   return (
     <View
       testID="mobile-assistant-block"
@@ -109,6 +190,13 @@ function AssistantMessage({ message }: { readonly message: AssistantTranscriptIt
               <Text className="text-[11px] font-bold text-primary">typing...</Text>
             </View>
           ) : null}
+          <View style={{ flex: 1 }} />
+          <CopyMessageButton
+            copied={copied}
+            hidden={!actions.copyText}
+            tone="assistant"
+            onPress={() => actions.copyText ? onCopyMessage?.(message.id, actions.copyText) : undefined}
+          />
         </View>
         <Text className="mt-1 text-[15px] leading-6 text-text">{message.text}</Text>
         {!message.streaming && message.stopReason && message.stopReason !== 'end_turn' ? (
@@ -121,10 +209,7 @@ function AssistantMessage({ message }: { readonly message: AssistantTranscriptIt
 
 function ToolGroupMessage({ group }: { readonly group: ToolGroupTranscriptItem }) {
   const [open, setOpen] = useState(false);
-  const hasError = group.tools.some((tool) => tool.status === 'error');
-  const running = group.tools.some((tool) => tool.status === 'running');
-  const accent = hasError ? '#ef4444' : running ? '#ec4899' : '#16a34a';
-  const tint = hasError ? '#fee2e2' : running ? '#fdf2f8' : '#ecfdf5';
+  const ui = buildToolGroupUi(group.tools);
 
   return (
     <View
@@ -136,9 +221,9 @@ function ToolGroupMessage({ group }: { readonly group: ToolGroupTranscriptItem }
       }}
     >
       <View
-        style={{ alignItems: 'center', backgroundColor: tint, borderRadius: 10, height: 34, justifyContent: 'center', width: 34 }}
+        style={{ alignItems: 'center', backgroundColor: ui.tint, borderRadius: 10, height: 34, justifyContent: 'center', width: 34 }}
       >
-        <MobileIcon name="bolt" size={17} strokeWidth={2.35} color={accent} />
+        <MobileIcon name="bolt" size={17} strokeWidth={2.35} color={ui.accent} />
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <Pressable
@@ -149,8 +234,31 @@ function ToolGroupMessage({ group }: { readonly group: ToolGroupTranscriptItem }
         >
           <Text className="text-[13px] font-bold text-text">{group.title}</Text>
           <Text className="text-[11px] font-bold text-dim">{group.tools.length}</Text>
+          <View
+            style={{
+              alignItems: 'center',
+              backgroundColor: ui.tint,
+              borderRadius: 999,
+              flexDirection: 'row',
+              gap: 5,
+              paddingHorizontal: 8,
+              paddingVertical: 3,
+            }}
+          >
+            {ui.pulse ? (
+              <View
+                style={{
+                  backgroundColor: ui.accent,
+                  borderRadius: 999,
+                  height: 6,
+                  width: 6,
+                }}
+              />
+            ) : null}
+            <Text style={{ color: ui.accent, fontSize: 11, fontWeight: '800' }}>{ui.statusLabel}</Text>
+          </View>
           <Text className="flex-1 text-[11px] font-medium text-dim" numberOfLines={1}>
-            {group.summary}
+            {ui.summary || group.summary}
           </Text>
           <Text className="text-[16px] font-bold text-dim">{open ? '-' : '+'}</Text>
         </Pressable>
