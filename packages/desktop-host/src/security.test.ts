@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { Session } from 'electron';
 import {
   isSafeProviderName,
   assertSafeProviderName,
@@ -7,6 +8,7 @@ import {
   redactSecrets,
   clerkFrontendApiHost,
   clerkCspHostSources,
+  installContentSecurityPolicy,
 } from './security';
 
 describe('provider-name validation', () => {
@@ -107,5 +109,76 @@ describe('clerk CSP host sources', () => {
   it('adds nothing for a missing / malformed key', () => {
     expect(clerkCspHostSources(undefined)).toEqual([]);
     expect(clerkCspHostSources('garbage')).toEqual([]);
+  });
+});
+
+describe('CSP injection gate', () => {
+  type Details = { url: string; responseHeaders?: Record<string, string[]> };
+  type Headers = Record<string, string[]> | undefined;
+
+  /** Build a fake Session that captures the onHeadersReceived handler, then
+   *  return a probe that runs it for a given URL and reports the resulting
+   *  response headers (or null if no handler was registered — dev path). */
+  function probe(opts: {
+    isDev: boolean;
+    clerkPublishableKey?: string | null;
+    loopbackOrigin?: string | null;
+  }): (url: string) => Headers | null {
+    let handler:
+      | ((details: Details, cb: (r: { responseHeaders?: Headers }) => void) => void)
+      | undefined;
+    const session = {
+      webRequest: {
+        onHeadersReceived: (cb: typeof handler) => {
+          handler = cb;
+        },
+      },
+    } as unknown as Session;
+    installContentSecurityPolicy(session, opts);
+    return (url: string) => {
+      if (!handler) return null;
+      let out: Headers;
+      handler({ url, responseHeaders: { 'x-existing': ['1'] } }, (r) => {
+        out = r.responseHeaders;
+      });
+      return out;
+    };
+  }
+
+  const LOOPBACK = 'http://127.0.0.1:51789';
+
+  it('injects CSP for file:// and the loopback origin', () => {
+    const run = probe({ isDev: false, clerkPublishableKey: LIVE, loopbackOrigin: LOOPBACK });
+    for (const url of ['file:///app/dist/index.html', `${LOOPBACK}/index.html`]) {
+      const headers = run(url);
+      const csp = headers?.['Content-Security-Policy']?.[0] ?? '';
+      expect(csp).toContain("default-src 'self'");
+      // the live-key prod host folds in
+      expect(csp).toContain('https://clerk.acme.com');
+    }
+  });
+
+  it('passes third-party + OAuth-popup responses through untouched', () => {
+    const run = probe({ isDev: false, clerkPublishableKey: LIVE, loopbackOrigin: LOOPBACK });
+    for (const url of [
+      'https://accounts.google.com/o/oauth2/v2/auth',
+      'https://clerk.acme.com/v1/client',
+      'http://127.0.0.1:9999/other-origin', // a DIFFERENT loopback port
+    ]) {
+      const headers = run(url);
+      expect(headers?.['Content-Security-Policy']).toBeUndefined();
+      expect(headers?.['x-existing']).toEqual(['1']);
+    }
+  });
+
+  it('registers no handler in dev', () => {
+    const run = probe({ isDev: true, clerkPublishableKey: LIVE, loopbackOrigin: LOOPBACK });
+    expect(run('file:///x')).toBeNull();
+  });
+
+  it('still injects on file:// when no loopback origin (fallback path)', () => {
+    const run = probe({ isDev: false, clerkPublishableKey: LIVE, loopbackOrigin: null });
+    expect(run('file:///app/index.html')?.['Content-Security-Policy']).toBeDefined();
+    expect(run(`${LOOPBACK}/index.html`)?.['Content-Security-Policy']).toBeUndefined();
   });
 });

@@ -330,6 +330,18 @@ export interface AppUpdateDiagnostics {
 
 // ---------- Events the renderer subscribes to ------------------------------
 
+/** Parsed components of an opened `moxxy://` URL. `host` is the first
+ *  authority segment (the "action", e.g. `open` in `moxxy://open/...`),
+ *  `path` the remainder of the path, and `params` the decoded query string.
+ *  General-purpose transport: notification clicks + action deep-links route
+ *  through this in the renderer's DeepLinkBridge. */
+export interface DeepLinkPayload {
+  readonly url: string;
+  readonly host: string;
+  readonly path: string;
+  readonly params: Record<string, string>;
+}
+
 /**
  * Channel names. Centralized so a typo is caught at the type level
  * (the preload's `subscribe(channel, handler)` is generic over this
@@ -358,6 +370,11 @@ export interface IpcEvents {
   /** The runner needs a permission/approval decision — the renderer
    *  shows a bottom sheet and replies via `ask.respond`. */
   'ask.request': AskRequest;
+  /** A `moxxy://` URL was opened while the app is running (notification /
+   *  action link, or an OS protocol launch). The renderer's DeepLinkBridge
+   *  routes it by `host`/`path`. Links that arrive before the renderer is
+   *  listening are buffered and pulled via `deepLink:drain` on mount. */
+  'deepLink:received': DeepLinkPayload;
 }
 
 // ---------- Invokable commands (renderer → main) --------------------------
@@ -382,6 +399,13 @@ export interface IpcCommands {
   /** Kick the supervisor out of failed / reconnecting back into the
    *  resolution loop. */
   'connection.retry': (args?: { workspaceId?: string }) => Promise<void>;
+
+  /** Drain `moxxy://` deep-links that arrived before the renderer was
+   *  listening (cold-start launch, or before the bridge mounted). The
+   *  DeepLinkBridge calls this once on mount; live links thereafter arrive
+   *  via the `deepLink:received` event. Returns + clears the main-side
+   *  buffer. */
+  'deepLink:drain': () => Promise<DeepLinkPayload[]>;
 
   /** Version + on-disk path of the moxxy CLI the desktop is currently
    *  running. Either field may be null if it can't be resolved. */

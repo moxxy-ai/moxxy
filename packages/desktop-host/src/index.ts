@@ -7,6 +7,7 @@
 
 export { RunnerPool, UNBOUND_ID } from './runner-pool.js';
 export { bindWindow, registerIpcHandlers } from './ipc.js';
+export { sendEvent } from './send-event.js';
 export { type UpdateConfig } from './ipc/update.js';
 export { preferredCliEntry } from './cli-resolver.js';
 export { activateManagedNode } from './node-manager.js';
@@ -29,3 +30,9 @@ export {
   clerkFrontendApiHost,
   clerkCspHostSources,
 } from './security.js';
+export {
+  startLoopbackServer,
+  DEFAULT_LOOPBACK_PORTS,
+  type LoopbackServer,
+  type LoopbackServerOptions,
+} from './loopback-server.js';

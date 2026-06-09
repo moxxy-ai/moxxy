@@ -22,6 +22,11 @@ interface CreateOpts {
   /** Path to the focus widget's dedicated HTML in the prod bundle.
    *  In dev it's served as ${devUrl}/focus.html instead. */
   readonly focusHtml: string;
+  /** Origin of the in-app loopback server (`http://127.0.0.1:<port>`) when
+   *  the prod renderer is served over http rather than file://. When set,
+   *  the widget loads `${loopbackBase}/focus.html`; otherwise it falls back
+   *  to loading `focusHtml` from disk. Absent in dev (devUrl wins). */
+  readonly loopbackBase?: string;
   /** Called the moment the focus window is created so the caller
    *  can wire IPC event forwarding (runner.event, turn.complete,
    *  connection.changed) into the secondary surface. Returns an
@@ -181,9 +186,13 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
 
   // Load the *dedicated* focus.html entry. It has its own bundle, its
   // own React tree, and its own preload bridge — no shared
-  // module side-effects with the main app.
+  // module side-effects with the main app. Prefer the loopback origin (so
+  // it shares the same secure-context origin as the main window); fall back
+  // to file:// only when no loopback server is running.
   if (opts.devUrl) {
     await win.loadURL(`${opts.devUrl}/focus.html`);
+  } else if (opts.loopbackBase) {
+    await win.loadURL(`${opts.loopbackBase}/focus.html`);
   } else {
     await win.loadFile(opts.focusHtml);
   }

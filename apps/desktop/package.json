@@ -68,6 +68,14 @@
     "directories": {
       "output": "release"
     },
+    "protocols": [
+      {
+        "name": "Moxxy Deep Link",
+        "schemes": [
+          "moxxy"
+        ]
+      }
+    ],
     "publish": [
       {
         "provider": "github",
@@ -96,7 +104,15 @@
       "extendInfo": {
         "CFBundleName": "MoxxyAI Workspaces",
         "CFBundleDisplayName": "MoxxyAI Workspaces",
-        "NSMicrophoneUsageDescription": "MoxxyAI Workspaces uses the microphone for voice input (speech-to-text)."
+        "NSMicrophoneUsageDescription": "MoxxyAI Workspaces uses the microphone for voice input (speech-to-text).",
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLName": "ai.moxxy.desktop.deeplink",
+            "CFBundleURLSchemes": [
+              "moxxy"
+            ]
+          }
+        ]
       }
     },
     "linux": {

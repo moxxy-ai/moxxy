@@ -202,27 +202,41 @@ function buildCspDirectives(extraClerkHosts: readonly string[]): string {
 }
 
 /**
- * Inject the CSP onto the app's own `file://` document responses only.
- * Third-party responses (the Clerk CDN, Google Fonts, and especially the
- * OAuth popups that load accounts.google.com / github.com) are left
- * untouched — slapping our CSP on them would break sign-in. Dev is
- * skipped entirely: Vite's HMR needs `'unsafe-eval'` + ws: and a strict
- * policy would break the dev server.
+ * Inject the CSP onto the app's OWN document responses only — either the
+ * `file://` bundle (legacy / fallback path) or the loopback origin the
+ * renderer is now served from (`http://127.0.0.1:<port>`, see
+ * {@link ./loopback-server.ts}). Third-party responses (the Clerk CDN,
+ * Google Fonts, and especially the OAuth popups that load
+ * accounts.google.com / github.com) are left untouched — slapping our CSP
+ * on them would break sign-in. Dev is skipped entirely: Vite's HMR needs
+ * `'unsafe-eval'` + ws: and a strict policy would break the dev server.
  *
  * `clerkPublishableKey` is the renderer's `VITE_CLERK_PUBLISHABLE_KEY`. A
  * `pk_live_` key serves clerk-js from the instance's OWN domain, which the
  * static dev/test hosts don't cover — so without folding that host in here
  * the prod clerk-js script is CSP-blocked and `clerk.openSignIn()` silently
  * renders no modal. Test/absent keys add nothing (the static list suffices).
+ *
+ * `loopbackOrigin` is the origin of the in-app static server (or null when
+ * the app fell back to `file://`). Under the loopback origin, `'self'` in
+ * the directives resolves to `http://127.0.0.1:<port>` — exactly the app's
+ * own scripts/styles served from `dist/`.
  */
 export function installContentSecurityPolicy(
   session: Session,
-  opts: { readonly isDev: boolean; readonly clerkPublishableKey?: string | null },
+  opts: {
+    readonly isDev: boolean;
+    readonly clerkPublishableKey?: string | null;
+    readonly loopbackOrigin?: string | null;
+  },
 ): void {
   if (opts.isDev) return;
   const directives = buildCspDirectives(clerkCspHostSources(opts.clerkPublishableKey));
+  const loopbackOrigin = opts.loopbackOrigin ?? null;
+  const isOwnDocument = (url: string): boolean =>
+    url.startsWith('file://') || (!!loopbackOrigin && url.startsWith(`${loopbackOrigin}/`));
   session.webRequest.onHeadersReceived((details, callback) => {
-    if (!details.url.startsWith('file://')) {
+    if (!isOwnDocument(details.url)) {
       callback({ responseHeaders: details.responseHeaders });
       return;
     }

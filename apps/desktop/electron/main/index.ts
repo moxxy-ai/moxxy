@@ -33,10 +33,15 @@ import {
   installMediaPermissions,
   lockDownNavigation,
   isSafeExternalUrl,
+  clerkFrontendApiHost,
   preferredCliEntry,
   ensureDesktopVaultKey,
   activateManagedNode,
+  startLoopbackServer,
+  sendEvent,
+  type LoopbackServer,
 } from '@moxxy/desktop-host';
+import type { DeepLinkPayload } from '@moxxy/desktop-ipc-contract';
 
 import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
 import { readConfirmed, markConfirmed, markBad, appendBootLog } from '@moxxy/desktop-host/app-update';
@@ -59,8 +64,89 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL'];
 
+// The Clerk publishable key, baked into the main bundle at build time by
+// electron-vite's `define` (see electron.vite.config.ts) from the same
+// VITE_CLERK_PUBLISHABLE_KEY the renderer reads. The main process needs it to
+// allow the instance's prod Frontend API host through the CSP + OAuth popup
+// allow-list — a `pk_live_` key serves clerk-js from the instance's own
+// domain, which the static dev/test hosts don't cover. '' when unset.
+declare const __CLERK_PUBLISHABLE_KEY__: string;
+const CLERK_PUBLISHABLE_KEY =
+  typeof __CLERK_PUBLISHABLE_KEY__ === 'string' ? __CLERK_PUBLISHABLE_KEY__ : '';
+
 let pool: RunnerPool | null = null;
 let mainWindow: BrowserWindow | null = null;
+
+// In-app loopback HTTP server the packaged renderer is served from (so the
+// Clerk web SDK runs on an http origin). null in dev (Vite serves it) and
+// when every candidate port was taken (we fall back to file://).
+let loopback: LoopbackServer | null = null;
+// Fixed, stable loopback ports — each MUST be allow-listed in the Clerk
+// dashboard (origins are exact-match including the port).
+const LOOPBACK_PORTS = [51789, 51790, 51791, 51792] as const;
+
+// ---- moxxy:// deep-link transport -----------------------------------------
+
+// `moxxy://` links that arrived before the renderer's DeepLinkBridge was
+// listening (cold-start launch, or before the bridge mounted). Drained via
+// the `deepLink:drain` IPC on mount; live links thereafter push directly.
+const pendingDeepLinks: DeepLinkPayload[] = [];
+// Flips true once the renderer's bridge drains (it subscribes THEN drains in
+// one synchronous effect, so by the time this is true the live-event listener
+// exists — no lost-link race). Reset on every (re)load so links re-buffer.
+let rendererReady = false;
+
+/** Bring the main window to the foreground (deep-link / second-instance). */
+function focusMain(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  if (process.platform === 'darwin') app.focus({ steal: true });
+}
+
+/** Parse a `moxxy://host/path?a=b` URL into its transport payload, or null
+ *  if it isn't a well-formed moxxy URL. */
+function parseDeepLink(url: string): DeepLinkPayload | null {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'moxxy:') return null;
+    const params: Record<string, string> = {};
+    u.searchParams.forEach((v, k) => {
+      params[k] = v;
+    });
+    return { url, host: u.hostname, path: u.pathname || '/', params };
+  } catch {
+    return null;
+  }
+}
+
+/** Route an opened `moxxy://` URL: focus the window, then push it to the
+ *  renderer live (if the bridge is listening) or buffer it for the next
+ *  drain. */
+function handleDeepLink(url: string): void {
+  const payload = parseDeepLink(url);
+  if (!payload) return;
+  focusMain();
+  if (rendererReady && mainWindow && !mainWindow.isDestroyed()) {
+    sendEvent(mainWindow, 'deepLink:received', payload);
+  } else {
+    pendingDeepLinks.push(payload);
+  }
+}
+
+/** Strip the Electron + app product tokens from a user-agent, leaving a plain
+ *  desktop-Chrome UA. Google blocks OAuth from "embedded" user-agents
+ *  ("this browser may not be secure"); presenting a clean UA lets the in-app
+ *  sign-in popup through. Harmless for our own + Clerk requests. */
+function cleanOAuthUserAgent(ua: string): string {
+  const name = app.getName().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return ua
+    .replace(new RegExp(`\\s*${name}(?:/\\S+)?`, 'i'), '')
+    .replace(/\s*Electron\/\S+/i, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
 
 async function createWindow(): Promise<void> {
   // The renderer is served either from Vite's dev server or from the
@@ -82,6 +168,24 @@ async function createWindow(): Promise<void> {
     /^https:\/\/appleid\.apple\.com$/,
     /^https:\/\/github\.com$/,
   ];
+  // A `pk_live_` instance runs OAuth through its OWN Frontend API host
+  // (e.g. clerk.acme.com) and account portal (accounts.acme.com), neither
+  // covered above — add the exact host plus a wildcard on its parent domain
+  // so the prod sign-in popup isn't denied. Test keys resolve to a host
+  // already matched above, so this adds nothing for them.
+  const clerkFapiHost = clerkFrontendApiHost(CLERK_PUBLISHABLE_KEY);
+  if (
+    clerkFapiHost &&
+    !clerkFapiHost.endsWith('.clerk.accounts.dev') &&
+    !clerkFapiHost.endsWith('.clerk.com')
+  ) {
+    const reEsc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    OAUTH_HOST_PATTERNS.push(new RegExp(`^https://${reEsc(clerkFapiHost)}$`));
+    const parent = clerkFapiHost.split('.').slice(1).join('.');
+    if (parent.split('.').length >= 2) {
+      OAUTH_HOST_PATTERNS.push(new RegExp(`^https://(?:[a-z0-9-]+\\.)+${reEsc(parent)}$`));
+    }
+  }
 
   mainWindow = new BrowserWindow({
     title: 'MoxxyAI Workspaces',
@@ -146,10 +250,22 @@ async function createWindow(): Promise<void> {
     return { action: 'deny' };
   });
 
+  // Buffer deep-links until the renderer's bridge has drained, so none are
+  // lost across a load / reload. Resets on every load start.
+  mainWindow.webContents.on('did-start-loading', () => {
+    rendererReady = false;
+  });
+
   if (isDev) {
     await mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']!);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
+  } else if (loopback) {
+    // Prod: serve from the loopback http origin (Clerk-friendly secure
+    // context). The static server roots at this bundle's own dist/.
+    await mainWindow.loadURL(loopback.url('index.html'));
   } else {
+    // Degraded fallback only if every loopback port was taken — the window
+    // still renders, but Clerk sign-in won't work on a file:// origin.
     await mainWindow.loadFile(path.join(__dirname, '..', '..', 'dist', 'index.html'));
   }
 
@@ -168,6 +284,9 @@ async function createWindow(): Promise<void> {
     preloadPath: path.join(__dirname, '..', 'preload', 'index.cjs'),
     indexHtml: path.join(__dirname, '..', '..', 'dist', 'index.html'),
     focusHtml: path.join(__dirname, '..', '..', 'dist', 'focus.html'),
+    // Prod: load the widget from the same loopback origin as the main window
+    // (shared secure-context origin); falls back to focusHtml on disk.
+    loopbackBase: loopback?.origin,
     /** Bind the focus widget to the same runner pool as the main
      *  window so it sees connection state + every runner event, but
      *  pass claimGlobal: false so the IPC RPC routing (runTurn /
@@ -513,11 +632,77 @@ function armBootProbe(window: BrowserWindow): void {
   });
 }
 
+// Single-instance lock — required for `moxxy://` deep-links: a link opened
+// while the app is already running must hand its URL to the existing instance
+// (via `second-instance`) instead of spawning a second app. The loser quits.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  // Register `moxxy://` as our protocol. In an unpackaged dev run we must
+  // point the OS at the electron binary + this entry script so the scheme
+  // resolves back to us; a packaged app registers via electron-builder's
+  // `protocols` / CFBundleURLTypes.
+  if (process.defaultApp && process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('moxxy', process.execPath, [path.resolve(process.argv[1]!)]);
+  } else {
+    app.setAsDefaultProtocolClient('moxxy');
+  }
+  // macOS delivers deep-links via open-url (can fire before whenReady — the
+  // handler buffers until the renderer drains).
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    handleDeepLink(url);
+  });
+  // Windows/Linux: a link opened while running relaunches with the URL in
+  // argv, delivered here to the primary instance.
+  app.on('second-instance', (_event, argv) => {
+    focusMain();
+    const url = argv.find((a) => a.startsWith('moxxy://'));
+    if (url) handleDeepLink(url);
+  });
+}
+
 app.whenReady().then(async () => {
+  // Losing instance of the single-instance lock — it already called
+  // app.quit() above; do nothing here so it exits cleanly.
+  if (!gotSingleInstanceLock) return;
+
+  // Present a plain desktop-Chrome user-agent (no Electron/app product
+  // tokens) to every request. Google blocks OAuth from "embedded"
+  // user-agents ("this browser may not be secure"); a clean UA lets the
+  // in-app sign-in popup through. Set before any window so the very first
+  // request carries it. Harmless for our own + Clerk requests.
+  app.userAgentFallback = cleanOAuthUserAgent(app.userAgentFallback);
+
+  // Serve the packaged renderer over a loopback http origin (a Chromium
+  // secure context + an allowed OAuth redirect scheme) so the Clerk web SDK
+  // works — file:// rejects clerk-js's OAuth redirect. Dev keeps Vite; if
+  // every candidate port is taken we fall back to file:// (sign-in degrades
+  // but the app still boots).
+  if (!isDev) {
+    try {
+      loopback = await startLoopbackServer({
+        root: path.join(__dirname, '..', '..', 'dist'),
+        ports: [...LOOPBACK_PORTS],
+      });
+      console.log(`[moxxy] renderer served at ${loopback.origin}`);
+    } catch (err) {
+      console.error('[moxxy] loopback server failed; falling back to file://', err);
+      loopback = null;
+    }
+  }
+
   // Apply the Content-Security-Policy to our own document responses
   // before any window loads. Skipped in dev (Vite HMR needs a loose
-  // policy); third-party + OAuth responses are left untouched.
-  installContentSecurityPolicy(session.defaultSession, { isDev });
+  // policy); third-party + OAuth responses are left untouched. The gate
+  // matches both file:// and the loopback origin, and the prod Clerk
+  // Frontend API host is folded in from the publishable key.
+  installContentSecurityPolicy(session.defaultSession, {
+    isDev,
+    clerkPublishableKey: CLERK_PUBLISHABLE_KEY,
+    loopbackOrigin: loopback?.origin ?? null,
+  });
 
   // Allow the renderer's voice recorder to reach the microphone. Without this,
   // macOS hands getUserMedia a SILENT stream (no rejection), so voice
@@ -581,8 +766,25 @@ app.whenReady().then(async () => {
     },
   });
 
+  // The renderer's DeepLinkBridge calls this once on mount: it returns +
+  // clears any `moxxy://` links buffered before the renderer was listening
+  // (cold-start), and flips `rendererReady` so subsequent links push live.
+  // Because the bridge subscribes to `deepLink:received` BEFORE invoking this
+  // (one synchronous effect), no link can slip through between the two.
+  ipcMain.removeHandler('deepLink:drain');
+  ipcMain.handle('deepLink:drain', (): DeepLinkPayload[] => {
+    rendererReady = true;
+    return pendingDeepLinks.splice(0);
+  });
+
   await createWindow();
   if (mainWindow) armBootProbe(mainWindow);
+
+  // Cold-start deep-link: Windows/Linux pass a `moxxy://` URL as an argv
+  // token (macOS uses open-url, already buffered above). Buffer it for the
+  // renderer's first drain.
+  const argvUrl = process.argv.find((a) => a.startsWith('moxxy://'));
+  if (argvUrl) handleDeepLink(argvUrl);
 
   // Tier-2: background download of a new native shell where supported
   // (Windows/Linux); a no-op on dev + unsigned macOS. Tier-1 JS hot-updates
@@ -619,9 +821,13 @@ app.on('will-quit', () => {
 });
 
 async function shutdown(): Promise<void> {
-  if (!pool) return;
   await Promise.race([
-    pool.stopAll().catch(() => undefined),
+    // Stop the runner children AND the loopback server. allSettled never
+    // rejects, so one failing doesn't skip the other.
+    Promise.allSettled([
+      pool?.stopAll() ?? Promise.resolve(),
+      loopback?.close() ?? Promise.resolve(),
+    ]),
     // Belt-and-braces timeout: don't hang the app on a stuck child.
     new Promise<void>((resolve) => setTimeout(resolve, 3000)),
   ]);
