@@ -242,6 +242,18 @@ export function buildInitialCollapsedWorkspaceIds(
     .map((section) => section.id);
 }
 
+export function applyWorkspaceCollapseToggles(
+  defaultCollapsedIds: ReadonlyArray<string>,
+  toggledWorkspaceIds: ReadonlyArray<string>,
+): string[] {
+  const collapsed = new Set(defaultCollapsedIds);
+  for (const workspaceId of toggledWorkspaceIds) {
+    if (collapsed.has(workspaceId)) collapsed.delete(workspaceId);
+    else collapsed.add(workspaceId);
+  }
+  return [...collapsed];
+}
+
 function hasVisibleSessionContext(session: Record<string, unknown>): boolean {
   if (session.live === true) return true;
   const eventCount = typeof session.eventCount === 'number' ? session.eventCount : 0;
