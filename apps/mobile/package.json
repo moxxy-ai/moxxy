@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/mobile",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Thin Expo (React Native) proof-of-concept that drives the moxxy chat loop through the shared @moxxy/client-core hooks over the desktop host's WebSocket bridge — proof the headless client layer runs unchanged on React Native.",
   "main": "index.js",
   "scripts": {

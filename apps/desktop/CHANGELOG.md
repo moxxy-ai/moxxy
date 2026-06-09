@@ -1,5 +1,77 @@
 # @moxxy/desktop
 
+## 0.0.33
+
+### Patch Changes
+
+- 5fcaaa7: Fix desktop self-update failing to load every override ("Cannot use import
+  statement outside a module").
+
+  The hot-update bundle ships only `dist/**` + `dist-electron/**`, so a staged
+  bundle under `<userData>/app/<version>/` had **no `package.json` above its
+  main**. The real main (`dist-electron/main/index.js`) is emitted as an ES module
+  (`import` syntax), and Electron's bundled Node (v20, no ESM syntax
+  auto-detection) decides ESM-vs-CJS from the nearest `package.json#type` — with
+  none reachable it defaults to CommonJS and the bootstrap's `import()` threw
+  `Cannot use import statement outside a module`. Every staged version
+  (0.0.28/29/31/32) loaded this way got poisoned and the app silently reverted to
+  the baked floor. The floor itself loads fine only because the packaged `.app`
+  carries the desktop `package.json` (`"type":"module"`).
+
+  `buildAppBundle` now ships a minimal `{"type":"module"}` `package.json` at the
+  bundle root (signed into the bundle), and the stager writes the same marker at
+  extract time when a bundle lacks one — so already-published bundles are also
+  rescued on re-stage. The single marker is sourced from one constant shared by
+  the producer and the stager so they can't drift.
+
+- 85f9b91: Share the desktop client layer across platforms and expose the IPC over a WebSocket.
+
+  The desktop renderer's hooks, state stores, chat model, and IPC client are now
+  transport- and platform-agnostic so a future mobile app can reuse them:
+
+  - **`@moxxy/client-core`** — the `use*` hooks + chat/connection/ask stores + chat
+    model + the transport singleton + a platform-capability registry. DOM-free; the
+    desktop renderer consumes it via thin `@/lib/*` shims (no behavior change).
+  - **`@moxxy/client-platform-web`** — the Web implementations of those capabilities
+    (mic capture/PCM16, Web Speech TTS, localStorage, window event bus).
+  - **`@moxxy/design-tokens`** — framework-neutral tokens + a `:root` CSS generator.
+  - **`@moxxy/client-transport-ws`** — a `MoxxyApi` over the global `WebSocket`
+    (no Node deps), for remote clients.
+  - **`@moxxy/ipc-server-ws`** — serves the same `IpcCommands`/`IpcEvents` contract
+    over an authenticated WebSocket (loopback by default, bearer-token gated). The
+    desktop's IPC handler registration is now transport-neutral (a `CommandBus`/
+    `EventSink` seam + a shared `dispatch` core in `@moxxy/desktop-ipc-contract`), so the
+    same handler bodies serve Electron IPC and the WebSocket; events fan out to both.
+  - **`@moxxy/plugin-channel-mobile`** — a `mobile` channel that serves the bridge from
+    the CLI backed by the runner's single session: `moxxy mobile` (and `moxxy serve --all`)
+    expose it with no desktop needed. It can reach beyond the LAN via a cloudflared/ngrok
+    tunnel (`channels.mobile.tunnel`) and prints a **QR code** (URL + token embedded) to
+    pair. The desktop bridge stays opt-in via `MOXXY_WS_BRIDGE`.
+  - **`@moxxy/sdk`** — adds `resolveChannelToken` + `bearerGuard`: the standard channel
+    auth-token resolution (env → `channels.<name>.token` → a persisted secret) and a
+    pre-connection bearer handler, so channels gate connections uniformly. The mobile
+    bridge + WS server adopt them.
+
+  A new `apps/mobile` Expo proof-of-concept drives the chat loop (and permission prompts)
+  through the shared hooks over the WebSocket bridge — against either backend. First launch
+  shows a QR scanner that pairs by scanning `moxxy mobile`'s code. Desktop behavior is
+  unchanged.
+
+- Updated dependencies [5fcaaa7]
+- Updated dependencies [85f9b91]
+  - @moxxy/desktop-host@0.1.2
+  - @moxxy/sdk@0.7.0
+  - @moxxy/desktop-ipc-contract@0.2.0
+  - @moxxy/client-core@0.1.0
+  - @moxxy/client-platform-web@0.1.0
+  - @moxxy/ipc-server-ws@0.1.0
+  - @moxxy/design-tokens@0.1.0
+  - @moxxy/cli@0.7.0
+  - @moxxy/runner@0.0.9
+  - @moxxy/chat-model@0.0.9
+  - @moxxy/plugin-stt-whisper-codex@0.0.9
+  - @moxxy/plugin-vault@0.0.9
+
 ## 0.0.32
 
 ### Patch Changes
