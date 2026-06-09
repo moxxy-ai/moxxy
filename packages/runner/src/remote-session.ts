@@ -189,6 +189,14 @@ export class RemoteSession implements ClientSession {
     this.peer.on(RunnerNotification.InfoChanged, (params) => {
       this.info = (params as InfoChangedNotification).info;
     });
+    this.peer.on(RunnerNotification.SessionReset, () => {
+      // The runner wiped its authoritative log (a /new from this client or
+      // any other). Clear the mirror in lockstep: `ingest` accepts only
+      // seq === mirror.length, so post-reset events restarting at seq 0 are
+      // accepted exactly when the mirror is empty again. The mirror's own
+      // clear listeners fire, letting channel UIs observe the wipe.
+      this.mirror.clear();
+    });
 
     // Server->client requests (the runner asks us to decide).
     this.peer.handle(RunnerMethod.PermissionCheck, (params) => {
@@ -252,9 +260,23 @@ export class RemoteSession implements ClientSession {
   }
 
   get log(): SessionLogReader & { clear(): void } {
-    // The mirror is a local EventLog - `clear()` resets THIS client's view
-    // (used by /new) without touching the runner's shared history.
+    // The mirror is a local EventLog. NOTE: `clear()` here resets THIS
+    // client's view only — it desyncs the mirror against the runner's live
+    // seq stream. For `/new`, call {@link reset} instead: the runner clears
+    // its authoritative log and notifies every mirror (including this one).
     return this.mirror;
+  }
+
+  /**
+   * `SessionLike.reset` — server-authoritative `/new`. The runner aborts
+   * in-flight turns, clears its log + persisted JSONL, and broadcasts
+   * `session.reset`; our mirror clears when that notification lands (it is
+   * sent before this RPC's reply on the same ordered socket, so the mirror
+   * is already empty by the time this resolves). Rejects when the runner is
+   * unreachable — callers must surface that instead of claiming success.
+   */
+  async reset(): Promise<void> {
+    await this.peer.request(RunnerMethod.SessionReset, {});
   }
 
   getInfo(): SessionInfo {

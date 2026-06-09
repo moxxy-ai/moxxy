@@ -1,6 +1,6 @@
 import type { ParsedArgv } from '../argv.js';
 import { colors } from '../colors.js';
-import { setupSessionWithConfig } from '../setup.js';
+import { probeSession } from '../setup.js';
 import { SCHEDULE_HELP } from './schedule/help.js';
 import { runDaemon } from './schedule/daemon.js';
 import { runScheduleSetup } from './schedule/setup-cmd.js';
@@ -23,30 +23,36 @@ export async function runScheduleCommand(argv: ParsedArgv): Promise<number> {
   if (sub === 'setup') return await runScheduleSetup(argv);
   if (sub === 'daemon') return await runDaemon(argv);
 
-  // All non-daemon paths need the store but NOT the provider, so we
-  // can short-circuit setup if it ever offers that mode. For now,
-  // setupSessionWithConfig is the only setup entry — call it with
-  // tolerateNoProvider so 'moxxy schedule list' works pre-init.
-  const { scheduler } = await setupSessionWithConfig({
-    cwd: process.cwd(),
-    skipKeyPrompt: true,
-    tolerateNoProvider: true,
-  });
+  // `run` dispatches a real prompt — it boots its own full session.
+  if (sub === 'run') return runScheduleNow(argv);
 
-  switch (sub) {
-    case 'list':
-      return listSchedules(scheduler.store);
-    case 'add':
-      return addSchedule(scheduler.store, argv);
-    case 'remove':
-      return removeSchedule(scheduler.store, argv);
-    case 'enable':
-    case 'disable':
-      return toggleSchedule(scheduler.store, argv, sub);
-    case 'run':
-      return runScheduleNow(argv);
-    default:
-      process.stderr.write(colors.red(`unknown subcommand: ${sub}`) + '\n' + SCHEDULE_HELP);
-      return 2;
-  }
+  // All other non-daemon paths need the store but NOT the provider — and
+  // definitely not the init-hook daemons (a scheduler poller's first tick
+  // could fire a due schedule mid-`moxxy schedule list`, and the webhooks
+  // listener would steal the daemon's port). Probe: no init hooks, no
+  // persistence, session closed before returning. tolerateNoProvider keeps
+  // 'moxxy schedule list' working pre-init.
+  return probeSession(
+    {
+      cwd: process.cwd(),
+      skipKeyPrompt: true,
+      tolerateNoProvider: true,
+    },
+    async ({ scheduler }) => {
+      switch (sub) {
+        case 'list':
+          return listSchedules(scheduler.store);
+        case 'add':
+          return addSchedule(scheduler.store, argv);
+        case 'remove':
+          return removeSchedule(scheduler.store, argv);
+        case 'enable':
+        case 'disable':
+          return toggleSchedule(scheduler.store, argv, sub);
+        default:
+          process.stderr.write(colors.red(`unknown subcommand: ${sub}`) + '\n' + SCHEDULE_HELP);
+          return 2;
+      }
+    },
+  );
 }

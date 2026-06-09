@@ -67,6 +67,44 @@ describe('SessionPersistence', () => {
     detach();
   });
 
+  it('log.clear() truncates the JSONL so wiped history cannot resurrect on resume', async () => {
+    const dir = await makeTempDir();
+    const id = '01CLEARTRUNCATE00000000000';
+    const log = new EventLog();
+    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
+    const detach = persistence.attach(log);
+
+    await log.append({
+      type: 'user_prompt',
+      sessionId: id as never,
+      turnId: 't1' as never,
+      source: 'user',
+      text: 'wiped by /new',
+    });
+    await waitForCondition(async () => (await restoreEvents(id, dir)).length === 1);
+
+    // /new — the in-memory wipe must reach the sidecar.
+    log.clear();
+    await waitForCondition(async () => (await restoreEvents(id, dir)).length === 0);
+
+    // Post-reset events land in the fresh file from seq 0, so a later
+    // --resume restores exactly the new conversation (no duplicate seqs).
+    await log.append({
+      type: 'user_prompt',
+      sessionId: id as never,
+      turnId: 't2' as never,
+      source: 'user',
+      text: 'fresh start',
+    });
+    await waitForCondition(async () => (await restoreEvents(id, dir)).length === 1);
+    const restored = await restoreEvents(id, dir);
+    expect(restored).toHaveLength(1);
+    expect(restored[0]!.seq).toBe(0);
+    expect((restored[0] as { text?: string }).text).toBe('fresh start');
+
+    detach();
+  });
+
   it('two concurrent sessions both survive (no shared-index clobber)', async () => {
     const dir = await makeTempDir();
     const idA = '01AAAA00000000000000000001';
@@ -97,5 +135,19 @@ async function waitForFile(file: string): Promise<void> {
       if (Date.now() > deadline) throw new Error(`Timed out waiting for ${file}`);
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
+  }
+}
+
+/** Poll an async predicate until it holds (writes are queued + debounced). */
+async function waitForCondition(predicate: () => Promise<boolean>): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  for (;;) {
+    try {
+      if (await predicate()) return;
+    } catch {
+      // file may not exist yet — keep polling
+    }
+    if (Date.now() > deadline) throw new Error('Timed out waiting for condition');
+    await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }

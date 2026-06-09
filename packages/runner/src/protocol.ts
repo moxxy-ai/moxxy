@@ -21,8 +21,14 @@ import type {
  * the MCP-server admin + workflows panels remotely. Both families degrade
  * cleanly when the corresponding plugin isn't loaded on the runner — the
  * server returns an empty list / `null` rather than throwing.
+ *
+ * v3: adds `session.reset` (request) + `session.reset` (notification) so
+ * `/new` clears the runner's authoritative log — not just a client's local
+ * mirror — and every attached mirror clears in lockstep. Without it, a
+ * mirror-only clear desyncs seq-contiguous `ingest` and the mirror silently
+ * rejects every subsequent event.
  */
-export const RUNNER_PROTOCOL_VERSION = 2;
+export const RUNNER_PROTOCOL_VERSION = 3;
 
 /** Request methods. Client->server unless noted. */
 export const RunnerMethod = {
@@ -34,6 +40,14 @@ export const RunnerMethod = {
   RunTurn: 'runTurn',
   /** client->server: abort an in-flight turn. */
   Abort: 'abort',
+  /**
+   * client->server: `/new` — abort every in-flight turn, clear the runner's
+   * authoritative event log (and, via the log's clear listeners, truncate
+   * the persisted session JSONL so `--resume` can't resurrect the wiped
+   * history). The runner broadcasts the `session.reset` notification to ALL
+   * attached clients so every mirror clears in lockstep.
+   */
+  SessionReset: 'session.reset',
   /** client->server: declare which resolvers this client will answer. */
   SetResolver: 'setResolver',
   /** client->server: switch the active mode. */
@@ -75,6 +89,13 @@ export const RunnerNotification = {
   TurnComplete: 'turn.complete',
   /** The registry snapshot changed (plugin reload, mode switch, …). */
   InfoChanged: 'info.changed',
+  /**
+   * The runner's event log was reset (`/new` from any client, or a
+   * self-hosting channel clearing the local log directly). Mirrors MUST
+   * clear: post-reset events restart at seq 0, which a seq-contiguous
+   * mirror only accepts from an empty log.
+   */
+  SessionReset: 'session.reset',
 } as const;
 export type RunnerNotification = (typeof RunnerNotification)[keyof typeof RunnerNotification];
 

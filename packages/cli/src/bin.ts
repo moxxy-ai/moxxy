@@ -23,7 +23,7 @@ import { runSessionsCommand } from './commands/sessions.js';
 import { runSecurityCommand } from './commands/security.js';
 import { runSelfUpdateCommand } from './commands/self-update.js';
 import { runUpdateCommand } from './commands/update.js';
-import { setupSessionWithConfig } from './setup.js';
+import { probeSession } from './setup.js';
 import { renderLogo } from './logo.js';
 import { colors } from './colors.js';
 import { cliVersion } from './version.js';
@@ -234,16 +234,20 @@ async function main(): Promise<number> {
   // channel disappeared mid-flow.
   let isChannel = false;
   try {
-    const { session } = await setupSessionWithConfig({
-      cwd: process.cwd(),
-      skipKeyPrompt: true,
-      tolerateNoProvider: true,
-      // We only need the channel registry here, never the provider.
-      // Activating it can hang or throw on hosts without a configured
-      // key, which would mask the real "unknown command" feedback.
-      skipProviderActivation: true,
-    });
-    isChannel = session.channels.has(argv.command);
+    // Throwaway probe (no init hooks/daemons, no persistence, closed
+    // before returning): we only need the channel registry here, never
+    // the provider. Activating it can hang or throw on hosts without a
+    // configured key, which would mask the real "unknown command"
+    // feedback.
+    isChannel = await probeSession(
+      {
+        cwd: process.cwd(),
+        skipKeyPrompt: true,
+        tolerateNoProvider: true,
+        skipProviderActivation: true,
+      },
+      ({ session }) => session.channels.has(argv.command),
+    );
   } catch {
     // Probe failed; fall through to "unknown command" so the user
     // gets a clear message rather than a confusing setup stack trace.

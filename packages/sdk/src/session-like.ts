@@ -236,6 +236,20 @@ export interface SessionLike {
   close(reason?: string): Promise<void>;
 
   /**
+   * Authoritative session reset (`/new`): wipe the conversation history at
+   * its source so it cannot resurrect. On an in-process `Session` this clears
+   * the real `EventLog` (and, via the log's clear listeners, truncates the
+   * persistence sidecar so `--resume` sees an empty session). On a
+   * `RemoteSession` it invokes the runner's `session.reset` RPC — the runner
+   * aborts in-flight turns, clears ITS log, and broadcasts a reset
+   * notification so every attached mirror clears in lockstep. Optional
+   * capability per the seam convention: callers MUST guard and fall back to
+   * `log.clear()` when absent, and MUST surface a rejection instead of
+   * claiming the history was cleared.
+   */
+  reset?(): Promise<void>;
+
+  /**
    * Live runtime capabilities present only on an in-process Session; a
    * `RemoteSession` thin client leaves them undefined, so callers MUST guard.
    * For plain display prefer the serializable {@link getInfo} snapshot — these

@@ -134,6 +134,54 @@ describe('EventLog', () => {
     expect(seen).toEqual([ev.seq]);
   });
 
+  it('clear empties the log, fires onClear, and re-arms ingest at seq 0', async () => {
+    const source = new EventLog();
+    const before = await source.append({
+      type: 'user_prompt',
+      sessionId: sid,
+      turnId: tid,
+      source: 'user',
+      text: 'pre-reset',
+    });
+
+    const mirror = new EventLog();
+    mirror.ingest(before);
+    const cleared = vi.fn();
+    const off = mirror.onClear(cleared);
+    mirror.clear();
+    expect(mirror.length).toBe(0);
+    expect(cleared).toHaveBeenCalledTimes(1);
+
+    // Post-reset events restart at seq 0 — an empty mirror accepts them.
+    source.clear();
+    const after = await source.append({
+      type: 'user_prompt',
+      sessionId: sid,
+      turnId: tid,
+      source: 'user',
+      text: 'post-reset',
+    });
+    expect(after.seq).toBe(0);
+    mirror.ingest(after);
+    expect(mirror.length).toBe(1);
+    expect(mirror.at(0)?.id).toBe(after.id);
+
+    off();
+    mirror.clear();
+    expect(cleared).toHaveBeenCalledTimes(1);
+  });
+
+  it('clear survives a throwing onClear listener', () => {
+    const log = new EventLog();
+    log.onClear(() => {
+      throw new Error('boom');
+    });
+    const ok = vi.fn();
+    log.onClear(ok);
+    expect(() => log.clear()).not.toThrow();
+    expect(ok).toHaveBeenCalledTimes(1);
+  });
+
   // ensure unused import is exercised for typecheck stability
   void z;
   void asToolCallId;

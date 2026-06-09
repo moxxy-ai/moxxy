@@ -275,6 +275,19 @@ export class Session implements ClientSession, SessionRuntime {
   }
 
   /**
+   * `SessionLike.reset` — the authoritative `/new`. Clears the event log;
+   * the log's clear listeners propagate the wipe to whatever observes it
+   * (the persistence sidecar truncates its JSONL so `--resume` sees an
+   * empty session; a wrapping RunnerServer broadcasts a reset so attached
+   * mirrors clear in lockstep). Registries, resolvers, and the active
+   * provider survive — only the conversation context vanishes. Callers
+   * must abort any in-flight turn first (same contract as `log.clear()`).
+   */
+  async reset(): Promise<void> {
+    this.log.clear();
+  }
+
+  /**
    * Graceful shutdown: fire every plugin's `onShutdown` hook, then abort
    * the session. Idempotent — safe to call multiple times (subsequent
    * calls are no-ops once `closed` is set).

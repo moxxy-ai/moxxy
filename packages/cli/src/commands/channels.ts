@@ -1,7 +1,8 @@
 import type { ChannelDef, ChannelSubcommand } from '@moxxy/sdk';
-import { bootSessionWithConfig, helpRequested } from '../argv-helpers.js';
+import { argvToSetupOptions, helpRequested } from '../argv-helpers.js';
 import { printError } from '../errors.js';
 import type { ParsedArgv } from '../argv.js';
+import { probeSession } from '../setup.js';
 import { runChannelByName, runChannelSubcommand } from './run-channel.js';
 import { colors } from '../colors.js';
 
@@ -29,74 +30,90 @@ export async function runChannelsCommand(argv: ParsedArgv): Promise<number> {
   // provider. The previous flow inherited the full session boot from
   // `runChannelByName`, which threw "No working provider key" on
   // `moxxy channels telegram --help` despite the user having no need
-  // for a provider at all.
-  const { session, vault, config } = await bootSessionWithConfig(argv, {
-    skipKeyPrompt: true,
-    tolerateNoProvider: true,
-    skipProviderActivation: true,
-  });
+  // for a provider at all. probeSession additionally skips the init-hook
+  // daemons and closes the session before returning, so falling through
+  // to `runChannelByName` (which boots the REAL session) never leaves an
+  // orphaned session holding the webhooks port / a duplicate scheduler.
+  const outcome = await probeSession(
+    argvToSetupOptions(argv, {
+      skipKeyPrompt: true,
+      tolerateNoProvider: true,
+      skipProviderActivation: true,
+    }),
+    async ({ session, vault, config }): Promise<{ code: number } | 'run-channel'> => {
+      const def = session.channels.get(name);
+      if (!def) {
+        printError(
+          `unknown channel: ${name}\n  Available:\n` +
+            session.channels.list().map((d) => `    ${d.name} — ${d.description}\n`).join(''),
+        );
+        return { code: 2 };
+      }
 
-  const def = session.channels.get(name);
-  if (!def) {
-    printError(
-      `unknown channel: ${name}\n  Available:\n` +
-        session.channels.list().map((d) => `    ${d.name} — ${d.description}\n`).join(''),
-    );
-    return 2;
-  }
+      // No subcommand → either show help (--help/-h) or actually run the
+      // channel. Running falls through (after the probe closes) to the full
+      // provider-booting path.
+      if (!sub) {
+        if (helpRequested(argv)) {
+          process.stdout.write(formatChannelHelp(def));
+          return { code: 0 };
+        }
+        return 'run-channel';
+      }
 
-  // No subcommand → either show help (--help/-h) or actually run the
-  // channel. Running falls through to the full provider-booting path.
-  if (!sub) {
-    if (helpRequested(argv)) {
-      process.stdout.write(formatChannelHelp(def));
-      return 0;
-    }
-    return await runChannelByName(name, argv);
-  }
+      const subcommand = def.subcommands?.[sub];
+      if (!subcommand) {
+        const available = def.subcommands
+          ? Object.entries(def.subcommands)
+              .map(([n, c]) => `    ${name} ${n}  — ${c.description}\n`)
+              .join('')
+          : '    (none)\n';
+        printError(
+          `unknown '${name}' subcommand: ${sub}\n  Available subcommands:\n${available}`,
+        );
+        return { code: 2 };
+      }
 
-  const subcommand = def.subcommands?.[sub];
-  if (!subcommand) {
-    const available = def.subcommands
-      ? Object.entries(def.subcommands)
-          .map(([n, c]) => `    ${name} ${n}  — ${c.description}\n`)
-          .join('')
-      : '    (none)\n';
-    printError(
-      `unknown '${name}' subcommand: ${sub}\n  Available subcommands:\n${available}`,
-    );
-    return 2;
-  }
+      // Subcommand --help: print its description, don't run anything.
+      if (helpRequested(argv)) {
+        process.stdout.write(formatSubcommandHelp(name, sub, subcommand));
+        return { code: 0 };
+      }
 
-  // Subcommand --help: print its description, don't run anything.
-  if (helpRequested(argv)) {
-    process.stdout.write(formatSubcommandHelp(name, sub, subcommand));
-    return 0;
-  }
-
-  return await runChannelSubcommand(def, sub, {
-    session,
-    vault,
-    config,
-    argv: { ...argv, positional: rest },
-  });
+      return {
+        code: await runChannelSubcommand(def, sub, {
+          session,
+          vault,
+          config,
+          argv: { ...argv, positional: rest },
+        }),
+      };
+    },
+  );
+  if (outcome !== 'run-channel') return outcome.code;
+  return runChannelByName(name, argv);
 }
 
 async function runList(): Promise<number> {
   // Same as above: the list command doesn't need a provider; force
   // skipProviderActivation so `moxxy channels` is instant even when
-  // no API key is configured.
-  const { session, vault, config } = await bootSessionWithConfig(
-    { flags: {} },
-    { skipKeyPrompt: true, tolerateNoProvider: true, skipProviderActivation: true },
+  // no API key is configured. Probe semantics: no init-hook daemons,
+  // session closed before we print.
+  const { entries, config } = await probeSession(
+    argvToSetupOptions(
+      { flags: {} },
+      { skipKeyPrompt: true, tolerateNoProvider: true, skipProviderActivation: true },
+    ),
+    async ({ session, vault, config }) => ({
+      config,
+      entries: await session.channels.listWithAvailability({
+        cwd: process.cwd(),
+        vault,
+        logger: session.logger,
+        options: {},
+      }),
+    }),
   );
-  const deps = {
-    cwd: process.cwd(),
-    vault,
-    logger: session.logger,
-    options: {},
-  };
-  const entries = await session.channels.listWithAvailability(deps);
 
   // Layout: bold name + status label aligned in columns, then a dim
   // description below each. Subcommands indented under their parent.

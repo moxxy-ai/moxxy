@@ -87,16 +87,22 @@ Full report incl. the medium/low backlog and refuted findings:
   created post-bind + given an error handler (ws re-emits server errors → was a second
   crash path), and `bin.ts` installs last-resort guards (`process-guards.ts`: log+survive
   unhandledRejection, log+flush+exit 1 on uncaughtException).
-- **A9 [high, stability] CLI probe/light-boot sessions leak daemons** — three paths
-  (`run-tui.ts:228`, `bin.ts:236`, `run-channel.ts:34`) boot sessions without
-  `skipInitHooks` and never close them; an orphaned probe steals the webhooks port and
-  duplicate scheduler pollers race. `start-registered-channel.ts:41-48` shows the rule.
+- **A9 [high, stability] CLI probe/light-boot sessions leak daemons** — ✅ FIXED (this
+  PR): new `probeSession(opts, read)` in `cli/src/setup.ts` forces `skipInitHooks` +
+  `disableSessionPersistence` and closes the session in a `finally` (onShutdown fires even
+  when `read` throws); converted `run-tui.ts` (needs-init probe), `bin.ts`
+  (channel-existence probe), `run-channel.ts` + `channels.ts` (registry light-boots —
+  wizard runs inside the probe, the headless path boots the real daemon-owning session
+  after the probe closes), `schedule.ts` store ops, and `setup-cmd.ts`/`plugins.ts list`
+  reads. Still open (milder, one-shot processes that exit promptly): `moxxy -p`,
+  `schedule run`, `doctor`, `login`/`init` boot full sessions and never `close()`.
 - **A10 [high, stability] `/new` on attached clients is cosmetic and bricks the mirror** —
-  no reset RPC in `runner/src/protocol.ts`; TUI/Telegram clear only the local mirror
-  (`remote-session.ts:254-258`), runner context survives, and post-clear seq-contiguity
-  (`core/src/events/log.ts:87`) rejects all further events. Local `/new` also keeps
-  appending to the same JSONL → wiped history resurrects on `--resume`. Needs a
-  `session.reset` RunnerMethod.
+  ✅ FIXED (this PR): new `session.reset` RunnerMethod (protocol v3) + `SessionLike.reset?()`
+  capability — the runner aborts in-flight turns and clears its authoritative log, whose new
+  `EventLog.onClear` listeners broadcast a `session.reset` notification (every mirror clears
+  in lockstep, re-arming seq-0 ingest) and truncate the persistence JSONL (same hook fixes
+  local `/new` resurrecting on `--resume`); TUI/Telegram call `reset()` and surface an error
+  instead of claiming success when it fails.
 - **A11 [high, stability] `afterWorkflow` triggers have no cycle detection** — mutual
   A↔B triggers loop forever (`cli/src/setup/workflows.ts:184-188`), spawning subagents and
   burning provider tokens each round; `inFlight` clears before the next completion lands.

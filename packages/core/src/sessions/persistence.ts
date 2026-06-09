@@ -89,6 +89,12 @@ export class SessionPersistence {
    * Subscribe to the log; returns the unsubscribe callback. The first
    * call also writes the initial index row so `moxxy resume` lists
    * the session before any events arrive.
+   *
+   * Also subscribes to the log's `clear()`, truncating the JSONL in
+   * lockstep so a `/new` wipe can't resurrect on `--resume`. The
+   * session keeps its id and file: post-reset events restart at seq 0
+   * in the same (now empty) JSONL, matching how the in-memory log
+   * reuses the same Session object.
    */
   attach(log: EventLog): () => void {
     void this.ensureDir()
@@ -99,9 +105,14 @@ export class SessionPersistence {
       if (this.closed) return;
       this.enqueueAppend(event);
     });
+    const unsubClear = log.onClear(() => {
+      if (this.closed) return;
+      this.enqueueTruncate();
+    });
     return () => {
       this.closed = true;
       unsub();
+      unsubClear();
       // Flush a final index write so lastActivity reflects the close
       // time even if no events arrived in the last debounce window.
       this.scheduleIndexWrite();
@@ -137,6 +148,23 @@ export class SessionPersistence {
     const line = JSON.stringify(event) + '\n';
     // never propagate a write error into the listener chain
     void this.writeQueue.run(() => fs.appendFile(this.logPath, line, 'utf8')).catch(() => undefined);
+  }
+
+  /**
+   * Mirror a `log.clear()` on disk: truncate the JSONL and reset the
+   * sidecar's counters. Rides the same write queue as appends, so
+   * pre-clear appends flush first and post-clear appends land in the
+   * fresh (empty) file — ordering matches the in-memory log exactly.
+   */
+  private enqueueTruncate(): void {
+    this.meta = {
+      ...this.meta,
+      eventCount: 0,
+      firstPrompt: null,
+      lastActivity: new Date().toISOString(),
+    };
+    this.scheduleIndexWrite();
+    void this.writeQueue.run(() => fs.writeFile(this.logPath, '', 'utf8')).catch(() => undefined);
   }
 
   private scheduleIndexWrite(): void {

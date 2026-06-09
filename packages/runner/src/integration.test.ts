@@ -8,7 +8,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Session, autoAllowResolver, silentLogger } from '@moxxy/core';
+import {
+  Session,
+  SessionPersistence,
+  autoAllowResolver,
+  restoreSessionEvents,
+  silentLogger,
+} from '@moxxy/core';
 import {
   defineMode,
   definePlugin,
@@ -65,6 +71,20 @@ async function waitFor(predicate: () => boolean, timeoutMs = 2000): Promise<void
   const deadline = Date.now() + timeoutMs;
   while (!predicate()) {
     if (Date.now() > deadline) throw new Error('waitFor: condition not met in time');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+/** Async-predicate variant of waitFor (persistence writes are queued + debounced). */
+async function waitForAsync(predicate: () => Promise<boolean>, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      if (await predicate()) return;
+    } catch {
+      // e.g. the JSONL doesn't exist yet — keep polling
+    }
+    if (Date.now() > deadline) throw new Error('waitForAsync: condition not met in time');
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }
@@ -446,6 +466,71 @@ describe('runner end-to-end', () => {
       mimeType: 'audio/ogg',
     });
     expect(result.text).toBe('transcribed on the runner');
+  });
+
+  it('session.reset clears the runner, every mirror, and the persisted JSONL', async () => {
+    // Regression for A10: /new on an attached client used to clear only the
+    // local mirror — the runner kept the full context (resurrecting it on the
+    // next provider call and replaying it on reattach), and the desynced
+    // mirror silently rejected every subsequent event (ingest only accepts
+    // contiguous seq). reset() must wipe the source of truth and re-sync
+    // every attached client.
+    const sessionsDir = await mkdtemp(path.join(os.tmpdir(), 'moxxy-reset-'));
+    try {
+      const socketPath = tmpSocket();
+      const session = buildSession(
+        new FakeProvider({ script: [textReply('first answer'), textReply('second answer')] }),
+      );
+      const persistence = new SessionPersistence({
+        sessionId: session.id,
+        cwd: session.cwd,
+        dir: sessionsDir,
+      });
+      const detach = persistence.attach(session.log);
+      const server = await startRunnerServer(session, { socketPath });
+      servers.push(server);
+
+      const driver = await attach(socketPath, 'driver');
+      const observer = await attach(socketPath, 'observer');
+
+      for await (const _event of driver.runTurn('say hi')) void _event;
+      await waitFor(() => observer.log.ofType('assistant_message').length > 0);
+      const preResetLen = session.log.length;
+      expect(preResetLen).toBeGreaterThan(0);
+      // The sidecar flushed the pre-reset history.
+      await waitForAsync(async () => (await restoreSessionEvents(session.id, sessionsDir)).length === preResetLen);
+
+      await driver.reset();
+
+      // Source of truth and BOTH mirrors are empty (the notification is
+      // broadcast before the RPC reply, but the observer rides a separate
+      // socket — poll it).
+      expect(session.log.length).toBe(0);
+      expect(driver.log.length).toBe(0);
+      await waitFor(() => observer.log.length === 0);
+      // --resume sees an empty session: the JSONL was truncated, not kept.
+      await waitForAsync(async () => (await restoreSessionEvents(session.id, sessionsDir)).length === 0);
+
+      // Post-reset events restart at seq 0 and every mirror ingests them —
+      // previously the cleared mirror rejected the whole stream forever.
+      for await (const _event of observer.runTurn('again')) void _event;
+      await waitFor(() => driver.log.ofType('assistant_message').length > 0);
+      expect(driver.log.at(0)?.seq).toBe(0);
+      expect(observer.log.at(0)?.seq).toBe(0);
+      const fresh = driver.log.ofType('assistant_message')[0] as AssistantMessageEvent | undefined;
+      expect(fresh?.content).toContain('second answer');
+
+      // The persisted file holds only the post-reset conversation.
+      const postLen = session.log.length;
+      await waitForAsync(async () => (await restoreSessionEvents(session.id, sessionsDir)).length === postLen);
+      const persisted = await restoreSessionEvents(session.id, sessionsDir);
+      expect(persisted[0]?.seq).toBe(0);
+      expect(JSON.stringify(persisted)).not.toContain('first answer');
+
+      detach();
+    } finally {
+      await rm(sessionsDir, { recursive: true, force: true });
+    }
   });
 
   it('keeps routing installed when a self-hosting client sets its own resolvers', async () => {

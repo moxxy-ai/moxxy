@@ -12,7 +12,8 @@ import {
   setPluginEnabled,
 } from '@moxxy/plugin-plugins-admin';
 import type { ParsedArgv } from '../argv.js';
-import { bootSession, helpRequested } from '../argv-helpers.js';
+import { argvToSetupOptions, bootSession, helpRequested } from '../argv-helpers.js';
+import { probeSession } from '../setup.js';
 import { printError } from '../errors.js';
 import { runPluginNewCommand } from './plugin-new.js';
 import { colors } from '../colors.js';
@@ -73,12 +74,17 @@ export async function runPluginsCommand(argv: ParsedArgv): Promise<number> {
 }
 
 async function runList(argv: ParsedArgv): Promise<number> {
-  const session = await bootSession(argv, {
-    skipKeyPrompt: true,
-    tolerateNoProvider: true,
-    skipProviderActivation: true,
-  });
-  const loaded = session.pluginHost.list();
+  // Pure registry read — probe semantics (no init-hook daemons, session
+  // closed before we print). Plugin packages register before init hooks,
+  // so the listing is identical to a full boot's.
+  const loaded = await probeSession(
+    argvToSetupOptions(argv, {
+      skipKeyPrompt: true,
+      tolerateNoProvider: true,
+      skipProviderActivation: true,
+    }),
+    ({ session }) => session.pluginHost.list(),
+  );
   const disabled = await loadDisabledPackageNames();
   // "Installed" for catalog status = anything the host knows about: loaded
   // plugins plus disabled-but-present ones.

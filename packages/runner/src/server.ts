@@ -76,6 +76,7 @@ export class RunnerServer {
   private readonly turnControllers = new Map<TurnId, AbortController>();
   private readonly scope = new AsyncLocalStorage<TurnScope>();
   private readonly logUnsub: () => void;
+  private readonly logClearUnsub: () => void;
   private readonly modesUnsub: () => void;
   /**
    * Resolvers for unscoped (local) turns - the fall-through path. Seeded from
@@ -96,6 +97,14 @@ export class RunnerServer {
     this.installRoutingResolvers();
     this.transport.onConnection((t) => this.onConnection(t));
     this.logUnsub = session.log.subscribe((event) => this.broadcastEvent(event));
+    // Mirror a log wipe to every attached client. Subscribing to the log's
+    // clear listener (rather than broadcasting inside handleSessionReset)
+    // covers BOTH reset paths — the session.reset RPC and a self-hosting
+    // channel clearing the local log directly — so mirrors can never desync
+    // against a wiped log whose next event restarts at seq 0.
+    this.logClearUnsub = session.log.onClear(() =>
+      this.broadcast(RunnerNotification.SessionReset, {}),
+    );
     // Mirror active-mode changes to clients — covers both the SetMode RPC and a
     // mode handing off to another mode post-turn.
     this.modesUnsub = session.modes.onActiveChange(() => this.broadcastInfo());
@@ -109,6 +118,7 @@ export class RunnerServer {
     if (this.closed) return;
     this.closed = true;
     this.logUnsub();
+    this.logClearUnsub();
     this.modesUnsub();
     for (const client of this.clients) client.peer.close();
     this.clients.clear();
@@ -133,6 +143,7 @@ export class RunnerServer {
     peer.handle(RunnerMethod.GetInfo, () => this.session.getInfo());
     peer.handle(RunnerMethod.RunTurn, (raw) => this.handleRunTurn(client, raw));
     peer.handle(RunnerMethod.Abort, (raw) => this.handleAbort(raw));
+    peer.handle(RunnerMethod.SessionReset, () => this.handleSessionReset());
     peer.handle(RunnerMethod.SetResolver, (raw) => this.handleSetResolver(client, raw));
     peer.handle(RunnerMethod.ModeSetActive, (raw) => this.handleModeSetActive(raw));
     peer.handle(RunnerMethod.ProviderSetActive, (raw) => this.handleProviderSetActive(raw));
@@ -236,6 +247,24 @@ export class RunnerServer {
   private handleAbort(raw: unknown): Record<string, never> {
     const params = abortParamsSchema.parse(raw);
     this.turnControllers.get(params.turnId as TurnId)?.abort('client requested abort');
+    return {};
+  }
+
+  /**
+   * `/new` from any attached client. Aborts every in-flight turn (whoever
+   * started it — the wipe is session-global), then clears the authoritative
+   * log. The clear cascades: the log's clear listeners broadcast the
+   * `session.reset` notification to all attached mirrors (wired in the
+   * ctor) and truncate the persistence sidecar's JSONL. An aborted turn may
+   * still flush a final event after the wipe; it lands in the fresh log at
+   * seq 0+ and is broadcast AFTER the reset notification (single ordered
+   * socket), so mirrors stay contiguous either way.
+   */
+  private handleSessionReset(): Record<string, never> {
+    for (const controller of this.turnControllers.values()) {
+      controller.abort('session reset');
+    }
+    this.session.log.clear();
     return {};
   }
 

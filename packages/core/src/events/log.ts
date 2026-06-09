@@ -13,6 +13,7 @@ export type EventListener = (event: MoxxyEvent) => void | Promise<void>;
 export class EventLog implements EventLogReader {
   private readonly events: MoxxyEvent[] = [];
   private readonly listeners = new Set<EventListener>();
+  private readonly clearListeners = new Set<() => void>();
   private readonly now: () => number;
 
   constructor(seed: ReadonlyArray<MoxxyEvent> = [], opts: { now?: () => number } = {}) {
@@ -97,19 +98,39 @@ export class EventLog implements EventLogReader {
   }
 
   /**
-   * Drop every event from the log. Used by `/new` (TUI) to start a
-   * fresh session without rebuilding the entire Session object — the
+   * Drop every event from the log. Used by `/new` to start a fresh
+   * session without rebuilding the entire Session object — the
    * registries, resolvers, and active provider stay; only the
-   * conversation context vanishes. Listeners are intentionally NOT
-   * notified: there's no "event removed" event in the schema, and any
-   * subscriber that wants to react to a wipe can observe the
-   * subsequent next-`user_prompt` arriving with seq=0.
+   * conversation context vanishes. Per-event listeners are NOT
+   * notified (there's no "event removed" event in the schema), but
+   * {@link onClear} subscribers fire — that's how the persistence
+   * sidecar truncates its JSONL (so `--resume` can't resurrect wiped
+   * history) and how the runner broadcasts a reset to attached
+   * mirrors, in lockstep with the wipe.
    *
    * Safe to call only when no turn is in flight — callers should abort
    * their AbortController and await any pending runTurn() first.
    */
   clear(): void {
     this.events.length = 0;
+    const snapshot = [...this.clearListeners];
+    for (const fn of snapshot) {
+      try {
+        fn();
+      } catch {
+        // A clear listener must not block the wipe.
+      }
+    }
+  }
+
+  /**
+   * Subscribe to {@link clear}. Fires synchronously after the events array
+   * empties, so a listener reading the log observes the post-wipe state.
+   * Returns the unsubscribe callback.
+   */
+  onClear(fn: () => void): () => void {
+    this.clearListeners.add(fn);
+    return () => this.clearListeners.delete(fn);
   }
 
   asReader(): EventLogReader {

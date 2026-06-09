@@ -25,7 +25,7 @@ import {
 import { existsSync, unlinkSync } from 'node:fs';
 import { Socket } from 'node:net';
 import { spawn } from 'node:child_process';
-import { setupSession, setupSessionWithConfig, type BootStep } from '../setup.js';
+import { probeSession, setupSessionWithConfig, type BootStep } from '../setup.js';
 
 /** Best-effort recovery for "I had an older `moxxy serve` running
  *  at v1 and the new client is v2" scenarios. Kill whatever PID is
@@ -226,13 +226,19 @@ async function runSelfHostedTui(
     let needsInit = sources.length === 0;
     if (!needsInit) {
       try {
-        const probe = await setupSession({
-          ...argvToSetupOptions(argv),
-          tolerateNoProvider: true,
-          skipKeyPrompt: true,
-          disableSessionPersistence: true,
-        });
-        if (!probe.providers.getActiveName()) needsInit = true;
+        // Throwaway probe: "does a provider activate with the current
+        // config?". probeSession skips init hooks (no daemons) and closes
+        // the session before returning — the REAL session boots below with
+        // full init hooks.
+        const hasProvider = await probeSession(
+          {
+            ...argvToSetupOptions(argv),
+            tolerateNoProvider: true,
+            skipKeyPrompt: true,
+          },
+          ({ session }) => Boolean(session.providers.getActiveName()),
+        );
+        if (!hasProvider) needsInit = true;
       } catch {
         needsInit = true;
       }

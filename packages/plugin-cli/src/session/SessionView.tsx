@@ -211,7 +211,6 @@ export const SessionView: React.FC<SessionViewProps> = ({
     // 'new': full session reset.
     const ctrl = turn.turnControllerRef.current;
     if (ctrl && !ctrl.signal.aborted) ctrl.abort('user reset');
-    session.log.clear();
     setOverlay(null);
     for (const p of permissions.pendingPermissions) {
       p.resolve({ mode: 'deny', reason: '/new — session reset' });
@@ -222,7 +221,28 @@ export const SessionView: React.FC<SessionViewProps> = ({
     setYolo(false);
     turn.queueRef.current = [];
     turn.setQueueCount(0);
-    if (notice) setSystemNotice(notice);
+    // Wipe the history at its source. `session.reset` is the authoritative
+    // path on both session kinds: a local Session clears its EventLog AND
+    // truncates the persistence sidecar (so --resume can't resurrect the
+    // wiped history); a RemoteSession asks the runner, which clears ITS log
+    // and re-syncs every attached mirror. Falling back to a mirror-only
+    // `log.clear()` would leave the runner's context intact and desync this
+    // mirror, so only claim success when the reset actually happened.
+    if (typeof session.reset === 'function') {
+      void session.reset().then(
+        () => {
+          if (notice) setSystemNotice(notice);
+        },
+        (err: unknown) => {
+          setSystemNotice(
+            `/new failed: ${err instanceof Error ? err.message : String(err)} — history NOT cleared`,
+          );
+        },
+      );
+    } else {
+      session.log.clear();
+      if (notice) setSystemNotice(notice);
+    }
   };
 
   const handleSubmit = async (text: string): Promise<void> => {

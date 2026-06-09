@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import { PermissionEngine } from '@moxxy/core';
 import type { ParsedArgv } from '../../argv.js';
 import { colors } from '../../colors.js';
-import { setupSessionWithConfig } from '../../setup.js';
+import { probeSession } from '../../setup.js';
 import { installAndStartDaemon } from '../schedule-daemon-svc.js';
 
 const DEFAULT_HEADLESS_ALLOW_TOOLS = ['telegram_send_message', 'web_fetch'];
@@ -84,13 +84,19 @@ async function stepInstallDaemon(skipDaemon: boolean): Promise<void> {
 
 async function stepTelegramStatus(): Promise<void> {
   try {
-    const { vault } = await setupSessionWithConfig({
-      cwd: process.cwd(),
-      skipKeyPrompt: true,
-      tolerateNoProvider: true,
-    });
-    const hasToken = await vault.has('telegram_bot_token');
-    const chatRaw = await vault.get('telegram_authorized_chat_id');
+    // Probe (no init hooks/daemons, no persistence, closed before
+    // returning): we only need two vault reads here.
+    const { hasToken, chatRaw } = await probeSession(
+      {
+        cwd: process.cwd(),
+        skipKeyPrompt: true,
+        tolerateNoProvider: true,
+      },
+      async ({ vault }) => ({
+        hasToken: await vault.has('telegram_bot_token'),
+        chatRaw: await vault.get('telegram_authorized_chat_id'),
+      }),
+    );
     const hasChat = !!chatRaw;
     if (hasToken && hasChat) {
       process.stdout.write(

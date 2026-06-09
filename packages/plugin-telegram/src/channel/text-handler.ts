@@ -138,12 +138,26 @@ async function performSessionAction(
     if (state.turnController && !state.turnController.signal.aborted) {
       state.turnController.abort('user reset');
     }
-    state.session.log.clear();
     deps.framePump.resetRenderer();
     cb.setYolo(false);
     cb.setAwaitingApprovalText(null);
     deps.approvalResolver.abortAll('session reset');
     deps.permissionResolver.abortAll('session reset');
+    // Wipe the history at its source. On a RemoteSession `reset()` asks the
+    // runner to clear its authoritative log (and persisted JSONL) and
+    // re-sync every attached mirror; on a local Session it clears the
+    // EventLog + truncates the sidecar. A mirror-only `log.clear()` would
+    // be cosmetic AND desync this client, so only claim success when the
+    // reset actually happened.
+    try {
+      if (typeof state.session.reset === 'function') await state.session.reset();
+      else state.session.log.clear();
+    } catch (err) {
+      await ctx.reply(
+        `⚠ /new failed: ${err instanceof Error ? err.message : String(err)} — history NOT cleared`,
+      );
+      return;
+    }
     await ctx.reply(`✓ ${notice ?? 'new session — conversation history cleared'}`);
   }
 }

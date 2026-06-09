@@ -221,4 +221,41 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   };
 }
 
+/**
+ * Boot a throwaway session purely to answer a question about the populated
+ * registries/config (does a channel exist? did a provider activate?), hand
+ * the answer back, and GUARANTEE the session is closed before returning.
+ *
+ * Probes always force:
+ *   - `skipInitHooks: true` — a probe must never start the init-time daemons
+ *     (scheduler poller, webhooks listener). Those belong to the REAL session
+ *     the caller boots afterwards; an orphaned probe winning the webhooks
+ *     port bind would silently starve the real session and route incoming
+ *     webhooks to an abandoned session.
+ *   - `disableSessionPersistence: true` — a probe never runs a turn, so it
+ *     must not litter `~/.moxxy/sessions` with empty logs.
+ *
+ * The session is closed (onShutdown hooks fire, then abort) in a `finally`,
+ * so closure holds even when `read` throws. Closing is best-effort: a
+ * cleanup failure never masks the probe's answer (or `read`'s own error).
+ *
+ * `boot` is injectable for tests only; production callers use the default.
+ */
+export async function probeSession<T>(
+  opts: SetupOptions,
+  read: (result: SetupResult) => T | Promise<T>,
+  boot: (opts: SetupOptions) => Promise<SetupResult> = setupSessionWithConfig,
+): Promise<T> {
+  const result = await boot({
+    ...opts,
+    skipInitHooks: true,
+    disableSessionPersistence: true,
+  });
+  try {
+    return await read(result);
+  } finally {
+    await result.session.close('probe-complete').catch(() => undefined);
+  }
+}
+
 export { createAllowListResolver, createCallbackResolver, denyByDefaultResolver };
