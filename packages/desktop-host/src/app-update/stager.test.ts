@@ -1,10 +1,12 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { mkdtempSync, existsSync } from 'node:fs';
-import { generateKeyPairSync } from 'node:crypto';
+import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
+import { generateKeyPairSync, createHash, sign as cryptoSign, createPrivateKey } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
 import path from 'node:path';
 import os from 'node:os';
 
 import { buildAppBundle } from './build';
+import { canonicalManifestBytes, type AppManifest } from './manifest';
 import { checkForUpdate, downloadAndStage, isAllowedUpdateHost } from './stager';
 import { bundleRoot, markBad, readBadVersions, readActiveVersion, type ShellInfo } from './resolve';
 
@@ -12,6 +14,27 @@ const SHELL: ShellInfo = { electron: '33.4.11', nodeAbi: '115' };
 const keys = generateKeyPairSync('ed25519');
 const PUBKEY = keys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
 const PRIVKEY = keys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+
+/** Build a signed bundle the OLD way — WITHOUT the ESM `package.json` marker the
+ *  current `buildAppBundle` injects — to exercise the stager's safety-net for
+ *  already-published bundles that predate the fix. */
+function buildLegacyBundle(
+  version: string,
+  files: Record<string, Buffer>,
+  bundleUrl: string,
+): { manifest: AppManifest; bundleGz: Buffer } {
+  const filesB64: Record<string, string> = {};
+  for (const [rel, buf] of Object.entries(files)) filesB64[rel] = buf.toString('base64');
+  const bundleGz = gzipSync(Buffer.from(JSON.stringify({ version, files: filesB64 }), 'utf8'));
+  const sha256 = createHash('sha256').update(bundleGz).digest('hex');
+  const signed = { version, minElectron: '33.0.0', nodeAbi: '', sha256, bundleUrl };
+  const signature = cryptoSign(
+    null,
+    canonicalManifestBytes(signed),
+    createPrivateKey(PRIVKEY),
+  ).toString('base64');
+  return { manifest: { ...signed, signature }, bundleGz };
+}
 
 let tmp: string;
 beforeEach(() => {
@@ -144,6 +167,28 @@ describe('downloadAndStage hardening', () => {
     await expect(
       downloadAndStage({ userDataDir: tmp, manifest, publicKeyPem: otherKey }, { fetchImpl }),
     ).rejects.toThrow(/signature/i);
+  });
+
+  it('writes a type:module marker for a legacy bundle that omits its own package.json', async () => {
+    // Reproduces the production "Cannot use import statement outside a module"
+    // failure: a published bundle whose ESM main has no package.json above it.
+    const url = 'https://github.com/moxxy-ai/moxxy/releases/download/desktop-v0.0.7/b.json.gz';
+    const { manifest, bundleGz } = buildLegacyBundle(
+      '0.0.7',
+      { 'dist/index.html': Buffer.from('x'), 'dist-electron/main/index.js': Buffer.from('// main') },
+      url,
+    );
+    const fetchImpl = (async () => new Response(new Uint8Array(bundleGz))) as unknown as typeof fetch;
+
+    await downloadAndStage(
+      { userDataDir: tmp, manifest, publicKeyPem: PUBKEY, bundleUrl: url },
+      { fetchImpl },
+    );
+
+    const pkg = JSON.parse(
+      readFileSync(path.join(bundleRoot(tmp, '0.0.7'), 'package.json'), 'utf8'),
+    );
+    expect(pkg.type).toBe('module'); // the staged tree now loads as ESM
   });
 
   it('clears a prior poison mark on the version it installs (un-wedges a reinstall)', async () => {

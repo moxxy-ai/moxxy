@@ -23,6 +23,7 @@ import {
 } from './manifest.js';
 import {
   type ShellInfo,
+  ESM_MARKER_PACKAGE_JSON,
   appUpdateDir,
   bundleRoot,
   compareSemver,
@@ -304,6 +305,15 @@ export async function downloadAndStage(
       mkdirSync(path.dirname(dest), { recursive: true });
       writeFileSync(dest, Buffer.from(b64, 'base64'));
     }
+    // Guarantee the staged tree loads as ESM even for bundles produced before
+    // `buildAppBundle` started shipping the marker (e.g. an already-published
+    // release): the real main is ES-module syntax and nothing above it declares
+    // `type:module`, so without this Node parses it as CommonJS and the bootstrap
+    // can never load the override ("Cannot use import statement outside a
+    // module"). Skip if the bundle already carries its own package.json.
+    const pkgJsonPath = path.join(incoming, 'package.json');
+    if (!existsSync(pkgJsonPath)) writeFileSync(pkgJsonPath, ESM_MARKER_PACKAGE_JSON);
+
     // Write the verified manifest LAST so a half-extracted dir never looks valid.
     writeFileSync(path.join(incoming, 'manifest.json'), JSON.stringify(manifest, null, 2));
 

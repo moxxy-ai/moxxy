@@ -50,6 +50,17 @@ export function appUpdateDir(userDataDir: string): string {
 export function bundleRoot(userDataDir: string, version: string): string {
   return path.join(appUpdateDir(userDataDir), version);
 }
+
+/**
+ * The minimal `package.json` that MUST sit at a staged bundle's root so Node
+ * loads the bundle's ES-module `dist-electron/main/index.js` as ESM. A staged
+ * bundle under `<userData>/app/<version>/` has no package.json above its main,
+ * so without this Node parses the ESM main as CommonJS and the bootstrap's
+ * `import()` throws "Cannot use import statement outside a module" — reverting
+ * to the floor on every override. Single-sourced here so the producer
+ * (`buildAppBundle`) and the stager safety-net can never disagree on it.
+ */
+export const ESM_MARKER_PACKAGE_JSON = `${JSON.stringify({ type: 'module' }, null, 2)}\n`;
 const activePath = (d: string): string => path.join(appUpdateDir(d), 'active.json');
 const badPath = (d: string): string => path.join(appUpdateDir(d), 'bad.json');
 const breadcrumbPath = (d: string): string => path.join(appUpdateDir(d), 'last-attempt.json');
