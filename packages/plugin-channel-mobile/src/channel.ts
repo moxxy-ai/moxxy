@@ -17,7 +17,7 @@ import { WebSocketCommandBus, startWsBridge } from '@moxxy/ipc-server-ws';
 import type { TunnelHandle } from '@moxxy/sdk';
 
 import { MobileSessionHost } from './single-session-host.js';
-import { resolveMobileToken } from './token.js';
+import { resolveMobileToken, rotateMobileToken } from './token.js';
 import {
   advertisedHost,
   buildConnectUrl,
@@ -58,7 +58,7 @@ export class MobileChannel implements Channel<MobileStartOpts> {
 
   private readonly port: number;
   private readonly bindHost: string;
-  private readonly token: string;
+  private token: string;
   private readonly tunnelChoice: TunnelChoice;
   private readonly logger: MobileChannelOptions['logger'];
   private host: MobileSessionHost | null = null;
@@ -82,6 +82,20 @@ export class MobileChannel implements Channel<MobileStartOpts> {
     };
   }
 
+  /**
+   * Rotate the pairing token: persist a fresh secret, re-key the live server
+   * (every connected app is terminated — a leaked QR/token stops working
+   * immediately), and return the new token so the caller can re-display
+   * pairing info. The printed QR also documents the manual path (delete
+   * `~/.moxxy/mobile-token` + restart). Env/config-supplied tokens take
+   * precedence at resolve time and must be rotated at their source.
+   */
+  rotateToken(): string {
+    this.token = rotateMobileToken();
+    this.server?.rotateAuthToken(this.token);
+    return this.token;
+  }
+
   async start(startOpts: MobileStartOpts): Promise<ChannelHandle> {
     const bus = new WebSocketCommandBus();
     const host = new MobileSessionHost(bus, startOpts.session);
@@ -93,6 +107,11 @@ export class MobileChannel implements Channel<MobileStartOpts> {
       port: this.port,
       host: this.bindHost,
       authToken: this.token,
+      // Back-compat ONLY: the QR this channel prints embeds the token as `?t=`
+      // (pairing payload); current apps strip it and authenticate via the
+      // Sec-WebSocket-Protocol bearer entry, but older installed builds still
+      // connect with the token in the WS URL.
+      allowQueryToken: true,
     });
     this.server = server;
     this.logger?.info?.('mobile channel listening', { address: server.address });

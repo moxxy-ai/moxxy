@@ -90,9 +90,15 @@ export class EventLog implements EventLogReader {
     const snapshot = [...this.listeners];
     for (const fn of snapshot) {
       try {
-        void fn(event);
+        // Fire-and-forget, but attach a rejection handler: an async listener
+        // that rejects must be swallowed the same way append()'s awaited
+        // try/catch swallows it — otherwise it surfaces as an unhandled
+        // rejection and (under Node's default policy) can kill the process.
+        void Promise.resolve(fn(event)).catch(() => {
+          // Mirror listeners must not break ingestion.
+        });
       } catch {
-        // Mirror listeners must not break ingestion.
+        // Mirror listeners must not break ingestion (synchronous throw).
       }
     }
   }

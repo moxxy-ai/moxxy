@@ -10,16 +10,21 @@
  *   // …on quit: await server.close();
  */
 
-import type { TransportServer } from '@moxxy/runner';
 import {
   createWebSocketTransportServer,
   type WebSocketBridgeOptions,
+  type WebSocketBridgeServer,
 } from './ws-transport.js';
 import type { WebSocketCommandBus } from './ws-command-bus.js';
 
-export { createWebSocketTransportServer, type WebSocketBridgeOptions } from './ws-transport.js';
+export {
+  createWebSocketTransportServer,
+  SlowReaderGuard,
+  type WebSocketBridgeOptions,
+  type WebSocketBridgeServer,
+} from './ws-transport.js';
 export { WebSocketCommandBus } from './ws-command-bus.js';
-export { checkWsAuth } from './auth.js';
+export { checkWsAuth, checkWsOrigin, type WsAuthOptions } from './auth.js';
 
 /**
  * Convenience: create the transport server and route every accepted connection
@@ -29,7 +34,7 @@ export { checkWsAuth } from './auth.js';
 export async function startWsBridge(
   bus: WebSocketCommandBus,
   opts: WebSocketBridgeOptions,
-): Promise<TransportServer> {
+): Promise<WebSocketBridgeServer> {
   const server = await createWebSocketTransportServer(opts);
   server.onConnection((transport) => bus.attach(transport));
   return server;

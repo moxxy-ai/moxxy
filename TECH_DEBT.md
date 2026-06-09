@@ -148,6 +148,16 @@ Full report incl. the medium/low backlog and refuted findings:
   limit (+4k margin) per stream during streaming, the rest drained-and-counted so the
   command still completes with its real exit code and the existing
   `... [truncated N chars]` marker reports the true overflow (`tools-builtin/src/bash.ts`).
+- **A18 [medium, stability] Single-use rotating refresh tokens (claude-code, openai-codex)
+  had no cross-process or cross-consumer serialization, and vault persistence was whole-file
+  last-writer-wins from an in-memory snapshot** — ✅ FIXED (this PR): refresh+persist now runs
+  under a per-credential lock (`withCredentialLock` in plugin-oauth: in-process mutex +
+  best-effort O_EXCL lockfile under `<moxxy home>/locks` with stale takeover) with re-read
+  coalescing (followers adopt the winner's rotated tokens; one IdP call) and an
+  invalid_grant→re-read-vault→retry-once recovery in ensureFreshTokens, the claude-code
+  refresh helpers, and CodexProvider (new `reloadTokens` hook); `VaultStore` now
+  read-merge-writes (mtime-gated disk sync, newer-`updatedAt`-wins per key) instead of
+  persisting its snapshot.
 - **A19 [medium, stability] `RunnerSupervisor.restart()` used bare `child.kill()` + immediate
   respawn** — ✅ FIXED (this PR): restart() now awaits the same graceful `terminateChild`
   (SIGTERM → 2s grace → SIGKILL, resolved on actual exit) every other teardown path uses, so
@@ -164,16 +174,72 @@ Full report incl. the medium/low backlog and refuted findings:
   now only decides version + pinned sha; guard/build jobs check out the sha, and the
   `desktop-v<version>` tag is pushed (idempotently, at that same sha) in `desktop-release`
   only after every build leg succeeds, preserving PR #85's tag↔artifact-match invariant.
-- **A18 [medium, stability] Single-use rotating refresh tokens (claude-code, openai-codex)
-  had no cross-process or cross-consumer serialization, and vault persistence was whole-file
-  last-writer-wins from an in-memory snapshot** — ✅ FIXED (this PR): refresh+persist now runs
-  under a per-credential lock (`withCredentialLock` in plugin-oauth: in-process mutex +
-  best-effort O_EXCL lockfile under `<moxxy home>/locks` with stale takeover) with re-read
-  coalescing (followers adopt the winner's rotated tokens; one IdP call) and an
-  invalid_grant→re-read-vault→retry-once recovery in ensureFreshTokens, the claude-code
-  refresh helpers, and CodexProvider (new `reloadTokens` hook); `VaultStore` now
-  read-merge-writes (mtime-gated disk sync, newer-`updatedAt`-wins per key) instead of
-  persisting its snapshot.
+- **A23 [medium, stability] `EventLog.ingest` discards async listener rejections** —
+  ✅ FIXED (this PR): the fire-and-forget dispatch now attaches a `.catch` to the listener's
+  promise (`Promise.resolve(fn(event)).catch`), swallowing rejections under the same
+  non-fatal policy as `append()`'s awaited try/catch instead of leaking an unhandled
+  rejection that can kill the process.
+- **A24 [medium, stability] session event-log persistence silently swallows write
+  failures** — ✅ FIXED (this PR): append/truncate queue failures now emit one loud
+  structured `logger.warn` per failure streak (path + op + error, injectable
+  `SessionPersistenceOpts.logger`, stderr JSON by default), latch a
+  `SessionPersistence.degraded` flag, and a subsequent successful write clears the latch
+  (logging recovery) and re-arms the warn-once gate.
+- **A25 [medium, stability] restored session logs never re-sequenced — one corrupt middle
+  line truncates every mirror's replay at the gap** — ✅ FIXED (this PR): `restoreEvents`
+  counts skipped corrupt lines, rewrites the in-memory events to contiguous seq 0..n-1
+  (order/ids preserved, so `EventLog.ingest`'s `seq === length` gate replays the full
+  post-gap history and `append` mints non-colliding seqs), warns with the counts, and
+  atomically rewrites the repaired JSONL on disk (safe: restore runs before
+  `SessionPersistence.attach`, so no write queue is live) so the next resume is clean.
+- **A26 [medium, stability] empty assistant_message (tool-only end_turn) projects as an
+  empty text block providers reject — wedges the session log** — ✅ FIXED (this PR) at the
+  projection layer: `projectMessages` (sdk/mode-helpers) now skips whitespace-only
+  `assistant_message` content while keeping the grouped `tool_use` blocks, which also
+  un-wedges historical logs. Residual: the emitting sites
+  (mode-default/mode-goal/mode-deep-research loops) still log the empty event — harmless
+  to providers now, but a source-side guard there is a cheap follow-up (out of this
+  wave's package scope).
+- **A27 [medium, security] WS-bridge auth hardening: no Origin validation, token in the
+  URL query, no rotation/expiry** — ✅ FIXED (this PR): upgrades carrying a browser
+  `Origin` header are rejected unless allow-listed (`allowedOrigins`, default deny;
+  native clients send none), the token now travels as `Authorization: Bearer` or a
+  `Sec-WebSocket-Protocol` `moxxy.bearer.<encoded>` entry (shared sdk channel-auth
+  helpers) with the legacy `?t=` query OFF by default (opt-in `allowQueryToken`; the
+  mobile channel keeps it for already-paired apps — the QR still embeds `?t=` as a
+  pairing payload, but the app strips it before connecting), and rotation exists end to
+  end: `rotateChannelToken` (sdk) + `rotateAuthToken` on the live server (terminates
+  existing connections) + `rotateWsBridgeToken` (desktop) / `MobileChannel.rotateToken`,
+  with a soft 90-day staleness warning from the persisted `createdAt`.
+- **A28 [medium, stability] WsRpcClient replays abandoned requests after reconnect and
+  reconnects forever with no surfaced failure** — ✅ FIXED (this PR): on disconnect every
+  in-flight AND queued request is rejected and the outbox cleared (no silent re-execution
+  of non-idempotent commands like runTurn), reconnects back off exponentially (1.5s → 30s)
+  and give up after a cap (default 10), surfacing a terminal `disconnected` status via
+  `onStatus`/`client.status`, after which requests reject immediately.
+- **A29 [medium, stability] WS-bridge server lifecycle/backpressure: unbounded send
+  buffering, no connection cap, close() waits out clients** — ✅ FIXED (this PR):
+  concurrent connections are capped at the handshake (default 8), every outbound frame
+  consults a `SlowReaderGuard` (a socket whose backlog stays above 4 MB past a 10s grace
+  is terminated — the grace tolerates one legitimately large frame in flight), and
+  `close()` terminates remaining sockets before closing the listener so desktop quit no
+  longer burns the 3s shutdown timeout.
+- **A30 [low, hygiene] WS-bridge config/dedup: empty `MOXXY_WS_PORT` binds an ephemeral
+  port, `address` reports the requested (not bound) port, desktop re-rolls token
+  persistence** — ✅ FIXED (this PR): empty/whitespace port env is treated as unset,
+  `address` is built from `wss.address()` (real bound port, so `port: 0` is honest),
+  and desktop's `loadOrCreateToken` is gone in favor of the shared sdk
+  `resolveChannelToken` (new `dir` option keeps the userData location; legacy plain-text
+  token files still read).
+- **A31 [medium, security] Runner socket unauthenticated: chmod-after-listen race +
+  swallowed failure, no Windows pipe ACL, cross-client abort untracked** — ✅ FIXED (this
+  PR): the socket's parent dir is secured 0700 BEFORE listen (fresh dirs born private,
+  owned pre-existing dirs tightened in place — layout unchanged since desktop-host
+  hardcodes the paths), socket chmod failures now log loudly instead of being swallowed,
+  and aborts are ownership-tracked: a cross-client abort stays allowed (shared-session
+  model) but emits an audit log with both roles, with `MOXXY_RUNNER_STRICT_ABORT=1`
+  opting into denial. Documented gap: win32 named pipes keep the default DACL (Everyone:
+  read-only, no write) — Node can't set an explicit ACL; a one-time warn states this.
 
 ---
 

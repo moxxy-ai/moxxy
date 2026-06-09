@@ -9,7 +9,7 @@ import { MobileChannel } from './channel.js';
 
 export { MobileChannel, type MobileChannelOptions, type MobileStartOpts } from './channel.js';
 export { MobileSessionHost, type MobileHostOptions } from './single-session-host.js';
-export { resolveMobileToken } from './token.js';
+export { resolveMobileToken, rotateMobileToken } from './token.js';
 
 function asNumber(v: unknown): number | undefined {
   return typeof v === 'number' ? v : undefined;

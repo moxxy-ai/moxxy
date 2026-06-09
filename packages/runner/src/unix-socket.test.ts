@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import { createUnixSocketServer, connectUnixSocket } from './unix-socket.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createUnixSocketServer, connectUnixSocket, type SocketLogger } from './unix-socket.js';
 import type { Transport, TransportServer } from './transport.js';
 
 function tmpSocket(): string {
@@ -102,6 +102,68 @@ describe('unix-socket transport (NDJSON framing)', () => {
     client.send({ ok: 1 });
     expect(await got).toEqual({ ok: 1 });
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'creates the socket parent directory with mode 0700 before listening',
+    async () => {
+      const dir = path.join(os.tmpdir(), `moxxy-sockdir-${Math.random().toString(36).slice(2, 10)}`);
+      const socketPath = path.join(dir, 'serve.sock');
+      try {
+        const server = await createUnixSocketServer(socketPath);
+        servers.push(server);
+        // The freshly created parent dir is born private - other users can
+        // never reach the socket, even before any post-listen chmod.
+        expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
+        // Belt-and-braces: the socket node itself is tightened too.
+        expect(fs.statSync(socketPath).mode & 0o777).toBe(0o600);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'tightens a pre-existing socket directory it owns to 0700',
+    async () => {
+      const dir = path.join(os.tmpdir(), `moxxy-sockdir-${Math.random().toString(36).slice(2, 10)}`);
+      fs.mkdirSync(dir, { mode: 0o755 });
+      const socketPath = path.join(dir, 'serve.sock');
+      try {
+        const server = await createUnixSocketServer(socketPath);
+        servers.push(server);
+        expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'logs loudly when chmod of the socket fails instead of swallowing it',
+    async () => {
+      const errors: Array<{ msg: string; meta?: Record<string, unknown> }> = [];
+      const logger: SocketLogger = {
+        warn: () => {},
+        error: (msg, meta) => errors.push({ msg, ...(meta ? { meta } : {}) }),
+      };
+      const socketPath = tmpSocket();
+      const spy = vi.spyOn(fs, 'chmodSync').mockImplementation(() => {
+        throw new Error('EPERM: injected chmod failure');
+      });
+      try {
+        const server = await createUnixSocketServer(socketPath, logger);
+        servers.push(server);
+      } finally {
+        spy.mockRestore();
+      }
+      const loud = errors.find((e) => e.msg.includes('failed to chmod runner socket'));
+      expect(loud).toBeDefined();
+      expect(loud?.meta).toMatchObject({
+        socketPath,
+        error: expect.stringContaining('injected chmod failure') as unknown,
+      });
+    },
+  );
 
   it('fires onClose when the peer disconnects', async () => {
     const socketPath = tmpSocket();

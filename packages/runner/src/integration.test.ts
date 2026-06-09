@@ -14,6 +14,7 @@ import {
   autoAllowResolver,
   restoreSessionEvents,
   silentLogger,
+  type Logger,
 } from '@moxxy/core';
 import {
   defineMode,
@@ -28,11 +29,14 @@ import { FakeProvider, textReply, toolUseReply } from '@moxxy/testing';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { startRunnerServer, type RunnerServer } from './server.js';
 import { connectRemoteSession, type RemoteSession } from './remote-session.js';
+import { connectUnixSocket } from './unix-socket.js';
+import { JsonRpcPeer } from './jsonrpc.js';
+import { RUNNER_PROTOCOL_VERSION, RunnerMethod } from './protocol.js';
 
-function buildSession(provider: FakeProvider): Session {
+function buildSession(provider: FakeProvider, logger: Logger = silentLogger): Session {
   const session = new Session({
     cwd: process.cwd(),
-    logger: silentLogger,
+    logger,
     permissionResolver: autoAllowResolver,
   });
   session.pluginHost.registerStatic(
@@ -368,6 +372,86 @@ describe('runner end-to-end', () => {
     controller.abort();
     // The turn must end rather than hang.
     await expect(drained).resolves.toBeUndefined();
+  });
+
+  it('logs an audit line for a cross-client abort and denies it under strict mode', async () => {
+    // Cross-client abort is allowed by design (TUI + desktop share ONE
+    // session, so aborting your own session from another client is
+    // legitimate) - but it must leave an audit trail naming both connections,
+    // and MOXXY_RUNNER_STRICT_ABORT=1 must deny it outright.
+    const warns: Array<{ msg: string; meta?: Record<string, unknown> }> = [];
+    const auditLogger: Logger = {
+      debug: () => {},
+      info: () => {},
+      warn: (msg, meta) => warns.push({ msg, ...(meta ? { meta } : {}) }),
+      error: () => {},
+      child: () => auditLogger,
+    };
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('unused')] }), auditLogger);
+    // A mode that blocks until the turn signal aborts, so the turn is still
+    // in flight when the second client fires its abort.
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'runner-test-cross-abort',
+        modes: [
+          defineMode({
+            name: 'wait-mode',
+
+            run: async function* (modeCtx) {
+              await new Promise<void>((resolve) => {
+                if (modeCtx.signal.aborted) return resolve();
+                modeCtx.signal.addEventListener('abort', () => resolve(), { once: true });
+              });
+            },
+          }),
+        ],
+      }),
+    );
+    session.modes.setActive('wait-mode');
+    const server = await startRunnerServer(session, { socketPath });
+    servers.push(server);
+
+    const driver = await attach(socketPath, 'driver');
+    const drained = (async () => {
+      for await (const _event of driver.runTurn('block')) void _event;
+    })();
+    // Learn the in-flight turnId from the authoritative log.
+    await waitFor(() => session.log.length > 0);
+    const turnId = session.log.at(0)!.turnId;
+
+    // A second client on its own connection (raw peer - RemoteSession only
+    // aborts turns it started itself).
+    const peer = new JsonRpcPeer(await connectUnixSocket(socketPath));
+    try {
+      await peer.request(RunnerMethod.Attach, {
+        protocolVersion: RUNNER_PROTOCOL_VERSION,
+        role: 'second-ui',
+        sinceSeq: 0,
+      });
+
+      process.env.MOXXY_RUNNER_STRICT_ABORT = '1';
+      try {
+        await expect(peer.request(RunnerMethod.Abort, { turnId })).rejects.toThrow(
+          /cross-client abort denied/,
+        );
+      } finally {
+        delete process.env.MOXXY_RUNNER_STRICT_ABORT;
+      }
+
+      // Default (shared-session) policy: the abort goes through...
+      await peer.request(RunnerMethod.Abort, { turnId });
+      await expect(drained).resolves.toBeUndefined();
+    } finally {
+      peer.close();
+    }
+
+    // ...and BOTH attempts left an audit line naming the two connections.
+    const audit = warns.filter((w) => w.msg === 'cross-client abort');
+    expect(audit.length).toBe(2);
+    for (const entry of audit) {
+      expect(entry.meta).toMatchObject({ turnId, ownerRole: 'driver', abortingRole: 'second-ui' });
+    }
   });
 
   it('routes an approval checkpoint to the turn-owning client', async () => {

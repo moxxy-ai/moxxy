@@ -22,6 +22,9 @@ export async function printConnectInfo(url: string, token: string, hint?: string
     `  token: ${token}`,
     ...(hint ? ['', `  ℹ ${hint}`] : []),
     '',
+    '  (rotate the pairing token — invalidating this QR and every paired app —',
+    '   by deleting ~/.moxxy/mobile-token and restarting the channel)',
+    '',
   ];
   // CLI surface — intentional stdout.
   console.log(lines.join('\n'));

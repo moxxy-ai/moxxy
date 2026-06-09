@@ -151,7 +151,12 @@ export { createMutex, type Mutex } from './mutex.js';
 export { readRequestBody, bearerTokenMatches } from './http-utils.js';
 export {
   resolveChannelToken,
+  rotateChannelToken,
   bearerGuard,
+  encodeWsBearerProtocol,
+  tokenFromWsProtocolHeader,
+  MOXXY_WS_SUBPROTOCOL,
+  MOXXY_WS_BEARER_PROTOCOL_PREFIX,
   type ChannelTokenOptions,
 } from './channel-auth.js';
 export {

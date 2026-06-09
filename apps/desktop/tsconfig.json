@@ -10,7 +10,14 @@
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      // Pin every type-land `import 'react'` (incl. react-virtuoso's and
+      // @clerk/clerk-react's .d.ts) to THIS package's @types/react. The
+      // workspace carries a second copy (@types/react@19 via apps/mobile's
+      // Expo SDK), and when pnpm binds a library's peer types to that copy,
+      // its components stop being assignable to our React-18 JSX (TS2786).
+      "react": ["./node_modules/@types/react"],
+      "react-dom": ["./node_modules/@types/react-dom"]
     }
   },
   "include": ["src/**/*"],

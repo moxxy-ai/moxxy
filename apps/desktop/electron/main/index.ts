@@ -49,8 +49,7 @@ import type { DeepLinkPayload } from '@moxxy/desktop-ipc-contract';
 // boot itself depend on the module resolving — the exact failure that bricked
 // the 0.0.33 build when the package wasn't in BUNDLED_WORKSPACE_DEPS.
 // Type-only imports are erased at build time and carry no such risk.
-import type { WebSocketCommandBus } from '@moxxy/ipc-server-ws';
-import type { TransportServer } from '@moxxy/runner';
+import type { WebSocketCommandBus, WebSocketBridgeServer } from '@moxxy/ipc-server-ws';
 
 import { resolveWsBridgeConfig } from './ws-bridge.js';
 
@@ -88,7 +87,9 @@ const CLERK_PUBLISHABLE_KEY =
 let pool: RunnerPool | null = null;
 let mainWindow: BrowserWindow | null = null;
 /** The optional WebSocket bridge server (remote/mobile clients). Closed on quit. */
-let wsServer: TransportServer | null = null;
+// Typed as the bridge server (not the bare TransportServer) so the host can
+// call `rotateWsBridgeToken(userData, wsServer)` to invalidate a leaked token.
+let wsServer: WebSocketBridgeServer | null = null;
 
 // In-app loopback HTTP server the packaged renderer is served from (so the
 // Clerk web SDK runs on an http origin). null in dev (Vite serves it) and

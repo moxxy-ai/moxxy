@@ -75,9 +75,13 @@ export function advertisedHost(bindHost: string): string {
 }
 
 /**
- * Build the WebSocket connect URL the mobile app uses — token embedded as the
- * `?t=` query the bridge accepts (so a scanned QR carries everything). A tunnel
- * URL (https) becomes `wss://`; the local path uses the advertised host.
+ * Build the pairing URL the QR carries — the token rides as a `?t=` query so a
+ * single scan carries everything. This is a PAIRING payload, not the live WS
+ * URL: the app strips `?t=` before connecting and presents the token via the
+ * `Sec-WebSocket-Protocol` bearer entry instead (the channel keeps
+ * `allowQueryToken` on only for older app builds that still connect with the
+ * token in the URL). A tunnel URL (https) becomes `wss://`; the local path
+ * uses the advertised host.
  */
 export function buildConnectUrl(opts: {
   tunnelUrl: string | null;

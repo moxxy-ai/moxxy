@@ -59,6 +59,12 @@ interface TurnScope {
   readonly turnId: TurnId;
 }
 
+/** An in-flight turn: its abort controller plus the connection that started it. */
+interface TurnEntry {
+  readonly controller: AbortController;
+  readonly owner: ConnectedClient;
+}
+
 /**
  * Exposes a {@link Session} over a transport so thin clients can attach.
  *
@@ -73,7 +79,7 @@ interface TurnScope {
  */
 export class RunnerServer {
   private readonly clients = new Set<ConnectedClient>();
-  private readonly turnControllers = new Map<TurnId, AbortController>();
+  private readonly turnControllers = new Map<TurnId, TurnEntry>();
   private readonly scope = new AsyncLocalStorage<TurnScope>();
   private readonly logUnsub: () => void;
   private readonly logClearUnsub: () => void;
@@ -142,7 +148,7 @@ export class RunnerServer {
     peer.handle(RunnerMethod.Attach, (raw) => this.handleAttach(client, raw));
     peer.handle(RunnerMethod.GetInfo, () => this.session.getInfo());
     peer.handle(RunnerMethod.RunTurn, (raw) => this.handleRunTurn(client, raw));
-    peer.handle(RunnerMethod.Abort, (raw) => this.handleAbort(raw));
+    peer.handle(RunnerMethod.Abort, (raw) => this.handleAbort(client, raw));
     peer.handle(RunnerMethod.SessionReset, () => this.handleSessionReset());
     peer.handle(RunnerMethod.SetResolver, (raw) => this.handleSetResolver(client, raw));
     peer.handle(RunnerMethod.ModeSetActive, (raw) => this.handleModeSetActive(raw));
@@ -170,7 +176,7 @@ export class RunnerServer {
     // Tear down any turns this client was driving - there's no one left to
     // answer their prompts or consume their output.
     for (const turnId of client.turns) {
-      this.turnControllers.get(turnId)?.abort('owning client disconnected');
+      this.turnControllers.get(turnId)?.controller.abort('owning client disconnected');
     }
   }
 
@@ -206,7 +212,7 @@ export class RunnerServer {
     const params = runTurnParamsSchema.parse(raw);
     const turnId = newTurnId();
     const controller = new AbortController();
-    this.turnControllers.set(turnId, controller);
+    this.turnControllers.set(turnId, { controller, owner: client });
     client.turns.add(turnId);
 
     const opts = {
@@ -244,9 +250,31 @@ export class RunnerServer {
     return { turnId };
   }
 
-  private handleAbort(raw: unknown): Record<string, never> {
+  private handleAbort(client: ConnectedClient, raw: unknown): Record<string, never> {
     const params = abortParamsSchema.parse(raw);
-    this.turnControllers.get(params.turnId as TurnId)?.abort('client requested abort');
+    const entry = this.turnControllers.get(params.turnId as TurnId);
+    if (!entry) return {};
+    if (entry.owner !== client) {
+      // Cross-client abort is ALLOWED by design: multiple clients (TUI +
+      // desktop) deliberately attach to the SAME shared session, so a user
+      // aborting their own session's turn from another client is legitimate.
+      // The audit's underlying concern - an unauthenticated local process
+      // attaching at all - is addressed at the transport layer (0700 socket
+      // directory, see unix-socket.ts), not by denying aborts here. We keep
+      // an audit trail instead; MOXXY_RUNNER_STRICT_ABORT=1 opts into denial
+      // for single-client deployments.
+      this.session.logger.warn('cross-client abort', {
+        turnId: params.turnId,
+        ownerRole: entry.owner.role,
+        abortingRole: client.role,
+      });
+      if (process.env.MOXXY_RUNNER_STRICT_ABORT === '1') {
+        throw new Error(
+          `turn ${params.turnId} was started by '${entry.owner.role}'; cross-client abort denied (MOXXY_RUNNER_STRICT_ABORT=1)`,
+        );
+      }
+    }
+    entry.controller.abort('client requested abort');
     return {};
   }
 
@@ -261,8 +289,8 @@ export class RunnerServer {
    * socket), so mirrors stay contiguous either way.
    */
   private handleSessionReset(): Record<string, never> {
-    for (const controller of this.turnControllers.values()) {
-      controller.abort('session reset');
+    for (const entry of this.turnControllers.values()) {
+      entry.controller.abort('session reset');
     }
     this.session.log.clear();
     return {};
@@ -531,7 +559,8 @@ export async function startRunnerServer(
   opts: { readonly socketPath?: string; readonly transport?: TransportServer } = {},
 ): Promise<RunnerServer> {
   const transport =
-    opts.transport ?? (await createUnixSocketServer(opts.socketPath ?? runnerSocketPath()));
+    opts.transport ??
+    (await createUnixSocketServer(opts.socketPath ?? runnerSocketPath(), session.logger));
   // DO NOT auto-activate any transcriber at boot. The TUI's
   // useVoiceInput depends on Codex specifically and would throw
   // "another transcriber is active" if we promoted something else

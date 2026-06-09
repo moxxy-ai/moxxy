@@ -21,6 +21,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { createMutex, writeFileAtomic, type Mutex, type MoxxyEvent, type SessionId } from '@moxxy/sdk';
 import type { EventLog } from '../events/log.js';
+import { createLogger, type Logger } from '../logger.js';
 
 export interface SessionMeta {
   readonly id: string;
@@ -43,6 +44,12 @@ export interface SessionPersistenceOpts {
   readonly providerName?: string;
   /** Currently-active model id — captured into the index for the picker. */
   readonly modelId?: string;
+  /**
+   * Structured logger for persistence-degradation warnings. Defaults to a
+   * stderr JSON logger — event-log write failures are the session's source
+   * of truth going dark, so they must be loud even when nothing injects one.
+   */
+  readonly logger?: Logger;
 }
 
 export function defaultSessionsDir(): string {
@@ -67,10 +74,18 @@ export class SessionPersistence {
    */
   private writeQueue: Mutex = createMutex();
   private closed = false;
+  private readonly logger: Logger;
+  /**
+   * Latched while event-log writes are failing. Doubles as the warn-once
+   * gate: only the first failure of a streak logs; a subsequent successful
+   * write clears the latch (and re-arms the warning).
+   */
+  private writeDegraded = false;
 
   constructor(opts: SessionPersistenceOpts) {
     this.dir = opts.dir ?? defaultSessionsDir();
     this.id = String(opts.sessionId);
+    this.logger = opts.logger ?? createLogger();
     this.logPath = path.join(this.dir, `${this.id}.jsonl`);
     const now = new Date().toISOString();
     this.meta = {
@@ -146,8 +161,42 @@ export class SessionPersistence {
     };
     this.scheduleIndexWrite();
     const line = JSON.stringify(event) + '\n';
-    // never propagate a write error into the listener chain
-    void this.writeQueue.run(() => fs.appendFile(this.logPath, line, 'utf8')).catch(() => undefined);
+    // Never propagate a write error into the listener chain — but never
+    // swallow it silently either: the JSONL is the session's source of
+    // truth, so a failing disk must at least be loud.
+    void this.writeQueue
+      .run(() => fs.appendFile(this.logPath, line, 'utf8'))
+      .then(() => this.noteWriteOk())
+      .catch((err: unknown) => this.noteWriteFailure('append', err));
+  }
+
+  /**
+   * True while event-log writes are failing (history is no longer being
+   * persisted). Cleared automatically by the next successful write.
+   */
+  get degraded(): boolean {
+    return this.writeDegraded;
+  }
+
+  private noteWriteOk(): void {
+    if (!this.writeDegraded) return;
+    this.writeDegraded = false;
+    this.logger.info('session event-log writes recovered', { path: this.logPath });
+  }
+
+  private noteWriteFailure(op: 'append' | 'truncate', err: unknown): void {
+    const alreadyDegraded = this.writeDegraded;
+    this.writeDegraded = true;
+    if (alreadyDegraded) return; // warn once per failure streak, not per event
+    this.logger.warn(
+      'session event-log write failed — history persistence degraded (resume will miss these events)',
+      {
+        op,
+        path: this.logPath,
+        sessionId: this.id,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    );
   }
 
   /**
@@ -164,7 +213,10 @@ export class SessionPersistence {
       lastActivity: new Date().toISOString(),
     };
     this.scheduleIndexWrite();
-    void this.writeQueue.run(() => fs.writeFile(this.logPath, '', 'utf8')).catch(() => undefined);
+    void this.writeQueue
+      .run(() => fs.writeFile(this.logPath, '', 'utf8'))
+      .then(() => this.noteWriteOk())
+      .catch((err: unknown) => this.noteWriteFailure('truncate', err));
   }
 
   private scheduleIndexWrite(): void {
@@ -263,12 +315,30 @@ export async function readIndex(dir = defaultSessionsDir()): Promise<SessionMeta
  * Restore a previously-persisted session's events. Returns the full
  * event array suitable for passing into `new EventLog(events)`.
  *
- * Skips malformed lines silently — a single corrupted append shouldn't
- * make the rest of the conversation unreadable.
+ * Skips malformed lines (a single corrupted append shouldn't make the
+ * rest of the conversation unreadable) and then RE-SEQUENCES the
+ * survivors to contiguous `seq` 0..n-1, preserving order and ids. This
+ * matters twice over:
+ *
+ *  - Mirror replay: `EventLog.ingest` accepts only `seq === length`, so
+ *    a gap left by one corrupt middle line would silently truncate every
+ *    attached client's history at that point.
+ *  - Future appends: `EventLog.append` mints `seq = events.length`, so a
+ *    gapped seed would mint colliding/out-of-order seqs.
+ *
+ * When anything was skipped or re-sequenced, the file is atomically
+ * rewritten with the repaired events so the NEXT resume starts clean —
+ * otherwise post-resume appends (seq = n-gap..) would interleave with the
+ * stale higher on-disk seqs forever. Safe ordering-wise: restore runs
+ * before `SessionPersistence.attach`, so no append queue is live yet.
+ * Note: compaction/elision events referencing seqs after a gap shift by
+ * the gap size — an accepted, logged trade-off versus losing all
+ * post-gap history.
  */
 export async function restoreEvents(
   sessionId: string,
   dir = defaultSessionsDir(),
+  logger: Logger = createLogger(),
 ): Promise<MoxxyEvent[]> {
   const logPath = path.join(dir, `${sessionId}.jsonl`);
   let raw: string;
@@ -278,12 +348,45 @@ export async function restoreEvents(
     throw new Error(`Session not found: ${sessionId}`);
   }
   const events: MoxxyEvent[] = [];
+  let corruptLines = 0;
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
     try {
       events.push(JSON.parse(line) as MoxxyEvent);
     } catch {
-      // skip malformed line
+      corruptLines += 1;
+    }
+  }
+
+  // Re-sequence to contiguous 0..n-1 (order + ids preserved). A clean log is
+  // already contiguous, so this is a no-op in the common case.
+  let resequenced = 0;
+  for (let i = 0; i < events.length; i += 1) {
+    if (events[i]!.seq !== i) {
+      events[i] = { ...events[i]!, seq: i } as MoxxyEvent;
+      resequenced += 1;
+    }
+  }
+
+  if (corruptLines > 0 || resequenced > 0) {
+    logger.warn('session log restored with gaps — re-sequenced to keep full history replayable', {
+      sessionId,
+      path: logPath,
+      corruptLines,
+      resequencedEvents: resequenced,
+      restoredEvents: events.length,
+    });
+    try {
+      const repaired = events.map((e) => JSON.stringify(e) + '\n').join('');
+      await writeFileAtomic(logPath, repaired);
+    } catch (err) {
+      // Restore still succeeds — the in-memory log is repaired; only the
+      // next resume would re-run this same repair.
+      logger.warn('failed to rewrite repaired session log on disk', {
+        sessionId,
+        path: logPath,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
   return events;

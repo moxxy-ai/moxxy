@@ -5,12 +5,21 @@
  * SDK helper so every channel resolves auth the same way.
  */
 
-import { resolveChannelToken } from '@moxxy/sdk';
+import { resolveChannelToken, rotateChannelToken } from '@moxxy/sdk';
+
+const TOKEN_FILE = 'mobile-token';
 
 export function resolveMobileToken(configured?: string): string {
   return resolveChannelToken({
     configured,
     envVar: 'MOXXY_MOBILE_TOKEN',
-    fileName: 'mobile-token',
+    fileName: TOKEN_FILE,
   });
+}
+
+/** Rotate the persisted pairing secret (`~/.moxxy/mobile-token`) and return the
+ *  new token. Env/config-supplied tokens take precedence and must be rotated at
+ *  their source — see `rotateChannelToken`. */
+export function rotateMobileToken(): string {
+  return rotateChannelToken({ fileName: TOKEN_FILE });
 }

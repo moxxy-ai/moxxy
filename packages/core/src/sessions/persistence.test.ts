@@ -3,7 +3,26 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EventLog } from '../events/log.js';
+import type { Logger } from '../logger.js';
 import { SessionPersistence, readIndex, restoreEvents, type SessionMeta } from './persistence.js';
+
+interface CapturedLine {
+  readonly level: 'debug' | 'info' | 'warn' | 'error';
+  readonly msg: string;
+  readonly meta?: Record<string, unknown>;
+}
+
+function captureLogger(): { logger: Logger; lines: CapturedLine[] } {
+  const lines: CapturedLine[] = [];
+  const logger: Logger = {
+    debug: (msg, meta) => lines.push({ level: 'debug', msg, meta }),
+    info: (msg, meta) => lines.push({ level: 'info', msg, meta }),
+    warn: (msg, meta) => lines.push({ level: 'warn', msg, meta }),
+    error: (msg, meta) => lines.push({ level: 'error', msg, meta }),
+    child: () => logger,
+  };
+  return { logger, lines };
+}
 
 const tempDirs: string[] = [];
 
@@ -103,6 +122,103 @@ describe('SessionPersistence', () => {
     expect((restored[0] as { text?: string }).text).toBe('fresh start');
 
     detach();
+  });
+
+  it('warns once (not per event) on event-log write failure, recovers on success', async () => {
+    const dir = await makeTempDir();
+    const id = '01WRITEFAIL000000000000000';
+    // Make `<id>.jsonl` a DIRECTORY so fs.appendFile fails with EISDIR.
+    await fs.mkdir(path.join(dir, `${id}.jsonl`), { recursive: true });
+
+    const { logger, lines } = captureLogger();
+    const log = new EventLog();
+    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir, logger });
+    const detach = persistence.attach(log);
+
+    const prompt = (text: string) =>
+      log.append({ type: 'user_prompt', sessionId: id as never, turnId: 't1' as never, source: 'user', text });
+
+    await prompt('first failing write');
+    await prompt('second failing write');
+    await waitForCondition(() => Promise.resolve(persistence.degraded));
+    // Both appends failed, but the structured warning fired exactly once.
+    await waitForCondition(() =>
+      Promise.resolve(lines.some((l) => l.level === 'warn' && l.msg.includes('write failed'))),
+    );
+    const failureWarns = () =>
+      lines.filter((l) => l.level === 'warn' && l.msg.includes('write failed'));
+    expect(failureWarns()).toHaveLength(1);
+    expect(failureWarns()[0]!.meta).toMatchObject({ path: path.join(dir, `${id}.jsonl`) });
+    expect(failureWarns()[0]!.meta?.error).toBeTruthy();
+    expect(persistence.degraded).toBe(true);
+
+    // Remove the obstruction — the next successful write clears the degraded
+    // latch (re-arming warn-once) and logs a recovery line.
+    await fs.rmdir(path.join(dir, `${id}.jsonl`));
+    await prompt('now it works');
+    await waitForCondition(() => Promise.resolve(!persistence.degraded));
+    expect(lines.some((l) => l.level === 'info' && l.msg.includes('recovered'))).toBe(true);
+    expect(failureWarns()).toHaveLength(1);
+    // The surviving event was minted at seq 2 (the first two appends were
+    // lost to the failing disk) — restore re-sequences it to 0.
+    const restored = await restoreEvents(id, dir, captureLogger().logger);
+    expect(restored.map((e) => (e as { text?: string }).text)).toEqual(['now it works']);
+    expect(restored[0]!.seq).toBe(0);
+
+    detach();
+  });
+
+  it('restore re-sequences around a corrupt middle line and repairs the file on disk', async () => {
+    const dir = await makeTempDir();
+    const id = '01RESEQ0000000000000000000';
+    const mk = (seq: number, text: string) => ({
+      id: `e${seq}`,
+      seq,
+      ts: seq,
+      sessionId: id,
+      turnId: 't1',
+      source: 'user',
+      type: 'user_prompt',
+      text,
+    });
+    // seq 2's line was corrupted on disk; 3 and 4 are intact.
+    const lines = [
+      JSON.stringify(mk(0, 'zero')),
+      JSON.stringify(mk(1, 'one')),
+      '{this line was corrupted',
+      JSON.stringify(mk(3, 'three')),
+      JSON.stringify(mk(4, 'four')),
+    ];
+    await fs.writeFile(path.join(dir, `${id}.jsonl`), lines.join('\n') + '\n', 'utf8');
+
+    const { logger, lines: logged } = captureLogger();
+    const restored = await restoreEvents(id, dir, logger);
+
+    // Contiguous 0..n-1, order + ids + payloads preserved.
+    expect(restored.map((e) => e.seq)).toEqual([0, 1, 2, 3]);
+    expect(restored.map((e) => e.id)).toEqual(['e0', 'e1', 'e3', 'e4']);
+    expect(restored.map((e) => (e as { text?: string }).text)).toEqual([
+      'zero',
+      'one',
+      'three',
+      'four',
+    ]);
+    const gapWarn = logged.find((l) => l.level === 'warn');
+    expect(gapWarn?.meta).toMatchObject({ corruptLines: 1, resequencedEvents: 2 });
+
+    // Every restored event replays into a fresh mirror (ingest requires
+    // seq === length) — nothing after the gap is dropped.
+    const mirror = new EventLog();
+    for (const e of restored) mirror.ingest(e);
+    expect(mirror.length).toBe(4);
+    expect((mirror.at(3) as { text?: string } | undefined)?.text).toBe('four');
+
+    // The file was rewritten, so the NEXT restore is clean (no warning) and
+    // new appends (seq = length) line up with what's on disk.
+    const again = captureLogger();
+    const second = await restoreEvents(id, dir, again.logger);
+    expect(second.map((e) => e.seq)).toEqual([0, 1, 2, 3]);
+    expect(again.lines).toHaveLength(0);
   });
 
   it('two concurrent sessions both survive (no shared-index clobber)', async () => {

@@ -171,6 +171,43 @@ describe('EventLog', () => {
     expect(cleared).toHaveBeenCalledTimes(1);
   });
 
+  it('ingest survives a rejecting async listener (same swallow policy as append)', async () => {
+    const source = new EventLog();
+    const ev = await source.append({
+      type: 'user_prompt',
+      sessionId: sid,
+      turnId: tid,
+      source: 'user',
+      text: 'mirrored',
+    });
+
+    // append(): an async listener rejection is awaited + swallowed.
+    const appender = new EventLog();
+    appender.subscribe(async () => {
+      throw new Error('async boom (append)');
+    });
+    await expect(
+      appender.append({ type: 'user_prompt', sessionId: sid, turnId: tid, source: 'user', text: 'x' }),
+    ).resolves.toBeDefined();
+
+    // ingest(): the same rejection must NOT become an unhandled rejection
+    // (vitest fails the run on one), and ingestion must continue to later
+    // listeners and later events.
+    const mirror = new EventLog();
+    const seen: number[] = [];
+    mirror.subscribe(async () => {
+      throw new Error('async boom (ingest)');
+    });
+    mirror.subscribe((e) => {
+      seen.push(e.seq);
+    });
+    expect(() => mirror.ingest(ev)).not.toThrow();
+    expect(mirror.length).toBe(1);
+    expect(seen).toEqual([ev.seq]);
+    // Let the rejected listener promise settle inside this test's scope.
+    await new Promise((resolve) => setImmediate(resolve));
+  });
+
   it('clear survives a throwing onClear listener', () => {
     const log = new EventLog();
     log.onClear(() => {

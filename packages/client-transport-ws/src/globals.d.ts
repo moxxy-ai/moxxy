@@ -6,3 +6,5 @@
 
 declare function setTimeout(handler: () => void, ms?: number): number;
 declare function clearTimeout(handle: number | undefined): void;
+/** Console exists on every supported runtime (browser, RN/Hermes, Node). */
+declare const console: { warn(...args: unknown[]): void };

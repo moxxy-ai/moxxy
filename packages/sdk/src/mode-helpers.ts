@@ -296,6 +296,16 @@ export function projectMessages(
           recordStable(e.seq);
           break;
         }
+        // A tool-only turn can log an assistant_message with empty content
+        // (end_turn + tool calls, no prose). Projecting it as an empty text
+        // block makes some providers (Anthropic) reject the NEXT request and
+        // permanently wedges the session. Skip the block — the turn's
+        // tool_use blocks are projected from tool_call_requested events —
+        // which also un-wedges historical logs that already contain one.
+        if (e.content.trim().length === 0) {
+          recordStable(e.seq);
+          break;
+        }
         messages.push({ role: 'assistant', content: [{ type: 'text', text: e.content }] });
         recordStable(e.seq);
         break;
