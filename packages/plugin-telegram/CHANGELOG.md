@@ -1,5 +1,33 @@
 # @moxxy/plugin-telegram
 
+## 0.0.11
+
+### Patch Changes
+
+- cf2f651: Audit wave: documentation drift + dead-code cleanup.
+
+  - Removed dead exports: `@moxxy/core`'s unused `selectPendingToolCalls` / `selectCurrentTurn`
+    event selectors and `@moxxy/sdk`'s unused voice helpers (`checkTranscriberReady`,
+    `resolveTranscriber`, `pickFirstAvailableTranscriber`) — zero importers across the repo.
+  - `@moxxy/plugin-telegram` no longer declares `zod` as a dependency (it never imported it).
+  - CLI `--help` ENV section now lists the user-facing `MOXXY_*` variables and points at the
+    new full table in the README.
+  - Docs-only (no release impact): AGENTS.md/README.md architecture lists reconciled against
+    the actual package set (mode-default replaces the deleted mode-tool-use; PR #120 client
+    layer + channel-web/view/mobile + apps/mobile added), the published `@moxxy/sdk` README
+    examples rewritten against the real API, apps/docs corrections (tools-builtin reality,
+    testing API, four providers, full package index), and the dead `lint` task removed from
+    turbo.json.
+
+- cf2f651: Security: four audit leftovers (A43–A46). MCP server credentials now support `${vault:NAME}` placeholders in env/header values, resolved only at connect time (the persisted mcp.json and the model-visible tool args keep the placeholder; `mcp_add_server`/`mcp_test_server` instruct vault-first). Agent-view URLs are scheme-allow-listed (`https`/`http`/`mailto`/`tel` + relative; `data:image/*` for img src only) at BOTH walls: a canonical `isSafeViewUrl` in the sdk enforced by `parseView` and `validateDoc`, and a render-time re-check in the web frontend that neutralizes `javascript:`/`data:text` hrefs and srcs. `web_fetch` closes its DNS-rebinding TOCTOU by pinning every hop's connection to the SSRF-guard-vetted addresses via an undici dispatcher with a fixed lookup (SNI/cert validation intact). Telegram inline-keyboard callbacks now enforce the same pairing authorization gate as text/voice messages.
+- Updated dependencies [cf2f651]
+- Updated dependencies [cf2f651]
+- Updated dependencies [cf2f651]
+- Updated dependencies [cf2f651]
+  - @moxxy/sdk@0.8.1
+  - @moxxy/core@0.0.11
+  - @moxxy/plugin-vault@0.0.11
+
 ## 0.0.10
 
 ### Patch Changes

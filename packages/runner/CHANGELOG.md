@@ -1,5 +1,16 @@
 # @moxxy/runner
 
+## 0.0.11
+
+### Patch Changes
+
+- Updated dependencies [cf2f651]
+- Updated dependencies [cf2f651]
+- Updated dependencies [cf2f651]
+- Updated dependencies [cf2f651]
+  - @moxxy/sdk@0.8.1
+  - @moxxy/core@0.0.11
+
 ## 0.0.10
 
 ### Patch Changes

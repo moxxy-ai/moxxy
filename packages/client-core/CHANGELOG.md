@@ -1,5 +1,17 @@
 # @moxxy/client-core
 
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [cf2f651]
+- Updated dependencies [cf2f651]
+- Updated dependencies [cf2f651]
+- Updated dependencies [cf2f651]
+  - @moxxy/sdk@0.8.1
+  - @moxxy/chat-model@0.0.11
+  - @moxxy/desktop-ipc-contract@0.2.2
+
 ## 0.1.1
 
 ### Patch Changes
