@@ -6,7 +6,7 @@
 
 import QRCode from 'qrcode';
 
-export async function printConnectInfo(url: string, token: string): Promise<void> {
+export async function printConnectInfo(url: string, token: string, hint?: string): Promise<void> {
   let qr = '';
   try {
     qr = await QRCode.toString(url, { type: 'terminal', small: true });
@@ -20,6 +20,7 @@ export async function printConnectInfo(url: string, token: string): Promise<void
     qr,
     `  url:   ${url}`,
     `  token: ${token}`,
+    ...(hint ? ['', `  ℹ ${hint}`] : []),
     '',
   ];
   // CLI surface — intentional stdout.

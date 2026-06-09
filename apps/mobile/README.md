@@ -22,11 +22,21 @@ session over the WebSocket bridge and prints a **QR code** (+ URL + token) to
 scan. It's also included in `moxxy serve --all`.
 
 ```sh
-moxxy mobile                       # LAN — prints a QR for ws://<lan-ip>:8765
-# reachable beyond the LAN via a tunnel (your choice), in moxxy.config.ts:
-#   channels: { mobile: { tunnel: 'cloudflared' } }   // or 'ngrok'
-# or: MOXXY_MOBILE_TUNNEL=cloudflared moxxy mobile     → prints a wss://… QR
+moxxy mobile                       # loopback (default) — QR for ws://127.0.0.1:8765,
+                                   # reachable only from THIS machine (simulators)
+
+# real phone on the same Wi-Fi: opt in to a LAN bind (token-gated, plain ws://)
+MOXXY_MOBILE_HOST=0.0.0.0 moxxy mobile   # QR advertises your LAN IP
+#   or in moxxy.config.ts: channels: { mobile: { bindHost: '0.0.0.0' } }
+
+# beyond the LAN (and TLS-encrypted): a tunnel — prints a wss://… QR
+MOXXY_MOBILE_TUNNEL=cloudflared moxxy mobile          # or 'ngrok'
+#   or in moxxy.config.ts: channels: { mobile: { tunnel: 'cloudflared' } }
 ```
+
+The QR always advertises an address the bridge is actually listening on: the
+loopback default is for simulators on the same machine; a real device needs
+the explicit host opt-in or a tunnel (the CLI prints this hint under the QR).
 
 **B) The desktop app** (mirrors your desktop workspaces): launch it with
 `MOXXY_WS_BRIDGE=1` (token persisted at `<userData>/ws-token`, or `MOXXY_WS_TOKEN`).

@@ -80,9 +80,13 @@ After they run it you'll get a note confirming storage and the reference `${vaul
 
 ## 4. (Optional) Test the endpoint
 
-`provider_test` needs the plaintext key, which you don't have — so don't call it with the key yourself. To verify the endpoint, either:
-- ask the user to run a quick check themselves, or
-- skip ahead: after registering (step 5), have the user run `moxxy doctor`, which resolves `<SLUG>_API_KEY` from the vault and reports whether the provider's key is present.
+Once the user has stored the key (step 3), verify the baseURL + key with `provider_test` — it takes the vault key **name**, not the key, and resolves the plaintext internally so it never enters the conversation:
+
+```json
+{ "baseURL": "<base url>", "keyName": "<SLUG>_API_KEY" }
+```
+
+If it reports the secret is missing, the user hasn't run `/vault set <SLUG>_API_KEY <key>` yet — go back to step 3. Alternatively, after registering (step 5), the user can run `moxxy doctor`, which resolves `<SLUG>_API_KEY` from the vault and reports whether the provider's key is present.
 
 ## 5. Register the provider
 

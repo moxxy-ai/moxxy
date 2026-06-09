@@ -80,8 +80,15 @@ const removeProviderInput = z.object({
 });
 
 const testProviderInput = z.object({
-  baseURL: z.string().url(),
-  apiKey: z.string().min(1),
+  baseURL: z.string().url().describe('Vendor API base URL to probe, e.g. https://api.deepseek.com.'),
+  keyName: z
+    .string()
+    .regex(/^[A-Z][A-Z0-9_]*$/)
+    .describe(
+      'NAME of the vault secret holding the API key (e.g. DEEPSEEK_API_KEY). The key is ' +
+        'resolved from the vault inside the tool — never ask the user for the plaintext key ' +
+        'and never pass one as a tool argument. Have them store it first: /vault set <NAME> <key>.',
+    ),
 });
 
 export function buildProviderAdminPlugin(opts: BuildProviderAdminPluginOptions): Plugin {
@@ -131,6 +138,7 @@ export function buildProviderAdminPlugin(opts: BuildProviderAdminPluginOptions):
             providerRegistry.unregister(entry.name);
             throw err;
           }
+          const vaultKeyName = entry.envVar ?? `${entry.name.toUpperCase()}_API_KEY`;
           return {
             ok: true,
             name: entry.name,
@@ -142,8 +150,9 @@ export function buildProviderAdminPlugin(opts: BuildProviderAdminPluginOptions):
             replaced: wasRegistered,
             note:
               `Provider "${entry.name}" is live in this session. ` +
-              `Have the USER store the API key by running: /vault set ${(entry.envVar ?? `${entry.name.toUpperCase()}_API_KEY`)} <key> ` +
+              `Have the USER store the API key by running: /vault set ${vaultKeyName} <key> ` +
               `— never ask them to paste the key to you. ` +
+              `Once stored, you can verify it with provider_test (baseURL + keyName "${vaultKeyName}") — it resolves the key from the vault itself. ` +
               `Switch with the /provider command or set provider.name in moxxy.config.ts.`,
           };
         },
@@ -192,12 +201,39 @@ export function buildProviderAdminPlugin(opts: BuildProviderAdminPluginOptions):
       defineTool({
         name: 'provider_test',
         description:
-          'Probe an OpenAI-compatible endpoint with the supplied API key by calling /v1/models. ' +
-          'Use BEFORE provider_add to confirm the baseURL + key are valid. Returns { ok: true } on success or ' +
+          'Probe an OpenAI-compatible endpoint by calling /v1/models. Takes the NAME of a vault ' +
+          'secret (e.g. ZAI_API_KEY) and resolves the API key via the vault inside the handler — ' +
+          'the plaintext key never enters the conversation or logs. Have the USER store the key ' +
+          'first with /vault set <NAME> <key>, then call this to confirm the baseURL + key are ' +
+          'valid (typically before provider_add). Returns { ok: true } on success or ' +
           '{ ok: false, message } with the vendor error verbatim.',
         inputSchema: testProviderInput,
         permission: { action: 'prompt' },
-        handler: async ({ baseURL, apiKey }) => validateOpenAICompatKey(apiKey, { baseURL }),
+        // The plaintext key is resolved HERE, at call time, via ctx.getSecret —
+        // it never appears as tool input/output, so it stays out of the model
+        // context, the runner session log, and the desktop NDJSON log.
+        handler: async ({ baseURL, keyName }, ctx) => {
+          if (!ctx.getSecret) {
+            return {
+              ok: false,
+              message:
+                'provider_test: this session has no secret vault wired in (ctx.getSecret is ' +
+                'unavailable), so the key cannot be resolved. Register the provider with ' +
+                'provider_add and have the user verify the key with `moxxy doctor` instead.',
+            };
+          }
+          const apiKey = await ctx.getSecret(keyName);
+          if (!apiKey) {
+            return {
+              ok: false,
+              message:
+                `provider_test: no vault secret named "${keyName}". Ask the USER to store it ` +
+                `by running: /vault set ${keyName} <key> — then call provider_test again with ` +
+                `keyName "${keyName}". Never ask them to paste the key into the conversation.`,
+            };
+          }
+          return validateOpenAICompatKey(apiKey, { baseURL });
+        },
       }),
     ],
     hooks: {

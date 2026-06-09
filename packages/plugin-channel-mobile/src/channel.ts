@@ -19,9 +19,11 @@ import type { TunnelHandle } from '@moxxy/sdk';
 import { MobileSessionHost } from './single-session-host.js';
 import { resolveMobileToken } from './token.js';
 import {
+  advertisedHost,
   buildConnectUrl,
-  lanHost,
+  isLoopbackHost,
   normalizeTunnelChoice,
+  resolveBindHost,
   tunnelProviderFor,
   type TunnelChoice,
 } from './tunnel.js';
@@ -34,7 +36,9 @@ export interface MobileStartOpts extends ChannelStartOptsBase {
 export interface MobileChannelOptions {
   /** TCP port (default 8765 — matches the desktop bridge + the Expo app's default). */
   readonly port?: number;
-  /** Bind address. Loopback by default; `0.0.0.0` exposes on the LAN (still token-gated). */
+  /** Bind address (`MOXXY_MOBILE_HOST` env overrides). Loopback by default —
+   *  good for simulators on this machine; `0.0.0.0` exposes on the LAN for a
+   *  real phone (still token-gated). */
   readonly bindHost?: string;
   /** Bearer token. Falls back to env / a persisted secret (see resolveMobileToken). */
   readonly token?: string;
@@ -63,7 +67,7 @@ export class MobileChannel implements Channel<MobileStartOpts> {
 
   constructor(opts: MobileChannelOptions = {}) {
     this.port = opts.port ?? DEFAULT_PORT;
-    this.bindHost = opts.bindHost ?? '127.0.0.1';
+    this.bindHost = resolveBindHost(opts.bindHost);
     this.token = resolveMobileToken(opts.token);
     this.tunnelChoice = normalizeTunnelChoice(opts.tunnel);
     this.logger = opts.logger;
@@ -102,7 +106,7 @@ export class MobileChannel implements Channel<MobileStartOpts> {
         tunnelUrl = this.tunnel.url;
         this.logger?.info?.('mobile tunnel open', { provider: provider.name, url: tunnelUrl });
       } catch (err) {
-        this.logger?.warn?.('mobile tunnel failed; using LAN URL', {
+        this.logger?.warn?.('mobile tunnel failed; using the local URL', {
           provider: provider.name,
           err: String(err),
         });
@@ -110,13 +114,26 @@ export class MobileChannel implements Channel<MobileStartOpts> {
     }
 
     // A QR (+ plain URL) the mobile app scans to connect — token embedded.
+    // The URL only ever advertises an address the server is reachable on:
+    // the tunnel URL, the LAN IP for a wildcard bind, or the bind host itself
+    // (the loopback default advertises 127.0.0.1 — simulators on this machine).
     const connectUrl = buildConnectUrl({
       tunnelUrl,
-      localHost: lanHost(this.bindHost),
+      localHost: advertisedHost(this.bindHost),
       port: this.port,
       token: this.token,
     });
-    await printConnectInfo(connectUrl, this.token);
+    const loopbackOnly = !tunnelUrl && isLoopbackHost(this.bindHost);
+    await printConnectInfo(
+      connectUrl,
+      this.token,
+      loopbackOnly
+        ? 'Bound to loopback — this QR only works on THIS machine (e.g. an iOS/Android\n' +
+          '  simulator). For a real phone: opt in to a LAN bind with MOXXY_MOBILE_HOST=0.0.0.0\n' +
+          "  (or channels.mobile.bindHost in moxxy.config.ts), or use a tunnel\n" +
+          "  (channels.mobile.tunnel: 'cloudflared' | 'ngrok', or MOXXY_MOBILE_TUNNEL)."
+        : undefined,
+    );
 
     let resolveRunning!: () => void;
     const running = new Promise<void>((resolve) => {

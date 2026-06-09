@@ -3,6 +3,7 @@
  * one-to-one with the wire-format methods documented in `sidecar.ts`.
  */
 
+import { assertPublicUrl } from '../ssrf-guard.js';
 import { importPlaywright, launchWithAutoInstall } from './install.js';
 import {
   badParams,
@@ -71,18 +72,25 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       return { id: req.id, ok: true, result: { ready: true } };
     }
     case 'goto': {
-      const h = await ensurePlaywright(state, {});
       const { url, waitUntil, timeoutMs } = (req.params ?? {}) as {
         url: string;
         waitUntil?: 'load' | 'domcontentloaded' | 'networkidle';
         timeoutMs?: number;
       };
       if (!url) throw badParams('url is required');
-      // Defence-in-depth: the tool schema already restricts goto to http(s),
-      // but the sidecar is a distinct process driven over JSON-RPC, so re-check
-      // here rather than trust the caller to have validated. Blocks file:// /
-      // javascript: navigation.
-      if (!/^https?:\/\//i.test(url)) throw badParams('only http(s) URLs allowed');
+      // Defence-in-depth: the parent already runs the full SSRF guard before
+      // sending this RPC, but the sidecar is a distinct process driven over
+      // JSON-RPC, so re-check here rather than trust the caller to have
+      // validated. Blocks file:// / javascript: schemes AND loopback/private/
+      // link-local (incl. 169.254.169.254 metadata)/CGNAT targets, resolving
+      // hostnames. Runs BEFORE ensurePlaywright so a blocked URL never
+      // launches (or auto-installs) a browser.
+      try {
+        await assertPublicUrl(url, 'goto');
+      } catch (err) {
+        return { id: req.id, ok: false, error: { message: errMsg(err), kind: 'navigation' } };
+      }
+      const h = await ensurePlaywright(state, {});
       try {
         await h.page.goto(url, { waitUntil: waitUntil ?? 'domcontentloaded', timeout: timeoutMs ?? 30_000 });
       } catch (err) {

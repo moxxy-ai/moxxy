@@ -8,6 +8,7 @@ import {
   type EmittedEvent,
   type MoxxyEvent,
   type Plugin,
+  type Workflow,
   type WorkflowRunResult,
   type WorkflowsView,
 } from '@moxxy/sdk';
@@ -44,6 +45,17 @@ export interface WorkflowsIntegration {
 
 const PLUGIN_ID = asPluginId(WORKFLOWS_PLUGIN_NAME);
 
+/**
+ * Max number of completions in one `afterWorkflow` causal chain before further
+ * re-fires are refused. Mirrors the executor's nesting guard
+ * (`MAX_NESTING_DEPTH` in plugin-workflows' dag executor) but for the
+ * event-driven trigger graph, which would otherwise recurse without bound.
+ */
+export const MAX_AFTER_WORKFLOW_CHAIN = 8;
+
+/** The trigger-relevant slice of a {@link Workflow} the cycle guards inspect. */
+export type AfterWorkflowNode = Pick<Workflow, 'name' | 'enabled' | 'on'>;
+
 export function buildWorkflowsIntegration(args: {
   session: Session;
   scheduleStore: ScheduleStore;
@@ -58,12 +70,23 @@ export function buildWorkflowsIntegration(args: {
 
   const watchers: FSWatcher[] = [];
   const inFlight = new Set<string>();
+  // Workflows whose afterWorkflow auto-refire is statically disabled because
+  // they sit on a trigger cycle (recomputed on every syncSchedules).
+  const cyclicTriggers = new Set<string>();
+  const warnedCycles = new Set<string>();
 
   // --- the autonomous runner: spawner + engine + inbox delivery ---
   async function runNow(input: {
     name: string;
     inputs?: Record<string, unknown>;
     trigger?: string;
+    /**
+     * The afterWorkflow causal chain that led to this run (oldest first).
+     * Carried per-run — NOT shared state — so concurrent independent fires
+     * can't poison each other; it rides the `workflow_completed` payload as
+     * `triggerChain` and is what lets the subscription below refuse cycles.
+     */
+    chain?: ReadonlyArray<string>;
   }): Promise<WorkflowRunResult> {
     const entry = await store.get(input.name);
     if (!entry) return { ok: false, steps: [], output: '', error: `no workflow named "${input.name}"` };
@@ -100,7 +123,12 @@ export function buildWorkflowsIntegration(args: {
               source: 'plugin',
               pluginId: PLUGIN_ID,
               subtype,
-              payload,
+              // Stamp the causal chain onto the completion event so the
+              // afterWorkflow subscription can detect cycles/depth per-run.
+              payload:
+                subtype === 'workflow_completed' && input.chain && input.chain.length > 0
+                  ? { ...(payload as Record<string, unknown>), triggerChain: [...input.chain] }
+                  : payload,
             } as EmittedEvent),
           ...(logger ? { logger } : {}),
         },
@@ -142,6 +170,14 @@ export function buildWorkflowsIntegration(args: {
   // --- triggers ---
   async function syncSchedules(): Promise<void> {
     const all = await store.list();
+    // Static cycle guard: warn once per cycle and disable auto-refire for its
+    // members (they stay runnable manually / on schedule).
+    applyAfterWorkflowCycleGuard({
+      workflows: all.map((w) => w.workflow),
+      disabled: cyclicTriggers,
+      warned: warnedCycles,
+      ...(logger ? { logger } : {}),
+    });
     for (const { workflow } of all) {
       const sched = workflow.enabled ? workflow.on?.schedule : undefined;
       if (sched && (sched.cron || sched.runAt)) {
@@ -174,26 +210,32 @@ export function buildWorkflowsIntegration(args: {
   }
 
   // afterWorkflow: when a workflow completes, fire any enabled workflow that
-  // lists it under `on.afterWorkflow`. Guards against direct self-trigger.
+  // lists it under `on.afterWorkflow`. Two cycle guards: the per-run trigger
+  // chain carried on the completion payload (refuses re-fires that would
+  // revisit a chain member or exceed MAX_AFTER_WORKFLOW_CHAIN), and the
+  // static `cyclicTriggers` set computed by syncSchedules.
   const unsubscribe = session.log.subscribe((event: MoxxyEvent) => {
     if (event.type !== 'plugin_event' || event.subtype !== 'workflow_completed') return;
-    const completed = (event.payload as { name?: string } | undefined)?.name;
+    const payload = event.payload as { name?: string; triggerChain?: unknown } | undefined;
+    const completed = payload?.name;
     if (!completed) return;
+    const chain = Array.isArray(payload?.triggerChain)
+      ? payload.triggerChain.filter((n): n is string => typeof n === 'string')
+      : [];
     void (async () => {
-      for (const { workflow } of await store.list()) {
-        if (!workflow.enabled || !workflow.on?.afterWorkflow) continue;
-        const deps = [workflow.on.afterWorkflow].flat();
-        if (deps.includes(completed) && workflow.name !== completed) {
-          logger?.info?.('workflows: afterWorkflow trigger', { workflow: workflow.name, after: completed });
-          await runNow({ name: workflow.name, trigger: `after:${completed}` }).catch((err) =>
-            logger?.warn?.('workflows: afterWorkflow run failed', {
-              workflow: workflow.name,
-              err: err instanceof Error ? err.message : String(err),
-            }),
-          );
-        }
-      }
-    })();
+      await fireAfterWorkflowDependents({
+        completed,
+        chain,
+        workflows: (await store.list()).map((w) => w.workflow),
+        disabled: cyclicTriggers,
+        run: runNow,
+        ...(logger ? { logger } : {}),
+      });
+    })().catch((err) =>
+      logger?.warn?.('workflows: afterWorkflow dispatch failed', {
+        err: err instanceof Error ? err.message : String(err),
+      }),
+    );
   });
 
   async function startFileWatchers(): Promise<void> {
@@ -253,6 +295,147 @@ export function buildWorkflowsIntegration(args: {
       for (const w of watchers.splice(0)) w.close();
     },
   };
+}
+
+/**
+ * Find cycles in the `afterWorkflow` trigger graph among enabled workflows.
+ * Nodes are workflow names; an edge runs from a dependency to the workflow it
+ * re-fires (completion of `dep` triggers `dependent`). Returns one entry per
+ * strongly connected component that contains a cycle (size > 1, or a
+ * self-loop), listing its member workflows.
+ */
+export function detectAfterWorkflowCycles(
+  workflows: ReadonlyArray<AfterWorkflowNode>,
+): string[][] {
+  const enabled = new Map<string, AfterWorkflowNode>();
+  for (const w of workflows) if (w.enabled) enabled.set(w.name, w);
+  const edges = new Map<string, string[]>();
+  for (const name of enabled.keys()) edges.set(name, []);
+  for (const w of enabled.values()) {
+    for (const dep of [w.on?.afterWorkflow ?? []].flat()) {
+      if (enabled.has(dep)) edges.get(dep)!.push(w.name);
+    }
+  }
+
+  // Tarjan's SCC. Workflow graphs are tiny; recursion depth is not a concern.
+  let counter = 0;
+  const index = new Map<string, number>();
+  const lowlink = new Map<string, number>();
+  const onStack = new Set<string>();
+  const stack: string[] = [];
+  const cycles: string[][] = [];
+  const visit = (v: string): void => {
+    index.set(v, counter);
+    lowlink.set(v, counter);
+    counter++;
+    stack.push(v);
+    onStack.add(v);
+    for (const w of edges.get(v) ?? []) {
+      if (!index.has(w)) {
+        visit(w);
+        lowlink.set(v, Math.min(lowlink.get(v)!, lowlink.get(w)!));
+      } else if (onStack.has(w)) {
+        lowlink.set(v, Math.min(lowlink.get(v)!, index.get(w)!));
+      }
+    }
+    if (lowlink.get(v) === index.get(v)) {
+      const scc: string[] = [];
+      for (;;) {
+        const w = stack.pop()!;
+        onStack.delete(w);
+        scc.push(w);
+        if (w === v) break;
+      }
+      if (scc.length > 1 || (edges.get(v) ?? []).includes(v)) cycles.push(scc.reverse());
+    }
+  };
+  for (const name of enabled.keys()) if (!index.has(name)) visit(name);
+  return cycles;
+}
+
+/**
+ * Static cycle guard: rebuild `disabled` with every workflow that sits on an
+ * `afterWorkflow` cycle and warn loudly once per distinct cycle. Members stay
+ * runnable manually / on schedule — only the event-driven re-fire is cut.
+ */
+export function applyAfterWorkflowCycleGuard(args: {
+  workflows: ReadonlyArray<AfterWorkflowNode>;
+  /** Mutated: the set of workflow names whose auto-refire is disabled. */
+  disabled: Set<string>;
+  /** Mutated: cycle keys already warned about (so the warning fires once). */
+  warned: Set<string>;
+  logger?: MiniLogger;
+}): void {
+  const cycles = detectAfterWorkflowCycles(args.workflows);
+  args.disabled.clear();
+  for (const cycle of cycles) {
+    for (const name of cycle) args.disabled.add(name);
+    const key = [...cycle].sort().join(' -> ');
+    if (args.warned.has(key)) continue;
+    args.warned.add(key);
+    args.logger?.warn?.(
+      `workflows: afterWorkflow trigger cycle detected (${cycle.join(' -> ')} -> ${cycle[0]}); ` +
+        'auto-refire is disabled for these workflows — run them manually or break the cycle',
+      { cycle: [...cycle] },
+    );
+  }
+}
+
+/**
+ * Fire every enabled workflow whose `on.afterWorkflow` lists `completed`,
+ * unless doing so would revisit a workflow already on this run's trigger
+ * chain (a cycle), exceed {@link MAX_AFTER_WORKFLOW_CHAIN}, or hit a workflow
+ * the static cycle guard disabled. The chain is extended per fire and handed
+ * to `run`, which must carry it onto the next completion event.
+ */
+export async function fireAfterWorkflowDependents(args: {
+  completed: string;
+  chain: ReadonlyArray<string>;
+  workflows: ReadonlyArray<AfterWorkflowNode>;
+  disabled: ReadonlySet<string>;
+  run: (input: { name: string; trigger: string; chain: ReadonlyArray<string> }) => Promise<unknown>;
+  logger?: MiniLogger;
+}): Promise<void> {
+  const { completed, workflows, disabled, run, logger } = args;
+  const nextChain = [...args.chain, completed];
+  for (const workflow of workflows) {
+    if (!workflow.enabled || !workflow.on?.afterWorkflow) continue;
+    if (![workflow.on.afterWorkflow].flat().includes(completed)) continue;
+    if (disabled.has(workflow.name)) {
+      logger?.info?.('workflows: afterWorkflow auto-refire disabled by the cycle guard; skipping', {
+        workflow: workflow.name,
+        after: completed,
+      });
+      continue;
+    }
+    if (nextChain.includes(workflow.name)) {
+      logger?.warn?.(
+        `workflows: refusing afterWorkflow re-fire — trigger cycle ` +
+          `(${[...nextChain, workflow.name].join(' -> ')}); "${workflow.name}" already ran in this chain`,
+        { workflow: workflow.name, chain: [...nextChain] },
+      );
+      continue;
+    }
+    if (nextChain.length >= MAX_AFTER_WORKFLOW_CHAIN) {
+      logger?.warn?.(
+        `workflows: refusing afterWorkflow re-fire — chain depth cap of ${MAX_AFTER_WORKFLOW_CHAIN} ` +
+          `reached (${nextChain.join(' -> ')} -> ${workflow.name})`,
+        { workflow: workflow.name, chain: [...nextChain] },
+      );
+      continue;
+    }
+    logger?.info?.('workflows: afterWorkflow trigger', {
+      workflow: workflow.name,
+      after: completed,
+      depth: nextChain.length,
+    });
+    await run({ name: workflow.name, trigger: `after:${completed}`, chain: nextChain }).catch((err) =>
+      logger?.warn?.('workflows: afterWorkflow run failed', {
+        workflow: workflow.name,
+        err: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  }
 }
 
 function activeModel(session: Session): string {

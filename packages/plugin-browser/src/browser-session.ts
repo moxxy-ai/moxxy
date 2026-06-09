@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MoxxyError, defineTool, z } from '@moxxy/sdk';
+import { assertPublicUrl, SsrfBlockedError } from './ssrf-guard.js';
 
 /**
  * Heavy-tier browser: spawns the Playwright sidecar over stdio JSON-RPC and
@@ -30,8 +31,11 @@ const actionSchema: z.ZodType<Action> = z.union([
   z.object({
     kind: z.literal('goto'),
     // `z.string().url()` accepts file:// and javascript: URLs, which would be
-    // forwarded verbatim to Playwright `page.goto`. Restrict to http(s) — the
-    // same scheme guard web_fetch enforces via assertPublicUrl.
+    // forwarded verbatim to Playwright `page.goto`. This refine is only a fast
+    // schema-level scheme check; the full SSRF guard (loopback/private/
+    // link-local/metadata IPs, DNS resolution — same `assertPublicUrl` as
+    // web_fetch) runs in the handler before the RPC AND again inside the
+    // sidecar's goto dispatch.
     url: z.string().url().refine((u) => /^https?:\/\//i.test(u), 'only http(s) URLs allowed'),
     waitUntil: z.enum(['load', 'domcontentloaded', 'networkidle']).optional(),
     timeoutMs: z.number().int().positive().max(120_000).optional(),
@@ -286,7 +290,9 @@ export function buildBrowserSessionTool(deps?: BrowserSessionDeps) {
   return defineTool({
     name: 'browser_session',
     description:
-      'Drive a real browser (Playwright). Use for pages that need JS execution, clicks, form fills, or screenshots. For simple GETs prefer web_fetch (no extra deps). Calls within a session share one page.',
+      'Drive a real browser (Playwright). Use for pages that need JS execution, clicks, form fills, or screenshots. For simple GETs prefer web_fetch (no extra deps). Calls within a session share one page. ' +
+      'Navigation is restricted to public http(s) origins: goto URLs and top-level/iframe navigations (including redirects) to loopback, private (RFC-1918), link-local/metadata, or CGNAT addresses are blocked. ' +
+      'Residual risk: subresource requests (img/fetch/script) issued by a loaded page are NOT filtered, so a hostile page can still send blind requests at internal services.',
     inputSchema: z.object({
       action: actionSchema,
     }),
@@ -321,6 +327,18 @@ export function buildBrowserSessionTool(deps?: BrowserSessionDeps) {
       try {
         switch (action.kind) {
           case 'goto':
+            // Parent-side SSRF guard — the same assertPublicUrl web_fetch uses
+            // (loopback/private/link-local/metadata blocked, hostname resolved).
+            // The sidecar re-checks in its goto dispatch (defence in depth, it
+            // is a separate process) and intercepts in-page navigations.
+            try {
+              await assertPublicUrl(action.url, 'browser_session');
+            } catch (err) {
+              if (err instanceof SsrfBlockedError) {
+                throw new MoxxyError({ code: 'INTERNAL', message: err.message });
+              }
+              throw err;
+            }
             return await call('goto', {
               url: action.url,
               waitUntil: action.waitUntil,

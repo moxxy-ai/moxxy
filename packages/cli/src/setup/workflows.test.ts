@@ -1,0 +1,339 @@
+import { promises as fs } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+import { Session, silentLogger } from '@moxxy/core';
+import { asPluginId, type EmittedEvent } from '@moxxy/sdk';
+import { ScheduleStore } from '@moxxy/plugin-scheduler';
+import { WORKFLOWS_PLUGIN_NAME } from '@moxxy/plugin-workflows';
+import {
+  buildWorkflowsIntegration,
+  applyAfterWorkflowCycleGuard,
+  detectAfterWorkflowCycles,
+  fireAfterWorkflowDependents,
+  MAX_AFTER_WORKFLOW_CHAIN,
+  type AfterWorkflowNode,
+} from './workflows.js';
+
+// ---------------------------------------------------------------------------
+// helpers
+
+function wf(
+  name: string,
+  opts: { after?: string | string[]; enabled?: boolean } = {},
+): AfterWorkflowNode {
+  return {
+    name,
+    enabled: opts.enabled ?? true,
+    ...(opts.after ? { on: { afterWorkflow: opts.after } } : {}),
+  };
+}
+
+function captureLogger(): {
+  logger: { warn(msg: string): void; info(msg: string): void };
+  warns: string[];
+  infos: string[];
+} {
+  const warns: string[] = [];
+  const infos: string[] = [];
+  return {
+    logger: {
+      warn: (msg: string) => void warns.push(msg),
+      info: (msg: string) => void infos.push(msg),
+    },
+    warns,
+    infos,
+  };
+}
+
+/**
+ * Drive the trigger loop the way the live subscription does: each fired run
+ * "completes" and feeds its (extended) chain back into the dispatcher —
+ * exactly what the workflow_completed event round-trip does in production.
+ */
+async function simulateCompletion(args: {
+  completed: string;
+  chain: ReadonlyArray<string>;
+  workflows: ReadonlyArray<AfterWorkflowNode>;
+  disabled?: ReadonlySet<string>;
+  runs: string[];
+  logger?: { warn(msg: string): void; info(msg: string): void };
+}): Promise<void> {
+  await fireAfterWorkflowDependents({
+    completed: args.completed,
+    chain: args.chain,
+    workflows: args.workflows,
+    disabled: args.disabled ?? new Set(),
+    run: async ({ name, chain }) => {
+      args.runs.push(name);
+      await simulateCompletion({ ...args, completed: name, chain });
+    },
+    ...(args.logger ? { logger: args.logger } : {}),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// dynamic per-run chain guard
+
+describe('fireAfterWorkflowDependents', () => {
+  it('breaks an A<->B mutual trigger: each fires exactly once, then warns', async () => {
+    const workflows = [wf('a', { after: 'b' }), wf('b', { after: 'a' })];
+    const { logger, warns } = captureLogger();
+    const runs: string[] = [];
+
+    // "a" ran manually (empty chain) and completed.
+    await simulateCompletion({ completed: 'a', chain: [], workflows, runs, logger });
+
+    expect(runs).toEqual(['b']); // b fired once; the re-fire of a was refused
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain('trigger cycle');
+    expect(warns[0]).toContain('a -> b -> a');
+  });
+
+  it('breaks a three-node A->B->C->A cycle after each ran once', async () => {
+    const workflows = [
+      wf('a', { after: 'c' }),
+      wf('b', { after: 'a' }),
+      wf('c', { after: 'b' }),
+    ];
+    const { logger, warns } = captureLogger();
+    const runs: string[] = [];
+
+    await simulateCompletion({ completed: 'a', chain: [], workflows, runs, logger });
+
+    expect(runs).toEqual(['b', 'c']);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain('a -> b -> c -> a');
+  });
+
+  it('runs a linear A->B->C chain to completion without warnings', async () => {
+    const workflows = [wf('b', { after: 'a' }), wf('c', { after: 'b' })];
+    const { logger, warns } = captureLogger();
+    const runs: string[] = [];
+
+    await simulateCompletion({ completed: 'a', chain: [], workflows, runs, logger });
+
+    expect(runs).toEqual(['b', 'c']);
+    expect(warns).toEqual([]);
+  });
+
+  it('caps non-cyclic chain depth at MAX_AFTER_WORKFLOW_CHAIN', async () => {
+    // w1 after w0, w2 after w1, ... — long but acyclic.
+    const workflows = Array.from({ length: 20 }, (_, i) => wf(`w${i}`, { after: `w${i - 1}` })).slice(1);
+    const { logger, warns } = captureLogger();
+    const runs: string[] = [];
+
+    await simulateCompletion({ completed: 'w0', chain: [], workflows, runs, logger });
+
+    // Completion of w0 starts the chain; each fire adds one completion. The
+    // cap refuses the fire that would make the chain exceed the limit.
+    expect(runs).toHaveLength(MAX_AFTER_WORKFLOW_CHAIN - 1);
+    expect(runs).toEqual(Array.from({ length: MAX_AFTER_WORKFLOW_CHAIN - 1 }, (_, i) => `w${i + 1}`));
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain(`depth cap of ${MAX_AFTER_WORKFLOW_CHAIN}`);
+  });
+
+  it('skips workflows the static cycle guard disabled (info, no run)', async () => {
+    const workflows = [wf('a', { after: 'b' }), wf('b', { after: 'a' })];
+    const { logger, warns, infos } = captureLogger();
+    const runs: string[] = [];
+
+    await simulateCompletion({
+      completed: 'a',
+      chain: [],
+      workflows,
+      disabled: new Set(['a', 'b']),
+      runs,
+      logger,
+    });
+
+    expect(runs).toEqual([]);
+    expect(warns).toEqual([]);
+    expect(infos.some((m) => m.includes('disabled by the cycle guard'))).toBe(true);
+  });
+
+  it('still refuses a direct self-trigger', async () => {
+    const workflows = [wf('a', { after: 'a' })];
+    const { logger, warns } = captureLogger();
+    const runs: string[] = [];
+
+    await simulateCompletion({ completed: 'a', chain: [], workflows, runs, logger });
+
+    expect(runs).toEqual([]);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain('a -> a');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// static graph detection
+
+describe('detectAfterWorkflowCycles', () => {
+  it('finds a mutual A<->B cycle', () => {
+    const cycles = detectAfterWorkflowCycles([wf('a', { after: 'b' }), wf('b', { after: 'a' })]);
+    expect(cycles).toHaveLength(1);
+    expect([...cycles[0]!].sort()).toEqual(['a', 'b']);
+  });
+
+  it('finds a self-loop', () => {
+    expect(detectAfterWorkflowCycles([wf('a', { after: 'a' })])).toEqual([['a']]);
+  });
+
+  it('finds a longer cycle but not the acyclic tail hanging off it', () => {
+    const cycles = detectAfterWorkflowCycles([
+      wf('a', { after: 'c' }),
+      wf('b', { after: 'a' }),
+      wf('c', { after: 'b' }),
+      wf('tail', { after: 'c' }),
+    ]);
+    expect(cycles).toHaveLength(1);
+    expect([...cycles[0]!].sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('reports nothing for linear chains or fan-out', () => {
+    expect(
+      detectAfterWorkflowCycles([wf('b', { after: 'a' }), wf('c', { after: ['a', 'b'] })]),
+    ).toEqual([]);
+  });
+
+  it('ignores disabled workflows — a disabled node breaks the cycle', () => {
+    expect(
+      detectAfterWorkflowCycles([wf('a', { after: 'b' }), wf('b', { after: 'a', enabled: false })]),
+    ).toEqual([]);
+  });
+});
+
+describe('applyAfterWorkflowCycleGuard', () => {
+  it('disables cycle members and warns once per distinct cycle', () => {
+    const { logger, warns } = captureLogger();
+    const disabled = new Set<string>();
+    const warned = new Set<string>();
+    const workflows = [wf('a', { after: 'b' }), wf('b', { after: 'a' }), wf('c', { after: 'a' })];
+
+    applyAfterWorkflowCycleGuard({ workflows, disabled, warned, logger });
+    expect([...disabled].sort()).toEqual(['a', 'b']);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain('auto-refire is disabled');
+
+    // Re-sync: same cycle does not warn again, set is rebuilt.
+    applyAfterWorkflowCycleGuard({ workflows, disabled, warned, logger });
+    expect(warns).toHaveLength(1);
+    expect([...disabled].sort()).toEqual(['a', 'b']);
+
+    // Breaking the cycle re-enables the members.
+    applyAfterWorkflowCycleGuard({
+      workflows: [wf('a'), wf('b', { after: 'a' }), wf('c', { after: 'a' })],
+      disabled,
+      warned,
+      logger,
+    });
+    expect(disabled.size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// end-to-end through the live wiring: real Session + event log + runNow, with
+// a stub executor so no subagents/providers are involved. Verifies the chain
+// actually rides the workflow_completed payload across the event round-trip.
+
+describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
+  const tempDirs: string[] = [];
+  const savedEnv = { HOME: process.env.HOME, MOXXY_HOME: process.env.MOXXY_HOME };
+
+  afterAll(async () => {
+    process.env.HOME = savedEnv.HOME;
+    process.env.MOXXY_HOME = savedEnv.MOXXY_HOME;
+    await Promise.all(tempDirs.splice(0).map((d) => fs.rm(d, { recursive: true, force: true })));
+  });
+
+  async function setup(workflowYamls: Record<string, string>): Promise<{
+    session: Session;
+    runs: string[];
+    stop: () => void;
+  }> {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-it-'));
+    tempDirs.push(cwd);
+    // Isolate every homedir-derived path (user workflows dir, inbox, run records).
+    process.env.HOME = cwd;
+    process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
+
+    const projectDir = path.join(cwd, '.moxxy', 'workflows');
+    await fs.mkdir(projectDir, { recursive: true });
+    for (const [file, yaml] of Object.entries(workflowYamls)) {
+      await fs.writeFile(path.join(projectDir, file), yaml);
+    }
+
+    const session = new Session({ cwd, logger: silentLogger });
+    const runs: string[] = [];
+    session.workflowExecutors.register({
+      name: 'stub',
+      run: async (workflow, deps) => {
+        runs.push(workflow.name);
+        await deps.emit?.('workflow_completed', { name: workflow.name, output: '' });
+        return { ok: true, steps: [], output: '' };
+      },
+    });
+    const integration = buildWorkflowsIntegration({
+      session,
+      scheduleStore: new ScheduleStore({ file: path.join(cwd, 'schedules.json') }),
+    });
+    return { session, runs, stop: integration.stop };
+  }
+
+  function completedEvent(session: Session, name: string): EmittedEvent {
+    return {
+      type: 'plugin_event',
+      sessionId: session.id,
+      turnId: session.startTurn().turnId,
+      source: 'plugin',
+      pluginId: asPluginId(WORKFLOWS_PLUGIN_NAME),
+      subtype: 'workflow_completed',
+      payload: { name },
+    } as EmittedEvent;
+  }
+
+  const yaml = (name: string, after: string): string =>
+    [
+      `name: ${name}`,
+      'description: test workflow',
+      'on:',
+      `  afterWorkflow: ${after}`,
+      'delivery:',
+      '  inbox: false',
+      'steps:',
+      '  - id: s1',
+      '    prompt: hi',
+      '',
+    ].join('\n');
+
+  it('A<->B mutual trigger fires each dependent exactly once, then stops', async () => {
+    const { session, runs, stop } = await setup({
+      'wf-a.yaml': yaml('wf-a', 'wf-b'),
+      'wf-b.yaml': yaml('wf-b', 'wf-a'),
+    });
+    try {
+      await session.log.append(completedEvent(session, 'wf-a'));
+      await vi.waitFor(() => expect(runs).toContain('wf-b'));
+      // Let any (buggy) follow-on fires land before asserting quiescence.
+      await new Promise((r) => setTimeout(r, 100));
+      expect(runs).toEqual(['wf-b']);
+    } finally {
+      stop();
+    }
+  });
+
+  it('linear A->B->C chain runs each workflow once', async () => {
+    const { session, runs, stop } = await setup({
+      'wf-b.yaml': yaml('wf-b', 'wf-a'),
+      'wf-c.yaml': yaml('wf-c', 'wf-b'),
+    });
+    try {
+      await session.log.append(completedEvent(session, 'wf-a'));
+      await vi.waitFor(() => expect(runs).toContain('wf-c'));
+      await new Promise((r) => setTimeout(r, 100));
+      expect(runs).toEqual(['wf-b', 'wf-c']);
+    } finally {
+      stop();
+    }
+  });
+});
