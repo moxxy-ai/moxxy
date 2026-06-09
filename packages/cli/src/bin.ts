@@ -29,6 +29,7 @@ import { colors } from './colors.js';
 import { cliVersion } from './version.js';
 import { pickSlogan } from '@moxxy/plugin-cli';
 import { formatErrorForCli } from './error-formatter.js';
+import { installProcessGuards } from './process-guards.js';
 
 type CommandHandler = (argv: ParsedArgv) => Promise<number>;
 
@@ -258,6 +259,17 @@ async function main(): Promise<number> {
   );
   return 2;
 }
+
+// Self-identify in `ps` output: peer-recovery code (web surface port
+// freeing, runner protocol-mismatch recovery) only ever signals processes
+// whose command line carries a moxxy marker, and a dev-checkout daemon's
+// argv (`node …/packages/cli/dist/bin.js serve`) wouldn't otherwise match.
+process.title = ['moxxy', ...process.argv.slice(2)].join(' ');
+
+// Last-resort guards (log + survive unhandledRejection, log + exit 1 on
+// uncaughtException) — installed before any command runs so the long-lived
+// entries (serve / tui / channel daemons) are always covered.
+installProcessGuards();
 
 main().then(
   (code) => process.exit(code),

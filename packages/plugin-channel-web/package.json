@@ -30,7 +30,8 @@
   },
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
-    "ws": "catalog:"
+    "ws": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@moxxy/core": "workspace:*",

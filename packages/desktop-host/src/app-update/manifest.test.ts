@@ -60,6 +60,47 @@ describe('verifyManifestSignature', () => {
       false,
     );
   });
+
+  it('round-trips a manifest carrying a per-file hash map', () => {
+    const files = { 'dist-electron/main/index.js': 'b'.repeat(64), 'dist/index.html': 'c'.repeat(64) };
+    const { manifest, publicKeyPem } = signed({ files });
+    expect(verifyManifestSignature(manifest, publicKeyPem)).toBe(true);
+    // …including after a parse round-trip (the published-manifest path).
+    const parsed = parseManifest(JSON.stringify(manifest));
+    expect(parsed?.files).toEqual(files);
+    expect(verifyManifestSignature(parsed!, publicKeyPem)).toBe(true);
+  });
+
+  it('rejects when a per-file hash is tampered after signing', () => {
+    const { manifest, publicKeyPem } = signed({
+      files: { 'dist-electron/main/index.js': 'b'.repeat(64) },
+    });
+    expect(
+      verifyManifestSignature(
+        { ...manifest, files: { 'dist-electron/main/index.js': 'd'.repeat(64) } },
+        publicKeyPem,
+      ),
+    ).toBe(false);
+  });
+
+  it('rejects a downgrade that strips (or injects) the files map', () => {
+    const files = { 'dist-electron/main/index.js': 'b'.repeat(64) };
+    const { manifest, publicKeyPem } = signed({ files });
+    const { files: _stripped, ...withoutFiles } = manifest;
+    expect(verifyManifestSignature(withoutFiles, publicKeyPem)).toBe(false);
+
+    const { manifest: legacy, publicKeyPem: legacyKey } = signed();
+    expect(verifyManifestSignature({ ...legacy, files }, legacyKey)).toBe(false);
+  });
+
+  it('verifies the files map independent of JSON key order (sorted canonicalization)', () => {
+    const files = { 'b.js': 'b'.repeat(64), 'a.js': 'a'.repeat(64) };
+    const { manifest, publicKeyPem } = signed({ files });
+    const reordered = parseManifest(
+      JSON.stringify({ ...manifest, files: { 'a.js': 'a'.repeat(64), 'b.js': 'b'.repeat(64) } }),
+    );
+    expect(verifyManifestSignature(reordered!, publicKeyPem)).toBe(true);
+  });
 });
 
 describe('parseManifest', () => {
@@ -85,5 +126,20 @@ describe('parseManifest', () => {
     const { manifest } = signed();
     expect(parseManifest(JSON.stringify({ ...manifest, sha256: 'short' }))).toBeNull();
     expect(parseManifest(JSON.stringify({ ...manifest, version: '' }))).toBeNull();
+  });
+
+  it('accepts a legacy manifest without a files map (no map in the output)', () => {
+    const { manifest } = signed();
+    const parsed = parseManifest(JSON.stringify(manifest));
+    expect(parsed).not.toBeNull();
+    expect(parsed?.files).toBeUndefined();
+  });
+
+  it('returns null on a malformed files map (non-object, bad key, non-hex hash)', () => {
+    const { manifest } = signed();
+    expect(parseManifest(JSON.stringify({ ...manifest, files: 'nope' }))).toBeNull();
+    expect(parseManifest(JSON.stringify({ ...manifest, files: ['a'] }))).toBeNull();
+    expect(parseManifest(JSON.stringify({ ...manifest, files: { '': 'a'.repeat(64) } }))).toBeNull();
+    expect(parseManifest(JSON.stringify({ ...manifest, files: { 'a.js': 'short' } }))).toBeNull();
   });
 });

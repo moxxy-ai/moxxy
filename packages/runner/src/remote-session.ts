@@ -690,16 +690,53 @@ export async function killAndUnlinkRunner(
 
 // ---- internals: process hunting -----------------------------------------
 
-/** Kill whatever process is bound to a unix-domain socket file. */
+/** Kill the moxxy process bound to a unix-domain socket file. */
 async function killProcessOwning(socketPath: string): Promise<void> {
   const pids = await pidsListeningOnSocket(socketPath);
-  for (const pid of pids) await terminate(pid);
+  for (const pid of pids) {
+    if (await isMoxxyProcess(pid)) await terminate(pid);
+  }
 }
 
-/** Kill whatever process is listening on a TCP port. */
+/** Kill the moxxy process listening on a TCP port (non-moxxy holders are
+ *  left alone — 4040 is also ngrok's local-UI default, and the web surface
+ *  falls back to an ephemeral port when its default is taken). */
 async function killProcessOnPort(port: number): Promise<void> {
   const pids = await pidsListeningOnPort(port);
-  for (const pid of pids) await terminate(pid);
+  for (const pid of pids) {
+    if (await isMoxxyProcess(pid)) await terminate(pid);
+  }
+}
+
+/** Identity gate before any signal: the recovery's intent is to clear a
+ *  STALE MOXXY daemon, never an unrelated process that happens to hold a
+ *  default port/socket. A PID whose command line we cannot read fails the
+ *  gate — never kill what we can't name. (The CLI sets `process.title`
+ *  to `moxxy …`, so even dev-checkout daemons match.) */
+async function isMoxxyProcess(pid: number): Promise<boolean> {
+  if (!Number.isFinite(pid) || pid <= 0 || pid === process.pid) return false;
+  const command = await pidCommand(pid);
+  return command.length > 0 && /moxxy/i.test(command);
+}
+
+/** A PID's command line via `ps`. Empty when the process is gone / unknowable. */
+async function pidCommand(pid: number): Promise<string> {
+  const { spawn } = await import('node:child_process');
+  return await new Promise<string>((resolve) => {
+    let out = '';
+    try {
+      const child = spawn('ps', ['-p', String(pid), '-o', 'command='], {
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      child.stdout.on('data', (b) => {
+        out += b.toString();
+      });
+      child.on('error', () => resolve(''));
+      child.on('close', () => resolve(out.trim()));
+    } catch {
+      resolve('');
+    }
+  });
 }
 
 /** SIGTERM, grace, SIGKILL. Skips self. Swallows EPERM / ESRCH. */

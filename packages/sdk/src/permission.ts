@@ -34,4 +34,17 @@ export interface PermissionContext {
 export interface PermissionResolver {
   readonly name: string;
   check(call: PendingToolCall, ctx: PermissionContext): Promise<PermissionDecision>;
+  /**
+   * Optional prompt-free policy probe. Returns the decision the persistent
+   * policy layer would make for this call (user deny/allow rules from
+   * `~/.moxxy/permissions.json`, then the tool's own declared rule), or
+   * `null` when no rule matches — WITHOUT falling through to the
+   * interactive prompt path that `check` takes.
+   *
+   * Core's session resolver (the policy wrapper) implements this; bare
+   * resolvers may omit it. Auto-approving modes (e.g. goal mode) consult it
+   * before allowing, so a configured deny rule still denies in unattended
+   * runs while nothing can ever block on a prompt.
+   */
+  policyCheck?(call: PendingToolCall, ctx: PermissionContext): Promise<PermissionDecision | null>;
 }

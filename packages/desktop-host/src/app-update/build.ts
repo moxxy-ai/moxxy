@@ -49,9 +49,17 @@ export function buildAppBundle(input: BuildInput): BuildOutput {
     files['package.json'] = Buffer.from(ESM_MARKER_PACKAGE_JSON, 'utf8');
   }
 
+  // Per-file integrity map (sorted for a deterministic manifest + signing
+  // payload): SHA-256 of each file's RAW bytes. Signed alongside the archive
+  // hash so the stager AND the bootstrap can verify the extracted tree on disk
+  // — the archive hash alone only protects the download, not what gets loaded.
   const filesB64: Record<string, string> = {};
-  for (const [rel, buf] of Object.entries(files)) {
+  const fileHashes: Record<string, string> = {};
+  // Plain code-unit sort (same as the canonicalizer's `.sort()`) — locale-aware
+  // comparison would make the emitted manifest machine-dependent.
+  for (const [rel, buf] of Object.entries(files).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     filesB64[rel] = buf.toString('base64');
+    fileHashes[rel] = createHash('sha256').update(buf).digest('hex');
   }
   const payload = JSON.stringify({ version: input.version, files: filesB64 });
   const bundleGz = gzipSync(Buffer.from(payload, 'utf8'));
@@ -63,6 +71,7 @@ export function buildAppBundle(input: BuildInput): BuildOutput {
     nodeAbi: input.nodeAbi,
     sha256,
     bundleUrl: input.bundleUrl,
+    files: fileHashes,
   };
   const signature = cryptoSign(
     null,

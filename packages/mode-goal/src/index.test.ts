@@ -60,6 +60,74 @@ describe('goalMode end-to-end', () => {
     expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed')).toBe(true);
   });
 
+  it('honours a user deny rule (policy) while still auto-approving other tools', async () => {
+    let dangerousRan = false;
+    const provider = new FakeProvider({
+      script: [
+        // The model tries the denied tool first…
+        toolUseReply('dangerous', { target: 'prod' }, 'd1'),
+        // …then a permitted one, then declares done.
+        toolUseReply('safe', {}, 's1'),
+        toolUseReply('goal_complete', { summary: 'finished without the denied tool' }, 'gc3'),
+      ],
+    });
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(goalModePlugin);
+    session.modes.setActive(GOAL_MODE_NAME);
+    session.tools.register(
+      defineTool({
+        name: 'dangerous',
+        description: '',
+        inputSchema: z.object({ target: z.string() }),
+        handler: () => {
+          dangerousRan = true;
+          return 'boom';
+        },
+      }),
+    );
+    session.tools.register(
+      defineTool({ name: 'safe', description: '', inputSchema: z.object({}), handler: () => 'ok' }),
+    );
+    // Same persistent policy engine that backs ~/.moxxy/permissions.json.
+    await session.permissions.addDeny({ name: 'dangerous', reason: 'user denied this tool' });
+    // Tripwire: goal mode must never fall through to the interactive prompt
+    // path. If it did, dispatchToolCall would surface a pre-execute failure.
+    session.setPermissionResolver({
+      name: 'tripwire-prompt',
+      check: async () => {
+        throw new Error('interactive prompt fired in goal mode');
+      },
+    });
+
+    const events = await collectTurn(session, 'do the thing');
+
+    // The deny rule held, with the user's reason…
+    const denied = events.find((e) => e.type === 'tool_call_denied');
+    if (denied?.type !== 'tool_call_denied') throw new Error('expected a tool_call_denied event');
+    expect(denied.decidedBy).toBe('resolver');
+    expect(denied.reason).toContain('user denied this tool');
+    // …the denied call still produced a well-formed failed tool_result…
+    const deniedResult = events.find(
+      (e) => e.type === 'tool_result' && e.callId === denied.callId,
+    );
+    if (deniedResult?.type !== 'tool_result') throw new Error('expected a tool_result for the denial');
+    expect(deniedResult.ok).toBe(false);
+    // …and the handler never executed.
+    expect(dangerousRan).toBe(false);
+
+    // Everything else still auto-approves without prompting (the tripwire
+    // would have failed those calls) and the run completes.
+    const approvals = events.filter((e) => e.type === 'tool_call_approved');
+    expect(approvals.length).toBeGreaterThanOrEqual(2); // safe + goal_complete
+    expect(approvals.every((e) => e.type === 'tool_call_approved' && e.mode === 'allow')).toBe(true);
+    expect(
+      events.some(
+        (e) => e.type === 'tool_result' && !e.ok && e.error.message.includes('pre-execute failure'),
+      ),
+    ).toBe(false);
+    expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed')).toBe(true);
+  });
+
   it('stalls (goal_stalled) when the model keeps idling without completing', async () => {
     // GOAL_MAX_NOOP_ITERATIONS idle (no-tool) replies → the loop gives up.
     const provider = new FakeProvider({

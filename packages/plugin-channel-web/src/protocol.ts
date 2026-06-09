@@ -1,9 +1,12 @@
+import { z } from 'zod';
 import type { ViewDoc } from '@moxxy/sdk';
 
 /**
  * Wire protocol between the web surface server and the browser. Plain JSON over
  * a WebSocket. Shared by the channel (Node) and the frontend (browser); keep it
- * DOM-free and dependency-free so esbuild can bundle it for the browser.
+ * DOM-free so esbuild can bundle it for the browser. (The frontend imports
+ * ONLY types from this module, so the zod runtime never reaches the browser
+ * bundle.)
  */
 
 /** Server → browser. */
@@ -44,6 +47,34 @@ export type ClientFrame =
       readonly action: { readonly name: string; readonly params?: Record<string, unknown> };
       readonly formValues: Record<string, string>;
     };
+
+/**
+ * Runtime validator for browser → server frames. The WS endpoint is
+ * internet-exposed via tunnels, so every inbound frame MUST be validated
+ * before any field access — a cast after JSON.parse let `{"kind":"prompt"}`
+ * throw inside the ws 'message' listener and take the whole process down.
+ * Mirrors {@link ClientFrame}; the drift guard below keeps them in sync.
+ */
+export const clientFrameSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('prompt'), text: z.string() }),
+  z.object({
+    kind: z.literal('action'),
+    actionId: z.string(),
+    viewId: z.string().nullable(),
+    action: z.object({ name: z.string(), params: z.record(z.unknown()).optional() }),
+    formValues: z.record(z.string()),
+  }),
+]);
+
+/** Compile-time drift guard: schema output and ClientFrame must stay mutually assignable. */
+type AssertTrue<T extends true> = T;
+export type _ClientFrameSchemaInSync = AssertTrue<
+  z.infer<typeof clientFrameSchema> extends ClientFrame
+    ? ClientFrame extends z.infer<typeof clientFrameSchema>
+      ? true
+      : false
+    : false
+>;
 
 /**
  * Synthesize the user-turn prompt for a view action. The agent is taught (via

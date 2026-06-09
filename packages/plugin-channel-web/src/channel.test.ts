@@ -240,6 +240,79 @@ describe('WebChannel', () => {
     ws.close();
   });
 
+  it('drops schema-invalid frames (no throw, no turn driven) and stays responsive', async () => {
+    const { session, prompts } = fakeSession();
+    const { wsBase, token } = await startOn(session);
+    const { ws, waitFor } = await connect(wsBase, token);
+    // The historical crasher: valid JSON, missing required field →
+    // `frame.text.trim()` threw inside the ws 'message' listener and the
+    // TypeError escalated to a process-level uncaughtException.
+    ws.send(JSON.stringify({ kind: 'prompt' }));
+    ws.send(JSON.stringify({ kind: 'action' })); // no actionId/action/formValues
+    ws.send(JSON.stringify({ kind: 'action', actionId: 'a', viewId: null, formValues: {} })); // no action
+    ws.send(JSON.stringify({ kind: 'prompt', text: 42 })); // wrong field type
+    ws.send(JSON.stringify({ kind: 'nonsense' })); // unknown kind
+    ws.send(JSON.stringify({})); // no kind at all
+    ws.send('junk{{{'); // not JSON
+    ws.send('"' + 'x'.repeat(300 * 1024) + '"'); // oversized garbage (> MAX_FRAME_BYTES)
+    // Same socket, valid frame: the channel must still be alive + responsive,
+    // and none of the invalid frames may have driven a turn.
+    ws.send(JSON.stringify({ kind: 'prompt', text: 'still alive' }));
+    await waitFor('view');
+    expect(prompts).toEqual(['still alive']);
+    ws.close();
+  });
+
+  it('rate-limits the invalid-frame warn log', async () => {
+    const warns: string[] = [];
+    const { session } = fakeSession();
+    channel = new WebChannel({
+      port: 0,
+      host: '127.0.0.1',
+      authToken: 'tkn',
+      logger: { warn: (msg) => warns.push(msg) },
+    });
+    handle = await channel.start({ session });
+    const u = new URL(channel.url);
+    const { ws, waitFor } = await connect(`ws://127.0.0.1:${u.port}`, 'tkn');
+    for (let i = 0; i < 25; i++) ws.send(JSON.stringify({ kind: 'prompt' }));
+    ws.send(JSON.stringify({ kind: 'prompt', text: 'go' }));
+    await waitFor('view');
+    expect(warns.filter((m) => m.includes('dropped invalid client frame'))).toHaveLength(1);
+    ws.close();
+  });
+
+  it('falls back to an ephemeral port when a non-moxxy process holds its port', async () => {
+    // Occupy a port with a server owned by THIS (non-target) process — the
+    // channel must not signal anything and must bind an ephemeral port.
+    const { createServer } = await import('node:http');
+    const squatter = createServer(() => undefined);
+    await new Promise<void>((resolve) => squatter.listen(0, '127.0.0.1', resolve));
+    const taken = (squatter.address() as { port: number }).port;
+    const warns: string[] = [];
+    try {
+      channel = new WebChannel({
+        port: taken,
+        host: '127.0.0.1',
+        authToken: 'tkn',
+        logger: { warn: (msg) => warns.push(msg) },
+      });
+      handle = await channel.start({ session: fakeSession().session });
+      const bound = Number(new URL(channel.url).port);
+      expect(bound).not.toBe(taken);
+      expect(bound).toBeGreaterThan(0);
+      // The squatter survived (no kill) …
+      expect(squatter.listening).toBe(true);
+      // … the fallback was logged loudly …
+      expect(warns.some((m) => m.includes(`bound ephemeral port ${bound}`))).toBe(true);
+      // … and the channel actually works on the fallback port.
+      const health = await fetch(`http://127.0.0.1:${bound}/v1/health`);
+      expect(health.status).toBe(200);
+    } finally {
+      await new Promise<void>((resolve) => squatter.close(() => resolve()));
+    }
+  });
+
   it('broadcasts a view to multiple connected clients', async () => {
     const { session, emit } = fakeSession();
     const { wsBase, token } = await startOn(session);

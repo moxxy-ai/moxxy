@@ -4,10 +4,14 @@
  * the bootstrap can activate it on the next launch.
  *
  * Pure transport + crypto (node built-ins + global `fetch`) — no electron — so
- * it unit-tests with an injected `fetchImpl`. Authenticity is enforced twice:
- * here (so a bad download fails fast with a clear error) and authoritatively in
- * the bootstrap at load time. The signed manifest binds the bundle via its
- * `sha256`, and only allowlisted hosts are ever contacted.
+ * it unit-tests with an injected `fetchImpl`. Integrity model: the signed
+ * manifest binds the gzipped DOWNLOAD via `sha256` (checked here, before
+ * extraction) and — for manifests that carry a signed per-file `files` map —
+ * binds every extracted file by hash, checked here after extraction (so a bad
+ * stage fails fast, before activation) and again by the bootstrap at every
+ * load. Legacy manifests have no `files` map, so for them only the download
+ * hash is ever verified — their staged tree is NOT re-checked at load time.
+ * Only allowlisted hosts are ever contacted.
  */
 
 import { createHash } from 'node:crypto';
@@ -29,8 +33,10 @@ import {
   compareSemver,
   isCompatible,
   isSafeVersion,
+  safeRelPath,
   setActiveVersion,
   unmarkBad,
+  verifyBundleFiles,
 } from './resolve.js';
 
 /** Only these hosts (and subdomains) are ever fetched — GitHub's API, web, and
@@ -224,15 +230,6 @@ interface BundlePayload {
   files: Record<string, string>;
 }
 
-/** Reject any archive path that is absolute or escapes the bundle root. */
-function safeRelPath(rel: string): string | null {
-  if (!rel || rel.startsWith('/') || rel.includes('\\')) return null;
-  const norm = path.posix.normalize(rel);
-  if (norm.startsWith('..') || norm.startsWith('/') || path.posix.isAbsolute(norm)) return null;
-  if (norm.split('/').some((seg) => seg === '..')) return null;
-  return norm;
-}
-
 /**
  * Download → integrity-check → extract → atomically install. Throws (with a
  * human-readable message the UI surfaces) on any failure; on success the bundle
@@ -313,6 +310,17 @@ export async function downloadAndStage(
     // module"). Skip if the bundle already carries its own package.json.
     const pkgJsonPath = path.join(incoming, 'package.json');
     if (!existsSync(pkgJsonPath)) writeFileSync(pkgJsonPath, ESM_MARKER_PACKAGE_JSON);
+
+    // Defense in depth: re-verify the signed per-file hashes against what
+    // actually landed on disk, so a payload/manifest mismatch (e.g. a build
+    // pipeline signing the wrong tree) is caught HERE with a clear error and
+    // nothing activated — the bootstrap repeats the same check at load time.
+    if (manifest.files) {
+      const failure = verifyBundleFiles(incoming, manifest.files);
+      if (failure) {
+        throw new Error(`staged file failed integrity check: ${failure.file} (${failure.problem})`);
+      }
+    }
 
     // Write the verified manifest LAST so a half-extracted dir never looks valid.
     writeFileSync(path.join(incoming, 'manifest.json'), JSON.stringify(manifest, null, 2));

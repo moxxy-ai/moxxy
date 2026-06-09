@@ -44,6 +44,7 @@ import type {
   PluginsAdminView,
   PendingToolCall,
   PermissionContext,
+  PermissionDecision,
   PermissionResolver,
   PermissionRule,
 } from '@moxxy/sdk';
@@ -397,33 +398,41 @@ export class Session implements ClientSession, SessionRuntime {
  * `~/.moxxy/permissions.json`, that decision short-circuits the
  * resolver's prompt path. Otherwise the resolver runs as usual.
  *
- * The wrapper is a Proxy that intercepts only `check`; every other
- * property (e.g. `abortAll` and any channel-specific helpers) passes
- * straight through to the underlying resolver, so callers reach those
- * methods exactly as before.
+ * The wrapper is a Proxy that intercepts only `check` (and provides the
+ * prompt-free `policyCheck` probe); every other property (e.g. `abortAll`
+ * and any channel-specific helpers) passes straight through to the
+ * underlying resolver, so callers reach those methods exactly as before.
  */
 function wrapWithPolicy(
   inner: PermissionResolver,
   engine: PermissionEngine,
   getToolRule: (name: string) => PermissionRule | undefined,
 ): PermissionResolver {
+  // The policy-only decision: user policy (permissions.json) wins, then the
+  // tool's own declared rule (so a tool marked `allow` is never blocked in
+  // headless runs). Returns null when neither decides — `check` then falls
+  // through to the channel resolver's prompt / deny-by-default path, while
+  // `policyCheck` callers (auto-approving modes) supply their own fallback
+  // so no prompt can ever fire.
+  const policyDecision = (call: PendingToolCall): PermissionDecision | null => {
+    const policy = engine.check(call);
+    if (policy) return policy;
+    return evaluateToolRule(getToolRule(call.name), call);
+  };
   // Use a Proxy so any extra methods on the underlying resolver
   // (`abortAll`, channel-specific helpers) remain accessible — only
-  // `check` is intercepted.
+  // `check`/`policyCheck` are intercepted.
   return new Proxy(inner, {
     get(target, prop, receiver) {
       if (prop === 'check') {
         return async (call: PendingToolCall, ctx: PermissionContext) => {
-          // Precedence: user policy (permissions.json) wins, then the
-          // tool's own declared rule (so a tool marked `allow` is never
-          // blocked in headless runs), then the channel resolver's
-          // prompt / deny-by-default path.
-          const policy = engine.check(call);
-          if (policy) return policy;
-          const toolDecision = evaluateToolRule(getToolRule(call.name), call);
-          if (toolDecision) return toolDecision;
+          const decided = policyDecision(call);
+          if (decided) return decided;
           return target.check(call, ctx);
         };
+      }
+      if (prop === 'policyCheck') {
+        return async (call: PendingToolCall) => policyDecision(call);
       }
       return Reflect.get(target, prop, receiver);
     },
