@@ -14,10 +14,15 @@ import {
 
 describe('mobile client frame builders', () => {
   it('builds composer control frames with workspace context', () => {
-    expect(buildRunTurnFrame({ workspaceId: 'workspace-1', prompt: 'ship it' })).toMatchObject({
+    expect(buildRunTurnFrame({
+      workspaceId: 'workspace-1',
+      prompt: 'ship it',
+      attachments: [{ kind: 'file', name: 'notes.txt', content: 'hello' }],
+    })).toMatchObject({
       type: 'runTurn',
       workspaceId: 'workspace-1',
       prompt: 'ship it',
+      attachments: [{ kind: 'file', name: 'notes.txt', content: 'hello' }],
     });
     expect(buildAbortTurnFrame({ workspaceId: 'workspace-1', turnId: 'turn-1' })).toMatchObject({
       type: 'abortTurn',

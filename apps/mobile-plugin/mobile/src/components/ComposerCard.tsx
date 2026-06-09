@@ -1,5 +1,7 @@
 import { Pressable, Text, TextInput, View } from 'react-native';
+import { summarizeAttachment } from '@/attachments';
 import { buildComposerUiState } from '@/composerUi';
+import type { PromptAttachment } from '@/clientFrames';
 import { ComposerActionMenu } from './ComposerActionMenu';
 import { ContextMeter } from './ContextMeter';
 import { MobileIcon } from './MobileIcon';
@@ -12,6 +14,8 @@ interface ComposerCardProps {
   readonly actionsOpen: boolean;
   readonly voicePhase: 'idle' | 'recording' | 'transcribing' | 'error';
   readonly voiceError: string | null;
+  readonly attachments: ReadonlyArray<PromptAttachment>;
+  readonly attachmentError: string | null;
   readonly readOnly?: boolean;
   readonly usage: Record<string, unknown> | null;
   readonly onTextChange: (value: string) => void;
@@ -20,6 +24,9 @@ interface ComposerCardProps {
   readonly onToggleActions: () => void;
   readonly onGoal: () => void;
   readonly onVoice: () => void;
+  readonly onPickImage: () => void;
+  readonly onPickFile: () => void;
+  readonly onRemoveAttachment: (index: number) => void;
   readonly onToggleAutoApprove: () => void;
   readonly onNewSession: () => void;
   readonly onCompact: () => void;
@@ -33,6 +40,7 @@ export function ComposerCard(props: ComposerCardProps) {
     compacting: props.compacting,
     actionsOpen: props.actionsOpen,
     autoApprove: props.autoApprove,
+    attachmentCount: props.attachments.length,
     voicePhase: props.voicePhase,
     readOnly: props.readOnly,
   });
@@ -53,6 +61,8 @@ export function ComposerCard(props: ComposerCardProps) {
         onToggleAutoApprove={props.onToggleAutoApprove}
         onNewSession={props.onNewSession}
         onCompact={props.onCompact}
+        onPickImage={props.onPickImage}
+        onPickFile={props.onPickFile}
         onCommand={props.onCommand}
       />
 
@@ -70,6 +80,17 @@ export function ComposerCard(props: ComposerCardProps) {
           shadowRadius: ui.frameTone === 'bypass' ? 22 : 14,
         }}
       >
+        {props.attachments.length > 0 ? (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+            {props.attachments.map((attachment, index) => (
+              <AttachmentChip
+                key={`${attachment.kind}:${attachment.name ?? index}:${index}`}
+                attachment={attachment}
+                onRemove={() => props.onRemoveAttachment(index)}
+              />
+            ))}
+          </View>
+        ) : null}
         {ui.bypassActive ? (
           <View
             style={{
@@ -112,6 +133,11 @@ export function ComposerCard(props: ComposerCardProps) {
         {props.voiceError ? (
           <Text className="mt-1 px-1 text-[12px] font-semibold text-red">
             {props.voiceError}
+          </Text>
+        ) : null}
+        {props.attachmentError ? (
+          <Text className="mt-1 px-1 text-[12px] font-semibold text-red">
+            {props.attachmentError}
           </Text>
         ) : null}
 
@@ -195,6 +221,46 @@ export function ComposerCard(props: ComposerCardProps) {
           </Pressable>
         </View>
       </View>
+    </View>
+  );
+}
+
+function AttachmentChip({
+  attachment,
+  onRemove,
+}: {
+  readonly attachment: PromptAttachment;
+  readonly onRemove: () => void;
+}) {
+  const summary = summarizeAttachment(attachment);
+  return (
+    <View
+      style={{
+        alignItems: 'center',
+        backgroundColor: '#f8fafc',
+        borderColor: '#e3e5f0',
+        borderRadius: 999,
+        borderWidth: 1,
+        flexDirection: 'row',
+        gap: 6,
+        maxWidth: '100%',
+        minHeight: 30,
+        paddingLeft: 9,
+        paddingRight: 4,
+      }}
+    >
+      <Text className="text-[11px] font-bold text-muted">{summary.detail}</Text>
+      <Text className="max-w-[150px] text-[12px] font-bold text-text" numberOfLines={1}>
+        {summary.label}
+      </Text>
+      <Pressable
+        accessibilityLabel={`Remove ${summary.label}`}
+        accessibilityRole="button"
+        onPress={onRemove}
+        style={{ alignItems: 'center', height: 24, justifyContent: 'center', width: 24 }}
+      >
+        <MobileIcon name="x" size={13} strokeWidth={2.4} color="#64748b" />
+      </Pressable>
     </View>
   );
 }

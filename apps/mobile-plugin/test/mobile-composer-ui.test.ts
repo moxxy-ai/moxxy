@@ -19,6 +19,21 @@ describe('mobile composer ui model', () => {
     });
   });
 
+  it('allows sending an attachment without forcing a text draft', () => {
+    expect(buildComposerUiState({
+      text: '',
+      attachmentCount: 1,
+      sending: false,
+      compacting: false,
+      actionsOpen: false,
+      autoApprove: false,
+    })).toMatchObject({
+      canSubmit: true,
+      sendTone: 'primary',
+      disabled: false,
+    });
+  });
+
   it('locks the prompt and swaps the primary action while compacting or sending', () => {
     expect(buildComposerUiState({
       text: 'ship it',

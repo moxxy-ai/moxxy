@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { buildAbortTurnFrame, buildRunCommandFrame, buildRunTurnFrame, buildTranscribeFrame } from '../clientFrames';
+import { useAttachments } from './useAttachments';
 import { useVoiceRecorder } from './useVoiceRecorder';
 
 export function useComposer(
@@ -15,6 +16,7 @@ export function useComposer(
   const [text, setText] = useState('');
   const [actionsOpen, setActionsOpen] = useState(false);
   const lastTranscriptionIdRef = useRef<string | null>(null);
+  const attachments = useAttachments({ disabled: options.readOnly === true });
 
   const voice = useVoiceRecorder({
     disabled: options.readOnly === true,
@@ -40,10 +42,15 @@ export function useComposer(
   const submit = useCallback(() => {
     const trimmed = text.trim();
     if (options.readOnly) return;
-    if (!trimmed) return;
-    sendFrame(buildRunTurnFrame({ workspaceId: options.workspaceId, prompt: trimmed }));
+    if (!trimmed && attachments.attachments.length === 0) return;
+    sendFrame(buildRunTurnFrame({
+      workspaceId: options.workspaceId,
+      prompt: trimmed,
+      attachments: attachments.attachments,
+    }));
     setText('');
-  }, [options.readOnly, options.workspaceId, sendFrame, text]);
+    attachments.clearAttachments();
+  }, [attachments, options.readOnly, options.workspaceId, sendFrame, text]);
 
   const abort = useCallback(() => {
     if (!options.activeTurnId) return;
@@ -75,5 +82,11 @@ export function useComposer(
     transcribe,
     voicePhase,
     voiceError,
+    attachments: attachments.attachments,
+    attachmentError: attachments.attachmentError,
+    pickImageAttachment: attachments.pickImage,
+    pickDocumentAttachment: attachments.pickDocument,
+    pasteImageAttachment: attachments.pasteImage,
+    removeAttachment: attachments.removeAttachment,
   };
 }

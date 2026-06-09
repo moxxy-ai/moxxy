@@ -58,6 +58,60 @@ describe('session-backed mobile gateway', () => {
     }
   });
 
+  it('forwards mobile attachments to session.runTurn and permits attachment-only turns', async () => {
+    const session = createFakeSession();
+    const gateway = await createMobileGatewayServer({ session, port: 0 }).start();
+    try {
+      const pairing = await getJson<{ code: string }>(`${gateway.url}/mobile/v1/pairing`);
+      const paired = await postJson<{ token: string }>(`${gateway.url}/mobile/v1/pair`, { code: pairing.code });
+      const socket = new WebSocket(`${gateway.wsUrl}/mobile/v1/ws?token=${paired.token}`);
+      const messages = collectMessages(socket);
+      await waitForFrame(messages, 'snapshot');
+
+      socket.send(JSON.stringify({
+        type: 'runTurn',
+        id: 'mobile-attachment-run',
+        prompt: '',
+        attachments: [
+          {
+            kind: 'image',
+            content: Buffer.from([1, 2, 3]).toString('base64'),
+            mediaType: 'image/png',
+            name: 'screenshot.png',
+          },
+        ],
+      }));
+
+      await expect(waitForEvent(messages, 'user_prompt')).resolves.toMatchObject({
+        type: 'event',
+        event: {
+          type: 'user_prompt',
+          text: 'Analyze the attached files.',
+          attachments: [
+            expect.objectContaining({
+              kind: 'image',
+              mediaType: 'image/png',
+              name: 'screenshot.png',
+            }),
+          ],
+        },
+      });
+      expect(session.prompts).toEqual(['Analyze the attached files.']);
+      expect(session.attachmentsReceived).toEqual([
+        [
+          expect.objectContaining({
+            kind: 'image',
+            mediaType: 'image/png',
+            name: 'screenshot.png',
+          }),
+        ],
+      ]);
+      socket.close();
+    } finally {
+      await gateway.stop();
+    }
+  });
+
   it('broadcasts live assistant chunks and tool lifecycle states over websocket', async () => {
     const session = createFakeSession();
     session.runTurn = async function* runStreamingToolTurn(prompt: string) {
@@ -673,6 +727,7 @@ function createFakeSession() {
     id: 'session-real',
     cwd: '/repo/real',
     prompts: [] as string[],
+    attachmentsReceived: [] as Array<ReadonlyArray<Record<string, unknown>>>,
     contextsBeforeTurn: [] as Array<Array<Record<string, unknown>>>,
     commandsRun: [] as string[],
     transcriptions: [] as Array<{ bytes: number[]; mimeType?: string }>,
@@ -770,10 +825,11 @@ function createFakeSession() {
         return { ok: true, output: `ran ${name}`, steps: [] };
       },
     },
-    async *runTurn(prompt: string) {
+    async *runTurn(prompt: string, opts?: { attachments?: ReadonlyArray<Record<string, unknown>> }) {
       session.contextsBeforeTurn.push([...events]);
       session.prompts.push(prompt);
-      yield emit({ type: 'user_prompt', text: prompt });
+      session.attachmentsReceived.push(opts?.attachments ?? []);
+      yield emit({ type: 'user_prompt', text: prompt, ...(opts?.attachments ? { attachments: opts.attachments } : {}) });
       yield emit({ type: 'assistant_message', content: `real answer: ${prompt}`, stopReason: 'end_turn' });
     },
     setApprovalResolver: () => undefined,

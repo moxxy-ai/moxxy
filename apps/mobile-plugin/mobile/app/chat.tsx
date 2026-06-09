@@ -116,6 +116,8 @@ export default function ChatScreen() {
             actionsOpen={composer.actionsOpen}
             voicePhase={composer.voicePhase}
             voiceError={composer.voiceError}
+            attachments={composer.attachments}
+            attachmentError={composer.attachmentError}
             readOnly={session.readOnly}
             usage={chat.usage}
             onTextChange={composer.setText}
@@ -124,6 +126,9 @@ export default function ChatScreen() {
             onToggleActions={() => composer.setActionsOpen(!composer.actionsOpen)}
             onGoal={() => goals.setOpen(true)}
             onVoice={composer.transcribe}
+            onPickImage={composer.pickImageAttachment}
+            onPickFile={composer.pickDocumentAttachment}
+            onRemoveAttachment={composer.removeAttachment}
             onToggleAutoApprove={() => autoApprove.setAutoApprove(!autoApprove.enabled)}
             onNewSession={sessions.newSession}
             onCompact={compact.requestCompact}

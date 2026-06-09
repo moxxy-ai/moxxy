@@ -6,6 +6,14 @@ interface WorkspaceInput {
 
 export interface RunTurnInput extends WorkspaceInput {
   readonly prompt: string;
+  readonly attachments?: ReadonlyArray<PromptAttachment>;
+}
+
+export interface PromptAttachment {
+  readonly kind: 'stdin' | 'file' | 'image' | 'document' | 'audio';
+  readonly content: string;
+  readonly name?: string;
+  readonly mediaType?: string;
 }
 
 export interface AbortTurnInput extends WorkspaceInput {
@@ -51,6 +59,7 @@ export function buildRunTurnFrame(input: RunTurnInput): Record<string, unknown> 
     id: frameId('run'),
     workspaceId: input.workspaceId,
     prompt: input.prompt,
+    ...(input.attachments && input.attachments.length > 0 ? { attachments: input.attachments } : {}),
   };
 }
 

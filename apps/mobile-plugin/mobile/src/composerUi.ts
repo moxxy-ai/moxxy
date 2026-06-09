@@ -4,6 +4,7 @@ export interface ComposerUiInput {
   readonly compacting: boolean;
   readonly actionsOpen: boolean;
   readonly autoApprove: boolean;
+  readonly attachmentCount?: number;
   readonly voicePhase?: 'idle' | 'recording' | 'transcribing' | 'error';
   readonly readOnly?: boolean;
 }
@@ -25,7 +26,7 @@ export interface ComposerUiState {
 export function buildComposerUiState(input: ComposerUiInput): ComposerUiState {
   const voicePhase = input.voicePhase ?? 'idle';
   const disabled = input.compacting || input.readOnly === true || voicePhase === 'transcribing';
-  const canSubmit = input.text.trim().length > 0 && !disabled;
+  const canSubmit = (input.text.trim().length > 0 || (input.attachmentCount ?? 0) > 0) && !disabled;
   return {
     placeholder: input.readOnly
       ? 'Archived session - select the live session to send.'
