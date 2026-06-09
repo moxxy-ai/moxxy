@@ -123,6 +123,13 @@ Run `pnpm check:deps` to verify after structural changes.
 | Reproduce and isolate a bug | `.claude/agents/bug-hunter.md` |
 | Identify gaps and propose improvements | `.claude/agents/self-improver.md` |
 
+**Skill library.** Beyond these deep workflows, `.claude/skills/` holds ~28 thin,
+task-scoped SKILL.md checklists (dev loop, every extension point, verify/debug
+recipes, process rules) — scan the index at `.claude/skills/README.md` and read
+only the one that matches your task. Claude Code hooks in `.claude/settings.json`
+(see `.claude/hooks/README.md`) backstop the typecheck gate and the changeset
+requirement automatically.
+
 ---
 
 ## Tech guardrails — do this, not that
