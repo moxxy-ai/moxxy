@@ -11,11 +11,22 @@ you introduce or notice gets written down the moment you see it. See AGENTS.md �
 (merged, PR #6). What remains below is what was deliberately deferred, what was blocked
 as unsafe to do mechanically, and debt accrued since.
 
-**Last refreshed:** 2026-06-09 — the "update flows" work (CLI `moxxy update` + TUI version
+**Last refreshed:** 2026-06-09 (second pass) — **journal repair + audit intake.** PRs #113
+and #115 rebuilt this file from a branch cut before #107/#108 merged, silently resurrecting
+two entries those PRs had retired (P1 #2's growth defect, P2 #6 mode-loop scaffolding) and
+deleting the #108 resolved-ledger record. Both retirements are now restored (verified
+against the code at `f13b007`: `chat-log.ts` id-dedup in place, `sdk/src/tool-dispatch.ts`
+composed by both modes). Lesson recorded: **rebase TECH_DEBT.md against main before
+editing it on a long-lived branch — it is the one file where a stale merge silently lies.**
+The same pass folded in the 2026-06-09 full main-branch audit (38 agents, adversarially
+verified) — see the "audit intake" section below; full report:
+`.claude/audits/main-audit-2026-06-09.md`.
+
+Earlier 2026-06-09 — the "update flows" work (CLI `moxxy update` + TUI version
 banner + desktop self-update observability) **retired the self-update typed-error sub-bullet
 of P1 #5** (re-scoped as won't-fix-by-design — see it) and closed the long-standing
 *silent* desktop fall-back-to-the-floor by adding a persisted boot-decision log; the one
-remaining piece (confirming the runtime root cause on a packaged build) is logged as #10.
+remaining piece (confirming the runtime root cause on a packaged build) is logged as #9.
 
 2026-06-08 — re-verified every open item against `HEAD` and folded
 in findings from the desktop-resume / claude-code-provider / plugins-admin work that
@@ -23,6 +34,69 @@ landed after the original audit. All prior "✅ DONE" items were re-checked and 
 still in place (no regressions); they're collapsed into the ledger at the bottom. The same
 pass also **retired the plugins-admin CLI install-hardening + dedup items** (former P2
 #7/#8 — see the ledger) as the first chip-away under the new journal rule.
+
+---
+
+## 2026-06-09 audit intake — confirmed findings awaiting fixes
+
+Every item below survived an adversarial verification pass (an independent agent
+instructed to refute it). Numbered A1–A13 so the existing #1–#10 cross-refs stay stable;
+fold each into P1/P2 or the resolved ledger as fixes land. Severity in brackets.
+Full report incl. the medium/low backlog and refuted findings:
+`.claude/audits/main-audit-2026-06-09.md`.
+
+- **A1 [critical, regression] Packaged desktop main couldn't resolve `@moxxy/ipc-server-ws`**
+  — static import (PR #120) without a `BUNDLED_WORKSPACE_DEPS` entry → MODULE_NOT_FOUND at
+  boot in every packaged 0.0.33 build + the hot-update bundle re-poisons self-update.
+  **FIX IN FLIGHT: PR #126** (bundles the package + guarded dynamic import). Do not publish
+  the `desktop-v0.0.33` draft release until rebuilt.
+- **A2 [high, security] Self-update bootstrap never verifies the bytes it executes** — the
+  signed sha256 covers only the gzipped download, checked at download time
+  (`desktop-host/src/app-update/stager.ts:276-280`); `resolveActiveBundleDetailed`
+  (`resolve.ts:217-238`) hashes nothing at load time, while comments claim it does. An
+  unprivileged write under `<userData>/app/` = persistent main-process code execution.
+- **A3 [high, security] Goal-mode auto-approve bypasses user deny rules** —
+  `mode-goal/src/goal-loop.ts:63-71` replaces the whole wrapped resolver, discarding the
+  `PermissionEngine` deny check (`core/src/session.ts:206-210`); docstring claims the
+  opposite. No deny-under-goal test exists.
+- **A4 [high, security] Webhook `allowedTools` "sandbox" is not enforced** — descriptions
+  promise isolation (`plugin-webhooks/src/tools.ts:107-109,607-608`) but
+  `cli/src/setup/webhook-runner.ts:16-27` runs fires on the live session with no tool
+  filter, with attacker-controllable `{body}`/`{header.*}` interpolation.
+- **A5 [high, security] `browser_session.goto` has no SSRF guard** — scheme check only
+  (`browser-session.ts:35`, sidecar `dispatch.ts:85`) while the comment claims parity with
+  `web_fetch`'s `assertPublicUrl`; metadata/private IPs reachable + `text`/`html`/`eval`.
+- **A6 [high, security-adjacent] `provider_test` takes the raw API key as model-visible
+  tool input** (`plugin-provider-admin/src/index.ts:82-85`) — into model context + session
+  logs; should take a vault key name resolved via `ctx.getSecret`.
+- **A7 [high, stability] channel-web kills whatever holds its port** — `freeTcpPort`
+  (`plugin-channel-web/src/channel.ts:31-74`) lsof+SIGKILLs unidentified PIDs on
+  EADDRINUSE; default port 4040 is ngrok's local-UI port; web surface co-attaches by
+  default. The runner has a sibling kill-by-4040 in its protocol-mismatch recovery.
+- **A8 [high, stability] channel-web WS frames are not schema-validated** — `onMessage`
+  casts `JSON.parse` to `ClientFrame` (`channel.ts:357-375`); a malformed frame from a
+  tokenized (internet-tunneled) client crashes the whole process (reproduced). Add zod +
+  last-resort `unhandledRejection`/`uncaughtException` handlers in long-lived entry points.
+- **A9 [high, stability] CLI probe/light-boot sessions leak daemons** — three paths
+  (`run-tui.ts:228`, `bin.ts:236`, `run-channel.ts:34`) boot sessions without
+  `skipInitHooks` and never close them; an orphaned probe steals the webhooks port and
+  duplicate scheduler pollers race. `start-registered-channel.ts:41-48` shows the rule.
+- **A10 [high, stability] `/new` on attached clients is cosmetic and bricks the mirror** —
+  no reset RPC in `runner/src/protocol.ts`; TUI/Telegram clear only the local mirror
+  (`remote-session.ts:254-258`), runner context survives, and post-clear seq-contiguity
+  (`core/src/events/log.ts:87`) rejects all further events. Local `/new` also keeps
+  appending to the same JSONL → wiped history resurrects on `--resume`. Needs a
+  `session.reset` RunnerMethod.
+- **A11 [high, stability] `afterWorkflow` triggers have no cycle detection** — mutual
+  A↔B triggers loop forever (`cli/src/setup/workflows.ts:184-188`), spawning subagents and
+  burning provider tokens each round; `inFlight` clears before the next completion lands.
+- **A12 [high, stability] `safe-publish.mjs` publish-order/tombstone hazard** — readdir
+  order publishes cli before sdk with an exact `@moxxy/sdk` pin; a tombstone bump after
+  cli ships leaves it pinned to a version that will never exist (npm history shows real
+  tombstone gaps). Topo-order + re-pin dependents.
+- **A13 [high, PoC-scoped] default `moxxy mobile` prints an unconnectable QR** — binds
+  `127.0.0.1` (`plugin-channel-mobile/src/channel.ts:66`) but the QR advertises the LAN IP
+  (`channel.ts:115`); the README documents this exact flow as working.
 
 ---
 
@@ -43,32 +117,38 @@ yet compile against a bare `RemoteSession`. Retype the handler params to the min
 work, not standalone. (The `RemoteSession` casts at `desktop-host/src/ipc/session.ts:105`
 and `ipc/shared.ts:164` are the same seam — see P3.)
 
-### 2. Desktop persists every conversation twice — pick one source of truth — 🔴 NEW
-**Found 2026-06-08 (the "NDJSON-vs-replay redundancy" follow-up, now characterized).**
-Every committed event is written to disk in **two** independent stores:
-- runner session log — `~/.moxxy/sessions/<id>.jsonl`, replayed on attach
-  (`runner/src/server.ts:184`; `desktop-host/src/runner-supervisor.ts:79,435`);
+### 2. Desktop persists every conversation twice — pick one source of truth — ⚠️ PARTIALLY DONE
+**Found 2026-06-08 (the "NDJSON-vs-replay redundancy" follow-up).** Every committed event
+is written to disk in **two** independent stores:
+- runner session log — `~/.moxxy/sessions/<id>.jsonl`, replayed in full on every attach
+  (`runner/src/server.ts:184` — always replays from seq 0);
 - desktop NDJSON chat-log — `~/.moxxy/chats/<workspaceId>.jsonl`
-  (`desktop-host/src/chat-log.ts:30-33`), loaded by
-  `apps/desktop/src/lib/chat-store/store.ts:187`.
+  (`desktop-host/src/chat-log.ts`), the renderer's windowed mirror.
 
-Two concrete defects fall out of the redundancy:
-- **Desync window on `/new`.** Reset wipes both via two separate IPC calls
-  (`CommandPalette.tsx:91-92`: `chatStore.clear()` then `session.newSession`). If the
-  second fails or the app dies between them, the renderer is cleared but the runner is
-  still primed → old context resurrects on the next turn/restart.
-- **Unbounded NDJSON growth.** On restart `seenIds` starts empty; the runner replays its
-  full history on attach; each replayed event misses `seenIds`, so `dispatch` re-appends
-  it to the NDJSON log (`store.ts:317-326`). `loadOlder` dedups only on read
-  (`store.ts:240-243`), so the on-disk file bloats by a full copy every restart.
+**Fixed (2026-06-08, PR #107):** the **unbounded NDJSON growth** defect. Because the runner
+replays the full history on every restart and the renderer re-appends each replayed event,
+the NDJSON log used to grow by a complete copy of the conversation per restart — and since
+`loadSegment`'s cursor is a line index, the doubled file also corrupted scroll-up
+pagination. `appendEvents` is now **idempotent by event id** (lazy file-path-keyed id cache),
+so the log holds one copy and its cursors stay stable. +5 chat-log tests.
 
-**Action:** decide the single source of truth. The runner already persists + replays the
-full history, so the desktop NDJSON store is arguably entirely redundant — either drop it
-and read from the runner replay, or stop re-persisting replayed events and make `/new` a
-single atomic reset. **Whichever way: this path has zero tests** — no `store.test.ts`, and
-`resetSession`/`newSession`/`deleteSession` in `runner-supervisor.ts` are uncovered. Add
-tests for append-on-dispatch, the restart double-append, `loadOlder` dedup, and the
-`/new` dual-clear as part of the fix.
+**Remaining (the real decision):** the redundancy itself. The runner replay already
+delivers the complete history on every attach, so the desktop NDJSON store is arguably
+entirely redundant — dropping it (read history from the runner replay only) would also kill
+the redundant on-restart append IPC and the `/new` desync below. Counter-risk: legacy
+localStorage→NDJSON-migrated chats may live ONLY in NDJSON, not in any runner session log,
+so a naive drop loses early-adopter history. **Needs a product call + desktop-app
+verification — not a mechanical change.** Note (2026-06-09): the shared client layer (PR
+#120) wires the same append-on-dispatch persistence into EVERY connected client (WS/mobile
+included, `client-core/src/chat-store/store.ts:325`), so multi-client setups now lean even
+harder on the host-side id-dedup cache — one more reason to make the host the single writer.
+
+**Also remaining:** the **`/new` desync window**. The renderer still clears its store before
+the runner reset confirms; if the reset fails or the app dies between them, the two desync
+and old context resurrects. Make `/new` reset the runner FIRST and only clear the
+renderer/NDJSON on success (or a single atomic IPC). **This path still has zero tests** —
+no `store.test.ts`; `resetSession`/`newSession`/`deleteSession` in `runner-supervisor.ts`
+are uncovered.
 
 ---
 
@@ -106,31 +186,19 @@ raw throws are internal registry/broker invariants that should stay plain):
   built-ins only) so it can be baked verbatim into the immutable bootstrap — importing the
   SDK error types there would break that constraint. The throw *messages* are already
   surfaced to the renderer as `error` strings, and the new boot-log now records a structured
-  reject **reason** per gate (see #10), which covers the diagnosability this bullet was after.
-
-### 6. Mode loop scaffolding is copy-pasted across mode-default and mode-goal — 🔴 NEW
-**Found 2026-06-08.** The mode-slimming PR (#93) collapsed the mode list but left the
-per-iteration loop duplicated: `mode-default/src/turn-iterator.ts:168-272` vs
-`mode-goal/src/goal-loop.ts:333-436`. `executeToolUses` differs only in comments/whitespace;
-`emitRequestsAndDetectStuck` differs only in error strings; the provider-request/response +
-overflow/reactive-compaction block (`turn-iterator.ts:67-127` vs `goal-loop.ts:128-182`)
-is near-identical. Critically, the **orphan-tool-result / stuck-loop fix** (load-bearing —
-the comments literally say "See the same fix in mode-tool-use") is copy-pasted, so any fix
-must be hand-mirrored. **Action:** hoist the shared iteration scaffolding into an SDK
-`mode-helpers` building block (per the repo's "prefer swappable blocks" guideline) so both
-modes compose it. **Severity med.**
+  reject **reason** per gate (see #9), which covers the diagnosability this bullet was after.
 
 ---
 
 ## P3 — Low / per-package nits
 
-### 7. plugin-memory caches embeddings via a parallel `EmbeddingIndex` — OPEN
+### 6. plugin-memory caches embeddings via a parallel `EmbeddingIndex` — OPEN
 **Cross-cut 1.11.** `plugin-memory/src/store.ts:6,88-96` still uses its own `EmbeddingIndex`
 cache instead of the SDK `CachedEmbeddingProvider`. **Deferred:** now that the atomic-write +
 recall-race bugs are fixed, this is pure dedup of caching logic over a subtle mutex-guarded
 recall path — low value, real risk. Fold in only if the recall path is touched anyway.
 
-### 8. Channel→core prod dependency — OPEN
+### 7. Channel→core prod dependency — OPEN
 `plugin-cli`/`plugin-telegram` keep real `@moxxy/core` prod imports (`savePreferences`,
 `clearUsageStats`, `newTurnId`, `loadUsageStats`, `PermissionEngine` — e.g.
 `plugin-cli/src/session/run-slash.ts:2`, `plugin-telegram/src/channel/turn-runner.ts:2`).
@@ -138,7 +206,7 @@ To fully sever channel→core, hoist these provider-neutral helpers into `@moxxy
 (cross-cut 2.14). (`plugin-subagents`/`plugin-view` keep core as a **dev**Dep only — their
 `*.test.ts` import core; correct, leave them.)
 
-### 9. Small casts / hardcoded values — NEW, low
+### 8. Small casts / hardcoded values — NEW, low
 - **Type the exec allowlist.** `plugin-security/src/broker.ts:343` reads
   `(caps as unknown as { commands? }).commands` — a forward-compat field not on
   `CapabilitySpec`. It gates the **exec allowlist**, so it's worth typing properly on
@@ -152,7 +220,7 @@ To fully sever channel→core, hoist these provider-neutral helpers into `@moxxy
   `plugin-provider-claude-code/src/index.ts:11`, so the subscription provider inherits the
   API-key provider's model set verbatim. Drift-prone; should be derived/config.
 
-### 10. Desktop self-update "downloads but reverts" — ROOT-CAUSED + FIXED, pending on-build verify
+### 9. Desktop self-update "downloads but reverts" — ROOT-CAUSED + FIXED, pending on-build verify
 **Found + fixed 2026-06-09.** Root-caused from the on-disk state on a real failing machine
 (no boot-log needed): in `<userData>/app/`, `bad.json` had poisoned **every** staged version
 (0.0.19/0.0.25/0.0.28/0.0.29) and `confirmed.json` had **never** existed — even 0.0.28, which
@@ -168,7 +236,7 @@ on a real two-version update that 0.0.30+ now sticks (the fix lives in the *over
 a user on the broken 0.0.28 floor recovers simply by updating to a fixed release). Once verified,
 consider dropping the now-redundant renderer-heartbeat path. **Severity med** (needs a build to close).
 
-### 11. Shared-client extraction + WebSocket bridge — follow-ups — ⚠️ PARTIALLY DONE
+### 10. Shared-client extraction + WebSocket bridge — follow-ups — ⚠️ PARTIALLY DONE
 **Introduced 2026-06-09** by the cross-platform client work (new `@moxxy/client-core`,
 `@moxxy/client-platform-web`, `@moxxy/client-transport-ws`, `@moxxy/ipc-server-ws`,
 `@moxxy/design-tokens`, `@moxxy/plugin-channel-mobile`; `apps/mobile` Expo PoC).
@@ -195,6 +263,15 @@ consider dropping the now-redundant renderer-heartbeat path. **Severity med** (n
 Collapsed from full write-ups; each was re-checked against `HEAD` and confirmed — no
 regressions. Restore the detail from git history (`TECH_DEBT.md` @ `b014c3a`) if needed.
 
+- **Mode loop scaffolding hoisted to the SDK** (2026-06-08, PR #108, was P2 #6). The
+  load-bearing stuck-loop orphan-result fix + the tool-batch abort path were copy-pasted
+  across `mode-default` and `mode-goal` (a fix to one had to be hand-mirrored). Both now
+  compose `executeToolUses` + `emitRequestsAndDetectStuck` from `@moxxy/sdk`
+  (`tool-dispatch.ts`), parameterized by a `StuckLoopReport` for each mode's wording +
+  goal's `goal_stuck` event. Pure refactor, no behavior change; mode-default 9/9 +
+  mode-goal 10/10 green. (The outer loop bodies stay per-mode by design — different
+  strategies; the residual near-identical overflow/reactive-compaction + provider-bookend
+  blocks are noted as low in the 2026-06-09 audit.)
 - **plugins-admin CLI install hardening + dedup** (2026-06-08, was P2 #7/#8). The imperative
   `installPluginPackage`/`removePluginPackage` now reject a flag-like spec via
   `assertSafeNpmSpec` (a leading `-` is argument injection) — and crucially still accept the
