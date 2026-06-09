@@ -1,5 +1,19 @@
 # @moxxy/plugin-cli
 
+## 0.1.2
+
+### Patch Changes
+
+- f3c798f: `/new` now truly resets the session everywhere (audit A10). New `session.reset` runner RPC (protocol v3) + optional `SessionLike.reset()` capability: the runner aborts in-flight turns and clears its authoritative event log; the log's new `EventLog.onClear` listeners broadcast a `session.reset` notification so every attached mirror clears in lockstep (re-arming seq-0 ingest instead of silently rejecting all further events) and truncate the persisted session JSONL so wiped history can't resurrect on `--resume` — fixing the same resurrection bug for local `/new`. The TUI and Telegram `/new` paths call `reset()` (falling back to `log.clear()` when the capability is absent) and report an error instead of claiming "history cleared" when the reset RPC fails.
+- Updated dependencies [0326fb0]
+- Updated dependencies [2e4bc37]
+- Updated dependencies [f3c798f]
+- Updated dependencies [0326fb0]
+  - @moxxy/core@0.0.10
+  - @moxxy/sdk@0.8.0
+  - @moxxy/chat-model@0.0.10
+  - @moxxy/plugin-mcp@0.0.10
+
 ## 0.1.1
 
 ### Patch Changes

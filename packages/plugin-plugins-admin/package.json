@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-plugins-admin",
   "private": true,
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Model-callable plugin admin: install_plugin shells out to npm into ~/.moxxy/plugins, then hot-reloads. Disable to lock the plugin set.",
   "type": "module",
   "main": "./dist/index.js",

@@ -1,5 +1,28 @@
 # @moxxy/plugin-channel-mobile
 
+## 0.1.1
+
+### Patch Changes
+
+- f297da0: `moxxy mobile` no longer prints an unconnectable QR in the default config. The server binds loopback by default (deliberate security posture, unchanged) but the QR advertised the machine's LAN IP — an address nothing was listening on, so a real phone got connection refused. The connect URL now advertises exactly what is reachable: the loopback default prints `ws://127.0.0.1:<port>` (works for simulators on the same machine) plus a hint that a real device needs the explicit LAN opt-in or a tunnel; a wildcard bind (`0.0.0.0`/`::`) advertises the LAN IP; an explicit bind host is advertised verbatim; the tunnel path is unchanged. Also adds `MOXXY_MOBILE_HOST` (env → `channels.mobile.bindHost` config → loopback default, matching the channel's token/tunnel convention) and updates `apps/mobile/README.md` to document simulator-via-loopback vs phone-via-opt-in/tunnel.
+- 0326fb0: Harden the desktop/mobile WebSocket bridge (2026-06-09 audit, wave 5):
+
+  - Reject browser-Origin upgrades unless allow-listed (`allowedOrigins`, default deny; native clients are unaffected).
+  - Move the pairing token out of the URL: `Authorization: Bearer` or a `Sec-WebSocket-Protocol` bearer entry are the supported presentations; the legacy `?t=` query is opt-in (`allowQueryToken`, kept on only for the mobile channel's already-paired apps). The QR still carries the token, but the app strips it before connecting.
+  - Token rotation end to end: `rotateChannelToken` (sdk, persisted with `createdAt` + 90-day staleness warning), `rotateAuthToken` on the live server (drops existing connections), `rotateWsBridgeToken` (desktop) and `MobileChannel.rotateToken`.
+  - Backpressure + lifecycle: connection cap (default 8), slow-reader eviction (backlog above 4 MB past a 10s grace terminates the socket), and `close()` now terminates clients so desktop quit doesn't burn its shutdown timeout.
+  - `WsRpcClient` no longer replays abandoned requests after reconnect (outbox cleared, queued requests rejected on disconnect) and stops reconnecting after a capped exponential backoff, surfacing a terminal `disconnected` status.
+  - Hygiene: empty `MOXXY_WS_PORT` no longer binds an ephemeral port, the server reports the actually-bound port, and the desktop bridge reuses the shared sdk token persistence (userData location kept).
+
+- Updated dependencies [0326fb0]
+- Updated dependencies [2e4bc37]
+- Updated dependencies [f3c798f]
+- Updated dependencies [0326fb0]
+  - @moxxy/sdk@0.8.0
+  - @moxxy/ipc-server-ws@0.1.1
+  - @moxxy/plugin-channel-web@0.0.10
+  - @moxxy/desktop-ipc-contract@0.2.1
+
 ## 0.1.0
 
 ### Minor Changes

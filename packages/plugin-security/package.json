@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-security",
   "private": true,
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Pluggable capability isolation for moxxy tool calls. Off by default; opt-in at init or per-plugin via declared CapabilitySpec on defineTool().",
   "type": "module",
   "main": "./dist/index.js",
