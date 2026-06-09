@@ -44,7 +44,12 @@ import {
   type LoopbackServer,
 } from '@moxxy/desktop-host';
 import type { DeepLinkPayload } from '@moxxy/desktop-ipc-contract';
-import { WebSocketCommandBus, startWsBridge } from '@moxxy/ipc-server-ws';
+// Value imports of @moxxy/ipc-server-ws are lazy + guarded (see the bridge
+// block below): the bridge is opt-in, and a top-level static import would make
+// boot itself depend on the module resolving — the exact failure that bricked
+// the 0.0.33 build when the package wasn't in BUNDLED_WORKSPACE_DEPS.
+// Type-only imports are erased at build time and carry no such risk.
+import type { WebSocketCommandBus } from '@moxxy/ipc-server-ws';
 import type { TransportServer } from '@moxxy/runner';
 
 import { resolveWsBridgeConfig } from './ws-bridge.js';
@@ -769,9 +774,20 @@ app.whenReady().then(async () => {
   // clients / the mobile app) is opt-in via MOXXY_WS_BRIDGE; when enabled, the
   // SAME handler bodies are registered onto it too. Register handlers BEFORE the
   // server starts accepting so an early client connection sees a populated bus.
+  // The bridge module is lazy-imported and fully guarded (the shell-updater
+  // pattern): the bridge is optional, so a module that fails to load must
+  // degrade to "bridge off", never take down the app.
   const electronBus = new ElectronCommandBus();
   const wsConfig = resolveWsBridgeConfig(app.getPath('userData'));
-  const wsBus = wsConfig ? new WebSocketCommandBus() : null;
+  let wsBridge: typeof import('@moxxy/ipc-server-ws') | null = null;
+  if (wsConfig) {
+    try {
+      wsBridge = await import('@moxxy/ipc-server-ws');
+    } catch (e) {
+      console.error('[moxxy] WebSocket bridge unavailable (module failed to load):', e);
+    }
+  }
+  const wsBus: WebSocketCommandBus | null = wsBridge ? new wsBridge.WebSocketCommandBus() : null;
   registerIpcHandlers(wsBus ? [electronBus, wsBus] : [electronBus], pool, desks, {
     update: {
       publicKeyPem: BUNDLED_UPDATE_PUBLIC_KEY,
@@ -780,10 +796,10 @@ app.whenReady().then(async () => {
       manifestUrl: process.env.MOXXY_UPDATE_URL,
     },
   });
-  if (wsBus && wsConfig) {
+  if (wsBridge && wsBus && wsConfig) {
     wsEventBus.addSink(wsBus);
     try {
-      wsServer = await startWsBridge(wsBus, wsConfig);
+      wsServer = await wsBridge.startWsBridge(wsBus, wsConfig);
       console.log(`[moxxy] WebSocket bridge listening on ${wsServer.address}`);
     } catch (e) {
       console.error('[moxxy] WebSocket bridge failed to start:', e);

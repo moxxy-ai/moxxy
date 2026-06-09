@@ -17,6 +17,7 @@ const BUNDLED_WORKSPACE_DEPS = [
   '@moxxy/plugin-stt-whisper-codex',
   '@moxxy/desktop-ipc-contract',
   '@moxxy/desktop-host',
+  '@moxxy/ipc-server-ws',
 ];
 
 /**
@@ -27,8 +28,13 @@ const BUNDLED_WORKSPACE_DEPS = [
  * required — keep it out of the bundle (its NAPI-RS loader reassigns
  * `commonjsRequire`, which Rollup can't inline) and let it resolve (or
  * gracefully fail) at runtime.
+ *
+ * `bufferutil` / `utf-8-validate` are `ws`'s optional native accelerators
+ * (`ws` rides in via the bundled `@moxxy/ipc-server-ws`). `ws` requires them
+ * inside try/catch and falls back to its JS implementations, so leaving them
+ * external-and-absent in the packaged app is safe and intended.
  */
-const EXTERNAL_NATIVE = ['@napi-rs/keyring'];
+const EXTERNAL_NATIVE = ['@napi-rs/keyring', 'bufferutil', 'utf-8-validate'];
 
 /**
  * electron-vite manages three build targets (main / preload / renderer)
