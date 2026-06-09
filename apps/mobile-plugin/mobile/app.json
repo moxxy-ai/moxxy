@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "Moxxy Mobile Gateway",
+    "slug": "moxxy-mobile-gateway",
+    "scheme": "moxxy-mobile",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow Moxxy Mobile Gateway to access your microphone for voice input."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Moxxy Mobile Gateway to scan the pairing QR code from your Mac."
+        }
+      ]
+    ]
+  }
+}
