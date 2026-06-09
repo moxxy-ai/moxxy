@@ -27,6 +27,7 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
+    "@moxxy/core": "workspace:*",
     "@moxxy/desktop-ipc-contract": "workspace:*",
     "@moxxy/plugin-stt-whisper-codex": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
@@ -35,7 +36,6 @@
     "officeparser": "~5.1.1"
   },
   "devDependencies": {
-    "@moxxy/core": "workspace:*",
     "@moxxy/testing": "workspace:*",
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",

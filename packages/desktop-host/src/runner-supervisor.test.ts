@@ -2,6 +2,8 @@ import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { EventEmitter } from 'node:events';
+import type { ChildProcess } from 'node:child_process';
 
 import { RunnerSupervisor } from './runner-supervisor';
 
@@ -92,7 +94,74 @@ describe('RunnerSupervisor', () => {
     // The reconnect backoff is 2000ms; stop should bail well before.
     expect(Date.now() - start).toBeLessThan(2500);
   });
+
+  it('restart() waits for the child to exit before letting the loop respawn', async () => {
+    const sup = new RunnerSupervisor(path.join(tmp, 'serve.sock'));
+    const child = makeFakeChild();
+    // Reach into the private field — the supervisor only ever assigns the
+    // child from its own spawn path, and spawning a real `moxxy serve` in a
+    // unit test is exactly what we're avoiding.
+    (sup as unknown as { child: ChildProcess | null }).child = child.proc;
+
+    let settled = false;
+    const done = sup.restart().then(() => {
+      settled = true;
+    });
+
+    // restart() must NOT resolve while the child is still alive: a bare
+    // kill() + immediate respawn races the old process for the socket
+    // (EADDRINUSE) — the bug this test pins down.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(child.signals).toContain('SIGTERM');
+    expect(settled).toBe(false);
+
+    child.exit(0);
+    await done;
+    expect(
+      (sup as unknown as { child: ChildProcess | null }).child,
+    ).toBeNull();
+  });
+
+  it('restart() resolves immediately when the child has already exited', async () => {
+    const sup = new RunnerSupervisor(path.join(tmp, 'serve.sock'));
+    const child = makeFakeChild();
+    child.exit(0);
+    (sup as unknown as { child: ChildProcess | null }).child = child.proc;
+    await sup.restart();
+    expect(
+      (sup as unknown as { child: ChildProcess | null }).child,
+    ).toBeNull();
+  });
 });
+
+/** A minimal ChildProcess stand-in: records kill() signals and exposes a
+ *  deterministic exit() the test triggers explicitly. */
+function makeFakeChild(): {
+  proc: ChildProcess;
+  signals: string[];
+  exit: (code: number) => void;
+} {
+  const signals: string[] = [];
+  const emitter = new EventEmitter() as EventEmitter & {
+    exitCode: number | null;
+    signalCode: NodeJS.Signals | null;
+    kill: (signal?: NodeJS.Signals | number) => boolean;
+  };
+  emitter.exitCode = null;
+  emitter.signalCode = null;
+  emitter.kill = (signal: NodeJS.Signals | number = 'SIGTERM') => {
+    signals.push(String(signal));
+    return true;
+  };
+  return {
+    proc: emitter as unknown as ChildProcess,
+    signals,
+    exit: (code: number) => {
+      emitter.exitCode = code;
+      emitter.emit('exit', code, null);
+    },
+  };
+}
 
 async function waitFor(condition: () => boolean, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;

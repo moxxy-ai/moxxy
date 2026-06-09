@@ -1,5 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { defineTool, z, type ToolDef } from '@moxxy/sdk';
+import { mkdir, rm } from 'node:fs/promises';
+import path from 'node:path';
+import { defineTool, moxxyPath, writeFileAtomic, z, type ToolDef } from '@moxxy/sdk';
 import type { WebhookConfigStore } from './config.js';
 import { describeTrigger } from './describe.js';
 import type { WebhookDispatcher } from './runner.js';
@@ -8,7 +10,6 @@ import {
   filterRuleSchema,
   type WebhookFilter,
   type WebhookStore,
-  type WebhookTrigger,
   type WebhookVerification,
 } from './store.js';
 import { isTunnelCliAvailable, startTunnel, type RunningTunnel } from './tunnel.js';
@@ -29,10 +30,42 @@ export interface WebhooksToolDeps {
   readonly config: WebhookConfigStore;
   readonly dispatcher: WebhookDispatcher;
   readonly tunnelHandle: { current: RunningTunnel | null };
+  /**
+   * Where generated secrets are written for out-of-band pickup by the
+   * user. Override — primarily for tests. Default: `~/.moxxy/webhooks-secrets/`.
+   */
+  readonly secretsDir?: string;
+}
+
+/** Owner-only directory where generated webhook secrets are written for the user. */
+export function defaultWebhookSecretsDir(): string {
+  return moxxyPath('webhooks-secrets');
 }
 
 function generateSecret(): string {
   return randomBytes(32).toString('hex');
+}
+
+/**
+ * Secrets never travel through the model's context (tool results land in
+ * the session log and persist). The tool result carries only this masked
+ * preview; the full value goes to an owner-only (0600) file the USER reads
+ * directly.
+ */
+function maskSecret(secret: string): string {
+  return `${secret.slice(0, 4)}…`;
+}
+
+/** Where a given trigger's generated secret is parked for user pickup. */
+function secretFilePath(dir: string, triggerName: string): string {
+  return path.join(dir, `${triggerName}.secret`);
+}
+
+async function writeSecretFile(dir: string, triggerName: string, secret: string): Promise<string> {
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  const file = secretFilePath(dir, triggerName);
+  await writeFileAtomic(file, `${secret}\n`, { mode: 0o600 });
+  return file;
 }
 
 /** Input shape mirrors the store schema but lets the agent omit `secret`
@@ -99,6 +132,7 @@ function fullUrl(publicUrl: string | undefined, triggerId: string): string | nul
 
 export function buildWebhookTools(deps: WebhooksToolDeps): ReadonlyArray<ToolDef> {
   const { store, config, dispatcher, tunnelHandle } = deps;
+  const secretsDir = deps.secretsDir ?? defaultWebhookSecretsDir();
 
   return [
     defineTool({
@@ -118,7 +152,11 @@ export function buildWebhookTools(deps: WebhooksToolDeps): ReadonlyArray<ToolDef
         'webhook documentation. Use `scheme:"stripe"` for systems that sign ' +
         '`<timestamp>.<body>` and pack it into a comma-separated header.\n\n' +
         'For `bearer`/`hmac`, if `secret` is omitted a strong 32-byte random secret is ' +
-        'generated and returned ONCE in `secretIssued` — record it now.\n\n' +
+        'generated. For security the secret is NEVER returned here (tool results persist ' +
+        'in session logs): the result carries `generatedSecret` with a masked preview plus ' +
+        'the path of an owner-only file holding the full value — relay that path so the ' +
+        'USER opens it themselves and pastes the secret into the external system. Do not ' +
+        'read the file into the conversation.\n\n' +
         '`filters` decides whether a verified delivery actually fires the prompt:\n' +
         '  • `include` — fire only if at least one rule matches (or empty = fire on everything)\n' +
         '  • `exclude` — never fire if any rule matches\n' +
@@ -169,14 +207,25 @@ export function buildWebhookTools(deps: WebhooksToolDeps): ReadonlyArray<ToolDef
         } else {
           guidance.push(`Paste this URL into the external system's webhook config: ${url}`);
         }
+        let generatedSecret: { masked: string; path: string } | null = null;
         if (secretIssued) {
+          const file = await writeSecretFile(secretsDir, trigger.name, secretIssued);
+          generatedSecret = { masked: maskSecret(secretIssued), path: file };
           guidance.push(
-            "A secret was generated for this trigger — paste it into the external " +
-              "system's webhook secret field. It will NOT be shown again: record it now. " +
-              `Secret: ${secretIssued}`,
+            `A strong secret was generated for this trigger (preview: ${generatedSecret.masked}). ` +
+              'For security it is NOT included in this response — the full value was written to ' +
+              `${file} (owner-only file). Tell the user to open that file themselves (e.g. ` +
+              `\`cat ${file}\`) and paste the value into the external system's webhook secret ` +
+              'field, then delete the file once configured. Do NOT read the file into the conversation.',
           );
         }
-        return { trigger: describeTrigger(trigger, cfg.publicUrl), secretIssued, guidance };
+        const storeWarning = await store.loadWarning();
+        return {
+          trigger: describeTrigger(trigger, cfg.publicUrl),
+          generatedSecret,
+          guidance,
+          ...(storeWarning ? { storeWarning } : {}),
+        };
       },
     }),
 
@@ -192,10 +241,12 @@ export function buildWebhookTools(deps: WebhooksToolDeps): ReadonlyArray<ToolDef
         const triggers = await store.list();
         const cfg = await config.get();
         const filtered = includeDisabled ? triggers : triggers.filter((t) => t.enabled);
+        const storeWarning = await store.loadWarning();
         return {
           publicUrl: cfg.publicUrl ?? null,
           listener: { host: cfg.host, port: cfg.port },
           triggers: filtered.map((t) => describeTrigger(t, cfg.publicUrl)),
+          ...(storeWarning ? { storeWarning } : {}),
         };
       },
     }),
@@ -208,7 +259,15 @@ export function buildWebhookTools(deps: WebhooksToolDeps): ReadonlyArray<ToolDef
         "the source's dashboard, otherwise it'll keep retrying.",
       inputSchema: z.object({ id: z.string().min(1) }),
       permission: { action: 'prompt' },
-      handler: async ({ id }) => ({ deleted: await store.delete(id) }),
+      handler: async ({ id }) => {
+        const trigger = await store.get(id);
+        const deleted = await store.delete(id);
+        if (deleted && trigger) {
+          // Best-effort cleanup of the out-of-band secret file, if one was issued.
+          await rm(secretFilePath(secretsDir, trigger.name), { force: true }).catch(() => {});
+        }
+        return { deleted };
+      },
     }),
 
     defineTool({
@@ -300,6 +359,7 @@ export function buildWebhookTools(deps: WebhooksToolDeps): ReadonlyArray<ToolDef
           cliAvailable: { cloudflared: cloudflaredOk, ngrok: ngrokOk },
           triggerCount: triggers.length,
           enabledCount: triggers.filter((t) => t.enabled).length,
+          ...(await store.loadWarning().then((w) => (w ? { storeWarning: w } : {}))),
         };
       },
     }),
@@ -559,10 +619,12 @@ async function buildSetupGuide(deps: SetupGuideDeps): Promise<{
       'and they will paste it into the source.',
     recordAs: 'verification.secret',
     hints: [
-      'Omit `secret` in `webhook_create` to auto-generate. The response includes ' +
-        '`secretIssued` exactly once — surface it to the user immediately and tell them ' +
-        'to record it; we will not show it again.',
-      'Never log the secret. Never echo it back in subsequent messages.',
+      'Omit `secret` in `webhook_create` to auto-generate. The full value is written to ' +
+        'an owner-only file (the response\'s `generatedSecret.path`) instead of being ' +
+        'returned — relay the path and have the USER open the file and paste the value ' +
+        'into the external system themselves.',
+      'Never log the secret. Never read the secret file into the conversation or echo ' +
+        'the value in messages.',
     ],
   });
 
@@ -624,10 +686,11 @@ async function buildSetupGuide(deps: SetupGuideDeps): Promise<{
     title: 'Create the trigger',
     nextToolCall: 'webhook_create',
     hints: [
-      'Call `webhook_create` with the collected fields. Capture `secretIssued` and ' +
-        '`trigger.url` from the response.',
-      'Relay both to the user: the URL goes into the external system\'s webhook config; ' +
-        'the secret goes into its signing-secret field.',
+      'Call `webhook_create` with the collected fields. Capture `generatedSecret` ' +
+        '(masked preview + file path) and `trigger.url` from the response.',
+      "Relay both to the user: the URL goes into the external system's webhook config; " +
+        'the secret lives in the file at `generatedSecret.path` — the user opens it ' +
+        "themselves and pastes the value into the external system's signing-secret field.",
     ],
   });
 

@@ -15,12 +15,15 @@ import {
   computeCodeChallenge,
   generateCodeVerifier,
   generateState,
+  isAuthRejection,
   isExpired,
   openInBrowser,
   parseTokenResponse,
   readStoredCreds,
   storeTokenSet,
+  withCredentialLock,
   type OAuthVault,
+  type StoredCreds,
   type TokenSet,
 } from '@moxxy/plugin-oauth';
 import { MoxxyError } from '@moxxy/sdk';
@@ -159,14 +162,15 @@ export interface FreshClaudeTokens {
  * Read the stored Claude creds, refreshing first if the access token is near
  * expiry and a refresh_token is available. Returns null when nothing is
  * stored. Persists rotated tokens BEFORE returning so a crash can't strand a
- * single-use refresh_token.
+ * single-use refresh_token. The refresh itself is serialized per credential
+ * (in-process + cross-process) and coalesces with concurrent refreshers.
  */
 export async function ensureFreshClaudeTokens(vault: OAuthVault): Promise<FreshClaudeTokens | null> {
   const stored = await readStoredCreds(vault, CLAUDE_CODE_PROVIDER_ID);
   if (!stored) return null;
-  const { tokenSet, extras } = stored;
+  const { tokenSet } = stored;
   if (tokenSet.refreshToken && isExpired(tokenSet)) {
-    const refreshed = await refreshAndPersist(vault, tokenSet.refreshToken, extras.account_email);
+    const refreshed = await refreshClaudeUnderLock(vault, stored);
     return { accessToken: refreshed.accessToken, ...(refreshed.expiresAt !== undefined ? { expiresAt: refreshed.expiresAt } : {}), canRefresh: true };
   }
   return {
@@ -193,12 +197,53 @@ export async function refreshClaudeAccessToken(
       context: { provider: CLAUDE_CODE_PROVIDER_ID },
     });
   }
-  const refreshed = await refreshAndPersist(
-    vault,
-    stored.tokenSet.refreshToken,
-    stored.extras.account_email,
-  );
+  const refreshed = await refreshClaudeUnderLock(vault, stored);
   return { token: refreshed.accessToken, ...(refreshed.expiresAt !== undefined ? { expiresAt: refreshed.expiresAt } : {}) };
+}
+
+/**
+ * Refresh + persist under the per-credential lock. Anthropic ROTATES the
+ * refresh_token on every refresh and invalidates the previous one, so two
+ * concurrent refreshes (a second consumer in this process, or another moxxy
+ * process — TUI alongside a desktop runner) must not both burn the same
+ * stored token. Under the lock we:
+ *   1. re-read the vault — if someone else already rotated and the new access
+ *      token is still fresh, reuse it (coalesce; no IdP call at all);
+ *   2. otherwise refresh with the freshest stored refresh_token;
+ *   3. on an invalid_grant-style rejection, re-read once more — if the
+ *      on-disk refresh_token changed under us (another process won a race we
+ *      couldn't see), retry ONCE with the fresher token before declaring
+ *      re-auth necessary.
+ */
+async function refreshClaudeUnderLock(vault: OAuthVault, baseline: StoredCreds): Promise<TokenSet> {
+  return withCredentialLock(`oauth-${CLAUDE_CODE_PROVIDER_ID}`, async () => {
+    const current = (await readStoredCreds(vault, CLAUDE_CODE_PROVIDER_ID)) ?? baseline;
+    if (current.tokenSet.accessToken !== baseline.tokenSet.accessToken && !isExpired(current.tokenSet)) {
+      return current.tokenSet;
+    }
+    const refreshToken = current.tokenSet.refreshToken ?? baseline.tokenSet.refreshToken;
+    if (!refreshToken) {
+      throw new MoxxyError({
+        code: 'AUTH_EXPIRED',
+        message: 'Claude token expired and no refresh_token is stored.',
+        hint: 'Run `moxxy login claude-code` again, or refresh `CLAUDE_CODE_OAUTH_TOKEN` via `claude setup-token`.',
+        context: { provider: CLAUDE_CODE_PROVIDER_ID },
+      });
+    }
+    const email = current.extras.account_email ?? baseline.extras.account_email;
+    try {
+      return await refreshAndPersist(vault, refreshToken, email);
+    } catch (err) {
+      if (isAuthRejection(err)) {
+        const latest = await readStoredCreds(vault, CLAUDE_CODE_PROVIDER_ID);
+        const latestRefresh = latest?.tokenSet.refreshToken;
+        if (latestRefresh && latestRefresh !== refreshToken) {
+          return refreshAndPersist(vault, latestRefresh, latest.extras.account_email ?? email);
+        }
+      }
+      throw err;
+    }
+  });
 }
 
 // --- internal HTTP (JSON dialect) -----------------------------------------

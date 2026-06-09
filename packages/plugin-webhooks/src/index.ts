@@ -30,6 +30,7 @@ import {
   filterRuleSchema,
   type FilterRule,
   type WebhookFilter,
+  type WebhookStoreLogger,
   type WebhookStoreOptions,
   type WebhookTrigger,
   type WebhookVerification,
@@ -43,7 +44,7 @@ import {
   type RunningTunnel,
   type TunnelStartOptions,
 } from './tunnel.js';
-import { buildWebhookTools, type WebhooksToolDeps } from './tools.js';
+import { buildWebhookTools, defaultWebhookSecretsDir, type WebhooksToolDeps } from './tools.js';
 import { idempotencyKey, verifyDelivery, type VerificationInput, type VerificationResult } from './verify.js';
 
 export {
@@ -74,6 +75,7 @@ export {
   isTunnelCliAvailable,
   // Tools
   buildWebhookTools,
+  defaultWebhookSecretsDir,
   type WebhookTrigger,
   type WebhookVerification,
   type WebhookFilter,
@@ -81,6 +83,7 @@ export {
   type FilterInput,
   type WebhookConfig,
   type WebhookConfigStoreOptions,
+  type WebhookStoreLogger,
   type WebhookStoreOptions,
   type WebhookDispatcherOptions,
   type WebhookServerOptions,
@@ -151,7 +154,7 @@ export interface BuiltWebhooksPlugin {
  * embed moxxy a clean shutdown hook beyond what `onShutdown` provides.
  */
 export function buildWebhooksPlugin(opts: BuildWebhooksPluginOptions): BuiltWebhooksPlugin {
-  const store = opts.store ?? new WebhookStore();
+  const store = opts.store ?? new WebhookStore(opts.logger ? { logger: opts.logger } : {});
   const config = opts.config ?? new WebhookConfigStore();
   const dispatcher = new WebhookDispatcher({
     store,

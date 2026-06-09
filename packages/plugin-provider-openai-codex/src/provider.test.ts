@@ -1,8 +1,25 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { promises as fs } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { CodexProvider } from './provider.js';
 import { CODEX_RESPONSES_URL } from './oauth.js';
 import type { CodexTokens } from './types.js';
 import type { ProviderEvent, ProviderRequest } from '@moxxy/sdk';
+
+// The refresh path takes a cross-process lockfile under `<moxxy home>/locks`;
+// point MOXXY_HOME at a temp dir so tests never touch the real ~/.moxxy.
+let moxxyHomeTmp: string;
+const priorMoxxyHome = process.env.MOXXY_HOME;
+beforeAll(async () => {
+  moxxyHomeTmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-codex-provider-'));
+  process.env.MOXXY_HOME = moxxyHomeTmp;
+});
+afterAll(async () => {
+  if (priorMoxxyHome === undefined) delete process.env.MOXXY_HOME;
+  else process.env.MOXXY_HOME = priorMoxxyHome;
+  await fs.rm(moxxyHomeTmp, { recursive: true, force: true });
+});
 
 function makeTokens(overrides: Partial<CodexTokens> = {}): CodexTokens {
   return {
@@ -174,6 +191,99 @@ describe('CodexProvider.stream', () => {
     // accountId is preserved from the prior token bundle even though the
     // refresh response doesn't re-issue an id_token.
     expect(persisted[0]!.accountId).toBe('acct_test');
+  });
+
+  it('coalesces concurrent in-process refreshes — one token-endpoint call for two streams', async () => {
+    let refreshHits = 0;
+    const fakeFetch = vi.fn(async (url: RequestInfo | URL) => {
+      const u = String(url);
+      if (u.endsWith('/oauth/token')) {
+        refreshHits++;
+        return new Response(
+          JSON.stringify({ access_token: 'NEW_AT', refresh_token: 'NEW_RT', expires_in: 3600 }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return new Response(sseStream(['data: {"type":"response.completed"}\n\n']), { status: 200 });
+    });
+    const provider = new CodexProvider({
+      tokens: makeTokens({ expires: Date.now() + 10_000 }), // both streams want a refresh
+      fetch: fakeFetch as unknown as typeof fetch,
+    });
+
+    await Promise.all([collect(provider.stream(baseRequest())), collect(provider.stream(baseRequest()))]);
+
+    // The single-use refresh token must be burned exactly once; the second
+    // stream adopts the first one's rotated bundle under the lock.
+    expect(refreshHits).toBe(1);
+  });
+
+  it('adopts a fresher persisted bundle via reloadTokens instead of burning its refresh token', async () => {
+    const calls: string[] = [];
+    const fakeFetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push(String(url));
+      if (String(url).endsWith('/oauth/token')) {
+        return new Response(JSON.stringify({ access_token: 'X', refresh_token: 'Y', expires_in: 3600 }), { status: 200 });
+      }
+      const h = init?.headers as Record<string, string>;
+      expect(h['Authorization']).toBe('Bearer RELOADED_AT');
+      return new Response(sseStream(['data: {"type":"response.completed"}\n\n']), { status: 200 });
+    });
+    const provider = new CodexProvider({
+      tokens: makeTokens({ expires: Date.now() + 10_000 }),
+      // Another process already refreshed and persisted a fresh bundle.
+      reloadTokens: async () => ({
+        access: 'RELOADED_AT',
+        refresh: 'RELOADED_RT',
+        expires: Date.now() + 3_600_000,
+      }),
+      fetch: fakeFetch as unknown as typeof fetch,
+    });
+
+    await collect(provider.stream(baseRequest()));
+
+    // No token-endpoint hit at all — the reloaded bundle satisfied the refresh.
+    expect(calls.some((u) => u.endsWith('/oauth/token'))).toBe(false);
+  });
+
+  it('recovers from invalid_grant by reloading the rotated refresh token and retrying once', async () => {
+    const persisted: CodexTokens[] = [];
+    const attempted: string[] = [];
+    let reloads = 0;
+    const fakeFetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url).endsWith('/oauth/token')) {
+        const rt = new URLSearchParams(String(init?.body ?? '')).get('refresh_token') ?? '';
+        attempted.push(rt);
+        if (rt === 'RT') return new Response('{"error":"invalid_grant"}', { status: 400 });
+        return new Response(
+          JSON.stringify({ access_token: 'NEW_AT', refresh_token: 'NEW_RT', expires_in: 3600 }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return new Response(sseStream(['data: {"type":"response.completed"}\n\n']), { status: 200 });
+    });
+    const provider = new CodexProvider({
+      tokens: makeTokens({ expires: Date.now() + 10_000 }), // holds the now-dead RT
+      reloadTokens: async () => {
+        reloads++;
+        // First consult (pre-refresh): vault still has our (dead) bundle.
+        // Second consult (post-invalid_grant): another process rotated it.
+        return reloads === 1
+          ? makeTokens({ expires: Date.now() + 10_000 })
+          : makeTokens({ refresh: 'ROTATED_RT', expires: Date.now() + 10_000 });
+      },
+      onTokensRefreshed: async (next) => {
+        persisted.push(next);
+      },
+      fetch: fakeFetch as unknown as typeof fetch,
+    });
+
+    await collect(provider.stream(baseRequest()));
+
+    expect(attempted).toEqual(['RT', 'ROTATED_RT']);
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]!.access).toBe('NEW_AT');
+    expect(persisted[0]!.refresh).toBe('NEW_RT');
   });
 
   it('refreshes and replays once on a 401, then surfaces error on a second 401', async () => {

@@ -30,7 +30,8 @@
     }
   },
   "dependencies": {
-    "@moxxy/sdk": "workspace:*"
+    "@moxxy/sdk": "workspace:*",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@moxxy/core": "workspace:*",
@@ -39,7 +40,6 @@
     "@moxxy/vitest-preset": "workspace:*",
     "@types/node": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:",
-    "zod": "catalog:"
+    "vitest": "catalog:"
   }
 }

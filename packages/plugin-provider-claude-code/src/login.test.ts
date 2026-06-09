@@ -1,4 +1,7 @@
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { promises as fs } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { storeTokenSet, type OAuthVault } from '@moxxy/plugin-oauth';
 import type { ProviderAuthContext } from '@moxxy/sdk';
 import { CLAUDE_CLIENT_ID, CLAUDE_TOKEN_URL } from './constants.js';
@@ -49,6 +52,20 @@ function jsonResponse(obj: unknown, status = 200): Response {
 }
 
 const META = { clientId: CLAUDE_CLIENT_ID, tokenUrl: CLAUDE_TOKEN_URL };
+
+// The refresh path takes a cross-process lockfile under `<moxxy home>/locks`;
+// point MOXXY_HOME at a temp dir so tests never touch the real ~/.moxxy.
+let moxxyHomeTmp: string;
+const priorMoxxyHome = process.env.MOXXY_HOME;
+beforeAll(async () => {
+  moxxyHomeTmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-claude-login-'));
+  process.env.MOXXY_HOME = moxxyHomeTmp;
+});
+afterAll(async () => {
+  if (priorMoxxyHome === undefined) delete process.env.MOXXY_HOME;
+  else process.env.MOXXY_HOME = priorMoxxyHome;
+  await fs.rm(moxxyHomeTmp, { recursive: true, force: true });
+});
 
 beforeEach(() => {
   __setClaudeOpenBrowser(async () => {});
@@ -193,6 +210,78 @@ describe('token lifecycle', () => {
     expect(fresh?.accessToken).toBe('new');
     // Rotated refresh token persisted before returning.
     expect(vault.store.get('oauth/claude-code/refresh_token')).toBe('r-new');
+  });
+
+  it('coalesces concurrent refreshes — one IdP call, both consumers get the rotated token', async () => {
+    const vault = makeVault();
+    await storeTokenSet(
+      vault,
+      'claude-code',
+      { accessToken: 'old', refreshToken: 'r-old', expiresAt: Date.now() - 1000, tokenType: 'Bearer' },
+      META,
+    );
+    let refreshCalls = 0;
+    __setClaudeFetch(async () => {
+      refreshCalls++;
+      return jsonResponse({ access_token: 'new', refresh_token: 'r-new', expires_in: 3600, token_type: 'Bearer' });
+    });
+
+    const [a, b] = await Promise.all([
+      ensureFreshClaudeTokens(vault),
+      ensureFreshClaudeTokens(vault),
+    ]);
+
+    // The single-use refresh_token must be burned exactly once; the loser of
+    // the race re-reads the winner's rotated bundle under the lock.
+    expect(refreshCalls).toBe(1);
+    expect(a?.accessToken).toBe('new');
+    expect(b?.accessToken).toBe('new');
+    expect(vault.store.get('oauth/claude-code/refresh_token')).toBe('r-new');
+  });
+
+  it('recovers from invalid_grant by retrying once with the refresh_token another process rotated in', async () => {
+    const vault = makeVault();
+    await storeTokenSet(
+      vault,
+      'claude-code',
+      { accessToken: 'old', refreshToken: 'r-dead', expiresAt: Date.now() - 1000, tokenType: 'Bearer' },
+      META,
+    );
+    const attempted: string[] = [];
+    __setClaudeFetch(async (_url, init) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { refresh_token?: string };
+      attempted.push(body.refresh_token ?? '');
+      if (body.refresh_token === 'r-dead') {
+        // Simulate the cross-process race: another moxxy already rotated the
+        // stored bundle, so OUR copy of the refresh token is single-use-spent.
+        vault.store.set('oauth/claude-code/refresh_token', 'r-fresh');
+        return jsonResponse({ error: 'invalid_grant' }, 400);
+      }
+      return jsonResponse({ access_token: 'new-2', refresh_token: 'r-next', expires_in: 3600, token_type: 'Bearer' });
+    });
+
+    const res = await refreshClaudeAccessToken(vault);
+
+    expect(attempted).toEqual(['r-dead', 'r-fresh']);
+    expect(res.token).toBe('new-2');
+    expect(vault.store.get('oauth/claude-code/refresh_token')).toBe('r-next');
+  });
+
+  it('does NOT retry an invalid_grant when the stored refresh_token is unchanged (true re-auth case)', async () => {
+    const vault = makeVault();
+    await storeTokenSet(
+      vault,
+      'claude-code',
+      { accessToken: 'old', refreshToken: 'r-revoked', expiresAt: Date.now() - 1000, tokenType: 'Bearer' },
+      META,
+    );
+    let calls = 0;
+    __setClaudeFetch(async () => {
+      calls++;
+      return jsonResponse({ error: 'invalid_grant' }, 400);
+    });
+    await expect(refreshClaudeAccessToken(vault)).rejects.toThrow(/HTTP 400/);
+    expect(calls).toBe(1);
   });
 
   it('refreshClaudeAccessToken throws when no refresh_token is stored', async () => {
