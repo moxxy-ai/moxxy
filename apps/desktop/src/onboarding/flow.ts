@@ -6,7 +6,7 @@
  * Pure data + types; no React.
  */
 
-import type { FlowStep } from '@/lib/step-flow';
+import type { FlowStep } from '@moxxy/client-core';
 
 /**
  * Gate context the onboarding steps are evaluated against. `full` is the

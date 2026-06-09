@@ -150,7 +150,12 @@ export class JsonRpcPeer {
       this.transport.send({ id, result: result === undefined ? null : result });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      this.transport.send({ id, error: { message } });
+      // Carry structured error data (e.g. a coded MoxxyIpcError envelope) when an
+      // RpcError supplies it, so the requester reconstructs the classified error
+      // rather than string-matching the message. The response-parse side already
+      // reads `f.error.data` (see handleFrame); this completes the symmetry.
+      const data = err instanceof RpcError ? err.data : undefined;
+      this.transport.send({ id, error: { message, ...(data !== undefined ? { data } : {}) } });
     }
   }
 

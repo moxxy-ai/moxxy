@@ -3,7 +3,7 @@
  * back to the app. First-run only.
  */
 
-import { usePrefs } from '@/lib/usePrefs';
+import { usePrefs } from '@moxxy/client-core';
 import { asset } from '@/lib/asset';
 import { Icon } from '@moxxy/desktop-ui';
 import { PrimaryButton } from '../chrome';

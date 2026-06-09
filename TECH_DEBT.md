@@ -78,9 +78,11 @@ tests for append-on-dispatch, the restart double-append, `loadOlder` dedup, and 
 **Cross-cut 1.4.** `readRequestBody` + `bearerTokenMatches` are shared (done), but each
 HTTP surface still rolls its own `createServer`/`listen`/health/routing
 (`plugin-channel-http/src/channel.ts:60`, `plugin-channel-web/src/channel.ts:180`,
-`plugin-webhooks/src/server.ts:63`). **Action:** an optional `HttpChannelServer` base in
-the SDK so they differ only in routing. (Larger refactor, lower payoff than the helpers
-already hoisted.)
+`plugin-webhooks/src/server.ts:63`). The new `@moxxy/ipc-server-ws` WebSocket bridge
+reuses `bearerTokenMatches` for its handshake (consistent with the shared-auth direction)
+but is a WebSocket surface, not request/response, so it sits beside this base rather than
+under it. **Action:** an optional `HttpChannelServer` base in the SDK so they differ only
+in routing. (Larger refactor, lower payoff than the helpers already hoisted.)
 
 ### 4. Unify tunnel subprocess management + make webhooks use `TunnelProviderDef` — OPEN
 **Cross-cut 1.5.** Three near-identical spawn-CLI-and-parse-URL impls
@@ -165,6 +167,26 @@ pass (boot-log, reject reasons, `app.updateDiagnostics` + Diagnostics UI). **Rem
 on a real two-version update that 0.0.30+ now sticks (the fix lives in the *override's* main, so
 a user on the broken 0.0.28 floor recovers simply by updating to a fixed release). Once verified,
 consider dropping the now-redundant renderer-heartbeat path. **Severity med** (needs a build to close).
+
+### 11. Shared-client extraction + WebSocket bridge — follow-ups — ⚠️ PARTIALLY DONE
+**Introduced 2026-06-09** by the cross-platform client work (new `@moxxy/client-core`,
+`@moxxy/client-platform-web`, `@moxxy/client-transport-ws`, `@moxxy/ipc-server-ws`,
+`@moxxy/design-tokens`, `@moxxy/plugin-channel-mobile`; `apps/mobile` Expo PoC).
+- ~~**`apps/desktop/src/lib/*` transition shims.**~~ **RETIRED 2026-06-09:** all ~46
+  components now import `@moxxy/client-core` (and `@moxxy/client-platform-web` for TTS)
+  directly; `lib/` is just `asset.ts` (Vite-specific) + `boot.ts` (the boot shim).
+- ~~**Headless WS serving was window-bound.**~~ **ADDRESSED 2026-06-09:** the new
+  `mobile` channel (`@moxxy/plugin-channel-mobile`) serves the bridge headlessly from a
+  *single session* via `MobileSessionHost` — `moxxy mobile` and `moxxy serve --all` run it
+  with no `BrowserWindow`. The *desktop* bridge is still window-bound (its `SessionDriver`s
+  are created by `bindWindow`); decouple that only if a headless desktop-host is needed.
+- **`@moxxy/design-tokens` ships a `generateRootCss` the desktop doesn't consume yet** —
+  `styles.css`'s `:root` stays the source of truth (zero visual risk). Parity is
+  snapshot-tested; a later change can flip `styles.css` to inject the generated block.
+- **Mobile capabilities are no-ops in the PoC.** `apps/mobile` registers `configurePlatform({})`
+  — no voice/TTS/KV. A real build needs a `@moxxy/client-platform-expo` (Expo Audio/Speech/
+  AsyncStorage) mirroring `@moxxy/client-platform-web`.
+**Severity low** (remaining items are opt-in / additive; desktop behavior unchanged).
 
 ---
 

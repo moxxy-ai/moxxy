@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button } from '@moxxy/desktop-ui';
-import { useContextUsage } from '@/lib/useContextUsage';
+import { useContextUsage } from '@moxxy/client-core';
 import { UsageModal } from './UsageModal';
 
 /**

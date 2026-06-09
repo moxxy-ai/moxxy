@@ -8,7 +8,7 @@
  * paints the in-place SpectroBackground visualiser while recording.
  */
 
-import { api } from '@/lib/api';
+import { api } from '@moxxy/client-core';
 import { ActionButton, Dot, LogoMark } from './focus-primitives';
 import { MicIcon, PencilIcon, WindowIcon, XIcon } from './focus-icons';
 import { SpectroBackground } from './SpectroBackground';

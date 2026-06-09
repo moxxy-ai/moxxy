@@ -2,7 +2,7 @@
   "name": "@moxxy/desktop-ipc-contract",
   "private": true,
   "version": "0.1.1",
-  "description": "The single source of truth for the moxxy desktop IPC boundary: channel names, request/response types, the window.moxxy surface, and Zod schemas for runtime payload validation. Shared by the Electron main process, the preload bridge, and the renderer.",
+  "description": "The single source of truth for the moxxy IPC boundary: channel names, request/response types, the MoxxyApi client surface, Zod runtime validation, the transport-neutral CommandBus/EventSink seam, and the shared dispatch core. Shared by the Electron main process, the preload bridge, the renderer, the WebSocket bridge, and future remote clients.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -14,6 +14,14 @@
     "./validation": {
       "types": "./dist/validation.d.ts",
       "import": "./dist/validation.js"
+    },
+    "./bus": {
+      "types": "./dist/bus.d.ts",
+      "import": "./dist/bus.js"
+    },
+    "./dispatch": {
+      "types": "./dist/dispatch.d.ts",
+      "import": "./dist/dispatch.js"
     }
   },
   "files": [

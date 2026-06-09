@@ -4,7 +4,12 @@ import { ClerkProvider } from '@clerk/clerk-react';
 import { App } from './App';
 import { ErrorBoundary } from './ErrorBoundary';
 import { DeepLinkBridge } from './lib/useDeepLink';
+import { bootClient } from './lib/boot';
 import './styles.css';
+
+// Install the shared client's transport + platform capabilities before the
+// React tree (and its hooks/bridges) mount.
+bootClient();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('#root not found — check index.html');

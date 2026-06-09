@@ -5,10 +5,10 @@ import {
   isConnected,
   useActiveWorkspaceId,
   useConnection,
-} from './lib/useConnection';
-import { ChatStoreBridge } from './lib/useChat';
-import { chatStore } from './lib/chatStore';
-import { usePrefs } from './lib/usePrefs';
+  ChatStoreBridge,
+  chatStore,
+  usePrefs,
+} from '@moxxy/client-core';
 import { ConnectionScreen } from './connection/ConnectionScreen';
 import { Onboarding } from './onboarding/Onboarding';
 import { ChatSurface } from './chat/ChatSurface';
@@ -18,7 +18,7 @@ import { WorkflowsPanel } from './workflows/WorkflowsPanel';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { UpdateBanner } from './shell/UpdateBanner';
 import { Splash } from './Splash';
-import { api } from './lib/api';
+import { api } from '@moxxy/client-core';
 
 /**
  * Top-level shell. Three layers of gating, in order:

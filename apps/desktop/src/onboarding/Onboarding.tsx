@@ -16,9 +16,9 @@
  * own modal), so first run never blocks on auth.
  */
 
-import { usePrefs } from '@/lib/usePrefs';
-import { useOnboarding } from '@/lib/useOnboarding';
-import { useStepFlow } from '@/lib/step-flow';
+import { usePrefs } from '@moxxy/client-core';
+import { useOnboarding } from '@moxxy/client-core';
+import { useStepFlow } from '@moxxy/client-core';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 
 import { Shell } from './chrome';

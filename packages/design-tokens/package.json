@@ -1,0 +1,36 @@
+{
+  "name": "@moxxy/design-tokens",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Framework-neutral design tokens (colors, fonts, radii, gradients, shadows) plus a :root CSS-variable generator. One source of truth consumable as a TS object by React Native StyleSheet and as CSS custom properties by the desktop renderer.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./css-vars": {
+      "types": "./dist/css-vars.d.ts",
+      "import": "./dist/css-vars.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

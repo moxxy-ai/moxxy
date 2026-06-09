@@ -27,6 +27,7 @@ import {
   readBootLog,
 } from '../app-update/index.js';
 import { sendEvent } from '../send-event';
+import { wsEventBus } from '../event-bus';
 import { handle } from './shared';
 
 export interface UpdateConfig {
@@ -119,6 +120,8 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
         ...(res.bundleUrl ? { bundleUrl: res.bundleUrl } : {}),
         onProgress: (p) => {
           if (target) sendEvent(target, 'app.update.progress', p);
+          // Mirror to non-Electron transports. No-op without a WS bridge.
+          wsEventBus.broadcast('app.update.progress', p);
         },
       });
       // Keep {active, previous} so a failed boot can roll back to the last-good.

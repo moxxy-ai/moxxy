@@ -6,8 +6,8 @@
  */
 
 import { useEffect, useState } from 'react';
-import { toErrorMessage } from '@/lib/errors';
-import { api } from '@/lib/api';
+import { toErrorMessage } from '@moxxy/client-core';
+import { api } from '@moxxy/client-core';
 import { StepCard, Nav, PrimaryButton, SuccessRow, Pulse } from '../chrome';
 
 export function CliStep({

@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
-import { useChat } from '@/lib/useChat';
-import { useDesks } from '@/lib/useDesks';
+import { useChat } from '@moxxy/client-core';
+import { useDesks } from '@moxxy/client-core';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { Transcript } from './Transcript';
 import { Composer } from './Composer';
 import { AskSheet } from './AskSheet';
-import { useActiveAsk } from '@/lib/askStore';
+import { useActiveAsk } from '@moxxy/client-core';
 import { Header } from './chat-surface/Header';
 import { ChatLoading } from './chat-surface/ChatLoading';
 import { EmptyState } from './chat-surface/EmptyState';
@@ -23,7 +23,7 @@ interface ChatSurfaceProps {
 
 /** Stable empty reference for the searching code path (no extensions
  *  while a search filter is active). */
-const EMPTY_EXTENSIONS: ReadonlyArray<import('@/lib/useChat').Extension> = Object.freeze([]);
+const EMPTY_EXTENSIONS: ReadonlyArray<import('@moxxy/client-core').Extension> = Object.freeze([]);
 
 /**
  * Chat pane — the rightmost column. Card-style transcript with a

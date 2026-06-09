@@ -1,5 +1,5 @@
-import type { Extension } from '@/lib/useChat';
-import { chatStore } from '@/lib/chatStore';
+import type { Extension } from '@moxxy/client-core';
+import { chatStore } from '@moxxy/client-core';
 import { Icon, IconButton } from '@moxxy/desktop-ui';
 import { MarkdownBody } from './MarkdownBody';
 

@@ -16,6 +16,10 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { FocusWidget } from './FocusWidget';
+import { bootClient } from '../lib/boot';
+
+// The focus widget is its own document/bundle — wire the shared client here too.
+bootClient();
 
 const root = document.getElementById('root');
 if (!root) {

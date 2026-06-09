@@ -17,8 +17,8 @@
  */
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { api } from '@/lib/api';
-import { chatStore } from '@/lib/chatStore';
+import { api } from '@moxxy/client-core';
+import { chatStore } from '@moxxy/client-core';
 import { ChipButton } from './ChipButton';
 import { ChipSelect } from './ChipSelect';
 import { ProviderModelPicker } from './ProviderModelPicker';

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth, useClerk, useUser } from '@clerk/clerk-react';
 import { Icon } from '@moxxy/desktop-ui';
-import { usePrefs } from '@/lib/usePrefs';
+import { usePrefs } from '@moxxy/client-core';
 import { ProfileView } from '../ProfileView';
 
 /**

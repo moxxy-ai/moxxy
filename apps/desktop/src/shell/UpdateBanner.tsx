@@ -7,8 +7,8 @@
  */
 
 import { useState } from 'react';
-import { api } from '@/lib/api';
-import { useAppUpdate } from '@/lib/useAppUpdate';
+import { api } from '@moxxy/client-core';
+import { useAppUpdate } from '@moxxy/client-core';
 
 export function UpdateBanner(): JSX.Element | null {
   const { check, state, progress, error, stagedVersion, runUpdate, relaunch } = useAppUpdate({

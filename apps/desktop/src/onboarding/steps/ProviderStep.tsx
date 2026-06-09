@@ -7,9 +7,9 @@
  */
 
 import { useEffect, useState } from 'react';
-import { decodeError, toErrorMessage } from '@/lib/errors';
-import { api } from '@/lib/api';
-import { retryWhileReconnecting } from '@/lib/runner-retry';
+import { decodeError, toErrorMessage } from '@moxxy/client-core';
+import { api } from '@moxxy/client-core';
+import { retryWhileReconnecting } from '@moxxy/client-core';
 import { StepCard, Nav, PrimaryButton, SuccessRow, inputStyle } from '../chrome';
 
 export function ProviderStep({

@@ -32,6 +32,7 @@ import { get as httpsGet } from 'node:https';
 import path, { delimiter } from 'node:path';
 import type { BrowserWindow } from 'electron';
 import { sendEvent } from './send-event';
+import { wsEventBus } from './event-bus';
 
 /**
  * Pinned Node LTS. Bump deliberately (and update node-manager.test.ts) rather
@@ -188,6 +189,8 @@ export async function installManagedNode(
 
 function emit(window: BrowserWindow, line: string): void {
   sendEvent(window, 'onboarding.install.progress', line);
+  // Mirror to non-Electron transports. No-op without a WS bridge attached.
+  wsEventBus.broadcast('onboarding.install.progress', line);
 }
 
 /** GET a URL following redirects, invoking `onData`/`onEnd` on the body. */

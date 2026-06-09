@@ -10,8 +10,8 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { api } from '@/lib/api';
-import { useChat } from '@/lib/useChat';
+import { api } from '@moxxy/client-core';
+import { useChat } from '@moxxy/client-core';
 import { MarkdownBody } from '@/chat/MarkdownBody';
 import { Dot, LogoMark } from './focus-primitives';
 import { ChevronLeftIcon, SendIcon, WindowIcon } from './focus-icons';

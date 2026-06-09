@@ -6,7 +6,7 @@
 
 import { useState } from 'react';
 import { Button, Icon } from '@moxxy/desktop-ui';
-import type { useSettings } from '@/lib/useSettings';
+import type { useSettings } from '@moxxy/client-core';
 import { TabHeader } from '../TabHeader';
 import { EmptyHero } from './heroes';
 

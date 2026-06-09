@@ -7,7 +7,7 @@
  * box and advances once Node is present.
  */
 
-import { useOnboarding } from '@/lib/useOnboarding';
+import { useOnboarding } from '@moxxy/client-core';
 import {
   StepCard,
   Nav,

@@ -30,7 +30,9 @@ import type { RunnerPool } from './runner-pool';
 import { SessionDriver } from './session-driver';
 import type { DeskStore } from './desks';
 import { sendEvent } from './send-event';
-import { drivers, publishDriver, unpublishDriver, whenDriverReady } from './ipc/shared';
+import { wsEventBus } from './event-bus';
+import type { CommandBus } from '@moxxy/desktop-ipc-contract/bus';
+import { drivers, publishDriver, setActiveBus, unpublishDriver, whenDriverReady } from './ipc/shared';
 import { registerAppHandlers } from './ipc/app';
 import { registerUpdateHandlers, type UpdateConfig } from './ipc/update';
 import { registerAskHandlers } from './ipc/ask';
@@ -46,26 +48,34 @@ import { registerVaultHandlers } from './ipc/vault';
 import { registerChatHandlers } from './ipc/chat';
 
 export function registerIpcHandlers(
+  buses: ReadonlyArray<CommandBus>,
   pool: RunnerPool,
   desks: DeskStore,
   opts: { readonly update?: UpdateConfig } = {},
 ): void {
-  registerAskHandlers();
-  registerAppHandlers(pool);
-  // Self-update handlers. The baked signing key is supplied by the app's main
-  // (it owns `update-key.ts`); an empty/absent config means updates report as
-  // unavailable rather than erroring.
-  registerUpdateHandlers(opts.update ?? { publicKeyPem: '' });
-  registerConnectionHandlers(pool);
-  registerOnboardingHandlers(pool);
-  registerSessionHandlers(pool);
-  registerWorkspaceFsHandlers(desks);
-  registerDesksHandlers(pool, desks);
-  registerWorkflowsHandlers(pool);
-  registerPrefsHandlers();
-  registerSettingsHandlers(pool);
-  registerVaultHandlers();
-  registerChatHandlers();
+  // Register the SAME handler bodies onto every transport. `setActiveBus`
+  // points the shared `handle()` at one bus for the duration of a sweep; the
+  // registrars are oblivious to which transport they're wiring. Pass the
+  // Electron bus exactly once (a second `ipcMain.handle` for a channel throws).
+  for (const bus of buses) {
+    setActiveBus(bus);
+    registerAskHandlers();
+    registerAppHandlers(pool);
+    // Self-update handlers. The baked signing key is supplied by the app's main
+    // (it owns `update-key.ts`); an empty/absent config means updates report as
+    // unavailable rather than erroring.
+    registerUpdateHandlers(opts.update ?? { publicKeyPem: '' });
+    registerConnectionHandlers(pool);
+    registerOnboardingHandlers(pool);
+    registerSessionHandlers(pool);
+    registerWorkspaceFsHandlers(desks);
+    registerDesksHandlers(pool, desks);
+    registerWorkflowsHandlers(pool);
+    registerPrefsHandlers();
+    registerSettingsHandlers(pool);
+    registerVaultHandlers();
+    registerChatHandlers();
+  }
 }
 
 /**
@@ -90,8 +100,13 @@ export function bindWindow(
   opts: { readonly claimGlobal?: boolean } = {},
 ): () => void {
   const claimGlobal = opts.claimGlobal ?? true;
-  const send = <K extends keyof IpcEvents>(channel: K, payload: IpcEvents[K]): void =>
+  const send = <K extends keyof IpcEvents>(channel: K, payload: IpcEvents[K]): void => {
     sendEvent(window, channel, payload);
+    // Mirror `connection.changed` to non-Electron transports — but only from
+    // the PRIMARY binding, so a secondary surface (focus widget) doesn't emit a
+    // duplicate WS copy of the same workspace phase. No-op without a WS bridge.
+    if (claimGlobal) wsEventBus.broadcast(channel, payload);
+  };
 
   // Maintain one SessionDriver per workspace for the lifetime of its
   // active RemoteSession.

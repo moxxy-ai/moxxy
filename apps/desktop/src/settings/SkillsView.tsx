@@ -26,7 +26,7 @@ import { SkillGallery } from './skills/SkillGallery';
 import { SkillEditor } from './skills/SkillEditor';
 import { CreateSkillModal } from './skills/CreateSkillModal';
 import { GenerateSkillModal } from './skills/GenerateSkillModal';
-import type { useSettings } from '@/lib/useSettings';
+import type { useSettings } from '@moxxy/client-core';
 
 export function SkillsView({
   s,

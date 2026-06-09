@@ -8,10 +8,10 @@
  */
 
 import { useEffect, useState } from 'react';
-import { toErrorMessage } from '@/lib/errors';
-import { useActiveWorkspaceId } from '@/lib/useConnection';
-import { chatStore } from '@/lib/chatStore';
-import { api } from '@/lib/api';
+import { toErrorMessage } from '@moxxy/client-core';
+import { useActiveWorkspaceId } from '@moxxy/client-core';
+import { chatStore } from '@moxxy/client-core';
+import { api } from '@moxxy/client-core';
 import { Button, Icon, Modal, TextArea } from '@moxxy/desktop-ui';
 import { MarkdownBody } from '@/chat/MarkdownBody';
 import type { MoxxyEvent } from '@moxxy/sdk';

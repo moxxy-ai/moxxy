@@ -25,10 +25,10 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { api } from '@/lib/api';
-import { ChatStoreBridge, useChat } from '@/lib/useChat';
-import { useVoiceRecorder } from '@/lib/useVoiceRecorder';
-import { ConnectionBridge, useActiveWorkspaceId } from '@/lib/useConnection';
+import { api } from '@moxxy/client-core';
+import { ChatStoreBridge, useChat } from '@moxxy/client-core';
+import { useVoiceRecorder } from '@moxxy/client-core';
+import { ConnectionBridge, useActiveWorkspaceId } from '@moxxy/client-core';
 import { Inactive } from './Inactive';
 import { Active } from './Active';
 import { MiniText } from './MiniText';
@@ -82,7 +82,9 @@ function Surface({
     onTranscript: (text) => {
       if (workspaceId) void chat.send(text);
     },
-    onAnalyser: setAnalyser,
+    // The shared hook surfaces the analyser as an opaque value (it's DOM-free);
+    // on the web it's the real AnalyserNode the spectrum visualiser expects.
+    onAnalyser: (a) => setAnalyser((a as AnalyserNode | null) ?? null),
   });
 
   // Stopping a recording (recording → transcribing) opens the mini-text

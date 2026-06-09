@@ -4,7 +4,7 @@
  * ready/inactive StatusDot; add a provider's key in the vault to activate it.
  */
 
-import type { useSettings } from '@/lib/useSettings';
+import type { useSettings } from '@moxxy/client-core';
 import { Section, CardList, Row, Tile, StatusDot, EmptyState } from './settings-primitives';
 
 export function ProvidersTab({

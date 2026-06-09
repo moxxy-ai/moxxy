@@ -20,8 +20,8 @@
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { __setApiOverride } from '@/lib/api';
-import { chatStore } from '@/lib/chatStore';
+import { __setApiOverride } from '@moxxy/client-core';
+import { chatStore } from '@moxxy/client-core';
 import { FocusWidget } from './FocusWidget';
 
 interface IpcSpy {

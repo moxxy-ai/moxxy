@@ -4,10 +4,9 @@ import {
   cancelSpeech,
   isSpeechSupported,
   playAudioClip,
-  toSpeakableText,
   type AudioClipHandle,
-} from '@/lib/speech';
-import { api } from '@/lib/api';
+} from '@moxxy/client-platform-web';
+import { api, toSpeakableText } from '@moxxy/client-core';
 import { Icon } from '@moxxy/desktop-ui';
 
 export function ActionRow({ text }: { readonly text: string }): JSX.Element {

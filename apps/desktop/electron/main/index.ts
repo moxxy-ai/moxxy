@@ -22,6 +22,8 @@ import {
   UNBOUND_ID,
   bindWindow,
   registerIpcHandlers,
+  ElectronCommandBus,
+  wsEventBus,
   DeskStore,
   sweepStaleSockets,
   bindMainWindowMinimize,
@@ -42,6 +44,10 @@ import {
   type LoopbackServer,
 } from '@moxxy/desktop-host';
 import type { DeepLinkPayload } from '@moxxy/desktop-ipc-contract';
+import { WebSocketCommandBus, startWsBridge } from '@moxxy/ipc-server-ws';
+import type { TransportServer } from '@moxxy/runner';
+
+import { resolveWsBridgeConfig } from './ws-bridge.js';
 
 import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
 import { readConfirmed, markConfirmed, markBad, appendBootLog } from '@moxxy/desktop-host/app-update';
@@ -76,6 +82,8 @@ const CLERK_PUBLISHABLE_KEY =
 
 let pool: RunnerPool | null = null;
 let mainWindow: BrowserWindow | null = null;
+/** The optional WebSocket bridge server (remote/mobile clients). Closed on quit. */
+let wsServer: TransportServer | null = null;
 
 // In-app loopback HTTP server the packaged renderer is served from (so the
 // Clerk web SDK runs on an http origin). null in dev (Vite serves it) and
@@ -757,7 +765,14 @@ app.whenReady().then(async () => {
     await pool.getOrCreate(UNBOUND_ID, null);
     pool.setActive(UNBOUND_ID);
   }
-  registerIpcHandlers(pool, desks, {
+  // The Electron transport is always present. The WebSocket bridge (remote
+  // clients / the mobile app) is opt-in via MOXXY_WS_BRIDGE; when enabled, the
+  // SAME handler bodies are registered onto it too. Register handlers BEFORE the
+  // server starts accepting so an early client connection sees a populated bus.
+  const electronBus = new ElectronCommandBus();
+  const wsConfig = resolveWsBridgeConfig(app.getPath('userData'));
+  const wsBus = wsConfig ? new WebSocketCommandBus() : null;
+  registerIpcHandlers(wsBus ? [electronBus, wsBus] : [electronBus], pool, desks, {
     update: {
       publicKeyPem: BUNDLED_UPDATE_PUBLIC_KEY,
       // Dev/test escape hatch: point the updater at a local manifest. Ignored in
@@ -765,6 +780,15 @@ app.whenReady().then(async () => {
       manifestUrl: process.env.MOXXY_UPDATE_URL,
     },
   });
+  if (wsBus && wsConfig) {
+    wsEventBus.addSink(wsBus);
+    try {
+      wsServer = await startWsBridge(wsBus, wsConfig);
+      console.log(`[moxxy] WebSocket bridge listening on ${wsServer.address}`);
+    } catch (e) {
+      console.error('[moxxy] WebSocket bridge failed to start:', e);
+    }
+  }
 
   // The renderer's DeepLinkBridge calls this once on mount: it returns +
   // clears any `moxxy://` links buffered before the renderer was listening
@@ -822,13 +846,15 @@ app.on('will-quit', () => {
 
 async function shutdown(): Promise<void> {
   await Promise.race([
-    // Stop the runner children AND the loopback server. allSettled never
-    // rejects, so one failing doesn't skip the other.
+    // Stop the runner children, the loopback server, AND the WS bridge (remote
+    // clients). allSettled never rejects, so one failing doesn't skip the others.
     Promise.allSettled([
       pool?.stopAll() ?? Promise.resolve(),
       loopback?.close() ?? Promise.resolve(),
+      wsServer?.close() ?? Promise.resolve(),
     ]),
     // Belt-and-braces timeout: don't hang the app on a stuck child.
     new Promise<void>((resolve) => setTimeout(resolve, 3000)),
   ]);
+  wsServer = null;
 }

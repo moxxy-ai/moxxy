@@ -7,7 +7,7 @@
 
 import { useSyncExternalStore } from 'react';
 import type { MoxxyEvent } from '@moxxy/sdk';
-import { chatStore } from '@/lib/chatStore';
+import { chatStore } from '@moxxy/client-core';
 
 // ---- Types ---------------------------------------------------------------
 

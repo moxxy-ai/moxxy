@@ -12,8 +12,8 @@
  */
 
 import { useEffect, useState } from 'react';
-import { toErrorMessage } from '@/lib/errors';
-import { api } from '@/lib/api';
+import { toErrorMessage } from '@moxxy/client-core';
+import { api } from '@moxxy/client-core';
 import { Modal } from '@moxxy/desktop-ui';
 import type { ProviderInfo } from './types';
 

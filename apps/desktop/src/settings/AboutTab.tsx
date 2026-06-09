@@ -10,8 +10,8 @@
  */
 
 import { useEffect, useState } from 'react';
-import { api } from '@/lib/api';
-import { toErrorMessage } from '@/lib/errors';
+import { api } from '@moxxy/client-core';
+import { toErrorMessage } from '@moxxy/client-core';
 import { Section } from './settings-primitives';
 import { DashboardUpdateSection } from './DashboardUpdateSection';
 

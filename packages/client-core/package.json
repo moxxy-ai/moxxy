@@ -1,0 +1,53 @@
+{
+  "name": "@moxxy/client-core",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Transport-agnostic headless client layer for moxxy: the chat + connection + ask stores, the use* React hooks, the chat-model re-exports, the IPC transport singleton, and the platform-capability registry. DOM-free — shared by the Electron desktop renderer and the Expo mobile app, each of which injects its own transport + platform capabilities.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./transport": {
+      "types": "./dist/transport.d.ts",
+      "import": "./dist/transport.js"
+    },
+    "./platform": {
+      "types": "./dist/platform.d.ts",
+      "import": "./dist/platform.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@moxxy/chat-model": "workspace:*",
+    "@moxxy/desktop-ipc-contract": "workspace:*",
+    "@moxxy/sdk": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^18.2.0"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@testing-library/react": "^16.1.0",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "jsdom": "^25.0.1",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

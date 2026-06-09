@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react';
-import { api } from './api';
+import { api } from '@moxxy/client-core';
 import type { DeepLinkPayload } from '@moxxy/desktop-ipc-contract';
 
 /**

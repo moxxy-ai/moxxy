@@ -1,0 +1,141 @@
+/**
+ * The `mobile` channel. On start it stands up a {@link WebSocketCommandBus}
+ * (from `@moxxy/ipc-server-ws`) backed by a {@link MobileSessionHost} over the
+ * runner's single session, then listens on an authenticated WebSocket. The Expo
+ * app connects with the printed URL + token and drives the chat loop through the
+ * shared `@moxxy/client-core` hooks — the same client that talks to the desktop.
+ */
+
+import type {
+  Channel,
+  ChannelHandle,
+  ChannelStartOptsBase,
+  ClientSession,
+  PermissionResolver,
+} from '@moxxy/sdk';
+import { WebSocketCommandBus, startWsBridge } from '@moxxy/ipc-server-ws';
+import type { TunnelHandle } from '@moxxy/sdk';
+
+import { MobileSessionHost } from './single-session-host.js';
+import { resolveMobileToken } from './token.js';
+import {
+  buildConnectUrl,
+  lanHost,
+  normalizeTunnelChoice,
+  tunnelProviderFor,
+  type TunnelChoice,
+} from './tunnel.js';
+import { printConnectInfo } from './qr.js';
+
+export interface MobileStartOpts extends ChannelStartOptsBase {
+  readonly session: ClientSession;
+}
+
+export interface MobileChannelOptions {
+  /** TCP port (default 8765 — matches the desktop bridge + the Expo app's default). */
+  readonly port?: number;
+  /** Bind address. Loopback by default; `0.0.0.0` exposes on the LAN (still token-gated). */
+  readonly bindHost?: string;
+  /** Bearer token. Falls back to env / a persisted secret (see resolveMobileToken). */
+  readonly token?: string;
+  /** Reachability: `localhost` (LAN only), or a `cloudflared`/`ngrok` public tunnel. */
+  readonly tunnel?: TunnelChoice;
+  readonly logger?: {
+    info?(msg: string, meta?: Record<string, unknown>): void;
+    warn?(msg: string, meta?: Record<string, unknown>): void;
+  };
+}
+
+const DEFAULT_PORT = 8765;
+
+export class MobileChannel implements Channel<MobileStartOpts> {
+  readonly name = 'mobile';
+  readonly permissionResolver: PermissionResolver;
+
+  private readonly port: number;
+  private readonly bindHost: string;
+  private readonly token: string;
+  private readonly tunnelChoice: TunnelChoice;
+  private readonly logger: MobileChannelOptions['logger'];
+  private host: MobileSessionHost | null = null;
+  private server: Awaited<ReturnType<typeof startWsBridge>> | null = null;
+  private tunnel: TunnelHandle | null = null;
+
+  constructor(opts: MobileChannelOptions = {}) {
+    this.port = opts.port ?? DEFAULT_PORT;
+    this.bindHost = opts.bindHost ?? '127.0.0.1';
+    this.token = resolveMobileToken(opts.token);
+    this.tunnelChoice = normalizeTunnelChoice(opts.tunnel);
+    this.logger = opts.logger;
+    // The field `moxxy serve --all` reads to coordinate the session resolver.
+    // Delegate to the live host (installed in start()); deny before any client.
+    this.permissionResolver = {
+      name: 'mobile',
+      check: (call, ctx) =>
+        this.host
+          ? this.host.permissionResolver.check(call, ctx)
+          : Promise.resolve({ mode: 'deny' }),
+    };
+  }
+
+  async start(startOpts: MobileStartOpts): Promise<ChannelHandle> {
+    const bus = new WebSocketCommandBus();
+    const host = new MobileSessionHost(bus, startOpts.session);
+    this.host = host;
+    host.register(); // populate the method map BEFORE accepting connections
+    host.wire(); // stream events + install the ask resolvers
+
+    const server = await startWsBridge(bus, {
+      port: this.port,
+      host: this.bindHost,
+      authToken: this.token,
+    });
+    this.server = server;
+    this.logger?.info?.('mobile channel listening', { address: server.address });
+
+    // Optionally expose the bridge beyond the LAN via the user's chosen tunnel.
+    let tunnelUrl: string | null = null;
+    const provider = tunnelProviderFor(this.tunnelChoice);
+    if (provider) {
+      try {
+        this.tunnel = await provider.open({ port: this.port, host: this.bindHost });
+        tunnelUrl = this.tunnel.url;
+        this.logger?.info?.('mobile tunnel open', { provider: provider.name, url: tunnelUrl });
+      } catch (err) {
+        this.logger?.warn?.('mobile tunnel failed; using LAN URL', {
+          provider: provider.name,
+          err: String(err),
+        });
+      }
+    }
+
+    // A QR (+ plain URL) the mobile app scans to connect — token embedded.
+    const connectUrl = buildConnectUrl({
+      tunnelUrl,
+      localHost: lanHost(this.bindHost),
+      port: this.port,
+      token: this.token,
+    });
+    await printConnectInfo(connectUrl, this.token);
+
+    let resolveRunning!: () => void;
+    const running = new Promise<void>((resolve) => {
+      resolveRunning = resolve;
+    });
+
+    return {
+      running,
+      stop: async () => {
+        host.dispose();
+        if (this.tunnel) {
+          await this.tunnel.close().catch(() => undefined);
+          this.tunnel = null;
+        }
+        await this.server?.close();
+        this.server = null;
+        this.host = null;
+        resolveRunning();
+      },
+    };
+  }
+}

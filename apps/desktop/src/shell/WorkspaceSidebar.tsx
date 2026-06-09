@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useDesks } from '@/lib/useDesks';
+import { useDesks } from '@moxxy/client-core';
 import { Skeleton, Icon, ConfirmModal } from '@moxxy/desktop-ui';
-import { useUnreadWorkspaces } from '@/lib/useChat';
+import { useUnreadWorkspaces } from '@moxxy/client-core';
 import type { Desk } from '@moxxy/desktop-ipc-contract';
 import { Logo } from './workspace-sidebar/Logo';
 import { SectionHeader } from './workspace-sidebar/SectionHeader';

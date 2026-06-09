@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { summarizeArgs, oneLine } from '@moxxy/chat-model';
 import type { AskRequest, ApprovalRequest, ApprovalOption } from '@moxxy/desktop-ipc-contract';
 import { Icon } from '@moxxy/desktop-ui';
-import { askStore } from '@/lib/askStore';
+import { askStore } from '@moxxy/client-core';
 
 /**
  * Bottom sheet rendered above the composer when the runner needs a decision —

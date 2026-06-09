@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useSettings } from '@/lib/useSettings';
+import { useSettings } from '@moxxy/client-core';
 import { Button, Skeleton, Icon } from '@moxxy/desktop-ui';
 import { SkillsView } from './SkillsView';
 import { ProvidersTab } from './ProvidersTab';

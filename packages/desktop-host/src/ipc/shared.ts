@@ -23,16 +23,18 @@
  *     plugins (vault + Codex transcriber) re-used across IPC calls.
  */
 
-import { ipcMain } from 'electron';
-
 import type {
   IpcCommandName,
   IpcCommands,
-  MoxxyIpcErrorCode,
 } from '@moxxy/desktop-ipc-contract';
-import { encodeIpcError } from '@moxxy/desktop-ipc-contract';
-import { validateIpcInput } from '@moxxy/desktop-ipc-contract/validation';
+import type { CommandBus } from '@moxxy/desktop-ipc-contract/bus';
+import { IpcError } from '@moxxy/desktop-ipc-contract/dispatch';
 import type { SessionLike } from '@moxxy/sdk';
+
+// Re-exported so the many `import { IpcError } from './shared'` sites (and the
+// guards below) keep working after the class moved into the contract's shared
+// dispatch core. One class, referenced by both the host guards and `dispatch`.
+export { IpcError };
 
 import type { RunnerSupervisor } from '../runner-supervisor';
 import type { RunnerPool } from '../runner-pool';
@@ -99,27 +101,28 @@ export function unpublishDriver(id: string): void {
 }
 
 /**
- * A handler error carrying a stable {@link MoxxyIpcErrorCode}. The shared
- * guards (`mustRemote` etc.) throw these so the renderer can branch on a code
- * rather than string-matching messages. Anything else a handler throws is
- * classified `runner-error` at the choke point.
+ * The bus the per-domain registrars currently register against. Set by
+ * {@link registerIpcHandlers} immediately before each registration sweep, so
+ * the SAME registrar bodies (which call {@link handle}) register their handlers
+ * onto every transport in turn — Electron, then the WebSocket bridge — without
+ * any registrar knowing which transport it's wiring.
+ *
+ * Mutation is safe because registration is a single synchronous sweep per bus;
+ * `activeBus` is only read while a registrar runs, never across an await.
  */
-export class IpcError extends Error {
-  constructor(
-    readonly code: MoxxyIpcErrorCode,
-    message: string,
-  ) {
-    super(message);
-    this.name = 'IpcError';
-  }
+let activeBus: CommandBus | null = null;
+
+/** Point {@link handle} at `bus` for the next registration sweep. */
+export function setActiveBus(bus: CommandBus): void {
+  activeBus = bus;
 }
 
 /**
- * Strongly-typed `ipcMain.handle` — channel + arg shapes come from
- * `IpcCommands` so a renamed command surfaces as a type error. This is also
- * the single place that (1) runtime-validates the payload and (2) wraps every
- * failure in the uniform {@link encodeIpcError} envelope, so the renderer sees
- * one error shape with a stable code for every command.
+ * Register a command handler against the {@link activeBus}. Channel + arg shapes
+ * come from `IpcCommands` so a renamed command surfaces as a type error. The
+ * payload validation + uniform error classification that used to live here now
+ * live in the transport-neutral `dispatch` core that each bus calls — so this
+ * is a thin, transport-agnostic forwarder and the registrars are unchanged.
  */
 export function handle<K extends IpcCommandName>(
   channel: K,
@@ -127,29 +130,10 @@ export function handle<K extends IpcCommandName>(
     ...args: Parameters<IpcCommands[K]>
   ) => Promise<Awaited<ReturnType<IpcCommands[K]>>>,
 ): void {
-  ipcMain.handle(channel, async (_evt, ...args) => {
-    // Runtime-validate the payload at the boundary before any handler
-    // touches the filesystem / a child process / the vault. Schemas
-    // exist only for the security-sensitive commands; the rest pass
-    // through (validateIpcInput is a no-op without a schema).
-    try {
-      validateIpcInput(channel, args[0]);
-    } catch (e) {
-      throw new Error(
-        encodeIpcError({ code: 'invalid-payload', message: messageOf(e) }),
-      );
-    }
-    try {
-      return await fn(...(args as Parameters<IpcCommands[K]>));
-    } catch (e) {
-      const code: MoxxyIpcErrorCode = e instanceof IpcError ? e.code : 'runner-error';
-      throw new Error(encodeIpcError({ code, message: messageOf(e) }));
-    }
-  });
-}
-
-function messageOf(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
+  if (!activeBus) {
+    throw new Error('no active CommandBus — setActiveBus() must run before registering handlers');
+  }
+  activeBus.handle(channel, fn);
 }
 
 export function resolveSupervisor(

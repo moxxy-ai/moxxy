@@ -26,9 +26,20 @@ import type {
   ApprovalRequest,
   ApprovalOption,
   PermissionMode,
+  ModeBadge,
 } from '@moxxy/sdk';
 
-export type { ApprovalRequest, ApprovalOption, PermissionMode };
+export type { ApprovalRequest, ApprovalOption, PermissionMode, ModeBadge };
+
+/**
+ * Window/event-bus key a thin client listens for to re-fetch `session.info`
+ * after switching the active mode out-of-band (e.g. the desktop composer's Goal
+ * button). Lives in the contract — not a UI module — so the shared
+ * `useActiveModeBadge` hook can import the constant without reaching into any
+ * platform's component tree. Platforms route it through their `EventBus`
+ * capability (the desktop's wraps `window` events).
+ */
+export const SESSION_INFO_REFRESH_EVENT = 'moxxy:session-info-refresh';
 
 // ---------- Interactive ask (permission / approval prompts) ---------------
 
@@ -659,6 +670,23 @@ export interface IpcCommands {
 
 /** Names of every command, derived. */
 export type IpcCommandName = keyof IpcCommands;
+
+/**
+ * Commands that only make sense on the machine running the host and must be
+ * refused over a remote (WebSocket) transport: native OS dialogs that would pop
+ * on the host rather than the remote client, focus-widget window control, and
+ * the app relaunch. The WebSocket bus rejects these with a coded error; a remote
+ * client can read this set to gray out the corresponding affordances. (Remote
+ * clients attach files via `session.saveImageAttachment` instead of a picker.)
+ */
+export const REMOTE_DISALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcCommandName>([
+  'desks.pickFolder',
+  'session.pickAttachment',
+  'focus.close',
+  'focus.restoreMain',
+  'focus.resize',
+  'app.relaunch',
+]);
 
 // ---------- Shape the preload exposes on `window.moxxy` -------------------
 

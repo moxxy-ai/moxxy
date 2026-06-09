@@ -56,6 +56,8 @@ module.exports = {
         pathNot: [
           '\\.test\\.ts$',
           '\\.test-d\\.ts$',
+          // Ambient declaration files are loaded by the compiler, never imported.
+          '\\.d\\.ts$',
           '__fixtures__/',
           'vitest\\.config\\.',
           'tsconfig\\.',

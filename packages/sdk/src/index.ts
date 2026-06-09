@@ -150,6 +150,11 @@ export { writeFileAtomic, moxxyHome, moxxyPath, type WriteFileAtomicOptions } fr
 export { createMutex, type Mutex } from './mutex.js';
 export { readRequestBody, bearerTokenMatches } from './http-utils.js';
 export {
+  resolveChannelToken,
+  bearerGuard,
+  type ChannelTokenOptions,
+} from './channel-auth.js';
+export {
   autoAllowResolver,
   denyByDefaultResolver,
   createCallbackResolver,

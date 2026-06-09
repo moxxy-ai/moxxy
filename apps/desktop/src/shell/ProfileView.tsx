@@ -15,7 +15,7 @@
 import { useState } from 'react';
 import { useClerk, useUser } from '@clerk/clerk-react';
 import { Button, Modal, ConfirmModal, Icon } from '@moxxy/desktop-ui';
-import { usePrefs } from '@/lib/usePrefs';
+import { usePrefs } from '@moxxy/client-core';
 
 interface Props {
   readonly tier: string;

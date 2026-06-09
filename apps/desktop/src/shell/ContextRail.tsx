@@ -13,7 +13,7 @@
  */
 
 import { useState } from 'react';
-import { useDesks } from '@/lib/useDesks';
+import { useDesks } from '@moxxy/client-core';
 import { Icon } from '@moxxy/desktop-ui';
 import { WorkspaceFiles } from './WorkspaceFiles';
 

@@ -24,6 +24,7 @@ import { buildMcpAdminPluginWithApi } from '@moxxy/plugin-mcp';
 import { cliPlugin } from '@moxxy/plugin-cli';
 import { httpChannelPlugin } from '@moxxy/plugin-channel-http';
 import { buildWebChannelPlugin } from '@moxxy/plugin-channel-web';
+import { mobileChannelPlugin } from '@moxxy/plugin-channel-mobile';
 import { browserPlugin } from '@moxxy/plugin-browser';
 import { buildSubagentsPlugin } from '@moxxy/plugin-subagents';
 import {
@@ -92,6 +93,7 @@ export const BUILTIN_REQUIREMENT_DECISIONS: Readonly<Record<string, BuiltinRequi
   '@moxxy/plugin-cli': { hardRequirements: false, reason: 'TUI channel is standalone' },
   '@moxxy/plugin-channel-http': { hardRequirements: false, reason: 'HTTP channel is standalone' },
   '@moxxy/plugin-channel-web': { hardRequirements: false, reason: 'web surface is standalone; token auto-generated' },
+  '@moxxy/plugin-channel-mobile': { hardRequirements: false, reason: 'mobile WS bridge is standalone; token auto-generated' },
   '@moxxy/plugin-telegram': { hardRequirements: false, reason: 'vault is injected by bootstrap closure' },
   '@moxxy/plugin-browser': { hardRequirements: false, reason: 'browser runtime is diagnosed at tool/runtime level' },
   '@moxxy/plugin-computer-control': { hardRequirements: false, reason: 'platform constraints are handled by tools' },
@@ -233,6 +235,7 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
           : {}),
       }),
     },
+    { name: '@moxxy/plugin-channel-mobile', plugin: mobileChannelPlugin },
     { name: '@moxxy/plugin-telegram', plugin: buildTelegramPlugin({ vault }) },
     { name: '@moxxy/plugin-browser', plugin: browserPlugin },
     // macOS-only computer control: screenshot, click, type, key,

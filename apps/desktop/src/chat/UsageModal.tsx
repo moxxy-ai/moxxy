@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Button, Modal, Icon } from '@moxxy/desktop-ui';
-import { api } from '@/lib/api';
-import { chatStore } from '@/lib/chatStore';
-import type { ContextUsage } from '@/lib/useContextUsage';
+import { api } from '@moxxy/client-core';
+import { chatStore } from '@moxxy/client-core';
+import type { ContextUsage } from '@moxxy/client-core';
 
 /** Compact token formatter — 1.2k / 3.40M / 812. */
 function fmt(n: number): string {

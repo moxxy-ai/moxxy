@@ -8,8 +8,8 @@
  * front end of {@link useAppUpdate}.
  */
 
-import { api } from '@/lib/api';
-import { useAppUpdate, type UpdateState } from '@/lib/useAppUpdate';
+import { api } from '@moxxy/client-core';
+import { useAppUpdate, type UpdateState } from '@moxxy/client-core';
 import { Section } from './settings-primitives';
 
 function statusLine(state: UpdateState, latest: string | null): string | null {

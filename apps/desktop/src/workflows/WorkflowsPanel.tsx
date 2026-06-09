@@ -1,4 +1,4 @@
-import { useWorkflows } from '@/lib/useWorkflows';
+import { useWorkflows } from '@moxxy/client-core';
 import { Skeleton } from '@moxxy/desktop-ui';
 
 /**

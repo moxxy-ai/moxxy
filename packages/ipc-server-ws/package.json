@@ -1,0 +1,39 @@
+{
+  "name": "@moxxy/ipc-server-ws",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Serves the moxxy IPC contract (IpcCommands/IpcEvents) over an authenticated WebSocket so a remote client (the mobile app) can drive the same host as the desktop renderer. A WebSocketCommandBus reuses the contract's dispatch core + the runner's JsonRpcPeer; bearer-token auth at the handshake. Node-only, no Electron.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@moxxy/desktop-ipc-contract": "workspace:*",
+    "@moxxy/runner": "workspace:*",
+    "@moxxy/sdk": "workspace:*",
+    "ws": "catalog:"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/ws": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

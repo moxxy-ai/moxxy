@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "moxxy mobile",
+    "slug": "moxxy-mobile",
+    "scheme": "moxxy",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": false,
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Scan the connection QR shown by `moxxy mobile` to connect to your agent."
+      }
+    },
+    "android": {
+      "permissions": ["android.permission.CAMERA"]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan the connection QR shown by `moxxy mobile` to connect to your agent."
+        }
+      ]
+    ],
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}

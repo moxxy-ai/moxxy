@@ -17,6 +17,7 @@ import type { NodeProbe } from '@moxxy/desktop-ipc-contract';
 import { augmentedPaths, findExecutable, resolveMoxxyCli, spawnCli, spawnPath } from './cli-resolver';
 import { assertSafeProviderName } from './security';
 import { sendEvent } from './send-event';
+import { wsEventBus } from './event-bus';
 
 /**
  * Spawn `node --version` and return the trimmed string. Fast (250ms
@@ -211,4 +212,7 @@ function emit(window: BrowserWindow, line: string): void {
   // Typed channel + destroyed-window guard live in sendEvent — a renamed
   // event is now a compile error rather than a silently dead literal.
   sendEvent(window, 'onboarding.install.progress', line);
+  // Mirror to non-Electron transports (one in-flight install at a time, so a
+  // single broadcast per line — no per-window duplication). No-op without WS.
+  wsEventBus.broadcast('onboarding.install.progress', line);
 }

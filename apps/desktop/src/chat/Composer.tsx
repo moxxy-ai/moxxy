@@ -9,11 +9,11 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
-import { api } from '@/lib/api';
-import { useQueuedTurns } from '@/lib/useChat';
-import { useVoiceRecorder } from '@/lib/useVoiceRecorder';
-import { useActiveModeBadge } from '@/lib/useActiveModeBadge';
-import { chatStore } from '@/lib/chatStore';
+import { api } from '@moxxy/client-core';
+import { useQueuedTurns } from '@moxxy/client-core';
+import { useVoiceRecorder } from '@moxxy/client-core';
+import { useActiveModeBadge } from '@moxxy/client-core';
+import { chatStore } from '@moxxy/client-core';
 import { AgentPicker } from './AgentPicker';
 import { SESSION_INFO_REFRESH_EVENT } from './agent-picker/types';
 import { ModeBanner } from './composer/ModeBanner';
@@ -26,7 +26,7 @@ import { GoalModal } from './composer/GoalModal';
 import { QueuedChip } from './composer/QueuedChip';
 import { AttachmentChip } from './composer/AttachmentChip';
 import { sendBtn } from './composer/composer-styles';
-import { toErrorMessage } from '@/lib/errors';
+import { toErrorMessage } from '@moxxy/client-core';
 
 interface ComposerAttachment {
   readonly path: string;
