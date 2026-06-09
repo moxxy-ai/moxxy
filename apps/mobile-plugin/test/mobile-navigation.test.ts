@@ -51,6 +51,11 @@ describe('mobile chat chrome navigation model', () => {
       active: true,
       label: 'Auto-approve ON',
     });
+    expect(items.find((item) => item.id === 'compact')).toMatchObject({
+      id: 'compact',
+      label: 'Compact context',
+      requiresConfirmation: true,
+    });
   });
 
   it('builds a compact recent-session list for the full-screen hamburger menu', () => {

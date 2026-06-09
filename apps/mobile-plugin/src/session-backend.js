@@ -117,6 +117,7 @@ export function createSessionMobileBackend(session, options = {}) {
   const turnControllers = new Map();
   const eventTurnSessionIds = new Map();
   const runtimeEventsBySessionId = new Map();
+  const usageBySessionId = new Map();
   const unreadSessionIds = new Set();
   let activeTurnId = null;
   let hydratedSessionId = null;
@@ -139,10 +140,13 @@ export function createSessionMobileBackend(session, options = {}) {
       unsubscribe = session.log?.subscribe?.((event) => {
         if (hydrating) return;
         const ownerSessionId = resolveIncomingEventSessionId(event);
+        const previousUsage = usageBySessionId.get(ownerSessionId) ?? null;
         cacheRuntimeEvents(ownerSessionId);
+        const usageChanged = usageSnapshotsDiffer(previousUsage, usageBySessionId.get(ownerSessionId) ?? null);
         persistRuntimeEvent(event, ownerSessionId);
         if (getSelectedSessionId() === ownerSessionId && selectedSessionUsesRuntime()) {
           broadcast({ type: 'event', event });
+          if (usageChanged) broadcast({ type: 'snapshot', snapshot: this.snapshot() });
           return;
         }
         unreadSessionIds.add(ownerSessionId);
@@ -175,6 +179,7 @@ export function createSessionMobileBackend(session, options = {}) {
         hydratedSessionId,
         runtimeSessionId: getRuntimeSessionId(),
         runtimeEventsBySessionId,
+        usageBySessionId,
         sessionCatalog,
         workspaceCatalog,
         desktopChatCatalog,
@@ -220,7 +225,7 @@ export function createSessionMobileBackend(session, options = {}) {
         case 'runCommand':
         case 'command':
           await runCommand(frame);
-          return { handled: true, frame: { type: 'connection', status: 'command.accepted', id: frame.id } };
+          return { handled: true };
         case 'workflow.list':
           await refreshWorkflowsAndBroadcast();
           return { handled: true, frame: { type: 'connection', status: 'workflow.listed', id: frame.id } };
@@ -231,6 +236,7 @@ export function createSessionMobileBackend(session, options = {}) {
           hydratedSessionId = null;
           pendingRuntimeSessionId = null;
           unreadSessionIds.delete(selectedSessionId);
+          usageBySessionId.delete(selectedSessionId);
           session.log?.clear?.();
           broadcast({ type: 'snapshot', snapshot: this.snapshot() });
           return { handled: true, frame: { type: 'connection', status: 'session.new', id: frame.id } };
@@ -322,7 +328,9 @@ export function createSessionMobileBackend(session, options = {}) {
 
   function cacheRuntimeEvents(sessionId) {
     if (typeof sessionId !== 'string' || sessionId.length === 0) return;
-    runtimeEventsBySessionId.set(sessionId, normalizeHydratedEvents(session.log?.slice?.(0) ?? [], sessionId));
+    const normalized = normalizeHydratedEvents(session.log?.slice?.(0) ?? [], sessionId);
+    runtimeEventsBySessionId.set(sessionId, normalized);
+    usageBySessionId.set(sessionId, usageFromEvents(normalized));
   }
 
   async function restoreRuntimeEvents(events, sessionId) {
@@ -354,6 +362,7 @@ export function createSessionMobileBackend(session, options = {}) {
     const source = desktopChatCatalog.hasSession(sessionId) ? desktopChatCatalog : sessionCatalog;
     const events = normalizeHydratedEvents(source.readSessionEvents(sessionId), sessionId);
     runtimeEventsBySessionId.set(sessionId, events);
+    usageBySessionId.set(sessionId, usageFromEvents(events));
     return await restoreRuntimeEvents(events, sessionId);
   }
 
@@ -457,13 +466,25 @@ export function createSessionMobileBackend(session, options = {}) {
     if (typeof frame.name !== 'string') return;
     const command = session.commands?.get?.(frame.name);
     if (!command) return;
-    const result = await command.handler({
-      channel: 'mobile',
-      sessionId: session.id,
-      args: typeof frame.args === 'string' ? frame.args : '',
-      session,
-    });
-    broadcast({ type: 'event', event: { type: 'command', name: frame.name, result } });
+    broadcast({ type: 'connection', status: 'command.started', id: frame.id, commandName: frame.name });
+    try {
+      const result = await command.handler({
+        channel: 'mobile',
+        sessionId: session.id,
+        args: typeof frame.args === 'string' ? frame.args : '',
+        session,
+      });
+      broadcast({ type: 'event', event: { type: 'command', name: frame.name, result } });
+      broadcast({ type: 'connection', status: 'command.completed', id: frame.id, commandName: frame.name });
+    } catch (err) {
+      broadcast({
+        type: 'connection',
+        status: 'command.failed',
+        id: frame.id,
+        commandName: frame.name,
+      });
+      throw err;
+    }
   }
 
   async function refreshWorkflowsAndBroadcast() {
@@ -560,6 +581,11 @@ function buildSessionSnapshot(session, state) {
   const chatEvents = selectedUsesRuntime
     ? session.log?.slice?.(0) ?? []
     : readStoredSessionEvents(state, selectedSessionId);
+  const usage = buildUsageSnapshot(
+    state.usageBySessionId?.get(selectedSessionId) ?? usageFromEvents(chatEvents),
+    info,
+    selectedSession,
+  );
   return {
     activeWorkspaceId: selectedSessionId,
     workspaces: realWorkspaceRecords(state.workspaceCatalog),
@@ -586,12 +612,105 @@ function buildSessionSnapshot(session, state) {
     activeTurnId: selectedUsesRuntime ? state.activeTurnId ?? null : null,
     queue: [],
     compacting: false,
-    usage: null,
+    usage,
     autoApprove: state.autoApprove === true,
     activeMode: selectedUsesRuntime ? info.activeMode ?? null : 'archive',
     activeProvider: selectedSession.provider ?? info.activeProvider ?? null,
     modeBadge: selectedUsesRuntime ? info.activeModeBadge ?? null : { label: 'Archive' },
   };
+}
+
+function buildUsageSnapshot(usage, info, selectedSession) {
+  const contextWindow = resolveContextWindow(
+    info,
+    usage?.model ?? selectedSession?.model ?? null,
+    usage?.provider ?? selectedSession?.provider ?? info?.activeProvider ?? null,
+  );
+  if (!usage && contextWindow == null) return null;
+  const base = usage ?? emptyUsageSnapshot();
+  return {
+    ...base,
+    contextWindow,
+  };
+}
+
+function resolveContextWindow(info, model, providerName) {
+  const providers = Array.isArray(info?.providers) ? info.providers : [];
+  const provider = providers.find((candidate) => candidate?.name === providerName) ?? providers[0];
+  if (!provider || !Array.isArray(provider.models)) return null;
+  const match = typeof model === 'string' ? provider.models.find((candidate) => candidate?.id === model) : null;
+  const window = match?.contextWindow ?? provider.models[0]?.contextWindow ?? null;
+  return typeof window === 'number' && Number.isFinite(window) && window > 0 ? window : null;
+}
+
+function emptyUsageSnapshot() {
+  return {
+    latestPrompt: null,
+    perCall: [],
+    calls: 0,
+    totalInput: 0,
+    totalCacheRead: 0,
+    totalCacheCreation: 0,
+    totalOutput: 0,
+    provider: null,
+    model: null,
+  };
+}
+
+function usageFromEvents(events) {
+  const usage = emptyUsageSnapshot();
+  for (const event of Array.isArray(events) ? events : []) {
+    applyUsageEvent(usage, event);
+  }
+  return usage.calls > 0 || usage.latestPrompt != null ? usage : null;
+}
+
+function applyUsageEvent(usage, event) {
+  if (event?.type === 'compaction') {
+    const saved = typeof event.tokensSaved === 'number' ? event.tokensSaved : 0;
+    if (saved <= 0 || usage.latestPrompt == null) return false;
+    usage.latestPrompt = Math.max(0, usage.latestPrompt - saved);
+    return true;
+  }
+  if (event?.type !== 'provider_response') return false;
+  const hasUsage =
+    event.inputTokens !== undefined ||
+    event.outputTokens !== undefined ||
+    event.cacheReadTokens !== undefined ||
+    event.cacheCreationTokens !== undefined;
+  if (!hasUsage) return false;
+  const hasPrompt =
+    event.inputTokens !== undefined ||
+    event.cacheReadTokens !== undefined ||
+    event.cacheCreationTokens !== undefined;
+  const input = event.inputTokens ?? 0;
+  const cacheRead = event.cacheReadTokens ?? 0;
+  const cacheCreation = event.cacheCreationTokens ?? 0;
+  const output = event.outputTokens ?? 0;
+  const prompt = input + cacheRead + cacheCreation;
+  if (hasPrompt) {
+    usage.latestPrompt = prompt;
+    usage.perCall = [...usage.perCall, prompt];
+  }
+  usage.calls += 1;
+  usage.totalInput += input;
+  usage.totalCacheRead += cacheRead;
+  usage.totalCacheCreation += cacheCreation;
+  usage.totalOutput += output;
+  usage.provider = typeof event.provider === 'string' ? event.provider : usage.provider;
+  usage.model = typeof event.model === 'string' ? event.model : usage.model;
+  return true;
+}
+
+function usageSnapshotsDiffer(a, b) {
+  return (
+    (a?.latestPrompt ?? null) !== (b?.latestPrompt ?? null) ||
+    (a?.calls ?? 0) !== (b?.calls ?? 0) ||
+    (a?.totalInput ?? 0) !== (b?.totalInput ?? 0) ||
+    (a?.totalCacheRead ?? 0) !== (b?.totalCacheRead ?? 0) ||
+    (a?.totalCacheCreation ?? 0) !== (b?.totalCacheCreation ?? 0) ||
+    (a?.totalOutput ?? 0) !== (b?.totalOutput ?? 0)
+  );
 }
 
 function buildMobileSessions(session, state, info, liveSessionId, cwd) {

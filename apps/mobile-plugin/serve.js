@@ -303,8 +303,14 @@ export function createMobileGatewayServer(options = {}) {
         return;
       case 'runCommand':
       case 'command':
-        await postBridge(apiUrl, upstreamToken, '/v1/commands', frame);
-        sendFrame(ws, { type: 'connection', status: 'command.accepted', id: frame.id });
+        sendFrame(ws, { type: 'connection', status: 'command.started', id: frame.id, commandName: frame.name });
+        try {
+          await postBridge(apiUrl, upstreamToken, '/v1/commands', frame);
+          sendFrame(ws, { type: 'connection', status: 'command.completed', id: frame.id, commandName: frame.name });
+        } catch (err) {
+          sendFrame(ws, { type: 'connection', status: 'command.failed', id: frame.id, commandName: frame.name });
+          throw err;
+        }
         return;
       case 'transcribe':
         sendFrame(ws, { type: 'connection', status: 'transcribe.accepted', id: frame.id });

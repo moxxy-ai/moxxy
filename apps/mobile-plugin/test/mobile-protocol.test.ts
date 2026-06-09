@@ -173,6 +173,22 @@ describe('mobile protocol reducer', () => {
     expect(updated.autoApprove).toBe(true);
   });
 
+  it('tracks manual compact command lifecycle without waiting for the next chat turn', () => {
+    const started = applyGatewayFrame(emptyMobileState(), {
+      type: 'connection',
+      status: 'command.started',
+      commandName: 'compact',
+    });
+    const completed = applyGatewayFrame(started, {
+      type: 'connection',
+      status: 'command.completed',
+      commandName: 'compact',
+    });
+
+    expect(started.compacting).toBe(true);
+    expect(completed.compacting).toBe(false);
+  });
+
   it('stores completed transcription text for the composer to consume', () => {
     const updated = applyGatewayFrame(emptyMobileState(), {
       type: 'transcribe.result',

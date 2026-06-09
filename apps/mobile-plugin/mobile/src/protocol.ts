@@ -35,7 +35,7 @@ export type GatewayFrame =
   | { readonly type: 'permission.resolved'; readonly permissionId: string }
   | { readonly type: 'ask.request'; readonly ask: Record<string, unknown> }
   | { readonly type: 'ask.resolved'; readonly requestId: string }
-  | { readonly type: 'connection'; readonly status: string; readonly activeWorkspaceId?: string; readonly autoApprove?: boolean }
+  | { readonly type: 'connection'; readonly status: string; readonly activeWorkspaceId?: string; readonly autoApprove?: boolean; readonly commandName?: string }
   | { readonly type: 'transcribe.result'; readonly id?: string; readonly text: string }
   | { readonly type: 'error'; readonly message: string };
 
@@ -136,6 +136,10 @@ export function applyGatewayFrame(state: MobileState, frame: GatewayFrame): Mobi
       }
       if (frame.status === 'auto-approve.updated' && typeof frame.autoApprove === 'boolean') {
         return { ...state, autoApprove: frame.autoApprove };
+      }
+      if (frame.commandName === 'compact') {
+        if (frame.status === 'command.started') return { ...state, compacting: true };
+        if (frame.status === 'command.completed' || frame.status === 'command.failed') return { ...state, compacting: false };
       }
       if (frame.status === 'transcribe.accepted') {
         return { ...state, transcribing: true };

@@ -22,6 +22,7 @@ interface ComposerCardProps {
   readonly onVoice: () => void;
   readonly onToggleAutoApprove: () => void;
   readonly onNewSession: () => void;
+  readonly onCompact: () => void;
   readonly onCommand: (name: string, args?: string) => void;
 }
 
@@ -51,19 +52,44 @@ export function ComposerCard(props: ComposerCardProps) {
         onGoal={props.onGoal}
         onToggleAutoApprove={props.onToggleAutoApprove}
         onNewSession={props.onNewSession}
+        onCompact={props.onCompact}
         onCommand={props.onCommand}
       />
 
       <View
         className="rounded-card border border-cardBorder bg-cardBg shadow-card"
         style={{
-          borderColor: '#e3e5f0',
+          borderColor: ui.frameTone === 'bypass' ? '#ec4899' : '#e3e5f0',
           borderRadius: 16,
-          borderWidth: 1,
+          borderWidth: ui.frameTone === 'bypass' ? 2 : 1,
           paddingHorizontal: 12,
           paddingVertical: 10,
+          shadowColor: ui.frameTone === 'bypass' ? '#ec4899' : '#0f172a',
+          shadowOffset: { width: 0, height: 10 },
+          shadowOpacity: ui.frameTone === 'bypass' ? 0.14 : 0.05,
+          shadowRadius: ui.frameTone === 'bypass' ? 22 : 14,
         }}
       >
+        {ui.bypassActive ? (
+          <View
+            style={{
+              alignItems: 'center',
+              backgroundColor: '#fdf2f8',
+              borderColor: '#ec4899',
+              borderRadius: 999,
+              borderWidth: 1,
+              height: 28,
+              justifyContent: 'center',
+              position: 'absolute',
+              right: 12,
+              top: -14,
+              width: 28,
+              zIndex: 2,
+            }}
+          >
+            <MobileIcon name="bolt" size={14} strokeWidth={2.6} color="#db2777" />
+          </View>
+        ) : null}
         <TextInput
           value={props.text}
           onChangeText={props.onTextChange}

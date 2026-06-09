@@ -58,6 +58,41 @@ describe('session-backed mobile gateway', () => {
     }
   });
 
+  it('folds provider response usage into the desktop-style context percentage inputs', async () => {
+    const session = createFakeSession();
+    const gateway = await createMobileGatewayServer({ session, port: 0 }).start();
+    try {
+      const pairing = await getJson<{ code: string }>(`${gateway.url}/mobile/v1/pairing`);
+      const paired = await postJson<{ token: string }>(`${gateway.url}/mobile/v1/pair`, { code: pairing.code });
+      const socket = new WebSocket(`${gateway.wsUrl}/mobile/v1/ws?token=${paired.token}`);
+      const messages = collectMessages(socket);
+      await waitForFrame(messages, 'snapshot');
+
+      session.emit({
+        type: 'provider_response',
+        provider: 'openai-codex',
+        model: 'gpt-5',
+        inputTokens: 900,
+        cacheReadTokens: 100,
+        cacheCreationTokens: 24,
+        outputTokens: 256,
+      });
+
+      const updated = await waitForSnapshotAfter(messages, 0, 'session-real', (snapshot) =>
+        (snapshot.usage as { latestPrompt?: unknown } | undefined)?.latestPrompt === 1024,
+      );
+
+      expect(updated.usage).toMatchObject({
+        latestPrompt: 1024,
+        contextWindow: 20_480,
+        calls: 1,
+      });
+      socket.close();
+    } finally {
+      await gateway.stop();
+    }
+  });
+
   it('keeps in-flight turn events attached to the session that started the turn', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'moxxy-mobile-gateway-isolated-sessions-'));
     const session = createControlledTurnSession();
@@ -181,6 +216,37 @@ describe('session-backed mobile gateway', () => {
         },
       });
       expect(session.workflowRuns).toEqual(['daily-summary']);
+      socket.close();
+    } finally {
+      await gateway.stop();
+    }
+  });
+
+  it('broadcasts manual compact command lifecycle before and after the command handler', async () => {
+    const session = createFakeSession();
+    const gateway = await createMobileGatewayServer({ session, port: 0 }).start();
+    try {
+      const pairing = await getJson<{ code: string }>(`${gateway.url}/mobile/v1/pairing`);
+      const paired = await postJson<{ token: string }>(`${gateway.url}/mobile/v1/pair`, { code: pairing.code });
+      const socket = new WebSocket(`${gateway.wsUrl}/mobile/v1/ws?token=${paired.token}`);
+      const messages = collectMessages(socket);
+      await waitForFrame(messages, 'snapshot');
+
+      socket.send(JSON.stringify({ type: 'runCommand', id: 'compact-1', name: 'compact', args: '' }));
+
+      await expect(waitForConnection(messages, 'command.started')).resolves.toMatchObject({
+        type: 'connection',
+        status: 'command.started',
+        id: 'compact-1',
+        commandName: 'compact',
+      });
+      await expect(waitForConnection(messages, 'command.completed')).resolves.toMatchObject({
+        type: 'connection',
+        status: 'command.completed',
+        id: 'compact-1',
+        commandName: 'compact',
+      });
+      expect(session.commandsRun).toEqual(['compact']);
       socket.close();
     } finally {
       await gateway.stop();
@@ -472,8 +538,12 @@ function createFakeSession() {
     cwd: '/repo/real',
     prompts: [] as string[],
     contextsBeforeTurn: [] as Array<Array<Record<string, unknown>>>,
+    commandsRun: [] as string[],
     transcriptions: [] as Array<{ bytes: number[]; mimeType?: string }>,
     workflowRuns: [] as string[],
+    emit: (event: Record<string, unknown>) => {
+      session.log.ingest(event);
+    },
     log: {
       length: 0,
       slice: () => [...events],
@@ -491,6 +561,19 @@ function createFakeSession() {
         return () => listeners.delete(listener);
       },
     },
+    commands: {
+      get: (name: string) => {
+        if (name !== 'compact') return null;
+        return {
+          name: 'compact',
+          description: 'Compact context',
+          handler: async () => {
+            session.commandsRun.push(name);
+            return { kind: 'text', text: 'context compacted' };
+          },
+        };
+      },
+    },
     getInfo: () => ({
       sessionId: 'session-real',
       cwd: '/repo/real',
@@ -498,7 +581,14 @@ function createFakeSession() {
       activeMode: 'developer',
       activeModeBadge: { label: 'DEV' },
       commands: [{ name: 'compact', description: 'Compact context' }],
-      providers: [],
+      providers: [
+        {
+          name: 'openai-codex',
+          models: [
+            { id: 'gpt-5', contextWindow: 20_480 },
+          ],
+        },
+      ],
       modes: ['developer'],
       tools: [],
       skills: [],
@@ -708,7 +798,7 @@ async function waitForSnapshotAfter(
   startIndex: number,
   activeWorkspaceId: string,
   predicate: (snapshot: Record<string, unknown>) => boolean,
-): Promise<{ snapshot: Record<string, unknown> }> {
+): Promise<Record<string, unknown>> {
   await waitFor(() =>
     messages.slice(startIndex).some((message) => {
       const frame = message as { type?: string; snapshot?: Record<string, unknown> };
@@ -717,7 +807,7 @@ async function waitForSnapshotAfter(
         predicate(frame.snapshot);
     }),
   );
-  return latestSnapshotFor(messages.slice(startIndex), activeWorkspaceId) as { snapshot: Record<string, unknown> };
+  return latestSnapshotFor(messages.slice(startIndex), activeWorkspaceId) as Record<string, unknown>;
 }
 
 function latestSnapshotFor(messages: unknown[], activeWorkspaceId: string): Record<string, unknown> | null {
