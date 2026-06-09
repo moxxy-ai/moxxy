@@ -10,9 +10,13 @@
  *
  * Trust chain: the manifest is Ed25519-signed by the release owner's private key
  * (the `MOXXY_UPDATE_SIGNING_KEY` CI secret); the matching public key is baked
- * into the bootstrap. The signature covers the bundle's `sha256`, so verifying
- * the (tiny) manifest transitively authenticates the (large) bundle without
- * signing the bundle directly.
+ * into the bootstrap. The signature covers the bundle's `sha256` (the gzipped
+ * archive, checked at download time) AND — for manifests that carry one — a
+ * per-file `files` hash map, re-checked against the extracted tree at stage time
+ * and again by the bootstrap at every load. Verifying the (tiny) manifest thus
+ * transitively authenticates the (large) bundle without signing it directly.
+ * Legacy manifests (no `files` map) predate the per-file map and are only
+ * archive-hash-checked at download — NOT load-time-verified.
  */
 
 import { createPublicKey, verify as cryptoVerify } from 'node:crypto';
@@ -28,6 +32,12 @@ export interface AppManifest {
   nodeAbi: string;
   /** SHA-256 (hex) of the gzipped bundle payload. */
   sha256: string;
+  /** Per-file integrity map: bundle-relative POSIX path → SHA-256 (hex) of the
+   *  RAW file bytes. Signed (see {@link canonicalManifestBytes}) and re-verified
+   *  against the extracted tree at stage time AND at every load, so a tampered
+   *  on-disk file can't ride a genuine manifest. Absent on legacy manifests,
+   *  which are therefore not load-time-verified. */
+  files?: Record<string, string>;
   /** Ed25519 signature (base64) over {@link canonicalManifestBytes}. */
   signature: string;
   /** HTTPS URL of the gzipped bundle asset. */
@@ -39,11 +49,14 @@ export interface AppManifest {
 }
 
 /**
- * Fields covered by the signature, in fixed order — the canonical signing
- * payload. The signature intentionally does NOT cover `releaseUrl`/`notes`
- * (presentational) but DOES cover `bundleUrl` + `sha256` (so neither the source
- * nor the payload can be swapped). Adding a security-relevant field means adding
- * it HERE — the signer and verifier share this one list.
+ * Scalar fields covered by the signature, in fixed order — the spine of the
+ * canonical signing payload. The signature intentionally does NOT cover
+ * `releaseUrl`/`notes` (presentational) but DOES cover `bundleUrl` + `sha256`
+ * (so neither the source nor the payload can be swapped) and — when present —
+ * the per-file `files` map, which {@link canonicalManifestBytes} appends with
+ * sorted keys. Adding a security-relevant field means adding it HERE (or, for
+ * non-string fields, to the canonicalizer) — the signer and verifier share this
+ * one serialization.
  */
 export const SIGNED_FIELDS = [
   'version',
@@ -55,10 +68,24 @@ export const SIGNED_FIELDS = [
 
 type SignedField = (typeof SIGNED_FIELDS)[number];
 
-/** Deterministic bytes the signature is computed/verified over. */
-export function canonicalManifestBytes(m: Pick<AppManifest, SignedField>): Buffer {
-  const ordered: Record<string, string> = {};
+/**
+ * Deterministic bytes the signature is computed/verified over.
+ *
+ * The `files` map is appended only when present, with sorted keys, so:
+ *   - legacy manifests (no map) keep verifying byte-for-byte as before, and
+ *   - stripping the map from (or adding one to) a signed manifest changes the
+ *     canonical bytes and breaks the signature — a downgrade can't be forged.
+ */
+export function canonicalManifestBytes(
+  m: Pick<AppManifest, SignedField> & Pick<AppManifest, 'files'>,
+): Buffer {
+  const ordered: Record<string, unknown> = {};
   for (const k of SIGNED_FIELDS) ordered[k] = String(m[k] ?? '');
+  if (m.files) {
+    const files: Record<string, string> = {};
+    for (const rel of Object.keys(m.files).sort()) files[rel] = String(m.files[rel] ?? '');
+    ordered.files = files;
+  }
   return Buffer.from(JSON.stringify(ordered), 'utf8');
 }
 
@@ -103,6 +130,17 @@ export function parseManifest(json: string): AppManifest | null {
     signature: m.signature,
     bundleUrl: m.bundleUrl,
   };
+  // Optional per-file map: every entry must be path → 64-hex. Kept VERBATIM
+  // (no re-casing/re-ordering) — the signature covers these exact strings.
+  if (m.files !== undefined) {
+    if (!m.files || typeof m.files !== 'object' || Array.isArray(m.files)) return null;
+    const files: Record<string, string> = {};
+    for (const [rel, hash] of Object.entries(m.files as Record<string, unknown>)) {
+      if (!rel || typeof hash !== 'string' || !HEX64.test(hash)) return null;
+      files[rel] = hash;
+    }
+    out.files = files;
+  }
   if (str(m.releaseUrl)) out.releaseUrl = m.releaseUrl;
   if (str(m.notes)) out.notes = m.notes;
   return out;

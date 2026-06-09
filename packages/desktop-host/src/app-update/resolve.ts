@@ -5,10 +5,14 @@
  *
  * This runs inside the immutable bootstrap, so it is dependency-free (node
  * built-ins only) and fully SYNCHRONOUS — it must not delay process start. Every
- * failure mode (missing/poisoned/incompatible/unsigned/malformed) resolves to
- * `null`, i.e. fall back to the floor. A bundle is only ever returned after its
- * manifest's Ed25519 signature, version binding, and Electron/ABI compatibility
- * all pass.
+ * failure mode (missing/poisoned/incompatible/unsigned/malformed/tampered)
+ * resolves to `null`, i.e. fall back to the floor. A bundle is only ever
+ * returned after its manifest's Ed25519 signature, version binding, and
+ * Electron/ABI compatibility all pass — and, for manifests that carry a signed
+ * per-file `files` map, after every listed file's sha256 matches the bytes on
+ * disk. Legacy manifests (no `files` map) skip that last gate: their signature
+ * only ever bound the gzipped download (checked by the stager), so their staged
+ * tree is NOT re-verified at load time.
  *
  * On-disk layout under `<userData>/app/`:
  *   active.json        { version }       — the version the bootstrap should load
@@ -18,6 +22,7 @@
  *   <version>/         the extracted bundle (dist/ + dist-electron/ + manifest.json)
  */
 
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, rmSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
@@ -42,6 +47,52 @@ const SAFE_VERSION = /^[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$/;
 
 export function isSafeVersion(v: string): boolean {
   return SAFE_VERSION.test(v) && !v.includes('..');
+}
+
+/** Reject any bundle-relative path that is absolute or escapes the bundle root.
+ *  Single-sourced here for the stager's archive extraction AND the per-file
+ *  integrity checks (both join these paths under a trusted root). */
+export function safeRelPath(rel: string): string | null {
+  if (!rel || rel.startsWith('/') || rel.includes('\\')) return null;
+  const norm = path.posix.normalize(rel);
+  if (norm.startsWith('..') || norm.startsWith('/') || path.posix.isAbsolute(norm)) return null;
+  if (norm.split('/').some((seg) => seg === '..')) return null;
+  return norm;
+}
+
+/** First failing entry of a signed per-file integrity check, for diagnostics. */
+export interface FileIntegrityFailure {
+  file: string;
+  problem: 'unsafe-path' | 'missing' | 'mismatch';
+}
+
+/**
+ * Verify a bundle tree against its manifest's signed `files` map: every listed
+ * file must exist under `root` with the exact sha256. Returns the first failure,
+ * or null when all entries check out. EXTRA on-disk files are deliberately
+ * ignored — `manifest.json` (and, for legacy bundles, the stager's ESM-marker
+ * safety-net) necessarily sit alongside the listed files, and an unlisted file
+ * is never loaded by name the bootstrap trusts. Synchronous on purpose: it runs
+ * in the bootstrap, and hashing a few MB of JS is cheap next to loading it.
+ */
+export function verifyBundleFiles(
+  root: string,
+  files: Record<string, string>,
+): FileIntegrityFailure | null {
+  for (const [rel, expected] of Object.entries(files)) {
+    const safe = safeRelPath(rel);
+    if (!safe) return { file: rel, problem: 'unsafe-path' };
+    let data: Buffer;
+    try {
+      data = readFileSync(path.join(root, safe));
+    } catch {
+      return { file: rel, problem: 'missing' };
+    }
+    if (createHash('sha256').update(data).digest('hex') !== expected.toLowerCase()) {
+      return { file: rel, problem: 'mismatch' };
+    }
+  }
+  return null;
 }
 
 export function appUpdateDir(userDataDir: string): string {
@@ -210,7 +261,8 @@ export type ResolveRejectReason =
   | 'version-mismatch' // manifest.version ≠ active version
   | 'bad-signature' // Ed25519 verification failed
   | 'incompatible' // Electron/ABI floor not met (needs a shell update)
-  | 'main-missing'; // dist-electron/main/index.js absent on disk
+  | 'main-missing' // dist-electron/main/index.js absent on disk
+  | 'file-tampered'; // a file in the signed `files` map is missing/modified on disk
 
 export type ResolveResult =
   | { bundle: ResolvedBundle; reason?: undefined }
@@ -220,10 +272,12 @@ export type ResolveResult =
  * The gate, with the reject reason exposed for observability.
  *
  * Order matters — cheapest + most-decisive checks first, signature before any
- * trust is extended, compatibility last:
+ * trust is extended, the (hashing, hence priciest) per-file check last:
  *   key configured → active version is safe + not poisoned → manifest present,
  *   well-formed, and bound to the active version → signature valid →
- *   Electron/ABI compatible → real main exists on disk.
+ *   Electron/ABI compatible → real main exists on disk → every file in the
+ *   signed `files` map matches its sha256 on disk (manifests that carry one;
+ *   legacy manifests have no map and get no load-time file verification).
  */
 export function resolveActiveBundleDetailed(opts: ResolveOpts): ResolveResult {
   const { userDataDir, publicKeyPem, shell } = opts;
@@ -244,6 +298,15 @@ export function resolveActiveBundleDetailed(opts: ResolveOpts): ResolveResult {
 
   const mainEntry = path.join(root, 'dist-electron', 'main', 'index.js');
   if (!existsSync(mainEntry)) return { bundle: null, reason: 'main-missing' };
+
+  // Load-time integrity: the archive sha256 only ever protected the DOWNLOAD;
+  // this is what stops an unprivileged write under `<userData>/app/` from
+  // pairing a genuine manifest with a tampered main. Signed-map-carrying
+  // manifests only — a stripped map breaks the signature above, and legacy
+  // manifests never had one to verify.
+  if (manifest.files && verifyBundleFiles(root, manifest.files)) {
+    return { bundle: null, reason: 'file-tampered' };
+  }
 
   return { bundle: { root, version } };
 }

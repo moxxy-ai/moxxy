@@ -42,9 +42,13 @@ import {
  *   - `ctx.signal.aborted` checked every iteration and mid tool batch
  *
  * Tool calls are auto-approved for the whole run (the user opted into full
- * autonomy) by swapping in a permissive resolver — but every call still flows
- * through `dispatchToolCall`, so tool-call HOOKS (e.g. a security plugin) still
- * run and can deny. Auto-approve skips the prompt, not the policy.
+ * autonomy) by swapping in a resolver that replaces only the PROMPT path:
+ * the session resolver's prompt-free `policyCheck` (user deny/allow rules
+ * from ~/.moxxy/permissions.json plus tool-declared rules) is consulted
+ * first, so a configured deny rule still denies here. Every call also still
+ * flows through `dispatchToolCall`, so tool-call HOOKS (e.g. a security
+ * plugin) still run and can deny. Auto-approve skips the prompt, not the
+ * policy.
  */
 export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> {
   if (ctx.signal.aborted) {
@@ -58,11 +62,21 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
     return;
   }
 
-  // Full auto-approve for the duration of the run — the user chose to let goal
-  // mode run unattended. Scoped to goalCtx so it never leaks past this loop.
+  // Auto-approve for the duration of the run — the user chose to let goal
+  // mode run unattended, so nothing may ever block on an interactive prompt.
+  // But ONLY the prompt is skipped: the session resolver's prompt-free
+  // `policyCheck` (deny/allow rules from ~/.moxxy/permissions.json, then the
+  // tool's own declared rule) is consulted first, so a user deny rule still
+  // denies in goal mode. Anything the policy doesn't decide is allowed.
+  // Scoped to goalCtx so it never leaks past this loop.
+  const sessionResolver = ctx.permissions;
   const autoApprove: PermissionResolver = {
     name: 'goal-auto-approve',
-    check: async () => ({ mode: 'allow', reason: 'goal mode runs tools unattended (auto-approve)' }),
+    check: async (call, permCtx) => {
+      const policy = (await sessionResolver.policyCheck?.(call, permCtx)) ?? null;
+      if (policy) return policy;
+      return { mode: 'allow', reason: 'goal mode runs tools unattended (auto-approve)' };
+    },
   };
   const goalCtx: ModeContext = {
     ...ctx,

@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
-import { generateKeyPairSync } from 'node:crypto';
+import { mkdtempSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
 import path from 'node:path';
 import os from 'node:os';
@@ -60,6 +60,15 @@ describe('build → stage → resolve round-trip', () => {
       '"type": "module"',
     );
 
+    // The manifest signs a per-file hash map covering EVERY bundle file (incl.
+    // the injected ESM marker) — what the stager + bootstrap verify on disk.
+    expect(manifest.files?.['dist-electron/main/index.js']).toBe(
+      createHash('sha256').update(FILES['dist-electron/main/index.js']).digest('hex'),
+    );
+    expect(Object.keys(manifest.files ?? {}).sort()).toEqual(
+      [...Object.keys(FILES), 'package.json'].sort(),
+    );
+
     // check: a newer, compatible bundle is offered
     const check = await checkForUpdate(
       { repo: 'moxxy-ai/moxxy', manifestUrlOverride: MANIFEST_URL, currentVersion: '0.0.5', publicKeyPem: PUBKEY, shell: SHELL },
@@ -97,6 +106,25 @@ describe('build → stage → resolve round-trip', () => {
       root,
       version: '0.0.6',
     });
+  });
+
+  it('rejects at LOAD time when a staged file is tampered after install', async () => {
+    const { manifest, bundleGz } = buildAppBundle({
+      version: '0.0.6',
+      minElectron: '33.0.0',
+      nodeAbi: '',
+      bundleUrl: BUNDLE_URL,
+      privateKeyPem: PRIVKEY,
+      files: FILES,
+    });
+    const fetchImpl = (async () => new Response(new Uint8Array(bundleGz))) as unknown as typeof fetch;
+    await downloadAndStage({ userDataDir: tmp, manifest, publicKeyPem: PUBKEY }, { fetchImpl });
+
+    // The A2 attack: an unprivileged write swaps the staged main under a
+    // genuine signed manifest. The load-time per-file check must refuse it.
+    const root = bundleRoot(tmp, '0.0.6');
+    writeFileSync(path.join(root, 'dist-electron', 'main', 'index.js'), '// EVIL main');
+    expect(resolveActiveBundle({ userDataDir: tmp, publicKeyPem: PUBKEY, shell: SHELL })).toBeNull();
   });
 
   it('refuses to stage when the gzip hash does not match the signed manifest', async () => {

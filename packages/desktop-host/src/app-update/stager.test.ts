@@ -169,6 +169,44 @@ describe('downloadAndStage hardening', () => {
     ).rejects.toThrow(/signature/i);
   });
 
+  it('refuses to stage when the extracted files do not match the signed per-file map', async () => {
+    // A manifest whose gzip sha256 matches the served payload but whose signed
+    // per-file map disagrees with the extracted bytes (a build/sign pipeline
+    // signing the wrong tree). The download hash passes; the post-extraction
+    // per-file check must catch it BEFORE activation.
+    const files = {
+      'dist/index.html': Buffer.from('x'),
+      'dist-electron/main/index.js': Buffer.from('// main'),
+      'package.json': Buffer.from('{ "type": "module" }\n'),
+    };
+    const filesB64: Record<string, string> = {};
+    for (const [rel, buf] of Object.entries(files)) filesB64[rel] = buf.toString('base64');
+    const bundleGz = gzipSync(Buffer.from(JSON.stringify({ version: '0.0.6', files: filesB64 }), 'utf8'));
+    const signed = {
+      version: '0.0.6',
+      minElectron: '33.0.0',
+      nodeAbi: '',
+      sha256: createHash('sha256').update(bundleGz).digest('hex'),
+      bundleUrl: GH,
+      // Wrong hash for the main — signed over a DIFFERENT tree than the payload.
+      files: { 'dist-electron/main/index.js': 'a'.repeat(64) },
+    };
+    const signature = cryptoSign(
+      null,
+      canonicalManifestBytes(signed),
+      createPrivateKey(PRIVKEY),
+    ).toString('base64');
+    const manifest: AppManifest = { ...signed, signature };
+
+    const fetchImpl = (async () => new Response(new Uint8Array(bundleGz))) as unknown as typeof fetch;
+    await expect(
+      downloadAndStage({ userDataDir: tmp, manifest, publicKeyPem: PUBKEY }, { fetchImpl }),
+    ).rejects.toThrow(/integrity/i);
+    // nothing got activated
+    expect(existsSync(bundleRoot(tmp, '0.0.6'))).toBe(false);
+    expect(readActiveVersion(tmp)).toBeNull();
+  });
+
   it('writes a type:module marker for a legacy bundle that omits its own package.json', async () => {
     // Reproduces the production "Cannot use import statement outside a module"
     // failure: a published bundle whose ESM main has no package.json above it.

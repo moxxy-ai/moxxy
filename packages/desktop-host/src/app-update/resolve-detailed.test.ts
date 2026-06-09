@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
 import path from 'node:path';
 import os from 'node:os';
 
@@ -120,6 +120,49 @@ describe('resolveActiveBundleDetailed', () => {
     expect(
       resolveActiveBundleDetailed({ userDataDir: tmp, publicKeyPem: PUBKEY, shell: SHELL }).reason,
     ).toBe('main-missing');
+  });
+
+  // Load-time per-file integrity (the signed `files` map).
+  const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex');
+  const MAIN_REL = 'dist-electron/main/index.js';
+
+  it('accepts a bundle whose signed files map matches the bytes on disk', () => {
+    installBundle('0.0.6', { files: { [MAIN_REL]: sha256('// main') } });
+    const r = resolveActiveBundleDetailed({ userDataDir: tmp, publicKeyPem: PUBKEY, shell: SHELL });
+    expect(r.bundle?.version).toBe('0.0.6');
+  });
+
+  it('names "file-tampered" when a listed file is modified on disk', () => {
+    installBundle('0.0.6', { files: { [MAIN_REL]: sha256('// main') } });
+    writeFileSync(path.join(bundleRoot(tmp, '0.0.6'), MAIN_REL), '// EVIL main');
+    expect(
+      resolveActiveBundleDetailed({ userDataDir: tmp, publicKeyPem: PUBKEY, shell: SHELL }).reason,
+    ).toBe('file-tampered');
+  });
+
+  it('names "file-tampered" when a listed file is missing from disk', () => {
+    installBundle('0.0.6', {
+      files: { [MAIN_REL]: sha256('// main'), 'dist/index.html': sha256('<html>') },
+    });
+    expect(
+      resolveActiveBundleDetailed({ userDataDir: tmp, publicKeyPem: PUBKEY, shell: SHELL }).reason,
+    ).toBe('file-tampered');
+  });
+
+  it('ignores EXTRA on-disk files not in the map (manifest.json always sits alongside)', () => {
+    installBundle('0.0.6', { files: { [MAIN_REL]: sha256('// main') } });
+    writeFileSync(path.join(bundleRoot(tmp, '0.0.6'), 'stray.js'), '// unlisted');
+    const r = resolveActiveBundleDetailed({ userDataDir: tmp, publicKeyPem: PUBKEY, shell: SHELL });
+    expect(r.bundle?.version).toBe('0.0.6');
+  });
+
+  it('still accepts a tampered LEGACY bundle (no files map ⇒ no load-time check)', () => {
+    // Documents the grandfathering: legacy manifests never signed per-file
+    // hashes, so already-staged bundles keep loading — but get no protection.
+    installBundle('0.0.6'); // manifestFor() emits no files map
+    writeFileSync(path.join(bundleRoot(tmp, '0.0.6'), MAIN_REL), '// EVIL main');
+    const r = resolveActiveBundleDetailed({ userDataDir: tmp, publicKeyPem: PUBKEY, shell: SHELL });
+    expect(r.bundle?.version).toBe('0.0.6');
   });
 });
 

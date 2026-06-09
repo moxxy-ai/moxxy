@@ -16,7 +16,12 @@ import type {
   TunnelProviderDef,
 } from '@moxxy/sdk';
 import { EventProjector } from './projector.js';
-import { actionPrompt, type ClientFrame, type ServerFrame } from './protocol.js';
+import { actionPrompt, clientFrameSchema, type ClientFrame, type ServerFrame } from './protocol.js';
+
+/** Hard cap on an inbound WS frame; anything larger is garbage, not a prompt. */
+const MAX_FRAME_BYTES = 256 * 1024;
+/** Invalid-frame warnings are rate-limited to one per this window. */
+const DROP_WARN_INTERVAL_MS = 10_000;
 
 function isAddrInUse(err: unknown): boolean {
   return (
@@ -26,35 +31,73 @@ function isAddrInUse(err: unknown): boolean {
   );
 }
 
-/** Best-effort: kill the process bound to a TCP port so the next
- *  bind succeeds. lsof + SIGTERM → SIGKILL grace. macOS / Linux. */
-async function freeTcpPort(port: number): Promise<void> {
-  if (process.platform === 'win32') return;
+/** Run a command and collect its stdout. Empty string on any failure. */
+async function captureStdout(cmd: string, args: ReadonlyArray<string>): Promise<string> {
   const { spawn } = await import('node:child_process');
-  const pids = await new Promise<ReadonlyArray<number>>((resolve) => {
+  return await new Promise<string>((resolve) => {
     let out = '';
     try {
-      const child = spawn('lsof', ['-t', `-iTCP:${port}`, '-sTCP:LISTEN'], {
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
+      const child = spawn(cmd, [...args], { stdio: ['ignore', 'pipe', 'ignore'] });
       child.stdout.on('data', (b) => {
         out += b.toString();
       });
-      child.on('error', () => resolve([]));
-      child.on('close', () => {
-        const found = new Set<number>();
-        for (const line of out.split('\n')) {
-          const n = parseInt(line.trim(), 10);
-          if (Number.isFinite(n) && n > 0) found.add(n);
-        }
-        resolve([...found]);
-      });
+      child.on('error', () => resolve(''));
+      child.on('close', () => resolve(out));
     } catch {
-      resolve([]);
+      resolve('');
     }
   });
-  for (const pid of pids) {
-    if (pid === process.pid) continue;
+}
+
+/** PIDs actively LISTENing on a TCP port (lsof; empty on Windows / no lsof). */
+async function pidsListeningOn(port: number): Promise<ReadonlyArray<number>> {
+  if (process.platform === 'win32') return [];
+  const out = await captureStdout('lsof', ['-t', `-iTCP:${port}`, '-sTCP:LISTEN']);
+  const found = new Set<number>();
+  for (const line of out.split('\n')) {
+    const n = parseInt(line.trim(), 10);
+    if (Number.isFinite(n) && n > 0) found.add(n);
+  }
+  return [...found];
+}
+
+/** A PID's command line via `ps`. Empty when the process is gone / unknowable. */
+async function pidCommand(pid: number): Promise<string> {
+  return (await captureStdout('ps', ['-p', String(pid), '-o', 'command='])).trim();
+}
+
+/** Identity gate: only ever signal processes that look like moxxy's own
+ *  (CLI bin / `moxxy serve` daemon / desktop app). An unidentifiable
+ *  command line fails the gate — never kill what we can't name. */
+function looksLikeMoxxy(command: string): boolean {
+  return command.length > 0 && /moxxy/i.test(command);
+}
+
+/**
+ * Free a TCP port ONLY if every process holding it is a moxxy process
+ * (stale `moxxy serve` leftovers — legitimate self-healing). Returns true
+ * when a kill was attempted. Anything else holding the port (the default,
+ * 4040, is also ngrok's local-UI port!) is left alone — the caller falls
+ * back to an ephemeral port instead. SIGTERM → grace → SIGKILL.
+ */
+async function freeTcpPortIfMoxxy(
+  port: number,
+  logger: WebChannelOptions['logger'],
+): Promise<boolean> {
+  if (process.platform === 'win32') return false;
+  const pids = (await pidsListeningOn(port)).filter((pid) => pid !== process.pid);
+  if (pids.length === 0) return false;
+  const holders = await Promise.all(
+    pids.map(async (pid) => ({ pid, command: await pidCommand(pid) })),
+  );
+  const foreign = holders.filter((h) => !looksLikeMoxxy(h.command));
+  if (foreign.length > 0) {
+    logger?.warn?.(`port ${port} is held by non-moxxy process(es); not killing them`, {
+      holders: foreign.map((h) => `${h.pid}: ${h.command || '<unknown command>'}`),
+    });
+    return false;
+  }
+  for (const { pid } of holders) {
     try {
       process.kill(pid, 'SIGTERM');
     } catch {
@@ -62,8 +105,7 @@ async function freeTcpPort(port: number): Promise<void> {
     }
   }
   await new Promise((r) => setTimeout(r, 400));
-  for (const pid of pids) {
-    if (pid === process.pid) continue;
+  for (const { pid } of holders) {
     try {
       process.kill(pid, 0);
       process.kill(pid, 'SIGKILL');
@@ -71,6 +113,7 @@ async function freeTcpPort(port: number): Promise<void> {
       /* dead */
     }
   }
+  return true;
 }
 
 /** Where `scripts/build-web.mjs` writes the browser bundle (relative to dist/channel.js). */
@@ -132,6 +175,8 @@ export class WebChannel implements Channel<WebStartOpts> {
   private tunnel: TunnelHandle | null = null;
   private tunnelBase: string | null = null;
   private viewSeq = 0;
+  private droppedFrames = 0;
+  private lastDropWarnAt = 0;
 
   constructor(opts: WebChannelOptions = {}) {
     this.port = opts.port ?? 4040;
@@ -182,17 +227,27 @@ export class WebChannel implements Channel<WebStartOpts> {
     });
     this.server = server;
 
+    // Bind FIRST: ws re-emits the http server's 'error' events on the
+    // WebSocketServer, so a WSS attached before a failed listen turns a
+    // recoverable EADDRINUSE into an unhandled 'error' → process crash.
+    await this.bindServerWithRetry(server);
+
     // Validate the token at the handshake so a bad token is rejected with 401
     // and the client never opens (the token is the only public-internet gate).
     const wss = new WebSocketServer({
       server,
       path: '/ws',
+      // Frames past this are dropped at the socket layer (ws closes with
+      // 1009) instead of being buffered into memory. onMessage applies a
+      // tighter MAX_FRAME_BYTES cap of its own.
+      maxPayload: 1024 * 1024,
       verifyClient: (info: { req: IncomingMessage }) => this.validToken(info.req.url),
     });
     this.wss = wss;
     wss.on('connection', (ws) => this.onConnection(ws));
-
-    await this.bindServerWithRetry(server);
+    // Never leave an EventEmitter 'error' unhandled — it would throw at the
+    // process level. Forwarded server errors after bind are log-and-survive.
+    wss.on('error', (err) => this.logger?.warn?.('web socket server error', { err: String(err) }));
 
     await this.openTunnel();
     this.publishSurface?.({ url: this.shareUrl, nextViewId: () => `v_srv_${++this.viewSeq}` });
@@ -203,11 +258,13 @@ export class WebChannel implements Channel<WebStartOpts> {
   }
 
   /**
-   * Bind the HTTP server, with one round of recovery if the port is
-   * already in use. A stale `moxxy serve` from a prior install often
-   * leaves 4040 bound even after its unix socket has been released;
-   * killing whatever PID holds the port lets the fresh server boot
-   * cleanly instead of crashing with EADDRINUSE.
+   * Bind the HTTP server, with recovery if the port is already in use.
+   * A stale `moxxy serve` from a prior install often leaves 4040 bound
+   * even after its unix socket has been released — if (and only if) the
+   * holder is verifiably a moxxy process we kill it and retry. Anything
+   * else (ngrok's local UI also defaults to 4040) is never signalled;
+   * we bind an ephemeral port instead and log loudly which port the
+   * surface actually got (the share URL embeds the real port either way).
    */
   private async bindServerWithRetry(server: ReturnType<typeof createServer>): Promise<void> {
     const tryListen = (): Promise<void> =>
@@ -230,12 +287,34 @@ export class WebChannel implements Channel<WebStartOpts> {
 
     try {
       await tryListen();
+      return;
     } catch (err) {
       if (!isAddrInUse(err)) throw err;
-      this.logger?.warn?.(`web channel port ${this.port} in use; freeing and retrying`);
-      await freeTcpPort(this.port).catch(() => undefined);
-      await tryListen();
     }
+
+    const requested = this.port;
+    const freed = await freeTcpPortIfMoxxy(requested, this.logger).catch(() => false);
+    if (freed) {
+      this.logger?.warn?.(
+        `web channel port ${requested} was held by a stale moxxy process; freed it, retrying`,
+      );
+      try {
+        await tryListen();
+        return;
+      } catch (err) {
+        if (!isAddrInUse(err)) throw err;
+      }
+    }
+
+    // The holder is not ours to kill (or would not die) — take an
+    // ephemeral port. onListening reads back the real bound port, so
+    // this.url / shareUrl / the tunnel all carry it automatically.
+    this.port = 0;
+    await tryListen();
+    this.logger?.warn?.(
+      `web channel port ${requested} was in use by another process; bound ephemeral port ${this.port} instead`,
+      { requestedPort: requested, boundPort: this.port, url: this.url },
+    );
   }
 
   /**
@@ -354,13 +433,31 @@ export class WebChannel implements Channel<WebStartOpts> {
     for (const frame of this.views.values()) this.send(ws, frame);
   }
 
+  /**
+   * Handle a browser → server frame. This is a trust boundary (tunnels put
+   * it on the public internet): every frame is schema-validated before any
+   * field access, and invalid ones are dropped — a thrown error in a ws
+   * 'message' listener escalates to a process-level uncaughtException.
+   */
   private onMessage(ws: WebSocket, data: unknown): void {
-    let frame: ClientFrame;
-    try {
-      frame = JSON.parse(String(data)) as ClientFrame;
-    } catch {
+    const raw = String(data);
+    if (raw.length > MAX_FRAME_BYTES) {
+      this.dropFrame('oversized frame');
       return;
     }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      this.dropFrame('invalid JSON');
+      return;
+    }
+    const result = clientFrameSchema.safeParse(parsed);
+    if (!result.success) {
+      this.dropFrame('schema mismatch');
+      return;
+    }
+    const frame: ClientFrame = result.data;
     if (frame.kind === 'prompt') {
       if (frame.text.trim()) void this.drive(frame.text);
       return;
@@ -373,6 +470,18 @@ export class WebChannel implements Channel<WebStartOpts> {
       this.send(ws, { kind: 'ack', actionId: frame.actionId, accepted: true });
       void this.drive(actionPrompt(frame.action, frame.formValues));
     }
+  }
+
+  /** Count a dropped inbound frame; warn at most once per window (no log spam). */
+  private dropFrame(reason: string): void {
+    this.droppedFrames += 1;
+    const now = Date.now();
+    if (now - this.lastDropWarnAt < DROP_WARN_INTERVAL_MS) return;
+    this.lastDropWarnAt = now;
+    this.logger?.warn?.('web channel dropped invalid client frame(s)', {
+      reason,
+      droppedTotal: this.droppedFrames,
+    });
   }
 
   private async drive(prompt: string): Promise<void> {

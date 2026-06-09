@@ -50,33 +50,43 @@ Full report incl. the medium/low backlog and refuted findings:
   boot in every packaged 0.0.33 build + the hot-update bundle re-poisons self-update.
   **FIX IN FLIGHT: PR #126** (bundles the package + guarded dynamic import). Do not publish
   the `desktop-v0.0.33` draft release until rebuilt.
-- **A2 [high, security] Self-update bootstrap never verifies the bytes it executes** — the
-  signed sha256 covers only the gzipped download, checked at download time
-  (`desktop-host/src/app-update/stager.ts:276-280`); `resolveActiveBundleDetailed`
-  (`resolve.ts:217-238`) hashes nothing at load time, while comments claim it does. An
-  unprivileged write under `<userData>/app/` = persistent main-process code execution.
-- **A3 [high, security] Goal-mode auto-approve bypasses user deny rules** —
-  `mode-goal/src/goal-loop.ts:63-71` replaces the whole wrapped resolver, discarding the
-  `PermissionEngine` deny check (`core/src/session.ts:206-210`); docstring claims the
-  opposite. No deny-under-goal test exists.
-- **A4 [high, security] Webhook `allowedTools` "sandbox" is not enforced** — descriptions
-  promise isolation (`plugin-webhooks/src/tools.ts:107-109,607-608`) but
-  `cli/src/setup/webhook-runner.ts:16-27` runs fires on the live session with no tool
-  filter, with attacker-controllable `{body}`/`{header.*}` interpolation.
+- **A2 [high, security] Self-update bootstrap never verifies the bytes it executes** — ✅ FIXED
+  (this PR): the manifest now signs a per-file sha256 map (`files`) alongside the archive
+  hash; `verifyBundleFiles` checks every listed file's bytes at stage time (before
+  activation) AND in `resolveActiveBundleDetailed` at every load (`file-tampered` reject
+  reason in the boot-log). Legacy manifests without the map are grandfathered (still load,
+  still not load-time-verified — docs now say so plainly); stripping the map from a new
+  manifest breaks its signature.
+- **A3 [high, security] Goal-mode auto-approve bypasses user deny rules** — ✅ FIXED
+  (this PR): the session resolver now exposes a prompt-free `policyCheck` (SDK
+  `PermissionResolver` optional method, implemented by core's `wrapWithPolicy`), and goal
+  mode's auto-approve consults it first — so permissions.json deny/allow rules and
+  tool-declared rules still apply unattended while nothing can ever block on a prompt;
+  deny-under-goal + policyCheck tests added.
+- **A4 [high, security] Webhook `allowedTools` "sandbox" is not enforced** — ✅ FIXED
+  (this PR): `cli/src/setup/webhook-runner.ts` now runs each fire against a per-fire
+  scoped session view (filtered tool registry + wrapping resolver whose `check` AND
+  prompt-free `policyCheck` deny anything outside `allowedTools`, delegating allowed
+  calls to the session's current resolver chain — race-free for concurrent fires, no
+  shared-session mutation); empty list = full tool set (now documented), and the
+  tool/setup-guide text says fires run on the ACTIVE session, not an isolated one.
 - **A5 [high, security] `browser_session.goto` has no SSRF guard** — scheme check only
   (`browser-session.ts:35`, sidecar `dispatch.ts:85`) while the comment claims parity with
   `web_fetch`'s `assertPublicUrl`; metadata/private IPs reachable + `text`/`html`/`eval`.
 - **A6 [high, security-adjacent] `provider_test` takes the raw API key as model-visible
   tool input** (`plugin-provider-admin/src/index.ts:82-85`) — into model context + session
   logs; should take a vault key name resolved via `ctx.getSecret`.
-- **A7 [high, stability] channel-web kills whatever holds its port** — `freeTcpPort`
-  (`plugin-channel-web/src/channel.ts:31-74`) lsof+SIGKILLs unidentified PIDs on
-  EADDRINUSE; default port 4040 is ngrok's local-UI port; web surface co-attaches by
-  default. The runner has a sibling kill-by-4040 in its protocol-mismatch recovery.
-- **A8 [high, stability] channel-web WS frames are not schema-validated** — `onMessage`
-  casts `JSON.parse` to `ClientFrame` (`channel.ts:357-375`); a malformed frame from a
-  tokenized (internet-tunneled) client crashes the whole process (reproduced). Add zod +
-  last-resort `unhandledRejection`/`uncaughtException` handlers in long-lived entry points.
+- **A7 [high, stability] channel-web kills whatever holds its port** — ✅ FIXED (this PR):
+  channel EADDRINUSE recovery and the runner's protocol-mismatch recovery both verify the
+  holder's `ps` command line carries a moxxy marker before any TERM/KILL (CLI now sets
+  `process.title = 'moxxy …'` so dev daemons match); non-moxxy holders are left alone and
+  the web channel falls back to an ephemeral port, logging requested + bound ports.
+- **A8 [high, stability] channel-web WS frames are not schema-validated** — ✅ FIXED (this
+  PR): zod `clientFrameSchema` (drift-guarded against `ClientFrame`) safeParses every
+  inbound frame; invalid/oversized frames are dropped with a rate-limited warn, the WSS is
+  created post-bind + given an error handler (ws re-emits server errors → was a second
+  crash path), and `bin.ts` installs last-resort guards (`process-guards.ts`: log+survive
+  unhandledRejection, log+flush+exit 1 on uncaughtException).
 - **A9 [high, stability] CLI probe/light-boot sessions leak daemons** — three paths
   (`run-tui.ts:228`, `bin.ts:236`, `run-channel.ts:34`) boot sessions without
   `skipInitHooks` and never close them; an orphaned probe steals the webhooks port and

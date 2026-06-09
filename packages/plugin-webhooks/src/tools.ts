@@ -105,8 +105,11 @@ export function buildWebhookTools(deps: WebhooksToolDeps): ReadonlyArray<ToolDef
       name: 'webhook_create',
       description:
         'Create a webhook trigger. When an external system POSTs to the returned URL ' +
-        'and verification (and any filters) pass, the configured prompt fires in an ' +
-        'isolated session with the listed tools available.\n\n' +
+        'and verification (and any filters) pass, the configured prompt fires as a turn ' +
+        'on the ACTIVE session (not an isolated one — output lands in the shared event ' +
+        'log). `allowedTools` is enforced per fire: a non-empty list restricts the fire ' +
+        'to exactly those tools (any other tool call is denied); an empty list leaves ' +
+        "the session's full tool set available under its normal permission rules.\n\n" +
         'Verification picks the auth model:\n' +
         '  • `none`   — no auth. Anyone reaching the URL fires the trigger. Local-only.\n' +
         '  • `bearer` — secret in `Authorization: Bearer <secret>`. Simplest shared-secret.\n' +
@@ -605,7 +608,9 @@ async function buildSetupGuide(deps: SetupGuideDeps): Promise<{
     askUser:
       'What should the agent DO when a delivery fires? Describe the runbook. Then: ' +
       'which tools should it have access to (read-only fetch? bash? a specific MCP tool?)? ' +
-      'The agent is sandboxed by `allowedTools` — list only what you trust.',
+      'A non-empty `allowedTools` is enforced — the fire can only execute the listed ' +
+      'tools; everything else is denied. An empty list gives the fire the FULL tool set ' +
+      'of the active session (fires are not isolated), so list only what you trust.',
     recordAs: 'prompt + allowedTools',
     hints: [
       'Use placeholders like `{body_json}` so the prompt sees the actual delivery payload.',

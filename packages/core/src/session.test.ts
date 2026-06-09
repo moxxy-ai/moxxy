@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { defineMode, definePlugin } from '@moxxy/sdk';
+import { asToolCallId, defineMode, definePlugin } from '@moxxy/sdk';
 import { Session } from './session.js';
 
 describe('Session', () => {
@@ -120,5 +120,41 @@ describe('Session', () => {
     const s = new Session({ cwd: '/tmp', silent: true });
     expect(typeof s.runTurn).toBe('function');
     expect(typeof s.getInfo).toBe('function');
+  });
+
+  it('resolver.policyCheck probes policy without falling through to the prompt resolver', async () => {
+    const s = new Session({ cwd: '/tmp', silent: true });
+    let prompted = 0;
+    s.setPermissionResolver({
+      name: 'counting-prompt',
+      check: async () => {
+        prompted += 1;
+        return { mode: 'allow', reason: 'prompt said yes' };
+      },
+    });
+    await s.permissions.addDeny({ name: 'Bash', reason: 'no shell' });
+
+    const permCtx = { sessionId: String(s.id) };
+    // A matching deny rule decides — prompt-free.
+    const deny = await s.resolver.policyCheck?.(
+      { callId: asToolCallId('c1'), name: 'Bash', input: {} },
+      permCtx,
+    );
+    expect(deny).toEqual({ mode: 'deny', reason: 'no shell' });
+    // No matching rule → null (the caller supplies its own fallback); the
+    // wrapped prompt resolver is NEVER consulted by policyCheck.
+    const undecided = await s.resolver.policyCheck?.(
+      { callId: asToolCallId('c2'), name: 'Other', input: {} },
+      permCtx,
+    );
+    expect(undecided).toBeNull();
+    expect(prompted).toBe(0);
+    // check() keeps its existing behavior: policy first, then fall through.
+    const viaCheck = await s.resolver.check(
+      { callId: asToolCallId('c3'), name: 'Other', input: {} },
+      permCtx,
+    );
+    expect(viaCheck.mode).toBe('allow');
+    expect(prompted).toBe(1);
   });
 });

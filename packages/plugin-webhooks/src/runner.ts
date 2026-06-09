@@ -9,8 +9,14 @@ import type { WebhookStore, WebhookTrigger } from './store.js';
  * live in the CLI / SDK consumer that wires the plugin together.
  *
  * For tests, supply a fake runner; for production, the CLI provides
- * one that calls `runTurn` against the active Session with a tool
- * filter scoped to the trigger's `allowedTools`.
+ * one that calls `runTurn` against the active Session. Runners MUST
+ * enforce the trigger's `allowedTools`: when non-empty, the fire may
+ * only execute the listed tools (anything else gets a denial, not a
+ * crash); when empty, the fire uses the session's full tool set under
+ * its normal permission rules. The CLI runner implements this with a
+ * per-fire scoped session view (filtered tool registry + wrapping
+ * permission resolver) — fires run on the active session, not an
+ * isolated one.
  */
 
 export interface WebhookPromptRunner {
