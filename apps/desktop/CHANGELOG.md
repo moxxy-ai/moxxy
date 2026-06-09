@@ -1,5 +1,25 @@
 # @moxxy/desktop
 
+## 0.0.35
+
+### Patch Changes
+
+- Updated dependencies [cf2f651]
+- Updated dependencies [cf2f651]
+- Updated dependencies [cf2f651]
+- Updated dependencies [cf2f651]
+  - @moxxy/sdk@0.8.1
+  - @moxxy/cli@0.7.2
+  - @moxxy/desktop-host@0.1.4
+  - @moxxy/chat-model@0.0.11
+  - @moxxy/client-core@0.1.2
+  - @moxxy/desktop-ipc-contract@0.2.2
+  - @moxxy/ipc-server-ws@0.1.2
+  - @moxxy/plugin-stt-whisper-codex@0.0.11
+  - @moxxy/plugin-vault@0.0.11
+  - @moxxy/runner@0.0.11
+  - @moxxy/client-platform-web@0.1.2
+
 ## 0.0.34
 
 ### Patch Changes
