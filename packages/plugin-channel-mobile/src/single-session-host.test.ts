@@ -24,10 +24,11 @@ class FakeBus implements CommandBus, EventSink {
   }
 }
 
-function fakeSession() {
+function fakeSession(overrides: Record<string, unknown> = {}) {
   const logSubs = new Set<(e: unknown) => void>();
   let permissionResolver: any = null;
   let approvalResolver: any = null;
+  let activeMode = 'default';
   const session = {
     id: 'sess-1',
     cwd: '/tmp',
@@ -37,6 +38,7 @@ function fakeSession() {
         logSubs.add(fn);
         return () => logSubs.delete(fn);
       },
+      clear: vi.fn(),
     },
     runTurn: vi.fn((_prompt: string, _opts?: unknown) =>
       (async function* () {
@@ -44,21 +46,39 @@ function fakeSession() {
       })(),
     ),
     getInfo: () => ({
+      sessionId: 'sess-1',
       providers: [],
       modes: [],
       activeProvider: 'openai',
-      activeMode: 'default',
+      activeMode,
       activeModeBadge: null,
     }),
+    modes: {
+      setActive: vi.fn((name: string) => {
+        activeMode = name;
+      }),
+    },
+    commands: {
+      get: (name: string) =>
+        name === 'echo'
+          ? {
+              name: 'echo',
+              description: 'echo back',
+              handler: async (ctx: { args: string }) => ({ kind: 'text', text: `echo:${ctx.args}` }),
+            }
+          : undefined,
+    },
     setPermissionResolver: (r: unknown) => {
       permissionResolver = r;
     },
     setApprovalResolver: (r: unknown) => {
       approvalResolver = r;
     },
+    ...overrides,
   };
   return {
     session: session as unknown as ClientSession,
+    raw: session,
     emit: (e: unknown) => logSubs.forEach((fn) => fn(e)),
     getPermissionResolver: () => permissionResolver,
     getApprovalResolver: () => approvalResolver,
@@ -104,6 +124,107 @@ describe('MobileSessionHost', () => {
     expect(evts.some((e) => e.payload.workspaceId === 'sess-1' && (e.payload.event as any).text === 'yo')).toBe(
       true,
     );
+  });
+
+  it('forwards inline attachments to session.runTurn (path attachments are ignored)', async () => {
+    const bus = new FakeBus();
+    const { session, raw } = fakeSession();
+    const host = new MobileSessionHost(bus, session);
+    host.register();
+    const inline = [{ kind: 'image', content: 'AAAA', name: 'shot.png', mediaType: 'image/png' }];
+    await bus.invoke('session.runTurn', { prompt: 'look', inlineAttachments: inline });
+    const opts = (raw.runTurn as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as {
+      attachments?: unknown;
+    };
+    expect(opts.attachments).toEqual(inline);
+  });
+
+  it('switches mode via session.setMode and re-broadcasts the connected phase', async () => {
+    const bus = new FakeBus();
+    const { session, raw } = fakeSession();
+    const host = new MobileSessionHost(bus, session);
+    host.register();
+    await bus.invoke('session.setMode', { mode: 'goal' });
+    expect((raw.modes as { setActive: ReturnType<typeof vi.fn> }).setActive).toHaveBeenCalledWith('goal');
+    const changed = bus.event('connection.changed');
+    expect(changed.some((e) => e.payload.phase.activeMode === 'goal')).toBe(true);
+  });
+
+  it('session.newSession prefers reset() and falls back to log.clear()', async () => {
+    const bus = new FakeBus();
+    const reset = vi.fn(async () => {});
+    const withReset = fakeSession({ reset });
+    new MobileSessionHost(bus, withReset.session).register();
+    await bus.invoke('session.newSession', {});
+    expect(reset).toHaveBeenCalled();
+
+    const bus2 = new FakeBus();
+    const withoutReset = fakeSession();
+    new MobileSessionHost(bus2, withoutReset.session).register();
+    await bus2.invoke('session.newSession', {});
+    expect((withoutReset.raw.log as { clear: ReturnType<typeof vi.fn> }).clear).toHaveBeenCalled();
+  });
+
+  it('runs a registered slash command and reports unknown ones as a typed error', async () => {
+    const bus = new FakeBus();
+    const { session } = fakeSession();
+    new MobileSessionHost(bus, session).register();
+    expect(await bus.invoke('session.runCommand', { name: 'echo', args: 'hi' })).toEqual({
+      kind: 'text',
+      text: 'echo:hi',
+    });
+    expect(await bus.invoke('session.runCommand', { name: 'nope', args: '' })).toEqual({
+      kind: 'error',
+      message: 'unknown command: /nope',
+    });
+  });
+
+  it('voice: hasTranscriber gates on the registry; transcribe is coded not-supported without one', async () => {
+    const bus = new FakeBus();
+    const { session } = fakeSession(); // no transcribers view at all
+    new MobileSessionHost(bus, session).register();
+    expect(await bus.invoke('session.hasTranscriber')).toBe(false);
+    await expect(bus.invoke('session.transcribe', { audioBase64: 'AAAA' })).rejects.toMatchObject({
+      code: 'not-supported',
+    });
+
+    const bus2 = new FakeBus();
+    const transcribe = vi.fn(async () => ({ text: 'hello moxxy' }));
+    const withStt = fakeSession({
+      transcribers: { tryGetActive: () => ({ name: 'whisper', transcribe }) },
+    });
+    new MobileSessionHost(bus2, withStt.session).register();
+    expect(await bus2.invoke('session.hasTranscriber')).toBe(true);
+    expect(await bus2.invoke('session.transcribe', { audioBase64: 'AAAA', mimeType: 'audio/m4a' })).toBe(
+      'hello moxxy',
+    );
+    expect(transcribe).toHaveBeenCalledWith(expect.any(Buffer), { mimeType: 'audio/m4a' });
+  });
+
+  it('workflows degrade when the plugin is absent and delegate when present', async () => {
+    const bus = new FakeBus();
+    const { session } = fakeSession(); // no workflows view
+    new MobileSessionHost(bus, session).register();
+    expect(await bus.invoke('workflows.list')).toEqual([]);
+    await expect(bus.invoke('workflows.setEnabled', { name: 'daily', enabled: true })).resolves.toBeUndefined();
+    await expect(bus.invoke('workflows.run', { name: 'daily' })).rejects.toMatchObject({
+      code: 'not-supported',
+    });
+
+    const bus2 = new FakeBus();
+    const view = {
+      list: vi.fn(async () => [
+        { name: 'daily', description: '', enabled: true, scope: 'user', steps: 1, triggers: 'on-demand' },
+      ]),
+      setEnabled: vi.fn(async () => {}),
+      run: vi.fn(async () => ({ ok: true, output: 'done', steps: [] })),
+    };
+    const withWorkflows = fakeSession({ workflows: view });
+    new MobileSessionHost(bus2, withWorkflows.session).register();
+    expect(await bus2.invoke('workflows.list')).toHaveLength(1);
+    await bus2.invoke('workflows.setEnabled', { name: 'daily', enabled: false });
+    expect(view.setEnabled).toHaveBeenCalledWith('daily', false);
+    expect(await bus2.invoke('workflows.run', { name: 'daily' })).toMatchObject({ ok: true });
   });
 
   it('routes a permission prompt through ask.request → ask.respond', async () => {

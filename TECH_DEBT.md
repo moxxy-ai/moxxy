@@ -492,9 +492,23 @@ consider dropping the now-redundant renderer-heartbeat path. **Severity med** (n
 - **`@moxxy/design-tokens` ships a `generateRootCss` the desktop doesn't consume yet** —
   `styles.css`'s `:root` stays the source of truth (zero visual risk). Parity is
   snapshot-tested; a later change can flip `styles.css` to inject the generated block.
-- **Mobile capabilities are no-ops in the PoC.** `apps/mobile` registers `configurePlatform({})`
-  — no voice/TTS/KV. A real build needs a `@moxxy/client-platform-expo` (Expo Audio/Speech/
-  AsyncStorage) mirroring `@moxxy/client-platform-web`.
+- ~~**Mobile capabilities are no-ops in the PoC.**~~ **SUPERSEDED 2026-06-10 (full app
+  port):** `apps/mobile` is no longer a PoC — the mobile-plugin design landed on the shared
+  architecture (expo-router + NativeWind, 28 components, useGatewayStore facade over
+  client-core, MobileSessionHost extensions). Platform access deliberately lives in the
+  app's own Expo hooks (image/document picker, clipboard, secure-store, expo-audio), NOT
+  client-core's platform registry — the registry's `AudioCapture` contract is a web-shaped
+  PCM16@24kHz pipeline that doesn't fit shipping a platform-native compressed clip to the
+  host transcriber. Reconcile the contract (or add a clip-based capability) if a second
+  native platform ever appears.
+- **Mobile-port residue (2026-06-10, low):** (a) the bearer-subprotocol encoder is
+  mirrored in `apps/mobile/src/hooks/useGatewaySocket.ts` (WsRpcClient needed a
+  close-on-replace lifecycle `makeWsApi` doesn't expose — same mirroring convention
+  client-transport-ws uses vs the SDK; converge if a third copy appears); (b) sending
+  attachments while a turn is in flight is refused with a visible error (inline payloads
+  can't ride client-core's path-based queue) — queue inline attachments host-side if this
+  bites; (c) `pairing.loadPairing` is a documented no-op (the WS bridge has no
+  pairing-code endpoint; the QR/`?t=` URL IS the pairing flow).
 **Severity low** (remaining items are opt-in / additive; desktop behavior unchanged).
 
 ---

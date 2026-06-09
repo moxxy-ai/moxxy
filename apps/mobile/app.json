@@ -17,10 +17,24 @@
       "permissions": ["android.permission.CAMERA"]
     },
     "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow moxxy mobile to access your microphone for voice input."
+        }
+      ],
       [
         "expo-camera",
         {
           "cameraPermission": "Scan the connection QR shown by `moxxy mobile` to connect to your agent."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow moxxy mobile to attach screenshots and photos to your messages."
         }
       ]
     ],

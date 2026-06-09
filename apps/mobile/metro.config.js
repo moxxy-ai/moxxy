@@ -6,6 +6,7 @@
 // points there), so their `.js`-authored relative specifiers resolve under
 // Metro exactly as under Node ESM.
 const { getDefaultConfig } = require('expo/metro-config');
+const { withNativeWind } = require('nativewind/metro');
 const path = require('node:path');
 
 const projectRoot = __dirname;
@@ -39,4 +40,9 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   return resolve(context, moduleName, platform);
 };
 
-module.exports = config;
+// NativeWind last: it layers its CSS pipeline on top of the monorepo-aware
+// config above without disturbing the resolver overrides.
+module.exports = withNativeWind(config, {
+  input: './global.css',
+  typescriptEnvPath: './nativewind-env.d.ts',
+});

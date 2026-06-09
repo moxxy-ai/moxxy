@@ -50,6 +50,23 @@ const optionalWorkspace = z.string().min(1).max(256).optional();
 /** ~30 MB of base64 — generous for a voice clip, bounded so a renderer
  *  can't OOM the main process with one transcribe call. */
 const MAX_AUDIO_BASE64 = 40_000_000;
+/** ~9 MB of payload per inline attachment (the mobile app caps picks at 8 MB
+ *  raw; base64 inflates ×4/3). Bounded so a hostile client can't OOM the host. */
+const MAX_INLINE_ATTACHMENT_CONTENT = 12_000_000;
+
+/** Slash-command name — a registry slug, never a path or shell text. */
+const commandName = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, 'invalid command name');
+
+/** Workflow names come from workflow filenames — bounded, no traversal. */
+const workflowName = z
+  .string()
+  .min(1)
+  .max(200)
+  .refine((s) => !s.includes('..') && !s.includes('/') && !s.includes('\\'), 'invalid workflow name');
 
 export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // No-arg, but spawns a child process (npm install) — pin the payload to
@@ -101,7 +118,30 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       )
       .max(64)
       .optional(),
+    // Inline attachments cross the wire as payload (remote/mobile clients) —
+    // bound both the entry count and per-entry content size.
+    inlineAttachments: z
+      .array(
+        z.object({
+          kind: z.enum(['stdin', 'file', 'image', 'document', 'audio']),
+          content: z.string().max(MAX_INLINE_ATTACHMENT_CONTENT),
+          name: z.string().max(1024).optional(),
+          mediaType: z.string().max(128).optional(),
+        }),
+      )
+      .max(8)
+      .optional(),
   }),
+  // Runs an arbitrary registered slash command — the audit flagged this as the
+  // one mutating session command without a schema, so lock the name to a
+  // registry slug and bound the free-text args.
+  'session.runCommand': z.object({
+    workspaceId: optionalWorkspace,
+    name: commandName,
+    args: z.string().max(10_000),
+  }),
+  'workflows.run': z.object({ name: workflowName }),
+  'workflows.setEnabled': z.object({ name: workflowName, enabled: z.boolean() }),
   // Security-sensitive: this bypasses the approval sheet, so validate it at
   // the boundary like the other dangerous commands.
   'session.setAutoApprove': z.object({ workspaceId: optionalWorkspace, enabled: z.boolean() }),

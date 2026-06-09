@@ -27,9 +27,10 @@ import type {
   ApprovalOption,
   PermissionMode,
   ModeBadge,
+  UserPromptAttachment,
 } from '@moxxy/sdk';
 
-export type { ApprovalRequest, ApprovalOption, PermissionMode, ModeBadge };
+export type { ApprovalRequest, ApprovalOption, PermissionMode, ModeBadge, UserPromptAttachment };
 
 /**
  * Window/event-bus key a thin client listens for to re-fetch `session.info`
@@ -85,6 +86,10 @@ export type { SessionInfo };
  *   - `invalid-payload` — runtime validation rejected the renderer's input.
  *   - `not-connected`   — no runner/session bound for the target workspace.
  *   - `no-workspace`    — no active workspace and none specified.
+ *   - `not-supported`   — the host lacks the OPTIONAL capability behind the
+ *                         command (no transcriber, workflows plugin not
+ *                         loaded). Clients treat this as "hide/disable the
+ *                         affordance", never as a failure to retry.
  *   - `runner-error`    — the runner/handler threw while doing the work.
  *   - `unknown`         — anything not otherwise classified.
  */
@@ -92,6 +97,7 @@ export type MoxxyIpcErrorCode =
   | 'invalid-payload'
   | 'not-connected'
   | 'no-workspace'
+  | 'not-supported'
   | 'runner-error'
   | 'unknown';
 
@@ -270,6 +276,15 @@ export interface RunTurnArgs {
   prompt: string;
   model?: string;
   attachments?: ReadonlyArray<PromptAttachment>;
+  /**
+   * Inline attachments for REMOTE clients (the mobile app) that cannot
+   * reference host filesystem paths: the payload itself crosses the wire
+   * (base64 bytes for image/document/audio, inline text for file/stdin) in
+   * the SDK's `UserPromptAttachment` shape, and the host forwards it to
+   * `session.runTurn`'s `attachments` option untouched. Path-based
+   * `attachments` stay the desktop's local-renderer path.
+   */
+  inlineAttachments?: ReadonlyArray<UserPromptAttachment>;
 }
 
 export interface RunTurnResult {

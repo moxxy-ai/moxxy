@@ -4,7 +4,21 @@
     "strict": true,
     "jsx": "react-jsx",
     "moduleResolution": "Bundler",
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ]
+    }
   },
-  "include": ["index.js", "src/**/*", "*.config.js"]
+  "include": [
+    "index.js",
+    "app/**/*",
+    "src/**/*",
+    "*.config.js",
+    "tailwind.config.ts",
+    "nativewind-env.d.ts",
+    "nativewind-preset.d.ts",
+    "./nativewind-env.d.ts"
+  ]
 }
