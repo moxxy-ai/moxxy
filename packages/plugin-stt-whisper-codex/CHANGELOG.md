@@ -1,5 +1,14 @@
 # @moxxy/plugin-stt-whisper-codex
 
+## 0.0.9
+
+### Patch Changes
+
+- Updated dependencies [85f9b91]
+  - @moxxy/sdk@0.7.0
+  - @moxxy/plugin-provider-openai-codex@0.0.9
+  - @moxxy/plugin-stt-whisper@0.0.9
+
 ## 0.0.8
 
 ### Patch Changes

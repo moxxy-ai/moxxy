@@ -1,5 +1,12 @@
 # @moxxy/plugin-commands
 
+## 0.0.9
+
+### Patch Changes
+
+- Updated dependencies [85f9b91]
+  - @moxxy/sdk@0.7.0
+
 ## 0.0.8
 
 ### Patch Changes
