@@ -433,6 +433,12 @@ raw throws are internal registry/broker invariants that should stay plain):
 
 ## P3 — Low / per-package nits
 
+### 0. Keep the Claude skill library current — STANDING
+**Added 2026-06-10.** `.claude/skills/` (28 thin task checklists + index) and the
+hooks in `.claude/settings.json` encode repo conventions and audit lessons; like
+this journal, they rot silently — when a convention, command, extension point, or
+invariant they reference changes, update the matching SKILL.md in the same PR.
+
 ### 6. plugin-memory caches embeddings via a parallel `EmbeddingIndex` — OPEN
 **Cross-cut 1.11.** `plugin-memory/src/store.ts:6,88-96` still uses its own `EmbeddingIndex`
 cache instead of the SDK `CachedEmbeddingProvider`. **Deferred:** now that the atomic-write +

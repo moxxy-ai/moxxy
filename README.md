@@ -40,6 +40,8 @@
   &nbsp;·&nbsp;
   <a href="#-channels">Channels</a>
   &nbsp;·&nbsp;
+  <a href="#-built-by-the-agent-it-runs">Built by itself</a>
+  &nbsp;·&nbsp;
   <a href="#-developer-guide">Developer guide</a>
 </p>
 
@@ -54,6 +56,23 @@
     <img src="https://placehold.co/1280x640/0d1117/58a6ff.png?text=moxxy+%E2%80%94+30-second+demo" alt="moxxy demo" width="760" />
   </a>
 </p>
+
+---
+
+## 🤖 Built by the agent it runs
+
+**~95% of moxxy is written by moxxy** — the agent builds the framework, and the framework runs the agent. (For comparison, Anthropic has said Claude writes ~80% of Claude Code.) That number isn't a gimmick or a license to ship slop; it's a forcing function for the opposite. When the machine that writes the code is the same machine you're shipping, *engineering discipline becomes the product*, and you get to apply it at a scale and speed a human-only team can't match.
+
+What that discipline looks like here, in practice:
+
+- **Adversarial self-review, not vibes.** Findings are produced by fan-out analysis agents and then handed to independent agents whose only job is to *refute* them — false positives die before they reach a human. A recent full-codebase audit ran dozens of agents this way, surfaced 47 confirmed issues across security, stability, performance and packaging, and fixed every one in verified, single-concern PRs.
+- **Every change runs the gate.** Build, typecheck, lint, and the full test suite (thousands of tests across ~50 packages) pass on three Node versions before anything merges — enforced in CI and locally by [git hooks](.claude/hooks/) so the agent can't declare done on a red tree.
+- **Real-world, not just mocked.** A one-press [live E2E workflow](.github/workflows/e2e-live.yml) drives the actual CLI against the real OpenAI API — a streaming turn, a tool round-trip, and a confirmed SSRF-guard refusal of a cloud-metadata address — so security and provider behavior are proven against production, not fixtures.
+- **The codebase teaches the next agent.** A living [tech-debt journal](TECH_DEBT.md) (retire-one-per-change), a [skill library](.claude/skills/) of thin, single-purpose playbooks, and [specialized agent definitions](.claude/agents/) mean each change leaves the repo *easier* to change correctly — compounding quality instead of eroding it.
+
+The result is delivery that's **faster** (parallel agents, hours not weeks), **cleaner** (one concern per PR, every claim cited to a file and line), and **more robust** (adversarial verification + live validation + a gate nothing skips) than a conventional pipeline — *because* the author is an agent held to a higher bar, not in spite of it.
+
+> Want to see the machinery? Start with [`.claude/skills/`](.claude/skills/), [`TECH_DEBT.md`](TECH_DEBT.md), and the [Developer guide](#-developer-guide).
 
 ---
 
