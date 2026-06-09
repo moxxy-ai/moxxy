@@ -1012,6 +1012,9 @@ importers:
       playwright:
         specifier: ^1.40.0
         version: 1.60.0
+      undici:
+        specifier: ^6.26.0
+        version: 6.26.0
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -1744,9 +1747,6 @@ importers:
       grammy:
         specifier: ^1.30.0
         version: 1.42.0(encoding@0.1.13)
-      zod:
-        specifier: 'catalog:'
-        version: 3.25.76
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*

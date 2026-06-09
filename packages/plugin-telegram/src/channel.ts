@@ -335,6 +335,7 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
         chatId: this.currentChatId,
         permissionResolver: this.permissionResolver,
         approvalResolver: this.approvalResolver,
+        pairing: this.pairing,
       },
       {
         setAwaitingApprovalText: (state) => {

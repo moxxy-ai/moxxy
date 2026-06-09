@@ -18,10 +18,6 @@
       "dependsOn": ["^build"],
       "inputs": ["src/**", "tsconfig*.json", "package.json"]
     },
-    "lint": {
-      "dependsOn": [],
-      "inputs": ["src/**", "*.ts", "*.tsx", "*.js", "*.cjs", "*.mjs", "eslint.config.*"]
-    },
     "test": {
       "dependsOn": ["^build"],
       "inputs": [

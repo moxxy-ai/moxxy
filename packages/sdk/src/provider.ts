@@ -38,6 +38,16 @@ export interface CacheHint {
 
 export interface ProviderRequest {
   readonly model: string;
+  /**
+   * Extra system text delivered IN ADDITION to any `role: 'system'`
+   * messages in `messages`. The loop helpers project the composed system
+   * prompt as the leading system message (so cache hints can target it)
+   * and leave this unset; `onBeforeProviderCall` hooks use it as the
+   * side channel for per-request system injections (e.g. plugin-memory's
+   * consolidation nudge), and direct callers (e.g. skill synthesis) may
+   * set it instead of crafting a system message. Providers MUST deliver
+   * it — appended after the message-derived system text — never drop it.
+   */
   readonly system?: string;
   readonly messages: ReadonlyArray<ProviderMessage>;
   readonly tools?: ReadonlyArray<ToolDef>;

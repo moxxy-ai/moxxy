@@ -1,3 +1,4 @@
+import { isSafeViewUrl } from '@moxxy/sdk';
 import type {
   AttrSpec,
   ViewDoc,
@@ -241,13 +242,9 @@ function decodeEntities(s: string): string {
 // Validation + coercion (BNode → ViewNode), collecting all errors
 // ---------------------------------------------------------------------------
 
-function isSafeUrl(url: string, attr: string): boolean {
-  const u = url.trim().toLowerCase();
-  if (u.startsWith('javascript:') || u.startsWith('vbscript:')) return false;
-  if (u.startsWith('data:')) return attr === 'src' && u.startsWith('data:image/');
-  if (/^[a-z][a-z0-9+.-]*:/.test(u)) return /^(https?:|mailto:)/.test(u);
-  return true; // relative / fragment
-}
+// URL safety: the canonical scheme allow-list is `isSafeViewUrl` in
+// @moxxy/sdk (view-renderer.ts) — shared with `validateDoc` below and
+// mirrored by the web frontend's render-time re-check.
 
 function coerceValue(
   tag: string,
@@ -285,7 +282,7 @@ function coerceValue(
     return value;
   }
   // string
-  if ((name === 'href' || name === 'src') && !isSafeUrl(value, name)) {
+  if ((name === 'href' || name === 'src') && !isSafeViewUrl(value, name)) {
     errors.push({ message: `<${tag}> attribute "${name}" has a disallowed URL scheme` });
   }
   return value;
@@ -471,8 +468,17 @@ export function validateDoc(doc: ViewDoc, allowList: ReadonlyArray<ViewTagSpec>)
       errors.push({ message: `unknown tag <${node.tag}>` });
       return;
     }
-    for (const key of Object.keys(node.props)) {
-      if (!spec.attrs[key]) errors.push({ message: `<${node.tag}> unknown attribute "${key}"` });
+    for (const [key, value] of Object.entries(node.props)) {
+      if (!spec.attrs[key]) {
+        errors.push({ message: `<${node.tag}> unknown attribute "${key}"` });
+        continue;
+      }
+      // URL-scheme allow-list — an AST handed straight to validateDoc (i.e.
+      // one that never went through parseView's coerceValue) must not smuggle
+      // a javascript:/data:text href past the renderer.
+      if ((key === 'href' || key === 'src') && typeof value === 'string' && !isSafeViewUrl(value, key)) {
+        errors.push({ message: `<${node.tag}> attribute "${key}" has a disallowed URL scheme` });
+      }
     }
     for (const [name, aspec] of Object.entries(spec.attrs)) {
       if (aspec.required && !(name in node.props)) {

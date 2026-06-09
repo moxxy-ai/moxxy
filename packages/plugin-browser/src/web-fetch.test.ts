@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { htmlToMarkdown, htmlToPlainText, setWebFetchDnsResolver, webFetchTool } from './web-fetch.js';
+import { createPinnedLookup, htmlToMarkdown, htmlToPlainText, setWebFetchDnsResolver, webFetchTool } from './web-fetch.js';
 import { asSessionId, asToolCallId, asTurnId } from '@moxxy/sdk';
 import type { ToolContext } from '@moxxy/sdk';
 
@@ -187,6 +187,103 @@ describe('web_fetch SSRF guard', () => {
     ) as never;
     const out = await run('https://example.com/');
     expect(out).toContain('ok');
+  });
+});
+
+describe('web_fetch DNS pinning (rebinding TOCTOU)', () => {
+  let origFetch: typeof globalThis.fetch;
+  beforeEach(() => {
+    origFetch = globalThis.fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = origFetch;
+    setWebFetchDnsResolver(null);
+  });
+
+  const invokeLookup = (
+    lookup: ReturnType<typeof createPinnedLookup>,
+    options: { all?: boolean },
+  ): Promise<unknown> =>
+    new Promise((resolve, reject) => {
+      (lookup as unknown as (h: string, o: unknown, cb: (err: Error | null, addr?: unknown, fam?: unknown) => void) => void)(
+        'example.com',
+        options,
+        (err, addr, fam) => (err ? reject(err) : resolve({ addr, fam })),
+      );
+    });
+
+  it('createPinnedLookup answers ONLY with the vetted addresses — it never re-resolves, so a rebinding second answer is unreachable', async () => {
+    // Simulated rebinding: by the time the connection is made, "DNS" now
+    // says 127.0.0.1. The pinned lookup must keep answering the vetted IP.
+    setWebFetchDnsResolver(async () => ['127.0.0.1']);
+    const lookup = createPinnedLookup(['93.184.216.34']);
+    expect(await invokeLookup(lookup, {})).toEqual({ addr: '93.184.216.34', fam: 4 });
+    expect(await invokeLookup(lookup, { all: true })).toEqual({
+      addr: [{ address: '93.184.216.34', family: 4 }],
+      fam: undefined,
+    });
+  });
+
+  it('createPinnedLookup fails closed when there is nothing pinned', async () => {
+    const lookup = createPinnedLookup([]);
+    await expect(invokeLookup(lookup, {})).rejects.toThrow(/no pinned address/);
+  });
+
+  it('resolves each hostname exactly ONCE per hop and pins the fetch to it (dispatcher attached)', async () => {
+    const resolutions: string[] = [];
+    // A rebinding resolver: first answer public, every later answer private.
+    // With pinning the fetch must still succeed (it never asks again) and
+    // the request must carry a pinned dispatcher.
+    let calls = 0;
+    setWebFetchDnsResolver(async (host: string) => {
+      resolutions.push(host);
+      calls++;
+      return calls === 1 ? ['93.184.216.34'] : ['127.0.0.1'];
+    });
+    const inits: Array<{ dispatcher?: unknown }> = [];
+    globalThis.fetch = vi.fn(async (_url: string, init: { dispatcher?: unknown }) => {
+      inits.push(init);
+      return mkResponse('ok', { 'content-type': 'text/plain' });
+    }) as never;
+
+    const out = (await webFetchTool.handler(
+      { url: 'https://example.com/', format: 'raw', method: 'GET' },
+      baseCtx(),
+    )) as string;
+    expect(out).toContain('ok');
+    // One resolution for the single hop — the connection itself consumes the
+    // pinned answer, not a fresh (rebindable) one.
+    expect(resolutions).toEqual(['example.com']);
+    expect(inits).toHaveLength(1);
+    expect(inits[0]!.dispatcher).toBeDefined();
+  });
+
+  it('re-pins every redirect hop with that hop\'s own vetted address', async () => {
+    const resolutions: string[] = [];
+    setWebFetchDnsResolver(async (host: string) => {
+      resolutions.push(host);
+      return ['93.184.216.34'];
+    });
+    const inits: Array<{ dispatcher?: unknown }> = [];
+    globalThis.fetch = vi.fn(async (url: string, init: { dispatcher?: unknown }) => {
+      inits.push(init);
+      if (url === 'https://a.example.com/start') {
+        return mkResponse('', { location: 'https://b.example.com/end' }, 302);
+      }
+      return mkResponse('arrived', { 'content-type': 'text/plain' });
+    }) as never;
+
+    const out = (await webFetchTool.handler(
+      { url: 'https://a.example.com/start', format: 'raw', method: 'GET' },
+      baseCtx(),
+    )) as string;
+    expect(out).toContain('arrived');
+    expect(resolutions).toEqual(['a.example.com', 'b.example.com']);
+    expect(inits).toHaveLength(2);
+    expect(inits[0]!.dispatcher).toBeDefined();
+    expect(inits[1]!.dispatcher).toBeDefined();
+    // Each hop gets its OWN pinned dispatcher.
+    expect(inits[0]!.dispatcher).not.toBe(inits[1]!.dispatcher);
   });
 });
 

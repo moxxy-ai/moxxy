@@ -71,12 +71,16 @@ export async function readEntry(filePath: string): Promise<MemoryEntry | null> {
   }
 }
 
+/** What the MEMORY.md index needs per entry — no body, so the incremental
+ *  index cache in MemoryStore can feed it without re-reading entry files. */
+export type IndexRow = Pick<MemoryEntry, 'frontmatter' | 'path'>;
+
 export async function writeIndex(
   dir: string,
-  entries: ReadonlyArray<MemoryEntry>,
+  entries: ReadonlyArray<IndexRow>,
 ): Promise<void> {
   const lines = ['# Memory index', ''];
-  const byType = new Map<MemoryType, MemoryEntry[]>();
+  const byType = new Map<MemoryType, IndexRow[]>();
   for (const e of entries) {
     const list = byType.get(e.frontmatter.type) ?? [];
     list.push(e);

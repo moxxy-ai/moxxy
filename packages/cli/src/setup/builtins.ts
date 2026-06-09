@@ -39,6 +39,7 @@ import { commandsPlugin } from '@moxxy/plugin-commands';
 import { buildViewPlugin } from '@moxxy/plugin-view';
 import { computerControlPlugin } from '@moxxy/plugin-computer-control';
 import { buildOauthPlugin } from '@moxxy/plugin-oauth';
+import { resolveString } from '@moxxy/plugin-vault';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import {
   buildSchedulerPlugin,
@@ -442,6 +443,10 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
         toolRegistry: session.tools,
         skillRegistry: session.skills,
         userSkillsDir: rawConfig.skills?.userDir,
+        // Resolve `${vault:NAME}` placeholders in MCP env/header values at
+        // connect time. The persisted catalog (and tool args the model sees)
+        // keep the placeholder; the plaintext never leaves the connect path.
+        secretResolver: (value) => resolveString(value, vault),
       });
       // Stash the api on the session so the TUI / CLI can call
       // enableAndAttach + detach without going through the model. `mcpAdmin` is

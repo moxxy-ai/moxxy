@@ -149,4 +149,49 @@ describe('OpenAIProvider.stream', () => {
     });
     expect(n).toBeGreaterThan(0);
   });
+
+  it('delivers hook-injected req.system as a system message after the leading system prompt', async () => {
+    let captured: { messages?: Array<{ role: string; content?: unknown }> } | undefined;
+    const fake = {
+      chat: {
+        completions: {
+          create: async (body: never) => {
+            captured = body;
+            return (async function* () {
+              yield { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] };
+            })();
+          },
+        },
+      },
+    };
+    const p = new OpenAIProvider({ client: fake as never });
+    const events = [];
+    for await (const e of p.stream({
+      model: 'gpt-4o',
+      system: '[memory note] consider consolidating',
+      messages: [
+        { role: 'system', content: [{ type: 'text', text: 'BASE PROMPT' }] },
+        { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+      ],
+    })) {
+      events.push(e);
+    }
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+    expect(captured?.messages?.map((m) => m.role)).toEqual(['system', 'system', 'user']);
+    expect(captured?.messages?.[0]).toMatchObject({ content: 'BASE PROMPT' });
+    expect(captured?.messages?.[1]).toMatchObject({ content: '[memory note] consider consolidating' });
+  });
+
+  it('reports an overridden name + model catalog for runtime-registered vendors', () => {
+    const models = [
+      { id: 'glm-4.6', contextWindow: 200_000, supportsTools: true, supportsStreaming: true, supportsDocuments: true },
+    ];
+    const p = new OpenAIProvider({ client: fakeOpenAI([]) as never, name: 'zai', models });
+    expect(p.name).toBe('zai');
+    expect(p.models).toEqual(models);
+    // Defaults stay 'openai' + the OpenAI catalog.
+    const plain = new OpenAIProvider({ client: fakeOpenAI([]) as never });
+    expect(plain.name).toBe('openai');
+    expect(plain.models.length).toBeGreaterThan(0);
+  });
 });

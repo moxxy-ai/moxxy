@@ -1,3 +1,6 @@
+import { isIP } from 'node:net';
+import type { LookupFunction } from 'node:net';
+import { Agent } from 'undici';
 import { MoxxyError, defineTool, z } from '@moxxy/sdk';
 import { htmlToMarkdown, htmlToPlainText } from './html-extract.js';
 import {
@@ -37,16 +40,58 @@ export function setWebFetchDnsResolver(fn: DnsResolver | null): void {
   setSsrfDnsResolver(fn);
 }
 
-/** Shared guard, with rejections re-thrown as MoxxyError for the tool surface. */
-async function assertPublicUrlForWebFetch(raw: string): Promise<void> {
+/**
+ * Shared guard, with rejections re-thrown as MoxxyError for the tool surface.
+ * Returns the vetted resolved addresses (null when the host is an IP literal
+ * or resolution failed open) so the fetch can be pinned to exactly what was
+ * checked.
+ */
+async function assertPublicUrlForWebFetch(raw: string): Promise<ReadonlyArray<string> | null> {
   try {
-    await assertPublicUrl(raw, 'web_fetch');
+    return await assertPublicUrl(raw, 'web_fetch');
   } catch (err) {
     if (err instanceof SsrfBlockedError) {
       throw new MoxxyError({ code: 'INTERNAL', message: err.message });
     }
     throw err;
   }
+}
+
+/**
+ * DNS-rebinding (TOCTOU) defense: a lookup function that always answers with
+ * the addresses the SSRF guard just vetted, so the connection provably goes
+ * to the IP that was checked — a second, attacker-controlled DNS answer
+ * between check and connect can never be consulted. Exported for tests.
+ */
+export function createPinnedLookup(addresses: ReadonlyArray<string>): LookupFunction {
+  // Implemented against the runtime contract (net.connect may ask for one
+  // address or, with autoSelectFamily/happy-eyeballs, `all: true`), which is
+  // wider than the single-answer `LookupFunction` type — hence the cast.
+  const lookup = (
+    hostname: string,
+    options: { all?: boolean } | undefined,
+    callback: (
+      err: NodeJS.ErrnoException | null,
+      address?: string | Array<{ address: string; family: number }>,
+      family?: number,
+    ) => void,
+  ): void => {
+    if (addresses.length === 0) {
+      const err: NodeJS.ErrnoException = new Error(`web_fetch: no pinned address for "${hostname}"`);
+      err.code = 'ENOTFOUND';
+      callback(err);
+      return;
+    }
+    const all = addresses.map((address) => ({ address, family: isIP(address) }));
+    if (options?.all) callback(null, all);
+    else callback(null, all[0]!.address, all[0]!.family);
+  };
+  return lookup as unknown as LookupFunction;
+}
+
+/** Per-hop undici dispatcher whose connections resolve via the pinned lookup. */
+function createPinnedDispatcher(addresses: ReadonlyArray<string>): Agent {
+  return new Agent({ connect: { lookup: createPinnedLookup(addresses) } });
 }
 
 export const webFetchTool = defineTool({
@@ -89,6 +134,7 @@ export const webFetchTool = defineTool({
     ctx.signal.addEventListener('abort', onParentAbort, { once: true });
     const timer = setTimeout(() => aborter.abort('fetch timeout'), timeout);
 
+    let fetched: FetchResult | null = null;
     try {
       const res = await fetchFollowRedirects(url, {
         method,
@@ -96,6 +142,7 @@ export const webFetchTool = defineTool({
         signal: aborter.signal,
         maxRedirects: MAX_REDIRECTS_DEFAULT,
       });
+      fetched = res;
 
       if (method === 'HEAD') {
         return formatHeadResult(res);
@@ -129,6 +176,8 @@ export const webFetchTool = defineTool({
     } finally {
       clearTimeout(timer);
       ctx.signal.removeEventListener('abort', onParentAbort);
+      // Close the final hop's pinned dispatcher (body is consumed by now).
+      if (fetched) await fetched.dispose();
     }
   },
 });
@@ -138,6 +187,8 @@ interface FetchResult {
   readonly url: string;
   readonly headers: Headers;
   readonly body: ReadableStream<Uint8Array> | null;
+  /** Close the pinned dispatcher (if any) once the body has been consumed. */
+  dispose(): Promise<void>;
 }
 
 async function fetchFollowRedirects(
@@ -153,18 +204,37 @@ async function fetchFollowRedirects(
   for (let hop = 0; hop <= opts.maxRedirects; hop++) {
     // Re-validate on every hop — the initial URL AND each redirect target —
     // so a public URL can't 302 us into the internal network.
-    await assertPublicUrlForWebFetch(current);
-    const res = await fetch(current, {
-      method: opts.method,
-      headers: opts.headers,
-      signal: opts.signal,
-      redirect: 'manual',
-    });
+    const vettedAddrs = await assertPublicUrlForWebFetch(current);
+    // DNS-rebinding TOCTOU defense: pin THIS hop's connection to the
+    // addresses the guard just vetted. The hostname (and so TLS SNI/cert
+    // validation) is untouched — only name resolution is overridden. When
+    // there is nothing to pin (IP-literal host already vetted, or fail-open
+    // resolution error where the real fetch fails identically), plain fetch.
+    const dispatcher = vettedAddrs && vettedAddrs.length > 0 ? createPinnedDispatcher(vettedAddrs) : null;
+    const closeDispatcher = async (): Promise<void> => {
+      if (dispatcher) {
+        try { await dispatcher.close(); } catch { /* ignore */ }
+      }
+    };
+    let res: Response;
+    try {
+      res = await fetch(current, {
+        method: opts.method,
+        headers: opts.headers,
+        signal: opts.signal,
+        redirect: 'manual',
+        ...(dispatcher ? { dispatcher } : {}),
+      } as RequestInit);
+    } catch (err) {
+      await closeDispatcher();
+      throw err;
+    }
     if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
       const next = new URL(res.headers.get('location')!, current).toString();
       current = next;
       // drain to avoid the connection leaking
       try { await res.body?.cancel(); } catch { /* ignore */ }
+      await closeDispatcher();
       continue;
     }
     return {
@@ -172,6 +242,7 @@ async function fetchFollowRedirects(
       url: current,
       headers: res.headers,
       body: res.body,
+      dispose: closeDispatcher,
     };
   }
   throw new MoxxyError({

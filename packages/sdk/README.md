@@ -113,7 +113,7 @@ That is the whole setup. `moxxy plugins list` will show your tool on the next se
 | `definePlugin` | A bundle of any of the below. The discoverable unit. |
 | `defineTool` | A callable tool with a zod-typed input, optional `permission`, `isolation`, and `compact` display config. |
 | `defineProvider` | An LLM backend such as Anthropic, OpenAI, or a custom service. |
-| `defineMode` | A loop strategy. The agent's iteration topology (`tool-use`, `plan-execute`, `bmad`, and so on). |
+| `defineMode` | A loop strategy. The agent's iteration topology (`default`, `goal`, `research`, and so on). |
 | `defineCompactor` | A context-window compaction strategy (summarise, drop, hybrid). |
 | `defineCacheStrategy` | Where to place provider cache breakpoints. |
 | `defineChannel` | A user-facing surface (TUI, HTTP, Telegram, web). |
@@ -154,7 +154,7 @@ import type {
 
 ### Lifecycle hooks
 
-A plugin can declare optional hooks: `onSessionStart`, `onTurnStart`, `onAssistantMessage`, `onToolResult`, `onError`, `onCompact`, and `onSessionEnd`. All are strongly typed and fire in plugin-registration order. The SDK exposes the hook context types. `@moxxy/core` invokes them at the right point in the loop.
+A plugin can declare optional hooks: `onInit`, `onTurnStart`, `onBeforeProviderCall`, `onToolCall`, `onToolResult`, `onEvent`, `onTurnEnd`, and `onShutdown`. All are strongly typed and fire in plugin-registration order. The SDK exposes the hook context types. `@moxxy/core` invokes them at the right point in the loop.
 
 ## Authoring a plugin
 
@@ -177,8 +177,8 @@ export default definePlugin({
       },
       // Optional: gate the call, declare capabilities, customise the compact display.
       permission: { action: 'prompt' },
-      isolation: { capabilities: { net: { allow: ['wttr.in'] } } },
-      compact: { verb: 'Reading weather', subject: ({ city }) => city },
+      isolation: { capabilities: { net: { mode: 'allowlist', hosts: ['wttr.in'] } } },
+      compact: { verb: 'Fetching weather for', noun: { one: 'city', other: 'cities' }, previewKey: 'city' },
     }),
   ],
 });
@@ -187,17 +187,38 @@ export default definePlugin({
 A provider plugin:
 
 ```ts
-import { definePlugin, defineProvider, type ProviderDef } from '@moxxy/sdk';
+import {
+  definePlugin,
+  defineProvider,
+  type LLMProvider,
+  type ProviderRequest,
+  type ProviderEvent,
+} from '@moxxy/sdk';
 
-const myProvider: ProviderDef = defineProvider({
-  name: 'my-llm',
-  models: [{ id: 'flagship', contextWindow: 200_000 }],
-  async *stream(ctx) { /* yield MoxxyEvent values */ },
-});
+class MyLlmClient implements LLMProvider {
+  readonly name = 'my-llm';
+  readonly models = MODELS;
+  async *stream(req: ProviderRequest): AsyncIterable<ProviderEvent> {
+    // call your backend; yield message_start / text_delta / tool_use_* / message_end
+  }
+  async countTokens(req: Pick<ProviderRequest, 'model' | 'messages' | 'system' | 'tools'>) {
+    return 0; // or a real estimate
+  }
+}
+
+const MODELS = [
+  { id: 'flagship', contextWindow: 200_000, supportsTools: true, supportsStreaming: true },
+];
 
 export default definePlugin({
   name: '@acme/moxxy-provider-my-llm',
-  providers: [myProvider],
+  providers: [
+    defineProvider({
+      name: 'my-llm',
+      models: MODELS,
+      createClient: (_config) => new MyLlmClient(),
+    }),
+  ],
 });
 ```
 

@@ -1,20 +1,30 @@
 import type { VaultStore } from '@moxxy/plugin-vault';
+import { providerApiKeyName } from '@moxxy/plugin-provider-admin';
 import { MoxxyError } from '@moxxy/sdk';
 import * as readline from 'node:readline/promises';
 
 /**
  * Canonical vault entry name + env var name for a provider's API key. Both
  * the vault and the env-var fallback use the same name, so a user with the
- * env set doesn't have to mirror it. Derived from the provider name; the CLI
- * is intentionally provider-agnostic (no hardcoded list).
+ * env set doesn't have to mirror it. Delegates to the ONE shared derivation
+ * in `@moxxy/plugin-provider-admin` (upper-snake slug + `_API_KEY`) so the
+ * CLI, the admin tools and the desktop all agree on the name. For
+ * runtime-registered providers with a stored `envVar` override, resolve it
+ * via `resolveProviderCredentials`, which passes the override through
+ * `ResolveOptions.keyName`.
  */
 export function canonicalKey(providerName: string): string {
-  return `${providerName.toUpperCase()}_API_KEY`;
+  return providerApiKeyName(providerName);
 }
 
 export interface ResolveOptions {
   /** Already-merged provider config. If apiKey is set, we trust it. */
   readonly providerConfig?: Record<string, unknown>;
+  /**
+   * Override the vault/env key name. Used for runtime-registered providers
+   * whose stored `envVar` differs from the canonical `<NAME>_API_KEY`.
+   */
+  readonly keyName?: string;
   /** Allow interactive prompts when the key isn't found anywhere. */
   readonly interactive?: boolean;
   /** Custom label to show in the prompt. */
@@ -42,7 +52,7 @@ export async function resolveProviderApiKey(
   opts: ResolveOptions = {},
 ): Promise<ResolveResult> {
   const config = { ...(opts.providerConfig ?? {}) };
-  const canonical = canonicalKey(providerName);
+  const canonical = opts.keyName ?? canonicalKey(providerName);
 
   if (config.apiKey) {
     return { source: 'config', providerConfig: config, canonicalName: canonical };

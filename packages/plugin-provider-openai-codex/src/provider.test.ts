@@ -119,6 +119,62 @@ describe('CodexProvider.stream', () => {
     expect(end?.usage).toEqual({ inputTokens: 100, outputTokens: 20, cacheReadTokens: 80 });
   });
 
+  it('wires req.maxTokens to max_output_tokens and never forwards temperature', async () => {
+    let body: Record<string, unknown> | undefined;
+    const fakeFetch = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body));
+      return new Response(sseStream(['data: {"type":"response.completed"}\n\n']), { status: 200 });
+    });
+    const provider = new CodexProvider({
+      tokens: makeTokens(),
+      fetch: fakeFetch as unknown as typeof fetch,
+    });
+    await collect(provider.stream(baseRequest({ maxTokens: 1234, temperature: 0.2 })));
+
+    expect(body?.max_output_tokens).toBe(1234);
+    // gpt-5 reasoning models reject sampling params with a 400, so the
+    // provider must drop temperature instead of forwarding it.
+    expect(body).not.toHaveProperty('temperature');
+  });
+
+  it('omits max_output_tokens when req.maxTokens is unset', async () => {
+    let body: Record<string, unknown> | undefined;
+    const fakeFetch = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body));
+      return new Response(sseStream(['data: {"type":"response.completed"}\n\n']), { status: 200 });
+    });
+    const provider = new CodexProvider({
+      tokens: makeTokens(),
+      fetch: fakeFetch as unknown as typeof fetch,
+    });
+    await collect(provider.stream(baseRequest()));
+    expect(body).not.toHaveProperty('max_output_tokens');
+  });
+
+  it('defaults reasoning effort to medium and honors the reasoningEffort config option', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const fakeFetch = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return new Response(sseStream(['data: {"type":"response.completed"}\n\n']), { status: 200 });
+    });
+
+    const defaulted = new CodexProvider({
+      tokens: makeTokens(),
+      fetch: fakeFetch as unknown as typeof fetch,
+    });
+    await collect(defaulted.stream(baseRequest()));
+
+    const high = new CodexProvider({
+      tokens: makeTokens(),
+      fetch: fakeFetch as unknown as typeof fetch,
+      reasoningEffort: 'high',
+    });
+    await collect(high.stream(baseRequest()));
+
+    expect(bodies[0]?.reasoning).toMatchObject({ effort: 'medium' });
+    expect(bodies[1]?.reasoning).toMatchObject({ effort: 'high' });
+  });
+
   it('uses a stable default session id across turns so the prefix cache can hit', async () => {
     const keys: unknown[] = [];
     const fakeFetch = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {

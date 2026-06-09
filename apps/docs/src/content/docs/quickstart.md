@@ -13,7 +13,8 @@ pnpm dlx @moxxy/cli --help
 
 ## 2. Pick a provider
 
-`moxxy` supports three providers out of the box. Pick one:
+`moxxy` supports four providers out of the box (plus runtime-registered
+OpenAI-compatible vendors via `@moxxy/plugin-provider-admin`). Pick one:
 
 ```sh
 # Anthropic — API key
@@ -24,6 +25,9 @@ export OPENAI_API_KEY=sk-...
 
 # ChatGPT Pro/Plus (Codex backend) — OAuth, no key needed
 moxxy login openai-codex
+
+# Claude Pro/Max — OAuth, no key needed
+moxxy login claude-code
 ```
 
 `moxxy init` walks through the same choices interactively and stores keys

@@ -42,9 +42,11 @@ describe('assertPublicUrl (shared SSRF guard)', () => {
   });
 
   it('allows a public IP literal and a publicly-resolving hostname', async () => {
-    await expect(assertPublicUrl('https://93.184.216.34/')).resolves.toBeUndefined();
+    // IP literal: nothing resolved, nothing to pin.
+    await expect(assertPublicUrl('https://93.184.216.34/')).resolves.toBeNull();
     setSsrfDnsResolver(async () => ['93.184.216.34']);
-    await expect(assertPublicUrl('https://example.com/')).resolves.toBeUndefined();
+    // Hostname: the vetted addresses come back so callers can pin them.
+    await expect(assertPublicUrl('https://example.com/')).resolves.toEqual(['93.184.216.34']);
   });
 
   it('throws SsrfBlockedError with the caller label prefixed', async () => {

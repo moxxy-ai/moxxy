@@ -182,6 +182,11 @@ export async function runCompactionIfNeeded(
       log: ctx.log,
       budget,
       signal: ctx.signal,
+      // Hand the compactor the session's provider/model so the default
+      // summarize compactor can write a real summary (it truncates honestly
+      // when no provider is reachable).
+      provider: ctx.provider,
+      model: ctx.model,
     });
     if (result.tokensSaved <= 0 || result.summary.trim().length === 0) return false;
     // `compactor.compact` declares `Omit<CompactionEvent, keyof EventBase>`,

@@ -93,6 +93,28 @@ export interface ViewRendererDef {
   validate(doc: ViewDoc): ReadonlyArray<ViewParseError>;
 }
 
+/**
+ * URL-scheme allow-list for agent-authored `href`/`src` values — the single
+ * canonical check, enforced at BOTH walls: parse/validate time
+ * (core's `parseView`/`validateDoc`) and render time (the web frontend
+ * re-checks before emitting an anchor/img; it keeps a verbatim copy in
+ * `plugin-channel-web/src/frontend/url-safety.ts` because the browser bundle
+ * cannot import the sdk root — keep the two in lockstep).
+ *
+ * Decision (audit A44): allowed schemes are `https:`, `http:`, `mailto:`,
+ * `tel:`, plus relative/fragment URLs; `data:` only as an `img src` and only
+ * `data:image/*`. Everything else — notably `javascript:`, `vbscript:`,
+ * `data:text/*` — is rejected. Views are designed to be shared with third
+ * parties, so a `javascript:` link is click-XSS on a shared surface.
+ */
+export function isSafeViewUrl(url: string, attr: string): boolean {
+  const u = url.trim().toLowerCase();
+  if (u.startsWith('javascript:') || u.startsWith('vbscript:')) return false;
+  if (u.startsWith('data:')) return attr === 'src' && u.startsWith('data:image/');
+  if (/^[a-z][a-z0-9+.-]*:/.test(u)) return /^(https?:|mailto:|tel:)/.test(u);
+  return true; // relative / fragment
+}
+
 const TONE = ['default', 'muted', 'success', 'warn', 'danger'] as const;
 const GAP = ['none', 'sm', 'md', 'lg'] as const;
 

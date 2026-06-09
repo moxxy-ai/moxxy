@@ -145,8 +145,9 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const providerName = session.providers.getActiveName() ?? '(none)';
   const activeModel = resolveActiveModel(session, activeModelOverride, model);
   const contextWindow = resolveContextWindow(session, activeModel);
-  // Re-estimate every render. estimateContextTokens is char-cheap so
-  // this stays well under a millisecond even on busy logs.
+  // Re-estimated every render (~30Hz while streaming), but the estimator is
+  // incrementally cached per log: an unchanged log is a pure cache hit and an
+  // append folds in only the new events — no full re-walk on the render path.
   const contextUsed = estimateContextTokens(session.log);
   const modeName = getModeName(session);
   const modeBadge = getModeBadge(session);

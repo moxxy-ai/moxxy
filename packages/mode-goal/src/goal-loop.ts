@@ -149,7 +149,16 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
     const { text, toolUses, stopReason, error, usage } = await collectProviderStream(
       goalCtx,
       messages,
-      { iteration, stablePrefixIndex },
+      {
+        iteration,
+        stablePrefixIndex,
+        // The nudge is volatile — injected for this call only, never appended
+        // to the log — so the cache strategy must keep its rolling tail
+        // breakpoint BEFORE it. Otherwise every idle iteration caches a
+        // prefix ending in a message that won't exist at that position next
+        // call: a guaranteed-wasted cache write.
+        ...(nudge ? { volatileTailCount: 1 } : {}),
+      },
     );
 
     yield await ctx.emit({

@@ -124,6 +124,14 @@ describe('parseView — rejected (security + allow-list)', () => {
     expect(parse(`<view><link href="/local">x</link></view>`).ok).toBe(true);
   });
 
+  it('allows mailto/tel hrefs and data:image src; rejects data:text src', () => {
+    expect(parse(`<view><link href="mailto:a@b.c">x</link></view>`).ok).toBe(true);
+    expect(parse(`<view><link href="tel:+15551234">x</link></view>`).ok).toBe(true);
+    expect(parse(`<view><image src="data:image/png;base64,AAAA" /></view>`).ok).toBe(true);
+    expectError(`<view><image src="data:text/html,<script>1</script>" /></view>`, /disallowed URL scheme/);
+    expectError(`<view><link href="data:image/png;base64,AAAA">x</link></view>`, /disallowed URL scheme/);
+  });
+
   it('rejects out-of-range numbers and bad enums', () => {
     expectError(`<view><grid cols="9"></grid></view>`, /must be ≤ 6/);
     expectError(`<view><text tone="rainbow">x</text></view>`, /must be one of/);
@@ -157,5 +165,31 @@ describe('validateDoc', () => {
       DEFAULT_VIEW_TAGS,
     );
     expect(bad.some((e) => /unknown tag <evil>/.test(e.message))).toBe(true);
+  });
+
+  it('rejects disallowed URL schemes in a hand-built AST (href/src never bypass the parser)', () => {
+    const errsFor = (tag: string, props: Record<string, string>) =>
+      validateDoc(
+        {
+          root: {
+            kind: 'element',
+            tag: 'view',
+            props: {},
+            children: [{ kind: 'element', tag, props, children: [] }],
+          },
+        },
+        DEFAULT_VIEW_TAGS,
+      );
+    expect(
+      errsFor('link', { href: 'javascript:alert(1)' }).some((e) => /disallowed URL scheme/.test(e.message)),
+    ).toBe(true);
+    expect(
+      errsFor('image', { src: 'data:text/html,<script>1</script>' }).some((e) =>
+        /disallowed URL scheme/.test(e.message),
+      ),
+    ).toBe(true);
+    // Safe schemes stay clean.
+    expect(errsFor('link', { href: 'https://example.com' })).toEqual([]);
+    expect(errsFor('image', { src: 'data:image/png;base64,AAAA' })).toEqual([]);
   });
 });

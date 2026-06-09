@@ -263,4 +263,68 @@ describe('admin/runtime', () => {
       expect(await rt.detachServer('ghost')).toBe(false);
     });
   });
+
+  describe('secretResolver (vault placeholders, A43)', () => {
+    const fakeResolver = async (value: string): Promise<string> =>
+      value.replace(/\$\{vault:([A-Za-z0-9_.-]+)\}/g, (_m, name: string) => `resolved-${name}`);
+
+    it('attachServer connects with resolved env values but keeps the input untouched', async () => {
+      hoisted.connectImpl = async () => makeClient();
+      const rt = createMcpRuntime(makeRegistry(), { secretResolver: fakeResolver });
+      const server: McpServerConfig = {
+        kind: 'stdio',
+        name: 'demo',
+        command: 'x',
+        env: { API_KEY: '${vault:demo_key}', PLAIN: 'literal' },
+      };
+      await rt.attachServer(server);
+      const connected = hoisted.connectCalls[0] as Extract<McpServerConfig, { command: string }>;
+      // Connect path sees the plaintext…
+      expect(connected.env).toEqual({ API_KEY: 'resolved-demo_key', PLAIN: 'literal' });
+      // …while the caller-held config object keeps the placeholder.
+      expect(server.env).toEqual({ API_KEY: '${vault:demo_key}', PLAIN: 'literal' });
+    });
+
+    it('refreshServerCache persists the PLACEHOLDER, never the resolved plaintext', async () => {
+      await writeMcpConfig({
+        servers: [
+          { kind: 'http', name: 'demo', url: 'https://mcp.example.com', headers: { authorization: 'Bearer ${vault:demo_token}' } },
+        ],
+      });
+      hoisted.connectImpl = async () => makeClient();
+      const rt = createMcpRuntime(makeRegistry(), { secretResolver: fakeResolver });
+      await rt.refreshServerCache(
+        { kind: 'http', name: 'demo', url: 'https://mcp.example.com', headers: { authorization: 'Bearer ${vault:demo_token}' } },
+      );
+      // Connect saw the resolved header.
+      const connected = hoisted.connectCalls[0] as Extract<McpServerConfig, { url: string }>;
+      expect(connected.headers).toEqual({ authorization: 'Bearer resolved-demo_token' });
+      // Disk keeps the placeholder.
+      const raw = JSON.stringify(await readMcpConfig());
+      expect(raw).toContain('${vault:demo_token}');
+      expect(raw).not.toContain('resolved-demo_token');
+    });
+
+    it('lazy attach resolves at first-call connect time', async () => {
+      hoisted.connectImpl = async () => makeClient();
+      const registry = makeRegistry();
+      const rt = createMcpRuntime(registry, { secretResolver: fakeResolver });
+      rt.attachServerLazy(stored({ env: { TOKEN: '${vault:t}' } } as Partial<McpStoredServer>));
+      // No connection yet — lazy stubs only.
+      expect(hoisted.connectCalls).toHaveLength(0);
+      const tool = registry.tools.get('mcp__demo__ping') as { handler: (i: unknown, c: unknown) => Promise<unknown> };
+      await tool.handler({}, baseCtx());
+      const connected = hoisted.connectCalls[0] as Extract<McpServerConfig, { command: string }>;
+      expect(connected.env).toEqual({ TOKEN: 'resolved-t' });
+    });
+
+    it('passes literals through unchanged when no resolver is wired (back-compat)', async () => {
+      hoisted.connectImpl = async () => makeClient();
+      const rt = createMcpRuntime(makeRegistry());
+      const server: McpServerConfig = { kind: 'stdio', name: 'demo', command: 'x', env: { KEY: 'plain-secret' } };
+      await rt.attachServer(server);
+      const connected = hoisted.connectCalls[0] as Extract<McpServerConfig, { command: string }>;
+      expect(connected.env).toEqual({ KEY: 'plain-secret' });
+    });
+  });
 });

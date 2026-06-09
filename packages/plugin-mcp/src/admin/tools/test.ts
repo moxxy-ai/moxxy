@@ -2,14 +2,22 @@ import { defineTool, type ToolDef } from '@moxxy/sdk';
 import { defaultClientFactory } from '../../client.js';
 import { wrapMcpServerTools } from '../../wrap.js';
 import { addServerInput, validateAddServerInput } from '../schema.js';
+import { resolveServerSecrets, type McpSecretResolver } from '../secrets.js';
 
-export function buildTestServerTool(): ToolDef {
+export interface TestServerToolDeps {
+  /** Resolves `${vault:NAME}` placeholders in env/header values at connect time. */
+  readonly secretResolver?: McpSecretResolver | null;
+}
+
+export function buildTestServerTool(deps: TestServerToolDeps = {}): ToolDef {
   return defineTool({
     name: 'mcp_test_server',
     description:
       'Connect to an MCP server WITHOUT saving it to config. Returns the list of tools the ' +
       'server exposes if the connection succeeds, or a connection-error message. Useful for ' +
-      'sanity-checking before calling mcp_add_server.',
+      'sanity-checking before calling mcp_add_server. Credentials (env/header values) must be ' +
+      'vault references, never plaintext: store the secret first via vault_set, then pass ' +
+      '"${vault:NAME}" — it is resolved at connect time.',
     inputSchema: addServerInput,
     // Mirrors mcp_add_server: a stdio server is an arbitrary local
     // executable we spawn, so gate behind a prompt rather than running
@@ -34,7 +42,9 @@ export function buildTestServerTool(): ToolDef {
       const server = validateAddServerInput(input);
       let client: Awaited<ReturnType<typeof defaultClientFactory>> | null = null;
       try {
-        client = await defaultClientFactory(server);
+        client = await defaultClientFactory(
+          await resolveServerSecrets(server, deps.secretResolver ?? null),
+        );
         const wrapped = await wrapMcpServerTools({ server, client });
         return {
           ok: true,

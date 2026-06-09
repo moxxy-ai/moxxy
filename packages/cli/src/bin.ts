@@ -100,9 +100,16 @@ const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyA
     rows: [
       ['ANTHROPIC_API_KEY', 'default Anthropic provider key'],
       ['OPENAI_API_KEY', 'OpenAI provider key (and openai embeddings)'],
+      ['MOXXY_HOME', 'override the ~/.moxxy data directory'],
+      ['MOXXY_DEBUG=1', 'verbose error output + process diagnostics'],
       ['MOXXY_FIXTURES', 'record | replay — provider fixture mode (used by tests)'],
       ['MOXXY_VAULT_PASSPHRASE', 'headless vault passphrase (alt to keychain)'],
       ['MOXXY_TELEGRAM_TOKEN', 'override the vault-stored Telegram token'],
+      ['MOXXY_HTTP_TOKEN', 'bearer token for the HTTP channel'],
+      ['MOXXY_MOBILE_TOKEN | _HOST | _TUNNEL', 'mobile channel auth / bind host / tunnel'],
+      ['MOXXY_SESSION_ID', 'sticky session id for `moxxy serve` (resume-if-present)'],
+      ['MOXXY_RUNNER_SOCKET', "override the runner's unix-socket path"],
+      ['(full list)', 'see the Environment variables table in the README'],
     ],
   },
 ];

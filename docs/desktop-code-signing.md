@@ -107,16 +107,24 @@ Then add **either** Method A **or** Method B from Step 3:
 
 ### Step 5 — Release
 
-Push a tag and the **Release Desktop** workflow signs + notarizes + staples the
-DMG automatically:
+There is **no tag to push by hand** — the `Release` workflow only triggers on
+pushes to `main`, and the `desktop-v*` tag is created *by* the workflow, not
+for it. A desktop release is cut by merging the changesets **Version Packages**
+PR (i.e. land a changeset that bumps `@moxxy/desktop`). On that merge commit:
 
-```sh
-git tag desktop-v0.1.0
-git push origin desktop-v0.1.0
-```
+1. the `version-publish` job publishes npm packages, sees the committed desktop
+   version has no `desktop-v<version>` tag yet, and **pins the release commit
+   sha** (it does not tag);
+2. the `desktop-build` matrix builds the installers on macOS/Windows/Linux
+   **from that pinned sha** — this is where signing + notarization run;
+3. only after **every** build leg succeeds does the `desktop-release` job push
+   the `desktop-v<version>` tag at that sha and create a **draft** GitHub
+   Release with the artifacts.
 
-(Or run it from the Actions tab via **workflow_dispatch** — note that produces
-artifacts but no GitHub Release; only `desktop-v*` tags publish a release.)
+Tag-last ordering means a failed installer build leaves no tag behind — the
+next run on `main` simply re-releases the same version. Review the draft and
+**Publish** it (the self-updater ignores drafts — see
+`docs/desktop-self-update.md`).
 
 ### Step 6 — Verify a build is properly signed
 
@@ -149,13 +157,19 @@ When the secrets above exist, CI does all of this — you don't edit anything:
   and points at **`build/entitlements.mac.plist`** (Electron needs the JIT /
   unsigned-executable-memory entitlements under the hardened runtime). These are
   no-ops when the build isn't signed.
-- **`release.yml`** has a **Configure macOS signing** step that, when
-  `CSC_LINK` is set, flips `CSC_IDENTITY_AUTO_DISCOVERY` on and enables
-  `--config.mac.notarize` for the package step (electron-builder reads the
-  `APPLE_*` env vars). When `CSC_LINK` is absent it leaves the ad-hoc path
-  untouched.
+- **`release.yml`** has a **Configure macOS signing** step. With no `CSC_LINK`
+  it exports `CSC_IDENTITY_AUTO_DISCOVERY=false` (electron-builder skips
+  signing; `build/after-pack.cjs` ad-hoc signs instead). With `CSC_LINK` set it
+  turns discovery on and base64-decodes `APPLE_API_KEY` to a `.p8` file; the
+  **Package installers** step then adds `-c.mac.notarize=true` — but only when
+  one of the notarization credential sets exists. `CSC_LINK` alone signs
+  **without** notarizing.
 - The **ad-hoc signing** in `build/after-pack.cjs` is skipped automatically when
   a real Developer ID cert is present (so we never double-sign).
+- Signing also unblocks macOS **Tier-2** (shell) auto-updates: Squirrel.Mac
+  refuses unsigned apps, so `apps/desktop/electron/main/shell-updater.ts`
+  currently no-ops on macOS. Once signed builds ship, remove that
+  `process.platform === 'darwin'` guard to enable it.
 
 So the only thing that changes between an unsigned and a signed release is the
 **presence of the secrets**.
@@ -173,8 +187,11 @@ the CA's signing service. The common setups:
   — Microsoft's managed signing; integrates with CI via `azure/trusted-signing-action`.
 - **SSL.com eSigner** / **DigiCert KeyLocker** — cloud HSM + a CLI you call from CI.
 
-To wire it, set `WIN_CSC_LINK` + `WIN_CSC_KEY_PASSWORD` (for a file-based OV cert)
-or the provider's action, and electron-builder signs the `.exe`. Until then,
+To wire a file-based OV cert, add `WIN_CSC_LINK` + `WIN_CSC_KEY_PASSWORD` as
+repo secrets **and forward them as env on the "Package installers" step in
+`release.yml`** (unlike the macOS `CSC_*`/`APPLE_*` secrets, the workflow does
+not pass any `WIN_CSC_*` env today) — electron-builder then signs the `.exe`.
+Cloud-HSM providers need their action/CLI added as a step instead. Until then,
 Windows builds remain unsigned (users click **More info → Run anyway**).
 
 ---

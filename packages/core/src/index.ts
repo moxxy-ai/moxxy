@@ -34,11 +34,6 @@ export {
   type SynthesizedSkill,
 } from './skills/index.js';
 export { EventLog, type EventListener } from './events/log.js';
-export {
-  selectPendingToolCalls,
-  selectCurrentTurn,
-  type PendingToolCall,
-} from './events/selectors.js';
 // newEventId + materializeEvent are module-private helpers used only by
 // EventLog.append; not re-exported.
 export { newTurnId, newSessionId } from './events/factory.js';

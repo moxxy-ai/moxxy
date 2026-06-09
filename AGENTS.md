@@ -12,8 +12,8 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 @moxxy/sdk     <— typed public surface (event types, define* helpers, hook signatures, provider/loop utils)
 @moxxy/core    <— runtime (event log, plugin host, registries, permissions, session, skill loader)
 
-@moxxy/tools-builtin              Read/Edit/Write/Bash/Grep/Glob
-@moxxy/mode-tool-use              "default" mode — Claude Code-style ReAct loop (active by default)
+@moxxy/tools-builtin              Read/Edit/Write/Bash/Grep/Glob + recall + Sleep
+@moxxy/mode-default               "default" mode — Claude Code-style ReAct loop (registered by the CLI; first registered mode auto-activates)
 @moxxy/mode-goal                  "goal" mode — autonomous auto-approve loop; works across turns until goal_complete
 @moxxy/mode-deep-research         "research" mode — multi-query fan-out + synthesis
 @moxxy/compactor-summarize        default summarize-old-turns compactor
@@ -27,6 +27,9 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 @moxxy/plugin-cli                 Ink TUI components + interactive PermissionResolver
 @moxxy/plugin-telegram            Telegram channel (TOFU pairing)
 @moxxy/plugin-channel-http        HTTP channel (auth + allow-list resolver)
+@moxxy/plugin-channel-web         web surface channel — serves a browser app rendering agent-authored view-spec UIs over a WebSocket
+@moxxy/plugin-channel-mobile      mobile channel — serves the desktop IPC contract over an authenticated WebSocket (`moxxy mobile`)
+@moxxy/plugin-view                present_view tool — agent-authored JSX-like view-spec parsed into a validated AST channels can render
 @moxxy/plugin-mcp                 MCP server bridge
 @moxxy/plugin-embeddings-openai   OpenAI embeddings
 @moxxy/plugin-embeddings-transformers   on-device embeddings via xenova
@@ -60,6 +63,12 @@ apps/desktop                 Electron desktop app — attaches to @moxxy/runner,
 @moxxy/desktop-ipc-contract  typed IPC boundary (channel names + payloads + Zod validation) shared by the desktop's main / preload / renderer
 @moxxy/desktop-host          the desktop's Electron main process: runner pool + supervisor, session driver, IPC handlers, append-only NDJSON chat log, security gates, and the self-update gate/stager (the node-only @moxxy/desktop-host/app-update subpath baked into the bootstrap)
 @moxxy/desktop-ui            framework-light, dependency-free React UI primitives (single-file SVG Icon set, Modal/ConfirmModal portal, Skeleton placeholders); shared by the renderer and a future web channel
+@moxxy/client-core           DOM-free headless client layer (chat/connection/ask stores + use* React hooks + transport seam + platform-capability registry); shared by the desktop renderer and the Expo mobile app
+@moxxy/client-platform-web   web implementations of the client-core platform capabilities (mic capture, Web Speech TTS, localStorage KV, window event bus)
+@moxxy/client-transport-ws   MoxxyApi (invoke/subscribe) over a WebSocket JSON-RPC client for remote clients (uses the global WebSocket — Metro/RN-safe)
+@moxxy/ipc-server-ws         serves the desktop IPC contract over an authenticated WebSocket (WebSocketCommandBus; bearer-token handshake; Node-only)
+@moxxy/design-tokens         framework-neutral design tokens (colors/fonts/radii/shadows) + :root CSS-variable generator; consumed by the desktop renderer and React Native
+apps/mobile                  Expo (React Native) PoC driving the chat loop through @moxxy/client-core over the desktop host's WebSocket bridge
 ```
 
 **State model.** Every interaction appends to an immutable event log; derived state is a pure fold. Any session can be replayed from its log.

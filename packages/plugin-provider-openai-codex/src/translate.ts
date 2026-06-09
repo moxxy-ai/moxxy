@@ -36,6 +36,12 @@ export interface ResponsesBody {
   stream: true;
   prompt_cache_key?: string;
   include?: string[];
+  /** Responses-API output cap; carries `ProviderRequest.maxTokens`. */
+  max_output_tokens?: number;
+  // NOTE: no `temperature` — every model the Codex backend serves is a
+  // gpt-5-family reasoning model, and the Responses API rejects sampling
+  // params (`temperature`/`top_p`) for reasoning models with a 400. See
+  // `noteTemperatureUnsupported` below.
 }
 
 function contentBlocksToInputText(
@@ -64,20 +70,23 @@ function contentBlocksToInputText(
  * system prompt into the top-level `instructions` field — the Responses
  * API rejects requests with a missing/empty `instructions`, and our
  * upstream loop helpers push the system prompt in as a `role: 'system'`
- * message rather than via `ProviderRequest.system`.
+ * message. `explicitSystem` (`ProviderRequest.system`) is the
+ * hook-injection side channel — extra per-request system text appended
+ * AFTER the message-derived prompt, matching how the other providers
+ * deliver it.
  */
 export function extractSystemText(
   messages: ReadonlyArray<ProviderMessage>,
   explicitSystem?: string,
 ): string {
   const parts: string[] = [];
-  if (explicitSystem && explicitSystem.trim()) parts.push(explicitSystem);
   for (const msg of messages) {
     if (msg.role !== 'system') continue;
     for (const block of msg.content) {
       if (block.type === 'text' && block.text) parts.push(block.text);
     }
   }
+  if (explicitSystem && explicitSystem.trim()) parts.push(explicitSystem);
   return parts.join('\n\n');
 }
 
@@ -150,6 +159,26 @@ export interface BuildBodyOptions {
  */
 const DEFAULT_INSTRUCTIONS = 'You are a helpful coding assistant.';
 
+/**
+ * One-shot debug note for the unsupported `temperature` param. The Codex
+ * backend only serves gpt-5-family reasoning models, which reject
+ * sampling params with `400: Unsupported parameter: 'temperature'` — so
+ * rather than forward it and break every request, we drop it and (once
+ * per process, only with MOXXY_DEBUG set) say so instead of silently
+ * eating the option.
+ */
+let temperatureNoteShown = false;
+function noteTemperatureUnsupported(): void {
+  if (temperatureNoteShown) return;
+  temperatureNoteShown = true;
+  if (process.env.MOXXY_DEBUG) {
+    console.debug(
+      '[openai-codex] ProviderRequest.temperature is not supported by the Codex ' +
+        'Responses backend (gpt-5 reasoning models reject sampling params); ignoring it.',
+    );
+  }
+}
+
 export function toResponsesBody(req: ProviderRequest, opts: BuildBodyOptions = {}): ResponsesBody {
   const instructions = extractSystemText(req.messages, req.system) || DEFAULT_INSTRUCTIONS;
   const body: ResponsesBody = {
@@ -164,5 +193,7 @@ export function toResponsesBody(req: ProviderRequest, opts: BuildBodyOptions = {
   };
   if (req.tools && req.tools.length > 0) body.tools = toResponsesTools(req.tools);
   if (opts.sessionHint) body.prompt_cache_key = opts.sessionHint;
+  if (req.maxTokens !== undefined) body.max_output_tokens = req.maxTokens;
+  if (req.temperature !== undefined) noteTemperatureUnsupported();
   return body;
 }

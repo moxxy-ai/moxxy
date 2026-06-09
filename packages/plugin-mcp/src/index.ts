@@ -24,6 +24,8 @@ export {
   removeServerFromConfig,
   setServerDisabled,
   writeMcpConfig,
+  resolveServerSecrets,
+  type McpSecretResolver,
   type McpAdminApi,
   type McpServerStatus,
   type McpStoredConfig,

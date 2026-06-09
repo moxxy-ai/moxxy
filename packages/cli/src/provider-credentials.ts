@@ -11,6 +11,7 @@ import {
   ensureFreshClaudeTokens,
   refreshClaudeAccessToken,
 } from '@moxxy/plugin-provider-claude-code';
+import { storedProviderApiKeyName } from '@moxxy/plugin-provider-admin';
 import { resolveProviderApiKey, type ResolveOptions } from './provider-keys.js';
 
 /**
@@ -20,15 +21,24 @@ import { resolveProviderApiKey, type ResolveOptions } from './provider-keys.js';
  * `oauth/openai-codex/*`), and `claude-code` pulls a Claude bearer (vault
  * `oauth/claude-code/*` or a `CLAUDE_CODE_OAUTH_TOKEN` env var) — each
  * exposing the live token plus a refresh hook the provider uses on a 401.
+ *
+ * For runtime-registered providers (~/.moxxy/providers.json) the stored
+ * `envVar` override is honored: the lookup goes through the shared
+ * key-name derivation in `@moxxy/plugin-provider-admin`, the same one the
+ * admin tools and the desktop use.
  */
 export async function resolveProviderCredentials(
   providerName: string,
   vault: VaultStore,
   opts: ResolveOptions = {},
 ): Promise<Record<string, unknown>> {
-  if (providerName === 'openai-codex') return resolveOAuthCodex(vault);
+  if (providerName === 'openai-codex') return resolveOAuthCodex(vault, opts);
   if (providerName === CLAUDE_CODE_PROVIDER_ID) return resolveClaudeCode(vault);
-  const { providerConfig } = await resolveProviderApiKey(providerName, vault, opts);
+  const storedKeyName = await storedProviderApiKeyName(providerName).catch(() => null);
+  const { providerConfig } = await resolveProviderApiKey(providerName, vault, {
+    ...opts,
+    ...(storedKeyName ? { keyName: storedKeyName } : {}),
+  });
   return providerConfig;
 }
 
@@ -61,7 +71,10 @@ async function resolveClaudeCode(vault: VaultStore): Promise<Record<string, unkn
   });
 }
 
-async function resolveOAuthCodex(vault: VaultStore): Promise<Record<string, unknown>> {
+async function resolveOAuthCodex(
+  vault: VaultStore,
+  opts: ResolveOptions = {},
+): Promise<Record<string, unknown>> {
   let tokens: CodexTokens | null = null;
   try {
     tokens = await readStoredTokens(vault);
@@ -77,6 +90,10 @@ async function resolveOAuthCodex(vault: VaultStore): Promise<Record<string, unkn
     });
   }
   return {
+    // Pass user-supplied provider.config (moxxy.config.ts) through so
+    // options like `reasoningEffort` reach CodexProvider — previously this
+    // returned a fresh object and silently dropped every configured option.
+    ...(opts.providerConfig ?? {}),
     tokens,
     onTokensRefreshed: async (next: CodexTokens) => {
       await persistCodexTokens(vault, next);

@@ -383,6 +383,15 @@ export async function collectProviderStream(
      * strategy then falls back to its tools/system/tail breakpoints only.
      */
     stablePrefixIndex?: number;
+    /**
+     * Number of trailing messages in `messages` that are volatile — injected
+     * for this call only (e.g. goal mode's `trailingUserText` nudge) and
+     * absent from the append-only log, so they won't recur at the same
+     * position next call. Forwarded to the cache strategy as
+     * `volatileTailMessageCount` so it keeps its rolling tail breakpoint
+     * before them instead of paying a guaranteed-wasted cache write.
+     */
+    volatileTailCount?: number;
   } = {},
 ): Promise<StreamResult> {
   // Lazy tool gating (opt-in): send only always-on + loaded tool schemas, and
@@ -410,12 +419,20 @@ export async function collectProviderStream(
         ...(opts.stablePrefixIndex != null && opts.stablePrefixIndex >= 0
           ? { stablePrefixMessageIndex: opts.stablePrefixIndex }
           : {}),
+        ...(opts.volatileTailCount != null && opts.volatileTailCount > 0
+          ? { volatileTailMessageCount: opts.volatileTailCount }
+          : {}),
       })
     : undefined;
 
+  // NOTE: `system` is deliberately NOT prefilled with ctx.systemPrompt — the
+  // composed system prompt already rides as the leading system-role message
+  // (see projectMessages), and providers deliver `req.system` IN ADDITION to
+  // message-derived system text. Prefilling it would duplicate the prompt.
+  // It stays as the side channel `onBeforeProviderCall` hooks use to inject
+  // per-request system text (e.g. the memory consolidation nudge).
   const req = {
     model: ctx.model,
-    system: ctx.systemPrompt,
     messages: effectiveMessages,
     ...(toolList ? { tools: toolList } : {}),
     ...(cacheHints && cacheHints.length > 0 ? { cacheHints } : {}),

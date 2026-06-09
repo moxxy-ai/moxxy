@@ -131,4 +131,69 @@ describe('chat-log NDJSON backend', () => {
     const seg = await loadSegment('w1', null, 10);
     expect(seg.events.map((e) => (e as { text: string }).text)).toEqual(['m0', 'm1']);
   });
+
+  it('keeps cursors stable when corrupt lines sit between pages', async () => {
+    // Corrupt line in the middle: the cursor space must count only valid
+    // event lines, exactly like the pre-index implementation did.
+    const fs = await import('node:fs/promises');
+    const file = path.join(dir, 'w1.jsonl');
+    const lines = [ev(0), ev(1)].map((e) => JSON.stringify(e)).join('\n') + '\n' +
+      '{broken\n' +
+      [ev(2), ev(3)].map((e) => JSON.stringify(e)).join('\n') + '\n';
+    await fs.writeFile(file, lines);
+    const tail = await loadSegment('w1', null, 2);
+    expect(tail.events.map((e) => (e as { text: string }).text)).toEqual(['m2', 'm3']);
+    expect(tail.prevCursor).toBe(2);
+    const older = await loadSegment('w1', tail.prevCursor, 2);
+    expect(older.events.map((e) => (e as { text: string }).text)).toEqual(['m0', 'm1']);
+    expect(older.prevCursor).toBeNull();
+  });
+
+  it('pages from the cached line index without re-parsing the whole file', async () => {
+    const { vi } = await import('vitest');
+    await appendEvents('w1', Array.from({ length: 50 }, (_, i) => ev(i)));
+    // First load builds the index (one full parse of the file).
+    await loadSegment('w1', null, 5);
+    const spy = vi.spyOn(JSON, 'parse');
+    try {
+      const tail = await loadSegment('w1', null, 5);
+      const older = await loadSegment('w1', tail.prevCursor, 5);
+      expect(tail.events.map((e) => (e as { text: string }).text)).toEqual(['m45', 'm46', 'm47', 'm48', 'm49']);
+      expect(older.events.map((e) => (e as { text: string }).text)).toEqual(['m40', 'm41', 'm42', 'm43', 'm44']);
+      // Two pages of 5 → at most 10 line parses, NOT 2×50 whole-file parses.
+      expect(spy.mock.calls.length).toBeLessThanOrEqual(10);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('line index stays correct across appends (cache extended, results identical)', async () => {
+    await appendEvents('w1', Array.from({ length: 10 }, (_, i) => ev(i)));
+    await loadSegment('w1', null, 4); // build + cache the index
+    await appendEvents('w1', [ev(10), ev(11)]);
+    const tail = await loadSegment('w1', null, 4);
+    expect(tail.events.map((e) => (e as { text: string }).text)).toEqual(['m8', 'm9', 'm10', 'm11']);
+    expect(tail.prevCursor).toBe(8);
+    const older = await loadSegment('w1', tail.prevCursor, 4);
+    expect(older.events.map((e) => (e as { text: string }).text)).toEqual(['m4', 'm5', 'm6', 'm7']);
+  });
+
+  it('line index invalidates on clearLog', async () => {
+    await appendEvents('w1', [ev(0), ev(1)]);
+    await loadSegment('w1', null, 10); // warm the index
+    await clearLog('w1');
+    expect((await loadSegment('w1', null, 10)).events).toEqual([]);
+    await appendEvents('w1', [ev(5)]);
+    expect((await loadSegment('w1', null, 10)).events.map((e) => (e as { text: string }).text)).toEqual(['m5']);
+  });
+
+  it('line index invalidates when the file changes out-of-band (size/mtime guard)', async () => {
+    const fs = await import('node:fs/promises');
+    await appendEvents('w1', [ev(0), ev(1)]);
+    await loadSegment('w1', null, 10); // warm the index
+    const file = path.join(dir, 'w1.jsonl');
+    await fs.writeFile(file, JSON.stringify(ev(7)) + '\n');
+    const seg = await loadSegment('w1', null, 10);
+    expect(seg.events.map((e) => (e as { text: string }).text)).toEqual(['m7']);
+  });
 });
