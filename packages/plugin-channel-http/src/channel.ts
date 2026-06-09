@@ -39,6 +39,14 @@ export class HttpChannel implements Channel<HttpStartOpts> {
   private readonly authToken: string | null;
   private readonly logger: HttpChannelOptions['logger'];
   private server: Server | null = null;
+  private boundPortValue = 0;
+
+  /** The actual TCP port the server bound to after {@link start}. Equals the
+   *  configured port, or the OS-assigned one when `port: 0` (ephemeral) — so
+   *  callers (and tests) can address the server without guessing a free port. */
+  get boundPort(): number {
+    return this.boundPortValue;
+  }
 
   constructor(opts: HttpChannelOptions = {}) {
     this.port = opts.port ?? 3737;
@@ -82,9 +90,11 @@ export class HttpChannel implements Channel<HttpStartOpts> {
     const listening = new Promise<void>((resolve, reject) => {
       server.once('error', reject);
       server.listen(this.port, this.host, () => {
+        const addr = server.address();
+        this.boundPortValue = typeof addr === 'object' && addr ? addr.port : this.port;
         this.logger?.info?.('http channel listening', {
           host: this.host,
-          port: this.port,
+          port: this.boundPortValue,
           authEnabled: this.authToken !== null,
         });
         resolve();

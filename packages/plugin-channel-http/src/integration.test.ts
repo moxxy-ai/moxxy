@@ -60,20 +60,12 @@ function buildSession(opts: { withTranscriber?: string } = {}): Session {
   return session;
 }
 
-async function pickPort(channel: HttpChannel): Promise<{ baseUrl: string; handle: ChannelHandle }> {
-  // Use port 0 to let the OS assign a free port; HttpChannel ignores 0 and
-  // uses its default. Override by passing a high random port instead.
-  const port = 50000 + Math.floor(Math.random() * 10000);
-  // Reconstruct with the chosen port.
-  const real = new HttpChannel({
-    port,
-    host: '127.0.0.1',
-    authToken: TOKEN,
-    allowedTools: ['Read', 'Glob'],
-  });
-  Object.assign(channel, real);
+async function startChannel(channel: HttpChannel): Promise<{ baseUrl: string; handle: ChannelHandle }> {
+  // The channel was created with port: 0 — the OS assigns a free ephemeral port,
+  // read back from `boundPort`. No random-port guessing, so no EADDRINUSE flake
+  // when test files run in parallel.
   const handle = await channel.start({ session: buildSession() });
-  return { baseUrl: `http://127.0.0.1:${port}`, handle };
+  return { baseUrl: `http://127.0.0.1:${channel.boundPort}`, handle };
 }
 
 let channel: HttpChannel;
@@ -86,7 +78,7 @@ beforeEach(async () => {
     authToken: TOKEN,
     allowedTools: ['Read', 'Glob'],
   });
-  const started = await pickPort(channel);
+  const started = await startChannel(channel);
   baseUrl = started.baseUrl;
   handle = started.handle;
 });
@@ -189,21 +181,14 @@ describe('HttpChannel /v1/turn/audio integration', () => {
   beforeEach(async () => {
     audioChannel = new HttpChannel({
       port: 0,
-      authToken: TOKEN,
-      allowedTools: ['Read', 'Glob'],
-    });
-    const port = 50000 + Math.floor(Math.random() * 10000);
-    const real = new HttpChannel({
-      port,
       host: '127.0.0.1',
       authToken: TOKEN,
       allowedTools: ['Read', 'Glob'],
     });
-    Object.assign(audioChannel, real);
     audioHandle = await audioChannel.start({
       session: buildSession({ withTranscriber: 'transcribed voice content' }),
     });
-    audioBaseUrl = `http://127.0.0.1:${port}`;
+    audioBaseUrl = `http://127.0.0.1:${audioChannel.boundPort}`;
   });
 
   afterEach(async () => {

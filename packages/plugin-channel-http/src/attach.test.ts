@@ -68,11 +68,10 @@ describe('HttpChannel attached to a runner', () => {
     server = await startRunnerServer(buildRunnerSession(), { socketPath });
     remote = await connectRemoteSession({ socketPath, role: 'http' });
 
-    const port = 50000 + Math.floor(Math.random() * 10000);
-    const channel = new HttpChannel({ port, host: '127.0.0.1', allowedTools: [] });
+    const channel = new HttpChannel({ port: 0, host: '127.0.0.1', allowedTools: [] });
     handle = await channel.start({ session: remote });
 
-    const res = await fetch(`http://127.0.0.1:${port}/v1/turn`, {
+    const res = await fetch(`http://127.0.0.1:${channel.boundPort}/v1/turn`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ prompt: 'say hi' }),
