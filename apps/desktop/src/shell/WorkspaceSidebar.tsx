@@ -1,11 +1,12 @@
-import { useState } from 'react';
-import { useDesks } from '@moxxy/client-core';
+import { Fragment, useState } from 'react';
+import { useDesks, useSessions } from '@moxxy/client-core';
 import { Skeleton, Icon, ConfirmModal } from '@moxxy/desktop-ui';
 import { useUnreadWorkspaces } from '@moxxy/client-core';
-import type { Desk } from '@moxxy/desktop-ipc-contract';
+import type { Desk, DeskSession } from '@moxxy/desktop-ipc-contract';
 import { Logo } from './workspace-sidebar/Logo';
 import { SectionHeader } from './workspace-sidebar/SectionHeader';
 import { WorkspaceRow } from './workspace-sidebar/WorkspaceRow';
+import { SessionList } from './workspace-sidebar/SessionList';
 import { NameWorkspaceModal } from './workspace-sidebar/NameWorkspaceModal';
 import { ProfilePill } from './workspace-sidebar/ProfilePill';
 import { listReset } from './workspace-sidebar/sidebar-styles';
@@ -26,12 +27,16 @@ interface Props {
  */
 export function WorkspaceSidebar({ view, onView }: Props): JSX.Element {
   const desks = useDesks();
+  const sessions = useSessions(desks.activeId);
   const unread = new Set(useUnreadWorkspaces());
   const [busy, setBusy] = useState(false);
+  const [sessionBusy, setSessionBusy] = useState(false);
   /** Folder the user picked; null when no naming flow is in progress. */
   const [pendingFolder, setPendingFolder] = useState<string | null>(null);
   /** Workspace queued for removal; null when no confirm is open. */
   const [pendingRemove, setPendingRemove] = useState<Desk | null>(null);
+  /** Session queued for removal; null when no confirm is open. */
+  const [pendingSessionRemove, setPendingSessionRemove] = useState<DeskSession | null>(null);
 
   const onStartNewWorkspace = async (): Promise<void> => {
     setBusy(true);
@@ -51,6 +56,18 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element {
     if (desk) await desks.setActive(desk.id);
   };
 
+  const onNewSession = async (): Promise<void> => {
+    // ADD another conversation (unlike `/new`, which resets the current
+    // one in place) and foreground it right away.
+    setSessionBusy(true);
+    try {
+      const session = await sessions.create();
+      if (session) await sessions.setActive(session.id);
+    } finally {
+      setSessionBusy(false);
+    }
+  };
+
   return (
     <aside className="col-sidebar">
       <Logo />
@@ -63,22 +80,49 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element {
           </div>
         )}
         <ul role="list" style={listReset}>
-          {desks.desks.map((d) => (
-            <WorkspaceRow
-              key={d.id}
-              desk={d}
-              active={desks.activeId === d.id}
-              unread={unread.has(d.id)}
-              onClick={() => {
-                // Picking a workspace always lands on its chat — also the
-                // way back out of Settings/Workflows now that the sidebar
-                // carries no Chat entry.
-                void desks.setActive(d.id);
-                onView('chat');
-              }}
-              onRemove={() => setPendingRemove(d)}
-            />
-          ))}
+          {desks.desks.map((d) => {
+            const isActive = desks.activeId === d.id;
+            return (
+              <Fragment key={d.id}>
+                <WorkspaceRow
+                  desk={d}
+                  active={isActive}
+                  // Unread is tracked per routing id — a session id. Light
+                  // the desk's dot when ANY of its sessions has activity.
+                  unread={d.sessions.some((s) => unread.has(s.id)) || unread.has(d.id)}
+                  onClick={() => {
+                    // Picking a workspace always lands on its chat — also the
+                    // way back out of Settings/Workflows now that the sidebar
+                    // carries no Chat entry.
+                    void desks.setActive(d.id);
+                    onView('chat');
+                  }}
+                  onRemove={() => setPendingRemove(d)}
+                />
+                {/* Sessions of the ACTIVE desk, nested under its row. */}
+                {isActive && (
+                  <li>
+                    <SessionList
+                      sessions={sessions.sessions}
+                      activeSessionId={sessions.activeSessionId}
+                      unread={unread}
+                      busy={sessionBusy}
+                      onSelect={(id) => {
+                        void sessions.setActive(id);
+                        onView('chat');
+                      }}
+                      onCreate={() => {
+                        void onNewSession();
+                        onView('chat');
+                      }}
+                      onRename={(id, name) => void sessions.rename(id, name)}
+                      onRemove={(s) => setPendingSessionRemove(s)}
+                    />
+                  </li>
+                )}
+              </Fragment>
+            );
+          })}
         </ul>
         <button
           type="button"
@@ -171,6 +215,19 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element {
           onConfirm={() => {
             void desks.remove(pendingRemove.id);
             setPendingRemove(null);
+          }}
+        />
+      )}
+      {pendingSessionRemove && (
+        <ConfirmModal
+          title="Delete session?"
+          message={`The session "${pendingSessionRemove.name}" and its conversation history will be deleted. Workspace files are not touched.`}
+          confirmLabel="Delete"
+          destructive
+          onCancel={() => setPendingSessionRemove(null)}
+          onConfirm={() => {
+            void sessions.remove(pendingSessionRemove.id);
+            setPendingSessionRemove(null);
           }}
         />
       )}

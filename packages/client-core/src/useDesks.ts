@@ -109,16 +109,24 @@ class DesksStore {
     // + active workspace follow the click without waiting for the IPC +
     // the supervisor's full re-resolve. Also pre-bind the connection
     // store's active id so the chat surface, context rail, and chat store
-    // all swap to the new workspace in the same render.
+    // all swap to the new workspace in the same render. The connection /
+    // chat routing key is the desk's ACTIVE SESSION id (the runner-pool
+    // key), not the desk id itself.
     const prev = this.state.activeId;
+    const prevConn = connectionStore.active$();
+    const desk = this.state.desks.find((d) => d.id === id);
     this.set({ activeId: id });
-    connectionStore.setActive(id);
+    connectionStore.setActive(desk?.activeSessionId ?? id);
     try {
       await api().invoke('desks.setActive', { id });
       await this.refresh();
+      // Re-sync in case the host resolved a different active session than
+      // the (possibly stale) one we predicted.
+      const fresh = this.state.desks.find((d) => d.id === id);
+      if (fresh?.activeSessionId) connectionStore.setActive(fresh.activeSessionId);
     } catch (e) {
       this.set({ activeId: prev, error: toErrorMessage(e) });
-      if (prev) connectionStore.setActive(prev);
+      if (prevConn) connectionStore.setActive(prevConn);
     }
   };
 
@@ -132,7 +140,26 @@ class DesksStore {
   };
 }
 
-const desksStore = new DesksStore();
+/** Shared singleton. Exported so sibling stores (the sessions store) can
+ *  refresh the desk list after a mutation that changes a desk's embedded
+ *  `sessions` array — not for component use (components go through
+ *  {@link useDesks}). */
+export const desksStore = new DesksStore();
+
+/**
+ * The desk that owns `workspaceId`. Routing ids are SESSION ids (the
+ * runner-pool key), so match a desk by owning the session — or by the desk
+ * id itself, which equals its default first session's id.
+ */
+export function deskForWorkspace(
+  desks: ReadonlyArray<Desk>,
+  workspaceId: string | null,
+): Desk | undefined {
+  if (!workspaceId) return undefined;
+  return desks.find(
+    (d) => d.id === workspaceId || d.sessions.some((s) => s.id === workspaceId),
+  );
+}
 
 export function useDesks(): UseDesks {
   const state = useSyncExternalStore(

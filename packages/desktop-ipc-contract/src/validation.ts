@@ -175,6 +175,22 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     id: z.string().min(1).max(256),
     name: z.string().min(1).max(200),
   }),
+  // Sessions: create/rename persist the name into the desks JSON (bound it
+  // like desks.create/rename); setActive spawns a runner and remove deletes
+  // the session's on-disk logs, so their ids are bounded too. These commands
+  // are also served to remote (WS) clients, so the bounds are load-bearing.
+  'sessions.create': z
+    .object({
+      deskId: z.string().min(1).max(256).optional(),
+      name: z.string().min(1).max(200).optional(),
+    })
+    .optional(),
+  'sessions.setActive': z.object({ id: z.string().min(1).max(256) }),
+  'sessions.remove': z.object({ id: z.string().min(1).max(256) }),
+  'sessions.rename': z.object({
+    id: z.string().min(1).max(256),
+    name: z.string().min(1).max(200),
+  }),
   // Whitelist the fields a renderer may write — `version` is managed by
   // the main process; unknown keys are rejected (.strict()).
   'prefs.update': z

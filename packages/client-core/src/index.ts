@@ -26,6 +26,7 @@ export * from './useConnection.js';
 export * from './usePrefs.js';
 export * from './useSettings.js';
 export * from './useDesks.js';
+export * from './useSessions.js';
 export * from './useWorkflows.js';
 export * from './usePausedWorkflows.js';
 export * from './useWorkflowBuilder.js';

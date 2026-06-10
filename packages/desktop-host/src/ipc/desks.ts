@@ -24,17 +24,25 @@ export function registerDesksHandlers(pool: RunnerPool, desks: DeskStore): void 
   });
   handle('desks.create', async ({ name, cwd }) => desks.create({ name, cwd }));
   handle('desks.remove', async ({ id }) => {
-    await desks.remove(id);
+    // The pool is keyed by SESSION id (a desk can hold several), so tear down
+    // every one of the removed desk's session runners — not just one entry.
+    const removed = await desks.remove(id);
+    for (const session of removed?.sessions ?? []) {
+      await pool.remove(session.id);
+    }
+    // Defensive: also drop a pool entry keyed by the bare desk id (the
+    // pre-multi-session key; normally identical to the first session's id).
     await pool.remove(id);
     const active = await desks.getActive();
-    if (active) await pool.getOrCreate(active.id, active.cwd);
+    if (active) await pool.getOrCreate(active.activeSessionId, active.cwd);
   });
   handle('desks.setActive', async ({ id }) => {
     await desks.setActive(id);
     const active = await desks.getActive();
     if (active) {
-      await pool.getOrCreate(active.id, active.cwd);
-      pool.setActive(active.id);
+      // Foreground the desk's ACTIVE SESSION — the pool key is a session id.
+      await pool.getOrCreate(active.activeSessionId, active.cwd);
+      pool.setActive(active.activeSessionId);
     }
   });
   handle('desks.rename', async ({ id, name }) => desks.rename(id, name));

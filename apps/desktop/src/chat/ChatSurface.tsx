@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useChat } from '@moxxy/client-core';
-import { useDesks } from '@moxxy/client-core';
+import { deskForWorkspace, useDesks } from '@moxxy/client-core';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { Transcript } from './Transcript';
 import { Composer } from './Composer';
@@ -48,7 +48,9 @@ export function ChatSurface({
   const ready = phase.phase === 'connected';
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
-  const activeDesk = desks.desks.find((d) => d.id === workspaceId);
+  // workspaceId is a SESSION id (the runner-pool routing key) — resolve the
+  // desk that owns it (first sessions share their desk's id, so old ids work).
+  const activeDesk = deskForWorkspace(desks.desks, workspaceId);
 
   const filteredEvents = useMemo(() => {
     if (!searchQuery) return chat.events;

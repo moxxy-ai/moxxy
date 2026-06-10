@@ -39,6 +39,7 @@ import { registerAskHandlers } from './ipc/ask';
 import { registerConnectionHandlers } from './ipc/connection';
 import { registerOnboardingHandlers } from './ipc/onboarding';
 import { registerSessionHandlers } from './ipc/session';
+import { registerSessionsHandlers } from './ipc/sessions';
 import { registerWorkspaceFsHandlers } from './ipc/workspace-fs';
 import { registerDesksHandlers } from './ipc/desks';
 import { registerWorkflowsHandlers } from './ipc/workflows';
@@ -74,6 +75,7 @@ export function registerIpcHandlers(
     registerConnectionHandlers(pool);
     registerOnboardingHandlers(pool);
     registerSessionHandlers(pool);
+    registerSessionsHandlers(pool, desks);
     registerWorkspaceFsHandlers(desks);
     registerDesksHandlers(pool, desks);
     registerWorkflowsHandlers(pool);
