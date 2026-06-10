@@ -48,28 +48,28 @@ A workflow is a DAG of steps. Schema:
     - args: templated args object for tool/workflow steps
     - needs: [ <upstream step ids> ]  (defines the DAG; omit only for true sources)
     - when (optional, legacy): simple guards only — '{{ steps.x.output }} is not empty'. Do NOT use when for semantic decisions (use condition/switch).
-    - awaitInput (optional, prompt/skill only): true — pause after the subagent's first message; the operator replies once in Virtual Office chat, then the step completes and the DAG continues
     - onError (optional): fail | continue | retry ; retries (optional, 0-3)
+
+IMPORTANT — no mid-run questions: this build has NO chat-resume channel, so a workflow CANNOT pause to ask the operator something mid-run (\`awaitInput\` is rejected at save time). For any value the operator must supply, declare it as an \`inputs\` field (the operator fills it in before Run); never try to "ask in chat".
 
 Templating: {{ steps.<id>.output }}, {{ inputs.<name> }}, {{ vars.<name> }}, {{ trigger }}, {{ now }}.
 
-Logic steps: default response is one JSON object (vars, branch, optional text). Describe semantics in the instruction; do not repeat JSON syntax unless needed. No awaitInput on bridge/condition/switch/loop.
+Logic steps: default response is one JSON object (vars, branch, optional text). Describe semantics in the instruction; do not repeat JSON syntax unless needed.
 
-Ordering: steps whose \`needs\` are all satisfied run in parallel — chain with \`needs\` for sequential pipelines. A loop's body steps run only inside the loop (each iteration), so give them \`needs: [<loop step id>]\` and never schedule them elsewhere.
+Ordering: steps whose \`needs\` are all satisfied run in parallel — chain with \`needs\` for sequential pipelines. A loop's body steps run only inside the loop (each iteration), so give them \`needs: [<loop step id>]\` and never schedule them elsewhere. A loop body step runs unconditionally each iteration: do NOT put \`when\` on it, do NOT make it a condition/switch step, and only \`needs\` its loop step or a sibling body step of the same loop. No NON-loop step may \`needs\` a loop body step — depend on the loop step instead.
 
 Authoring rules:
 1. Decompose the intent into concrete steps. Multi-phase requests (collect → act → summarize → deliver) need at least 4 steps with a linear or fan-in \`needs\` chain.
-2. Values the operator should provide **in chat** (search topic, recipient email, brief, clarifications): one \`awaitInput: true\` step **per distinct question** (e.g. \`collect_topic\`, then later \`collect_email\`). Never rely on a single awaitInput step to cover multiple unrelated inputs. One chat reply per awaitInput step; use \`{{ steps.<id>.output }}\` downstream.
-3. \`inputs\` are only for data known **before** Run (API keys, fixed defaults). Do NOT add \`inputs\` for topic/email when the user asked you to "ask" for them — use awaitInput steps instead. Never write descriptions like "workflow will ask before run" for fields you did not wire to an awaitInput step.
-4. Do NOT add a prompt/skill step that only says "ask the operator" without \`awaitInput: true\` — that finishes in one turn and stores the question as output.
-5. Research + report + email intents: typical chain — \`collect_topic\` (awaitInput) → \`web-research\` skill → \`write_report\` → \`collect_email\` (awaitInput) → \`send_email\` tool; reference \`{{ steps.collect_topic.output }}\` and \`{{ steps.collect_email.output }}\`, not empty \`inputs\`.
-6. Use ONLY skill/tool names from the catalogs below — never placeholders like "<< skill-name >>", "TBD", or empty skill/tool fields.
-7. Prefer a listed skill when its description fits; otherwise use a detailed \`prompt\` step.
-8. For email/notify: use a listed mail/MCP tool if available; else \`delivery: { channel: inbox }\`.
-9. For image generation: use a listed image/generation tool if available; else a \`prompt\` step that describes producing the image artifact in text.
-10. Later steps must read prior results via \`{{ steps.<id>.output }}\`, extracted fields via \`{{ vars.<name> }}\`, and operator data via \`{{ inputs.<name> }}\` — never invent example emails or briefs in prompts.
-11. Between incompatible steps insert \`bridge\` to extract fields into vars (e.g. email from chat). Use \`condition\` for if/else routing, \`switch\` for multi-way (e.g. value > 100 → pies, < 0 → kot, else nieokreslony).
-12. Use \`loop\` for "keep refining until good enough" / "retry up to N times" / "iterate while X holds" intents — set a sane maxIterations so it always terminates. Prefer bridge + vars over passing raw chat output to tools.
+2. Values the operator must supply (search topic, recipient email, brief): declare each as an \`inputs\` field with a clear \`description\` (and a \`default\` when sensible). The operator fills them in before Run; reference them downstream via \`{{ inputs.<name> }}\`. There is NO way to pause and ask mid-run.
+3. Never use \`awaitInput\` — it is rejected at save time in this build (no resume channel). Do NOT add a prompt/skill step that only says "ask the operator"; that finishes in one turn and just stores the question as output. Use \`inputs\` instead.
+4. Research + report + email intents: typical chain — \`web-research\` skill (over \`{{ inputs.topic }}\`) → \`write_report\` → \`send_email\` tool (to \`{{ inputs.recipient }}\`). Put \`topic\` and \`recipient\` in \`inputs\`.
+5. Use ONLY skill/tool names from the catalogs below — never placeholders like "<< skill-name >>", "TBD", or empty skill/tool fields.
+6. Prefer a listed skill when its description fits; otherwise use a detailed \`prompt\` step.
+7. For email/notify: use a listed mail/MCP tool if available; else \`delivery: { channel: inbox }\`.
+8. For image generation: use a listed image/generation tool if available; else a \`prompt\` step that describes producing the image artifact in text.
+9. Later steps must read prior results via \`{{ steps.<id>.output }}\`, extracted fields via \`{{ vars.<name> }}\`, and operator data via \`{{ inputs.<name> }}\` — never invent example emails or briefs in prompts.
+10. Between incompatible steps insert \`bridge\` to extract fields into vars (e.g. an email address from text). Use \`condition\` for if/else routing, \`switch\` for multi-way (e.g. value > 100 → pies, < 0 → kot, else nieokreslony).
+11. Use \`loop\` for "keep refining until good enough" / "retry up to N times" / "iterate while X holds" intents — set a sane maxIterations so it always terminates. Prefer bridge + vars over passing raw output to tools.
 
 Available skills (name — description):
 ${skills}
@@ -77,78 +77,63 @@ ${skills}
 Available tools (name — description):
 ${tools}
 
-Example shape for internet research → report → email (two awaitInput steps):
+Example shape for internet research → report → email (operator data via inputs):
 \`\`\`yaml
 name: internet-research-report-email
-description: Ask for search topic and recipient email in chat, research, report, and send.
+description: Research a topic, write a report, and email it to the recipient.
 enabled: true
+inputs:
+  topic:
+    description: Temat/zakres wyszukiwania w internecie.
+  recipient:
+    description: Adres e-mail odbiorcy raportu.
 steps:
-  - id: collect_topic
-    label: Zapytaj o temat
-    awaitInput: true
-    prompt: |
-      Zapytaj operatora po polsku, czego szukać w internecie (temat, zakres, język).
-      Po odpowiedzi zwróć krótki brief wyszukiwania.
   - id: search_web
-    needs: [collect_topic]
     label: Wyszukaj w internecie
     skill: web-research
     input: |
-      Przeprowadź research według briefu:
-      {{ steps.collect_topic.output }}
+      Przeprowadź research na temat:
+      {{ inputs.topic }}
   - id: write_report
     needs: [search_web]
     label: Przygotuj raport
     prompt: |
       Napisz raport po polsku z wyników researchu.
-      Brief: {{ steps.collect_topic.output }}
+      Temat: {{ inputs.topic }}
       Research: {{ steps.search_web.output }}
-  - id: collect_email
-    needs: [write_report]
-    label: Zapytaj o e-mail
-    awaitInput: true
-    prompt: |
-      Zapytaj operatora po polsku o adres e-mail odbiorcy raportu.
-      Po odpowiedzi zwróć sam adres e-mail (jedna linia).
-  - id: extract_email
-    needs: [collect_email]
-    label: Wyciągnij e-mail
-    bridge: Z wątku collect_email wyciągnij sam adres do vars.email.
   - id: send_email
-    needs: [write_report, extract_email]
+    needs: [write_report]
     label: Wyślij e-mail
     tool: gmail_send
     args:
-      to: ["{{ vars.email }}"]
+      to: ["{{ inputs.recipient }}"]
       subject: "Raport z researchu"
       body: "{{ steps.write_report.output }}"
 \`\`\`
 
-Example shape for awaitInput brief → generate → report → email:
+Example shape for image brief → generate → report → email (operator data via inputs):
 \`\`\`yaml
 name: image-report-email
-description: Collect image brief in chat, generate image, write a report, and email it.
+description: Generate an image from a brief, write a report, and email it.
 enabled: true
+inputs:
+  brief:
+    description: What image to generate (subject, style, format, mood, colors).
+  recipient:
+    description: Recipient email for the report.
 steps:
-  - id: collect_brief
-    label: Collect image brief
-    awaitInput: true
-    prompt: |
-      Ask the operator what image to generate (subject, style, format, mood, colors).
-      After they reply, return a concise structured brief only.
   - id: generate_image
-    needs: [collect_brief]
     label: Generate image
     prompt: |
       Generate the image from this brief:
-      {{ steps.collect_brief.output }}
+      {{ inputs.brief }}
       Return the artifact path or id and short generation notes.
   - id: write_report
     needs: [generate_image]
     label: Write report
     prompt: |
       Write a concise report in the operator's language.
-      Brief: {{ steps.collect_brief.output }}
+      Brief: {{ inputs.brief }}
       Generation: {{ steps.generate_image.output }}
   - id: send_report
     needs: [write_report]

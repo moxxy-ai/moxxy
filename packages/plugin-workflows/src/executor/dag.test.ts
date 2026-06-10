@@ -21,6 +21,31 @@ function wf(obj: Record<string, unknown>): Workflow {
   return r.workflow;
 }
 
+/**
+ * Build a Workflow shape WITHOUT schema validation. The executor still supports
+ * the awaitInput pause/resume path (kept in case a resume trigger lands), but
+ * the schema now GATES awaitInput (Finding 1) so `validateWorkflow` would reject
+ * it. These tests exercise the executor directly; they bypass the author-time
+ * gate the same way a hypothetical resume trigger would feed a stored checkpoint.
+ */
+function rawWf(steps: Array<Record<string, unknown>>, extra: Record<string, unknown> = {}): Workflow {
+  return {
+    name: 'raw',
+    description: 'x',
+    version: 1,
+    enabled: true,
+    inputs: {},
+    concurrency: 4,
+    steps: steps.map((s) => ({
+      needs: [],
+      onError: 'fail',
+      retries: 0,
+      ...s,
+    })),
+    ...extra,
+  } as unknown as Workflow;
+}
+
 interface Harness {
   readonly deps: WorkflowRunDeps;
   readonly specs: SubagentSpec[];
@@ -308,14 +333,10 @@ describe('dag executor', () => {
       runStore: store,
     } as Partial<WorkflowRunDeps>);
     const paused = await dagExecutor.run(
-      wf({
-        name: 'ask-then-go',
-        description: 'x',
-        steps: [
-          { id: 'ask', prompt: 'Ask for brief', awaitInput: true },
-          { id: 'go', needs: ['ask'], prompt: 'Use {{ steps.ask.output }}' },
-        ],
-      }),
+      rawWf([
+        { id: 'ask', prompt: 'Ask for brief', awaitInput: true },
+        { id: 'go', needs: ['ask'], prompt: 'Use {{ steps.ask.output }}' },
+      ]),
       h.deps,
     );
     expect(paused.status).toBe('paused');
@@ -330,6 +351,62 @@ describe('dag executor', () => {
     const go = h.specs.find((s) => s.label === 'go')!;
     expect(go.prompt).toContain('FINAL_ask');
     await rm(dir, { recursive: true, force: true });
+  });
+
+  it('restores vars set before the pause on resume (Finding 4)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wf-pause-vars-'));
+    const store = new WorkflowRunStore(dir);
+    const h = makeHarness({
+      runStore: store,
+      logicResponses: { extract: '{"vars":{"email":"ops@example.com"}}' },
+    } as Partial<WorkflowRunDeps>);
+    // A bridge runs BEFORE the awaitInput pause, setting vars.email. After
+    // resume, a downstream tool reads {{ vars.email }}; without persisting vars
+    // in the checkpoint it would render empty.
+    const paused = await dagExecutor.run(
+      rawWf([
+        { id: 'extract', bridge: 'extract email into vars.email' },
+        { id: 'ask', needs: ['extract'], prompt: 'Ask for brief', awaitInput: true },
+        {
+          id: 'send',
+          needs: ['ask'],
+          tool: 'notify',
+          args: { to: '{{ vars.email }}' },
+        },
+      ]),
+      h.deps,
+    );
+    expect(paused.status).toBe('paused');
+
+    const resumed = await resumeWorkflowRun(paused.runId!, 'go ahead', h.deps, store);
+    expect(resumed.ok).toBe(true);
+    expect(h.toolCalls.find((c) => c.name === 'notify')?.input).toEqual({ to: 'ops@example.com' });
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('drops prototype-pollution keys from logic-step vars (Finding 6)', async () => {
+    const h = makeHarness({
+      logicResponses: {
+        evil: '{"vars":{"__proto__":{"polluted":true},"safe":"ok"}}',
+      },
+    } as Partial<WorkflowRunDeps>);
+    const result = await dagExecutor.run(
+      wf({
+        name: 'proto',
+        description: 'x',
+        steps: [
+          { id: 'evil', bridge: 'set vars' },
+          { id: 'use', needs: ['evil'], tool: 'notify', args: { v: '{{ vars.safe }}' } },
+        ],
+      }),
+      h.deps,
+    );
+    expect(result.ok).toBe(true);
+    // The safe key still merges…
+    expect(h.toolCalls[0]!.input).toEqual({ v: 'ok' });
+    // …but the prototype is not polluted.
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(Object.prototype, 'polluted')).toBe(false);
   });
 
   it('bridge merges vars for downstream templates', async () => {
@@ -630,20 +707,17 @@ describe('dag executor — while-loop node', () => {
   });
 
   it('rejects awaitInput inside a loop body at runtime', async () => {
-    // Schema bars awaitInput on the loop step itself; a body prompt with
-    // awaitInput would pause mid-iteration — the loop fails loudly instead.
+    // Schema gates awaitInput everywhere now (Finding 1), but the executor
+    // still guards against a body step that pauses mid-iteration. Build the
+    // workflow raw (bypassing the author-time gate) to exercise that guard.
     const h = makeHarness({
       logicResponses: { 'spin (condition)': '{"branch":"then"}' },
     } as Partial<WorkflowRunDeps>);
     const result = await dagExecutor.run(
-      wf({
-        name: 'loop-await-body',
-        description: 'x',
-        steps: [
-          { id: 'spin', loop: { body: ['ask'], condition: 'go?', maxIterations: 3 } },
-          { id: 'ask', needs: ['spin'], prompt: 'ask something', awaitInput: true },
-        ],
-      }),
+      rawWf([
+        { id: 'spin', loop: { body: ['ask'], condition: 'go?', maxIterations: 3 } },
+        { id: 'ask', needs: ['spin'], prompt: 'ask something', awaitInput: true },
+      ]),
       h.deps,
     );
     expect(result.ok).toBe(false);

@@ -19,6 +19,7 @@ import {
   WorkflowStore,
   buildWorkflowsPlugin,
   defaultUserWorkflowsDir,
+  defaultWorkflowRunStore,
   parseWorkflowYaml,
   runWorkflow,
   serializeWorkflow,
@@ -144,6 +145,18 @@ export function buildWorkflowsIntegration(args: {
         },
         { executor: session.workflowExecutors.getActive() },
       );
+      // A `paused` result is NOT terminal: the run is parked on an awaitInput
+      // step waiting for an operator reply (resume). Delivering it to the inbox
+      // would falsely present a half-done run as complete. Don't deliver, and
+      // surface the paused status to the caller. (In practice awaitInput is
+      // gated at validate/save time, so this is a defense-in-depth guard.)
+      if (result.status === 'paused') {
+        logger?.warn?.('workflows: run paused awaiting operator input; not delivering to inbox', {
+          workflow: input.name,
+          runId: result.runId,
+        });
+        return result;
+      }
       await deliverToInbox(entry.workflow, result, logger);
       return result;
     } finally {
@@ -182,12 +195,12 @@ export function buildWorkflowsIntegration(args: {
       const r = parseWorkflowYaml(yaml);
       return { ok: r.ok, errors: r.errors };
     },
-    save: async (yaml) => {
+    save: async (yaml, previousName) => {
       const parsed = parseWorkflowYaml(yaml);
       if (!parsed.ok || !parsed.workflow) {
         throw new Error(`invalid workflow YAML — ${parsed.errors.join('; ')}`);
       }
-      const saved = await store.save(parsed.workflow);
+      const saved = await store.save(parsed.workflow, previousName);
       await syncSchedules();
       return { name: saved.workflow.name, scope: saved.scope, path: saved.path };
     },
@@ -325,6 +338,19 @@ export function buildWorkflowsIntegration(args: {
       session.workflows = view;
       await syncSchedules();
       await startFileWatchers();
+      // Sweep orphaned paused-run checkpoints on boot (a paused run whose
+      // resume never arrived — e.g. before awaitInput was gated, or after a
+      // crash — leaks a `<ulid>.json` under ~/.moxxy/workflow-runs/active/).
+      void defaultWorkflowRunStore
+        .sweepStale()
+        .then((n) => {
+          if (n > 0) logger?.info?.('workflows: swept stale paused-run checkpoints', { count: n });
+        })
+        .catch((err) =>
+          logger?.warn?.('workflows: checkpoint sweep failed', {
+            err: err instanceof Error ? err.message : String(err),
+          }),
+        );
     },
   });
 

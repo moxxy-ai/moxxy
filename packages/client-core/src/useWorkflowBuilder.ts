@@ -51,6 +51,11 @@ export function useWorkflowBuilder(): UseWorkflowBuilder {
   const stateRef = useRef(state);
   stateRef.current = state;
 
+  // The name the builder loaded (null for a fresh workflow). Carried to `save`
+  // as `previousName` so renaming a workflow removes the old file/entry instead
+  // of leaving an orphaned duplicate.
+  const loadedNameRef = useRef<string | null>(null);
+
   const runValidation = useCallback(async (): Promise<boolean> => {
     const snapshot = stateRef.current;
     setValidating(true);
@@ -88,6 +93,7 @@ export function useWorkflowBuilder(): UseWorkflowBuilder {
   const load = useCallback(async (name: string | null) => {
     setError(null);
     setValid(null);
+    loadedNameRef.current = null;
     if (!name) {
       dispatch({ type: 'load', state: emptyState() });
       return;
@@ -98,6 +104,7 @@ export function useWorkflowBuilder(): UseWorkflowBuilder {
         setError(`workflow "${name}" was not found`);
         return;
       }
+      loadedNameRef.current = detail.name;
       dispatch({ type: 'load', state: hydrateYaml(detail.yaml) });
     } catch (e) {
       setError(toErrorMessage(e));
@@ -114,7 +121,14 @@ export function useWorkflowBuilder(): UseWorkflowBuilder {
         return null;
       }
       const { yaml } = serialize(stateRef.current);
-      const result = await api().invoke('workflows.save', { yaml });
+      const previousName = loadedNameRef.current;
+      const result = await api().invoke('workflows.save', {
+        yaml,
+        ...(previousName ? { previousName } : {}),
+      });
+      // The saved name becomes the new baseline so a subsequent rename in the
+      // same session also cleans up correctly.
+      loadedNameRef.current = result.name;
       dispatch({ type: 'mark-saved' });
       return result;
     } catch (e) {

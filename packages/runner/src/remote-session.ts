@@ -545,6 +545,17 @@ export class RemoteSession implements ClientSession {
       },
       run: (name) =>
         this.peer.request<WorkflowRunResult>(RunnerMethod.WorkflowRun, { name }),
+      // Builder methods (protocol v4): forward to the runner so the desktop's
+      // RemoteSession-backed visual builder can validate/save/load drafts.
+      validateDraft: (yaml) =>
+        this.peer.request<WorkflowValidateResult>(RunnerMethod.WorkflowValidateDraft, { yaml }),
+      save: (yaml, previousName) =>
+        this.peer.request<WorkflowSaveResult>(RunnerMethod.WorkflowSave, {
+          yaml,
+          ...(previousName ? { previousName } : {}),
+        }),
+      getRun: (name) =>
+        this.peer.request<WorkflowDetailResult | null>(RunnerMethod.WorkflowGetRun, { name }),
     };
   }
 }
@@ -574,10 +585,28 @@ interface WorkflowRunResult {
   readonly error?: string;
   readonly steps: ReadonlyArray<{ readonly id: string; readonly status: string; readonly error?: string }>;
 }
+interface WorkflowValidateResult {
+  readonly ok: boolean;
+  readonly errors: ReadonlyArray<string>;
+}
+interface WorkflowSaveResult {
+  readonly name: string;
+  readonly scope: string;
+  readonly path: string;
+}
+interface WorkflowDetailResult {
+  readonly name: string;
+  readonly scope: string;
+  readonly path: string;
+  readonly yaml: string;
+}
 interface WorkflowsClientView {
   list(): Promise<ReadonlyArray<WorkflowSummary>>;
   setEnabled(name: string, enabled: boolean): Promise<void>;
   run(name: string): Promise<WorkflowRunResult>;
+  validateDraft(yaml: string): Promise<WorkflowValidateResult>;
+  save(yaml: string, previousName?: string): Promise<WorkflowSaveResult>;
+  getRun(name: string): Promise<WorkflowDetailResult | null>;
 }
 
 // --- snapshot -> display-object reconstruction --------------------------------

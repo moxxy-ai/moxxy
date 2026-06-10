@@ -699,8 +699,12 @@ export interface IpcCommands {
   // plugin (or the builder-capable host) is absent — the renderer feature-checks.
   /** Parse + validate a draft YAML without saving. */
   'workflows.validateDraft': (args: { yaml: string }) => Promise<WorkflowValidate>;
-  /** Persist a workflow from full YAML (create or overwrite). */
-  'workflows.save': (args: { yaml: string }) => Promise<WorkflowSave>;
+  /**
+   * Persist a workflow from full YAML (create or overwrite). `previousName`
+   * (the name the builder loaded) supports rename: when it differs from the
+   * YAML's name, the old workflow file + entry are removed.
+   */
+  'workflows.save': (args: { yaml: string; previousName?: string }) => Promise<WorkflowSave>;
   /** Fetch one saved workflow as canonical YAML (null when unknown). */
   'workflows.getRun': (args: { name: string }) => Promise<WorkflowDetail | null>;
 

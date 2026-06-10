@@ -41,7 +41,12 @@ export {
 
 export { dagExecutor, DAG_EXECUTOR_NAME, resumeWorkflowRun } from './executor/dag.js';
 export { runWorkflow, defaultRunRecordDir, type RunWorkflowOptions } from './engine.js';
-export { WorkflowRunStore, defaultWorkflowRunStore, type WorkflowRunCheckpoint } from './run-store.js';
+export {
+  WorkflowRunStore,
+  defaultWorkflowRunStore,
+  DEFAULT_CHECKPOINT_TTL_MS,
+  type WorkflowRunCheckpoint,
+} from './run-store.js';
 export {
   buildSystemPrompt,
   draftWorkflow,

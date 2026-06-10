@@ -195,8 +195,13 @@ export interface WorkflowsView {
   run(name: string): Promise<WorkflowRunView>;
   /** Parse + validate a draft YAML without saving it. */
   validateDraft?(yaml: string): Promise<WorkflowValidateView>;
-  /** Persist a workflow from full YAML (create or overwrite). */
-  save?(yaml: string): Promise<WorkflowSaveView>;
+  /**
+   * Persist a workflow from full YAML (create or overwrite). `previousName`
+   * (the name the builder loaded) supports rename: when it differs from the
+   * YAML's name, the old file + registry entry are removed so a rename doesn't
+   * leave an orphaned duplicate.
+   */
+  save?(yaml: string, previousName?: string): Promise<WorkflowSaveView>;
   /** Fetch one saved workflow's canonical YAML + on-disk metadata. */
   getRun?(name: string): Promise<{ readonly name: string; readonly scope: string; readonly path: string; readonly yaml: string } | null>;
 }

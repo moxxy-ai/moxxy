@@ -636,13 +636,47 @@ graph) is intact; the two operate on different graphs and don't conflict.
   **v1 descope:** the mobile builder is an OUTLINE editor (a node list with the same
   operations), not a touch-drag canvas — touch dragging a node graph was disproportionate
   for v1; revisit with `react-native-svg` + gesture-handler if a graphical mobile canvas is
-  wanted. (b)
-  `awaitInput` is barred inside a `loop` body (would need mid-iteration checkpointing) — a
-  body prompt that sets it fails loudly; lift only if a use-case appears. (c) the
-  `RemoteSession` (TUI runner-RPC) leaves the three new builder methods undefined — wire
-  RunnerMethod RPCs if the TUI ever needs to validate/save drafts. (d) loop body steps are
-  excluded from the main DAG scheduler via a `loopBodyIds` set; if a future feature needs a
-  step to be both a loop body AND independently scheduled, that exclusion must be revisited.
+  wanted.
+- **Round-2 correctness pass (2026-06-10).** Eight audit findings fixed:
+  - **`awaitInput` is GATED, not shippable.** The executor pauses + checkpoints
+    (`run-store.ts` + `resumeWorkflowRun`), but the **resume trigger/channel that delivers
+    the operator's reply did NOT ship to main** — it lives only on the unmerged plugin-office
+    branch. `resumeWorkflowRun` has ZERO production callers. An earlier note here claimed the
+    operator "replies once in Virtual Office chat" — that was backed only by the unmerged
+    branch and was **wrong for main**. So `awaitInput` is now **rejected at validate/save
+    time** (`schema.ts`) with a clear "requires the resume channel, not available in this
+    build" message; `draft.ts` no longer teaches it (it steers to `inputs` instead). The
+    executor pause path is kept (in case a resume trigger lands) and tested via raw-workflow
+    builders that bypass the gate. Defense-in-depth: `runNow` (CLI) treats a `paused` result
+    as **non-terminal** (no inbox delivery); `Session.close()` now calls
+    `clearRetainedChildren()` so a paused run's retained child session can't leak for the
+    process lifetime; and `WorkflowRunStore.sweepStale()` (7-day TTL, run on workflows boot)
+    reaps orphaned `~/.moxxy/workflow-runs/active/<ulid>.json` checkpoints. **To re-enable
+    awaitInput:** land an in-tree resume trigger and remove the schema gate block.
+  - **Desktop builder IPC now works over the runner (was Finding 2 — real).** The desktop
+    drives a `RemoteSession`, whose workflows view only exposed `list/setEnabled/run` — so
+    `validateDraft`/`save`/`getRun` were `undefined` and the builder threw "not supported on
+    this session". Added a `workflow.validateDraft|save|getRun` RunnerMethod family
+    (**protocol bumped to v4**) + RemoteSession client methods + server handlers; the desktop
+    builder validates/saves/loads against the runner now. Tested in `runner/integration.test.ts`.
+  - **Loop-body validation (Findings 3/5/8):** a condition/switch step used as a loop body
+    is rejected (its branch routing was silently ignored); a NON-body step that `needs` a
+    loop-body step is rejected (it would stall — body steps are excluded from the main DAG);
+    a loop-body step's own `when` and any `needs` other than its loop step / a sibling body
+    step are rejected (body steps run unconditionally each iteration).
+  - **Checkpoint vars (Finding 4):** the checkpoint now persists+restores `vars` so a logic
+    step that ran before a pause isn't dropped on resume (moot under the gate, but correct if
+    resume lands).
+  - **Prototype-pollution guard (Finding 6):** model-provided logic-step `vars` skip
+    `__proto__`/`constructor`/`prototype` keys when merging.
+  - **Rename cleanup (Finding 7):** `WorkflowStore.save(workflow, previousName)` removes the
+    old file/entry on rename (threaded through `WorkflowsView.save` → desktop IPC → runner
+    RPC → builder hook), so renaming no longer leaves an orphaned duplicate.
+- **Remaining notes:** (a) loop body steps are excluded from the main DAG scheduler via a
+  `loopBodyIds` set; if a future feature needs a step to be both a loop body AND independently
+  scheduled, that exclusion must be revisited. (b) awaitInput is barred inside a loop body
+  (would need mid-iteration checkpointing) — orthogonal to the gate above; lift only if a
+  resume path AND a use-case appear.
 
 ---
 

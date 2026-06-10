@@ -27,8 +27,14 @@ import type {
  * mirror — and every attached mirror clears in lockstep. Without it, a
  * mirror-only clear desyncs seq-contiguous `ingest` and the mirror silently
  * rejects every subsequent event.
+ *
+ * v4: adds the workflow *builder* method family (`workflow.validateDraft`,
+ * `workflow.save`, `workflow.getRun`) so a thin client (TUI / desktop's
+ * RemoteSession) can drive the visual builder remotely. Like the other
+ * workflow.* methods they degrade cleanly: the server throws a clear "not
+ * supported" error when the workflows plugin (or its builder slice) is absent.
  */
-export const RUNNER_PROTOCOL_VERSION = 3;
+export const RUNNER_PROTOCOL_VERSION = 4;
 
 /** Request methods. Client->server unless noted. */
 export const RunnerMethod = {
@@ -74,6 +80,12 @@ export const RunnerMethod = {
   WorkflowSetEnabled: 'workflow.setEnabled',
   /** client->server: run a workflow now. */
   WorkflowRun: 'workflow.run',
+  /** client->server: validate a draft workflow YAML (builder). */
+  WorkflowValidateDraft: 'workflow.validateDraft',
+  /** client->server: persist a workflow from full YAML (builder). */
+  WorkflowSave: 'workflow.save',
+  /** client->server: fetch one saved workflow as canonical YAML (builder). */
+  WorkflowGetRun: 'workflow.getRun',
   /** server->client: ask this client to decide a tool-call permission. */
   PermissionCheck: 'permission.check',
   /** server->client: ask this client to confirm an approval checkpoint. */
@@ -181,6 +193,31 @@ export interface WorkflowSetEnabledParams {
 }
 export interface WorkflowRunParams {
   readonly name: string;
+}
+export interface WorkflowValidateDraftParams {
+  readonly yaml: string;
+}
+export interface WorkflowValidateDraftResult {
+  readonly ok: boolean;
+  readonly errors: ReadonlyArray<string>;
+}
+export interface WorkflowSaveParams {
+  readonly yaml: string;
+  readonly previousName?: string;
+}
+export interface WorkflowSaveResult {
+  readonly name: string;
+  readonly scope: string;
+  readonly path: string;
+}
+export interface WorkflowGetRunParams {
+  readonly name: string;
+}
+export interface WorkflowGetRunResult {
+  readonly name: string;
+  readonly scope: string;
+  readonly path: string;
+  readonly yaml: string;
 }
 
 export interface PermissionCheckParams {
@@ -295,3 +332,13 @@ export const workflowSetEnabledParamsSchema = z.object({
   enabled: z.boolean(),
 });
 export const workflowRunParamsSchema = z.object({ name: z.string() });
+// Builder params. YAML is bounded like the desktop IPC contract so a hostile
+// client can't OOM the runner; the YAML is parsed + schema-validated downstream.
+export const workflowValidateDraftParamsSchema = z.object({
+  yaml: z.string().min(1).max(1_000_000),
+});
+export const workflowSaveParamsSchema = z.object({
+  yaml: z.string().min(1).max(1_000_000),
+  previousName: z.string().min(1).max(120).optional(),
+});
+export const workflowGetRunParamsSchema = z.object({ name: z.string().min(1).max(120) });

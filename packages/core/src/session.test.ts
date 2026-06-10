@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { asToolCallId, defineMode, definePlugin } from '@moxxy/sdk';
+import { asSessionId, asToolCallId, defineMode, definePlugin } from '@moxxy/sdk';
 import { Session } from './session.js';
+import {
+  getRetainedChild,
+  registerRetainedChild,
+  releaseRetainedChild,
+  type RetainedChildSession,
+} from './subagents/registry.js';
 
 describe('Session', () => {
   it('boots with sensible defaults', () => {
@@ -75,6 +81,21 @@ describe('Session', () => {
     await s.close();
     await s.close();
     expect(onShutdown).toHaveBeenCalledTimes(1);
+  });
+
+  it('close() clears retained child sessions so they do not leak (Finding 1)', async () => {
+    const childId = asSessionId('retained-leak-test');
+    // A workflow awaitInput pause would register a retained child here; a run
+    // that never resumes would pin it for the process lifetime without cleanup.
+    registerRetainedChild({ childSessionId: childId } as unknown as RetainedChildSession);
+    expect(getRetainedChild(childId)).toBeDefined();
+    try {
+      const s = new Session({ cwd: '/tmp', silent: true });
+      await s.close();
+      expect(getRetainedChild(childId)).toBeUndefined();
+    } finally {
+      releaseRetainedChild(childId);
+    }
   });
 
   it('getInfo returns a serializable snapshot of the registries', () => {

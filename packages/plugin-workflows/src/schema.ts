@@ -20,7 +20,6 @@ const ACTION_KEYS = [
   'switch',
   'loop',
 ] as const;
-const LOGIC_ACTION_KEYS = ['bridge', 'condition', 'switch'] as const;
 
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/i;
 const STEP_ID_RE = /^[a-z0-9][a-z0-9_-]*$/i;
@@ -62,11 +61,20 @@ const stepSchema = z
     awaitInput: z.boolean().optional(),
   })
   .superRefine((step, ctx) => {
-    const isLogic = LOGIC_ACTION_KEYS.some((k) => step[k] != null);
-    if (step.awaitInput && (step.tool != null || step.workflow != null || step.loop != null || isLogic)) {
+    // awaitInput is GATED: the executor can pause + checkpoint, but the resume
+    // trigger/channel that delivers the operator's reply did NOT ship to main
+    // (it lives on an unmerged branch). Accepting `awaitInput: true` would
+    // create a run that pauses forever — leaking a retained child session and
+    // orphaning a checkpoint file. Reject it at author time until a resume path
+    // lands in-tree. (Re-enable by removing this block once a resume trigger
+    // exists; the executor side is already wired.)
+    if (step.awaitInput) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `step "${step.id}": awaitInput is only allowed on prompt or skill steps`,
+        message:
+          `step "${step.id}": awaitInput requires the resume channel, which is not available ` +
+          `in this build — a paused run would hang forever. Remove awaitInput (gather the ` +
+          `input via an \`inputs\` field or a normal prompt step instead).`,
         path: ['awaitInput'],
       });
     }
@@ -290,6 +298,107 @@ export const workflowSchema = z
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: `step "${step.id}" loop references unknown body step "${ref}"`,
+            path: ['steps'],
+          });
+        }
+      }
+    }
+
+    // --- loop-body integrity -------------------------------------------------
+    // Map every body step id to its owning loop step id. The body steps are
+    // run by their loop each iteration and are excluded from the main DAG
+    // scheduler (`loopBodyIds`), so several edges around them are unsafe.
+    const stepById = new Map(wf.steps.map((s) => [s.id, s]));
+    const bodyOwner = new Map<string, string>();
+    for (const step of wf.steps) {
+      if (step.loop == null) continue;
+      for (const ref of step.loop.body) bodyOwner.set(ref, step.id);
+    }
+
+    for (const step of wf.steps) {
+      const owner = bodyOwner.get(step.id);
+      if (owner == null) continue;
+      const body = stepById.get(step.id)!;
+
+      // FINDING 3: a condition/switch used AS a loop body has its branch
+      // routing (then/else/cases) silently ignored — runLoopStep runs the body
+      // step but never applies its branch skips. Reject it so the author picks
+      // a supported body action.
+      if (body.condition != null || body.switch != null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            `step "${step.id}" is a loop body of "${owner}" and cannot be a condition/switch ` +
+            `step — branch routing is not honored inside a loop body. Use a bridge step to set ` +
+            `vars and drive the loop's own exit condition instead.`,
+          path: ['steps'],
+        });
+      }
+
+      // FINDING 8: a loop body step runs unconditionally every iteration — its
+      // own `when` guard and any `needs` other than the owning loop step are
+      // ignored. Reject them so the semantics are explicit (body steps run
+      // unconditionally; the loop's exit `condition` is the only guard).
+      if (body.when != null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            `step "${step.id}" is a loop body of "${owner}" and cannot have a \`when\` guard — ` +
+            `loop body steps run unconditionally each iteration. Gate the loop via its ` +
+            `\`condition\` (exit) instead.`,
+          path: ['steps'],
+        });
+      }
+      // A body step may declare `needs: [<loop step id>]` (the documented
+      // convention) or depend on a sibling body step of the SAME loop (intra-
+      // iteration ordering — the loop runs body steps in declared order).
+      // Anything else is a cross-DAG edge that won't be honored, so reject it.
+      for (const dep of body.needs) {
+        if (dep === owner) continue;
+        if (bodyOwner.get(dep) === owner) continue;
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            `step "${step.id}" is a loop body of "${owner}" and may only \`needs\` its loop ` +
+            `step ("${owner}") or a sibling body step of the same loop — "${dep}" is outside ` +
+            `the loop and would never settle for it.`,
+          path: ['steps'],
+        });
+      }
+    }
+
+    // FINDING 5: a NON-loop-body step that `needs` a loop-body step stalls the
+    // executor — the body step is owned by its loop and excluded from the main
+    // DAG, so its dependent never sees it settle. Depend on the loop step
+    // itself instead. (The body step's own loop step is allowed to "need" it
+    // implicitly via the loop, but no other step may.)
+    for (const step of wf.steps) {
+      if (bodyOwner.has(step.id)) continue; // body→body handled above
+      if (step.loop != null) {
+        // A loop step needing one of ITS OWN body ids is redundant but not a
+        // stall (it owns them); needing ANOTHER loop's body is still a stall.
+        const ownBody = new Set(step.loop.body);
+        for (const dep of step.needs) {
+          if (bodyOwner.has(dep) && !ownBody.has(dep)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message:
+                `step "${step.id}" needs "${dep}", which is a loop body of ` +
+                `"${bodyOwner.get(dep)}" — depend on the loop step "${bodyOwner.get(dep)}" instead.`,
+              path: ['steps'],
+            });
+          }
+        }
+        continue;
+      }
+      for (const dep of step.needs) {
+        if (bodyOwner.has(dep)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              `step "${step.id}" needs "${dep}", which is a loop body of ` +
+              `"${bodyOwner.get(dep)}" — depend on the loop step "${bodyOwner.get(dep)}" instead ` +
+              `(loop body steps are owned by their loop and never scheduled in the main DAG).`,
             path: ['steps'],
           });
         }
