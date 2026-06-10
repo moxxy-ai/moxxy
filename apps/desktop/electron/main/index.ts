@@ -40,10 +40,15 @@ import {
   ensureDesktopVaultKey,
   activateManagedNode,
   startLoopbackServer,
+  loadOrCreateSelfSignedCert,
+  isTrustedLoopbackCert,
+  isTrustedLoopbackCertByHost,
+  DESKTOP_APP_HOST,
   sendEvent,
   readPrefs,
   updatePrefs,
   type LoopbackServer,
+  type SelfSignedCert,
 } from '@moxxy/desktop-host';
 import type { DeepLinkPayload, MobileGatewayStatus } from '@moxxy/desktop-ipc-contract';
 // Value imports of @moxxy/ipc-server-ws are lazy + guarded (see the bridge
@@ -96,12 +101,19 @@ let wsServer: WebSocketBridgeServer | null = null;
  *  start/stop/status/rotate lifecycle once the WS bus + module are loaded. */
 let mobileGateway: MobileGatewayManager | null = null;
 
-// In-app loopback HTTP server the packaged renderer is served from (so the
-// Clerk web SDK runs on an http origin). null in dev (Vite serves it) and
-// when every candidate port was taken (we fall back to file://).
+// In-app loopback HTTPS server the packaged renderer is served from at
+// `https://desktop.moxxy.ai:<port>` (so the Clerk web SDK runs on a moxxy.ai
+// subdomain origin — required by a `pk_live_` production key, which is
+// domain-locked and rejects a bare loopback IP origin). null in dev (Vite
+// serves it) and when every candidate port was taken (we fall back to file://).
 let loopback: LoopbackServer | null = null;
+// The self-signed cert backing that HTTPS server. Held so the
+// `certificate-error` handler can scope-trust it by fingerprint.
+let loopbackCert: SelfSignedCert | null = null;
 // Fixed, stable loopback ports — each MUST be allow-listed in the Clerk
-// dashboard (origins are exact-match including the port).
+// dashboard (origins are exact-match including the port), and the
+// `certificate-error` trust is scoped to exactly these ports on
+// desktop.moxxy.ai.
 const LOOPBACK_PORTS = [51789, 51790, 51791, 51792] as const;
 
 // ---- moxxy:// deep-link transport -----------------------------------------
@@ -694,23 +706,82 @@ app.whenReady().then(async () => {
   // request carries it. Harmless for our own + Clerk requests.
   app.userAgentFallback = cleanOAuthUserAgent(app.userAgentFallback);
 
-  // Serve the packaged renderer over a loopback http origin (a Chromium
-  // secure context + an allowed OAuth redirect scheme) so the Clerk web SDK
-  // works — file:// rejects clerk-js's OAuth redirect. Dev keeps Vite; if
-  // every candidate port is taken we fall back to file:// (sign-in degrades
-  // but the app still boots).
+  // Serve the packaged renderer over an HTTPS loopback origin at
+  // `https://desktop.moxxy.ai:<port>` — a Chromium secure context AND, crucially,
+  // a moxxy.ai subdomain origin, which a Clerk PRODUCTION key (`pk_live_`)
+  // requires (it's domain-locked and rejects a bare 127.0.0.1 origin). The
+  // hostname is a public DNS A-record → 127.0.0.1, so traffic never leaves the
+  // box; the self-signed cert is scope-trusted below (NOT system-wide). Dev
+  // keeps Vite; if every candidate port is taken (or the cert can't be minted)
+  // we fall back to file:// (sign-in degrades but the app still boots).
   if (!isDev) {
     try {
+      loopbackCert = await loadOrCreateSelfSignedCert(app.getPath('userData'));
       loopback = await startLoopbackServer({
         root: path.join(__dirname, '..', '..', 'dist'),
         ports: [...LOOPBACK_PORTS],
+        tls: { cert: loopbackCert.cert, key: loopbackCert.key },
       });
       console.log(`[moxxy] renderer served at ${loopback.origin}`);
     } catch (err) {
       console.error('[moxxy] loopback server failed; falling back to file://', err);
       loopback = null;
+      loopbackCert = null;
     }
   }
+
+  // Scope-trust the loopback server's self-signed cert — ONLY for our fixed
+  // host (`desktop.moxxy.ai`) AND only when the presented cert's fingerprint
+  // matches the one we minted. This is NOT a blanket `ignore-certificate-errors`:
+  // every other host/cert falls through to Chromium's own verification.
+  //
+  // The CANONICAL mechanism is `session.setCertificateVerifyProc` on the
+  // session the window uses — `app.on('certificate-error')` is unreliable for
+  // loopback HTTPS under Electron's network-service process (it does not fire
+  // for the main-frame + subresource loads here, so the renderer would white-
+  // screen with `ERR_CERT_AUTHORITY_INVALID` / net_error -202). The verify-proc
+  // is installed on the default session BEFORE the window loads the URL (this
+  // block runs ahead of createWindow()), and `loopbackCert` is already assigned
+  // above, so there is no null-at-fire-time race.
+  const certVerifyProc = (
+    request: Electron.Request,
+    callback: (verificationResult: number) => void,
+  ): void => {
+    if (
+      loopbackCert &&
+      isTrustedLoopbackCertByHost({
+        hostname: request.hostname,
+        fingerprint: request.certificate.fingerprint,
+        expectedFingerprint: loopbackCert.fingerprint256,
+      })
+    ) {
+      callback(0); // 0 = trust this cert (our minted loopback cert)
+      return;
+    }
+    callback(-3); // -3 = defer to Chromium's own verification result
+  };
+  session.defaultSession.setCertificateVerifyProc(certVerifyProc);
+
+  // Belt-and-braces: keep the `certificate-error` handler too. It rarely fires
+  // for the loopback load (see above) but costs nothing and covers any path the
+  // verify-proc doesn't, with the identical scoped trust (host + port +
+  // fingerprint). Everything else gets normal verification.
+  app.on('certificate-error', (event, _wc, url, _error, certificate, callback) => {
+    if (
+      loopbackCert &&
+      isTrustedLoopbackCert({
+        url,
+        fingerprint: certificate.fingerprint,
+        expectedFingerprint: loopbackCert.fingerprint256,
+        allowedPorts: LOOPBACK_PORTS,
+      })
+    ) {
+      event.preventDefault();
+      callback(true); // trust it
+      return;
+    }
+    callback(false); // normal verification (reject)
+  });
 
   // Apply the Content-Security-Policy to our own document responses
   // before any window loads. Skipped in dev (Vite HMR needs a loose

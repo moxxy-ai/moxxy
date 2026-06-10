@@ -40,3 +40,11 @@ export {
   type LoopbackServer,
   type LoopbackServerOptions,
 } from './loopback-server.js';
+export {
+  DESKTOP_APP_HOST,
+  generateSelfSignedCert,
+  loadOrCreateSelfSignedCert,
+  isTrustedLoopbackCert,
+  isTrustedLoopbackCertByHost,
+  type SelfSignedCert,
+} from './self-signed-cert.js';
