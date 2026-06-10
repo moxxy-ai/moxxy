@@ -22,15 +22,41 @@ import type {
   IpcCommands,
   IpcEvents,
 } from '@moxxy/desktop-ipc-contract';
-import { REMOTE_DISALLOWED_COMMANDS } from '@moxxy/desktop-ipc-contract';
+import { REMOTE_ALLOWED_COMMANDS } from '@moxxy/desktop-ipc-contract';
 import type { CommandBus, EventSink } from '@moxxy/desktop-ipc-contract/bus';
 import { dispatch } from '@moxxy/desktop-ipc-contract/dispatch';
 
 type RegisteredHandler = (...args: never[]) => Promise<unknown>;
 
+/** Options for {@link WebSocketCommandBus}. */
+export interface WebSocketCommandBusOptions {
+  /**
+   * The allow-list of commands accepted over this remote transport. Defaults to
+   * the contract's {@link REMOTE_ALLOWED_COMMANDS} — the desktop gateway wires
+   * its COMPLETE IPC handler set onto the WS bus, so the allow-list is the only
+   * thing standing between a paired phone and the host-mutating commands; it
+   * must stay deny-by-default.
+   *
+   * Pass an explicit set ONLY for a host that already exposes a deliberately
+   * curated subset on this bus (e.g. the standalone `moxxy mobile`
+   * `MobileSessionHost`, which registers exactly one single-session command set
+   * and so is its own trust surface). `null` disables the allow-list entirely —
+   * reserved for the same self-curating-host case; never use it for a bus the
+   * full desktop IPC handler set is registered on.
+   */
+  readonly allowedCommands?: ReadonlySet<IpcCommandName> | null;
+}
+
 export class WebSocketCommandBus implements CommandBus, EventSink {
   private readonly methods = new Map<IpcCommandName, RegisteredHandler>();
   private readonly peers = new Set<JsonRpcPeer>();
+  /** Deny-by-default allow-list (null ⇒ no filter; see the constructor). */
+  private readonly allowedCommands: ReadonlySet<IpcCommandName> | null;
+
+  constructor(opts: WebSocketCommandBusOptions = {}) {
+    this.allowedCommands =
+      opts.allowedCommands === undefined ? REMOTE_ALLOWED_COMMANDS : opts.allowedCommands;
+  }
 
   handle<K extends IpcCommandName>(
     channel: K,
@@ -50,7 +76,12 @@ export class WebSocketCommandBus implements CommandBus, EventSink {
     const peer = new JsonRpcPeer(transport);
     for (const [channel, fn] of this.methods) {
       peer.handle(channel, async (params) => {
-        if (REMOTE_DISALLOWED_COMMANDS.has(channel)) {
+        // Deny-by-default: a command the host registered on this bus is still
+        // refused unless it is on the remote allow-list (the mobile trust
+        // surface). This is the gate that stops a paired phone — or anyone on
+        // the LAN with the bearer token — from reaching a host-mutating command
+        // the desktop happened to wire onto the same bus as the chat commands.
+        if (this.allowedCommands && !this.allowedCommands.has(channel)) {
           const message = `command "${channel}" is not available over a remote transport`;
           throw new RpcError(message, { code: 'runner-error', message });
         }

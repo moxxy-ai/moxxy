@@ -97,7 +97,13 @@ export class MobileChannel implements Channel<MobileStartOpts> {
   }
 
   async start(startOpts: MobileStartOpts): Promise<ChannelHandle> {
-    const bus = new WebSocketCommandBus();
+    // The standalone `moxxy mobile` host is its OWN trust surface: it registers
+    // exactly the curated single-session subset a mobile client drives (see
+    // `MobileSessionHost.register`) and nothing else, so the bus's deny-by-
+    // default remote allow-list (which targets the DESKTOP gateway, where the
+    // full host IPC handler set is on the bus) would only over-restrict it.
+    // `allowedCommands: null` keeps that curated subset authoritative here.
+    const bus = new WebSocketCommandBus({ allowedCommands: null });
     const host = new MobileSessionHost(bus, startOpts.session);
     this.host = host;
     host.register(); // populate the method map BEFORE accepting connections

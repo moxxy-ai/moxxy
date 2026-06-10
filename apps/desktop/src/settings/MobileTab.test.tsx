@@ -102,9 +102,12 @@ describe('MobileTab', () => {
     expect(screen.getByTestId('mobile-connect-url').textContent).toBe(
       'ws://192.168.1.7:8765/?t=s3cret',
     );
-    // The honest, prominent security warning must be present.
+    // The honest, prominent security warning must be present — and it must be
+    // explicit that the connection is unencrypted and passively interceptable.
     const warning = screen.getByTestId('mobile-lan-warning');
     expect(warning.textContent).toMatch(/exposes your desktop on the local network/i);
+    expect(warning.textContent).toMatch(/unencrypted/i);
+    expect(warning.textContent).toMatch(/intercept/i);
     // Connected-client count surfaces.
     expect(screen.getByText(/1 device connected/i)).toBeTruthy();
   });

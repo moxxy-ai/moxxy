@@ -94,16 +94,41 @@ describe('rotateWsBridgeToken', () => {
       rotateAuthToken: (next: string) => calls.push(next),
       clientCount: () => 0,
     };
-    const rotated = rotateWsBridgeToken(userData, fakeServer);
-    expect(rotated).not.toBe(original);
-    expect(calls).toEqual([rotated]);
+    const result = rotateWsBridgeToken(userData, fakeServer);
+    expect(result.rotated).toBe(true);
+    expect(result.pinned).toBe(false);
+    expect(result.token).not.toBe(original);
+    expect(calls).toEqual([result.token]);
     // The next resolve picks up the rotated secret.
-    expect(resolveWsBridgeConfig(userData)?.authToken).toBe(rotated);
+    expect(resolveWsBridgeConfig(userData)?.authToken).toBe(result.token);
   });
 
   it('works without a live server (persists only)', () => {
-    const rotated = rotateWsBridgeToken(userData, null);
-    expect(resolveWsBridgeConfig(userData)?.authToken).toBe(rotated);
+    const result = rotateWsBridgeToken(userData, null);
+    expect(result.rotated).toBe(true);
+    expect(resolveWsBridgeConfig(userData)?.authToken).toBe(result.token);
+  });
+
+  it('is a coherent no-op when MOXXY_WS_TOKEN pins the token', () => {
+    // An env-pinned token wins at every resolve, so rotating the FILE token
+    // would diverge the live server from the advertised connectUrl. Refuse it.
+    process.env.MOXXY_WS_TOKEN = 'pinned-env-token';
+    const calls: string[] = [];
+    const fakeServer = {
+      address: 'ws://127.0.0.1:1',
+      onConnection: () => undefined,
+      close: () => Promise.resolve(),
+      rotateAuthToken: (next: string) => calls.push(next),
+      clientCount: () => 0,
+    };
+    const result = rotateWsBridgeToken(userData, fakeServer);
+    expect(result.rotated).toBe(false);
+    expect(result.pinned).toBe(true);
+    // The reported token is the live (env) one, and the server was NOT re-keyed.
+    expect(result.token).toBe('pinned-env-token');
+    expect(calls).toEqual([]);
+    // The advertised token still matches what the server accepts.
+    expect(resolveWsBridgeConfig(userData)?.authToken).toBe('pinned-env-token');
   });
 });
 
@@ -263,6 +288,79 @@ describe('MobileGatewayManager', () => {
     await mgr.start();
     fake.setClients(2);
     expect(mgr.status().clientCount).toBe(2);
+  });
+
+  it('serializes concurrent start calls so the port binds exactly once', async () => {
+    // A slow start: the second concurrent call must wait for the first to settle
+    // rather than racing past the `if (this.server)` guard and binding twice.
+    let starts = 0;
+    let releaseFirst!: () => void;
+    const gate = new Promise<void>((r) => {
+      releaseFirst = r;
+    });
+    const fake = makeFakeServer();
+    const { rt, startCalls } = makeRuntime({
+      userData,
+      startSpy: () => fake.server,
+    });
+    // Wrap startWsBridge to delay the first resolve until we release the gate.
+    const original = rt.wsBridge!.startWsBridge as (b: unknown, o: unknown) => Promise<unknown>;
+    (rt.wsBridge as { startWsBridge: unknown }).startWsBridge = async (
+      bus: unknown,
+      o: unknown,
+    ) => {
+      starts += 1;
+      if (starts === 1) await gate;
+      return original(bus, o);
+    };
+    const mgr = new MobileGatewayManager(rt);
+
+    const first = mgr.start();
+    const second = mgr.start(); // queued behind the first
+    // Let the first proceed; the second resolves off the now-running server.
+    releaseFirst();
+    await Promise.all([first, second]);
+
+    // Exactly one bind happened despite two concurrent starts.
+    expect(startCalls).toHaveLength(1);
+  });
+
+  it('serializes a rapid off→on toggle so it cannot leak a server', async () => {
+    const fake = makeFakeServer();
+    const { rt, startCalls, enabledRef } = makeRuntime({
+      userData,
+      startSpy: () => fake.server,
+      enabledRef: { value: true },
+    });
+    const mgr = new MobileGatewayManager(rt);
+    await mgr.setEnabled(true);
+
+    // Fire off→on back-to-back without awaiting between them.
+    const off = mgr.setEnabled(false);
+    const on = mgr.setEnabled(true);
+    await Promise.all([off, on]);
+
+    // The final state is ON, with one server tracked (no orphan), and the toggle
+    // ran to completion in order (start, stop, start).
+    expect(mgr.status().enabled).toBe(true);
+    expect(enabledRef.value).toBe(true);
+    expect(startCalls.length).toBe(2); // initial on + the re-on (off closes, no bind)
+  });
+
+  it('rotateToken is a coherent no-op when MOXXY_WS_TOKEN pins the token', async () => {
+    process.env.MOXXY_WS_TOKEN = 'pinned-token';
+    const fake = makeFakeServer();
+    const { rt } = makeRuntime({ userData, startSpy: () => fake.server });
+    const mgr = new MobileGatewayManager(rt);
+    const before = await mgr.start();
+    expect(before.token).toBe('pinned-token');
+
+    const after = await mgr.rotateToken();
+    // The live server is NOT re-keyed, and status keeps advertising the env token
+    // (so the connectUrl and the accepted token stay in lockstep).
+    expect(fake.rotations).toEqual([]);
+    expect(after.token).toBe('pinned-token');
+    expect(after.connectUrl).toBe(before.connectUrl);
   });
 });
 

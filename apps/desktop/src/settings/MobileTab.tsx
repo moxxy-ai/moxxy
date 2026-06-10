@@ -165,10 +165,13 @@ export function MobileTab(): JSX.Element {
           >
             <Icon name="lock" size={15} style={{ marginTop: 1, flexShrink: 0 }} />
             <span>
-              <strong>This exposes your desktop on the local network.</strong> Anyone on your Wi-Fi
-              who has this QR code or token can drive moxxy on this machine — send prompts, run
-              tools, read your workspaces. Only pair devices you trust, and turn the gateway off
-              when you are done. Use <em>Regenerate code</em> if a token may have leaked.
+              <strong>This exposes your desktop on the local network over an unencrypted
+              connection.</strong> Traffic uses plain <code>ws://</code> (no TLS), so anyone on the
+              same network can passively intercept the pairing token and everything you send and
+              receive — they do not even need the QR code to do it. Once they have the token they
+              can drive moxxy on this machine: send prompts, run tools, read your workspaces. Only
+              enable this on networks you trust, turn the gateway off when you are done, and use{' '}
+              <em>Regenerate code</em> if a token may have leaked.
             </span>
           </div>
         )}

@@ -8,10 +8,11 @@
  * Electron `app` + userData paths. The main injects a {@link MobileGatewayController}
  * into `registerIpcHandlers`; these handlers just forward to it.
  *
- * Security: these COMMANDS control the gateway, so they are host-only — listed
- * in `REMOTE_DISALLOWED_COMMANDS`, the WS bus refuses them. A remote client can
- * never toggle the gateway, read the pairing token, or rotate it over the very
- * transport that token guards.
+ * Security: these COMMANDS control the gateway, so they are host-only. The WS
+ * bus is deny-by-default — it accepts ONLY the commands in the contract's
+ * `REMOTE_ALLOWED_COMMANDS` (the mobile trust surface), and `mobileGateway.*` is
+ * deliberately not among them, so a remote client can never toggle the gateway,
+ * read the pairing token, or rotate it over the very transport that token guards.
  */
 
 import type { MobileGatewayStatus } from '@moxxy/desktop-ipc-contract';

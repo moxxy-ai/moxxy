@@ -37,6 +37,36 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
 
 ---
 
+## 2026-06-10 round-2 audit intake — mobile gateway
+
+A targeted round-2 audit of the runtime mobile gateway shipped by PR #141 (the
+Settings → Mobile tab). Numbered B1+ so the A-series cross-refs stay stable.
+Severity in brackets.
+
+- **B1 [critical/high, security regression] Desktop mobile gateway exposed the FULL host
+  IPC to remote clients** — ✅ FIXED (this PR): `registerIpcHandlers([electronBus, wsBus], …)`
+  wired the COMPLETE handler set onto the LAN-bound WebSocket bus, and the only remote filter
+  was a BLOCKLIST (`REMOTE_DISALLOWED_COMMANDS`) that omitted host-mutating commands — so a
+  paired phone (or anyone on the LAN with the bearer token) could call `session.setAutoApprove`
+  (disable approval prompts → run any tool unattended), `desks.create`/`rename`/`remove`,
+  `onboarding.saveProviderKey`/`openExternal`, `app.updateCli`/`checkUpdate`/`updateDashboard`,
+  vault/settings/prefs writes, and `mobileGateway.*` — a privilege-escalation / RCE-adjacent
+  hole. **Inverted to ALLOW-by-default-deny:** the contract now exports `REMOTE_ALLOWED_COMMANDS`
+  (the single source of truth for the remote/mobile trust surface — session info/runTurn/abort/
+  setMode/newSession/runCommand, transcribe, ask RESPOND, connection discovery/retry, the
+  per-workspace transcript log, and `workflows.list`/`run`/`getRun`), and `WebSocketCommandBus`
+  rejects anything not on it with a coded error regardless of registered handlers. The Electron
+  (renderer) bus keeps full access. The standalone `moxxy mobile` host self-curates and opts out
+  via `new WebSocketCommandBus({ allowedCommands: null })`. Also fixed in the same area:
+  workflow AUTHORING (`save`/`validateDraft`/`setEnabled`) is host-only (read/run only over the
+  wire); `MobileGatewayManager` start/stop/rotate/resume now serialize through a lifecycle lock
+  (no double-bind / leaked listener on a rapid off→on); token rotation is coherent with a pinned
+  `MOXXY_WS_TOKEN` (no-op + warn, status always reflects the live accepted token); and the Mobile
+  tab warning now states plainly the connection is unencrypted `ws://` and passively interceptable.
+  Tests: deny/allow allow-list matrix in `ipc-server-ws`, plus serialization + pinned-rotate
+  coherence in the desktop `ws-bridge` suite. The wave-5 hardening (Origin default-deny, bearer
+  subprotocol, connection caps) verified still applied on the runtime-gateway path.
+
 ## 2026-06-09 audit intake — confirmed findings awaiting fixes
 
 Every item below survived an adversarial verification pass (an independent agent

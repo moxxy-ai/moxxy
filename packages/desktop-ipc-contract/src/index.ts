@@ -754,10 +754,10 @@ export interface IpcCommands {
   'settings.deleteSkill': (args: { name: string }) => Promise<void>;
 
   // ---- Mobile gateway (WebSocket bridge) --------------------------------
-  // These CONTROL the bridge, so they are host-only — see
-  // REMOTE_DISALLOWED_COMMANDS — a remote (WS) client must never be able to
-  // toggle the gateway or read/rotate the pairing token over the very transport
-  // the token guards.
+  // These CONTROL the bridge, so they are host-only. The WS bus is
+  // deny-by-default (see REMOTE_ALLOWED_COMMANDS) and these are NOT on the
+  // allow-list — a remote (WS) client must never be able to toggle the gateway
+  // or read/rotate the pairing token over the very transport the token guards.
   /** Current gateway status (enabled, advertised host+port, connectUrl/QR
    *  payload, token, connected-client count). */
   'mobileGateway.status': () => Promise<MobileGatewayStatus>;
@@ -775,12 +775,78 @@ export interface IpcCommands {
 export type IpcCommandName = keyof IpcCommands;
 
 /**
- * Commands that only make sense on the machine running the host and must be
- * refused over a remote (WebSocket) transport: native OS dialogs that would pop
- * on the host rather than the remote client, focus-widget window control, and
- * the app relaunch. The WebSocket bus rejects these with a coded error; a remote
- * client can read this set to gray out the corresponding affordances. (Remote
- * clients attach files via `session.saveImageAttachment` instead of a picker.)
+ * THE REMOTE / MOBILE TRUST SURFACE — the single source of truth for what a
+ * paired phone (or anything else on the LAN holding the bearer token) may invoke
+ * over the WebSocket bridge. This is an ALLOW-list, enforced deny-by-default: the
+ * WS bus REJECTS any command not listed here with a coded error, regardless of
+ * which handlers the host happened to register on the bus.
+ *
+ * Why an allow-list and not a blocklist: the desktop wires its COMPLETE IPC
+ * handler set onto the WS bus (`registerIpcHandlers([electronBus, wsBus], …)`),
+ * and the runtime "mobile gateway" binds the LAN wildcard. A blocklist that
+ * merely omitted a host-mutating command (toggling auto-approve, creating desks,
+ * writing the vault, updating the CLI, …) silently exposed it to a remote client
+ * — a privilege-escalation / RCE-adjacent hole. Inverting to allow-by-default-
+ * deny means a NEW command is locked out by default; you opt it in here only
+ * after deciding a paired phone should be able to drive it.
+ *
+ * The list is exactly the commands a chat client legitimately needs to hold a
+ * conversation: read the session snapshot, send/abort a turn, switch mode, run a
+ * slash command, reset the conversation, transcribe voice, ANSWER (not bypass)
+ * permission prompts, persist the per-workspace transcript, and list/run/read an
+ * EXISTING workflow. Everything else — auto-approve toggling, desk/onboarding/
+ * settings/vault/app/prefs writes, workflow AUTHORING (save/validateDraft/
+ * setEnabled), native pickers, focus-window control, and the gateway-control
+ * commands themselves (`mobileGateway.*`) — stays Electron-bus-only (the trusted
+ * local UI) and is refused over the wire.
+ *
+ * RULE: add a command here ONLY if a paired phone should be able to invoke it.
+ * If it mutates host state beyond the conversation, it almost certainly does not
+ * belong.
+ */
+export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcCommandName>([
+  // Answer a permission/approval prompt — RESPOND only. Note that
+  // `session.setAutoApprove` (turn the prompt OFF entirely) is deliberately NOT
+  // here: a remote client may answer the desktop user's prompts, never disable
+  // them and run tools unattended.
+  'ask.respond',
+  // Workspace discovery + reconnect (read-only / non-mutating).
+  'connection.snapshotAll',
+  'connection.activeWorkspace',
+  'connection.retry',
+  // The conversation itself.
+  'session.info',
+  'session.runTurn',
+  'session.abortTurn',
+  'session.setMode',
+  'session.newSession',
+  'session.runCommand',
+  // Voice input (capability-probed; transcribe fails coded without a transcriber).
+  'session.hasTranscriber',
+  'session.transcribe',
+  // Per-workspace transcript log (the mobile ChatStoreBridge persists through
+  // these; they're scoped to a workspace's NDJSON log, not host config).
+  'chat.append',
+  'chat.loadSegment',
+  'chat.clearLog',
+  'chat.migrate',
+  // Workflows: READ + run an existing one only. Authoring (`workflows.save`,
+  // `workflows.validateDraft`, `workflows.setEnabled`) is host-only — a paired
+  // phone must not rewrite or re-enable the host's workflows.
+  'workflows.list',
+  'workflows.run',
+  'workflows.getRun',
+]);
+
+/**
+ * @deprecated Use {@link REMOTE_ALLOWED_COMMANDS} — enforcement is now
+ * allow-by-default-deny, not blocklist-based. Retained for UI affordance-gating:
+ * a renderer can still read this to gray out the host-only controls it shows. It
+ * is the set of commands the desktop renderer surfaces that are NOT in the remote
+ * allow-list (the native pickers, focus-window control, app relaunch, and the
+ * gateway-control commands), so its prior consumers keep working. The WS bus no
+ * longer consults it — anything outside {@link REMOTE_ALLOWED_COMMANDS} is
+ * refused, this set or not.
  */
 export const REMOTE_DISALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcCommandName>([
   'desks.pickFolder',
