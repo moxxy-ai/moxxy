@@ -18,6 +18,7 @@ import type { Transport, TransportServer } from './transport.js';
 import { createUnixSocketServer } from './unix-socket.js';
 import { runnerSocketPath } from './socket-path.js';
 import {
+  MIN_COMPATIBLE_PROTOCOL_VERSION,
   RUNNER_PROTOCOL_VERSION,
   RunnerMethod,
   RunnerNotification,
@@ -192,7 +193,15 @@ export class RunnerServer {
 
   private handleAttach(client: ConnectedClient, raw: unknown): AttachResult {
     const params = attachParamsSchema.parse(raw);
-    if (params.protocolVersion !== RUNNER_PROTOCOL_VERSION) {
+    // Tolerant negotiation: accept any client whose version is compatible with
+    // our core session protocol (>= MIN_COMPATIBLE). All skew through v4 is
+    // additive, so a newer client just won't call methods we lack, and an
+    // older-but-compatible client never used the methods we added. Only a
+    // client below the compatibility floor is genuinely broken — that is the
+    // sole hard "mismatch" (a real stale daemon the desktop should replace).
+    // The client gets our own version back in the result and gates
+    // version-specific methods on it.
+    if (params.protocolVersion < MIN_COMPATIBLE_PROTOCOL_VERSION) {
       throw new Error(
         `runner protocol mismatch: server v${RUNNER_PROTOCOL_VERSION}, client v${params.protocolVersion}`,
       );

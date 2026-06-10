@@ -10,6 +10,7 @@ import {
   bundleRoot,
   appUpdateDir,
   resolveActiveBundle,
+  resolveActiveBundleDetailed,
   setActiveVersion,
   readActiveVersion,
   markBad,
@@ -115,6 +116,63 @@ describe('resolveActiveBundle', () => {
     writeFileSync(path.join(root, 'manifest.json'), JSON.stringify(manifestFor('0.0.6')));
     setActiveVersion(tmp, '0.0.6');
     expect(resolveActiveBundle({ userDataDir: tmp, publicKeyPem: PUBKEY, shell: SHELL })).toBeNull();
+  });
+});
+
+describe('runner-protocol lockstep gate', () => {
+  it('rejects a bundle whose runner-protocol exceeds the spawnable CLI', () => {
+    // A JS hot-update stamped at protocol v4, but the pinned CLI only serves v3
+    // → activating it would strand the desktop in a reconnect loop. Refuse it.
+    installBundle('0.0.6', { runnerProtocol: 4 });
+    const r = resolveActiveBundleDetailed({
+      userDataDir: tmp,
+      publicKeyPem: PUBKEY,
+      shell: SHELL,
+      cliRunnerProtocol: 3,
+    });
+    expect(r.bundle).toBeNull();
+    expect(r.reason).toBe('runner-protocol-skew');
+  });
+
+  it('accepts a bundle whose runner-protocol equals the CLI', () => {
+    installBundle('0.0.6', { runnerProtocol: 4 });
+    const r = resolveActiveBundle({
+      userDataDir: tmp,
+      publicKeyPem: PUBKEY,
+      shell: SHELL,
+      cliRunnerProtocol: 4,
+    });
+    expect(r?.version).toBe('0.0.6');
+  });
+
+  it('accepts a bundle whose runner-protocol is OLDER than the CLI (additive forward)', () => {
+    // A floor-ish bundle (v3) on a newer CLI (v4) is fine — the older client
+    // never calls the methods the newer runner added.
+    installBundle('0.0.6', { runnerProtocol: 3 });
+    const r = resolveActiveBundle({
+      userDataDir: tmp,
+      publicKeyPem: PUBKEY,
+      shell: SHELL,
+      cliRunnerProtocol: 4,
+    });
+    expect(r?.version).toBe('0.0.6');
+  });
+
+  it('does not gate a legacy manifest (no runnerProtocol stamp)', () => {
+    installBundle('0.0.6'); // no runnerProtocol
+    const r = resolveActiveBundle({
+      userDataDir: tmp,
+      publicKeyPem: PUBKEY,
+      shell: SHELL,
+      cliRunnerProtocol: 1, // even a very old CLI: an unstamped bundle is "no constraint"
+    });
+    expect(r?.version).toBe('0.0.6');
+  });
+
+  it('does not gate when the caller omits cliRunnerProtocol', () => {
+    installBundle('0.0.6', { runnerProtocol: 99 });
+    const r = resolveActiveBundle({ userDataDir: tmp, publicKeyPem: PUBKEY, shell: SHELL });
+    expect(r?.version).toBe('0.0.6');
   });
 });
 

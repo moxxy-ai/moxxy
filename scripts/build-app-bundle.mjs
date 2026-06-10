@@ -33,6 +33,10 @@ import { fileURLToPath } from 'node:url';
 // Built output of the shared, tested builder — same code the integration test
 // and (transitively) the client verifier use, so producer + consumer can't drift.
 import { buildAppBundle } from '../packages/desktop-host/dist/app-update/index.js';
+// The runner protocol the bundle's bundled client speaks — stamped into the
+// signed manifest so the bootstrap's lockstep gate can refuse a JS hot-update
+// whose client would outrun the pinned CLI's runner.
+import { RUNNER_PROTOCOL_VERSION } from '../packages/runner/dist/index.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const desktopDir = path.join(repoRoot, 'apps', 'desktop');
@@ -100,6 +104,25 @@ function main() {
     process.exit(1);
   }
 
+  // Lockstep guard: the immutable bootstrap bakes FLOOR_RUNNER_PROTOCOL and uses
+  // it as the ceiling for any hot-update. If a runner-protocol bump forgot to
+  // update that floor constant, the gate would mis-judge skew — fail the build
+  // here rather than ship a wrong floor.
+  const floorSrc = readFileSync(
+    path.join(desktopDir, 'electron', 'main', 'floor-runner-protocol.ts'),
+    'utf8',
+  );
+  const floorMatch = /FLOOR_RUNNER_PROTOCOL\s*=\s*(\d+)/.exec(floorSrc);
+  const floorProtocol = floorMatch ? Number.parseInt(floorMatch[1], 10) : NaN;
+  if (floorProtocol !== RUNNER_PROTOCOL_VERSION) {
+    console.error(
+      `build-app-bundle: FLOOR_RUNNER_PROTOCOL (${floorProtocol}) != ` +
+        `@moxxy/runner RUNNER_PROTOCOL_VERSION (${RUNNER_PROTOCOL_VERSION}) — ` +
+        'update apps/desktop/electron/main/floor-runner-protocol.ts to match.',
+    );
+    process.exit(1);
+  }
+
   const { manifest, manifestJson, bundleGz } = buildAppBundle({
     version,
     minElectron,
@@ -107,6 +130,7 @@ function main() {
     bundleUrl,
     privateKeyPem,
     files,
+    runnerProtocol: RUNNER_PROTOCOL_VERSION,
     releaseUrl,
     notes: process.env.MOXXY_BUNDLE_NOTES,
   });
@@ -119,7 +143,7 @@ function main() {
   console.log(
     `build-app-bundle: wrote ${Object.keys(files).length} files ` +
       `(${(bytes / 1024).toFixed(0)} KiB raw → ${(bundleGz.length / 1024).toFixed(0)} KiB gz)\n` +
-      `  version=${version} minElectron=${minElectron} nodeAbi=${nodeAbi || '(any)'}\n` +
+      `  version=${version} minElectron=${minElectron} nodeAbi=${nodeAbi || '(any)'} runnerProtocol=${RUNNER_PROTOCOL_VERSION}\n` +
       `  sha256=${manifest.sha256}\n` +
       `  bundleUrl=${bundleUrl}\n` +
       `  out=${outDir}`,

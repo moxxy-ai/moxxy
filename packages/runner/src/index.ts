@@ -14,10 +14,12 @@ export { RunnerServer, startRunnerServer } from './server.js';
 export {
   RemoteSession,
   connectRemoteSession,
+  isProtocolMismatchError,
   type RemoteSessionOptions,
 } from './remote-session.js';
 export {
   RUNNER_PROTOCOL_VERSION,
+  MIN_COMPATIBLE_PROTOCOL_VERSION,
   RunnerMethod,
   RunnerNotification,
   attachParamsSchema,

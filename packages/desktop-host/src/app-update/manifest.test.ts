@@ -101,6 +101,25 @@ describe('verifyManifestSignature', () => {
     );
     expect(verifyManifestSignature(reordered!, publicKeyPem)).toBe(true);
   });
+
+  it('round-trips a manifest carrying a signed runnerProtocol stamp', () => {
+    const { manifest, publicKeyPem } = signed({ runnerProtocol: 4 });
+    expect(verifyManifestSignature(manifest, publicKeyPem)).toBe(true);
+    const parsed = parseManifest(JSON.stringify(manifest));
+    expect(parsed?.runnerProtocol).toBe(4);
+    expect(verifyManifestSignature(parsed!, publicKeyPem)).toBe(true);
+  });
+
+  it('rejects a downgrade that strips (or alters) the runnerProtocol stamp', () => {
+    const { manifest, publicKeyPem } = signed({ runnerProtocol: 4 });
+    const { runnerProtocol: _dropped, ...withoutStamp } = manifest;
+    expect(verifyManifestSignature(withoutStamp, publicKeyPem)).toBe(false);
+    expect(verifyManifestSignature({ ...manifest, runnerProtocol: 3 }, publicKeyPem)).toBe(false);
+
+    // …and a legacy manifest can't have a stamp injected.
+    const { manifest: legacy, publicKeyPem: legacyKey } = signed();
+    expect(verifyManifestSignature({ ...legacy, runnerProtocol: 4 }, legacyKey)).toBe(false);
+  });
 });
 
 describe('parseManifest', () => {
@@ -141,5 +160,13 @@ describe('parseManifest', () => {
     expect(parseManifest(JSON.stringify({ ...manifest, files: ['a'] }))).toBeNull();
     expect(parseManifest(JSON.stringify({ ...manifest, files: { '': 'a'.repeat(64) } }))).toBeNull();
     expect(parseManifest(JSON.stringify({ ...manifest, files: { 'a.js': 'short' } }))).toBeNull();
+  });
+
+  it('parses a valid runnerProtocol and rejects a malformed one', () => {
+    const { manifest } = signed({ runnerProtocol: 4 });
+    expect(parseManifest(JSON.stringify(manifest))?.runnerProtocol).toBe(4);
+    expect(parseManifest(JSON.stringify({ ...manifest, runnerProtocol: -1 }))).toBeNull();
+    expect(parseManifest(JSON.stringify({ ...manifest, runnerProtocol: 1.5 }))).toBeNull();
+    expect(parseManifest(JSON.stringify({ ...manifest, runnerProtocol: 'four' }))).toBeNull();
   });
 });

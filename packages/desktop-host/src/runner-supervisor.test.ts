@@ -1,9 +1,25 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { EventEmitter } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
+
+// Mock the runner client so we can drive a PERSISTENT protocol mismatch through
+// the supervisor's loop without a real `moxxy serve`. Everything else
+// (isProtocolMismatchError, RUNNER_PROTOCOL_VERSION, the socket helpers the
+// supervisor imports) keeps its real behavior.
+vi.mock('@moxxy/runner', async (importActual) => {
+  const actual = await importActual<typeof import('@moxxy/runner')>();
+  return {
+    ...actual,
+    connectRemoteSession: vi.fn(() => {
+      // The hard mismatch the runner throws for a genuinely-incompatible client
+      // — and the same version on every attempt (the pinned-CLI case).
+      return Promise.reject(new Error('runner protocol mismatch: server v99, client v4'));
+    }),
+  };
+});
 
 import { RunnerSupervisor } from './runner-supervisor';
 
@@ -131,6 +147,51 @@ describe('RunnerSupervisor', () => {
     expect(
       (sup as unknown as { child: ChildProcess | null }).child,
     ).toBeNull();
+  });
+
+  it('surfaces a TERMINAL protocol-incompatible phase instead of looping forever on a persistent mismatch', async () => {
+    // The desktop hot-update case: the (pinned) CLI's runner can never satisfy
+    // the JS bundle's newer client, so EVERY attach mismatches the SAME way.
+    // The supervisor must attempt recovery ONCE, see the same mismatch again,
+    // then STOP with a terminal phase — not reconnect endlessly.
+    const socketPath = path.join(tmp, 'serve.sock');
+
+    // A resolvable (no-op) CLI so we get past resolving-cli.
+    const cliEntry = path.join(tmp, 'fake-bin.js');
+    writeFileSync(cliEntry, '// fake moxxy cli\n');
+    process.env.MOXXY_CLI_ENTRY = cliEntry;
+
+    const sup = new RunnerSupervisor(socketPath);
+    // ADOPT path on every attempt (no real serve to spawn) + don't actually
+    // hunt/unlink processes. The mocked connectRemoteSession is what throws.
+    const priv = sup as unknown as {
+      probeSocket: () => Promise<boolean>;
+      killForeignRunner: () => Promise<void>;
+    };
+    priv.probeSocket = () => Promise.resolve(true);
+    priv.killForeignRunner = () => Promise.resolve();
+
+    const phases: string[] = [];
+    sup.on('change', (snap) => phases.push(snap.phase.phase));
+
+    const loop = sup.run();
+    await waitFor(() => sup.snapshot().phase.phase === 'protocol-incompatible', 8000);
+    // run() must have RETURNED (terminal phase breaks the loop) — not still spinning.
+    await loop;
+
+    const final = sup.snapshot().phase;
+    expect(final.phase).toBe('protocol-incompatible');
+    if (final.phase === 'protocol-incompatible') {
+      expect(final.serverVersion).toBe(99);
+      expect(final.clientVersion).toBe(4);
+      expect(final.hint).toMatch(/update the cli/i);
+    }
+    // Bounded: one "stale runner replaced" recovery reconnect at most, then
+    // terminal — never an unbounded reconnect storm.
+    const reconnects = phases.filter((p) => p === 'reconnecting').length;
+    expect(reconnects).toBeLessThanOrEqual(2);
+
+    await sup.stop();
   });
 });
 

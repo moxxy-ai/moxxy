@@ -169,6 +169,14 @@ export class RemoteSession implements ClientSession {
   private permissionResolver: PermissionResolver | null = null;
   private approvalResolver: ApprovalResolver | null = null;
   private info: SessionInfo | null = null;
+  /**
+   * The protocol version the SERVER reported at attach. Defaults to our own
+   * version until the handshake resolves. Version-specific client methods (the
+   * v4 workflow *builder* family) gate on this so a newer client attached to an
+   * older runner degrades with a clear, actionable error instead of a raw
+   * JSON-RPC method-not-found. Null until attached.
+   */
+  private serverProtocolVersion: number | null = null;
 
   constructor(transport: Transport) {
     this.peer = new JsonRpcPeer(transport);
@@ -249,6 +257,39 @@ export class RemoteSession implements ClientSession {
       sinceSeq,
     });
     this.info = result.info;
+    // Record the server's protocol so version-gated methods can degrade
+    // cleanly against an older runner (tolerant negotiation, Part A). A server
+    // that predates this field reports nothing → assume it matches us.
+    this.serverProtocolVersion =
+      typeof result.protocolVersion === 'number'
+        ? result.protocolVersion
+        : RUNNER_PROTOCOL_VERSION;
+  }
+
+  /**
+   * The protocol version the attached runner speaks (its own, from the
+   * handshake). Lets a capability-detecting caller (e.g. the desktop's visual
+   * builder, see #146) decide whether a version-gated feature is available on
+   * THIS runner before invoking it. Null until attached.
+   */
+  get runnerProtocolVersion(): number | null {
+    return this.serverProtocolVersion;
+  }
+
+  /**
+   * Guard a method that only exists on a server at/after `minVersion`. Throws a
+   * clear, actionable error (not a raw JSON-RPC method-not-found) when the
+   * attached runner is older — the desktop case after a JS hot-update outran
+   * its bundled CLI.
+   */
+  private requireServerProtocol(minVersion: number, feature: string): void {
+    const server = this.serverProtocolVersion;
+    if (server !== null && server < minVersion) {
+      throw new Error(
+        `${feature} is not supported by this runner ` +
+          `(runner protocol v${server}, needs v${minVersion}) — update the moxxy CLI to continue.`,
+      );
+    }
   }
 
   get id(): SessionId {
@@ -547,15 +588,26 @@ export class RemoteSession implements ClientSession {
         this.peer.request<WorkflowRunResult>(RunnerMethod.WorkflowRun, { name }),
       // Builder methods (protocol v4): forward to the runner so the desktop's
       // RemoteSession-backed visual builder can validate/save/load drafts.
-      validateDraft: (yaml) =>
-        this.peer.request<WorkflowValidateResult>(RunnerMethod.WorkflowValidateDraft, { yaml }),
-      save: (yaml, previousName) =>
-        this.peer.request<WorkflowSaveResult>(RunnerMethod.WorkflowSave, {
+      // Gated on the SERVER's reported version so a v4 client on a v3 runner
+      // (a desktop whose JS hot-update outran its bundled CLI) gets a clear
+      // "update the CLI" error instead of a raw method-not-found.
+      validateDraft: async (yaml) => {
+        this.requireServerProtocol(4, 'The workflows builder');
+        return this.peer.request<WorkflowValidateResult>(RunnerMethod.WorkflowValidateDraft, {
+          yaml,
+        });
+      },
+      save: async (yaml, previousName) => {
+        this.requireServerProtocol(4, 'Saving a workflow from the builder');
+        return this.peer.request<WorkflowSaveResult>(RunnerMethod.WorkflowSave, {
           yaml,
           ...(previousName ? { previousName } : {}),
-        }),
-      getRun: (name) =>
-        this.peer.request<WorkflowDetailResult | null>(RunnerMethod.WorkflowGetRun, { name }),
+        });
+      },
+      getRun: async (name) => {
+        this.requireServerProtocol(4, 'Loading a workflow into the builder');
+        return this.peer.request<WorkflowDetailResult | null>(RunnerMethod.WorkflowGetRun, { name });
+      },
     };
   }
 }
@@ -673,13 +725,23 @@ function defaultApproval(request: ApprovalRequest): ApprovalDecision {
  * Connect to a running runner and return an attached {@link RemoteSession}.
  * Throws if no runner is listening (callers decide whether to self-host).
  *
- * Protocol-mismatch recovery: when the server is on a lower protocol
- * version than this client (i.e. the user upgraded moxxy but left an
- * older `moxxy serve` daemon running), the attach throws "protocol
- * mismatch: server vX, client vY". This is unambiguously fatal — the
- * older daemon can never speak our protocol — so we proactively kill
- * it and unlink the socket. The caller's next attempt (CLI's
- * self-host fallback, desktop supervisor's retry) finds a clean slate.
+ * Protocol-mismatch recovery: with tolerant negotiation (Part A) a server
+ * only ever throws "protocol mismatch" for a GENUINELY INCOMPATIBLE client
+ * (one below the server's MIN_COMPATIBLE floor) — additive skew (a newer
+ * client on an older server, e.g. v4-client/v3-runner) attaches cleanly and
+ * degrades per-method instead. A thrown mismatch is therefore a real stale
+ * daemon: an older `moxxy serve` left running after the user upgraded moxxy,
+ * which a fresh spawn fixes. We proactively kill it + unlink the socket so the
+ * caller's next attempt (CLI self-host fallback, desktop supervisor retry)
+ * finds a clean slate.
+ *
+ * IMPORTANT: a fresh spawn only fixes this when the new runner is genuinely
+ * newer. If respawning yields the SAME incompatible version (the desktop case:
+ * the bundled CLI is pinned), the caller MUST NOT retry forever — it has to
+ * surface a terminal, actionable error. {@link connectRemoteSession} re-throws
+ * the original mismatch so the caller (supervisor) can detect a persistent
+ * incompatibility across attempts and stop; recovery here is best-effort
+ * cleanup, not a guarantee the next attempt succeeds.
  *
  * Default ports also cleared: 4040 (web surface — locks out a fresh
  * `moxxy serve` even after the daemon is dead).
@@ -703,6 +765,18 @@ export async function connectRemoteSession(
   }
 }
 
+/**
+ * True iff `err` is the runner's hard protocol-mismatch error (a client below
+ * the server's compatibility floor — a real stale daemon). Exported so callers
+ * that supervise reconnects (the desktop supervisor) can distinguish a
+ * genuinely-incompatible runner — which a respawn from the SAME binary will NOT
+ * fix, so they must stop retrying — from a transient disconnect.
+ */
+export function isProtocolMismatchError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /protocol mismatch/i.test(msg);
+}
+
 /** Run recovery if (a) the error is a protocol mismatch, (b) the
  *  caller didn't inject a fake transport, and (c) the caller didn't
  *  opt out. Swallows recovery errors — the original attach error is
@@ -713,8 +787,7 @@ async function maybeRecoverFromMismatch(
   opts: RemoteSessionOptions,
 ): Promise<void> {
   if (opts.transport || opts.skipMismatchRecovery) return;
-  const msg = err instanceof Error ? err.message : String(err);
-  if (!/protocol mismatch/i.test(msg)) return;
+  if (!isProtocolMismatchError(err)) return;
   try {
     await killAndUnlinkRunner(socketPath, [...DEFAULT_RUNNER_PORTS, ...(opts.extraPortsToFree ?? [])]);
   } catch {

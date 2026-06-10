@@ -248,6 +248,17 @@ export interface ResolveOpts {
   /** Baked Ed25519 public key (SPKI PEM). Empty disables all overrides. */
   publicKeyPem: string;
   shell: ShellInfo;
+  /**
+   * The runner protocol version the REACHABLE CLI can serve — i.e. the
+   * `RUNNER_PROTOCOL_VERSION` of the CLI the desktop will actually spawn
+   * (the pinned, bundled `moxxy-cli` in resources, whose protocol equals the
+   * FLOOR app's). The bootstrap passes its own floor constant. A staged JS
+   * bundle whose signed `runnerProtocol` EXCEEDS this is rejected
+   * (`runner-protocol-skew`): its bundled client would speak a protocol the
+   * spawnable runner can't, stranding the desktop in a reconnect loop. Omit to
+   * skip the gate (e.g. legacy callers / tests that don't model the CLI).
+   */
+  cliRunnerProtocol?: number;
 }
 
 /** Why {@link resolveActiveBundleDetailed} declined to load an override bundle.
@@ -261,6 +272,7 @@ export type ResolveRejectReason =
   | 'version-mismatch' // manifest.version ≠ active version
   | 'bad-signature' // Ed25519 verification failed
   | 'incompatible' // Electron/ABI floor not met (needs a shell update)
+  | 'runner-protocol-skew' // bundle's client outruns the spawnable CLI's runner (needs a CLI/app update)
   | 'main-missing' // dist-electron/main/index.js absent on disk
   | 'file-tampered'; // a file in the signed `files` map is missing/modified on disk
 
@@ -280,7 +292,7 @@ export type ResolveResult =
  *   legacy manifests have no map and get no load-time file verification).
  */
 export function resolveActiveBundleDetailed(opts: ResolveOpts): ResolveResult {
-  const { userDataDir, publicKeyPem, shell } = opts;
+  const { userDataDir, publicKeyPem, shell, cliRunnerProtocol } = opts;
   if (!publicKeyPem) return { bundle: null, reason: 'disabled' };
 
   const version = readActiveVersion(userDataDir);
@@ -295,6 +307,20 @@ export function resolveActiveBundleDetailed(opts: ResolveOpts): ResolveResult {
   if (manifest.version !== version) return { bundle: null, reason: 'version-mismatch' };
   if (!verifyManifestSignature(manifest, publicKeyPem)) return { bundle: null, reason: 'bad-signature' };
   if (!isCompatible(manifest, shell)) return { bundle: null, reason: 'incompatible' };
+  // Lockstep gate: a JS hot-update ships only dist/ — its bundled @moxxy/runner
+  // CLIENT can advance past the pinned, bundled CLI's runner. Activating such a
+  // bundle would strand the desktop with a client newer than any runner it can
+  // spawn → the protocol-skew reconnect loop. Refuse it (the boot path reverts
+  // to the floor JS, which matches the CLI). Only enforced when both the
+  // bundle's stamp and the caller's CLI protocol are known (signed value, so
+  // trusted post-signature-check).
+  if (
+    typeof cliRunnerProtocol === 'number' &&
+    typeof manifest.runnerProtocol === 'number' &&
+    manifest.runnerProtocol > cliRunnerProtocol
+  ) {
+    return { bundle: null, reason: 'runner-protocol-skew' };
+  }
 
   const mainEntry = path.join(root, 'dist-electron', 'main', 'index.js');
   if (!existsSync(mainEntry)) return { bundle: null, reason: 'main-missing' };

@@ -13,28 +13,61 @@ import type {
 } from '@moxxy/sdk';
 
 /**
- * Wire contract between the runner (server) and thin clients. Bumped when an
- * incompatible change lands; `attach` exchanges versions so a stale client
- * fails loudly instead of misbehaving.
+ * Wire contract between the runner (server) and thin clients. `attach`
+ * exchanges versions so an incompatible client fails loudly instead of
+ * misbehaving — but compatible skew is TOLERATED (see negotiation rule below).
+ *
+ * Versioning rule (two knobs):
+ *   - {@link RUNNER_PROTOCOL_VERSION} is bumped on ANY protocol change
+ *     (additive or breaking). It identifies "what this build speaks".
+ *   - {@link MIN_COMPATIBLE_PROTOCOL_VERSION} is bumped ONLY on a BREAKING
+ *     change — one that removes/renames a method or alters an existing
+ *     method's params/result shape so an older peer would misbehave. It is
+ *     the lowest CLIENT version whose CORE session protocol this server can
+ *     still serve correctly.
+ *
+ * The handshake then accepts any client `>= MIN_COMPATIBLE_PROTOCOL_VERSION`
+ * (Part A — tolerant negotiation): a NEWER client just won't call methods this
+ * (older) server lacks, and an OLDER-but-still-compatible client never used the
+ * methods this server added. Only a `< MIN_COMPATIBLE` client is genuinely
+ * incompatible — that's the sole hard "mismatch". The server returns its OWN
+ * version in {@link AttachResult.protocolVersion} so the client can gate
+ * version-specific methods (e.g. the v4 builder family) and degrade gracefully
+ * against an older runner instead of hitting a raw method-not-found.
  *
  * v2: adds mcp.* and workflow.* method families so a thin client can drive
  * the MCP-server admin + workflows panels remotely. Both families degrade
  * cleanly when the corresponding plugin isn't loaded on the runner — the
- * server returns an empty list / `null` rather than throwing.
+ * server returns an empty list / `null` rather than throwing. (Additive.)
  *
  * v3: adds `session.reset` (request) + `session.reset` (notification) so
  * `/new` clears the runner's authoritative log — not just a client's local
  * mirror — and every attached mirror clears in lockstep. Without it, a
  * mirror-only clear desyncs seq-contiguous `ingest` and the mirror silently
- * rejects every subsequent event.
+ * rejects every subsequent event. (Additive.)
  *
  * v4: adds the workflow *builder* method family (`workflow.validateDraft`,
  * `workflow.save`, `workflow.getRun`) so a thin client (TUI / desktop's
  * RemoteSession) can drive the visual builder remotely. Like the other
  * workflow.* methods they degrade cleanly: the server throws a clear "not
  * supported" error when the workflows plugin (or its builder slice) is absent.
+ * (Additive — a v3 server simply lacks these three methods; a v4 client gates
+ * them on the server's reported version, see {@link AttachResult}.)
+ *
+ * Every change v1→v4 has been ADDITIVE, so MIN_COMPATIBLE stays at 1: today's
+ * server can serve any client back to v1, and any client v1+ can attach. Bump
+ * MIN_COMPATIBLE to N only when landing a breaking change at version N.
  */
 export const RUNNER_PROTOCOL_VERSION = 4;
+
+/**
+ * Lowest client protocol version this build's CORE session protocol is
+ * compatible with. The handshake rejects only clients BELOW this. Since every
+ * change through v4 was purely additive, this is 1 — bump it (to the new
+ * version) the moment a genuinely BREAKING protocol change lands, and never
+ * before. See the versioning rule in the module doc above.
+ */
+export const MIN_COMPATIBLE_PROTOCOL_VERSION = 1;
 
 /** Request methods. Client->server unless noted. */
 export const RunnerMethod = {
