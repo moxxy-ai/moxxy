@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { writeFileAtomic, createMutex, type Mutex } from '@moxxy/sdk';
+import { writeFileAtomic, createMutex, MoxxyError, type Mutex } from '@moxxy/sdk';
 import { decrypt, encrypt, generateSalt, type EncryptedBlob } from './crypto.js';
 import type { MasterKeySource } from './keysource.js';
 
@@ -112,7 +112,12 @@ export class VaultStore {
     }
     const parsed = JSON.parse(raw) as VaultFile;
     if (parsed.version !== 1 || parsed.kdf !== 'scrypt') {
-      throw new Error(`Unsupported vault file: version=${parsed.version} kdf=${parsed.kdf}`);
+      throw new MoxxyError({
+        code: 'VAULT_CORRUPT',
+        message: `Unsupported vault file: version=${parsed.version} kdf=${parsed.kdf}`,
+        hint: `This vault was written by an incompatible version. Back up and remove ${this.filePath} to re-initialize.`,
+        context: { filePath: this.filePath },
+      });
     }
     this.file = parsed;
     const salt = Buffer.from(parsed.salt, 'base64');

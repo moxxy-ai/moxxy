@@ -6,6 +6,9 @@ import type {
   ProviderRequest,
   StopReason,
 } from '@moxxy/sdk';
+
+type MessageStreamParams = Anthropic.Messages.MessageStreamParams;
+type MessageCountTokensParams = Anthropic.Messages.MessageCountTokensParams;
 import { estimateTextTokens, toFriendlyError } from '@moxxy/sdk';
 import { toAnthropicMessages, toAnthropicTools } from './translate.js';
 
@@ -48,10 +51,16 @@ export interface AnthropicProviderConfig {
   readonly oauthRefresh?: () => Promise<{ readonly token: string; readonly expiresAt?: number }>;
 }
 
+// Hardcoded model catalog (re-exported to @moxxy/plugin-provider-claude-code, which
+// reuses this provider class for the subscription path). Deriving it from the Models
+// API is a larger change (auth + caching) — deliberately deferred (TECH_DEBT P3 #8).
+// Values verified against the current Anthropic model catalog: opus-4-7 and
+// sonnet-4-6 carry a 1M context window (not the old 800k/200k); haiku-4-5 is 200k.
+// maxOutputTokens reflect each model's streaming ceiling.
 export const anthropicModels: ReadonlyArray<ModelDescriptor> = [
-  { id: 'claude-opus-4-7', contextWindow: 800_000, maxOutputTokens: 8000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
-  { id: 'claude-sonnet-4-6', contextWindow: 200_000, maxOutputTokens: 8000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
-  { id: 'claude-haiku-4-5-20251001', contextWindow: 200_000, maxOutputTokens: 8000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
+  { id: 'claude-opus-4-7', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
+  { id: 'claude-sonnet-4-6', contextWindow: 1_000_000, maxOutputTokens: 64_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
+  { id: 'claude-haiku-4-5-20251001', contextWindow: 200_000, maxOutputTokens: 64_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
 ];
 
 export class AnthropicProvider implements LLMProvider {
@@ -202,12 +211,17 @@ export class AnthropicProvider implements LLMProvider {
       }
     }
 
-    const requestBody: Record<string, unknown> = {
+    // NARROW cast: `messages`/`tools`/`systemParam` are our hand-rolled
+    // Anthropic shapes (e.g. `media_type: string`) which the SDK narrows to
+    // literal unions it can't see we never violate. The body is otherwise
+    // typed as the SDK's real `MessageStreamParams` — `model`/`max_tokens`/
+    // `temperature` are checked at compile time.
+    const requestBody: MessageStreamParams = {
       model,
       max_tokens: req.maxTokens ?? 4096,
-      system: systemParam,
-      messages,
-      tools,
+      system: systemParam as MessageStreamParams['system'],
+      messages: messages as MessageStreamParams['messages'],
+      tools: tools as MessageStreamParams['tools'],
       ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
     };
 
@@ -237,11 +251,11 @@ export class AnthropicProvider implements LLMProvider {
    * Abort is terminal here (yields the abort error and returns).
    */
   private async *streamOnce(
-    requestBody: Record<string, unknown>,
+    requestBody: MessageStreamParams,
     signal: AbortSignal | undefined,
   ): AsyncIterable<ProviderEvent> {
     const stream = this.client.messages.stream(
-      requestBody as unknown as Parameters<typeof this.client.messages.stream>[0],
+      requestBody,
       // Pass the AbortSignal into the SDK request options so cancelling
       // tears down the underlying HTTP request. Without this, Esc only
       // stopped our loop while the model kept generating upstream.
@@ -375,11 +389,15 @@ export class AnthropicProvider implements LLMProvider {
     );
     const systemForCount = parts.length > 0 ? parts.join('\n\n') : undefined;
     try {
-      const result = await (this.client.messages as unknown as { countTokens: (args: unknown) => Promise<{ input_tokens: number }> }).countTokens({
+      const result = await this.client.messages.countTokens({
         model: req.model || this.defaultModel,
-        system: systemForCount,
-        messages,
-        tools,
+        ...(systemForCount !== undefined ? { system: systemForCount } : {}),
+        // NARROW cast: our hand-rolled message/tool shapes carry `media_type:
+        // string`, which the SDK narrows to a literal union it can't see we
+        // never violate. The method itself is fully typed (no `as unknown` on
+        // the resource anymore); only these two args need the structural cast.
+        messages: messages as MessageCountTokensParams['messages'],
+        ...(tools !== undefined ? { tools: tools as MessageCountTokensParams['tools'] } : {}),
       });
       return result.input_tokens;
     } catch {

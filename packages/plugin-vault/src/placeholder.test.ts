@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { MoxxyError } from '@moxxy/sdk';
 import { VaultStore } from './store.js';
 import { createStaticKeySource } from './keysource.js';
 import { deriveKey, generateSalt } from './crypto.js';
@@ -37,8 +38,12 @@ describe('resolveString', () => {
     expect(out).toBe('sk-xyz-42');
   });
 
-  it('throws on missing required entries', async () => {
+  it('throws a CONFIG_INVALID MoxxyError on missing required entries', async () => {
     await expect(resolveString('${vault:MISSING}', vault)).rejects.toThrow(/missing required entry/);
+    const err = await resolveString('${vault:MISSING}', vault).catch((e) => e);
+    expect(MoxxyError.isMoxxyError(err)).toBe(true);
+    expect((err as MoxxyError).code).toBe('CONFIG_INVALID');
+    expect((err as MoxxyError).context).toMatchObject({ name: 'MISSING' });
   });
 });
 

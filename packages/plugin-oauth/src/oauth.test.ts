@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MoxxyError } from '@moxxy/sdk';
 import {
   buildAuthUrl,
   buildOauthAuthorizeTool,
@@ -9,6 +10,12 @@ import {
   generateState,
   validateProvider,
 } from './index.js';
+
+const noopLogger = { debug() {}, info() {}, warn() {}, error() {} };
+const fakeCtx = {
+  signal: new AbortController().signal,
+  logger: noopLogger,
+} as never;
 
 describe('@moxxy/plugin-oauth', () => {
   describe('PKCE primitives', () => {
@@ -130,6 +137,30 @@ describe('@moxxy/plugin-oauth', () => {
       const tool = buildOauthClearTool(noopDeps);
       expect(tool.inputSchema.safeParse({ provider: 'google' }).success).toBe(true);
       expect(tool.inputSchema.safeParse({}).success).toBe(false);
+    });
+  });
+
+  describe('authorize input validation', () => {
+    const deps = { vault: {} as never };
+
+    it('throws a TOOL_ERROR MoxxyError when mode=device is missing deviceUrl', async () => {
+      const tool = buildOauthAuthorizeTool(deps);
+      const err = await Promise.resolve()
+        .then(() => tool.handler({ provider: 'google', clientId: 'X', scopes: ['email'], tokenUrl: 'https://t', mode: 'device' }, fakeCtx))
+        .catch((e) => e);
+      expect(MoxxyError.isMoxxyError(err)).toBe(true);
+      expect((err as MoxxyError).code).toBe('TOOL_ERROR');
+      expect((err as MoxxyError).message).toMatch(/deviceUrl/);
+    });
+
+    it('throws a TOOL_ERROR MoxxyError when mode=loopback is missing authUrl', async () => {
+      const tool = buildOauthAuthorizeTool(deps);
+      const err = await Promise.resolve()
+        .then(() => tool.handler({ provider: 'google', clientId: 'X', scopes: ['email'], tokenUrl: 'https://t' }, fakeCtx))
+        .catch((e) => e);
+      expect(MoxxyError.isMoxxyError(err)).toBe(true);
+      expect((err as MoxxyError).code).toBe('TOOL_ERROR');
+      expect((err as MoxxyError).message).toMatch(/authUrl/);
     });
   });
 

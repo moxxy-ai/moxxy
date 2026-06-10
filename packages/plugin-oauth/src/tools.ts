@@ -111,7 +111,10 @@ export function buildOauthAuthorizeTool(deps: OAuthToolDeps) {
       let tokens: TokenSet;
       if (mode === 'device') {
         if (!input.deviceUrl) {
-          throw new Error('mode="device" requires `deviceUrl` (the provider\'s device-authorization endpoint)');
+          throw new MoxxyError({
+            code: 'TOOL_ERROR',
+            message: 'mode="device" requires `deviceUrl` (the provider\'s device-authorization endpoint)',
+          });
         }
         tokens = await runDeviceCodeFlow({
           deviceUrl: input.deviceUrl,
@@ -143,7 +146,10 @@ export function buildOauthAuthorizeTool(deps: OAuthToolDeps) {
         });
       } else {
         if (!input.authUrl) {
-          throw new Error('mode="loopback" requires `authUrl` (the provider\'s authorization endpoint)');
+          throw new MoxxyError({
+            code: 'TOOL_ERROR',
+            message: 'mode="loopback" requires `authUrl` (the provider\'s authorization endpoint)',
+          });
         }
         if (input.noOpen) {
           // Compute + log the URL without spawning a browser.
