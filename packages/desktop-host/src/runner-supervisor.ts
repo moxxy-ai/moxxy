@@ -28,7 +28,9 @@ import { deleteSession } from '@moxxy/core';
 import {
   connectRemoteSession,
   isNamedPipe,
+  isProtocolMismatchError,
   platformSocket,
+  RUNNER_PROTOCOL_VERSION,
   type RemoteSession,
 } from '@moxxy/runner';
 
@@ -54,6 +56,15 @@ export class RunnerSupervisor extends EventEmitter {
   private child: ChildProcess | null = null;
   private retryNotify: () => void = () => {};
   private stopped = false;
+  /**
+   * How many times we've hard-killed a "stale" runner on a protocol mismatch
+   * and respawned. A respawn from our PINNED bundled CLI yields the SAME
+   * version, so a mismatch that survives one recovery is unrecoverable here —
+   * we then surface the terminal `protocol-incompatible` phase rather than
+   * loop "Reconnecting…" forever (the desktop hot-update skew bug). Reset on
+   * any successful connect.
+   */
+  private mismatchRecoveries = 0;
   /**
    * Currently active desk's cwd. The supervisor passes this as the
    * spawned moxxy serve's cwd so moxxy's config loader picks up the
@@ -227,9 +238,10 @@ export class RunnerSupervisor extends EventEmitter {
       try {
         await this.attempt();
       } catch (err) {
-        // attempt() sets the phase itself for known failures. This
-        // catch is the safety net for unexpected throws.
-        if (this.currentPhase.phase !== 'failed' && this.currentPhase.phase !== 'cli-missing') {
+        // attempt() sets the phase itself for known TERMINAL failures
+        // (cli-missing, protocol-incompatible) and the recoverable mismatch
+        // path. This catch is the safety net for unexpected throws.
+        if (!isTerminalPhase(this.currentPhase.phase)) {
           const msg = err instanceof Error ? err.message : String(err);
           this.attempts += 1;
           this.setPhase({
@@ -239,6 +251,9 @@ export class RunnerSupervisor extends EventEmitter {
           });
         }
       }
+      // A terminal phase means there is nothing a retry can fix — stop the loop
+      // instead of spinning forever (the desktop hot-update reconnect loop).
+      if (isTerminalPhase(this.currentPhase.phase)) break;
       await this.waitForRetry();
     }
   }
@@ -328,15 +343,26 @@ export class RunnerSupervisor extends EventEmitter {
         socketPath: this.socketPath,
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      // A previously-installed older moxxy may have left a v1 daemon
-      // bound to ~/.moxxy/serve.sock. The desktop's client is v2 →
-      // mismatch. Kill the foreign daemon, sweep the socket, and let
-      // the run loop respin so we spawn our own bundled serve.
-      if (/protocol mismatch/i.test(msg)) {
+      // Only a GENUINELY-INCOMPATIBLE client (below the server's compatibility
+      // floor) throws a protocol mismatch now — additive skew is tolerated by
+      // the server and attaches cleanly. The classic recoverable case is an
+      // older `moxxy serve` daemon left bound to the socket: kill it, sweep the
+      // socket, respawn our own bundled serve. But our bundled CLI is PINNED,
+      // so if a SECOND attach still mismatches, respawning can't help — surface
+      // a terminal error instead of looping "Reconnecting…" forever (the
+      // hot-update skew bug: a JS bundle whose client outran the CLI's runner).
+      if (isProtocolMismatchError(err)) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (this.mismatchRecoveries >= 1) {
+          this.setPhase(protocolIncompatiblePhase(msg));
+          // Returning (not throwing) leaves the phase terminal; the run loop
+          // sees it and stops retrying.
+          return;
+        }
+        this.mismatchRecoveries += 1;
         this.pushLog(
           'stderr',
-          `protocol mismatch on attach (${msg}); killing stale runner and respawning`,
+          `protocol mismatch on attach (${msg}); killing stale runner and respawning (recovery ${this.mismatchRecoveries})`,
         );
         await this.killForeignRunner();
         throw new Error(`stale runner replaced (${msg})`);
@@ -344,6 +370,9 @@ export class RunnerSupervisor extends EventEmitter {
       throw err;
     }
     this.session = session;
+    // A clean attach clears the recovery counter so a later, unrelated stale
+    // daemon still gets its one recovery attempt.
+    this.mismatchRecoveries = 0;
 
     const info = session.getInfo();
     this.setPhase({
@@ -561,6 +590,36 @@ export class RunnerSupervisor extends EventEmitter {
 
 function displayPath(cli: CliInvocation): string {
   return cli.kind === 'direct' ? cli.bin : cli.entry;
+}
+
+/** Phases the run loop must NOT retry past — there is nothing a respin can
+ *  fix. `protocol-incompatible` joins the existing terminal phases so a
+ *  persistent runner-protocol mismatch stops the loop instead of looping. */
+function isTerminalPhase(phase: ConnectionPhase['phase']): boolean {
+  return phase === 'failed' || phase === 'cli-missing' || phase === 'protocol-incompatible';
+}
+
+/** Extract the two protocol versions from the runner's mismatch message
+ *  (`runner protocol mismatch: server vX, client vY`). Returns null per field
+ *  when unparseable so the renderer still shows the raw message. */
+function parseMismatchVersions(msg: string): { server: number | null; client: number | null } {
+  const m = /server v(\d+),\s*client v(\d+)/i.exec(msg);
+  if (!m) return { server: null, client: null };
+  return { server: Number.parseInt(m[1] ?? '', 10), client: Number.parseInt(m[2] ?? '', 10) };
+}
+
+/** Build the terminal `protocol-incompatible` phase from a mismatch error. The
+ *  CLIENT version is what this app's bundled @moxxy/runner speaks; the SERVER
+ *  version is what the reachable (pinned, bundled) CLI's runner speaks. */
+function protocolIncompatiblePhase(msg: string): ConnectionPhase {
+  const { server, client } = parseMismatchVersions(msg);
+  return {
+    phase: 'protocol-incompatible',
+    serverVersion: server,
+    clientVersion: client ?? RUNNER_PROTOCOL_VERSION,
+    detail: msg,
+    hint: 'This app version needs a newer moxxy CLI. Update the CLI (or reinstall the app) to continue.',
+  };
 }
 
 function sleep(ms: number): Promise<void> {

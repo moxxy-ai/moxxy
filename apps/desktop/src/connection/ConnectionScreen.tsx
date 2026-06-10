@@ -27,7 +27,12 @@ export function ConnectionScreen({
   const problem =
     phase.phase === 'failed' ||
     phase.phase === 'cli-missing' ||
-    phase.phase === 'reconnecting';
+    phase.phase === 'reconnecting' ||
+    phase.phase === 'protocol-incompatible';
+  // A protocol incompatibility is TERMINAL — respawning hits the same pinned
+  // CLI, so "Try again" would loop straight back into the dead end. Hide the
+  // retry and tell the user what action actually unblocks them.
+  const terminal = phase.phase === 'protocol-incompatible';
 
   // Happy path: a continuous branded loading screen.
   if (!problem) {
@@ -80,23 +85,25 @@ export function ConnectionScreen({
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={onRetry}
-          style={{
-            padding: '9px 20px',
-            background: 'var(--grad-cta)',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 10,
-            fontWeight: 600,
-            fontSize: 13.5,
-            cursor: 'pointer',
-            boxShadow: '0 10px 20px -12px rgba(236, 72, 153, 0.55)',
-          }}
-        >
-          Try again
-        </button>
+        {!terminal && (
+          <button
+            type="button"
+            onClick={onRetry}
+            style={{
+              padding: '9px 20px',
+              background: 'var(--grad-cta)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 10,
+              fontWeight: 600,
+              fontSize: 13.5,
+              cursor: 'pointer',
+              boxShadow: '0 10px 20px -12px rgba(236, 72, 153, 0.55)',
+            }}
+          >
+            Try again
+          </button>
+        )}
 
         <TechnicalDetails snapshot={snapshot} phase={phase} />
       </div>
@@ -119,6 +126,8 @@ function friendlyTitle(phase: string): string {
       return 'Reconnecting…';
     case 'cli-missing':
       return "moxxy isn't installed yet";
+    case 'protocol-incompatible':
+      return 'Update needed to continue';
     case 'failed':
       return "Couldn't connect";
     default:
@@ -137,6 +146,8 @@ function friendlySub(phase: ConnectionPhase): string {
       return phase.reason
         ? `Lost the connection — ${phase.reason}`
         : 'Lost the connection to the runner. Reconnecting…';
+    case 'protocol-incompatible':
+      return phase.hint;
     default:
       return 'Hang tight while we get everything ready.';
   }
@@ -189,6 +200,20 @@ function TechnicalDetails({
           <>
             <DetailRow label="error" value={phase.error} />
             {phase.hint && <DetailRow label="hint" value={phase.hint} />}
+          </>
+        )}
+        {phase.phase === 'protocol-incompatible' && (
+          <>
+            <DetailRow
+              label="runner"
+              value={phase.serverVersion === null ? '(unknown)' : `v${phase.serverVersion}`}
+            />
+            <DetailRow
+              label="app"
+              value={phase.clientVersion === null ? '(unknown)' : `v${phase.clientVersion}`}
+            />
+            <DetailRow label="detail" value={phase.detail} />
+            <DetailRow label="hint" value={phase.hint} />
           </>
         )}
         {hasLog && snapshot && (

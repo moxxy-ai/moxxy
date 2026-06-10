@@ -67,6 +67,34 @@ Severity in brackets.
   coherence in the desktop `ws-bridge` suite. The wave-5 hardening (Origin default-deny, bearer
   subprotocol, connection caps) verified still applied on the runtime-gateway path.
 
+- **B2 [high, shipped regression] Desktop hot-update could strand its runner on a protocol skew**
+  — ✅ FIXED (this PR, branch `fix/runner-protocol-skew`). A Tier-1 JS hot-update ships only
+  `dist/` + `dist-electron/`, so it bumps the bundled `@moxxy/runner` CLIENT
+  (`RUNNER_PROTOCOL_VERSION`) but NOT the separately-bundled CLI the desktop spawns as its runner
+  (resolved by `preferredCliEntry` → `resourcesPath/moxxy-cli`). After a v3→v4 hot-update the
+  client was v4 and the runner v3; the server's STRICT `protocolVersion !== RUNNER_PROTOCOL_VERSION`
+  handshake threw, and the supervisor's "stale runner" recovery respawned from the SAME pinned CLI
+  → still v3 → infinite "Reconnecting…". (v3→v4 was purely additive — the rejection was needless.)
+  **Three-part fix:** (A) tolerant negotiation — `MIN_COMPATIBLE_PROTOCOL_VERSION` (=1, bump only
+  on a BREAKING change) gates the handshake; the server accepts any client `>= MIN_COMPATIBLE` and
+  reports its own version; the client records the server version and gates the v4-only
+  `workflow.validateDraft/save/getRun` builder methods on it, degrading with an actionable "update
+  the CLI" error instead of a raw method-not-found. (B) desktop lockstep (Option 1) — the signed
+  app-bundle manifest now carries a `runnerProtocol` stamp, and the bootstrap's
+  `resolveActiveBundleDetailed` refuses to activate (reverts to floor) any bundle whose stamp
+  EXCEEDS the spawnable CLI's protocol (`runner-protocol-skew` reject reason; floor protocol baked
+  as `FLOOR_RUNNER_PROTOCOL`, build asserts it == runner's). (C) UX — a persistent mismatch now
+  surfaces a TERMINAL `protocol-incompatible` connection phase (no Try-again, actionable hint,
+  vX/vY in Technical Details) after ONE failed recovery instead of an endless retry loop.
+  **Deferred follow-ups:** (1) `checkForUpdate` still OFFERS/downloads a skewed bundle — the
+  activation gate idempotently reverts it to floor every boot (no loop/crash), but a check-time
+  `cliRunnerProtocol` gate would avoid the wasted download + the surprised "update available then
+  nothing changes". (2) The deepest fix is to STOP a JS hot-update from outrunning the CLI at all
+  — i.e. ship the pnpm-deployed CLI INSIDE the Tier-1 bundle so client+runner update in lockstep
+  (Option 2). Larger (bundle bloat + cli-resolver/bootstrap prefer-the-bundle plumbing); left for a
+  dedicated PR now that Part A makes additive skew non-fatal and Part B/C make any future breaking
+  skew terminal-but-clear rather than a loop.
+
 ## 2026-06-09 audit intake — confirmed findings awaiting fixes
 
 Every item below survived an adversarial verification pass (an independent agent

@@ -34,6 +34,7 @@ import {
 } from '@moxxy/desktop-host/app-update';
 
 import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
+import { FLOOR_RUNNER_PROTOCOL } from './floor-runner-protocol.js';
 
 // MUST run before any `app.getPath('userData')` below. `userData` resolves to
 // `…/Application Support/<app.getName()>`, and in a packaged build Electron
@@ -96,6 +97,10 @@ async function boot(): Promise<void> {
         userDataDir: userData,
         publicKeyPem: BUNDLED_UPDATE_PUBLIC_KEY,
         shell,
+        // Lockstep gate: refuse a JS bundle whose bundled client outruns the
+        // pinned CLI's runner (the hot-update protocol-skew loop). The floor's
+        // CLI is what we spawn, so its protocol is the ceiling for a hot-update.
+        cliRunnerProtocol: FLOOR_RUNNER_PROTOCOL,
       });
       if (resolved.bundle) {
         const picked = resolved.bundle;

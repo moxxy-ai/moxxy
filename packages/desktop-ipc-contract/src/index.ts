@@ -158,7 +158,22 @@ export type ConnectionPhase =
       reason: string;
       attempt: number;
     }
-  | { phase: 'failed'; error: string; hint?: string };
+  | { phase: 'failed'; error: string; hint?: string }
+  /**
+   * Terminal: the runner this app can reach speaks an incompatible protocol
+   * and respawning won't fix it (the bundled CLI is pinned), so we STOP
+   * retrying instead of looping "Reconnecting…" forever. `serverVersion` /
+   * `clientVersion` are the two protocol versions, for the diagnostics
+   * readout; `hint` is the actionable user-facing instruction. Surfaced after
+   * one failed recovery attempt — see RunnerSupervisor.
+   */
+  | {
+      phase: 'protocol-incompatible';
+      serverVersion: number | null;
+      clientVersion: number | null;
+      detail: string;
+      hint: string;
+    };
 
 export interface ConnectionSnapshot {
   phase: ConnectionPhase;

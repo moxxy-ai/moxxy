@@ -30,6 +30,17 @@ export interface AppManifest {
    *  module skew. `''` is a wildcard ("any ABI"); the desktop's only native dep
    *  is optional + unpackaged, so Electron-version gating normally suffices. */
   nodeAbi: string;
+  /**
+   * The runner protocol version (`@moxxy/runner`'s `RUNNER_PROTOCOL_VERSION`)
+   * the bundle's bundled client speaks. Stamped at build time. The bootstrap
+   * REFUSES to activate a bundle whose `runnerProtocol` exceeds what the
+   * reachable (pinned, bundled) CLI's runner can serve — otherwise a JS
+   * hot-update would strand the desktop with a client newer than its runner
+   * (the protocol-skew reconnect loop). Absent on legacy manifests, which
+   * predate the field and are treated as "no constraint" (compatible by
+   * construction with the CLI they shipped beside).
+   */
+  runnerProtocol?: number;
   /** SHA-256 (hex) of the gzipped bundle payload. */
   sha256: string;
   /** Per-file integrity map: bundle-relative POSIX path → SHA-256 (hex) of the
@@ -71,13 +82,15 @@ type SignedField = (typeof SIGNED_FIELDS)[number];
 /**
  * Deterministic bytes the signature is computed/verified over.
  *
- * The `files` map is appended only when present, with sorted keys, so:
- *   - legacy manifests (no map) keep verifying byte-for-byte as before, and
- *   - stripping the map from (or adding one to) a signed manifest changes the
+ * The `files` map and `runnerProtocol` are appended only when present (files
+ * with sorted keys), so:
+ *   - legacy manifests (no map / no runnerProtocol) keep verifying byte-for-byte
+ *     as before, and
+ *   - stripping either from (or adding either to) a signed manifest changes the
  *     canonical bytes and breaks the signature — a downgrade can't be forged.
  */
 export function canonicalManifestBytes(
-  m: Pick<AppManifest, SignedField> & Pick<AppManifest, 'files'>,
+  m: Pick<AppManifest, SignedField> & Pick<AppManifest, 'files' | 'runnerProtocol'>,
 ): Buffer {
   const ordered: Record<string, unknown> = {};
   for (const k of SIGNED_FIELDS) ordered[k] = String(m[k] ?? '');
@@ -85,6 +98,11 @@ export function canonicalManifestBytes(
     const files: Record<string, string> = {};
     for (const rel of Object.keys(m.files).sort()) files[rel] = String(m.files[rel] ?? '');
     ordered.files = files;
+  }
+  // Appended after `files` (stable key order) so a manifest that carries the
+  // protocol stamp signs it too — a tampered/dropped stamp breaks the signature.
+  if (typeof m.runnerProtocol === 'number') {
+    ordered.runnerProtocol = String(m.runnerProtocol);
   }
   return Buffer.from(JSON.stringify(ordered), 'utf8');
 }
@@ -140,6 +158,13 @@ export function parseManifest(json: string): AppManifest | null {
       files[rel] = hash;
     }
     out.files = files;
+  }
+  // Optional runner-protocol stamp: a non-negative integer when present.
+  if (m.runnerProtocol !== undefined) {
+    if (typeof m.runnerProtocol !== 'number' || !Number.isInteger(m.runnerProtocol) || m.runnerProtocol < 0) {
+      return null;
+    }
+    out.runnerProtocol = m.runnerProtocol;
   }
   if (str(m.releaseUrl)) out.releaseUrl = m.releaseUrl;
   if (str(m.notes)) out.notes = m.notes;

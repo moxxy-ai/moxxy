@@ -25,6 +25,14 @@ export interface BuildInput {
   privateKeyPem: string;
   /** Bundle contents: dist-relative POSIX path → raw bytes. */
   files: Record<string, Buffer>;
+  /**
+   * The runner protocol version (`@moxxy/runner`'s `RUNNER_PROTOCOL_VERSION`)
+   * this bundle's bundled client speaks. Stamped into the signed manifest so
+   * the bootstrap can refuse to activate a JS bundle whose client would outrun
+   * the reachable CLI's runner (the protocol-skew lockstep gate). Omit on
+   * builds that predate the gate (treated as "no constraint").
+   */
+  runnerProtocol?: number;
   releaseUrl?: string;
   notes?: string;
 }
@@ -72,6 +80,11 @@ export function buildAppBundle(input: BuildInput): BuildOutput {
     sha256,
     bundleUrl: input.bundleUrl,
     files: fileHashes,
+    // Only stamped when supplied so a builder that hasn't wired the protocol
+    // through still produces a byte-identical legacy manifest.
+    ...(typeof input.runnerProtocol === 'number'
+      ? { runnerProtocol: input.runnerProtocol }
+      : {}),
   };
   const signature = cryptoSign(
     null,

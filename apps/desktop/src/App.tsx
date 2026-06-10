@@ -217,6 +217,9 @@ function describePhase(
       return phase.reason ? `Reconnecting — ${phase.reason}` : 'Reconnecting…';
     case 'failed':
       return phase.error ? `Disconnected — ${phase.error}` : 'Disconnected';
+    case 'protocol-incompatible':
+      // Terminal — say so plainly rather than implying a reconnect is coming.
+      return phase.hint;
     default:
       return 'Reconnecting…';
   }
