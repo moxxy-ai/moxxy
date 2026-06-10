@@ -153,15 +153,43 @@ export function selectNode(state: BuilderState, id: string | null): BuilderState
   return { ...state, selected: id };
 }
 
-/** Add a `needs` dependency edge (idempotent; ignores self/unknown). */
+/** Add a `needs` dependency edge (idempotent; ignores self/unknown/cyclic). */
 export function connectNeeds(state: BuilderState, from: string, to: string): BuilderState {
   if (from === to) return state;
   const exists = state.nodes.some((n) => n.id === from) && state.nodes.some((n) => n.id === to);
   if (!exists) return state;
+  // `to` would `needs: [from]`, i.e. `from` must run before `to`. If `from`
+  // already (transitively) depends on `to`, that edge closes a cycle the engine
+  // can never schedule — refuse it here so the canvas can't author an invalid
+  // DAG the way the inspector's free-text field could.
+  if (wouldCreateCycle(state, from, to)) return state;
   const nodes = state.nodes.map((n) =>
     n.id === to && !n.needs.includes(from) ? { ...n, needs: [...n.needs, from] } : n,
   );
   return refresh(state, nodes);
+}
+
+/**
+ * Would adding `to.needs += from` (⇒ `from` runs before `to`) close a cycle in
+ * the `needs` DAG? True iff `from` already depends — directly or transitively —
+ * on `to`. Pure + synchronous so interaction layers can guard a gesture before
+ * dispatching (server validation also rejects cycles, but only after a save).
+ */
+export function wouldCreateCycle(state: BuilderState, from: string, to: string): boolean {
+  if (from === to) return true;
+  const byId = new Map(state.nodes.map((n) => [n.id, n]));
+  // Walk `from`'s upstream dependencies; if we reach `to`, the new edge cycles.
+  const stack = [from];
+  const seen = new Set<string>();
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (id === to) return true;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const node = byId.get(id);
+    if (node) stack.push(...node.needs);
+  }
+  return false;
 }
 
 /** Remove a `needs` dependency edge. */

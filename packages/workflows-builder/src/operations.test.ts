@@ -16,6 +16,7 @@ import {
   uniqueId,
   updateMeta,
   updateNode,
+  wouldCreateCycle,
 } from './operations.js';
 import { loopExitTarget } from './serialize.js';
 
@@ -63,6 +64,20 @@ describe('needs edges', () => {
     expect(s.nodes.find((n) => n.id === 'b')!.needs).toEqual(['a']);
     s = disconnectNeeds(s, 'a', 'b');
     expect(s.nodes.find((n) => n.id === 'b')!.needs).toEqual([]);
+  });
+
+  it('refuses a connection that would create a cycle', () => {
+    let s = emptyState();
+    for (const id of ['a', 'b', 'c']) s = addStep(s, { kind: 'prompt', id });
+    s = connectNeeds(s, 'a', 'b'); // a → b
+    s = connectNeeds(s, 'b', 'c'); // b → c
+    expect(wouldCreateCycle(s, 'c', 'a')).toBe(true); // c → a closes a→b→c→a
+    const before = s;
+    s = connectNeeds(s, 'c', 'a');
+    expect(s).toBe(before); // no-op, no cycle authored
+    expect(s.nodes.find((n) => n.id === 'a')!.needs).toEqual([]);
+    // the reverse direction (already implied) is fine and idempotent
+    expect(wouldCreateCycle(s, 'a', 'c')).toBe(false);
   });
 });
 
