@@ -21,6 +21,7 @@ import {
   defaultUserWorkflowsDir,
   defaultWorkflowRunStore,
   parseWorkflowYaml,
+  resumeWorkflowRun,
   runWorkflow,
   serializeWorkflow,
 } from '@moxxy/plugin-workflows';
@@ -164,6 +165,63 @@ export function buildWorkflowsIntegration(args: {
     }
   }
 
+  /**
+   * Resume a paused (`awaitInput`) run: feed the operator's reply into the
+   * retained child session and drive the rest of the DAG. The retained child
+   * lives in this runner process's registry (set when the run paused), so the
+   * spawner's `continue` finds it. A run that COMPLETES (or fails) here IS
+   * terminal — deliver it to the inbox just like a clean `runNow` (the paused
+   * run was withheld earlier). If the resume itself pauses again (a workflow
+   * with multiple awaitInput steps), it stays parked for the next reply.
+   */
+  async function resumeNow(runId: string, reply: string): Promise<WorkflowRunResult> {
+    const checkpoint = await defaultWorkflowRunStore.load(runId);
+    const turnId = session.startTurn().turnId;
+    const spawner = createSubagentSpawner({
+      parentSession: session,
+      parentTurnId: turnId,
+      parentSignal: session.signal,
+      parentModel: activeModel(session),
+    });
+    const result = await resumeWorkflowRun(
+      runId,
+      reply,
+      {
+        spawner,
+        tools: session.tools,
+        lookup: {
+          skill: (n) => session.skills.byName(n),
+          workflow: (n) => store.lookup(n),
+        },
+        signal: session.signal,
+        now: () => Date.now(),
+        emit: (subtype, payload) =>
+          void session.log.append({
+            type: 'plugin_event',
+            sessionId: session.id,
+            turnId,
+            source: 'plugin',
+            pluginId: PLUGIN_ID,
+            subtype,
+            payload,
+          } as EmittedEvent),
+        ...(logger ? { logger } : {}),
+      },
+      defaultWorkflowRunStore,
+    );
+    // A still-paused result (a second awaitInput) is non-terminal — withhold it
+    // exactly like runNow. A completed/failed result IS terminal: deliver it.
+    if (result.status === 'paused') {
+      logger?.warn?.('workflows: run paused again awaiting operator input; not delivering to inbox', {
+        runId: result.runId,
+      });
+      return result;
+    }
+    // Resolve the workflow name from the checkpoint for inbox delivery metadata.
+    if (checkpoint?.workflow) await deliverToInbox(checkpoint.workflow, result, logger);
+    return result;
+  }
+
   // --- the /workflows modal view ---
   const view: WorkflowsView = {
     list: async () =>
@@ -186,6 +244,8 @@ export function buildWorkflowsIntegration(args: {
         output: r.output,
         ...(r.error ? { error: r.error } : {}),
         steps: r.steps.map((s) => ({ id: s.id, status: s.status, ...(s.error ? { error: s.error } : {}) })),
+        status: r.status,
+        ...(r.runId ? { runId: r.runId } : {}),
       };
     },
     // Builder-facing additions (phase 2 GUI): validate a draft YAML, persist a
@@ -212,6 +272,18 @@ export function buildWorkflowsIntegration(args: {
         scope: entry.scope,
         path: entry.path,
         yaml: serializeWorkflow(entry.workflow),
+      };
+    },
+    // Human-in-the-loop: answer a paused run's awaitInput question and resume.
+    resume: async (runId, reply) => {
+      const r = await resumeNow(runId, reply);
+      return {
+        ok: r.ok,
+        output: r.output,
+        ...(r.error ? { error: r.error } : {}),
+        steps: r.steps.map((s) => ({ id: s.id, status: s.status, ...(s.error ? { error: s.error } : {}) })),
+        status: r.status,
+        ...(r.runId ? { runId: r.runId } : {}),
       };
     },
   };

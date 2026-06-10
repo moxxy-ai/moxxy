@@ -45,10 +45,11 @@ describe('draftWorkflow', () => {
     expect(prompt).toContain('gmail_send');
     expect(prompt).toContain('at least 4 steps');
     expect(prompt).toContain('<< skill-name >>');
-    // awaitInput is gated (no resume channel) — the prompt must steer the model
-    // to `inputs` instead of teaching the unshippable pause flow.
-    expect(prompt).toContain('Never use `awaitInput`');
-    expect(prompt).not.toContain('awaitInput: true');
+    // awaitInput (human-in-the-loop) is shippable again — the prompt teaches the
+    // mid-run pause flow and includes a worked example.
+    expect(prompt).toContain('awaitInput');
+    expect(prompt).toContain('awaitInput: true');
+    expect(prompt).toMatch(/only valid on prompt\/skill|only allowed on prompt or skill|prompt or skill step/i);
   });
 
   it('teaches the loop node with a worked example', () => {

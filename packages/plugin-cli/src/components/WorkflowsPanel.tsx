@@ -23,11 +23,22 @@ const WINDOW = 12;
  * (owned by Modal). Run + toggle drive the session's `workflows` view,
  * which is backed by the same engine the agent and scheduler use.
  */
+/** A run parked on an awaitInput step, awaiting the operator's typed reply. */
+interface PendingReply {
+  readonly runId: string;
+  readonly label: string;
+  readonly prompt: string;
+}
+
 export const WorkflowsPanel: React.FC<WorkflowsPanelProps> = ({ view, onClose }) => {
   const [rows, setRows] = React.useState<ReadonlyArray<WorkflowSummaryView>>([]);
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [status, setStatus] = React.useState<string | null>(null);
+  // Human-in-the-loop: when a run pauses on awaitInput, capture the operator's
+  // reply here (typed inline) and resume it via `view.resume`.
+  const [pending, setPending] = React.useState<PendingReply | null>(null);
+  const [reply, setReply] = React.useState('');
 
   const reload = React.useCallback(async () => {
     if (!view) {
@@ -48,7 +59,7 @@ export const WorkflowsPanel: React.FC<WorkflowsPanelProps> = ({ view, onClose })
     void reload();
   }, [reload]);
 
-  const active = !busy && !!view && rows.length > 0;
+  const active = !busy && !pending && !!view && rows.length > 0;
 
   const run = React.useCallback(
     async (wf: WorkflowSummaryView) => {
@@ -61,6 +72,19 @@ export const WorkflowsPanel: React.FC<WorkflowsPanelProps> = ({ view, onClose })
       setStatus(`running "${wf.name}"…`);
       try {
         const result = await view.run(wf.name);
+        // PAUSED on an awaitInput step → switch to inline reply capture instead
+        // of reporting it as done. The operator types an answer; Enter resumes.
+        if (result.status === 'paused' && result.runId) {
+          const askStep = result.steps.find((s) => s.status === 'awaiting_input');
+          setPending({
+            runId: result.runId,
+            label: askStep?.id ?? wf.name,
+            prompt: result.output || 'The workflow is waiting for your input.',
+          });
+          setReply('');
+          setStatus(`⏸ "${wf.name}" is waiting for your reply — type it and press Enter (Esc cancels).`);
+          return;
+        }
         const marks = result.steps.map((s) => `${stepMark(s.status)}${s.id}`).join(' ');
         setStatus(result.ok ? `✓ ${wf.name} completed — ${marks}` : `✗ ${wf.name} failed: ${result.error ?? ''} — ${marks}`);
       } catch (err) {
@@ -71,6 +95,40 @@ export const WorkflowsPanel: React.FC<WorkflowsPanelProps> = ({ view, onClose })
       }
     },
     [view, busy, reload],
+  );
+
+  // Resume a paused run with the typed reply.
+  const submitReply = React.useCallback(
+    async (pendingRun: PendingReply, text: string) => {
+      if (!view?.resume) {
+        setStatus('resume not supported by this session');
+        return;
+      }
+      const answer = text.trim();
+      if (!answer) return;
+      setPending(null);
+      setReply('');
+      setBusy(true);
+      setStatus(`resuming "${pendingRun.label}"…`);
+      try {
+        const result = await view.resume(pendingRun.runId, answer);
+        if (result.status === 'paused' && result.runId) {
+          // Paused again at a later awaitInput step — capture the next reply.
+          const askStep = result.steps.find((s) => s.status === 'awaiting_input');
+          setPending({ runId: result.runId, label: askStep?.id ?? pendingRun.label, prompt: result.output });
+          setStatus('⏸ waiting again — type your reply and press Enter (Esc cancels).');
+        } else {
+          const marks = result.steps.map((s) => `${stepMark(s.status)}${s.id}`).join(' ');
+          setStatus(result.ok ? `✓ resumed & completed — ${marks}` : `✗ resume failed: ${result.error ?? ''} — ${marks}`);
+        }
+      } catch (err) {
+        setStatus(`✗ resume errored: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        setBusy(false);
+        void reload();
+      }
+    },
+    [view, reload],
   );
 
   const scroll = useScrollableList({
@@ -103,6 +161,30 @@ export const WorkflowsPanel: React.FC<WorkflowsPanelProps> = ({ view, onClose })
       }
     },
     { isActive: active },
+  );
+
+  // Inline reply capture while a run is paused. Enter submits, Backspace edits,
+  // Esc cancels (leaving the run parked — it can be resumed later).
+  useInput(
+    (input, key) => {
+      if (!pending) return;
+      if (key.escape) {
+        setPending(null);
+        setReply('');
+        setStatus('reply cancelled — the run stays paused (re-run to resume).');
+        return;
+      }
+      if (key.return) {
+        void submitReply(pending, reply);
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setReply((r) => r.slice(0, -1));
+        return;
+      }
+      if (input && !key.ctrl && !key.meta) setReply((r) => r + input);
+    },
+    { isActive: !busy && !!pending },
   );
 
   const termWidth = process.stdout.columns ?? 80;
@@ -150,6 +232,17 @@ export const WorkflowsPanel: React.FC<WorkflowsPanelProps> = ({ view, onClose })
       })}
       {scroll.canScrollDown ? (
         <Text dimColor>{`  ↓ ${rows.length - scroll.visible.end} more below`}</Text>
+      ) : null}
+      {pending ? (
+        <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={Colors.active} paddingX={1}>
+          <Text color={Colors.active}>⏸ Workflow waiting · {pending.label}</Text>
+          {pending.prompt ? <Text wrap="wrap">{oneLine(pending.prompt).slice(0, 280)}</Text> : null}
+          <Box marginTop={1}>
+            <Text>{'reply › '}</Text>
+            <Text>{reply || ' '}</Text>
+          </Box>
+          <Text dimColor>Enter send · Esc cancel</Text>
+        </Box>
       ) : null}
       {status ? (
         <Box marginTop={1}>

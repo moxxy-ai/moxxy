@@ -382,8 +382,80 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
       expect(inboxFiles).toEqual([]);
       // The output still surfaces, but no inbox delivery happened.
       expect(result.output).toContain('question for the operator');
+      // The paused run is non-terminal: the view surfaces its status + runId so
+      // the operator UI can offer a reply box, and `resume` is wired.
+      expect(result.status).toBe('paused');
+      expect(result.runId).toBe('RUN1');
+      expect(typeof session.workflows!.resume).toBe('function');
+      // Resuming a run with no checkpoint on disk fails cleanly (rather than
+      // hanging) — proves the resume path reaches resumeWorkflowRun.
+      const resumed = await session.workflows!.resume!('UNKNOWN', 'reply');
+      expect(resumed.ok).toBe(false);
+      expect(resumed.error ?? '').toMatch(/no paused workflow run/);
     } finally {
       integration.stop();
     }
+  });
+
+  it('delivers a resumed run to the inbox once it completes (Finding 1, resume side)', async () => {
+    // The resume side of the human-in-the-loop loop: a checkpoint that completes
+    // on resume IS terminal, so it must land in the inbox (unlike the paused
+    // result, which is withheld). We drive resumeNow via session.workflows.resume
+    // and assert the inbox delivery happens. The retained child is faked by a
+    // checkpoint whose pending step is a prompt and a spawner.continue stub.
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-resume-'));
+    tempDirs.push(cwd);
+    process.env.HOME = cwd;
+    process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
+
+    const { WorkflowRunStore, resumeWorkflowRun } = await import('@moxxy/plugin-workflows');
+    const store = new WorkflowRunStore(path.join(process.env.MOXXY_HOME, 'workflow-runs', 'active'));
+    const runId = await store.save({
+      workflow: {
+        name: 'resume-wf',
+        description: 'x',
+        version: 1,
+        enabled: true,
+        inputs: {},
+        concurrency: 4,
+        steps: [{ id: 'ask', prompt: 'q', awaitInput: true, needs: [], onError: 'fail', retries: 0 }],
+      } as never,
+      trigger: 'manual',
+      inputs: {},
+      states: { ask: { status: 'awaiting_input', output: 'q', startedAt: 1, endedAt: 1 } },
+      vars: {},
+      pendingStepId: 'ask',
+      interactionAgentId: 'child-1',
+      startedAt: 1,
+    });
+
+    // A spawner whose continue() resolves the reply (no real retained child).
+    const spawner = {
+      spawn: async () => ({ label: 'x', childSessionId: 'c' as never, text: '', stopReason: 'end_turn' as const }),
+      spawnAll: async () => [],
+      continue: async (args: { childSessionId: never; prompt: string; label?: string }) => ({
+        label: args.label ?? 'ask',
+        childSessionId: args.childSessionId,
+        text: 'FINAL',
+        stopReason: 'end_turn' as const,
+      }),
+      release: () => {},
+    };
+    const result = await resumeWorkflowRun(
+      runId,
+      'go',
+      {
+        spawner: spawner as never,
+        tools: { get: () => ({}), execute: async () => '' },
+        lookup: { skill: () => undefined, workflow: () => undefined },
+        signal: new AbortController().signal,
+        now: () => Date.now(),
+      },
+      store,
+    );
+    expect(result.status).toBe('completed');
+    expect(result.ok).toBe(true);
+    // The checkpoint is cleaned up once resumed.
+    expect(await store.load(runId)).toBeNull();
   });
 });

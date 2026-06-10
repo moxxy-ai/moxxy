@@ -50,7 +50,7 @@ A workflow is a DAG of steps. Schema:
     - when (optional, legacy): simple guards only — '{{ steps.x.output }} is not empty'. Do NOT use when for semantic decisions (use condition/switch).
     - onError (optional): fail | continue | retry ; retries (optional, 0-3)
 
-IMPORTANT — no mid-run questions: this build has NO chat-resume channel, so a workflow CANNOT pause to ask the operator something mid-run (\`awaitInput\` is rejected at save time). For any value the operator must supply, declare it as an \`inputs\` field (the operator fills it in before Run); never try to "ask in chat".
+Operator data — two ways: declare a value the operator can supply UP FRONT as an \`inputs\` field (filled in before Run). To PAUSE mid-run and ask a question whose answer depends on earlier steps, set \`awaitInput: true\` on a prompt or skill step: the workflow pauses, surfaces the step's prompt to the operator, and resumes with their reply once they answer. Prefer \`inputs\` for known-up-front values; use \`awaitInput\` only for genuinely mid-run questions.
 
 Templating: {{ steps.<id>.output }}, {{ inputs.<name> }}, {{ vars.<name> }}, {{ trigger }}, {{ now }}.
 
@@ -60,8 +60,8 @@ Ordering: steps whose \`needs\` are all satisfied run in parallel — chain with
 
 Authoring rules:
 1. Decompose the intent into concrete steps. Multi-phase requests (collect → act → summarize → deliver) need at least 4 steps with a linear or fan-in \`needs\` chain.
-2. Values the operator must supply (search topic, recipient email, brief): declare each as an \`inputs\` field with a clear \`description\` (and a \`default\` when sensible). The operator fills them in before Run; reference them downstream via \`{{ inputs.<name> }}\`. There is NO way to pause and ask mid-run.
-3. Never use \`awaitInput\` — it is rejected at save time in this build (no resume channel). Do NOT add a prompt/skill step that only says "ask the operator"; that finishes in one turn and just stores the question as output. Use \`inputs\` instead.
+2. Values the operator must supply (search topic, recipient email, brief): declare each as an \`inputs\` field with a clear \`description\` (and a \`default\` when sensible). The operator fills them in before Run; reference them downstream via \`{{ inputs.<name> }}\`.
+3. To ask the operator a mid-run question whose answer depends on earlier steps, set \`awaitInput: true\` on a prompt or skill step — the run pauses, shows that step's prompt to the operator, and continues with their reply (referenced downstream via \`{{ steps.<id>.output }}\`). awaitInput is ONLY valid on prompt/skill steps (never tool/logic/loop or a loop body). Prefer \`inputs\` for values known before Run.
 4. Research + report + email intents: typical chain — \`web-research\` skill (over \`{{ inputs.topic }}\`) → \`write_report\` → \`send_email\` tool (to \`{{ inputs.recipient }}\`). Put \`topic\` and \`recipient\` in \`inputs\`.
 5. Use ONLY skill/tool names from the catalogs below — never placeholders like "<< skill-name >>", "TBD", or empty skill/tool fields.
 6. Prefer a listed skill when its description fits; otherwise use a detailed \`prompt\` step.
@@ -176,6 +176,31 @@ steps:
     bridge: |
       Improve the current draft (start from {{ steps.first_draft.output }} or {{ vars.draft }}).
       Return JSON with vars.draft set to the improved text.
+\`\`\`
+
+Example shape for a mid-run question (awaitInput pause → operator reply → continue):
+\`\`\`yaml
+name: draft-with-approval
+description: Draft an announcement, ask the operator to approve or tweak it, then publish.
+enabled: true
+steps:
+  - id: draft
+    label: Draft announcement
+    prompt: |
+      Write a short product announcement.
+  - id: approve
+    needs: [draft]
+    label: Approve or tweak
+    awaitInput: true
+    prompt: |
+      Here is the draft announcement:
+      {{ steps.draft.output }}
+      Reply with "ship it" to approve, or describe any changes you want.
+  - id: publish
+    needs: [approve]
+    label: Publish
+    prompt: |
+      Apply the operator's decision ({{ steps.approve.output }}) and produce the final announcement.
 \`\`\`
 (Replace skill/tool names with ones from the catalog when drafting.)`;
 }

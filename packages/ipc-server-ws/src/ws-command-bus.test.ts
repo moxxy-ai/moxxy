@@ -132,6 +132,8 @@ describe('WebSocketCommandBus', () => {
       ['workflows.list', undefined],
       ['workflows.run', { name: 'wf-1' }],
       ['workflows.getRun', { name: 'wf-1' }],
+      // Human-in-the-loop: answer a paused workflow's question (RESPOND-only).
+      ['workflows.resume', { runId: 'run-1', reply: 'ship it' }],
     ];
 
     it.each(LEGIT_CHAT)('ALLOWS legit chat command %s on the WS bus', async (command, payload) => {

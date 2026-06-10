@@ -163,6 +163,15 @@ export interface WorkflowRunView {
   readonly output: string;
   readonly error?: string;
   readonly steps: ReadonlyArray<{ readonly id: string; readonly status: string; readonly error?: string }>;
+  /**
+   * Terminal status of the run. `paused` means it parked on an `awaitInput`
+   * step and is awaiting the operator's reply (resume via {@link WorkflowsView.resume}
+   * with `runId`). Optional for back-compat — absent from older hosts that
+   * never paused. A run/resume that completes or fails reports those.
+   */
+  readonly status?: 'completed' | 'paused' | 'failed';
+  /** Set when `status` is `paused` — pass to {@link WorkflowsView.resume}. */
+  readonly runId?: string;
 }
 
 /** Validation result for a draft YAML — backs the visual builder (phase 2). */
@@ -204,6 +213,15 @@ export interface WorkflowsView {
   save?(yaml: string, previousName?: string): Promise<WorkflowSaveView>;
   /** Fetch one saved workflow's canonical YAML + on-disk metadata. */
   getRun?(name: string): Promise<{ readonly name: string; readonly scope: string; readonly path: string; readonly yaml: string } | null>;
+  /**
+   * Answer a paused workflow's `awaitInput` question and resume the run (the
+   * human-in-the-loop flow). `runId` comes from the `workflow_paused` event;
+   * `reply` is the operator's answer, fed into the paused step's child agent.
+   * Resolves with the (now usually completed) run result. Optional so older
+   * hosts / remote sessions stay capability-detectable — a channel must
+   * feature-check before calling.
+   */
+  resume?(runId: string, reply: string): Promise<WorkflowRunView>;
 }
 
 /** One installable plugin in {@link PluginsAdminView.catalog}. */

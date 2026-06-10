@@ -54,11 +54,20 @@ import type {
  * (Additive — a v3 server simply lacks these three methods; a v4 client gates
  * them on the server's reported version, see {@link AttachResult}.)
  *
- * Every change v1→v4 has been ADDITIVE, so MIN_COMPATIBLE stays at 1: today's
+ * v5: adds `workflow.resume` so a thin client can answer a paused workflow's
+ * `awaitInput` question and drive the run to completion (the human-in-the-loop
+ * resume path). Like the rest of the workflow.* family it degrades cleanly: a
+ * server whose workflows view predates resume throws a clear "not supported"
+ * error, and a v5 client capability-gates the call on the server's reported
+ * version (see {@link AttachResult}) so a v5 desktop attached to a v4 CLI gets
+ * an actionable "update the CLI" message instead of a raw method-not-found.
+ * (Additive — a v4 server simply lacks this one method.)
+ *
+ * Every change v1→v5 has been ADDITIVE, so MIN_COMPATIBLE stays at 1: today's
  * server can serve any client back to v1, and any client v1+ can attach. Bump
  * MIN_COMPATIBLE to N only when landing a breaking change at version N.
  */
-export const RUNNER_PROTOCOL_VERSION = 4;
+export const RUNNER_PROTOCOL_VERSION = 5;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -119,6 +128,12 @@ export const RunnerMethod = {
   WorkflowSave: 'workflow.save',
   /** client->server: fetch one saved workflow as canonical YAML (builder). */
   WorkflowGetRun: 'workflow.getRun',
+  /**
+   * client->server: answer a paused workflow's `awaitInput` question and resume
+   * the run (human-in-the-loop). v5 — the client gates this on the server's
+   * reported version so an older runner returns an actionable error.
+   */
+  WorkflowResume: 'workflow.resume',
   /** server->client: ask this client to decide a tool-call permission. */
   PermissionCheck: 'permission.check',
   /** server->client: ask this client to confirm an approval checkpoint. */
@@ -252,6 +267,21 @@ export interface WorkflowGetRunResult {
   readonly path: string;
   readonly yaml: string;
 }
+export interface WorkflowResumeParams {
+  /** The paused run's id (from the `workflow_paused` event / run result). */
+  readonly runId: string;
+  /** The operator's reply, fed into the paused step's child agent. */
+  readonly reply: string;
+}
+export interface WorkflowResumeResult {
+  readonly ok: boolean;
+  readonly output: string;
+  readonly error?: string;
+  readonly steps: ReadonlyArray<{ readonly id: string; readonly status: string; readonly error?: string }>;
+  /** `paused` when the run pauses AGAIN at a later awaitInput step. */
+  readonly status?: 'completed' | 'paused' | 'failed';
+  readonly runId?: string;
+}
 
 export interface PermissionCheckParams {
   readonly turnId: string;
@@ -375,3 +405,9 @@ export const workflowSaveParamsSchema = z.object({
   previousName: z.string().min(1).max(120).optional(),
 });
 export const workflowGetRunParamsSchema = z.object({ name: z.string().min(1).max(120) });
+// Resume params. The reply is bounded so a hostile client can't OOM the runner
+// (it is forwarded verbatim into the paused step's child agent prompt).
+export const workflowResumeParamsSchema = z.object({
+  runId: z.string().min(1).max(120),
+  reply: z.string().min(1).max(100_000),
+});

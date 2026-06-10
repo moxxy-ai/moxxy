@@ -151,6 +151,12 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     previousName: workflowName.optional(),
   }),
   'workflows.getRun': z.object({ name: workflowName }),
+  // Human-in-the-loop resume: bound the run id + the operator reply (the reply
+  // is forwarded into the paused step's child agent, so cap it to avoid OOM).
+  'workflows.resume': z.object({
+    runId: z.string().min(1).max(120),
+    reply: z.string().min(1).max(100_000),
+  }),
   // Security-sensitive: this bypasses the approval sheet, so validate it at
   // the boundary like the other dangerous commands.
   'session.setAutoApprove': z.object({ workspaceId: optionalWorkspace, enabled: z.boolean() }),
