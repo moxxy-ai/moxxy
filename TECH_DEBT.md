@@ -527,6 +527,32 @@ consider dropping the now-redundant renderer-heartbeat path. **Severity med** (n
   pairing is needed.
 **Severity low** (remaining items are opt-in / additive; desktop behavior unchanged).
 
+### 11. Workflows engine ported + while-loop node — phase 1 of 2 (visual builder = phase 2) — NEW, low
+**Introduced 2026-06-10** by the workflows-engine port. `@moxxy/plugin-workflows` now
+carries the logic steps (`bridge`/`condition`/`switch`), `format: json|plain`, branch
+fields, the persisted-only `ui.layout` schema, agentic YAML authoring (`workflow_create` +
+`draft.ts`), LLM branch-predicate parsing, and `awaitInput` pause/resume (`run-store.ts`
+checkpoints + executor `resumeWorkflowRun`, backed by core's new retained-session
+`continue()`/`release()` in `subagents/run-child.ts` + `registry.ts`). It merged surgically
+onto main's executor — **main's `MAX_NESTING_DEPTH` is preserved**, and the CLI's separate
+`afterWorkflow` SCC/`MAX_AFTER_WORKFLOW_CHAIN` guard (A11, on the inter-workflow trigger
+graph) is intact; the two operate on different graphs and don't conflict.
+- **New `loop` node** (`{ body, condition, maxIterations: 1..50 }`): repeats body steps,
+  gated by the same LLM `then`/`else` predicate as a `condition` step. **Two independent
+  termination guards, both tested:** the per-loop iteration cap (temporal) and
+  `MAX_NESTING_DEPTH` (structural) — a loop body that calls nested workflows still bottoms
+  out at the depth cap, so no N×depth blow-up and no infinite loop is reachable. On cap it
+  finishes with a "max iterations reached" note rather than hanging.
+- **Follow-ups (low):** (a) the **visual workflow builder GUI is phase 2** — only its IPC
+  seam shipped here (`workflows.validateDraft`/`save`/`getRun`, capability-detectable on
+  `WorkflowsView` + desktop-host + mobile host); nothing renders a canvas yet. (b)
+  `awaitInput` is barred inside a `loop` body (would need mid-iteration checkpointing) — a
+  body prompt that sets it fails loudly; lift only if a use-case appears. (c) the
+  `RemoteSession` (TUI runner-RPC) leaves the three new builder methods undefined — wire
+  RunnerMethod RPCs if the TUI ever needs to validate/save drafts. (d) loop body steps are
+  excluded from the main DAG scheduler via a `loopBodyIds` set; if a future feature needs a
+  step to be both a loop body AND independently scheduled, that exclusion must be revisited.
+
 ---
 
 ## Resolved ledger (verified still in place 2026-06-08)

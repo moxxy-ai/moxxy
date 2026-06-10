@@ -165,16 +165,40 @@ export interface WorkflowRunView {
   readonly steps: ReadonlyArray<{ readonly id: string; readonly status: string; readonly error?: string }>;
 }
 
+/** Validation result for a draft YAML — backs the visual builder (phase 2). */
+export interface WorkflowValidateView {
+  readonly ok: boolean;
+  /** One readable line per issue; empty when `ok`. */
+  readonly errors: ReadonlyArray<string>;
+}
+
+/** Result of persisting a workflow from the builder. */
+export interface WorkflowSaveView {
+  readonly name: string;
+  readonly scope: string;
+  readonly path: string;
+}
+
 /**
  * The slice of the workflows API a channel needs to drive the `/workflows`
  * modal (list, enable/disable toggle, run). Present on a local Session when
  * `@moxxy/plugin-workflows` is wired; a `RemoteSession` leaves
  * {@link SessionLike.workflows} undefined and the UI degrades gracefully.
+ *
+ * `validateDraft` / `save` / `getRun` back the upcoming visual workflow
+ * builder (phase 2); they are optional so older hosts and remote sessions
+ * stay capability-detectable — a channel must feature-check before calling.
  */
 export interface WorkflowsView {
   list(): Promise<ReadonlyArray<WorkflowSummaryView>>;
   setEnabled(name: string, enabled: boolean): Promise<void>;
   run(name: string): Promise<WorkflowRunView>;
+  /** Parse + validate a draft YAML without saving it. */
+  validateDraft?(yaml: string): Promise<WorkflowValidateView>;
+  /** Persist a workflow from full YAML (create or overwrite). */
+  save?(yaml: string): Promise<WorkflowSaveView>;
+  /** Fetch one saved workflow's canonical YAML + on-disk metadata. */
+  getRun?(name: string): Promise<{ readonly name: string; readonly scope: string; readonly path: string; readonly yaml: string } | null>;
 }
 
 /** One installable plugin in {@link PluginsAdminView.catalog}. */

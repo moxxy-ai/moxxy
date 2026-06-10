@@ -160,6 +160,26 @@ export class MobileSessionHost {
       }
       return await this.session.workflows.run(name);
     });
+    // Visual builder (phase 2) — parity with the desktop host. Optional on the
+    // view, so feature-check and surface a coded error when unsupported.
+    this.bus.handle('workflows.validateDraft', async ({ yaml }) => {
+      if (!this.session.workflows?.validateDraft) {
+        throw new IpcError('not-supported', 'workflows builder not supported on this session');
+      }
+      return await this.session.workflows.validateDraft(yaml);
+    });
+    this.bus.handle('workflows.save', async ({ yaml }) => {
+      if (!this.session.workflows?.save) {
+        throw new IpcError('not-supported', 'workflows builder not supported on this session');
+      }
+      return await this.session.workflows.save(yaml);
+    });
+    this.bus.handle('workflows.getRun', async ({ name }) => {
+      if (!this.session.workflows?.getRun) {
+        throw new IpcError('not-supported', 'workflows builder not supported on this session');
+      }
+      return await this.session.workflows.getRun(name);
+    });
     this.bus.handle('ask.respond', async ({ requestId, response }) => {
       this.answerAsk(requestId, response);
     });

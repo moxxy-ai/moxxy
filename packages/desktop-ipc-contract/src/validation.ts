@@ -142,6 +142,12 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   }),
   'workflows.run': z.object({ name: workflowName }),
   'workflows.setEnabled': z.object({ name: workflowName, enabled: z.boolean() }),
+  // Builder commands. validateDraft/save take full YAML — bound the size so a
+  // hostile renderer can't OOM the host; save writes to disk so it's
+  // filesystem-touching and gets a boundary check like the other writers.
+  'workflows.validateDraft': z.object({ yaml: z.string().min(1).max(1_000_000) }),
+  'workflows.save': z.object({ yaml: z.string().min(1).max(1_000_000) }),
+  'workflows.getRun': z.object({ name: workflowName }),
   // Security-sensitive: this bypasses the approval sheet, so validate it at
   // the boundary like the other dangerous commands.
   'session.setAutoApprove': z.object({ workspaceId: optionalWorkspace, enabled: z.boolean() }),

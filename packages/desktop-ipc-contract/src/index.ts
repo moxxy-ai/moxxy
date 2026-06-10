@@ -257,6 +257,27 @@ export interface MobileGatewayStatus {
   clientCount?: number;
 }
 
+/** Validation result for a draft workflow YAML (visual builder, phase 2). */
+export interface WorkflowValidate {
+  ok: boolean;
+  errors: ReadonlyArray<string>;
+}
+
+/** Result of persisting a workflow from the builder. */
+export interface WorkflowSave {
+  name: string;
+  scope: string;
+  path: string;
+}
+
+/** One saved workflow's canonical YAML + on-disk metadata. */
+export interface WorkflowDetail {
+  name: string;
+  scope: string;
+  path: string;
+  yaml: string;
+}
+
 // ---------- Settings -------------------------------------------------------
 
 export interface ProviderEntry {
@@ -674,6 +695,14 @@ export interface IpcCommands {
   'workflows.list': () => Promise<ReadonlyArray<WorkflowSummary>>;
   'workflows.setEnabled': (args: { name: string; enabled: boolean }) => Promise<void>;
   'workflows.run': (args: { name: string }) => Promise<WorkflowRun>;
+  // Visual builder (phase 2). Resolve null/throw gracefully when the workflows
+  // plugin (or the builder-capable host) is absent — the renderer feature-checks.
+  /** Parse + validate a draft YAML without saving. */
+  'workflows.validateDraft': (args: { yaml: string }) => Promise<WorkflowValidate>;
+  /** Persist a workflow from full YAML (create or overwrite). */
+  'workflows.save': (args: { yaml: string }) => Promise<WorkflowSave>;
+  /** Fetch one saved workflow as canonical YAML (null when unknown). */
+  'workflows.getRun': (args: { name: string }) => Promise<WorkflowDetail | null>;
 
   // Settings
   // Desktop preferences (separate from runner preferences).

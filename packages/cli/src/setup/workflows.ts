@@ -19,7 +19,9 @@ import {
   WorkflowStore,
   buildWorkflowsPlugin,
   defaultUserWorkflowsDir,
+  parseWorkflowYaml,
   runWorkflow,
+  serializeWorkflow,
 } from '@moxxy/plugin-workflows';
 
 /**
@@ -89,9 +91,17 @@ export function buildWorkflowsIntegration(args: {
     chain?: ReadonlyArray<string>;
   }): Promise<WorkflowRunResult> {
     const entry = await store.get(input.name);
-    if (!entry) return { ok: false, steps: [], output: '', error: `no workflow named "${input.name}"` };
+    if (!entry) {
+      return { ok: false, status: 'failed', steps: [], output: '', error: `no workflow named "${input.name}"` };
+    }
     if (inFlight.has(input.name)) {
-      return { ok: false, steps: [], output: '', error: `workflow "${input.name}" is already running` };
+      return {
+        ok: false,
+        status: 'failed',
+        steps: [],
+        output: '',
+        error: `workflow "${input.name}" is already running`,
+      };
     }
     inFlight.add(input.name);
     try {
@@ -163,6 +173,32 @@ export function buildWorkflowsIntegration(args: {
         output: r.output,
         ...(r.error ? { error: r.error } : {}),
         steps: r.steps.map((s) => ({ id: s.id, status: s.status, ...(s.error ? { error: s.error } : {}) })),
+      };
+    },
+    // Builder-facing additions (phase 2 GUI): validate a draft YAML, persist a
+    // workflow, and fetch one as canonical YAML. Keep them on the same store so
+    // the modal and the builder share one source of truth.
+    validateDraft: async (yaml) => {
+      const r = parseWorkflowYaml(yaml);
+      return { ok: r.ok, errors: r.errors };
+    },
+    save: async (yaml) => {
+      const parsed = parseWorkflowYaml(yaml);
+      if (!parsed.ok || !parsed.workflow) {
+        throw new Error(`invalid workflow YAML — ${parsed.errors.join('; ')}`);
+      }
+      const saved = await store.save(parsed.workflow);
+      await syncSchedules();
+      return { name: saved.workflow.name, scope: saved.scope, path: saved.path };
+    },
+    getRun: async (name) => {
+      const entry = await store.get(name);
+      if (!entry) return null;
+      return {
+        name: entry.workflow.name,
+        scope: entry.scope,
+        path: entry.path,
+        yaml: serializeWorkflow(entry.workflow),
       };
     },
   };
@@ -275,8 +311,13 @@ export function buildWorkflowsIntegration(args: {
     appendEvent: (e) => session.log.append(e),
     ...(logger ? { logger } : {}),
     provider: () => safeActiveProvider(session),
-    listSkills: () => session.skills.list().map((s) => s.frontmatter.name),
-    listTools: () => session.tools.list().map((t) => t.name),
+    listSkills: () =>
+      session.skills.list().map((s) => ({
+        name: s.frontmatter.name,
+        description: s.frontmatter.description ?? '',
+      })),
+    listTools: () =>
+      session.tools.list().map((t) => ({ name: t.name, description: t.description ?? '' })),
     onChanged: syncSchedules,
     runNow,
     userDir: defaultUserWorkflowsDir(),
