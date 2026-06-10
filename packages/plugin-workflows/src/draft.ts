@@ -42,7 +42,7 @@ A workflow is a DAG of steps. Schema:
     - bridge: instruction — logic step; agent returns JSON with vars (extract/transform data); optional format: plain
     - condition: instruction + then: [step ids] + else: [step ids] — agent returns JSON branch then|else
     - switch: instruction + cases: { <caseId>: [step ids], ... } + optional default: [step ids] — agent returns JSON branch matching a case id
-    - loop: { body: [step ids], condition: "<prompt>", maxIterations: 1..50 } — repeats body in order each iteration, then the agent returns JSON branch then (run again) | else (stop); always stops at maxIterations (default 10). Body step ids must be real steps; do NOT combine loop with then/else/cases/default.
+    - loop: { body: [step ids], condition: "<prompt>", maxIterations: 1..50 } — repeats body in order each iteration. \`condition\` is the loop's EXIT/GOAL condition: after each iteration the agent returns JSON branch then (condition met → STOP, continue to the next step) | else (not yet met → run body again). A body step error BREAKS the loop to the next step (use onError: continue on a body step to swallow its error and keep iterating). Always stops at maxIterations (default 10). Body step ids must be real steps; do NOT combine loop with then/else/cases/default.
     - input: templated instruction for skill steps
     - prompt: templated instruction for prompt steps (multiline allowed with |)
     - args: templated args object for tool/workflow steps
@@ -177,10 +177,13 @@ steps:
     needs: [first_draft]
     label: Refine loop
     loop:
+      # condition is the EXIT/GOAL condition — describe the goal that ENDS the
+      # loop. Met (then) → stop and continue to the next step; not met (else) →
+      # run the body again. A body step error breaks the loop to the next step.
       body: [improve]
       condition: |
-        Look at the latest draft in {{ vars.draft }}. If it is clear, accurate, and well-structured,
-        stop the loop; otherwise keep refining.
+        Is the latest draft in {{ vars.draft }} good enough — clear, accurate, and well-structured?
+        If yes, the goal is reached and the loop stops; if not, keep refining.
       maxIterations: 5
   - id: improve
     needs: [refine]

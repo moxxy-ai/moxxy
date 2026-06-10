@@ -651,17 +651,21 @@ async function runLogicStep(
 }
 
 /**
- * Bounded while-loop node. Each iteration:
+ * Bounded while-loop node. `loop.condition` is the loop's EXIT/GOAL
+ * condition — the body repeats UNTIL it is met. Each iteration:
  *   1. resets every body step's runtime state (so it re-runs cleanly);
  *   2. runs the body steps in declared order, merging any logic-step `vars`
  *      and honoring `onError` (a body step that fails with onError≠'continue'
- *      aborts the loop with that step's error);
+ *      BREAKS the loop and proceeds to the next step — the loop returns ok with
+ *      a "broke on error" note rather than failing the whole workflow; with
+ *      `onError: continue` the body error is swallowed and iteration continues);
  *   3. evaluates `loop.condition` via the SAME LLM predicate as a `condition`
- *      step — `then` = run another iteration, `else` = stop.
+ *      step — `then` = condition met → STOP (continue to the next step),
+ *      `else` = not yet met → run another iteration.
  *
- * It always terminates: either the predicate says stop, a body step aborts, or
- * `maxIterations` is reached (in which case the loop completes cleanly with a
- * "max iterations reached" note rather than hanging). Composes with
+ * It always terminates: either the exit condition is met, a body step breaks
+ * the loop, or `maxIterations` is reached (in which case the loop completes
+ * cleanly with a "max iterations reached" note rather than hanging). Composes with
  * {@link MAX_NESTING_DEPTH}: a body step that calls a nested workflow still
  * obeys the depth cap, so the iteration cap and the depth cap are independent
  * guards and neither can be defeated by the other — no infinite loop is
@@ -721,28 +725,42 @@ async function runLoopStep(
         bst.status = 'failed';
         bst.error = outcome.error;
         if (body.onError !== 'continue') {
+          // Loop exit-on-error: a body error BREAKS the loop and proceeds to
+          // the next step (the loop node's exit edge fires on condition-met OR
+          // body error), rather than failing the whole workflow. Use
+          // `onError: continue` on a body step to swallow its error and keep
+          // iterating instead.
+          ctx.deps.logger?.warn?.('workflow loop broke on body error', {
+            step: step.id,
+            body: body.id,
+            error: outcome.error,
+          });
           return {
-            ok: false,
-            output: lastBodyOutput,
-            error: `loop "${step.id}": body step "${body.id}" failed: ${outcome.error}`,
+            ok: true,
+            output:
+              `loop "${step.id}" broke on error in body step "${body.id}" ` +
+              `after ${iteration + 1} iteration(s): ${outcome.error}` +
+              (lastBodyOutput ? `\n\n${lastBodyOutput}` : ''),
           };
         }
       }
     }
 
-    // Evaluate the continue/stop predicate via the shared logic mechanism.
+    // Evaluate the loop's EXIT condition via the shared logic mechanism.
+    // `then` = condition met → stop; `else` = not yet → run another iteration.
     const decision = await evaluateLoopCondition(step, loop.condition, ctx, opts);
     if (!decision.ok) {
       return { ok: false, output: lastBodyOutput, error: decision.error };
     }
-    if (decision.route === 'else') {
-      // Predicate says stop — loop completes normally.
+    if (decision.route === 'then') {
+      // Exit condition met — loop completes normally and execution continues
+      // to the loop node's downstream (next) steps.
       return {
         ok: true,
         output: `loop "${step.id}" stopped after ${iteration + 1} iteration(s).\n\n${lastBodyOutput}`.trim(),
       };
     }
-    // route === 'then' → run another iteration (subject to the cap).
+    // route === 'else' → condition not met yet → run another iteration (cap).
   }
 
   // Reached the iteration cap without the predicate saying stop. Finish
@@ -766,7 +784,10 @@ async function evaluateLoopCondition(
   const scope = buildScope(ctx, new Date(ctx.now()).toISOString());
   const userPrompt =
     renderTemplate(condition, scope, opts) +
-    '\n\nDecide whether to continue the loop. Reply with {"branch":"then"} to run another iteration, or {"branch":"else"} to stop.';
+    '\n\nThis is the loop\'s EXIT condition. Evaluate whether it is now met. ' +
+    'Reply with {"branch":"then"} if the condition IS met (stop the loop and ' +
+    'continue to the next step), or {"branch":"else"} if it is NOT yet met ' +
+    '(run another iteration).';
 
   const spec: SubagentSpec = {
     prompt: userPrompt,

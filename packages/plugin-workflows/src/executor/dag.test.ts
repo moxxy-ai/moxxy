@@ -416,6 +416,12 @@ describe('dag executor', () => {
 });
 
 describe('dag executor — while-loop node', () => {
+  // `loop.condition` is the loop's EXIT/GOAL condition: the body repeats UNTIL
+  // it is met. The "(condition)" predicate returns branch `then` = condition
+  // MET → STOP (continue to the next step), `else` = NOT yet met → run another
+  // iteration. A body step error BREAKS the loop to the next step unless that
+  // step sets `onError: continue`. The cap always terminates the loop.
+  //
   // A loop with a single bridge body step that bumps vars.count, and a
   // condition keyed by the loop's "(condition)" label.
   function loopWf(name: string, maxIterations = 10): Workflow {
@@ -424,18 +430,19 @@ describe('dag executor — while-loop node', () => {
       description: 'x',
       steps: [
         { id: 'seed', prompt: 'seed' },
-        { id: 'spin', needs: ['seed'], loop: { body: ['bump'], condition: 'keep going? {{ vars.count }}', maxIterations } },
+        { id: 'spin', needs: ['seed'], loop: { body: ['bump'], condition: 'is the goal met? {{ vars.count }}', maxIterations } },
         { id: 'bump', needs: ['spin'], bridge: 'increment vars.count' },
         { id: 'done', needs: ['spin'], prompt: 'use {{ vars.count }}' },
       ],
     });
   }
 
-  it('runs the body once when the condition stops on iteration 1', async () => {
+  it('stops after one iteration when the exit condition is met', async () => {
     const h = makeHarness({
       logicResponses: {
         bump: '{"vars":{"count":1}}',
-        'spin (condition)': '{"branch":"else"}', // stop immediately after first body run
+        // `then` = condition MET → stop immediately after the first body run.
+        'spin (condition)': '{"branch":"then"}',
       },
     } as Partial<WorkflowRunDeps>);
     const result = await dagExecutor.run(loopWf('loop-once'), h.deps);
@@ -448,29 +455,32 @@ describe('dag executor — while-loop node', () => {
     const byId = Object.fromEntries(result.steps.map((s) => [s.id, s.status]));
     expect(byId.spin).toBe('completed');
     expect(byId.bump).toBe('completed');
-    expect(byId.done).toBe('completed');
+    expect(byId.done).toBe('completed'); // downstream of the loop runs
   });
 
-  it('repeats until iteration N then stops', async () => {
-    // Continue for the first 2 condition evals, stop on the 3rd → 3 body runs.
+  it('repeats until iteration N then stops when the condition is met', async () => {
+    // Not met (else) for the first 2 evals, met (then) on the 3rd → 3 body runs.
     const h = makeHarness({
       logicResponses: {
         bump: '{"vars":{"count":1}}',
-        'spin (condition)': (n: number) => (n < 2 ? '{"branch":"then"}' : '{"branch":"else"}'),
+        'spin (condition)': (n: number) => (n < 2 ? '{"branch":"else"}' : '{"branch":"then"}'),
       },
     } as Partial<WorkflowRunDeps>);
     const result = await dagExecutor.run(loopWf('loop-n'), h.deps);
     expect(result.ok).toBe(true);
     expect(h.order.filter((o) => o === 'bump').length).toBe(3);
     expect(h.order.filter((o) => o === 'spin (condition)').length).toBe(3);
+    const byId = Object.fromEntries(result.steps.map((s) => [s.id, s.status]));
+    expect(byId.done).toBe('completed');
   });
 
   it('stops cleanly at maxIterations without hanging', async () => {
-    // Condition always says "then" (keep going) — only the cap can stop it.
+    // Condition is never met (always `else` → run another iteration) — only the
+    // cap can stop it.
     const h = makeHarness({
       logicResponses: {
         bump: '{"vars":{"count":1}}',
-        'spin (condition)': '{"branch":"then"}',
+        'spin (condition)': '{"branch":"else"}',
       },
     } as Partial<WorkflowRunDeps>);
     const result = await dagExecutor.run(loopWf('loop-cap', 4), h.deps);
@@ -485,7 +495,7 @@ describe('dag executor — while-loop node', () => {
     const h = makeHarness({
       logicResponses: {
         bump: '{"vars":{"count":"42"}}',
-        'spin (condition)': '{"branch":"else"}',
+        'spin (condition)': '{"branch":"then"}', // met → stop after one iteration
       },
     } as Partial<WorkflowRunDeps>);
     const result = await dagExecutor.run(loopWf('loop-vars'), h.deps);
@@ -494,6 +504,88 @@ describe('dag executor — while-loop node', () => {
     expect(condSpec.prompt).toContain('42'); // {{ vars.count }} rendered the body's var
     const done = h.specs.find((s) => s.label === 'done')!;
     expect(done.prompt).toContain('42'); // downstream step also sees the var
+  });
+
+  it('breaks the loop to the next step when a body step errors (onError=fail)', async () => {
+    // A body tool step that always throws, with default/fail onError. The body
+    // error BREAKS the loop (loop returns ok with a "broke on error" note)
+    // rather than failing the whole workflow, and the downstream step that
+    // `needs` the loop still runs.
+    let toolCalls = 0;
+    const h = makeHarness({
+      tools: {
+        get: () => ({}),
+        execute: async () => {
+          toolCalls += 1;
+          throw new Error('boom');
+        },
+      },
+      logicResponses: {
+        // Should never be consulted: the body breaks first. If it were, `else`
+        // would (wrongly) keep iterating — proving the break short-circuits it.
+        'spin (condition)': '{"branch":"else"}',
+      },
+    } as Partial<WorkflowRunDeps>);
+    const result = await dagExecutor.run(
+      wf({
+        name: 'loop-body-error',
+        description: 'x',
+        steps: [
+          { id: 'spin', loop: { body: ['hit'], condition: 'goal met?', maxIterations: 5 } },
+          { id: 'hit', needs: ['spin'], tool: 'x', onError: 'fail' },
+          { id: 'after', needs: ['spin'], prompt: 'runs after the loop' },
+        ],
+      }),
+      h.deps,
+    );
+    expect(result.ok).toBe(true); // body error breaks the loop, does not fail the run
+    // Body ran exactly once then broke; the condition was never evaluated.
+    expect(toolCalls).toBe(1);
+    expect(h.order.filter((o) => o === 'spin (condition)').length).toBe(0);
+    const byId = Object.fromEntries(result.steps.map((s) => [s.id, s.status]));
+    expect(byId.spin).toBe('completed');
+    expect(byId.after).toBe('completed'); // downstream of the loop RUNS
+    const spin = result.steps.find((s) => s.id === 'spin')!;
+    expect(spin.output).toMatch(/broke on error/);
+  });
+
+  it('swallows a body error and keeps iterating when onError=continue', async () => {
+    // A body step with onError=continue errors every iteration; the loop keeps
+    // going until the exit condition is met (here on the 2nd condition eval).
+    let toolCalls = 0;
+    const h = makeHarness({
+      tools: {
+        get: () => ({}),
+        execute: async () => {
+          toolCalls += 1;
+          throw new Error('flaky');
+        },
+      },
+      logicResponses: {
+        'spin (condition)': (n: number) => (n < 1 ? '{"branch":"else"}' : '{"branch":"then"}'),
+      },
+    } as Partial<WorkflowRunDeps>);
+    const result = await dagExecutor.run(
+      wf({
+        name: 'loop-body-continue',
+        description: 'x',
+        steps: [
+          { id: 'spin', loop: { body: ['hit'], condition: 'goal met?', maxIterations: 5 } },
+          { id: 'hit', needs: ['spin'], tool: 'x', onError: 'continue' },
+          { id: 'after', needs: ['spin'], prompt: 'runs after the loop' },
+        ],
+      }),
+      h.deps,
+    );
+    expect(result.ok).toBe(true);
+    // Error swallowed → loop kept iterating: 2 body runs + 2 condition evals.
+    expect(toolCalls).toBe(2);
+    expect(h.order.filter((o) => o === 'spin (condition)').length).toBe(2);
+    const byId = Object.fromEntries(result.steps.map((s) => [s.id, s.status]));
+    expect(byId.spin).toBe('completed');
+    expect(byId.after).toBe('completed');
+    const spin = result.steps.find((s) => s.id === 'spin')!;
+    expect(spin.output).not.toMatch(/broke on error/); // it was not a break
   });
 
   it('respects MAX_NESTING_DEPTH when a loop body calls a nested workflow', async () => {
@@ -509,8 +601,8 @@ describe('dag executor — while-loop node', () => {
       ...base.deps,
       lookup: { skill: () => undefined, workflow: (n) => (n === 'deep' ? deep : undefined) },
       logicResponses: {
-        call: '{"text":"ok"}',
-        'loopnest (condition)': '{"branch":"else"}', // one iteration
+        // Never reached: the body's depth error breaks the loop first.
+        'loopnest (condition)': '{"branch":"else"}',
       },
     } as Partial<WorkflowRunDeps> as WorkflowRunDeps;
     const result = await dagExecutor.run(
@@ -520,21 +612,28 @@ describe('dag executor — while-loop node', () => {
         steps: [
           { id: 'loopnest', loop: { body: ['call'], condition: 'go?', maxIterations: 3 } },
           { id: 'call', needs: ['loopnest'], workflow: 'deep', onError: 'fail' },
+          { id: 'after', needs: ['loopnest'], prompt: 'after the loop' },
         ],
       }),
       deps,
     );
     // The body step calls the unbounded-nesting "deep" workflow → the depth
-    // guard throws, failing the body step (onError=fail) → the loop aborts.
-    expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/depth exceeded/);
+    // guard throws, failing the body step (onError=fail) → the body error
+    // BREAKS the loop (loop returns ok), and the downstream step still runs.
+    expect(result.ok).toBe(true);
+    const loopnest = result.steps.find((s) => s.id === 'loopnest')!;
+    expect(loopnest.status).toBe('completed');
+    expect(loopnest.output).toMatch(/broke on error/);
+    expect(loopnest.output).toMatch(/depth exceeded/);
+    const byId = Object.fromEntries(result.steps.map((s) => [s.id, s.status]));
+    expect(byId.after).toBe('completed'); // downstream of the loop runs
   });
 
   it('rejects awaitInput inside a loop body at runtime', async () => {
     // Schema bars awaitInput on the loop step itself; a body prompt with
     // awaitInput would pause mid-iteration — the loop fails loudly instead.
     const h = makeHarness({
-      logicResponses: { 'spin (condition)': '{"branch":"else"}' },
+      logicResponses: { 'spin (condition)': '{"branch":"then"}' },
     } as Partial<WorkflowRunDeps>);
     const result = await dagExecutor.run(
       wf({

@@ -25,6 +25,11 @@ const LOGIC_ACTION_KEYS = ['bridge', 'condition', 'switch'] as const;
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/i;
 const STEP_ID_RE = /^[a-z0-9][a-z0-9_-]*$/i;
 
+// A bounded while-loop. `condition` is the loop's EXIT/GOAL condition: the body
+// repeats UNTIL it is met (then = met → stop & continue to the next step; else =
+// not yet → run the body again). `maxIterations` (1..50, default 10) always
+// terminates the loop. A body step error breaks the loop to the next step
+// (unless that step sets `onError: continue`, which keeps iterating).
 const loopActionSchema = z.object({
   body: z.array(z.string().min(1)).min(1),
   condition: z.string().min(1),
