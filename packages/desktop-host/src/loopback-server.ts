@@ -1,38 +1,47 @@
 /**
  * A tiny, hardened static file server bound to loopback (127.0.0.1) that
- * serves the packaged renderer's `dist/` over `http://127.0.0.1:<port>`
- * instead of `file://`.
+ * serves the packaged renderer's `dist/` over
+ * `https://desktop.moxxy.ai:<port>` instead of `file://`.
  *
- * WHY this exists: the Clerk web SDK (and OAuth in general) refuses a
- * `file://` origin — clerk-js derives its OAuth redirect from
- * `window.location`, and Clerk rejects the `file://` scheme
- * (`prohibited_redirect_url`). A loopback `http://127.0.0.1` origin is a
- * Chromium *secure context* (so `crypto.subtle` etc. work without TLS) and
- * an allowed redirect scheme, which makes the prebuilt `clerk.openSignIn()`
- * modal + OAuth popup behave exactly as they do on the web. Serving the
- * renderer this way is the no-backend, ecosystem-standard fix for desktop
- * Clerk auth.
+ * WHY this exists + WHY a real hostname over HTTPS: the Clerk web SDK refuses
+ * a `file://` origin (clerk-js derives its OAuth redirect from
+ * `window.location`, and Clerk rejects the `file://` scheme →
+ * `prohibited_redirect_url`). A loopback `http://127.0.0.1` origin fixes that
+ * for a `pk_test_` key, but a Clerk PRODUCTION key (`pk_live_`) is
+ * domain-locked: its Frontend API rejects any `Origin` that isn't `moxxy.ai`
+ * or a subdomain — a bare loopback IP can never satisfy it. So we serve at
+ * `https://desktop.moxxy.ai:<port>`, where `desktop.moxxy.ai` is a public DNS
+ * A-record → 127.0.0.1 (owner-provisioned). That makes the Origin a `moxxy.ai`
+ * subdomain (Clerk prod accepts) while the traffic never leaves loopback.
+ * HTTPS on a real hostname needs a cert, so the caller passes a self-signed
+ * one for that host (see {@link ./self-signed-cert.ts}); the Electron main
+ * process scope-trusts it for exactly this host + fingerprint.
  *
  * Threat model: the only legitimate client is our own renderer (and the
  * OAuth popup), both on the same machine. The server is reachable by any
  * local process and — via DNS-rebinding — potentially by a remote page that
  * resolves a hostname to 127.0.0.1. So the handler is deliberately strict:
  * loopback bind only, GET/HEAD only, a Host-header allow-list (rebind
- * defense), and a hard path-traversal containment check so nothing outside
- * the served `dist/` can ever be read. It serves static bytes only — there
- * is no dynamic surface to exploit.
+ * defense — only loopback names + the ONE intended `desktop.moxxy.ai`), and a
+ * hard path-traversal containment check so nothing outside the served `dist/`
+ * can ever be read. It serves static bytes only — there is no dynamic surface
+ * to exploit.
  *
  * Kept free of any `electron` import so it stays unit-testable in plain Node
  * (mirrors {@link ./security.ts}).
  */
 
 import { createReadStream, promises as fsp, realpathSync } from 'node:fs';
-import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
-import type { Socket } from 'node:net';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { createServer, type Server } from 'node:https';
 import path from 'node:path';
+import type { Duplex } from 'node:stream';
+
+import { DESKTOP_APP_HOST } from './self-signed-cert.js';
 
 export interface LoopbackServer {
-  /** Origin to load + allow-list in Clerk, e.g. `http://127.0.0.1:51789`. */
+  /** Origin to load + allow-list in Clerk, e.g.
+   *  `https://desktop.moxxy.ai:51789`. */
   readonly origin: string;
   /** The bound port. */
   readonly port: number;
@@ -47,6 +56,10 @@ export interface LoopbackServerOptions {
   /** Absolute path to the `dist/` root to serve (the active bundle's
    *  renderer). Resolved + canonicalised once; nothing outside it is served. */
   readonly root: string;
+  /** PEM-encoded TLS cert + key for {@link DESKTOP_APP_HOST}. Self-signed and
+   *  scope-trusted by the Electron main process (host + fingerprint). See
+   *  {@link ./self-signed-cert.ts}. */
+  readonly tls: { readonly cert: string; readonly key: string };
   /** Ordered candidate ports; the first that binds wins. Each must be
    *  allow-listed in Clerk (origins are exact-match incl. port), so keep the
    *  list short and stable. */
@@ -88,15 +101,23 @@ function contentType(filePath: string): string {
 }
 
 /**
- * Reject any request whose `Host` isn't a loopback name on the bound port.
+ * Reject any request whose `Host` isn't an allowed name on the bound port.
  * This is the DNS-rebinding defense: a remote page that resolves
  * `evil.example` → 127.0.0.1 still sends `Host: evil.example`, so it never
- * matches. Our own renderer always sends `127.0.0.1:<port>`; `localhost` is
- * accepted too since Clerk dashboards conventionally list it.
+ * matches. The allowed set is exactly:
+ *   - `127.0.0.1:<port>` / `localhost:<port>` — loopback (dev / fallback);
+ *   - `desktop.moxxy.ai:<port>` — the ONE intended public subdomain that
+ *     resolves to 127.0.0.1 (so a Clerk production key accepts the origin).
+ * Every OTHER hostname is still refused, so the rebinding guard stays intact
+ * for everything except this single, deliberately-allowed app host.
  */
 function hostAllowed(host: string | undefined, port: number): boolean {
   if (!host) return false;
-  const expected = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
+  const expected = new Set([
+    `127.0.0.1:${port}`,
+    `localhost:${port}`,
+    `${DESKTOP_APP_HOST}:${port}`,
+  ]);
   return expected.has(host);
 }
 
@@ -176,14 +197,20 @@ export async function startLoopbackServer(opts: LoopbackServerOptions): Promise<
   const spaIndex = opts.spaIndex ?? 'index.html';
   const ports = opts.ports && opts.ports.length ? opts.ports : DEFAULT_LOOPBACK_PORTS;
 
-  const sockets = new Set<Socket>();
+  // Tracked so close() can destroy idle keep-alive connections that would
+  // otherwise wedge server.close(). https' `connection` event types the socket
+  // as a Duplex (the underlying TCP socket); destroy()/`close` suffice here.
+  const sockets = new Set<Duplex>();
 
-  const server: Server = createServer((req, res) => {
-    void handle(req, res, root, spaIndex, boundPort).catch(() => {
-      if (!res.headersSent) res.writeHead(500);
-      res.end();
-    });
-  });
+  const server: Server = createServer(
+    { cert: opts.tls.cert, key: opts.tls.key },
+    (req, res) => {
+      void handle(req, res, root, spaIndex, boundPort).catch(() => {
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      });
+    },
+  );
   server.on('connection', (socket) => {
     sockets.add(socket);
     socket.on('close', () => sockets.delete(socket));
@@ -208,7 +235,10 @@ export async function startLoopbackServer(opts: LoopbackServerOptions): Promise<
     throw new Error(`loopback server: all candidate ports in use (${ports.join(', ')})`);
   }
 
-  const origin = `http://127.0.0.1:${boundPort}`;
+  // The origin uses the public subdomain (not 127.0.0.1): that's the Origin
+  // clerk-js sends and the one that must be allow-listed in the Clerk
+  // dashboard. The hostname resolves to loopback via a DNS A-record.
+  const origin = `https://${DESKTOP_APP_HOST}:${boundPort}`;
   let closePromise: Promise<void> | null = null;
 
   return {

@@ -16,16 +16,19 @@ if (!root) throw new Error('#root not found — check index.html');
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
-// The packaged renderer is served from a loopback origin
-// (http://127.0.0.1:<port>, see electron/main loopback server). Clerk's web
-// SDK refuses to redirect a post-auth flow to an origin it doesn't trust, so
-// allow-list the loopback origins (matches the main process's LOOPBACK_PORTS).
-// Pair this with the SAME origins added to the Clerk dashboard's allowed
-// origins / redirect URLs (the server-side check).
-const LOOPBACK_REDIRECT_ORIGINS = /^http:\/\/(127\.0\.0\.1|localhost):(51789|51790|51791|51792)$/;
+// The packaged renderer is served from the loopback server at
+// `https://desktop.moxxy.ai:<port>` (a moxxy.ai subdomain → Clerk production
+// keys accept the origin; see electron/main loopback server). Clerk's web SDK
+// refuses to redirect a post-auth flow to an origin it doesn't trust, so
+// allow-list that origin on the fixed LOOPBACK_PORTS. `localhost`/`127.0.0.1`
+// stay allowed for the dev (Vite) origin + the file:// fallback path. Pair this
+// with the SAME origins added to the Clerk dashboard's allowed origins /
+// redirect URLs (the server-side check — see docs/desktop-clerk-loopback-subdomain.md).
+const REDIRECT_ORIGINS =
+  /^(https:\/\/desktop\.moxxy\.ai|http:\/\/(127\.0\.0\.1|localhost)):(51789|51790|51791|51792)$/;
 
 const Tree = CLERK_KEY ? (
-  <ClerkProvider publishableKey={CLERK_KEY} allowedRedirectOrigins={[LOOPBACK_REDIRECT_ORIGINS]}>
+  <ClerkProvider publishableKey={CLERK_KEY} allowedRedirectOrigins={[REDIRECT_ORIGINS]}>
     <App />
   </ClerkProvider>
 ) : (
