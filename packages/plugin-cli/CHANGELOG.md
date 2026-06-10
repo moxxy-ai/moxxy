@@ -1,5 +1,12 @@
 # @moxxy/plugin-cli
 
+## 0.1.6
+
+### Patch Changes
+
+- Updated dependencies [4c594d8]
+  - @moxxy/core@0.1.0
+
 ## 0.1.5
 
 ### Patch Changes

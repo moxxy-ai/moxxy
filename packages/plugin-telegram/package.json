@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-telegram",
   "private": true,
-  "version": "0.0.13",
+  "version": "0.0.14",
   "description": "Telegram channel for moxxy via grammy. Treats Telegram chats as a bidirectional channel: prompts in, assistant + tool prompts out, inline-keyboard permission flow, TOFU + code-pairing authorization.",
   "type": "module",
   "main": "./dist/index.js",
