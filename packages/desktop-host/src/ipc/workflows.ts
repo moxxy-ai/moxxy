@@ -28,4 +28,23 @@ export function registerWorkflowsHandlers(pool: RunnerPool): void {
     if (!session.workflows) throw new Error('workflows plugin not loaded');
     return await session.workflows.run(name);
   });
+
+  // ---- Visual builder (phase 2) -------------------------------------------
+  // Optional on the view, so feature-check before delegating; throw a clear
+  // error when the host can't serve the builder yet.
+  handle('workflows.validateDraft', async ({ yaml }) => {
+    const session = mustSession(pool);
+    if (!session.workflows?.validateDraft) throw new Error('workflows builder not supported on this session');
+    return await session.workflows.validateDraft(yaml);
+  });
+  handle('workflows.save', async ({ yaml }) => {
+    const session = mustSession(pool);
+    if (!session.workflows?.save) throw new Error('workflows builder not supported on this session');
+    return await session.workflows.save(yaml);
+  });
+  handle('workflows.getRun', async ({ name }) => {
+    const session = mustSession(pool);
+    if (!session.workflows?.getRun) throw new Error('workflows builder not supported on this session');
+    return await session.workflows.getRun(name);
+  });
 }
