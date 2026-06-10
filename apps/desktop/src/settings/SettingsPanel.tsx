@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useSettings } from '@moxxy/client-core';
-import { Button, Skeleton, Icon } from '@moxxy/desktop-ui';
+import { Skeleton, Icon } from '@moxxy/desktop-ui';
 import { SkillsView } from './SkillsView';
 import { ProvidersTab } from './ProvidersTab';
 import { McpTab } from './McpTab';
@@ -8,6 +8,7 @@ import { VaultTab } from './VaultTab';
 import { AboutTab } from './AboutTab';
 import { MobileTab } from './MobileTab';
 import { SearchBox } from './settings-primitives';
+import { ViewHeader, ViewSwitcher, Segmented, type View } from '../shell/ViewHeader';
 
 type Tab = 'providers' | 'mcp' | 'skills' | 'vault' | 'mobile' | 'about';
 
@@ -36,7 +37,13 @@ const STANDALONE_TABS: ReadonlySet<Tab> = new Set<Tab>(['about', 'mobile']);
  * This is the tab shell: it owns the segmented nav, the per-tab search filter,
  * and the loading / error chrome, then renders the active tab component.
  */
-export function SettingsPanel(): JSX.Element {
+export function SettingsPanel({
+  // Optional so the panel can render standalone (tests); the app shell
+  // always wires it so the header switcher navigates.
+  onView = () => undefined,
+}: {
+  readonly onView?: (v: View) => void;
+}): JSX.Element {
   const s = useSettings();
   const [tab, setTab] = useState<Tab>('providers');
   const [query, setQuery] = useState('');
@@ -47,63 +54,31 @@ export function SettingsPanel(): JSX.Element {
   const vault = q ? s.vault.filter((v) => v.name.toLowerCase().includes(q)) : s.vault;
 
   return (
-    <main
-      style={{
-        flex: 1,
-        overflowY: 'auto',
-        padding: '28px 32px 40px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 20,
-      }}
-    >
-      <header style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-        <h1 style={{ margin: 0, fontSize: 21, fontWeight: 700, letterSpacing: '-0.01em' }}>
-          Settings
-        </h1>
-        <nav
-          style={{
-            display: 'inline-flex',
-            gap: 2,
-            padding: 3,
-            background: '#f1f2f9',
-            borderRadius: 12,
-          }}
-        >
-          {TABS.map((t) => {
-            const active = tab === t.id;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                data-testid={`settings-tab-${t.id}`}
-                data-active={active}
-                onClick={() => {
-                  setTab(t.id);
-                  setQuery('');
-                }}
-                style={{
-                  padding: '6px 15px',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  borderRadius: 9,
-                  color: active ? 'var(--color-text)' : 'var(--color-text-muted)',
-                  background: active ? '#fff' : 'transparent',
-                  boxShadow: active ? '0 1px 3px rgba(15, 23, 42, 0.12)' : 'none',
-                  transition: 'background 140ms, color 140ms',
-                }}
-              >
-                {t.label}
-              </button>
-            );
-          })}
-        </nav>
+    <>
+      <ViewHeader>
+        <ViewSwitcher view="settings" onView={onView} />
         <span style={{ flex: 1 }} />
-        <Button variant="chip" onClick={() => void s.refresh()} style={{ borderRadius: 9 }}>
-          <Icon name="rotate" size={14} />
-          Refresh
-        </Button>
-      </header>
+        <Segmented
+          items={TABS}
+          value={tab}
+          onChange={(t) => {
+            setTab(t);
+            setQuery('');
+          }}
+          testIdPrefix="settings-tab-"
+        />
+      </ViewHeader>
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: 'auto',
+          padding: '20px 32px 40px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 20,
+        }}
+      >
 
       {/* About + Mobile are independent of the runner-backed settings slice —
           render them without the shared loading / error chrome below. */}
@@ -163,6 +138,7 @@ export function SettingsPanel(): JSX.Element {
           )}
         </>
       )}
-    </main>
+      </div>
+    </>
   );
 }

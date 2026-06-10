@@ -12,7 +12,8 @@ import {
 import { ConnectionScreen, type UpdateCliResult } from './connection/ConnectionScreen';
 import { Onboarding } from './onboarding/Onboarding';
 import { ChatSurface } from './chat/ChatSurface';
-import { WorkspaceSidebar, type View } from './shell/WorkspaceSidebar';
+import { WorkspaceSidebar } from './shell/WorkspaceSidebar';
+import type { View } from './shell/ViewHeader';
 import { ContextRail } from './shell/ContextRail';
 import { WorkflowsPanel } from './workflows/WorkflowsPanel';
 import { SettingsPanel } from './settings/SettingsPanel';
@@ -196,6 +197,7 @@ export function App(): JSX.Element {
             workspaceId={activeWorkspaceId}
             railOpen={railOpen}
             onShowRail={() => setRailOpen(true)}
+            onView={setView}
           />
           <ContextRail
             open={railOpen}
@@ -206,12 +208,12 @@ export function App(): JSX.Element {
       )}
       {view === 'workflows' && (
         <main className="col-main col-main--flat">
-          <WorkflowsPanel />
+          <WorkflowsPanel onView={setView} />
         </main>
       )}
       {view === 'settings' && (
         <main className="col-main col-main--flat">
-          <SettingsPanel />
+          <SettingsPanel onView={setView} />
         </main>
       )}
       {!connected && <ReconnectBanner label={describePhase(phase)} />}
