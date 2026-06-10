@@ -80,6 +80,15 @@ export interface WorkflowRunInput {
   readonly name: string;
 }
 
+export interface WorkflowDraftInput {
+  /** Full workflow YAML to validate / persist. */
+  readonly yaml: string;
+}
+
+export interface WorkflowDetailInput {
+  readonly name: string;
+}
+
 /** `null` workspace (nothing selected yet) → omit and let the host default. */
 function ws(workspaceId: string | null): { workspaceId?: string } {
   return workspaceId ? { workspaceId } : {};
@@ -145,6 +154,25 @@ export function buildWorkflowListFrame(): CommandFrame<'workflows.list'> {
 
 export function buildWorkflowRunFrame(input: WorkflowRunInput): CommandFrame<'workflows.run'> {
   return { command: 'workflows.run', args: { name: input.name } };
+}
+
+// --- Visual builder (phase 2) — the host's MobileSessionHost wires these to
+//     the same WorkflowsView the desktop uses; the screen feature-checks via
+//     the coded `not-supported` error when the workflows plugin is absent.
+export function buildWorkflowValidateFrame(
+  input: WorkflowDraftInput,
+): CommandFrame<'workflows.validateDraft'> {
+  return { command: 'workflows.validateDraft', args: { yaml: input.yaml } };
+}
+
+export function buildWorkflowSaveFrame(input: WorkflowDraftInput): CommandFrame<'workflows.save'> {
+  return { command: 'workflows.save', args: { yaml: input.yaml } };
+}
+
+export function buildWorkflowDetailFrame(
+  input: WorkflowDetailInput,
+): CommandFrame<'workflows.getRun'> {
+  return { command: 'workflows.getRun', args: { name: input.name } };
 }
 
 export function buildTranscribeFrame(input: TranscribeInput): CommandFrame<'session.transcribe'> {

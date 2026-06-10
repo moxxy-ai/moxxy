@@ -41,6 +41,7 @@
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/runner": "workspace:*",
     "@moxxy/sdk": "workspace:*",
+    "@moxxy/workflows-builder": "workspace:*",
     "electron-updater": "^6.8.3",
     "qrcode": "^1.5.4",
     "react": "catalog:",

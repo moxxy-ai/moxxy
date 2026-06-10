@@ -23,6 +23,7 @@ export default function Layout() {
         <Stack.Screen name="goals" />
         <Stack.Screen name="settings" />
         <Stack.Screen name="workflows" />
+        <Stack.Screen name="workflow-edit" />
       </Stack>
     </GatewayProvider>
   );

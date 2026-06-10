@@ -527,7 +527,7 @@ consider dropping the now-redundant renderer-heartbeat path. **Severity med** (n
   pairing is needed.
 **Severity low** (remaining items are opt-in / additive; desktop behavior unchanged).
 
-### 11. Workflows engine ported + while-loop node — phase 1 of 2 (visual builder = phase 2) — NEW, low
+### 11. Workflows engine ported + while-loop node + visual builder GUI — phases 1 & 2 DONE — low
 **Introduced 2026-06-10** by the workflows-engine port. `@moxxy/plugin-workflows` now
 carries the logic steps (`bridge`/`condition`/`switch`), `format: json|plain`, branch
 fields, the persisted-only `ui.layout` schema, agentic YAML authoring (`workflow_create` +
@@ -543,9 +543,22 @@ graph) is intact; the two operate on different graphs and don't conflict.
   `MAX_NESTING_DEPTH` (structural) — a loop body that calls nested workflows still bottoms
   out at the depth cap, so no N×depth blow-up and no infinite loop is reachable. On cap it
   finishes with a "max iterations reached" note rather than hanging.
-- **Follow-ups (low):** (a) the **visual workflow builder GUI is phase 2** — only its IPC
-  seam shipped here (`workflows.validateDraft`/`save`/`getRun`, capability-detectable on
-  `WorkflowsView` + desktop-host + mobile host); nothing renders a canvas yet. (b)
+- **Phase 2 — visual builder GUI: DONE (2026-06-10).** New DOM-free, RN-safe shared model
+  `@moxxy/workflows-builder` (canvas state + reducer, pure ops, a dependency-free
+  Workflow↔YAML codec with auto-layout, and the validate/save error-mapping bridges; 32
+  tests). Desktop: `apps/desktop/src/workflows/` upgraded `WorkflowsPanel` to a list↔builder
+  switcher with a hand-rolled SVG drag-canvas (no react-flow — the graph is ≤40 nodes),
+  color-coded node cards, derived `needs`/branch/loop edges, a node inspector, an add-node
+  palette, live `validateDraft` decoration, and Save (7 panel tests). Mobile:
+  `apps/mobile/app/workflow-edit.tsx` + `WorkflowEditor`/`useWorkflowEditor` over the same
+  model and the mobile frame bridge. Shared `useWorkflowBuilder` in client-core drives the
+  IPC for both. The **loop node's two-region model** (body membership + the single
+  "on done / on error → next" exit edge) is shared, rendered, and round-trips through
+  serialize↔hydrate. Expo iOS export verifies the shared model bundles RN-clean.
+  **v1 descope:** the mobile builder is an OUTLINE editor (a node list with the same
+  operations), not a touch-drag canvas — touch dragging a node graph was disproportionate
+  for v1; revisit with `react-native-svg` + gesture-handler if a graphical mobile canvas is
+  wanted. (b)
   `awaitInput` is barred inside a `loop` body (would need mid-iteration checkpointing) — a
   body prompt that sets it fails loudly; lift only if a use-case appears. (c) the
   `RemoteSession` (TUI runner-RPC) leaves the three new builder methods undefined — wire

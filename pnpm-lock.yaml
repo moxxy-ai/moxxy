@@ -131,6 +131,9 @@ importers:
       '@moxxy/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
+      '@moxxy/workflows-builder':
+        specifier: workspace:*
+        version: link:../../packages/workflows-builder
       electron-updater:
         specifier: ^6.8.3
         version: 6.8.3
@@ -287,6 +290,9 @@ importers:
       '@moxxy/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
+      '@moxxy/workflows-builder':
+        specifier: workspace:*
+        version: link:../../packages/workflows-builder
       expo:
         specifier: ~54.0.0
         version: 54.0.35(@babel/core@7.29.7)(@expo/metro-runtime@6.1.2)(expo-router@6.0.24)(graphql@15.8.0)(react-native@0.81.5(@babel/core@7.29.7)(@react-native-community/cli@13.6.9(encoding@0.1.13))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(typescript@5.9.3)
@@ -604,6 +610,9 @@ importers:
       '@moxxy/sdk':
         specifier: workspace:*
         version: link:../sdk
+      '@moxxy/workflows-builder':
+        specifier: workspace:*
+        version: link:../workflows-builder
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2112,6 +2121,25 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 2.1.9(@types/node@22.19.18)(jsdom@25.0.1)(lightningcss@1.32.0)(terser@5.48.0)
+
+  packages/workflows-builder:
+    dependencies:
+      '@moxxy/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+    devDependencies:
+      '@moxxy/tsconfig':
+        specifier: workspace:*
+        version: link:../../tooling/tsconfig
+      '@moxxy/vitest-preset':
+        specifier: workspace:*
+        version: link:../../tooling/vitest-preset
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 2.1.9(@types/node@24.12.3)(jsdom@25.0.1)(lightningcss@1.32.0)(terser@5.48.0)
 
   tooling/eslint-config:
     dependencies:

@@ -1,13 +1,34 @@
+import { useState } from 'react';
 import { useWorkflows } from '@moxxy/client-core';
 import { Skeleton } from '@moxxy/desktop-ui';
+import { WorkflowBuilder } from './WorkflowBuilder';
 
 /**
- * List of workflows registered on the connected runner, with
- * enable/disable + run-now actions. The last run's per-step status
- * renders inline below the list.
+ * Workflows surface — two modes:
+ *   - list: the existing registry view with enable/disable + run-now + last-run
+ *     status, plus "New" and per-row "Edit" that open the visual builder.
+ *   - builder: the drag canvas (palette + nodes + edges + inspector + save).
+ *
+ * State/logic for the builder live in the shared `@moxxy/workflows-builder`
+ * model via `useWorkflowBuilder`; this panel only owns the mode toggle and
+ * wires the list's `refresh` so a save re-lists.
  */
 export function WorkflowsPanel(): JSX.Element {
   const wf = useWorkflows();
+  // `editing === undefined` → list; `null` → new workflow; string → edit by name.
+  const [editing, setEditing] = useState<string | null | undefined>(undefined);
+
+  if (editing !== undefined) {
+    return (
+      <WorkflowBuilder
+        name={editing}
+        onClose={() => setEditing(undefined)}
+        onSaved={() => {
+          void wf.refresh();
+        }}
+      />
+    );
+  }
 
   return (
     <main
@@ -20,23 +41,38 @@ export function WorkflowsPanel(): JSX.Element {
         gap: '1rem',
       }}
     >
-      <header style={{ display: 'flex', justifyContent: 'space-between' }}>
-        <h1 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700 }}>
-          Workflows
-        </h1>
-        <button
-          type="button"
-          onClick={() => void wf.refresh()}
-          style={{
-            fontSize: '0.75rem',
-            color: 'var(--color-text-dim)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-block)',
-            padding: '0.2rem 0.55rem',
-          }}
-        >
-          Refresh
-        </button>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h1 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700 }}>Workflows</h1>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button
+            type="button"
+            data-testid="new-workflow"
+            onClick={() => setEditing(null)}
+            style={{
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              color: 'var(--color-bg)',
+              background: 'var(--color-primary)',
+              borderRadius: 'var(--radius-block)',
+              padding: '0.25rem 0.7rem',
+            }}
+          >
+            + New
+          </button>
+          <button
+            type="button"
+            onClick={() => void wf.refresh()}
+            style={{
+              fontSize: '0.75rem',
+              color: 'var(--color-text-dim)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-block)',
+              padding: '0.2rem 0.55rem',
+            }}
+          >
+            Refresh
+          </button>
+        </div>
       </header>
       {wf.error && (
         <p
@@ -61,7 +97,7 @@ export function WorkflowsPanel(): JSX.Element {
         </div>
       ) : wf.list.length === 0 ? (
         <p style={{ color: 'var(--color-text-dim)' }}>
-          No workflows registered on this runner.
+          No workflows registered on this runner. Use <strong>+ New</strong> to build one.
         </p>
       ) : (
         <ul role="list" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -75,7 +111,7 @@ export function WorkflowsPanel(): JSX.Element {
                 border: '1px solid var(--color-border)',
                 borderRadius: 'var(--radius-block)',
                 display: 'grid',
-                gridTemplateColumns: '1fr auto auto',
+                gridTemplateColumns: '1fr auto auto auto',
                 gap: '0.5rem',
                 alignItems: 'center',
               }}
@@ -97,6 +133,14 @@ export function WorkflowsPanel(): JSX.Element {
                   </div>
                 )}
               </div>
+              <button
+                type="button"
+                data-testid={`edit-workflow-${w.name}`}
+                onClick={() => setEditing(w.name)}
+                style={pill('var(--color-purple)')}
+              >
+                Edit
+              </button>
               <button
                 type="button"
                 onClick={() => void wf.setEnabled(w.name, !w.enabled)}

@@ -6,11 +6,23 @@ interface WorkflowListProps {
   readonly workflows: ReadonlyArray<MobileWorkflow>;
   readonly onRefresh: () => void;
   readonly onRun: (name: string) => void;
+  /** Open the visual builder for a workflow (or a blank one when null). */
+  readonly onEdit?: (name: string | null) => void;
 }
 
-export function WorkflowList({ workflows, onRefresh, onRun }: WorkflowListProps) {
+export function WorkflowList({ workflows, onRefresh, onRun, onEdit }: WorkflowListProps) {
   return (
     <View className="gap-3">
+      {onEdit ? (
+        <Pressable
+          testID="mobile-new-workflow"
+          className="min-h-12 flex-row items-center justify-center gap-2 rounded-card bg-primary"
+          onPress={() => onEdit(null)}
+        >
+          <MobileIcon name="plus" size={18} strokeWidth={2.6} color="#ffffff" />
+          <Text className="text-[13px] font-black text-white">New workflow</Text>
+        </Pressable>
+      ) : null}
       <Pressable
         className="min-h-12 flex-row items-center justify-center gap-2 rounded-card border border-cardBorder bg-cardBg"
         onPress={onRefresh}
@@ -49,13 +61,25 @@ export function WorkflowList({ workflows, onRefresh, onRun }: WorkflowListProps)
               </View>
             </View>
           </View>
-          <Pressable
-            className="mt-4 min-h-11 flex-row items-center justify-center gap-2 rounded-pill bg-primary px-4"
-            onPress={() => onRun(workflow.name)}
-          >
-            <MobileIcon name="send" size={17} strokeWidth={2.4} color="#ffffff" />
-            <Text className="text-[13px] font-black text-white">Run workflow</Text>
-          </Pressable>
+          <View className="mt-4 flex-row gap-2">
+            {onEdit ? (
+              <Pressable
+                testID={`mobile-edit-${workflow.name}`}
+                className="min-h-11 flex-1 flex-row items-center justify-center gap-2 rounded-pill border border-purple px-4"
+                onPress={() => onEdit(workflow.name)}
+              >
+                <MobileIcon name="edit" size={16} strokeWidth={2.4} color="#8b5cf6" />
+                <Text className="text-[13px] font-black text-purple">Edit</Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              className="min-h-11 flex-1 flex-row items-center justify-center gap-2 rounded-pill bg-primary px-4"
+              onPress={() => onRun(workflow.name)}
+            >
+              <MobileIcon name="send" size={17} strokeWidth={2.4} color="#ffffff" />
+              <Text className="text-[13px] font-black text-white">Run</Text>
+            </Pressable>
+          </View>
         </View>
       ))}
     </View>

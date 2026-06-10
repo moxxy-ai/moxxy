@@ -17,8 +17,11 @@ import {
   buildSetAutoApproveFrame,
   buildSetModeFrame,
   buildTranscribeFrame,
+  buildWorkflowDetailFrame,
   buildWorkflowListFrame,
   buildWorkflowRunFrame,
+  buildWorkflowSaveFrame,
+  buildWorkflowValidateFrame,
   invokeFrame,
 } from '../clientFrames';
 
@@ -91,6 +94,21 @@ describe('mobile client frame builders', () => {
     expect(buildWorkflowRunFrame({ name: 'codzienny-obrazek-email' })).toEqual({
       command: 'workflows.run',
       args: { name: 'codzienny-obrazek-email' },
+    });
+  });
+
+  it('builds visual-builder frames (validate / save / detail)', () => {
+    expect(buildWorkflowValidateFrame({ yaml: 'name: x' })).toEqual({
+      command: 'workflows.validateDraft',
+      args: { yaml: 'name: x' },
+    });
+    expect(buildWorkflowSaveFrame({ yaml: 'name: x' })).toEqual({
+      command: 'workflows.save',
+      args: { yaml: 'name: x' },
+    });
+    expect(buildWorkflowDetailFrame({ name: 'refine-draft' })).toEqual({
+      command: 'workflows.getRun',
+      args: { name: 'refine-draft' },
     });
   });
 

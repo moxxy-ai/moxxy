@@ -27,6 +27,7 @@ export * from './usePrefs.js';
 export * from './useSettings.js';
 export * from './useDesks.js';
 export * from './useWorkflows.js';
+export * from './useWorkflowBuilder.js';
 export * from './useOnboarding.js';
 export * from './useContextUsage.js';
 export * from './useAppUpdate.js';

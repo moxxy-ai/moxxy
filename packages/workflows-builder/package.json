@@ -1,0 +1,34 @@
+{
+  "name": "@moxxy/workflows-builder",
+  "private": true,
+  "version": "0.0.0",
+  "description": "DOM-free, RN-safe shared model for the visual workflow builder: the canvas state + reducer, pure graph operations (add/remove step, connect needs, branch + loop-body/exit wiring, move/viewport), a Workflow<->YAML serializer pair (with auto-layout), and validate/save bridges over the workflows IPC. Consumed by the Electron desktop canvas and the Expo mobile editor.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@moxxy/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

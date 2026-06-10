@@ -18,6 +18,7 @@
     "@moxxy/design-tokens": "workspace:*",
     "@moxxy/desktop-ipc-contract": "workspace:*",
     "@moxxy/sdk": "workspace:*",
+    "@moxxy/workflows-builder": "workspace:*",
     "expo": "~54.0.0",
     "expo-audio": "~1.1.1",
     "expo-camera": "~17.0.10",
