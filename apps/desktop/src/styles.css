@@ -370,6 +370,24 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   animation: moxxy-mini-bob 1.6s ease-in-out infinite;
 }
 
+/* Plain ring spinner for the cold-start splash / loading screen — the
+ * logo mark read poorly blown up on those large empty surfaces, so we
+ * use a neutral brand-pink ring there instead. Mirrors the inline CSS
+ * in index.html's #splash-fallback so both loaders look identical. */
+.moxxy-splash-spinner {
+  display: inline-block;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, var(--color-primary) 18%, transparent);
+  border-top-color: var(--color-primary);
+  animation: moxxy-splash-spin 0.8s linear infinite;
+}
+
+@keyframes moxxy-splash-spin {
+  to { transform: rotate(360deg); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; }
 }

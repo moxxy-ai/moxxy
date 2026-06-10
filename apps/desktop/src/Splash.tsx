@@ -1,12 +1,10 @@
 /**
  * Full-screen splash — shown until the first ConnectionSnapshot
- * arrives. Uses the moxxy avatar as a gentle floating loader so the
- * cold-start moment feels like the brand instead of a generic ring
- * spinner.
+ * arrives. A plain ring spinner (brand pink) rather than the logo mark,
+ * which read poorly on this large, empty cold-start surface.
  */
 
 import './styles.css';
-import { asset } from '@/lib/asset';
 
 export function Splash({
   message = 'Getting things ready…',
@@ -31,19 +29,7 @@ export function Splash({
         color: 'var(--color-text)',
       }}
     >
-      <img
-        src={asset('new-animation.gif')}
-        alt=""
-        aria-hidden="true"
-        className="moxxy-avatar-loader"
-        width={160}
-        style={{
-          width: 160,
-          // Auto height keeps the portrait animation from being squashed
-          // into a square.
-          height: 'auto',
-        }}
-      />
+      <span className="moxxy-splash-spinner" aria-hidden="true" />
       <p
         className="mono"
         style={{
