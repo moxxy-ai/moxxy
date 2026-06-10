@@ -1,5 +1,108 @@
 # @moxxy/desktop
 
+## 0.2.0
+
+### Minor Changes
+
+- 218359b: fix(desktop): serve the packaged renderer from `https://desktop.moxxy.ai:<port>` so Clerk **production** keys work.
+
+  A Clerk production key (`pk_live_`) is domain-locked: its Frontend API rejects any `Origin` that isn't `moxxy.ai` or a subdomain. The packaged renderer was served from a loopback IP origin (`http://127.0.0.1:<port>`), which a `pk_live_` key can never accept, so packaged sign-in with a production key silently failed.
+
+  The loopback server now serves over **HTTPS** at `https://desktop.moxxy.ai:<port>` (a `moxxy.ai` subdomain that resolves to `127.0.0.1` via DNS, so traffic stays on-box). HTTPS uses a **self-signed cert** minted on first run and cached under `userData` (no key in the repo/bundle); the main process **scope-trusts** it via a session-level `setCertificateVerifyProc` (the reliable mechanism for loopback HTTPS under Electron's network service — `app.on('certificate-error')` does not fire here and is kept only as a fallback), trusting the cert only for that host + a matching fingerprint (not a blanket `ignore-certificate-errors`). The Host allow-list, CSP, and `allowedRedirectOrigins` now include the `desktop.moxxy.ai` origin; the DNS-rebinding guard stays intact for every other host. Dev (Vite + `pk_test_`) and the file:// fallback are unchanged.
+
+  **Owner setup required** (one-time): add a DNS A-record `desktop.moxxy.ai → 127.0.0.1`, and register the four origins `https://desktop.moxxy.ai:{51789,51790,51791,51792}` in the production Clerk instance's allowed origins. See `docs/desktop-clerk-loopback-subdomain.md`.
+
+- 2796066: feat(workflows): human-in-the-loop awaitInput — resume RPC + operator reply UI (un-gate)
+
+  A workflow step can set `awaitInput: true` to pause and ask the operator a
+  question, then continue with their reply. #146 gated this at validate/save time
+  because the resume path hadn't shipped. The resume path now ships, so the gate
+  is removed.
+
+  - **Un-gate:** `awaitInput: true` is accepted again on **prompt/skill steps**
+    (rejected on tool/workflow/logic/loop steps and on a loop body); `draft.ts`
+    teaches the mid-run pause flow again with a worked example.
+  - **Resume RPC (additive, protocol v5):** new `RunnerMethod.WorkflowResume`
+    (`workflow.resume`) — server handler → `session.workflows.resume(runId, reply)`;
+    `WorkflowsView.resume` (SDK) + CLI impl over the existing `resumeWorkflowRun`;
+    `RemoteSession` client method gated on server protocol `>= 5` with the actionable
+    "update the CLI" error (mirrors the v4 builder gate). `MIN_COMPATIBLE` stays at 1.
+  - **Desktop / mobile / TUI:** `workflows.resume` added to the desktop IPC contract
+    (+ host handler), the MobileSessionHost bridge, and `REMOTE_ALLOWED_COMMANDS`
+    (RESPOND-only — answering a question the workflow asked, like `ask.respond`).
+    Operator reply UI: desktop paused-workflow card (new client-core
+    `usePausedWorkflows` hook) and TUI inline reply in the `/workflows` panel.
+  - **Correctness:** the `workflow_paused` event now carries the workflow name +
+    step label + question; vars set before a pause survive the checkpoint round-trip;
+    `runNow` keeps treating a `paused` result as non-terminal (and the resume side
+    delivers the now-completed run to the inbox); the stale-checkpoint sweeper +
+    `clearRetainedChildren()`-on-shutdown are kept.
+
+- c050573: Workflow builder canvas: drag-to-connect step wiring. You can now draw the
+  dependency DAG directly on the canvas instead of only typing into the
+  inspector's NEEDS field — and those connections ARE the workflow's execution
+  order (an A→B edge means A runs before B).
+
+  - Each node card gets connection handles: a left INPUT and a right OUTPUT
+    (plain `needs`). Condition nodes expose labeled `then`/`else` output handles;
+    loop nodes expose an `exit` output handle plus a distinct lower-half "body"
+    drop region (upper-half input = the loop's own `needs`).
+  - A pointerdown on a HANDLE starts a connection drag (live temp line following
+    the cursor); a pointerdown on the card BODY still moves the node. Dropping on
+    another node's card dispatches the matching shared op (`connect-needs`,
+    `set-branch`, `set-loop-body`, `set-loop-exit`); dropping on empty canvas or
+    the source's own card cancels cleanly.
+  - Existing edges are interactive: click the edge or its midpoint ✕ to remove the
+    dependency (routes through `disconnect-needs` / the relevant set-\* op).
+  - Self-connects and cycle-closing connections are refused (the latter with a
+    brief inline rejection), so the canvas can't author an invalid DAG.
+  - Each node shows its 1-based topological execution order so the flow reads
+    source→target.
+
+  workflows-builder: `connectNeeds` now also rejects edges that would create a
+  cycle, and exports a pure `wouldCreateCycle(state, from, to)` guard for
+  interaction layers to check a gesture before dispatching.
+
+### Patch Changes
+
+- 5ab8629: fix(runner): tolerate additive protocol skew + stop the desktop hot-update reconnect loop
+
+  A desktop Tier-1 hot-update ships only the JS bundle, so it advances the bundled
+  `@moxxy/runner` client past the separately-bundled CLI's runner. The strict
+  `protocolVersion !==` handshake then rejected the (purely additive) skew and the
+  supervisor respawned the SAME pinned CLI forever — an infinite "Reconnecting…".
+
+  - **Tolerant negotiation (contract change):** new `MIN_COMPATIBLE_PROTOCOL_VERSION`
+    (bumped only on a BREAKING protocol change). The server accepts any client
+    `>= MIN_COMPATIBLE` and returns its own version; the client records the server
+    version and gates the v4-only `workflow.validateDraft/save/getRun` builder methods
+    on it, degrading with a clear "update the CLI" error instead of a raw
+    method-not-found. Additive skew now attaches cleanly.
+  - **Desktop lockstep:** the signed app-bundle manifest carries a `runnerProtocol`
+    stamp; the bootstrap refuses to activate (reverts to floor) any JS bundle whose
+    stamp exceeds the spawnable CLI's protocol.
+  - **No infinite loop:** a persistent mismatch surfaces a terminal
+    `protocol-incompatible` connection phase with an actionable message after one
+    failed recovery, rather than retrying into the same dead end.
+
+- Updated dependencies [218359b]
+- Updated dependencies [5ab8629]
+- Updated dependencies [2796066]
+- Updated dependencies [c050573]
+  - @moxxy/desktop-host@0.1.6
+  - @moxxy/runner@0.1.0
+  - @moxxy/desktop-ipc-contract@0.4.0
+  - @moxxy/sdk@0.10.0
+  - @moxxy/cli@0.8.0
+  - @moxxy/plugin-channel-mobile@0.1.4
+  - @moxxy/client-core@0.2.0
+  - @moxxy/workflows-builder@0.1.1
+  - @moxxy/ipc-server-ws@0.1.4
+  - @moxxy/chat-model@0.0.13
+  - @moxxy/plugin-stt-whisper-codex@0.0.13
+  - @moxxy/plugin-vault@0.0.13
+  - @moxxy/client-platform-web@0.1.4
+
 ## 0.1.0
 
 ### Minor Changes

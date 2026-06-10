@@ -1,5 +1,18 @@
 # @moxxy/mobile
 
+## 0.0.5
+
+### Patch Changes
+
+- Updated dependencies [5ab8629]
+- Updated dependencies [2796066]
+- Updated dependencies [c050573]
+  - @moxxy/desktop-ipc-contract@0.4.0
+  - @moxxy/sdk@0.10.0
+  - @moxxy/client-core@0.2.0
+  - @moxxy/workflows-builder@0.1.1
+  - @moxxy/client-transport-ws@0.1.4
+
 ## 0.0.4
 
 ### Patch Changes
