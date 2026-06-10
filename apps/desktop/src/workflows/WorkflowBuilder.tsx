@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useWorkflowBuilder } from '@moxxy/client-core';
+import { useActionCatalog, useWorkflowBuilder } from '@moxxy/client-core';
 import { TextInput } from '@moxxy/desktop-ui';
 import { WORKFLOW_ERROR_KEY } from '@moxxy/workflows-builder';
 import { WorkflowCanvas } from './WorkflowCanvas';
@@ -24,6 +24,7 @@ interface Props {
 
 export function WorkflowBuilder({ name, onClose, onSaved }: Props): JSX.Element {
   const builder = useWorkflowBuilder();
+  const catalog = useActionCatalog();
   const { state, dispatch } = builder;
 
   useEffect(() => {
@@ -104,7 +105,9 @@ export function WorkflowBuilder({ name, onClose, onSaved }: Props): JSX.Element 
 
       <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: 0, padding: '0 1rem 1rem' }}>
         <WorkflowCanvas state={state} dispatch={dispatch} />
-        {selectedNode && <NodeInspector state={state} node={selectedNode} dispatch={dispatch} />}
+        {selectedNode && (
+          <NodeInspector state={state} node={selectedNode} dispatch={dispatch} catalog={catalog} />
+        )}
       </div>
     </div>
   );

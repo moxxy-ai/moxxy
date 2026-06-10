@@ -6,6 +6,7 @@ import {
   type BuilderState,
 } from '@moxxy/workflows-builder';
 import type { WorkflowStepErrorMode } from '@moxxy/sdk';
+import type { ActionCatalog } from '@moxxy/client-core';
 import { accentHex } from './accents';
 
 /**
@@ -26,11 +27,14 @@ interface Props {
   readonly state: BuilderState;
   readonly node: BuilderNode;
   readonly dispatch: (action: BuilderAction) => void;
+  /** Live skills/tools registry snapshot for the name pickers. Optional so the
+   *  inspector degrades to free-text fields when no session is attached yet. */
+  readonly catalog?: ActionCatalog;
 }
 
 const ERROR_MODES: WorkflowStepErrorMode[] = ['fail', 'continue', 'retry'];
 
-export function NodeInspector({ state, node, dispatch }: Props): JSX.Element {
+export function NodeInspector({ state, node, dispatch, catalog }: Props): JSX.Element {
   const meta = stepKindMeta(node.kind);
   const accent = accentHex(meta.accent);
   const otherNodes = state.nodes.filter((n) => n.id !== node.id);
@@ -83,7 +87,7 @@ export function NodeInspector({ state, node, dispatch }: Props): JSX.Element {
         />
       </Field>
 
-      {renderAction(node, dispatch, patch)}
+      {renderAction(node, dispatch, patch, catalog)}
 
       {node.kind === 'condition' && (
         <>
@@ -164,6 +168,7 @@ function renderAction(
   node: BuilderNode,
   _dispatch: (a: BuilderAction) => void,
   patch: (p: Parameters<typeof dispatchUpdate>[2]) => void,
+  catalog?: ActionCatalog,
 ): JSX.Element | null {
   switch (node.kind) {
     case 'prompt':
@@ -183,9 +188,12 @@ function renderAction(
     case 'skill':
       return (
         <>
-          <Field label="Skill name">
-            <TextInput value={node.action} onChange={(e) => patch({ action: e.target.value })} data-testid="field-action" />
-          </Field>
+          <ActionNamePicker
+            kind="skill"
+            value={node.action}
+            onChange={(action) => patch({ action })}
+            catalog={catalog}
+          />
           <Field label="Input">
             <TextArea rows={3} value={node.input ?? ''} onChange={(e) => patch({ input: e.target.value })} data-testid="field-input" />
           </Field>
@@ -195,9 +203,18 @@ function renderAction(
     case 'workflow':
       return (
         <>
-          <Field label={node.kind === 'tool' ? 'Tool name' : 'Workflow name'}>
-            <TextInput value={node.action} onChange={(e) => patch({ action: e.target.value })} data-testid="field-action" />
-          </Field>
+          {node.kind === 'tool' ? (
+            <ActionNamePicker
+              kind="tool"
+              value={node.action}
+              onChange={(action) => patch({ action })}
+              catalog={catalog}
+            />
+          ) : (
+            <Field label="Workflow name">
+              <TextInput value={node.action} onChange={(e) => patch({ action: e.target.value })} data-testid="field-action" />
+            </Field>
+          )}
           <Field label="Args (JSON)">
             <TextArea
               rows={3}
@@ -217,6 +234,74 @@ function renderAction(
     case 'loop':
       return null; // handled by LoopEditor
   }
+}
+
+/**
+ * The skill/tool name field. With a loaded catalog it's a dropdown of what the
+ * session actually has registered (a saved name that no longer exists stays
+ * selectable, marked "(not installed)", so loading an old workflow never
+ * silently rewrites it); an empty catalog states that plainly and leaves a
+ * free-text field for forward-authoring; no catalog (no session attached yet)
+ * keeps the plain text field.
+ */
+function ActionNamePicker({
+  kind,
+  value,
+  onChange,
+  catalog,
+}: {
+  kind: 'skill' | 'tool';
+  value: string;
+  onChange: (value: string) => void;
+  catalog?: ActionCatalog;
+}): JSX.Element {
+  const label = kind === 'skill' ? 'Skill name' : 'Tool name';
+  if (!catalog?.loaded) {
+    return (
+      <Field label={label}>
+        <TextInput value={value} onChange={(e) => onChange(e.target.value)} data-testid="field-action" />
+      </Field>
+    );
+  }
+  const items: ReadonlyArray<{ name: string; description?: string }> =
+    kind === 'skill' ? catalog.skills : catalog.tools;
+  if (items.length === 0) {
+    return (
+      <Field label={label}>
+        <span data-testid="catalog-empty" style={emptyHint}>
+          {kind === 'skill'
+            ? 'No skills are currently available. Add one (e.g. via /skills or ~/.moxxy/skills), then pick it here.'
+            : 'No tools are currently available. Enable a plugin that provides tools, then pick one here.'}
+        </span>
+        <TextInput value={value} onChange={(e) => onChange(e.target.value)} data-testid="field-action" />
+      </Field>
+    );
+  }
+  const known = items.some((i) => i.name === value);
+  const description = items.find((i) => i.name === value)?.description;
+  return (
+    <Field label={label}>
+      <select
+        value={value}
+        data-testid="field-action"
+        onChange={(e) => onChange(e.target.value)}
+        style={selectStyle}
+      >
+        {value === '' && <option value="">Select a {kind}…</option>}
+        {!known && value !== '' && <option value={value}>{value} (not installed)</option>}
+        {items.map((i) => (
+          <option key={i.name} value={i.name} title={i.description}>
+            {i.name}
+          </option>
+        ))}
+      </select>
+      {description && (
+        <span data-testid="action-description" style={emptyHint}>
+          {description}
+        </span>
+      )}
+    </Field>
+  );
 }
 
 function LoopEditor({

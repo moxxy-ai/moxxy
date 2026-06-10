@@ -138,9 +138,43 @@ export function spawnPath(extraDirs: ReadonlyArray<string> = []): string {
  */
 export function nodeLauncher(): { command: string; env: NodeJS.ProcessEnv } {
   if (process.versions.electron) {
-    return { command: process.execPath, env: { ELECTRON_RUN_AS_NODE: '1' } };
+    return { command: electronNodeBinary(process.execPath), env: { ELECTRON_RUN_AS_NODE: '1' } };
   }
   return { command: 'node', env: {} };
+}
+
+/**
+ * The Electron binary to use for ELECTRON_RUN_AS_NODE children.
+ *
+ * On macOS, launching the MAIN bundle executable registers a Foreground
+ * LaunchServices entry even under ELECTRON_RUN_AS_NODE — the runner showed up
+ * in the Dock as a ghost generic-executable ("exec") icon named after the app.
+ * The `<App> Helper.app` bundle ships `LSUIElement=true`, so the same
+ * framework binary launched from there checks in as a UIElement (no Dock
+ * presence) and still runs Node identically. Prefer it whenever `execPath`
+ * sits inside an `.app` bundle and the helper exists; everywhere else (Linux,
+ * Windows, bare binaries, tests) the execPath is returned unchanged.
+ */
+export function electronNodeBinary(
+  execPath: string,
+  platform: NodeJS.Platform = process.platform,
+  exists: (p: string) => boolean = existsSync,
+): string {
+  if (platform !== 'darwin') return execPath;
+  const macosDir = path.dirname(execPath);
+  const contentsDir = path.dirname(macosDir);
+  const inBundle = path.basename(macosDir) === 'MacOS' && path.basename(contentsDir) === 'Contents';
+  if (!inBundle) return execPath;
+  const name = path.basename(execPath);
+  const helper = path.join(
+    contentsDir,
+    'Frameworks',
+    `${name} Helper.app`,
+    'Contents',
+    'MacOS',
+    `${name} Helper`,
+  );
+  return exists(helper) ? helper : execPath;
 }
 
 /**

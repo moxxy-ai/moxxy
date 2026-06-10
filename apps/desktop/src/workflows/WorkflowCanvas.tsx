@@ -448,6 +448,12 @@ function Edge({
   );
 }
 
+function edgeColor(isHoverTarget: boolean, selected: boolean, accent: string, errors: number): string {
+  if (isHoverTarget) return 'var(--color-primary)';
+  if (selected) return accent;
+  return errors > 0 ? 'var(--color-red)' : 'var(--color-border)';
+}
+
 function NodeCard({
   node,
   selected,
@@ -490,9 +496,11 @@ function NodeCard({
         background: 'var(--color-bg-card)',
         borderStyle: 'solid',
         borderWidth: '2px 2px 2px 5px',
-        borderColor: `${
-          isHoverTarget ? 'var(--color-primary)' : selected ? accent : errors > 0 ? 'var(--color-red)' : 'var(--color-border)'
-        }`,
+        // Per-side colors only — mixing the borderColor shorthand with
+        // borderLeftColor makes React warn on rerender.
+        borderTopColor: edgeColor(isHoverTarget, selected, accent, errors),
+        borderRightColor: edgeColor(isHoverTarget, selected, accent, errors),
+        borderBottomColor: edgeColor(isHoverTarget, selected, accent, errors),
         borderLeftColor: accent,
         borderRadius: 'var(--radius-block)',
         boxShadow: isHoverTarget

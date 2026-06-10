@@ -24,6 +24,9 @@ interface Spy {
 function installApi(opts: {
   list?: WorkflowSummary[];
   validate?: (yaml: string) => { ok: boolean; errors: string[] };
+  /** Partial `session.info` payload (skills/tools) for the action pickers;
+   *  omitted → session.info resolves null (no session) like the real handler. */
+  sessionInfo?: { skills?: Array<{ id: string; name: string }>; tools?: Array<{ name: string; description: string }> };
 } = {}): Spy {
   const invokes: Array<{ cmd: string; args: unknown }> = [];
   const list = opts.list ?? [];
@@ -37,6 +40,13 @@ function installApi(opts: {
       }
       if (cmd === 'workflows.save') return Promise.resolve({ name: 'demo', scope: 'user', path: '/x.yaml' });
       if (cmd === 'workflows.getRun') return Promise.resolve(null);
+      if (cmd === 'session.info') {
+        return Promise.resolve(
+          opts.sessionInfo
+            ? { skills: opts.sessionInfo.skills ?? [], tools: opts.sessionInfo.tools ?? [] }
+            : null,
+        );
+      }
       return Promise.resolve(undefined);
     }) as never,
     subscribe: (() => () => {}) as never,
@@ -210,6 +220,106 @@ describe('WorkflowsPanel — builder', () => {
     });
     await waitFor(() => expect(spy.invokes.some((i) => i.cmd === 'workflows.save')).toBe(true));
     expect(spy.invokes.some((i) => i.cmd === 'workflows.validateDraft')).toBe(true);
+  });
+
+  it('offers a dropdown of the session\'s skills on a skill node', async () => {
+    await openBuilder({
+      sessionInfo: {
+        skills: [
+          { id: 'sum', name: 'summarize-inbox' },
+          { id: 'rep', name: 'weekly-report' },
+        ],
+      },
+    });
+    fireEvent.click(screen.getByTestId('palette-add-skill'));
+    await screen.findByTestId('wf-node-skill');
+    const picker = await screen.findByTestId('field-action');
+    await waitFor(() => expect(picker.tagName).toBe('SELECT'));
+    const options = within(picker).getAllByRole('option').map((o) => (o as HTMLOptionElement).value);
+    expect(options).toContain('summarize-inbox');
+    expect(options).toContain('weekly-report');
+    fireEvent.change(picker, { target: { value: 'weekly-report' } });
+    expect((picker as HTMLSelectElement).value).toBe('weekly-report');
+  });
+
+  it('offers a dropdown of the session\'s tools on a tool node, with the description shown', async () => {
+    await openBuilder({
+      sessionInfo: { tools: [{ name: 'web_fetch', description: 'Fetch a URL over HTTP.' }] },
+    });
+    fireEvent.click(screen.getByTestId('palette-add-tool'));
+    await screen.findByTestId('wf-node-tool');
+    const picker = await screen.findByTestId('field-action');
+    await waitFor(() => expect(picker.tagName).toBe('SELECT'));
+    fireEvent.change(picker, { target: { value: 'web_fetch' } });
+    expect((await screen.findByTestId('action-description')).textContent).toContain('Fetch a URL');
+  });
+
+  it('renders a placeholder option until a skill is picked', async () => {
+    await openBuilder({ sessionInfo: { skills: [{ id: 'a', name: 'present-skill' }] } });
+    fireEvent.click(screen.getByTestId('palette-add-skill'));
+    await screen.findByTestId('wf-node-skill');
+    const picker = await screen.findByTestId('field-action');
+    await waitFor(() => expect(picker.tagName).toBe('SELECT'));
+    expect(within(picker).getAllByRole('option')[0]!.textContent).toContain('Select a skill');
+  });
+
+  it('keeps a saved-but-uninstalled skill selectable instead of rewriting it', async () => {
+    // A saved workflow references a skill that's no longer installed: the
+    // picker must surface it as "(not installed)" rather than silently
+    // swapping the value to something else.
+    const yaml = [
+      'name: uses-ghost',
+      'description: refs a removed skill',
+      'steps:',
+      '  - id: run_skill',
+      '    skill: ghost-skill',
+    ].join('\n');
+    __setApiOverride({
+      invoke: ((cmd: string) => {
+        if (cmd === 'workflows.list') return Promise.resolve([{ ...sample, name: 'uses-ghost' }]);
+        if (cmd === 'workflows.getRun') return Promise.resolve({ name: 'uses-ghost', yaml });
+        if (cmd === 'workflows.validateDraft') return Promise.resolve({ ok: true, errors: [] });
+        if (cmd === 'session.info') {
+          return Promise.resolve({ skills: [{ id: 'a', name: 'present-skill' }], tools: [] });
+        }
+        return Promise.resolve(undefined);
+      }) as never,
+      subscribe: (() => () => {}) as never,
+    } as MoxxyApi);
+    render(<WorkflowsPanel />);
+    await screen.findByTestId('workflow-row-uses-ghost');
+    fireEvent.click(screen.getByTestId('edit-workflow-uses-ghost'));
+    await screen.findByTestId('workflow-canvas');
+    fireEvent.pointerDown(await screen.findByTestId('wf-node-run_skill'));
+    const picker = await screen.findByTestId('field-action');
+    await waitFor(() => expect(picker.tagName).toBe('SELECT'));
+    expect((picker as HTMLSelectElement).value).toBe('ghost-skill');
+    const labels = within(picker).getAllByRole('option').map((o) => o.textContent);
+    expect(labels.some((l) => l?.includes('ghost-skill') && l.includes('not installed'))).toBe(true);
+    expect(labels).toContain('present-skill');
+  });
+
+  it('says so when there are no skills (and no tools) instead of a bare field', async () => {
+    await openBuilder({ sessionInfo: { skills: [], tools: [] } });
+    fireEvent.click(screen.getByTestId('palette-add-skill'));
+    await screen.findByTestId('wf-node-skill');
+    const hint = await screen.findByTestId('catalog-empty');
+    expect(hint.textContent).toMatch(/no skills/i);
+    // Tool node shows its own empty-state message.
+    fireEvent.click(screen.getByTestId('palette-add-tool'));
+    await screen.findByTestId('wf-node-tool');
+    const toolHint = await screen.findByTestId('catalog-empty');
+    expect(toolHint.textContent).toMatch(/no tools/i);
+  });
+
+  it('falls back to a free-text field when no session is attached', async () => {
+    await openBuilder(); // session.info → null
+    fireEvent.click(screen.getByTestId('palette-add-skill'));
+    await screen.findByTestId('wf-node-skill');
+    const field = await screen.findByTestId('field-action');
+    expect(field.tagName).toBe('INPUT');
+    fireEvent.change(field, { target: { value: 'hand-typed-skill' } });
+    expect((field as HTMLInputElement).value).toBe('hand-typed-skill');
   });
 
   it('shows a validation error on the offending node', async () => {

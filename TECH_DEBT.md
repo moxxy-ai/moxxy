@@ -723,6 +723,34 @@ graph) is intact; the two operate on different graphs and don't conflict.
   scheduled, that exclusion must be revisited. (b) awaitInput is barred inside a loop body
   (would need mid-iteration checkpointing) — orthogonal to the now-shipped resume path; lift
   only if a use-case appears.
+- **Builder UX pass (2026-06-10):** the inspector's skill/tool name fields are now pickers
+  fed by a live `session.info` registry snapshot (new client-core `useActionCatalog`,
+  refresh on `SESSION_INFO_REFRESH_EVENT`): dropdown of what's actually registered, explicit
+  "(not installed)" option preserving a saved-but-removed name, an explicit empty-state
+  message when the session has no skills/tools, and a free-text fallback when no session is
+  attached. The NodeCard shorthand/per-side border-color React warning is gone (per-side
+  colors via `edgeColor()`). **Remaining:** (a) the `workflow` step's name field is still
+  free text — populate it from `workflows.list` the same way; (b) the MOBILE outline editor
+  (`WorkflowEditor`) still has free-text name fields — `useActionCatalog` is client-core and
+  `session.info` is on `REMOTE_ALLOWED_COMMANDS`, so wiring it is mechanical.
+
+### 12. CLI `service install` units break under an Electron-as-node CLI — OPEN
+**Introduced/observed 2026-06-10** while root-causing the desktop Dock-ghost runner (fixed
+in desktop-host the same day — see ledger). `cli/src/commands/service/common.ts` `nodeBin()`
+returns `process.execPath` as the unit's `<node>`. When the CLI itself runs under the
+packaged desktop's Electron-as-node (the desktop spawns the bundled CLI that way — e.g. an
+agent running `moxxy service install` / `moxxy schedule daemon --background` from a desktop
+session), the launchd/systemd unit's ExecStart becomes the **Electron app binary** and the
+rendered unit env (`launchd.ts renderPlist` — PATH + spec.env only) has **no
+`ELECTRON_RUN_AS_NODE=1`**: the "daemon" boots a full GUI app instance at login
+(RunAtLoad+KeepAlive), i.e. a permanent Dock ghost that never runs the CLI. Fix shape:
+`nodeBin()` should detect run-as-node (env `ELECTRON_RUN_AS_NODE` present) and (a) export
+`ELECTRON_RUN_AS_NODE=1` into the unit env, and (b) on macOS prefer the bundle's
+`<App> Helper` binary (mirror desktop-host's `electronNodeBinary()` — the MAIN bundle
+executable registers a Foreground LaunchServices entry/Dock icon even WITH the env var on
+macOS 26) — or better, resolve a real `node` from PATH for the unit and only fall back to
+the Electron binary. Low blast radius today (services are normally installed from a real
+terminal CLI), but silently wrong when it happens.
 
 ---
 
@@ -731,6 +759,15 @@ graph) is intact; the two operate on different graphs and don't conflict.
 Collapsed from full write-ups; each was re-checked against `HEAD` and confirmed — no
 regressions. Restore the detail from git history (`TECH_DEBT.md` @ `b014c3a`) if needed.
 
+- **Desktop Dock-ghost runner process** (2026-06-10). The packaged desktop's runner
+  (`moxxy serve`, spawned via the bundled CLI with `ELECTRON_RUN_AS_NODE=1`) showed up in
+  the macOS Dock as a generic-executable ("exec") icon named after the app: on macOS 26
+  ANY launch of the MAIN bundle executable registers a Foreground LaunchServices entry,
+  run-as-node or not (verified empirically with a probe). `nodeLauncher()`
+  (`desktop-host/src/cli-resolver.ts`) now routes run-as-node children through the
+  `<App> Helper.app` binary (`electronNodeBinary()` — `LSUIElement=true` → registers as
+  UIElement, no Dock presence; same framework, Node runs identically; falls back to
+  execPath when no helper). The CLI-side cousin is OPEN as P3 #12.
 - **Mode loop scaffolding hoisted to the SDK** (2026-06-08, PR #108, was P2 #6). The
   load-bearing stuck-loop orphan-result fix + the tool-batch abort path were copy-pasted
   across `mode-default` and `mode-goal` (a fix to one had to be hand-mirrored). Both now

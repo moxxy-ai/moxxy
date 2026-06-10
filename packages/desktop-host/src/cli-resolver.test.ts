@@ -7,6 +7,7 @@ import {
   resolveMoxxyCli,
   executableCandidates,
   augmentedPaths,
+  electronNodeBinary,
   findExecutable,
 } from './cli-resolver';
 
@@ -173,5 +174,38 @@ describe('findExecutable', () => {
 
   it('returns null when the binary is absent', () => {
     expect(findExecutable('definitely-not-here', [tmp])).toBeNull();
+  });
+});
+
+describe('electronNodeBinary (macOS Helper substitution for run-as-node children)', () => {
+  const bundleExec = path.join('/Applications', 'My App.app', 'Contents', 'MacOS', 'My App');
+  const helperExec = path.join(
+    '/Applications',
+    'My App.app',
+    'Contents',
+    'Frameworks',
+    'My App Helper.app',
+    'Contents',
+    'MacOS',
+    'My App Helper',
+  );
+
+  it('prefers the LSUIElement Helper binary when execPath is inside a bundle and the helper exists', () => {
+    expect(electronNodeBinary(bundleExec, 'darwin', (p) => p === helperExec)).toBe(helperExec);
+  });
+
+  it('falls back to execPath when the helper binary is missing', () => {
+    expect(electronNodeBinary(bundleExec, 'darwin', () => false)).toBe(bundleExec);
+  });
+
+  it('leaves non-bundle paths alone on darwin', () => {
+    const bare = path.join('/usr', 'local', 'bin', 'electron');
+    expect(electronNodeBinary(bare, 'darwin', () => true)).toBe(bare);
+  });
+
+  it('never substitutes on linux or windows', () => {
+    expect(electronNodeBinary(bundleExec, 'linux', () => true)).toBe(bundleExec);
+    const winExec = path.join('C:', 'Apps', 'My App.app', 'Contents', 'MacOS', 'My App');
+    expect(electronNodeBinary(winExec, 'win32', () => true)).toBe(winExec);
   });
 });

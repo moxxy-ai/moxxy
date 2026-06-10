@@ -29,6 +29,7 @@ export * from './useDesks.js';
 export * from './useWorkflows.js';
 export * from './usePausedWorkflows.js';
 export * from './useWorkflowBuilder.js';
+export * from './useActionCatalog.js';
 export * from './useOnboarding.js';
 export * from './useContextUsage.js';
 export * from './useAppUpdate.js';
