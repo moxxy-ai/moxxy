@@ -49,6 +49,7 @@ import type {
   PermissionRule,
 } from '@moxxy/sdk';
 import { createLogger, silentLogger, type Logger } from './logger.js';
+import { clearRetainedChildren } from './subagents/registry.js';
 
 export interface SessionOptions {
   readonly cwd: string;
@@ -301,6 +302,11 @@ export class Session implements ClientSession, SessionRuntime {
     try {
       await this.dispatcher.dispatchShutdown(this.appContext());
     } finally {
+      // Drop any retained child sessions (the workflow `awaitInput` flow keeps
+      // them in a process-local registry until a `continue()`/`release()`). A
+      // paused run that never resumes would otherwise pin them for the whole
+      // process lifetime — release them on shutdown so they don't leak.
+      clearRetainedChildren();
       this.abort(reason);
     }
   }

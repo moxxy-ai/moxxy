@@ -59,4 +59,31 @@ describe('WorkflowStore CRUD', () => {
     expect(res.ok).toBe(true);
     expect(await store.get('delta')).toBeUndefined();
   });
+
+  it('renames a workflow without leaving an orphaned file/entry (Finding 7)', async () => {
+    const created = await store.create(sample('old-name'), 'user');
+    const oldPath = created.path;
+
+    // Save under a new name, declaring the previous name → old file/entry gone.
+    const renamed = await store.save(sample('new-name'), 'old-name');
+    expect(renamed.workflow.name).toBe('new-name');
+
+    expect(await store.get('old-name')).toBeUndefined();
+    expect((await store.get('new-name'))?.workflow.name).toBe('new-name');
+    await expect(fs.access(oldPath)).rejects.toThrow();
+
+    // A fresh store rediscovers only the new file (no orphan duplicate).
+    const fresh = new WorkflowStore({ cwd: dir, userDir: path.join(dir, 'user') });
+    await fresh.load();
+    const names = (await fresh.list()).map((w) => w.workflow.name);
+    expect(names).toContain('new-name');
+    expect(names).not.toContain('old-name');
+  });
+
+  it('save without a rename leaves the file in place', async () => {
+    await store.create(sample('keep'), 'user');
+    const before = (await store.get('keep'))!.path;
+    const after = await store.save(sample('keep'));
+    expect(after.path).toBe(before);
+  });
 });

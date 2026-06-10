@@ -35,6 +35,9 @@ import {
   synthesizeParamsSchema,
   workflowRunParamsSchema,
   workflowSetEnabledParamsSchema,
+  workflowValidateDraftParamsSchema,
+  workflowSaveParamsSchema,
+  workflowGetRunParamsSchema,
   type AttachResult,
   type CommandRunResult,
   type RunTurnResult,
@@ -167,6 +170,11 @@ export class RunnerServer {
       this.handleWorkflowSetEnabled(raw),
     );
     peer.handle(RunnerMethod.WorkflowRun, (raw) => this.handleWorkflowRun(raw));
+    peer.handle(RunnerMethod.WorkflowValidateDraft, (raw) =>
+      this.handleWorkflowValidateDraft(raw),
+    );
+    peer.handle(RunnerMethod.WorkflowSave, (raw) => this.handleWorkflowSave(raw));
+    peer.handle(RunnerMethod.WorkflowGetRun, (raw) => this.handleWorkflowGetRun(raw));
 
     peer.onClose(() => this.onDisconnect(client));
   }
@@ -458,6 +466,31 @@ export class RunnerServer {
     const view = this.session.workflows;
     if (!view) throw new Error('workflows plugin not loaded');
     return view.run(params.name);
+  }
+
+  // --- Workflows builder (validate / save / getRun) ------------------------
+  // Optional on the view (older hosts / pre-builder plugins lack them), so
+  // feature-check and throw a clear error rather than calling undefined.
+
+  private async handleWorkflowValidateDraft(raw: unknown): Promise<unknown> {
+    const params = workflowValidateDraftParamsSchema.parse(raw);
+    const view = this.session.workflows;
+    if (!view?.validateDraft) throw new Error('workflows builder not supported on this runner');
+    return view.validateDraft(params.yaml);
+  }
+
+  private async handleWorkflowSave(raw: unknown): Promise<unknown> {
+    const params = workflowSaveParamsSchema.parse(raw);
+    const view = this.session.workflows;
+    if (!view?.save) throw new Error('workflows builder not supported on this runner');
+    return view.save(params.yaml, params.previousName);
+  }
+
+  private async handleWorkflowGetRun(raw: unknown): Promise<unknown> {
+    const params = workflowGetRunParamsSchema.parse(raw);
+    const view = this.session.workflows;
+    if (!view?.getRun) throw new Error('workflows builder not supported on this runner');
+    return (await view.getRun(params.name)) ?? null;
   }
 
   private broadcastInfo(): void {

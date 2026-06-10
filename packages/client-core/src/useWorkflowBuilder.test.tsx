@@ -78,6 +78,50 @@ describe('useWorkflowBuilder', () => {
     expect(invoke).toHaveBeenCalledWith('workflows.save', expect.objectContaining({ yaml: expect.any(String) }));
   });
 
+  it('passes the loaded name as previousName on save so a rename cleans up (Finding 7)', async () => {
+    const yaml = sampleYaml();
+    const saved = { name: 'renamed', scope: 'user', path: '/renamed.yaml' };
+    const invoke = vi.fn(async (cmd: string) => {
+      if (cmd === 'workflows.getRun') return { name: 'demo', scope: 'user', path: '/demo.yaml', yaml };
+      if (cmd === 'workflows.validateDraft') return { ok: true, errors: [] };
+      if (cmd === 'workflows.save') return saved;
+      throw new Error(`unexpected ${cmd}`);
+    });
+    __setApiOverride(fakeApi(invoke as unknown as MoxxyApi['invoke']));
+
+    const { result } = renderHook(() => useWorkflowBuilder());
+    await act(async () => {
+      await result.current.load('demo');
+    });
+    // Rename on the canvas, then save.
+    act(() => result.current.dispatch({ type: 'update-meta', patch: { name: 'renamed' } }));
+    await act(async () => {
+      await result.current.save();
+    });
+    expect(invoke).toHaveBeenCalledWith(
+      'workflows.save',
+      expect.objectContaining({ previousName: 'demo' }),
+    );
+  });
+
+  it('omits previousName for a brand-new (unloaded) workflow', async () => {
+    const saved = { name: 'fresh', scope: 'user', path: '/fresh.yaml' };
+    const invoke = vi.fn(async (cmd: string) => {
+      if (cmd === 'workflows.validateDraft') return { ok: true, errors: [] };
+      if (cmd === 'workflows.save') return saved;
+      throw new Error(`unexpected ${cmd}`);
+    });
+    __setApiOverride(fakeApi(invoke as unknown as MoxxyApi['invoke']));
+
+    const { result } = renderHook(() => useWorkflowBuilder());
+    act(() => result.current.dispatch({ type: 'add-step', input: { kind: 'prompt', id: 'a' } }));
+    await act(async () => {
+      await result.current.save();
+    });
+    const call = invoke.mock.calls.find((c) => c[0] === 'workflows.save');
+    expect(call?.[1]).not.toHaveProperty('previousName');
+  });
+
   it('save refuses and surfaces an error when invalid', async () => {
     const invoke = vi.fn(async (cmd: string) => {
       if (cmd === 'workflows.validateDraft') return { ok: false, errors: ['name: bad'] };

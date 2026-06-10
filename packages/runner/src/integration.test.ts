@@ -632,4 +632,66 @@ describe('runner end-to-end', () => {
     expect(session.approvalResolver?.name).toBe('runner-routing');
     expect(session.resolver.name).toBe('runner-routing');
   });
+
+  it('forwards the workflows builder methods (validateDraft/save/getRun) to the runner', async () => {
+    // Finding 2: the desktop drives a RemoteSession, whose workflows view used
+    // to omit the builder methods, so validateDraft/save/getRun were undefined
+    // and the builder was non-functional on desktop. They must reach the real
+    // handler over the runner socket (protocol v4).
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('hi')] }));
+    const calls: Array<{ method: string; arg: unknown; arg2?: unknown }> = [];
+    session.workflows = {
+      list: async () => [],
+      setEnabled: async () => undefined,
+      run: async () => ({ ok: true, output: '', steps: [] }),
+      validateDraft: async (yaml) => {
+        calls.push({ method: 'validateDraft', arg: yaml });
+        return { ok: false, errors: ['steps: step "a" needs unknown step "x"'] };
+      },
+      save: async (yaml, previousName) => {
+        calls.push({ method: 'save', arg: yaml, arg2: previousName });
+        return { name: 'renamed', scope: 'user', path: '/tmp/renamed.yaml' };
+      },
+      getRun: async (name) => {
+        calls.push({ method: 'getRun', arg: name });
+        return { name, scope: 'user', path: '/tmp/x.yaml', yaml: 'name: x' };
+      },
+    };
+    const server = await startRunnerServer(session, { socketPath });
+    servers.push(server);
+    const remote = await attach(socketPath);
+
+    const validated = await remote.workflows.validateDraft('name: bad');
+    expect(validated.ok).toBe(false);
+    expect(validated.errors[0]).toContain('needs unknown step');
+
+    const saved = await remote.workflows.save('name: renamed', 'old-name');
+    expect(saved.name).toBe('renamed');
+
+    const detail = await remote.workflows.getRun('x');
+    expect(detail?.yaml).toBe('name: x');
+
+    expect(calls).toEqual([
+      { method: 'validateDraft', arg: 'name: bad' },
+      { method: 'save', arg: 'name: renamed', arg2: 'old-name' },
+      { method: 'getRun', arg: 'x' },
+    ]);
+  });
+
+  it('rejects the workflows builder methods when the runner lacks the builder slice', async () => {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('hi')] }));
+    // A workflows view WITHOUT the optional builder methods (older plugin).
+    session.workflows = {
+      list: async () => [],
+      setEnabled: async () => undefined,
+      run: async () => ({ ok: true, output: '', steps: [] }),
+    };
+    const server = await startRunnerServer(session, { socketPath });
+    servers.push(server);
+    const remote = await attach(socketPath);
+
+    await expect(remote.workflows.validateDraft('name: x')).rejects.toThrow(/builder not supported/);
+  });
 });

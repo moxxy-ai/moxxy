@@ -336,4 +336,54 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
       stop();
     }
   });
+
+  it('does NOT deliver a paused (awaitInput) run to the inbox (Finding 1)', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-pause-'));
+    tempDirs.push(cwd);
+    process.env.HOME = cwd;
+    process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
+
+    const projectDir = path.join(cwd, '.moxxy', 'workflows');
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, 'paused-wf.yaml'),
+      ['name: paused-wf', 'description: test', 'steps:', '  - id: s1', '    prompt: hi', ''].join('\n'),
+    );
+
+    const session = new Session({ cwd, logger: silentLogger });
+    // A stub executor that returns a non-terminal `paused` result, mimicking a
+    // run parked on an awaitInput step awaiting resume.
+    session.workflowExecutors.register({
+      name: 'paused-stub',
+      run: async () => ({
+        ok: true,
+        status: 'paused',
+        steps: [],
+        output: 'question for the operator',
+        runId: 'RUN1',
+        pendingStepId: 's1',
+      }),
+    });
+    const integration = buildWorkflowsIntegration({ session, scheduleStore: new ScheduleStore({ file: path.join(cwd, 'sched.json') }) });
+    // onReady (which assigns session.workflows = view) fires on plugin onInit.
+    session.pluginHost.registerStatic(integration.plugin);
+    await session.dispatcher.dispatchInit(session.appContext());
+    try {
+      const result = await session.workflows!.run('paused-wf');
+      // The view maps the run result; a paused run must not look "ok+complete"
+      // with an inbox file behind it.
+      const inboxDir = path.join(process.env.MOXXY_HOME!, 'inbox');
+      let inboxFiles: string[] = [];
+      try {
+        inboxFiles = await fs.readdir(inboxDir);
+      } catch {
+        inboxFiles = [];
+      }
+      expect(inboxFiles).toEqual([]);
+      // The output still surfaces, but no inbox delivery happened.
+      expect(result.output).toContain('question for the operator');
+    } finally {
+      integration.stop();
+    }
+  });
 });

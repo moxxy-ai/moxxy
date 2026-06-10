@@ -99,9 +99,25 @@ export class WorkflowStore {
   /**
    * Replace a workflow with a new definition. In-place rewrite for user/project
    * workflows; a user-scope override for builtin/plugin ones.
+   *
+   * `previousName` supports rename from the builder: when the workflow's name
+   * changed, the old user/project file and its registry entry are removed so a
+   * rename doesn't leave an orphaned duplicate file + stale entry behind.
    */
-  async save(workflow: Workflow): Promise<DiscoveredWorkflow> {
+  async save(workflow: Workflow, previousName?: string): Promise<DiscoveredWorkflow> {
     await this.ensureLoaded();
+
+    // Rename: the editor loaded `previousName`, the author changed the name,
+    // and we're saving under the new one. Drop the old editable file + entry
+    // before writing the new one. (A read-only builtin/plugin can't be renamed
+    // in place — leave it; the new name becomes a fresh user-scope workflow.)
+    const renamed =
+      previousName != null && previousName !== workflow.name ? this.byName.get(previousName) : undefined;
+    if (renamed && (renamed.scope === 'user' || renamed.scope === 'project')) {
+      await fs.rm(renamed.path, { force: true });
+      this.byName.delete(previousName!);
+    }
+
     const existing = this.byName.get(workflow.name);
     const editable = existing && (existing.scope === 'user' || existing.scope === 'project');
     if (existing && editable) {
@@ -111,11 +127,13 @@ export class WorkflowStore {
       return entry;
     }
     // New, or overriding a read-only builtin/plugin workflow → write to user dir.
-    const dir = this.userDir();
+    // Reuse the renamed file's scope when renaming a project workflow.
+    const scope: EditableScope = renamed?.scope === 'project' ? 'project' : 'user';
+    const dir = scope === 'project' ? this.projectDir() : this.userDir();
     await fs.mkdir(dir, { recursive: true });
     const file = await uniqueFilename(dir, workflow.name);
     await writeFileAtomic(file, serializeWorkflow(workflow));
-    const entry: DiscoveredWorkflow = { workflow, path: file, scope: 'user' };
+    const entry: DiscoveredWorkflow = { workflow, path: file, scope };
     this.byName.set(workflow.name, entry);
     return entry;
   }

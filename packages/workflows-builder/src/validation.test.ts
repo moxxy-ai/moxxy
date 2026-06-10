@@ -20,13 +20,15 @@ describe('mapErrorsToNodes', () => {
     const mapped = mapErrorsToNodes(
       [
         'steps: step "gate" needs unknown step "ghost"',
-        'awaitInput: step "a": awaitInput is only allowed on prompt or skill steps',
+        'awaitInput: step "a": awaitInput requires the resume channel, which is not available in this build',
         'name: name must be slug-like',
       ],
       s,
     );
     expect(mapped.gate).toEqual(['steps: step "gate" needs unknown step "ghost"']);
-    expect(mapped.a).toEqual(['awaitInput: step "a": awaitInput is only allowed on prompt or skill steps']);
+    expect(mapped.a).toEqual([
+      'awaitInput: step "a": awaitInput requires the resume channel, which is not available in this build',
+    ]);
     expect(mapped[WORKFLOW_ERROR_KEY]).toEqual(['name: name must be slug-like']);
   });
 

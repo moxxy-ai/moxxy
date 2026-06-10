@@ -4,24 +4,20 @@ import { buildSystemPrompt, draftWorkflow } from './draft.js';
 
 const MULTI_STEP_DRAFT = `\`\`\`yaml
 name: image-report-email
-description: Collect image brief in chat, generate it, write a report, and email it.
+description: Generate an image from a brief, write a report, and email it.
 enabled: true
 inputs:
+  brief:
+    description: What image to generate.
   recipient:
     default: ""
     description: Email address for the final report.
 steps:
-  - id: collect_brief
-    label: Collect image brief
-    awaitInput: true
-    prompt: |
-      Ask the operator what image they want generated.
   - id: generate_image
-    needs: [collect_brief]
     label: Generate image
     prompt: |
       Generate the image from the brief:
-      {{ steps.collect_brief.output }}
+      {{ inputs.brief }}
   - id: write_report
     needs: [generate_image]
     label: Write report
@@ -49,8 +45,10 @@ describe('draftWorkflow', () => {
     expect(prompt).toContain('gmail_send');
     expect(prompt).toContain('at least 4 steps');
     expect(prompt).toContain('<< skill-name >>');
-    expect(prompt).toContain('awaitInput: true');
-    expect(prompt).toContain('collect_brief');
+    // awaitInput is gated (no resume channel) — the prompt must steer the model
+    // to `inputs` instead of teaching the unshippable pause flow.
+    expect(prompt).toContain('Never use `awaitInput`');
+    expect(prompt).not.toContain('awaitInput: true');
   });
 
   it('teaches the loop node with a worked example', () => {
@@ -77,9 +75,9 @@ describe('draftWorkflow', () => {
     expect(drafted.parse.ok).toBe(true);
     expect(drafted.parse.errors).toEqual([]);
     expect(drafted.parse.workflow?.name).toBe('image-report-email');
-    expect(drafted.parse.workflow?.steps).toHaveLength(4);
+    expect(drafted.parse.workflow?.steps).toHaveLength(3);
     expect(drafted.parse.workflow?.inputs?.recipient).toBeDefined();
-    expect(drafted.parse.workflow?.steps[3]?.tool).toBe('gmail_send');
+    expect(drafted.parse.workflow?.steps[2]?.tool).toBe('gmail_send');
     expect(provider.received[0]?.maxTokens).toBe(4096);
   });
 });

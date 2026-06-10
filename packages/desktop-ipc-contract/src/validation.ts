@@ -146,7 +146,10 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // hostile renderer can't OOM the host; save writes to disk so it's
   // filesystem-touching and gets a boundary check like the other writers.
   'workflows.validateDraft': z.object({ yaml: z.string().min(1).max(1_000_000) }),
-  'workflows.save': z.object({ yaml: z.string().min(1).max(1_000_000) }),
+  'workflows.save': z.object({
+    yaml: z.string().min(1).max(1_000_000),
+    previousName: workflowName.optional(),
+  }),
   'workflows.getRun': z.object({ name: workflowName }),
   // Security-sensitive: this bypasses the approval sheet, so validate it at
   // the boundary like the other dangerous commands.

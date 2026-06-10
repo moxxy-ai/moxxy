@@ -107,9 +107,29 @@ function buildScope(ctx: ExecutorContext, nowIso: string): TemplateScope {
   };
 }
 
+/**
+ * Keys that would mutate the prototype chain rather than set an own property.
+ * Logic-step `vars` come from model output, so a hostile/garbled response could
+ * carry `__proto__`/`constructor`/`prototype` — drop them when merging.
+ */
+const UNSAFE_VAR_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function mergeVars(ctx: ExecutorContext, vars: Record<string, unknown> | undefined): void {
   if (!vars) return;
-  Object.assign(ctx.vars, vars);
+  for (const [key, value] of Object.entries(vars)) {
+    if (UNSAFE_VAR_KEYS.has(key)) {
+      ctx.deps.logger?.warn?.('workflow vars: dropping prototype-pollution key', { key });
+      continue;
+    }
+    // Own-property assignment only (skips inherited keys that Object.entries
+    // wouldn't surface anyway, but keeps the intent explicit).
+    Object.defineProperty(ctx.vars, key, {
+      value,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
+  }
 }
 
 async function applyBranchSkips(
@@ -293,6 +313,9 @@ async function runExecutorLoop(ctx: ExecutorContext): Promise<WorkflowRunResult>
           trigger: deps.trigger ?? 'manual',
           inputs: ctx.inputs,
           states: serializeStates(ctx.states),
+          // Persist vars set by logic steps that ran before this pause so a
+          // resume restores them (otherwise downstream `{{ vars.x }}` is lost).
+          vars: ctx.vars,
           pendingStepId: step.id,
           interactionAgentId: outcome.interactionAgentId!,
           startedAt: ctx.now(),
@@ -400,15 +423,19 @@ export async function resumeWorkflowRun(
     };
   }
 
+  // Restore vars captured at pause time (logic steps that ran before the
+  // awaitInput step). Older checkpoints predate `vars` — default to {}.
+  const restoredVars: Record<string, unknown> = {};
   const ctx: ExecutorContext = {
     workflow: checkpoint.workflow,
     deps: depsWithStore,
     inputs: checkpoint.inputs,
-    vars: {},
+    vars: restoredVars,
     states: restoreStates(checkpoint.states),
     now: nowFn(deps),
     loopBodyIds: collectLoopBodyIds(checkpoint.workflow),
   };
+  mergeVars(ctx, checkpoint.vars);
 
   const st = ctx.states.get(step.id)!;
   await deps.emit?.('workflow_resumed', { runId, stepId: step.id });

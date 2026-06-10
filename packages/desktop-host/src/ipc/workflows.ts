@@ -37,10 +37,10 @@ export function registerWorkflowsHandlers(pool: RunnerPool): void {
     if (!session.workflows?.validateDraft) throw new Error('workflows builder not supported on this session');
     return await session.workflows.validateDraft(yaml);
   });
-  handle('workflows.save', async ({ yaml }) => {
+  handle('workflows.save', async ({ yaml, previousName }) => {
     const session = mustSession(pool);
     if (!session.workflows?.save) throw new Error('workflows builder not supported on this session');
-    return await session.workflows.save(yaml);
+    return await session.workflows.save(yaml, previousName);
   });
   handle('workflows.getRun', async ({ name }) => {
     const session = mustSession(pool);

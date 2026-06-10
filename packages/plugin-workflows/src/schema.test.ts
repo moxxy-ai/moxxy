@@ -275,6 +275,119 @@ steps:
       ],
     });
     expect(r.ok).toBe(false);
-    expect(r.errors.join('\n')).toMatch(/awaitInput is only allowed on prompt or skill/);
+    expect(r.errors.join('\n')).toMatch(/awaitInput requires the resume channel/);
+  });
+
+  // --- awaitInput gate (Finding 1) -------------------------------------------
+  // The resume trigger that delivers the operator's reply did NOT ship to main,
+  // so a paused run would hang forever. awaitInput is rejected at author time
+  // on EVERY step kind until a resume path lands in-tree.
+
+  it('rejects awaitInput on a prompt step (resume channel not available)', () => {
+    const r = validateWorkflow({
+      name: 'await-prompt',
+      description: 'x',
+      steps: [{ id: 'ask', prompt: 'ask the operator', awaitInput: true }],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join('\n')).toMatch(/awaitInput requires the resume channel/);
+  });
+
+  it('rejects awaitInput on a skill step', () => {
+    const r = validateWorkflow({
+      name: 'await-skill',
+      description: 'x',
+      steps: [{ id: 'ask', skill: 'web-research', input: 'ask', awaitInput: true }],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join('\n')).toMatch(/awaitInput requires the resume channel/);
+  });
+
+  // --- loop-body integrity (Findings 3, 5, 8) -------------------------------
+
+  it('rejects a condition step used as a loop body (Finding 3)', () => {
+    const r = validateWorkflow({
+      name: 'loop-cond-body',
+      description: 'x',
+      steps: [
+        { id: 'spin', loop: { body: ['decide'], condition: 'done?', maxIterations: 3 } },
+        {
+          id: 'decide',
+          needs: ['spin'],
+          condition: 'is it good?',
+          then: ['spin'],
+          else: ['spin'],
+        },
+      ],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join('\n')).toMatch(/cannot be a condition\/switch step/);
+  });
+
+  it('rejects a switch step used as a loop body (Finding 3)', () => {
+    const r = validateWorkflow({
+      name: 'loop-switch-body',
+      description: 'x',
+      steps: [
+        { id: 'spin', loop: { body: ['route'], condition: 'done?', maxIterations: 3 } },
+        { id: 'route', needs: ['spin'], switch: 'which?', cases: { a: ['spin'] } },
+      ],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join('\n')).toMatch(/cannot be a condition\/switch step/);
+  });
+
+  it('rejects a non-loop step that needs a loop-body step (Finding 5)', () => {
+    const r = validateWorkflow({
+      name: 'needs-body',
+      description: 'x',
+      steps: [
+        { id: 'spin', loop: { body: ['work'], condition: 'done?', maxIterations: 3 } },
+        { id: 'work', needs: ['spin'], prompt: 'work' },
+        { id: 'after', needs: ['work'], prompt: 'after' },
+      ],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join('\n')).toMatch(/which is a loop body of "spin" — depend on the loop step/);
+  });
+
+  it('rejects a `when` guard on a loop-body step (Finding 8)', () => {
+    const r = validateWorkflow({
+      name: 'body-when',
+      description: 'x',
+      steps: [
+        { id: 'spin', loop: { body: ['work'], condition: 'done?', maxIterations: 3 } },
+        { id: 'work', needs: ['spin'], when: '{{ vars.x }} is not empty', prompt: 'work' },
+      ],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join('\n')).toMatch(/cannot have a `when` guard/);
+  });
+
+  it('rejects a loop-body step that needs a step outside its loop (Finding 8)', () => {
+    const r = validateWorkflow({
+      name: 'body-extra-needs',
+      description: 'x',
+      steps: [
+        { id: 'seed', prompt: 'seed' },
+        { id: 'spin', needs: ['seed'], loop: { body: ['work'], condition: 'done?', maxIterations: 3 } },
+        { id: 'work', needs: ['spin', 'seed'], prompt: 'work' },
+      ],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join('\n')).toMatch(/may only `needs` its loop step/);
+  });
+
+  it('accepts a loop body that needs a sibling body step of the same loop (Finding 8)', () => {
+    const r = validateWorkflow({
+      name: 'body-sibling-needs',
+      description: 'x',
+      steps: [
+        { id: 'spin', loop: { body: ['a', 'b'], condition: 'done?', maxIterations: 3 } },
+        { id: 'a', needs: ['spin'], prompt: 'a' },
+        { id: 'b', needs: ['a'], prompt: 'b' },
+      ],
+    });
+    expect(r.ok).toBe(true);
   });
 });
