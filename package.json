@@ -35,5 +35,6 @@
       "electron",
       "electron-winstaller"
     ]
-  }
+  },
+  "license": "MIT"
 }

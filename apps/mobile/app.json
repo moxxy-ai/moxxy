@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "moxxy mobile",
+    "name": "Workspaces",
     "slug": "moxxy-mobile",
     "scheme": "moxxy",
     "version": "0.0.0",
@@ -14,7 +14,13 @@
       }
     },
     "android": {
-      "permissions": ["android.permission.CAMERA"]
+      "permissions": [
+        "android.permission.CAMERA"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#fcfcff"
+      }
     },
     "plugins": [
       "expo-router",
@@ -40,6 +46,20 @@
     ],
     "web": {
       "bundler": "metro"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "b5bb93ab-0970-441a-b756-f2c0ebe2ebad"
+      }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/b5bb93ab-0970-441a-b756-f2c0ebe2ebad"
+    },
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#fcfcff"
     }
   }
 }

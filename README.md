@@ -25,7 +25,7 @@
     <img src="https://img.shields.io/badge/pnpm-workspace-F69220?logo=pnpm&logoColor=white" alt="pnpm" />
   </a>
   <a href="#-license">
-    <img src="https://img.shields.io/badge/license-TBD-lightgrey" alt="License" />
+    <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
   </a>
 </p>
 
