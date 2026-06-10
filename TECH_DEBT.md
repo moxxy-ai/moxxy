@@ -428,10 +428,23 @@ change today.
 ### 2. Desktop persists every conversation twice — pick one source of truth — ⚠️ PARTIALLY DONE
 **Found 2026-06-08 (the "NDJSON-vs-replay redundancy" follow-up).** Every committed event
 is written to disk in **two** independent stores:
-- runner session log — `~/.moxxy/sessions/<id>.jsonl`, replayed in full on every attach
-  (`runner/src/server.ts:184` — always replays from seq 0);
+- runner session log — `~/.moxxy/sessions/<id>.jsonl`, replayed on attach
+  (`runner/src/server.ts` `handleAttach`);
 - desktop NDJSON chat-log — `~/.moxxy/chats/<workspaceId>.jsonl`
   (`desktop-host/src/chat-log.ts`), the renderer's windowed mirror.
+
+**Mechanism corrected + replay cost fixed (2026-06-11, runner protocol v6).** Empirically
+the attach replay never reached the renderer at all: the `SessionDriver` subscribes to the
+host-side mirror only AFTER attach completes, so the renderer transcript has always come
+solely from `chat.loadSegment` over the NDJSON store. The replay's only effect on desktop
+was COST — replaying the full event log (~95% `assistant_chunk`) into desktop-host's
+`RemoteSession` mirror on every app start / desk switch / cwd change / reconnect, with the
+composer-ready gate waiting on it. Fixed: `attach` now takes a `replay` param
+(`'full' | 'none' | { tail }`, default `'full'` preserves TUI/`moxxy attach`), the server
+announces the start seq via a `replay.start` notification, the client mirror rebases to it
+(`EventLog.rebase`), and the desktop supervisor attaches with `replay: 'none'`. So the two
+stores are no longer redundant on desktop: the runner JSONL feeds resume/context, the
+NDJSON feeds the renderer transcript.
 
 **Fixed (2026-06-08, PR #107):** the **unbounded NDJSON growth** defect. Because the runner
 replays the full history on every restart and the renderer re-appends each replayed event,
@@ -440,10 +453,12 @@ the NDJSON log used to grow by a complete copy of the conversation per restart �
 pagination. `appendEvents` is now **idempotent by event id** (lazy file-path-keyed id cache),
 so the log holds one copy and its cursors stay stable. +5 chat-log tests.
 
-**Remaining (the real decision):** the redundancy itself. The runner replay already
-delivers the complete history on every attach, so the desktop NDJSON store is arguably
-entirely redundant — dropping it (read history from the runner replay only) would also kill
-the redundant on-restart append IPC and the `/new` desync below. Counter-risk: legacy
+**Remaining (the real decision):** the dual on-disk history itself. The runner session
+JSONL still holds the complete history (replayable via `replay: 'full'` / `{ tail }`), so
+one of the two stores could in principle be retired — but with the desktop now attached via
+`replay: 'none'`, the NDJSON store is the renderer's ONLY history source, so any
+consolidation must move it to the runner log (paged reads), not just delete it.
+Counter-risk: legacy
 localStorage→NDJSON-migrated chats may live ONLY in NDJSON, not in any runner session log,
 so a naive drop loses early-adopter history. **Needs a product call + desktop-app
 verification — not a mechanical change.** Note (2026-06-09): the shared client layer (PR

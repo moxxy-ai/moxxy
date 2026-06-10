@@ -138,7 +138,9 @@ function createTool(deps: WorkflowToolDeps): ToolDef {
       if (!provider) {
         throw new MoxxyError({ code: 'PROVIDER_NOT_CONFIGURED', message: 'workflow_create: no active provider to draft with.' });
       }
-      const model = deps.draftModel ?? provider.models[0]?.id ?? 'claude-sonnet-4-6';
+      // 'default' matches run-turn's terminal fallback — never a hardcoded
+      // vendor model id that goes stale.
+      const model = deps.draftModel ?? provider.models[0]?.id ?? 'default';
       const drafted = await draftWorkflow(provider, model, intent, ctx.signal, {
         ...(deps.listSkills ? { availableSkills: deps.listSkills() } : {}),
         ...(deps.listTools ? { availableTools: deps.listTools() } : {}),

@@ -22,6 +22,10 @@ export async function* runTurn(
   const turnId = opts.turnId ?? session.startTurn().turnId;
   const provider = session.providers.getActive();
   const model = opts.model ?? provider.models[0]?.id ?? 'default';
+  // Record the resolution so out-of-band spawns (workflow triggers) can
+  // inherit the conversation's current model. Last-writer-wins when turns
+  // run concurrently — see the field's doc in SessionRuntime.
+  session.lastResolvedModel = model;
 
   const queue: MoxxyEvent[] = [];
   const waiters: Array<() => void> = [];

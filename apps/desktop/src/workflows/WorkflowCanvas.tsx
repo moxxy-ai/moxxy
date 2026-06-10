@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
+  STEP_KINDS,
   stepKindMeta,
+  uniqueId,
   WORKFLOW_ERROR_KEY,
   wouldCreateCycle,
   type BuilderAction,
   type BuilderEdge,
   type BuilderNode,
   type BuilderState,
+  type StepKind,
 } from '@moxxy/workflows-builder';
 import { accentHex } from './accents';
 
@@ -22,7 +25,13 @@ import { accentHex } from './accents';
  *   - on a connection HANDLE (the small circles on a card's edges) → draw a
  *     CONNECTION (connect.current); on pointerup over a target node it
  *     dispatches the matching graph op. These connections ARE the execution
- *     order: a `needs` edge from A→B means A runs before B.
+ *     order: a `needs` edge from A→B means A runs before B. Releasing over
+ *     EMPTY canvas instead opens the insert menu: pick a step kind to create
+ *     it at the drop point already wired to the pending edge (Escape or
+ *     click-away cancels).
+ *
+ * Keyboard: Delete/Backspace removes the selected node (suppressed while a
+ * text field has focus); Escape dismisses the insert menu.
  *
  * Handles per kind (outputs initiate a drag, inputs/targets receive it):
  *   - every node: a right-edge OUTPUT (plain `needs`) + a left-edge INPUT.
@@ -70,6 +79,19 @@ interface PendingConnection {
   readonly oy: number;
 }
 
+/** A connection dropped on empty canvas, parked while the insert menu is open. */
+interface InsertMenuState {
+  /** Source node + port of the pending edge. */
+  readonly nodeId: string;
+  readonly port: PortKind;
+  /** Drop point in content coords (the new node's input anchor lands here). */
+  readonly x: number;
+  readonly y: number;
+  /** Pending-edge origin, kept so the preview line stays drawn. */
+  readonly ox: number;
+  readonly oy: number;
+}
+
 const EDGE_STYLE: Record<BuilderEdge['kind'], { color: string; dash?: string; label?: string }> = {
   needs: { color: '#94a3b8' },
   then: { color: '#10b981', label: 'then' },
@@ -110,6 +132,7 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
   const [panning, setPanning] = useState(false);
   /** Set on pan end so the synthetic click that follows doesn't deselect. */
   const suppressClick = useRef(false);
+  const [insertMenu, setInsertMenu] = useState<InsertMenuState | null>(null);
 
   const byId = useMemo(() => new Map(state.nodes.map((n) => [n.id, n])), [state.nodes]);
 
@@ -177,6 +200,27 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
     return () => el.removeEventListener('wheel', onWheel);
   }, [applyZoom, zoom]);
 
+  // Keyboard: Delete/Backspace removes the selected node + its edges (same op
+  // as the inspector's Delete button); Escape dismisses the insert menu,
+  // cancelling its pending edge. Skipped while typing in a field so editing
+  // text never nukes a node. (Edges aren't selectable — they delete via the
+  // midpoint ✕ — so there's no edge case here.)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        setInsertMenu(null);
+        return;
+      }
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      if (state.selected == null || isEditableTarget(e.target)) return;
+      e.preventDefault();
+      setInsertMenu(null);
+      dispatch({ type: 'remove-step', id: state.selected });
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [dispatch, state.selected]);
+
   const flashReject = useCallback((msg: string) => {
     setReject(msg);
     if (rejectTimer.current) clearTimeout(rejectTimer.current);
@@ -188,6 +232,7 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
     (e: React.PointerEvent, node: BuilderNode) => {
       e.stopPropagation();
       (e.target as Element).setPointerCapture?.(e.pointerId);
+      setInsertMenu(null);
       const p = surfacePoint(e);
       drag.current = { id: node.id, dx: p.x - node.x, dy: p.y - node.y };
       setDragging(node.id);
@@ -201,6 +246,7 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
     (e: React.PointerEvent, node: BuilderNode, port: PortKind) => {
       e.stopPropagation();
       (e.target as Element).setPointerCapture?.(e.pointerId);
+      setInsertMenu(null);
       const origin = portOrigin(node, port);
       const start: PendingConnection = { nodeId: node.id, port, ox: origin.x, oy: origin.y };
       connect.current = start;
@@ -214,20 +260,31 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
   // --- background pan (canvas drag) ---
   // Node bodies and handles stopPropagation on pointerdown, so anything that
   // reaches the surface here is empty canvas (or an edge) → start panning.
-  const onSurfacePointerDown = useCallback((e: React.PointerEvent) => {
-    if (e.button !== 0) return;
-    const el = surfaceRef.current;
-    if (!el) return;
-    (e.target as Element).setPointerCapture?.(e.pointerId);
-    pan.current = {
-      x: e.clientX,
-      y: e.clientY,
-      left: el.scrollLeft,
-      top: el.scrollTop,
-      moved: false,
-    };
-    setPanning(true);
-  }, []);
+  const onSurfacePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      // Truthy = non-primary button. (Not `!== 0`: jsdom test events have no
+      // PointerEvent, so `button` arrives undefined there.)
+      if (e.button) return;
+      if (insertMenu) {
+        // Click-away dismisses the insert menu (cancels the pending edge);
+        // swallow the gesture so it doesn't also start a pan.
+        setInsertMenu(null);
+        return;
+      }
+      const el = surfaceRef.current;
+      if (!el) return;
+      (e.target as Element).setPointerCapture?.(e.pointerId);
+      pan.current = {
+        x: e.clientX,
+        y: e.clientY,
+        left: el.scrollLeft,
+        top: el.scrollTop,
+        moved: false,
+      };
+      setPanning(true);
+    },
+    [insertMenu],
+  );
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
@@ -265,7 +322,12 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
       setHoverTarget(null);
       if (!c) return;
       const targetId = nodeAt(state.nodes, p, c.nodeId);
-      if (!targetId) return; // dropped on empty canvas → cancel, no-op
+      if (!targetId) {
+        // Dropped on empty canvas → offer to insert a node right there, wired
+        // to the pending connection (Escape / click-away cancels).
+        setInsertMenu({ nodeId: c.nodeId, port: c.port, x: p.x, y: p.y, ox: c.ox, oy: c.oy });
+        return;
+      }
       const target = byId.get(targetId);
       const source = byId.get(c.nodeId);
       if (!target || !source || target.id === source.id) return;
@@ -305,6 +367,41 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
       }
     },
     [byId, dispatch, flashReject, state],
+  );
+
+  // Insert a node of `kind` at the menu's drop point and wire the pending edge
+  // to it, through the same ops the drop-on-node path dispatches. The id is
+  // precomputed (uniqueId) because dispatch can't return the id add-step picks;
+  // sequential dispatches reduce in order, so the wire op sees the new node.
+  const insertFromMenu = useCallback(
+    (kind: StepKind) => {
+      const menu = insertMenu;
+      setInsertMenu(null);
+      if (!menu) return;
+      const source = byId.get(menu.nodeId);
+      if (!source) return;
+      const id = uniqueId(state, kind);
+      const x = Math.max(0, menu.x);
+      // Offset so the new node's left input anchor lands at the drop point.
+      const y = Math.max(0, menu.y - ANCHOR_OFFSET);
+      switch (menu.port) {
+        case 'needs':
+          dispatch({ type: 'add-step', input: { kind, id, x, y, after: source.id } });
+          return;
+        case 'then':
+        case 'else': {
+          dispatch({ type: 'add-step', input: { kind, id, x, y } });
+          const current = (menu.port === 'then' ? source.then : source.else) ?? [];
+          dispatch({ type: 'set-branch', nodeId: source.id, slot: menu.port, targets: [...current, id] });
+          return;
+        }
+        case 'loop-exit':
+          dispatch({ type: 'add-step', input: { kind, id, x, y } });
+          dispatch({ type: 'set-loop-exit', loopId: source.id, targetId: id });
+          return;
+      }
+    },
+    [byId, dispatch, insertMenu, state],
   );
 
   const onPointerUp = useCallback(
@@ -420,6 +517,13 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
             );
           })}
           {pending && cursor && <TempLine from={{ x: pending.ox, y: pending.oy }} to={cursor} port={pending.port} />}
+          {insertMenu && byId.has(insertMenu.nodeId) && (
+            <TempLine
+              from={{ x: insertMenu.ox, y: insertMenu.oy }}
+              to={{ x: insertMenu.x, y: insertMenu.y }}
+              port={insertMenu.port}
+            />
+          )}
         </svg>
 
         {state.nodes.map((node) => (
@@ -436,6 +540,10 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
             onHandlePointerDown={(e, port) => onHandlePointerDown(e, node, port)}
           />
         ))}
+
+        {insertMenu && byId.has(insertMenu.nodeId) && (
+          <InsertNodeMenu menu={insertMenu} zoom={zoom} onPick={insertFromMenu} />
+        )}
 
         {state.nodes.length === 0 && (
           <div
@@ -549,6 +657,93 @@ function ZoomControls({
       >
         +
       </button>
+    </div>
+  );
+}
+
+/**
+ * The drop-on-empty-canvas insert menu: pick a step kind to create it at the
+ * drop point, pre-wired to the pending connection. Lives inside the scaled
+ * content layer (so it tracks the drop point through pan/zoom) but counter-
+ * scales itself to stay readable at any zoom level.
+ */
+function InsertNodeMenu({
+  menu,
+  zoom,
+  onPick,
+}: {
+  readonly menu: InsertMenuState;
+  readonly zoom: number;
+  readonly onPick: (kind: StepKind) => void;
+}): JSX.Element {
+  return (
+    <div
+      data-testid="insert-node-menu"
+      // Own the gesture: a pointerdown/click inside the menu must not pan the
+      // canvas, dismiss the menu, or deselect.
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        position: 'absolute',
+        left: menu.x,
+        top: menu.y,
+        transform: `scale(${1 / zoom})`,
+        transformOrigin: '0 0',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 2,
+        padding: 4,
+        minWidth: 160,
+        background: 'var(--color-bg-card)',
+        border: '1px solid var(--color-border)',
+        borderRadius: 'var(--radius-block)',
+        boxShadow: 'var(--color-card-shadow)',
+        zIndex: 6,
+      }}
+    >
+      <span
+        style={{
+          fontSize: '0.6rem',
+          fontWeight: 700,
+          textTransform: 'uppercase',
+          letterSpacing: '0.04em',
+          color: 'var(--color-text-dim)',
+          padding: '2px 6px',
+        }}
+      >
+        Insert step
+      </span>
+      {STEP_KINDS.map((k) => (
+        <button
+          key={k.kind}
+          type="button"
+          data-testid={`insert-add-${k.kind}`}
+          title={k.description}
+          onClick={() => onPick(k.kind)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: '0.74rem',
+            fontWeight: 600,
+            padding: '0.28rem 0.5rem',
+            textAlign: 'left',
+            color: 'var(--color-text)',
+            borderRadius: 6,
+          }}
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: accentHex(k.accent),
+              flexShrink: 0,
+            }}
+          />
+          {k.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -1010,6 +1205,14 @@ function disconnectEdge(dispatch: (a: BuilderAction) => void, edge: BuilderEdge,
       dispatch({ type: 'set-loop-exit', loopId: edge.from, targetId: null });
       return;
   }
+}
+
+/** True when a key event originated in a text-editing element (don't delete). */
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
 }
 
 /** The node whose card contains the point (excluding `exclude`), or null. */

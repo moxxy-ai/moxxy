@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import type { ConnectionSnapshot, MoxxyApi } from '@moxxy/desktop-ipc-contract';
+import { refreshConnectionStore, type ConnectionStoreLike } from '../connectionRefresh';
 import { buildConnectionUi, shouldOfferRepair } from '../socketLifecycle';
 
 // The transport (`WsRpcClient`) owns reconnect/backoff, so the lifecycle
@@ -48,5 +50,74 @@ describe('mobile socket lifecycle ui', () => {
       canSend: false,
       shouldOfferRepair: false,
     });
+  });
+});
+
+// `ConnectionBridge` primes the store once per client mount and never
+// retries; the gateway provider re-primes via refreshConnectionStore on
+// every refreshTick so a failed first dial / runner restart can't leave the
+// app deaf on a stale workspace.
+describe('mobile connection store refresh', () => {
+  const snapshot: ConnectionSnapshot = {
+    phase: { phase: 'connected' } as ConnectionSnapshot['phase'],
+    cliPath: null,
+    attempts: 0,
+    log: [],
+  };
+
+  function makeStore() {
+    const snapshots: Array<{ workspaceId: string; snapshot: ConnectionSnapshot }> = [];
+    const actives: Array<string | null> = [];
+    const store: ConnectionStoreLike = {
+      setSnapshot: (workspaceId, next) => snapshots.push({ workspaceId, snapshot: next }),
+      setActive: (workspaceId) => actives.push(workspaceId),
+    };
+    return { store, snapshots, actives };
+  }
+
+  function makeTransport(handlers: Record<string, () => Promise<unknown>>): Pick<MoxxyApi, 'invoke'> {
+    return {
+      invoke: ((command: string) => handlers[command]!()) as MoxxyApi['invoke'],
+    };
+  }
+
+  it('re-primes every workspace snapshot and the active workspace', async () => {
+    const { store, snapshots, actives } = makeStore();
+    await refreshConnectionStore(
+      makeTransport({
+        'connection.snapshotAll': async () => [{ workspaceId: 'ws-2', ...snapshot }],
+        'connection.activeWorkspace': async () => 'ws-2',
+      }),
+      store,
+    );
+
+    expect(snapshots).toEqual([{ workspaceId: 'ws-2', snapshot }]);
+    expect(actives).toEqual(['ws-2']);
+  });
+
+  it('still applies the active workspace when snapshotAll fails (and vice versa)', async () => {
+    const failing = async () => Promise.reject(new Error('not connected'));
+
+    const first = makeStore();
+    await refreshConnectionStore(
+      makeTransport({
+        'connection.snapshotAll': failing,
+        'connection.activeWorkspace': async () => 'ws-1',
+      }),
+      first.store,
+    );
+    expect(first.snapshots).toEqual([]);
+    expect(first.actives).toEqual(['ws-1']);
+
+    const second = makeStore();
+    await refreshConnectionStore(
+      makeTransport({
+        'connection.snapshotAll': async () => [{ workspaceId: 'ws-1', ...snapshot }],
+        'connection.activeWorkspace': failing,
+      }),
+      second.store,
+    );
+    expect(second.snapshots).toEqual([{ workspaceId: 'ws-1', snapshot }]);
+    expect(second.actives).toEqual([]);
   });
 });

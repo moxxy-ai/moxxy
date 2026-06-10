@@ -161,3 +161,69 @@ describe('subagents — basic spawning', () => {
     expect(labels).toEqual(['one', 'three', 'two']);
   });
 });
+
+describe('subagents — model override validation', () => {
+  it('falls back to the parent model (with a warning) on a hallucinated model id', async () => {
+    const provider = new FakeProvider({
+      script: [
+        toolUseReply(
+          'dispatch_agent',
+          // Training-era id the calling LLM tends to invent.
+          { agents: [{ prompt: 'task', label: 'kid', model: 'claude-3-5-sonnet' }] },
+          'p1',
+        ),
+        textReply('child done'),
+        textReply('parent done'),
+      ],
+    });
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(defaultModePlugin);
+    session.modes.setActive('default');
+    session.tools.register(dispatchAgentTool);
+
+    const events = await collectTurn(session, 'spawn with a bogus model');
+
+    const warning = events.find(
+      (e) => e.type === 'plugin_event' && e.subtype === 'subagent_warning',
+    );
+    expect(warning).toBeDefined();
+    if (warning?.type === 'plugin_event') {
+      expect((warning.payload as { message: string }).message).toBe(
+        'unknown model "claude-3-5-sonnet" — falling back to parent model "fake-model"',
+      );
+    }
+    // Request order: parent iteration 1, child, parent wrap-up. The child's
+    // provider request must carry the parent's model, not the invented one.
+    expect(provider.received[1]?.model).toBe('fake-model');
+  });
+
+  it('honors a model override the provider actually lists', async () => {
+    const models = [
+      { id: 'fake-model', contextWindow: 200_000 },
+      { id: 'cheap-model', contextWindow: 200_000 },
+    ];
+    const provider = new FakeProvider({
+      models,
+      script: [
+        toolUseReply(
+          'dispatch_agent',
+          { agents: [{ prompt: 'task', label: 'kid', model: 'cheap-model' }] },
+          'p1',
+        ),
+        textReply('child done'),
+        textReply('parent done'),
+      ],
+    });
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(defaultModePlugin);
+    session.modes.setActive('default');
+    session.tools.register(dispatchAgentTool);
+
+    const events = await collectTurn(session, 'spawn cheap');
+
+    expect(
+      events.find((e) => e.type === 'plugin_event' && e.subtype === 'subagent_warning'),
+    ).toBeUndefined();
+    expect(provider.received[1]?.model).toBe('cheap-model');
+  });
+});

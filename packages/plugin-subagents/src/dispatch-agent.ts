@@ -30,7 +30,11 @@ const agentSpecSchema = z.object({
   model: z
     .string()
     .optional()
-    .describe('Model id override; defaults to the kind\'s model, then the parent\'s.'),
+    .describe(
+      'Model id override; defaults to the kind\'s model, then the parent\'s. ' +
+        'Omit unless the user explicitly requested a specific model — do NOT ' +
+        'invent model ids. Unknown ids fall back to the parent\'s model with a warning.',
+    ),
   mode: z
     .string()
     .optional()

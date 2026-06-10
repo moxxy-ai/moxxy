@@ -33,6 +33,8 @@ export {
   isSafeExternalUrl,
   clerkFrontendApiHost,
   clerkCspHostSources,
+  clerkAccountPortalHost,
+  installAccountPortalRecovery,
 } from './security.js';
 export {
   startLoopbackServer,

@@ -117,7 +117,7 @@ export function MobileMenuSheet({
           </View>
         ) : null}
 
-        <View className="mt-8 gap-1">
+        <View className="mt-8 flex-row flex-wrap gap-2">
           {items.map((item) => (
             <MenuActionRow
               key={`${item.kind}-${item.label}`}
@@ -302,11 +302,12 @@ function MenuActionRow({
   readonly onCommand: (name: string, args?: string) => void;
 }) {
   const content = (
-    <View className="min-h-12 flex-row items-center gap-4 rounded-block" style={{ paddingVertical: 6 }}>
-      <View className="h-9 w-9 items-center justify-center">
-        <MobileIcon name={item.icon} size={22} strokeWidth={2.25} color="#0f172a" />
-      </View>
-      <Text className="flex-1 text-[18px] font-bold text-text">{item.label}</Text>
+    <View
+      className="flex-row items-center gap-2 rounded-pill border border-cardBorder bg-cardBg px-4 py-2 shadow-card"
+      style={{ shadowOpacity: 0.1 }}
+    >
+      <MobileIcon name={item.icon} size={18} strokeWidth={2.25} color="#0f172a" />
+      <Text className="text-[14px] font-bold text-text">{item.label}</Text>
     </View>
   );
 

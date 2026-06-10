@@ -149,6 +149,15 @@ function scopedSessionView(
     get pluginHost() {
       return session.pluginHost;
     },
+    // Read-through AND write-through: runTurn records the resolved model on
+    // the session it was handed, and that must land on the real session, not
+    // this per-fire view.
+    get lastResolvedModel() {
+      return session.lastResolvedModel;
+    },
+    set lastResolvedModel(model: string | null) {
+      session.lastResolvedModel = model;
+    },
     startTurn: () => session.startTurn(),
     appContext: () => session.appContext(),
   };

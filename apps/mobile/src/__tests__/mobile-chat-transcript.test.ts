@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildChatTranscript } from '../chatTranscript';
 
+const pretty = (value: unknown) => JSON.stringify(value, null, 2);
+
 describe('mobile chat transcript model', () => {
   it('folds streamed assistant chunks into one assistant message instead of event cards', () => {
     const transcript = buildChatTranscript([
@@ -85,8 +87,8 @@ describe('mobile chat transcript model', () => {
         collapsed: true,
         summary: '1 ok · 1 running',
         tools: [
-          { id: 'call-1', name: 'Read', status: 'ok', summary: 'path: a.ts' },
-          { id: 'call-2', name: 'Bash', status: 'running', summary: 'command: pwd' },
+          { id: 'call-1', name: 'Read', status: 'ok', summary: 'path: a.ts', input: pretty({ path: 'a.ts' }), output: 'ok' },
+          { id: 'call-2', name: 'Bash', status: 'running', summary: 'command: pwd', input: pretty({ command: 'pwd' }) },
         ],
       },
     ]);
@@ -111,9 +113,9 @@ describe('mobile chat transcript model', () => {
         collapsed: true,
         summary: '2 failed · 1 running',
         tools: [
-          { id: 'call-running', name: 'Read', status: 'running', summary: 'path: a.ts' },
-          { id: 'call-error', name: 'Bash', status: 'error', summary: 'command: bad' },
-          { id: 'call-is-error', name: 'Fetch', status: 'error', summary: 'url: https://example.com' },
+          { id: 'call-running', name: 'Read', status: 'running', summary: 'path: a.ts', input: pretty({ path: 'a.ts' }) },
+          { id: 'call-error', name: 'Bash', status: 'error', summary: 'command: bad', input: pretty({ command: 'bad' }), errorText: 'boom' },
+          { id: 'call-is-error', name: 'Fetch', status: 'error', summary: 'url: https://example.com', input: pretty({ url: 'https://example.com' }), output: 'failed' },
         ],
       },
     ]);
@@ -135,10 +137,41 @@ describe('mobile chat transcript model', () => {
         collapsed: true,
         summary: '1 ok',
         tools: [
-          { id: 'bridge-call', name: 'Read', status: 'ok', summary: 'path: a.ts' },
+          { id: 'bridge-call', name: 'Read', status: 'ok', summary: 'path: a.ts', input: pretty({ path: 'a.ts' }), output: 'ok' },
         ],
       },
     ]);
+  });
+
+  it('retains pretty-printed tool diagnostics and caps huge tool_result outputs', () => {
+    const hugeOutput = 'x'.repeat(64 * 1024);
+    const transcript = buildChatTranscript([
+      { id: 't1', type: 'tool_call_requested', callId: 'call-1', name: 'Read', input: { path: 'a.ts', limit: 5 } },
+      { id: 't2', type: 'tool_result', callId: 'call-1', ok: true, output: hugeOutput },
+    ]);
+
+    const group = transcript.find((item) => item.kind === 'tool-group');
+    const tool = group?.kind === 'tool-group' ? group.tools[0] : undefined;
+
+    expect(tool?.input).toBe(pretty({ path: 'a.ts', limit: 5 }));
+    expect(tool?.output?.startsWith('x'.repeat(100))).toBe(true);
+    expect(tool?.output?.length).toBeLessThan(17 * 1024);
+    expect(tool?.output).toContain('truncated');
+  });
+
+  it('pretty-prints structured tool_result outputs and surfaces denial reasons', () => {
+    const transcript = buildChatTranscript([
+      { id: 't1', type: 'tool_call_requested', callId: 'call-1', name: 'Fetch', input: { url: 'https://a' } },
+      { id: 't2', type: 'tool_result', callId: 'call-1', ok: true, output: { status: 200 } },
+      { id: 't3', type: 'tool_call_requested', callId: 'call-2', name: 'Bash', input: { command: 'rm' } },
+      { id: 't4', type: 'tool_call_denied', callId: 'call-2', reason: 'user said no' },
+    ]);
+
+    const group = transcript.find((item) => item.kind === 'tool-group');
+    const tools = group?.kind === 'tool-group' ? group.tools : [];
+
+    expect(tools[0]).toMatchObject({ status: 'ok', output: pretty({ status: 200 }) });
+    expect(tools[1]).toMatchObject({ status: 'error', errorText: 'user said no' });
   });
 
   it('keeps one tool group when a skill event arrives between request and result', () => {
@@ -161,7 +194,7 @@ describe('mobile chat transcript model', () => {
         collapsed: true,
         summary: '1 ok',
         tools: [
-          { id: 'call-1', name: 'Bash', status: 'ok', summary: 'command: pwd' },
+          { id: 'call-1', name: 'Bash', status: 'ok', summary: 'command: pwd', input: pretty({ command: 'pwd' }), output: 'ok' },
         ],
       },
     ]);

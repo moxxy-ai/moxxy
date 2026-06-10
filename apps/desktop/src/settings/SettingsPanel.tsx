@@ -117,6 +117,7 @@ export function SettingsPanel({
           {tab === 'providers' && (
             <ProvidersTab
               providers={providers}
+              onRefresh={s.refresh}
               search={<SearchBox value={query} onChange={setQuery} placeholder="Search providers…" />}
             />
           )}
@@ -124,6 +125,7 @@ export function SettingsPanel({
             <McpTab
               servers={mcp}
               onToggle={s.toggleMcp}
+              onRefresh={s.refresh}
               search={<SearchBox value={query} onChange={setQuery} placeholder="Search MCP servers…" />}
             />
           )}

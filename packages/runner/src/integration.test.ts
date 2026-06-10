@@ -17,6 +17,7 @@ import {
   type Logger,
 } from '@moxxy/core';
 import {
+  asTurnId,
   defineMode,
   definePlugin,
   defineProvider,
@@ -180,6 +181,132 @@ describe('runner end-to-end', () => {
     expect(late.log.length).toBeGreaterThan(skipTo);
     const followups = late.log.ofType('assistant_message');
     expect(followups[followups.length - 1]?.content).toContain('second answer');
+  });
+
+  it('runs the turn under a client-supplied turnId so per-turn filters match (v6)', async () => {
+    // Regression: the desktop pre-mints a turn id per renderer request, but the
+    // server used to mint its OWN id — so renderer filters on the returned id
+    // (skill-generation preview, turn hiding) never matched any event.
+    const { socketPath } = await serve(new FakeProvider({ script: [textReply('tagged')] }));
+    const remote = await attach(socketPath);
+    const minted = asTurnId('client-minted-turn');
+    const turnIds = new Set<string>();
+    for await (const event of remote.runTurn('say hi', { turnId: minted })) {
+      turnIds.add(event.turnId);
+    }
+    expect([...turnIds]).toEqual([minted]);
+    // The authoritative log carries the client's id too, not a server-minted one.
+    expect(remote.log.byTurn(minted).length).toBeGreaterThan(0);
+  });
+
+  it('rejects a client-supplied turnId that is already in flight (collision)', async () => {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('unused')] }));
+    // A mode that blocks until aborted, so the first turn is still in flight
+    // when the colliding request lands.
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'runner-test-collision',
+        modes: [
+          defineMode({
+            name: 'wait-mode',
+
+            run: async function* (modeCtx) {
+              await new Promise<void>((resolve) => {
+                if (modeCtx.signal.aborted) return resolve();
+                modeCtx.signal.addEventListener('abort', () => resolve(), { once: true });
+              });
+            },
+          }),
+        ],
+      }),
+    );
+    session.modes.setActive('wait-mode');
+    const server = await startRunnerServer(session, { socketPath });
+    servers.push(server);
+    const remote = await attach(socketPath);
+
+    const minted = asTurnId('duplicate-turn');
+    const controller = new AbortController();
+    const first = (async () => {
+      for await (const _event of remote.runTurn('block', { turnId: minted, signal: controller.signal })) {
+        void _event;
+      }
+    })();
+    await waitFor(() => session.log.length > 0);
+
+    const second = (async () => {
+      for await (const _event of remote.runTurn('hijack', { turnId: minted })) void _event;
+    })();
+    await expect(second).rejects.toThrow(/already in flight/);
+
+    controller.abort();
+    await expect(first).resolves.toBeUndefined();
+  });
+
+  it('skips the history replay when a client attaches with replay "none" (v6)', async () => {
+    const { session, socketPath } = await serve(
+      new FakeProvider({ script: [textReply('first answer'), textReply('live answer')] }),
+    );
+    const a = await attach(socketPath, 'first');
+    for await (const _event of a.runTurn('say hi')) void _event;
+    const historyLen = session.log.length;
+    expect(historyLen).toBeGreaterThan(0);
+
+    const late = await connectRemoteSession({ socketPath, role: 'late', replay: 'none' });
+    remotes.push(late);
+    // No history was replayed into the mirror...
+    expect(late.log.length).toBe(0);
+
+    // ...but live events still stream in contiguously: ReplayStart rebased the
+    // mirror to the runner's current seq, so the next event is accepted.
+    for await (const _event of late.runTurn('again')) void _event;
+    expect(late.log.length).toBeGreaterThan(0);
+    // Original (authoritative) seqs are preserved on the rebased mirror.
+    expect(late.log.at(historyLen)?.seq).toBe(historyLen);
+    const fresh = late.log.ofType('assistant_message')[0] as AssistantMessageEvent | undefined;
+    expect(fresh?.content).toContain('live answer');
+    expect(JSON.stringify(late.log.toJSON())).not.toContain('first answer');
+  });
+
+  it('replays only the last N events when a client attaches with replay { tail } (v6)', async () => {
+    const { session, socketPath } = await serve(
+      new FakeProvider({ script: [textReply('first answer')] }),
+    );
+    const a = await attach(socketPath, 'first');
+    for await (const _event of a.runTurn('say hi')) void _event;
+    const historyLen = session.log.length;
+    // At minimum a user_prompt and an assistant_message.
+    expect(historyLen).toBeGreaterThan(1);
+
+    const late = await connectRemoteSession({ socketPath, role: 'late', replay: { tail: 1 } });
+    remotes.push(late);
+    expect(late.log.length).toBe(1);
+    // The tail keeps its authoritative seq (rebased mirror, not re-numbered).
+    expect(late.log.at(historyLen - 1)?.seq).toBe(historyLen - 1);
+    expect(late.log.at(historyLen - 2)).toBeUndefined();
+  });
+
+  it('session.reset re-arms a replay-"none" (rebased) mirror at seq 0', async () => {
+    const { session, socketPath } = await serve(
+      new FakeProvider({ script: [textReply('first answer'), textReply('post-reset answer')] }),
+    );
+    const a = await attach(socketPath, 'first');
+    for await (const _event of a.runTurn('say hi')) void _event;
+    expect(session.log.length).toBeGreaterThan(0);
+
+    const late = await connectRemoteSession({ socketPath, role: 'late', replay: 'none' });
+    remotes.push(late);
+
+    await late.reset();
+    expect(session.log.length).toBe(0);
+
+    // Post-reset events restart at seq 0; the cleared mirror must accept them
+    // (clear() reset the rebased base back to 0).
+    for await (const _event of late.runTurn('again')) void _event;
+    expect(late.log.at(0)?.seq).toBe(0);
+    const fresh = late.log.ofType('assistant_message')[0] as AssistantMessageEvent | undefined;
+    expect(fresh?.content).toContain('post-reset answer');
   });
 
   it('routes a tool-call permission prompt to the turn-owning client', async () => {
@@ -713,7 +840,7 @@ describe('runner end-to-end', () => {
     const server = await startRunnerServer(session, { socketPath });
     servers.push(server);
     const remote = await attach(socketPath);
-    expect(remote.runnerProtocolVersion).toBe(5);
+    expect(remote.runnerProtocolVersion).toBe(RUNNER_PROTOCOL_VERSION);
 
     const result = await remote.workflows.resume('run-7', 'ship it');
     expect(result.ok).toBe(true);

@@ -8,6 +8,8 @@ import {
   redactSecrets,
   clerkFrontendApiHost,
   clerkCspHostSources,
+  clerkAccountPortalHost,
+  installAccountPortalRecovery,
   installContentSecurityPolicy,
   lockDownNavigation,
 } from './security';
@@ -150,6 +152,76 @@ describe('clerk frontend-api host', () => {
     for (const bad of [undefined, null, '', 'not-a-key', 'pk_live_', 'sk_live_abc', 'pk_live_!!!']) {
       expect(clerkFrontendApiHost(bad)).toBeNull();
     }
+  });
+});
+
+describe('clerk account-portal host', () => {
+  it('derives accounts.<domain> for a live key', () => {
+    expect(clerkAccountPortalHost(LIVE)).toBe('accounts.acme.com');
+  });
+
+  it('returns null for test keys (portal host is never allow-listed)', () => {
+    expect(clerkAccountPortalHost(TEST)).toBeNull();
+  });
+
+  it('returns null for missing / malformed keys', () => {
+    for (const bad of [undefined, null, '', 'not-a-key', 'pk_live_!!!']) {
+      expect(clerkAccountPortalHost(bad)).toBeNull();
+    }
+  });
+});
+
+describe('account-portal recovery net', () => {
+  /** Minimal BrowserWindow stand-in: captures the did-navigate handler and
+   *  records loadURL calls so a test can replay post-OAuth landings. */
+  function fakeWindow(): {
+    win: BrowserWindow;
+    navigate: (url: string) => void;
+    hasHandler: () => boolean;
+    loads: string[];
+  } {
+    const loads: string[] = [];
+    let handler: ((e: unknown, url: string) => void) | undefined;
+    const wc = {
+      on: (ev: string, fn: (e: unknown, url: string) => void) => {
+        if (ev === 'did-navigate') handler = fn;
+      },
+      loadURL: (url: string) => {
+        loads.push(url);
+        return Promise.resolve();
+      },
+    };
+    return {
+      win: { webContents: wc } as unknown as BrowserWindow,
+      navigate: (url) => handler?.({}, url),
+      hasHandler: () => !!handler,
+      loads,
+    };
+  }
+
+  const APP = 'https://desktop.moxxy.ai:51789/index.html';
+
+  it('loads the app root back when the top frame lands on the portal', () => {
+    const { win, navigate, loads } = fakeWindow();
+    installAccountPortalRecovery(win, { portalHost: 'accounts.acme.com', appUrl: APP });
+    navigate('https://accounts.acme.com/account');
+    expect(loads).toEqual([APP]);
+  });
+
+  it('ignores every other host (no loop on the recovery load itself)', () => {
+    const { win, navigate, loads } = fakeWindow();
+    installAccountPortalRecovery(win, { portalHost: 'accounts.acme.com', appUrl: APP });
+    navigate(APP); // the recovery load landing
+    navigate('https://clerk.acme.com/v1/oauth_callback');
+    navigate('https://accounts.google.com/o/oauth2/auth');
+    navigate('not a url');
+    expect(loads).toEqual([]);
+  });
+
+  it('is a no-op without a portal host (test key / no key)', () => {
+    const { win, hasHandler } = fakeWindow();
+    installAccountPortalRecovery(win, { portalHost: null, appUrl: APP });
+    expect(hasHandler()).toBe(false);
   });
 });
 

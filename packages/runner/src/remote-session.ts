@@ -49,10 +49,12 @@ import {
   RunnerMethod,
   RunnerNotification,
   type ApprovalConfirmParams,
+  type AttachReplay,
   type AttachResult,
   type EventNotification,
   type InfoChangedNotification,
   type PermissionCheckParams,
+  type ReplayStartNotification,
   type RunTurnResult,
   type SynthesizeResult,
   type TurnCompleteNotification,
@@ -104,6 +106,13 @@ export interface RemoteSessionOptions {
   readonly role?: string;
   /** Replay history from this seq (default 0 = full conversation). */
   readonly sinceSeq?: number;
+  /**
+   * Attach-time replay policy (protocol v6, default 'full'). 'none' / { tail }
+   * skip (most of) the history replay — for clients whose UI history comes
+   * from somewhere else (the desktop's NDJSON chat log). An older server
+   * ignores the option and replays in full, which is still correct.
+   */
+  readonly replay?: AttachReplay;
   /** Inject a transport (tests). Defaults to a unix-socket connection. */
   readonly transport?: Transport;
   /**
@@ -197,6 +206,13 @@ export class RemoteSession implements ClientSession {
     this.peer.on(RunnerNotification.InfoChanged, (params) => {
       this.info = (params as InfoChangedNotification).info;
     });
+    this.peer.on(RunnerNotification.ReplayStart, (params) => {
+      // The server announces the first seq it will replay/stream on this
+      // connection (v6) before any event arrives. Rebase the (still empty)
+      // mirror so a partial replay ('none' / { tail }) ingests contiguously.
+      const { fromSeq } = params as ReplayStartNotification;
+      this.mirror.rebase(fromSeq);
+    });
     this.peer.on(RunnerNotification.SessionReset, () => {
       // The runner wiped its authoritative log (a /new from this client or
       // any other). Clear the mirror in lockstep: `ingest` accepts only
@@ -250,11 +266,12 @@ export class RemoteSession implements ClientSession {
   }
 
   /** Handshake. Resolves once history has been replayed into the mirror. */
-  async attach(role: string, sinceSeq: number): Promise<void> {
+  async attach(role: string, sinceSeq: number, replay?: AttachReplay): Promise<void> {
     const result = await this.peer.request<AttachResult>(RunnerMethod.Attach, {
       protocolVersion: RUNNER_PROTOCOL_VERSION,
       role,
       sinceSeq,
+      ...(replay ? { replay } : {}),
     });
     this.info = result.info;
     // Record the server's protocol so version-gated methods can degrade
@@ -331,6 +348,10 @@ export class RemoteSession implements ClientSession {
       ...(opts.systemPrompt ? { systemPrompt: opts.systemPrompt } : {}),
       ...(opts.maxIterations ? { maxIterations: opts.maxIterations } : {}),
       ...(opts.attachments && opts.attachments.length > 0 ? { attachments: opts.attachments } : {}),
+      // Pre-minted client turn id (v6) so per-turn event filters match. The
+      // reply's turnId stays authoritative: an older server ignores ours and
+      // mints its own.
+      ...(opts.turnId ? { turnId: opts.turnId } : {}),
     });
     const turnId = result.turnId as TurnId;
 
@@ -772,7 +793,7 @@ export async function connectRemoteSession(
     (await connectWithRetry(socketPath, opts.connectRetries ?? 5));
   const session = new RemoteSession(transport);
   try {
-    await session.attach(opts.role ?? 'client', opts.sinceSeq ?? 0);
+    await session.attach(opts.role ?? 'client', opts.sinceSeq ?? 0, opts.replay);
     return session;
   } catch (err) {
     await maybeRecoverFromMismatch(err, socketPath, opts);

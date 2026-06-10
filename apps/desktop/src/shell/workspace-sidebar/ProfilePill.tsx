@@ -72,7 +72,12 @@ export function ProfilePill(): JSX.Element {
       <button
         type="button"
         className="row-button"
-        onClick={() => void clerk.openSignIn()}
+        // Explicit redirect targets, mirroring the ClerkProvider fallback
+        // props: keep the post-OAuth landing on the app's own origin so the
+        // FAPI never falls back to the hosted Account Portal.
+        onClick={() =>
+          void clerk.openSignIn({ fallbackRedirectUrl: '/', signUpFallbackRedirectUrl: '/' })
+        }
         style={profileRowStyle('var(--color-primary-strong)')}
       >
         <Icon name="agent" size={14} style={{ flexShrink: 0 }} />

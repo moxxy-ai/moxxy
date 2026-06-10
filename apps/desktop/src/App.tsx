@@ -3,12 +3,15 @@ import { asset } from '@/lib/asset';
 import {
   ConnectionBridge,
   isConnected,
+  useActiveAsk,
   useActiveWorkspaceId,
   useConnection,
   ChatStoreBridge,
   chatStore,
   usePrefs,
 } from '@moxxy/client-core';
+import { AskSheet } from './chat/AskSheet';
+import { useAskSurfaceClaimed } from '@/lib/askSurface';
 import { ConnectionScreen, type UpdateCliResult } from './connection/ConnectionScreen';
 import { Onboarding } from './onboarding/Onboarding';
 import { ChatSurface } from './chat/ChatSurface';
@@ -217,6 +220,31 @@ export function App(): JSX.Element {
         </main>
       )}
       {!connected && <ReconnectBanner label={describePhase(phase)} />}
+      {/* The runner BLOCKS on permission/approval asks. ChatSurface renders
+          them in the chat view and AgentTaskModal claims the surface while a
+          background-agent modal is open — this fallback catches every other
+          view so an ask is never invisible (and never double-rendered). */}
+      {view !== 'chat' && <GlobalAskFallback workspaceId={activeWorkspaceId} />}
+    </div>
+  );
+}
+
+function GlobalAskFallback({ workspaceId }: { readonly workspaceId: string | null }): JSX.Element | null {
+  const ask = useActiveAsk(workspaceId);
+  const claimed = useAskSurfaceClaimed();
+  if (!ask || claimed) return null;
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        left: '50%',
+        bottom: 24,
+        transform: 'translateX(-50%)',
+        width: 'min(620px, calc(100vw - 48px))',
+        zIndex: 60,
+      }}
+    >
+      <AskSheet ask={ask} />
     </div>
   );
 }

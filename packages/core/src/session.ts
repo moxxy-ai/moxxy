@@ -140,6 +140,11 @@ export class Session implements ClientSession, SessionRuntime {
   /** Lazy tool loading toggle, from `config.context.lazyTools`. Default off. */
   lazyTools = false;
   /**
+   * Model id resolved by the most recent `runTurn()` (see SessionRuntime).
+   * Last-writer-wins for concurrent turns; null until the first turn runs.
+   */
+  lastResolvedModel: string | null = null;
+  /**
    * Live runtime capabilities the host installs on a local Session (see
    * SessionLike). A RemoteSession leaves them undefined. Declared here — rather
    * than monkey-patched on via `as unknown as` — so the host and channels get

@@ -59,6 +59,15 @@ export interface SessionRuntime {
   readonly lazyTools: boolean;
   readonly dispatcher: HookDispatcher;
   readonly pluginHost: PluginHostHandle;
+  /**
+   * Model id resolved by the most recent `runTurn()` on this session.
+   * Out-of-band spawns (workflow triggers, schedulers) read this so their
+   * children inherit whatever the user is currently talking to instead of a
+   * stale hardcoded default. Last-writer-wins under concurrent turns — it is
+   * a "current conversation model" hint, not a per-turn record. Null until
+   * the first turn resolves a model.
+   */
+  lastResolvedModel: string | null;
   startTurn(): { turnId: TurnId };
   appContext(): AppContext;
 }

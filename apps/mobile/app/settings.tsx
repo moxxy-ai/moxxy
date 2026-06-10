@@ -54,7 +54,6 @@ export default function SettingsScreen() {
         permission={qrScanner.permission}
         ui={pairingUi}
         onRequestPermission={() => void qrScanner.requestPermission()}
-        onArmScanner={qrScanner.armScanner}
         onScanned={(raw) => void qrScanner.handlePayload(raw)}
         onCancel={qrScanner.closeScanner}
       />

@@ -28,6 +28,6 @@ export function buildPairingUiState(input: PairingUiInput): PairingUiState {
     scannerTitle: 'Scan Moxxy QR',
     scannerHint: permissionDenied
       ? 'Camera permission is required to scan the Moxxy pairing QR code.'
-      : 'Point your camera at the gateway QR, then tap Scan QR code.',
+      : 'Point your camera at the gateway QR — pairing starts automatically.',
   };
 }

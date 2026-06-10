@@ -43,7 +43,11 @@ export async function synthesizeSkill(
   opts: SynthesizeOptions = {},
 ): Promise<SynthesizedSkill> {
   const provider = session.providers.getActive();
-  const model = opts.model ?? provider.models[0]?.id ?? 'claude-sonnet-4-6';
+  // Prefer the model the conversation last ran on over the provider's first
+  // descriptor; 'default' matches run-turn's terminal fallback (never a
+  // hardcoded vendor id that goes stale).
+  const model =
+    opts.model ?? session.lastResolvedModel ?? provider.models[0]?.id ?? 'default';
   const draft = await draftSkill(provider, model, intent, session.signal);
 
   const baseDir =

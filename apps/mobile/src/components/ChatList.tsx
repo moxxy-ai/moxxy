@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { useState } from 'react';
 import { summarizeAttachment } from '@/attachments';
 import type { AssistantTranscriptItem, SystemGroupTranscriptItem, ToolGroupTranscriptItem, TranscriptItem } from '@/chatTranscript';
@@ -6,7 +6,7 @@ import type { PromptAttachment } from '@/clientFrames';
 import { shouldShowThinkingIndicator } from '@/chatListState';
 import { useChatListAutoScroll } from '@/hooks/useChatListAutoScroll';
 import { buildMessageActions } from '@/messageActions';
-import { buildToolGroupUi } from '@/toolGroupUi';
+import { buildToolDiagnostics, buildToolGroupUi, type ToolDiagnosticsSection } from '@/toolGroupUi';
 import { MobileIcon } from './MobileIcon';
 import { ThinkingIndicator } from './ThinkingIndicator';
 
@@ -244,6 +244,9 @@ function AssistantMessage({
 
 function ToolGroupMessage({ group }: { readonly group: ToolGroupTranscriptItem }) {
   const [open, setOpen] = useState(false);
+  const [openToolIds, setOpenToolIds] = useState<ReadonlyArray<string>>([]);
+  const toggleTool = (id: string) =>
+    setOpenToolIds((ids) => (ids.includes(id) ? ids.filter((value) => value !== id) : [...ids, id]));
   const ui = buildToolGroupUi(group.tools);
 
   return (
@@ -299,35 +302,54 @@ function ToolGroupMessage({ group }: { readonly group: ToolGroupTranscriptItem }
         </Pressable>
         {open ? (
           <View className="mt-2 overflow-hidden rounded-block border border-cardBorder bg-cardBg">
-            {group.tools.map((tool, index) => (
-              <View
-                key={tool.id}
-                style={{
-                  borderTopColor: '#e3e5f0',
-                  borderTopWidth: index === 0 ? 0 : 1,
-                  paddingHorizontal: 10,
-                  paddingVertical: 8,
-                }}
-              >
-                <View style={{ alignItems: 'center', flexDirection: 'row', gap: 8 }}>
-                  <View
-                    style={{
-                      backgroundColor: statusColor(tool.status),
-                      borderRadius: 999,
-                      height: 7,
-                      width: 7,
-                    }}
-                  />
-                  <Text className="text-[12px] font-bold text-text">{tool.name}</Text>
-                  <Text className="text-[11px] font-bold text-dim">{statusLabel(tool.status)}</Text>
-                </View>
-                {tool.summary ? (
-                  <Text className="mt-1 text-[11px] leading-4 text-muted" numberOfLines={2}>
-                    {tool.summary}
-                  </Text>
-                ) : null}
-              </View>
-            ))}
+            {group.tools.map((tool, index) => {
+              const diagnostics = buildToolDiagnostics(tool);
+              const toolOpen = openToolIds.includes(tool.id);
+              return (
+                <Pressable
+                  key={tool.id}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: toolOpen }}
+                  disabled={diagnostics.length === 0}
+                  onPress={() => toggleTool(tool.id)}
+                  style={{
+                    borderTopColor: '#e3e5f0',
+                    borderTopWidth: index === 0 ? 0 : 1,
+                    paddingHorizontal: 10,
+                    paddingVertical: 8,
+                  }}
+                >
+                  <View style={{ alignItems: 'center', flexDirection: 'row', gap: 8 }}>
+                    <View
+                      style={{
+                        backgroundColor: statusColor(tool.status),
+                        borderRadius: 999,
+                        height: 7,
+                        width: 7,
+                      }}
+                    />
+                    <Text className="text-[12px] font-bold text-text">{tool.name}</Text>
+                    <Text className="text-[11px] font-bold text-dim">{statusLabel(tool.status)}</Text>
+                    <View style={{ flex: 1 }} />
+                    {diagnostics.length > 0 ? (
+                      <Text className="text-[14px] font-bold text-dim">{toolOpen ? '-' : '+'}</Text>
+                    ) : null}
+                  </View>
+                  {tool.summary ? (
+                    <Text className="mt-1 text-[11px] leading-4 text-muted" numberOfLines={2}>
+                      {tool.summary}
+                    </Text>
+                  ) : null}
+                  {toolOpen ? (
+                    <View style={{ gap: 6, marginTop: 8 }}>
+                      {diagnostics.map((section) => (
+                        <ToolDiagnosticsBlock key={section.kind} section={section} />
+                      ))}
+                    </View>
+                  ) : null}
+                </Pressable>
+              );
+            })}
           </View>
         ) : null}
       </View>
@@ -367,6 +389,29 @@ function SystemGroupMessage({ group }: { readonly group: SystemGroupTranscriptIt
           </View>
         ) : null}
       </View>
+    </View>
+  );
+}
+
+const MONO_FONT = Platform.select({ android: 'monospace', ios: 'Menlo', default: 'monospace' });
+
+function ToolDiagnosticsBlock({ section }: { readonly section: ToolDiagnosticsSection }) {
+  return (
+    <View className="overflow-hidden rounded-block border border-cardBorder bg-white" style={{ maxHeight: 240 }}>
+      <ScrollView nestedScrollEnabled style={{ maxHeight: 240 }}>
+        <Text
+          style={{
+            color: section.kind === 'error' ? '#ef4444' : '#334155',
+            fontFamily: MONO_FONT,
+            fontSize: 11,
+            lineHeight: 16,
+            paddingHorizontal: 10,
+            paddingVertical: 8,
+          }}
+        >
+          {section.text}
+        </Text>
+      </ScrollView>
     </View>
   );
 }

@@ -3,10 +3,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { Session, silentLogger } from '@moxxy/core';
-import { asPluginId, type EmittedEvent } from '@moxxy/sdk';
+import { asPluginId, definePlugin, defineProvider, type EmittedEvent } from '@moxxy/sdk';
 import { ScheduleStore } from '@moxxy/plugin-scheduler';
 import { WORKFLOWS_PLUGIN_NAME } from '@moxxy/plugin-workflows';
 import {
+  activeModel,
   buildWorkflowsIntegration,
   applyAfterWorkflowCycleGuard,
   detectAfterWorkflowCycles,
@@ -457,5 +458,52 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
     expect(result.ok).toBe(true);
     // The checkpoint is cleaned up once resumed.
     expect(await store.load(runId)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// activeModel — model resolution for trigger-spawned workflow children
+
+describe('activeModel', () => {
+  function sessionWithProvider(modelIds: ReadonlyArray<string>): Session {
+    const session = new Session({ cwd: '/tmp', logger: silentLogger });
+    const models = modelIds.map((id) => ({ id }));
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'test-workflow-provider',
+        providers: [
+          defineProvider({
+            name: 'wf-test',
+            models,
+            createClient: () => ({
+              name: 'wf-test',
+              models,
+              stream: async function* () {
+                // unused
+              },
+              countTokens: async () => 0,
+            }),
+          }),
+        ],
+      }),
+    );
+    session.providers.setActive('wf-test');
+    return session;
+  }
+
+  it('prefers the model the last turn actually resolved (lastResolvedModel)', () => {
+    const session = sessionWithProvider(['descriptor-first', 'other']);
+    session.lastResolvedModel = 'user-picked-model';
+    expect(activeModel(session)).toBe('user-picked-model');
+  });
+
+  it('falls back to the active provider first descriptor before any turn ran', () => {
+    const session = sessionWithProvider(['descriptor-first', 'other']);
+    expect(activeModel(session)).toBe('descriptor-first');
+  });
+
+  it("returns 'default' (runTurn's own terminal fallback) with no provider and no turn", () => {
+    const session = new Session({ cwd: '/tmp', logger: silentLogger });
+    expect(activeModel(session)).toBe('default');
   });
 });

@@ -208,6 +208,65 @@ describe('EventLog', () => {
     await new Promise((resolve) => setImmediate(resolve));
   });
 
+  it('rebase lets an empty mirror ingest a partial (tail) replay contiguously', async () => {
+    // Author a few events so we have authoritative seqs to mirror.
+    const source = new EventLog();
+    const events = [];
+    for (const text of ['a', 'b', 'c', 'd']) {
+      events.push(await source.append({ type: 'user_prompt', sessionId: sid, turnId: tid, source: 'user', text }));
+    }
+
+    // A mirror primed by `replay: { tail: 2 }` — the runner announces fromSeq 2.
+    const mirror = new EventLog();
+    mirror.rebase(2);
+    expect(mirror.baseSeq).toBe(2);
+
+    // Below-base events (already-seen history) are dropped, not mis-indexed.
+    mirror.ingest(events[0]!);
+    expect(mirror.length).toBe(0);
+    // A gap (seq 3 before seq 2) is refused.
+    mirror.ingest(events[3]!);
+    expect(mirror.length).toBe(0);
+    // The contiguous tail lands, seq-addressed reads line up with the source.
+    mirror.ingest(events[2]!);
+    mirror.ingest(events[3]!);
+    expect(mirror.length).toBe(2);
+    expect(mirror.at(2)?.id).toBe(events[2]!.id);
+    expect(mirror.at(3)?.id).toBe(events[3]!.id);
+    expect(mirror.at(0)).toBeUndefined();
+    expect(mirror.slice().map((e) => e.seq)).toEqual([2, 3]);
+    expect(mirror.slice(3)).toHaveLength(1);
+    // New appends continue at base + length (seq stays authoritative).
+    const next = await mirror.append({ type: 'user_prompt', sessionId: sid, turnId: tid, source: 'user', text: 'e' });
+    expect(next.seq).toBe(4);
+  });
+
+  it('rebase throws on a non-empty log and on an invalid seq', async () => {
+    const log = new EventLog();
+    await log.append({ type: 'user_prompt', sessionId: sid, turnId: tid, source: 'user', text: 'x' });
+    expect(() => log.rebase(5)).toThrow(/already holds/);
+    const empty = new EventLog();
+    expect(() => empty.rebase(-1)).toThrow(/non-negative/);
+    expect(() => empty.rebase(1.5)).toThrow(/non-negative integer/);
+  });
+
+  it('clear resets the rebase so post-reset events restart at seq 0', async () => {
+    const source = new EventLog();
+    await source.append({ type: 'user_prompt', sessionId: sid, turnId: tid, source: 'user', text: 'old' });
+
+    const mirror = new EventLog();
+    mirror.rebase(1); // attached with replay 'none' after one event
+    mirror.clear(); // session.reset
+    expect(mirror.baseSeq).toBe(0);
+
+    source.clear();
+    const fresh = await source.append({ type: 'user_prompt', sessionId: sid, turnId: tid, source: 'user', text: 'new' });
+    expect(fresh.seq).toBe(0);
+    mirror.ingest(fresh);
+    expect(mirror.length).toBe(1);
+    expect(mirror.at(0)?.id).toBe(fresh.id);
+  });
+
   it('clear survives a throwing onClear listener', () => {
     const log = new EventLog();
     log.onClear(() => {
