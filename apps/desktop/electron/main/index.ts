@@ -42,6 +42,7 @@ import {
   startLoopbackServer,
   loadOrCreateSelfSignedCert,
   isTrustedLoopbackCert,
+  isTrustedLoopbackCertByHost,
   DESKTOP_APP_HOST,
   sendEvent,
   readPrefs,
@@ -729,11 +730,42 @@ app.whenReady().then(async () => {
     }
   }
 
-  // Scope-trust the loopback server's self-signed cert — ONLY for
-  // `https://desktop.moxxy.ai:<one-of-LOOPBACK_PORTS>` AND only when the
-  // presented cert's fingerprint matches the one we minted. This is NOT a
-  // blanket `ignore-certificate-errors`: every other cert error (any other
-  // host/port/fingerprint) falls through to normal Chromium verification.
+  // Scope-trust the loopback server's self-signed cert — ONLY for our fixed
+  // host (`desktop.moxxy.ai`) AND only when the presented cert's fingerprint
+  // matches the one we minted. This is NOT a blanket `ignore-certificate-errors`:
+  // every other host/cert falls through to Chromium's own verification.
+  //
+  // The CANONICAL mechanism is `session.setCertificateVerifyProc` on the
+  // session the window uses — `app.on('certificate-error')` is unreliable for
+  // loopback HTTPS under Electron's network-service process (it does not fire
+  // for the main-frame + subresource loads here, so the renderer would white-
+  // screen with `ERR_CERT_AUTHORITY_INVALID` / net_error -202). The verify-proc
+  // is installed on the default session BEFORE the window loads the URL (this
+  // block runs ahead of createWindow()), and `loopbackCert` is already assigned
+  // above, so there is no null-at-fire-time race.
+  const certVerifyProc = (
+    request: Electron.Request,
+    callback: (verificationResult: number) => void,
+  ): void => {
+    if (
+      loopbackCert &&
+      isTrustedLoopbackCertByHost({
+        hostname: request.hostname,
+        fingerprint: request.certificate.fingerprint,
+        expectedFingerprint: loopbackCert.fingerprint256,
+      })
+    ) {
+      callback(0); // 0 = trust this cert (our minted loopback cert)
+      return;
+    }
+    callback(-3); // -3 = defer to Chromium's own verification result
+  };
+  session.defaultSession.setCertificateVerifyProc(certVerifyProc);
+
+  // Belt-and-braces: keep the `certificate-error` handler too. It rarely fires
+  // for the loopback load (see above) but costs nothing and covers any path the
+  // verify-proc doesn't, with the identical scoped trust (host + port +
+  // fingerprint). Everything else gets normal verification.
   app.on('certificate-error', (event, _wc, url, _error, certificate, callback) => {
     if (
       loopbackCert &&

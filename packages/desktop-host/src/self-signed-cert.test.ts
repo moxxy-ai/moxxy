@@ -8,6 +8,7 @@ import {
   generateSelfSignedCert,
   loadOrCreateSelfSignedCert,
   isTrustedLoopbackCert,
+  isTrustedLoopbackCertByHost,
 } from './self-signed-cert';
 
 const PORTS = [51789, 51790, 51791, 51792] as const;
@@ -103,5 +104,44 @@ describe('isTrustedLoopbackCert (scoped trust)', () => {
   it('rejects a non-https scheme and a malformed url', () => {
     expect(ok({ url: `http://${DESKTOP_APP_HOST}:${PORTS[0]}/x` })).toBe(false);
     expect(ok({ url: 'not a url' })).toBe(false);
+  });
+});
+
+describe('isTrustedLoopbackCertByHost (verify-proc scoped trust)', () => {
+  const c = generateSelfSignedCert();
+  const ok = (over: Partial<Parameters<typeof isTrustedLoopbackCertByHost>[0]> = {}): boolean =>
+    isTrustedLoopbackCertByHost({
+      hostname: DESKTOP_APP_HOST,
+      fingerprint: c.fingerprint256,
+      expectedFingerprint: c.fingerprint256,
+      ...over,
+    });
+
+  it('trusts our host with a matching fingerprint (port-free: the proc gets no port)', () => {
+    expect(ok()).toBe(true);
+  });
+
+  it('accepts Electron-style sha256/base64 fingerprints (what the proc reports)', () => {
+    const b64 = Buffer.from(c.fingerprint256.replace(/:/g, ''), 'hex').toString('base64');
+    expect(ok({ fingerprint: `sha256/${b64}` })).toBe(true);
+  });
+
+  it('rejects a fingerprint mismatch even on the right host', () => {
+    expect(ok({ fingerprint: generateSelfSignedCert().fingerprint256 })).toBe(false);
+    expect(ok({ fingerprint: undefined })).toBe(false);
+    expect(ok({ fingerprint: null })).toBe(false);
+    expect(ok({ fingerprint: 'sha256/not-base64-!!!' })).toBe(false);
+  });
+
+  it('rejects a foreign host even with a matching fingerprint', () => {
+    expect(ok({ hostname: 'evil.example' })).toBe(false);
+    expect(ok({ hostname: 'evil.moxxy.ai' })).toBe(false);
+    expect(ok({ hostname: 'moxxy.ai' })).toBe(false);
+    expect(ok({ hostname: '127.0.0.1' })).toBe(false);
+  });
+
+  it('honours a host override (future-proofing / tests)', () => {
+    expect(ok({ hostname: 'other.host', host: 'other.host' })).toBe(true);
+    expect(ok({ hostname: DESKTOP_APP_HOST, host: 'other.host' })).toBe(false);
   });
 });

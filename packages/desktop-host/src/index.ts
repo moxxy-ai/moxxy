@@ -45,5 +45,6 @@ export {
   generateSelfSignedCert,
   loadOrCreateSelfSignedCert,
   isTrustedLoopbackCert,
+  isTrustedLoopbackCertByHost,
   type SelfSignedCert,
 } from './self-signed-cert.js';

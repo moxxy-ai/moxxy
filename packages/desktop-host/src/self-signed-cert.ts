@@ -247,7 +247,9 @@ function sameFingerprint(a: string | undefined | null, b: string): boolean {
  * `ignore-certificate-errors`.
  *
  * Pure + electron-free so it's unit-testable; the main process wires it into
- * `app.on('certificate-error', …)`.
+ * `app.on('certificate-error', …)` (kept as a belt-and-braces fallback) and,
+ * more importantly, into {@link isTrustedLoopbackCertByHost} for the
+ * session-level verify proc that actually does the work.
  */
 export function isTrustedLoopbackCert(args: {
   /** The request URL Electron reports (e.g. `https://desktop.moxxy.ai:51789/…`). */
@@ -273,5 +275,35 @@ export function isTrustedLoopbackCert(args: {
   if (u.hostname !== host) return false;
   const port = Number(u.port);
   if (!args.allowedPorts.includes(port)) return false;
+  return sameFingerprint(args.fingerprint, args.expectedFingerprint);
+}
+
+/**
+ * Host-based scoped-trust check for Electron's `session.setCertificateVerifyProc`.
+ *
+ * Unlike the `certificate-error` event, the verify-proc `request` carries the
+ * `hostname` but NOT the port (it's `hostname` + `certificate`, no URL). The
+ * decisive check is therefore the SHA-256 FINGERPRINT match against the cert we
+ * minted — a value an attacker can't forge — gated on the request being for our
+ * fixed host (`desktop.moxxy.ai`, which only resolves to loopback). Trust is
+ * returned ONLY when BOTH hold; every other host/cert falls through to
+ * Chromium's own verification (so this is NOT a blanket trust).
+ *
+ * Pure + electron-free so it's unit-testable; the main process passes
+ * `request.hostname` and `request.certificate.fingerprint` here.
+ */
+export function isTrustedLoopbackCertByHost(args: {
+  /** The hostname Electron's verify-proc reports (`request.hostname`). */
+  readonly hostname: string;
+  /** The presented leaf cert's SHA-256 fingerprint (Electron's
+   *  `request.certificate.fingerprint`, typically `sha256/…` base64 OR colon-hex). */
+  readonly fingerprint: string | undefined | null;
+  /** The fingerprint of the cert WE minted for the loopback server. */
+  readonly expectedFingerprint: string;
+  /** Override the expected host (tests / future-proofing). */
+  readonly host?: string;
+}): boolean {
+  const host = args.host ?? DESKTOP_APP_HOST;
+  if (args.hostname !== host) return false;
   return sameFingerprint(args.fingerprint, args.expectedFingerprint);
 }
