@@ -46,12 +46,18 @@ import { registerPrefsHandlers } from './ipc/prefs';
 import { registerSettingsHandlers } from './ipc/settings';
 import { registerVaultHandlers } from './ipc/vault';
 import { registerChatHandlers } from './ipc/chat';
+import { registerMobileGatewayHandlers, type MobileGatewayController } from './ipc/mobile-gateway';
 
 export function registerIpcHandlers(
   buses: ReadonlyArray<CommandBus>,
   pool: RunnerPool,
   desks: DeskStore,
-  opts: { readonly update?: UpdateConfig } = {},
+  opts: {
+    readonly update?: UpdateConfig;
+    /** Bridge-lifecycle surface for the mobile-gateway commands; the Electron
+     *  main injects it. Omitted ⇒ the commands report `not-supported`. */
+    readonly mobileGateway?: MobileGatewayController;
+  } = {},
 ): void {
   // Register the SAME handler bodies onto every transport. `setActiveBus`
   // points the shared `handle()` at one bus for the duration of a sweep; the
@@ -75,6 +81,7 @@ export function registerIpcHandlers(
     registerSettingsHandlers(pool);
     registerVaultHandlers();
     registerChatHandlers();
+    registerMobileGatewayHandlers(opts.mobileGateway ?? null);
   }
 }
 

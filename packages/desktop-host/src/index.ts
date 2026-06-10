@@ -7,6 +7,7 @@
 
 export { RunnerPool, UNBOUND_ID } from './runner-pool.js';
 export { bindWindow, registerIpcHandlers } from './ipc.js';
+export { type MobileGatewayController } from './ipc/mobile-gateway.js';
 export { sendEvent } from './send-event.js';
 export { ElectronCommandBus } from './bus/electron-bus.js';
 export { EventBus, wsEventBus } from './event-bus.js';
@@ -15,6 +16,7 @@ export { preferredCliEntry } from './cli-resolver.js';
 export { activateManagedNode } from './node-manager.js';
 export { ensureDesktopVaultKey } from './vault-key.js';
 export { DeskStore } from './desks.js';
+export { readPrefs, updatePrefs } from './prefs.js';
 export { sweepStaleSockets } from './sweep-sockets.js';
 export {
   bindMainWindowMinimize,

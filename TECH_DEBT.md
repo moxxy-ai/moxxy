@@ -515,6 +515,16 @@ consider dropping the now-redundant renderer-heartbeat path. **Severity med** (n
   can't ride client-core's path-based queue) — queue inline attachments host-side if this
   bites; (c) `pairing.loadPairing` is a documented no-op (the WS bridge has no
   pairing-code endpoint; the QR/`?t=` URL IS the pairing flow).
+- ~~**Desktop bridge had no UI — only env-gated boot (`MOXXY_WS_BRIDGE=1`).**~~
+  **ADDRESSED 2026-06-10:** Settings → **Mobile** tab now starts/stops the bridge at
+  runtime (`MobileGatewayManager` in `electron/main/ws-bridge.ts` + `mobileGateway.*` IPC,
+  host-only), persists the on/off preference, renders the pairing QR (its `connectUrl` is
+  round-trip-tested through the shipped app's `parsePairingQrPayload`), and rotates the
+  token. **Follow-up (low):** it only does LAN pairing (binds `0.0.0.0` and advertises the
+  LAN IP) — tunnel-based REMOTE pairing (cloudflared/ngrok via the mobile channel's
+  `tunnelProviderFor`, so a phone off the local network can connect) is not wired into the
+  desktop tab yet; add a tunnel picker + `buildConnectUrl({ tunnelUrl })` path when off-LAN
+  pairing is needed.
 **Severity low** (remaining items are opt-in / additive; desktop behavior unchanged).
 
 ---

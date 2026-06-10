@@ -86,6 +86,27 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('session.setAutoApprove', {})).toThrow();
   });
 
+  it('requires a strict boolean for mobileGateway.setEnabled', () => {
+    expect(() => validateIpcInput('mobileGateway.setEnabled', { enabled: true })).not.toThrow();
+    expect(() => validateIpcInput('mobileGateway.setEnabled', { enabled: 'yes' })).toThrow();
+    expect(() => validateIpcInput('mobileGateway.setEnabled', {})).toThrow();
+    // .strict() rejects extra keys (a hostile caller can't smuggle fields).
+    expect(() =>
+      validateIpcInput('mobileGateway.setEnabled', { enabled: true, evil: 1 }),
+    ).toThrow();
+  });
+
+  it('pins mobileGateway.status / rotateToken to no payload', () => {
+    expect(() => validateIpcInput('mobileGateway.status', undefined)).not.toThrow();
+    expect(() => validateIpcInput('mobileGateway.rotateToken', undefined)).not.toThrow();
+    expect(() => validateIpcInput('mobileGateway.status', { sneaky: 1 })).toThrow();
+  });
+
+  it('allows mobileGatewayEnabled in prefs.update', () => {
+    expect(() => validateIpcInput('prefs.update', { mobileGatewayEnabled: true })).not.toThrow();
+    expect(() => validateIpcInput('prefs.update', { mobileGatewayEnabled: 'x' })).toThrow();
+  });
+
   it('is a no-op for commands without a schema', () => {
     expect(() => validateIpcInput('desks.list', undefined)).not.toThrow();
     expect(() => validateIpcInput('connection.snapshotAll', undefined)).not.toThrow();

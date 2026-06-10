@@ -18,6 +18,11 @@ const BUNDLED_WORKSPACE_DEPS = [
   '@moxxy/desktop-ipc-contract',
   '@moxxy/desktop-host',
   '@moxxy/ipc-server-ws',
+  // The main imports the mobile-channel's pure pairing-URL helpers
+  // (`@moxxy/plugin-channel-mobile/pairing`, only `node:os`) to build the QR /
+  // connectUrl for the mobile gateway. Bundling the subpath inlines just those
+  // helpers — the heavy tunnel-provider package is never pulled in.
+  '@moxxy/plugin-channel-mobile',
 ];
 
 /**

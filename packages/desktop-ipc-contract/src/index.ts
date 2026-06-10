@@ -198,6 +198,11 @@ export interface DesktopPrefs {
   clerkUserId: string | null;
   clerkDisplayName: string | null;
   signedInAt: number | null;
+  /** Whether the user enabled the mobile gateway (the WebSocket bridge). The
+   *  main process re-starts the bridge on boot when this is true so pairing
+   *  survives a restart. Defaults to false (OFF) — exposing the host on the LAN
+   *  is always an explicit opt-in. */
+  mobileGatewayEnabled: boolean;
   version: 1;
 }
 
@@ -217,6 +222,39 @@ export interface WorkflowRun {
   output: string;
   error?: string;
   steps: ReadonlyArray<{ id: string; status: string; error?: string }>;
+}
+
+// ---------- Mobile gateway (WebSocket bridge) ------------------------------
+
+/**
+ * Live status of the desktop's mobile gateway — the opt-in WebSocket bridge
+ * that exposes the SAME IPC contract the renderer uses to a remote client (the
+ * mobile app), letting a paired phone drive the host exactly like the TUI does.
+ *
+ * OFF by default; the user enables it explicitly from Settings → Mobile, which
+ * binds the bridge on the LAN-advertised interface so a phone on the same Wi-Fi
+ * can reach it (a deliberate local-network exposure, gated by the pairing
+ * token). `connectUrl` IS the QR payload the mobile app scans — a
+ * `ws(s)://host:port/?t=<token>` string the shipped app's `parsePairingQrPayload`
+ * accepts verbatim.
+ */
+export interface MobileGatewayStatus {
+  /** True while the bridge is running and accepting connections. */
+  enabled: boolean;
+  /** Advertised host a phone connects to (the LAN IP for a wildcard bind, or
+   *  the bound host verbatim). Null while disabled. */
+  host: string | null;
+  /** Bound TCP port. Null while disabled. */
+  port: number | null;
+  /** The QR / manual-entry payload: `ws://host:port/?t=<token>`. Null while
+   *  disabled. Scanning this in the mobile app pairs it to this host. */
+  connectUrl: string | null;
+  /** Current pairing token (also embedded in `connectUrl`). Null while
+   *  disabled. */
+  token: string | null;
+  /** Number of mobile clients currently connected, when the transport can
+   *  report it. */
+  clientCount?: number;
 }
 
 // ---------- Settings -------------------------------------------------------
@@ -401,6 +439,10 @@ export interface IpcEvents {
    *  routes it by `host`/`path`. Links that arrive before the renderer is
    *  listening are buffered and pulled via `deepLink:drain` on mount. */
   'deepLink:received': DeepLinkPayload;
+  /** The mobile gateway's status changed (enabled/disabled, token rotated, a
+   *  client connected/left) — the Settings → Mobile tab re-renders the QR +
+   *  client count from this without polling. */
+  'mobileGateway.changed': MobileGatewayStatus;
 }
 
 // ---------- Invokable commands (renderer → main) --------------------------
@@ -681,6 +723,23 @@ export interface IpcCommands {
   'settings.readSkill': (args: { name: string }) => Promise<string>;
   'settings.writeSkill': (args: { name: string; body: string }) => Promise<void>;
   'settings.deleteSkill': (args: { name: string }) => Promise<void>;
+
+  // ---- Mobile gateway (WebSocket bridge) --------------------------------
+  // These CONTROL the bridge, so they are host-only — see
+  // REMOTE_DISALLOWED_COMMANDS — a remote (WS) client must never be able to
+  // toggle the gateway or read/rotate the pairing token over the very transport
+  // the token guards.
+  /** Current gateway status (enabled, advertised host+port, connectUrl/QR
+   *  payload, token, connected-client count). */
+  'mobileGateway.status': () => Promise<MobileGatewayStatus>;
+  /** Start (true) or stop (false) the gateway and persist the preference so it
+   *  survives a restart. Starting binds the bridge on the LAN-advertised
+   *  interface so a phone can reach it. Returns the resulting status. */
+  'mobileGateway.setEnabled': (args: { enabled: boolean }) => Promise<MobileGatewayStatus>;
+  /** Rotate the pairing token — invalidates the old QR and terminates every
+   *  currently-connected client. Returns the status with the new token /
+   *  connectUrl. No-op (returns disabled status) when the gateway is off. */
+  'mobileGateway.rotateToken': () => Promise<MobileGatewayStatus>;
 }
 
 /** Names of every command, derived. */
@@ -701,6 +760,13 @@ export const REMOTE_DISALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<I
   'focus.restoreMain',
   'focus.resize',
   'app.relaunch',
+  // Bridge control: a remote client driving over the WS bridge must never be
+  // able to toggle the gateway off, read the pairing token, or rotate it (which
+  // would let it lock out the host or hand itself a fresh credential). These are
+  // reachable only over the in-process Electron transport.
+  'mobileGateway.status',
+  'mobileGateway.setEnabled',
+  'mobileGateway.rotateToken',
 ]);
 
 // ---------- Shape the preload exposes on `window.moxxy` -------------------

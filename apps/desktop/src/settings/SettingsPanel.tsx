@@ -6,17 +6,23 @@ import { ProvidersTab } from './ProvidersTab';
 import { McpTab } from './McpTab';
 import { VaultTab } from './VaultTab';
 import { AboutTab } from './AboutTab';
+import { MobileTab } from './MobileTab';
 import { SearchBox } from './settings-primitives';
 
-type Tab = 'providers' | 'mcp' | 'skills' | 'vault' | 'about';
+type Tab = 'providers' | 'mcp' | 'skills' | 'vault' | 'mobile' | 'about';
 
 const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: 'providers', label: 'Providers' },
   { id: 'mcp', label: 'MCP' },
   { id: 'skills', label: 'Skills' },
   { id: 'vault', label: 'Vault' },
+  { id: 'mobile', label: 'Mobile' },
   { id: 'about', label: 'About' },
 ];
+
+// Tabs that don't read the runner-backed settings slice — render them outside
+// the shared loading / error chrome (like About).
+const STANDALONE_TABS: ReadonlySet<Tab> = new Set<Tab>(['about', 'mobile']);
 
 /**
  * Tabbed settings panel — providers, MCP servers, skills, vault. Each tab
@@ -99,11 +105,12 @@ export function SettingsPanel(): JSX.Element {
         </Button>
       </header>
 
-      {/* About is independent of the runner-backed settings slice — render
-          it without the shared loading / error chrome below. */}
+      {/* About + Mobile are independent of the runner-backed settings slice —
+          render them without the shared loading / error chrome below. */}
       {tab === 'about' && <AboutTab />}
+      {tab === 'mobile' && <MobileTab />}
 
-      {tab !== 'about' && s.error && (
+      {!STANDALONE_TABS.has(tab) && s.error && (
         <div
           role="alert"
           style={{
@@ -124,7 +131,7 @@ export function SettingsPanel(): JSX.Element {
         </div>
       )}
 
-      {tab === 'about' ? null : s.loading ? (
+      {STANDALONE_TABS.has(tab) ? null : s.loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <Skeleton.Card />
           <Skeleton.Card />

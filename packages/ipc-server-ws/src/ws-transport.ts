@@ -145,6 +145,9 @@ export interface WebSocketBridgeServer extends TransportServer {
    * persist `next` first (e.g. `rotateChannelToken` in `@moxxy/sdk`).
    */
   rotateAuthToken(next: string): void;
+  /** Number of clients currently connected — surfaced so a pairing UI (the
+   *  desktop's Settings → Mobile tab) can show "1 device connected". */
+  clientCount(): number;
 }
 
 export async function createWebSocketTransportServer(
@@ -213,6 +216,9 @@ export async function createWebSocketTransportServer(
     rotateAuthToken(next: string): void {
       currentToken = next;
       for (const client of wss.clients) client.terminate();
+    },
+    clientCount(): number {
+      return connections;
     },
     close(): Promise<void> {
       // `wss.close` only stops the listener; it waits for clients to leave on

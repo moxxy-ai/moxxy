@@ -168,8 +168,14 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       clerkUserId: z.string().max(256).nullable().optional(),
       clerkDisplayName: z.string().max(256).nullable().optional(),
       signedInAt: z.number().nullable().optional(),
+      mobileGatewayEnabled: z.boolean().optional(),
     })
     .strict(),
+  // Mobile-gateway control. Both no-arg variants pin the payload to "nothing"
+  // so a hostile caller can't smuggle args; setEnabled is a strict boolean.
+  'mobileGateway.status': z.undefined(),
+  'mobileGateway.rotateToken': z.undefined(),
+  'mobileGateway.setEnabled': z.object({ enabled: z.boolean() }).strict(),
   'chat.append': z.object({
     workspaceId: z.string().min(1).max(256),
     events: z.array(z.unknown()).max(10_000),

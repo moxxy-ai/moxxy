@@ -30,5 +30,6 @@ export * from './useWorkflows.js';
 export * from './useOnboarding.js';
 export * from './useContextUsage.js';
 export * from './useAppUpdate.js';
+export * from './useMobileGateway.js';
 export * from './useVoiceRecorder.js';
 export * from './useActiveModeBadge.js';

@@ -20,6 +20,7 @@ const DEFAULTS: DesktopPrefs = {
   clerkUserId: null,
   clerkDisplayName: null,
   signedInAt: null,
+  mobileGatewayEnabled: false,
   version: 1,
 };
 

@@ -41,9 +41,11 @@ import {
   activateManagedNode,
   startLoopbackServer,
   sendEvent,
+  readPrefs,
+  updatePrefs,
   type LoopbackServer,
 } from '@moxxy/desktop-host';
-import type { DeepLinkPayload } from '@moxxy/desktop-ipc-contract';
+import type { DeepLinkPayload, MobileGatewayStatus } from '@moxxy/desktop-ipc-contract';
 // Value imports of @moxxy/ipc-server-ws are lazy + guarded (see the bridge
 // block below): the bridge is opt-in, and a top-level static import would make
 // boot itself depend on the module resolving — the exact failure that bricked
@@ -51,7 +53,7 @@ import type { DeepLinkPayload } from '@moxxy/desktop-ipc-contract';
 // Type-only imports are erased at build time and carry no such risk.
 import type { WebSocketCommandBus, WebSocketBridgeServer } from '@moxxy/ipc-server-ws';
 
-import { resolveWsBridgeConfig } from './ws-bridge.js';
+import { resolveWsBridgeConfig, MobileGatewayManager } from './ws-bridge.js';
 
 import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
 import { readConfirmed, markConfirmed, markBad, appendBootLog } from '@moxxy/desktop-host/app-update';
@@ -90,6 +92,9 @@ let mainWindow: BrowserWindow | null = null;
 // Typed as the bridge server (not the bare TransportServer) so the host can
 // call `rotateWsBridgeToken(userData, wsServer)` to invalidate a leaked token.
 let wsServer: WebSocketBridgeServer | null = null;
+/** Runtime controller for the mobile gateway (Settings → Mobile). Owns the
+ *  start/stop/status/rotate lifecycle once the WS bus + module are loaded. */
+let mobileGateway: MobileGatewayManager | null = null;
 
 // In-app loopback HTTP server the packaged renderer is served from (so the
 // Clerk web SDK runs on an http origin). null in dev (Vite serves it) and
@@ -772,23 +777,43 @@ app.whenReady().then(async () => {
     pool.setActive(UNBOUND_ID);
   }
   // The Electron transport is always present. The WebSocket bridge (remote
-  // clients / the mobile app) is opt-in via MOXXY_WS_BRIDGE; when enabled, the
-  // SAME handler bodies are registered onto it too. Register handlers BEFORE the
-  // server starts accepting so an early client connection sees a populated bus.
-  // The bridge module is lazy-imported and fully guarded (the shell-updater
-  // pattern): the bridge is optional, so a module that fails to load must
-  // degrade to "bridge off", never take down the app.
+  // clients / the mobile app) is now controllable at RUNTIME from Settings →
+  // Mobile (the "mobile gateway"), so the bus + module are loaded unconditionally
+  // here — but the SERVER stays off until the user enables it (or the env-gated
+  // boot path / persisted preference asks for it). Register handlers onto the WS
+  // bus BEFORE any server starts accepting, so an early client connection sees a
+  // populated bus. The bridge module is lazy-imported and fully guarded (the
+  // shell-updater pattern): a module that fails to load degrades to "gateway
+  // unavailable", never takes down the app.
   const electronBus = new ElectronCommandBus();
-  const wsConfig = resolveWsBridgeConfig(app.getPath('userData'));
+  const userData = app.getPath('userData');
+  const wsConfig = resolveWsBridgeConfig(userData); // non-null only when MOXXY_WS_BRIDGE=1
   let wsBridge: typeof import('@moxxy/ipc-server-ws') | null = null;
-  if (wsConfig) {
-    try {
-      wsBridge = await import('@moxxy/ipc-server-ws');
-    } catch (e) {
-      console.error('[moxxy] WebSocket bridge unavailable (module failed to load):', e);
-    }
+  try {
+    wsBridge = await import('@moxxy/ipc-server-ws');
+  } catch (e) {
+    console.error('[moxxy] WebSocket bridge unavailable (module failed to load):', e);
   }
   const wsBus: WebSocketCommandBus | null = wsBridge ? new wsBridge.WebSocketCommandBus() : null;
+
+  // The runtime gateway controller. It owns the server lifecycle (start/stop/
+  // status/rotate); the Settings → Mobile IPC commands delegate to it. Status
+  // changes fan out to the renderer via the `mobileGateway.changed` event.
+  if (wsBridge && wsBus) {
+    mobileGateway = new MobileGatewayManager({
+      wsBridge,
+      wsBus,
+      userDataDir: userData,
+      readEnabledPref: () => readPrefs().mobileGatewayEnabled,
+      writeEnabledPref: async (enabled) => {
+        await updatePrefs({ mobileGatewayEnabled: enabled });
+      },
+      onChange: (status: MobileGatewayStatus) => {
+        if (mainWindow) sendEvent(mainWindow, 'mobileGateway.changed', status);
+      },
+    });
+  }
+
   registerIpcHandlers(wsBus ? [electronBus, wsBus] : [electronBus], pool, desks, {
     update: {
       publicKeyPem: BUNDLED_UPDATE_PUBLIC_KEY,
@@ -796,15 +821,31 @@ app.whenReady().then(async () => {
       // packaged builds (the handler pins the source) so it can't be abused.
       manifestUrl: process.env.MOXXY_UPDATE_URL,
     },
+    // Bridge-control commands (host-only; refused over the WS transport).
+    ...(mobileGateway ? { mobileGateway } : {}),
   });
-  if (wsBridge && wsBus && wsConfig) {
-    wsEventBus.addSink(wsBus);
+
+  // Events fan out to WS clients once the bus exists — independent of whether the
+  // server is up yet, so a client that connects later still gets the live stream.
+  if (wsBus) wsEventBus.addSink(wsBus);
+
+  if (wsBridge && wsBus && wsConfig && mobileGateway) {
+    // Back-compat env-gated boot path: start the bridge once and hand the running
+    // server to the runtime controller so status/rotate/stop see it too.
     try {
       wsServer = await wsBridge.startWsBridge(wsBus, wsConfig);
+      const host = wsConfig.host ?? '127.0.0.1';
+      const m = /:(\d+)$/.exec(wsServer.address);
+      mobileGateway.adopt(wsServer, host, m ? Number(m[1]) : wsConfig.port);
       console.log(`[moxxy] WebSocket bridge listening on ${wsServer.address}`);
     } catch (e) {
       console.error('[moxxy] WebSocket bridge failed to start:', e);
     }
+  } else if (mobileGateway) {
+    // No env override: re-start the gateway iff the user previously enabled it
+    // (persisted preference), so pairing survives a restart.
+    await mobileGateway.resume();
+    wsServer = mobileGateway.liveServer;
   }
 
   // The renderer's DeepLinkBridge calls this once on mount: it returns +
@@ -862,13 +903,17 @@ app.on('will-quit', () => {
 });
 
 async function shutdown(): Promise<void> {
+  // The runtime gateway may have replaced `wsServer` (toggled on/off from
+  // Settings), so close whichever server is currently live, preferring the
+  // controller's view.
+  const liveBridge = mobileGateway?.liveServer ?? wsServer;
   await Promise.race([
     // Stop the runner children, the loopback server, AND the WS bridge (remote
     // clients). allSettled never rejects, so one failing doesn't skip the others.
     Promise.allSettled([
       pool?.stopAll() ?? Promise.resolve(),
       loopback?.close() ?? Promise.resolve(),
-      wsServer?.close() ?? Promise.resolve(),
+      liveBridge?.close() ?? Promise.resolve(),
     ]),
     // Belt-and-braces timeout: don't hang the app on a stuck child.
     new Promise<void>((resolve) => setTimeout(resolve, 3000)),
