@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useWorkflows } from '@moxxy/client-core';
-import { Skeleton } from '@moxxy/desktop-ui';
+import { Button, Icon, Skeleton } from '@moxxy/desktop-ui';
 import { WorkflowBuilder } from './WorkflowBuilder';
 import { PausedWorkflows } from './PausedWorkflows';
+import { ViewHeader, ViewSwitcher, type View } from '../shell/ViewHeader';
 
 /**
  * Workflows surface — two modes:
@@ -14,7 +15,13 @@ import { PausedWorkflows } from './PausedWorkflows';
  * model via `useWorkflowBuilder`; this panel only owns the mode toggle and
  * wires the list's `refresh` so a save re-lists.
  */
-export function WorkflowsPanel(): JSX.Element {
+export function WorkflowsPanel({
+  // Optional so the panel can render standalone (tests); the app shell
+  // always wires it so the header switcher navigates.
+  onView = () => undefined,
+}: {
+  readonly onView?: (v: View) => void;
+}): JSX.Element {
   const wf = useWorkflows();
   // `editing === undefined` → list; `null` → new workflow; string → edit by name.
   const [editing, setEditing] = useState<string | null | undefined>(undefined);
@@ -32,49 +39,34 @@ export function WorkflowsPanel(): JSX.Element {
   }
 
   return (
-    <main
-      style={{
-        flex: 1,
-        overflowY: 'auto',
-        padding: '1.5rem 2rem',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '1rem',
-      }}
-    >
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700 }}>Workflows</h1>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button
-            type="button"
-            data-testid="new-workflow"
-            onClick={() => setEditing(null)}
-            style={{
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              color: 'var(--color-bg)',
-              background: 'var(--color-primary)',
-              borderRadius: 'var(--radius-block)',
-              padding: '0.25rem 0.7rem',
-            }}
-          >
-            + New
-          </button>
-          <button
-            type="button"
-            onClick={() => void wf.refresh()}
-            style={{
-              fontSize: '0.75rem',
-              color: 'var(--color-text-dim)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-block)',
-              padding: '0.2rem 0.55rem',
-            }}
-          >
-            Refresh
-          </button>
-        </div>
-      </header>
+    <>
+      <ViewHeader>
+        <ViewSwitcher view="workflows" onView={onView} />
+        <span style={{ flex: 1 }} />
+        <Button variant="chip" onClick={() => void wf.refresh()} style={{ borderRadius: 9 }}>
+          <Icon name="rotate" size={14} />
+          Refresh
+        </Button>
+        <Button
+          variant="primary"
+          data-testid="new-workflow"
+          onClick={() => setEditing(null)}
+          style={{ borderRadius: 9, padding: '6px 14px', fontSize: 13 }}
+        >
+          + New
+        </Button>
+      </ViewHeader>
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: 'auto',
+          padding: '1.5rem 2rem',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '1rem',
+        }}
+      >
       {wf.error && (
         <p
           role="alert"
@@ -200,7 +192,8 @@ export function WorkflowsPanel(): JSX.Element {
           </pre>
         </section>
       )}
-    </main>
+      </div>
+    </>
   );
 }
 

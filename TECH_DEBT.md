@@ -733,6 +733,15 @@ graph) is intact; the two operate on different graphs and don't conflict.
   free text — populate it from `workflows.list` the same way; (b) the MOBILE outline editor
   (`WorkflowEditor`) still has free-text name fields — `useActionCatalog` is client-core and
   `session.info` is on `REMOTE_ALLOWED_COMMANDS`, so wiring it is mechanical.
+- **Shell/canvas UX pass 2 (2026-06-10):** the three desktop sections share one 64px header
+  (`apps/desktop/src/shell/ViewHeader.tsx` — `ViewHeader` + `Segmented` + a Chat|Workflows
+  `ViewSwitcher` leading every header); the sidebar's MENU group is gone (lone Settings entry;
+  picking a workspace returns to chat so Settings isn't a dead end); the settings tabs moved
+  into the fixed header (right-aligned, Refresh button dropped — `useSettings` fetches on
+  mount). The builder canvas zooms 40–200% (corner −/％/+ cluster + pinch/ctrl-wheel anchored
+  at the cursor; pointer math normalised into pre-zoom canvas coords). **Debt note:** the
+  settings error banner lost its only manual retry when the Refresh button went — if a
+  transient `settings.read` failure proves common, add a retry affordance to the error row.
 
 ### 12. CLI `service install` units break under an Electron-as-node CLI — OPEN
 **Introduced/observed 2026-06-10** while root-causing the desktop Dock-ghost runner (fixed

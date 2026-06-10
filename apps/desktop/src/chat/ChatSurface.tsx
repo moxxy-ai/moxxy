@@ -19,6 +19,7 @@ interface ChatSurfaceProps {
   readonly workspaceId: string;
   readonly railOpen: boolean;
   readonly onShowRail: () => void;
+  readonly onView: (v: import('../shell/ViewHeader').View) => void;
 }
 
 /** Stable empty reference for the searching code path (no extensions
@@ -39,6 +40,7 @@ export function ChatSurface({
   workspaceId,
   railOpen,
   onShowRail,
+  onView,
 }: ChatSurfaceProps): JSX.Element {
   const chat = useChat(workspaceId);
   const desks = useDesks();
@@ -75,6 +77,7 @@ export function ChatSurface({
         onSearchChange={setSearchQuery}
         canRename={activeDesk !== undefined}
         onRename={() => setRenameOpen(true)}
+        onView={onView}
       />
       {/* Keyed by workspace so the message area cross-fades on switch
        *  instead of snapping — masks the content swap flicker. */}

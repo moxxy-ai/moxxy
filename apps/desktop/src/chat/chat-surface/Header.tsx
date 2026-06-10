@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { Icon } from '@moxxy/desktop-ui';
+import { ViewHeader, ViewSwitcher, type View } from '../../shell/ViewHeader';
 
 export function Header({
   phase: _phase,
@@ -10,6 +11,7 @@ export function Header({
   onSearchChange,
   canRename,
   onRename,
+  onView,
 }: {
   readonly phase: ConnectionPhase;
   readonly railOpen: boolean;
@@ -18,25 +20,12 @@ export function Header({
   readonly onSearchChange: (q: string | null) => void;
   readonly canRename: boolean;
   readonly onRename: () => void;
+  readonly onView: (v: View) => void;
 }): JSX.Element {
   const [searchOpen, setSearchOpen] = useState(searchQuery !== null);
   return (
-    <header
-      style={{
-        height: 64,
-        minHeight: 64,
-        flexShrink: 0,
-        boxSizing: 'border-box',
-        padding: '0 24px',
-        borderBottom: '1px solid var(--color-card-border)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-      }}
-    >
-      <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em' }}>
-        Chat
-      </h1>
+    <ViewHeader>
+      <ViewSwitcher view="chat" onView={onView} />
       {/* workspace path lives in the right-hand context rail now */}
       <span style={{ flex: 1 }} />
       {searchOpen ? (
@@ -91,7 +80,7 @@ export function Header({
           <Icon name="workspace" size={18} />
         </IconButton>
       )}
-    </header>
+    </ViewHeader>
   );
 }
 

@@ -9,30 +9,17 @@ import { WorkspaceRow } from './workspace-sidebar/WorkspaceRow';
 import { NameWorkspaceModal } from './workspace-sidebar/NameWorkspaceModal';
 import { ProfilePill } from './workspace-sidebar/ProfilePill';
 import { listReset } from './workspace-sidebar/sidebar-styles';
-
-export type View = 'chat' | 'workflows' | 'settings';
+import type { View } from './ViewHeader';
 
 interface Props {
   readonly view: View;
   readonly onView: (v: View) => void;
 }
 
-// ---- menu config ----
-
-const MENU_ITEMS: ReadonlyArray<{
-  id: View;
-  label: string;
-  icon: Parameters<typeof Icon>[0]['name'];
-}> = [
-  { id: 'chat', label: 'Chat', icon: 'chat' },
-  { id: 'workflows', label: 'Workflows', icon: 'workflow' },
-  { id: 'settings', label: 'Settings', icon: 'settings' },
-];
-
 /**
- * Dark left rail. Top: WORKSPACES (each desk = workspace). Middle:
- * MENU (Chat / Workflows / Settings). Bottom: user-profile pill that
- * doubles as a presence indicator.
+ * Dark left rail. Top: WORKSPACES (each desk = workspace). Bottom:
+ * a lone Settings entry above the user-profile pill — Chat/Workflows
+ * navigation lives in the main-pane header (`ViewSwitcher`), not here.
  *
  * Density mirrors the reference shot — wide-enough rows (`44px`) to
  * read like nav, not a context menu.
@@ -82,7 +69,13 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element {
               desk={d}
               active={desks.activeId === d.id}
               unread={unread.has(d.id)}
-              onClick={() => void desks.setActive(d.id)}
+              onClick={() => {
+                // Picking a workspace always lands on its chat — also the
+                // way back out of Settings/Workflows now that the sidebar
+                // carries no Chat entry.
+                void desks.setActive(d.id);
+                onView('chat');
+              }}
               onRemove={() => setPendingRemove(d)}
             />
           ))}
@@ -119,52 +112,45 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element {
           {busy ? 'Picking folder…' : 'New workspace'}
         </button>
       </div>
-      {/* Menu is anchored to the bottom — Chat / Workflows / Settings sit
-       *  just above the profile's top border, not buried at the top of the
-       *  scrolling workspace list. */}
+      {/* Settings is the only sidebar destination — anchored just above
+       *  the profile's top border. Chat/Workflows switch in the main-pane
+       *  header instead. */}
       <nav style={{ padding: '6px 12px 10px' }}>
-        <SectionHeader title="Menu" />
-        <ul role="list" style={listReset}>
-          {MENU_ITEMS.map((m) => (
-            <li key={m.id}>
-              <button
-                type="button"
-                data-testid={`nav-${m.id}`}
-                data-active={view === m.id}
-                onClick={() => onView(m.id)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  width: '100%',
-                  padding: '10px 12px',
-                  fontSize: 13.5,
-                  color:
-                    view === m.id
-                      ? 'var(--color-sidebar-text)'
-                      : 'var(--color-sidebar-text-dim)',
-                  background:
-                    view === m.id ? 'var(--color-sidebar-bg-active)' : 'transparent',
-                  borderRadius: 10,
-                  fontWeight: view === m.id ? 600 : 500,
-                }}
-              >
-                <span
-                  style={{
-                    width: 20,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    opacity: 0.85,
-                  }}
-                >
-                  <Icon name={m.icon} size={17} />
-                </span>
-                <span>{m.label}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
+        <button
+          type="button"
+          data-testid="nav-settings"
+          data-active={view === 'settings'}
+          onClick={() => onView('settings')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            width: '100%',
+            padding: '10px 12px',
+            fontSize: 13.5,
+            color:
+              view === 'settings'
+                ? 'var(--color-sidebar-text)'
+                : 'var(--color-sidebar-text-dim)',
+            background:
+              view === 'settings' ? 'var(--color-sidebar-bg-active)' : 'transparent',
+            borderRadius: 10,
+            fontWeight: view === 'settings' ? 600 : 500,
+          }}
+        >
+          <span
+            style={{
+              width: 20,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: 0.85,
+            }}
+          >
+            <Icon name="settings" size={17} />
+          </span>
+          <span>Settings</span>
+        </button>
       </nav>
       <ProfilePill />
       {pendingFolder && (

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   stepKindMeta,
   WORKFLOW_ERROR_KEY,
@@ -45,6 +45,15 @@ const NODE_H = 88;
 const ANCHOR_OFFSET = NODE_H / 2;
 const HANDLE_R = 7;
 
+const MIN_ZOOM = 0.4;
+const MAX_ZOOM = 2;
+/** Multiplicative step for the +/− buttons. */
+const ZOOM_STEP = 1.2;
+
+function clampZoom(z: number): number {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
+}
+
 interface Props {
   readonly state: BuilderState;
   readonly dispatch: (action: BuilderAction) => void;
@@ -89,21 +98,76 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
   const [hoverTarget, setHoverTarget] = useState<string | null>(null);
   const [reject, setReject] = useState<string | null>(null);
   const rejectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [zoom, setZoom] = useState(1);
+  /** Scroll offsets to apply right after a zoom commit (keeps the anchor
+   *  point — cursor or viewport centre — visually fixed while scaling). */
+  const pendingScroll = useRef<{ left: number; top: number } | null>(null);
 
   const byId = useMemo(() => new Map(state.nodes.map((n) => [n.id, n])), [state.nodes]);
 
   /** Topological order index per node (1-based) so the canvas reads as a flow. */
   const order = useMemo(() => topoOrder(state.nodes), [state.nodes]);
 
-  const surfacePoint = useCallback((e: { clientX: number; clientY: number }) => {
-    const rect = surfaceRef.current?.getBoundingClientRect();
-    const left = surfaceRef.current?.scrollLeft ?? 0;
-    const top = surfaceRef.current?.scrollTop ?? 0;
-    return {
-      x: (rect ? e.clientX - rect.left : e.clientX) + left,
-      y: (rect ? e.clientY - rect.top : e.clientY) + top,
+  /** Pointer position in CONTENT coords (pre-zoom node space). */
+  const surfacePoint = useCallback(
+    (e: { clientX: number; clientY: number }) => {
+      const rect = surfaceRef.current?.getBoundingClientRect();
+      const left = surfaceRef.current?.scrollLeft ?? 0;
+      const top = surfaceRef.current?.scrollTop ?? 0;
+      return {
+        x: ((rect ? e.clientX - rect.left : e.clientX) + left) / zoom,
+        y: ((rect ? e.clientY - rect.top : e.clientY) + top) / zoom,
+      };
+    },
+    [zoom],
+  );
+
+  /** Zoom to `next`, keeping `anchor` (client coords; defaults to the
+   *  viewport centre) over the same content point. */
+  const applyZoom = useCallback(
+    (next: number, anchor?: { x: number; y: number }) => {
+      const z = clampZoom(next);
+      const el = surfaceRef.current;
+      if (el && z !== zoom) {
+        const rect = el.getBoundingClientRect();
+        const ax = anchor ? anchor.x - rect.left : rect.width / 2;
+        const ay = anchor ? anchor.y - rect.top : rect.height / 2;
+        pendingScroll.current = {
+          left: ((el.scrollLeft + ax) / zoom) * z - ax,
+          top: ((el.scrollTop + ay) / zoom) * z - ay,
+        };
+      }
+      setZoom(z);
+    },
+    [zoom],
+  );
+
+  // The scaled content commits in the same render as `zoom`, so the anchor
+  // correction must land before paint or the view visibly jumps.
+  useLayoutEffect(() => {
+    const el = surfaceRef.current;
+    const p = pendingScroll.current;
+    if (el && p) {
+      el.scrollLeft = p.left;
+      el.scrollTop = p.top;
+      pendingScroll.current = null;
+    }
+  }, [zoom]);
+
+  // Pinch / ctrl+wheel zoom. Native non-passive listener — React's root
+  // wheel listener is passive, so a synthetic onWheel can't preventDefault
+  // (and the page would scroll while pinching).
+  useEffect(() => {
+    const el = surfaceRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent): void => {
+      if (!e.ctrlKey && !e.metaKey) return; // macOS pinch arrives as ctrl+wheel
+      e.preventDefault();
+      applyZoom(zoom * Math.exp(-e.deltaY * 0.0018), { x: e.clientX, y: e.clientY });
     };
-  }, []);
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [applyZoom, zoom]);
 
   const flashReject = useCallback((msg: string) => {
     setReject(msg);
@@ -233,6 +297,7 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
   const height = Math.max(560, ...state.nodes.map((n) => n.y + NODE_H + 80));
 
   return (
+    <div style={{ position: 'relative', flex: 1, minHeight: 0, minWidth: 0, display: 'flex' }}>
     <div
       ref={surfaceRef}
       data-testid="workflow-canvas"
@@ -244,6 +309,7 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
         position: 'relative',
         flex: 1,
         minHeight: 0,
+        minWidth: 0,
         overflow: 'auto',
         background:
           'var(--color-bg) radial-gradient(circle, var(--color-card-border) 1px, transparent 1px)',
@@ -252,7 +318,18 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
         border: '1px solid var(--color-border)',
       }}
     >
-      <div style={{ position: 'relative', width, height }}>
+      {/* Scroll sizer: reserves the SCALED footprint so scrollbars track the
+       *  zoomed content (a transform alone doesn't change layout size). */}
+      <div style={{ width: width * zoom, height: height * zoom, overflow: 'hidden' }}>
+      <div
+        style={{
+          position: 'relative',
+          width,
+          height,
+          transform: `scale(${zoom})`,
+          transformOrigin: '0 0',
+        }}
+      >
         <svg width={width} height={height} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
           <defs>
             {Object.entries(EDGE_STYLE).map(([kind, s]) => (
@@ -317,6 +394,7 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
           </div>
         )}
       </div>
+      </div>
 
       {reject && (
         <div
@@ -342,8 +420,92 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
         </div>
       )}
     </div>
+    <ZoomControls
+      zoom={zoom}
+      onZoomIn={() => applyZoom(zoom * ZOOM_STEP)}
+      onZoomOut={() => applyZoom(zoom / ZOOM_STEP)}
+      onReset={() => applyZoom(1)}
+    />
+    </div>
   );
 }
+
+/** Floating zoom cluster pinned to the canvas' bottom-right corner. The
+ *  percentage doubles as a reset-to-100% button. */
+function ZoomControls({
+  zoom,
+  onZoomIn,
+  onZoomOut,
+  onReset,
+}: {
+  readonly zoom: number;
+  readonly onZoomIn: () => void;
+  readonly onZoomOut: () => void;
+  readonly onReset: () => void;
+}): JSX.Element {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        right: 12,
+        bottom: 12,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 2,
+        padding: 3,
+        background: 'var(--color-bg-card)',
+        border: '1px solid var(--color-border)',
+        borderRadius: 'var(--radius-block)',
+        boxShadow: 'var(--color-card-shadow)',
+        zIndex: 10,
+      }}
+    >
+      <button
+        type="button"
+        data-testid="canvas-zoom-out"
+        title="Zoom out"
+        aria-label="Zoom out"
+        disabled={zoom <= MIN_ZOOM}
+        onClick={onZoomOut}
+        style={{ ...zoomBtn, opacity: zoom <= MIN_ZOOM ? 0.4 : 1 }}
+      >
+        −
+      </button>
+      <button
+        type="button"
+        data-testid="canvas-zoom-reset"
+        title="Reset zoom to 100%"
+        onClick={onReset}
+        style={{ ...zoomBtn, width: 'auto', minWidth: 40, padding: '0 6px', fontSize: '0.68rem' }}
+      >
+        {Math.round(zoom * 100)}%
+      </button>
+      <button
+        type="button"
+        data-testid="canvas-zoom-in"
+        title="Zoom in"
+        aria-label="Zoom in"
+        disabled={zoom >= MAX_ZOOM}
+        onClick={onZoomIn}
+        style={{ ...zoomBtn, opacity: zoom >= MAX_ZOOM ? 0.4 : 1 }}
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
+const zoomBtn: React.CSSProperties = {
+  width: 26,
+  height: 26,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: '0.95rem',
+  fontWeight: 600,
+  color: 'var(--color-text-dim)',
+  borderRadius: 6,
+};
 
 function TempLine({
   from,
