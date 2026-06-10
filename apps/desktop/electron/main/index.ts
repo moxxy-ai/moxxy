@@ -237,10 +237,21 @@ async function createWindow(): Promise<void> {
     },
   });
 
-  // Refuse top-frame navigation away from our own origin. The OAuth
-  // popups open via the `setWindowOpenHandler` below (kept intact), not
-  // by navigating this frame, so sign-in is unaffected.
-  lockDownNavigation(mainWindow, { keepWindowOpenHandler: true });
+  // Refuse top-frame navigation away from our own origin — EXCEPT to the
+  // OAuth hosts. clerk-js's prebuilt sign-in buttons run the provider flow
+  // as a top-frame redirect (not a popup), so the frame must be allowed to
+  // round-trip app → accounts.google.com → clerk FAPI → back here. The
+  // return leg lands on a loopback serving origin that differs from the
+  // page's CURRENT origin mid-flow, so those origins are allow-listed
+  // explicitly (dev: the Vite origin).
+  const appOriginPatterns = [
+    new RegExp(`^https://desktop\\.moxxy\\.ai:(?:${LOOPBACK_PORTS.join('|')})$`),
+    ...(isDev ? [/^http:\/\/(?:localhost|127\.0\.0\.1):\d+$/] : []),
+  ];
+  lockDownNavigation(mainWindow, {
+    keepWindowOpenHandler: true,
+    allowOriginPatterns: [...OAUTH_HOST_PATTERNS, ...appOriginPatterns],
+  });
 
   // OAuth popup handling — Clerk's clerk-js calls window.open() to
   // run the provider's OAuth flow. We allow popups whose origin is on
