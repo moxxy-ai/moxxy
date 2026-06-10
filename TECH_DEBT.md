@@ -666,21 +666,38 @@ graph) is intact; the two operate on different graphs and don't conflict.
   for v1; revisit with `react-native-svg` + gesture-handler if a graphical mobile canvas is
   wanted.
 - **Round-2 correctness pass (2026-06-10).** Eight audit findings fixed:
-  - **`awaitInput` is GATED, not shippable.** The executor pauses + checkpoints
-    (`run-store.ts` + `resumeWorkflowRun`), but the **resume trigger/channel that delivers
-    the operator's reply did NOT ship to main** — it lives only on the unmerged plugin-office
-    branch. `resumeWorkflowRun` has ZERO production callers. An earlier note here claimed the
-    operator "replies once in Virtual Office chat" — that was backed only by the unmerged
-    branch and was **wrong for main**. So `awaitInput` is now **rejected at validate/save
-    time** (`schema.ts`) with a clear "requires the resume channel, not available in this
-    build" message; `draft.ts` no longer teaches it (it steers to `inputs` instead). The
-    executor pause path is kept (in case a resume trigger lands) and tested via raw-workflow
-    builders that bypass the gate. Defense-in-depth: `runNow` (CLI) treats a `paused` result
-    as **non-terminal** (no inbox delivery); `Session.close()` now calls
-    `clearRetainedChildren()` so a paused run's retained child session can't leak for the
-    process lifetime; and `WorkflowRunStore.sweepStale()` (7-day TTL, run on workflows boot)
-    reaps orphaned `~/.moxxy/workflow-runs/active/<ulid>.json` checkpoints. **To re-enable
-    awaitInput:** land an in-tree resume trigger and remove the schema gate block.
+  - **`awaitInput` human-in-the-loop SHIPPED — gate REMOVED (2026-06-10).** The resume path
+    now lives on main, so the validate/save gate from #146 is gone. `awaitInput: true` is
+    accepted again on **prompt/skill steps only** (rejected on tool/workflow/logic/loop steps
+    and on a loop body — the executor has no interactive child / no mid-iteration checkpoint
+    there); `draft.ts` teaches it again with a worked example. The resume RPC is additive
+    **protocol v5** (`workflow.resume`, `MIN_COMPATIBLE` unchanged at 1): `RunnerMethod` +
+    server handler → `session.workflows.resume(runId, reply)`; `WorkflowsView.resume` (SDK) +
+    CLI impl (`resumeNow` → existing `resumeWorkflowRun`); `RemoteSession.workflows.resume`
+    gated on server proto ≥ 5 with the "update the CLI" message (mirrors the v4 builder gate);
+    desktop-ipc-contract `workflows.resume` + desktop-host + MobileSessionHost handlers; and a
+    `workflows.resume` entry on `REMOTE_ALLOWED_COMMANDS` (RESPOND-only — answering a question
+    the WORKFLOW asked, like `ask.respond`; it can't author). The `workflow_paused` event now
+    carries the workflow name + step label + the question so the operator UI is self-contained.
+    **Reply UI:** desktop (`apps/desktop/src/workflows/PausedWorkflows.tsx` via the new
+    client-core `usePausedWorkflows` hook — a card with a reply box that dispatches
+    `workflows.resume`) and TUI (`plugin-cli` `WorkflowsPanel` switches to inline reply capture
+    when `view.run` returns `status: 'paused'`). The non-terminal-`paused` handling in `runNow`
+    is kept (and the resume side delivers the now-completed run to the inbox); the stale-checkpoint
+    sweeper + `clearRetainedChildren()`-on-shutdown from #146 are kept. Vars set before a pause
+    now survive the checkpoint round-trip (Finding 4, below) so downstream `{{ vars.* }}` render.
+    **Remaining edges (honest):** (1) the **mobile** UI is bridge-wired (handler + allow-list +
+    contract, Expo-bundled) but has **no paused-workflow card yet** — a mobile user can reach
+    `workflows.resume` over the frame bridge, but the screen doesn't surface the pending question
+    yet; add a paused card to `apps/mobile`. (2) **Multi-pause** workflows (several awaitInput
+    steps) work — resume re-pauses and the UI re-prompts — but each pause writes a fresh checkpoint;
+    not stress-tested beyond two pauses. (3) **Concurrent paused runs** of the SAME workflow each
+    get a distinct `runId`/checkpoint and surface as separate cards; the retained-child registry
+    is keyed by child session id so they don't collide, but the desktop card list isn't ordered
+    or de-duped beyond run id. (4) Resume relies on the **retained child still being in the
+    runner process's in-memory registry** — a runner restart between pause and resume loses it
+    (the checkpoint survives, but `spawner.continue` then fails cleanly rather than resuming);
+    persisting/rehydrating the child across restarts is future work.
   - **Desktop builder IPC now works over the runner (was Finding 2 — real).** The desktop
     drives a `RemoteSession`, whose workflows view only exposed `list/setEnabled/run` — so
     `validateDraft`/`save`/`getRun` were `undefined` and the builder threw "not supported on
@@ -692,9 +709,10 @@ graph) is intact; the two operate on different graphs and don't conflict.
     loop-body step is rejected (it would stall — body steps are excluded from the main DAG);
     a loop-body step's own `when` and any `needs` other than its loop step / a sibling body
     step are rejected (body steps run unconditionally each iteration).
-  - **Checkpoint vars (Finding 4):** the checkpoint now persists+restores `vars` so a logic
-    step that ran before a pause isn't dropped on resume (moot under the gate, but correct if
-    resume lands).
+  - **Checkpoint vars (Finding 4):** the checkpoint persists+restores `vars` so a logic step
+    that ran before a pause isn't dropped on resume — now LIVE (the resume path shipped), and
+    proven by the end-to-end executor test (a `bridge` sets `vars.channel`, the run pauses,
+    resume restores it and a downstream `{{ vars.channel }}` renders).
   - **Prototype-pollution guard (Finding 6):** model-provided logic-step `vars` skip
     `__proto__`/`constructor`/`prototype` keys when merging.
   - **Rename cleanup (Finding 7):** `WorkflowStore.save(workflow, previousName)` removes the
@@ -703,8 +721,8 @@ graph) is intact; the two operate on different graphs and don't conflict.
 - **Remaining notes:** (a) loop body steps are excluded from the main DAG scheduler via a
   `loopBodyIds` set; if a future feature needs a step to be both a loop body AND independently
   scheduled, that exclusion must be revisited. (b) awaitInput is barred inside a loop body
-  (would need mid-iteration checkpointing) — orthogonal to the gate above; lift only if a
-  resume path AND a use-case appear.
+  (would need mid-iteration checkpointing) — orthogonal to the now-shipped resume path; lift
+  only if a use-case appears.
 
 ---
 

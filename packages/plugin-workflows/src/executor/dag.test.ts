@@ -22,11 +22,11 @@ function wf(obj: Record<string, unknown>): Workflow {
 }
 
 /**
- * Build a Workflow shape WITHOUT schema validation. The executor still supports
- * the awaitInput pause/resume path (kept in case a resume trigger lands), but
- * the schema now GATES awaitInput (Finding 1) so `validateWorkflow` would reject
- * it. These tests exercise the executor directly; they bypass the author-time
- * gate the same way a hypothetical resume trigger would feed a stored checkpoint.
+ * Build a Workflow shape WITHOUT schema validation — a convenience for tests
+ * that need to construct edge-case step combinations the author-time schema
+ * rejects (e.g. an awaitInput step that the schema only permits on prompt/skill
+ * actions). The human-in-the-loop happy path is exercised through the real
+ * `wf()` (schema-validated) helper above; `rawWf` is for the negative/edge cases.
  */
 function rawWf(steps: Array<Record<string, unknown>>, extra: Record<string, unknown> = {}): Workflow {
   return {
@@ -350,6 +350,53 @@ describe('dag executor', () => {
     expect(resumed.ok).toBe(true);
     const go = h.specs.find((s) => s.label === 'go')!;
     expect(go.prompt).toContain('FINAL_ask');
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('end-to-end human-in-the-loop: schema-validated workflow PAUSES, then resumes to COMPLETE with the reply + vars available', async () => {
+    // This is the un-gate proof: a workflow authored with `awaitInput: true` is
+    // now ACCEPTED by validateWorkflow (no gate), pauses with a workflow_paused
+    // event carrying the prompt + runId, and resumeWorkflowRun() drives it to
+    // `completed` (NOT paused/hung). The operator reply is available downstream,
+    // and a var set BEFORE the pause survives the checkpoint round-trip.
+    const dir = await mkdtemp(join(tmpdir(), 'wf-hitl-'));
+    const store = new WorkflowRunStore(dir);
+    const events: Array<{ subtype: string; payload: unknown }> = [];
+    const h = makeHarness({
+      emit: (subtype, payload) => void events.push({ subtype, payload }),
+      runStore: store,
+      logicResponses: { extract: '{"vars":{"channel":"#ops"}}' },
+    } as Partial<WorkflowRunDeps>);
+    // Authored exactly as an operator would: validated through the real schema.
+    const workflow = wf({
+      name: 'hitl-approve',
+      description: 'Set a var, pause to ask the operator, then act on the reply.',
+      steps: [
+        { id: 'extract', bridge: 'set vars.channel' },
+        { id: 'ask', needs: ['extract'], label: 'Approve', prompt: 'Ship to {{ vars.channel }}?', awaitInput: true },
+        { id: 'publish', needs: ['ask'], tool: 'notify', args: { to: '{{ vars.channel }}', body: '{{ steps.ask.output }}' } },
+      ],
+    });
+
+    const paused = await dagExecutor.run(workflow, h.deps);
+    // PAUSED — checkpoint written, workflow_paused emitted with the prompt step + runId.
+    expect(paused.status).toBe('paused');
+    expect(paused.runId).toBeTruthy();
+    const pausedEvent = events.find((e) => e.subtype === 'workflow_paused');
+    expect(pausedEvent?.payload).toMatchObject({ runId: paused.runId, stepId: 'ask' });
+    // The pending step's prompt is surfaced to the operator (awaiting_input preview).
+    const awaiting = events.find((e) => e.subtype === 'workflow_step_awaiting_input');
+    expect(awaiting?.payload).toMatchObject({ id: 'ask' });
+    expect(await store.load(paused.runId!)).not.toBeNull();
+
+    // RESUME with the operator reply → run COMPLETES (not paused/hung).
+    const resumed = await resumeWorkflowRun(paused.runId!, 'ship it', h.deps, store);
+    expect(resumed.status).toBe('completed');
+    expect(resumed.ok).toBe(true);
+    // The downstream tool ran with the reply AND the pre-pause var.
+    expect(h.toolCalls.find((c) => c.name === 'notify')?.input).toEqual({ to: '#ops', body: 'FINAL_Approve' });
+    // The checkpoint is cleaned up once resumed (no orphaned paused run).
+    expect(await store.load(paused.runId!)).toBeNull();
     await rm(dir, { recursive: true, force: true });
   });
 

@@ -61,20 +61,18 @@ const stepSchema = z
     awaitInput: z.boolean().optional(),
   })
   .superRefine((step, ctx) => {
-    // awaitInput is GATED: the executor can pause + checkpoint, but the resume
-    // trigger/channel that delivers the operator's reply did NOT ship to main
-    // (it lives on an unmerged branch). Accepting `awaitInput: true` would
-    // create a run that pauses forever — leaking a retained child session and
-    // orphaning a checkpoint file. Reject it at author time until a resume path
-    // lands in-tree. (Re-enable by removing this block once a resume trigger
-    // exists; the executor side is already wired.)
-    if (step.awaitInput) {
+    // awaitInput pauses a prompt/skill step to ask the operator a question, then
+    // resumes with their reply (the human-in-the-loop flow — `workflow.resume`
+    // RPC + operator reply UI). It is only meaningful on the step kinds that
+    // spawn a child agent (prompt | skill); tool/workflow/logic steps have no
+    // interactive child to feed the reply into, and a loop body can't pause
+    // mid-iteration (see the loop-body refinement below). Reject it elsewhere so
+    // the author picks a supported action rather than hitting a runtime failure.
+    const isLogic = step.bridge != null || step.condition != null || step.switch != null;
+    if (step.awaitInput && (step.tool != null || step.workflow != null || step.loop != null || isLogic)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message:
-          `step "${step.id}": awaitInput requires the resume channel, which is not available ` +
-          `in this build — a paused run would hang forever. Remove awaitInput (gather the ` +
-          `input via an \`inputs\` field or a normal prompt step instead).`,
+        message: `step "${step.id}": awaitInput is only allowed on prompt or skill steps`,
         path: ['awaitInput'],
       });
     }
@@ -331,6 +329,20 @@ export const workflowSchema = z
             `step "${step.id}" is a loop body of "${owner}" and cannot be a condition/switch ` +
             `step — branch routing is not honored inside a loop body. Use a bridge step to set ` +
             `vars and drive the loop's own exit condition instead.`,
+          path: ['steps'],
+        });
+      }
+
+      // A loop body cannot `awaitInput`: pausing mid-iteration would require
+      // checkpointing the loop's iteration state, which the executor does not
+      // support (runLoopStep fails loudly on a paused body). Reject it at author
+      // time so the author moves the question out of the loop.
+      if (body.awaitInput) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            `step "${step.id}" is a loop body of "${owner}" and cannot use awaitInput — ` +
+            `a loop body cannot pause mid-iteration. Ask the operator before/after the loop instead.`,
           path: ['steps'],
         });
       }

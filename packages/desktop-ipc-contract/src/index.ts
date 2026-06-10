@@ -237,6 +237,10 @@ export interface WorkflowRun {
   output: string;
   error?: string;
   steps: ReadonlyArray<{ id: string; status: string; error?: string }>;
+  /** `paused` when the run parked on an `awaitInput` step — answer it with
+   *  `workflows.resume(runId, reply)` (human-in-the-loop). */
+  status?: 'completed' | 'paused' | 'failed';
+  runId?: string;
 }
 
 // ---------- Mobile gateway (WebSocket bridge) ------------------------------
@@ -722,6 +726,13 @@ export interface IpcCommands {
   'workflows.save': (args: { yaml: string; previousName?: string }) => Promise<WorkflowSave>;
   /** Fetch one saved workflow as canonical YAML (null when unknown). */
   'workflows.getRun': (args: { name: string }) => Promise<WorkflowDetail | null>;
+  /**
+   * Answer a paused workflow's `awaitInput` question and resume the run (the
+   * human-in-the-loop flow). `runId` comes from the `workflow_paused` plugin
+   * event; `reply` is the operator's answer. Returns the (usually completed)
+   * run result. Throws a coded error when the host predates the resume path.
+   */
+  'workflows.resume': (args: { runId: string; reply: string }) => Promise<WorkflowRun>;
 
   // Settings
   // Desktop preferences (separate from runner preferences).
@@ -855,6 +866,12 @@ export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcC
   'workflows.list',
   'workflows.run',
   'workflows.getRun',
+  // Answer a paused workflow's awaitInput question. This is RESPOND-only — like
+  // `ask.respond`, the operator answers a question the WORKFLOW asked (the reply
+  // is fed into the paused step and the run continues); it cannot create or
+  // rewrite a workflow. A mobile user answering "ship it" to their own pipeline
+  // is the canonical human-in-the-loop case, so it belongs on the trust surface.
+  'workflows.resume',
 ]);
 
 /**

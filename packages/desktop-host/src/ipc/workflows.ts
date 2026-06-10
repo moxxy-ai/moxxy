@@ -47,4 +47,14 @@ export function registerWorkflowsHandlers(pool: RunnerPool): void {
     if (!session.workflows?.getRun) throw new Error('workflows builder not supported on this session');
     return await session.workflows.getRun(name);
   });
+
+  // ---- Human-in-the-loop: resume a paused awaitInput run ------------------
+  // Optional on the view (older hosts lack it). When the session is a
+  // RemoteSession, its client view gates this on the runner's protocol (>= 5)
+  // and surfaces the "update the CLI" error.
+  handle('workflows.resume', async ({ runId, reply }) => {
+    const session = mustSession(pool);
+    if (!session.workflows?.resume) throw new Error('workflow resume not supported on this session');
+    return await session.workflows.resume(runId, reply);
+  });
 }

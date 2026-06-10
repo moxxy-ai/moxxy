@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useWorkflows } from '@moxxy/client-core';
 import { Skeleton } from '@moxxy/desktop-ui';
 import { WorkflowBuilder } from './WorkflowBuilder';
+import { PausedWorkflows } from './PausedWorkflows';
 
 /**
  * Workflows surface — two modes:
@@ -89,6 +90,7 @@ export function WorkflowsPanel(): JSX.Element {
           {wf.error}
         </p>
       )}
+      <PausedWorkflows />
       {wf.loading && wf.list.length === 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <Skeleton.Card />

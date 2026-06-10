@@ -324,6 +324,12 @@ async function runExecutorLoop(ctx: ExecutorContext): Promise<WorkflowRunResult>
           runId,
           stepId: step.id,
           childSessionId: outcome.interactionAgentId,
+          // Carry the human-facing question so the operator UI is self-contained
+          // (no separate event correlation needed): the workflow name, the step
+          // label, and the prompt/question the paused step asked.
+          workflow: workflow.name,
+          label: step.label ?? step.id,
+          prompt: outcome.output.slice(0, 2000),
         });
         return buildRunResult(ctx, 'paused', true, {
           runId,

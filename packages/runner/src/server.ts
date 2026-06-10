@@ -39,6 +39,7 @@ import {
   workflowValidateDraftParamsSchema,
   workflowSaveParamsSchema,
   workflowGetRunParamsSchema,
+  workflowResumeParamsSchema,
   type AttachResult,
   type CommandRunResult,
   type RunTurnResult,
@@ -176,6 +177,7 @@ export class RunnerServer {
     );
     peer.handle(RunnerMethod.WorkflowSave, (raw) => this.handleWorkflowSave(raw));
     peer.handle(RunnerMethod.WorkflowGetRun, (raw) => this.handleWorkflowGetRun(raw));
+    peer.handle(RunnerMethod.WorkflowResume, (raw) => this.handleWorkflowResume(raw));
 
     peer.onClose(() => this.onDisconnect(client));
   }
@@ -500,6 +502,16 @@ export class RunnerServer {
     const view = this.session.workflows;
     if (!view?.getRun) throw new Error('workflows builder not supported on this runner');
     return (await view.getRun(params.name)) ?? null;
+  }
+
+  // --- Workflows human-in-the-loop (resume a paused awaitInput run) ---------
+  // v5. Optional on the view (older hosts lack it), so feature-check and throw a
+  // clear error rather than calling undefined.
+  private async handleWorkflowResume(raw: unknown): Promise<unknown> {
+    const params = workflowResumeParamsSchema.parse(raw);
+    const view = this.session.workflows;
+    if (!view?.resume) throw new Error('workflow resume not supported on this runner');
+    return view.resume(params.runId, params.reply);
   }
 
   private broadcastInfo(): void {

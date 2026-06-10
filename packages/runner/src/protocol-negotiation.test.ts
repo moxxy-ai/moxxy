@@ -117,7 +117,7 @@ describe('tolerant protocol negotiation — server handshake', () => {
   it('the compatibility floor is at or below the current version', () => {
     // Sanity: a current client must always be accepted by a current server.
     expect(MIN_COMPATIBLE_PROTOCOL_VERSION).toBeLessThanOrEqual(RUNNER_PROTOCOL_VERSION);
-    // Every change through v4 has been additive — the floor is still 1.
+    // Every change through v5 has been additive — the floor is still 1.
     expect(MIN_COMPATIBLE_PROTOCOL_VERSION).toBe(1);
   });
 
@@ -213,6 +213,52 @@ describe('tolerant protocol negotiation — client gating', () => {
     await expect(client.workflows.save('name: x')).rejects.toThrow(/update the moxxy CLI/i);
     await expect(client.workflows.getRun('x')).rejects.toThrow(/update the moxxy CLI/i);
     close();
+  });
+
+  it('gates workflow.resume (v5) with an actionable error against a v4 server (capability-detect)', async () => {
+    // A pre-resume (v4) server that handles the builder family but NOT resume —
+    // exactly what a v5 desktop sees attached to a v4 CLI. The client must NOT
+    // hit a raw method-not-found; it gets the "update the CLI" message.
+    const { client, close } = fakeV3Server(4);
+    await client.attach('desktop', 0);
+    expect(client.runnerProtocolVersion).toBe(4);
+    await expect(client.workflows.resume('run-1', 'ship it')).rejects.toThrow(
+      /Resuming a paused workflow.*not supported by this runner.*update the moxxy CLI/i,
+    );
+    close();
+  });
+
+  it('round-trips workflow.resume to a real handler when the server is v5+', async () => {
+    let resumedWith: { runId: string; reply: string } | null = null;
+    const [clientT, serverT] = makePair();
+    const serverPeer = new JsonRpcPeer(serverT);
+    serverPeer.handle(RunnerMethod.Attach, () => ({
+      sessionId: 'fake-v5',
+      protocolVersion: 5,
+      info: {
+        sessionId: 'fake-v5',
+        cwd: process.cwd(),
+        providers: [],
+        tools: [],
+        modes: [],
+        skills: [],
+        commands: [],
+        readyProviders: [],
+        activeProvider: null,
+        activeMode: null,
+      },
+    }));
+    serverPeer.handle(RunnerMethod.WorkflowResume, (raw) => {
+      resumedWith = raw as { runId: string; reply: string };
+      return { ok: true, output: 'done', steps: [{ id: 'ask', status: 'completed' }] };
+    });
+    const client = new RemoteSession(clientT);
+    await client.attach('desktop', 0);
+    const res = await client.workflows.resume('run-42', 'cyberpunk city');
+    expect(res.ok).toBe(true);
+    expect(res.output).toBe('done');
+    expect(resumedWith).toEqual({ runId: 'run-42', reply: 'cyberpunk city' });
+    clientT.close();
   });
 
   it('allows the v4 builder methods when the server is v4+', async () => {

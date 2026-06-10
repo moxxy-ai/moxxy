@@ -275,32 +275,66 @@ steps:
       ],
     });
     expect(r.ok).toBe(false);
-    expect(r.errors.join('\n')).toMatch(/awaitInput requires the resume channel/);
+    expect(r.errors.join('\n')).toMatch(/awaitInput is only allowed on prompt or skill steps/);
   });
 
-  // --- awaitInput gate (Finding 1) -------------------------------------------
-  // The resume trigger that delivers the operator's reply did NOT ship to main,
-  // so a paused run would hang forever. awaitInput is rejected at author time
-  // on EVERY step kind until a resume path lands in-tree.
+  // --- awaitInput (human-in-the-loop) ----------------------------------------
+  // awaitInput pauses a prompt/skill step to ask the operator a question and
+  // resumes with their reply (workflow.resume RPC + operator reply UI). It is
+  // ACCEPTED on prompt/skill steps and rejected on every other action kind (no
+  // interactive child to feed the reply into).
 
-  it('rejects awaitInput on a prompt step (resume channel not available)', () => {
+  it('accepts awaitInput on a prompt step', () => {
     const r = validateWorkflow({
       name: 'await-prompt',
       description: 'x',
       steps: [{ id: 'ask', prompt: 'ask the operator', awaitInput: true }],
     });
-    expect(r.ok).toBe(false);
-    expect(r.errors.join('\n')).toMatch(/awaitInput requires the resume channel/);
+    expect(r.ok).toBe(true);
+    expect(r.workflow?.steps[0]?.awaitInput).toBe(true);
   });
 
-  it('rejects awaitInput on a skill step', () => {
+  it('accepts awaitInput on a skill step', () => {
     const r = validateWorkflow({
       name: 'await-skill',
       description: 'x',
       steps: [{ id: 'ask', skill: 'web-research', input: 'ask', awaitInput: true }],
     });
+    expect(r.ok).toBe(true);
+    expect(r.workflow?.steps[0]?.awaitInput).toBe(true);
+  });
+
+  it('rejects awaitInput on a tool step', () => {
+    const r = validateWorkflow({
+      name: 'await-tool',
+      description: 'x',
+      steps: [{ id: 'go', tool: 'notify', args: {}, awaitInput: true }],
+    });
     expect(r.ok).toBe(false);
-    expect(r.errors.join('\n')).toMatch(/awaitInput requires the resume channel/);
+    expect(r.errors.join('\n')).toMatch(/awaitInput is only allowed on prompt or skill steps/);
+  });
+
+  it('rejects awaitInput on a bridge (logic) step', () => {
+    const r = validateWorkflow({
+      name: 'await-bridge',
+      description: 'x',
+      steps: [{ id: 'b', bridge: 'extract', awaitInput: true }],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join('\n')).toMatch(/awaitInput is only allowed on prompt or skill steps/);
+  });
+
+  it('rejects awaitInput on a loop body step', () => {
+    const r = validateWorkflow({
+      name: 'await-loop-body',
+      description: 'x',
+      steps: [
+        { id: 'spin', loop: { body: ['ask'], condition: 'go?', maxIterations: 3 } },
+        { id: 'ask', needs: ['spin'], prompt: 'ask', awaitInput: true },
+      ],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join('\n')).toMatch(/cannot use awaitInput/);
   });
 
   // --- loop-body integrity (Findings 3, 5, 8) -------------------------------

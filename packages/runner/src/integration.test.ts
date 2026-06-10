@@ -694,4 +694,45 @@ describe('runner end-to-end', () => {
 
     await expect(remote.workflows.validateDraft('name: x')).rejects.toThrow(/builder not supported/);
   });
+
+  it('forwards workflow.resume to the runner workflows view (human-in-the-loop, v5)', async () => {
+    // A paired client answers a paused workflow's awaitInput question: the
+    // reply must reach session.workflows.resume(runId, reply) over the socket.
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('hi')] }));
+    let resumed: { runId: string; reply: string } | null = null;
+    session.workflows = {
+      list: async () => [],
+      setEnabled: async () => undefined,
+      run: async () => ({ ok: true, output: '', steps: [] }),
+      resume: async (runId, reply) => {
+        resumed = { runId, reply };
+        return { ok: true, output: 'final', steps: [{ id: 'ask', status: 'completed' }] };
+      },
+    };
+    const server = await startRunnerServer(session, { socketPath });
+    servers.push(server);
+    const remote = await attach(socketPath);
+    expect(remote.runnerProtocolVersion).toBe(5);
+
+    const result = await remote.workflows.resume('run-7', 'ship it');
+    expect(result.ok).toBe(true);
+    expect(result.output).toBe('final');
+    expect(resumed).toEqual({ runId: 'run-7', reply: 'ship it' });
+  });
+
+  it('rejects workflow.resume when the runner workflows view lacks resume (older host)', async () => {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('hi')] }));
+    session.workflows = {
+      list: async () => [],
+      setEnabled: async () => undefined,
+      run: async () => ({ ok: true, output: '', steps: [] }),
+    };
+    const server = await startRunnerServer(session, { socketPath });
+    servers.push(server);
+    const remote = await attach(socketPath);
+
+    await expect(remote.workflows.resume('run-7', 'hi')).rejects.toThrow(/resume not supported/);
+  });
 });

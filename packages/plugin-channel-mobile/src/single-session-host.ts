@@ -180,6 +180,15 @@ export class MobileSessionHost {
       }
       return await this.session.workflows.getRun(name);
     });
+    // Human-in-the-loop: a mobile user answers their paused workflow's question.
+    // RESPOND-only (like ask.respond) so it's on the remote allow-list; optional
+    // on the view, so feature-check and surface a coded error when unsupported.
+    this.bus.handle('workflows.resume', async ({ runId, reply }) => {
+      if (!this.session.workflows?.resume) {
+        throw new IpcError('not-supported', 'workflow resume not supported on this session');
+      }
+      return await this.session.workflows.resume(runId, reply);
+    });
     this.bus.handle('ask.respond', async ({ requestId, response }) => {
       this.answerAsk(requestId, response);
     });

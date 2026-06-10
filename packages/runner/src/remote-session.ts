@@ -608,6 +608,17 @@ export class RemoteSession implements ClientSession {
         this.requireServerProtocol(4, 'Loading a workflow into the builder');
         return this.peer.request<WorkflowDetailResult | null>(RunnerMethod.WorkflowGetRun, { name });
       },
+      // Human-in-the-loop resume (protocol v5). Gated on the SERVER's reported
+      // version so a v5 client attached to a v4 runner (a desktop whose JS
+      // hot-update outran its bundled CLI) gets a clear "update the CLI" error
+      // rather than a raw method-not-found.
+      resume: async (runId, reply) => {
+        this.requireServerProtocol(5, 'Resuming a paused workflow');
+        return this.peer.request<WorkflowRunResult>(RunnerMethod.WorkflowResume, {
+          runId,
+          reply,
+        });
+      },
     };
   }
 }
@@ -636,6 +647,9 @@ interface WorkflowRunResult {
   readonly output: string;
   readonly error?: string;
   readonly steps: ReadonlyArray<{ readonly id: string; readonly status: string; readonly error?: string }>;
+  /** `paused` when the run parked on an awaitInput step (resume via `runId`). */
+  readonly status?: 'completed' | 'paused' | 'failed';
+  readonly runId?: string;
 }
 interface WorkflowValidateResult {
   readonly ok: boolean;
@@ -659,6 +673,7 @@ interface WorkflowsClientView {
   validateDraft(yaml: string): Promise<WorkflowValidateResult>;
   save(yaml: string, previousName?: string): Promise<WorkflowSaveResult>;
   getRun(name: string): Promise<WorkflowDetailResult | null>;
+  resume(runId: string, reply: string): Promise<WorkflowRunResult>;
 }
 
 // --- snapshot -> display-object reconstruction --------------------------------
