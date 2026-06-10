@@ -9,7 +9,7 @@ import {
   chatStore,
   usePrefs,
 } from '@moxxy/client-core';
-import { ConnectionScreen } from './connection/ConnectionScreen';
+import { ConnectionScreen, type UpdateCliResult } from './connection/ConnectionScreen';
 import { Onboarding } from './onboarding/Onboarding';
 import { ChatSurface } from './chat/ChatSurface';
 import { WorkspaceSidebar, type View } from './shell/WorkspaceSidebar';
@@ -18,7 +18,7 @@ import { WorkflowsPanel } from './workflows/WorkflowsPanel';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { UpdateBanner } from './shell/UpdateBanner';
 import { Splash } from './Splash';
-import { api } from '@moxxy/client-core';
+import { api, toErrorMessage } from '@moxxy/client-core';
 
 /**
  * Top-level shell. Three layers of gating, in order:
@@ -147,11 +147,32 @@ export function App(): JSX.Element {
   }
 
   if (!isConnected(phase) && !hasEverConnected) {
+    // Terminal protocol-incompatible self-heal: update the bundled CLI in
+    // place (host `app.updateCli`), then re-run the supervisor connect — which
+    // respawns the runner from the now-newer CLI, so the client attaches
+    // cleanly. App.tsx owns the IPC call + the retry; ConnectionScreen stays
+    // presentational. Failures surface in the screen's error + manual hint.
+    const onUpdateCli = async (): Promise<UpdateCliResult> => {
+      try {
+        const { code } = await api().invoke('app.updateCli');
+        if (code !== 0) {
+          return { ok: false, error: `Updating the moxxy CLI failed (npm exited with code ${code}).` };
+        }
+        void retry();
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: toErrorMessage(e) };
+      }
+    };
     return (
       <>
         <ConnectionBridge />
         <ChatStoreBridge />
-        <ConnectionScreen snapshot={snapshot} onRetry={() => void retry()} />
+        <ConnectionScreen
+          snapshot={snapshot}
+          onRetry={() => void retry()}
+          onUpdateCli={onUpdateCli}
+        />
       </>
     );
   }

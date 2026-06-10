@@ -1,10 +1,27 @@
+import { useState } from 'react';
 import type { ConnectionPhase, ConnectionSnapshot } from '@moxxy/desktop-ipc-contract';
 import { asset } from '@/lib/asset';
 import { Splash } from '@/Splash';
 
+/** Result of an in-app CLI update attempt. On success the caller (App.tsx)
+ *  has already kicked the supervisor retry; on failure we surface `error`
+ *  and fall back to the manual escape hatch. */
+export interface UpdateCliResult {
+  readonly ok: boolean;
+  readonly error?: string;
+}
+
 interface ConnectionScreenProps {
   readonly snapshot: ConnectionSnapshot | null;
   readonly onRetry: () => void;
+  /**
+   * Updates the bundled CLI in place (host `app.updateCli`) and, on success,
+   * triggers the same supervisor retry `onRetry` does. Only invoked from the
+   * terminal `protocol-incompatible` screen when the runner is OLDER than the
+   * app — the one direction a CLI update can fix. Optional so existing call
+   * sites (and the non-terminal phases) keep working unchanged.
+   */
+  readonly onUpdateCli?: () => Promise<UpdateCliResult>;
 }
 
 /**
@@ -22,6 +39,7 @@ interface ConnectionScreenProps {
 export function ConnectionScreen({
   snapshot,
   onRetry,
+  onUpdateCli,
 }: ConnectionScreenProps): JSX.Element {
   const phase: ConnectionPhase = snapshot?.phase ?? { phase: 'idle' };
   const problem =
@@ -29,9 +47,10 @@ export function ConnectionScreen({
     phase.phase === 'cli-missing' ||
     phase.phase === 'reconnecting' ||
     phase.phase === 'protocol-incompatible';
-  // A protocol incompatibility is TERMINAL — respawning hits the same pinned
-  // CLI, so "Try again" would loop straight back into the dead end. Hide the
-  // retry and tell the user what action actually unblocks them.
+  // A protocol incompatibility is TERMINAL — a bare respawn hits the same
+  // pinned CLI, so a plain "Try again" would loop straight back into the dead
+  // end. Instead of a retry, the terminal screen offers an in-app self-heal
+  // (update the CLI, then retry) when the runner is the OLDER side.
   const terminal = phase.phase === 'protocol-incompatible';
 
   // Happy path: a continuous branded loading screen.
@@ -85,30 +104,200 @@ export function ConnectionScreen({
           </p>
         </div>
 
-        {!terminal && (
-          <button
-            type="button"
-            onClick={onRetry}
-            style={{
-              padding: '9px 20px',
-              background: 'var(--grad-cta)',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 10,
-              fontWeight: 600,
-              fontSize: 13.5,
-              cursor: 'pointer',
-              boxShadow: '0 10px 20px -12px rgba(236, 72, 153, 0.55)',
-            }}
-          >
-            Try again
-          </button>
+        {phase.phase === 'protocol-incompatible' ? (
+          <ProtocolIncompatibleActions
+            phase={phase}
+            snapshot={snapshot}
+            onUpdateCli={onUpdateCli}
+          />
+        ) : (
+          !terminal && (
+            <button
+              type="button"
+              onClick={onRetry}
+              style={primaryButtonStyle(false)}
+            >
+              Try again
+            </button>
+          )
         )}
 
         <TechnicalDetails snapshot={snapshot} phase={phase} />
       </div>
     </main>
   );
+}
+
+/**
+ * Action area for the terminal protocol-incompatible screen.
+ *
+ * The runner SERVER speaks `serverVersion`; this app's CLIENT speaks
+ * `clientVersion`. Two directions:
+ *
+ *   - server < client (the common case after a desktop hot-update): the
+ *     installed CLI is too OLD. Updating the CLI in place fixes it, so we
+ *     offer the primary "Update CLI & reconnect" button. On click we run
+ *     `onUpdateCli` (host `app.updateCli`), show progress, and on success
+ *     the supervisor respawns the now-newer runner.
+ *   - client < server (the app is the older side): updating the CLI can't
+ *     help — the user needs a newer APP. Show reinstall guidance, no button.
+ *
+ * When versions are unknown (null) we can't prove the updatable direction,
+ * so we still offer the update button (it's the most likely fix) but lean on
+ * the manual escape hatch in the details.
+ */
+function ProtocolIncompatibleActions({
+  phase,
+  snapshot,
+  onUpdateCli,
+}: {
+  readonly phase: Extract<ConnectionPhase, { phase: 'protocol-incompatible' }>;
+  readonly snapshot: ConnectionSnapshot | null;
+  readonly onUpdateCli?: () => Promise<UpdateCliResult>;
+}): JSX.Element {
+  const [status, setStatus] = useState<'idle' | 'updating' | 'error'>('idle');
+  const [error, setError] = useState<string | null>(null);
+
+  const { serverVersion, clientVersion } = phase;
+  // The app is strictly newer than the runner → the CLI is the stale side and
+  // an in-place update is the fix. When either version is unknown we treat the
+  // update as offerable (it's the common, fixable direction).
+  const appNewerThanRunner =
+    serverVersion === null || clientVersion === null
+      ? true
+      : serverVersion < clientVersion;
+  const canUpdate = appNewerThanRunner && !!onUpdateCli;
+
+  const runUpdate = async (): Promise<void> => {
+    if (!onUpdateCli) return;
+    setStatus('updating');
+    setError(null);
+    const result = await onUpdateCli();
+    if (result.ok) {
+      // App.tsx has already kicked the supervisor retry; this screen will be
+      // torn down as the connection phase advances. Keep the spinner up.
+      return;
+    }
+    setError(result.error ?? 'The update failed. Try the manual command below.');
+    setStatus('error');
+  };
+
+  const manualCommand = manualUpdateCommand(snapshot?.cliPath ?? null);
+
+  if (!canUpdate) {
+    // client < server (or no updater wired): updating the CLI won't help.
+    return (
+      <div
+        role="note"
+        style={{
+          fontSize: 12.5,
+          color: 'var(--color-text-muted)',
+          lineHeight: 1.6,
+          maxWidth: 420,
+        }}
+      >
+        This app is older than the moxxy runner it found, so updating the CLI
+        won&rsquo;t help. Reinstall the latest moxxy desktop app to continue.
+      </div>
+    );
+  }
+
+  const updating = status === 'updating';
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 10,
+        width: '100%',
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => void runUpdate()}
+        disabled={updating}
+        aria-busy={updating}
+        style={primaryButtonStyle(updating)}
+      >
+        {updating ? 'Updating the moxxy CLI…' : 'Update CLI & reconnect'}
+      </button>
+
+      {status === 'error' && error && (
+        <div
+          role="alert"
+          style={{
+            fontSize: 12.5,
+            color: 'var(--color-red)',
+            lineHeight: 1.6,
+            maxWidth: 420,
+            textAlign: 'center',
+          }}
+        >
+          <p style={{ margin: 0 }}>{error}</p>
+          <p style={{ margin: '6px 0 0', color: 'var(--color-text-muted)' }}>
+            You can update it by hand instead, or reinstall the app:
+          </p>
+          <code
+            className="mono"
+            style={{
+              display: 'block',
+              margin: '6px 0 0',
+              padding: '6px 8px',
+              background: 'var(--color-card-bg)',
+              border: '1px solid var(--color-card-border)',
+              borderRadius: 8,
+              fontSize: 11.5,
+              color: 'var(--color-text)',
+              wordBreak: 'break-all',
+              textAlign: 'left',
+            }}
+          >
+            {manualCommand}
+          </code>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The exact shell command a user can run to update the CLI by hand if the
+ * in-app button fails. Mirrors {@link updateCli}'s real invocation:
+ *   npm install --prefix "<userData>/cli" @moxxy/cli@latest
+ *
+ * `<userData>/cli` is derived from the resolved CLI path the snapshot carries
+ * (`<userData>/cli/node_modules/@moxxy/cli/dist/bin.js`) by stripping the
+ * trailing `node_modules/@moxxy/cli/dist/bin.js`. Falls back to a generic
+ * placeholder when the path is unknown or doesn't match the expected layout.
+ */
+export function manualUpdateCommand(cliPath: string | null): string {
+  const prefix = cliPrefixFromPath(cliPath) ?? '<userData>/cli';
+  return `npm install --prefix "${prefix}" @moxxy/cli@latest`;
+}
+
+function cliPrefixFromPath(cliPath: string | null): string | null {
+  if (!cliPath) return null;
+  // Handle both POSIX and Windows separators; the prefix is the dir that
+  // CONTAINS node_modules/@moxxy/cli/….
+  const marker = /[/\\]node_modules[/\\]@moxxy[/\\]cli[/\\]/;
+  const m = marker.exec(cliPath);
+  if (!m) return null;
+  return cliPath.slice(0, m.index);
+}
+
+function primaryButtonStyle(disabled: boolean): React.CSSProperties {
+  return {
+    padding: '9px 20px',
+    background: disabled ? 'var(--color-card-border-strong)' : 'var(--grad-cta)',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 10,
+    fontWeight: 600,
+    fontSize: 13.5,
+    cursor: disabled ? 'default' : 'pointer',
+    boxShadow: disabled ? 'none' : '0 10px 20px -12px rgba(236, 72, 153, 0.55)',
+  };
 }
 
 /** Friendly, non-technical headline per phase. */
@@ -214,6 +403,9 @@ function TechnicalDetails({
             />
             <DetailRow label="detail" value={phase.detail} />
             <DetailRow label="hint" value={phase.hint} />
+            {/* The manual escape hatch — exact command to update the CLI by
+                hand if the in-app button fails (or "reinstall the app"). */}
+            <DetailRow label="manual" value={manualUpdateCommand(snapshot?.cliPath ?? null)} />
           </>
         )}
         {hasLog && snapshot && (
