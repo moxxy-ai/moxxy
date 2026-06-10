@@ -540,6 +540,9 @@ importers:
       '@moxxy/plugin-view':
         specifier: workspace:*
         version: link:../plugin-view
+      '@moxxy/plugin-virtual-office':
+        specifier: workspace:*
+        version: link:../plugin-virtual-office
       '@moxxy/plugin-webhooks':
         specifier: workspace:*
         version: link:../plugin-webhooks
@@ -1902,6 +1905,43 @@ importers:
       '@moxxy/core':
         specifier: workspace:*
         version: link:../core
+      '@moxxy/tsconfig':
+        specifier: workspace:*
+        version: link:../../tooling/tsconfig
+      '@moxxy/vitest-preset':
+        specifier: workspace:*
+        version: link:../../tooling/vitest-preset
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.19.18
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 2.1.9(@types/node@22.19.18)(jsdom@25.0.1)(lightningcss@1.32.0)(terser@5.48.0)
+
+  packages/plugin-virtual-office:
+    dependencies:
+      '@moxxy/core':
+        specifier: workspace:*
+        version: link:../core
+      '@moxxy/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+      zod:
+        specifier: 'catalog:'
+        version: 3.25.76
+    devDependencies:
+      '@moxxy/mode-default':
+        specifier: workspace:*
+        version: link:../mode-default
+      '@moxxy/testing':
+        specifier: workspace:*
+        version: link:../testing
+      '@moxxy/tools-builtin':
+        specifier: workspace:*
+        version: link:../tools-builtin
       '@moxxy/tsconfig':
         specifier: workspace:*
         version: link:../../tooling/tsconfig

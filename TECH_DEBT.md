@@ -452,6 +452,13 @@ recall path — low value, real risk. Fold in only if the recall path is touched
 To fully sever channel→core, hoist these provider-neutral helpers into `@moxxy/sdk`
 (cross-cut 2.14). (`plugin-subagents`/`plugin-view` keep core as a **dev**Dep only — their
 `*.test.ts` import core; correct, leave them.)
+**2026-06-10 — new instance (now in `@moxxy/plugin-virtual-office`):** the Virtual Office is
+its own channel (its own HTTP+SSE server), and it carries a `@moxxy/core` prod dep —
+`office-agent-runtime.ts` constructs `EventLog`/`newSessionId`/`newTurnId` per agent and
+`channel.ts` casts `ClientSession`→core `Session` to drive `mode.run(ctx)` against a per-agent
+EventLog. `plugin-channel-http` is untouched (`@moxxy/core` is a **dev**Dep there, as on main).
+Same provider-neutral primitives as above — folds into the same SDK-hoist action. Until then
+it's a correct, declared dep (check:deps clean).
 
 ### 8. Small casts / hardcoded values — NEW, low
 - **Type the exec allowlist.** `plugin-security/src/broker.ts:343` reads
@@ -552,6 +559,47 @@ graph) is intact; the two operate on different graphs and don't conflict.
   RunnerMethod RPCs if the TUI ever needs to validate/save drafts. (d) loop body steps are
   excluded from the main DAG scheduler via a `loopBodyIds` set; if a future feature needs a
   step to be both a loop body AND independently scheduled, that exclusion must be revisited.
+
+### 12. Virtual Office — independent channel plugin (its own HTTP+WS server), no core seam — UPDATED, 2026-06-10
+The Virtual Office lives in its own package, **`@moxxy/plugin-virtual-office`**, as a
+**standalone channel** (`defineChannel` → `channels: [virtualOfficeChannelDef]`) — NOT an
+extension of `plugin-channel-http` and NOT a core seam. `moxxy virtual-office` stands up the
+office's own HTTP + SSE server (`channel.ts`): it owns its bearer-auth boundary (the generic
+`bearerTokenMatches` / `resolveChannelToken` SDK helpers — `MOXXY_VIRTUAL_OFFICE_TOKEN` → config
+→ a generated `~/.moxxy/virtual-office-token`), its body-size guards, and its crash-safe SSE
+helper, and serves ALL office code itself (runtime, permission broker, envelope normalizer, the
+`sensitive`-envelope drop, the ~10 routes in `routes.ts`). `@moxxy/sdk`, `@moxxy/core`, and
+`plugin-channel-http` are exactly as on main — the office reuses only the pre-existing generic
+channel-auth/body-read helpers, so there is no extension contract anywhere in core/sdk/the HTTP
+channel (the earlier `HttpExtension` seam was removed per the user directive). Opt-in = the
+channel being invoked; pass `channels.virtual-office.interactivePermissions: true` to install
+the `HttpPermissionBroker` as the channel's resolver (out-of-band
+`POST /v1/permissions/{id}/decision`).
+
+Known duplication (tracked, accepted): the office stands up its own `node:http` server +
+SSE, the same shape `plugin-channel-http` / `plugin-webhooks` / the mobile bridge each carry.
+This is the deliberate trade the directive chose (a separate channel over a shared core seam).
+If a generic, non-office WS/HTTP-serving helper is ever hoisted into a shared package, the
+office server can adopt it; do NOT add anything office-specific to a shared package.
+
+Per the original revival spec, three pieces were **consciously descoped for v1** and are
+tracked here so they aren't silently forgotten:
+- **Synthesizer auto-integration** — no automatic roll-up of office-agent outputs back into
+  the parent session's context. A run's result lives only in the agent's own EventLog /
+  graveyard entry; the operator (or a future synthesizer block) must thread it back manually.
+- **Per-agent MCP servers** — the reference branch had `/v1/agents/{id}/mcp*` routes
+  (add/list/remove/test). Dropped for v1; office agents share the session's tool registry
+  (optionally narrowed by `allowed_tools`). Re-add the MCP routes when per-agent MCP is needed.
+- **Persistent agent snapshots across restarts** — live agents are not serialized. On
+  channel/session restart the runtime only *projects* archived agents + completed runtime
+  subagents from the persisted session log into the graveyard (read-only history); it does
+  not resurrect a running agent. A live agent in flight at shutdown is archived as `stopped`.
+
+Placement note: the office is its own self-contained channel (per the user directive — no
+office-specific code in `plugin-channel-http`, no core seam). If the separately-ported
+workflows-builder ever needs the same multi-agent pool, factor a shared agent-pool
+abstraction then — **do not** pre-abstract or touch `plugin-workflows` now.
+**Severity low** (additive; the whole surface is off unless the channel is invoked).
 
 ---
 

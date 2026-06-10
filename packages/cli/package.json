@@ -104,6 +104,7 @@
     "@moxxy/plugin-telegram": "workspace:*",
     "@moxxy/plugin-usage-stats": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
+    "@moxxy/plugin-virtual-office": "workspace:*",
     "@moxxy/plugin-webhooks": "workspace:*",
     "@moxxy/plugin-workflows": "workspace:*",
     "@moxxy/runner": "workspace:*",

@@ -23,6 +23,7 @@ import { buildTelegramPlugin } from '@moxxy/plugin-telegram';
 import { buildMcpAdminPluginWithApi } from '@moxxy/plugin-mcp';
 import { cliPlugin } from '@moxxy/plugin-cli';
 import { httpChannelPlugin } from '@moxxy/plugin-channel-http';
+import { virtualOfficePlugin } from '@moxxy/plugin-virtual-office';
 import { buildWebChannelPlugin } from '@moxxy/plugin-channel-web';
 import { mobileChannelPlugin } from '@moxxy/plugin-channel-mobile';
 import { browserPlugin } from '@moxxy/plugin-browser';
@@ -93,6 +94,7 @@ export const BUILTIN_REQUIREMENT_DECISIONS: Readonly<Record<string, BuiltinRequi
   '@moxxy/memory-consolidate': { hardRequirements: true, reason: 'requires @moxxy/plugin-memory contributions' },
   '@moxxy/plugin-cli': { hardRequirements: false, reason: 'TUI channel is standalone' },
   '@moxxy/plugin-channel-http': { hardRequirements: false, reason: 'HTTP channel is standalone' },
+  '@moxxy/plugin-virtual-office': { hardRequirements: false, reason: 'standalone Virtual Office channel; inert unless invoked' },
   '@moxxy/plugin-channel-web': { hardRequirements: false, reason: 'web surface is standalone; token auto-generated' },
   '@moxxy/plugin-channel-mobile': { hardRequirements: false, reason: 'mobile WS bridge is standalone; token auto-generated' },
   '@moxxy/plugin-telegram': { hardRequirements: false, reason: 'vault is injected by bootstrap closure' },
@@ -211,6 +213,9 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
     // aggregate). Surfaced in the /usage panel; reset via /usage clear.
     { name: '@moxxy/plugin-usage-stats', plugin: buildUsageStatsPlugin() },
     { name: '@moxxy/plugin-channel-http', plugin: httpChannelPlugin },
+    // Standalone Virtual Office channel: `moxxy virtual-office` stands up its
+    // own HTTP+SSE server. Opt-in — inert unless that channel is invoked.
+    { name: '@moxxy/plugin-virtual-office', plugin: virtualOfficePlugin },
     {
       name: '@moxxy/plugin-channel-web',
       plugin: buildWebChannelPlugin({
