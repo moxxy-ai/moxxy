@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/core",
   "private": true,
-  "version": "0.0.11",
+  "version": "0.0.12",
   "description": "Moxxy runtime: event log, plugin host, registries, permission engine.",
   "type": "module",
   "main": "./dist/index.js",

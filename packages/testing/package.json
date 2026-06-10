@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/testing",
   "private": true,
-  "version": "0.0.11",
+  "version": "0.0.12",
   "description": "Test harness for moxxy: FakeProvider, record/replay fixtures, Vitest matchers.",
   "type": "module",
   "main": "./dist/index.js",

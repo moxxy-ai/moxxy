@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/compactor-summarize",
   "private": true,
-  "version": "0.0.11",
+  "version": "0.0.12",
   "description": "Default summarize-old-turns compactor for moxxy.",
   "type": "module",
   "main": "./dist/index.js",
