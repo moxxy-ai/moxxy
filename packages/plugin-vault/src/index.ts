@@ -3,6 +3,7 @@ import {
   defineTool,
   definePlugin,
   moxxyPath,
+  MoxxyError,
   type Plugin,
   type CommandDef,
   type EmittedEvent,
@@ -147,7 +148,14 @@ export function buildVaultPlugin(opts: BuildVaultPluginOptions = {}): { plugin: 
         permission: { action: 'prompt' },
         handler: async ({ name }) => {
           const value = await vault.get(name);
-          if (value === null) throw new Error(`vault: '${name}' not found`);
+          if (value === null) {
+            throw new MoxxyError({
+              code: 'TOOL_ERROR',
+              message: `vault: '${name}' not found`,
+              hint: 'Use `vault_list` to see stored entry names.',
+              context: { name },
+            });
+          }
           return value;
         },
       }),

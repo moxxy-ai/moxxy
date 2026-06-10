@@ -1,3 +1,4 @@
+import { MoxxyError } from '@moxxy/sdk';
 import type { VaultStore } from './store.js';
 
 const PLACEHOLDER_RE = /\$\{vault:([A-Za-z0-9_.-]+)\}/g;
@@ -17,7 +18,14 @@ export async function resolveString(input: string, vault: VaultStore): Promise<s
   const values = new Map<string, string>();
   for (const name of names) {
     const value = await vault.get(name);
-    if (value === null) throw new Error(`vault: missing required entry '${name}' referenced in config`);
+    if (value === null) {
+      throw new MoxxyError({
+        code: 'CONFIG_INVALID',
+        message: `vault: missing required entry '${name}' referenced in config`,
+        hint: `Add it with \`/vault set ${name} <value>\` (or the \`vault_set\` tool), then retry.`,
+        context: { name },
+      });
+    }
     values.set(name, value);
   }
   return input.replace(PLACEHOLDER_RE, (_match, name: string) => values.get(name) ?? '');

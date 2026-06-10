@@ -145,7 +145,9 @@ export function resolveSupervisor(
 }
 
 export function mustSession(pool: RunnerPool, workspaceId?: string): SessionLike {
-  return mustRemote(pool, workspaceId) as unknown as SessionLike;
+  // RemoteSession implements ClientSession (which extends SessionLike), so it is
+  // a SessionLike directly — no cast needed.
+  return mustRemote(pool, workspaceId);
 }
 
 export function mustRemote(

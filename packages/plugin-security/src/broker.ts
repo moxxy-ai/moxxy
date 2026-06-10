@@ -336,11 +336,9 @@ async function brokerExec(
   const argv = (args[1] ?? []) as ReadonlyArray<string>;
   const opts = (args[2] ?? {}) as { cwd?: string; env?: Record<string, string>; timeoutMs?: number };
 
-  // Optional command allowlist. When `caps.commands` is set, the
-  // command basename must appear in the list. Untyped on CapabilitySpec
-  // for now — we read it dynamically so older capability declarations
-  // without `commands` still compile against this broker.
-  const allowlist = (caps as unknown as { commands?: ReadonlyArray<string> }).commands;
+  // Optional command allowlist. When `caps.commands` is set, the command
+  // basename (or absolute path) must appear in the list.
+  const allowlist = caps.commands;
   if (allowlist && allowlist.length > 0) {
     const base = path.basename(command);
     if (!allowlist.includes(base) && !allowlist.includes(command)) {

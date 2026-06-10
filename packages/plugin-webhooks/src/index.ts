@@ -41,7 +41,9 @@ import { renderPrompt, type TemplateContext } from './template.js';
 import {
   isTunnelCliAvailable,
   startTunnel,
+  webhookTunnelProviders,
   type RunningTunnel,
+  type TunnelKind,
   type TunnelStartOptions,
 } from './tunnel.js';
 import { buildWebhookTools, defaultWebhookSecretsDir, type WebhooksToolDeps } from './tools.js';
@@ -73,6 +75,7 @@ export {
   // Tunnel
   startTunnel,
   isTunnelCliAvailable,
+  webhookTunnelProviders,
   // Tools
   buildWebhookTools,
   defaultWebhookSecretsDir,
@@ -96,6 +99,7 @@ export {
   type VerificationInput,
   type VerificationResult,
   type RunningTunnel,
+  type TunnelKind,
   type TunnelStartOptions,
   type WebhooksToolDeps,
 };

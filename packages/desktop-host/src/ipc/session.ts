@@ -102,7 +102,9 @@ export function registerSessionHandlers(pool: RunnerPool): void {
       channel: 'desktop',
       sessionId: session.getInfo().sessionId,
       args,
-      session: session as unknown as Parameters<typeof def.handler>[0]['session'],
+      // CommandContext.session is `unknown` (the SDK stays core-free); the
+      // RemoteSession is assignable directly — no cast needed.
+      session,
     });
     return result;
   });

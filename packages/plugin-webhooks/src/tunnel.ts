@@ -1,131 +1,106 @@
-import { spawn, type ChildProcess } from 'node:child_process';
-import { once } from 'node:events';
+import {
+  defineTunnelProvider,
+  isCliTunnelAvailable,
+  spawnCliTunnel,
+  type CliTunnelHandle,
+  type TunnelProviderDef,
+} from '@moxxy/sdk';
 
 /**
- * `cloudflared` integration. We pick cloudflared as the default because
- * its quick tunnels (`cloudflared tunnel --url http://localhost:PORT`)
- * are free, anonymous (no account required), and just print the public
- * URL on stderr. That's exactly the UX a non-technical user needs:
- * agent runs the command, parses the URL, persists it, done.
+ * Tunnel support for the webhooks listener.
  *
- * `ngrok` is a fine alternative but requires an auth token from a free
- * signup. If the user already has it configured, the helper exposes a
- * `kind: 'ngrok'` mode; otherwise we default to cloudflared.
+ * We pick cloudflared as the default because its quick tunnels
+ * (`cloudflared tunnel --url http://localhost:PORT`) are free, anonymous (no
+ * account required), and just print the public URL. That's exactly the UX a
+ * non-technical user needs: agent runs the command, parses the URL, persists
+ * it, done. `ngrok` is a fine alternative but requires an auth token from a
+ * free signup.
+ *
+ * Both are expressed as the SDK's `TunnelProviderDef` contract — the same
+ * abstraction the web channel uses — over the shared `spawnCliTunnel` helper
+ * (single spawn-and-parse-URL implementation, with no-orphan child cleanup).
  */
 
+export type TunnelKind = 'cloudflared' | 'ngrok';
+
+const CLOUDFLARED_URL_RE = /https:\/\/[A-Za-z0-9.-]+\.trycloudflare\.com/;
+const NGROK_URL_RE = /https:\/\/[A-Za-z0-9.-]+\.ngrok[a-z.-]*\.app/;
+
+/** Per-kind spawn config shared by the provider def and the timeout-aware `startTunnel`. */
+const SPAWN_CONFIG: Record<TunnelKind, { cmd: string; urlRegex: RegExp; args(port: number, host: string): string[] }> = {
+  cloudflared: {
+    cmd: 'cloudflared',
+    urlRegex: CLOUDFLARED_URL_RE,
+    args: (port, host) => ['tunnel', '--no-autoupdate', '--url', `http://${host}:${port}`],
+  },
+  ngrok: {
+    cmd: 'ngrok',
+    urlRegex: NGROK_URL_RE,
+    args: (port) => ['http', String(port), '--log=stdout'],
+  },
+};
+
+function openCliTunnel(kind: TunnelKind, port: number, host: string, timeoutMs?: number): Promise<CliTunnelHandle> {
+  const cfg = SPAWN_CONFIG[kind];
+  return spawnCliTunnel({
+    cmd: cfg.cmd,
+    args: cfg.args(port, host),
+    urlRegex: cfg.urlRegex,
+    name: kind,
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+  });
+}
+
+/** The webhooks tunnel providers, keyed by kind. */
+export const webhookTunnelProviders: Record<TunnelKind, TunnelProviderDef> = {
+  cloudflared: defineTunnelProvider({
+    name: 'cloudflared',
+    isAvailable: () => isCliTunnelAvailable('cloudflared'),
+    open: ({ port, host }) => openCliTunnel('cloudflared', port, host),
+  }),
+  ngrok: defineTunnelProvider({
+    name: 'ngrok',
+    isAvailable: () => isCliTunnelAvailable('ngrok'),
+    open: ({ port, host }) => openCliTunnel('ngrok', port, host),
+  }),
+};
+
 export interface TunnelStartOptions {
-  readonly kind: 'cloudflared' | 'ngrok';
+  readonly kind: TunnelKind;
   readonly port: number;
   readonly host?: string;
   /** Timeout in ms to wait for the URL line. Default 30s. */
   readonly urlTimeoutMs?: number;
-  /** Optional extra args appended to the spawn. */
-  readonly extraArgs?: ReadonlyArray<string>;
 }
 
 export interface RunningTunnel {
-  readonly kind: 'cloudflared' | 'ngrok';
+  readonly kind: TunnelKind;
   readonly url: string;
   readonly pid: number;
   readonly stop: () => Promise<void>;
 }
 
-const CLOUDFLARED_URL_RE = /https:\/\/[A-Za-z0-9.-]+\.trycloudflare\.com/;
-const NGROK_URL_RE = /https:\/\/[A-Za-z0-9.-]+\.ngrok[a-z.-]*\.app/;
-
-export async function isTunnelCliAvailable(kind: 'cloudflared' | 'ngrok'): Promise<boolean> {
-  return new Promise((resolve) => {
-    const child = spawn(kind, ['--version'], { stdio: 'ignore' });
-    child.once('error', () => resolve(false));
-    child.once('exit', (code) => resolve(code === 0));
-  });
+/** Whether the named tunnel CLI is installed and runnable (`<cmd> --version` exits 0). */
+export function isTunnelCliAvailable(kind: TunnelKind): Promise<boolean> {
+  const provider = webhookTunnelProviders[kind];
+  return provider.isAvailable ? provider.isAvailable() : Promise.resolve(false);
 }
 
 /**
- * Spawn a cloudflared/ngrok quick tunnel and resolve once we've parsed
- * the public URL out of its output. The returned `stop` kills the
- * child cleanly; not awaiting it leaks the process, so the tools layer
- * persists the PID and offers `webhook_tunnel_stop`.
+ * Open a cloudflared/ngrok quick tunnel via the shared CLI-tunnel helper and
+ * resolve once we've parsed the public URL out of its output. Mirrors the
+ * registered `TunnelProviderDef.open()` for the default-timeout path, honoring
+ * a per-call `urlTimeoutMs` override the contract's `open(opts)` can't carry.
+ * The returned `stop` kills the child cleanly; not awaiting it leaks the
+ * process, so the tools layer persists the PID and offers `webhook_tunnel_stop`.
  */
 export async function startTunnel(opts: TunnelStartOptions): Promise<RunningTunnel> {
   const host = opts.host ?? '127.0.0.1';
-  const target = `http://${host}:${opts.port}`;
-  const args = opts.kind === 'cloudflared'
-    ? ['tunnel', '--no-autoupdate', '--url', target, ...(opts.extraArgs ?? [])]
-    : ['http', `${opts.port}`, '--log=stdout', ...(opts.extraArgs ?? [])];
-  const timeoutMs = opts.urlTimeoutMs ?? 30_000;
-
-  let child: ChildProcess;
-  try {
-    child = spawn(opts.kind, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-  } catch (err) {
-    throw new Error(
-      `failed to spawn ${opts.kind} — is it installed? (${err instanceof Error ? err.message : String(err)})`,
-    );
-  }
-
-  const urlRe = opts.kind === 'cloudflared' ? CLOUDFLARED_URL_RE : NGROK_URL_RE;
-
-  const urlPromise = new Promise<string>((resolve, reject) => {
-    let settled = false;
-    const onChunk = (buf: Buffer): void => {
-      const match = urlRe.exec(buf.toString('utf8'));
-      if (match && !settled) {
-        settled = true;
-        resolve(match[0]);
-      }
-    };
-    child.stdout?.on('data', onChunk);
-    child.stderr?.on('data', onChunk);
-    child.once('error', (err) => {
-      if (!settled) {
-        settled = true;
-        reject(err);
-      }
-    });
-    child.once('exit', (code) => {
-      if (!settled) {
-        settled = true;
-        reject(new Error(`${opts.kind} exited before printing a URL (code=${code ?? 'null'})`));
-      }
-    });
-    setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        reject(new Error(`timed out waiting ${timeoutMs}ms for ${opts.kind} URL`));
-      }
-    }, timeoutMs).unref?.();
-  });
-
-  let url: string;
-  try {
-    url = await urlPromise;
-  } catch (err) {
-    try {
-      child.kill('SIGTERM');
-    } catch { /* ignore */ }
-    throw err;
-  }
-
-  const pid = child.pid ?? -1;
-
+  const handle = await openCliTunnel(opts.kind, opts.port, host, opts.urlTimeoutMs);
   return {
     kind: opts.kind,
-    url,
-    pid,
-    stop: async () => {
-      if (!child.killed && child.exitCode === null) {
-        child.kill('SIGTERM');
-        try {
-          await Promise.race([
-            once(child, 'exit'),
-            new Promise<void>((r) => setTimeout(r, 2000).unref?.()),
-          ]);
-        } catch { /* ignore */ }
-        if (!child.killed && child.exitCode === null) {
-          try { child.kill('SIGKILL'); } catch { /* ignore */ }
-        }
-      }
-    },
+    url: handle.url,
+    pid: handle.pid,
+    stop: () => handle.close(),
   };
 }

@@ -380,13 +380,22 @@ Full report incl. the medium/low backlog and refuted findings:
 (`packages/sdk/src/session-like.ts:245-249`). The cli handlers now import
 `ClientSession as Session` from `@moxxy/sdk` and read the capabilities through optional
 chaining (`plugin-cli/src/.../picker-handlers.ts`, `use-mcp-status.ts`, `run-slash.ts`).
+**Desktop-host seam casts retired (2026-06-10):** the two `RemoteSession` casts this item
+cross-referenced are gone. `ipc/shared.ts`'s `mustSession` no longer does
+`mustRemote(...) as unknown as SessionLike` — `RemoteSession implements ClientSession`
+which `extends SessionLike`, so it's assignable directly. `ipc/session.ts`'s
+`runCommand` no longer casts the session into the command handler — `CommandContext.session`
+is `unknown`, so the `RemoteSession` passes through with no cast. Both verified by
+`pnpm -w typecheck`.
+
 **Remaining (deferred — the genuine coupling):** `ClientSession` still exposes the full
-concrete registry surface (providers/modes/tools/commands/…), so the handlers would not
-yet compile against a bare `RemoteSession`. Retype the handler params to the minimal
-`SessionLike` slice they actually use and verify graceful degradation when a
-`RemoteSession` leaves a capability undefined. Do this alongside the runner/thin-client
-work, not standalone. (The `RemoteSession` casts at `desktop-host/src/ipc/session.ts:105`
-and `ipc/shared.ts:164` are the same seam — see P3.)
+concrete registry surface (providers/modes/tools/commands/…), so the cli handlers would not
+yet compile against a bare `RemoteSession`. Retyping the handler params to the minimal
+`SessionLike` slice they actually use (and verifying graceful degradation when a
+`RemoteSession` leaves a capability undefined) is the real remainder — it depends on the
+unbuilt runner/thin-client split (`SessionLike`/`RemoteSession` becoming the channel-facing
+contract). Do it alongside that work, not standalone; it is **not** a safe mechanical
+change today.
 
 ### 2. Desktop persists every conversation twice — pick one source of truth — ⚠️ PARTIALLY DONE
 **Found 2026-06-08 (the "NDJSON-vs-replay redundancy" follow-up).** Every committed event
@@ -435,22 +444,37 @@ but is a WebSocket surface, not request/response, so it sits beside this base ra
 under it. **Action:** an optional `HttpChannelServer` base in the SDK so they differ only
 in routing. (Larger refactor, lower payoff than the helpers already hoisted.)
 
-### 4. Unify tunnel subprocess management + make webhooks use `TunnelProviderDef` — OPEN
-**Cross-cut 1.5.** Three near-identical spawn-CLI-and-parse-URL impls
-(`plugin-channel-web/src/cloudflared.ts:19-70`, `…/ngrok.ts:19-70`,
-`plugin-webhooks/src/tunnel.ts:50-98`); webhooks ignores the existing `TunnelProviderDef`
-contract entirely and rolls its own `startTunnel()`. **Action:** hoist a
-`spawnCliTunnel({cmd,args,urlRegex})` helper; make webhooks consume registered
-`TunnelProviderDef`s.
+### 4. Unify tunnel subprocess management + make webhooks use `TunnelProviderDef` — ✅ FIXED (2026-06-10)
+**Cross-cut 1.5.** Was three near-identical spawn-CLI-and-parse-URL impls
+(`plugin-channel-web/src/cloudflared.ts`, `…/ngrok.ts`, `plugin-webhooks/src/tunnel.ts`),
+the last rolling its own `startTunnel()` outside the `TunnelProviderDef` contract.
+**Fix:** hoisted a single `spawnCliTunnel({cmd,args,urlRegex,timeoutMs?,name?})` +
+`isCliTunnelAvailable(cmd)` into `@moxxy/sdk` (`sdk/src/tunnel.ts`, where
+`TunnelProviderDef` lives) — it owns the spawn → parse-URL → resolve/reject lifecycle
+**and** the no-orphan child cleanup (the per-process `exit`/`SIGINT`/`SIGTERM` kill hook,
+moved out of channel-web's deleted `child-cleanup.ts`). cloudflared/ngrok are now thin
+configs over it. webhooks now expresses cloudflared+ngrok as registered
+`TunnelProviderDef`s (`webhookTunnelProviders`) over the shared helper; `startTunnel` and
+`isTunnelCliAvailable` delegate to the provider contract (`startTunnel` keeps the
+per-call `urlTimeoutMs` override the contract's `open(opts)` can't carry). Same URLs
+parsed, same teardown/`pid`/`stop` surface. +7 SDK tunnel tests (resolve / stderr-parse /
+exit / spawn-error / timeout-kill / availability), +3 webhooks tunnel tests; existing
+cloudflared/ngrok provider tests unchanged and green.
 
-### 5. Finish MoxxyError adoption / HTTP-status classification — OPEN (partial)
+### 5. Finish MoxxyError adoption / HTTP-status classification — ✅ FIXED (2026-06-10)
 **Cross-cut 1.7, 1.13, 2.6.** `classifyHttpStatus` exists (`sdk/src/errors.ts:255`) and is
-applied across oauth token-exchange, device-flow, and the stt/provider packages. Remaining
-bare `throw new Error` worth migrating (small, high-signal — the bulk of the repo's other
-raw throws are internal registry/broker invariants that should stay plain):
-- oauth input/usage validation — `plugin-oauth/src/tools.ts:114,146`.
-- vault config-resolution throws (user-facing) — `plugin-vault/src/placeholder.ts:20`,
-  `index.ts:150`, `store.ts:164,186`.
+applied across oauth token-exchange, device-flow, and the stt/provider packages. The
+remaining high-signal user-facing throws are now migrated to `MoxxyError`:
+- oauth input validation (`plugin-oauth/src/tools.ts`): missing `deviceUrl`/`authUrl` now
+  throw `MoxxyError{code:'TOOL_ERROR'}`.
+- vault config-resolution: `placeholder.ts` missing `${vault:NAME}` →
+  `CONFIG_INVALID` (with a `/vault set` hint); `index.ts` `vault_get` not-found →
+  `TOOL_ERROR`; `store.ts` unsupported vault-file version/kdf → `VAULT_CORRUPT`.
+- Left as plain `Error` per the journal's own guidance: `store.ts`'s `'vault not open'`
+  internal invariants (programming errors, not user-facing) and the mcp/browser/registry
+  internal throws (B6/B7 below).
+- Tests assert the code/shape: placeholder `CONFIG_INVALID`+context, store `VAULT_CORRUPT`,
+  oauth_authorize `TOOL_ERROR` for both missing-URL branches.
 - ~~desktop self-update **security** failures (signature/hash/unsafe-path) throw raw Error —
   `desktop-host/src/app-update/stager.ts`; candidates for a typed error code.~~ **RETIRED
   2026-06-09 (won't-fix by design).** `app-update/*` is intentionally dependency-free (node
@@ -469,11 +493,26 @@ hooks in `.claude/settings.json` encode repo conventions and audit lessons; like
 this journal, they rot silently — when a convention, command, extension point, or
 invariant they reference changes, update the matching SKILL.md in the same PR.
 
-### 6. plugin-memory caches embeddings via a parallel `EmbeddingIndex` — OPEN
-**Cross-cut 1.11.** `plugin-memory/src/store.ts:6,88-96` still uses its own `EmbeddingIndex`
-cache instead of the SDK `CachedEmbeddingProvider`. **Deferred:** now that the atomic-write +
-recall-race bugs are fixed, this is pure dedup of caching logic over a subtle mutex-guarded
-recall path — low value, real risk. Fold in only if the recall path is touched anyway.
+### 6. plugin-memory caches embeddings via a parallel `EmbeddingIndex` — OPEN (won't-swap; re-assessed 2026-06-10)
+**Cross-cut 1.11.** `plugin-memory` uses its own `EmbeddingIndex`
+(`embedding-cache.ts`) instead of the SDK `CachedEmbeddingProvider`. **Re-assessed under
+the round-3 drawdown and confirmed NOT a safe mechanical swap** — the two caches solve
+overlapping but materially different problems:
+- **Keying + bounding.** `EmbeddingIndex` keys by memory **name** (+ body-hash) and
+  `prune(currentNames)` drops vectors for forgotten/renamed memories every recall, so the
+  on-disk cache stays bounded. `CachedEmbeddingProvider` is **content-hash keyed with no
+  prune** — swapping it in would grow the cache unboundedly on the recall hot path and lose
+  the forget/rename eviction.
+- **Persistence + invalidation.** `EmbeddingIndex` owns the `<dir>/.embeddings.json` format
+  with embedder-name + dim invalidation in `load()`. `CachedEmbeddingProvider` is in-memory
+  only (`serialize`/`hydrate`), so the store would have to re-implement the disk
+  read/write/version/dim-guard layer around it anyway — no net dedup.
+- **Concurrency.** The load→lookup→set→prune→flush cycle runs inside the store's write mutex
+  (`store/search.ts:recallVector`) to race-protect concurrent recalls and `forget()`'s
+  rebuild. A naive `CachedEmbeddingProvider.embed()` swap loses that explicit cycle.
+**Decision:** LEAVE as-is. Real risk (unbounded growth + lost prune/flush ordering) for low
+value (the dedup is partial at best). Revisit only if `EmbeddingIndex` is being reworked for
+another reason.
 
 ### 7. Channel→core prod dependency — OPEN
 `plugin-cli`/`plugin-telegram` keep real `@moxxy/core` prod imports (`savePreferences`,
@@ -483,19 +522,28 @@ To fully sever channel→core, hoist these provider-neutral helpers into `@moxxy
 (cross-cut 2.14). (`plugin-subagents`/`plugin-view` keep core as a **dev**Dep only — their
 `*.test.ts` import core; correct, leave them.)
 
-### 8. Small casts / hardcoded values — NEW, low
-- **Type the exec allowlist.** `plugin-security/src/broker.ts:343` reads
-  `(caps as unknown as { commands? }).commands` — a forward-compat field not on
-  `CapabilitySpec`. It gates the **exec allowlist**, so it's worth typing properly on
-  `CapabilitySpec` to retire the cast on a security path.
-- **Anthropic SDK casts.** `plugin-provider-anthropic/src/provider.ts:236,367` — a
-  hand-rolled `requestBody: Record<string, unknown>` cast to the SDK's `stream` params, and
-  a `countTokens` shim cast. Defeats compile-time checking on the request hot path;
-  inherited by the claude-code provider.
-- **Hardcoded model descriptors.** `plugin-provider-anthropic/src/provider.ts:51-55`
-  hardcodes the model list (incl. `claude-opus-4-7` at 800k context) and re-exports it to
-  `plugin-provider-claude-code/src/index.ts:11`, so the subscription provider inherits the
-  API-key provider's model set verbatim. Drift-prone; should be derived/config.
+### 8. Small casts / hardcoded values — ✅ FIXED (2026-06-10)
+- **Type the exec allowlist — DONE.** `CapabilitySpec.commands` is now declared
+  (`sdk/src/isolation.ts:40`), so `plugin-security/src/broker.ts` reads `caps.commands`
+  directly — the `(caps as unknown as { commands? })` cast on the security exec-allowlist
+  path is gone. (The journal's earlier "untyped on CapabilitySpec" note was stale once the
+  field landed.)
+- **Anthropic SDK casts — TIGHTENED.** `plugin-provider-anthropic/src/provider.ts`: the
+  `countTokens` shim no longer casts `this.client.messages` through `unknown` (the method
+  is fully typed on the SDK); `requestBody` is now typed `MessageStreamParams` and
+  `streamOnce` takes that type instead of `Record<string,unknown>` (dropping the blanket
+  `as unknown as Parameters<…>` double-cast). The residual casts are **narrow**, commented,
+  and unavoidable: our hand-rolled message/tool shapes carry `media_type: string`, which
+  the SDK narrows to a literal union — so `messages`/`tools`/`system` get a single
+  `as MessageStreamParams[...]` / `MessageCountTokensParams[...]` cast each, not a blanket
+  one. Inherited cleanly by the claude-code provider.
+- **Hardcoded model descriptors — KEPT, values corrected.** Deriving the catalog from the
+  Models API is a larger change (auth + caching) — deliberately still hardcoded
+  (`provider.ts`, re-exported to `plugin-provider-claude-code/src/index.ts`). But the
+  values were stale: opus-4-7 and sonnet-4-6 carry a **1M** context window (were 800k/200k)
+  and `maxOutputTokens` were a flat 8000 (now 128k opus / 64k sonnet+haiku); haiku-4-5 stays
+  200k. Verified against the current Anthropic catalog; a comment marks the hardcoding as
+  intentional + the deferral.
 
 ### 9. Desktop self-update "downloads but reverts" — ROOT-CAUSED + FIXED, pending on-build verify
 **Found + fixed 2026-06-09.** Root-caused from the on-disk state on a real failing machine
