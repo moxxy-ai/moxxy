@@ -742,6 +742,15 @@ graph) is intact; the two operate on different graphs and don't conflict.
   at the cursor; pointer math normalised into pre-zoom canvas coords). **Debt note:** the
   settings error banner lost its only manual retry when the Refresh button went — if a
   transient `settings.read` failure proves common, add a retry affordance to the error row.
+- **Builder UX pass 3 (2026-06-10):** canvas drag-to-pan (background drag scrolls the
+  surface; a pan that moved suppresses the follow-up deselect click — node drag / connection
+  drag / edge-✕ are untouched since they stopPropagation), builder-header controls (Back /
+  validity badge / Save) aligned to the input row via flex-end + a shared `CONTROL_H`
+  matching TextInput, and plugin-workflows `formatIssues` now emits step-anchored plain
+  English (`step "greet": prompt must not be empty`) instead of zod-speak — which also makes
+  raw schema errors bucket onto the offending node via `mapErrorsToNodes` (they previously
+  only hit the generic banner, e.g. `steps.0.prompt: String must contain at least 1
+  character(s)`).
 
 ### 12. CLI `service install` units break under an Electron-as-node CLI — OPEN
 **Introduced/observed 2026-06-10** while root-causing the desktop Dock-ghost runner (fixed

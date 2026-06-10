@@ -102,6 +102,14 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
   /** Scroll offsets to apply right after a zoom commit (keeps the anchor
    *  point — cursor or viewport centre — visually fixed while scaling). */
   const pendingScroll = useRef<{ left: number; top: number } | null>(null);
+  /** Background drag-to-pan: pointer + scroll origin, and whether it actually
+   *  moved (a still pan is a click and must keep deselecting). */
+  const pan = useRef<{ x: number; y: number; left: number; top: number; moved: boolean } | null>(
+    null,
+  );
+  const [panning, setPanning] = useState(false);
+  /** Set on pan end so the synthetic click that follows doesn't deselect. */
+  const suppressClick = useRef(false);
 
   const byId = useMemo(() => new Map(state.nodes.map((n) => [n.id, n])), [state.nodes]);
 
@@ -203,6 +211,24 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
     [surfacePoint],
   );
 
+  // --- background pan (canvas drag) ---
+  // Node bodies and handles stopPropagation on pointerdown, so anything that
+  // reaches the surface here is empty canvas (or an edge) → start panning.
+  const onSurfacePointerDown = useCallback((e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    const el = surfaceRef.current;
+    if (!el) return;
+    (e.target as Element).setPointerCapture?.(e.pointerId);
+    pan.current = {
+      x: e.clientX,
+      y: e.clientY,
+      left: el.scrollLeft,
+      top: el.scrollTop,
+      moved: false,
+    };
+    setPanning(true);
+  }, []);
+
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
       const p = surfacePoint(e);
@@ -215,6 +241,16 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
       if (connect.current) {
         setCursor(p);
         setHoverTarget(nodeAt(state.nodes, p, connect.current.nodeId));
+        return;
+      }
+      if (pan.current) {
+        const el = surfaceRef.current;
+        if (!el) return;
+        const dx = e.clientX - pan.current.x;
+        const dy = e.clientY - pan.current.y;
+        if (Math.abs(dx) + Math.abs(dy) > 3) pan.current.moved = true;
+        el.scrollLeft = pan.current.left - dx;
+        el.scrollTop = pan.current.top - dy;
       }
     },
     [dispatch, state.nodes, surfacePoint],
@@ -278,7 +314,17 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
         setDragging(null);
         return;
       }
-      if (connect.current) finishConnection(surfacePoint(e));
+      if (connect.current) {
+        finishConnection(surfacePoint(e));
+        return;
+      }
+      if (pan.current) {
+        // A pan that moved must not read as a background click (deselect) —
+        // swallow the click that follows this pointerup.
+        suppressClick.current = pan.current.moved;
+        pan.current = null;
+        setPanning(false);
+      }
     },
     [finishConnection, surfacePoint],
   );
@@ -291,6 +337,10 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
       setCursor(null);
       setHoverTarget(null);
     }
+    if (pan.current) {
+      pan.current = null;
+      setPanning(false);
+    }
   }, []);
 
   const width = Math.max(900, ...state.nodes.map((n) => n.x + NODE_W + 80));
@@ -301,16 +351,24 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
     <div
       ref={surfaceRef}
       data-testid="workflow-canvas"
+      onPointerDown={onSurfacePointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerLeave={onPointerLeave}
-      onClick={() => dispatch({ type: 'select', id: null })}
+      onClick={() => {
+        if (suppressClick.current) {
+          suppressClick.current = false;
+          return;
+        }
+        dispatch({ type: 'select', id: null });
+      }}
       style={{
         position: 'relative',
         flex: 1,
         minHeight: 0,
         minWidth: 0,
         overflow: 'auto',
+        cursor: panning ? 'grabbing' : 'grab',
         background:
           'var(--color-bg) radial-gradient(circle, var(--color-card-border) 1px, transparent 1px)',
         backgroundSize: '24px 24px',

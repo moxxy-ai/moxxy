@@ -46,7 +46,10 @@ export function WorkflowBuilder({ name, onClose, onSaved }: Props): JSX.Element 
       <header
         style={{
           display: 'flex',
-          alignItems: 'center',
+          // Bottom-align: the two labelled fields are taller than the buttons
+          // (label row on top), so centring left Back/valid/Save floating
+          // above the input line — anchor everything to the input row instead.
+          alignItems: 'flex-end',
           gap: '0.75rem',
           padding: '0.75rem 1rem',
           borderBottom: '1px solid var(--color-border)',
@@ -130,7 +133,11 @@ function ValidityBadge({ valid, validating }: { valid: boolean | null; validatin
         color,
         border: `1px solid ${color}`,
         borderRadius: 'var(--radius-block)',
-        padding: '0.2rem 0.5rem',
+        padding: '0 0.5rem',
+        height: CONTROL_H,
+        display: 'inline-flex',
+        alignItems: 'center',
+        boxSizing: 'border-box',
       }}
     >
       {label}
@@ -143,12 +150,21 @@ const metaLabel: React.CSSProperties = {
   fontWeight: 700,
   textTransform: 'uppercase',
   color: 'var(--color-text-dim)',
+  marginBottom: 2,
 };
+
+/** TextInput renders ~37px tall (9px padding + 14px text + border); every
+ *  header control matches it so the flex-end row reads as one line. */
+const CONTROL_H = 37;
 
 const primaryBtn: React.CSSProperties = {
   fontSize: '0.8rem',
   fontWeight: 600,
-  padding: '0.4rem 1rem',
+  padding: '0 1rem',
+  height: CONTROL_H,
+  display: 'inline-flex',
+  alignItems: 'center',
+  boxSizing: 'border-box',
   color: 'var(--color-bg)',
   background: 'var(--color-primary)',
   borderRadius: 'var(--radius-block)',
@@ -159,7 +175,11 @@ const ghostBtn: React.CSSProperties = {
   color: 'var(--color-text-muted)',
   border: '1px solid var(--color-border)',
   borderRadius: 'var(--radius-block)',
-  padding: '0.3rem 0.7rem',
+  padding: '0 0.7rem',
+  height: CONTROL_H,
+  display: 'inline-flex',
+  alignItems: 'center',
+  boxSizing: 'border-box',
 };
 
 const alertBox: React.CSSProperties = {

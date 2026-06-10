@@ -94,6 +94,29 @@ steps:
     expect(r.errors.join('\n')).toMatch(/cycle/);
   });
 
+  it('formats schema issues as friendly, step-anchored lines (no zod-speak)', () => {
+    const r = validateWorkflow({
+      name: 'fmt',
+      description: 'x',
+      steps: [{ id: 'greet', prompt: '' }],
+    });
+    expect(r.ok).toBe(false);
+    // `step "<id>"` anchors the line to the canvas node; the message reads
+    // as English, not 'String must contain at least 1 character(s)'.
+    expect(r.errors.join('\n')).toMatch(/step "greet": prompt must not be empty/);
+    expect(r.errors.join('\n')).not.toMatch(/String must contain/);
+  });
+
+  it('falls back to the step number when the failing step has no id', () => {
+    const r = validateWorkflow({
+      name: 'fmt2',
+      description: 'x',
+      steps: [{ prompt: 'hello' }],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join('\n')).toMatch(/step 1: id is required/);
+  });
+
   it('rejects duplicate step ids', () => {
     const r = validateWorkflow({
       name: 'dup',

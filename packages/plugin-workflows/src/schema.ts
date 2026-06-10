@@ -454,21 +454,71 @@ function findCycle(steps: ReadonlyArray<{ id: string; needs: ReadonlyArray<strin
 export interface WorkflowParseResult {
   readonly ok: boolean;
   readonly workflow?: Workflow;
-  /** One readable line per issue, e.g. `steps: step "a" needs unknown step "x"`. */
+  /** One readable line per issue, e.g. `step "a": prompt must not be empty`. */
   readonly errors: ReadonlyArray<string>;
 }
 
-function formatIssues(error: z.ZodError): string[] {
+/**
+ * Render one zod issue as a human sentence instead of zod's library-speak
+ * ("String must contain at least 1 character(s)"). These lines are read by
+ * workflow authors in the builder banner/inspector and by agents fixing a
+ * draft, so plain English wins over schema jargon.
+ */
+function humanizeIssue(iss: z.ZodIssue): string {
+  switch (iss.code) {
+    case 'too_small': {
+      const min = Number(iss.minimum);
+      if (iss.type === 'string') return min === 1 ? 'must not be empty' : `must be at least ${min} characters`;
+      if (iss.type === 'array') return min === 1 ? 'needs at least one entry' : `needs at least ${min} entries`;
+      return `must be at least ${min}`;
+    }
+    case 'too_big': {
+      const max = Number(iss.maximum);
+      if (iss.type === 'string') return `must be at most ${max} characters`;
+      if (iss.type === 'array') return `can have at most ${max} entries`;
+      return `must be at most ${max}`;
+    }
+    case 'invalid_type':
+      return iss.received === 'undefined' ? 'is required' : `should be a ${iss.expected} (got ${iss.received})`;
+    case 'invalid_enum_value':
+      return `must be one of: ${iss.options.map((o) => `"${String(o)}"`).join(', ')}`;
+    default:
+      return iss.message;
+  }
+}
+
+function formatIssues(error: z.ZodError, raw: unknown): string[] {
+  const steps: unknown[] =
+    raw !== null && typeof raw === 'object' && Array.isArray((raw as { steps?: unknown }).steps)
+      ? ((raw as { steps: unknown[] }).steps)
+      : [];
   return error.issues.map((iss) => {
-    const path = iss.path.join('.') || '(root)';
-    return `${path}: ${iss.message}`;
+    // Refinement messages (superRefine/regex `message:`) already speak human
+    // and name their step — pass them through untouched.
+    if (iss.code === 'custom') return iss.message;
+    const msg = humanizeIssue(iss);
+    const [head, idx, ...rest] = iss.path;
+    if (head === 'steps' && typeof idx === 'number') {
+      // Anchor the line to the step's id (the `step "<id>"` shape is what the
+      // builder uses to attach the error to the right node on the canvas).
+      const step = steps[idx];
+      const id =
+        step !== null && typeof step === 'object' && typeof (step as { id?: unknown }).id === 'string'
+          ? ((step as { id: string }).id)
+          : '';
+      const where = id ? `step "${id}"` : `step ${idx + 1}`;
+      const field = rest.join('.');
+      return field ? `${where}: ${field} ${msg}` : `${where} ${msg}`;
+    }
+    const path = iss.path.join('.');
+    return path ? `${path} ${msg}` : `workflow ${msg}`;
   });
 }
 
 /** Validate an already-parsed object against the workflow schema. */
 export function validateWorkflow(raw: unknown): WorkflowParseResult {
   const parsed = workflowSchema.safeParse(raw);
-  if (!parsed.success) return { ok: false, errors: formatIssues(parsed.error) };
+  if (!parsed.success) return { ok: false, errors: formatIssues(parsed.error, raw) };
   return { ok: true, workflow: parsed.data as Workflow, errors: [] };
 }
 
