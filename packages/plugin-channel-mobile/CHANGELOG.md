@@ -1,5 +1,12 @@
 # @moxxy/plugin-channel-mobile
 
+## 0.1.5
+
+### Patch Changes
+
+- @moxxy/ipc-server-ws@0.1.5
+- @moxxy/plugin-channel-web@0.0.13
+
 ## 0.1.4
 
 ### Patch Changes

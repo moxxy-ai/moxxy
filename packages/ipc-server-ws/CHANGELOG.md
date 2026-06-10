@@ -1,5 +1,12 @@
 # @moxxy/ipc-server-ws
 
+## 0.1.5
+
+### Patch Changes
+
+- Updated dependencies [4c594d8]
+  - @moxxy/runner@0.2.0
+
 ## 0.1.4
 
 ### Patch Changes
