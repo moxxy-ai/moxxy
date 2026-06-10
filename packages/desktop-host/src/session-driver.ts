@@ -175,10 +175,16 @@ export class SessionDriver {
       try {
         const opts: {
           signal: AbortSignal;
+          turnId: string;
           model?: string;
           attachments?: ReadonlyArray<UserPromptAttachment>;
         } = {
           signal: controller.signal,
+          // Run the turn under the id we just returned to the renderer
+          // (protocol v6): its per-turn event filters (skill-generation
+          // preview, turn hiding) only match when the runner's events carry
+          // THIS id, not a server-minted one.
+          turnId: id,
         };
         if (model) opts.model = model;
         if (attachments && attachments.length > 0) {

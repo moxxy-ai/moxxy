@@ -43,6 +43,7 @@ import {
   emptyLocalUiState,
   type MobileState,
 } from '../protocol';
+import { refreshConnectionStore } from '../connectionRefresh';
 import { normalizeGatewayUrl } from '../pairingUrl';
 import { usePairing, type PairingState } from './usePairing';
 import { useAutoApprove } from './useAutoApprove';
@@ -84,7 +85,20 @@ function useSessionInfo(socket: GatewaySocketState, workspaceId: string | null, 
   return { info, refresh };
 }
 
+/** `ConnectionBridge` primes the connection store only once per client mount
+ *  (and only remounts per `generation`, not per reconnect) — re-prime on every
+ *  successful (re)connect so a failed first dial or a runner restart (new
+ *  workspace id) can't leave the app deaf on a stale/null workspace. */
+function useConnectionRefresh(socket: GatewaySocketState) {
+  const { ready } = socket;
+  useEffect(() => {
+    if (!ready) return;
+    void refreshConnectionStore(api());
+  }, [ready, socket.refreshTick]);
+}
+
 function useGatewayStoreValue(pairing: PairingState, socket: GatewaySocketState) {
+  useConnectionRefresh(socket);
   const workspaceId = useActiveWorkspaceId();
   const chatHandle = useChat(workspaceId);
   const { info, refresh: refreshInfo } = useSessionInfo(socket, workspaceId, chatHandle.sending);

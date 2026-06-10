@@ -393,15 +393,59 @@ describe('WorkflowsPanel — canvas drag-to-connect', () => {
     expect(await screen.findByTestId('wf-edge-needs:prompt->prompt_2')).toBeInTheDocument();
   });
 
-  it('pointerup on empty canvas cancels — no edge, no stuck temp line', async () => {
+  it('pointerup on empty canvas opens the insert menu; Escape cancels the pending edge', async () => {
     await twoNodes();
     const canvas = screen.getByTestId('workflow-canvas');
     firePointer(screen.getByTestId('wf-handle-prompt-needs-right'), 'pointerDown', 240, 84, 2);
     firePointer(canvas, 'pointerMove', 700, 500, 2);
     expect(screen.getByTestId('temp-connection')).toBeInTheDocument(); // line is live mid-drag
     firePointer(canvas, 'pointerUp', 700, 500, 2);
+    // Released on empty canvas → the insert menu offers to create a node there
+    // (the pending line stays as a preview).
+    expect(await screen.findByTestId('insert-node-menu')).toBeInTheDocument();
+    expect(screen.getByTestId('temp-connection')).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('insert-node-menu')).not.toBeInTheDocument();
     expect(screen.queryByTestId('temp-connection')).not.toBeInTheDocument(); // cleared
     expect(screen.queryByTestId('wf-edge-needs:prompt->prompt_2')).not.toBeInTheDocument();
+  });
+
+  it('picking a kind from the insert menu creates the node at the drop point, wired to the edge', async () => {
+    await openWith();
+    fireEvent.click(screen.getByTestId('palette-add-prompt')); // id "prompt" @ (40,40)
+    await screen.findByTestId('wf-node-prompt');
+    dragConnect('wf-handle-prompt-needs-right', 240, 84, 500, 300); // empty spot
+    const menu = await screen.findByTestId('insert-node-menu');
+    fireEvent.click(within(menu).getByTestId('insert-add-skill'));
+    // The new node exists, the pending `needs` edge landed on it, menu closed.
+    expect(await screen.findByTestId('wf-node-skill')).toBeInTheDocument();
+    expect(await screen.findByTestId('wf-edge-needs:prompt->skill')).toBeInTheDocument();
+    expect(screen.queryByTestId('insert-node-menu')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('temp-connection')).not.toBeInTheDocument();
+  });
+
+  it("inserting from a condition's 'then' handle wires the branch to the new node", async () => {
+    await openWith();
+    fireEvent.click(screen.getByTestId('palette-add-condition')); // id "condition" @ (40,40)
+    await screen.findByTestId('wf-node-condition');
+    dragConnect('wf-handle-condition-then-right', 240, 70, 500, 300);
+    const menu = await screen.findByTestId('insert-node-menu');
+    fireEvent.click(within(menu).getByTestId('insert-add-prompt'));
+    expect(await screen.findByTestId('wf-node-prompt')).toBeInTheDocument();
+    expect(await screen.findByTestId('wf-edge-then:condition->prompt')).toBeInTheDocument();
+  });
+
+  it('clicking away on the canvas dismisses the insert menu without inserting', async () => {
+    await openWith();
+    fireEvent.click(screen.getByTestId('palette-add-prompt'));
+    await screen.findByTestId('wf-node-prompt');
+    dragConnect('wf-handle-prompt-needs-right', 240, 84, 500, 300);
+    await screen.findByTestId('insert-node-menu');
+    firePointer(screen.getByTestId('workflow-canvas'), 'pointerDown', 700, 500, 3);
+    expect(screen.queryByTestId('insert-node-menu')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('temp-connection')).not.toBeInTheDocument();
+    // Only the original node remains.
+    expect(screen.queryByTestId('wf-node-prompt_2')).not.toBeInTheDocument();
   });
 
   it('clicking an edge ✕ dispatches disconnect (the edge disappears)', async () => {
@@ -455,5 +499,38 @@ describe('WorkflowsPanel — canvas drag-to-connect', () => {
     dragConnect('wf-handle-condition-then-right', 240, 70, 460, 320);
     // setBranchTargets(condition, 'then', ['prompt']) derives a then edge.
     expect(await screen.findByTestId('wf-edge-then:condition->prompt')).toBeInTheDocument();
+  });
+
+  it('Delete removes the selected node and its edges (same op as the inspector button)', async () => {
+    await twoNodes();
+    dragConnect('wf-handle-prompt-needs-right', 240, 84, 460, 320); // wire A→B
+    await screen.findByTestId('wf-edge-needs:prompt->prompt_2');
+    // Select A by pressing down on its card body.
+    firePointer(screen.getByTestId('wf-node-prompt'), 'pointerDown', 120, 80);
+    firePointer(screen.getByTestId('workflow-canvas'), 'pointerUp', 120, 80);
+    fireEvent.keyDown(window, { key: 'Delete' });
+    await waitFor(() => expect(screen.queryByTestId('wf-node-prompt')).not.toBeInTheDocument());
+    expect(screen.queryByTestId('wf-edge-needs:prompt->prompt_2')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wf-node-prompt_2')).toBeInTheDocument(); // the other node survives
+  });
+
+  it('Backspace removes the selected node', async () => {
+    await openWith();
+    fireEvent.click(screen.getByTestId('palette-add-prompt')); // add-step auto-selects
+    await screen.findByTestId('wf-node-prompt');
+    fireEvent.keyDown(window, { key: 'Backspace' });
+    await waitFor(() => expect(screen.queryByTestId('wf-node-prompt')).not.toBeInTheDocument());
+  });
+
+  it('Delete/Backspace does NOT delete while typing in an inspector field', async () => {
+    await openWith();
+    fireEvent.click(screen.getByTestId('palette-add-prompt'));
+    await screen.findByTestId('wf-node-prompt');
+    // The node auto-selects → the inspector shows; key events from its fields
+    // are text editing, not graph commands.
+    const action = await screen.findByTestId('field-action');
+    fireEvent.keyDown(action, { key: 'Backspace' });
+    fireEvent.keyDown(action, { key: 'Delete' });
+    expect(screen.getByTestId('wf-node-prompt')).toBeInTheDocument();
   });
 });

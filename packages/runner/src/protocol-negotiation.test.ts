@@ -117,7 +117,7 @@ describe('tolerant protocol negotiation — server handshake', () => {
   it('the compatibility floor is at or below the current version', () => {
     // Sanity: a current client must always be accepted by a current server.
     expect(MIN_COMPATIBLE_PROTOCOL_VERSION).toBeLessThanOrEqual(RUNNER_PROTOCOL_VERSION);
-    // Every change through v5 has been additive — the floor is still 1.
+    // Every change through v6 has been additive — the floor is still 1.
     expect(MIN_COMPATIBLE_PROTOCOL_VERSION).toBe(1);
   });
 

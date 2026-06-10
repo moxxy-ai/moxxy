@@ -27,6 +27,7 @@ export {
   abortParamsSchema,
   setResolverParamsSchema,
   type AttachParams,
+  type AttachReplay,
   type AttachResult,
   type RunTurnParams,
   type RunTurnResult,
@@ -39,4 +40,5 @@ export {
   type EventNotification,
   type TurnCompleteNotification,
   type InfoChangedNotification,
+  type ReplayStartNotification,
 } from './protocol.js';

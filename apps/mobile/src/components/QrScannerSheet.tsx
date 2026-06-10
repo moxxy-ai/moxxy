@@ -10,7 +10,6 @@ interface QrScannerSheetProps {
   readonly permission: CameraPermissionState;
   readonly ui: PairingUiState;
   readonly onRequestPermission: () => void;
-  readonly onArmScanner: () => void;
   readonly onScanned: (raw: string) => void;
   readonly onCancel: () => void;
 }
@@ -22,7 +21,6 @@ export function QrScannerSheet({
   permission,
   ui,
   onRequestPermission,
-  onArmScanner,
   onScanned,
   onCancel,
 }: QrScannerSheetProps) {
@@ -53,16 +51,12 @@ export function QrScannerSheet({
                 <View className={`h-56 w-56 rounded-card border-2 ${armed ? 'border-primary' : 'border-white/80'}`} />
               </View>
               <View className="absolute bottom-4 left-4 right-4">
-                <Pressable
-                  className={`min-h-12 flex-row items-center justify-center gap-2 rounded-block ${armed || processing ? 'bg-primarySoft' : 'bg-primary'}`}
-                  disabled={armed || processing}
-                  onPress={onArmScanner}
-                >
-                  <MobileIcon name="camera" color={armed || processing ? '#db2777' : '#ffffff'} size={20} />
-                  <Text className={`text-[14px] font-black ${armed || processing ? 'text-primaryStrong' : 'text-white'}`}>
-                    {processing ? 'Pairing...' : armed ? 'Looking for QR...' : 'Scan QR code'}
+                <View className="min-h-12 flex-row items-center justify-center gap-2 rounded-block bg-primarySoft">
+                  <MobileIcon name="camera" color="#db2777" size={20} />
+                  <Text className="text-[14px] font-black text-primaryStrong">
+                    {processing ? 'Pairing...' : 'Looking for QR...'}
                   </Text>
-                </Pressable>
+                </View>
               </View>
             </View>
           ) : (

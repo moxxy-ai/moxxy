@@ -27,8 +27,18 @@ const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 const REDIRECT_ORIGINS =
   /^(https:\/\/desktop\.moxxy\.ai|http:\/\/(127\.0\.0\.1|localhost)):(51789|51790|51791|51792)$/;
 
+// signIn/signUpFallbackRedirectUrl pin the post-auth landing to the app's own
+// origin ('/' resolves against the serving origin above). Without an explicit
+// target, the OAuth code-exchange leg can lose the redirect_url and Clerk's
+// FAPI then falls back to the HOSTED Account Portal (accounts.<domain>) —
+// stranding the desktop window on "My account" instead of back in the app.
 const Tree = CLERK_KEY ? (
-  <ClerkProvider publishableKey={CLERK_KEY} allowedRedirectOrigins={[REDIRECT_ORIGINS]}>
+  <ClerkProvider
+    publishableKey={CLERK_KEY}
+    allowedRedirectOrigins={[REDIRECT_ORIGINS]}
+    signInFallbackRedirectUrl="/"
+    signUpFallbackRedirectUrl="/"
+  >
     <App />
   </ClerkProvider>
 ) : (

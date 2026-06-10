@@ -15,6 +15,14 @@ export class EventLog implements EventLogReader {
   private readonly listeners = new Set<EventListener>();
   private readonly clearListeners = new Set<() => void>();
   private readonly now: () => number;
+  /**
+   * Seq of the FIRST event this log holds. 0 for an authoring log; a mirror
+   * primed by a partial attach replay (runner protocol v6 `replay.start`)
+   * rebases to the first replayed seq so `ingest`'s contiguity gate lines up
+   * with the runner's stream instead of expecting history we never received.
+   * `seq === base + index` for every held event.
+   */
+  private base = 0;
 
   constructor(seed: ReadonlyArray<MoxxyEvent> = [], opts: { now?: () => number } = {}) {
     this.now = opts.now ?? Date.now;
@@ -25,13 +33,21 @@ export class EventLog implements EventLogReader {
     return this.events.length;
   }
 
-  at(seq: number): MoxxyEvent | undefined {
-    if (seq < 0 || seq >= this.events.length) return undefined;
-    return this.events[seq];
+  /** Seq of the first held event (see {@link rebase}). */
+  get baseSeq(): number {
+    return this.base;
   }
 
-  slice(from = 0, to: number = this.events.length): ReadonlyArray<MoxxyEvent> {
-    return this.events.slice(from, to);
+  at(seq: number): MoxxyEvent | undefined {
+    const index = seq - this.base;
+    if (index < 0 || index >= this.events.length) return undefined;
+    return this.events[index];
+  }
+
+  slice(from = 0, to: number = this.base + this.events.length): ReadonlyArray<MoxxyEvent> {
+    // Seq-addressed, like `at`. Events below the base were never held, so a
+    // `from` before it just clamps to everything we have.
+    return this.events.slice(Math.max(0, from - this.base), Math.max(0, to - this.base));
   }
 
   ofType<T extends MoxxyEventType>(type: T): ReadonlyArray<MoxxyEventOfType<T>> {
@@ -47,7 +63,7 @@ export class EventLog implements EventLogReader {
   }
 
   async append(partial: EmittedEvent): Promise<MoxxyEvent> {
-    const event = materializeEvent(partial, this.events.length, this.now);
+    const event = materializeEvent(partial, this.base + this.events.length, this.now);
     this.events.push(event);
     // Snapshot listeners so a subscribe/unsubscribe during dispatch (e.g.,
     // a runTurn finishing and unsubscribing while we're still mid-fanout)
@@ -79,13 +95,14 @@ export class EventLog implements EventLogReader {
    * Not for normal authoring; use {@link append} for that.
    */
   ingest(event: MoxxyEvent): void {
-    // Contiguous, ordered delivery over a single socket means seq === index.
-    // Accept ONLY the next-expected seq: this drops duplicates (overlap
-    // between attach-replay and the live stream, seq < length) AND refuses a
-    // gap (seq > length) rather than pushing it at the wrong index, which
-    // would permanently desync `seq` from the array index. A gap can't happen
-    // over the reliable in-order transport, so refusing one is fail-safe.
-    if (event.seq !== this.events.length) return;
+    // Contiguous, ordered delivery over a single socket means
+    // seq === base + index. Accept ONLY the next-expected seq: this drops
+    // duplicates (overlap between attach-replay and the live stream,
+    // seq < base + length) AND refuses a gap (seq > base + length) rather than
+    // pushing it at the wrong index, which would permanently desync `seq` from
+    // the array index. A gap can't happen over the reliable in-order
+    // transport, so refusing one is fail-safe.
+    if (event.seq !== this.base + this.events.length) return;
     this.events.push(event);
     const snapshot = [...this.listeners];
     for (const fn of snapshot) {
@@ -117,8 +134,28 @@ export class EventLog implements EventLogReader {
    * Safe to call only when no turn is in flight — callers should abort
    * their AbortController and await any pending runTurn() first.
    */
+  /**
+   * Start this (empty) log at `seq` instead of 0. A mirror primed by a
+   * PARTIAL attach replay (`replay: 'none'` / `{ tail }`) calls this with the
+   * runner's announced first seq so {@link ingest}'s contiguity gate accepts
+   * the stream. Only valid while empty — rebasing held events would detach
+   * their seqs from their indices.
+   */
+  rebase(seq: number): void {
+    if (this.events.length > 0) {
+      throw new Error(`EventLog.rebase(${seq}): log already holds ${this.events.length} events`);
+    }
+    if (!Number.isInteger(seq) || seq < 0) {
+      throw new Error(`EventLog.rebase(${seq}): seq must be a non-negative integer`);
+    }
+    this.base = seq;
+  }
+
   clear(): void {
     this.events.length = 0;
+    // A session reset restarts the authoritative stream at seq 0 — a rebased
+    // mirror must follow, or it would wait forever for seqs that never come.
+    this.base = 0;
     const snapshot = [...this.clearListeners];
     for (const fn of snapshot) {
       try {

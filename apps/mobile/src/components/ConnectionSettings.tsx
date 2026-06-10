@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Pressable, Switch, Text, TextInput, View } from 'react-native';
 import type { CameraPermissionState } from '../pairingUi';
 import { buildPairingUiState } from '../pairingUi';
@@ -26,6 +27,15 @@ interface ConnectionSettingsProps {
 }
 
 export function ConnectionSettings(props: ConnectionSettingsProps) {
+  // Draft URL stays local while typing — committing per keystroke would churn
+  // the WS client (the socket effect re-dials on every gatewayUrl change).
+  const [draftUrl, setDraftUrl] = useState(props.gatewayUrl);
+  useEffect(() => {
+    setDraftUrl(props.gatewayUrl);
+  }, [props.gatewayUrl]);
+  const commitDraftUrl = () => {
+    if (draftUrl !== props.gatewayUrl) props.onGatewayUrlChange(draftUrl);
+  };
   const canPair = props.code.length > 0 && !props.loading;
   const pairingUi = buildPairingUiState({
     token: props.token,
@@ -63,8 +73,10 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
         {props.manualPairingOpen || pairingUi.manualPairingVisible ? (
           <View className="gap-3">
             <TextInput
-              value={props.gatewayUrl}
-              onChangeText={props.onGatewayUrlChange}
+              value={draftUrl}
+              onChangeText={setDraftUrl}
+              onBlur={commitDraftUrl}
+              onSubmitEditing={commitDraftUrl}
               autoCapitalize="none"
               autoCorrect={false}
               inputMode="url"

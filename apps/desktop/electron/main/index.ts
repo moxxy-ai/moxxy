@@ -36,6 +36,8 @@ import {
   lockDownNavigation,
   isSafeExternalUrl,
   clerkFrontendApiHost,
+  clerkAccountPortalHost,
+  installAccountPortalRecovery,
   preferredCliEntry,
   ensureDesktopVaultKey,
   activateManagedNode,
@@ -297,6 +299,23 @@ async function createWindow(): Promise<void> {
   mainWindow.webContents.on('did-start-loading', () => {
     rendererReady = false;
   });
+
+  // Recovery net for the OAuth return leg: when Clerk's FAPI loses the
+  // redirect_url mid-flow it falls back to the hosted Account Portal
+  // (accounts.<domain>) — a host the lockdown's parent-domain wildcard
+  // legitimately allows for the FAPI round-trip — stranding the window on
+  // "My account" instead of back in the app. Detect that landing and load
+  // the app root again (the session cookie is already set, so the user
+  // arrives signed in). Recovery only; the allow-list above is unchanged.
+  const appRootUrl = isDev
+    ? process.env['ELECTRON_RENDERER_URL']
+    : loopback?.url('index.html');
+  if (appRootUrl) {
+    installAccountPortalRecovery(mainWindow, {
+      portalHost: clerkAccountPortalHost(CLERK_PUBLISHABLE_KEY),
+      appUrl: appRootUrl,
+    });
+  }
 
   if (isDev) {
     await mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']!);

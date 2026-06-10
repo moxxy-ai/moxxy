@@ -58,6 +58,12 @@ export interface ToolTranscriptItem {
   readonly name: string;
   readonly status: 'running' | 'ok' | 'error';
   readonly summary: string;
+  /** Pretty-printed tool input, capped — for the tap-to-expand diagnostics. */
+  readonly input?: string;
+  /** Pretty-printed tool output, capped (tool_result frames can be huge). */
+  readonly output?: string;
+  /** Error/denial message when the call failed. */
+  readonly errorText?: string;
 }
 
 export interface ErrorTranscriptItem {
@@ -260,23 +266,52 @@ function upsertTool(
   const id = toolCallId(event) || `tool-${index}`;
   const existing = tools.find((tool) => tool.id === id);
   const status = toolStatus(type, event);
+  const input = toolDetail(event.input) || existing?.input || '';
+  const output =
+    (type === 'tool_result' || type === 'tool_call_completed' ? toolDetail(event.output) : '') ||
+    existing?.output ||
+    '';
+  const errorText = toolErrorText(type, event) || existing?.errorText || '';
   const next: ToolTranscriptItem = {
     id,
     name: firstText(event.name, event.toolName, event.command, event.title) || existing?.name || 'Tool',
     status,
     summary: summarizeToolInput(event.input) || existing?.summary || firstText(event.command, event.path, event.title),
+    ...(input ? { input } : {}),
+    ...(output ? { output } : {}),
+    ...(errorText ? { errorText } : {}),
   };
   if (!existing) return [...tools, next];
-  return tools.map((tool) =>
-    tool.id === id
-      ? {
-          ...tool,
-          name: next.name || tool.name,
-          status,
-          summary: next.summary || tool.summary,
-        }
-      : tool,
-  );
+  return tools.map((tool) => (tool.id === id ? next : tool));
+}
+
+// tool_result frames can carry entire file reads — cap what the transcript
+// retains so the chat list never holds megabytes per tool row.
+const TOOL_DETAIL_MAX_CHARS = 16_384;
+
+function toolDetail(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  const text = typeof value === 'string' ? value : safeJson(value);
+  if (text.length <= TOOL_DETAIL_MAX_CHARS) return text;
+  return `${text.slice(0, TOOL_DETAIL_MAX_CHARS)}\n… truncated (${text.length} chars)`;
+}
+
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function toolErrorText(type: string, event: Record<string, unknown>): string {
+  if (type === 'tool_call_denied') return firstText(event.reason, event.message) || 'Tool call denied';
+  if (type !== 'tool_result' && type !== 'tool_call_completed') return '';
+  const error = event.error;
+  if (typeof error === 'string') return error;
+  if (!error || typeof error !== 'object') return '';
+  const payload = error as Record<string, unknown>;
+  return firstText(payload.message, payload.reason, payload.kind);
 }
 
 function toolStatus(type: string, event: Record<string, unknown>): ToolTranscriptItem['status'] {

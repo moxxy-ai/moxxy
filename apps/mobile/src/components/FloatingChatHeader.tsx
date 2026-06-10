@@ -7,7 +7,6 @@ interface FloatingChatHeaderProps {
   readonly pendingActions: number;
   readonly onToggleMenu: () => void;
   readonly onNewSession: () => void;
-  readonly onToggleActions: () => void;
 }
 
 export function FloatingChatHeader({
@@ -16,7 +15,6 @@ export function FloatingChatHeader({
   pendingActions,
   onToggleMenu,
   onNewSession,
-  onToggleActions,
 }: FloatingChatHeaderProps) {
   return (
     <View
@@ -83,14 +81,6 @@ export function FloatingChatHeader({
             onPress={onNewSession}
           >
             <MobileIcon name="edit" size={19} strokeWidth={2.3} color="#475569" />
-          </Pressable>
-          <Pressable
-            accessibilityLabel="More actions"
-            className="items-center justify-center rounded-block"
-            style={{ borderRadius: 9, height: 36, width: 36 }}
-            onPress={onToggleActions}
-          >
-            <MobileIcon name="more" size={20} strokeWidth={2.7} color="#475569" />
           </Pressable>
         </View>
     </View>

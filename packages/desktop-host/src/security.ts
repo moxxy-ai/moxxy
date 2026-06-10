@@ -176,6 +176,65 @@ export function clerkFrontendApiHost(publishableKey?: string | null): string | n
 }
 
 /**
+ * The hosted Account Portal host of a `pk_live_` Clerk instance —
+ * `accounts.<domain>` next to its `clerk.<domain>` Frontend API host. After
+ * an OAuth code exchange, Clerk's FAPI falls back to redirecting THERE when
+ * the flow carries no usable `redirect_url` — which strands the desktop
+ * window on a page that isn't the app. The main process watches for a
+ * top-frame landing on this host and recovers back to the app root (see
+ * {@link installAccountPortalRecovery}).
+ *
+ * null for missing/malformed keys and for test keys: a dev instance's
+ * portal lives on `<slug>.accounts.dev`, which the navigation lockdown
+ * never allows in the first place (only live keys get the parent-domain
+ * wildcard), so there is nothing to recover from.
+ */
+export function clerkAccountPortalHost(publishableKey?: string | null): string | null {
+  const host = clerkFrontendApiHost(publishableKey);
+  if (!host) return null;
+  if (host.endsWith('.clerk.accounts.dev') || host.endsWith('.clerk.com')) return null;
+  const parent = host.split('.').slice(1).join('.');
+  // Same registrable-parent guard as the CSP sources — never a bare TLD.
+  if (parent.split('.').length < 2) return null;
+  return `accounts.${parent}`;
+}
+
+/**
+ * Recovery net for the OAuth return leg: if the top frame lands on the Clerk
+ * hosted Account Portal instead of back in the app, immediately load the app
+ * root. The lockdown's parent-domain wildcard legitimately allows that host
+ * (it's on the FAPI round-trip path), so this does NOT widen the navigation
+ * allow-list — it only adds a way back when Clerk's fallback redirect picks
+ * the portal over the app. Loop-safe: it only fires for the portal host, and
+ * `appUrl` is on a different host, so the recovery load can't re-trigger it.
+ */
+export function installAccountPortalRecovery(
+  win: BrowserWindow,
+  opts: {
+    /** From {@link clerkAccountPortalHost}; null/undefined disables the net. */
+    readonly portalHost: string | null | undefined;
+    /** The app root the window was originally loaded from. */
+    readonly appUrl: string;
+  },
+): void {
+  const { portalHost, appUrl } = opts;
+  if (!portalHost) return;
+  const wc = win.webContents;
+  wc.on('did-navigate', (_event, url) => {
+    let hostname: string;
+    try {
+      hostname = new URL(url).hostname;
+    } catch {
+      return;
+    }
+    if (hostname !== portalHost || url === appUrl) return;
+    void Promise.resolve(wc.loadURL(appUrl)).catch(() => {
+      /* window may be tearing down — nothing to recover */
+    });
+  });
+}
+
+/**
  * CSP host-source tokens a Clerk instance needs beyond the static
  * `*.clerk.accounts.dev` / `*.clerk.com` entries: the exact prod Frontend
  * API host plus a wildcard on its parent domain (so the instance's own

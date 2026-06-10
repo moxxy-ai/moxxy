@@ -63,16 +63,32 @@ import type {
  * an actionable "update the CLI" message instead of a raw method-not-found.
  * (Additive — a v4 server simply lacks this one method.)
  *
- * Every change v1→v5 has been ADDITIVE, so MIN_COMPATIBLE stays at 1: today's
+ * v6: two additive changes.
+ *   - `runTurn` accepts an optional client-supplied `turnId`, echoed onto every
+ *     event of the turn. The desktop pre-mints a turn id per renderer request,
+ *     and its per-turn event filters (skill-generation preview, turn hiding)
+ *     only work when the runner's events actually carry that id. An older
+ *     server ignores the field (zod strips unknown keys) and mints its own id —
+ *     the reply still returns the AUTHORITATIVE id, so a v6 client on a v5
+ *     server degrades to the old behavior instead of breaking.
+ *   - `attach` accepts an optional `replay` param ('full' | 'none' |
+ *     { tail: N }, default 'full') and the server sends a `replay.start`
+ *     notification ({ fromSeq }) before the replay loop so the client can
+ *     rebase its mirror to the first replayed seq. Lets the desktop skip the
+ *     full-history replay (its renderer history comes from the NDJSON chat
+ *     log, not the mirror). An older server ignores the param and replays in
+ *     full from seq 0 without `replay.start` — still correct, just slower.
+ *
+ * Every change v1→v6 has been ADDITIVE, so MIN_COMPATIBLE stays at 1: today's
  * server can serve any client back to v1, and any client v1+ can attach. Bump
  * MIN_COMPATIBLE to N only when landing a breaking change at version N.
  */
-export const RUNNER_PROTOCOL_VERSION = 5;
+export const RUNNER_PROTOCOL_VERSION = 6;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
  * compatible with. The handshake rejects only clients BELOW this. Since every
- * change through v4 was purely additive, this is 1 — bump it (to the new
+ * change through v6 was purely additive, this is 1 — bump it (to the new
  * version) the moment a genuinely BREAKING protocol change lands, and never
  * before. See the versioning rule in the module doc above.
  */
@@ -156,6 +172,13 @@ export const RunnerNotification = {
    * mirror only accepts from an empty log.
    */
   SessionReset: 'session.reset',
+  /**
+   * Sent once, immediately before the attach-time replay loop (v6): the
+   * first seq this connection will replay/stream. The client rebases its
+   * (empty) mirror to `fromSeq` so a partial replay (`replay: 'none'` /
+   * `{ tail }`) ingests contiguously instead of dropping every event.
+   */
+  ReplayStart: 'replay.start',
 } as const;
 export type RunnerNotification = (typeof RunnerNotification)[keyof typeof RunnerNotification];
 
@@ -163,12 +186,26 @@ export type RunnerNotification = (typeof RunnerNotification)[keyof typeof Runner
 // Request params / results
 // ---------------------------------------------------------------------------
 
+/**
+ * How much history `attach` replays into the client's mirror (v6).
+ *   - 'full' (default): everything from seq 0 — the TUI / `moxxy attach` path.
+ *   - 'none': nothing — the desktop path, whose renderer history comes from
+ *     its own NDJSON chat log; only live events stream after attach.
+ *   - { tail: N }: the last N events — enough recent context for a mirror
+ *     without paying for the whole conversation.
+ * The server announces the chosen start seq via the `replay.start`
+ * notification so the client can rebase its mirror before ingesting.
+ */
+export type AttachReplay = 'full' | 'none' | { readonly tail: number };
+
 export interface AttachParams {
   readonly protocolVersion: number;
   /** Channel role attaching (e.g. 'tui', 'telegram') - informational/logging. */
   readonly role: string;
   /** Replay events from this seq on attach so a late client sees history. */
   readonly sinceSeq?: number;
+  /** Replay policy (v6). Older servers strip the key and replay in full. */
+  readonly replay?: AttachReplay;
 }
 export interface AttachResult {
   readonly sessionId: string;
@@ -182,6 +219,12 @@ export interface RunTurnParams {
   readonly systemPrompt?: string;
   readonly maxIterations?: number;
   readonly attachments?: ReadonlyArray<UserPromptAttachment>;
+  /**
+   * Client-supplied turn id (v6). When present the server runs the turn under
+   * THIS id (so the client's per-turn event filters match) instead of minting
+   * one; it must be unique — the server rejects an id already in flight.
+   */
+  readonly turnId?: string;
 }
 export interface RunTurnResult {
   readonly turnId: string;
@@ -310,6 +353,10 @@ export interface TurnCompleteNotification {
 export interface InfoChangedNotification {
   readonly info: SessionInfo;
 }
+export interface ReplayStartNotification {
+  /** First seq this connection replays/streams; the mirror rebases to it. */
+  readonly fromSeq: number;
+}
 
 // ---------------------------------------------------------------------------
 // Inbound validation (control plane). The runner validates client->server
@@ -331,6 +378,13 @@ export const attachParamsSchema = z.object({
   protocolVersion: z.number(),
   role: z.string(),
   sinceSeq: z.number().int().nonnegative().optional(),
+  replay: z
+    .union([
+      z.literal('full'),
+      z.literal('none'),
+      z.object({ tail: z.number().int().positive() }),
+    ])
+    .optional(),
 });
 
 export const runTurnParamsSchema = z.object({
@@ -339,6 +393,9 @@ export const runTurnParamsSchema = z.object({
   systemPrompt: z.string().optional(),
   maxIterations: z.number().int().positive().optional(),
   attachments: z.array(attachmentSchema).optional(),
+  // Bounded like the other id-bearing params so a hostile client can't stuff
+  // an arbitrary blob into every event of the turn.
+  turnId: z.string().min(1).max(120).optional(),
 });
 
 export const abortParamsSchema = z.object({ turnId: z.string() });

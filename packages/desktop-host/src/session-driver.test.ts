@@ -210,6 +210,14 @@ describe('SessionDriver approval-gate survival', () => {
     );
     const errs = remote.log.ofType('error');
     expect(errs).toHaveLength(0);
+    // The driver's pre-minted id must reach the runner (protocol v6): every
+    // event of the turn carries THE id runTurn returned to the renderer —
+    // that's what renderer-side per-turn filters (skill-generation preview,
+    // turn hiding) key on. Previously the runner minted its own id and the
+    // returned one matched nothing.
+    const turnEvents = remote.log.slice();
+    expect(turnEvents.length).toBeGreaterThan(0);
+    expect(turnEvents.every((e) => e.turnId === turnId)).toBe(true);
     stop();
     driver.dispose();
   });

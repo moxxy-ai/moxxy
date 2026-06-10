@@ -30,3 +30,19 @@ export function buildToolGroupUi(tools: ReadonlyArray<ToolTranscriptItem>): Tool
     pulse: hasRunning && !hasError,
   };
 }
+
+export interface ToolDiagnosticsSection {
+  readonly kind: 'input' | 'output' | 'error';
+  readonly text: string;
+}
+
+/** The sections a tapped tool row expands into (mirrors desktop's ToolRow:
+ *  input, then output, then the error message). Empty when the events carried
+ *  no detail — the row is then not expandable. */
+export function buildToolDiagnostics(tool: ToolTranscriptItem): ToolDiagnosticsSection[] {
+  const sections: ToolDiagnosticsSection[] = [];
+  if (tool.input) sections.push({ kind: 'input', text: tool.input });
+  if (tool.output) sections.push({ kind: 'output', text: tool.output });
+  if (tool.errorText) sections.push({ kind: 'error', text: tool.errorText });
+  return sections;
+}

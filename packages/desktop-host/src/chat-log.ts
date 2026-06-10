@@ -38,14 +38,16 @@ function fileFor(workspaceId: string): string {
  * resolved FILE PATH (not the workspace id) so tests pointing `MOXXY_CHATS_DIR`
  * at different tmp dirs never share a cache entry.
  *
- * Why idempotent: on every desktop restart the runner replays its FULL event
- * history to each attaching client (runner attach replays from seq 0), and the
- * renderer re-appends every replayed event here. Without dedup the NDJSON log
- * grew by a complete copy of the conversation on each restart — and because
- * {@link loadSegment}'s cursor is a line index, a doubled file also corrupted
- * scroll-up pagination. Deduping by id keeps the log one copy and its cursors
- * stable. (The runner session log remains the source of truth on replay; this
- * file is the renderer's windowed mirror.)
+ * Why idempotent: the renderer (and the WS bridge) may dispatch the same
+ * committed event more than once across reconnects, and dedup-by-id keeps the
+ * NDJSON log at one copy with stable {@link loadSegment} line-index cursors.
+ * Mechanism note (corrected 2026-06-11): the runner's attach-time replay was
+ * NEVER the duplicate source the original comment claimed — the SessionDriver
+ * subscribes to the mirror only AFTER attach completes, so replayed events
+ * never reached the renderer; the transcript is loaded solely via
+ * `chat.loadSegment` from this file. The desktop now attaches with
+ * `replay: 'none'` (runner protocol v6), so the replay doesn't even populate
+ * the host-side mirror anymore.
  */
 const writtenIds = new Map<string, Set<string>>();
 

@@ -92,11 +92,17 @@ export async function runChildTurn(args: {
       ? buildFilteredToolRegistry(parentSession.tools, new Set(spec.allowedTools))
       : (parentSession.tools as unknown as ToolRegistry);
 
+  const childModel = await resolveChildModel(rt, spec, label, childSessionId);
+
   const childLog = new EventLog();
-  const spawner = createSubagentSpawner(rt);
+  // The nested spawner's parentModel must be the CHILD's effective model —
+  // building it from the original rt would make grandchildren silently
+  // revert to the grandparent's model.
+  const spawner = createSubagentSpawner({ ...rt, parentModel: childModel });
   const childCtx = buildChildContext(
     rt,
     spec,
+    childModel,
     childSessionId,
     childTurnId,
     toolRegistry,
@@ -311,20 +317,56 @@ async function resolveStrategy(
   };
 }
 
+/**
+ * Resolve the child's effective model. A `spec.model` usually comes from the
+ * calling LLM (dispatch_agent's free-form string field), which sometimes
+ * hallucinates training-era ids ("claude-3-5-sonnet", "gpt-4o") — running the
+ * child on those would 404 or silently land on a different vendor model. When
+ * the active provider publishes a models list and the requested id isn't in
+ * it, fall back to the parent's model with a warning (mirroring the
+ * unknown-mode fallback above) instead of hard-erroring. Providers with an
+ * EMPTY models list (sparse admin-registered vendors — see the
+ * resolveModelContext caveat in @moxxy/sdk) skip validation entirely: we
+ * can't tell a typo from a legitimate unlisted id there.
+ */
+async function resolveChildModel(
+  rt: SubagentRuntime,
+  spec: SubagentSpec,
+  label: string,
+  childSessionId: ReturnType<typeof newSessionId>,
+): Promise<string> {
+  const { parentSession, parentTurnId, parentModel } = rt;
+  const requested = spec.model;
+  if (requested === undefined || requested === parentModel) return parentModel;
+  const models = parentSession.providers.getActive().models;
+  if (models.length > 0 && !models.some((m) => m.id === requested)) {
+    await emitSubagentWarning(
+      parentSession,
+      parentTurnId,
+      label,
+      childSessionId,
+      `unknown model "${requested}" — falling back to parent model "${parentModel}"`,
+    );
+    return parentModel;
+  }
+  return requested;
+}
+
 function buildChildContext(
   rt: SubagentRuntime,
   spec: SubagentSpec,
+  model: string,
   childSessionId: ReturnType<typeof newSessionId>,
   childTurnId: TurnId,
   toolRegistry: ToolRegistry,
   childLog: EventLog,
   spawner: SubagentSpawner,
 ): ModeContext {
-  const { parentSession, parentSignal, parentModel } = rt;
+  const { parentSession, parentSignal } = rt;
   return {
     sessionId: childSessionId,
     turnId: childTurnId,
-    model: spec.model ?? parentModel,
+    model,
     ...(spec.systemPrompt !== undefined ? { systemPrompt: spec.systemPrompt } : {}),
     provider: parentSession.providers.getActive(),
     tools: toolRegistry,

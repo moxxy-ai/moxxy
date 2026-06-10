@@ -577,8 +577,15 @@ export async function fireAfterWorkflowDependents(args: {
   }
 }
 
-function activeModel(session: Session): string {
-  return safeActiveProvider(session)?.models[0]?.id ?? 'claude-sonnet-4-6';
+/**
+ * Model for trigger-spawned workflow children. Prefers the model the user's
+ * conversation last actually ran on (`session.lastResolvedModel`, recorded by
+ * runTurn) over the provider's first descriptor — the descriptor list often
+ * leads with a model the user isn't using. Exported for tests. The 'default'
+ * terminal fallback matches runTurn's own resolution.
+ */
+export function activeModel(session: Session): string {
+  return session.lastResolvedModel ?? safeActiveProvider(session)?.models[0]?.id ?? 'default';
 }
 
 function safeActiveProvider(session: Session): ReturnType<Session['providers']['getActive']> | null {

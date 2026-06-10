@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Session } from '@moxxy/core';
 import { newTurnId, savePreferences } from '@moxxy/core';
+import { asTurnId } from '@moxxy/sdk';
 import type {
   ApprovalDecision,
   ApprovalRequest,
@@ -210,14 +211,21 @@ export class RunnerServer {
     }
     client.role = params.role;
     client.attached = true;
-    // Always replay the full history from seq 0, regardless of params.sinceSeq.
-    // The client's mirror is a fresh EventLog whose `ingest` accepts only the
-    // next-expected seq (contiguous from 0), so a partial replay starting at
-    // sinceSeq>0 would drop every event and permanently desync the mirror.
-    // `sinceSeq` stays on the wire for compatibility but is intentionally
-    // ignored. This loop is fully synchronous, so no live event can interleave
-    // before it finishes - every later event arrives exactly once via broadcast.
-    for (const event of this.session.log.slice(0)) {
+    // Replay per the client's `replay` policy (v6; default 'full'). The start
+    // seq is announced via `replay.start` BEFORE the loop so the client can
+    // rebase its (empty) mirror — its `ingest` accepts only the next-expected
+    // seq, so a partial replay without the rebase would drop every event and
+    // permanently desync the mirror. `sinceSeq` predates `replay` and stays on
+    // the wire for compatibility but is intentionally ignored (pre-v6 clients
+    // can't rebase, so they always need the full replay). This loop is fully
+    // synchronous, so no live event can interleave before it finishes - every
+    // later event arrives exactly once via broadcast.
+    const replay = params.replay ?? 'full';
+    const total = this.session.log.length;
+    const start =
+      replay === 'full' ? 0 : replay === 'none' ? total : Math.max(0, total - replay.tail);
+    client.peer.notify(RunnerNotification.ReplayStart, { fromSeq: start });
+    for (const event of this.session.log.slice(start)) {
       client.peer.notify(RunnerNotification.Event, { event });
     }
     return {
@@ -229,7 +237,16 @@ export class RunnerServer {
 
   private handleRunTurn(client: ConnectedClient, raw: unknown): RunTurnResult {
     const params = runTurnParamsSchema.parse(raw);
-    const turnId = newTurnId();
+    // Honour a client-supplied id (v6) so the client's per-turn event filters
+    // match the events the runner emits. A collision with an in-flight turn is
+    // a client bug (or a cross-client hijack attempt) — reject it loudly
+    // rather than letting two turns share one controller/owner entry.
+    const turnId = params.turnId ? asTurnId(params.turnId) : newTurnId();
+    if (this.turnControllers.has(turnId)) {
+      throw new Error(
+        `turn id ${turnId} is already in flight — client-supplied turn ids must be unique`,
+      );
+    }
     const controller = new AbortController();
     this.turnControllers.set(turnId, { controller, owner: client });
     client.turns.add(turnId);

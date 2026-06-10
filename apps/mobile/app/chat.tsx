@@ -105,7 +105,6 @@ export default function ChatScreen() {
             pendingActions={pendingActions}
             onToggleMenu={chrome.toggleMenu}
             onNewSession={sessions.newSession}
-            onToggleActions={() => composer.setActionsOpen(!composer.actionsOpen)}
           />
 
           <ComposerCard
