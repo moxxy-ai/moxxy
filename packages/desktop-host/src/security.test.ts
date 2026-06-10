@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { Session } from 'electron';
+import type { BrowserWindow, Session } from 'electron';
 import {
   isSafeProviderName,
   assertSafeProviderName,
@@ -9,6 +9,7 @@ import {
   clerkFrontendApiHost,
   clerkCspHostSources,
   installContentSecurityPolicy,
+  lockDownNavigation,
 } from './security';
 
 describe('provider-name validation', () => {
@@ -35,6 +36,65 @@ describe('provider-name validation', () => {
       expect(isSafeProviderName(bad)).toBe(false);
       expect(() => assertSafeProviderName(bad)).toThrow();
     }
+  });
+});
+
+describe('navigation lockdown', () => {
+  /** Minimal BrowserWindow stand-in: captures the will-navigate/redirect
+   *  guards so a test can replay navigations against them. */
+  function fakeWindow(currentUrl: string): {
+    win: BrowserWindow;
+    setUrl: (u: string) => void;
+    allows: (url: string) => boolean;
+  } {
+    let url = currentUrl;
+    const handlers = new Map<string, (e: { preventDefault: () => void }, u: string) => void>();
+    const wc = {
+      getURL: () => url,
+      on: (ev: string, fn: (e: { preventDefault: () => void }, u: string) => void) => {
+        handlers.set(ev, fn);
+      },
+      setWindowOpenHandler: () => undefined,
+    };
+    return {
+      win: { webContents: wc } as unknown as BrowserWindow,
+      setUrl: (u) => {
+        url = u;
+      },
+      allows: (target) => {
+        let prevented = false;
+        handlers.get('will-navigate')!({ preventDefault: () => (prevented = true) }, target);
+        return !prevented;
+      },
+    };
+  }
+
+  it('blocks every off-origin navigation by default, keeps same-origin', () => {
+    const { win, allows } = fakeWindow('https://desktop.moxxy.ai:51789/');
+    lockDownNavigation(win);
+    expect(allows('https://desktop.moxxy.ai:51789/#focus')).toBe(true);
+    expect(allows('https://accounts.google.com/o/oauth2/auth')).toBe(false);
+    expect(allows('https://evil.example.com/')).toBe(false);
+  });
+
+  it('allows the OAuth round-trip when the hosts are allow-listed', () => {
+    const oauth = [/^https:\/\/accounts\.google\.com$/, /^https:\/\/clerk\.moxxy\.ai$/];
+    const appOrigins = [/^https:\/\/desktop\.moxxy\.ai:(?:51789|51790|51791|51792)$/];
+    const { win, setUrl, allows } = fakeWindow('https://desktop.moxxy.ai:51789/');
+    lockDownNavigation(win, { allowOriginPatterns: [...oauth, ...appOrigins] });
+
+    // app → provider
+    expect(allows('https://accounts.google.com/o/oauth2/auth?x=1')).toBe(true);
+    // provider → FAPI callback (current origin is now Google's)
+    setUrl('https://accounts.google.com/o/oauth2/auth?x=1');
+    expect(allows('https://clerk.moxxy.ai/v1/oauth_callback?code=…')).toBe(true);
+    // FAPI → back to the app: NOT same-origin with the current page, so the
+    // serving origin must be allow-listed explicitly for the return leg.
+    setUrl('https://clerk.moxxy.ai/v1/oauth_callback');
+    expect(allows('https://desktop.moxxy.ai:51789/?__clerk_status=…')).toBe(true);
+    // …and anything else stays blocked even with the allow-list installed.
+    expect(allows('https://evil.example.com/')).toBe(false);
+    expect(allows('not a url')).toBe(false);
   });
 });
 

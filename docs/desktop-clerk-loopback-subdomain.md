@@ -137,3 +137,26 @@ own Frontend API host). Nothing further to wire — just set the env var in CI.
 | Wire-up: mint cert, start server, `certificate-error` scoped trust, CSP, ports | `apps/desktop/electron/main/index.ts` |
 | Renderer `allowedRedirectOrigins` | `apps/desktop/src/main.tsx` |
 | CSP (folds in the loopback origin + prod Clerk Frontend API host) | `packages/desktop-host/src/security.ts` |
+
+---
+
+## Postscript (2026-06-11): the flow is a TOP-FRAME redirect, not a popup
+
+First real packaged-build sign-in attempt surfaced one more blocker: clicking
+"Continue with Google" did nothing (eternal button spinner, no window). The
+serving stack was healthy — DNS, loopback https, `allowed_origins` all verified
+— and the FAPI `POST /v1/client/sign_ins` returned the Google
+`external_verification_redirect_url` fine.
+
+The wrong assumption was that clerk-js opens the provider in a **popup**
+(`window.open` → `setWindowOpenHandler`). The prebuilt `openSignIn` modal
+actually runs OAuth as a **top-frame redirect** (`window.location = accounts.google.com…`),
+which `lockDownNavigation`'s blanket `will-navigate`/`will-redirect` deny
+silently swallowed. Fix: `lockDownNavigation` takes `allowOriginPatterns`; the
+main window passes `OAUTH_HOST_PATTERNS` **plus its own loopback serving
+origins** — the return leg (`clerk.moxxy.ai → desktop.moxxy.ai:<port>`) is not
+same-origin with the page's mid-flow URL, so the app origins must be explicit.
+The focus window passes nothing and keeps the blanket deny.
+
+Also folded `challenges.cloudflare.com` into CSP `connect-src` (Clerk's
+documented Turnstile set) so the sign-up captcha can't dead-end.

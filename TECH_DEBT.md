@@ -777,6 +777,17 @@ terminal CLI), but silently wrong when it happens.
 Collapsed from full write-ups; each was re-checked against `HEAD` and confirmed — no
 regressions. Restore the detail from git history (`TECH_DEBT.md` @ `b014c3a`) if needed.
 
+- **Packaged Clerk sign-in: OAuth is a top-frame redirect, not a popup** (2026-06-11).
+  First real packaged sign-in attempt: "Continue with Google" spun forever — clerk-js's
+  prebuilt modal navigates the TOP FRAME to the provider, and `lockDownNavigation`'s
+  blanket deny swallowed it silently (the popup-based `setWindowOpenHandler` path was
+  never exercised). `lockDownNavigation` now takes `allowOriginPatterns` (main window:
+  OAUTH_HOST_PATTERNS + its own loopback serving origins for the return leg — the
+  FAPI→app hop is not same-origin with the mid-flow page; focus window keeps the blanket
+  deny) + `challenges.cloudflare.com` added to CSP connect-src for the sign-up Turnstile.
+  Postscript in `docs/desktop-clerk-loopback-subdomain.md`. **Remaining verify:** a real
+  packaged Google round-trip (the redirect reloads the app document mid-flow, which
+  clerk-js handles as a normal SPA return).
 - **Desktop Dock-ghost runner process** (2026-06-10). The packaged desktop's runner
   (`moxxy serve`, spawned via the bundled CLI with `ELECTRON_RUN_AS_NODE=1`) showed up in
   the macOS Dock as a generic-executable ("exec") icon named after the app: on macOS 26

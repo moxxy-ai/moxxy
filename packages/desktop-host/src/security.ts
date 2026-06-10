@@ -97,18 +97,40 @@ function sameOrigin(a: string, b: string): boolean {
  * Refuse to navigate the top frame away from the app's own origin and
  * (unless the window installs its own handler) deny `window.open`. An
  * XSS that tries to point the window at a remote page or spawn a
- * privileged popup is stopped here. Hash routing (`#focus`) and the
- * Clerk OAuth popups (which open via the main window's own
- * `setWindowOpenHandler`) are unaffected — those are in-page or handled
- * explicitly.
+ * privileged popup is stopped here. Hash routing (`#focus`) is in-page
+ * and unaffected.
+ *
+ * `allowOriginPatterns` punches a deliberate, narrow hole for the Clerk
+ * OAuth flow: clerk-js's prebuilt sign-in buttons run the provider flow as
+ * a TOP-FRAME redirect (`window.location = accounts.google.com…`), not a
+ * popup — with a blanket deny the click silently no-ops (eternal button
+ * spinner; the original packaged-app sign-in bug). The main window passes
+ * its OAuth host patterns + its own serving origins, so the frame may
+ * round-trip app → provider → Clerk FAPI → back to the app, and nothing
+ * else. Windows that never sign in (focus widget) pass none and keep the
+ * blanket deny.
  */
 export function lockDownNavigation(
   win: BrowserWindow,
-  opts: { readonly keepWindowOpenHandler?: boolean } = {},
+  opts: {
+    readonly keepWindowOpenHandler?: boolean;
+    /** Origins (matched as `URL.origin`) the top frame MAY navigate to. */
+    readonly allowOriginPatterns?: ReadonlyArray<RegExp>;
+  } = {},
 ): void {
   const wc = win.webContents;
+  const allowed = opts.allowOriginPatterns ?? [];
   const guard = (event: { preventDefault: () => void }, url: string): void => {
-    if (!sameOrigin(url, wc.getURL())) event.preventDefault();
+    if (sameOrigin(url, wc.getURL())) return;
+    let origin: string;
+    try {
+      origin = new URL(url).origin;
+    } catch {
+      event.preventDefault();
+      return;
+    }
+    if (allowed.some((re) => re.test(origin))) return;
+    event.preventDefault();
   };
   wc.on('will-navigate', guard);
   wc.on('will-redirect', guard);
@@ -191,7 +213,10 @@ function buildCspDirectives(extraClerkHosts: readonly string[]): string {
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     `img-src 'self' data: blob: https://img.clerk.com https://*.clerk.com${extra}`,
     "font-src 'self' data: https://fonts.gstatic.com",
-    `connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com${extra}`,
+    // challenges.cloudflare.com: Clerk's bot-protection (Turnstile) runs on
+    // sign-up — Clerk's documented CSP needs it in connect-src too, not just
+    // script/frame-src, or the captcha can fail and sign-up dead-ends.
+    `connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
     "worker-src 'self' blob:",
     `frame-src https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
     "object-src 'none'",
