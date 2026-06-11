@@ -1,5 +1,18 @@
 # @moxxy/desktop
 
+## 0.6.0
+
+### Minor Changes
+
+- 0e1fb70: Sidebar redesign: every workspace is now a collapsible folder with its sessions nested beneath it (collapse state persists per workspace), a new-session [+] sits on each workspace row, and sessions are auto-titled from their first prompt (display-only, derived from the runner's meta sidecar at list time — also served to mobile via sessions.list) while staying renameable inline. client-core's useDesks gains desk-scoped session ops (createSession/setActiveSession/renameSession/removeSession) so the tree can operate across all workspaces at once.
+
+### Patch Changes
+
+- Updated dependencies [0e1fb70]
+  - @moxxy/desktop-host@0.3.0
+  - @moxxy/client-core@0.4.0
+  - @moxxy/client-platform-web@0.1.6
+
 ## 0.5.4
 
 ### Patch Changes
