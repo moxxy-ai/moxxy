@@ -5,6 +5,7 @@ import { chatStore, EMPTY_SNAPSHOT } from './chatStore.js';
 import { createIpcPersistence, migrateLegacyChats } from './chatPersistence.js';
 import { wireAskBridge } from './askStore.js';
 import { toErrorMessage } from './errors.js';
+import { desksStore } from './useDesks.js';
 import type { Extension } from './chatModel.js';
 
 export type { Extension, RenderNode, FoldedBlock } from './chatModel.js';
@@ -64,6 +65,32 @@ async function sendImmediate(
   }
 }
 
+/** Sessions the desk registry auto-named — the ones whose sidebar title is
+ *  derived from the first prompt (host-side, at desks.list time). */
+const AUTO_SESSION_NAME = /^Session \d+$/;
+let titleRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * A `user_prompt` landing on a still-auto-named session means its derived
+ * title (the prompt itself) just came into existence — refresh the desk
+ * list so the sidebar picks it up live. Delayed past the runner's 250ms
+ * meta-sidecar debounce, and at most one refresh in flight. Once a session
+ * carries a derived (or user-set) name the auto-pattern no longer matches,
+ * so steady-state chatter never re-triggers this.
+ */
+function scheduleSessionTitleRefresh(workspaceId: string): void {
+  const stillAutoNamed = desksStore
+    .getSnapshot()
+    .desks.some((d) =>
+      d.sessions.some((s) => s.id === workspaceId && AUTO_SESSION_NAME.test(s.name)),
+    );
+  if (!stillAutoNamed || titleRefreshTimer) return;
+  titleRefreshTimer = setTimeout(() => {
+    titleRefreshTimer = null;
+    void desksStore.refresh();
+  }, 1000);
+}
+
 /**
  * Bridge component — forwards `runner.event` / `runner.turn.complete`
  * from the main process into the workspace-keyed {@link chatStore},
@@ -80,6 +107,7 @@ export function ChatStoreBridge(): null {
       'runner.event',
       ({ workspaceId, event }: { workspaceId: string; event: MoxxyEvent }) => {
         chatStore.dispatch(workspaceId, { type: 'event', event });
+        if (event.type === 'user_prompt') scheduleSessionTitleRefresh(workspaceId);
       },
     );
     const offComplete = api().subscribe(

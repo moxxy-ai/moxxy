@@ -18,10 +18,13 @@ import os from 'node:os';
 vi.mock('electron', () => ({ ipcMain: { handle: () => undefined } }));
 
 // The handlers delete the runner's persisted session log via @moxxy/core —
-// record the calls instead of touching ~/.moxxy.
+// record the calls instead of touching ~/.moxxy. The derived-title pass
+// (session-titles.ts) reads meta sidecars from defaultSessionsDir(); point
+// it at a directory that doesn't exist so every stored name passes through.
 const deleteSessionMock = vi.fn(async (_id: string) => {});
 vi.mock('@moxxy/core', () => ({
   deleteSession: (id: string) => deleteSessionMock(id),
+  defaultSessionsDir: () => '/nonexistent-session-titles-dir',
 }));
 
 // Chat NDJSON mirror removal — record instead of touching the disk.

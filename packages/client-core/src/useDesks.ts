@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { api } from './transport.js';
 import { toErrorMessage } from './errors.js';
 import { connectionStore } from './useConnection.js';
-import type { Desk, DesksOverview } from '@moxxy/desktop-ipc-contract';
+import type { Desk, DeskSession, DesksOverview } from '@moxxy/desktop-ipc-contract';
 
 export interface UseDesks {
   readonly desks: ReadonlyArray<Desk>;
@@ -18,6 +18,15 @@ export interface UseDesks {
   readonly setActive: (id: string) => Promise<void>;
   readonly pickFolder: () => Promise<string | null>;
   readonly rename: (id: string, name: string) => Promise<void>;
+  // ---- desk-scoped session ops (the sidebar tree spans EVERY desk, so
+  // these take explicit desk/session ids — unlike useSessions, whose store
+  // is pointed at one desk at a time) -------------------------------------
+  /** Add a session under `deskId` (auto-named; does not foreground it). */
+  readonly createSession: (deskId: string, name?: string) => Promise<DeskSession | null>;
+  /** Foreground a session anywhere — its desk becomes active too. */
+  readonly setActiveSession: (id: string) => Promise<void>;
+  readonly renameSession: (id: string, name: string) => Promise<void>;
+  readonly removeSession: (id: string) => Promise<void>;
 }
 
 interface DesksState {
@@ -138,6 +147,76 @@ class DesksStore {
       this.set({ error: toErrorMessage(e) });
     }
   };
+
+  // ---- desk-scoped session ops --------------------------------------------
+  // The sidebar's workspace tree renders EVERY desk's sessions at once, so
+  // these mirror the sessionsStore mutations but address any desk/session by
+  // id instead of going through that store's single tracked desk.
+
+  createSession = async (deskId: string, name?: string): Promise<DeskSession | null> => {
+    try {
+      const session = await api().invoke('sessions.create', {
+        deskId,
+        ...(name ? { name } : {}),
+      });
+      await this.refresh();
+      return session;
+    } catch (e) {
+      this.set({ error: toErrorMessage(e) });
+      return null;
+    }
+  };
+
+  setActiveSession = async (id: string): Promise<void> => {
+    // Optimistic, mirroring setActive + sessionsStore.setActive: flip the
+    // owning desk active, point its activeSessionId at the session, and
+    // re-bind the connection store so the chat surface swaps in the same
+    // render. The host's sessions.setActive activates the owning desk too.
+    const prevActive = this.state.activeId;
+    const prevDesks = this.state.desks;
+    const prevConn = connectionStore.active$();
+    const desk = this.state.desks.find((d) => d.sessions.some((s) => s.id === id));
+    if (desk) {
+      this.set({
+        activeId: desk.id,
+        desks: this.state.desks.map((d) =>
+          d.id === desk.id ? { ...d, activeSessionId: id } : d,
+        ),
+      });
+    }
+    connectionStore.setActive(id);
+    try {
+      await api().invoke('sessions.setActive', { id });
+      await this.refresh();
+    } catch (e) {
+      this.set({ activeId: prevActive, desks: prevDesks, error: toErrorMessage(e) });
+      if (prevConn) connectionStore.setActive(prevConn);
+    }
+  };
+
+  renameSession = async (id: string, name: string): Promise<void> => {
+    try {
+      await api().invoke('sessions.rename', { id, name });
+      await this.refresh();
+    } catch (e) {
+      this.set({ error: toErrorMessage(e) });
+    }
+  };
+
+  removeSession = async (id: string): Promise<void> => {
+    try {
+      await api().invoke('sessions.remove', { id });
+      await this.refresh();
+      // Removing the foregrounded session leaves the connection store on a
+      // dead id — follow the host's promoted (or freshly-seeded) session.
+      if (connectionStore.active$() === id) {
+        const active = this.state.desks.find((d) => d.id === this.state.activeId);
+        if (active) connectionStore.setActive(active.activeSessionId);
+      }
+    } catch (e) {
+      this.set({ error: toErrorMessage(e) });
+    }
+  };
 }
 
 /** Shared singleton. Exported so sibling stores (the sessions store) can
@@ -178,5 +257,9 @@ export function useDesks(): UseDesks {
     setActive: desksStore.setActive,
     pickFolder: desksStore.pickFolder,
     rename: desksStore.rename,
+    createSession: desksStore.createSession,
+    setActiveSession: desksStore.setActiveSession,
+    renameSession: desksStore.renameSession,
+    removeSession: desksStore.removeSession,
   };
 }

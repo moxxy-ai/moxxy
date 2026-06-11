@@ -1,0 +1,614 @@
+import { useEffect, useRef, useState } from 'react';
+import { Icon } from '@moxxy/desktop-ui';
+import type { Desk, DeskSession } from '@moxxy/desktop-ipc-contract';
+import { SectionHeader } from './SectionHeader';
+
+/**
+ * The whole workspace rail as one tree: every workspace is a collapsible
+ * FOLDER row, its sessions nested beneath it. Replaces the old
+ * active-desk-only pair (WorkspaceSwitcher card + flat SessionList).
+ *
+ *   WORKSPACES                                 [+]  ← new workspace
+ *   ▾ ▣ blocky                              [+] ⋯   ← toggle / new session / menu
+ *       Fix the sign-in bug                          ← session (first-prompt title)
+ *       Redesign the sidebar          ●              ← unread dot
+ *   ▸ ▣ website                       ●     [+] ⋯   ← collapsed: dot rolls up
+ *
+ * Interaction contract:
+ *  - clicking a folder row (or its chevron) toggles collapse — switching
+ *    workspaces happens by picking one of its SESSIONS, the routing unit;
+ *  - [+] on a folder row creates a session IN that workspace;
+ *  - ⋯ menus carry Rename/Remove for both row kinds, with the same
+ *    inline-rename gesture (Enter commits, Escape cancels) sessions
+ *    always had;
+ *  - the active desk's active session is the single highlighted row.
+ *
+ * Purely presentational — the sidebar container owns the stores, the
+ * collapse state, and the remove confirmations.
+ */
+export function WorkspaceTree({
+  desks,
+  activeDeskId,
+  activeSessionId,
+  unread,
+  collapsed,
+  busyDeskId,
+  newWorkspaceBusy,
+  onToggleCollapse,
+  onSelectSession,
+  onCreateSession,
+  onRenameSession,
+  onRemoveSession,
+  onRenameWorkspace,
+  onRemoveWorkspace,
+  onNewWorkspace,
+}: {
+  readonly desks: ReadonlyArray<Desk>;
+  readonly activeDeskId: string | null;
+  /** The active desk's foreground session — the one highlighted row. */
+  readonly activeSessionId: string | null;
+  /** Session ids carrying unread activity. */
+  readonly unread: ReadonlySet<string>;
+  /** Desk ids whose folder is collapsed. */
+  readonly collapsed: ReadonlySet<string>;
+  /** Desk with a session-create in flight (its [+] disables). */
+  readonly busyDeskId: string | null;
+  readonly newWorkspaceBusy?: boolean;
+  readonly onToggleCollapse: (deskId: string) => void;
+  readonly onSelectSession: (id: string) => void;
+  readonly onCreateSession: (deskId: string) => void;
+  readonly onRenameSession: (id: string, name: string) => void;
+  readonly onRemoveSession: (session: DeskSession) => void;
+  readonly onRenameWorkspace: (id: string, name: string) => void;
+  readonly onRemoveWorkspace: (desk: Desk) => void;
+  readonly onNewWorkspace: () => void;
+}): JSX.Element {
+  /** Row whose name is being edited inline; null = none. */
+  const [editing, setEditing] = useState<{
+    kind: 'workspace' | 'session';
+    id: string;
+    draft: string;
+  } | null>(null);
+
+  const commitRename = (): void => {
+    if (!editing) return;
+    const name = editing.draft.trim();
+    const prev =
+      editing.kind === 'workspace'
+        ? desks.find((d) => d.id === editing.id)?.name
+        : desks.flatMap((d) => d.sessions).find((s) => s.id === editing.id)?.name;
+    setEditing(null);
+    if (!name || name === prev) return;
+    if (editing.kind === 'workspace') onRenameWorkspace(editing.id, name);
+    else onRenameSession(editing.id, name);
+  };
+
+  const renameProps = (kind: 'workspace' | 'session', id: string, name: string) => ({
+    editing: editing?.kind === kind && editing.id === id ? editing.draft : null,
+    onStartRename: () => setEditing({ kind, id, draft: name }),
+    onDraft: (draft: string) => setEditing({ kind, id, draft }),
+    onCommitRename: commitRename,
+    onCancelRename: () => setEditing(null),
+  });
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        <SectionHeader title="Workspaces" style={{ flex: 1, padding: '8px 10px 6px 10px' }} />
+        <button
+          type="button"
+          data-testid="workspace-new"
+          aria-label="new workspace"
+          title="New workspace"
+          onClick={onNewWorkspace}
+          disabled={newWorkspaceBusy}
+          className="row-button"
+          style={{
+            ...iconButtonStyle,
+            opacity: newWorkspaceBusy ? 0.5 : 1,
+          }}
+        >
+          <Icon name="plus" size={14} />
+        </button>
+      </div>
+      <ul
+        role="tree"
+        aria-label="Workspaces"
+        style={{
+          listStyle: 'none',
+          margin: '0 0 4px',
+          padding: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 1,
+        }}
+      >
+        {desks.map((desk) => {
+          const isCollapsed = collapsed.has(desk.id);
+          const hasUnread =
+            desk.sessions.some((s) => unread.has(s.id)) || unread.has(desk.id);
+          return (
+            <li key={desk.id} role="treeitem" aria-expanded={!isCollapsed}>
+              <FolderRow
+                desk={desk}
+                active={desk.id === activeDeskId}
+                collapsed={isCollapsed}
+                unread={isCollapsed && hasUnread}
+                busy={busyDeskId === desk.id}
+                onToggle={() => onToggleCollapse(desk.id)}
+                onCreateSession={() => onCreateSession(desk.id)}
+                onRemove={() => onRemoveWorkspace(desk)}
+                {...renameProps('workspace', desk.id, desk.name)}
+              />
+              {!isCollapsed && (
+                <ul
+                  role="group"
+                  aria-label={`sessions in ${desk.name}`}
+                  style={{
+                    listStyle: 'none',
+                    margin: 0,
+                    padding: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 1,
+                  }}
+                >
+                  {desk.sessions.map((s) => (
+                    <SessionRow
+                      key={s.id}
+                      session={s}
+                      active={s.id === activeSessionId && desk.id === activeDeskId}
+                      unread={unread.has(s.id)}
+                      onSelect={() => onSelectSession(s.id)}
+                      onRemove={() => onRemoveSession(s)}
+                      {...renameProps('session', s.id, s.name)}
+                    />
+                  ))}
+                </ul>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+interface RenameHandlers {
+  /** Current rename draft, or null when this row isn't being edited. */
+  readonly editing: string | null;
+  readonly onStartRename: () => void;
+  readonly onDraft: (draft: string) => void;
+  readonly onCommitRename: () => void;
+  readonly onCancelRename: () => void;
+}
+
+/** One workspace folder row: chevron + tinted workspace glyph + name,
+ *  with the new-session [+] and the ⋯ menu on the right. Clicking the
+ *  row toggles collapse — sessions are what select. */
+function FolderRow({
+  desk,
+  active,
+  collapsed,
+  unread,
+  busy,
+  onToggle,
+  onCreateSession,
+  onRemove,
+  editing,
+  onStartRename,
+  onDraft,
+  onCommitRename,
+  onCancelRename,
+}: {
+  readonly desk: Desk;
+  readonly active: boolean;
+  readonly collapsed: boolean;
+  /** Rolled-up dot — only shown while collapsed (rows carry their own). */
+  readonly unread: boolean;
+  readonly busy: boolean;
+  readonly onToggle: () => void;
+  readonly onCreateSession: () => void;
+  readonly onRemove: () => void;
+} & RenameHandlers): JSX.Element {
+  const [hot, setHot] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const showActions = hot || menuOpen;
+
+  return (
+    <div
+      data-testid={`desk-row-${desk.id}`}
+      data-collapsed={collapsed}
+      onClick={editing === null ? onToggle : undefined}
+      onMouseEnter={() => setHot(true)}
+      onMouseLeave={() => setHot(false)}
+      onFocusCapture={() => setHot(true)}
+      onBlurCapture={() => setHot(false)}
+      className="row-button"
+      style={{
+        position: 'relative',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        minHeight: 32,
+        padding: '4px 4px 4px 4px',
+        borderRadius: 8,
+        cursor: 'pointer',
+        color: 'var(--color-sidebar-text)',
+      }}
+    >
+      <button
+        type="button"
+        data-testid={`desk-toggle-${desk.id}`}
+        aria-label={`${collapsed ? 'expand' : 'collapse'} workspace ${desk.name}`}
+        aria-expanded={!collapsed}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 18,
+          height: 18,
+          flexShrink: 0,
+          color: 'var(--color-sidebar-text-dim)',
+        }}
+      >
+        <span
+          aria-hidden
+          style={{
+            display: 'inline-flex',
+            transform: collapsed ? 'none' : 'rotate(90deg)',
+            transition: 'transform 120ms ease',
+          }}
+        >
+          <Icon name="chevron-right" size={13} />
+        </span>
+      </button>
+      <span
+        aria-hidden
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+          color: desk.color,
+        }}
+      >
+        <Icon name="workspace" size={14} />
+      </span>
+      {editing !== null ? (
+        <input
+          autoFocus
+          value={editing}
+          aria-label={`rename workspace ${desk.name}`}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => onDraft(e.target.value)}
+          onBlur={onCommitRename}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onCommitRename();
+            if (e.key === 'Escape') onCancelRename();
+          }}
+          style={renameInputStyle}
+        />
+      ) : (
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontSize: 13,
+            fontWeight: active ? 700 : 600,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+          title={`${desk.name} — ${desk.cwd}`}
+        >
+          {desk.name}
+        </span>
+      )}
+      {unread && <UnreadDot label={`unread activity in ${desk.name}`} />}
+      <button
+        type="button"
+        data-testid={`session-new-${desk.id}`}
+        aria-label={`new session in ${desk.name}`}
+        title="New session"
+        disabled={busy}
+        onClick={(e) => {
+          e.stopPropagation();
+          onCreateSession();
+        }}
+        style={{
+          ...iconButtonStyle,
+          opacity: busy ? 0.5 : showActions || busy ? 0.9 : 0,
+          transition: 'opacity 120ms ease',
+        }}
+      >
+        <Icon name="plus" size={14} />
+      </button>
+      <RowMenu
+        kind="workspace"
+        name={desk.name}
+        visible={showActions}
+        open={menuOpen}
+        onOpenChange={setMenuOpen}
+        onRename={onStartRename}
+        onDelete={onRemove}
+        deleteLabel="Remove"
+      />
+    </div>
+  );
+}
+
+/** One session row, indented under its folder. */
+function SessionRow({
+  session: s,
+  active,
+  unread,
+  onSelect,
+  onRemove,
+  editing,
+  onStartRename,
+  onDraft,
+  onCommitRename,
+  onCancelRename,
+}: {
+  readonly session: DeskSession;
+  readonly active: boolean;
+  readonly unread: boolean;
+  readonly onSelect: () => void;
+  readonly onRemove: () => void;
+} & RenameHandlers): JSX.Element {
+  const [hot, setHot] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const showActions = hot || active || menuOpen;
+
+  return (
+    <li>
+      <div
+        data-testid={`session-row-${s.id}`}
+        data-active={active}
+        onClick={onSelect}
+        onMouseEnter={() => setHot(true)}
+        onMouseLeave={() => setHot(false)}
+        onFocusCapture={() => setHot(true)}
+        onBlurCapture={() => setHot(false)}
+        className={active ? undefined : 'row-button'}
+        style={{
+          position: 'relative',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          minHeight: 32,
+          padding: '4px 4px 4px 32px',
+          borderRadius: 8,
+          cursor: 'pointer',
+          background: active ? 'var(--color-sidebar-bg-active)' : 'transparent',
+          color: active ? 'var(--color-sidebar-text)' : 'var(--color-sidebar-text-dim)',
+          fontWeight: active ? 600 : 400,
+        }}
+      >
+        {editing !== null ? (
+          <input
+            autoFocus
+            value={editing}
+            aria-label={`rename session ${s.name}`}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => onDraft(e.target.value)}
+            onBlur={onCommitRename}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') onCommitRename();
+              if (e.key === 'Escape') onCancelRename();
+            }}
+            style={renameInputStyle}
+          />
+        ) : (
+          <span
+            style={{
+              flex: 1,
+              minWidth: 0,
+              fontSize: 13,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+            title={s.name}
+          >
+            {s.name}
+          </span>
+        )}
+        {unread && <UnreadDot label="unread activity" />}
+        <RowMenu
+          kind="session"
+          name={s.name}
+          visible={showActions}
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
+          onRename={onStartRename}
+          onDelete={onRemove}
+          deleteLabel="Delete"
+        />
+      </div>
+    </li>
+  );
+}
+
+function UnreadDot({ label }: { readonly label: string }): JSX.Element {
+  return (
+    <span
+      aria-label={label}
+      title="New activity"
+      style={{
+        width: 6,
+        height: 6,
+        borderRadius: '50%',
+        background: 'var(--color-primary)',
+        flexShrink: 0,
+        boxShadow: '0 0 8px color-mix(in srgb, var(--color-primary) 60%, transparent)',
+      }}
+    />
+  );
+}
+
+/** The hover-only ⋯ trigger + its tiny Rename/Delete popover, shared by
+ *  folder and session rows (`subject` feeds the aria labels: "session
+ *  actions Foo" / "workspace actions Bar"). Closes on outside-click,
+ *  Escape, or item selection. */
+function RowMenu({
+  kind,
+  name,
+  visible,
+  open,
+  onOpenChange,
+  onRename,
+  onDelete,
+  deleteLabel,
+}: {
+  /** Spliced into aria labels: "<kind> actions <name>". */
+  readonly kind: 'session' | 'workspace';
+  readonly name: string;
+  readonly visible: boolean;
+  readonly open: boolean;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly onRename: () => void;
+  readonly onDelete: () => void;
+  readonly deleteLabel: 'Delete' | 'Remove';
+}): JSX.Element {
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: MouseEvent): void => {
+      if (!rootRef.current?.contains(e.target as Node)) onOpenChange(false);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onOpenChange(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open, onOpenChange]);
+
+  const item: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    width: '100%',
+    padding: '7px 10px',
+    fontSize: 12.5,
+    fontWeight: 500,
+    textAlign: 'left',
+    borderRadius: 7,
+    cursor: 'pointer',
+  };
+
+  return (
+    <div ref={rootRef} style={{ position: 'relative', display: 'inline-flex', flexShrink: 0 }}>
+      <button
+        type="button"
+        aria-label={`${kind} actions ${name}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpenChange(!open);
+        }}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 24,
+          height: 24,
+          borderRadius: 7,
+          color: 'var(--color-sidebar-text-dim)',
+          opacity: visible ? 0.9 : 0,
+          background: open ? 'var(--color-sidebar-bg-hover)' : 'transparent',
+          transition: 'opacity 120ms ease',
+        }}
+      >
+        <Icon name="more" size={14} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          aria-label={`${kind} actions ${name}`}
+          // A click inside the popover must not bubble to the row (which
+          // would select the session / toggle the folder under the menu).
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            right: 0,
+            zIndex: 40,
+            minWidth: 132,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 1,
+            padding: 4,
+            background: 'var(--color-sidebar-bg)',
+            border: '1px solid var(--color-sidebar-border)',
+            borderRadius: 10,
+            boxShadow: '0 14px 32px -16px rgba(0, 0, 0, 0.45)',
+          }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            aria-label={`rename ${kind} ${name}`}
+            className="row-button"
+            onClick={() => {
+              onOpenChange(false);
+              onRename();
+            }}
+            style={{ ...item, color: 'var(--color-sidebar-text)' }}
+          >
+            <Icon name="pencil" size={13} />
+            <span>Rename</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            aria-label={`remove ${kind} ${name}`}
+            className="row-button"
+            onClick={() => {
+              onOpenChange(false);
+              onDelete();
+            }}
+            style={{ ...item, color: 'var(--color-red-text)' }}
+          >
+            <Icon name="x" size={13} />
+            <span>{deleteLabel}</span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const iconButtonStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 24,
+  height: 24,
+  borderRadius: 7,
+  color: 'var(--color-sidebar-text-dim)',
+  flexShrink: 0,
+};
+
+const renameInputStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  fontSize: 13,
+  padding: '2px 4px',
+  borderRadius: 6,
+  border: '1px solid var(--color-sidebar-text-dim)',
+  background: 'transparent',
+  color: 'var(--color-sidebar-text)',
+  outline: 'none',
+};

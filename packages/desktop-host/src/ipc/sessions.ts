@@ -20,12 +20,17 @@ import { deleteSession } from '@moxxy/core';
 import type { RunnerPool } from '../runner-pool';
 import type { DeskStore } from '../desks';
 import { clearLog } from '../chat-log';
+import { withSessionTitlesOverview } from '../session-titles';
 import { handle } from './shared';
 
 export function registerSessionsHandlers(pool: RunnerPool, desks: DeskStore): void {
   // ---- Sessions (per-desk conversations) -----------------------------------
 
-  handle('sessions.list', async (args) => desks.listSessions(args?.deskId));
+  // Same derived-title pass as desks.list (auto-named sessions display
+  // their first prompt) — this handler also serves mobile over the WS bridge.
+  handle('sessions.list', async (args) =>
+    withSessionTitlesOverview(await desks.listSessions(args?.deskId)),
+  );
 
   handle('sessions.create', async (args) => {
     const { desk, session } = await desks.createSession(args?.deskId, args?.name);

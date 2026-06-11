@@ -651,6 +651,14 @@ runners stay alive (consider lazy spawn + idle-stop).
 **Introduced 2026-06-09** by the cross-platform client work (new `@moxxy/client-core`,
 `@moxxy/client-platform-web`, `@moxxy/client-transport-ws`, `@moxxy/ipc-server-ws`,
 `@moxxy/design-tokens`, `@moxxy/plugin-channel-mobile`; `apps/mobile` Expo PoC).
+- **Two session-mutation surfaces in client-core** (logged 2026-06-11, sidebar-tree
+  redesign): `desksStore` now carries desk-scoped session ops
+  (createSession/setActiveSession/renameSession/removeSession — the sidebar tree spans
+  every desk) while `sessionsStore` (`useSessions`) keeps the same mutations scoped to
+  one tracked desk. The desktop no longer uses `useSessions` (kept for mobile/API
+  parity); consolidate to one surface — likely fold the tracked-desk store into thin
+  selectors over `desksStore` — next time either file is touched. Note the optimistic
+  connection-flip logic is duplicated across both `setActive*` paths.
 - ~~**`apps/desktop/src/lib/*` transition shims.**~~ **RETIRED 2026-06-09:** all ~46
   components now import `@moxxy/client-core` (and `@moxxy/client-platform-web` for TTS)
   directly; `lib/` is just `asset.ts` (Vite-specific) + `boot.ts` (the boot shim).

@@ -12,6 +12,7 @@ import { dialog, BrowserWindow as BrowserWindowApi } from 'electron';
 
 import type { RunnerPool } from '../runner-pool';
 import type { DeskStore } from '../desks';
+import { withSessionTitles } from '../session-titles';
 import { handle } from './shared';
 
 export function registerDesksHandlers(pool: RunnerPool, desks: DeskStore): void {
@@ -20,7 +21,10 @@ export function registerDesksHandlers(pool: RunnerPool, desks: DeskStore): void 
   handle('desks.list', async () => {
     const list = await desks.list();
     const active = await desks.getActive();
-    return { desks: list, activeId: active?.id ?? null };
+    // Auto-named sessions ("Session N") are displayed under their first
+    // prompt — derived here at list time, never written back (see
+    // ../session-titles).
+    return { desks: await withSessionTitles(list), activeId: active?.id ?? null };
   });
   handle('desks.create', async ({ name, cwd }) => desks.create({ name, cwd }));
   handle('desks.remove', async ({ id }) => {

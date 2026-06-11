@@ -1,13 +1,16 @@
 import { useState } from 'react';
-import { useDesks, useSessions } from '@moxxy/client-core';
+import { useDesks } from '@moxxy/client-core';
 import { Skeleton, Icon, ConfirmModal } from '@moxxy/desktop-ui';
 import { useUnreadWorkspaces } from '@moxxy/client-core';
 import type { Desk, DeskSession } from '@moxxy/desktop-ipc-contract';
 import { Logo } from './workspace-sidebar/Logo';
 import { PanelLeftIcon } from './PanelLeftIcon';
 import { setSidebarCollapsed, useSidebarCollapsed } from '@/lib/useSidebarCollapsed';
-import { WorkspaceSwitcher } from './workspace-sidebar/WorkspaceSwitcher';
-import { SessionList } from './workspace-sidebar/SessionList';
+import {
+  toggleWorkspaceCollapsed,
+  useWorkspaceCollapsed,
+} from '@/lib/useWorkspaceCollapsed';
+import { WorkspaceTree } from './workspace-sidebar/WorkspaceTree';
 import { NameWorkspaceModal } from './workspace-sidebar/NameWorkspaceModal';
 import { ProfilePill } from './workspace-sidebar/ProfilePill';
 import type { View } from './ViewHeader';
@@ -18,9 +21,10 @@ interface Props {
 }
 
 /**
- * Dark left rail. Top: a Slack/Linear-style workspace switcher card
- * (the active desk; a dropdown swaps/creates/removes workspaces).
- * Below it the active desk's sessions fill the rail as a flat list.
+ * Dark left rail. One scrolling tree of every workspace (a collapsible
+ * folder row, [+] new-session on its right) with that workspace's
+ * sessions nested beneath — see {@link WorkspaceTree}. Picking a session
+ * anywhere foregrounds it (and its workspace); folder rows only fold.
  * Bottom: a lone Settings entry above the user-profile pill —
  * Chat/Workflows navigation lives in the main-pane header
  * (`ViewSwitcher`), not here.
@@ -32,10 +36,11 @@ interface Props {
 export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
   const collapsed = useSidebarCollapsed();
   const desks = useDesks();
-  const sessions = useSessions(desks.activeId);
+  const foldedDesks = useWorkspaceCollapsed();
   const unread = new Set(useUnreadWorkspaces());
   const [busy, setBusy] = useState(false);
-  const [sessionBusy, setSessionBusy] = useState(false);
+  /** Desk with a session-create in flight; null when idle. */
+  const [sessionBusyDeskId, setSessionBusyDeskId] = useState<string | null>(null);
   /** Folder the user picked; null when no naming flow is in progress. */
   const [pendingFolder, setPendingFolder] = useState<string | null>(null);
   /** Workspace queued for removal; null when no confirm is open. */
@@ -48,13 +53,7 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
   // hooks above ran, so the early return is hook-safe.
   if (collapsed) return null;
 
-  // Unread is tracked per routing id — a session id. Light a desk's dot
-  // when ANY of its sessions has activity (or its own id, the v1 alias).
-  const unreadDeskIds = new Set(
-    desks.desks
-      .filter((d) => d.sessions.some((s) => unread.has(s.id)) || unread.has(d.id))
-      .map((d) => d.id),
-  );
+  const activeDesk = desks.desks.find((d) => d.id === desks.activeId) ?? null;
 
   const onStartNewWorkspace = async (): Promise<void> => {
     setBusy(true);
@@ -74,15 +73,15 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
     if (desk) await desks.setActive(desk.id);
   };
 
-  const onNewSession = async (): Promise<void> => {
-    // ADD another conversation (unlike `/new`, which resets the current
-    // one in place) and foreground it right away.
-    setSessionBusy(true);
+  const onNewSession = async (deskId: string): Promise<void> => {
+    // ADD another conversation under that workspace (unlike `/new`, which
+    // resets the current one in place) and foreground it right away.
+    setSessionBusyDeskId(deskId);
     try {
-      const session = await sessions.create();
-      if (session) await sessions.setActive(session.id);
+      const session = await desks.createSession(deskId);
+      if (session) await desks.setActiveSession(session.id);
     } finally {
-      setSessionBusy(false);
+      setSessionBusyDeskId(null);
     }
   };
 
@@ -112,10 +111,7 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
           <PanelLeftIcon size={16} />
         </button>
       </div>
-      {/* The switcher lives OUTSIDE the scrolling session list so its
-       *  dropdown never gets clipped by the overflow container and the
-       *  card stays pinned while sessions scroll. */}
-      <div style={{ padding: '4px 12px 0' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 12px 12px' }}>
         {desks.loading && desks.desks.length === 0 ? (
           <div style={{ padding: '8px 0' }}>
             <Skeleton.Row />
@@ -154,41 +150,31 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
             {busy ? 'Picking folder…' : 'New workspace'}
           </button>
         ) : (
-          <WorkspaceSwitcher
+          <WorkspaceTree
             desks={desks.desks}
             activeDeskId={desks.activeId}
-            unreadDeskIds={unreadDeskIds}
-            sessionCount={sessions.sessions.length}
-            busy={busy}
-            onSelect={(id) => {
-              // Picking a workspace always lands on its chat — also the
-              // way back out of Settings/Workflows now that the sidebar
-              // carries no Chat entry.
-              void desks.setActive(id);
-              onView('chat');
-            }}
-            onRemove={(d) => setPendingRemove(d)}
-            onNewWorkspace={() => void onStartNewWorkspace()}
-          />
-        )}
-      </div>
-      <div style={{ flex: 1, overflowY: 'auto', padding: '6px 12px 12px' }}>
-        {desks.desks.length > 0 && (
-          <SessionList
-            sessions={sessions.sessions}
-            activeSessionId={sessions.activeSessionId}
+            activeSessionId={activeDesk?.activeSessionId ?? null}
             unread={unread}
-            busy={sessionBusy}
-            onSelect={(id) => {
-              void sessions.setActive(id);
+            collapsed={foldedDesks}
+            busyDeskId={sessionBusyDeskId}
+            newWorkspaceBusy={busy}
+            onToggleCollapse={toggleWorkspaceCollapsed}
+            onSelectSession={(id) => {
+              // Picking a session always lands on its chat — also the way
+              // back out of Settings/Workflows now that the sidebar carries
+              // no Chat entry. Cross-desk picks activate that desk too.
+              void desks.setActiveSession(id);
               onView('chat');
             }}
-            onCreate={() => {
-              void onNewSession();
+            onCreateSession={(deskId) => {
+              void onNewSession(deskId);
               onView('chat');
             }}
-            onRename={(id, name) => void sessions.rename(id, name)}
-            onRemove={(s) => setPendingSessionRemove(s)}
+            onRenameSession={(id, name) => void desks.renameSession(id, name)}
+            onRemoveSession={(s) => setPendingSessionRemove(s)}
+            onRenameWorkspace={(id, name) => void desks.rename(id, name)}
+            onRemoveWorkspace={(d) => setPendingRemove(d)}
+            onNewWorkspace={() => void onStartNewWorkspace()}
           />
         )}
       </div>
@@ -262,7 +248,7 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
           destructive
           onCancel={() => setPendingSessionRemove(null)}
           onConfirm={() => {
-            void sessions.remove(pendingSessionRemove.id);
+            void desks.removeSession(pendingSessionRemove.id);
             setPendingSessionRemove(null);
           }}
         />
