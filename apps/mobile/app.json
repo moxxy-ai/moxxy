@@ -10,7 +10,8 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "Scan the connection QR shown by `moxxy mobile` to connect to your agent."
+        "NSCameraUsageDescription": "Scan the connection QR shown by `moxxy mobile` to connect to your agent.",
+        "NSLocalNetworkUsageDescription": "Connect to the Moxxy gateway running on your computer over your local Wi-Fi network."
       }
     },
     "android": {
@@ -25,6 +26,14 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
       [
         "expo-audio",
         {
