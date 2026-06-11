@@ -1,0 +1,53 @@
+{
+  "name": "@moxxy/plugin-channel-virtual-office",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Virtual-office channel: a browser pixel-art office game where every animated worker sprite is a full moxxy session. Serves the IPC contract over an authenticated WebSocket (via @moxxy/ipc-server-ws) so the game frontend reuses @moxxy/client-core; subagents appear as war-room visitors. Run with `moxxy office`.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/build-web.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "channel"
+    }
+  },
+  "dependencies": {
+    "@moxxy/core": "workspace:*",
+    "@moxxy/desktop-ipc-contract": "workspace:*",
+    "@moxxy/ipc-server-ws": "workspace:*",
+    "@moxxy/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@moxxy/client-core": "workspace:*",
+    "@moxxy/client-transport-ws": "workspace:*",
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "esbuild": "catalog:",
+    "phaser": "^3.87.0",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "zod": "catalog:"
+  }
+}
