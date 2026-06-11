@@ -1,0 +1,130 @@
+/**
+ * Transcript ↔ Virtuoso wiring (Virtuoso itself is mocked — jsdom can't
+ * measure a virtualised scroller, so we capture the props Transcript hands
+ * it and drive the callbacks directly):
+ *   1. Stick-to-bottom: `followOutput` returns false when scrolled up,
+ *      'auto' while streaming (rapid chunks must pin instantly), and
+ *      'smooth' for a committed line; `atBottomThreshold` carries slack.
+ *   2. The jump button is hidden at the bottom, appears after
+ *      `atBottomStateChange(false)`, and clicking it calls
+ *      scrollToIndex({ index: 'LAST', … }) on the handle.
+ *   3. An upward-pagination prepend shifts `firstItemIndex` down by the
+ *      prepended row count and never flags the unread dot.
+ */
+
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import type { MoxxyEvent } from '@moxxy/sdk';
+import { Transcript } from './Transcript';
+
+interface CapturedProps {
+  followOutput: (isAtBottom: boolean) => false | 'smooth' | 'auto';
+  atBottomStateChange: (atBottom: boolean) => void;
+  atBottomThreshold: number;
+  firstItemIndex: number;
+  initialTopMostItemIndex: number;
+}
+
+const captured = vi.hoisted(() => ({
+  props: null as CapturedProps | null,
+  scrollToIndex: vi.fn(),
+}));
+
+vi.mock('react-virtuoso', async () => {
+  const React = await import('react');
+  return {
+    Virtuoso: React.forwardRef(function MockVirtuoso(
+      props: Record<string, unknown>,
+      ref: React.Ref<unknown>,
+    ) {
+      captured.props = props as unknown as CapturedProps;
+      React.useImperativeHandle(ref, () => ({ scrollToIndex: captured.scrollToIndex }));
+      return React.createElement('div', { 'data-testid': 'virtuoso-mock' });
+    }),
+  };
+});
+
+function userPrompt(id: string, text: string): MoxxyEvent {
+  return {
+    type: 'user_prompt',
+    text,
+    id,
+    seq: 1,
+    ts: 1,
+    sessionId: 's1',
+    turnId: 't1',
+    source: 'user',
+  } as unknown as MoxxyEvent;
+}
+
+function renderTranscript(
+  overrides: Partial<React.ComponentProps<typeof Transcript>> = {},
+): ReturnType<typeof render> {
+  return render(
+    <Transcript events={[userPrompt('e1', 'hi')]} extensions={[]} streamingText="" {...overrides} />,
+  );
+}
+
+beforeEach(() => {
+  captured.props = null;
+  captured.scrollToIndex.mockClear();
+});
+
+describe('Transcript stick-to-bottom wiring', () => {
+  it('followOutput pins instantly while streaming, smoothly otherwise, never when scrolled up', () => {
+    const { rerender } = renderTranscript();
+    expect(captured.props?.followOutput(true)).toBe('smooth');
+    expect(captured.props?.followOutput(false)).toBe(false);
+    rerender(
+      <Transcript events={[userPrompt('e1', 'hi')]} extensions={[]} streamingText="chunk" />,
+    );
+    expect(captured.props?.followOutput(true)).toBe('auto');
+    expect(captured.props?.followOutput(false)).toBe(false);
+    // Slack so trackpad jitter near the bottom doesn't break the follow.
+    expect(captured.props?.atBottomThreshold).toBe(80);
+  });
+
+  it('mounts at the bottom (initialTopMostItemIndex = last row) with no button', () => {
+    renderTranscript();
+    expect(captured.props?.initialTopMostItemIndex).toBe(0);
+    expect(screen.queryByTestId('scroll-to-bottom')).not.toBeInTheDocument();
+  });
+
+  it('shows the jump button when scrolled up; clicking scrolls to LAST and it hides at bottom', () => {
+    renderTranscript();
+    act(() => captured.props?.atBottomStateChange(false));
+    const btn = screen.getByTestId('scroll-to-bottom');
+    fireEvent.click(btn);
+    expect(captured.scrollToIndex).toHaveBeenCalledWith({
+      index: 'LAST',
+      align: 'end',
+      behavior: 'smooth',
+    });
+    // Landing at the bottom re-enables stick-to-bottom and hides the button.
+    act(() => captured.props?.atBottomStateChange(true));
+    expect(screen.queryByTestId('scroll-to-bottom')).not.toBeInTheDocument();
+  });
+
+  it('flags unread when chunks stream in while scrolled up', () => {
+    const { rerender } = renderTranscript();
+    act(() => captured.props?.atBottomStateChange(false));
+    expect(screen.queryByTestId('scroll-to-bottom-unread')).not.toBeInTheDocument();
+    rerender(
+      <Transcript events={[userPrompt('e1', 'hi')]} extensions={[]} streamingText="more text" />,
+    );
+    expect(screen.getByTestId('scroll-to-bottom-unread')).toBeInTheDocument();
+  });
+
+  it('prepending older history shifts firstItemIndex and does not flag unread', () => {
+    const e2 = userPrompt('e2', 'newest');
+    const { rerender } = render(<Transcript events={[e2]} extensions={[]} streamingText="" />);
+    const before = captured.props?.firstItemIndex ?? 0;
+    act(() => captured.props?.atBottomStateChange(false));
+    // Older page lands at the head; the tail row is unchanged.
+    rerender(
+      <Transcript events={[userPrompt('e1', 'older'), e2]} extensions={[]} streamingText="" />,
+    );
+    expect(captured.props?.firstItemIndex).toBe(before - 1);
+    expect(screen.queryByTestId('scroll-to-bottom-unread')).not.toBeInTheDocument();
+  });
+});
