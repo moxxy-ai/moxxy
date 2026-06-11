@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/desktop-ui",
   "private": true,
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Framework-light, dependency-free React UI primitives shared by the desktop renderer (and a future web channel): the single-file SVG Icon set, the Modal/ConfirmModal portal, and Skeleton placeholders. No app state, no IPC — just presentation.",
   "type": "module",
   "main": "./dist/index.js",

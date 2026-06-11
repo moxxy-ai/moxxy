@@ -1,5 +1,15 @@
 # @moxxy/mobile
 
+## 0.0.8
+
+### Patch Changes
+
+- Updated dependencies [d0e0bd2]
+  - @moxxy/desktop-ipc-contract@0.5.0
+  - @moxxy/client-core@0.3.0
+  - @moxxy/design-tokens@0.2.0
+  - @moxxy/client-transport-ws@0.1.5
+
 ## 0.0.7
 
 ### Patch Changes
