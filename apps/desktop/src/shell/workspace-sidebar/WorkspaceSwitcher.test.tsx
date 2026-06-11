@@ -7,6 +7,7 @@
  *   4. The row's × fires onRemove WITHOUT selecting.
  *   5. "New workspace" fires onNewWorkspace.
  *   6. Escape and outside-click both close the dropdown.
+ *   7. Text-only: neither the card nor the rows render monogram tiles.
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -66,6 +67,16 @@ describe('WorkspaceSwitcher', () => {
     expect(card.textContent).toContain('3 sessions');
     expect(card.getAttribute('aria-haspopup')).toBe('menu');
     expect(card.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('is text-only — no monogram letter in the card or the dropdown rows', () => {
+    setup();
+    const card = screen.getByTestId('workspace-switcher');
+    // Exact text equality: a monogram tile would prepend its initial
+    // ("PPersonal Workspace…").
+    expect(card.textContent).toBe('Personal Workspace3 sessions');
+    openDropdown();
+    expect(screen.getByTestId('desk-row-d2').textContent).toBe('Side Project×');
   });
 
   it('singular session count reads "1 session"', () => {

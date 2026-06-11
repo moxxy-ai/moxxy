@@ -171,6 +171,31 @@ describe('WorkflowsPanel — list mode', () => {
   });
 });
 
+describe('WorkflowsPanel — generate with AI', () => {
+  it('"Generate with AI" opens the agent-task modal with the workflow framing', async () => {
+    installApi({ list: [] });
+    render(<WorkflowsPanel />);
+    fireEvent.click(await screen.findByTestId('generate-workflow'));
+    expect(screen.getByText('Generate workflow with AI')).toBeInTheDocument();
+    expect(screen.getByText(/describe the workflow/i)).toBeInTheDocument();
+    // No active workspace in this harness — the shared modal's guard must
+    // surface and its Generate CTA stays disabled (same guard as MCP/providers).
+    expect(screen.getByText(/no active workspace/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Generate' })).toBeDisabled();
+  });
+
+  it('Cancel closes the modal without entering the builder', async () => {
+    installApi({ list: [] });
+    render(<WorkflowsPanel />);
+    fireEvent.click(await screen.findByTestId('generate-workflow'));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() =>
+      expect(screen.queryByText('Generate workflow with AI')).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('workflow-canvas')).not.toBeInTheDocument();
+  });
+});
+
 describe('WorkflowsPanel — builder', () => {
   async function openBuilder(spyOpts?: Parameters<typeof installApi>[0]): Promise<Spy> {
     const spy = installApi({ list: [], ...spyOpts });

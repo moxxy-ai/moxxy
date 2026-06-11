@@ -4,6 +4,8 @@ import { Skeleton, Icon, ConfirmModal } from '@moxxy/desktop-ui';
 import { useUnreadWorkspaces } from '@moxxy/client-core';
 import type { Desk, DeskSession } from '@moxxy/desktop-ipc-contract';
 import { Logo } from './workspace-sidebar/Logo';
+import { PanelLeftIcon } from './PanelLeftIcon';
+import { setSidebarCollapsed, useSidebarCollapsed } from '@/lib/useSidebarCollapsed';
 import { WorkspaceSwitcher } from './workspace-sidebar/WorkspaceSwitcher';
 import { SessionList } from './workspace-sidebar/SessionList';
 import { NameWorkspaceModal } from './workspace-sidebar/NameWorkspaceModal';
@@ -22,8 +24,13 @@ interface Props {
  * Bottom: a lone Settings entry above the user-profile pill —
  * Chat/Workflows navigation lives in the main-pane header
  * (`ViewSwitcher`), not here.
+ *
+ * The whole rail collapses to nothing (Cmd/Ctrl+B, or the panel button
+ * beside the logo); `ViewHeader` then shows the matching expand button
+ * in the main pane, so the affordance never disappears with the rail.
  */
-export function WorkspaceSidebar({ view, onView }: Props): JSX.Element {
+export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
+  const collapsed = useSidebarCollapsed();
   const desks = useDesks();
   const sessions = useSessions(desks.activeId);
   const unread = new Set(useUnreadWorkspaces());
@@ -35,6 +42,11 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element {
   const [pendingRemove, setPendingRemove] = useState<Desk | null>(null);
   /** Session queued for removal; null when no confirm is open. */
   const [pendingSessionRemove, setPendingSessionRemove] = useState<DeskSession | null>(null);
+
+  // Collapsed = the rail contributes no width at all (it's text-first
+  // now, so a mini icon rail would have nothing useful to show). All
+  // hooks above ran, so the early return is hook-safe.
+  if (collapsed) return null;
 
   // Unread is tracked per routing id — a session id. Light a desk's dot
   // when ANY of its sessions has activity (or its own id, the v1 alias).
@@ -76,7 +88,30 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element {
 
   return (
     <aside className="col-sidebar">
-      <Logo />
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Logo />
+        </div>
+        <button
+          type="button"
+          aria-label="Collapse sidebar"
+          data-testid="sidebar-collapse"
+          title="Collapse sidebar (⌘B / Ctrl+B)"
+          onClick={() => setSidebarCollapsed(true)}
+          className="row-button"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 5,
+            marginRight: 10,
+            borderRadius: 8,
+            color: 'var(--color-sidebar-text-dim)',
+          }}
+        >
+          <PanelLeftIcon size={16} />
+        </button>
+      </div>
       {/* The switcher lives OUTSIDE the scrolling session list so its
        *  dropdown never gets clipped by the overflow container and the
        *  card stays pinned while sessions scroll. */}

@@ -4,10 +4,11 @@ import type { Desk } from '@moxxy/desktop-ipc-contract';
 
 /**
  * Slack/Linear-style workspace switcher: a roomy card showing the ACTIVE
- * workspace (monogram tile, name that may wrap to two lines, session
- * count) that opens a dropdown listing every workspace plus a "New
- * workspace" footer. Replaces the old per-workspace rail rows so long
- * names stay readable and the rail's vertical space goes to sessions.
+ * workspace (name that may wrap to two lines, session count) that opens
+ * a dropdown listing every workspace plus a "New workspace" footer.
+ * Replaces the old per-workspace rail rows so long names stay readable
+ * and the rail's vertical space goes to sessions. Text-only on purpose —
+ * the old monogram tile just ate width the name needs.
  *
  * Purely presentational — the sidebar container owns the store calls and
  * the remove confirmation.
@@ -79,7 +80,6 @@ export function WorkspaceSwitcher({
           color: 'var(--color-sidebar-text)',
         }}
       >
-        <Monogram name={active?.name ?? '?'} color={active?.color ?? 'var(--color-primary)'} size={34} />
         <span style={{ flex: 1, minWidth: 0 }}>
           <span
             style={{
@@ -242,7 +242,6 @@ function DeskMenuRow({
         fontWeight: current ? 600 : 500,
       }}
     >
-      <Monogram name={desk.name} color={desk.color} size={26} />
       <span
         style={{
           flex: 1,
@@ -297,39 +296,5 @@ function DeskMenuRow({
         ×
       </button>
     </div>
-  );
-}
-
-/** Coloured monogram tile — the existing desk.color treatment. */
-function Monogram({
-  name,
-  color,
-  size,
-}: {
-  readonly name: string;
-  readonly color: string;
-  readonly size: number;
-}): JSX.Element {
-  return (
-    <span
-      aria-hidden
-      style={{
-        width: size,
-        height: size,
-        borderRadius: Math.round(size * 0.28),
-        // 12% colour wash behind the letter; color-mix keeps it sane on
-        // both themes (desk.color is an arbitrary hex from the store).
-        background: `color-mix(in srgb, ${color} 14%, transparent)`,
-        color,
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: Math.round(size * 0.44),
-        fontWeight: 700,
-        flexShrink: 0,
-      }}
-    >
-      {name.slice(0, 1).toUpperCase()}
-    </span>
   );
 }

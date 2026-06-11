@@ -1,19 +1,23 @@
 import { useState } from 'react';
 import { useWorkflows } from '@moxxy/client-core';
 import { Button, Icon, Skeleton } from '@moxxy/desktop-ui';
+import { AgentTaskModal } from '../settings/shared/AgentTaskModal';
 import { WorkflowBuilder } from './WorkflowBuilder';
 import { PausedWorkflows } from './PausedWorkflows';
+import { WORKFLOW_PROMPT_TEMPLATE } from './workflow-prompt';
 import { ViewHeader, ViewSwitcher, type View } from '../shell/ViewHeader';
 
 /**
  * Workflows surface — two modes:
  *   - list: the existing registry view with enable/disable + run-now + last-run
- *     status, plus "New" and per-row "Edit" that open the visual builder.
+ *     status, plus "New" and per-row "Edit" that open the visual builder, and
+ *     "Generate with AI" which hands the description to a hidden agent turn
+ *     (shared AgentTaskModal) that creates the workflow via the workflow tools.
  *   - builder: the drag canvas (palette + nodes + edges + inspector + save).
  *
  * State/logic for the builder live in the shared `@moxxy/workflows-builder`
  * model via `useWorkflowBuilder`; this panel only owns the mode toggle and
- * wires the list's `refresh` so a save re-lists.
+ * wires the list's `refresh` so a save (or a generated workflow) re-lists.
  */
 export function WorkflowsPanel({
   // Optional so the panel can render standalone (tests); the app shell
@@ -25,6 +29,7 @@ export function WorkflowsPanel({
   const wf = useWorkflows();
   // `editing === undefined` → list; `null` → new workflow; string → edit by name.
   const [editing, setEditing] = useState<string | null | undefined>(undefined);
+  const [generating, setGenerating] = useState(false);
 
   if (editing !== undefined) {
     return (
@@ -46,6 +51,15 @@ export function WorkflowsPanel({
         <Button variant="chip" onClick={() => void wf.refresh()} style={{ borderRadius: 9 }}>
           <Icon name="rotate" size={14} />
           Refresh
+        </Button>
+        <Button
+          variant="chip"
+          data-testid="generate-workflow"
+          onClick={() => setGenerating(true)}
+          style={{ borderRadius: 9, gap: 7 }}
+        >
+          <Icon name="spark" size={14} />
+          Generate with AI
         </Button>
         <Button
           variant="primary"
@@ -193,6 +207,18 @@ export function WorkflowsPanel({
         </section>
       )}
       </div>
+      {generating && (
+        <AgentTaskModal
+          title="Generate workflow with AI"
+          label="Describe the workflow"
+          placeholder="e.g. Every weekday at 9am, summarise my inbox with the summarize-inbox skill and post the digest to Slack."
+          hint="Moxxy builds it in the background — it drafts the steps, validates the DAG, and registers the workflow on this runner."
+          buildPrompt={WORKFLOW_PROMPT_TEMPLATE}
+          onComplete={wf.refresh}
+          doneLabel="Done"
+          onClose={() => setGenerating(false)}
+        />
+      )}
     </>
   );
 }

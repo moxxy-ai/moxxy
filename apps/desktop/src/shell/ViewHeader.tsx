@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react';
+import { PanelLeftIcon } from './PanelLeftIcon';
+import { setSidebarCollapsed, useSidebarCollapsed } from '@/lib/useSidebarCollapsed';
 
 /** Top-level main-content views. Chat ↔ Workflows switch via the header's
  *  `ViewSwitcher`; Settings is reached from the sidebar. */
@@ -9,8 +11,14 @@ export type View = 'chat' | 'workflows' | 'settings';
  * Settings all top out with the same height, border and padding.
  * Children lay out in a flex row; use `<span style={{ flex: 1 }} />`
  * to push trailing controls to the right edge.
+ *
+ * When the workspace sidebar is collapsed the rail (and its collapse
+ * button) is gone entirely, so every header leads with the expand
+ * affordance — it reads the shared collapsed store directly rather
+ * than threading a prop through each view.
  */
 export function ViewHeader({ children }: { readonly children: ReactNode }): JSX.Element {
+  const sidebarCollapsed = useSidebarCollapsed();
   return (
     <header
       style={{
@@ -25,6 +33,27 @@ export function ViewHeader({ children }: { readonly children: ReactNode }): JSX.
         gap: 12,
       }}
     >
+      {sidebarCollapsed && (
+        <button
+          type="button"
+          aria-label="Expand sidebar"
+          data-testid="sidebar-expand"
+          title="Expand sidebar (⌘B / Ctrl+B)"
+          onClick={() => setSidebarCollapsed(false)}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 5,
+            marginLeft: -6,
+            borderRadius: 8,
+            color: 'var(--color-text-muted)',
+            flexShrink: 0,
+          }}
+        >
+          <PanelLeftIcon size={16} />
+        </button>
+      )}
       {children}
     </header>
   );

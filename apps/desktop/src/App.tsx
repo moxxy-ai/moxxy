@@ -13,6 +13,7 @@ import {
 import { AskSheet } from './chat/AskSheet';
 import { useAskSurfaceClaimed } from '@/lib/askSurface';
 import { useTheme } from '@/lib/useTheme';
+import { toggleSidebarCollapsed } from '@/lib/useSidebarCollapsed';
 import { ConnectionScreen, type UpdateCliResult } from './connection/ConnectionScreen';
 import { Onboarding } from './onboarding/Onboarding';
 import { ChatSurface } from './chat/ChatSurface';
@@ -62,6 +63,21 @@ export function App(): JSX.Element {
   useEffect(() => {
     chatStore.setActive(activeWorkspaceId);
   }, [activeWorkspaceId]);
+
+  // Cmd/Ctrl+B toggles the workspace sidebar (same window-level keydown
+  // pattern as WorkflowCanvas's Delete handling). Skipped while typing —
+  // Cmd+B means "bold" inside inputs/textareas/contentEditable.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+      if (e.key.toLowerCase() !== 'b') return;
+      if (isEditableTarget(e.target)) return;
+      e.preventDefault();
+      toggleSidebarCollapsed();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   // Boot-probe heartbeat: the React tree mounted, so a hot-updated bundle is
   // healthy — tell main to confirm it (no-op on the bundled floor). A SINGLE
@@ -231,6 +247,15 @@ export function App(): JSX.Element {
       {view !== 'chat' && <GlobalAskFallback workspaceId={activeWorkspaceId} />}
     </div>
   );
+}
+
+/** True when the key event originated in a text-entry surface (so global
+ *  shortcuts must not fire). Mirrors WorkflowCanvas's guard. */
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
 }
 
 function GlobalAskFallback({ workspaceId }: { readonly workspaceId: string | null }): JSX.Element | null {
