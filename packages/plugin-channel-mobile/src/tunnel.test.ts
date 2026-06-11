@@ -122,3 +122,53 @@ describe('buildConnectUrl', () => {
     expect(lanHost('127.0.0.1')).toBe('127.0.0.1');
   });
 });
+
+describe('lanHost interface ranking (the QR must advertise a phone-reachable IP)', () => {
+  it('skips a link-local iBridge IPv4 that enumerates before en0 (Intel Mac T2)', () => {
+    ifaces.mockReturnValueOnce({
+      lo0: [{ family: 'IPv4', internal: true, address: '127.0.0.1' }],
+      en5: [{ family: 'IPv4', internal: false, address: '169.254.123.4' }],
+      en0: [{ family: 'IPv4', internal: false, address: '192.168.1.42' }],
+    } as never);
+    expect(lanHost('127.0.0.1')).toBe('192.168.1.42');
+  });
+
+  it('prefers the physical NIC over a VPN utun with an RFC1918 address', () => {
+    ifaces.mockReturnValueOnce({
+      utun4: [{ family: 'IPv4', internal: false, address: '10.8.0.2' }],
+      en0: [{ family: 'IPv4', internal: false, address: '192.168.1.42' }],
+    } as never);
+    expect(lanHost('127.0.0.1')).toBe('192.168.1.42');
+  });
+
+  it('prefers the physical NIC over a Tailscale CGNAT overlay address', () => {
+    ifaces.mockReturnValueOnce({
+      utun3: [{ family: 'IPv4', internal: false, address: '100.101.102.103' }],
+      en0: [{ family: 'IPv4', internal: false, address: '172.20.10.2' }],
+    } as never);
+    expect(lanHost('127.0.0.1')).toBe('172.20.10.2');
+  });
+
+  it('prefers the physical NIC over a VM bridge (Docker/Parallels style)', () => {
+    ifaces.mockReturnValueOnce({
+      bridge100: [{ family: 'IPv4', internal: false, address: '192.168.64.1' }],
+      en0: [{ family: 'IPv4', internal: false, address: '10.0.1.5' }],
+    } as never);
+    expect(lanHost('127.0.0.1')).toBe('10.0.1.5');
+  });
+
+  it('still returns a VPN address when it is the only routable candidate', () => {
+    ifaces.mockReturnValueOnce({
+      utun4: [{ family: 'IPv4', internal: false, address: '10.8.0.2' }],
+    } as never);
+    expect(lanHost('127.0.0.1')).toBe('10.8.0.2');
+  });
+
+  it('keeps first-enumerated order between equally-ranked candidates', () => {
+    ifaces.mockReturnValueOnce({
+      en0: [{ family: 'IPv4', internal: false, address: '192.168.1.42' }],
+      en1: [{ family: 'IPv4', internal: false, address: '192.168.1.43' }],
+    } as never);
+    expect(lanHost('127.0.0.1')).toBe('192.168.1.42');
+  });
+});

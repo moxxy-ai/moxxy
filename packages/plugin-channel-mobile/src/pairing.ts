@@ -33,15 +33,61 @@ export function isWildcardHost(host: string): boolean {
   return h === '0.0.0.0' || h === '::' || h === '[::]';
 }
 
-/** First non-internal IPv4 address, so a phone on the same Wi-Fi can reach the
- *  bridge without a tunnel. Falls back to the bind host. */
+/** Interface names that are overlay/virtual links a phone on the Wi-Fi cannot
+ *  reach: VPN tunnels (utun/wg/tailscale…), VM/container bridges (vmnet/
+ *  bridge/docker…), and Apple's special-purpose links (awdl/llw/ap). A private
+ *  address on one of these is only routable inside that overlay. */
+const VIRTUAL_IFACE = /^(?:utun|tun|tap|ppp|ipsec|wg|zt|ts|tailscale|vmnet|vnic|bridge|docker|veth|awdl|llw|ap|anpi)\d*$/i;
+
+/** 169.254/16 — self-assigned, never routed; a phone can't dial it. (Intel
+ *  Macs expose the T2 iBridge as `en5` with a link-local IPv4, and it often
+ *  enumerates BEFORE en0 — the classic "first IPv4" trap.) */
+function isLinkLocalV4(ip: string): boolean {
+  return ip.startsWith('169.254.');
+}
+
+/** RFC1918 private space — what a home/office Wi-Fi actually hands out. */
+function isRfc1918(ip: string): boolean {
+  if (ip.startsWith('10.') || ip.startsWith('192.168.')) return true;
+  const m = /^172\.(\d{1,3})\./.exec(ip);
+  return m !== null && Number(m[1]) >= 16 && Number(m[1]) <= 31;
+}
+
+/** 100.64/10 (CGNAT) — Tailscale-style overlay addresses; reachable only by
+ *  peers of the same overlay, not by a phone on the local Wi-Fi. */
+function isCgnat(ip: string): boolean {
+  const m = /^100\.(\d{1,3})\./.exec(ip);
+  return m !== null && Number(m[1]) >= 64 && Number(m[1]) <= 127;
+}
+
+/**
+ * The IPv4 address a phone on the same Wi-Fi should dial, so the bridge is
+ * reachable without a tunnel. NOT simply the first non-internal IPv4: macOS
+ * enumerates iBridge link-locals, VPN utuns, and VM bridges alongside the real
+ * NIC, and advertising one of those in the QR makes pairing dial a dead
+ * address. Candidates are ranked:
+ *   1. RFC1918 on a physical-looking interface (en0/eth0/wlan0…),
+ *   2. any other routable address on a physical interface,
+ *   3. RFC1918 on a virtual interface (a VPN's 10.x — last-resort connectable),
+ *   4. CGNAT overlay (Tailscale) / other virtual,
+ *   5. link-local 169.254.x (kept only so SOMETHING shows when it's all we have),
+ * with enumeration order breaking ties. Falls back to the bind host.
+ */
 export function lanHost(fallback: string): string {
-  for (const list of Object.values(os.networkInterfaces())) {
+  let best: { address: string; rank: number } | null = null;
+  for (const [name, list] of Object.entries(os.networkInterfaces())) {
     for (const ni of list ?? []) {
-      if (ni.family === 'IPv4' && !ni.internal) return ni.address;
+      if (ni.family !== 'IPv4' || ni.internal) continue;
+      const virtual = VIRTUAL_IFACE.test(name);
+      let rank: number;
+      if (isLinkLocalV4(ni.address)) rank = 5;
+      else if (isRfc1918(ni.address)) rank = virtual ? 3 : 1;
+      else if (isCgnat(ni.address)) rank = 4;
+      else rank = virtual ? 4 : 2;
+      if (!best || rank < best.rank) best = { address: ni.address, rank };
     }
   }
-  return fallback;
+  return best?.address ?? fallback;
 }
 
 /**

@@ -35,6 +35,14 @@ describe('mobile pairing bridge url', () => {
     expect(chooseGatewayUrlForPairing('ws://localhost:8765', '192.168.1.44:8081')).toBe('ws://192.168.1.44:8765');
     expect(chooseGatewayUrlForPairing('ws://10.0.0.2:8765', '192.168.1.44:8081')).toBe('ws://10.0.0.2:8765');
   });
+
+  it('never rewrites a scanned desktop-gateway LAN URL (built app, no Expo dev host)', () => {
+    // The desktop QR advertises the machine's LAN IP; the app must dial it
+    // verbatim — in a built app there is no Expo host to "improve" it with,
+    // and even in dev the non-loopback host wins (previous case).
+    expect(chooseGatewayUrlForPairing('ws://172.20.10.2:8765', null)).toBe('ws://172.20.10.2:8765');
+    expect(chooseGatewayUrlForPairing('ws://192.168.1.7:8765', undefined)).toBe('ws://192.168.1.7:8765');
+  });
 });
 
 describe('mobile pairing QR payload', () => {
