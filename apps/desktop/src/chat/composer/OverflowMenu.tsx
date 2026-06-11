@@ -67,7 +67,7 @@ export function OverflowMenu({
           lineHeight: 1,
           border: `1px solid ${armed ? 'var(--color-primary)' : 'var(--color-card-border)'}`,
           borderRadius: 10,
-          background: armed ? 'var(--color-primary-soft)' : '#fff',
+          background: armed ? 'var(--color-primary-soft)' : 'var(--color-surface)',
           color: armed ? 'var(--color-primary-strong)' : 'var(--color-text-muted)',
           cursor: disabled ? 'default' : 'pointer',
         }}

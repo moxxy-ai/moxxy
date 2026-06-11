@@ -22,5 +22,5 @@ export function accentHex(accent: StepKindMeta['accent']): string {
 
 /** A translucent wash of the accent, for node card backgrounds. */
 export function accentWash(accent: StepKindMeta['accent']): string {
-  return `color-mix(in oklab, ${accentHex(accent)} 8%, white)`;
+  return `color-mix(in oklab, ${accentHex(accent)} 8%, var(--color-card-bg))`;
 }

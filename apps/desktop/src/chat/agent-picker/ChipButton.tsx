@@ -27,7 +27,7 @@ export function ChipButton({
         color: 'var(--color-text-muted)',
         border: '1px solid var(--color-card-border)',
         borderRadius: 10,
-        background: '#fff',
+        background: 'var(--color-surface)',
         display: 'inline-flex',
         alignItems: 'center',
         gap: 6,

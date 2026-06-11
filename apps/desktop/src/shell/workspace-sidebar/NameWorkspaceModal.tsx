@@ -48,7 +48,7 @@ export function NameWorkspaceModal({
             color: 'var(--color-text-dim)',
             wordBreak: 'break-all',
             padding: '8px 10px',
-            background: '#f7f8fc',
+            background: 'var(--color-input-soft)',
             border: '1px solid var(--color-card-border)',
             borderRadius: 8,
           }}

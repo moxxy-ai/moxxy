@@ -8,6 +8,16 @@
 :root {
   /* App canvas — cool lavender to match the landing site's hero. */
   --color-app-bg:        #f1f2f9;
+  /* Main chat column — near-white with a faint cool tint, a hair off
+   * pure white so the column reads as separate from any adjacent white
+   * surface without being grey. */
+  --color-main-bg:       rgb(252, 252, 255);
+  /* Resting surface for buttons / chips / inputs that sit ON a card or
+   * column (the things that used to be hard-coded `#fff`). */
+  --color-surface:       #ffffff;
+  /* Recessed "soft" input fill — a cool near-white a step below the
+   * surface, used by TextInput/TextArea tone='soft' and modal fields. */
+  --color-input-soft:    #f7f8fc;
   --color-card-bg:       #ffffff;
   --color-card-border:   #e3e5f0;
   --color-card-border-strong: #cdd1e3;
@@ -40,6 +50,27 @@
   --color-amber:          #f59e0b;
   --color-pink:           #ec4899;
   --color-red:            #ef4444;
+  --color-purple-strong:  #7c3aed;   /* readable violet for text on the purple tints */
+
+  /* Status tints — the tailwind-derived washes the transcript blocks and
+   * composer chips use for error/ok/attention states. Solid (not alpha)
+   * fills so they read identically over any surface; each gets a DESIGNED
+   * dark counterpart in the [data-theme="dark"] block below. */
+  --color-red-soft:     #fee2e2;   /* error chip/tile fill (red-100) */
+  --color-red-wash:     #fef2f2;   /* subtler error card wash (red-50) */
+  --color-red-border:   #fecaca;
+  --color-red-text:     #dc2626;
+  --color-green-soft:   #ecfdf5;   /* success tile fill (emerald-50) */
+  /* Onboarding SuccessRow chip — a stronger green-100/200/800 set. */
+  --color-success-soft:        #dcfce7;
+  --color-success-soft-border: #bbf7d0;
+  --color-success-soft-text:   #166534;
+  --color-amber-soft:   #fef3c7;   /* attention chip fill (amber-100) */
+  --color-amber-wash:   #fffbeb;   /* subtler notice card wash (amber-50) */
+  --color-amber-border: #fde68a;
+  --color-amber-text:   #b45309;
+  /* Inline-code background in rendered Markdown. */
+  --color-code-bg:      #f1f3fb;
 
   /* Brand gradients */
   --grad-user:    linear-gradient(135deg, #ec4899 0%, #f472b6 100%);
@@ -58,6 +89,9 @@
 
 /* Legacy aliases — older components still read these names. Map them
  * to the new tokens so we don't have to touch every file in one go.
+ * NOTE: any alias holding a LITERAL color (not a var() reference) MUST
+ * be re-declared in the [data-theme="dark"] block below, or it silently
+ * stays light in dark mode — the design-tokens parity test enforces it.
  */
 :root {
   --color-bg:              var(--color-app-bg);
@@ -65,6 +99,85 @@
   --color-bg-card-hover:   #f4f5fa;
   --color-border:          var(--color-card-border);
   --color-border-light:    #d8dbeb;
+}
+
+/* --- Dark theme -------------------------------------------------
+ * Activated by `data-theme="dark"` on <html> (set by the renderer's
+ * useTheme() controller from the `theme` desktop pref; `system`
+ * follows the OS via prefers-color-scheme). Values mirror
+ * `darkTokens` in @moxxy/design-tokens — the parity test in that
+ * package keeps the two in lockstep, and additionally requires every
+ * literal-color custom property declared in :root to be overridden
+ * here. The palette is DESIGNED, not inverted: rail < canvas < main
+ * column < cards < surfaces in lightness, brand accents unchanged.
+ */
+[data-theme="dark"] {
+  --color-app-bg:        #0b0c13;
+  --color-main-bg:       #101117;
+  --color-surface:       #1b1e2b;
+  /* Soft inputs recess BELOW the card they sit on (mirror of light's
+   * near-white-on-white): between main column and card lightness. */
+  --color-input-soft:    #121420;
+  --color-card-bg:       #161823;
+  --color-card-border:   #262a3c;
+  --color-card-border-strong: #363c54;
+  --color-card-shadow:   0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 24px -18px rgba(0, 0, 0, 0.7);
+
+  --color-text:          #e8eaf6;
+  --color-text-muted:    #a4abc8;
+  --color-text-dim:      #697091;
+
+  /* Left rail deepens slightly below the canvas so the columns still
+   * register as separate surfaces in the dark. */
+  --color-sidebar-bg:        #0d0e16;
+  --color-sidebar-bg-hover:  #171927;
+  --color-sidebar-bg-active: #2b1622;   /* dark plum — the brand-pink wash on dark */
+  --color-sidebar-text:      #e8eaf6;
+  --color-sidebar-text-dim:  #8b91b0;
+  --color-sidebar-border:    #1f2233;
+
+  /* Brand accents survive dark unchanged (re-declared so the parity
+   * test can assert full coverage), EXCEPT the near-white pink-50
+   * "soft" wash which flips to the dark plum. */
+  --color-primary:        #ec4899;
+  --color-primary-strong: #db2777;
+  --color-primary-soft:   #2b1622;
+  --color-send:           #ec4899;
+  --color-accent:         #22d3ee;
+  --color-accent-strong:  #06b6d4;
+  --color-purple:         #8b5cf6;
+  --color-green:          #10b981;
+  --color-amber:          #f59e0b;
+  --color-pink:           #ec4899;
+  --color-red:            #ef4444;
+  --color-purple-strong:  #a78bfa;   /* violet text lightens for contrast on dark tints */
+
+  /* Status tints — deep desaturated washes in the same lightness band as
+   * the dark --color-primary-soft plum; text accents lighten instead. */
+  --color-red-soft:     #3d1b22;
+  --color-red-wash:     #2c161c;
+  --color-red-border:   #5c2b33;
+  --color-red-text:     #f87171;
+  --color-green-soft:   #11261e;
+  --color-success-soft:        #0e2a1c;
+  --color-success-soft-border: #1c4532;
+  --color-success-soft-text:   #7ce0a8;
+  --color-amber-soft:   #33250b;
+  --color-amber-wash:   #271e0c;
+  --color-amber-border: #5b430f;
+  --color-amber-text:   #fbbf24;
+  /* Inline code pops a step LIGHTER than the card it sits on. */
+  --color-code-bg:      #262b40;
+
+  --grad-user:    linear-gradient(135deg, #ec4899 0%, #f472b6 100%);
+  --grad-cta:     linear-gradient(135deg, #ec4899 0%, #db2777 100%);
+  --grad-accent:  linear-gradient(135deg, #38bdf8 0%, #22d3ee 100%);
+
+  /* Legacy literal aliases — see the note above the alias block. */
+  --color-bg-card-hover:   #1d2030;
+  --color-border-light:    #2c3147;
+
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -193,10 +306,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   flex-direction: column;
   padding: 16px 18px 16px 4px;
   min-width: 0;
-  /* Near-white with a faint cool tint — sits a hair off pure white
-   * so the column reads as separate from any adjacent white surface
-   * without being grey. */
-  background: rgb(252, 252, 255);
+  background: var(--color-main-bg);
 }
 
 /* `col-main--flat` removes the inset gutters so the chat content
@@ -290,32 +400,32 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
  */
 
 .btn-icon:hover:not(:disabled) {
-  box-shadow: inset 0 0 0 999px rgba(15, 23, 42, 0.07);
+  box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--color-text) 7%, transparent);
   color: var(--color-text);
 }
 
 .btn-chip:hover:not(:disabled) {
-  box-shadow: inset 0 0 0 999px rgba(15, 23, 42, 0.05);
+  box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--color-text) 5%, transparent);
   border-color: var(--color-card-border-strong);
   color: var(--color-text);
 }
 
 .btn-cta:hover:not(:disabled) {
   filter: brightness(1.06);
-  box-shadow: 0 12px 24px -12px rgba(236, 72, 153, 0.6);
+  box-shadow: 0 12px 24px -12px color-mix(in srgb, var(--color-primary) 60%, transparent);
 }
 .btn-cta:active:not(:disabled) {
   filter: brightness(0.97);
 }
 
 .btn-outline:hover:not(:disabled) {
-  box-shadow: inset 0 0 0 999px rgba(15, 23, 42, 0.05);
+  box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--color-text) 5%, transparent);
   border-color: var(--color-card-border-strong);
   color: var(--color-text);
 }
 
 .btn-ghost:hover:not(:disabled) {
-  box-shadow: inset 0 0 0 999px rgba(15, 23, 42, 0.05);
+  box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--color-text) 5%, transparent);
   color: var(--color-text);
 }
 
@@ -323,7 +433,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
 }
 .row-button:hover:not(:disabled) {
-  box-shadow: inset 0 0 0 999px rgba(15, 23, 42, 0.05);
+  box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--color-text) 5%, transparent);
 }
 
 /* Skill gallery card — barely-there hover (border firms up, faint tint),
@@ -334,7 +444,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .skill-card:hover:not(:disabled) {
   filter: none;
   border-color: var(--color-card-border-strong);
-  background: #fcfcff;
+  background: color-mix(in srgb, var(--color-card-bg) 97%, var(--color-text));
 }
 
 .btn-suggestion {
@@ -344,7 +454,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   /* Very subtle brand tint on hover — `filter: none` overrides the global
    * button brightness() so the white pill doesn't read as a gray fill. */
   filter: none;
-  background: rgba(236, 72, 153, 0.06);
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
   border-color: var(--color-primary);
 }
 

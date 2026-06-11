@@ -18,9 +18,9 @@ function toneStyle(tone: ModeBadge['tone']): {
   readonly soft: string;
 } {
   if (tone === 'info') {
-    return { accent: 'var(--color-accent-strong)', soft: 'rgba(34, 211, 238, 0.12)' };
+    return { accent: 'var(--color-accent-strong)', soft: 'color-mix(in srgb, var(--color-accent) 12%, transparent)' };
   }
-  return { accent: 'var(--color-amber)', soft: 'rgba(245, 158, 11, 0.13)' };
+  return { accent: 'var(--color-amber)', soft: 'color-mix(in srgb, var(--color-amber) 13%, transparent)' };
 }
 
 export function ModeBanner({ badge }: { readonly badge: ModeBadge }): JSX.Element {

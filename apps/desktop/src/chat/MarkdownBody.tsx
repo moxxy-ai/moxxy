@@ -44,7 +44,7 @@ const components: Components = {
           {...rest}
           className={className}
           style={{
-            background: '#f1f3fb',
+            background: 'var(--color-code-bg)',
             padding: '1px 6px',
             borderRadius: 4,
             fontSize: '0.92em',
@@ -67,7 +67,7 @@ const components: Components = {
       style={{
         margin: '0 0 0.55em',
         padding: '10px 12px',
-        background: '#f4f5fa',
+        background: 'var(--color-bg-card-hover)',
         border: '1px solid var(--color-card-border)',
         borderRadius: 8,
         fontSize: 12.5,

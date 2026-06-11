@@ -40,6 +40,7 @@ export {
   readConfirmed,
   compareSemver,
   isCompatible,
+  exceedsCliRunnerProtocol,
   resolveActiveBundle,
   resolveActiveBundleDetailed,
   type ResolveResult,

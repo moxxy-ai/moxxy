@@ -21,6 +21,7 @@ const DEFAULTS: DesktopPrefs = {
   clerkDisplayName: null,
   signedInAt: null,
   mobileGatewayEnabled: false,
+  theme: 'system',
   version: 1,
 };
 

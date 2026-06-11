@@ -155,6 +155,7 @@ export function AboutTab(): JSX.Element {
             style={{
               margin: 0,
               padding: 10,
+              // Deliberate literals: terminal-style log is dark in both themes.
               background: '#0f172a',
               color: '#e2e8f0',
               borderRadius: 10,

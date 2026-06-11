@@ -53,7 +53,7 @@ export function Segmented<T extends string>({
         display: 'inline-flex',
         gap: 2,
         padding: 3,
-        background: '#f1f2f9',
+        background: 'var(--color-app-bg)',
         borderRadius: 12,
       }}
     >
@@ -72,7 +72,7 @@ export function Segmented<T extends string>({
               fontWeight: 600,
               borderRadius: 9,
               color: active ? 'var(--color-text)' : 'var(--color-text-muted)',
-              background: active ? '#fff' : 'transparent',
+              background: active ? 'var(--color-surface)' : 'transparent',
               boxShadow: active ? '0 1px 3px rgba(15, 23, 42, 0.12)' : 'none',
               transition: 'background 140ms, color 140ms',
             }}

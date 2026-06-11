@@ -52,7 +52,7 @@ export function AttachmentChip({
           width: 18,
           height: 18,
           borderRadius: '50%',
-          background: 'rgba(236, 72, 153, 0.18)',
+          background: 'color-mix(in srgb, var(--color-primary) 18%, transparent)',
           color: 'var(--color-primary-strong)',
           display: 'inline-flex',
           alignItems: 'center',

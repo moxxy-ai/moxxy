@@ -33,6 +33,14 @@
       #splash-fallback .label { font-size: 0.85rem; color: #475569;
         letter-spacing: 0.04em; font-family: 'JetBrains Mono', monospace; }
       @keyframes splash-spin { to { transform: rotate(360deg); } }
+      /* Dark splash — main sets nativeTheme.themeSource from the persisted
+         pref BEFORE the window is created, so this media query reflects the
+         user's choice (not just the OS) by the time this CSS evaluates. The
+         colors mirror styles.css's dark --color-main-bg / text tokens. */
+      @media (prefers-color-scheme: dark) {
+        html, body { background: #101117; color: #e8eaf6; }
+        #splash-fallback .label { color: #a4abc8; }
+      }
       @media (prefers-reduced-motion: reduce) {
         #splash-fallback .mark { animation-duration: 1.6s; }
       }

@@ -7,7 +7,7 @@
 export const preStyle: React.CSSProperties = {
   margin: 0,
   padding: '8px 10px',
-  background: '#f6f7fc',
+  background: 'var(--color-input-soft)',
   border: '1px solid var(--color-card-border)',
   borderRadius: 6,
   fontSize: 11,

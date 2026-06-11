@@ -22,6 +22,8 @@ function statusLine(state: UpdateState, latest: string | null): string | null {
       return `Version ${latest} is available.`;
     case 'incompatible':
       return 'A newer version needs a full app update (reinstall).';
+    case 'requires-full-update':
+      return `Version ${latest ?? '?'} updates the bundled runner — it needs the full app installer and can’t apply as a hot-update.`;
     case 'unavailable':
       return null; // shown via the check.error / muted note instead
     case 'updating':
@@ -33,6 +35,24 @@ function statusLine(state: UpdateState, latest: string | null): string | null {
     default:
       return null;
   }
+}
+
+/** Human-readable explanations for the boot-log's structured reject reasons, so
+ *  a refused override is legible right in the Diagnostics panel instead of
+ *  needing the resolve.ts source to decode. */
+const REASON_HINTS: Record<string, string> = {
+  'runner-protocol-skew':
+    'staged update needs a newer bundled runner than this install can spawn — install the full app update',
+  incompatible: 'staged update needs a newer app shell (Electron/ABI) — install the full app update',
+  poisoned: 'this version failed a previous boot and is blocked',
+  'bad-signature': 'staged bundle failed signature verification',
+  'file-tampered': 'a staged file does not match its signed hash',
+};
+
+function describeReason(reason: string | undefined): string {
+  if (!reason) return '';
+  const hint = REASON_HINTS[reason];
+  return `  reason=${reason}${hint ? ` (${hint})` : ''}`;
 }
 
 export function DashboardUpdateSection(): JSX.Element {
@@ -136,7 +156,7 @@ export function DashboardUpdateSection(): JSX.Element {
             >
               Update dashboard
             </button>
-          ) : state === 'incompatible' && check?.releaseUrl ? (
+          ) : (state === 'incompatible' || state === 'requires-full-update') && check?.releaseUrl ? (
             <button
               type="button"
               style={primaryBtn(false)}
@@ -176,6 +196,24 @@ export function DashboardUpdateSection(): JSX.Element {
           </summary>
           {diagnostics ? (
             <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {(() => {
+                // Surface the last boot-time rejection prominently: a staged
+                // update the bootstrap declined (e.g. runner-protocol-skew)
+                // used to be visible only by decoding the raw log below.
+                const lastBoot = [...diagnostics.log].reverse().find((e) => e.phase === 'boot');
+                const reason =
+                  lastBoot?.picked === 'floor' &&
+                  lastBoot.reason &&
+                  !['disabled', 'no-active'].includes(lastBoot.reason)
+                    ? lastBoot.reason
+                    : null;
+                return reason ? (
+                  <p role="alert" style={{ margin: 0, fontSize: 12, color: 'var(--color-red)', lineHeight: 1.5 }}>
+                    Last launch declined the staged update ({reason}
+                    {REASON_HINTS[reason] ? `: ${REASON_HINTS[reason]}` : ''}).
+                  </p>
+                ) : null;
+              })()}
               <div style={{ fontSize: 11.5, color: 'var(--color-text-dim)', lineHeight: 1.6 }}>
                 running <b className="mono">{diagnostics.running}</b> · active{' '}
                 <span className="mono">{diagnostics.active ?? '—'}</span> · confirmed{' '}
@@ -191,7 +229,7 @@ export function DashboardUpdateSection(): JSX.Element {
                       .map(
                         (e) =>
                           `${new Date(e.ts).toISOString()}  ${e.phase.padEnd(11)} ${e.picked ?? ''}` +
-                          (e.reason ? `  reason=${e.reason}` : '') +
+                          describeReason(e.reason) +
                           (e.recoveredTo ? `  → ${e.recoveredTo}` : '') +
                           (e.error ? `  error=${e.error}` : ''),
                       )
@@ -259,5 +297,5 @@ const badge = (updated: boolean): React.CSSProperties => ({
   padding: '2px 7px',
   borderRadius: 999,
   color: updated ? 'var(--color-green)' : 'var(--color-text-dim)',
-  background: updated ? 'rgba(34,197,94,0.12)' : 'var(--color-card-border)',
+  background: updated ? 'color-mix(in srgb, var(--color-green) 12%, transparent)' : 'var(--color-card-border)',
 });

@@ -38,7 +38,7 @@ export function ContextMeter({ workspaceId }: { readonly workspaceId: string }):
             width: 30,
             height: 5,
             borderRadius: 999,
-            background: 'rgba(148, 163, 184, 0.22)',
+            background: 'color-mix(in srgb, var(--color-text-dim) 22%, transparent)',
             overflow: 'hidden',
             flexShrink: 0,
           }}

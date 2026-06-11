@@ -65,7 +65,7 @@ export function TabHeader({
               fontSize: 11,
               fontWeight: 700,
               color: 'var(--color-text-muted)',
-              background: 'rgba(148, 163, 184, 0.16)',
+              background: 'color-mix(in srgb, var(--color-text-dim) 16%, transparent)',
             }}
           >
             {count}

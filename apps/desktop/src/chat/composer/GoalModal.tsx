@@ -134,7 +134,7 @@ export function GoalModal({
             fontSize: 13.5,
             lineHeight: 1.5,
             color: 'var(--color-text)',
-            background: '#fff',
+            background: 'var(--color-surface)',
             border: '1px solid var(--color-card-border)',
             borderRadius: 10,
             outline: 'none',
@@ -151,7 +151,7 @@ export function GoalModal({
               fontSize: 13,
               fontWeight: 600,
               color: 'var(--color-text-muted)',
-              background: '#fff',
+              background: 'var(--color-surface)',
               border: '1px solid var(--color-card-border)',
               borderRadius: 10,
             }}

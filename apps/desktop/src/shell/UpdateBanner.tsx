@@ -17,7 +17,12 @@ export function UpdateBanner(): JSX.Element | null {
   const [dismissed, setDismissed] = useState(false);
 
   const visible =
-    !dismissed && (state === 'available' || state === 'updating' || state === 'staged' || state === 'incompatible');
+    !dismissed &&
+    (state === 'available' ||
+      state === 'updating' ||
+      state === 'staged' ||
+      state === 'incompatible' ||
+      state === 'requires-full-update');
   if (!visible) return null;
 
   const pct =
@@ -56,10 +61,14 @@ export function UpdateBanner(): JSX.Element | null {
       </>
     );
   } else {
-    // incompatible → Tier-2 (full app update)
+    // incompatible / requires-full-update → Tier-2 (full app update)
     body = (
       <>
-        <span>A new version needs a full app update.</span>
+        <span>
+          {state === 'requires-full-update'
+            ? `Version ${check?.latestVersion ?? ''} updates the bundled runner — install the full app update.`
+            : 'A new version needs a full app update.'}
+        </span>
         {check?.releaseUrl && (
           <button
             type="button"

@@ -12,6 +12,7 @@ import {
 } from '@moxxy/client-core';
 import { AskSheet } from './chat/AskSheet';
 import { useAskSurfaceClaimed } from '@/lib/askSurface';
+import { useTheme } from '@/lib/useTheme';
 import { ConnectionScreen, type UpdateCliResult } from './connection/ConnectionScreen';
 import { Onboarding } from './onboarding/Onboarding';
 import { ChatSurface } from './chat/ChatSurface';
@@ -35,6 +36,9 @@ import { api, toErrorMessage } from '@moxxy/client-core';
  *      WorkspaceSidebar | ContextRail | <active view>.
  */
 export function App(): JSX.Element {
+  // Theme controller — applies the persisted light/dark/system pref to
+  // <html data-theme> and tracks OS scheme changes. Mounted exactly once.
+  useTheme();
   const activeWorkspaceId = useActiveWorkspaceId();
   const { snapshot, hasEverConnected, retry } = useConnection(activeWorkspaceId);
   const { prefs, loading: prefsLoading } = usePrefs();

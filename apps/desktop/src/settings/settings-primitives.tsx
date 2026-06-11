@@ -26,7 +26,7 @@ export function SearchBox({
         alignItems: 'center',
         gap: 9,
         padding: '9px 12px',
-        background: '#fff',
+        background: 'var(--color-surface)',
         border: '1px solid var(--color-card-border)',
         borderRadius: 10,
       }}
@@ -202,7 +202,7 @@ export function StatusDot({
           height: 8,
           borderRadius: '50%',
           background: ok ? 'var(--color-green)' : 'var(--color-card-border-strong)',
-          boxShadow: ok ? '0 0 0 3px rgba(16, 185, 129, 0.16)' : 'none',
+          boxShadow: ok ? '0 0 0 3px color-mix(in srgb, var(--color-green) 16%, transparent)' : 'none',
         }}
       />
       {ok ? okLabel : offLabel}
@@ -245,6 +245,8 @@ export function Switch({
           width: 20,
           height: 20,
           borderRadius: '50%',
+          // Deliberate literal: the knob rides a colored/track fill in both
+          // themes (iOS-style) — it must stay white even in dark mode.
           background: '#fff',
           boxShadow: '0 1px 2px rgba(15, 23, 42, 0.35)',
           transform: on ? 'translateX(18px)' : 'translateX(0)',
@@ -269,7 +271,7 @@ export function Badge({ children }: { readonly children: React.ReactNode }): JSX
         letterSpacing: '0.04em',
         padding: '3px 9px',
         borderRadius: 999,
-        background: 'rgba(148, 163, 184, 0.16)',
+        background: 'color-mix(in srgb, var(--color-text-dim) 16%, transparent)',
         color: 'var(--color-text-muted)',
       }}
     >

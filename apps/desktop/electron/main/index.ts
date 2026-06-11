@@ -63,6 +63,7 @@ import type { WebSocketCommandBus, WebSocketBridgeServer } from '@moxxy/ipc-serv
 import { resolveWsBridgeConfig, MobileGatewayManager } from './ws-bridge.js';
 
 import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
+import { FLOOR_RUNNER_PROTOCOL } from './floor-runner-protocol.js';
 import { readConfirmed, markConfirmed, markBad, appendBootLog } from '@moxxy/desktop-host/app-update';
 import { initShellUpdater } from './shell-updater.js';
 
@@ -77,7 +78,7 @@ if (app.isPackaged && !process.env.MOXXY_CLI_ENTRY) {
   const entry = preferredCliEntry(app.getPath('userData'), process.resourcesPath);
   if (entry) process.env.MOXXY_CLI_ENTRY = entry;
 }
-import { ipcMain, Tray, Menu, nativeImage, globalShortcut, session, shell, systemPreferences } from 'electron';
+import { ipcMain, Tray, Menu, nativeImage, nativeTheme, globalShortcut, session, shell, systemPreferences } from 'electron';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -226,7 +227,11 @@ async function createWindow(): Promise<void> {
     height: 760,
     minWidth: 720,
     minHeight: 480,
-    backgroundColor: '#f1f2f9',
+    // Match the themed app canvas (--color-app-bg light/dark) so the window
+    // doesn't flash white-then-dark while the renderer boots. themeSource was
+    // set from prefs before createWindow, so shouldUseDarkColors is correct
+    // for explicit choices as well as `system`.
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0b0c13' : '#f1f2f9',
     autoHideMenuBar: true,
     icon: iconPath,
     webPreferences: {
@@ -729,6 +734,17 @@ app.whenReady().then(async () => {
   // app.quit() above; do nothing here so it exits cleanly.
   if (!gotSingleInstanceLock) return;
 
+  // Apply the persisted theme preference BEFORE any window exists so the
+  // very first paint (splash background, window chrome, the renderer's
+  // prefers-color-scheme media query) already reflects it. `system` is the
+  // default and means "follow the OS". The prefs.update IPC handler keeps
+  // themeSource in sync afterwards; readPrefs is sync, so no boot race.
+  // Guarded because prefs.json is user-editable and Electron throws on an
+  // unknown themeSource value — a hand-mangled pref must not brick boot.
+  const themePref = readPrefs().theme;
+  nativeTheme.themeSource =
+    themePref === 'light' || themePref === 'dark' ? themePref : 'system';
+
   // Present a plain desktop-Chrome user-agent (no Electron/app product
   // tokens) to every request. Google blocks OAuth from "embedded"
   // user-agents ("this browser may not be secure"); a clean UA lets the
@@ -924,6 +940,13 @@ app.whenReady().then(async () => {
       // Dev/test escape hatch: point the updater at a local manifest. Ignored in
       // packaged builds (the handler pins the source) so it can't be abused.
       manifestUrl: process.env.MOXXY_UPDATE_URL,
+      // The same runner-protocol ceiling the bootstrap's boot gate enforces, so
+      // the stager refuses (with a "needs the full installer" status) a bundle
+      // that every boot would silently reject as `runner-protocol-skew`. When
+      // this main IS a hot-updated override, its compiled constant can only be
+      // ≤ the floor's (the boot gate already admitted it) — i.e. at worst the
+      // stage-time gate is conservative, never permissive.
+      cliRunnerProtocol: FLOOR_RUNNER_PROTOCOL,
     },
     // Bridge-control commands (host-only; refused over the WS transport).
     ...(mobileGateway ? { mobileGateway } : {}),

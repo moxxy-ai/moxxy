@@ -48,7 +48,7 @@ export function Header({
               color: 'var(--color-text)',
               border: '1px solid var(--color-card-border)',
               borderRadius: 8,
-              background: '#fff',
+              background: 'var(--color-surface)',
               outline: 'none',
               width: 220,
             }}

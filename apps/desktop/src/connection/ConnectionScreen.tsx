@@ -67,7 +67,7 @@ export function ConnectionScreen({
         display: 'grid',
         placeItems: 'center',
         padding: '2rem',
-        background: 'rgb(252, 252, 255)',
+        background: 'var(--color-main-bg)',
         color: 'var(--color-text)',
       }}
     >
@@ -296,7 +296,9 @@ function primaryButtonStyle(disabled: boolean): React.CSSProperties {
     fontWeight: 600,
     fontSize: 13.5,
     cursor: disabled ? 'default' : 'pointer',
-    boxShadow: disabled ? 'none' : '0 10px 20px -12px rgba(236, 72, 153, 0.55)',
+    boxShadow: disabled
+      ? 'none'
+      : '0 10px 20px -12px color-mix(in srgb, var(--color-primary) 55%, transparent)',
   };
 }
 

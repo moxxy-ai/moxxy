@@ -107,7 +107,7 @@ export function ProviderModelPicker({
             listStyle: 'none',
             margin: 0,
             padding: 6,
-            background: '#f7f8fc',
+            background: 'var(--color-input-soft)',
             borderRight: '1px solid var(--color-card-border)',
             overflowY: 'auto',
             maxHeight: 360,
@@ -141,7 +141,7 @@ export function ProviderModelPicker({
                     fontSize: 13,
                     borderRadius: 8,
                     color: isHovered ? 'var(--color-text)' : 'var(--color-text-muted)',
-                    background: isHovered ? '#fff' : 'transparent',
+                    background: isHovered ? 'var(--color-surface)' : 'transparent',
                     fontWeight: isHovered ? 600 : 500,
                     display: 'flex',
                     alignItems: 'center',
@@ -169,7 +169,7 @@ export function ProviderModelPicker({
           style={{
             display: 'flex',
             flexDirection: 'column',
-            background: '#fff',
+            background: 'var(--color-surface)',
             overflow: 'hidden',
           }}
         >
@@ -314,8 +314,8 @@ export function ProviderModelPicker({
                     margin: '6px 4px 0',
                     fontSize: 11.5,
                     color: 'var(--color-red)',
-                    background: '#fef2f2',
-                    border: '1px solid #fecaca',
+                    background: 'var(--color-red-wash)',
+                    border: '1px solid var(--color-red-border)',
                     borderRadius: 8,
                   }}
                 >

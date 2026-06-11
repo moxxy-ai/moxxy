@@ -84,7 +84,7 @@ function ApprovalSheet({
               fontSize: 13.5,
               lineHeight: 1.5,
               color: 'var(--color-text)',
-              background: '#fff',
+              background: 'var(--color-surface)',
               border: '1px solid var(--color-card-border)',
               borderRadius: 10,
               outline: 'none',
@@ -138,7 +138,7 @@ function Sheet({
       className="anim-fade-up"
       style={{
         margin: '0 24px 8px',
-        background: '#fff',
+        background: 'var(--color-surface)',
         border: `1px solid ${accent}`,
         borderRadius: 14,
         boxShadow: '0 18px 40px -22px rgba(15, 23, 42, 0.4)',
@@ -197,8 +197,8 @@ function SheetButton({
     tone === 'primary'
       ? { bg: 'var(--color-primary-strong)', color: '#fff', border: 'transparent' }
       : tone === 'danger'
-        ? { bg: '#fff', color: 'var(--color-red)', border: 'var(--color-card-border)' }
-        : { bg: '#fff', color: 'var(--color-text-muted)', border: 'var(--color-card-border)' };
+        ? { bg: 'var(--color-surface)', color: 'var(--color-red)', border: 'var(--color-card-border)' }
+        : { bg: 'var(--color-surface)', color: 'var(--color-text-muted)', border: 'var(--color-card-border)' };
   return (
     <button
       type="button"
@@ -231,7 +231,7 @@ const bodyTextStyle: React.CSSProperties = {
 const preStyle: React.CSSProperties = {
   margin: 0,
   padding: '10px 12px',
-  background: '#f7f8fc',
+  background: 'var(--color-input-soft)',
   border: '1px solid var(--color-card-border)',
   borderRadius: 8,
   fontSize: 11.5,

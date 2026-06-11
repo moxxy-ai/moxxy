@@ -42,7 +42,7 @@ export function ToolBlock({
   // stray indented line.
   const statusText = status === 'ok' ? 'ok' : status === 'error' ? 'failed' : 'running';
   const tint =
-    status === 'error' ? '#fee2e2' : status === 'ok' ? '#ecfdf5' : 'var(--color-primary-soft)';
+    status === 'error' ? 'var(--color-red-soft)' : status === 'ok' ? 'var(--color-green-soft)' : 'var(--color-primary-soft)';
   return (
     <div
       data-testid="block-tool"

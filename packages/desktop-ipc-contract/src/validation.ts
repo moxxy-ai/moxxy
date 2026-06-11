@@ -200,6 +200,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       clerkDisplayName: z.string().max(256).nullable().optional(),
       signedInAt: z.number().nullable().optional(),
       mobileGatewayEnabled: z.boolean().optional(),
+      theme: z.enum(['light', 'dark', 'system']).optional(),
     })
     .strict(),
   // Mobile-gateway control. Both no-arg variants pin the payload to "nothing"

@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.0.0",
+    "@clerk/themes": "^2.4.57",
     "@moxxy/chat-model": "workspace:*",
     "@moxxy/cli": "workspace:*",
     "@moxxy/client-core": "workspace:*",

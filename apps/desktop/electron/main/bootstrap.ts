@@ -63,6 +63,13 @@ async function load(entry: string): Promise<void> {
 const shell = { electron: process.versions.electron, nodeAbi: process.versions.modules ?? '' };
 
 async function boot(): Promise<void> {
+  // These survive app.relaunch(): a floor boot after a refused/rolled-back
+  // override would otherwise inherit the previous override's identity and let
+  // the boot probe confirm/poison a bundle that isn't running. Resolution
+  // re-sets them below when a bundle IS picked.
+  delete process.env.MOXXY_APP_BUNDLE_ROOT;
+  delete process.env.MOXXY_APP_BUNDLE_VERSION;
+
   // Let a userData bundle resolve the shell's optional native deps (keychain).
   setupNativeResolution(floorRoot);
 

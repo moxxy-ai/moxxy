@@ -181,7 +181,7 @@ function Bar({ frac, color }: { readonly frac: number; readonly color: string })
       style={{
         height: 8,
         borderRadius: 999,
-        background: 'rgba(148, 163, 184, 0.18)',
+        background: 'color-mix(in srgb, var(--color-text-dim) 18%, transparent)',
         overflow: 'hidden',
       }}
     >

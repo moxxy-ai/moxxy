@@ -31,6 +31,7 @@ import {
   appUpdateDir,
   bundleRoot,
   compareSemver,
+  exceedsCliRunnerProtocol,
   isCompatible,
   isSafeVersion,
   safeRelPath,
@@ -64,6 +65,11 @@ export interface CheckResult {
   latestVersion: string | null;
   /** The running shell satisfies the bundle (false ⇒ a shell/Tier-2 update is needed). */
   compatible: boolean;
+  /** True ⇒ the bundle's signed `runnerProtocol` outruns the CLI the desktop
+   *  can spawn: a hot-update would be staged but REFUSED at every boot
+   *  (`runner-protocol-skew`), so this update needs the full app installer
+   *  (Tier-2). Only computed when the caller supplies `cliRunnerProtocol`. */
+  requiresFullUpdate?: boolean;
   manifest: AppManifest | null;
   /** Where to download the bundle — the discovered release asset URL (preferred
    *  over the manifest's signed `bundleUrl`, which integrity-binds via sha256). */
@@ -161,6 +167,11 @@ export async function checkForUpdate(
     currentVersion: string;
     publicKeyPem: string;
     shell: ShellInfo;
+    /** Runner protocol the spawnable (floor) CLI speaks — same ceiling the boot
+     *  gate enforces. Supplying it lets the check flag a bundle the bootstrap
+     *  would refuse (`requiresFullUpdate`) BEFORE anything is staged. Omit to
+     *  skip the gate (legacy callers / tests that don't model the CLI). */
+    cliRunnerProtocol?: number;
     manifestUrlOverride?: string;
   },
   deps: StagerDeps = {},
@@ -204,10 +215,16 @@ export async function checkForUpdate(
   }
 
   const newer = compareSemver(manifest.version, currentVersion) > 0;
+  // Mirror the boot gate at CHECK time: a bundle whose runner protocol outruns
+  // the spawnable CLI would stage fine but be rejected on every launch
+  // (`runner-protocol-skew`) — report it as needing the full installer instead
+  // of letting the flow claim a success that can never take effect.
+  const requiresFullUpdate = exceedsCliRunnerProtocol(manifest, opts.cliRunnerProtocol);
   const result: CheckResult = {
     available: newer,
     latestVersion: manifest.version,
-    compatible: isCompatible(manifest, shell),
+    compatible: isCompatible(manifest, shell) && !requiresFullUpdate,
+    ...(requiresFullUpdate ? { requiresFullUpdate } : {}),
     manifest: newer ? manifest : null,
     // Prefer the discovered release asset URL; fall back to the (signed) one.
     bundleUrl: bundleUrl ?? manifest.bundleUrl,
@@ -244,6 +261,11 @@ export async function downloadAndStage(
      *  the manifest's signed `bundleUrl`. Integrity is bound by `sha256` either
      *  way, so a stale/wrong signed `bundleUrl` doesn't compromise safety. */
     bundleUrl?: string;
+    /** Runner protocol the spawnable (floor) CLI speaks. When supplied, a
+     *  bundle whose signed `runnerProtocol` exceeds it is refused HERE —
+     *  staging it would only produce a "updated, relaunch" that the boot gate
+     *  silently rejects (`runner-protocol-skew`) on every launch. */
+    cliRunnerProtocol?: number;
     onProgress?: (p: Progress) => void;
   },
   deps: StagerDeps = {},
@@ -257,6 +279,14 @@ export async function downloadAndStage(
   }
   if (!isSafeVersion(manifest.version)) {
     throw new Error(`unsafe bundle version: ${manifest.version}`);
+  }
+  // Stage-time mirror of the bootstrap's runner-protocol lockstep gate (checked
+  // AFTER the signature so the stamp is trusted): refuse before any download
+  // rather than activate a bundle every subsequent boot will refuse.
+  if (exceedsCliRunnerProtocol(manifest, opts.cliRunnerProtocol)) {
+    throw new Error(
+      'this update changes the runner protocol and needs the full app installer — a hot-update would be refused at startup',
+    );
   }
   if (!isAllowedUpdateHost(downloadUrl)) {
     throw new Error('update bundle is not hosted on an allowed origin');

@@ -44,7 +44,7 @@ export function SkillEditor({
       style={{
         // Match the chat surface background so the skill body reads as
         // the same "writing surface" as a conversation.
-        background: 'rgb(252, 252, 255)',
+        background: 'var(--color-main-bg)',
         border: '1px solid var(--color-card-border)',
         borderRadius: 12,
         overflow: 'hidden',
@@ -100,7 +100,7 @@ export function SkillEditor({
           style={{
             padding: '6px 14px',
             borderRadius: 9,
-            background: dirty ? 'var(--grad-cta)' : '#e5e7eb',
+            background: dirty ? 'var(--grad-cta)' : 'var(--color-card-border)',
             color: dirty ? '#fff' : 'var(--color-text-dim)',
           }}
         >
@@ -152,7 +152,7 @@ function SegmentedToggle({
       role="tablist"
       style={{
         display: 'inline-flex',
-        background: '#f4f5fb',
+        background: 'var(--color-sidebar-bg-hover)',
         border: '1px solid var(--color-card-border)',
         borderRadius: 9,
         padding: 2,
@@ -171,7 +171,7 @@ function SegmentedToggle({
             fontWeight: 700,
             borderRadius: 7,
             color: value === m ? 'var(--color-text)' : 'var(--color-text-dim)',
-            background: value === m ? '#fff' : 'transparent',
+            background: value === m ? 'var(--color-surface)' : 'transparent',
             boxShadow: value === m ? '0 1px 2px rgba(15,23,42,0.06)' : 'none',
             textTransform: 'uppercase',
             letterSpacing: '0.04em',

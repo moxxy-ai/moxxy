@@ -37,7 +37,7 @@ const VARIANT: Record<ButtonVariant, { className?: string; style: CSSProperties 
   secondary: {
     className: 'btn-outline',
     style: {
-      background: '#fff',
+      background: 'var(--color-surface)',
       color: 'var(--color-text-muted)',
       border: '1px solid var(--color-card-border)',
     },
@@ -45,7 +45,7 @@ const VARIANT: Record<ButtonVariant, { className?: string; style: CSSProperties 
   chip: {
     className: 'btn-chip',
     style: {
-      background: '#fff',
+      background: 'var(--color-surface)',
       color: 'var(--color-text-muted)',
       border: '1px solid var(--color-card-border)',
       fontSize: 12.5,
@@ -94,7 +94,7 @@ export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>
   readonly size?: number;
   /** Corner radius in px. Default 8. */
   readonly radius?: number;
-  /** Draw a card border + white fill (the rail's collapse affordance). */
+  /** Draw a card border + surface fill (the rail's collapse affordance). */
   readonly bordered?: boolean;
 }
 
@@ -115,7 +115,9 @@ export function IconButton({
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    ...(bordered ? { border: '1px solid var(--color-card-border)', background: '#fff' } : {}),
+    ...(bordered
+      ? { border: '1px solid var(--color-card-border)', background: 'var(--color-surface)' }
+      : {}),
     ...style,
   };
   const cls = ['btn-icon', className].filter(Boolean).join(' ');

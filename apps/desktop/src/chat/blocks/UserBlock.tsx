@@ -44,7 +44,7 @@ function FileChip({ att }: { readonly att: UserPromptAttachment }): JSX.Element 
         alignItems: 'center',
         gap: 6,
         padding: '4px 10px',
-        background: '#fff',
+        background: 'var(--color-surface)',
         border: '1px solid var(--color-primary)',
         borderRadius: 999,
         fontSize: 12,
@@ -120,7 +120,7 @@ export function UserBlock({
             whiteSpace: 'pre-wrap',
             lineHeight: 1.55,
             fontSize: 14.5,
-            boxShadow: '0 6px 18px -10px rgba(236, 72, 153, 0.55)',
+            boxShadow: '0 6px 18px -10px color-mix(in srgb, var(--color-primary) 55%, transparent)',
           }}
         >
           {text}

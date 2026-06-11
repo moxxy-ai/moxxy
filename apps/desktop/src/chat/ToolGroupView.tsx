@@ -39,7 +39,7 @@ export function ToolGroupView({
     : running
       ? 'var(--color-primary)'
       : 'var(--color-green)';
-  const tint = errored ? '#fee2e2' : running ? 'var(--color-primary-soft)' : '#ecfdf5';
+  const tint = errored ? 'var(--color-red-soft)' : running ? 'var(--color-primary-soft)' : 'var(--color-green-soft)';
 
   return (
     <div data-testid="block-tool-group" style={{ alignSelf: 'stretch', display: 'flex', gap: 12, maxWidth: '92%' }}>

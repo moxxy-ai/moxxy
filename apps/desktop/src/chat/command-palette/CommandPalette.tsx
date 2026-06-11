@@ -185,7 +185,7 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
             padding: '9px 12px',
             fontSize: 13.5,
             color: 'var(--color-text)',
-            background: '#f7f8fc',
+            background: 'var(--color-input-soft)',
             border: '1px solid var(--color-card-border)',
             borderRadius: 10,
             outline: 'none',

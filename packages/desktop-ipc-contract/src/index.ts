@@ -208,6 +208,9 @@ export interface NodeProbe {
 
 // ---------- Desktop preferences (first-run + auth state) -------------------
 
+/** The user's color-scheme choice. `system` follows the OS (the default). */
+export type ThemePreference = 'light' | 'dark' | 'system';
+
 export interface DesktopPrefs {
   onboardingComplete: boolean;
   clerkUserId: string | null;
@@ -218,6 +221,11 @@ export interface DesktopPrefs {
    *  survives a restart. Defaults to false (OFF) — exposing the host on the LAN
    *  is always an explicit opt-in. */
   mobileGatewayEnabled: boolean;
+  /** Color scheme. The renderer's useTheme() controller maps it to
+   *  `data-theme="dark"` on <html>; the main process mirrors it into
+   *  `nativeTheme.themeSource` so window chrome / prefers-color-scheme agree.
+   *  Defaults to `system`. */
+  theme: ThemePreference;
   version: 1;
 }
 
@@ -410,6 +418,10 @@ export interface AppUpdateCheck {
   latestVersion: string | null;
   /** False ⇒ the update needs a newer shell (a Tier-2 / installer update). */
   compatible: boolean;
+  /** True ⇒ the published bundle's runner protocol outruns the CLI this
+   *  install can spawn: a hot-update would be staged but refused at every boot
+   *  (`runner-protocol-skew`), so the update needs the full app installer. */
+  requiresFullUpdate?: boolean;
   notes?: string;
   releaseUrl?: string;
   /** Set when the check itself failed (offline, not configured, …). */
@@ -558,8 +570,15 @@ export interface IpcCommands {
    *  the writable userData copy, streaming `app.update.progress`. On success
    *  the new bundle activates on the next launch (the UI offers a relaunch).
    *  The update SOURCE is resolved entirely main-side — the renderer passes no
-   *  URL. */
-  'app.updateDashboard': () => Promise<{ ok: boolean; version: string | null; error?: string }>;
+   *  URL. `requiresFullUpdate` ⇒ the bundle was deliberately NOT staged: its
+   *  runner protocol outruns the spawnable CLI, so only the full app installer
+   *  (Tier-2) can deliver it. */
+  'app.updateDashboard': () => Promise<{
+    ok: boolean;
+    version: string | null;
+    error?: string;
+    requiresFullUpdate?: boolean;
+  }>;
   /** Relaunch the app so a freshly-installed dashboard bundle takes effect. */
   'app.relaunch': () => Promise<void>;
   /** Renderer → main heartbeat: the React tree mounted past the splash. Clears

@@ -141,10 +141,12 @@ function tierBadgeStyle(tier: string): React.CSSProperties {
     textTransform: 'uppercase',
     fontSize: 9.5,
     background: isFree
-      ? 'rgba(148, 163, 184, 0.16)'
+      ? 'color-mix(in srgb, var(--color-text-dim) 16%, transparent)'
       : 'linear-gradient(135deg, rgba(236, 72, 153, 0.85), rgba(217, 70, 239, 0.85))',
     color: isFree ? 'var(--color-sidebar-text)' : '#fff',
-    border: isFree ? '1px solid rgba(148, 163, 184, 0.28)' : 'none',
+    border: isFree
+      ? '1px solid color-mix(in srgb, var(--color-text-dim) 28%, transparent)'
+      : 'none',
   };
 }
 

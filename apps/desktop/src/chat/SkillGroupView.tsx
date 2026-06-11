@@ -137,7 +137,7 @@ export function ToolRow({ tool }: { readonly tool: ToolRowData }): JSX.Element {
   const status = statusOf(tool.outcome);
   const accent =
     status === 'error' ? 'var(--color-red)' : status === 'ok' ? 'var(--color-green)' : 'var(--color-primary)';
-  const tint = status === 'error' ? '#fee2e2' : status === 'ok' ? '#ecfdf5' : 'var(--color-primary-soft)';
+  const tint = status === 'error' ? 'var(--color-red-soft)' : status === 'ok' ? 'var(--color-green-soft)' : 'var(--color-primary-soft)';
   const summary = summarizeArgs(tool.input);
   const output = tool.outcome && tool.outcome.type === 'tool_result' ? tool.outcome.output : undefined;
   const error =
@@ -196,7 +196,7 @@ export function ToolRow({ tool }: { readonly tool: ToolRowData }): JSX.Element {
 const preStyle: React.CSSProperties = {
   margin: 0,
   padding: '8px 10px',
-  background: '#fff',
+  background: 'var(--color-surface)',
   border: '1px solid var(--color-card-border)',
   borderRadius: 6,
   fontSize: 11,

@@ -50,14 +50,19 @@ export function ExtensionCard({
       : ext.tone === 'notice'
         ? 'var(--color-amber)'
         : 'var(--color-primary-strong)';
-  const tint = ext.tone === 'error' ? '#fef2f2' : ext.tone === 'notice' ? '#fffbeb' : '#fdf2f8';
+  const tint =
+    ext.tone === 'error'
+      ? 'var(--color-red-wash)'
+      : ext.tone === 'notice'
+        ? 'var(--color-amber-wash)'
+        : 'var(--color-primary-soft)';
   return (
     <article
       data-testid="block-action"
       style={{
         alignSelf: 'stretch',
         maxWidth: '92%',
-        background: '#fff',
+        background: 'var(--color-card-bg)',
         border: '1px solid var(--color-card-border)',
         borderLeft: `3px solid ${accent}`,
         borderRadius: 12,

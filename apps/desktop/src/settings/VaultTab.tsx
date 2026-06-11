@@ -191,7 +191,7 @@ function VaultKeyCard({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-        <Tile bg="rgba(148, 163, 184, 0.16)" fg="var(--color-text-muted)">
+        <Tile bg="color-mix(in srgb, var(--color-text-dim) 16%, transparent)" fg="var(--color-text-muted)">
           <Icon name="lock" size={15} />
         </Tile>
         <span

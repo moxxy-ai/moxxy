@@ -91,7 +91,7 @@ Describe the inputs, the steps to take, and any constraints here.
               padding: '12px 14px',
               fontSize: 12.5,
               lineHeight: 1.55,
-              background: '#fbfcff',
+              background: 'var(--color-main-bg)',
             }}
           />
         </label>

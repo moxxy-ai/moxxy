@@ -46,13 +46,15 @@ export class ErrorBoundary extends Component<Props, State> {
           gap: 16,
           padding: '48px 40px',
           overflow: 'auto',
-          background: 'rgb(252, 252, 255)',
-          color: '#0f172a',
+          // Theme vars with literal fallbacks: the boundary must still
+          // render legibly if the app stylesheet itself failed to load.
+          background: 'var(--color-main-bg, rgb(252, 252, 255))',
+          color: 'var(--color-text, #0f172a)',
           fontFamily: "'Inter', -apple-system, system-ui, sans-serif",
         }}
       >
         <div style={{ fontSize: 18, fontWeight: 700 }}>MoxxyAI Workspaces hit an error</div>
-        <div style={{ fontSize: 14, color: '#475569' }}>
+        <div style={{ fontSize: 14, color: 'var(--color-text-muted, #475569)' }}>
           The app failed to render. You can reload, or report this with the details below.
         </div>
         <pre

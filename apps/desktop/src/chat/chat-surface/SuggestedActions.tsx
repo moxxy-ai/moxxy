@@ -36,7 +36,7 @@ export function SuggestedActions({
               padding: '6px 12px',
               fontSize: 12.5,
               color: 'var(--color-text-muted)',
-              background: '#fff',
+              background: 'var(--color-surface)',
               border: '1px solid var(--color-card-border)',
               borderRadius: 999,
             }}

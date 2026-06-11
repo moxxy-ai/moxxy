@@ -12,7 +12,7 @@ export function ErrorToast({ text }: { readonly text: string }): JSX.Element {
         color: '#fff',
         borderRadius: 10,
         fontSize: 13,
-        boxShadow: '0 14px 28px -16px rgba(239, 68, 68, 0.6)',
+        boxShadow: '0 14px 28px -16px color-mix(in srgb, var(--color-red) 60%, transparent)',
       }}
     >
       {text}

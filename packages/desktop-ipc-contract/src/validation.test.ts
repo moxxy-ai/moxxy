@@ -132,6 +132,14 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('prefs.update', { mobileGatewayEnabled: 'x' })).toThrow();
   });
 
+  it('whitelists theme in prefs.update to the three known values', () => {
+    expect(() => validateIpcInput('prefs.update', { theme: 'light' })).not.toThrow();
+    expect(() => validateIpcInput('prefs.update', { theme: 'dark' })).not.toThrow();
+    expect(() => validateIpcInput('prefs.update', { theme: 'system' })).not.toThrow();
+    expect(() => validateIpcInput('prefs.update', { theme: 'hotdog' })).toThrow();
+    expect(() => validateIpcInput('prefs.update', { theme: true })).toThrow();
+  });
+
   it('is a no-op for commands without a schema', () => {
     expect(() => validateIpcInput('desks.list', undefined)).not.toThrow();
     expect(() => validateIpcInput('connection.snapshotAll', undefined)).not.toThrow();

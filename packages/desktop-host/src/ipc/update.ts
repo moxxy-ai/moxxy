@@ -35,6 +35,16 @@ export interface UpdateConfig {
   publicKeyPem: string;
   /** Manifest URL override (dev/test only). Defaults to the GitHub latest release. */
   manifestUrl?: string;
+  /**
+   * Runner protocol version the floor's pinned CLI speaks — the same ceiling
+   * the bootstrap's boot gate enforces (`FLOOR_RUNNER_PROTOCOL`, see
+   * `apps/desktop/electron/main/bootstrap.ts`). Threading it here lets the
+   * check/stage flow refuse a bundle the boot gate would silently reject
+   * (`runner-protocol-skew`) and tell the user a full app update is needed,
+   * instead of claiming "updated — relaunch" that never takes effect. Omit to
+   * skip the gate.
+   */
+  cliRunnerProtocol?: number;
 }
 
 /** The GitHub repo whose `desktop-v*` releases the updater pulls from. */
@@ -53,14 +63,21 @@ function messageOf(e: unknown): string {
 }
 
 export function registerUpdateHandlers(config: UpdateConfig): void {
-  const { publicKeyPem } = config;
+  const { publicKeyPem, cliRunnerProtocol } = config;
   // A manifest-URL override is honored ONLY in dev/test (never in a packaged
   // build) so a shipped app can't be pointed at an attacker origin; in prod the
   // updater discovers the latest desktop release from GH_REPO's API.
   const manifestUrlOverride = app.isPackaged ? undefined : config.manifestUrl;
   const enabled = (): boolean => !!publicKeyPem && app.isPackaged;
   const check = (currentVersion: string): ReturnType<typeof checkForUpdate> =>
-    checkForUpdate({ repo: GH_REPO, currentVersion, publicKeyPem, shell: shellInfo(), manifestUrlOverride });
+    checkForUpdate({
+      repo: GH_REPO,
+      currentVersion,
+      publicKeyPem,
+      shell: shellInfo(),
+      cliRunnerProtocol,
+      manifestUrlOverride,
+    });
 
   handle('app.updateInfo', async () => ({
     version: runningVersion(),
@@ -87,6 +104,7 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
       currentVersion,
       latestVersion: res.latestVersion,
       compatible: res.compatible,
+      ...(res.requiresFullUpdate ? { requiresFullUpdate: true } : {}),
       ...(res.notes ? { notes: res.notes } : {}),
       ...(res.releaseUrl ? { releaseUrl: res.releaseUrl } : {}),
       ...(res.error ? { error: res.error } : {}),
@@ -104,6 +122,18 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
     if (!res.available || !res.manifest) {
       return { ok: false, version: null, error: res.error ?? 'No update available.' };
     }
+    if (res.requiresFullUpdate) {
+      // The bundle's runner protocol outruns the CLI this install can spawn:
+      // staging it would only produce an "updated — relaunch" that the boot
+      // gate rejects (`runner-protocol-skew`) on every launch. Distinct status
+      // so the UI sends the user to the full installer (Tier-2) instead.
+      return {
+        ok: false,
+        version: res.latestVersion,
+        requiresFullUpdate: true,
+        error: 'This update changes the bundled runner and needs the full app installer — it cannot be applied as a hot-update.',
+      };
+    }
     if (!res.compatible) {
       return {
         ok: false,
@@ -117,6 +147,8 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
         userDataDir: app.getPath('userData'),
         manifest: res.manifest,
         publicKeyPem,
+        // Belt-and-braces: the stager re-checks the runner-protocol gate itself.
+        ...(typeof cliRunnerProtocol === 'number' ? { cliRunnerProtocol } : {}),
         ...(res.bundleUrl ? { bundleUrl: res.bundleUrl } : {}),
         onProgress: (p) => {
           if (target) sendEvent(target, 'app.update.progress', p);

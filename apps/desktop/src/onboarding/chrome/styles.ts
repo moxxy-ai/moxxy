@@ -10,7 +10,7 @@ export const inputStyle: React.CSSProperties = {
   padding: '10px 12px',
   fontSize: 14,
   color: 'var(--color-text)',
-  background: '#fff',
+  background: 'var(--color-surface)',
   border: '1px solid var(--color-card-border)',
   borderRadius: 10,
   outline: 'none',
@@ -27,7 +27,7 @@ export const primaryBtnStyle: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: 6,
-  boxShadow: '0 10px 20px -12px rgba(236, 72, 153, 0.55)',
+  boxShadow: '0 10px 20px -12px color-mix(in srgb, var(--color-primary) 55%, transparent)',
 };
 
 export const secondaryBtnStyle: React.CSSProperties = {
@@ -47,7 +47,7 @@ export const pickerBtnStyle: React.CSSProperties = {
   padding: '10px 12px',
   fontSize: 13,
   color: 'var(--color-text)',
-  background: '#f7f8fc',
+  background: 'var(--color-input-soft)',
   border: '1px dashed var(--color-card-border-strong)',
   borderRadius: 10,
   textAlign: 'left',

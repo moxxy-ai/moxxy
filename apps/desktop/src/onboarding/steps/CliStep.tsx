@@ -72,7 +72,7 @@ export function CliStep({
         <div
           style={{
             padding: '14px 16px',
-            background: '#fdf2f8',
+            background: 'var(--color-primary-soft)',
             border: '1px solid var(--color-card-border)',
             borderRadius: 12,
             display: 'flex',

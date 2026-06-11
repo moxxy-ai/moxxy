@@ -4,15 +4,19 @@
  * whichever step is current. Stateless: it renders the passed step list,
  * highlights `currentIndex`, and slots `children` into the pane.
  *
- * The palette matches the splash / loading / chat surfaces (near-white
- * `rgb(252,252,255)`) so first-run feels continuous with the rest of the app.
+ * The palette matches the splash / loading / chat surfaces (the
+ * `--color-main-bg` column tone) so first-run feels continuous with the
+ * rest of the app — and follows the light/dark theme the same way.
  */
 
 import { Icon } from '@moxxy/desktop-ui';
 import { asset } from '@/lib/asset';
 
-const SURFACE = 'rgb(252, 252, 255)';
-const RAIL_BG = 'rgb(248, 248, 252)';
+const SURFACE = 'var(--color-main-bg)';
+// A whisper darker than the main pane so the step rail registers as its
+// own surface in both themes (light: ≈rgb(248,248,253); dark: a hair
+// below the main column, like the workspace sidebar).
+const RAIL_BG = 'color-mix(in srgb, var(--color-main-bg) 60%, var(--color-app-bg))';
 
 export function Shell({
   steps,

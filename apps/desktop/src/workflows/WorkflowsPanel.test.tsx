@@ -534,3 +534,162 @@ describe('WorkflowsPanel — canvas drag-to-connect', () => {
     expect(screen.getByTestId('wf-node-prompt')).toBeInTheDocument();
   });
 });
+
+/**
+ * Infinite-canvas pan/zoom. The world is rendered through a single
+ * `translate(x, y) scale(zoom)` on the content layer (testid canvas-content);
+ * these tests parse that transform to assert the view maths. jsdom's
+ * getBoundingClientRect is all-zeros, so client coords == viewport coords and
+ * `world = (client − view.pan) / view.zoom` exactly.
+ */
+describe('WorkflowsPanel — infinite canvas pan/zoom', () => {
+  async function openWith(): Promise<void> {
+    installApi({ list: [] });
+    render(<WorkflowsPanel />);
+    fireEvent.click(await screen.findByTestId('new-workflow'));
+    await screen.findByTestId('workflow-canvas');
+  }
+
+  /** Parse the content layer's `translate(xpx, ypx) scale(z)` transform. */
+  function getView(): { x: number; y: number; zoom: number } {
+    const t = (screen.getByTestId('canvas-content') as HTMLElement).style.transform;
+    const m = /translate\((-?[\d.]+)px, (-?[\d.]+)px\) scale\((-?[\d.]+)\)/.exec(t);
+    if (!m) throw new Error(`unexpected canvas transform: ${t}`);
+    return { x: Number(m[1]), y: Number(m[2]), zoom: Number(m[3]) };
+  }
+
+  it('plain wheel pans BOTH axes (no horizontal-strip scrolling)', async () => {
+    await openWith();
+    fireEvent.click(screen.getByTestId('palette-add-prompt')); // node @ (40,40)
+    await screen.findByTestId('wf-node-prompt');
+    const canvas = screen.getByTestId('workflow-canvas');
+    fireEvent.wheel(canvas, { deltaX: -120, deltaY: -60 });
+    expect(getView()).toEqual({ x: 120, y: 60, zoom: 1 });
+    // Panning moves the VIEW, not the world: the node keeps its coordinates.
+    const node = screen.getByTestId('wf-node-prompt') as HTMLElement;
+    expect(node.style.left).toBe('40px');
+    expect(node.style.top).toBe('40px');
+    // And it pans back past the origin without any scroll clamp.
+    fireEvent.wheel(canvas, { deltaX: 300, deltaY: 200 });
+    expect(getView()).toEqual({ x: -180, y: -140, zoom: 1 });
+  });
+
+  it('ctrl+wheel zooms anchored at the cursor (the world point under it stays fixed)', async () => {
+    await openWith();
+    const canvas = screen.getByTestId('workflow-canvas');
+    // World point under the cursor before zooming: (100 − 0) / 1 = 100.
+    fireEvent.wheel(canvas, { ctrlKey: true, deltaY: -200, clientX: 100, clientY: 100 });
+    const zoomed = getView();
+    expect(zoomed.zoom).toBeGreaterThan(1);
+    // anchor = world·zoom + pan ⇒ the same world point must sit under (100,100).
+    expect((100 - zoomed.x) / zoomed.zoom).toBeCloseTo(100, 6);
+    expect((100 - zoomed.y) / zoomed.zoom).toBeCloseTo(100, 6);
+    // Zoom again at a DIFFERENT cursor point — that point must now hold still.
+    const worldX = (300 - zoomed.x) / zoomed.zoom;
+    const worldY = (40 - zoomed.y) / zoomed.zoom;
+    fireEvent.wheel(canvas, { ctrlKey: true, deltaY: -150, clientX: 300, clientY: 40 });
+    const again = getView();
+    expect(again.zoom).toBeGreaterThan(zoomed.zoom);
+    expect((300 - again.x) / again.zoom).toBeCloseTo(worldX, 6);
+    expect((40 - again.y) / again.zoom).toBeCloseTo(worldY, 6);
+    // Double-click on empty canvas resets to 100%.
+    fireEvent.doubleClick(canvas, { clientX: 50, clientY: 50 });
+    expect(getView().zoom).toBe(1);
+  });
+
+  it('ctrl+wheel zoom is clamped to the 10%–400% range', async () => {
+    await openWith();
+    const canvas = screen.getByTestId('workflow-canvas');
+    fireEvent.wheel(canvas, { ctrlKey: true, deltaY: -100000, clientX: 0, clientY: 0 });
+    expect(getView().zoom).toBe(4);
+    fireEvent.wheel(canvas, { ctrlKey: true, deltaY: 100000, clientX: 0, clientY: 0 });
+    expect(getView().zoom).toBe(0.1);
+  });
+
+  it('nodes live happily at NEGATIVE coordinates: render, select, and receive connections', async () => {
+    await openWith();
+    fireEvent.click(screen.getByTestId('palette-add-prompt')); // A @ (40,40)
+    await screen.findByTestId('wf-node-prompt');
+    fireEvent.click(screen.getByTestId('palette-add-prompt')); // B @ (80,80)
+    await screen.findByTestId('wf-node-prompt_2');
+    const canvas = screen.getByTestId('workflow-canvas');
+    // Drag B deep into negative space (grab its origin so dx=dy=0).
+    firePointer(screen.getByTestId('wf-node-prompt_2'), 'pointerDown', 80, 80);
+    firePointer(canvas, 'pointerMove', -400, -300);
+    firePointer(canvas, 'pointerUp', -400, -300);
+    const b = screen.getByTestId('wf-node-prompt_2') as HTMLElement;
+    expect(b.style.left).toBe('-400px');
+    expect(b.style.top).toBe('-300px');
+    // Connector hit-testing works at negative world coords: A.output → B.
+    firePointer(screen.getByTestId('wf-handle-prompt-needs-right'), 'pointerDown', 240, 84, 2);
+    firePointer(canvas, 'pointerMove', -350, -260, 2);
+    firePointer(canvas, 'pointerUp', -350, -260, 2);
+    expect(await screen.findByTestId('wf-edge-needs:prompt->prompt_2')).toBeInTheDocument();
+    // And the node is still clickable: deselect, then select it again.
+    fireEvent.click(canvas);
+    expect(screen.queryByTestId('field-action')).not.toBeInTheDocument();
+    firePointer(b, 'pointerDown', -380, -280);
+    firePointer(canvas, 'pointerUp', -380, -280);
+    expect(await screen.findByTestId('field-action')).toBeInTheDocument();
+  });
+
+  it('the insert menu opens at the correct WORLD position while panned + zoomed', async () => {
+    await openWith();
+    fireEvent.click(screen.getByTestId('palette-add-prompt')); // source @ (40,40)
+    await screen.findByTestId('wf-node-prompt');
+    const canvas = screen.getByTestId('workflow-canvas');
+    // Pan to (120, 60), then zoom in once via the button: the button anchors at
+    // the viewport centre (0,0 in jsdom) → view = (144, 72) @ 1.2×.
+    fireEvent.wheel(canvas, { deltaX: -120, deltaY: -60 });
+    fireEvent.click(screen.getByTestId('canvas-zoom-in'));
+    expect(getView()).toEqual({ x: 144, y: 72, zoom: 1.2 });
+    // Drop a connection on empty canvas at client (444, 312) — world
+    // ((444−144)/1.2, (312−72)/1.2) = (250, 200).
+    firePointer(screen.getByTestId('wf-handle-prompt-needs-right'), 'pointerDown', 0, 0, 2);
+    firePointer(canvas, 'pointerMove', 444, 312, 2);
+    firePointer(canvas, 'pointerUp', 444, 312, 2);
+    const menu = (await screen.findByTestId('insert-node-menu')) as HTMLElement;
+    expect(parseFloat(menu.style.left)).toBeCloseTo(250, 6);
+    expect(parseFloat(menu.style.top)).toBeCloseTo(200, 6);
+    // Inserting places the node at the drop point (input anchor on the drop):
+    // y is offset by half the node height (88/2 = 44).
+    fireEvent.click(within(menu).getByTestId('insert-add-skill'));
+    const node = (await screen.findByTestId('wf-node-skill')) as HTMLElement;
+    expect(parseFloat(node.style.left)).toBeCloseTo(250, 6);
+    expect(parseFloat(node.style.top)).toBeCloseTo(156, 6);
+    expect(await screen.findByTestId('wf-edge-needs:prompt->skill')).toBeInTheDocument();
+  });
+
+  it('drag-to-pan on empty canvas moves the view and keeps a still click deselecting', async () => {
+    await openWith();
+    fireEvent.click(screen.getByTestId('palette-add-prompt'));
+    await screen.findByTestId('wf-node-prompt');
+    const canvas = screen.getByTestId('workflow-canvas');
+    firePointer(canvas, 'pointerDown', 500, 400);
+    firePointer(canvas, 'pointerMove', 560, 340); // +60, −60
+    firePointer(canvas, 'pointerUp', 560, 340);
+    expect(getView()).toEqual({ x: 60, y: -60, zoom: 1 });
+    // The selection survives a moved pan (the trailing click is swallowed)…
+    fireEvent.click(canvas);
+    expect(screen.getByTestId('field-action')).toBeInTheDocument();
+    // …but a still click on the background still deselects.
+    firePointer(canvas, 'pointerDown', 500, 400);
+    firePointer(canvas, 'pointerUp', 500, 400);
+    fireEvent.click(canvas);
+    expect(screen.queryByTestId('field-action')).not.toBeInTheDocument();
+  });
+
+  it('zoom-to-fit recovers a lost view (jsdom zero-size rect → reset path)', async () => {
+    await openWith();
+    fireEvent.click(screen.getByTestId('palette-add-prompt'));
+    await screen.findByTestId('wf-node-prompt');
+    // Wander far off, then fit. jsdom's viewport rect is zero-size, which
+    // exercises the degenerate-rect fallback: reset to origin @ 100%. (The
+    // real bbox-centring math needs a layout engine; asserted by formula in
+    // the component.)
+    const canvas = screen.getByTestId('workflow-canvas');
+    fireEvent.wheel(canvas, { deltaX: -999, deltaY: -999 });
+    fireEvent.click(screen.getByTestId('canvas-zoom-fit'));
+    expect(getView()).toEqual({ x: 0, y: 0, zoom: 1 });
+  });
+});

@@ -112,13 +112,13 @@ export function AgentTaskModal({
               border: '1px solid var(--color-card-border)',
               borderRadius: 12,
               overflow: 'hidden',
-              background: '#fff',
+              background: 'var(--color-surface)',
             }}
           >
             <header
               style={{
                 padding: '8px 12px',
-                background: '#f4f5fb',
+                background: 'var(--color-sidebar-bg-hover)',
                 borderBottom: '1px solid var(--color-card-border)',
                 fontSize: 11,
                 fontWeight: 700,

@@ -243,6 +243,31 @@ export function isCompatible(m: AppManifest, shell: ShellInfo): boolean {
   return m.nodeAbi === '' || shell.nodeAbi === m.nodeAbi;
 }
 
+/**
+ * True iff the bundle's signed `runnerProtocol` stamp EXCEEDS the runner
+ * protocol the reachable CLI can serve — i.e. activating this JS bundle would
+ * strand the desktop with a client newer than any runner it can spawn (the
+ * protocol-skew reconnect loop). Such an update needs the FULL app installer
+ * (Tier-2), not a hot-update. Either side unknown (legacy manifest / caller
+ * that doesn't model the CLI) ⇒ no constraint.
+ *
+ * Single-sourced here so the boot gate ({@link resolveActiveBundleDetailed})
+ * and the stager's stage-time gate can never disagree: previously the stager
+ * happily staged + activated such a bundle, the UI said "updated — relaunch",
+ * and every boot silently rejected it (`runner-protocol-skew`) back to the
+ * floor.
+ */
+export function exceedsCliRunnerProtocol(
+  m: Pick<AppManifest, 'runnerProtocol'>,
+  cliRunnerProtocol?: number,
+): boolean {
+  return (
+    typeof cliRunnerProtocol === 'number' &&
+    typeof m.runnerProtocol === 'number' &&
+    m.runnerProtocol > cliRunnerProtocol
+  );
+}
+
 export interface ResolveOpts {
   userDataDir: string;
   /** Baked Ed25519 public key (SPKI PEM). Empty disables all overrides. */
@@ -314,11 +339,7 @@ export function resolveActiveBundleDetailed(opts: ResolveOpts): ResolveResult {
   // to the floor JS, which matches the CLI). Only enforced when both the
   // bundle's stamp and the caller's CLI protocol are known (signed value, so
   // trusted post-signature-check).
-  if (
-    typeof cliRunnerProtocol === 'number' &&
-    typeof manifest.runnerProtocol === 'number' &&
-    manifest.runnerProtocol > cliRunnerProtocol
-  ) {
+  if (exceedsCliRunnerProtocol(manifest, cliRunnerProtocol)) {
     return { bundle: null, reason: 'runner-protocol-skew' };
   }
 

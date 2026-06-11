@@ -230,7 +230,7 @@ function Path({ text }: { readonly text: string }): JSX.Element {
       style={{
         fontSize: 11.5,
         color: 'var(--color-text-muted)',
-        background: '#f7f8fc',
+        background: 'var(--color-input-soft)',
         padding: '8px 10px',
         borderRadius: 8,
         border: '1px solid var(--color-card-border)',
@@ -279,5 +279,5 @@ const iconBtnStyle: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   border: '1px solid var(--color-card-border)',
-  background: '#fff',
+  background: 'var(--color-surface)',
 };

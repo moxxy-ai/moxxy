@@ -117,6 +117,64 @@ describe('checkForUpdate', () => {
   });
 });
 
+describe('checkForUpdate runner-protocol gate', () => {
+  const MANIFEST_URL = 'https://github.com/moxxy-ai/moxxy/releases/download/desktop-v0.0.9/moxxy-app-manifest.json';
+
+  function checkWithProtocol(
+    bundleProtocol: number | undefined,
+    cliRunnerProtocol: number | undefined,
+  ): ReturnType<typeof checkForUpdate> {
+    const { manifestJson } = buildAppBundle({
+      version: '0.0.9',
+      minElectron: '33.0.0',
+      nodeAbi: '',
+      bundleUrl: 'https://github.com/moxxy-ai/moxxy/releases/download/desktop-v0.0.9/b.json.gz',
+      privateKeyPem: PRIVKEY,
+      files: { 'dist/index.html': Buffer.from('x') },
+      ...(typeof bundleProtocol === 'number' ? { runnerProtocol: bundleProtocol } : {}),
+    });
+    const fetchImpl = (async () => new Response(manifestJson)) as unknown as typeof fetch;
+    return checkForUpdate(
+      {
+        repo: 'moxxy-ai/moxxy',
+        currentVersion: '0.0.5',
+        publicKeyPem: PUBKEY,
+        shell: SHELL,
+        ...(typeof cliRunnerProtocol === 'number' ? { cliRunnerProtocol } : {}),
+        manifestUrlOverride: MANIFEST_URL,
+      },
+      { fetchImpl },
+    );
+  }
+
+  it('flags a bundle whose runner protocol outruns the spawnable CLI as requiring a full update', async () => {
+    const res = await checkWithProtocol(7, 6);
+    expect(res.available).toBe(true);
+    expect(res.requiresFullUpdate).toBe(true);
+    expect(res.compatible).toBe(false); // can't be applied as a hot-update
+  });
+
+  it('does not flag an equal or lower runner protocol', async () => {
+    const equal = await checkWithProtocol(6, 6);
+    expect(equal.requiresFullUpdate).toBeUndefined();
+    expect(equal.compatible).toBe(true);
+
+    const lower = await checkWithProtocol(5, 6);
+    expect(lower.requiresFullUpdate).toBeUndefined();
+    expect(lower.compatible).toBe(true);
+  });
+
+  it('does not flag when either side of the gate is unknown', async () => {
+    const noStamp = await checkWithProtocol(undefined, 6); // legacy manifest
+    expect(noStamp.requiresFullUpdate).toBeUndefined();
+    expect(noStamp.compatible).toBe(true);
+
+    const noCli = await checkWithProtocol(7, undefined); // caller doesn't model the CLI
+    expect(noCli.requiresFullUpdate).toBeUndefined();
+    expect(noCli.compatible).toBe(true);
+  });
+});
+
 describe('downloadAndStage hardening', () => {
   const GH = 'https://github.com/moxxy-ai/moxxy/releases/latest/download/b.json.gz';
 
@@ -227,6 +285,57 @@ describe('downloadAndStage hardening', () => {
       readFileSync(path.join(bundleRoot(tmp, '0.0.7'), 'package.json'), 'utf8'),
     );
     expect(pkg.type).toBe('module'); // the staged tree now loads as ESM
+  });
+
+  it('refuses to stage a bundle whose runner protocol outruns the spawnable CLI', async () => {
+    // Reproduces the "says updated and restart but it does not update" loop:
+    // the stager used to download/verify/activate such a bundle, the UI said
+    // "relaunch to apply", and the boot gate rejected it (`runner-protocol-skew`)
+    // on every launch. The stage-time gate must refuse BEFORE anything lands.
+    const { manifest, bundleGz } = buildAppBundle({
+      version: '0.0.6',
+      minElectron: '33.0.0',
+      nodeAbi: '',
+      bundleUrl: GH,
+      privateKeyPem: PRIVKEY,
+      runnerProtocol: 7,
+      files: {
+        'dist/index.html': Buffer.from('x'),
+        'dist-electron/main/index.js': Buffer.from('// main'),
+      },
+    });
+    const fetchImpl = (async () => new Response(new Uint8Array(bundleGz))) as unknown as typeof fetch;
+    await expect(
+      downloadAndStage(
+        { userDataDir: tmp, manifest, publicKeyPem: PUBKEY, cliRunnerProtocol: 6 },
+        { fetchImpl },
+      ),
+    ).rejects.toThrow(/full app installer/i);
+    // nothing staged, nothing activated — no false "updated, relaunch" state
+    expect(existsSync(bundleRoot(tmp, '0.0.6'))).toBe(false);
+    expect(readActiveVersion(tmp)).toBeNull();
+  });
+
+  it('stages a bundle whose runner protocol matches the spawnable CLI', async () => {
+    const { manifest, bundleGz } = buildAppBundle({
+      version: '0.0.6',
+      minElectron: '33.0.0',
+      nodeAbi: '',
+      bundleUrl: GH,
+      privateKeyPem: PRIVKEY,
+      runnerProtocol: 6,
+      files: {
+        'dist/index.html': Buffer.from('x'),
+        'dist-electron/main/index.js': Buffer.from('// main'),
+      },
+    });
+    const fetchImpl = (async () => new Response(new Uint8Array(bundleGz))) as unknown as typeof fetch;
+    const { version } = await downloadAndStage(
+      { userDataDir: tmp, manifest, publicKeyPem: PUBKEY, cliRunnerProtocol: 6 },
+      { fetchImpl },
+    );
+    expect(version).toBe('0.0.6');
+    expect(readActiveVersion(tmp)).toBe('0.0.6');
   });
 
   it('clears a prior poison mark on the version it installs (un-wedges a reinstall)', async () => {

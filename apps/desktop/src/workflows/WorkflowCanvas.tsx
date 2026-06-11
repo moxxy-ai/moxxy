@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   STEP_KINDS,
   stepKindMeta,
@@ -18,6 +18,22 @@ import { accentHex } from './accents';
  * cards over an SVG edge layer. Hand-rolled (no react-flow) to avoid pulling a
  * heavy graph lib into the Electron bundle — the graph here is small (≤40
  * steps) and the interactions are limited to drag + select + wire.
+ *
+ * The canvas is an INFINITE world viewed through a pan/zoom transform (Figma
+ * model): the viewport div clips (`overflow: hidden`) and a zero-size content
+ * layer carries `translate(view.x, view.y) scale(view.zoom)`. There are no
+ * scrollbars and no world bounds — nodes can live at negative coordinates.
+ * The transform is the builder state's persisted `viewport` (set-viewport),
+ * so a saved workflow reopens at the same view.
+ *
+ *   world = (client − viewportRect.origin − view.pan) / view.zoom
+ *
+ * Navigation: drag empty canvas to pan; wheel / two-finger trackpad scroll
+ * pans both axes; ctrl/cmd+wheel (and macOS pinch, which arrives as
+ * ctrl+wheel) zooms anchored at the cursor; double-click empty canvas resets
+ * to 100% (anchored at the cursor); the bottom-right cluster has −/%/+ plus
+ * zoom-to-fit. The dotted background grid lives on the viewport and follows
+ * the transform via background-position/size, so it repeats forever.
  *
  * Two pointer gestures share the cards, disambiguated by WHERE the pointerdown
  * lands:
@@ -54,10 +70,14 @@ const NODE_H = 88;
 const ANCHOR_OFFSET = NODE_H / 2;
 const HANDLE_R = 7;
 
-const MIN_ZOOM = 0.4;
-const MAX_ZOOM = 2;
+const MIN_ZOOM = 0.1;
+const MAX_ZOOM = 4;
 /** Multiplicative step for the +/− buttons. */
 const ZOOM_STEP = 1.2;
+/** Base spacing of the dotted background grid at 100% zoom. */
+const GRID_SIZE = 24;
+/** Viewport padding around the graph for zoom-to-fit. */
+const FIT_PAD = 60;
 
 function clampZoom(z: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
@@ -92,23 +112,28 @@ interface InsertMenuState {
   readonly oy: number;
 }
 
+/** Loop-exit edges use violet-600 — a deliberate step darker than
+ *  `--color-purple` so exit reads apart from body; theme-invariant accent
+ *  with no design token, so it stays literal. */
+const LOOP_EXIT_COLOR = '#7c3aed';
+
 const EDGE_STYLE: Record<BuilderEdge['kind'], { color: string; dash?: string; label?: string }> = {
-  needs: { color: '#94a3b8' },
-  then: { color: '#10b981', label: 'then' },
-  else: { color: '#ef4444', label: 'else' },
-  case: { color: '#8b5cf6' },
-  default: { color: '#94a3b8', label: 'default' },
-  'loop-body': { color: '#8b5cf6', dash: '6 5', label: 'body' },
-  'loop-exit': { color: '#7c3aed', label: 'on done / error → next' },
+  needs: { color: 'var(--color-text-dim)' },
+  then: { color: 'var(--color-green)', label: 'then' },
+  else: { color: 'var(--color-red)', label: 'else' },
+  case: { color: 'var(--color-purple)' },
+  default: { color: 'var(--color-text-dim)', label: 'default' },
+  'loop-body': { color: 'var(--color-purple)', dash: '6 5', label: 'body' },
+  'loop-exit': { color: LOOP_EXIT_COLOR, label: 'on done / error → next' },
 };
 
 const PORT_COLOR: Record<PortKind, string> = {
-  needs: '#94a3b8',
-  then: '#10b981',
-  else: '#ef4444',
-  'loop-exit': '#7c3aed',
+  needs: 'var(--color-text-dim)',
+  then: 'var(--color-green)',
+  else: 'var(--color-red)',
+  'loop-exit': LOOP_EXIT_COLOR,
 };
-const LOOP_BODY_COLOR = '#8b5cf6';
+const LOOP_BODY_COLOR = 'var(--color-purple)';
 
 export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -120,85 +145,100 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
   const [hoverTarget, setHoverTarget] = useState<string | null>(null);
   const [reject, setReject] = useState<string | null>(null);
   const rejectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [zoom, setZoom] = useState(1);
-  /** Scroll offsets to apply right after a zoom commit (keeps the anchor
-   *  point — cursor or viewport centre — visually fixed while scaling). */
-  const pendingScroll = useRef<{ left: number; top: number } | null>(null);
-  /** Background drag-to-pan: pointer + scroll origin, and whether it actually
-   *  moved (a still pan is a click and must keep deselecting). */
-  const pan = useRef<{ x: number; y: number; left: number; top: number; moved: boolean } | null>(
-    null,
-  );
+  /** Background drag-to-pan: last pointer position (deltas apply incrementally
+   *  to the viewport), cumulative travel, and whether it actually moved (a
+   *  still pan is a click and must keep deselecting). */
+  const pan = useRef<{ lx: number; ly: number; dist: number; moved: boolean } | null>(null);
   const [panning, setPanning] = useState(false);
   /** Set on pan end so the synthetic click that follows doesn't deselect. */
   const suppressClick = useRef(false);
   const [insertMenu, setInsertMenu] = useState<InsertMenuState | null>(null);
+
+  /** The pan/zoom transform — the builder state's persisted viewport. */
+  const view = state.viewport;
+  const setView = useCallback(
+    (viewport: BuilderState['viewport']) => dispatch({ type: 'set-viewport', viewport }),
+    [dispatch],
+  );
 
   const byId = useMemo(() => new Map(state.nodes.map((n) => [n.id, n])), [state.nodes]);
 
   /** Topological order index per node (1-based) so the canvas reads as a flow. */
   const order = useMemo(() => topoOrder(state.nodes), [state.nodes]);
 
-  /** Pointer position in CONTENT coords (pre-zoom node space). */
+  /** Pointer position in WORLD coords (node space, pre-transform). */
   const surfacePoint = useCallback(
     (e: { clientX: number; clientY: number }) => {
       const rect = surfaceRef.current?.getBoundingClientRect();
-      const left = surfaceRef.current?.scrollLeft ?? 0;
-      const top = surfaceRef.current?.scrollTop ?? 0;
-      return {
-        x: ((rect ? e.clientX - rect.left : e.clientX) + left) / zoom,
-        y: ((rect ? e.clientY - rect.top : e.clientY) + top) / zoom,
-      };
+      const cx = rect ? e.clientX - rect.left : e.clientX;
+      const cy = rect ? e.clientY - rect.top : e.clientY;
+      return { x: (cx - view.x) / view.zoom, y: (cy - view.y) / view.zoom };
     },
-    [zoom],
+    [view],
   );
 
   /** Zoom to `next`, keeping `anchor` (client coords; defaults to the
-   *  viewport centre) over the same content point. */
+   *  viewport centre) over the same world point: solve the pan from
+   *  anchor = world·z + pan. */
   const applyZoom = useCallback(
     (next: number, anchor?: { x: number; y: number }) => {
       const z = clampZoom(next);
-      const el = surfaceRef.current;
-      if (el && z !== zoom) {
-        const rect = el.getBoundingClientRect();
-        const ax = anchor ? anchor.x - rect.left : rect.width / 2;
-        const ay = anchor ? anchor.y - rect.top : rect.height / 2;
-        pendingScroll.current = {
-          left: ((el.scrollLeft + ax) / zoom) * z - ax,
-          top: ((el.scrollTop + ay) / zoom) * z - ay,
-        };
-      }
-      setZoom(z);
+      if (z === view.zoom) return;
+      const rect = surfaceRef.current?.getBoundingClientRect();
+      const ax = anchor ? anchor.x - (rect?.left ?? 0) : (rect?.width ?? 0) / 2;
+      const ay = anchor ? anchor.y - (rect?.top ?? 0) : (rect?.height ?? 0) / 2;
+      setView({
+        x: ax - ((ax - view.x) / view.zoom) * z,
+        y: ay - ((ay - view.y) / view.zoom) * z,
+        zoom: z,
+      });
     },
-    [zoom],
+    [setView, view],
   );
 
-  // The scaled content commits in the same render as `zoom`, so the anchor
-  // correction must land before paint or the view visibly jumps.
-  useLayoutEffect(() => {
-    const el = surfaceRef.current;
-    const p = pendingScroll.current;
-    if (el && p) {
-      el.scrollLeft = p.left;
-      el.scrollTop = p.top;
-      pendingScroll.current = null;
+  /** Frame all nodes in the viewport (centered, padded, capped at 100%). */
+  const zoomToFit = useCallback(() => {
+    const rect = surfaceRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0 || state.nodes.length === 0) {
+      setView({ x: 0, y: 0, zoom: 1 });
+      return;
     }
-  }, [zoom]);
+    const minX = Math.min(...state.nodes.map((n) => n.x));
+    const minY = Math.min(...state.nodes.map((n) => n.y));
+    const maxX = Math.max(...state.nodes.map((n) => n.x + NODE_W));
+    const maxY = Math.max(...state.nodes.map((n) => n.y + NODE_H));
+    const z = clampZoom(
+      Math.min(
+        (rect.width - FIT_PAD * 2) / Math.max(1, maxX - minX),
+        (rect.height - FIT_PAD * 2) / Math.max(1, maxY - minY),
+        1, // frame, don't magnify — a lone node shouldn't fill the screen
+      ),
+    );
+    setView({
+      x: (rect.width - (maxX - minX) * z) / 2 - minX * z,
+      y: (rect.height - (maxY - minY) * z) / 2 - minY * z,
+      zoom: z,
+    });
+  }, [setView, state.nodes]);
 
-  // Pinch / ctrl+wheel zoom. Native non-passive listener — React's root
-  // wheel listener is passive, so a synthetic onWheel can't preventDefault
-  // (and the page would scroll while pinching).
+  // Wheel: plain wheel / two-finger trackpad scroll PANS both axes;
+  // ctrl/cmd+wheel (macOS pinch arrives as ctrl+wheel) ZOOMS at the cursor.
+  // Native non-passive listener — React's root wheel listener is passive, so
+  // a synthetic onWheel can't preventDefault (and the page would scroll).
   useEffect(() => {
     const el = surfaceRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent): void => {
-      if (!e.ctrlKey && !e.metaKey) return; // macOS pinch arrives as ctrl+wheel
       e.preventDefault();
-      applyZoom(zoom * Math.exp(-e.deltaY * 0.0018), { x: e.clientX, y: e.clientY });
+      if (e.ctrlKey || e.metaKey) {
+        applyZoom(view.zoom * Math.exp(-e.deltaY * 0.0018), { x: e.clientX, y: e.clientY });
+      } else {
+        setView({ x: view.x - e.deltaX, y: view.y - e.deltaY, zoom: view.zoom });
+      }
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [applyZoom, zoom]);
+  }, [applyZoom, setView, view]);
 
   // Keyboard: Delete/Backspace removes the selected node + its edges (same op
   // as the inspector's Delete button); Escape dismisses the insert menu,
@@ -271,16 +311,8 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
         setInsertMenu(null);
         return;
       }
-      const el = surfaceRef.current;
-      if (!el) return;
       (e.target as Element).setPointerCapture?.(e.pointerId);
-      pan.current = {
-        x: e.clientX,
-        y: e.clientY,
-        left: el.scrollLeft,
-        top: el.scrollTop,
-        moved: false,
-      };
+      pan.current = { lx: e.clientX, ly: e.clientY, dist: 0, moved: false };
       setPanning(true);
     },
     [insertMenu],
@@ -290,9 +322,8 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
     (e: React.PointerEvent) => {
       const p = surfacePoint(e);
       if (drag.current) {
-        const x = Math.max(0, p.x - drag.current.dx);
-        const y = Math.max(0, p.y - drag.current.dy);
-        dispatch({ type: 'move-node', id: drag.current.id, x, y });
+        // Unbounded world — negative coordinates are fine.
+        dispatch({ type: 'move-node', id: drag.current.id, x: p.x - drag.current.dx, y: p.y - drag.current.dy });
         return;
       }
       if (connect.current) {
@@ -301,16 +332,16 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
         return;
       }
       if (pan.current) {
-        const el = surfaceRef.current;
-        if (!el) return;
-        const dx = e.clientX - pan.current.x;
-        const dy = e.clientY - pan.current.y;
-        if (Math.abs(dx) + Math.abs(dy) > 3) pan.current.moved = true;
-        el.scrollLeft = pan.current.left - dx;
-        el.scrollTop = pan.current.top - dy;
+        const dx = e.clientX - pan.current.lx;
+        const dy = e.clientY - pan.current.ly;
+        pan.current.lx = e.clientX;
+        pan.current.ly = e.clientY;
+        pan.current.dist += Math.abs(dx) + Math.abs(dy);
+        if (pan.current.dist > 3) pan.current.moved = true;
+        setView({ x: view.x + dx, y: view.y + dy, zoom: view.zoom });
       }
     },
-    [dispatch, state.nodes, surfacePoint],
+    [dispatch, setView, state.nodes, surfacePoint, view],
   );
 
   const finishConnection = useCallback(
@@ -381,9 +412,9 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
       const source = byId.get(menu.nodeId);
       if (!source) return;
       const id = uniqueId(state, kind);
-      const x = Math.max(0, menu.x);
+      const x = menu.x;
       // Offset so the new node's left input anchor lands at the drop point.
-      const y = Math.max(0, menu.y - ANCHOR_OFFSET);
+      const y = menu.y - ANCHOR_OFFSET;
       switch (menu.port) {
         case 'needs':
           dispatch({ type: 'add-step', input: { kind, id, x, y, after: source.id } });
@@ -440,9 +471,6 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
     }
   }, []);
 
-  const width = Math.max(900, ...state.nodes.map((n) => n.x + NODE_W + 80));
-  const height = Math.max(560, ...state.nodes.map((n) => n.y + NODE_H + 80));
-
   return (
     <div style={{ position: 'relative', flex: 1, minHeight: 0, minWidth: 0, display: 'flex' }}>
     <div
@@ -452,6 +480,7 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerLeave={onPointerLeave}
+      onDoubleClick={(e) => applyZoom(1, { x: e.clientX, y: e.clientY })}
       onClick={() => {
         if (suppressClick.current) {
           suppressClick.current = false;
@@ -464,28 +493,38 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
         flex: 1,
         minHeight: 0,
         minWidth: 0,
-        overflow: 'auto',
+        overflow: 'hidden',
+        touchAction: 'none',
         cursor: panning ? 'grabbing' : 'grab',
         background:
           'var(--color-bg) radial-gradient(circle, var(--color-card-border) 1px, transparent 1px)',
-        backgroundSize: '24px 24px',
+        // The grid lives on the viewport but tracks the world transform, so it
+        // reads as an infinite sheet: spacing scales with zoom, offset follows pan.
+        backgroundSize: `${GRID_SIZE * view.zoom}px ${GRID_SIZE * view.zoom}px`,
+        backgroundPosition: `${view.x}px ${view.y}px`,
         borderRadius: 'var(--radius-block)',
         border: '1px solid var(--color-border)',
       }}
     >
-      {/* Scroll sizer: reserves the SCALED footprint so scrollbars track the
-       *  zoomed content (a transform alone doesn't change layout size). */}
-      <div style={{ width: width * zoom, height: height * zoom, overflow: 'hidden' }}>
+      {/* The world: a zero-size layer carrying the pan/zoom transform; children
+       *  (absolutely positioned, overflow visible) extend in every direction. */}
       <div
+        data-testid="canvas-content"
         style={{
-          position: 'relative',
-          width,
-          height,
-          transform: `scale(${zoom})`,
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          width: 0,
+          height: 0,
+          transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`,
           transformOrigin: '0 0',
         }}
       >
-        <svg width={width} height={height} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+        <svg
+          width="2"
+          height="2"
+          style={{ position: 'absolute', left: 0, top: 0, overflow: 'visible', pointerEvents: 'none' }}
+        >
           <defs>
             {Object.entries(EDGE_STYLE).map(([kind, s]) => (
               <marker
@@ -542,34 +581,37 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
         ))}
 
         {insertMenu && byId.has(insertMenu.nodeId) && (
-          <InsertNodeMenu menu={insertMenu} zoom={zoom} onPick={insertFromMenu} />
+          <InsertNodeMenu menu={insertMenu} zoom={view.zoom} onPick={insertFromMenu} />
         )}
+      </div>
 
-        {state.nodes.length === 0 && (
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              display: 'grid',
-              placeItems: 'center',
-              color: 'var(--color-text-dim)',
-              fontSize: '0.9rem',
-            }}
-          >
-            Add a step from the palette to start building.
-          </div>
-        )}
-      </div>
-      </div>
+      {/* Empty-state hint lives on the viewport (not the world) so it stays
+       *  centered and readable regardless of pan/zoom. */}
+      {state.nodes.length === 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'grid',
+            placeItems: 'center',
+            color: 'var(--color-text-dim)',
+            fontSize: '0.9rem',
+            pointerEvents: 'none',
+          }}
+        >
+          Add a step from the palette to start building.
+        </div>
+      )}
 
       {reject && (
         <div
           role="alert"
           data-testid="connect-reject"
           style={{
-            position: 'sticky',
+            position: 'absolute',
             bottom: 12,
-            margin: '0 auto',
+            left: '50%',
+            transform: 'translateX(-50%)',
             width: 'fit-content',
             maxWidth: '80%',
             padding: '0.4rem 0.7rem',
@@ -587,27 +629,30 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
       )}
     </div>
     <ZoomControls
-      zoom={zoom}
-      onZoomIn={() => applyZoom(zoom * ZOOM_STEP)}
-      onZoomOut={() => applyZoom(zoom / ZOOM_STEP)}
+      zoom={view.zoom}
+      onZoomIn={() => applyZoom(view.zoom * ZOOM_STEP)}
+      onZoomOut={() => applyZoom(view.zoom / ZOOM_STEP)}
       onReset={() => applyZoom(1)}
+      onFit={zoomToFit}
     />
     </div>
   );
 }
 
 /** Floating zoom cluster pinned to the canvas' bottom-right corner. The
- *  percentage doubles as a reset-to-100% button. */
+ *  percentage doubles as a reset-to-100% button; ⛶ frames all nodes. */
 function ZoomControls({
   zoom,
   onZoomIn,
   onZoomOut,
   onReset,
+  onFit,
 }: {
   readonly zoom: number;
   readonly onZoomIn: () => void;
   readonly onZoomOut: () => void;
   readonly onReset: () => void;
+  readonly onFit: () => void;
 }): JSX.Element {
   return (
     <div
@@ -657,6 +702,16 @@ function ZoomControls({
       >
         +
       </button>
+      <button
+        type="button"
+        data-testid="canvas-zoom-fit"
+        title="Zoom to fit all steps"
+        aria-label="Zoom to fit"
+        onClick={onFit}
+        style={{ ...zoomBtn, fontSize: '0.8rem' }}
+      >
+        ⛶
+      </button>
     </div>
   );
 }
@@ -683,6 +738,7 @@ function InsertNodeMenu({
       // canvas, dismiss the menu, or deselect.
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
       style={{
         position: 'absolute',
         left: menu.x,
@@ -900,6 +956,8 @@ function NodeCard({
       data-testid={`wf-node-${node.id}`}
       onPointerDown={onBodyPointerDown}
       onClick={(e) => e.stopPropagation()}
+      // Double-click on a CARD must not trigger the canvas' zoom reset.
+      onDoubleClick={(e) => e.stopPropagation()}
       style={{
         position: 'absolute',
         left: node.x,

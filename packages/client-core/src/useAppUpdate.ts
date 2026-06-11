@@ -24,6 +24,7 @@ export type UpdateState =
   | 'uptodate'
   | 'available' // newer + compatible → can hot-update
   | 'incompatible' // newer but needs a full app/shell update
+  | 'requires-full-update' // newer but its runner protocol outruns the bundled CLI → full installer only
   | 'unavailable' // not configured / dev / offline
   | 'updating'
   | 'staged' // installed; relaunch to apply
@@ -73,6 +74,7 @@ export function useAppUpdate(opts: { autoCheck?: boolean } = {}): UseAppUpdate {
       setCheck(c);
       if (c.error) setState('unavailable');
       else if (!c.available) setState('uptodate');
+      else if (c.requiresFullUpdate) setState('requires-full-update');
       else if (!c.compatible) setState('incompatible');
       else setState('available');
     } catch (e) {
@@ -90,6 +92,11 @@ export function useAppUpdate(opts: { autoCheck?: boolean } = {}): UseAppUpdate {
       if (r.ok && r.version) {
         setStagedVersion(r.version);
         setState('staged');
+      } else if (r.requiresFullUpdate) {
+        // The bundle was deliberately not staged — it needs the full installer.
+        // Distinct from a failure so the UI shows the Tier-2 call-to-action.
+        setError(r.error ?? null);
+        setState('requires-full-update');
       } else {
         setError(r.error ?? 'Update failed.');
         setState('error');

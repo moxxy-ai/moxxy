@@ -4,8 +4,8 @@ import type { ModeBadge } from './types';
  *  chip and banner read as one signal: amber for attention, cyan for info. */
 function badgeAccent(tone: ModeBadge['tone']): { readonly accent: string; readonly soft: string } {
   return tone === 'info'
-    ? { accent: 'var(--color-accent-strong)', soft: 'rgba(34, 211, 238, 0.10)' }
-    : { accent: 'var(--color-amber)', soft: 'rgba(245, 158, 11, 0.10)' };
+    ? { accent: 'var(--color-accent-strong)', soft: 'color-mix(in srgb, var(--color-accent) 10%, transparent)' }
+    : { accent: 'var(--color-amber)', soft: 'color-mix(in srgb, var(--color-amber) 10%, transparent)' };
 }
 
 /**
@@ -44,7 +44,7 @@ export function ChipSelect({
         color: 'var(--color-text-muted)',
         border: `1px solid ${accent?.accent ?? 'var(--color-card-border)'}`,
         borderRadius: 10,
-        background: accent ? accent.soft : '#fff',
+        background: accent ? accent.soft : 'var(--color-surface)',
         display: 'inline-flex',
         alignItems: 'center',
         gap: 6,

@@ -54,6 +54,8 @@ function QrCode({ value }: { readonly value: string }): JSX.Element {
       style={{
         width: 220,
         height: 220,
+        // Deliberate literal: QR codes need a white quiet zone for scanner
+        // contrast in BOTH themes — never theme this surface.
         background: '#fff',
         borderRadius: 14,
         padding: 10,
@@ -193,6 +195,8 @@ export function MobileTab(): JSX.Element {
                     minWidth: 0,
                     fontSize: 12,
                     padding: '8px 10px',
+                    // Deliberate literals: terminal-style chip is dark in both
+                    // themes (same as the AboutTab update log).
                     background: '#0f172a',
                     color: '#e2e8f0',
                     borderRadius: 8,

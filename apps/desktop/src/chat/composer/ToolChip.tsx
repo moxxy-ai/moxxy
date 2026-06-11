@@ -13,12 +13,12 @@ export function ToolChip({
    *  a subtle bg + border darken on hover. */
   const palette =
     tone === 'recording'
-      ? { bg: '#fee2e2', color: '#dc2626', border: '#fecaca' }
+      ? { bg: 'var(--color-red-soft)', color: 'var(--color-red-text)', border: 'var(--color-red-border)' }
       : tone === 'busy'
         ? { bg: 'var(--color-primary-soft)', color: 'var(--color-primary-strong)', border: 'var(--color-primary-soft)' }
         : tone === 'armed'
-          ? { bg: '#fef3c7', color: '#b45309', border: '#fde68a' }
-          : { bg: '#fff', color: 'var(--color-text-muted)', border: 'var(--color-card-border)' };
+          ? { bg: 'var(--color-amber-soft)', color: 'var(--color-amber-text)', border: 'var(--color-amber-border)' }
+          : { bg: 'var(--color-surface)', color: 'var(--color-text-muted)', border: 'var(--color-card-border)' };
   return (
     <button
       type="button"

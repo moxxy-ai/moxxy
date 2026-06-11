@@ -17,8 +17,8 @@ export function SubagentView({
       : 'var(--color-green)';
   // Subagents get a distinct violet tile so they read as a different KIND of
   // actor than tool calls (which are status-tinted green/pink/red).
-  const tileBg = 'rgba(139, 92, 246, 0.14)';
-  const tileFg = '#7c3aed';
+  const tileBg = 'color-mix(in srgb, var(--color-purple) 14%, transparent)';
+  const tileFg = 'var(--color-purple-strong)';
   const statusText = running ? 'running' : block.error ? 'failed' : 'done';
   const elapsed =
     block.completedAtMs !== null ? Math.round((block.completedAtMs - block.startedAtMs) / 100) / 10 : null;
@@ -132,7 +132,7 @@ export function SubagentView({
                         gap: 7,
                         alignItems: 'baseline',
                         padding: '4px 8px',
-                        background: 'rgba(139, 92, 246, 0.07)',
+                        background: 'color-mix(in srgb, var(--color-purple) 7%, transparent)',
                         borderRadius: 7,
                         fontSize: 11,
                       }}

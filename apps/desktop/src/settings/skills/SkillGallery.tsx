@@ -60,7 +60,7 @@ export function SkillGallery({
             alignItems: 'center',
             gap: 9,
             padding: '9px 12px',
-            background: '#fff',
+            background: 'var(--color-surface)',
             border: '1px solid var(--color-card-border)',
             borderRadius: 10,
           }}

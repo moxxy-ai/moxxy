@@ -123,11 +123,11 @@ export function SuccessRow({ text }: { readonly text: string }): JSX.Element {
         alignItems: 'center',
         gap: 10,
         padding: '10px 14px',
-        background: '#dcfce7',
-        border: '1px solid #bbf7d0',
+        background: 'var(--color-success-soft)',
+        border: '1px solid var(--color-success-soft-border)',
         borderRadius: 10,
         fontSize: 13,
-        color: '#166534',
+        color: 'var(--color-success-soft-text)',
         fontWeight: 600,
       }}
     >

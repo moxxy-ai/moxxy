@@ -7,10 +7,11 @@ import { McpTab } from './McpTab';
 import { VaultTab } from './VaultTab';
 import { AboutTab } from './AboutTab';
 import { MobileTab } from './MobileTab';
+import { AppearanceTab } from './AppearanceTab';
 import { SearchBox } from './settings-primitives';
 import { ViewHeader, ViewSwitcher, Segmented, type View } from '../shell/ViewHeader';
 
-type Tab = 'providers' | 'mcp' | 'skills' | 'vault' | 'mobile' | 'about';
+type Tab = 'providers' | 'mcp' | 'skills' | 'vault' | 'mobile' | 'appearance' | 'about';
 
 const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: 'providers', label: 'Providers' },
@@ -18,12 +19,13 @@ const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: 'skills', label: 'Skills' },
   { id: 'vault', label: 'Vault' },
   { id: 'mobile', label: 'Mobile' },
+  { id: 'appearance', label: 'Appearance' },
   { id: 'about', label: 'About' },
 ];
 
 // Tabs that don't read the runner-backed settings slice — render them outside
 // the shared loading / error chrome (like About).
-const STANDALONE_TABS: ReadonlySet<Tab> = new Set<Tab>(['about', 'mobile']);
+const STANDALONE_TABS: ReadonlySet<Tab> = new Set<Tab>(['about', 'mobile', 'appearance']);
 
 /**
  * Tabbed settings panel — providers, MCP servers, skills, vault. Each tab
@@ -84,6 +86,7 @@ export function SettingsPanel({
           render them without the shared loading / error chrome below. */}
       {tab === 'about' && <AboutTab />}
       {tab === 'mobile' && <MobileTab />}
+      {tab === 'appearance' && <AppearanceTab />}
 
       {!STANDALONE_TABS.has(tab) && s.error && (
         <div

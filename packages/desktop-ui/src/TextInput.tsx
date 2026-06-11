@@ -1,6 +1,7 @@
 /**
  * Text field primitives — the one card-input shape the desktop uses, plus a
- * matching multi-line `TextArea`. `tone='soft'` is the `#f7f8fc` fill some
+ * matching multi-line `TextArea`. `tone='soft'` is the recessed
+ * `var(--color-input-soft)` fill some
  * modals use; `mono` switches to the monospace token (skill filenames, command
  * args). `style`/`className` merge last for per-site tweaks (width, min-height).
  */
@@ -12,7 +13,7 @@ const fieldStyle = (tone: FieldTone, mono: boolean): CSSProperties => ({
   padding: '9px 12px',
   fontSize: 14,
   color: 'var(--color-text)',
-  background: tone === 'soft' ? '#f7f8fc' : '#fff',
+  background: tone === 'soft' ? 'var(--color-input-soft)' : 'var(--color-surface)',
   border: '1px solid var(--color-card-border)',
   borderRadius: 10,
   outline: 'none',
