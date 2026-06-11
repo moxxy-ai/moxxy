@@ -30,6 +30,12 @@ import {
   type TunnelChoice,
 } from './tunnel.js';
 import { printConnectInfo } from './qr.js';
+import {
+  resolveMobileExpoOptions,
+  startMobileExpoApp,
+  type MobileExpoOptionsInput,
+  type MobileExpoHandle,
+} from './expo-launcher.js';
 
 export interface MobileStartOpts extends ChannelStartOptsBase {
   readonly session: ClientSession;
@@ -46,10 +52,22 @@ export interface MobileChannelOptions {
   readonly token?: string;
   /** Reachability: `localhost` (LAN only), or a `cloudflared`/`ngrok` public tunnel. */
   readonly tunnel?: TunnelChoice;
+  /** Expo Go launcher for the bundled `apps/mobile-poc` app. Enabled by default. */
+  readonly expo?: MobileExpoOptionsInput;
+  readonly 'no-expo'?: unknown;
+  readonly 'expo-host'?: unknown;
+  readonly 'expo-port'?: unknown;
+  readonly expoHost?: unknown;
+  readonly expoPort?: unknown;
+  readonly expoAppDir?: unknown;
   readonly logger?: {
     info?(msg: string, meta?: Record<string, unknown>): void;
     warn?(msg: string, meta?: Record<string, unknown>): void;
   };
+}
+
+export interface MobileChannelDeps {
+  readonly startExpoApp?: typeof startMobileExpoApp;
 }
 
 const DEFAULT_PORT = 8765;
@@ -62,16 +80,29 @@ export class MobileChannel implements Channel<MobileStartOpts> {
   private readonly bindHost: string;
   private token: string;
   private readonly tunnelChoice: TunnelChoice;
+  private readonly expoOptions: MobileExpoOptionsInput;
+  private readonly startExpoApp: typeof startMobileExpoApp;
   private readonly logger: MobileChannelOptions['logger'];
   private host: MobileSessionHost | null = null;
   private server: Awaited<ReturnType<typeof startWsBridge>> | null = null;
   private tunnel: TunnelHandle | null = null;
+  private expo: MobileExpoHandle | null = null;
 
-  constructor(opts: MobileChannelOptions = {}) {
+  constructor(opts: MobileChannelOptions = {}, deps: MobileChannelDeps = {}) {
     this.port = opts.port ?? DEFAULT_PORT;
     this.bindHost = resolveBindHost(opts.bindHost);
     this.token = resolveMobileToken(opts.token);
     this.tunnelChoice = normalizeTunnelChoice(opts.tunnel);
+    this.expoOptions = {
+      ...opts.expo,
+      'no-expo': opts['no-expo'],
+      'expo-host': opts['expo-host'],
+      'expo-port': opts['expo-port'],
+      expoHost: opts.expoHost,
+      expoPort: opts.expoPort,
+      expoAppDir: opts.expoAppDir,
+    };
+    this.startExpoApp = deps.startExpoApp ?? startMobileExpoApp;
     this.logger = opts.logger;
     // The field `moxxy serve --all` reads to coordinate the session resolver.
     // Delegate to the live host (installed in start()); deny before any client.
@@ -117,68 +148,71 @@ export class MobileChannel implements Channel<MobileStartOpts> {
     // tear the host (and any opened tunnel/server) back down so we don't leak a
     // dead subscriber/resolver onto a live session.
     try {
-    // iOS React Native sends an `Origin` header derived from the WS URL it
-    // dials (Android/Node send none), so every URL this channel advertises
-    // must have its origin allow-listed or real iPhones are rejected at the
-    // upgrade. Local origins are known now; the tunnel origin is added below
-    // once the tunnel URL is assigned.
-    const localOrigins = advertisedOrigins(this.bindHost, this.port);
-    const server = await startWsBridge(bus, {
-      port: this.port,
-      host: this.bindHost,
-      authToken: this.token,
-      allowedOrigins: localOrigins,
-      // Back-compat ONLY: the QR this channel prints embeds the token as `?t=`
-      // (pairing payload); current apps strip it and authenticate via the
-      // Sec-WebSocket-Protocol bearer entry, but older installed builds still
-      // connect with the token in the WS URL.
-      allowQueryToken: true,
-    });
-    this.server = server;
-    this.logger?.info?.('mobile channel listening', { address: server.address });
+      // iOS React Native sends an `Origin` header derived from the WS URL it
+      // dials (Android/Node send none), so every URL this channel advertises
+      // must have its origin allow-listed or real iPhones are rejected at the
+      // upgrade. Local origins are known now; the tunnel origin is added below
+      // once the tunnel URL is assigned.
+      const localOrigins = advertisedOrigins(this.bindHost, this.port);
+      const server = await startWsBridge(bus, {
+        port: this.port,
+        host: this.bindHost,
+        authToken: this.token,
+        allowedOrigins: localOrigins,
+        // Back-compat ONLY: the QR this channel prints embeds the token as `?t=`
+        // (pairing payload); current apps strip it and authenticate via the
+        // Sec-WebSocket-Protocol bearer entry, but older installed builds still
+        // connect with the token in the WS URL.
+        allowQueryToken: true,
+      });
+      this.server = server;
+      this.logger?.info?.('mobile channel listening', { address: server.address });
 
-    // Optionally expose the bridge beyond the LAN via the user's chosen tunnel.
-    let tunnelUrl: string | null = null;
-    const provider = tunnelProviderFor(this.tunnelChoice);
-    if (provider) {
-      try {
-        this.tunnel = await provider.open({ port: this.port, host: this.bindHost });
-        tunnelUrl = this.tunnel.url;
-        server.setAllowedOrigins([...localOrigins, connectUrlOrigin(tunnelUrl)]);
-        this.logger?.info?.('mobile tunnel open', { provider: provider.name, url: tunnelUrl });
-      } catch (err) {
-        this.logger?.warn?.('mobile tunnel failed; using the local URL', {
-          provider: provider.name,
-          err: String(err),
-        });
+      // Optionally expose the bridge beyond the LAN via the user's chosen tunnel.
+      let tunnelUrl: string | null = null;
+      const provider = tunnelProviderFor(this.tunnelChoice);
+      if (provider) {
+        try {
+          this.tunnel = await provider.open({ port: this.port, host: this.bindHost });
+          tunnelUrl = this.tunnel.url;
+          server.setAllowedOrigins([...localOrigins, connectUrlOrigin(tunnelUrl)]);
+          this.logger?.info?.('mobile tunnel open', { provider: provider.name, url: tunnelUrl });
+        } catch (err) {
+          this.logger?.warn?.('mobile tunnel failed; using the local URL', {
+            provider: provider.name,
+            err: String(err),
+          });
+        }
       }
-    }
 
-    // A QR (+ plain URL) the mobile app scans to connect — token embedded.
-    // The URL only ever advertises an address the server is reachable on:
-    // the tunnel URL, the LAN IP for a wildcard bind, or the bind host itself
-    // (the loopback default advertises 127.0.0.1 — simulators on this machine).
-    const connectUrl = buildConnectUrl({
-      tunnelUrl,
-      localHost: advertisedHost(this.bindHost),
-      port: this.port,
-      token: this.token,
-    });
-    const loopbackOnly = !tunnelUrl && isLoopbackHost(this.bindHost);
-    await printConnectInfo(
-      connectUrl,
-      this.token,
-      loopbackOnly
-        ? 'Bound to loopback — this QR only works on THIS machine (e.g. an iOS/Android\n' +
-          '  simulator). For a real phone: opt in to a LAN bind with MOXXY_MOBILE_HOST=0.0.0.0\n' +
-          "  (or channels.mobile.bindHost in moxxy.config.ts), or use a tunnel\n" +
-          "  (channels.mobile.tunnel: 'cloudflared' | 'ngrok', or MOXXY_MOBILE_TUNNEL)."
-        : undefined,
-    );
+      // A QR (+ plain URL) the mobile app scans to connect — token embedded.
+      // The URL only ever advertises an address the server is reachable on:
+      // the tunnel URL, the LAN IP for a wildcard bind, or the bind host itself
+      // (the loopback default advertises 127.0.0.1 — simulators on this machine).
+      const connectUrl = buildConnectUrl({
+        tunnelUrl,
+        localHost: advertisedHost(this.bindHost),
+        port: this.port,
+        token: this.token,
+      });
+      const loopbackOnly = !tunnelUrl && isLoopbackHost(this.bindHost);
+      await printConnectInfo(
+        connectUrl,
+        this.token,
+        loopbackOnly
+          ? 'Bound to loopback — this QR only works on THIS machine (e.g. an iOS/Android\n' +
+            '  simulator). For a real phone: opt in to a LAN bind with MOXXY_MOBILE_HOST=0.0.0.0\n' +
+            "  (or channels.mobile.bindHost in moxxy.config.ts), or use a tunnel\n" +
+            "  (channels.mobile.tunnel: 'cloudflared' | 'ngrok', or MOXXY_MOBILE_TUNNEL)."
+          : undefined,
+      );
+      this.expo = await this.startExpoApp(resolveMobileExpoOptions(this.expoOptions));
     } catch (err) {
       // Roll back the partial wiring: unsubscribe from session.log + clear the
       // ask resolvers (host.dispose), close anything we managed to open, and
       // null the fields back out so this channel owns nothing.
+      await this.expo?.stop().catch(() => undefined);
+      this.expo = null;
       host.dispose();
       if (this.tunnel) {
         await this.tunnel.close().catch(() => undefined);
@@ -198,6 +232,8 @@ export class MobileChannel implements Channel<MobileStartOpts> {
     return {
       running,
       stop: async () => {
+        await this.expo?.stop();
+        this.expo = null;
         host.dispose();
         if (this.tunnel) {
           await this.tunnel.close().catch(() => undefined);

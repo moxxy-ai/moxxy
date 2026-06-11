@@ -11,7 +11,8 @@ headless client layer the desktop renderer uses.
 
 ## Run it
 
-1. Start the channel on this machine (from the repo root, after `pnpm build`):
+1. Start the channel and the Expo dev server on this machine (from the repo root,
+   after `pnpm build`):
 
    ```sh
    moxxy mobile
@@ -30,15 +31,12 @@ headless client layer the desktop renderer uses.
    a private IP (no CA issues one, and RN/Expo Go has no cert-pinning escape
    hatch), so LAN traffic — the bearer handshake included — rides cleartext.
    Fine on a trusted home network, not elsewhere. Either way the terminal
-   prints a QR with the connect URL + pairing token.
+   prints a QR with the connect URL + pairing token. The same command also runs
+   `expo start --host lan --port 8081`, so scan Expo's QR in Expo Go to open the
+   app. Pass `--no-expo` for bridge-only runs, or `--expo-host tunnel` /
+   `--expo-port <port>` when Metro needs a different setting.
 
-2. Start the app and open it in Expo Go (or a dev build):
-
-   ```sh
-   pnpm --filter @moxxy/mobile-poc start
-   ```
-
-3. Scan the QR from step 1 inside the app. You're chatting with the runner's
+2. Scan the pairing QR from step 1 inside the app. You're chatting with the runner's
    session; tool permission prompts surface as Allow/Deny cards.
 
 ### Simulator shortcut (no camera)

@@ -20,6 +20,16 @@ function asString(v: unknown): string | undefined {
 function asTunnel(v: unknown): 'localhost' | 'cloudflared' | 'ngrok' | undefined {
   return v === 'cloudflared' || v === 'ngrok' || v === 'localhost' ? v : undefined;
 }
+function pickExpoOptions(opts: Record<string, unknown>) {
+  return {
+    'no-expo': opts['no-expo'],
+    'expo-host': opts['expo-host'],
+    'expo-port': opts['expo-port'],
+    expoHost: opts.expoHost,
+    expoPort: opts.expoPort,
+    expoAppDir: opts.expoAppDir,
+  };
+}
 
 export const mobileChannelDef = defineChannel({
   name: 'mobile',
@@ -31,6 +41,7 @@ export const mobileChannelDef = defineChannel({
       bindHost: asString(deps.options?.bindHost),
       token: asString(deps.options?.token),
       tunnel: asTunnel(deps.options?.tunnel),
+      expo: pickExpoOptions((deps.options ?? {}) as Record<string, unknown>),
       logger: deps.logger,
     }),
   isAvailable: async () => ({ ok: true }),

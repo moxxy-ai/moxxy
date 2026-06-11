@@ -556,6 +556,11 @@ smallest app proving the mobile channel end to end (QR pairing → chat → ask 
   on main was red. The client half of the pairing contract (`splitConnectUrl`) now lives in
   `@moxxy/client-transport-ws`, and both the PoC app and the desktop round-trip test consume
   it from there (no app→app imports).
+- **Retired (2026-06-11): mobile PoC launch was a two-terminal paper cut.** `moxxy mobile`
+  only started the bridge/QR, while the working Expo app still required a separate
+  `pnpm --filter @moxxy/mobile-poc start`. The mobile channel now starts the PoC Expo app
+  beside the bridge by default (`--no-expo` keeps bridge-only runs), so one command presents
+  both the Expo Go QR and the Moxxy pairing QR.
 - **M1 [med, security/feature gap] LAN pairing is cleartext `ws://`** — the bridge
   (`createWebSocketTransportServer`) constructs a plain `WebSocketServer` with no TLS
   option, so a `MOXXY_MOBILE_HOST=0.0.0.0` bind sends the bearer handshake unencrypted on
