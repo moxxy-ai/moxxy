@@ -353,6 +353,11 @@ export class VirtualOfficeChannel implements Channel<OfficeStartOpts> {
       res.end('{"status":"ok"}');
       return;
     }
+    if (pathname === '/favicon.ico') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
     if (req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
       if (!this.validToken(req.url)) {
         res.writeHead(401, { 'content-type': 'text/plain' });

@@ -29,6 +29,7 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 @moxxy/plugin-channel-http        HTTP channel (auth + allow-list resolver)
 @moxxy/plugin-channel-web         web surface channel — serves a browser app rendering agent-authored view-spec UIs over a WebSocket
 @moxxy/plugin-channel-mobile      mobile channel — serves the desktop IPC contract over an authenticated WebSocket (`moxxy mobile`)
+@moxxy/plugin-channel-virtual-office  virtual-office channel — browser pixel-art office game where each worker sprite is a full session; subagents meet in the war room (`moxxy office`)
 @moxxy/plugin-view                present_view tool — agent-authored JSX-like view-spec parsed into a validated AST channels can render
 @moxxy/plugin-mcp                 MCP server bridge
 @moxxy/plugin-embeddings-openai   OpenAI embeddings
