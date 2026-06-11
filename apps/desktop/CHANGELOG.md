@@ -1,5 +1,13 @@
 # @moxxy/desktop
 
+## 0.5.3
+
+### Patch Changes
+
+- Updated dependencies [54526cc]
+  - @moxxy/plugin-channel-mobile@0.1.7
+  - @moxxy/cli@0.8.2
+
 ## 0.5.2
 
 ### Patch Changes
