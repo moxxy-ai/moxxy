@@ -1,5 +1,16 @@
 # @moxxy/cli
 
+## 0.9.0
+
+### Minor Changes
+
+- fee0523: New `moxxy office` channel: a browser pixel-art office game where every animated worker sprite is a full moxxy session. Click a sprite to chat with that agent (streaming, tool calls, permission/approval prompts, slash commands, mode switching, abort); spawn new agents that walk in through the entrance; watch subagents gather in the war room and bubble their progress. Served over the standard authenticated WebSocket IPC bridge, so the game reuses the shared client layer.
+
+### Patch Changes
+
+- 1450973: Virtual office: mouse-wheel / trackpad-pinch zoom (anchored at the cursor) and drag-to-pan, clamped to the office map; sprite clicks now fire on pointer-up with a drag threshold so panning never opens the chat panel.
+- 5ab6c78: Fix the WS bridge rejecting real iOS devices at the upgrade handshake. iOS React Native (SocketRocket) sends an `Origin` header derived from the WS URL it dials (ws→http, wss→https) — it is not a browser-only signal — so the Origin default-deny dropped every iPhone pairing with `moxxy mobile` or the desktop gateway. The bridge server now supports `setAllowedOrigins` on the live listener (a tunnel URL is only assigned after start), and both the mobile channel and the desktop mobile gateway allow-list exactly the origins of the URLs they advertise: the tunnel origin, the LAN/loopback connect-URL origin, and the loopback spellings for simulators. Default-deny for everything else is unchanged.
+
 ## 0.8.2
 
 ### Patch Changes
