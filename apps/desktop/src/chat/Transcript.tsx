@@ -1,5 +1,5 @@
-import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Virtuoso } from 'react-virtuoso';
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { blocksEquivalent, type Block as FoldedBlock } from '@moxxy/chat-model';
 import { buildRenderNodes, groupToolNodes, type Extension, type RenderNode } from '@moxxy/client-core';
@@ -7,6 +7,7 @@ import { BlockView, StreamingAssistant } from './BlockView';
 import { ToolGroupView } from './ToolGroupView';
 import { ExtensionCard } from './ExtensionCard';
 import { ThinkingIndicator } from './ThinkingIndicator';
+import { JumpToLatest, useNewContentBelow } from './JumpToLatest';
 
 interface TranscriptProps {
   readonly events: ReadonlyArray<MoxxyEvent>;
@@ -85,6 +86,26 @@ export function Transcript({
     [events, extensions],
   );
 
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+
+  // Mirrors Virtuoso's at-bottom flag. Starts true: `initialTopMostItemIndex`
+  // mounts the list at the bottom, so the jump affordance must not flash
+  // before the first `atBottomStateChange` callback lands.
+  const [atBottom, setAtBottom] = useState(true);
+
+  // Changes on APPENDS only (new last row or streaming chunk) — stable
+  // across upward-pagination prepends, so paging in history never fakes an
+  // unread hint or flickers the jump button.
+  const lastKey = nodes.length > 0 ? keyOf(nodes[nodes.length - 1]!) : '';
+  const newBelow = useNewContentBelow(atBottom, `${lastKey}:${streamingText.length}`);
+
+  const jumpToLatest = useCallback(() => {
+    // `align: 'end'` on the LAST index also accounts for the Footer (the
+    // in-flight streaming bubble), landing fully at the bottom — which
+    // flips `atBottom` back on and resumes `followOutput`.
+    virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'smooth' });
+  }, []);
+
   // Track how many rows have been prepended so far and shift
   // firstItemIndex by that amount. Detect a prepend by finding where the
   // previous head row landed in the new list.
@@ -100,28 +121,38 @@ export function Transcript({
   }, [nodes]);
 
   return (
-    <Virtuoso<RenderNode>
-      data={nodes as RenderNode[]}
-      data-testid="transcript"
-      style={{ flex: 1 }}
-      // Only follow when the user is already at the bottom (scrolling up to
-      // read is never interrupted). A newly-committed line scrolls SMOOTHLY;
-      // during active streaming we pin instantly so rapid chunks don't stack
-      // overlapping smooth-scroll animations into jank.
-      followOutput={(atBottom) => (atBottom ? (streamingText ? 'auto' : 'smooth') : false)}
-      firstItemIndex={firstItemIndex}
-      initialTopMostItemIndex={Math.max(0, nodes.length - 1)}
-      {...(hasOlder && onReachedTop ? { startReached: onReachedTop } : {})}
-      computeItemKey={(_i, node) => keyOf(node)}
-      itemContent={(_i, node) => <Row node={node} workspaceId={workspaceId} />}
-      components={{
-        Footer: () => (
-          <div style={{ padding: '0 24px 12px' }}>
-            {streamingText && <StreamingAssistant text={streamingText} />}
-            {sending && streamingText === '' && <ThinkingIndicator />}
-          </div>
-        ),
-      }}
-    />
+    // Relative wrapper so the jump-to-latest button can float over the
+    // scroller without joining the virtualised content.
+    <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <Virtuoso<RenderNode>
+        ref={virtuosoRef}
+        data={nodes as RenderNode[]}
+        data-testid="transcript"
+        style={{ flex: 1 }}
+        // Only follow when the user is already at the bottom (scrolling up to
+        // read is never interrupted). A newly-committed line scrolls SMOOTHLY;
+        // during active streaming we pin instantly ('auto') so rapid chunks
+        // don't stack overlapping smooth-scroll animations into lag/jank.
+        followOutput={(isAtBottom) => (isAtBottom ? (streamingText ? 'auto' : 'smooth') : false)}
+        // ~80px of slack so trackpad jitter / a sub-row nudge near the bottom
+        // doesn't flip stick-to-bottom off (default is a razor-thin 4px).
+        atBottomThreshold={80}
+        atBottomStateChange={setAtBottom}
+        firstItemIndex={firstItemIndex}
+        initialTopMostItemIndex={Math.max(0, nodes.length - 1)}
+        {...(hasOlder && onReachedTop ? { startReached: onReachedTop } : {})}
+        computeItemKey={(_i, node) => keyOf(node)}
+        itemContent={(_i, node) => <Row node={node} workspaceId={workspaceId} />}
+        components={{
+          Footer: () => (
+            <div style={{ padding: '0 24px 12px' }}>
+              {streamingText && <StreamingAssistant text={streamingText} />}
+              {sending && streamingText === '' && <ThinkingIndicator />}
+            </div>
+          ),
+        }}
+      />
+      <JumpToLatest visible={!atBottom} unread={newBelow} onJump={jumpToLatest} />
+    </div>
   );
 }
