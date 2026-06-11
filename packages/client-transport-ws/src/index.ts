@@ -32,6 +32,7 @@ export {
   type WsClientStatus,
   type WsRpcClientOptions,
 } from './json-rpc-client.js';
+export { splitConnectUrl } from './pairing.js';
 
 /** Mirrors `MOXXY_WS_SUBPROTOCOL` in `@moxxy/sdk`. */
 const WS_SUBPROTOCOL = 'moxxy.v1';

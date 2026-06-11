@@ -52,6 +52,7 @@
     "remark-gfm": "^4.0.0"
   },
   "devDependencies": {
+    "@moxxy/client-transport-ws": "workspace:*",
     "@moxxy/tsconfig": "workspace:*",
     "@testing-library/jest-dom": "^6.6.0",
     "@testing-library/react": "^16.1.0",
