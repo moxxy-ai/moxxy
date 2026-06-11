@@ -6,7 +6,7 @@
  * per look (palette swap + hair overlay) so at most 12 sheets ever exist.
  */
 
-import Phaser from 'phaser';
+import type Phaser from 'phaser';
 
 import { drawGrid } from '../art/pixel.js';
 import { PALETTE, LOOKS } from '../art/palette.js';
