@@ -477,9 +477,6 @@ importers:
       '@moxxy/plugin-channel-mobile':
         specifier: workspace:*
         version: link:../plugin-channel-mobile
-      '@moxxy/plugin-channel-virtual-office':
-        specifier: workspace:*
-        version: link:../plugin-channel-virtual-office
       '@moxxy/plugin-channel-web':
         specifier: workspace:*
         version: link:../plugin-channel-web

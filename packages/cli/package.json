@@ -79,7 +79,6 @@
     "@moxxy/plugin-browser": "workspace:*",
     "@moxxy/plugin-channel-http": "workspace:*",
     "@moxxy/plugin-channel-mobile": "workspace:*",
-    "@moxxy/plugin-channel-virtual-office": "workspace:*",
     "@moxxy/plugin-cli": "workspace:*",
     "@moxxy/plugin-channel-web": "workspace:*",
     "@moxxy/plugin-commands": "workspace:*",

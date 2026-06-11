@@ -95,31 +95,6 @@ Severity in brackets.
   dedicated PR now that Part A makes additive skew non-fatal and Part B/C make any future breaking
   skew terminal-but-clear rather than a loop.
 
-## 2026-06-11 — virtual-office channel intake (new debt logged at birth)
-
-The `@moxxy/plugin-channel-virtual-office` channel (`moxxy office`) hosts N full
-sessions in one process. Debt it knowingly introduces:
-
-- **C1 [med, missing core seam] No public "boot a sibling session" factory in core** —
-  the office clones: `worker-session.ts spawnWorkerSession()` builds a `new Session()`
-  and mirrors the primary's registries (sharing the live provider instance + the
-  `PermissionEngine`). Snapshot semantics are documented in the module header: worker
-  dispatcher/pluginHost are empty (no plugin onEvent/turn hooks on worker turns), registry
-  copies don't see hot-reloads, and tools closing over the primary act on shared state.
-  **Action:** core should grow a `sessionFactory` (e.g. on `ChannelFactoryDeps`) so
-  multi-session surfaces stop hand-cloning; the desktop's process-per-session supervisor
-  and this in-process clone would become two impls of one seam. This also deepens P3 #7
-  (channel→core prod dependency) — the office imports core ON PURPOSE for the clone.
-- **C2 [low, dup] Fourth hand-rolled HTTP surface** — `channel.ts` copies the web
-  channel's bind-retry + `freeTcpPortIfMoxxy` (~90 lines). Strengthens the case for
-  P2 #3 (shared HttpChannelServer base); fold the office in when that lands.
-- **C3 [low, feature gap] Two-port topology blocks tunnels** — the game page (:4090)
-  and the WS bridge (:4091) are separate listeners, so a single cloudflared/ngrok tunnel
-  can't front both; the office is LAN-only for now. **Action:** add an optional
-  `server?: http.Server` to `WebSocketBridgeOptions` so the bridge can attach to the
-  channel's HTTP server (`path: '/ws'`) → single port → the standard tunnel providers
-  just work.
-
 ## 2026-06-09 audit intake — confirmed findings awaiting fixes
 
 Every item below survived an adversarial verification pass (an independent agent
