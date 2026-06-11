@@ -18,6 +18,10 @@ describe('mobile pairing gateway url', () => {
     expect(normalizeGatewayUrl('http://192.168.1.44:17902/mobile/v1/pairing')).toBe('http://192.168.1.44:17902');
   });
 
+  it('normalizes bridge WebSocket URLs without dropping the bridge path', () => {
+    expect(normalizeGatewayUrl('wss://mobile.example.test/socket?t=secret-token')).toBe('wss://mobile.example.test/socket');
+  });
+
   it('recovers the latest valid URL from a duplicated manual entry', () => {
     expect(normalizeGatewayUrl('http://hthttp127.0.0.1:17903http://127.0.0.1:17902')).toBe('http://127.0.0.1:17902');
   });
@@ -28,7 +32,7 @@ describe('mobile pairing gateway url', () => {
     expect(chooseGatewayUrlForPairing('http://10.0.0.2:17902', '192.168.1.44:8081')).toBe('http://10.0.0.2:17902');
   });
 
-  it('parses the gateway QR payload into a normalized pairing target', () => {
+  it('parses the legacy gateway QR payload into a normalized pairing target', () => {
     expect(parsePairingQrPayload(JSON.stringify({
       type: 'moxxy-mobile-gateway',
       version: 1,
@@ -37,6 +41,13 @@ describe('mobile pairing gateway url', () => {
     }))).toEqual({
       gatewayUrl: 'http://192.168.1.44:17902',
       code: '123456',
+    });
+  });
+
+  it('parses the working moxxy mobile bridge QR payload into a clean connect target', () => {
+    expect(parsePairingQrPayload('wss://mobile.example.test/socket?t=secret-token')).toEqual({
+      gatewayUrl: 'wss://mobile.example.test/socket',
+      code: 'secret-token',
     });
   });
 

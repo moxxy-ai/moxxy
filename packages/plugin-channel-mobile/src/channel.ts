@@ -52,7 +52,7 @@ export interface MobileChannelOptions {
   readonly token?: string;
   /** Reachability: `localhost` (LAN only), or a `cloudflared`/`ngrok` public tunnel. */
   readonly tunnel?: TunnelChoice;
-  /** Expo Go launcher for the bundled `apps/mobile-poc` app. Enabled by default. */
+  /** Expo Go launcher for the full bundled `apps/mobile-plugin/mobile` app. Enabled by default. */
   readonly expo?: MobileExpoOptionsInput;
   readonly 'no-expo'?: unknown;
   readonly 'expo-host'?: unknown;

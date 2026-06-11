@@ -15,7 +15,7 @@
  * the provider-response token accounting lives in `./usage`.
  */
 
-import type { MoxxyEvent } from '@moxxy/sdk';
+import type { MoxxyEvent, UserPromptAttachment } from '@moxxy/sdk';
 import { applyAction, isRenderedEvent, type ChatAction } from '../chatModel.js';
 import { INITIAL_WINDOW, OLDER_PAGE, type ChatPersistence } from '../chatPersistence.js';
 
@@ -209,13 +209,17 @@ class ChatStore {
     workspaceId: string,
     prompt: string,
     attachments?: ReadonlyArray<{ path: string; name: string }>,
+    inlineAttachments?: ReadonlyArray<UserPromptAttachment>,
   ): string {
     const slot = this.ensure(workspaceId);
     const id = `q-${slot.rt.rev}-${slot.queue.length}`;
-    slot.queue = [
-      ...slot.queue,
-      attachments && attachments.length > 0 ? { id, prompt, attachments } : { id, prompt },
-    ];
+    const queued: QueuedTurn = {
+      id,
+      prompt,
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
+      ...(inlineAttachments && inlineAttachments.length > 0 ? { inlineAttachments } : {}),
+    };
+    slot.queue = [...slot.queue, queued];
     this.emit();
     return id;
   }

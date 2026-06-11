@@ -1,5 +1,7 @@
 import Constants from 'expo-constants';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { configurePlatform, configureTransport } from '@moxxy/client-core';
+import { makeWsApi, splitConnectUrl } from '@moxxy/client-transport-ws';
 import { pairWithGatewayCode } from '../pairingClient';
 import { parsePairingQrPayload } from '../pairingQr';
 import { chooseGatewayUrlForPairing, normalizeGatewayUrl } from '../pairingUrl';
@@ -14,6 +16,7 @@ export interface PairingState {
   readonly code: string;
   readonly loading: boolean;
   readonly error: string | null;
+  readonly transportReady: boolean;
   readonly setGatewayUrl: (value: string) => void;
   readonly loadPairing: () => Promise<void>;
   readonly pair: () => Promise<void>;
@@ -28,8 +31,16 @@ export function usePairing(): PairingState {
   const [gatewayUrl, setGatewayUrlState] = useState(chooseGatewayUrlForPairing(storedUrl, expoHostUri));
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [transportReady, setTransportReady] = useState(false);
 
   const normalizedUrl = useMemo(() => normalizeGatewayUrl(gatewayUrl), [gatewayUrl]);
+
+  useEffect(() => {
+    if (!tokenLoading && !urlLoading && token && storedUrl && isBridgeUrl(storedUrl)) {
+      configureBridgeTransport(storedUrl, token);
+      setTransportReady(true);
+    }
+  }, [storedUrl, token, tokenLoading, urlLoading]);
 
   useEffect(() => {
     if (!urlLoading) setGatewayUrlState(chooseGatewayUrlForPairing(storedUrl, expoHostUri));
@@ -38,13 +49,21 @@ export function usePairing(): PairingState {
   const setGatewayUrl = useCallback(
     (value: string) => {
       setGatewayUrlState(value);
-      setStoredUrl(normalizeGatewayUrl(value));
+      setStoredUrl(value);
     },
     [setStoredUrl],
   );
 
   const loadPairing = useCallback(async () => {
     setError(null);
+    if (isBridgeUrl(gatewayUrl)) {
+      const split = splitConnectUrl(gatewayUrl);
+      setGatewayUrlState(split.url);
+      setStoredUrl(split.url);
+      setCode(split.token ?? '');
+      if (!split.token) setError('Paste the full ws:// or wss:// URL printed by moxxy mobile, including ?t=token.');
+      return;
+    }
     try {
       const res = await fetch(`${normalizedUrl}/mobile/v1/pairing`);
       if (!res.ok) {
@@ -60,6 +79,22 @@ export function usePairing(): PairingState {
 
   const pairWithCode = useCallback(async (targetUrl: string, pairingCode: string, refreshOnInvalid: boolean) => {
     setError(null);
+    if (isBridgeUrl(targetUrl)) {
+      if (!pairingCode.trim()) {
+        setError('Missing mobile pairing token. Scan the QR printed by moxxy mobile.');
+        return;
+      }
+      const split = splitConnectUrl(targetUrl);
+      const url = split.url;
+      const token = pairingCode.trim();
+      configureBridgeTransport(url, token);
+      setToken(token);
+      setStoredUrl(url);
+      setGatewayUrlState(url);
+      setCode('');
+      setTransportReady(true);
+      return;
+    }
     try {
       const result = await pairWithGatewayCode(targetUrl, pairingCode, { refreshOnInvalid });
       if (!result.ok) {
@@ -93,6 +128,7 @@ export function usePairing(): PairingState {
 
   const disconnect = useCallback(() => {
     setToken(null);
+    setTransportReady(false);
   }, [setToken]);
 
   return {
@@ -101,12 +137,23 @@ export function usePairing(): PairingState {
     code,
     loading: tokenLoading || urlLoading,
     error,
+    transportReady,
     setGatewayUrl,
     loadPairing,
     pair,
     pairFromQrPayload,
     disconnect,
   };
+}
+
+function configureBridgeTransport(rawUrl: string, token: string): void {
+  const split = splitConnectUrl(rawUrl);
+  configureTransport(makeWsApi({ url: split.url, token: token || split.token }));
+  configurePlatform({});
+}
+
+function isBridgeUrl(value: string | null | undefined): boolean {
+  return typeof value === 'string' && /^wss?:\/\//i.test(value.trim());
 }
 
 function readExpoHostUri(): string | null {

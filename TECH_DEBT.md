@@ -546,21 +546,23 @@ item — the debt it *creates* is logged here on sight:
   DIFFERENT providers from two clients could lose one update (same best-effort
   semantics as every `savePreferences` caller — acceptable, noted for completeness).
 
-## 2026-06-11 — mobile-poc app intake
+## 2026-06-11 — mobile app bridge intake
 
-`apps/mobile-poc` (Expo SDK 54, single screen) replaces the removed `apps/mobile` as the
-smallest app proving the mobile channel end to end (QR pairing → chat → ask round-trip).
+`apps/mobile-poc` (Expo SDK 54, single screen) is the smallest app proving the mobile
+channel end to end (QR pairing → chat → ask round-trip). The production mobile surface is
+`apps/mobile-plugin/mobile`, which now consumes the same bridge/client-core flow.
 
 - **Retired:** the "remove broken apps" commit (508f5d8) left `apps/desktop`'s
   `ws-bridge.test.ts` importing the deleted `apps/mobile/src/pairingQr` — `pnpm typecheck`
   on main was red. The client half of the pairing contract (`splitConnectUrl`) now lives in
   `@moxxy/client-transport-ws`, and both the PoC app and the desktop round-trip test consume
   it from there (no app→app imports).
-- **Retired (2026-06-11): mobile PoC launch was a two-terminal paper cut.** `moxxy mobile`
-  only started the bridge/QR, while the working Expo app still required a separate
-  `pnpm --filter @moxxy/mobile-poc start`. The mobile channel now starts the PoC Expo app
-  beside the bridge by default (`--no-expo` keeps bridge-only runs), so one command presents
-  both the Expo Go QR and the Moxxy pairing QR.
+- **Retired (2026-06-11): the real mobile app was still bypassed by the working PoC.**
+  `moxxy mobile` only started the bridge/QR, and the only working Expo client was the
+  separate `apps/mobile-poc` reference app. The mobile channel now starts the full
+  `apps/mobile-plugin/mobile` Expo app beside the bridge by default (`--no-expo` keeps
+  bridge-only runs), and the full app consumes the same `@moxxy/client-core` +
+  `@moxxy/client-transport-ws` WebSocket transport proven by the PoC.
 - **Retired (2026-06-11): Expo SDK 54's Worklets Babel plugin failed under pnpm strict
   resolution.** `react-native-worklets@0.8.3` requires `@babel/generator`,
   `@babel/traverse`, and `@babel/types` from its Babel plugin but does not declare them in
@@ -575,7 +577,7 @@ smallest app proving the mobile channel end to end (QR pairing → chat → ask 
   trusted cert) — the PoC README now leads with it. **Action** if direct-LAN encryption ever
   matters: add an optional `https.Server` (cert/key) to `WebSocketBridgeOptions` + a dev-build
   (non-Expo-Go) pinning story; until then, treat LAN binds as trusted-network-only.
-- **M2 [low, dx]** the PoC consumes workspace packages as built `dist` — editing any
+- **M2 [low, dx]** the Expo apps consume workspace packages as built `dist` — editing any
   `@moxxy/*` package needs a root `pnpm build` before Metro sees it (documented in the README).
 - **Retired (2026-06-11): real iPhones were rejected by the Origin default-deny.** The A27
   hardening assumed "native clients send no `Origin` header" — false on iOS: React Native's

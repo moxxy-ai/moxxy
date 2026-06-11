@@ -14,7 +14,7 @@
  * while a chunk is arriving.
  */
 
-import type { MoxxyEvent } from '@moxxy/sdk';
+import type { MoxxyEvent, UserPromptAttachment } from '@moxxy/sdk';
 import { createRuntime, type ChatRuntime, type Extension } from '../chatModel.js';
 import { EMPTY_USAGE, type UsageSnapshot } from './usage.js';
 
@@ -24,6 +24,7 @@ export interface QueuedTurn {
   readonly id: string;
   readonly prompt: string;
   readonly attachments?: ReadonlyArray<{ path: string; name: string }>;
+  readonly inlineAttachments?: ReadonlyArray<UserPromptAttachment>;
 }
 
 /** Immutable view handed to the renderer. `events` is reference-stable

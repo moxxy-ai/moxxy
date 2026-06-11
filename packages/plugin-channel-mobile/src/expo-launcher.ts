@@ -106,15 +106,15 @@ export async function startMobileExpoApp(
 }
 
 export function resolveMobileExpoAppDir(cwd = process.cwd()): string | null {
-  const fromPackage = findMobilePocFrom(MODULE_DIR);
+  const fromPackage = findMobilePluginFrom(MODULE_DIR);
   if (fromPackage) return fromPackage;
-  return findMobilePocFrom(cwd);
+  return findMobilePluginFrom(cwd);
 }
 
-function findMobilePocFrom(start: string): string | null {
+function findMobilePluginFrom(start: string): string | null {
   let cursor = resolve(start);
   for (let i = 0; i < 8; i += 1) {
-    const candidate = join(cursor, 'apps', 'mobile-poc');
+    const candidate = join(cursor, 'apps', 'mobile-plugin', 'mobile');
     if (existsSync(join(candidate, 'package.json'))) return candidate;
     const parent = dirname(cursor);
     if (parent === cursor) break;

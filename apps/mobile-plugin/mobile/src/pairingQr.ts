@@ -6,6 +6,9 @@ export interface PairingQrTarget {
 }
 
 export function parsePairingQrPayload(raw: string): PairingQrTarget {
+  const bridgeTarget = parseBridgeConnectUrl(raw);
+  if (bridgeTarget) return bridgeTarget;
+
   let payload: unknown;
   try {
     payload = JSON.parse(raw);
@@ -31,4 +34,20 @@ export function parsePairingQrPayload(raw: string): PairingQrTarget {
     gatewayUrl: normalizeGatewayUrl(value.url),
     code: value.code,
   };
+}
+
+function parseBridgeConnectUrl(raw: string): PairingQrTarget | null {
+  if (!/^wss?:\/\//i.test(raw.trim())) return null;
+  try {
+    const url = new URL(raw.trim());
+    const token = url.searchParams.get('t')?.trim();
+    if (!token) throw new Error('Invalid Moxxy pairing QR code');
+    url.searchParams.delete('t');
+    return {
+      gatewayUrl: url.toString().replace(/\/$/, ''),
+      code: token,
+    };
+  } catch {
+    throw new Error('Invalid Moxxy pairing QR code');
+  }
 }

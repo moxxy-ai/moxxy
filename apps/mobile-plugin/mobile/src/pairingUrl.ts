@@ -19,10 +19,12 @@ export function normalizeGatewayUrl(value: string): string {
   const trimmed = recoverLatestAbsoluteUrl(value.trim());
   if (!trimmed) return LOCAL_GATEWAY_URL;
 
-  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+  const withProtocol = /^(?:https?|wss?):\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
   try {
     const url = new URL(withProtocol);
-    url.pathname = normalizeGatewayPath(url.pathname);
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      url.pathname = normalizeGatewayPath(url.pathname);
+    }
     url.search = '';
     url.hash = '';
     return url.toString().replace(/\/$/, '');

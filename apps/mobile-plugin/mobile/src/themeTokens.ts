@@ -34,4 +34,4 @@ export const desktopLightThemeExtension = {
     sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
     mono: ['JetBrains Mono', 'ui-monospace', 'SF Mono', 'Menlo', 'monospace'],
   },
-} as const;
+};
