@@ -121,9 +121,12 @@ export interface WebSocketBridgeOptions {
    *  belongs in the `Authorization` header or the `Sec-WebSocket-Protocol`
    *  bearer entry, never the URL. */
   readonly allowQueryToken?: boolean;
-  /** Browser origins allowed to connect. Default `[]`: every upgrade carrying
-   *  an `Origin` header (i.e. browser-initiated) is rejected; native clients
-   *  send no Origin and are unaffected. */
+  /** Origins allowed to connect. Default `[]`: every upgrade carrying an
+   *  `Origin` header is rejected. Browsers always send one — but so does iOS
+   *  React Native (SocketRocket derives it from the WS URL: ws→http,
+   *  wss→https), so a bridge that real devices pair with must allow-list the
+   *  origins of every URL it advertises. Origins learned only after start
+   *  (a tunnel URL) go in via {@link WebSocketBridgeServer.setAllowedOrigins}. */
   readonly allowedOrigins?: readonly string[];
   /** Max concurrent connections (default 8); excess upgrades are rejected. */
   readonly maxConnections?: number;
@@ -145,6 +148,15 @@ export interface WebSocketBridgeServer extends TransportServer {
    * persist `next` first (e.g. `rotateChannelToken` in `@moxxy/sdk`).
    */
   rotateAuthToken(next: string): void;
+  /**
+   * Replace the Origin allow-list on the LIVE server. Needed because some
+   * allowed origins are only known after the listener is up — a tunnel
+   * (cloudflared/ngrok) URL is assigned once the tunnel opens, and iOS React
+   * Native clients present that URL's https origin at the upgrade. Affects
+   * future handshakes only; established connections stay up (unlike
+   * `rotateAuthToken`, nothing is being revoked on the additive path).
+   */
+  setAllowedOrigins(origins: readonly string[]): void;
   /** Number of clients currently connected — surfaced so a pairing UI (the
    *  desktop's Settings → Mobile tab) can show "1 device connected". */
   clientCount(): number;
@@ -161,6 +173,7 @@ export async function createWebSocketTransportServer(
   const host = opts.host ?? '127.0.0.1';
   const maxConnections = opts.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
   let currentToken = opts.authToken;
+  let currentAllowedOrigins: readonly string[] = opts.allowedOrigins ?? [];
   let connections = 0;
 
   const wss = new WebSocketServer({
@@ -168,7 +181,7 @@ export async function createWebSocketTransportServer(
     port: opts.port,
     maxPayload: opts.maxPayloadBytes ?? 64 * 1024 * 1024,
     verifyClient: (info: { req: IncomingMessage }) => {
-      if (!checkWsOrigin(info.req, opts.allowedOrigins)) {
+      if (!checkWsOrigin(info.req, currentAllowedOrigins)) {
         console.warn(
           `[moxxy] ws bridge: rejected browser-origin upgrade (Origin: ${String(info.req.headers.origin)})`,
         );
@@ -216,6 +229,9 @@ export async function createWebSocketTransportServer(
     rotateAuthToken(next: string): void {
       currentToken = next;
       for (const client of wss.clients) client.terminate();
+    },
+    setAllowedOrigins(origins: readonly string[]): void {
+      currentAllowedOrigins = [...origins];
     },
     clientCount(): number {
       return connections;

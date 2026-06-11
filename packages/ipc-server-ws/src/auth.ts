@@ -13,10 +13,13 @@
  *      URLs. Enable via `allowQueryToken` only where an already-paired legacy
  *      client must keep working.
  *
- * Origin: native clients send no `Origin` header and always pass that check; a
- * browser-initiated connection (which always carries one) is rejected unless
- * the origin is explicitly allow-listed — this stops a malicious webpage on the
- * victim's machine from even attempting the token handshake.
+ * Origin: a request WITHOUT an `Origin` header (Node `ws`, Android/OkHttp)
+ * always passes that check; one that carries an Origin is rejected unless it
+ * is explicitly allow-listed — this stops a malicious webpage on the victim's
+ * machine from even attempting the token handshake. NOTE the header is NOT a
+ * browser-only signal: iOS React Native (SocketRocket) sends an Origin derived
+ * from the WS URL itself (ws→http, wss→https), so a server real devices pair
+ * with must allow-list the origins of every URL it advertises.
  */
 
 import type { IncomingMessage } from 'node:http';
@@ -55,11 +58,12 @@ export function checkWsAuth(
 }
 
 /**
- * Reject browser-initiated upgrades: a request with an `Origin` header only
+ * Reject unknown-origin upgrades: a request with an `Origin` header only
  * passes when that origin is in `allowedOrigins` (case-insensitive). Requests
- * WITHOUT an Origin header (native clients — the mobile app, Node `ws`) always
- * pass; browsers cannot omit the header, so this cleanly fences off web pages
- * probing `ws://127.0.0.1`.
+ * WITHOUT an Origin header (Node `ws`, Android/OkHttp) always pass; browsers
+ * cannot omit the header, so this cleanly fences off web pages probing
+ * `ws://127.0.0.1`. iOS React Native DOES send one (derived from the WS URL),
+ * so the caller must allow-list every advertised URL's origin.
  */
 export function checkWsOrigin(
   req: IncomingMessage,

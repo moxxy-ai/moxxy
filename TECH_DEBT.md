@@ -37,6 +37,36 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
 
 ---
 
+## 2026-06-11 — mobile-poc app intake
+
+`apps/mobile-poc` (Expo SDK 54, single screen) replaces the removed `apps/mobile` as the
+smallest app proving the mobile channel end to end (QR pairing → chat → ask round-trip).
+
+- **Retired:** the "remove broken apps" commit (508f5d8) left `apps/desktop`'s
+  `ws-bridge.test.ts` importing the deleted `apps/mobile/src/pairingQr` — `pnpm typecheck`
+  on main was red. The client half of the pairing contract (`splitConnectUrl`) now lives in
+  `@moxxy/client-transport-ws`, and both the PoC app and the desktop round-trip test consume
+  it from there (no app→app imports).
+- **M1 [med, security/feature gap] LAN pairing is cleartext `ws://`** — the bridge
+  (`createWebSocketTransportServer`) constructs a plain `WebSocketServer` with no TLS
+  option, so a `MOXXY_MOBILE_HOST=0.0.0.0` bind sends the bearer handshake unencrypted on
+  the LAN. Even with a TLS option, RN/Expo Go cannot trust a self-signed cert for a private
+  IP (no pinning escape hatch), so the secure phone path is the tunnel (`wss://`, publicly
+  trusted cert) — the PoC README now leads with it. **Action** if direct-LAN encryption ever
+  matters: add an optional `https.Server` (cert/key) to `WebSocketBridgeOptions` + a dev-build
+  (non-Expo-Go) pinning story; until then, treat LAN binds as trusted-network-only.
+- **M2 [low, dx]** the PoC consumes workspace packages as built `dist` — editing any
+  `@moxxy/*` package needs a root `pnpm build` before Metro sees it (documented in the README).
+- **Retired (2026-06-11): real iPhones were rejected by the Origin default-deny.** The A27
+  hardening assumed "native clients send no `Origin` header" — false on iOS: React Native's
+  WebSocket (SocketRocket) sends an Origin derived from the dialed URL (ws→http, wss→https,
+  default ports elided), so every real-device pairing (tunnel or LAN) failed at the upgrade
+  with `rejected browser-origin upgrade`. Android (OkHttp) and Node send none, which is why
+  tests/simulator-on-node never caught it. Fix: `WebSocketBridgeServer.setAllowedOrigins`
+  (live update — the tunnel URL only exists after start) + the mobile channel and desktop
+  gateway allow-list exactly the origins of the URLs they advertise (`advertisedOrigins` /
+  `connectUrlOrigin` in `plugin-channel-mobile/pairing.ts`). Default-deny otherwise unchanged.
+
 ## 2026-06-10 round-2 audit intake — mobile gateway
 
 A targeted round-2 audit of the runtime mobile gateway shipped by PR #141 (the

@@ -31,7 +31,11 @@
 import path from 'node:path';
 
 import { resolveChannelToken, rotateChannelToken } from '@moxxy/sdk';
-import { advertisedHost, buildConnectUrl } from '@moxxy/plugin-channel-mobile/pairing';
+import {
+  advertisedHost,
+  advertisedOrigins,
+  buildConnectUrl,
+} from '@moxxy/plugin-channel-mobile/pairing';
 import type { WebSocketBridgeOptions, WebSocketBridgeServer } from '@moxxy/ipc-server-ws';
 import type { MobileGatewayStatus } from '@moxxy/desktop-ipc-contract';
 
@@ -183,6 +187,10 @@ export class MobileGatewayManager {
     this.server = server;
     this.boundHost = host;
     this.boundPort = port;
+    // iOS React Native presents the dialed URL's origin at the upgrade —
+    // allow-list the URLs we advertise (QR / Settings tab) or iPhones are
+    // rejected by the Origin default-deny.
+    server.setAllowedOrigins(advertisedOrigins(host, port));
   }
 
   /**
@@ -272,6 +280,11 @@ export class MobileGatewayManager {
     // been an ephemeral 0).
     const m = /:(\d+)$/.exec(this.server.address);
     this.boundPort = m ? Number(m[1]) : port;
+    // iOS React Native presents the dialed URL's origin at the upgrade —
+    // allow-list the URLs we advertise (QR / Settings tab) or iPhones are
+    // rejected by the Origin default-deny. Set post-bind so an ephemeral
+    // port (0) resolves to the real one.
+    this.server.setAllowedOrigins(advertisedOrigins(host, this.boundPort));
     console.log(`[moxxy] mobile gateway listening on ${this.server.address}`);
     return this.status();
   }

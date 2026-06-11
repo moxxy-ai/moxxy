@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { splitConnectUrl } from '@moxxy/client-transport-ws';
 import type { MobileGatewayStatus } from '@moxxy/desktop-ipc-contract';
 import type { WebSocketBridgeServer, WebSocketCommandBus } from '@moxxy/ipc-server-ws';
 import {
@@ -91,6 +92,7 @@ describe('rotateWsBridgeToken', () => {
       onConnection: () => undefined,
       close: () => Promise.resolve(),
       rotateAuthToken: (next: string) => calls.push(next),
+      setAllowedOrigins: () => undefined,
       clientCount: () => 0,
     };
     const result = rotateWsBridgeToken(userData, fakeServer);
@@ -118,6 +120,7 @@ describe('rotateWsBridgeToken', () => {
       onConnection: () => undefined,
       close: () => Promise.resolve(),
       rotateAuthToken: (next: string) => calls.push(next),
+      setAllowedOrigins: () => undefined,
       clientCount: () => 0,
     };
     const result = rotateWsBridgeToken(userData, fakeServer);
@@ -138,11 +141,13 @@ function makeFakeServer(): {
   server: WebSocketBridgeServer;
   closed: () => boolean;
   rotations: string[];
+  originSets: string[][];
   setClients: (n: number) => void;
 } {
   let isClosed = false;
   let clients = 0;
   const rotations: string[] = [];
+  const originSets: string[][] = [];
   const server: WebSocketBridgeServer = {
     address: 'ws://0.0.0.0:8765',
     onConnection: () => undefined,
@@ -153,12 +158,16 @@ function makeFakeServer(): {
     rotateAuthToken: (next: string) => {
       rotations.push(next);
     },
+    setAllowedOrigins: (origins: readonly string[]) => {
+      originSets.push([...origins]);
+    },
     clientCount: () => clients,
   };
   return {
     server,
     closed: () => isClosed,
     rotations,
+    originSets,
     setClients: (n: number) => {
       clients = n;
     },
@@ -212,7 +221,8 @@ describe('MobileGatewayManager', () => {
   });
 
   it('start binds the LAN-advertised interface (0.0.0.0) and produces a connectUrl', async () => {
-    const { rt, startCalls } = makeRuntime({ userData });
+    const fake = makeFakeServer();
+    const { rt, startCalls } = makeRuntime({ userData, startSpy: () => fake.server });
     const mgr = new MobileGatewayManager(rt);
     const status = await mgr.start();
     expect(status.enabled).toBe(true);
@@ -223,6 +233,12 @@ describe('MobileGatewayManager', () => {
     // The connectUrl carries the token as ?t= and never advertises 0.0.0.0.
     expect(status.connectUrl).toMatch(/^ws:\/\/[^/]+:8765\/\?t=[0-9a-f]{64}$/);
     expect(status.connectUrl).not.toContain('0.0.0.0');
+    // The advertised URL's origin is allow-listed post-bind — iOS RN presents
+    // it at the upgrade (Origin default-deny would reject iPhones otherwise).
+    expect(fake.originSets).toHaveLength(1);
+    const origins = fake.originSets[0] ?? [];
+    expect(origins).toContain('http://127.0.0.1:8765');
+    expect(origins.every((o) => !o.includes('0.0.0.0'))).toBe(true);
   });
 
   it('setEnabled(true/false) starts, persists, stops, and notifies', async () => {
@@ -360,5 +376,26 @@ describe('MobileGatewayManager', () => {
     expect(fake.rotations).toEqual([]);
     expect(after.token).toBe('pinned-token');
     expect(after.connectUrl).toBe(before.connectUrl);
+  });
+});
+
+// ---- The critical integration assertion: the QR the desktop emits is EXACTLY
+// what the shipped mobile app accepts. We import the app's own parser and feed
+// it the connectUrl the gateway built. -------------------------------------
+describe('QR ↔ mobile app round-trip', () => {
+  it('the gateway connectUrl parses cleanly via the app splitConnectUrl', async () => {
+    const { rt } = makeRuntime({ userData });
+    const mgr = new MobileGatewayManager(rt);
+    const status = await mgr.start();
+    expect(status.connectUrl).toBeTruthy();
+
+    // The mobile app scans this exact string off the QR.
+    const parsed = splitConnectUrl(status.connectUrl!);
+    // The token round-trips intact…
+    expect(parsed.token).toBe(status.token);
+    // …and the bare gateway URL is a ws:// address with the bound port and the
+    // ?t= credential stripped (the app presents the token via the subprotocol).
+    expect(parsed.url).toMatch(/^ws:\/\/[^/]+:8765\/?$/);
+    expect(parsed.url).not.toContain('?');
   });
 });

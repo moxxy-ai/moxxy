@@ -20,7 +20,9 @@ import { MobileSessionHost } from './single-session-host.js';
 import { resolveMobileToken, rotateMobileToken } from './token.js';
 import {
   advertisedHost,
+  advertisedOrigins,
   buildConnectUrl,
+  connectUrlOrigin,
   isLoopbackHost,
   normalizeTunnelChoice,
   resolveBindHost,
@@ -109,10 +111,17 @@ export class MobileChannel implements Channel<MobileStartOpts> {
     host.register(); // populate the method map BEFORE accepting connections
     host.wire(); // stream events + install the ask resolvers
 
+    // iOS React Native sends an `Origin` header derived from the WS URL it
+    // dials (Android/Node send none), so every URL this channel advertises
+    // must have its origin allow-listed or real iPhones are rejected at the
+    // upgrade. Local origins are known now; the tunnel origin is added below
+    // once the tunnel URL is assigned.
+    const localOrigins = advertisedOrigins(this.bindHost, this.port);
     const server = await startWsBridge(bus, {
       port: this.port,
       host: this.bindHost,
       authToken: this.token,
+      allowedOrigins: localOrigins,
       // Back-compat ONLY: the QR this channel prints embeds the token as `?t=`
       // (pairing payload); current apps strip it and authenticate via the
       // Sec-WebSocket-Protocol bearer entry, but older installed builds still
@@ -129,6 +138,7 @@ export class MobileChannel implements Channel<MobileStartOpts> {
       try {
         this.tunnel = await provider.open({ port: this.port, host: this.bindHost });
         tunnelUrl = this.tunnel.url;
+        server.setAllowedOrigins([...localOrigins, connectUrlOrigin(tunnelUrl)]);
         this.logger?.info?.('mobile tunnel open', { provider: provider.name, url: tunnelUrl });
       } catch (err) {
         this.logger?.warn?.('mobile tunnel failed; using the local URL', {
