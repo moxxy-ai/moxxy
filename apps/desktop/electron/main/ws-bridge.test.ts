@@ -92,6 +92,7 @@ describe('rotateWsBridgeToken', () => {
       onConnection: () => undefined,
       close: () => Promise.resolve(),
       rotateAuthToken: (next: string) => calls.push(next),
+      setAllowedOrigins: () => undefined,
       clientCount: () => 0,
     };
     const result = rotateWsBridgeToken(userData, fakeServer);
@@ -119,6 +120,7 @@ describe('rotateWsBridgeToken', () => {
       onConnection: () => undefined,
       close: () => Promise.resolve(),
       rotateAuthToken: (next: string) => calls.push(next),
+      setAllowedOrigins: () => undefined,
       clientCount: () => 0,
     };
     const result = rotateWsBridgeToken(userData, fakeServer);
@@ -139,11 +141,13 @@ function makeFakeServer(): {
   server: WebSocketBridgeServer;
   closed: () => boolean;
   rotations: string[];
+  originSets: string[][];
   setClients: (n: number) => void;
 } {
   let isClosed = false;
   let clients = 0;
   const rotations: string[] = [];
+  const originSets: string[][] = [];
   const server: WebSocketBridgeServer = {
     address: 'ws://0.0.0.0:8765',
     onConnection: () => undefined,
@@ -154,12 +158,16 @@ function makeFakeServer(): {
     rotateAuthToken: (next: string) => {
       rotations.push(next);
     },
+    setAllowedOrigins: (origins: readonly string[]) => {
+      originSets.push([...origins]);
+    },
     clientCount: () => clients,
   };
   return {
     server,
     closed: () => isClosed,
     rotations,
+    originSets,
     setClients: (n: number) => {
       clients = n;
     },
@@ -213,7 +221,8 @@ describe('MobileGatewayManager', () => {
   });
 
   it('start binds the LAN-advertised interface (0.0.0.0) and produces a connectUrl', async () => {
-    const { rt, startCalls } = makeRuntime({ userData });
+    const fake = makeFakeServer();
+    const { rt, startCalls } = makeRuntime({ userData, startSpy: () => fake.server });
     const mgr = new MobileGatewayManager(rt);
     const status = await mgr.start();
     expect(status.enabled).toBe(true);
@@ -224,6 +233,12 @@ describe('MobileGatewayManager', () => {
     // The connectUrl carries the token as ?t= and never advertises 0.0.0.0.
     expect(status.connectUrl).toMatch(/^ws:\/\/[^/]+:8765\/\?t=[0-9a-f]{64}$/);
     expect(status.connectUrl).not.toContain('0.0.0.0');
+    // The advertised URL's origin is allow-listed post-bind — iOS RN presents
+    // it at the upgrade (Origin default-deny would reject iPhones otherwise).
+    expect(fake.originSets).toHaveLength(1);
+    const origins = fake.originSets[0] ?? [];
+    expect(origins).toContain('http://127.0.0.1:8765');
+    expect(origins.every((o) => !o.includes('0.0.0.0'))).toBe(true);
   });
 
   it('setEnabled(true/false) starts, persists, stops, and notifies', async () => {

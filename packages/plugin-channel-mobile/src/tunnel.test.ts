@@ -16,7 +16,9 @@ vi.mock('node:os', () => ({
 import os from 'node:os';
 import {
   advertisedHost,
+  advertisedOrigins,
   buildConnectUrl,
+  connectUrlOrigin,
   isLoopbackHost,
   isWildcardHost,
   lanHost,
@@ -120,6 +122,42 @@ describe('buildConnectUrl', () => {
   it('lanHost falls back to the given host when no external interface exists', () => {
     ifaces.mockReturnValueOnce({} as never);
     expect(lanHost('127.0.0.1')).toBe('127.0.0.1');
+  });
+});
+
+describe('connectUrlOrigin (the Origin iOS RN presents for a dialed URL)', () => {
+  it('maps a ws connect URL to its http origin, keeping a non-default port', () => {
+    expect(connectUrlOrigin('ws://192.168.1.7:8765/?t=tok')).toBe('http://192.168.1.7:8765');
+  });
+
+  it('maps a wss tunnel connect URL to its https origin (default port elided)', () => {
+    // Exactly the Origin a real iPhone sent through an ngrok tunnel.
+    expect(connectUrlOrigin('wss://abcd.ngrok-free.example/?t=tok')).toBe(
+      'https://abcd.ngrok-free.example',
+    );
+  });
+
+  it('accepts a raw https tunnel URL (pre-wss rewrite) too', () => {
+    expect(connectUrlOrigin('https://example.trycloudflare.com')).toBe(
+      'https://example.trycloudflare.com',
+    );
+  });
+});
+
+describe('advertisedOrigins (what the bridge must allow-list for real devices)', () => {
+  it('wildcard bind: the LAN advertised origin plus both loopback spellings', () => {
+    expect(advertisedOrigins('0.0.0.0', 8765)).toEqual([
+      'http://192.168.1.42:8765',
+      'http://127.0.0.1:8765',
+      'http://localhost:8765',
+    ]);
+  });
+
+  it('loopback bind: dedupes to just the loopback spellings', () => {
+    expect(advertisedOrigins('127.0.0.1', 8765)).toEqual([
+      'http://127.0.0.1:8765',
+      'http://localhost:8765',
+    ]);
   });
 });
 

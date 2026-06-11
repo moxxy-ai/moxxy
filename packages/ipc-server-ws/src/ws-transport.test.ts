@@ -91,6 +91,24 @@ describe('createWebSocketTransportServer', () => {
     ).resolves.toBeDefined();
   });
 
+  it('setAllowedOrigins admits an origin learned after start (a tunnel URL) without dropping clients', async () => {
+    const server = await startServer();
+    const existing = await connect(server.address, { headers: bearerHeaders });
+
+    // Unknown origin (the tunnel URL isn't assigned until the tunnel opens).
+    const tunnelOrigin = 'https://abcd.trycloudflare.example';
+    await expect(
+      connect(server.address, { headers: bearerHeaders, origin: tunnelOrigin }),
+    ).rejects.toThrow();
+
+    server.setAllowedOrigins([tunnelOrigin]);
+    await expect(
+      connect(server.address, { headers: bearerHeaders, origin: tunnelOrigin }),
+    ).resolves.toBeDefined();
+    // Nothing was revoked — the pre-existing connection survives the update.
+    expect(existing.readyState).toBe(existing.OPEN);
+  });
+
   it('caps concurrent connections', async () => {
     const server = await startServer({ maxConnections: 1 });
     await connect(server.address, { headers: bearerHeaders });

@@ -57,6 +57,15 @@ smallest app proving the mobile channel end to end (QR pairing → chat → ask 
   (non-Expo-Go) pinning story; until then, treat LAN binds as trusted-network-only.
 - **M2 [low, dx]** the PoC consumes workspace packages as built `dist` — editing any
   `@moxxy/*` package needs a root `pnpm build` before Metro sees it (documented in the README).
+- **Retired (2026-06-11): real iPhones were rejected by the Origin default-deny.** The A27
+  hardening assumed "native clients send no `Origin` header" — false on iOS: React Native's
+  WebSocket (SocketRocket) sends an Origin derived from the dialed URL (ws→http, wss→https,
+  default ports elided), so every real-device pairing (tunnel or LAN) failed at the upgrade
+  with `rejected browser-origin upgrade`. Android (OkHttp) and Node send none, which is why
+  tests/simulator-on-node never caught it. Fix: `WebSocketBridgeServer.setAllowedOrigins`
+  (live update — the tunnel URL only exists after start) + the mobile channel and desktop
+  gateway allow-list exactly the origins of the URLs they advertise (`advertisedOrigins` /
+  `connectUrlOrigin` in `plugin-channel-mobile/pairing.ts`). Default-deny otherwise unchanged.
 
 ## 2026-06-10 round-2 audit intake — mobile gateway
 

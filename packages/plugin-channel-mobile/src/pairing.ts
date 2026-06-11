@@ -127,3 +127,36 @@ export function buildConnectUrl(opts: {
   }
   return `ws://${opts.localHost}:${opts.port}/?t=${t}`;
 }
+
+/**
+ * The `Origin` header a client dialing `url` will present, when its WebSocket
+ * implementation sends one. Browsers send the page origin, but iOS React
+ * Native (SocketRocket) derives an Origin from the WS URL itself — ws→http,
+ * wss→https, default ports elided — so the bridge must allow-list the origin
+ * of every URL it advertises or real iOS devices are rejected at the upgrade
+ * handshake. Accepts ws/wss connect URLs and http/https tunnel URLs alike.
+ */
+export function connectUrlOrigin(url: string): string {
+  const u = new URL(url);
+  const secure = u.protocol === 'wss:' || u.protocol === 'https:';
+  // WHATWG URL elides the scheme-default port from `host` (ws:80 / wss:443),
+  // matching SocketRocket's own default-port elision after scheme mapping.
+  return `${secure ? 'https' : 'http'}://${u.host}`;
+}
+
+/**
+ * Every Origin a correctly-paired client may present to a bridge bound to
+ * `bindHost`:`port` WITHOUT a tunnel: the advertised URL's origin, plus both
+ * loopback spellings (simulators on this machine dial 127.0.0.1 or localhost
+ * regardless of what the QR advertises). A tunnel origin is appended by the
+ * caller once the tunnel URL is known — see `setAllowedOrigins`.
+ */
+export function advertisedOrigins(bindHost: string, port: number): string[] {
+  return [
+    ...new Set([
+      connectUrlOrigin(`ws://${advertisedHost(bindHost)}:${port}`),
+      `http://127.0.0.1:${port}`,
+      `http://localhost:${port}`,
+    ]),
+  ];
+}

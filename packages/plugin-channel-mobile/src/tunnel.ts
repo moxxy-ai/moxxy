@@ -19,6 +19,8 @@ export {
   lanHost,
   advertisedHost,
   buildConnectUrl,
+  connectUrlOrigin,
+  advertisedOrigins,
 } from './pairing.js';
 
 export type TunnelChoice = 'localhost' | 'cloudflared' | 'ngrok';
