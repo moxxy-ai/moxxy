@@ -29,46 +29,51 @@ const FLOOR_COLORS: ColorMap = {
   L: 'floorLight',
   f: 'floor',
   s: 'floorShade',
-  d: 'floorLine',
 };
 
-/** Warm plank floor: light catch row per plank, seams offset per plank. */
+/**
+ * Warm plank floor: long horizontal planks — two soft floorShade plank lines
+ * per tile (y=5, y=10), one subtle vertical butt-joint per plank row at a
+ * varying x, sparse floorLight highlights and a single knot dot. No dark
+ * outlines, so the floor recedes behind the furniture.
+ */
 const FLOOR_WOOD: PixelGrid = [
-  'LLLLLLLLLLLdLLLL',
-  'ffffsffffffdffff',
-  'fffffffffffdffsf',
-  'dddddddddddddddd',
-  'LLLLdLLLLLLLLLLL',
-  'ffffdfffffsfffff',
-  'ffffdffffffffsff',
-  'dddddddddddddddd',
-  'LLLLLLLLLLLLLdLL',
-  'ffsffffffffffdff',
-  'fffffffsfffffdff',
-  'dddddddddddddddd',
-  'LLLLLLdLLLLLLLLL',
-  'ffffffdfffsfffff',
-  'ffffffdffffffffs',
-  'dddddddddddddddd',
+  'fffffffffffsffff',
+  'ffLffffffffsffff',
+  'fffffffffffsffff',
+  'fffffffffffsffff',
+  'fffffffffffsffff',
+  'ssssssssssssssss',
+  'ffffsfffffffffff',
+  'ffffsffffLffffff',
+  'ffffsfffffffffff',
+  'ffffsffffffffsff',
+  'ssssssssssssssss',
+  'fffffffffffffsff',
+  'fffffffffffffsff',
+  'fLfffffffffffsff',
+  'fffffffffffffsff',
+  'fffffffffffffsff',
 ];
 
+/** Same plank rhythm, butt-joints shifted so adjacent tiles don't grid up. */
 const FLOOR_WOOD_ALT: PixelGrid = [
-  'LLLLLLdLLLLLLLLL',
-  'ffffffdffddfffff',
-  'ffffffdffffffsff',
-  'dddddddddddddddd',
-  'LLLLLLLLLLLLdLLL',
-  'ffsfffffffffdfff',
-  'ffffffffsfffdfff',
-  'dddddddddddddddd',
-  'LLLdLLLLLLLLLLLL',
-  'fffdffffffsfffff',
-  'fffdffffffffddff',
-  'dddddddddddddddd',
-  'LLLLLLLLLdLLLLLL',
-  'fffffsfffdffffff',
-  'fffffffffdfffsff',
-  'dddddddddddddddd',
+  'ffffffsfffffffff',
+  'ffffffsfffffffff',
+  'ffffffsffffLffff',
+  'ffffffsfffffffff',
+  'ffffffsfffffffff',
+  'ssssssssssssssss',
+  'ffffffffffffsfff',
+  'ffsfffffffffsfff',
+  'ffffffffffffsfff',
+  'fffffffffLffsfff',
+  'ssssssssssssssss',
+  'ffsfffffffffffff',
+  'ffsfffffffffffff',
+  'ffsfffffffffLfff',
+  'ffsfffffffffffff',
+  'ffsfffffffffffff',
 ];
 
 const CARPET_COLORS: ColorMap = {
@@ -217,22 +222,22 @@ const GLASS_FACE: PixelGrid = [
 
 /** floorWood with a dark wood threshold strip across the opening. */
 const DOORWAY: PixelGrid = [
-  'LLLLLLLLLLLdLLLL',
-  'ffffsffffffdffff',
-  'fffffffffffdffsf',
-  'dddddddddddddddd',
-  'LLLLdLLLLLLLLLLL',
+  'fffffffffffsffff',
+  'ffLffffffffsffff',
+  'fffffffffffsffff',
+  'fffffffffffsffff',
+  'fffffffffffsffff',
   'oooooooooooooooo',
   'DDDDDDDDDDDDDDDD',
   'DDDDDDDDDDDDDDDD',
-  'LLLLLLLLLLLLLdLL',
-  'ffsffffffffffdff',
-  'fffffffsfffffdff',
-  'dddddddddddddddd',
-  'LLLLLLdLLLLLLLLL',
-  'ffffffdfffsfffff',
-  'ffffffdffffffffs',
-  'dddddddddddddddd',
+  'ffffsfffffffffff',
+  'ffffsffffffffsff',
+  'ssssssssssssssss',
+  'fffffffffffffsff',
+  'fffffffffffffsff',
+  'fLfffffffffffsff',
+  'fffffffffffffsff',
+  'fffffffffffffsff',
 ];
 
 /** Gray doormat with a grayDark border, on a floorWood surround. */

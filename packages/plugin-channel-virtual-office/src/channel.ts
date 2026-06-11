@@ -38,12 +38,17 @@ import {
   spawnWorkerSession,
 } from './worker-session.js';
 
-/** Where `scripts/build-web.mjs` writes the game bundle. First entry is the
- *  packaged layout (dist/channel.js → dist/public); the second covers running
- *  the TypeScript source directly (vitest, tsx) where `import.meta.url` points
- *  into src/. */
+/** Where `scripts/build-web.mjs` writes the game bundle. `office-public` is
+ *  the bundled-CLI layout (the cli's tsup copies it there because plain
+ *  `dist/public` already belongs to the web channel's frontend); `public` is
+ *  this package's own dist layout; the last entry covers running the
+ *  TypeScript source directly (vitest, tsx). */
 const here = path.dirname(fileURLToPath(import.meta.url));
-const PUBLIC_DIRS = [path.join(here, 'public'), path.join(here, '..', 'dist', 'public')];
+const PUBLIC_DIRS = [
+  path.join(here, 'office-public'),
+  path.join(here, 'public'),
+  path.join(here, '..', 'dist', 'public'),
+];
 
 const DEFAULT_HTTP_PORT = 4090;
 

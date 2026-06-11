@@ -1,0 +1,14 @@
+{
+  "extends": "@moxxy/tsconfig/lib.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "src",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["phaser"],
+    // Grid/sim code indexes 2D arrays everywhere; the map/zone invariants are
+    // covered by tests instead. Everything else stays repo-strict.
+    "noUncheckedIndexedAccess": false
+  },
+  "include": ["src/frontend/**/*"]
+}
