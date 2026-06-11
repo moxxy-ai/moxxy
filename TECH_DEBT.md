@@ -561,6 +561,12 @@ smallest app proving the mobile channel end to end (QR pairing → chat → ask 
   `pnpm --filter @moxxy/mobile-poc start`. The mobile channel now starts the PoC Expo app
   beside the bridge by default (`--no-expo` keeps bridge-only runs), so one command presents
   both the Expo Go QR and the Moxxy pairing QR.
+- **Retired (2026-06-11): Expo SDK 54's Worklets Babel plugin failed under pnpm strict
+  resolution.** `react-native-worklets@0.8.3` requires `@babel/generator`,
+  `@babel/traverse`, and `@babel/types` from its Babel plugin but does not declare them in
+  package metadata, so Metro crashed while processing `babel-preset-expo` on iOS. Root
+  `packageExtensions` now patches those missing dependencies, keeping the fix in package
+  metadata instead of relying on hoisting.
 - **M1 [med, security/feature gap] LAN pairing is cleartext `ws://`** — the bridge
   (`createWebSocketTransportServer`) constructs a plain `WebSocketServer` with no TLS
   option, so a `MOXXY_MOBILE_HOST=0.0.0.0` bind sends the bearer handshake unencrypted on
