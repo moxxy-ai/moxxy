@@ -5,6 +5,7 @@ import { dark } from '@clerk/themes';
 import { App } from './App';
 import { ErrorBoundary } from './ErrorBoundary';
 import { DeepLinkBridge } from './lib/useDeepLink';
+import { OAuthTransferBridge } from './lib/oauthTransfer';
 import { bootClient } from './lib/boot';
 import './styles.css';
 
@@ -71,6 +72,11 @@ function ThemedClerkProvider({
       signUpFallbackRedirectUrl="/"
       appearance={{ baseTheme: isDark ? dark : undefined }}
     >
+      {/* Completes a dangling OAuth sign-up "transfer" (new-user sign-in)
+          that the full-window redirect flow failed to finish — see
+          lib/oauthTransfer.tsx. Needs Clerk context, hence inside the
+          provider; mounted before children so it sweeps on boot. */}
+      <OAuthTransferBridge />
       {children}
     </ClerkProvider>
   );

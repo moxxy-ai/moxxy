@@ -218,6 +218,23 @@ describe('account-portal recovery net', () => {
     expect(loads).toEqual([]);
   });
 
+  it('leaves the portal /sign-in + /sign-up legs alone (they host the OAuth sso-callback that CREATES the account for a new user)', () => {
+    const { win, navigate, loads } = fakeWindow();
+    installAccountPortalRecovery(win, { portalHost: 'accounts.acme.com', appUrl: APP });
+    navigate('https://accounts.acme.com/sign-in#/sso-callback?after_sign_in_url=https%3A%2F%2Fdesktop.moxxy.ai%3A51789%2F');
+    navigate('https://accounts.acme.com/sign-in');
+    navigate('https://accounts.acme.com/sign-up#/verify-email-address');
+    expect(loads).toEqual([]);
+  });
+
+  it('still recovers from genuinely stranded portal pages', () => {
+    const { win, navigate, loads } = fakeWindow();
+    installAccountPortalRecovery(win, { portalHost: 'accounts.acme.com', appUrl: APP });
+    navigate('https://accounts.acme.com/user'); // "My account"
+    navigate('https://accounts.acme.com/');
+    expect(loads).toEqual([APP, APP]);
+  });
+
   it('is a no-op without a portal host (test key / no key)', () => {
     const { win, hasHandler } = fakeWindow();
     installAccountPortalRecovery(win, { portalHost: null, appUrl: APP });

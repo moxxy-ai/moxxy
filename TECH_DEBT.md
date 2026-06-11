@@ -843,9 +843,22 @@ regressions. Restore the detail from git history (`TECH_DEBT.md` @ `b014c3a`) if
   OAUTH_HOST_PATTERNS + its own loopback serving origins for the return leg — the
   FAPI→app hop is not same-origin with the mid-flow page; focus window keeps the blanket
   deny) + `challenges.cloudflare.com` added to CSP connect-src for the sign-up Turnstile.
-  Postscript in `docs/desktop-clerk-loopback-subdomain.md`. **Remaining verify:** a real
-  packaged Google round-trip (the redirect reloads the app document mid-flow, which
-  clerk-js handles as a normal SPA return).
+  Postscript in `docs/desktop-clerk-loopback-subdomain.md`. The real round-trip verify
+  then surfaced the next layer (below).
+- **Packaged Clerk sign-in: NEW users were never created** (2026-06-11). The real
+  Google round-trip worked for existing users only — a new user got "External account
+  not found" and no account. Cause: the modal's OAuth callback returns to the hosted
+  Account Portal (`accounts.<domain>/sign-in#/sso-callback`), where client JS performs
+  the sign-in→sign-up "transfer" (`signUp.create({ transfer: true })`) for unknown
+  accounts — and `installAccountPortalRecovery` yanked the window off that page on
+  `did-navigate`, before the transfer could run (existing users survived because their
+  session is set server-side during the FAPI leg). Fixed twice over: the recovery net
+  now skips the portal's functional `/sign-in` + `/sign-up` paths (only `/user` etc.
+  recover), and the renderer's `OAuthTransferBridge` (apps/desktop/src/lib/oauthTransfer.tsx)
+  sweeps any still-dangling transferable attempt on boot and completes it in-app.
+  Instance config verified sane via the public FAPI `/v1/environment` (sign-up mode
+  `public` on dev + prod). **Remaining verify:** packaged round-trip with a
+  never-seen-before Google account.
 - **Desktop Dock-ghost runner process** (2026-06-10). The packaged desktop's runner
   (`moxxy serve`, spawned via the bundled CLI with `ELECTRON_RUN_AS_NODE=1`) showed up in
   the macOS Dock as a generic-executable ("exec") icon named after the app: on macOS 26

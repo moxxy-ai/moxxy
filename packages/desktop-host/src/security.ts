@@ -200,13 +200,41 @@ export function clerkAccountPortalHost(publishableKey?: string | null): string |
 }
 
 /**
- * Recovery net for the OAuth return leg: if the top frame lands on the Clerk
- * hosted Account Portal instead of back in the app, immediately load the app
- * root. The lockdown's parent-domain wildcard legitimately allows that host
- * (it's on the FAPI round-trip path), so this does NOT widen the navigation
- * allow-list — it only adds a way back when Clerk's fallback redirect picks
- * the portal over the app. Loop-safe: it only fires for the portal host, and
- * `appUrl` is on a different host, so the recovery load can't re-trigger it.
+ * Is a top-frame landing on the Account Portal a STRANDING (recover to the
+ * app) or a FUNCTIONAL leg of an auth flow (leave it alone)?
+ *
+ * The portal's `/sign-in` + `/sign-up` pages are load-bearing: clerk-js's
+ * modal (virtual-routing) OAuth flow builds its callback URL on the portal's
+ * sign-in page (`accounts.<domain>/sign-in#/sso-callback?...`), and for a
+ * NEW user it is that page's JS which converts the failed sign-in into a
+ * sign-up (`signUp.create({ transfer: true })`) and only then redirects back
+ * to the app. Yanking the window off those paths kills account creation —
+ * the sign-in attempt dangles and the next modal open shows "External
+ * account not found". Every other portal page (`/user` "My account", portal
+ * home, …) is a dead end for the desktop and gets recovered.
+ */
+export function isStrandedPortalUrl(url: string, portalHost: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.hostname !== portalHost) return false;
+  const path = parsed.pathname;
+  return !(path.startsWith('/sign-in') || path.startsWith('/sign-up'));
+}
+
+/**
+ * Recovery net for the OAuth return leg: if the top frame lands STRANDED on
+ * the Clerk hosted Account Portal instead of back in the app (see
+ * {@link isStrandedPortalUrl} — the functional `/sign-in` + `/sign-up` legs
+ * are deliberately left to run), load the app root. The lockdown's
+ * parent-domain wildcard legitimately allows that host (it's on the FAPI
+ * round-trip path), so this does NOT widen the navigation allow-list — it
+ * only adds a way back when Clerk's fallback redirect picks the portal over
+ * the app. Loop-safe: it only fires for the portal host, and `appUrl` is on
+ * a different host, so the recovery load can't re-trigger it.
  */
 export function installAccountPortalRecovery(
   win: BrowserWindow,
@@ -221,13 +249,7 @@ export function installAccountPortalRecovery(
   if (!portalHost) return;
   const wc = win.webContents;
   wc.on('did-navigate', (_event, url) => {
-    let hostname: string;
-    try {
-      hostname = new URL(url).hostname;
-    } catch {
-      return;
-    }
-    if (hostname !== portalHost || url === appUrl) return;
+    if (url === appUrl || !isStrandedPortalUrl(url, portalHost)) return;
     void Promise.resolve(wc.loadURL(appUrl)).catch(() => {
       /* window may be tearing down — nothing to recover */
     });
