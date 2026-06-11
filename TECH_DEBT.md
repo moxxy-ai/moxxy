@@ -604,6 +604,24 @@ on a real two-version update that 0.0.30+ now sticks (the fix lives in the *over
 a user on the broken 0.0.28 floor recovers simply by updating to a fixed release). Once verified,
 consider dropping the now-redundant renderer-heartbeat path. **Severity med** (needs a build to close).
 
+**2026-06-11 third failure mode found + fixed:** a release that bumps `RUNNER_PROTOCOL_VERSION`
+hot-staged fine but was refused at boot by the lockstep gate (`runner-protocol-skew`) — the stager
+never checked the gate, so the UI said "updated, relaunch" and every boot silently fell to the
+floor (observed live on 0.4.2→0.4.3). Stage-time now enforces the same gate via
+`exceedsCliRunnerProtocol` and reports **requires-full-update** (release-page CTA); Diagnostics
+renders boot-log reject reasons in plain language. Same pass: `bootstrap.ts boot()` now clears
+`MOXXY_APP_BUNDLE_ROOT/VERSION` up front — they survive `app.relaunch()`, so a floor boot after a
+refused override impersonated the previous override and let the boot probe confirm/poison a bundle
+that wasn't running. Residual (low): any pre-be7d33a floor will show the macOS Dock ghost-runner
+whenever a refused update drops onto it — immutable floor code, only a full reinstall fixes it.
+
+**Multi-session testing caveat (2026-06-11):** desks now hold N sessions and the runner pool is
+keyed by session id, but every v1-migrated/first session has id === desk id — which masks
+pool-key regressions. Always test multi-session paths with a desk's *second* (UUID-keyed) session.
+Related accepted behavior: `desks.remove` stops session runners but leaves their session JSONL +
+chat NDJSON on disk (pre-existing parity, now per-session); sessions spawn eagerly and background
+runners stay alive (consider lazy spawn + idle-stop).
+
 ### 10. Shared-client extraction + WebSocket bridge — follow-ups — ⚠️ PARTIALLY DONE
 **Introduced 2026-06-09** by the cross-platform client work (new `@moxxy/client-core`,
 `@moxxy/client-platform-web`, `@moxxy/client-transport-ws`, `@moxxy/ipc-server-ws`,
