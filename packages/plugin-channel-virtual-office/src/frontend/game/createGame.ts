@@ -14,39 +14,28 @@ export interface OfficeGame {
   readonly scene: OfficeScene;
 }
 
-/** Largest integer zoom that fits the window — non-integer scaling blurs
- *  the pixel art (and especially the bubble text). */
-function bestZoom(): number {
-  return Math.max(
-    1,
-    Math.min(
-      Math.floor(window.innerWidth / (MAP_W * TILE)),
-      Math.floor(window.innerHeight / (MAP_H * TILE)),
-    ),
-  );
-}
-
 export function createGame(
   parent: HTMLElement,
   director: OfficeDirector,
   callbacks: OfficeSceneCallbacks,
 ): OfficeGame {
   const scene = new OfficeScene(director, callbacks);
+  // The canvas fills the window (Scale.RESIZE) and the CAMERA zooms the
+  // 704×480 world to exactly fit — scaling happens in the renderer with
+  // nearest-neighbor sampling, so the art stays crisp at any window size
+  // (unlike Scale.FIT/NONE, which either CSS-blur or letterbox to a stamp).
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent,
-    width: MAP_W * TILE,
-    height: MAP_H * TILE,
     backgroundColor: '#0f1115',
     pixelArt: true,
     roundPixels: true,
     scale: {
-      mode: Phaser.Scale.NONE,
-      autoCenter: Phaser.Scale.CENTER_BOTH,
-      zoom: bestZoom(),
+      mode: Phaser.Scale.RESIZE,
+      width: MAP_W * TILE,
+      height: MAP_H * TILE,
     },
     scene,
   });
-  window.addEventListener('resize', () => game.scale.setZoom(bestZoom()));
   return { game, scene };
 }

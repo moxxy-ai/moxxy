@@ -9,7 +9,7 @@
 import Phaser from 'phaser';
 
 import type { OfficeDirector } from '../sim/director.js';
-import { TILE, type SceneEffect } from '../sim/types.js';
+import { MAP_H, MAP_W, TILE, type SceneEffect } from '../sim/types.js';
 import { ZONES } from '../map/zones.js';
 import { buildAllStaticTextures, renderGrid } from './textures.js';
 import { SpriteActor } from './SpriteActor.js';
@@ -63,8 +63,21 @@ export class OfficeScene extends Phaser.Scene {
       if (over.length === 0) this.callbacks.onBackgroundClick?.();
     });
 
-    this.cameras.main.setBounds(0, 0, Number(this.game.config.width), Number(this.game.config.height));
     this.cameras.main.setRoundPixels(true);
+    this.fitCamera();
+    this.scale.on(Phaser.Scale.Events.RESIZE, () => this.fitCamera());
+  }
+
+  /** Zoom the camera so the WHOLE office fills as much of the window as
+   *  possible (letterboxed on the short axis), recomputed on every resize. */
+  private fitCamera(): void {
+    const cam = this.cameras.main;
+    const worldW = MAP_W * TILE;
+    const worldH = MAP_H * TILE;
+    const zoom = Math.min(this.scale.width / worldW, this.scale.height / worldH);
+    // Never below 1 (unreadably small) — tiny windows scroll-crop instead.
+    cam.setZoom(Math.max(1, zoom));
+    cam.centerOn(worldW / 2, worldH / 2);
   }
 
   private indexMonitor(x: number, y: number, img: Phaser.GameObjects.Image): void {
