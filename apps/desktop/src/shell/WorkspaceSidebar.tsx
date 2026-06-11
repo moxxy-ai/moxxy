@@ -1,15 +1,13 @@
-import { Fragment, useState } from 'react';
+import { useState } from 'react';
 import { useDesks, useSessions } from '@moxxy/client-core';
 import { Skeleton, Icon, ConfirmModal } from '@moxxy/desktop-ui';
 import { useUnreadWorkspaces } from '@moxxy/client-core';
 import type { Desk, DeskSession } from '@moxxy/desktop-ipc-contract';
 import { Logo } from './workspace-sidebar/Logo';
-import { SectionHeader } from './workspace-sidebar/SectionHeader';
-import { WorkspaceRow } from './workspace-sidebar/WorkspaceRow';
+import { WorkspaceSwitcher } from './workspace-sidebar/WorkspaceSwitcher';
 import { SessionList } from './workspace-sidebar/SessionList';
 import { NameWorkspaceModal } from './workspace-sidebar/NameWorkspaceModal';
 import { ProfilePill } from './workspace-sidebar/ProfilePill';
-import { listReset } from './workspace-sidebar/sidebar-styles';
 import type { View } from './ViewHeader';
 
 interface Props {
@@ -18,12 +16,12 @@ interface Props {
 }
 
 /**
- * Dark left rail. Top: WORKSPACES (each desk = workspace). Bottom:
- * a lone Settings entry above the user-profile pill — Chat/Workflows
- * navigation lives in the main-pane header (`ViewSwitcher`), not here.
- *
- * Density mirrors the reference shot — wide-enough rows (`44px`) to
- * read like nav, not a context menu.
+ * Dark left rail. Top: a Slack/Linear-style workspace switcher card
+ * (the active desk; a dropdown swaps/creates/removes workspaces).
+ * Below it the active desk's sessions fill the rail as a flat list.
+ * Bottom: a lone Settings entry above the user-profile pill —
+ * Chat/Workflows navigation lives in the main-pane header
+ * (`ViewSwitcher`), not here.
  */
 export function WorkspaceSidebar({ view, onView }: Props): JSX.Element {
   const desks = useDesks();
@@ -37,6 +35,14 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element {
   const [pendingRemove, setPendingRemove] = useState<Desk | null>(null);
   /** Session queued for removal; null when no confirm is open. */
   const [pendingSessionRemove, setPendingSessionRemove] = useState<DeskSession | null>(null);
+
+  // Unread is tracked per routing id — a session id. Light a desk's dot
+  // when ANY of its sessions has activity (or its own id, the v1 alias).
+  const unreadDeskIds = new Set(
+    desks.desks
+      .filter((d) => d.sessions.some((s) => unread.has(s.id)) || unread.has(d.id))
+      .map((d) => d.id),
+  );
 
   const onStartNewWorkspace = async (): Promise<void> => {
     setBusy(true);
@@ -71,90 +77,85 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element {
   return (
     <aside className="col-sidebar">
       <Logo />
-      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 12px 12px' }}>
-        <SectionHeader title="Workspaces" />
-        {desks.loading && desks.desks.length === 0 && (
+      {/* The switcher lives OUTSIDE the scrolling session list so its
+       *  dropdown never gets clipped by the overflow container and the
+       *  card stays pinned while sessions scroll. */}
+      <div style={{ padding: '4px 12px 0' }}>
+        {desks.loading && desks.desks.length === 0 ? (
           <div style={{ padding: '8px 0' }}>
             <Skeleton.Row />
             <Skeleton.Row />
           </div>
-        )}
-        <ul role="list" style={listReset}>
-          {desks.desks.map((d) => {
-            const isActive = desks.activeId === d.id;
-            return (
-              <Fragment key={d.id}>
-                <WorkspaceRow
-                  desk={d}
-                  active={isActive}
-                  // Unread is tracked per routing id — a session id. Light
-                  // the desk's dot when ANY of its sessions has activity.
-                  unread={d.sessions.some((s) => unread.has(s.id)) || unread.has(d.id)}
-                  onClick={() => {
-                    // Picking a workspace always lands on its chat — also the
-                    // way back out of Settings/Workflows now that the sidebar
-                    // carries no Chat entry.
-                    void desks.setActive(d.id);
-                    onView('chat');
-                  }}
-                  onRemove={() => setPendingRemove(d)}
-                />
-                {/* Sessions of the ACTIVE desk, nested under its row. */}
-                {isActive && (
-                  <li>
-                    <SessionList
-                      sessions={sessions.sessions}
-                      activeSessionId={sessions.activeSessionId}
-                      unread={unread}
-                      busy={sessionBusy}
-                      onSelect={(id) => {
-                        void sessions.setActive(id);
-                        onView('chat');
-                      }}
-                      onCreate={() => {
-                        void onNewSession();
-                        onView('chat');
-                      }}
-                      onRename={(id, name) => void sessions.rename(id, name)}
-                      onRemove={(s) => setPendingSessionRemove(s)}
-                    />
-                  </li>
-                )}
-              </Fragment>
-            );
-          })}
-        </ul>
-        <button
-          type="button"
-          data-testid="desk-new"
-          onClick={() => void onStartNewWorkspace()}
-          disabled={busy}
-          style={{
-            width: '100%',
-            textAlign: 'left',
-            padding: '10px 12px',
-            marginTop: 6,
-            fontSize: 13,
-            color: 'var(--color-sidebar-text-dim)',
-            borderRadius: 10,
-            opacity: busy ? 0.6 : 1,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-          }}
-        >
-          <span
+        ) : desks.desks.length === 0 ? (
+          <button
+            type="button"
+            data-testid="desk-new"
+            onClick={() => void onStartNewWorkspace()}
+            disabled={busy}
+            className="row-button"
             style={{
-              width: 20,
-              display: 'inline-flex',
+              width: '100%',
+              textAlign: 'left',
+              padding: '10px 12px',
+              fontSize: 13,
+              color: 'var(--color-sidebar-text-dim)',
+              borderRadius: 10,
+              opacity: busy ? 0.6 : 1,
+              display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
+              gap: 10,
             }}
           >
-            <Icon name="plus" size={16} />
-          </span>
-          {busy ? 'Picking folder…' : 'New workspace'}
-        </button>
+            <span
+              style={{
+                width: 20,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Icon name="plus" size={16} />
+            </span>
+            {busy ? 'Picking folder…' : 'New workspace'}
+          </button>
+        ) : (
+          <WorkspaceSwitcher
+            desks={desks.desks}
+            activeDeskId={desks.activeId}
+            unreadDeskIds={unreadDeskIds}
+            sessionCount={sessions.sessions.length}
+            busy={busy}
+            onSelect={(id) => {
+              // Picking a workspace always lands on its chat — also the
+              // way back out of Settings/Workflows now that the sidebar
+              // carries no Chat entry.
+              void desks.setActive(id);
+              onView('chat');
+            }}
+            onRemove={(d) => setPendingRemove(d)}
+            onNewWorkspace={() => void onStartNewWorkspace()}
+          />
+        )}
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '6px 12px 12px' }}>
+        {desks.desks.length > 0 && (
+          <SessionList
+            sessions={sessions.sessions}
+            activeSessionId={sessions.activeSessionId}
+            unread={unread}
+            busy={sessionBusy}
+            onSelect={(id) => {
+              void sessions.setActive(id);
+              onView('chat');
+            }}
+            onCreate={() => {
+              void onNewSession();
+              onView('chat');
+            }}
+            onRename={(id, name) => void sessions.rename(id, name)}
+            onRemove={(s) => setPendingSessionRemove(s)}
+          />
+        )}
       </div>
       {/* Settings is the only sidebar destination — anchored just above
        *  the profile's top border. Chat/Workflows switch in the main-pane
