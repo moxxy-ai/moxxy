@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/mobile-poc",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Minimal Expo (SDK 54) proof-of-concept: scan the QR `moxxy mobile` prints, connect to the runner's WebSocket bridge through the shared @moxxy/client-core hooks, and chat with the agent. Deliberately a single screen with no router/styling stack — the smallest app that proves the pairing + chat loop end to end.",
   "main": "index.js",
   "scripts": {
