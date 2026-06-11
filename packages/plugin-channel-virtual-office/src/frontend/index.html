@@ -24,7 +24,9 @@
         margin: 0; background: var(--bg); color: var(--fg); overflow: hidden;
         font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       }
-      #game { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+      /* Plain block container — the canvas fills it (Scale.RESIZE); flex
+         centering here would double-shift Phaser's own canvas placement. */
+      #game { position: absolute; inset: 0; overflow: hidden; }
       #game canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
       #ui { position: absolute; inset: 0; pointer-events: none; }
       #ui > * { pointer-events: auto; }
