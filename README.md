@@ -350,6 +350,7 @@ Provider keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) are picked up automat
 @moxxy/plugin-channel-http          ← HTTP channel (POST /v1/turn, /v1/turn/stream, /v1/turn/audio)
 @moxxy/plugin-channel-web           ← web surface channel (browser app rendering view-spec UIs over a WebSocket)
 @moxxy/plugin-channel-mobile        ← mobile channel (desktop IPC contract over an authenticated WebSocket; `moxxy mobile`)
+@moxxy/plugin-channel-virtual-office ← pixel-art office game channel — every worker sprite is a full session (`moxxy office`)
 @moxxy/plugin-view                  ← present_view tool: agent-authored JSX-like view-specs → validated AST
 @moxxy/plugin-scheduler             ← time-driven prompts
 @moxxy/plugin-webhooks              ← external-event triggers (verified HTTP listener + tunnels)

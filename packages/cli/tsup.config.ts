@@ -99,5 +99,17 @@ export default defineConfig({
     } else {
       console.warn(`[cli build] web frontend missing at ${webSrc} — build @moxxy/plugin-channel-web first`);
     }
+
+    // Same for the virtual-office game bundle — under a DISTINCT name
+    // (dist/public is taken by the web surface above; the office channel
+    // probes dist/office-public first).
+    const officeSrc = path.resolve(here, '../plugin-channel-virtual-office/dist/public');
+    const officeDest = path.resolve(here, 'dist/office-public');
+    if (await fs.stat(officeSrc).then(() => true).catch(() => false)) {
+      await fs.rm(officeDest, { recursive: true, force: true });
+      await fs.cp(officeSrc, officeDest, { recursive: true });
+    } else {
+      console.warn(`[cli build] office frontend missing at ${officeSrc} — build @moxxy/plugin-channel-virtual-office first`);
+    }
   },
 });

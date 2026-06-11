@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>moxxy virtual office</title>
+    <style>
+      :root {
+        --bg: #0f1115;
+        --panel: #171a21;
+        --panel2: #1e222b;
+        --line: #2a2f3a;
+        --fg: #e6e9ef;
+        --muted: #8b93a7;
+        --accent: #5b8cff;
+        --ok: #3fb950;
+        --warn: #d29922;
+        --danger: #f85149;
+        --radius: 10px;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0; background: var(--bg); color: var(--fg); overflow: hidden;
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      /* Plain block container — the canvas fills it (Scale.RESIZE); flex
+         centering here would double-shift Phaser's own canvas placement. */
+      #game { position: absolute; inset: 0; overflow: hidden; }
+      #game canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
+      #ui { position: absolute; inset: 0; pointer-events: none; }
+      #ui > * { pointer-events: auto; }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <div id="ui"></div>
+    <script src="./app.js"></script>
+  </body>
+</html>
