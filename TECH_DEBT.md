@@ -563,6 +563,12 @@ channel end to end (QR pairing → chat → ask round-trip). The production mobi
   `apps/mobile-plugin/mobile` Expo app beside the bridge by default (`--no-expo` keeps
   bridge-only runs), and the full app consumes the same `@moxxy/client-core` +
   `@moxxy/client-transport-ws` WebSocket transport proven by the PoC.
+- **Retired (2026-06-11): the full Expo app missed the PoC's singleton React Metro
+  guard.** The first full-app bridge pass copied the client-core transport flow but not the
+  PoC's monorepo-aware `metro.config`, so Metro could resolve `react` from a workspace package
+  instead of the app renderer and crash with `Invalid hook call` after QR pairing. The full app
+  now watches the repo root, searches app + workspace `node_modules`, and pins `react` /
+  `react-dom` resolution to the app entrypoint while preserving NativeWind's Metro wrapper.
 - **Retired (2026-06-11): Expo SDK 54's Worklets Babel plugin failed under pnpm strict
   resolution.** `react-native-worklets@0.8.3` requires `@babel/generator`,
   `@babel/traverse`, and `@babel/types` from its Babel plugin but does not declare them in
