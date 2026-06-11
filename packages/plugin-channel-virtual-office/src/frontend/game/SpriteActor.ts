@@ -58,8 +58,12 @@ export class SpriteActor extends Phaser.GameObjects.Container {
 
     // Click → open this worker's chat. Subagents are informational only, but
     // selecting them is harmless (the panel just has nothing to drive).
+    // Fires on pointerUP with a movement threshold so camera drags that start
+    // on a sprite pan the view instead of opening the panel.
     this.sprite.setInteractive({ useHandCursor: true });
-    this.sprite.on('pointerdown', () => onClick(snapshot.id));
+    this.sprite.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.getDistance() < 6) onClick(snapshot.id);
+    });
   }
 
   /** Reflect this frame's snapshot. `timeMs` drives idle micro-animation. */

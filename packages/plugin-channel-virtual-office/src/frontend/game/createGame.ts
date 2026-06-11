@@ -37,5 +37,7 @@ export function createGame(
     },
     scene,
   });
+  // Debug handle for headless smoke probes (harmless in production).
+  (window as unknown as Record<string, unknown>).__officeGame = game;
   return { game, scene };
 }
