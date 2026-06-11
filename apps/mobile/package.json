@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/mobile",
   "private": true,
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "Expo (React Native) app that drives the moxxy chat loop through the shared @moxxy/client-core hooks over the desktop host's WebSocket bridge — expo-router + NativeWind UI on top of the headless client layer.",
   "main": "index.js",
   "scripts": {
