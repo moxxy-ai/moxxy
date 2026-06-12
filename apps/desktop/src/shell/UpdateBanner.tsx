@@ -11,9 +11,8 @@ import { api } from '@moxxy/client-core';
 import { useAppUpdate } from '@moxxy/client-core';
 
 export function UpdateBanner(): JSX.Element | null {
-  const { check, state, progress, error, stagedVersion, runUpdate, relaunch } = useAppUpdate({
-    autoCheck: true,
-  });
+  const { check, state, progress, error, stagedVersion, runUpdate, runShellUpdate, relaunch } =
+    useAppUpdate({ autoCheck: true });
   const [dismissed, setDismissed] = useState(false);
 
   const visible =
@@ -61,15 +60,20 @@ export function UpdateBanner(): JSX.Element | null {
       </>
     );
   } else {
-    // incompatible / requires-full-update → Tier-2 (full app update)
+    // incompatible / requires-full-update → Tier-2: the app downloads its own
+    // installer and restarts into it. The release page stays as a fallback
+    // link once an automatic attempt failed (e.g. unsigned build).
     body = (
       <>
         <span>
           {state === 'requires-full-update'
-            ? `Version ${check?.latestVersion ?? ''} updates the bundled runner — install the full app update.`
+            ? `Version ${check?.latestVersion ?? ''} updates the bundled runner — a full app update will be installed.`
             : 'A new version needs a full app update.'}
         </span>
-        {check?.releaseUrl && (
+        <button type="button" style={primaryBtn} onClick={() => void runShellUpdate()}>
+          Update app
+        </button>
+        {error && check?.releaseUrl && (
           <button
             type="button"
             style={primaryBtn}
@@ -77,7 +81,7 @@ export function UpdateBanner(): JSX.Element | null {
               void api().invoke('onboarding.openExternal', { url: check.releaseUrl! })
             }
           >
-            Get update
+            Get it manually
           </button>
         )}
       </>

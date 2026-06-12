@@ -79,6 +79,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'app.updateInfo': z.undefined(),
   'app.checkUpdate': z.undefined(),
   'app.updateDashboard': z.undefined(),
+  'app.updateShell': z.undefined(),
   'app.relaunch': z.undefined(),
   'app.appBooted': z.undefined(),
   'app.updateDiagnostics': z.undefined(),

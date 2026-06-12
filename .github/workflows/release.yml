@@ -378,6 +378,7 @@ jobs:
             apps/desktop/release/*.exe
             apps/desktop/release/*.deb
             apps/desktop/release/*.AppImage
+            apps/desktop/release/*.zip
             apps/desktop/release/*.yml
             apps/desktop/release/*.blockmap
           if-no-files-found: ignore
@@ -436,9 +437,10 @@ jobs:
           {
             echo "MoxxyAI Workspaces desktop **v${version}**."
             echo
-            echo "**In this release:** macOS \`.dmg\`, Windows \`.exe\`, Linux \`.deb\`/\`.AppImage\`,"
-            echo "plus the signed Tier-1 hot-update bundle (\`moxxy-app-manifest.json\` +"
-            echo "\`moxxy-app-bundle-*.json.gz\`) and the electron-updater feed (\`latest*.yml\`)."
+            echo "**In this release:** macOS \`.dmg\` (+ \`.zip\` for in-app updates), Windows \`.exe\`,"
+            echo "Linux \`.deb\`/\`.AppImage\`, plus the signed Tier-1 hot-update bundle"
+            echo "(\`moxxy-app-manifest.json\` + \`moxxy-app-bundle-*.json.gz\`) and the"
+            echo "electron-updater feed (\`latest*.yml\`)."
             echo "Existing installs self-update from these assets once the release is published."
             echo
             case "$status" in
@@ -478,13 +480,18 @@ jobs:
       # NOTE: self-update needs PUBLISHED assets. The release is created as a
       # DRAFT (human review); the moxxy-app-manifest.json / bundle (Tier-1) and
       # the electron-updater latest*.yml feed (Tier-2) only become downloadable
-      # via `releases/latest/download/...` once a human PUBLISHES this release.
-      # So: review → Publish → clients can update.
+      # once a human PUBLISHES this release. So: review → Publish → clients
+      # can update. `make_latest: false` — desktop releases must NEVER take the
+      # repo's "Latest" badge: nothing consumes `releases/latest` (the stager
+      # resolves desktop-v* tags via the API precisely because npm-package
+      # releases already break "latest" — see stager.ts), and the badge should
+      # stay on the npm/product releases. Publishing the draft keeps this flag.
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: desktop-v${{ needs.version-publish.outputs.desktop-version }}
           files: artifacts/*
           draft: true
+          make_latest: false
           generate_release_notes: true
           body_path: ${{ runner.temp }}/release-body.md

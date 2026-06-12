@@ -21,9 +21,9 @@ function statusLine(state: UpdateState, latest: string | null): string | null {
     case 'available':
       return `Version ${latest} is available.`;
     case 'incompatible':
-      return 'A newer version needs a full app update (reinstall).';
+      return 'A newer version needs a full app update.';
     case 'requires-full-update':
-      return `Version ${latest ?? '?'} updates the bundled runner — it needs the full app installer and can’t apply as a hot-update.`;
+      return `Version ${latest ?? '?'} updates the bundled runner — it can’t apply as a hot-update, but the app can install the full update itself.`;
     case 'unavailable':
       return null; // shown via the check.error / muted note instead
     case 'updating':
@@ -66,6 +66,7 @@ export function DashboardUpdateSection(): JSX.Element {
     diagnostics,
     runCheck,
     runUpdate,
+    runShellUpdate,
     loadDiagnostics,
     relaunch,
   } = useAppUpdate();
@@ -156,14 +157,28 @@ export function DashboardUpdateSection(): JSX.Element {
             >
               Update dashboard
             </button>
-          ) : (state === 'incompatible' || state === 'requires-full-update') && check?.releaseUrl ? (
-            <button
-              type="button"
-              style={primaryBtn(false)}
-              onClick={() => void api().invoke('onboarding.openExternal', { url: check.releaseUrl! })}
-            >
-              Get the update
-            </button>
+          ) : state === 'incompatible' || state === 'requires-full-update' ? (
+            <>
+              <button
+                type="button"
+                data-testid="update-shell"
+                style={primaryBtn(false)}
+                onClick={() => void runShellUpdate()}
+              >
+                Update app
+              </button>
+              {error && check?.releaseUrl && (
+                <button
+                  type="button"
+                  style={primaryBtn(false)}
+                  onClick={() =>
+                    void api().invoke('onboarding.openExternal', { url: check.releaseUrl! })
+                  }
+                >
+                  Get it manually
+                </button>
+              )}
+            </>
           ) : (
             <button
               type="button"

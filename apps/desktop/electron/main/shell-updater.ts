@@ -43,9 +43,74 @@ export function initShellUpdater(): void {
   })();
 }
 
+/**
+ * On-demand Tier-2: download the FULL installer from an exact desktop release
+ * and quit into it. Unlike {@link initShellUpdater}'s background check, this is
+ * user-triggered (the "requires full update" banner) and runs on EVERY
+ * platform — macOS included, now that CI signs + notarizes (Squirrel.Mac
+ * refuses unsigned apps; on an unsigned build this rejects and the UI falls
+ * back to the release page).
+ *
+ * `feedBaseUrl` is the `releases/download/desktop-v<version>/` asset base of
+ * the release to install, resolved by the caller (desktop-host's
+ * `app.updateShell`). A GENERIC feed pinned there — never GitHub's
+ * latest-release discovery, which can't parse `desktop-v*` tags and is broken
+ * by the repo's npm-package releases anyway. electron-builder attaches the
+ * `latest*.yml` feed files the generic provider reads to every release.
+ *
+ * Rejects on any failure; only a fully downloaded + verified installer
+ * reaches `quitAndInstall` (deferred a tick so the IPC reply can flush).
+ */
+export async function installFullAppUpdate(opts: {
+  feedBaseUrl: string;
+  onProgress: (p: {
+    phase: 'download' | 'install';
+    received?: number;
+    total?: number;
+    message?: string;
+  }) => void;
+}): Promise<void> {
+  if (!app.isPackaged) throw new Error('Full app updates run only in the packaged app.');
+  const mod = (await import('electron-updater')) as {
+    autoUpdater?: ElectronAutoUpdater;
+    default?: { autoUpdater?: ElectronAutoUpdater };
+  };
+  const autoUpdater = mod.autoUpdater ?? mod.default?.autoUpdater;
+  if (!autoUpdater) throw new Error('electron-updater is not available in this build.');
+
+  // Explicit, user-triggered flow: no background download, no install-on-quit
+  // side effects from the launch check.
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.setFeedURL({ provider: 'generic', url: opts.feedBaseUrl });
+
+  // The module-level autoUpdater is a singleton — drop listeners from any
+  // previous attempt before wiring this one.
+  autoUpdater.removeAllListeners('download-progress');
+  autoUpdater.on('download-progress', (p: { transferred?: number; total?: number }) => {
+    opts.onProgress({ phase: 'download', received: p.transferred, total: p.total });
+  });
+
+  opts.onProgress({ phase: 'download', message: 'Fetching installer…' });
+  const check = await autoUpdater.checkForUpdates();
+  if (!check?.updateInfo?.version) {
+    throw new Error('No installer found for this release.');
+  }
+  await autoUpdater.downloadUpdate();
+  opts.onProgress({ phase: 'install', message: 'Restarting to install…' });
+  // Defer past the IPC reply; before-quit teardown (runner reap) still runs.
+  setImmediate(() => autoUpdater.quitAndInstall());
+}
+
 /** The slice of electron-updater's autoUpdater we touch. */
 interface ElectronAutoUpdater {
   autoDownload: boolean;
   autoInstallOnAppQuit: boolean;
   checkForUpdatesAndNotify(): Promise<unknown>;
+  checkForUpdates(): Promise<{ updateInfo?: { version?: string } } | null>;
+  downloadUpdate(): Promise<unknown>;
+  quitAndInstall(): void;
+  setFeedURL(options: { provider: 'generic'; url: string }): void;
+  on(event: string, listener: (...args: never[]) => void): unknown;
+  removeAllListeners(event: string): unknown;
 }

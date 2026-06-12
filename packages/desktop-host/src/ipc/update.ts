@@ -45,6 +45,19 @@ export interface UpdateConfig {
    * skip the gate.
    */
   cliRunnerProtocol?: number;
+  /**
+   * Tier-2: download + install the FULL app installer from the given release
+   * download base (`https://github.com/<repo>/releases/download/desktop-v<v>/`)
+   * and quit into it. Injected by the app main (which owns the
+   * electron-updater dependency — this package stays free of it); omitted ⇒
+   * `app.updateShell` reports unavailable and the UI falls back to the
+   * release page. Must REJECT on any failure (unsigned macOS build, missing
+   * installer asset) rather than half-installing.
+   */
+  installShellUpdate?: (opts: {
+    feedBaseUrl: string;
+    onProgress: (p: { phase: 'download' | 'install'; received?: number; total?: number; message?: string }) => void;
+  }) => Promise<void>;
 }
 
 /** The GitHub repo whose `desktop-v*` releases the updater pulls from. */
@@ -161,6 +174,41 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
       return { ok: true, version };
     } catch (e) {
       return { ok: false, version: null, error: messageOf(e) };
+    }
+  });
+
+  handle('app.updateShell', async () => {
+    // Tier-2: the hot-update path can't deliver this release (runner bump /
+    // shell incompatibility) — fetch the FULL installer and replace the app.
+    const currentVersion = runningVersion();
+    if (!enabled()) {
+      return { ok: false, error: 'Full app updates run only in the packaged app.' };
+    }
+    const installShellUpdate = config.installShellUpdate;
+    if (!installShellUpdate) {
+      return { ok: false, error: 'Full app updates are not available in this build.' };
+    }
+    const res = await check(currentVersion);
+    if (!res.available || !res.latestVersion) {
+      return { ok: false, error: res.error ?? 'No update available.' };
+    }
+    const target = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null;
+    try {
+      await installShellUpdate({
+        // Pinned at the exact release the manifest named — NEVER a "latest"
+        // endpoint: desktop-v* tags don't hold the repo's Latest badge, and
+        // npm-package releases break latest-based discovery anyway.
+        feedBaseUrl: `https://github.com/${GH_REPO}/releases/download/desktop-v${res.latestVersion}/`,
+        onProgress: (p) => {
+          if (target) sendEvent(target, 'app.update.progress', p);
+          wsEventBus.broadcast('app.update.progress', p);
+        },
+      });
+      // The installer callback quits + reinstalls on success; this reply only
+      // races the shutdown.
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: messageOf(e) };
     }
   });
 

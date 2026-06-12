@@ -65,7 +65,7 @@ import { resolveWsBridgeConfig, MobileGatewayManager } from './ws-bridge.js';
 import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
 import { FLOOR_RUNNER_PROTOCOL } from './floor-runner-protocol.js';
 import { readConfirmed, markConfirmed, markBad, appendBootLog } from '@moxxy/desktop-host/app-update';
-import { initShellUpdater } from './shell-updater.js';
+import { initShellUpdater, installFullAppUpdate } from './shell-updater.js';
 
 // In a packaged build there is no global `moxxy` (and a GUI launch has no
 // shell PATH / system `node`). Point the CLI resolver at a self-contained,
@@ -947,6 +947,10 @@ app.whenReady().then(async () => {
       // ≤ the floor's (the boot gate already admitted it) — i.e. at worst the
       // stage-time gate is conservative, never permissive.
       cliRunnerProtocol: FLOOR_RUNNER_PROTOCOL,
+      // Tier-2: lets `app.updateShell` download + install the full installer
+      // when a release can't ship as a hot-update (runner bump). Lives here —
+      // not in desktop-host — because this app owns the electron-updater dep.
+      installShellUpdate: installFullAppUpdate,
     },
     // Bridge-control commands (host-only; refused over the WS transport).
     ...(mobileGateway ? { mobileGateway } : {}),

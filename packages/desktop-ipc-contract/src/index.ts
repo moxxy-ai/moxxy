@@ -445,9 +445,10 @@ export interface AppUpdateCheck {
   error?: string;
 }
 
-/** Streamed progress while a dashboard update downloads + installs. */
+/** Streamed progress while a dashboard update downloads + installs.
+ *  `install` is the Tier-2 (`app.updateShell`) installer phase. */
 export interface AppUpdateProgress {
-  phase: 'download' | 'verify' | 'extract' | 'activate';
+  phase: 'download' | 'verify' | 'extract' | 'activate' | 'install';
   received?: number;
   total?: number;
   message?: string;
@@ -602,6 +603,16 @@ export interface IpcCommands {
     error?: string;
     requiresFullUpdate?: boolean;
   }>;
+  /** Download + install the FULL app installer (Tier-2, electron-updater) for
+   *  the newest desktop release, streaming `app.update.progress`. The path for
+   *  updates a hot-update can't deliver (`requiresFullUpdate` — runner bump —
+   *  or an Electron/ABI `incompatible`). The feed is resolved entirely
+   *  main-side (the renderer passes no URL), pinned at the exact
+   *  `desktop-v<version>` release assets. On success the app quits and
+   *  reinstalls itself, so callers may never observe the resolved promise;
+   *  failures (e.g. unsigned macOS build, missing installer asset) come back
+   *  in `error` so the UI can fall back to the release page. */
+  'app.updateShell': () => Promise<{ ok: boolean; error?: string }>;
   /** Relaunch the app so a freshly-installed dashboard bundle takes effect. */
   'app.relaunch': () => Promise<void>;
   /** Renderer → main heartbeat: the React tree mounted past the splash. Clears
@@ -1003,6 +1014,9 @@ export const REMOTE_DISALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<I
   'focus.restoreMain',
   'focus.resize',
   'app.relaunch',
+  // Installs + relaunches the host app — host-only, like app.relaunch (and a
+  // remote client must never be able to make the host swap its own binary).
+  'app.updateShell',
   // Bridge control: a remote client driving over the WS bridge must never be
   // able to toggle the gateway off, read the pairing token, or rotate it (which
   // would let it lock out the host or hand itself a fresh credential). These are

@@ -680,6 +680,20 @@ refused override impersonated the previous override and let the boot probe confi
 that wasn't running. Residual (low): any pre-be7d33a floor will show the macOS Dock ghost-runner
 whenever a refused update drops onto it — immutable floor code, only a full reinstall fixes it.
 
+**2026-06-12 Tier-2 is now self-service:** the "needs the full app installer" dead end
+(banner → release page → manual download/install) became one click: new `app.updateShell`
+IPC + `installFullAppUpdate` (shell-updater.ts) drive electron-updater against a **generic
+feed pinned at the exact `desktop-v<version>` release assets** — NOT GitHub latest/atom
+discovery, which can't parse `desktop-v*` tags (semver-invalid with the prefix) and is
+broken by npm-package releases anyway; this is also why the background
+`checkForUpdatesAndNotify` in `initShellUpdater` likely never found anything (left as-is,
+harmless). macOS gains a `zip` build target (Squirrel.Mac can't install from a dmg) and
+needs a signed build — on signature/asset failure the IPC returns the error and the UI
+falls back to the release page. Desktop releases stop taking the repo's "Latest" badge
+(`make_latest: false` in release.yml). Residual: installers/feeds are draft-gated, so
+`app.updateShell` 404s until the release is published (same as Tier-1); the zip only
+exists on releases built after this change.
+
 **2026-06-12 fourth failure mode found + fixed (the inverse of #3):** a STALE override
 outranked a freshly installed shell. The resolve gate had no floor-version check, so after
 "0.7.0 updates the bundled runner — install the full app update" → user installs 0.7.0,

@@ -105,7 +105,10 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
-      "target": "dmg",
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "public/logo.png",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,

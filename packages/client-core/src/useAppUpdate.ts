@@ -40,6 +40,11 @@ export interface UseAppUpdate {
   diagnostics: AppUpdateDiagnostics | null;
   runCheck: () => Promise<void>;
   runUpdate: () => Promise<void>;
+  /** Tier-2: download the FULL installer and quit into it (`app.updateShell`).
+   *  For `requires-full-update` / `incompatible` releases a hot-update can't
+   *  deliver. On success the app quits mid-call; on failure the state returns
+   *  to the CTA with `error` set so the UI can offer the release page. */
+  runShellUpdate: () => Promise<void>;
   loadDiagnostics: () => Promise<void>;
   relaunch: () => void;
 }
@@ -107,6 +112,27 @@ export function useAppUpdate(opts: { autoCheck?: boolean } = {}): UseAppUpdate {
     }
   }, []);
 
+  const runShellUpdate = useCallback(async (): Promise<void> => {
+    setState('updating');
+    setError(null);
+    setProgress(null);
+    try {
+      const r = await api().invoke('app.updateShell');
+      if (r.ok) {
+        // The app is quitting into the installer — leave the progress line up.
+        setProgress({ phase: 'install', message: 'Restarting to install…' });
+      } else {
+        // Back to the CTA (with the error shown) so the release-page fallback
+        // stays reachable.
+        setError(r.error ?? 'Full update failed.');
+        setState('requires-full-update');
+      }
+    } catch (e) {
+      setError(toErrorMessage(e));
+      setState('requires-full-update');
+    }
+  }, []);
+
   const loadDiagnostics = useCallback(async (): Promise<void> => {
     try {
       setDiagnostics(await api().invoke('app.updateDiagnostics'));
@@ -136,6 +162,7 @@ export function useAppUpdate(opts: { autoCheck?: boolean } = {}): UseAppUpdate {
     diagnostics,
     runCheck,
     runUpdate,
+    runShellUpdate,
     loadDiagnostics,
     relaunch,
   };
