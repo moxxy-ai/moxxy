@@ -119,7 +119,7 @@ describe('CodexProvider.stream', () => {
     expect(end?.usage).toEqual({ inputTokens: 100, outputTokens: 20, cacheReadTokens: 80 });
   });
 
-  it('wires req.maxTokens to max_output_tokens and never forwards temperature', async () => {
+  it('never forwards req.maxTokens or req.temperature', async () => {
     let body: Record<string, unknown> | undefined;
     const fakeFetch = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
       body = JSON.parse(String(init?.body));
@@ -131,9 +131,10 @@ describe('CodexProvider.stream', () => {
     });
     await collect(provider.stream(baseRequest({ maxTokens: 1234, temperature: 0.2 })));
 
-    expect(body?.max_output_tokens).toBe(1234);
-    // gpt-5 reasoning models reject sampling params with a 400, so the
-    // provider must drop temperature instead of forwarding it.
+    // The ChatGPT Codex backend 400s on max_output_tokens ("Unsupported
+    // parameter") and gpt-5 reasoning models reject sampling params, so the
+    // provider must drop both instead of forwarding them.
+    expect(body).not.toHaveProperty('max_output_tokens');
     expect(body).not.toHaveProperty('temperature');
   });
 
