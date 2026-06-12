@@ -218,6 +218,8 @@ function formatCatalog(
 export interface DraftedWorkflow {
   readonly raw: string;
   readonly parse: WorkflowParseResult;
+  /** True when the stream stopped at the output-token cap — the YAML is likely cut off. */
+  readonly truncated: boolean;
 }
 
 export async function draftWorkflow(
@@ -228,18 +230,25 @@ export async function draftWorkflow(
   opts: DraftWorkflowOptions = {},
 ): Promise<DraftedWorkflow> {
   let accumulated = '';
+  let truncated = false;
+  // Clamp the draft budget to the model's own output ceiling — passing more
+  // than the model allows is a provider-side 400 (e.g. anthropic rejects
+  // max_tokens above the catalog cap).
+  const ceiling = provider.models.find((m) => m.id === model)?.maxOutputTokens;
+  const budget = Math.min(opts.maxTokens ?? DEFAULT_MAX_TOKENS, ceiling ?? Number.POSITIVE_INFINITY);
   for await (const event of provider.stream({
     model,
     system: buildSystemPrompt(opts),
     messages: [{ role: 'user', content: [{ type: 'text', text: `Build a workflow for: ${intent}` }] }],
-    maxTokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
+    maxTokens: budget,
     signal,
   })) {
     if (event.type === 'text_delta') accumulated += event.delta;
+    if (event.type === 'message_end') truncated = event.stopReason === 'max_tokens';
     if (event.type === 'error') throw new Error(`workflow_create: provider error: ${event.message}`);
   }
   const raw = extractYamlBlock(accumulated);
-  return { raw, parse: parseWorkflowYaml(raw) };
+  return { raw, parse: parseWorkflowYaml(raw), truncated };
 }
 
 function extractYamlBlock(s: string): string {

@@ -70,9 +70,9 @@ describe('toResponsesBody', () => {
     expect(body.instructions).toBe('BASE\n\nNUDGE');
   });
 
-  it('maps maxTokens to max_output_tokens and drops temperature', () => {
+  it('drops both maxTokens and temperature (ChatGPT Codex backend rejects them)', () => {
     const body = toResponsesBody({ ...req, maxTokens: 999, temperature: 0.5 });
-    expect(body.max_output_tokens).toBe(999);
+    expect(body).not.toHaveProperty('max_output_tokens');
     expect(body).not.toHaveProperty('temperature');
   });
 });

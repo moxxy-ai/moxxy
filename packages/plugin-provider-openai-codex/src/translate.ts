@@ -36,12 +36,11 @@ export interface ResponsesBody {
   stream: true;
   prompt_cache_key?: string;
   include?: string[];
-  /** Responses-API output cap; carries `ProviderRequest.maxTokens`. */
-  max_output_tokens?: number;
-  // NOTE: no `temperature` — every model the Codex backend serves is a
-  // gpt-5-family reasoning model, and the Responses API rejects sampling
-  // params (`temperature`/`top_p`) for reasoning models with a 400. See
-  // `noteTemperatureUnsupported` below.
+  // NOTE: no `temperature` and no `max_output_tokens` — every model the Codex
+  // backend serves is a gpt-5-family reasoning model, and the ChatGPT-plan
+  // `/responses` endpoint rejects sampling params (`temperature`/`top_p`) AND
+  // `max_output_tokens` with a 400 ("Unsupported parameter"). See
+  // `noteTemperatureUnsupported`/`noteMaxTokensUnsupported` below.
 }
 
 function contentBlocksToInputText(
@@ -179,6 +178,25 @@ function noteTemperatureUnsupported(): void {
   }
 }
 
+/**
+ * One-shot debug note for the unsupported `maxTokens` param. Unlike the
+ * platform Responses API, the ChatGPT-plan Codex backend rejects
+ * `max_output_tokens` with `400: {"detail":"Unsupported parameter:
+ * max_output_tokens"}` — observed live when `workflow_create` passed a draft
+ * budget. Same policy as temperature: drop it instead of breaking the request.
+ */
+let maxTokensNoteShown = false;
+function noteMaxTokensUnsupported(): void {
+  if (maxTokensNoteShown) return;
+  maxTokensNoteShown = true;
+  if (process.env.MOXXY_DEBUG) {
+    console.debug(
+      '[openai-codex] ProviderRequest.maxTokens is not supported by the Codex ' +
+        'Responses backend (400 Unsupported parameter: max_output_tokens); ignoring it.',
+    );
+  }
+}
+
 export function toResponsesBody(req: ProviderRequest, opts: BuildBodyOptions = {}): ResponsesBody {
   const instructions = extractSystemText(req.messages, req.system) || DEFAULT_INSTRUCTIONS;
   const body: ResponsesBody = {
@@ -193,7 +211,7 @@ export function toResponsesBody(req: ProviderRequest, opts: BuildBodyOptions = {
   };
   if (req.tools && req.tools.length > 0) body.tools = toResponsesTools(req.tools);
   if (opts.sessionHint) body.prompt_cache_key = opts.sessionHint;
-  if (req.maxTokens !== undefined) body.max_output_tokens = req.maxTokens;
+  if (req.maxTokens !== undefined) noteMaxTokensUnsupported();
   if (req.temperature !== undefined) noteTemperatureUnsupported();
   return body;
 }

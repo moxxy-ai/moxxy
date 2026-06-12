@@ -352,6 +352,13 @@ Full report incl. the medium/low backlog and refuted findings:
   models 400 on sampling params) with a one-shot MOXXY_DEBUG note instead of a silent drop;
   `reasoningEffort` is a live `CodexProviderConfig` option and the CLI's codex credential
   resolver now merges `provider.config` through (it used to discard every configured option).
+  **Corrected 2026-06-11:** the `max_output_tokens` mapping was itself a regression — the
+  ChatGPT-plan `/responses` endpoint (unlike the platform Responses API) 400s with
+  `Unsupported parameter: max_output_tokens`, observed live when `workflow_create` passed its
+  draft budget (the only caller that sets `req.maxTokens`; normal turns leave it unset, which
+  is why chat never hit it). `req.maxTokens` is now dropped with a one-shot MOXXY_DEBUG note,
+  exactly like `temperature`; `draftWorkflow` additionally clamps its budget to the model's
+  catalog `maxOutputTokens` and surfaces a `max_tokens`-truncated draft as an actionable error.
 - **A37 [med, inconsistency] Runtime-registered openai-compat providers were second-class** —
   ✅ FIXED (this PR): the live client now reports the vendor's slug + model catalog
   (`OpenAIProviderConfig.name`/`models`, wired from `buildProviderDef`) so usage/errors

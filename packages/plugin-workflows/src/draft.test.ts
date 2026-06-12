@@ -80,5 +80,30 @@ describe('draftWorkflow', () => {
     expect(drafted.parse.workflow?.inputs?.recipient).toBeDefined();
     expect(drafted.parse.workflow?.steps[2]?.tool).toBe('gmail_send');
     expect(provider.received[0]?.maxTokens).toBe(4096);
+    expect(drafted.truncated).toBe(false);
+  });
+
+  it('clamps the draft budget to the model maxOutputTokens ceiling', async () => {
+    const provider = new FakeProvider({
+      models: [{ id: 'tiny-model', contextWindow: 8000, maxOutputTokens: 2000, supportsTools: true, supportsStreaming: true }],
+      script: [textReply(MULTI_STEP_DRAFT)],
+    });
+    await draftWorkflow(provider, 'tiny-model', 'anything', AbortSignal.timeout(5000));
+    expect(provider.received[0]?.maxTokens).toBe(2000);
+  });
+
+  it('flags a max_tokens stop as truncated', async () => {
+    const provider = new FakeProvider({
+      script: [
+        [
+          { type: 'message_start', model: 'fake' },
+          { type: 'text_delta', delta: 'name: cut-off\ndescription: partial draft\nsteps:\n  - id: one\n    lab' },
+          { type: 'message_end', stopReason: 'max_tokens' },
+        ],
+      ],
+    });
+    const drafted = await draftWorkflow(provider, 'fake-model', 'anything', AbortSignal.timeout(5000));
+    expect(drafted.truncated).toBe(true);
+    expect(drafted.parse.ok).toBe(false);
   });
 });

@@ -149,9 +149,11 @@ function createTool(deps: WorkflowToolDeps): ToolDef {
       if (!drafted.parse.ok || !drafted.parse.workflow) {
         throw new MoxxyError({
           code: 'TOOL_ERROR',
-          message:
-            `workflow_create: the model did not produce a valid workflow ` +
-            `(${drafted.parse.errors.join('; ')}). Try a more specific intent.`,
+          message: drafted.truncated
+            ? 'workflow_create: the draft hit the output-token limit before the YAML was ' +
+              'complete. Try a simpler intent, or split the workflow into smaller ones.'
+            : `workflow_create: the model did not produce a valid workflow ` +
+              `(${drafted.parse.errors.join('; ')}). Try a more specific intent.`,
         });
       }
       const created = await deps.store.create(drafted.parse.workflow, scope as EditableScope);
