@@ -1,4 +1,13 @@
-import { defineTool, definePlugin, MoxxyError, type Plugin, type ProviderDef, z } from '@moxxy/sdk';
+import {
+  defineTool,
+  definePlugin,
+  MoxxyError,
+  z,
+  type Plugin,
+  type ProviderAdminView,
+  type ProviderConfigurePatch,
+  type ProviderDef,
+} from '@moxxy/sdk';
 import { buildProviderDef, validateOpenAICompatKey } from './factory.js';
 import { providerApiKeyName } from './key-name.js';
 import {
@@ -98,6 +107,64 @@ const testProviderInput = z.object({
         'and never pass one as a tool argument. Have them store it first: /vault set <NAME> <key>.',
     ),
 });
+
+/**
+ * Like {@link buildProviderAdminPlugin} but also returns a
+ * {@link ProviderAdminView} api the host can stash on the session
+ * (`session.providerAdmin`) so channels — and the runner's
+ * `provider.configure` method — can edit a stored provider without going
+ * through the model. Mirrors `buildMcpAdminPluginWithApi`.
+ */
+export function buildProviderAdminPluginWithApi(opts: BuildProviderAdminPluginOptions): {
+  readonly plugin: Plugin;
+  readonly api: ProviderAdminView;
+} {
+  const { providerRegistry, configPath } = opts;
+  const api: ProviderAdminView = {
+    configure: async (name: string, patch: ProviderConfigurePatch): Promise<void> => {
+      const cfg = await readProvidersConfig(configPath);
+      const entry = cfg.providers.find((p) => p.name === name);
+      if (!entry) {
+        throw new MoxxyError({
+          code: 'CONFIG_INVALID',
+          message:
+            `provider-admin: no stored provider named "${name}" — only runtime-registered ` +
+            `(providers.json) providers are configurable; built-ins are code.`,
+        });
+      }
+      const next: StoredProvider = {
+        ...entry,
+        ...(patch.baseURL ? { baseURL: patch.baseURL } : {}),
+        ...(patch.defaultModel ? { defaultModel: patch.defaultModel } : {}),
+        ...(patch.envVar ? { envVar: patch.envVar } : {}),
+        ...(patch.models && patch.models.length > 0 ? { models: patch.models } : {}),
+      };
+      if (!next.models.some((m) => m.id === next.defaultModel)) {
+        throw new MoxxyError({
+          code: 'CONFIG_INVALID',
+          message:
+            `provider-admin: defaultModel "${next.defaultModel}" is not in the models list ` +
+            `(${next.models.map((m) => m.id).join(', ')}).`,
+        });
+      }
+      // Same order as provider_add: live registry first, then disk, so a
+      // failed write can roll back to the previous def.
+      const def = buildProviderDef(next);
+      const hadDef = providerRegistry.list().some((p) => p.name === name);
+      if (hadDef) providerRegistry.replace(def);
+      else providerRegistry.register(def);
+      try {
+        await upsertStoredProvider(next, configPath);
+      } catch (err) {
+        const prev = buildProviderDef(entry);
+        if (hadDef) providerRegistry.replace(prev);
+        else providerRegistry.unregister(name);
+        throw err;
+      }
+    },
+  };
+  return { plugin: buildProviderAdminPlugin(opts), api };
+}
 
 export function buildProviderAdminPlugin(opts: BuildProviderAdminPluginOptions): Plugin {
   const { providerRegistry, configPath } = opts;

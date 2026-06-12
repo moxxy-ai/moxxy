@@ -312,6 +312,23 @@ export interface ProviderEntry {
   /** True when the runner has activated this provider (credentials
    *  resolved). False = entry exists but key is missing or invalid. */
   ready: boolean;
+  /** False when the user disabled this provider (Settings toggle). */
+  enabled: boolean;
+  /** True when this is the runner's active provider (disable is refused). */
+  active: boolean;
+  /** 'oauth' providers authenticate via `moxxy login`, not a vault key. */
+  authKind: 'oauth' | 'api-key';
+  /** 'admin' = runtime-registered via providers.json (configurable);
+   *  'builtin' = ships with moxxy (key/enable management only). */
+  kind: 'builtin' | 'admin';
+  /** Vault entry name holding this provider's API key (`<NAME>_API_KEY` or
+   *  the stored envVar override). The Configure sheet writes it via
+   *  `settings.vaultSet` then calls `settings.providerRefreshReady`. */
+  keyName: string;
+  /** Stored entry detail — admin providers only. */
+  baseURL?: string;
+  defaultModel?: string;
+  modelIds?: ReadonlyArray<string>;
 }
 
 export interface McpServerEntry {
@@ -518,6 +535,12 @@ export interface IpcEvents {
    *  client connected/left) — the Settings → Mobile tab re-renders the QR +
    *  client count from this without polling. */
   'mobileGateway.changed': MobileGatewayStatus;
+  /** The runner's registry snapshot changed (provider/mode/MCP/workflow
+   *  mutations — including ones made by TOOLS inside a turn, e.g.
+   *  provider_add). The renderer re-emits {@link SESSION_INFO_REFRESH_EVENT}
+   *  on its EventBus so every info-derived view (Settings tabs, mode badge,
+   *  action catalog) refreshes without polling or an app restart. */
+  'session.info.changed': { workspaceId: string };
 }
 
 // ---------- Invokable commands (renderer → main) --------------------------
@@ -815,6 +838,23 @@ export interface IpcCommands {
 
   /** Provider list for the given workspace (defaults to active). */
   'settings.providers': (args?: { workspaceId?: string }) => Promise<ReadonlyArray<ProviderEntry>>;
+  /** Enable/disable a provider on the runner (persists across restarts).
+   *  Disabling the ACTIVE provider is refused with a clear error. */
+  'settings.providerSetEnabled': (args: {
+    workspaceId?: string;
+    name: string;
+    enabled: boolean;
+  }) => Promise<void>;
+  /** Patch a stored (runtime-registered) provider's config — live registry
+   *  re-register + providers.json persist. Built-ins are not configurable. */
+  'settings.providerConfigure': (args: {
+    workspaceId?: string;
+    name: string;
+    patch: { baseURL?: string; defaultModel?: string; envVar?: string };
+  }) => Promise<void>;
+  /** Re-probe every provider's credentials on the runner so a key just saved
+   *  via `settings.vaultSet` flips readiness without a restart. */
+  'settings.providerRefreshReady': (args?: { workspaceId?: string }) => Promise<void>;
   /** Hit the provider's /v1/models endpoint and return the model ids
    *  it advertises. Useful for admin-registered providers whose
    *  providers.json entry didn't enumerate models upfront. */

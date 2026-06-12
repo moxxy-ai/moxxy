@@ -57,6 +57,12 @@ export interface ProviderInfo {
    *  via /v1/models). Lets the desktop's model picker show a
    *  "Fetch live" affordance only where it makes sense. */
   readonly supportsLiveModelDiscovery: boolean;
+  /**
+   * False when the user disabled this provider (it stays registered but can't
+   * be activated and is excluded from boot's candidate walk). Optional for
+   * wire back-compat — an older runner omits it; treat absent as enabled.
+   */
+  readonly enabled?: boolean;
 }
 
 /** Serializable tool metadata for status lines / slash menus / compact rendering. */
@@ -144,6 +150,36 @@ export interface McpAdminView {
   enableAndAttach(name: string): Promise<{ toolNames: ReadonlyArray<string> } | null>;
   detach(name: string): Promise<boolean>;
   listServers(): Promise<ReadonlyArray<McpServerStatusView>>;
+}
+
+/**
+ * Editable fields of a stored (runtime-registered) provider entry. Mirrors
+ * the persisted `providers.json` shape owned by `@moxxy/plugin-provider-admin`
+ * minus the immutable identity (`name`, `kind`).
+ */
+export interface ProviderConfigurePatch {
+  readonly baseURL?: string;
+  readonly defaultModel?: string;
+  /** Override the API-key env-var/vault name (`<NAME>_API_KEY` by default). */
+  readonly envVar?: string;
+  readonly models?: ReadonlyArray<ModelDescriptor>;
+}
+
+/**
+ * The slice of the provider admin API a channel needs to edit a stored
+ * (runtime-registered) provider in place. Present on a local Session when
+ * `@moxxy/plugin-provider-admin` is wired (mirrors {@link McpAdminView});
+ * a `RemoteSession` proxies it over the runner protocol (v7+). Built-in
+ * providers are not configurable through this view — their config is code.
+ */
+export interface ProviderAdminView {
+  /**
+   * Patch a stored provider's entry: re-registers the live provider def and
+   * persists the merged entry to providers.json. Throws a MoxxyError when no
+   * stored provider has that name or the patch is inconsistent (e.g. a
+   * defaultModel missing from the models list).
+   */
+  configure(name: string, patch: ProviderConfigurePatch): Promise<void>;
 }
 
 /** One workflow's summary for the `/workflows` modal. */
@@ -308,6 +344,8 @@ export interface SessionLike {
   credentialResolver?: CredentialResolver;
   /** MCP admin slice backing the MCP picker / status line. */
   mcpAdmin?: McpAdminView;
+  /** Provider admin slice — edit stored (runtime-registered) providers. */
+  providerAdmin?: ProviderAdminView;
   /** Workflows slice backing the `/workflows` modal. */
   workflows?: WorkflowsView;
   /** Plugin-management slice backing the `/plugins` picker. */

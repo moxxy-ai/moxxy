@@ -40,6 +40,7 @@ import type {
   CredentialResolver,
   ElisionSettings,
   McpAdminView,
+  ProviderAdminView,
   WorkflowsView,
   PluginsAdminView,
   PendingToolCall,
@@ -153,6 +154,7 @@ export class Session implements ClientSession, SessionRuntime {
   readyProviders?: Set<string>;
   credentialResolver?: CredentialResolver;
   mcpAdmin?: McpAdminView;
+  providerAdmin?: ProviderAdminView;
   workflows?: WorkflowsView;
   pluginsAdmin?: PluginsAdminView;
   readonly dispatcher: HookDispatcherImpl;
@@ -379,6 +381,7 @@ export class Session implements ClientSession, SessionRuntime {
         // setting `supportsLiveModelDiscovery: true` on their def.
         supportsLiveModelDiscovery:
           (p as { supportsLiveModelDiscovery?: boolean }).supportsLiveModelDiscovery === true,
+        enabled: this.providers.isEnabled(p.name),
       })),
       activeMode,
       activeModeBadge,

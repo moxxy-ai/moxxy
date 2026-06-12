@@ -120,6 +120,9 @@ export function SettingsPanel({
           {tab === 'providers' && (
             <ProvidersTab
               providers={providers}
+              onToggle={s.setProviderEnabled}
+              onConfigure={s.configureProvider}
+              onSetKey={s.setProviderKey}
               onRefresh={s.refresh}
               search={<SearchBox value={query} onChange={setQuery} placeholder="Search providers…" />}
             />

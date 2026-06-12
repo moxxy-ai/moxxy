@@ -55,6 +55,13 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   } else {
     for (let i = 0; i < candidates.length; i++) {
       const candidate = candidates[i]!;
+      // A user-disabled provider (preferences.json `disabledProviders`,
+      // seeded into the registry before this walk) is never auto-activated —
+      // fall through to the next candidate instead of failing on setActive.
+      if (!session.providers.isEnabled(candidate)) {
+        logger.warn('skipping disabled provider', { provider: candidate });
+        continue;
+      }
       // Only the FIRST candidate gets the interactive prompt — chaining
       // through fallbacks via prompts would be confusing.
       const interactive = i === 0 && !skipKeyPrompt && process.stdin.isTTY === true;

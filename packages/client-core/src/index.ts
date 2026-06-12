@@ -37,3 +37,4 @@ export * from './useAppUpdate.js';
 export * from './useMobileGateway.js';
 export * from './useVoiceRecorder.js';
 export * from './useActiveModeBadge.js';
+export * from './useSessionInfoBridge.js';

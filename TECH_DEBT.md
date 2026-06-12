@@ -37,6 +37,39 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
 
 ---
 
+## 2026-06-12 — desktop live registry refresh + interactive provider management
+
+- **Retired (found + fixed same PR): desktop UI went stale after runtime registry
+  changes** — `provider_add` (and mcp/skill/workflow mutations made by TOOLS inside a
+  turn) updated the runner's live registries but nothing pushed the change to the
+  renderer: the runner only broadcast `info.changed` on mode switch / provider
+  setActive / command.run / transcribe, `SessionDriver` never forwarded it, and
+  `useSettings` fetched once on mount — so a provider added via prompt needed an app
+  RESTART to appear. Fix, end to end: the runner broadcasts `info.changed` after every
+  completed turn (`server.ts` runTurn finally); `RemoteSession.onInfoChanged` exposes
+  the push; `SessionDriver` forwards it as the new `session.info.changed` IPC event;
+  `useSessionInfoBridge` (mounted in App) re-emits it as `SESSION_INFO_REFRESH_EVENT`;
+  and `useSettings` re-fetches on that signal (mode badge / action catalog / agent
+  picker already listened).
+- **Protocol v7** (additive; MIN_COMPATIBLE stays 1; desktop `FLOOR_RUNNER_PROTOCOL`
+  bumped in lockstep): `provider.setEnabled` (live toggle + persisted
+  `preferences.json#disabledProviders`, seeded into the registry before boot's
+  activation walk; disabling the ACTIVE provider is refused), `provider.refreshReady`
+  (re-probe credentials via `session.credentialResolver` so a vault key flips
+  readiness live), `provider.configure` (patch a stored provider through the new
+  `SessionLike.providerAdmin` view — wired from `buildProviderAdminPluginWithApi`,
+  mirrors mcpAdmin). Settings → Providers now has the enable/disable Switch + a
+  Configure sheet (vault key for api-key providers, login hint for OAuth, stored
+  baseURL/defaultModel for admin providers). The change-runner-protocol skill was
+  refreshed (it still said "currently 3" + pre-tolerant-negotiation semantics).
+- **New (low, ux):** the Configure sheet edits a stored provider's `baseURL` /
+  `defaultModel` but not its `models` ARRAY — model-list edits still need
+  `provider_add` (replace) or `settings.fetchProviderModels` + a future picker.
+- **New (low, consistency):** `provider.setEnabled` persists the disabled list via a
+  fire-and-forget read-merge-write of preferences.json; two rapid toggles of
+  DIFFERENT providers from two clients could lose one update (same best-effort
+  semantics as every `savePreferences` caller — acceptable, noted for completeness).
+
 ## 2026-06-11 — mobile-poc app intake
 
 `apps/mobile-poc` (Expo SDK 54, single screen) replaces the removed `apps/mobile` as the

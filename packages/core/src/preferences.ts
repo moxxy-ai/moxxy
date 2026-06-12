@@ -18,6 +18,12 @@ export interface MoxxyPreferences {
   readonly model?: string;
   /** Active loop strategy name (e.g. "default", "research", "goal"). */
   readonly mode?: string;
+  /**
+   * Providers the user disabled (desktop Settings → Providers toggle).
+   * Seeded into the ProviderRegistry at boot; a listed provider stays
+   * registered but can't be activated until re-enabled.
+   */
+  readonly disabledProviders?: ReadonlyArray<string>;
 }
 
 export function preferencesPath(): string {

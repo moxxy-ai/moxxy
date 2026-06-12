@@ -863,3 +863,147 @@ describe('runner end-to-end', () => {
     await expect(remote.workflows.resume('run-7', 'hi')).rejects.toThrow(/resume not supported/);
   });
 });
+
+describe('provider management (protocol v7)', () => {
+  /** Run `fn` with HOME redirected to a temp dir so preference writes land
+   *  in the test sandbox (same pattern as the persists-provider test). */
+  async function withTempHome(fn: (home: string) => Promise<void>): Promise<void> {
+    const home = await mkdtemp(path.join(os.tmpdir(), 'moxxy-prov-'));
+    const prevHome = process.env.HOME;
+    const prevUserProfile = process.env.USERPROFILE;
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
+    try {
+      await fn(home);
+    } finally {
+      if (prevHome === undefined) delete process.env.HOME;
+      else process.env.HOME = prevHome;
+      if (prevUserProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = prevUserProfile;
+      await rm(home, { recursive: true, force: true });
+    }
+  }
+
+  function withSecondProvider(session: Session, provider: FakeProvider): void {
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'runner-test-second-provider',
+        providers: [
+          defineProvider({
+            name: 'fake2',
+            models: [...provider.models],
+            createClient: () => provider,
+          }),
+        ],
+      }),
+    );
+  }
+
+  it('provider.setEnabled disables in the live registry, persists, and pushes info', async () => {
+    await withTempHome(async (home) => {
+      const socketPath = tmpSocket();
+      const provider = new FakeProvider({ script: [textReply('hi')] });
+      const session = buildSession(provider);
+      withSecondProvider(session, provider);
+      const server = await startRunnerServer(session, { socketPath });
+      servers.push(server);
+      const remote = await attach(socketPath);
+
+      await remote.providerAdmin.setEnabled('fake2', false);
+      expect(session.providers.isEnabled('fake2')).toBe(false);
+      // The push refreshes the client snapshot.
+      await waitFor(
+        () => remote.getInfo().providers.find((p) => p.name === 'fake2')?.enabled === false,
+      );
+      // Persisted (fire-and-forget) so the next boot's walk skips it.
+      const prefsPath = path.join(home, '.moxxy', 'preferences.json');
+      await waitForAsync(async () => {
+        const prefs = JSON.parse(await readFile(prefsPath, 'utf8')) as {
+          disabledProviders?: string[];
+        };
+        return prefs.disabledProviders?.includes('fake2') === true;
+      });
+
+      // Re-enable: registry + persisted list both flip back.
+      await remote.providerAdmin.setEnabled('fake2', true);
+      expect(session.providers.isEnabled('fake2')).toBe(true);
+      await waitForAsync(async () => {
+        const prefs = JSON.parse(await readFile(prefsPath, 'utf8')) as {
+          disabledProviders?: string[];
+        };
+        return prefs.disabledProviders?.includes('fake2') === false;
+      });
+    });
+  });
+
+  it('provider.setEnabled refuses to disable the ACTIVE provider', async () => {
+    await withTempHome(async () => {
+      const provider = new FakeProvider({ script: [textReply('hi')] });
+      const { socketPath } = await serve(provider);
+      const remote = await attach(socketPath);
+      await expect(remote.providerAdmin.setEnabled(provider.name, false)).rejects.toThrow(
+        /active provider/i,
+      );
+    });
+  });
+
+  it('provider.refreshReady re-probes credentials via the session resolver', async () => {
+    const socketPath = tmpSocket();
+    const provider = new FakeProvider({ script: [textReply('hi')] });
+    const session = buildSession(provider);
+    withSecondProvider(session, provider);
+    // Only fake2 resolves; the probe must add it to readyProviders.
+    session.credentialResolver = async (name) => {
+      if (name === 'fake2') return {};
+      throw new Error('no credentials');
+    };
+    session.readyProviders = new Set();
+    const server = await startRunnerServer(session, { socketPath });
+    servers.push(server);
+    const remote = await attach(socketPath);
+
+    await remote.providerAdmin.refreshReady();
+    // The active provider is always included; fake2 resolved.
+    expect([...(session.readyProviders ?? [])].sort()).toEqual([provider.name, 'fake2'].sort());
+    await waitFor(() => remote.getInfo().readyProviders.includes('fake2'));
+  });
+
+  it('provider.configure forwards to the session providerAdmin view and pushes info', async () => {
+    const socketPath = tmpSocket();
+    const provider = new FakeProvider({ script: [textReply('hi')] });
+    const session = buildSession(provider);
+    const configured: Array<{ name: string; patch: unknown }> = [];
+    session.providerAdmin = {
+      configure: async (name, patch) => {
+        configured.push({ name, patch });
+      },
+    };
+    const server = await startRunnerServer(session, { socketPath });
+    servers.push(server);
+    const remote = await attach(socketPath);
+
+    await remote.providerAdmin.configure('zai', { baseURL: 'https://api.z.ai/v1' });
+    expect(configured).toEqual([{ name: 'zai', patch: { baseURL: 'https://api.z.ai/v1' } }]);
+  });
+
+  it('provider.configure rejects cleanly when the runner lacks the providerAdmin view', async () => {
+    const provider = new FakeProvider({ script: [textReply('hi')] });
+    const { socketPath } = await serve(provider);
+    const remote = await attach(socketPath);
+    await expect(remote.providerAdmin.configure('zai', {})).rejects.toThrow(/not supported/);
+  });
+
+  it('broadcasts info.changed after a turn completes (registry-mutating tools)', async () => {
+    const provider = new FakeProvider({ script: [textReply('done')] });
+    const { socketPath } = await serve(provider);
+    const remote = await attach(socketPath);
+
+    let pushes = 0;
+    remote.onInfoChanged(() => {
+      pushes += 1;
+    });
+    for await (const event of remote.runTurn('hello')) void event;
+    await waitFor(() => pushes >= 1);
+    expect(pushes).toBeGreaterThanOrEqual(1);
+  });
+});

@@ -7,6 +7,7 @@ import {
   defaultUserSkillsDir,
   denyByDefaultResolver,
   discoverSkills,
+  loadPreferences,
   silentLogger,
 } from '@moxxy/core';
 import type { Plugin } from '@moxxy/sdk';
@@ -144,6 +145,19 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // selects one by name via `security.isolator`, so a discovered isolator can't
   // silently become the sandbox boundary.
   for (const iso of session.isolators.list()) security.registry.register(iso);
+
+  // Seed user-disabled providers (desktop Settings → Providers toggle) BEFORE
+  // the activation walk so a disabled provider is never auto-activated. The
+  // registry's disabled set is name-based, so seeding works regardless of
+  // plugin registration order. Best-effort, like every preferences read.
+  try {
+    const bootPrefs = await loadPreferences();
+    for (const name of bootPrefs.disabledProviders ?? []) {
+      session.providers.setEnabled(name, false);
+    }
+  } catch {
+    // preferences are optional — never block boot
+  }
 
   const { credentialResolver } = await activateProvider({
     session,

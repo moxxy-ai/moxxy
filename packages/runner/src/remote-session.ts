@@ -19,6 +19,7 @@ import type {
   PendingToolCall,
   PermissionResolver,
   PermissionsClientView,
+  ProviderAdminView,
   ProviderDef,
   ProviderInfo,
   ProvidersClientView,
@@ -165,6 +166,7 @@ export class RemoteSession implements ClientSession {
   readonly requirements: RequirementsClientView;
   readonly permissions: PermissionsClientView;
   readonly mcpAdmin: McpAdminClientView;
+  readonly providerAdmin: ProviderAdminClientView;
   readonly workflows: WorkflowsClientView;
   /**
    * Turns that completed before their `runTurn` stream was registered. A fast
@@ -178,6 +180,8 @@ export class RemoteSession implements ClientSession {
   private permissionResolver: PermissionResolver | null = null;
   private approvalResolver: ApprovalResolver | null = null;
   private info: SessionInfo | null = null;
+  /** Subscribers to `info.changed` pushes (see {@link onInfoChanged}). */
+  private readonly infoListeners = new Set<(info: SessionInfo) => void>();
   /**
    * The protocol version the SERVER reported at attach. Defaults to our own
    * version until the handshake resolves. Version-specific client methods (the
@@ -205,6 +209,16 @@ export class RemoteSession implements ClientSession {
     });
     this.peer.on(RunnerNotification.InfoChanged, (params) => {
       this.info = (params as InfoChangedNotification).info;
+      // Fan out to subscribers (the desktop's SessionDriver forwards this to
+      // the renderer so Settings panels refresh without polling). Listener
+      // errors are swallowed — a bad subscriber must not break the mirror.
+      for (const fn of this.infoListeners) {
+        try {
+          fn(this.info);
+        } catch {
+          /* ignore */
+        }
+      }
     });
     this.peer.on(RunnerNotification.ReplayStart, (params) => {
       // The server announces the first seq it will replay/stream on this
@@ -253,6 +267,7 @@ export class RemoteSession implements ClientSession {
     this.requirements = { check: () => ({ ready: false, issues: [] }) };
     this.permissions = this.makePermissionsView();
     this.mcpAdmin = this.makeMcpAdminView();
+    this.providerAdmin = this.makeProviderAdminView();
     this.workflows = this.makeWorkflowsView();
   }
 
@@ -339,6 +354,17 @@ export class RemoteSession implements ClientSession {
 
   getInfo(): SessionInfo {
     return this.requireInfo();
+  }
+
+  /**
+   * Subscribe to runner `info.changed` pushes (registry snapshot changes —
+   * provider/mode/MCP/workflow mutations, including ones made by tools inside
+   * a turn). Fires after the local `getInfo()` mirror has been updated, so a
+   * listener can re-read it synchronously. Returns an unsubscribe fn.
+   */
+  onInfoChanged(fn: (info: SessionInfo) => void): () => void {
+    this.infoListeners.add(fn);
+    return () => this.infoListeners.delete(fn);
   }
 
   async *runTurn(prompt: string, opts: RunTurnOptions = {}): AsyncIterable<MoxxyEvent> {
@@ -593,6 +619,28 @@ export class RemoteSession implements ClientSession {
     };
   }
 
+  // Provider management (protocol v7): backs the desktop's interactive
+  // Settings → Providers tab. Gated on the SERVER's reported version so a v7
+  // client attached to an older runner (a desktop whose JS hot-update outran
+  // its bundled CLI) gets a clear "update the CLI" error instead of a raw
+  // method-not-found.
+  private makeProviderAdminView(): ProviderAdminClientView {
+    return {
+      setEnabled: async (name, enabled) => {
+        this.requireServerProtocol(7, 'Enabling/disabling a provider');
+        await this.peer.request(RunnerMethod.ProviderSetEnabled, { name, enabled });
+      },
+      refreshReady: async () => {
+        this.requireServerProtocol(7, 'Re-probing provider credentials');
+        await this.peer.request(RunnerMethod.ProviderRefreshReady, {});
+      },
+      configure: async (name, patch) => {
+        this.requireServerProtocol(7, 'Configuring a provider');
+        await this.peer.request(RunnerMethod.ProviderConfigure, { name, patch });
+      },
+    };
+  }
+
   private makeWorkflowsView(): WorkflowsClientView {
     return {
       list: () =>
@@ -653,6 +701,13 @@ interface McpAdminClientView {
   listServers(): Promise<ReadonlyArray<McpServerStatus>>;
   enableAndAttach(name: string): Promise<{ toolNames: ReadonlyArray<string> } | null>;
   detach(name: string): Promise<boolean>;
+}
+
+interface ProviderAdminClientView extends ProviderAdminView {
+  /** Enable/disable a provider on the runner (persists to preferences). */
+  setEnabled(name: string, enabled: boolean): Promise<void>;
+  /** Re-probe every provider's credentials → fresh readyProviders. */
+  refreshReady(): Promise<void>;
 }
 
 interface WorkflowSummary {
