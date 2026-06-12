@@ -313,4 +313,11 @@ describe('IPC payload validation', () => {
     expect(REMOTE_ALLOWED_COMMANDS.has('desks.pickFolder')).toBe(false);
     expect(REMOTE_ALLOWED_COMMANDS.has('sessions.remove')).toBe(false);
   });
+
+  it('allows paired mobile clients to switch the active model provider', () => {
+    expect(REMOTE_ALLOWED_COMMANDS.has('session.setProvider')).toBe(true);
+    expect(() =>
+      validateIpcInput('session.setProvider', { workspaceId: 'workspace-1', provider: 'openai-codex' }),
+    ).not.toThrow();
+  });
 });

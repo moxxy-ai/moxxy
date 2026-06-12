@@ -14,13 +14,14 @@ import {
   useWorkflows as useCoreWorkflows,
 } from '@moxxy/client-core';
 import type { UserPromptAttachment } from '@moxxy/sdk';
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore, type PropsWithChildren } from 'react';
+import { createContext, useCallback, useContext, useMemo, useState, useSyncExternalStore, type PropsWithChildren } from 'react';
 import { buildChatTranscript } from '../chatTranscript';
 import type { MobileWorkflow } from './useWorkflows';
 import { useAutoApprove } from './useAutoApprove';
 import { useCompactContext } from './useCompactContext';
 import { useComposer } from './useComposer';
 import { useGoals } from './useGoals';
+import { createDisabledModelSelector, useModelSelector } from './useModelSelector';
 import { usePairing, type PairingState } from './usePairing';
 import { usePermissions } from './usePermissions';
 import { useSessionSnapshot } from './useSessionSnapshot';
@@ -89,6 +90,7 @@ function useDisconnectedGatewayStoreValue(pairing: PairingState) {
       loadOlder: () => undefined,
     },
     chatEvents: [],
+    modelSelector: createDisabledModelSelector(),
   };
 }
 
@@ -108,31 +110,18 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
   const pendingAsks = useSyncExternalStore(askStore.subscribe, askStore.getAll);
   const [autoApproveEnabled, setAutoApproveEnabled] = useState(false);
   const [transcription, setTranscription] = useState<{ id: string; text: string } | null>(null);
-  const [sessionInfo, setSessionInfo] = useState<{
-    activeMode?: string | null;
-    activeProvider?: string | null;
-  } | null>(null);
 
   const connected = connection.snapshot?.phase.phase === 'connected';
-
-  useEffect(() => {
-    if (!workspaceId) return;
-    let cancelled = false;
-    void api()
-      .invoke('session.info', { workspaceId })
-      .then((info) => {
-        if (!cancelled) {
-          setSessionInfo({
-            activeMode: info?.activeMode ?? null,
-            activeProvider: info?.activeProvider ?? null,
-          });
-        }
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [workspaceId, connected]);
+  const phaseInfo = readConnectedPhaseInfo(connection.snapshot?.phase);
+  const connectedRefreshKey =
+    connection.snapshot?.phase.phase === 'connected'
+      ? `${connection.snapshot.phase.sessionId}:${connection.snapshot.phase.activeProvider ?? ''}:${connection.snapshot.phase.activeMode ?? ''}`
+      : connection.snapshot?.phase.phase ?? 'missing';
+  const modelSelector = useModelSelector({
+    workspaceId,
+    connected,
+    refreshKey: connectedRefreshKey,
+  });
 
   const sendFrame = useCallback(
     (frame: Record<string, unknown>) => {
@@ -214,9 +203,8 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
     [activeDesk?.id, coreChat, coreDeskSessions, workspaceId],
   );
 
-  const phaseInfo = readConnectedPhaseInfo(connection.snapshot?.phase);
-  const activeMode = phaseInfo.activeMode ?? sessionInfo?.activeMode ?? null;
-  const activeProvider = phaseInfo.activeProvider ?? sessionInfo?.activeProvider ?? null;
+  const activeMode = phaseInfo.activeMode ?? modelSelector.activeMode ?? null;
+  const activeProvider = phaseInfo.activeProvider ?? modelSelector.activeProvider ?? null;
 
   const state = useMemo<MobileState>(() => {
     const sessionId = workspaceId ?? 'mobile-session';
@@ -360,6 +348,7 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
       loadOlder: coreChat.loadOlder,
     },
     chatEvents: state.chatEvents,
+    modelSelector,
   };
 }
 

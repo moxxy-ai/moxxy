@@ -18,10 +18,13 @@ interface ComposerCardProps {
   readonly attachmentError: string | null;
   readonly readOnly?: boolean;
   readonly usage: Record<string, unknown> | null;
+  readonly modelLabel: string;
+  readonly modelDisabled: boolean;
   readonly onTextChange: (value: string) => void;
   readonly onSubmit: () => void;
   readonly onAbort: () => void;
   readonly onToggleActions: () => void;
+  readonly onOpenModelSelector: () => void;
   readonly onGoal: () => void;
   readonly onVoice: () => void;
   readonly onPickImage: () => void;
@@ -187,6 +190,33 @@ export function ComposerCard(props: ComposerCardProps) {
             >
               {ui.voiceLabel}
             </Text>
+          </Pressable>
+
+          <Pressable
+            accessibilityLabel="Pick provider and model"
+            disabled={props.modelDisabled}
+            style={{
+              alignItems: 'center',
+              backgroundColor: props.modelDisabled ? '#f1f2f9' : '#ffffff',
+              borderColor: '#e3e5f0',
+              borderRadius: 10,
+              borderWidth: 1,
+              flexDirection: 'row',
+              gap: 6,
+              height: 38,
+              justifyContent: 'center',
+              maxWidth: 190,
+              minWidth: 116,
+              opacity: props.modelDisabled ? 0.58 : 1,
+              paddingHorizontal: 10,
+            }}
+            onPress={props.onOpenModelSelector}
+          >
+            <Text className="text-[12px] font-bold text-dim">Model:</Text>
+            <Text className="min-w-0 flex-1 text-[12px] font-bold text-text" numberOfLines={1}>
+              {props.modelLabel}
+            </Text>
+            <MobileIcon name="chevronDown" size={13} strokeWidth={2.5} color="#64748b" />
           </Pressable>
 
           <View style={{ flex: 1, minWidth: 8 }} />

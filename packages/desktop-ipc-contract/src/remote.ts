@@ -40,10 +40,13 @@ export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcC
   'connection.snapshotAll',
   'connection.activeWorkspace',
   'connection.retry',
+  'desks.list',
+  'desks.setActive',
   // The conversation itself.
   'session.info',
   'session.runTurn',
   'session.abortTurn',
+  'session.setProvider',
   'session.setMode',
   'session.newSession',
   'session.runCommand',

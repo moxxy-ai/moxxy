@@ -7,6 +7,7 @@ import { ConnectionBanner } from '@/components/ConnectionBanner';
 import { FloatingChatHeader } from '@/components/FloatingChatHeader';
 import { GoalSheet } from '@/components/GoalSheet';
 import { MobileMenuSheet } from '@/components/MobileMenuSheet';
+import { ModelSelectorSheet } from '@/components/ModelSelectorSheet';
 import { useGatewayStore } from '@/hooks/useGatewayStore';
 import { useMessageCopy } from '@/hooks/useMessageCopy';
 import { useMobileChrome } from '@/hooks/useMobileChrome';
@@ -17,7 +18,7 @@ import { KeyboardAvoidingView, Platform, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function ChatScreen() {
-  const { autoApprove, chat, compact, composer, goals, pairing, permissions, session, sessions, socketStatus } = useGatewayStore();
+  const { autoApprove, chat, compact, composer, goals, modelSelector, pairing, permissions, session, sessions, socketStatus } = useGatewayStore();
   const chrome = useMobileChrome();
   const messageCopy = useMessageCopy();
   const pendingActions = permissions.pendingAsks.length + permissions.pendingPermissions.length;
@@ -84,6 +85,18 @@ export default function ChatScreen() {
             </View>
           ) : null}
 
+          {modelSelector.open ? (
+            <View className="absolute z-40" style={{ bottom: 126, left: 16, position: 'absolute', right: 16, zIndex: 40 }}>
+              <ModelSelectorSheet
+                ui={modelSelector.ui}
+                error={modelSelector.error}
+                onClose={modelSelector.closePicker}
+                onSelectProvider={modelSelector.selectProvider}
+                onPickModel={modelSelector.pickModel}
+              />
+            </View>
+          ) : null}
+
           <MobileMenuSheet
             open={chrome.menuOpen}
             items={menuItems}
@@ -122,10 +135,16 @@ export default function ChatScreen() {
             attachmentError={composer.attachmentError}
             readOnly={session.readOnly}
             usage={chat.usage}
+            modelLabel={modelSelector.ui.chipLabel}
+            modelDisabled={modelSelector.disabled}
             onTextChange={composer.setText}
             onSubmit={composer.submit}
             onAbort={composer.abort}
             onToggleActions={() => composer.setActionsOpen(!composer.actionsOpen)}
+            onOpenModelSelector={() => {
+              composer.setActionsOpen(false);
+              modelSelector.openPicker();
+            }}
             onGoal={() => goals.setOpen(true)}
             onVoice={composer.transcribe}
             onPickImage={composer.pickImageAttachment}
