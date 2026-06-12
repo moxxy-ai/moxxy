@@ -29,6 +29,7 @@ import {
   recoverFromFailedBoot,
   writeBreadcrumb,
   markBad,
+  clearActiveVersion,
   appendBootLog,
   setupNativeResolution,
 } from '@moxxy/desktop-host/app-update';
@@ -108,6 +109,10 @@ async function boot(): Promise<void> {
         // pinned CLI's runner (the hot-update protocol-skew loop). The floor's
         // CLI is what we spawn, so its protocol is the ceiling for a hot-update.
         cliRunnerProtocol: FLOOR_RUNNER_PROTOCOL,
+        // Floor gate: a staged override from a PREVIOUS install must lose to a
+        // freshly installed shell, or "install the full app update" keeps
+        // booting the old JS (the shell version IS the floor bundle version).
+        floorVersion: app.getVersion(),
       });
       if (resolved.bundle) {
         const picked = resolved.bundle;
@@ -126,6 +131,12 @@ async function boot(): Promise<void> {
         // `disabled`/`no-active` are the normal "nothing staged" cases; anything
         // else is a staged bundle we declined — exactly what we want visible.
         appendBootLog(userData, { phase: 'boot', picked: 'floor', reason: resolved.reason, ...shell });
+        if (resolved.reason === 'older-than-floor') {
+          // The override isn't broken, just superseded by this install — drop
+          // the pointer (no poison) so state stops naming a bundle that can
+          // never load again and later boots take the clean `no-active` path.
+          clearActiveVersion(userData);
+        }
       }
     } catch (err) {
       // Any resolution failure → run the floor.

@@ -31,6 +31,7 @@ export {
   bundleRoot,
   readActiveVersion,
   setActiveVersion,
+  clearActiveVersion,
   readBadVersions,
   markBad,
   unmarkBad,
