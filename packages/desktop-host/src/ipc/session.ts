@@ -25,6 +25,7 @@ import {
   resolveCtx,
   resolveDriver,
   resolveSupervisor,
+  waitForRemoteSession,
   waitForSessionState,
 } from './shared';
 
@@ -32,8 +33,7 @@ export function registerSessionHandlers(pool: RunnerPool): void {
   // ---- Session (per-workspace) --------------------------------------------
 
   handle('session.info', async (args) => {
-    const sup = resolveSupervisor(pool, args?.workspaceId);
-    const session = sup?.remote();
+    const session = await waitForRemoteSession(pool, args?.workspaceId);
     return session ? session.getInfo() : null;
   });
   handle('session.runTurn', async ({ workspaceId, prompt, model, attachments }) => {

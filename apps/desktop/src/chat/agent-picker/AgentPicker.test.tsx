@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
-import { __setApiOverride } from '@moxxy/client-core';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import { __setApiOverride, connectionStore } from '@moxxy/client-core';
 import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
 import { AgentPicker } from './AgentPicker';
 import type { SessionInfo } from './types';
@@ -26,7 +26,9 @@ function installInfoSequence(values: ReadonlyArray<SessionInfo | null>) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   __setApiOverride(null);
+  connectionStore.setActive(null);
 });
 
 describe('AgentPicker', () => {
@@ -41,5 +43,59 @@ describe('AgentPicker', () => {
 
     expect(await screen.findByText('openai-codex')).toBeInTheDocument();
     expect(screen.getByDisplayValue('default')).toBeInTheDocument();
+  });
+
+  it('refetches session.info when the target session connection reaches connected', async () => {
+    const invoke = installInfoSequence([null, info]);
+    render(<AgentPicker workspaceId="fresh-session" disabled={false} />);
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText(/Model:/)).toBeNull();
+
+    act(() => {
+      connectionStore.setSnapshot('fresh-session', {
+        phase: {
+          phase: 'connected',
+          socket: '/tmp/fresh-session.sock',
+          sessionId: 'fresh-session',
+          activeProvider: 'openai-codex',
+          activeMode: 'default',
+        },
+        cliPath: null,
+        attempts: 0,
+        log: [],
+      });
+    });
+
+    expect(await screen.findByText('openai-codex')).toBeInTheDocument();
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps retrying session.info after connected until a fresh runner exposes providers', async () => {
+    vi.useFakeTimers();
+    connectionStore.setSnapshot('fresh-session', {
+      phase: {
+        phase: 'connected',
+        socket: '/tmp/fresh-session.sock',
+        sessionId: 'fresh-session',
+        activeProvider: 'openai-codex',
+        activeMode: 'default',
+      },
+      cliPath: null,
+      attempts: 0,
+      log: [],
+    });
+    const invoke = installInfoSequence([null, info]);
+    render(<AgentPicker workspaceId="fresh-session" disabled={false} />);
+
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText(/Model:/)).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(750);
+    });
+
+    expect(screen.getByText('openai-codex')).toBeInTheDocument();
+    expect(invoke).toHaveBeenCalledTimes(2);
   });
 });

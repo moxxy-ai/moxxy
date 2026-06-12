@@ -17,8 +17,7 @@
  */
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { api } from '@moxxy/client-core';
-import { chatStore } from '@moxxy/client-core';
+import { api, chatStore, useConnection } from '@moxxy/client-core';
 import { ChipButton } from './ChipButton';
 import { ChipSelect } from './ChipSelect';
 import { ProviderModelPicker } from './ProviderModelPicker';
@@ -32,6 +31,8 @@ const COLLAB_MODES: ReadonlySet<string> = new Set([
   'collab-peer',
 ]);
 
+const SESSION_INFO_RETRY_MS = 250;
+
 export function AgentPicker({
   workspaceId,
   disabled,
@@ -41,6 +42,12 @@ export function AgentPicker({
 }): JSX.Element | null {
   const [info, setInfo] = useState<SessionInfo | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const { snapshot } = useConnection(workspaceId);
+  const connectedRefreshKey =
+    snapshot?.phase.phase === 'connected'
+      ? `${snapshot.phase.sessionId}:${snapshot.phase.activeProvider ?? ''}:${snapshot.phase.activeMode ?? ''}`
+      : snapshot?.phase.phase ?? 'missing';
+  const runnerConnected = snapshot?.phase.phase === 'connected';
   const selectedModel = useSyncExternalStore(chatStore.subscribe, () =>
     chatStore.getModel(workspaceId),
   );
@@ -54,14 +61,27 @@ export function AgentPicker({
 
   useEffect(() => {
     let cancelled = false;
+    let retryTimer: number | undefined;
+    const scheduleRetry = (fetchInfo: () => void): void => {
+      if (!runnerConnected || cancelled) return;
+      window.clearTimeout(retryTimer);
+      retryTimer = window.setTimeout(fetchInfo, SESSION_INFO_RETRY_MS);
+    };
     setInfo(null);
     const fetchInfo = (): void => {
+      window.clearTimeout(retryTimer);
       void api()
         .invoke('session.info', { workspaceId })
         .then((raw) => {
-          if (!cancelled) setInfo(raw);
+          if (cancelled) return;
+          if (!isSessionInfoReady(raw)) {
+            setInfo(null);
+            scheduleRetry(fetchInfo);
+            return;
+          }
+          setInfo(raw);
         })
-        .catch(() => {});
+        .catch(() => scheduleRetry(fetchInfo));
     };
     fetchInfo();
     // Re-fetch when something switched the mode out-of-band (e.g. the Goal
@@ -69,9 +89,10 @@ export function AgentPicker({
     window.addEventListener(SESSION_INFO_REFRESH_EVENT, fetchInfo);
     return () => {
       cancelled = true;
+      window.clearTimeout(retryTimer);
       window.removeEventListener(SESSION_INFO_REFRESH_EVENT, fetchInfo);
     };
-  }, [workspaceId, disabled]);
+  }, [workspaceId, disabled, connectedRefreshKey, runnerConnected]);
 
   if (!info) return null;
 
@@ -142,4 +163,8 @@ export function AgentPicker({
       )}
     </>
   );
+}
+
+function isSessionInfoReady(info: SessionInfo | null): info is SessionInfo {
+  return info !== null && info.providers.length > 0 && info.modes.length > 0;
 }
