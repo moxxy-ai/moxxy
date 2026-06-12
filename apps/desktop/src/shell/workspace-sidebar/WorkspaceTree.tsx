@@ -21,6 +21,9 @@ import { SectionHeader } from './SectionHeader';
  *  - ⋯ menus carry Rename/Remove for both row kinds, with the same
  *    inline-rename gesture (Enter commits, Escape cancels) sessions
  *    always had;
+ *  - row actions ([+]/⋯) are hover-only and OVERLAY the right edge of the
+ *    name (gradient fade) instead of reserving width — names get the full
+ *    row when idle ({@link ActionsOverlay});
  *  - the active desk's active session is the single highlighted row.
  *
  * Purely presentational — the sidebar container owns the stores, the
@@ -277,7 +280,7 @@ function FolderRow({
           color: desk.color,
         }}
       >
-        <Icon name="workspace" size={14} />
+        <Icon name="folder" size={14} />
       </span>
       {editing !== null ? (
         <input
@@ -310,34 +313,35 @@ function FolderRow({
         </span>
       )}
       {unread && <UnreadDot label={`unread activity in ${desk.name}`} />}
-      <button
-        type="button"
-        data-testid={`session-new-${desk.id}`}
-        aria-label={`new session in ${desk.name}`}
-        title="New session"
-        disabled={busy}
-        onClick={(e) => {
-          e.stopPropagation();
-          onCreateSession();
-        }}
-        style={{
-          ...iconButtonStyle,
-          opacity: busy ? 0.5 : showActions || busy ? 0.9 : 0,
-          transition: 'opacity 120ms ease',
-        }}
-      >
-        <Icon name="plus" size={14} />
-      </button>
-      <RowMenu
-        kind="workspace"
-        name={desk.name}
-        visible={showActions}
-        open={menuOpen}
-        onOpenChange={setMenuOpen}
-        onRename={onStartRename}
-        onDelete={onRemove}
-        deleteLabel="Remove"
-      />
+      <ActionsOverlay show={showActions || busy} background={HOVER_ROW_BG}>
+        <button
+          type="button"
+          data-testid={`session-new-${desk.id}`}
+          aria-label={`new session in ${desk.name}`}
+          title="New session"
+          disabled={busy}
+          onClick={(e) => {
+            e.stopPropagation();
+            onCreateSession();
+          }}
+          style={{
+            ...iconButtonStyle,
+            opacity: busy ? 0.5 : 0.9,
+          }}
+        >
+          <Icon name="plus" size={14} />
+        </button>
+        <RowMenu
+          kind="workspace"
+          name={desk.name}
+          visible={showActions || busy}
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
+          onRename={onStartRename}
+          onDelete={onRemove}
+          deleteLabel="Remove"
+        />
+      </ActionsOverlay>
     </div>
   );
 }
@@ -363,7 +367,10 @@ function SessionRow({
 } & RenameHandlers): JSX.Element {
   const [hot, setHot] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const showActions = hot || active || menuOpen;
+  // Hover/menu only — NOT `active`: actions overlay the name's right edge
+  // now, so pinning them open on the active row would permanently cover
+  // the end of its title.
+  const showActions = hot || menuOpen;
 
   return (
     <li>
@@ -420,18 +427,70 @@ function SessionRow({
           </span>
         )}
         {unread && <UnreadDot label="unread activity" />}
-        <RowMenu
-          kind="session"
-          name={s.name}
-          visible={showActions}
-          open={menuOpen}
-          onOpenChange={setMenuOpen}
-          onRename={onStartRename}
-          onDelete={onRemove}
-          deleteLabel="Delete"
-        />
+        <ActionsOverlay
+          show={showActions}
+          background={active ? 'var(--color-sidebar-bg-active)' : HOVER_ROW_BG}
+        >
+          <RowMenu
+            kind="session"
+            name={s.name}
+            visible={showActions}
+            open={menuOpen}
+            onOpenChange={setMenuOpen}
+            onRename={onStartRename}
+            onDelete={onRemove}
+            deleteLabel="Delete"
+          />
+        </ActionsOverlay>
       </div>
     </li>
+  );
+}
+
+/**
+ * The composite a hovered `.row-button` shows: the sidebar background with
+ * the hover inset tint (5% text) mixed in. Used as the overlay's masking
+ * color so the action cluster blends into the hovered row underneath it.
+ */
+const HOVER_ROW_BG = 'color-mix(in srgb, var(--color-text) 5%, var(--color-sidebar-bg))';
+
+/**
+ * Hover-only action cluster overlaying the row's right edge — the name keeps
+ * the FULL row width when idle, and on hover the buttons float above its
+ * tail end instead of permanently truncating it. The left gradient fades the
+ * covered text out instead of clipping it hard; `pointerEvents` gates clicks
+ * so the invisible cluster never swallows a row click.
+ */
+function ActionsOverlay({
+  show,
+  background,
+  children,
+}: {
+  readonly show: boolean;
+  /** Opaque color matching the row's CURRENT background (hover tint / active wash). */
+  readonly background: string;
+  readonly children: React.ReactNode;
+}): JSX.Element {
+  return (
+    <span
+      style={{
+        position: 'absolute',
+        right: 3,
+        top: '50%',
+        transform: 'translateY(-50%)',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 2,
+        paddingLeft: 18,
+        opacity: show ? 1 : 0,
+        pointerEvents: show ? 'auto' : 'none',
+        transition: 'opacity 120ms ease',
+        background: `linear-gradient(to right, transparent, ${background} 16px)`,
+        borderRadius: 7,
+      }}
+    >
+      {children}
+    </span>
   );
 }
 

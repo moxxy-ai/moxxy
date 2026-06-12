@@ -37,7 +37,8 @@ export type IconName =
   | 'workflow'
   | 'settings'
   | 'agent'
-  | 'workspace';
+  | 'workspace'
+  | 'folder';
 
 export interface IconProps extends SVGProps<SVGSVGElement> {
   readonly name: IconName;
@@ -238,5 +239,8 @@ const paths: Record<IconName, JSX.Element> = {
       <rect x="14" y="12" width="7" height="9" rx="1.5" />
       <rect x="3" y="16" width="7" height="5" rx="1.5" />
     </>
+  ),
+  folder: (
+    <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
   ),
 };

@@ -253,7 +253,9 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 
 .col-sidebar {
-  width: 232px;
+  /* Wide enough for ~30 chars of 13px row text before ellipsis — workspace
+   * and first-prompt session titles were unreadable at the old 232px. */
+  width: 272px;
   flex-shrink: 0;
   background: var(--color-sidebar-bg);
   color: var(--color-sidebar-text);
