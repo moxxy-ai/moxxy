@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-browser",
   "private": true,
-  "version": "0.0.13",
+  "version": "0.0.14",
   "description": "Browser capabilities for moxxy: web_fetch (zero-deps light tier) + browser_session (Playwright sidecar for JS-heavy / interactive pages).",
   "type": "module",
   "main": "./dist/index.js",
