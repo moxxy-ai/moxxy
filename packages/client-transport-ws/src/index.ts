@@ -63,7 +63,10 @@ export interface WsApiOptions {
   readonly onStatus?: (status: WsClientStatus) => void;
 }
 
-export function makeWsApi(opts: WsApiOptions): MoxxyApi {
+export function makeWsApiHandle(opts: WsApiOptions): {
+  api: MoxxyApi;
+  close: () => void;
+} {
   const ctor =
     opts.WebSocket ?? (globalThis as unknown as { WebSocket?: WebSocketCtor }).WebSocket;
   if (!ctor) {
@@ -82,10 +85,16 @@ export function makeWsApi(opts: WsApiOptions): MoxxyApi {
   });
   client.connect();
 
-  return {
+  const api: MoxxyApi = {
     invoke: ((command: string, ...args: unknown[]) =>
       client.request(command, args[0])) as MoxxyApi['invoke'],
     subscribe: ((channel: string, handler: (payload: unknown) => void) =>
       client.on(channel, handler)) as MoxxyApi['subscribe'],
   };
+
+  return { api, close: () => client.close() };
+}
+
+export function makeWsApi(opts: WsApiOptions): MoxxyApi {
+  return makeWsApiHandle(opts).api;
 }

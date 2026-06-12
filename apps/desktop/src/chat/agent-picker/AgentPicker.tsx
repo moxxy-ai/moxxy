@@ -54,6 +54,7 @@ export function AgentPicker({
 
   useEffect(() => {
     let cancelled = false;
+    setInfo(null);
     const fetchInfo = (): void => {
       void api()
         .invoke('session.info', { workspaceId })
@@ -70,7 +71,7 @@ export function AgentPicker({
       cancelled = true;
       window.removeEventListener(SESSION_INFO_REFRESH_EVENT, fetchInfo);
     };
-  }, [workspaceId]);
+  }, [workspaceId, disabled]);
 
   if (!info) return null;
 

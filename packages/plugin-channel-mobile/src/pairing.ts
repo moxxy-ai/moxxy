@@ -160,3 +160,29 @@ export function advertisedOrigins(bindHost: string, port: number): string[] {
     ]),
   ];
 }
+
+/**
+ * Browser-hosted Expo clients present the PAGE origin at the WebSocket
+ * handshake, not the dialed WS URL's origin. `moxxy mobile` starts the full
+ * Expo app beside the bridge for local smoke/debug work, so the bridge must
+ * allow-list that exact app origin while keeping the default-deny posture for
+ * unrelated browser pages.
+ */
+export function expoWebOrigins(expo: {
+  readonly enabled: boolean;
+  readonly host: string;
+  readonly port: number;
+}): string[] {
+  if (!expo.enabled) return [];
+  const origins = new Set<string>([
+    `http://localhost:${expo.port}`,
+    `http://127.0.0.1:${expo.port}`,
+  ]);
+  const host = expo.host.trim().toLowerCase();
+  if (host === 'lan' || isWildcardHost(host)) {
+    origins.add(`http://${lanHost('127.0.0.1')}:${expo.port}`);
+  } else if (host && host !== 'local' && host !== 'localhost' && !host.startsWith('127.')) {
+    origins.add(`http://${advertisedHost(expo.host)}:${expo.port}`);
+  }
+  return [...origins];
+}

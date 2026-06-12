@@ -304,4 +304,13 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('desks.list', undefined)).not.toThrow();
     expect(() => validateIpcInput('connection.snapshotAll', undefined)).not.toThrow();
   });
+
+  it('allows remote mobile clients to list/switch desks without destructive workspace access', () => {
+    expect(REMOTE_ALLOWED_COMMANDS.has('desks.list')).toBe(true);
+    expect(REMOTE_ALLOWED_COMMANDS.has('desks.setActive')).toBe(true);
+    expect(REMOTE_ALLOWED_COMMANDS.has('desks.create')).toBe(false);
+    expect(REMOTE_ALLOWED_COMMANDS.has('desks.remove')).toBe(false);
+    expect(REMOTE_ALLOWED_COMMANDS.has('desks.pickFolder')).toBe(false);
+    expect(REMOTE_ALLOWED_COMMANDS.has('sessions.remove')).toBe(false);
+  });
 });

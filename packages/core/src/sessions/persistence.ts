@@ -17,10 +17,9 @@
  */
 
 import { promises as fs } from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { createMutex, type Mutex, type MoxxyEvent, type SessionId } from '@moxxy/sdk';
-import { writeFileAtomic } from '@moxxy/sdk/server';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import type { EventLog } from '../events/log.js';
 import { createLogger, type Logger } from '../logger.js';
 
@@ -54,7 +53,7 @@ export interface SessionPersistenceOpts {
 }
 
 export function defaultSessionsDir(): string {
-  return path.join(os.homedir(), '.moxxy', 'sessions');
+  return moxxyPath('sessions');
 }
 
 /**
@@ -377,9 +376,38 @@ export async function readIndex(dir = defaultSessionsDir()): Promise<SessionMeta
       }
     }),
   );
-  return metas
-    .filter((_, index) => checks[index])
+  const present = metas.filter((_, index) => checks[index]);
+  const hydrated = await Promise.all(present.map((meta) => hydrateMetaFirstPrompt(meta, dir)));
+  return hydrated
     .sort((a, b) => b.lastActivity.localeCompare(a.lastActivity));
+}
+
+async function hydrateMetaFirstPrompt(meta: SessionMeta, dir: string): Promise<SessionMeta> {
+  if (meta.firstPrompt?.trim()) return meta;
+  const firstPrompt = await firstPromptFromLog(path.join(dir, `${meta.id}.jsonl`));
+  return firstPrompt ? { ...meta, firstPrompt } : meta;
+}
+
+async function firstPromptFromLog(logPath: string): Promise<string | null> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(logPath, 'utf8');
+  } catch {
+    return null;
+  }
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const event = JSON.parse(line) as { type?: unknown; text?: unknown };
+      if (event.type === 'user_prompt' && typeof event.text === 'string') {
+        const text = event.text.trim();
+        if (text) return text.slice(0, 80);
+      }
+    } catch {
+      // A corrupt line should not hide a later valid prompt.
+    }
+  }
+  return null;
 }
 
 /**

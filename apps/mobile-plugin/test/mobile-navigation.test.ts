@@ -12,6 +12,8 @@ import {
   filterRecentMenuSessions,
   filterWorkspaceMenuSections,
 } from '../mobile/src/navigation';
+import { shouldLoadOlderFromScroll } from '../mobile/src/chatListState';
+import { buildChatListAutoScrollKey } from '../mobile/src/hooks/useChatListAutoScroll';
 
 describe('mobile bottom navigation model', () => {
   it('keeps the mobile tab bar compact, icon-led, and badge-aware', () => {
@@ -187,6 +189,29 @@ describe('mobile chat chrome navigation model', () => {
     expect(sections.map((section) => section.title)).not.toContain('new_moxxy');
   });
 
+  it('keeps registry sessions visible even when they are inactive and not live', () => {
+    const sections = buildWorkspaceMenuSections([
+      {
+        id: 'moxxy',
+        name: 'Moxxy',
+        cwd: '/Users/kamil/.moxxy/workspaces/moxxy',
+        color: '#ec4899',
+      },
+    ], [
+      {
+        id: 'persisted-session',
+        workspaceId: 'moxxy',
+        name: 'Existing desktop session',
+        cwd: '/Users/kamil/project',
+        live: false,
+        readOnly: false,
+      },
+    ], null);
+
+    expect(sections).toHaveLength(1);
+    expect(sections[0]!.sessions.map((session) => session.id)).toEqual(['persisted-session']);
+  });
+
   it('filters workspace menu sections by workspace title, path, and session title', () => {
     const sections = buildWorkspaceMenuSections([
       {
@@ -251,6 +276,26 @@ describe('mobile chat chrome navigation model', () => {
       'archive',
       'tata',
     ]);
+  });
+});
+
+describe('mobile chat list paging model', () => {
+  it('requests older history only when the user scrolls near the top and history exists', () => {
+    expect(shouldLoadOlderFromScroll({ contentOffsetY: 0, hasOlder: true })).toBe(true);
+    expect(shouldLoadOlderFromScroll({ contentOffsetY: 18, hasOlder: true })).toBe(true);
+    expect(shouldLoadOlderFromScroll({ contentOffsetY: 64, hasOlder: true })).toBe(false);
+    expect(shouldLoadOlderFromScroll({ contentOffsetY: 0, hasOlder: false })).toBe(false);
+  });
+
+  it('does not treat prepended older messages as new bottom content', () => {
+    const newest = { id: 'newest', kind: 'assistant' as const, label: 'Assistant' as const, text: 'tail', streaming: false };
+
+    expect(buildChatListAutoScrollKey([newest], false)).toBe(
+      buildChatListAutoScrollKey([
+        { id: 'older', kind: 'user' as const, text: 'older' },
+        newest,
+      ], false),
+    );
   });
 });
 

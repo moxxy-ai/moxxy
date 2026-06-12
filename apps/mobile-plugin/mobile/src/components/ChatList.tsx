@@ -1,9 +1,16 @@
-import { Pressable, ScrollView, Text, View } from 'react-native';
-import { useState } from 'react';
+import {
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from 'react-native';
+import { useCallback, useState } from 'react';
 import { summarizeAttachment } from '@/attachments';
 import type { AssistantTranscriptItem, SystemGroupTranscriptItem, ToolGroupTranscriptItem, TranscriptItem } from '@/chatTranscript';
 import type { PromptAttachment } from '@/clientFrames';
-import { shouldShowThinkingIndicator } from '@/chatListState';
+import { shouldLoadOlderFromScroll, shouldShowThinkingIndicator } from '@/chatListState';
 import { useChatListAutoScroll } from '@/hooks/useChatListAutoScroll';
 import { buildMessageActions } from '@/messageActions';
 import { buildToolGroupUi } from '@/toolGroupUi';
@@ -13,12 +20,31 @@ import { ThinkingIndicator } from './ThinkingIndicator';
 interface ChatListProps {
   readonly items: ReadonlyArray<TranscriptItem>;
   readonly sending?: boolean;
+  readonly hasOlder?: boolean;
+  readonly onLoadOlder?: () => void;
   readonly copiedMessageId?: string | null;
   readonly onCopyMessage?: (messageId: string, text: string) => void;
 }
 
-export function ChatList({ items, sending = false, copiedMessageId = null, onCopyMessage }: ChatListProps) {
+export function ChatList({
+  items,
+  sending = false,
+  hasOlder = false,
+  onLoadOlder,
+  copiedMessageId = null,
+  onCopyMessage,
+}: ChatListProps) {
   const autoScroll = useChatListAutoScroll(items, sending);
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (
+      shouldLoadOlderFromScroll({
+        contentOffsetY: event.nativeEvent.contentOffset.y,
+        hasOlder,
+      })
+    ) {
+      onLoadOlder?.();
+    }
+  }, [hasOlder, onLoadOlder]);
   return (
     <ScrollView
       ref={autoScroll.scrollRef}
@@ -26,6 +52,8 @@ export function ChatList({ items, sending = false, copiedMessageId = null, onCop
       contentContainerClassName="gap-4 px-5 pb-5 pt-20"
       contentContainerStyle={{ gap: 16, paddingBottom: 20, paddingHorizontal: 20, paddingTop: 82 }}
       onContentSizeChange={autoScroll.scrollToEnd}
+      onScroll={handleScroll}
+      scrollEventThrottle={80}
     >
       {items.length === 0 ? (
         <View className="mt-20">

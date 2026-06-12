@@ -15,7 +15,17 @@ export { type UpdateConfig } from './ipc/update.js';
 export { preferredCliEntry } from './cli-resolver.js';
 export { activateManagedNode } from './node-manager.js';
 export { ensureDesktopVaultKey } from './vault-key.js';
-export { DeskStore } from './desks.js';
+export {
+  cwdForSession,
+  defaultWorkspaceRegistryPath,
+  DeskStore,
+  MOXXY_WORKSPACE_COLOR,
+  MOXXY_WORKSPACE_ID,
+  MOXXY_WORKSPACE_NAME,
+  syncSessionIndexIntoRegistry,
+  WorkspaceRegistry,
+  type WorkspaceSessionSource,
+} from './desks.js';
 export { readPrefs, updatePrefs } from './prefs.js';
 export { sweepStaleSockets } from './sweep-sockets.js';
 export {

@@ -11,7 +11,8 @@
 import { dialog, BrowserWindow as BrowserWindowApi } from 'electron';
 
 import type { RunnerPool } from '../runner-pool';
-import type { DeskStore } from '../desks';
+import { cwdForSession, type DeskStore } from '../desks';
+import { wsEventBus } from '../event-bus';
 import { withSessionTitles } from '../session-titles';
 import { handle } from './shared';
 
@@ -26,7 +27,11 @@ export function registerDesksHandlers(pool: RunnerPool, desks: DeskStore): void 
     // ../session-titles).
     return { desks: await withSessionTitles(list), activeId: active?.id ?? null };
   });
-  handle('desks.create', async ({ name, cwd }) => desks.create({ name, cwd }));
+  handle('desks.create', async ({ name, cwd }) => {
+    const created = await desks.create({ name, cwd });
+    await broadcastDesksChanged(desks);
+    return created;
+  });
   handle('desks.remove', async ({ id }) => {
     // The pool is keyed by SESSION id (a desk can hold several), so tear down
     // every one of the removed desk's session runners — not just one entry.
@@ -38,18 +43,26 @@ export function registerDesksHandlers(pool: RunnerPool, desks: DeskStore): void 
     // pre-multi-session key; normally identical to the first session's id).
     await pool.remove(id);
     const active = await desks.getActive();
-    if (active) await pool.getOrCreate(active.activeSessionId, active.cwd);
+    if (active?.activeSessionId) {
+      await pool.getOrCreate(active.activeSessionId, cwdForSession(active, active.activeSessionId));
+    }
+    await broadcastDesksChanged(desks);
   });
   handle('desks.setActive', async ({ id }) => {
     await desks.setActive(id);
     const active = await desks.getActive();
-    if (active) {
+    if (active?.activeSessionId) {
       // Foreground the desk's ACTIVE SESSION — the pool key is a session id.
-      await pool.getOrCreate(active.activeSessionId, active.cwd);
+      await pool.getOrCreate(active.activeSessionId, cwdForSession(active, active.activeSessionId));
       pool.setActive(active.activeSessionId);
     }
+    await broadcastDesksChanged(desks);
   });
-  handle('desks.rename', async ({ id, name }) => desks.rename(id, name));
+  handle('desks.rename', async ({ id, name }) => {
+    const renamed = await desks.rename(id, name);
+    await broadcastDesksChanged(desks);
+    return renamed;
+  });
   handle('desks.pickFolder', async () => {
     const window =
       BrowserWindowApi.getFocusedWindow() ?? BrowserWindowApi.getAllWindows()[0];
@@ -65,4 +78,10 @@ export function registerDesksHandlers(pool: RunnerPool, desks: DeskStore): void 
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0]!;
   });
+}
+
+async function broadcastDesksChanged(desks: DeskStore): Promise<void> {
+  const list = await desks.list();
+  const active = await desks.getActive();
+  wsEventBus.broadcast('desks.changed', { desks: list, activeId: active?.id ?? null });
 }

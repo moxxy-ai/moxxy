@@ -120,6 +120,7 @@
     "@moxxy/tools-builtin": "workspace:*",
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
+    "@moxxy/workspace-registry": "workspace:*",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "ink": "catalog:",

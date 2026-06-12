@@ -1,9 +1,9 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-import { DeskStore } from './desks';
+import { cwdForSession, DeskStore, MOXXY_WORKSPACE_ID } from './desks';
 
 let tmp: string;
 let storePath: string;
@@ -154,14 +154,164 @@ describe('DeskStore v1→v2 migration (sessions)', () => {
     expect(desk!.activeSessionId).toBe('s1');
   });
 
-  it('a v2 doc round-trips: mutation persists sessions + version 2', async () => {
+  it('uses firstPrompt as the display name for placeholder session names', async () => {
+    writeV1([{ id: 'desk-a', name: 'A' }], 'desk-a');
+    const doc = JSON.parse(readFileSync(storePath, 'utf8'));
+    doc.desks[0].sessions = [
+      {
+        id: 'desk-a',
+        name: 'Current session',
+        createdAt: 1,
+        firstPrompt: 'znasz grę 007 first light ?',
+      },
+      {
+        id: 's2',
+        name: 'Session 2',
+        createdAt: 2,
+        firstPrompt: 'napisz maila do klienta',
+      },
+      {
+        id: 'custom',
+        name: 'Manual name',
+        createdAt: 3,
+        firstPrompt: 'this should not replace custom',
+      },
+    ];
+    writeFileSync(storePath, JSON.stringify(doc));
+
+    const [desk] = await new DeskStore(storePath).list();
+
+    expect(desk?.sessions.map((session) => session.name)).toEqual([
+      'znasz grę 007 first light ?',
+      'napisz maila do klienta',
+      'Manual name',
+    ]);
+  });
+
+  it('a v2 doc round-trips: mutation persists sessions + version 3', async () => {
     writeV1([{ id: 'desk-a', name: 'A' }], 'desk-a');
     const s = new DeskStore(storePath);
     await s.rename('desk-a', 'Renamed');
     const body = JSON.parse(readFileSync(storePath, 'utf8'));
-    expect(body.version).toBe(2);
+    expect(body.version).toBe(3);
     expect(body.desks[0].sessions).toHaveLength(1);
     expect(body.desks[0].activeSessionId).toBe('desk-a');
+  });
+});
+
+describe('WorkspaceRegistry session registration', () => {
+  function meta(input: {
+    id: string;
+    cwd: string;
+    firstPrompt?: string | null;
+    eventCount?: number;
+  }) {
+    return {
+      id: input.id,
+      cwd: input.cwd,
+      startedAt: '2026-06-12T10:00:00.000Z',
+      lastActivity: '2026-06-12T10:05:00.000Z',
+      eventCount: input.eventCount ?? 0,
+      firstPrompt: input.firstPrompt ?? null,
+      provider: 'anthropic',
+      model: 'claude-sonnet',
+    };
+  }
+
+  it('creates the global Moxxy workspace when no cwd matches an existing desk', async () => {
+    const s = new DeskStore(storePath);
+    const cwd = path.join(tmp, 'outside');
+    mkdirSync(cwd, { recursive: true });
+    await s.registerSessionFromMeta(
+      meta({ id: 'session-1', cwd, firstPrompt: 'hello from outside', eventCount: 2 }),
+      'tui',
+    );
+
+    const [desk] = await s.list();
+    expect(desk?.id).toBe(MOXXY_WORKSPACE_ID);
+    expect(desk?.name).toBe('Moxxy');
+    expect(desk?.sessions).toHaveLength(1);
+    expect(desk?.sessions[0]).toMatchObject({
+      id: 'session-1',
+      cwd,
+      firstPrompt: 'hello from outside',
+      eventCount: 2,
+      provider: 'anthropic',
+      model: 'claude-sonnet',
+      source: 'tui',
+    });
+    expect(desk?.activeSessionId).toBe('session-1');
+  });
+
+  it('assigns a session to an existing workspace when cwd is inside the desk cwd', async () => {
+    const projectRoot = path.join(tmp, 'project');
+    const sessionCwd = path.join(projectRoot, 'packages', 'cli');
+    mkdirSync(sessionCwd, { recursive: true });
+    const s = new DeskStore(storePath);
+    const desk = await s.create({ name: 'Project', cwd: projectRoot });
+
+    await s.registerSessionFromMeta(
+      meta({ id: 'session-2', cwd: sessionCwd, firstPrompt: 'inside project', eventCount: 1 }),
+      'cli',
+    );
+
+    expect((await s.deskForSession('session-2'))?.id).toBe(desk.id);
+  });
+
+  it('chooses the longest matching workspace for nested desk paths', async () => {
+    const root = path.join(tmp, 'repo');
+    const nested = path.join(root, 'apps', 'desktop');
+    const sessionCwd = path.join(nested, 'src');
+    mkdirSync(sessionCwd, { recursive: true });
+    const s = new DeskStore(storePath);
+    await s.create({ name: 'Repo', cwd: root });
+    const nestedDesk = await s.create({ name: 'Desktop', cwd: nested });
+
+    await s.registerSessionFromMeta(
+      meta({ id: 'session-3', cwd: sessionCwd, firstPrompt: 'nested project', eventCount: 1 }),
+      'desktop',
+    );
+
+    expect((await s.deskForSession('session-3'))?.id).toBe(nestedDesk.id);
+  });
+
+  it('does not duplicate a session when the same id is registered again', async () => {
+    const s = new DeskStore(storePath);
+    const cwd = path.join(tmp, 'x');
+    mkdirSync(cwd, { recursive: true });
+    await s.registerSessionFromMeta(
+      meta({ id: 'session-4', cwd, firstPrompt: 'old prompt', eventCount: 1 }),
+      'tui',
+    );
+    await s.registerSessionFromMeta(
+      meta({
+        id: 'session-4',
+        cwd,
+        firstPrompt: 'hello from tui',
+        eventCount: 3,
+      }),
+      'tui',
+    );
+
+    const moxxy = (await s.list()).find((desk) => desk.id === MOXXY_WORKSPACE_ID);
+    expect(moxxy?.sessions.filter((session) => session.id === 'session-4')).toHaveLength(1);
+    expect(moxxy?.sessions[0]).toMatchObject({
+      firstPrompt: 'hello from tui',
+      eventCount: 3,
+    });
+  });
+
+  it('cwdForSession returns the session cwd before falling back to the desk cwd', async () => {
+    const s = new DeskStore(storePath);
+    const desk = await s.create({ name: 'Project', cwd: path.join(tmp, 'project') });
+    const { session } = await s.createSession(desk.id, 'Other');
+    session.cwd = path.join(tmp, 'project', 'nested');
+    mkdirSync(session.cwd, { recursive: true });
+
+    expect(cwdForSession({ ...desk, sessions: [desk.sessions[0]!, session] }, session.id)).toBe(
+      session.cwd,
+    );
+    expect(cwdForSession(desk, desk.id)).toBe(desk.cwd);
   });
 });
 

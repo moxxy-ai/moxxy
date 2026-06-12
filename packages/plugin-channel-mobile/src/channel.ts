@@ -23,6 +23,7 @@ import {
   advertisedOrigins,
   buildConnectUrl,
   connectUrlOrigin,
+  expoWebOrigins,
   isLoopbackHost,
   normalizeTunnelChoice,
   resolveBindHost,
@@ -153,7 +154,13 @@ export class MobileChannel implements Channel<MobileStartOpts> {
       // must have its origin allow-listed or real iPhones are rejected at the
       // upgrade. Local origins are known now; the tunnel origin is added below
       // once the tunnel URL is assigned.
-      const localOrigins = advertisedOrigins(this.bindHost, this.port);
+      const expoOptions = resolveMobileExpoOptions(this.expoOptions);
+      const localOrigins = [
+        ...new Set([
+          ...advertisedOrigins(this.bindHost, this.port),
+          ...expoWebOrigins(expoOptions),
+        ]),
+      ];
       const server = await startWsBridge(bus, {
         port: this.port,
         host: this.bindHost,
@@ -206,7 +213,7 @@ export class MobileChannel implements Channel<MobileStartOpts> {
             "  (channels.mobile.tunnel: 'cloudflared' | 'ngrok', or MOXXY_MOBILE_TUNNEL)."
           : undefined,
       );
-      this.expo = await this.startExpoApp(resolveMobileExpoOptions(this.expoOptions));
+      this.expo = await this.startExpoApp(expoOptions);
     } catch (err) {
       // Roll back the partial wiring: unsubscribe from session.log + clear the
       // ask resolvers (host.dispose), close anything we managed to open, and

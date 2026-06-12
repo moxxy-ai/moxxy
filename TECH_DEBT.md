@@ -594,6 +594,31 @@ channel end to end (QR pairing → chat → ask round-trip). The production mobi
   (live update — the tunnel URL only exists after start) + the mobile channel and desktop
   gateway allow-list exactly the origins of the URLs they advertise (`advertisedOrigins` /
   `connectUrlOrigin` in `plugin-channel-mobile/pairing.ts`). Default-deny otherwise unchanged.
+- **Retired (2026-06-11): the full mobile plugin still lacked the PoC's complete bridge
+  semantics.** Browser-hosted Expo connected with an `Origin: http://localhost:8081` that
+  `moxxy mobile` never advertised, the production QR parser still depended on RN's brittle
+  `URL` implementation, and the standalone mobile host exposed only single-session calls while
+  the full app expected desktop-style `desks.*` / `sessions.*`. The channel now allow-lists
+  its Expo web origins, the app parses `ws://...?t=` through the shared transport helper,
+  `MobileSessionHost` serves registry-backed desk/session calls for standalone runs, and the
+  mobile session screen is driven from real client-core desks/sessions before chat starts.
+- **Retired (2026-06-12): TUI, Desktop, and Mobile kept separate session indexes.** Desktop
+  workspaces lived in `~/.moxxy/desktop/desks.json`, CLI/TUI sessions lived in
+  `~/.moxxy/sessions`, and `moxxy mobile` exposed a standalone `Moxxy Mobile / Current session`
+  placeholder, so a phone could pair successfully but still miss the user's real session list.
+  The workspace/session store is now shared through `@moxxy/workspace-registry`, old v2 desktop
+  docs are read in place and written as v3, CLI/TUI persistence syncs session metadata into the
+  registry, remote-safe `desks.list` / `desks.setActive` are exposed over the WS IPC bridge, and
+  unmatched sessions land in the stable global `Moxxy` workspace (`id: moxxy`).
+- **Retired (2026-06-12): the first shared-registry pass polluted the user's desktop registry
+  with test and empty sessions.** `SessionPersistence` still wrote to the real
+  `~/.moxxy/sessions` directory because its default path bypassed `MOXXY_HOME`, and
+  `syncSessionIndexIntoRegistry()` imported every sidecar, including zero-event/event-only sessions
+  and temp-dir sessions. The persistence root now uses `moxxyPath('sessions')`, `readIndex()`
+  backfills missing first prompts from the JSONL log, CLI/TUI registry sync waits for a real user
+  prompt before registering, workspace-registry ignores empty/stale sidecars and falls back to a
+  safe managed cwd when a session cwd has disappeared, and desktop runner spawn errors are surfaced
+  as controlled reconnect phases instead of uncaught main-process exceptions.
 
 ## 2026-06-10 round-2 audit intake — mobile gateway
 
@@ -1025,6 +1050,11 @@ verification — not a mechanical change.** Note (2026-06-09): the shared client
 #120) wires the same append-on-dispatch persistence into EVERY connected client (WS/mobile
 included, `client-core/src/chat-store/store.ts:325`), so multi-client setups now lean even
 harder on the host-side id-dedup cache — one more reason to make the host the single writer.
+**Partial mitigation (2026-06-12):** `chat.loadSegment` now treats the runner session
+JSONL as canonical whenever it exists, and repairs a missing/empty/partial desktop NDJSON
+mirror from it before returning a page. This keeps pre-registry and shared-registry
+multi-session transcripts readable in Desktop/Mobile, while preserving NDJSON-only legacy
+chats as the fallback case.
 
 **Also remaining:** the **`/new` desync window**. The renderer still clears its store before
 the runner reset confirms; if the reset fails or the app dies between them, the two desync
@@ -1239,14 +1269,15 @@ runners stay alive (consider lazy spawn + idle-stop).
   PCM16@24kHz pipeline that doesn't fit shipping a platform-native compressed clip to the
   host transcriber. Reconcile the contract (or add a clip-based capability) if a second
   native platform ever appears.
-- **Mobile-port residue (2026-06-10, low):** (a) the bearer-subprotocol encoder is
-  mirrored in `apps/mobile/src/hooks/useGatewaySocket.ts` (WsRpcClient needed a
-  close-on-replace lifecycle `makeWsApi` doesn't expose — same mirroring convention
-  client-transport-ws uses vs the SDK; converge if a third copy appears); (b) sending
-  attachments while a turn is in flight is refused with a visible error (inline payloads
-  can't ride client-core's path-based queue) — queue inline attachments host-side if this
-  bites; (c) `pairing.loadPairing` is a documented no-op (the WS bridge has no
-  pairing-code endpoint; the QR/`?t=` URL IS the pairing flow).
+- **Mobile-port residue (2026-06-10, low):** ~~(a) the bearer-subprotocol encoder needed
+  a mobile-side close-on-replace lifecycle because `makeWsApi` didn't expose one.~~
+  **RETIRED 2026-06-12:** `@moxxy/client-transport-ws` now exports `makeWsApiHandle`
+  (`{ api, close }`), and the full mobile app's pairing hook owns the closeable WS
+  lifecycle directly. Remaining: (b) sending attachments while a turn is in flight is
+  refused with a visible error (inline payloads can't ride client-core's path-based
+  queue) — queue inline attachments host-side if this bites; (c) manual pairing refresh
+  only parses the full `ws(s)://...?t=` bridge URL (there is deliberately no HTTP
+  pairing-code endpoint in the runtime mobile path).
 - ~~**Desktop bridge had no UI — only env-gated boot (`MOXXY_WS_BRIDGE=1`).**~~
   **ADDRESSED 2026-06-10:** Settings → **Mobile** tab now starts/stops the bridge at
   runtime (`MobileGatewayManager` in `electron/main/ws-bridge.ts` + `mobileGateway.*` IPC,

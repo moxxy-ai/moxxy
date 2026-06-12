@@ -129,8 +129,9 @@ export function buildChatTranscript(
     systemEvents = [];
   };
 
-  for (let index = 0; index < events.length; index += 1) {
-    const event = events[index]!;
+  const uniqueEvents = dedupeEventsById(events);
+  for (let index = 0; index < uniqueEvents.length; index += 1) {
+    const event = uniqueEvents[index]!;
     const type = eventType(event);
 
     if (type === 'assistant_chunk') {
@@ -218,6 +219,22 @@ export function buildChatTranscript(
   }
 
   return items;
+}
+
+function dedupeEventsById(
+  events: ReadonlyArray<Record<string, unknown>>,
+): ReadonlyArray<Record<string, unknown>> {
+  const seen = new Set<string>();
+  const unique: Record<string, unknown>[] = [];
+  for (const event of events) {
+    const id = textOf(event.id);
+    if (id.length > 0) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+    }
+    unique.push(event);
+  }
+  return unique;
 }
 
 function promptAttachments(event: Record<string, unknown>): PromptAttachment[] {

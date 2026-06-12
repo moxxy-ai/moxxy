@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
@@ -83,10 +83,16 @@ function fakePool(): { pool: RunnerPool; calls: PoolCall[] } {
 let desks: DeskStore;
 let handlers: Map<string, Handler>;
 let calls: PoolCall[];
+let cwdA: string;
+let cwdB: string;
 
 beforeEach(async () => {
   vi.clearAllMocks();
   const tmp = mkdtempSync(path.join(os.tmpdir(), 'sessions-ipc-'));
+  cwdA = path.join(tmp, 'a');
+  cwdB = path.join(tmp, 'b');
+  mkdirSync(cwdA, { recursive: true });
+  mkdirSync(cwdB, { recursive: true });
   desks = new DeskStore(path.join(tmp, 'desks.json'));
   const { bus, handlers: h } = fakeBus();
   const { pool, calls: c } = fakePool();
@@ -111,7 +117,7 @@ describe('sessions.* handlers', () => {
   });
 
   it('list defaults to the active desk', async () => {
-    const desk = await desks.create({ name: 'A', cwd: '/a' });
+    const desk = await desks.create({ name: 'A', cwd: cwdA });
     const overview = (await invoke('sessions.list')) as {
       sessions: Array<{ id: string }>;
       activeSessionId: string | null;
@@ -121,9 +127,9 @@ describe('sessions.* handlers', () => {
   });
 
   it('create persists under the desk and spawns the session runner with the desk cwd', async () => {
-    const desk = await desks.create({ name: 'A', cwd: '/a' });
+    const desk = await desks.create({ name: 'A', cwd: cwdA });
     const session = (await invoke('sessions.create', { deskId: desk.id })) as { id: string };
-    expect(calls).toContainEqual({ op: 'getOrCreate', id: session.id, cwd: '/a' });
+    expect(calls).toContainEqual({ op: 'getOrCreate', id: session.id, cwd: cwdA });
     const overview = await desks.listSessions(desk.id);
     expect(overview.sessions.map((s) => s.id)).toContain(session.id);
     // Not auto-foregrounded.
@@ -131,16 +137,38 @@ describe('sessions.* handlers', () => {
   });
 
   it('setActive persists, ensures a runner, and foregrounds the SESSION id', async () => {
-    const desk = await desks.create({ name: 'A', cwd: '/a' });
+    const desk = await desks.create({ name: 'A', cwd: cwdA });
     const session = (await invoke('sessions.create', { deskId: desk.id })) as { id: string };
     await invoke('sessions.setActive', { id: session.id });
     expect((await desks.listSessions(desk.id)).activeSessionId).toBe(session.id);
-    expect(calls).toContainEqual({ op: 'getOrCreate', id: session.id, cwd: '/a' });
+    expect(calls).toContainEqual({ op: 'getOrCreate', id: session.id, cwd: cwdA });
     expect(calls).toContainEqual({ op: 'setActive', id: session.id });
   });
 
+  it('setActive starts a Moxxy workspace session with the session cwd, not the workspace cwd', async () => {
+    const sessionCwd = path.join(os.tmpdir(), 'moxxy-session-cwd');
+    mkdirSync(sessionCwd, { recursive: true });
+    await desks.registerSessionFromMeta(
+      {
+        id: 'moxxy-session',
+        cwd: sessionCwd,
+        startedAt: '2026-06-12T10:00:00.000Z',
+        lastActivity: '2026-06-12T10:05:00.000Z',
+        eventCount: 1,
+        firstPrompt: 'from tui',
+        provider: null,
+        model: null,
+      },
+      'tui',
+    );
+
+    await invoke('sessions.setActive', { id: 'moxxy-session' });
+
+    expect(calls).toContainEqual({ op: 'getOrCreate', id: 'moxxy-session', cwd: sessionCwd });
+  });
+
   it('remove tears down the runner and erases BOTH on-disk logs', async () => {
-    const desk = await desks.create({ name: 'A', cwd: '/a' });
+    const desk = await desks.create({ name: 'A', cwd: cwdA });
     const session = (await invoke('sessions.create', { deskId: desk.id })) as { id: string };
     await invoke('sessions.remove', { id: session.id });
     expect(calls).toContainEqual({ op: 'remove', id: session.id });
@@ -150,20 +178,20 @@ describe('sessions.* handlers', () => {
   });
 
   it('removing the active desk\'s foregrounded session promotes its replacement', async () => {
-    const desk = await desks.create({ name: 'A', cwd: '/a' });
+    const desk = await desks.create({ name: 'A', cwd: cwdA });
     // Remove the desk's only session: a fresh one is seeded + foregrounded.
     await invoke('sessions.remove', { id: desk.id });
     const overview = await desks.listSessions(desk.id);
     expect(overview.sessions).toHaveLength(1);
     const fresh = overview.sessions[0]!;
     expect(fresh.id).not.toBe(desk.id);
-    expect(calls).toContainEqual({ op: 'getOrCreate', id: fresh.id, cwd: '/a' });
+    expect(calls).toContainEqual({ op: 'getOrCreate', id: fresh.id, cwd: cwdA });
     expect(calls).toContainEqual({ op: 'setActive', id: fresh.id });
   });
 
   it('removing a BACKGROUND desk\'s session never re-foregrounds that desk', async () => {
-    const a = await desks.create({ name: 'A', cwd: '/a' });
-    const b = await desks.create({ name: 'B', cwd: '/b' });
+    const a = await desks.create({ name: 'A', cwd: cwdA });
+    const b = await desks.create({ name: 'B', cwd: cwdB });
     const session = (await invoke('sessions.create', { deskId: b.id })) as { id: string };
     await desks.setActive(a.id);
     calls.length = 0;
@@ -173,7 +201,7 @@ describe('sessions.* handlers', () => {
   });
 
   it('remove of an unknown session still best-effort clears its logs', async () => {
-    await desks.create({ name: 'A', cwd: '/a' });
+    await desks.create({ name: 'A', cwd: cwdA });
     await invoke('sessions.remove', { id: 'ghost' });
     expect(deleteSessionMock).toHaveBeenCalledWith('ghost');
     expect(clearLogMock).toHaveBeenCalledWith('ghost');
@@ -181,7 +209,7 @@ describe('sessions.* handlers', () => {
   });
 
   it('rename round-trips through the store', async () => {
-    const desk = await desks.create({ name: 'A', cwd: '/a' });
+    const desk = await desks.create({ name: 'A', cwd: cwdA });
     const renamed = (await invoke('sessions.rename', { id: desk.id, name: 'Deep dive' })) as {
       name: string;
     };

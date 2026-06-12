@@ -38,6 +38,8 @@ export default function ChatScreen() {
           <ChatList
             items={chat.items}
             sending={chat.sending}
+            hasOlder={chat.hasOlder}
+            onLoadOlder={chat.loadOlder}
             copiedMessageId={messageCopy.copiedMessageId}
             onCopyMessage={messageCopy.copyMessage}
           />

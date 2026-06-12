@@ -85,6 +85,8 @@ function useDisconnectedGatewayStoreValue(pairing: PairingState) {
       compacting: false,
       usage: null,
       isEmpty: true,
+      hasOlder: false,
+      loadOlder: () => undefined,
     },
     chatEvents: [],
   };
@@ -182,9 +184,13 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
         return;
       }
       if (type === 'newSession') {
-        void coreDeskSessions
-          .create()
-          .then((session) => (session ? coreDeskSessions.setActive(session.id) : undefined))
+        const targetDeskId = textOf(frame.workspaceId);
+        const create =
+          targetDeskId && targetDeskId !== activeDesk?.id
+            ? api().invoke('sessions.create', { deskId: targetDeskId })
+            : coreDeskSessions.create();
+        void create
+          .then((session) => (session ? api().invoke('sessions.setActive', { id: session.id }) : undefined))
           .catch(() => undefined);
         return;
       }
@@ -205,7 +211,7 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
           .catch(() => undefined);
       }
     },
-    [coreChat, coreDeskSessions, workspaceId],
+    [activeDesk?.id, coreChat, coreDeskSessions, workspaceId],
   );
 
   const phaseInfo = readConnectedPhaseInfo(connection.snapshot?.phase);
@@ -214,19 +220,7 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
 
   const state = useMemo<MobileState>(() => {
     const sessionId = workspaceId ?? 'mobile-session';
-    const desks = coreDesks.desks.length > 0
-      ? coreDesks.desks
-      : workspaceId
-        ? [{
-            id: workspaceId,
-            name: 'Moxxy Mobile',
-            cwd: '',
-            color: '#ec4899',
-            createdAt: 0,
-            activeSessionId: workspaceId,
-            sessions: [{ id: workspaceId, name: 'Current session', createdAt: 0 }],
-          }]
-        : [];
+    const desks = coreDesks.desks;
     const ownerDesk = deskForWorkspace(desks, workspaceId) ?? activeDesk ?? null;
     const activeDeskSessions = ownerDesk && coreDeskSessions.sessions.length > 0
       ? new Map(coreDeskSessions.sessions.map((session) => [session.id, session]))
@@ -247,11 +241,16 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
         id: session.id,
         workspaceId: desk.id,
         name: session.name,
-        firstPrompt: session.name,
-        cwd: desk.cwd,
+        firstPrompt: session.firstPrompt ?? session.name,
+        cwd: session.cwd ?? desk.cwd,
+        eventCount: session.eventCount ?? 0,
+        provider: session.provider ?? null,
+        model: session.model ?? null,
         live: session.id === workspaceId && connected,
         readOnly: false,
-        lastActivity: session.createdAt > 0 ? new Date(session.createdAt).toISOString() : '',
+        lastActivity:
+          session.lastActivity ??
+          (session.createdAt > 0 ? new Date(session.createdAt).toISOString() : ''),
       }));
     });
     const usage = {
@@ -357,6 +356,8 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
       compacting: state.compacting,
       usage: state.usage,
       isEmpty: state.chatEvents.length === 0 && state.streamingText.length === 0,
+      hasOlder: coreChat.hasOlder,
+      loadOlder: coreChat.loadOlder,
     },
     chatEvents: state.chatEvents,
   };

@@ -53,20 +53,32 @@ const INITIAL: DesksState = { desks: [], activeId: null, loading: true, error: n
 class DesksStore {
   private readonly store: PatchStore<DesksState> = createPatchStore(INITIAL);
   private started = false;
+  private listenerCount = 0;
+  private unsubscribeChanged: (() => void) | null = null;
 
   private get state(): DesksState {
     return this.store.getSnapshot();
   }
 
   subscribe = (fn: () => void): (() => void) => {
+    this.listenerCount += 1;
     const unsub = this.store.subscribe(fn);
     // Lazy-load on the first subscriber so the data arrives once and is
     // shared, instead of every mounting consumer firing its own fetch.
     if (!this.started) {
       this.started = true;
+      this.subscribeToHostChanges();
       void this.refresh();
     }
-    return unsub;
+    return () => {
+      unsub();
+      this.listenerCount = Math.max(0, this.listenerCount - 1);
+      if (this.listenerCount === 0) {
+        this.unsubscribeChanged?.();
+        this.unsubscribeChanged = null;
+        this.started = false;
+      }
+    };
   };
 
   /** Cached snapshot — referentially stable until {@link set} swaps it,
@@ -77,16 +89,31 @@ class DesksStore {
     this.store.set(patch);
   }
 
+  private applyOverview(next: DesksOverview): void {
+    this.set({
+      desks: next.desks,
+      activeId: next.activeId,
+      error: null,
+      loading: false,
+    });
+    const activeDesk = next.desks.find((desk) => desk.id === next.activeId);
+    if (activeDesk?.activeSessionId) {
+      connectionStore.setActive(activeDesk.activeSessionId);
+    }
+  }
+
+  private subscribeToHostChanges(): void {
+    if (this.unsubscribeChanged) return;
+    this.unsubscribeChanged = api().subscribe('desks.changed', (next: DesksOverview) => {
+      this.applyOverview(next);
+    });
+  }
+
   refresh = async (): Promise<void> => {
     this.set({ loading: true });
     try {
       const next: DesksOverview = await api().invoke('desks.list');
-      this.set({
-        desks: next.desks,
-        activeId: next.activeId,
-        error: null,
-        loading: false,
-      });
+      this.applyOverview(next);
     } catch (e) {
       this.set({ error: toErrorMessage(e), loading: false });
     }
@@ -222,6 +249,14 @@ class DesksStore {
       this.set({ error: toErrorMessage(e) });
     }
   };
+
+  resetForTests(): void {
+    this.unsubscribeChanged?.();
+    this.unsubscribeChanged = null;
+    this.started = false;
+    this.listeners.clear();
+    this.state = INITIAL;
+  }
 }
 
 /** Shared singleton. Exported so sibling stores (the sessions store) can
@@ -229,6 +264,10 @@ class DesksStore {
  *  `sessions` array — not for component use (components go through
  *  {@link useDesks}). */
 export const desksStore = new DesksStore();
+
+export function __resetDesksStoreForTests(): void {
+  desksStore.resetForTests();
+}
 
 /**
  * The desk that owns `workspaceId`. Routing ids are SESSION ids (the

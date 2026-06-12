@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { MoxxyEvent } from '@moxxy/sdk';
+import type { ChatPersistence } from '../chatPersistence.js';
 import { chatStore } from './store.js';
 
 let nextId = 0;
@@ -284,5 +285,34 @@ describe('chatStore clear/drop', () => {
     chatStore.dispatch(id, { type: 'event', event: userPrompt('gone') });
     chatStore.drop(id);
     expect(chatStore.getChat(id)).toMatchObject({ isEmpty: true });
+  });
+});
+
+describe('chatStore initial history loading', () => {
+  it('retries initial history loading when the first fallback page was empty', async () => {
+    const workspaceId = ws();
+    const persisted = userPrompt('stored history');
+    let calls = 0;
+    const persistence: ChatPersistence = {
+      async loadHistory() {
+        return null;
+      },
+      async loadSegment() {
+        calls += 1;
+        return calls === 1
+          ? { events: [], prevCursor: null }
+          : { events: [persisted], prevCursor: null };
+      },
+      async append() {},
+      async clear() {},
+    };
+    chatStore.setPersistence(persistence);
+
+    await chatStore.loadInitial(workspaceId);
+    expect(chatStore.getChat(workspaceId).events).toEqual([]);
+
+    await chatStore.loadInitial(workspaceId);
+
+    expect(chatStore.getChat(workspaceId).events).toEqual([persisted]);
   });
 });

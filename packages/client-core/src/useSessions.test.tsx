@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { __setApiOverride } from './transport.js';
 import { connectionStore } from './useConnection.js';
+import { __resetDesksStoreForTests } from './useDesks.js';
 import { sessionsStore, useSessions } from './useSessions.js';
 import type { DeskSession, MoxxyApi, SessionsOverview } from '@moxxy/desktop-ipc-contract';
 
@@ -74,6 +75,7 @@ function installHost(initial: SessionsOverview): {
 afterEach(() => {
   // Reset the module-level singletons between tests.
   act(() => {
+    __resetDesksStoreForTests();
     sessionsStore.setDesk(null);
     connectionStore.setActive(null);
   });
@@ -137,6 +139,18 @@ describe('useSessions', () => {
     expect(result.current.activeSessionId).toBe('s2');
     release();
     await act(async () => done);
+  });
+
+  it('refreshes desks after setActive so embedded activeSessionId stays in sync', async () => {
+    const { invokes } = installHost({ sessions: [s1, s2], activeSessionId: 's1' });
+    const { result } = renderHook(() => useSessions('d1'));
+    await waitFor(() => expect(result.current.sessions).toEqual([s1, s2]));
+    const deskRefreshesBefore = invokes.filter((call) => call.cmd === 'desks.list').length;
+
+    await act(async () => result.current.setActive('s2'));
+
+    const deskRefreshesAfter = invokes.filter((call) => call.cmd === 'desks.list').length;
+    expect(deskRefreshesAfter).toBeGreaterThan(deskRefreshesBefore);
   });
 
   it('setActive rolls back the optimistic flip when the IPC fails', async () => {

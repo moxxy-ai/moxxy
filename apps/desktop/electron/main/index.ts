@@ -25,6 +25,8 @@ import {
   ElectronCommandBus,
   wsEventBus,
   DeskStore,
+  cwdForSession,
+  syncSessionIndexIntoRegistry,
   sweepStaleSockets,
   bindMainWindowMinimize,
   closeFocusWindow,
@@ -43,6 +45,8 @@ import {
   startLoopbackServer,
   installAppAssetProtocol,
   loadOrCreateSelfSignedCert,
+  isTrustedLoopbackCert,
+  isTrustedLoopbackCertByHost,
   sendEvent,
   readPrefs,
   updatePrefs,
@@ -640,16 +644,20 @@ app.whenReady().then(async () => {
   }
 
   pool = new RunnerPool();
+  await syncSessionIndexIntoRegistry().catch(() => undefined);
   const desks = new DeskStore();
   // Prime: spawn a runner for the active workspace if one is bound,
   // otherwise an unbound runner so the user lands in a working chat
   // surface from the first paint.
   const initialActive = await desks.getActive();
-  if (initialActive) {
+  if (initialActive?.activeSessionId) {
     // The pool is keyed by SESSION id — prime the desk's active session
     // (for a pre-multi-session desk this is the desk id itself, so the
     // sticky runner log it resumes is unchanged).
-    await pool.getOrCreate(initialActive.activeSessionId, initialActive.cwd);
+    await pool.getOrCreate(
+      initialActive.activeSessionId,
+      cwdForSession(initialActive, initialActive.activeSessionId),
+    );
     pool.setActive(initialActive.activeSessionId);
   } else {
     await pool.getOrCreate(UNBOUND_ID, null);

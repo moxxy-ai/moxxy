@@ -2,31 +2,43 @@
  * Backs the IPC contract with a single runner {@link ClientSession}.
  *
  * The desktop serves the same contract from a RunnerPool of desk-bound
- * supervisors; the CLI (`moxxy mobile` / `moxxy serve`) has just ONE session, so
- * this host exposes exactly one synthetic workspace (`session.id`) and registers
- * the subset of `IpcCommands` a mobile client drives. It mirrors the desktop
+ * supervisors. The CLI (`moxxy mobile` / `moxxy serve`) has just ONE live
+ * session, but exposes the shared workspace registry so remote clients can see
+ * the same workspace/session index as the desktop. It mirrors the desktop
  * `SessionDriver` + `ask-broker`: stream `session.log` → `runner.event`, run a
  * turn → `runner.turn.complete`, and route permission/approval prompts through
  * `ask.request` / `ask.respond`. The SAME `@moxxy/client-core` hooks work against
  * either backend.
  *
- * Chat history isn't persisted server-side here (no desk NDJSON log) — the live
- * event stream rebuilds the transcript and `chat.loadSegment` returns empty.
+ * Chat history is loaded from the shared persisted session log for archived
+ * registry sessions; the live event stream still rebuilds active-turn updates.
  */
 
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 
-import type { ClientSession, PermissionResolver, ApprovalResolver } from '@moxxy/sdk';
+import { restoreSessionEvents } from '@moxxy/core';
+import {
+  denyByDefaultResolver,
+  moxxyPath,
+  type ClientSession,
+  type PermissionResolver,
+  type ApprovalResolver,
+  type MoxxyEvent,
+} from '@moxxy/sdk';
 import type {
   AskRequest,
   AskResponse,
   ConnectionPhase,
   ConnectionSnapshot,
+  DesksOverview,
   RunTurnArgs,
   RunTurnResult,
+  SessionsOverview,
 } from '@moxxy/desktop-ipc-contract';
 import type { CommandBus, EventSink } from '@moxxy/desktop-ipc-contract/bus';
 import { IpcError } from '@moxxy/desktop-ipc-contract/dispatch';
+import { WorkspaceRegistry } from '@moxxy/workspace-registry';
 
 export interface MobileHostOptions {
   /** Workspace id exposed to the client. Defaults to the session id. */
@@ -82,8 +94,10 @@ export class MobileSessionHost {
   private readonly pendingAsks = new Map<string, (r: AskResponse) => void>();
   private askCounter = 0;
   private autoApprove = false;
+  private sessionName = 'Current session';
   private disposed = false;
   private readonly disposers: Array<() => void> = [];
+  private readonly registry = new WorkspaceRegistry();
 
   constructor(
     private readonly bus: CommandBus & EventSink,
@@ -96,9 +110,47 @@ export class MobileSessionHost {
   /** Register the `IpcCommands` subset the mobile client drives. */
   register(): void {
     const ws = this.workspaceId;
-    this.bus.handle('connection.snapshotAll', async () => [{ workspaceId: ws, ...this.snapshot() }]);
-    this.bus.handle('connection.activeWorkspace', async () => ws);
+    this.bus.handle('connection.snapshotAll', async () => this.connectionSnapshots());
+    this.bus.handle('connection.activeWorkspace', async () => this.activeWorkspaceId());
     this.bus.handle('connection.retry', async () => {});
+    this.bus.handle('desks.list', async () => this.desksOverview());
+    this.bus.handle('desks.setActive', async ({ id }) => {
+      await this.syncCurrentSession();
+      await this.registry.setActive(id);
+      await this.broadcastActiveConnectionChanged();
+      await this.broadcastDesksChanged();
+    });
+    this.bus.handle('sessions.list', async (args) => this.sessionsOverview(args?.deskId));
+    this.bus.handle('sessions.create', async ({ name } = {}) => {
+      await this.syncCurrentSession();
+      const activeDesk = await this.registry.deskForSession(this.workspaceId);
+      const { session } = await this.registry.createSession(
+        activeDesk?.id,
+        typeof name === 'string' ? name : undefined,
+        { source: 'mobile' },
+      );
+      await this.broadcastDesksChanged();
+      return session;
+    });
+    this.bus.handle('sessions.setActive', async ({ id }) => {
+      await this.syncCurrentSession();
+      await this.registry.setActiveSession(id);
+      this.bus.broadcast('connection.changed', { workspaceId: id, phase: this.snapshot(id).phase });
+      await this.broadcastDesksChanged();
+    });
+    this.bus.handle('sessions.remove', async ({ id }) => {
+      await this.registry.removeSession(id);
+      await this.broadcastDesksChanged();
+    });
+    this.bus.handle('sessions.rename', async ({ id, name }) => {
+      await this.syncCurrentSession();
+      const renamed = await this.registry.renameSession(id, name);
+      if (id === this.workspaceId) {
+        this.sessionName = typeof name === 'string' && name.trim().length > 0 ? name.trim() : this.sessionName;
+      }
+      await this.broadcastDesksChanged();
+      return renamed;
+    });
     this.bus.handle('session.info', async () => this.session.getInfo());
     this.bus.handle('session.runTurn', async (args) => this.runTurn(args));
     this.bus.handle('session.abortTurn', async ({ turnId }) => {
@@ -112,20 +164,13 @@ export class MobileSessionHost {
       // Re-broadcast the phase so connected clients see the new activeMode
       // without a session.info round-trip (mirrors the desktop supervisor's
       // refreshConnectedInfo()).
-      this.bus.broadcast('connection.changed', { workspaceId: ws, phase: this.snapshot().phase });
+      this.bus.broadcast('connection.changed', { workspaceId: ws, phase: this.snapshot(ws).phase });
     });
     this.bus.handle('session.newSession', async () => {
       // `/new`: abort in-flight turns, then reset at the source. `reset()` is
       // the authoritative seam (clears persistence too); a session without it
       // degrades to clearing the live log — never silently no-op.
-      for (const controller of this.turns.values()) controller.abort();
-      // Reset auto-approve to the safe default so a fresh session never
-      // silently inherits the previous one's auto-allow (desktop SessionDriver
-      // parity). Manual `allow_always` persists via permissions; auto-approve
-      // is host-level and ephemeral.
-      this.autoApprove = false;
-      if (this.session.reset) await this.session.reset();
-      else this.session.log.clear();
+      await this.resetCurrentSession();
     });
     this.bus.handle('session.runCommand', async ({ name, args }) => {
       const def = this.session.commands.get(name);
@@ -197,9 +242,7 @@ export class MobileSessionHost {
     this.bus.handle('ask.respond', async ({ requestId, response }) => {
       this.answerAsk(requestId, response);
     });
-    // No server-side transcript persistence for the channel — the live stream
-    // rebuilds it; paging returns empty and writes are no-ops.
-    this.bus.handle('chat.loadSegment', async () => ({ events: [], prevCursor: null }));
+    this.bus.handle('chat.loadSegment', async (args) => this.loadChatSegment(args));
     this.bus.handle('chat.append', async () => {});
     this.bus.handle('chat.clearLog', async () => {});
     this.bus.handle('chat.migrate', async () => {});
@@ -218,7 +261,7 @@ export class MobileSessionHost {
 
     // Tell any already-connected client we're connected (snapshotAll covers a
     // late joiner; this covers one that connected before wire()).
-    this.bus.broadcast('connection.changed', { workspaceId: ws, phase: this.snapshot().phase });
+    this.bus.broadcast('connection.changed', { workspaceId: ws, phase: this.snapshot(ws).phase });
   }
 
   dispose(): void {
@@ -237,6 +280,7 @@ export class MobileSessionHost {
     for (const resolve of this.pendingAsks.values()) resolve({ mode: 'deny' });
     this.pendingAsks.clear();
     this.session.setApprovalResolver(null);
+    this.session.setPermissionResolver(denyByDefaultResolver);
   }
 
   // ---- internals ----------------------------------------------------------
@@ -251,19 +295,91 @@ export class MobileSessionHost {
     }
   }
 
-  private snapshot(): ConnectionSnapshot {
+  private snapshot(sessionId = this.workspaceId): ConnectionSnapshot {
     const info = this.session.getInfo();
     const phase: ConnectionPhase = {
       phase: 'connected',
       socket: '',
-      sessionId: this.session.id,
+      sessionId,
       activeProvider: info?.activeProvider ?? null,
       activeMode: info?.activeMode ?? null,
     };
     return { phase, cliPath: null, attempts: 0, log: [] };
   }
 
+  private async activeWorkspaceId(): Promise<string> {
+    await this.syncCurrentSession();
+    const activeDesk = await this.registry.getActive();
+    return activeDesk?.activeSessionId ?? this.workspaceId;
+  }
+
+  private async connectionSnapshots(): Promise<Array<ConnectionSnapshot & { workspaceId: string }>> {
+    await this.syncCurrentSession();
+    const ids = new Set<string>([this.workspaceId]);
+    for (const desk of await this.registry.list()) {
+      if (desk.activeSessionId) ids.add(desk.activeSessionId);
+    }
+    return [...ids].map((id) => ({ workspaceId: id, ...this.snapshot(id) }));
+  }
+
+  private async desksOverview(): Promise<DesksOverview> {
+    await this.syncCurrentSession();
+    const desks = await this.registry.list();
+    const activeDesk = await this.registry.getActive();
+    return {
+      desks,
+      activeId: activeDesk?.id ?? null,
+    };
+  }
+
+  private async sessionsOverview(deskId?: string): Promise<SessionsOverview> {
+    await this.syncCurrentSession();
+    const activeDesk = await this.registry.getActive();
+    return this.registry.listSessions(deskId ?? activeDesk?.id);
+  }
+
+  private async syncCurrentSession(): Promise<void> {
+    const prompts = this.session.log.ofType?.('user_prompt') ?? [];
+    await this.registry.registerSessionFromMeta(
+      {
+        id: this.workspaceId,
+        cwd: this.session.cwd,
+        startedAt: new Date().toISOString(),
+        lastActivity: new Date().toISOString(),
+        eventCount: this.session.log.length ?? 0,
+        firstPrompt: prompts[0]?.text ?? null,
+        provider: this.session.getInfo().activeProvider ?? null,
+        model: null,
+      },
+      'mobile',
+    );
+  }
+
+  private async broadcastDesksChanged(): Promise<void> {
+    this.bus.broadcast('desks.changed', await this.desksOverview());
+  }
+
+  private async broadcastActiveConnectionChanged(): Promise<void> {
+    const id = await this.activeWorkspaceId();
+    this.bus.broadcast('connection.changed', { workspaceId: id, phase: this.snapshot(id).phase });
+  }
+
+  private async resetCurrentSession(): Promise<void> {
+    for (const controller of this.turns.values()) controller.abort();
+    // Reset auto-approve to the safe default so a fresh session never silently
+    // inherits the previous one's auto-allow (desktop SessionDriver parity).
+    this.autoApprove = false;
+    if (this.session.reset) await this.session.reset();
+    else this.session.log.clear();
+  }
+
   private async runTurn(args: RunTurnArgs & { workspaceId?: string }): Promise<RunTurnResult> {
+    if (args.workspaceId && args.workspaceId !== this.workspaceId) {
+      throw new IpcError(
+        'not-supported',
+        'standalone mobile host can run turns only for the live channel session',
+      );
+    }
     const turnId = randomUUID();
     const controller = new AbortController();
     this.turns.set(turnId, controller);
@@ -313,4 +429,63 @@ export class MobileSessionHost {
     this.pendingAsks.delete(requestId);
     resolve(response);
   }
+
+  private async loadChatSegment(args: {
+    workspaceId?: string;
+    before?: number | null;
+    limit?: number;
+  }): Promise<{ events: MoxxyEvent[]; prevCursor: number | null }> {
+    const workspaceId = args.workspaceId ?? this.workspaceId;
+    const limit = args.limit ?? 100;
+    const events = await loadPersistedEvents(workspaceId);
+    return segmentFromEvents(events, args.before ?? null, limit);
+  }
+}
+
+async function loadPersistedEvents(workspaceId: string): Promise<MoxxyEvent[]> {
+  try {
+    const events = await restoreSessionEvents(workspaceId);
+    if (events.length > 0) return events;
+  } catch {
+    // Fall through to the desktop chat mirror. Older desktop workspaces used
+    // desk ids as chat keys even when the actual session id inside the events
+    // was different, so the core session log alone is not enough.
+  }
+  return readChatMirrorEvents(workspaceId);
+}
+
+async function readChatMirrorEvents(workspaceId: string): Promise<MoxxyEvent[]> {
+  let raw: string;
+  try {
+    raw = await readFile(moxxyPath('chats', `${safeChatFileId(workspaceId)}.jsonl`), 'utf8');
+  } catch {
+    return [];
+  }
+  const events: MoxxyEvent[] = [];
+  for (const line of raw.split('\n')) {
+    if (!line) continue;
+    try {
+      events.push(JSON.parse(line) as MoxxyEvent);
+    } catch {
+      // Match the desktop chat-log behavior: one corrupt mirror line should not
+      // hide the rest of the transcript.
+    }
+  }
+  return events;
+}
+
+function safeChatFileId(workspaceId: string): string {
+  return workspaceId.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 128) || 'unnamed';
+}
+
+function segmentFromEvents(
+  events: ReadonlyArray<MoxxyEvent>,
+  before: number | null,
+  limit: number,
+): { events: MoxxyEvent[]; prevCursor: number | null } {
+  const total = events.length;
+  const end = before === null ? total : Math.min(before, total);
+  const start = Math.max(0, end - limit);
+  const prevCursor = start > 0 ? start : null;
+  return { events: events.slice(start, end), prevCursor };
 }

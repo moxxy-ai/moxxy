@@ -44,6 +44,24 @@ describe('mobile chat transcript model', () => {
     ]);
   });
 
+  it('deduplicates replayed event ids before building React keyed transcript items', () => {
+    const transcript = buildChatTranscript([
+      { id: 'u1', type: 'user_prompt', text: 'Powiedz OK' },
+      { id: 'u1', type: 'user_prompt', text: 'Powiedz OK' },
+      { id: 'c1', type: 'assistant_chunk', delta: 'O' },
+      { id: 'c1', type: 'assistant_chunk', delta: 'O' },
+      { id: 'c2', type: 'assistant_chunk', delta: 'K' },
+      { id: 'a1', type: 'assistant_message', content: 'OK' },
+      { id: 'a1', type: 'assistant_message', content: 'OK' },
+    ]);
+
+    expect(transcript).toEqual([
+      { id: 'u1', kind: 'user', text: 'Powiedz OK' },
+      { id: 'a1', kind: 'assistant', label: 'Assistant', text: 'OK', streaming: false },
+    ]);
+    expect(new Set(transcript.map((item) => item.id)).size).toBe(transcript.length);
+  });
+
   it('keeps user prompt attachments available for rendering in the chat', () => {
     const transcript = buildChatTranscript([
       {

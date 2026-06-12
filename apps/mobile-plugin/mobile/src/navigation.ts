@@ -256,8 +256,11 @@ export function applyWorkspaceCollapseToggles(
 
 function hasVisibleSessionContext(session: Record<string, unknown>): boolean {
   if (session.live === true) return true;
+  if (!stringOf(session.id, '').trim()) return false;
+  const title = stringOf(session.firstPrompt, stringOf(session.name, '')).trim();
+  if (title.length > 0) return true;
   const eventCount = typeof session.eventCount === 'number' ? session.eventCount : 0;
-  return eventCount > 0 && stringOf(session.firstPrompt, stringOf(session.name, '')).trim().length > 0;
+  return eventCount > 0;
 }
 
 function isVisibleWorkspace(workspace: Record<string, unknown>): boolean {

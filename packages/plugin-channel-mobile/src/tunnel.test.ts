@@ -19,6 +19,7 @@ import {
   advertisedOrigins,
   buildConnectUrl,
   connectUrlOrigin,
+  expoWebOrigins,
   isLoopbackHost,
   isWildcardHost,
   lanHost,
@@ -158,6 +159,20 @@ describe('advertisedOrigins (what the bridge must allow-list for real devices)',
       'http://127.0.0.1:8765',
       'http://localhost:8765',
     ]);
+  });
+});
+
+describe('expoWebOrigins (the browser-hosted Expo app origin)', () => {
+  it('includes localhost/loopback plus the LAN origin for Expo web smoke tests', () => {
+    expect(expoWebOrigins({ enabled: true, host: 'lan', port: 8081 })).toEqual([
+      'http://localhost:8081',
+      'http://127.0.0.1:8081',
+      'http://192.168.1.42:8081',
+    ]);
+  });
+
+  it('returns no browser origins when Expo startup is disabled', () => {
+    expect(expoWebOrigins({ enabled: false, host: 'lan', port: 8081 })).toEqual([]);
   });
 });
 

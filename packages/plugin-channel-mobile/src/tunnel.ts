@@ -21,6 +21,7 @@ export {
   buildConnectUrl,
   connectUrlOrigin,
   advertisedOrigins,
+  expoWebOrigins,
 } from './pairing.js';
 
 export type TunnelChoice = 'localhost' | 'cloudflared' | 'ngrok';

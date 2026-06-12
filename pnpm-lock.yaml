@@ -332,6 +332,9 @@ importers:
       expo-audio:
         specifier: ~1.1.1
         version: 1.1.1(expo-asset@12.0.13(expo@54.0.35)(react-native@0.81.5(@babel/core@7.29.7)(@react-native-community/cli@13.6.9(encoding@0.1.13))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(typescript@5.9.3))(expo@54.0.35)(react-native@0.81.5(@babel/core@7.29.7)(@react-native-community/cli@13.6.9(encoding@0.1.13))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
+      expo-build-properties:
+        specifier: ~1.0.10
+        version: 1.0.10(expo@54.0.35)
       expo-camera:
         specifier: ~17.0.10
         version: 17.0.10(expo@54.0.35)(react-native-web@0.21.2(encoding@0.1.13)(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.7)(@react-native-community/cli@13.6.9(encoding@0.1.13))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
@@ -719,6 +722,9 @@ importers:
       '@moxxy/vitest-preset':
         specifier: workspace:*
         version: link:../../tooling/vitest-preset
+      '@moxxy/workspace-registry':
+        specifier: workspace:*
+        version: link:../workspace-registry
       '@types/node':
         specifier: 'catalog:'
         version: 22.19.18
@@ -994,6 +1000,9 @@ importers:
       '@moxxy/sdk':
         specifier: workspace:*
         version: link:../sdk
+      '@moxxy/workspace-registry':
+        specifier: workspace:*
+        version: link:../workspace-registry
       officeparser:
         specifier: ~5.1.1
         version: 5.1.1
@@ -1378,6 +1387,9 @@ importers:
 
   packages/plugin-channel-mobile:
     dependencies:
+      '@moxxy/core':
+        specifier: workspace:*
+        version: link:../core
       '@moxxy/desktop-ipc-contract':
         specifier: workspace:*
         version: link:../desktop-ipc-contract
@@ -1390,6 +1402,9 @@ importers:
       '@moxxy/sdk':
         specifier: workspace:*
         version: link:../sdk
+      '@moxxy/workspace-registry':
+        specifier: workspace:*
+        version: link:../workspace-registry
       qrcode:
         specifier: ^1.5.4
         version: 1.5.4
@@ -2562,6 +2577,34 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 2.1.9(@types/node@24.12.3)(jsdom@25.0.1)(lightningcss@1.32.0)(terser@5.48.0)
+
+  packages/workspace-registry:
+    dependencies:
+      '@moxxy/core':
+        specifier: workspace:*
+        version: link:../core
+      '@moxxy/desktop-ipc-contract':
+        specifier: workspace:*
+        version: link:../desktop-ipc-contract
+      '@moxxy/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+    devDependencies:
+      '@moxxy/tsconfig':
+        specifier: workspace:*
+        version: link:../../tooling/tsconfig
+      '@moxxy/vitest-preset':
+        specifier: workspace:*
+        version: link:../../tooling/vitest-preset
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.19.18
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 2.1.9(@types/node@22.19.18)(jsdom@25.0.1)(lightningcss@1.32.0)(terser@5.48.0)
 
   tooling/eslint-config:
     dependencies:

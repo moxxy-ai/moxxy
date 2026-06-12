@@ -4,7 +4,13 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EventLog } from '../events/log.js';
 import type { Logger } from '../logger.js';
-import { SessionPersistence, readIndex, restoreEvents, type SessionMeta } from './persistence.js';
+import {
+  SessionPersistence,
+  defaultSessionsDir,
+  readIndex,
+  restoreEvents,
+  type SessionMeta,
+} from './persistence.js';
 
 interface CapturedLine {
   readonly level: 'debug' | 'info' | 'warn' | 'error';
@@ -50,6 +56,18 @@ function meta(id: string, eventCount = 0): SessionMeta {
 }
 
 describe('SessionPersistence', () => {
+  it('honors MOXXY_HOME for the default sessions directory', async () => {
+    const original = process.env.MOXXY_HOME;
+    const home = await makeTempDir();
+    process.env.MOXXY_HOME = home;
+    try {
+      expect(defaultSessionsDir()).toBe(path.join(home, 'sessions'));
+    } finally {
+      if (original === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = original;
+    }
+  });
+
   it('readIndex ignores rows whose event log file is missing', async () => {
     const dir = await makeTempDir();
     await fs.mkdir(dir, { recursive: true });
@@ -61,6 +79,35 @@ describe('SessionPersistence', () => {
     );
 
     await expect(readIndex(dir)).resolves.toEqual([meta('present')]);
+  });
+
+  it('readIndex recovers a missing firstPrompt from the event log', async () => {
+    const dir = await makeTempDir();
+    await fs.mkdir(dir, { recursive: true });
+    const id = '01HYDRATEPROMPT0000000000';
+    await fs.writeFile(
+      path.join(dir, `${id}.meta.json`),
+      JSON.stringify({ ...meta(id, 3), firstPrompt: null }, null, 2),
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(dir, `${id}.jsonl`),
+      JSON.stringify({
+        id: 'e1',
+        seq: 0,
+        ts: 1,
+        sessionId: id,
+        turnId: 't1',
+        source: 'user',
+        type: 'user_prompt',
+        text: 'restored from log',
+      }) + '\n',
+      'utf8',
+    );
+
+    const [restored] = await readIndex(dir);
+
+    expect(restored?.firstPrompt).toBe('restored from log');
   });
 
   it('creates a resumable empty event log when a session is indexed before any events', async () => {

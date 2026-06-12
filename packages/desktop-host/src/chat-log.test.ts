@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { MoxxyEvent } from '@moxxy/sdk';
@@ -13,19 +13,52 @@ import {
 } from './chat-log';
 
 let dir: string;
+let homeDir: string;
+let previousMoxxyHome: string | undefined;
 
 beforeEach(async () => {
   dir = await mkdtemp(path.join(tmpdir(), 'moxxy-chatlog-'));
+  homeDir = await mkdtemp(path.join(tmpdir(), 'moxxy-home-chatlog-'));
+  previousMoxxyHome = process.env['MOXXY_HOME'];
   process.env['MOXXY_CHATS_DIR'] = dir;
+  process.env['MOXXY_HOME'] = homeDir;
 });
 
 afterEach(async () => {
   delete process.env['MOXXY_CHATS_DIR'];
+  if (previousMoxxyHome === undefined) delete process.env['MOXXY_HOME'];
+  else process.env['MOXXY_HOME'] = previousMoxxyHome;
   await rm(dir, { recursive: true, force: true });
+  await rm(homeDir, { recursive: true, force: true });
 });
 
 const ev = (i: number): MoxxyEvent =>
   ({ id: `e${i}`, type: 'user_prompt', text: `m${i}`, seq: i, ts: i, turnId: 'T', sessionId: 'S', source: 'user' }) as unknown as MoxxyEvent;
+
+const noise = (i: number, type: MoxxyEvent['type']): MoxxyEvent =>
+  ({
+    id: `noise-${i}`,
+    type,
+    seq: i,
+    ts: i,
+    turnId: 'T',
+    sessionId: 'S',
+    source: type === 'assistant_chunk' ? 'model' : 'system',
+    delta: type === 'assistant_chunk' ? 'chunk' : undefined,
+  }) as unknown as MoxxyEvent;
+
+const assistant = (i: number, content: string): MoxxyEvent =>
+  ({
+    id: `a${i}`,
+    type: 'assistant_message',
+    content,
+    stopReason: 'end_turn',
+    seq: i,
+    ts: i,
+    turnId: 'T',
+    sessionId: 'S',
+    source: 'model',
+  }) as unknown as MoxxyEvent;
 
 describe('chat-log NDJSON backend', () => {
   it('appends and loads the tail oldest-first', async () => {
@@ -60,6 +93,78 @@ describe('chat-log NDJSON backend', () => {
     const seg = await loadSegment('nope', null, 10);
     expect(seg.events).toEqual([]);
     expect(seg.prevCursor).toBeNull();
+  });
+
+  it('falls back to the persisted core session log when the chat mirror is missing', async () => {
+    const sessionsDir = path.join(homeDir, 'sessions');
+    await mkdir(sessionsDir, { recursive: true });
+    await writeFile(
+      path.join(sessionsDir, 'session-with-history.jsonl'),
+      [ev(0), ev(1), ev(2)].map((event) => JSON.stringify(event)).join('\n') + '\n',
+      'utf8',
+    );
+
+    const seg = await loadSegment('session-with-history', null, 2);
+
+    expect(seg.events.map((e) => (e as { text: string }).text)).toEqual(['m1', 'm2']);
+    expect(seg.prevCursor).toBe(1);
+  });
+
+  it('falls back to the persisted core session log when the chat mirror is empty', async () => {
+    const sessionsDir = path.join(homeDir, 'sessions');
+    await mkdir(sessionsDir, { recursive: true });
+    await writeFile(path.join(dir, 'session-empty-mirror.jsonl'), '', 'utf8');
+    await writeFile(
+      path.join(sessionsDir, 'session-empty-mirror.jsonl'),
+      [ev(0), ev(1), ev(2)].map((event) => JSON.stringify(event)).join('\n') + '\n',
+      'utf8',
+    );
+
+    const seg = await loadSegment('session-empty-mirror', null, 2);
+
+    expect(seg.events.map((e) => (e as { text: string }).text)).toEqual(['m1', 'm2']);
+    expect(seg.prevCursor).toBe(1);
+  });
+
+  it('prefers the persisted core session log over a stale partial chat mirror', async () => {
+    const sessionsDir = path.join(homeDir, 'sessions');
+    await mkdir(sessionsDir, { recursive: true });
+    await appendEvents('session-stale-mirror', [ev(0)]);
+    await writeFile(
+      path.join(sessionsDir, 'session-stale-mirror.jsonl'),
+      [ev(0), ev(1), ev(2), ev(3)].map((event) => JSON.stringify(event)).join('\n') + '\n',
+      'utf8',
+    );
+
+    const seg = await loadSegment('session-stale-mirror', null, 2);
+
+    expect(seg.events.map((e) => (e as { text: string }).text)).toEqual(['m2', 'm3']);
+    expect(seg.prevCursor).toBe(2);
+  });
+
+  it('paginates restored core logs over rendered chat events only', async () => {
+    const sessionsDir = path.join(homeDir, 'sessions');
+    await mkdir(sessionsDir, { recursive: true });
+    await writeFile(
+      path.join(sessionsDir, 'session-with-bookkeeping.jsonl'),
+      [
+        ev(0),
+        noise(1, 'provider_response'),
+        noise(2, 'assistant_chunk'),
+        assistant(3, 'answer'),
+        noise(4, 'compaction'),
+        ev(5),
+      ].map((event) => JSON.stringify(event)).join('\n') + '\n',
+      'utf8',
+    );
+
+    const tail = await loadSegment('session-with-bookkeeping', null, 2);
+    const older = await loadSegment('session-with-bookkeeping', tail.prevCursor, 2);
+
+    expect(tail.events.map((e) => e.type)).toEqual(['assistant_message', 'user_prompt']);
+    expect(tail.prevCursor).toBe(1);
+    expect(older.events.map((e) => (e as { text: string }).text)).toEqual(['m0']);
+    expect(older.prevCursor).toBeNull();
   });
 
   it('clearLog truncates', async () => {

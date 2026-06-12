@@ -10,3 +10,14 @@ export function shouldShowThinkingIndicator(input: ThinkingIndicatorInput): bool
   const lastItem = input.items[input.items.length - 1];
   return !(lastItem?.kind === 'assistant' && lastItem.streaming);
 }
+
+interface LoadOlderScrollInput {
+  readonly contentOffsetY: number;
+  readonly hasOlder: boolean;
+}
+
+const LOAD_OLDER_TOP_THRESHOLD = 24;
+
+export function shouldLoadOlderFromScroll(input: LoadOlderScrollInput): boolean {
+  return input.hasOlder && input.contentOffsetY <= LOAD_OLDER_TOP_THRESHOLD;
+}

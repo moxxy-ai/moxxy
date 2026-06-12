@@ -19,7 +19,21 @@ import { appendFile, mkdir, open, readdir, readFile, rm, stat } from 'node:fs/pr
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { createMutex, type Mutex, type MoxxyEvent } from '@moxxy/sdk';
-import { defaultSessionsDir, seedSessionLog } from '@moxxy/core';
+import { writeFileAtomic } from '@moxxy/sdk/server';
+import { defaultSessionsDir, restoreSessionEvents, seedSessionLog } from '@moxxy/core';
+
+const SUBAGENT_PLUGIN_ID = '@moxxy/subagents';
+const CHAT_EVENT_TYPES: ReadonlySet<MoxxyEvent['type']> = new Set([
+  'user_prompt',
+  'assistant_message',
+  'tool_call_requested',
+  'tool_result',
+  'tool_call_approved',
+  'tool_call_denied',
+  'skill_invoked',
+  'error',
+  'abort',
+]);
 
 /** Chats directory — env-overridable so tests can point at a tmp dir. */
 function chatsDir(): string {
@@ -239,6 +253,9 @@ export async function loadSegment(
   before: number | null,
   limit: number,
 ): Promise<{ events: MoxxyEvent[]; prevCursor: number | null }> {
+  const restored = await loadSegmentFromSessionLog(workspaceId, before, limit);
+  if (restored) return restored;
+
   const file = fileFor(workspaceId);
   const idx = await lineIndexFor(file);
   if (!idx || idx.offsets.length === 0) return { events: [], prevCursor: null };
@@ -275,6 +292,56 @@ export async function loadSegment(
     }
   }
   return { events, prevCursor };
+}
+
+async function loadSegmentFromSessionLog(
+  workspaceId: string,
+  before: number | null,
+  limit: number,
+): Promise<{ events: MoxxyEvent[]; prevCursor: number | null } | null> {
+  let restored: MoxxyEvent[];
+  try {
+    restored = await restoreSessionEvents(workspaceId);
+  } catch {
+    return null;
+  }
+  if (restored.length === 0) return null;
+  const rendered = restored.filter(isChatEvent);
+  await repairMirrorFromSessionLog(workspaceId, rendered);
+  return segmentFromEvents(rendered, before, limit);
+}
+
+async function repairMirrorFromSessionLog(
+  workspaceId: string,
+  events: ReadonlyArray<MoxxyEvent>,
+): Promise<void> {
+  const file = fileFor(workspaceId);
+  const idx = await lineIndexFor(file);
+  if (idx?.offsets.length === events.length) return;
+  await mkdir(chatsDir(), { recursive: true });
+  const body = events.map((event) => JSON.stringify(event) + '\n').join('');
+  await writeFileAtomic(file, body);
+  writtenIds.delete(file);
+  lineIndexes.delete(file);
+}
+
+function isChatEvent(event: MoxxyEvent): boolean {
+  if (event.type === 'plugin_event') {
+    return (event as { pluginId?: string }).pluginId === SUBAGENT_PLUGIN_ID;
+  }
+  return CHAT_EVENT_TYPES.has(event.type);
+}
+
+function segmentFromEvents(
+  events: ReadonlyArray<MoxxyEvent>,
+  before: number | null,
+  limit: number,
+): { events: MoxxyEvent[]; prevCursor: number | null } {
+  const total = events.length;
+  const end = before === null ? total : Math.min(before, total);
+  const start = Math.max(0, end - limit);
+  const prevCursor = start > 0 ? start : null;
+  return { events: events.slice(start, end), prevCursor };
 }
 
 /** Truncate a workspace's log (Clear conversation). Also drops the

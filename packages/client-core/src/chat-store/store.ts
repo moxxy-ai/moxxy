@@ -303,6 +303,7 @@ class ChatStore {
           null,
           INITIAL_WINDOW,
         );
+        slot.loaded = events.length > 0 || prevCursor !== null;
         this.prependFresh(slot, events);
         slot.oldestCursor = prevCursor;
         slot.hasOlder = prevCursor !== null;

@@ -8,7 +8,7 @@
  * workspace.
  */
 
-import type { DeskStore } from '../desks';
+import { cwdForSession, type DeskStore } from '../desks';
 import { handle } from './shared';
 
 /**
@@ -27,7 +27,7 @@ export async function cwdForWorkspace(desks: DeskStore, workspaceId?: string): P
     doc.desks.find((d) => d.id === workspaceId || d.sessions.some((s) => s.id === workspaceId)) ??
     doc.desks.find((d) => d.id === doc.activeId) ??
     null;
-  return desk?.cwd ?? process.cwd();
+  return desk ? cwdForSession(desk, workspaceId) : process.cwd();
 }
 
 export function registerWorkspaceFsHandlers(desks: DeskStore): void {

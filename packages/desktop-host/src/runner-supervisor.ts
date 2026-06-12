@@ -553,13 +553,20 @@ export class RunnerSupervisor extends EventEmitter {
       child && (child.exitCode !== null || child.signalCode !== null)
         ? { code: child.exitCode, signal: child.signalCode }
         : null;
+    let spawnError: Error | null = null;
     const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
       exited = { code, signal };
     };
+    const onError = (err: Error): void => {
+      spawnError = err;
+      this.pushLog('stderr', `child spawn error: ${err.message}`);
+    };
     child?.once('exit', onExit);
+    child?.once('error', onError);
     try {
       const deadline = Date.now() + SOCKET_WAIT_MS;
       while (Date.now() < deadline) {
+        if (spawnError) throw spawnError;
         if (await this.probeSocket()) return;
         // The serve we spawned died before binding — no point polling for
         // 20 s; surface it now so the run loop retries / reports.
@@ -576,6 +583,7 @@ export class RunnerSupervisor extends EventEmitter {
       );
     } finally {
       child?.removeListener('exit', onExit);
+      child?.removeListener('error', onError);
     }
   }
 

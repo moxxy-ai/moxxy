@@ -145,6 +145,18 @@ describe('RunnerSupervisor', () => {
     expect(sup.__childForTest()).toBeNull();
   });
 
+  it('turns child spawn errors into controlled socket-wait failures', async () => {
+    const sup = new RunnerSupervisor(path.join(tmp, 'serve.sock'));
+    const child = makeFakeChild();
+    const wait = (
+      sup as unknown as { waitForSocket: (child: ChildProcess) => Promise<void> }
+    ).waitForSocket(child.proc);
+
+    child.error(new Error('spawn helper ENOENT'));
+
+    await expect(wait).rejects.toThrow(/spawn helper ENOENT/);
+  });
+
   it('surfaces a TERMINAL protocol-incompatible phase instead of looping forever on a persistent mismatch', async () => {
     // The desktop hot-update case: the (pinned) CLI's runner can never satisfy
     // the JS bundle's newer client, so EVERY attach mismatches the SAME way.
@@ -197,6 +209,7 @@ function makeFakeChild(): {
   proc: ChildProcess;
   signals: string[];
   exit: (code: number) => void;
+  error: (error: Error) => void;
 } {
   const signals: string[] = [];
   const emitter = new EventEmitter() as EventEmitter & {
@@ -216,6 +229,9 @@ function makeFakeChild(): {
     exit: (code: number) => {
       emitter.exitCode = code;
       emitter.emit('exit', code, null);
+    },
+    error: (error: Error) => {
+      emitter.emit('error', error);
     },
   };
 }

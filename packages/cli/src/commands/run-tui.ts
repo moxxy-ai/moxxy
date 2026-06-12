@@ -112,6 +112,8 @@ function resolveUpdateNotice(version: string | undefined): { latest: string } | 
 export interface RunTuiOpts {
   /** Resume a persisted session by id. Seeds the EventLog from disk. */
   readonly resumeSessionId?: string;
+  /** Cwd restored from session metadata when resuming outside the original directory. */
+  readonly cwd?: string;
 }
 
 export async function runTuiWithBootstrap(
@@ -301,7 +303,7 @@ async function runSelfHostedTui(
     React.createElement(InteractiveSession, {
       bootstrap: async (progress: (step: InteractiveBootStep) => void) => {
         const result = await setupSessionWithConfig({
-          ...argvToSetupOptions(argv),
+          ...argvToSetupOptions(argv, tuiOpts.cwd ? { cwd: tuiOpts.cwd } : {}),
           resolver,
           onProgress: (step: BootStep) => progress(toInteractiveStep(step)),
           ...(tuiOpts.resumeSessionId ? { resumeSessionId: tuiOpts.resumeSessionId } : {}),
