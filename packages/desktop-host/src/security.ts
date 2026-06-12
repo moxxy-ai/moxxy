@@ -226,6 +226,18 @@ export function isStrandedPortalUrl(url: string, portalHost: string): boolean {
 }
 
 /**
+ * How long the portal's automatic `#/sso-callback` page may hold the top
+ * frame before the net declares it dead and recovers to the app. That page is
+ * a spinner running clerk-js's transfer (`signUp.create({transfer: true})`) —
+ * normally seconds; the budget is generous enough for a slow network plus an
+ * interactive Turnstile challenge, because recovering early would abort a
+ * transfer that was still going to finish. After recovery the app's boot
+ * sweep (`OAuthTransferBridge`) completes the dangling transfer in-app, so a
+ * dead callback page no longer needs an app restart to get signed in.
+ */
+const SSO_CALLBACK_TIMEOUT_MS = 30_000;
+
+/**
  * Recovery net for the OAuth return leg: if the top frame lands STRANDED on
  * the Clerk hosted Account Portal instead of back in the app (see
  * {@link isStrandedPortalUrl} — the functional `/sign-in` + `/sign-up` legs
@@ -235,6 +247,18 @@ export function isStrandedPortalUrl(url: string, portalHost: string): boolean {
  * only adds a way back when Clerk's fallback redirect picks the portal over
  * the app. Loop-safe: it only fires for the portal host, and `appUrl` is on
  * a different host, so the recovery load can't re-trigger it.
+ *
+ * Listens to BOTH full loads (`did-navigate`) and in-page navigations
+ * (`did-navigate-in-page`): the portal is an SPA, and the stranding users
+ * actually hit is its post-transfer client-side router push from
+ * `/sign-in#/sso-callback` to the `/user` profile page — a pushState hop
+ * `did-navigate` never reports.
+ *
+ * The functional legs additionally get a watchdog on the automatic
+ * `#/sso-callback` step (see {@link SSO_CALLBACK_TIMEOUT_MS}): if its JS
+ * dies, the window would otherwise sit on a blank portal page forever.
+ * Interactive portal pages (sign-in form, verify-email-address) are never
+ * put on a timer — a user mid-typing must not be yanked.
  */
 export function installAccountPortalRecovery(
   win: BrowserWindow,
@@ -243,17 +267,54 @@ export function installAccountPortalRecovery(
     readonly portalHost: string | null | undefined;
     /** The app root the window was originally loaded from. */
     readonly appUrl: string;
+    /** Test seam for the sso-callback watchdog. */
+    readonly ssoCallbackTimeoutMs?: number;
   },
 ): void {
   const { portalHost, appUrl } = opts;
   if (!portalHost) return;
+  const timeoutMs = opts.ssoCallbackTimeoutMs ?? SSO_CALLBACK_TIMEOUT_MS;
   const wc = win.webContents;
-  wc.on('did-navigate', (_event, url) => {
-    if (url === appUrl || !isStrandedPortalUrl(url, portalHost)) return;
-    void Promise.resolve(wc.loadURL(appUrl)).catch(() => {
-      /* window may be tearing down — nothing to recover */
-    });
-  });
+  let watchdog: ReturnType<typeof setTimeout> | null = null;
+  const disarm = (): void => {
+    if (watchdog) {
+      clearTimeout(watchdog);
+      watchdog = null;
+    }
+  };
+  const recover = (): void => {
+    try {
+      void Promise.resolve(wc.loadURL(appUrl)).catch(() => {
+        /* window may be tearing down — nothing to recover */
+      });
+    } catch {
+      /* webContents destroyed — nothing to recover */
+    }
+  };
+  const onLanding = (url: string): void => {
+    disarm(); // any navigation supersedes a pending sso-callback deadline
+    if (url === appUrl) return;
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return;
+    }
+    if (parsed.hostname !== portalHost) return;
+    if (isStrandedPortalUrl(url, portalHost)) {
+      recover();
+      return;
+    }
+    if (parsed.hash.startsWith('#/sso-callback')) {
+      watchdog = setTimeout(() => {
+        watchdog = null;
+        recover();
+      }, timeoutMs);
+    }
+  };
+  wc.on('did-navigate', (_event, url) => onLanding(url));
+  wc.on('did-navigate-in-page', (_event, url) => onLanding(url));
+  wc.on('destroyed', disarm);
 }
 
 /**

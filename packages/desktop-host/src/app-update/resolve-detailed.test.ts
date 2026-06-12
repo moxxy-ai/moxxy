@@ -75,6 +75,43 @@ describe('resolveActiveBundleDetailed', () => {
     ).toBe('poisoned');
   });
 
+  it('names "older-than-floor" when a fresh shell install supersedes the override', () => {
+    // The live bug: user on 0.6 had a staged 0.6.2 override, installed the
+    // full 0.7.0 app — and the new shell kept booting the stale 0.6.2 JS.
+    installBundle('0.6.2');
+    expect(
+      resolveActiveBundleDetailed({
+        userDataDir: tmp,
+        publicKeyPem: PUBKEY,
+        shell: SHELL,
+        floorVersion: '0.7.0',
+      }).reason,
+    ).toBe('older-than-floor');
+  });
+
+  it('floor gate: an override EQUAL to the floor loses too (baked copy is the trusted one)', () => {
+    installBundle('0.7.0');
+    expect(
+      resolveActiveBundleDetailed({
+        userDataDir: tmp,
+        publicKeyPem: PUBKEY,
+        shell: SHELL,
+        floorVersion: '0.7.0',
+      }).reason,
+    ).toBe('older-than-floor');
+  });
+
+  it('floor gate: a NEWER override still wins (the normal hot-update case)', () => {
+    installBundle('0.7.1');
+    const r = resolveActiveBundleDetailed({
+      userDataDir: tmp,
+      publicKeyPem: PUBKEY,
+      shell: SHELL,
+      floorVersion: '0.7.0',
+    });
+    expect(r.bundle?.version).toBe('0.7.1');
+  });
+
   it('names "manifest-missing" when the manifest is absent', () => {
     const root = bundleRoot(tmp, '0.0.6');
     mkdirSync(path.join(root, 'dist-electron', 'main'), { recursive: true });

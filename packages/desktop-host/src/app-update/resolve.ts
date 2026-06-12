@@ -148,6 +148,18 @@ export function setActiveVersion(userDataDir: string, version: string): void {
   writeJsonAtomic(activePath(userDataDir), { version });
 }
 
+/** Drop the active pointer WITHOUT poisoning the version (unlike {@link markBad}
+ *  — the bundle isn't broken, just obsolete). Used by the bootstrap when a
+ *  fresh shell install supersedes the staged override (`older-than-floor`), so
+ *  state files stop pointing at a bundle that will never be loaded again. */
+export function clearActiveVersion(userDataDir: string): void {
+  try {
+    rmSync(activePath(userDataDir), { force: true });
+  } catch {
+    /* best effort */
+  }
+}
+
 export function readBadVersions(userDataDir: string): Set<string> {
   const raw = tryRead(badPath(userDataDir));
   if (!raw) return new Set();
@@ -274,6 +286,18 @@ export interface ResolveOpts {
   publicKeyPem: string;
   shell: ShellInfo;
   /**
+   * The version of the BAKED floor bundle (= the installed shell's app
+   * version — they ship together and share the release version stream). An
+   * override is only an *update* while it is NEWER than the floor: after the
+   * user installs a fresh full app, any staged bundle from the previous
+   * install is older-or-equal and must lose to the floor. Without this gate a
+   * stale `active.json` keeps winning — observed live as "installed 0.7.0 but
+   * the app still runs 0.6": the new shell booted the old 0.6 override JS,
+   * whose update UI then re-demanded the full installer forever. Omit to skip
+   * the gate (legacy callers / tests that don't model the floor).
+   */
+  floorVersion?: string;
+  /**
    * The runner protocol version the REACHABLE CLI can serve — i.e. the
    * `RUNNER_PROTOCOL_VERSION` of the CLI the desktop will actually spawn
    * (the pinned, bundled `moxxy-cli` in resources, whose protocol equals the
@@ -292,6 +316,8 @@ export type ResolveRejectReason =
   | 'disabled' // no signing key baked → self-update off
   | 'no-active' // nothing staged
   | 'poisoned' // active version is on the bad list
+  | 'older-than-floor' // a fresh shell install superseded the staged override
+
   | 'manifest-missing' // no manifest.json under the bundle dir
   | 'manifest-malformed' // manifest failed shape checks
   | 'version-mismatch' // manifest.version ≠ active version
@@ -317,12 +343,17 @@ export type ResolveResult =
  *   legacy manifests have no map and get no load-time file verification).
  */
 export function resolveActiveBundleDetailed(opts: ResolveOpts): ResolveResult {
-  const { userDataDir, publicKeyPem, shell, cliRunnerProtocol } = opts;
+  const { userDataDir, publicKeyPem, shell, cliRunnerProtocol, floorVersion } = opts;
   if (!publicKeyPem) return { bundle: null, reason: 'disabled' };
 
   const version = readActiveVersion(userDataDir);
   if (!version) return { bundle: null, reason: 'no-active' };
   if (readBadVersions(userDataDir).has(version)) return { bundle: null, reason: 'poisoned' };
+  // An override only ever exists to run something NEWER than the baked floor.
+  // Equal loses too: same release, and the baked copy is the trusted one.
+  if (floorVersion && compareSemver(version, floorVersion) <= 0) {
+    return { bundle: null, reason: 'older-than-floor' };
+  }
 
   const root = bundleRoot(userDataDir, version);
   const manifestRaw = tryRead(path.join(root, 'manifest.json'));

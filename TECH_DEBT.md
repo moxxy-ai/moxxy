@@ -680,6 +680,17 @@ refused override impersonated the previous override and let the boot probe confi
 that wasn't running. Residual (low): any pre-be7d33a floor will show the macOS Dock ghost-runner
 whenever a refused update drops onto it — immutable floor code, only a full reinstall fixes it.
 
+**2026-06-12 fourth failure mode found + fixed (the inverse of #3):** a STALE override
+outranked a freshly installed shell. The resolve gate had no floor-version check, so after
+"0.7.0 updates the bundled runner — install the full app update" → user installs 0.7.0,
+the new shell still booted the staged 0.6.x override (signature/ABI/protocol gates all pass
+for an OLD bundle) — whose update UI then re-demanded the full installer forever. Observed
+live as "installed 0.7 but it still gets 0.6". `resolveActiveBundleDetailed` now takes
+`floorVersion` (bootstrap passes `app.getVersion()`; shell version == floor bundle version)
+and rejects `older-than-floor` (equal loses too — the baked copy is the trusted one); the
+bootstrap clears the active pointer on that reject (no poison — the bundle is obsolete, not
+broken) so later boots take the clean `no-active` path.
+
 **Multi-session testing caveat (2026-06-11):** desks now hold N sessions and the runner pool is
 keyed by session id, but every v1-migrated/first session has id === desk id — which masks
 pool-key regressions. Always test multi-session paths with a desk's *second* (UUID-keyed) session.
@@ -905,8 +916,15 @@ regressions. Restore the detail from git history (`TECH_DEBT.md` @ `b014c3a`) if
   recover), and the renderer's `OAuthTransferBridge` (apps/desktop/src/lib/oauthTransfer.tsx)
   sweeps any still-dangling transferable attempt on boot and completes it in-app.
   Instance config verified sane via the public FAPI `/v1/environment` (sign-up mode
-  `public` on dev + prod). **Remaining verify:** packaged round-trip with a
-  never-seen-before Google account.
+  `public` on dev + prod). **Third layer found live 2026-06-12:** the fresh-sign-up
+  round-trip still stranded the window — on the portal's *profile* page this time. The
+  portal is an SPA: its post-transfer hop from `/sign-in#/sso-callback` to `/user` is a
+  client-side router push, and the recovery net only listened to `did-navigate` (never
+  fired). Net now also watches `did-navigate-in-page`, plus a 30s watchdog on the
+  automatic `#/sso-callback` leg (interactive portal pages get NO timer) so a dead
+  transfer page recovers into the app, where the boot sweep finishes the sign-up — no
+  restart. **Remaining verify:** packaged round-trip with a never-seen-before Google
+  account.
 - **Desktop Dock-ghost runner process** (2026-06-10). The packaged desktop's runner
   (`moxxy serve`, spawned via the bundled CLI with `ELECTRON_RUN_AS_NODE=1`) showed up in
   the macOS Dock as a generic-executable ("exec") icon named after the app: on macOS 26

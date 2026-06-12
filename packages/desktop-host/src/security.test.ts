@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { BrowserWindow, Session } from 'electron';
 import {
   isSafeProviderName,
@@ -172,19 +172,20 @@ describe('clerk account-portal host', () => {
 });
 
 describe('account-portal recovery net', () => {
-  /** Minimal BrowserWindow stand-in: captures the did-navigate handler and
+  /** Minimal BrowserWindow stand-in: captures the navigation handlers and
    *  records loadURL calls so a test can replay post-OAuth landings. */
   function fakeWindow(): {
     win: BrowserWindow;
     navigate: (url: string) => void;
+    navigateInPage: (url: string) => void;
     hasHandler: () => boolean;
     loads: string[];
   } {
     const loads: string[] = [];
-    let handler: ((e: unknown, url: string) => void) | undefined;
+    const handlers = new Map<string, (e: unknown, url: string) => void>();
     const wc = {
       on: (ev: string, fn: (e: unknown, url: string) => void) => {
-        if (ev === 'did-navigate') handler = fn;
+        handlers.set(ev, fn);
       },
       loadURL: (url: string) => {
         loads.push(url);
@@ -193,8 +194,9 @@ describe('account-portal recovery net', () => {
     };
     return {
       win: { webContents: wc } as unknown as BrowserWindow,
-      navigate: (url) => handler?.({}, url),
-      hasHandler: () => !!handler,
+      navigate: (url) => handlers.get('did-navigate')?.({}, url),
+      navigateInPage: (url) => handlers.get('did-navigate-in-page')?.({}, url),
+      hasHandler: () => handlers.has('did-navigate'),
       loads,
     };
   }
@@ -239,6 +241,72 @@ describe('account-portal recovery net', () => {
     const { win, hasHandler } = fakeWindow();
     installAccountPortalRecovery(win, { portalHost: null, appUrl: APP });
     expect(hasHandler()).toBe(false);
+  });
+
+  it('recovers from an SPA (in-page) hop onto the portal profile page — the post-transfer stranding', () => {
+    const { win, navigate, navigateInPage, loads } = fakeWindow();
+    installAccountPortalRecovery(win, { portalHost: 'accounts.acme.com', appUrl: APP });
+    // Full-page landing on the functional sso-callback leg: left to run.
+    navigate('https://accounts.acme.com/sign-in#/sso-callback?after_sign_in_url=x');
+    expect(loads).toEqual([]);
+    // The portal SPA's router then PUSHES to /user — no did-navigate fires.
+    navigateInPage('https://accounts.acme.com/user');
+    expect(loads).toEqual([APP]);
+  });
+
+  it('recovers when the automatic sso-callback page dies (watchdog)', () => {
+    vi.useFakeTimers();
+    try {
+      const { win, navigate, loads } = fakeWindow();
+      installAccountPortalRecovery(win, {
+        portalHost: 'accounts.acme.com',
+        appUrl: APP,
+        ssoCallbackTimeoutMs: 1000,
+      });
+      navigate('https://accounts.acme.com/sign-in#/sso-callback?after_sign_in_url=x');
+      vi.advanceTimersByTime(999);
+      expect(loads).toEqual([]);
+      vi.advanceTimersByTime(1);
+      expect(loads).toEqual([APP]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('disarms the sso-callback watchdog once the flow moves on', () => {
+    vi.useFakeTimers();
+    try {
+      const { win, navigate, loads } = fakeWindow();
+      installAccountPortalRecovery(win, {
+        portalHost: 'accounts.acme.com',
+        appUrl: APP,
+        ssoCallbackTimeoutMs: 1000,
+      });
+      navigate('https://accounts.acme.com/sign-in#/sso-callback?after_sign_in_url=x');
+      navigate(APP); // the flow returned to the app on its own
+      vi.advanceTimersByTime(60_000);
+      expect(loads).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('puts no timer on interactive portal pages (sign-in form, verify-email)', () => {
+    vi.useFakeTimers();
+    try {
+      const { win, navigate, navigateInPage, loads } = fakeWindow();
+      installAccountPortalRecovery(win, {
+        portalHost: 'accounts.acme.com',
+        appUrl: APP,
+        ssoCallbackTimeoutMs: 1000,
+      });
+      navigate('https://accounts.acme.com/sign-in');
+      navigateInPage('https://accounts.acme.com/sign-up#/verify-email-address');
+      vi.advanceTimersByTime(60_000);
+      expect(loads).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
