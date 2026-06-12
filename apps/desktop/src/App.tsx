@@ -9,6 +9,7 @@ import {
   ChatStoreBridge,
   chatStore,
   usePrefs,
+  useSessionInfoBridge,
 } from '@moxxy/client-core';
 import { AskSheet } from './chat/AskSheet';
 import { useAskSurfaceClaimed } from '@/lib/askSurface';
@@ -40,6 +41,11 @@ export function App(): JSX.Element {
   // Theme controller — applies the persisted light/dark/system pref to
   // <html data-theme> and tracks OS scheme changes. Mounted exactly once.
   useTheme();
+  // Re-emit the runner's registry-change push (`session.info.changed`) as the
+  // SESSION_INFO_REFRESH_EVENT every info-derived view listens for — Settings
+  // tabs, mode badge, agent picker — so agent-made changes (provider_add, …)
+  // show up live instead of after an app restart. Mounted exactly once.
+  useSessionInfoBridge();
   const activeWorkspaceId = useActiveWorkspaceId();
   const { snapshot, hasEverConnected, retry } = useConnection(activeWorkspaceId);
   const { prefs, loading: prefsLoading } = usePrefs();

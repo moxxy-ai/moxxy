@@ -16,4 +16,4 @@
  * the release build asserts the two match (see scripts/build-app-bundle.mjs),
  * so a forgotten bump fails the build rather than shipping a wrong floor.
  */
-export const FLOOR_RUNNER_PROTOCOL = 6;
+export const FLOOR_RUNNER_PROTOCOL = 7;

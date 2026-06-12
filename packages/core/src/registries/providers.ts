@@ -4,6 +4,13 @@ export class ProviderRegistry {
   private readonly defs = new Map<string, ProviderDef>();
   private readonly instances = new Map<string, LLMProvider>();
   private active: string | null = null;
+  /**
+   * Names the user disabled. Kept name-based (not def-based) so it can be
+   * seeded from preferences BEFORE the plugins register their defs — boot
+   * order doesn't matter. A disabled provider stays registered/listable but
+   * can't be activated.
+   */
+  private readonly disabled = new Set<string>();
 
   /**
    * Register a provider def. Throws on duplicate — use `replace()` for
@@ -34,9 +41,31 @@ export class ProviderRegistry {
     return [...this.defs.values()];
   }
 
+  /**
+   * Enable/disable a provider by name. Disabling the ACTIVE provider is
+   * refused — switch first, then disable — so a session never ends up with an
+   * active-but-disabled provider. Unknown names are accepted (the set seeds
+   * from preferences before plugins register), except when disabling via a
+   * live toggle is meaningless because the provider is active.
+   */
+  setEnabled(name: string, enabled: boolean): void {
+    if (!enabled && this.active === name) {
+      throw new Error(`Cannot disable the active provider "${name}" — switch providers first.`);
+    }
+    if (enabled) this.disabled.delete(name);
+    else this.disabled.add(name);
+  }
+
+  isEnabled(name: string): boolean {
+    return !this.disabled.has(name);
+  }
+
   setActive(name: string, config?: Record<string, unknown>): LLMProvider {
     const def = this.defs.get(name);
     if (!def) throw new Error(`Provider not registered: ${name}`);
+    if (this.disabled.has(name)) {
+      throw new Error(`Provider "${name}" is disabled — enable it first.`);
+    }
     let instance = this.instances.get(name);
     if (!instance) {
       instance = def.createClient(config ?? {});

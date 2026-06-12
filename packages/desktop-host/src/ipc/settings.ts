@@ -10,7 +10,7 @@
  */
 
 import type { RunnerPool } from '../runner-pool';
-import { handle, mustSession, resolveSupervisor } from './shared';
+import { handle, mustRemote, mustSession, resolveSupervisor } from './shared';
 
 export function registerSettingsHandlers(pool: RunnerPool): void {
   // ---- Settings -----------------------------------------------------------
@@ -43,10 +43,39 @@ export function registerSettingsHandlers(pool: RunnerPool): void {
     if (!session) return [];
     const info = session.getInfo();
     const readySet = new Set(info.readyProviders ?? []);
-    return info.providers.map((p) => ({
-      name: p.name,
-      ready: readySet.has(p.name),
-    }));
+    // Stored (runtime-registered) entries carry the configure-relevant
+    // detail; providers absent from providers.json are built-ins.
+    const { readAdminProviderDetails, builtinProviderKeyName } = await import('../provider-discovery');
+    const admin = await readAdminProviderDetails();
+    return info.providers.map((p) => {
+      const detail = admin.get(p.name);
+      return {
+        name: p.name,
+        ready: readySet.has(p.name),
+        // Older runners (pre-v7) omit `enabled` — treat absent as enabled.
+        enabled: p.enabled !== false,
+        active: info.activeProvider === p.name,
+        authKind: p.authKind,
+        kind: detail ? ('admin' as const) : ('builtin' as const),
+        keyName: detail?.keyName ?? builtinProviderKeyName(p.name),
+        ...(detail
+          ? {
+              baseURL: detail.baseURL,
+              defaultModel: detail.defaultModel,
+              modelIds: detail.modelIds,
+            }
+          : {}),
+      };
+    });
+  });
+  handle('settings.providerSetEnabled', async ({ workspaceId, name, enabled }) => {
+    await mustRemote(pool, workspaceId).providerAdmin.setEnabled(name, enabled);
+  });
+  handle('settings.providerConfigure', async ({ workspaceId, name, patch }) => {
+    await mustRemote(pool, workspaceId).providerAdmin.configure(name, patch);
+  });
+  handle('settings.providerRefreshReady', async (args) => {
+    await mustRemote(pool, args?.workspaceId).providerAdmin.refreshReady();
   });
   handle('settings.mcpServers', async (args) => {
     const session = mustSession(pool, args?.workspaceId);

@@ -64,6 +64,16 @@ export class SessionDriver {
     });
     this.disposes.push(logUnsub);
 
+    // Forward registry-snapshot pushes (`info.changed`) so the renderer's
+    // info-derived views (Settings tabs, mode badge, action catalog) refresh
+    // when a provider/MCP/workflow/mode changes on the runner — including
+    // changes made by TOOLS inside a turn (provider_add etc.), which used to
+    // require an app restart to show up.
+    const infoUnsub = this.session.onInfoChanged(() => {
+      this.send('session.info.changed', { workspaceId });
+    });
+    this.disposes.push(infoUnsub);
+
     // Forward the runner's permission + approval decisions to the renderer's
     // bottom sheet. Declaring these resolvers tells the runner this client
     // handles permissions/approvals, so loop strategies (research)

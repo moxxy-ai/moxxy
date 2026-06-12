@@ -36,7 +36,15 @@ describe('settings Add buttons (agent-task flows)', () => {
 
   it('ProvidersTab: "Add provider" opens the agent-task modal', () => {
     installFakeApi();
-    render(<ProvidersTab providers={[]} onRefresh={() => Promise.resolve()} />);
+    render(
+      <ProvidersTab
+        providers={[]}
+        onToggle={() => Promise.resolve()}
+        onConfigure={() => Promise.resolve()}
+        onSetKey={() => Promise.resolve()}
+        onRefresh={() => Promise.resolve()}
+      />,
+    );
     fireEvent.click(screen.getByRole('button', { name: /add provider/i }));
     expect(screen.getByText('Add provider', { selector: 'h2, h3, header *' })).toBeTruthy();
     expect(screen.getByText(/describe the provider/i)).toBeTruthy();

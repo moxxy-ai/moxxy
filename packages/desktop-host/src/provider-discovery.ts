@@ -56,6 +56,45 @@ export async function readAdminProviderNames(): Promise<string[]> {
   return providers.map((p) => p.name).filter((n): n is string => typeof n === 'string');
 }
 
+/** Display detail of one stored admin provider for the Settings tab. */
+export interface AdminProviderDetail {
+  readonly name: string;
+  readonly baseURL: string;
+  readonly defaultModel: string;
+  readonly modelIds: ReadonlyArray<string>;
+  /** Vault entry name holding the API key (`envVar` override or `<NAME>_API_KEY`). */
+  readonly keyName: string;
+}
+
+/**
+ * Stored admin-provider entries keyed by name, for merging configure-relevant
+ * detail (baseURL/defaultModel/models/keyName) into `settings.providers`.
+ */
+export async function readAdminProviderDetails(): Promise<Map<string, AdminProviderDetail>> {
+  const { providers } = await readStoredProviders();
+  const out = new Map<string, AdminProviderDetail>();
+  for (const p of providers) {
+    if (typeof p.name !== 'string') continue;
+    out.set(p.name, {
+      name: p.name,
+      baseURL: p.baseURL,
+      defaultModel: p.defaultModel,
+      modelIds: (p.models ?? []).map((m) => m.id).filter((id): id is string => typeof id === 'string'),
+      keyName: envVarFor(p),
+    });
+  }
+  return out;
+}
+
+/**
+ * Vault entry name for a BUILT-IN provider's API key — the same
+ * `<NAME>_API_KEY` derivation `saveProviderKey` (onboarding) and the CLI's
+ * credential resolver use.
+ */
+export function builtinProviderKeyName(providerName: string): string {
+  return `${providerName.toUpperCase().replace(/-/g, '_')}_API_KEY`;
+}
+
 /**
  * Spawn `moxxy vault get <key>` and resolve to stdout (trimmed). The
  * CLI prints the decrypted value to stdout and any UX scaffolding to

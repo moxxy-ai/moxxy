@@ -310,8 +310,13 @@ interface PermissionCheck {
     ctx: { toolDescription?: string },
   ) => Promise<{ mode: string }>;
 }
-function fakeRemote(): { remote: RemoteSession; captured: { permission?: PermissionCheck } } {
+function fakeRemote(): {
+  remote: RemoteSession;
+  captured: { permission?: PermissionCheck };
+  fireInfoChanged: () => void;
+} {
   const captured: { permission?: PermissionCheck } = {};
+  const infoListeners = new Set<() => void>();
   const remote = {
     log: { subscribe: () => () => undefined },
     setPermissionResolver: (r: PermissionCheck) => {
@@ -319,8 +324,18 @@ function fakeRemote(): { remote: RemoteSession; captured: { permission?: Permiss
     },
     setApprovalResolver: () => undefined,
     onClose: () => undefined,
+    onInfoChanged: (fn: () => void) => {
+      infoListeners.add(fn);
+      return () => infoListeners.delete(fn);
+    },
   };
-  return { remote: remote as unknown as RemoteSession, captured };
+  return {
+    remote: remote as unknown as RemoteSession,
+    captured,
+    fireInfoChanged: () => {
+      for (const fn of infoListeners) fn();
+    },
+  };
 }
 
 describe('SessionDriver auto-approve', () => {
@@ -351,5 +366,23 @@ describe('SessionDriver auto-approve', () => {
     driver.dispose();
     const res = await p;
     expect(res.mode).toBe('deny');
+  });
+});
+
+describe('SessionDriver info-changed forwarding', () => {
+  it("mirrors the runner's info.changed push as a session.info.changed IPC event", () => {
+    const { remote, fireInfoChanged } = fakeRemote();
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-1');
+
+    fireInfoChanged();
+    const frames = sent.filter((f) => f.channel === 'session.info.changed');
+    expect(frames).toHaveLength(1);
+    expect(frames[0]!.payload).toEqual({ workspaceId: 'ws-1' });
+
+    // After dispose the subscription is dropped — no more forwards.
+    driver.dispose();
+    fireInfoChanged();
+    expect(sent.filter((f) => f.channel === 'session.info.changed')).toHaveLength(1);
   });
 });

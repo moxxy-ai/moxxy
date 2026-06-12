@@ -79,11 +79,30 @@ import type {
  *     log, not the mirror). An older server ignores the param and replays in
  *     full from seq 0 without `replay.start` — still correct, just slower.
  *
- * Every change v1→v6 has been ADDITIVE, so MIN_COMPATIBLE stays at 1: today's
+ * v7: three additive provider-management methods backing the desktop's
+ * interactive Settings → Providers tab.
+ *   - `provider.setEnabled` toggles a provider on/off in the live registry
+ *     (disable refuses the ACTIVE provider) and persists the disabled set to
+ *     ~/.moxxy/preferences.json so the next boot's activation walk skips it.
+ *   - `provider.refreshReady` re-probes every registered provider's
+ *     credentials via the session's credential resolver and replaces
+ *     `readyProviders` — so a key saved to the vault flips the readiness dot
+ *     without a runner restart.
+ *   - `provider.configure` patches a STORED (runtime-registered) provider's
+ *     entry through the session's optional `providerAdmin` view (live
+ *     re-register + providers.json persist); it throws a clear "not
+ *     supported" error when the provider-admin plugin isn't wired.
+ *   The server also broadcasts `info.changed` after every completed turn —
+ *   a turn may have run registry-mutating tools (provider_add, mcp_add,
+ *   workflow_create, …), and attached clients (the desktop Settings panel)
+ *   re-render from that push instead of requiring an app restart. A v7
+ *   client gates the new methods on the server's reported version.
+ *
+ * Every change v1→v7 has been ADDITIVE, so MIN_COMPATIBLE stays at 1: today's
  * server can serve any client back to v1, and any client v1+ can attach. Bump
  * MIN_COMPATIBLE to N only when landing a breaking change at version N.
  */
-export const RUNNER_PROTOCOL_VERSION = 6;
+export const RUNNER_PROTOCOL_VERSION = 7;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -118,6 +137,12 @@ export const RunnerMethod = {
   ModeSetActive: 'mode.setActive',
   /** client->server: switch the active provider (server resolves credentials). */
   ProviderSetActive: 'provider.setActive',
+  /** client->server: enable/disable a provider (v7; persists to preferences). */
+  ProviderSetEnabled: 'provider.setEnabled',
+  /** client->server: re-probe every provider's credentials → readyProviders (v7). */
+  ProviderRefreshReady: 'provider.refreshReady',
+  /** client->server: patch a stored (runtime-registered) provider's config (v7). */
+  ProviderConfigure: 'provider.configure',
   /** client->server: persist an allow-always permission rule. */
   PermissionAddAllow: 'permission.addAllow',
   /** client->server: run a registered slash command on the runner. */
@@ -410,6 +435,33 @@ export const modeSetActiveParamsSchema = z.object({ name: z.string() });
 export const providerSetActiveParamsSchema = z.object({
   name: z.string(),
   config: z.record(z.unknown()).optional(),
+});
+
+export const providerSetEnabledParamsSchema = z.object({
+  name: z.string().min(1),
+  enabled: z.boolean(),
+});
+
+/**
+ * Patch for `provider.configure` (v7). Models are validated structurally
+ * (id + contextWindow, passthrough for richer descriptor fields) — the same
+ * looseness as the provider-admin store schema, so newer descriptor fields
+ * round-trip through an older runner without being stripped.
+ */
+export const providerConfigureParamsSchema = z.object({
+  name: z.string().min(1),
+  patch: z.object({
+    baseURL: z.string().url().optional(),
+    defaultModel: z.string().min(1).optional(),
+    envVar: z
+      .string()
+      .regex(/^[A-Z][A-Z0-9_]*$/)
+      .optional(),
+    models: z
+      .array(z.object({ id: z.string().min(1), contextWindow: z.number() }).passthrough())
+      .min(1)
+      .optional(),
+  }),
 });
 
 export const permissionAddAllowParamsSchema = z.object({

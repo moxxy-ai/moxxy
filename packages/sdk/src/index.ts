@@ -50,6 +50,8 @@ export type {
   CredentialResolver,
   McpAdminView,
   McpServerStatusView,
+  ProviderAdminView,
+  ProviderConfigurePatch,
   WorkflowsView,
   WorkflowSummaryView,
   WorkflowRunView,

@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Session } from '@moxxy/core';
-import { newTurnId, savePreferences } from '@moxxy/core';
+import { loadPreferences, newTurnId, savePreferences } from '@moxxy/core';
 import { asTurnId } from '@moxxy/sdk';
 import type {
   ApprovalDecision,
@@ -30,7 +30,9 @@ import {
   mcpEnableAndAttachParamsSchema,
   modeSetActiveParamsSchema,
   permissionAddAllowParamsSchema,
+  providerConfigureParamsSchema,
   providerSetActiveParamsSchema,
+  providerSetEnabledParamsSchema,
   runTurnParamsSchema,
   setResolverParamsSchema,
   transcribeParamsSchema,
@@ -159,6 +161,9 @@ export class RunnerServer {
     peer.handle(RunnerMethod.SetResolver, (raw) => this.handleSetResolver(client, raw));
     peer.handle(RunnerMethod.ModeSetActive, (raw) => this.handleModeSetActive(raw));
     peer.handle(RunnerMethod.ProviderSetActive, (raw) => this.handleProviderSetActive(raw));
+    peer.handle(RunnerMethod.ProviderSetEnabled, (raw) => this.handleProviderSetEnabled(raw));
+    peer.handle(RunnerMethod.ProviderRefreshReady, () => this.handleProviderRefreshReady());
+    peer.handle(RunnerMethod.ProviderConfigure, (raw) => this.handleProviderConfigure(raw));
     peer.handle(RunnerMethod.PermissionAddAllow, (raw) => this.handlePermissionAddAllow(raw));
     peer.handle(RunnerMethod.CommandRun, (raw) => this.handleCommandRun(raw));
     peer.handle(RunnerMethod.Transcribe, (raw) => this.handleTranscribe(raw));
@@ -280,6 +285,11 @@ export class RunnerServer {
           turnId,
           ...(error ? { error } : {}),
         });
+        // A turn may have run registry-mutating tools (provider_add, mcp_add,
+        // workflow_create, skill writes, …). Push the fresh snapshot so
+        // attached clients (the desktop Settings panel) re-render without an
+        // app restart. Once per turn — cheap relative to the turn itself.
+        this.broadcastInfo();
       }
     });
 
@@ -366,6 +376,61 @@ export class RunnerServer {
     // Best-effort: savePreferences swallows its own write errors and never
     // throws, so a read-only home can't fail the setActive RPC.
     void savePreferences({ providerName: name });
+    this.broadcastInfo();
+    return {};
+  }
+
+  private async handleProviderSetEnabled(raw: unknown): Promise<Record<string, never>> {
+    const { name, enabled } = providerSetEnabledParamsSchema.parse(raw);
+    if (!this.session.providers.list().some((p) => p.name === name)) {
+      throw new Error(`Provider not registered: ${name}`);
+    }
+    // Throws when disabling the ACTIVE provider — surface that verbatim.
+    this.session.providers.setEnabled(name, enabled);
+    // Persist so the next boot's activation walk skips it (setup.ts seeds the
+    // registry from this list). Read-merge so concurrent writers of other
+    // preference fields aren't clobbered; best-effort like every prefs write.
+    void (async () => {
+      const prefs = await loadPreferences();
+      const current = new Set(prefs.disabledProviders ?? []);
+      if (enabled) current.delete(name);
+      else current.add(name);
+      await savePreferences({ disabledProviders: [...current] });
+    })();
+    this.broadcastInfo();
+    return {};
+  }
+
+  private async handleProviderRefreshReady(): Promise<Record<string, never>> {
+    // Re-probe every registered provider's credentials (vault keys / env /
+    // OAuth tokens) so a key the user just saved flips readiness without a
+    // runner restart. The resolver is the same non-interactive probe boot
+    // uses; absent resolver (bare test sessions) → leave the set untouched.
+    const resolver = this.session.credentialResolver;
+    if (resolver) {
+      const ready = new Set<string>();
+      const active = this.session.providers.getActiveName();
+      if (active) ready.add(active);
+      for (const p of this.session.providers.list()) {
+        if (ready.has(p.name)) continue;
+        try {
+          await resolver(p.name);
+          ready.add(p.name);
+        } catch {
+          // not ready — leave out
+        }
+      }
+      this.session.readyProviders = ready;
+    }
+    this.broadcastInfo();
+    return {};
+  }
+
+  private async handleProviderConfigure(raw: unknown): Promise<Record<string, never>> {
+    const { name, patch } = providerConfigureParamsSchema.parse(raw);
+    const admin = this.session.providerAdmin;
+    if (!admin) throw new Error('provider admin not supported on this runner');
+    await admin.configure(name, patch as Parameters<typeof admin.configure>[1]);
     this.broadcastInfo();
     return {};
   }

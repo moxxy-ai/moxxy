@@ -1,0 +1,115 @@
+/**
+ * ProvidersTab interactions:
+ *   1. The enable/disable Switch calls onToggle with the inverted state,
+ *      and is disabled (control-level) for the ACTIVE provider — mirroring
+ *      the runner's refusal to disable it.
+ *   2. Configure opens the sheet; "Save key" routes through onSetKey with
+ *      the row's canonical vault key name.
+ *   3. Admin rows expose endpoint fields; "Save configuration" sends only
+ *      the changed fields. OAuth rows get a login hint instead of a key form.
+ */
+
+import { describe, expect, it, afterEach, vi } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { __setApiOverride } from '@moxxy/client-core';
+import type { ProviderEntry } from '@moxxy/desktop-ipc-contract';
+import { ProvidersTab } from './ProvidersTab';
+
+afterEach(() => {
+  __setApiOverride(null);
+});
+
+const anthropic: ProviderEntry = {
+  name: 'anthropic',
+  ready: true,
+  enabled: true,
+  active: true,
+  authKind: 'api-key',
+  kind: 'builtin',
+  keyName: 'ANTHROPIC_API_KEY',
+};
+
+const codex: ProviderEntry = {
+  name: 'openai-codex',
+  ready: false,
+  enabled: true,
+  active: false,
+  authKind: 'oauth',
+  kind: 'builtin',
+  keyName: 'OPENAI_CODEX_API_KEY',
+};
+
+const zai: ProviderEntry = {
+  name: 'zai',
+  ready: false,
+  enabled: false,
+  active: false,
+  authKind: 'api-key',
+  kind: 'admin',
+  keyName: 'ZAI_API_KEY',
+  baseURL: 'https://api.z.ai/v4',
+  defaultModel: 'glm-4',
+  modelIds: ['glm-4', 'glm-4-air'],
+};
+
+function renderTab(overrides?: Partial<Parameters<typeof ProvidersTab>[0]>): {
+  onToggle: ReturnType<typeof vi.fn>;
+  onConfigure: ReturnType<typeof vi.fn>;
+  onSetKey: ReturnType<typeof vi.fn>;
+} {
+  const onToggle = vi.fn(() => Promise.resolve());
+  const onConfigure = vi.fn(() => Promise.resolve());
+  const onSetKey = vi.fn(() => Promise.resolve());
+  render(
+    <ProvidersTab
+      providers={[anthropic, codex, zai]}
+      onToggle={onToggle}
+      onConfigure={onConfigure}
+      onSetKey={onSetKey}
+      onRefresh={() => Promise.resolve()}
+      {...overrides}
+    />,
+  );
+  return { onToggle, onConfigure, onSetKey };
+}
+
+describe('ProvidersTab', () => {
+  it('toggles a provider via the switch; the ACTIVE provider switch is disabled', () => {
+    const { onToggle } = renderTab();
+
+    // zai is disabled → switch turns it ON.
+    fireEvent.click(screen.getByRole('switch', { name: /enable zai/i }));
+    expect(onToggle).toHaveBeenCalledWith('zai', true);
+
+    // anthropic is the active provider — its disable switch is inert.
+    const activeSwitch = screen.getByRole('switch', { name: /disable anthropic/i });
+    expect((activeSwitch as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('saves an API key through the configure sheet under the row keyName', async () => {
+    const { onSetKey } = renderTab();
+    fireEvent.click(screen.getByRole('button', { name: /configure anthropic/i }));
+    fireEvent.change(screen.getByTestId('provider-key-input'), { target: { value: 'sk-abc' } });
+    fireEvent.click(screen.getByRole('button', { name: /save key/i }));
+    await waitFor(() => expect(onSetKey).toHaveBeenCalledWith('ANTHROPIC_API_KEY', 'sk-abc'));
+  });
+
+  it('sends only the changed endpoint fields for an admin provider', async () => {
+    const { onConfigure } = renderTab();
+    fireEvent.click(screen.getByRole('button', { name: /configure zai/i }));
+    fireEvent.change(screen.getByTestId('provider-baseurl-input'), {
+      target: { value: 'https://api.z.ai/v5' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /save configuration/i }));
+    await waitFor(() =>
+      expect(onConfigure).toHaveBeenCalledWith('zai', { baseURL: 'https://api.z.ai/v5' }),
+    );
+  });
+
+  it('shows a login hint instead of a key form for OAuth providers', () => {
+    renderTab();
+    fireEvent.click(screen.getByRole('button', { name: /configure openai-codex/i }));
+    expect(screen.getByText(/signs in with OAuth/i)).toBeTruthy();
+    expect(screen.queryByTestId('provider-key-input')).toBeNull();
+  });
+});

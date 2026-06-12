@@ -33,7 +33,7 @@ import {
   INSTALLABLE_PLUGIN_CATALOG,
 } from '@moxxy/plugin-plugins-admin';
 import { buildSelfUpdatePlugin } from '@moxxy/plugin-self-update';
-import { buildProviderAdminPlugin } from '@moxxy/plugin-provider-admin';
+import { buildProviderAdminPluginWithApi } from '@moxxy/plugin-provider-admin';
 import { buildUsageStatsPlugin } from '@moxxy/plugin-usage-stats';
 import { commandsPlugin } from '@moxxy/plugin-commands';
 import { buildViewPlugin } from '@moxxy/plugin-view';
@@ -430,10 +430,14 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
     // ~/.moxxy/providers.json; the plugin's onInit re-registers them on
     // every boot. Pairs with the `add-provider` skill which walks the
     // model through gathering baseURL + models + key.
-    {
-      name: '@moxxy/plugin-provider-admin',
-      plugin: buildProviderAdminPlugin({ providerRegistry: session.providers }),
-    },
+    (() => {
+      const { plugin, api } = buildProviderAdminPluginWithApi({ providerRegistry: session.providers });
+      // Stash the api on the session so the desktop (via the runner's
+      // `provider.configure`) can edit a stored provider without going
+      // through the model. Mirrors the mcpAdmin stash below.
+      session.providerAdmin = api;
+      return { name: '@moxxy/plugin-provider-admin', plugin };
+    })(),
     // Admin tools (mcp_add_server, mcp_list_servers, mcp_remove_server,
     // mcp_test_server) plus the boot-time lazy attach. Passing the
     // session's live tool registry enables both hot-attach for runtime

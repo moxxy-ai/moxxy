@@ -215,10 +215,12 @@ export function Switch({
   on,
   onClick,
   label,
+  disabled = false,
 }: {
   readonly on: boolean;
   readonly onClick: () => void;
   readonly label: string;
+  readonly disabled?: boolean;
 }): JSX.Element {
   return (
     <button
@@ -226,6 +228,7 @@ export function Switch({
       role="switch"
       aria-checked={on}
       aria-label={label}
+      disabled={disabled}
       onClick={onClick}
       style={{
         flexShrink: 0,
@@ -237,6 +240,8 @@ export function Switch({
         display: 'inline-flex',
         alignItems: 'center',
         transition: 'background 160ms ease',
+        opacity: disabled ? 0.5 : 1,
+        cursor: disabled ? 'not-allowed' : undefined,
       }}
     >
       <span

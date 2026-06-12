@@ -1,33 +1,47 @@
 /**
  * Providers tab — the model providers the connected runner can route to. Each
- * provider is a Row with a deterministic colour-tinted initial Tile and a
- * ready/inactive StatusDot; add a provider's key in the vault to activate it.
- * "Add provider" opens the shared agent-task modal: the user names the
- * vendor, moxxy registers it in a hidden background turn.
+ * provider is a Row with a deterministic colour-tinted initial Tile, a
+ * ready/inactive StatusDot, an enable/disable Switch (persisted on the
+ * runner; the ACTIVE provider can't be disabled), and a Configure sheet for
+ * the API key (vault) plus — for admin-registered providers — the stored
+ * baseURL / default model. "Add provider" opens the shared agent-task modal:
+ * the user names the vendor, moxxy registers it in a hidden background turn.
  */
 
 import { useState } from 'react';
 import type { useSettings } from '@moxxy/client-core';
-import { Button, Icon } from '@moxxy/desktop-ui';
-import { Section, CardList, Row, Tile, StatusDot, EmptyState } from './settings-primitives';
+import { Button, Icon, IconButton, Modal, TextInput } from '@moxxy/desktop-ui';
+import { Section, CardList, Row, Tile, StatusDot, Switch, Badge, EmptyState } from './settings-primitives';
 import { AgentTaskModal } from './shared/AgentTaskModal';
 import { PROVIDER_PROMPT_TEMPLATE } from './provider-prompt';
 
+type ProviderRow = ReturnType<typeof useSettings>['providers'][number];
+
 export function ProvidersTab({
   providers,
+  onToggle,
+  onConfigure,
+  onSetKey,
   onRefresh,
   search,
 }: {
   readonly providers: ReturnType<typeof useSettings>['providers'];
+  readonly onToggle: (name: string, enabled: boolean) => Promise<void>;
+  readonly onConfigure: (
+    name: string,
+    patch: { baseURL?: string; defaultModel?: string },
+  ) => Promise<void>;
+  readonly onSetKey: (keyName: string, value: string) => Promise<void>;
   readonly onRefresh: () => Promise<void>;
   readonly search?: React.ReactNode;
 }): JSX.Element {
   const [adding, setAdding] = useState(false);
+  const [configuring, setConfiguring] = useState<ProviderRow | null>(null);
   return (
     <Section
       title="Providers"
       count={providers.length}
-      description="Model providers the runner can route to. Add a provider's key in the vault to activate it."
+      description="Model providers the runner can route to. Toggle one off to exclude it; configure adds the API key (and endpoint for custom vendors)."
       search={search}
       actions={
         <Button variant="cta" onClick={() => setAdding(true)} style={{ gap: 7 }}>
@@ -45,14 +59,35 @@ export function ProvidersTab({
             return (
               <Row
                 key={p.name}
+                testId={`provider-row-${p.name}`}
                 tile={
                   <Tile bg={bg} fg={fg}>
                     {p.name.slice(0, 1).toUpperCase()}
                   </Tile>
                 }
                 title={p.name}
-                subtitle={p.ready ? 'Active · credentials resolved' : 'Inactive · add a key to use'}
-                trailing={<StatusDot ok={p.ready} okLabel="Ready" offLabel="Inactive" />}
+                subtitle={subtitleFor(p)}
+                trailing={
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                    {p.active && <Badge>Active</Badge>}
+                    <StatusDot ok={p.ready} okLabel="Ready" offLabel="Inactive" />
+                    <IconButton
+                      aria-label={`Configure ${p.name}`}
+                      onClick={() => setConfiguring(p)}
+                      size={28}
+                    >
+                      <Icon name="sliders" size={14} />
+                    </IconButton>
+                    <Switch
+                      on={p.enabled}
+                      label={`${p.enabled ? 'Disable' : 'Enable'} ${p.name}`}
+                      // The runner refuses to disable the ACTIVE provider —
+                      // disable the control too so the row matches reality.
+                      disabled={p.active && p.enabled}
+                      onClick={() => void onToggle(p.name, !p.enabled)}
+                    />
+                  </span>
+                }
               />
             );
           })}
@@ -70,9 +105,201 @@ export function ProvidersTab({
           onClose={() => setAdding(false)}
         />
       )}
+      {configuring && (
+        <ConfigureProviderModal
+          provider={configuring}
+          onConfigure={onConfigure}
+          onSetKey={onSetKey}
+          onClose={() => setConfiguring(null)}
+        />
+      )}
     </Section>
   );
 }
+
+function subtitleFor(p: ProviderRow): string {
+  if (!p.enabled) return 'Disabled · excluded from activation';
+  if (p.ready) return 'Active · credentials resolved';
+  return p.authKind === 'oauth'
+    ? 'Inactive · sign in with `moxxy login` to use'
+    : 'Inactive · add a key to use';
+}
+
+/**
+ * Configure sheet — two independent forms:
+ *   - API key → vault under the provider's canonical key name, then the
+ *     runner re-probes credentials so the readiness dot flips live. OAuth
+ *     providers get a hint instead (their credential is a login, not a key).
+ *   - Endpoint (admin-registered providers only): stored baseURL + default
+ *     model, applied to the live registry and persisted to providers.json.
+ */
+function ConfigureProviderModal({
+  provider,
+  onConfigure,
+  onSetKey,
+  onClose,
+}: {
+  readonly provider: ProviderRow;
+  readonly onConfigure: (
+    name: string,
+    patch: { baseURL?: string; defaultModel?: string },
+  ) => Promise<void>;
+  readonly onSetKey: (keyName: string, value: string) => Promise<void>;
+  readonly onClose: () => void;
+}): JSX.Element {
+  const [key, setKey] = useState('');
+  const [baseURL, setBaseURL] = useState(provider.baseURL ?? '');
+  const [defaultModel, setDefaultModel] = useState(provider.defaultModel ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
+
+  const run = async (fn: () => Promise<void>, doneNote: string): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    setSaved(null);
+    try {
+      await fn();
+      setSaved(doneNote);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const isAdmin = provider.kind === 'admin';
+  const configDirty =
+    isAdmin &&
+    ((baseURL.trim() !== (provider.baseURL ?? '') && baseURL.trim().length > 0) ||
+      (defaultModel.trim() !== (provider.defaultModel ?? '') && defaultModel.trim().length > 0));
+
+  return (
+    <Modal title={`Configure ${provider.name}`} onClose={onClose} width={420}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {provider.authKind === 'oauth' ? (
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.55 }}>
+            This provider signs in with OAuth — run{' '}
+            <code style={{ fontSize: 12.5 }}>moxxy login {provider.name}</code> in a terminal to
+            connect it. There is no API key to store.
+          </p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <label style={fieldLabelStyle}>
+              API key · stored in the vault as <code style={{ fontSize: 11.5 }}>{provider.keyName}</code>
+            </label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <TextInput
+                type="password"
+                value={key}
+                onChange={(e) => setKey(e.target.value)}
+                placeholder="sk-…"
+                style={{ flex: 1 }}
+                data-testid="provider-key-input"
+              />
+              <Button
+                variant="primary"
+                disabled={key.length === 0 || busy}
+                onClick={() =>
+                  void run(async () => {
+                    await onSetKey(provider.keyName, key);
+                    setKey('');
+                  }, 'Key saved — readiness re-checked.')
+                }
+              >
+                Save key
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {isAdmin && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <label style={fieldLabelStyle}>Endpoint</label>
+            <TextInput
+              value={baseURL}
+              onChange={(e) => setBaseURL(e.target.value)}
+              placeholder="https://api.vendor.com/v1"
+              className="mono"
+              data-testid="provider-baseurl-input"
+            />
+            <label style={fieldLabelStyle}>Default model</label>
+            {provider.modelIds && provider.modelIds.length > 0 ? (
+              <select
+                value={defaultModel}
+                onChange={(e) => setDefaultModel(e.target.value)}
+                style={selectStyle}
+                data-testid="provider-defaultmodel-select"
+              >
+                {provider.modelIds.map((id) => (
+                  <option key={id} value={id}>
+                    {id}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <TextInput
+                value={defaultModel}
+                onChange={(e) => setDefaultModel(e.target.value)}
+                placeholder="model-id"
+                className="mono"
+              />
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Button
+                variant="primary"
+                disabled={!configDirty || busy}
+                onClick={() =>
+                  void run(async () => {
+                    const patch: { baseURL?: string; defaultModel?: string } = {};
+                    if (baseURL.trim() && baseURL.trim() !== provider.baseURL) patch.baseURL = baseURL.trim();
+                    if (defaultModel.trim() && defaultModel.trim() !== provider.defaultModel) {
+                      patch.defaultModel = defaultModel.trim();
+                    }
+                    await onConfigure(provider.name, patch);
+                  }, 'Configuration saved.')
+                }
+              >
+                Save configuration
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {!isAdmin && provider.authKind !== 'oauth' && (
+          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
+            Built-in provider — endpoint and model list ship with moxxy; only the key is configurable.
+          </p>
+        )}
+
+        {error && (
+          <p role="alert" style={{ margin: 0, fontSize: 12.5, color: 'var(--color-red)' }}>
+            {error}
+          </p>
+        )}
+        {saved && !error && (
+          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--color-green, #16a34a)' }}>{saved}</p>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+const fieldLabelStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 600,
+  color: 'var(--color-text-muted)',
+};
+
+const selectStyle: React.CSSProperties = {
+  padding: '8px 10px',
+  borderRadius: 10,
+  border: '1px solid var(--color-card-border)',
+  background: 'var(--color-card-bg)',
+  fontSize: 13,
+  fontFamily: 'inherit',
+  color: 'inherit',
+};
 
 /** Deterministic soft tint per provider name, so each tile is distinct
  *  but on-brand (pastel bg, saturated fg from the same hue). */
