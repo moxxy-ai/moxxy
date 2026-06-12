@@ -22,4 +22,18 @@ describe('package manifest', () => {
       },
     });
   });
+
+  it('declares native permissions required for LAN websocket pairing', async () => {
+    const app = JSON.parse(await readFile(join(root, 'mobile', 'app.json'), 'utf8'));
+
+    expect(app.expo.ios.infoPlist.NSLocalNetworkUsageDescription).toContain('local');
+    expect(app.expo.plugins).toContainEqual([
+      'expo-build-properties',
+      {
+        android: {
+          usesCleartextTraffic: true,
+        },
+      },
+    ]);
+  });
 });

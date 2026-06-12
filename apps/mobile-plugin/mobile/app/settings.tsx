@@ -13,6 +13,7 @@ export default function SettingsScreen() {
   const [manualPairingOpen, setManualPairingOpen] = useState(false);
   const pairingUi = buildPairingUiState({
     token: pairing.token,
+    transportReady: pairing.transportReady,
     scanning: qrScanner.processing,
     permission: qrScanner.permission,
   });
@@ -28,6 +29,7 @@ export default function SettingsScreen() {
         <ConnectionSettings
           gatewayUrl={pairing.gatewayUrl}
           token={pairing.token}
+          transportReady={pairing.transportReady}
           code={pairing.code}
           loading={pairing.loading}
           error={pairing.error}

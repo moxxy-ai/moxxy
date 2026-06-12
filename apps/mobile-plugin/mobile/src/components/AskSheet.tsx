@@ -1,5 +1,6 @@
 import { Text, View } from 'react-native';
 import { recordId, textOf } from '@/utils/record';
+import type { PermissionResponseMode } from '../permissionResponse';
 import { ApprovalCard } from './ApprovalCard';
 import { PermissionCard } from './PermissionCard';
 
@@ -7,7 +8,7 @@ interface AskSheetProps {
   readonly asks: ReadonlyArray<Record<string, unknown>>;
   readonly permissions: ReadonlyArray<Record<string, unknown>>;
   readonly onAskResponse: (requestId: string, response: Record<string, unknown>) => void;
-  readonly onPermissionDecision: (permissionId: string, mode: 'allow_once' | 'allow_session' | 'allow_always' | 'deny') => void;
+  readonly onPermissionDecision: (permissionId: string, mode: PermissionResponseMode) => void;
 }
 
 export function AskSheet(props: AskSheetProps) {
@@ -59,7 +60,7 @@ export function AskSheet(props: AskSheetProps) {
             key={id}
             ask={firstPermission}
             onRespond={(response) =>
-              props.onPermissionDecision(id, textOf(response.mode, 'deny') as 'allow_once' | 'allow_session' | 'allow_always' | 'deny')
+              props.onPermissionDecision(id, textOf(response.mode, 'deny') as PermissionResponseMode)
             }
           />
           );

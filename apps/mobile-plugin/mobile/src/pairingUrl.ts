@@ -1,14 +1,15 @@
-const DEFAULT_GATEWAY_PORT = 17902;
-const LOCAL_GATEWAY_URL = `http://127.0.0.1:${DEFAULT_GATEWAY_PORT}`;
+const DEFAULT_BRIDGE_PORT = 8765;
+const LOCAL_GATEWAY_URL = `ws://127.0.0.1:${DEFAULT_BRIDGE_PORT}`;
 
 export function deriveGatewayUrlFromExpoHost(hostUri?: string | null): string {
   const host = extractHost(hostUri);
-  return host ? `http://${host}:${DEFAULT_GATEWAY_PORT}` : LOCAL_GATEWAY_URL;
+  return host ? `ws://${host}:${DEFAULT_BRIDGE_PORT}` : LOCAL_GATEWAY_URL;
 }
 
 export function chooseGatewayUrlForPairing(storedUrl: string | null | undefined, expoHostUri?: string | null): string {
   const derivedUrl = deriveGatewayUrlFromExpoHost(expoHostUri);
   if (!storedUrl) return derivedUrl;
+  if (!isBridgeUrl(storedUrl)) return derivedUrl;
 
   const normalizedStored = normalizeGatewayUrl(storedUrl);
   if (isLoopbackUrl(normalizedStored) && !isLoopbackUrl(derivedUrl)) return derivedUrl;
@@ -19,12 +20,14 @@ export function normalizeGatewayUrl(value: string): string {
   const trimmed = recoverLatestAbsoluteUrl(value.trim());
   if (!trimmed) return LOCAL_GATEWAY_URL;
 
-  const withProtocol = /^(?:https?|wss?):\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+  const withProtocol = /^(?:https?|wss?):\/\//i.test(trimmed) ? trimmed : `ws://${trimmed}`;
   try {
     const url = new URL(withProtocol);
     if (url.protocol === 'http:' || url.protocol === 'https:') {
-      url.pathname = normalizeGatewayPath(url.pathname);
+      return `${url.protocol === 'https:' ? 'wss' : 'ws'}://${url.hostname}:${DEFAULT_BRIDGE_PORT}`;
     }
+    if (url.protocol !== 'ws:' && url.protocol !== 'wss:') return LOCAL_GATEWAY_URL;
+    if (url.protocol === 'ws:' && !url.port) url.port = String(DEFAULT_BRIDGE_PORT);
     url.search = '';
     url.hash = '';
     return url.toString().replace(/\/$/, '');
@@ -34,7 +37,7 @@ export function normalizeGatewayUrl(value: string): string {
 }
 
 function recoverLatestAbsoluteUrl(value: string): string {
-  const matches = [...value.matchAll(/https?:\/\//gi)];
+  const matches = [...value.matchAll(/(?:https?|wss?):\/\//gi)];
   for (let index = matches.length - 1; index >= 0; index -= 1) {
     const start = matches[index].index;
     if (typeof start !== 'number') continue;
@@ -47,6 +50,10 @@ function recoverLatestAbsoluteUrl(value: string): string {
     }
   }
   return value;
+}
+
+function isBridgeUrl(value: string): boolean {
+  return /^wss?:\/\//i.test(value.trim());
 }
 
 function isLoopbackUrl(value: string): boolean {
@@ -64,8 +71,4 @@ function extractHost(hostUri?: string | null): string | null {
   const hostWithPort = withoutProtocol.split('/')[0] ?? '';
   const host = hostWithPort.split(':')[0];
   return host.length > 0 ? host : null;
-}
-
-function normalizeGatewayPath(pathname: string): string {
-  return pathname.replace(/\/mobile\/v1(?:\/(?:pairing|pair|snapshot|health))?\/?$/, '') || '/';
 }

@@ -6,6 +6,7 @@ import { MobileIcon } from './MobileIcon';
 interface ConnectionSettingsProps {
   readonly gatewayUrl: string;
   readonly token: string | null;
+  readonly transportReady: boolean;
   readonly code: string;
   readonly loading: boolean;
   readonly error: string | null;
@@ -29,6 +30,7 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
   const canPair = props.code.length > 0 && !props.loading;
   const pairingUi = buildPairingUiState({
     token: props.token,
+    transportReady: props.transportReady,
     scanning: props.qrScanning,
     permission: props.qrPermission,
   });
@@ -37,8 +39,8 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
       <View className="gap-3 rounded-card border border-cardBorder bg-cardBg p-4 shadow-card">
         <View className="flex-row items-center justify-between">
           <Text className="text-[16px] font-bold text-text">Gateway</Text>
-          <View className={`rounded-pill px-2.5 py-1 ${props.token ? 'bg-green/10' : 'bg-amber/10'}`}>
-            <Text className={`text-[11px] font-black ${props.token ? 'text-green' : 'text-amber'}`}>
+          <View className={`rounded-pill px-2.5 py-1 ${props.transportReady ? 'bg-green/10' : 'bg-amber/10'}`}>
+            <Text className={`text-[11px] font-black ${props.transportReady ? 'text-green' : 'text-amber'}`}>
               {pairingUi.statusLabel}
             </Text>
           </View>

@@ -3,11 +3,14 @@ import {
   ConnectionBridge,
   api,
   askStore,
+  deskForWorkspace,
   useActiveWorkspaceId,
   useChat as useCoreChat,
   useConnection,
   useContextUsage,
+  useDesks as useCoreDesks,
   useQueuedTurns,
+  useSessions as useCoreDeskSessions,
   useWorkflows as useCoreWorkflows,
 } from '@moxxy/client-core';
 import type { UserPromptAttachment } from '@moxxy/sdk';
@@ -91,6 +94,12 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
   const workspaceId = useActiveWorkspaceId();
   const connection = useConnection(workspaceId);
   const coreChat = useCoreChat(workspaceId);
+  const coreDesks = useCoreDesks();
+  const activeDesk = useMemo(
+    () => deskForWorkspace(coreDesks.desks, workspaceId),
+    [coreDesks.desks, workspaceId],
+  );
+  const coreDeskSessions = useCoreDeskSessions(activeDesk?.id ?? null);
   const queuedTurns = useQueuedTurns(workspaceId);
   const coreWorkflows = useCoreWorkflows();
   const contextUsage = useContextUsage(workspaceId);
@@ -173,7 +182,15 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
         return;
       }
       if (type === 'newSession') {
-        void api().invoke('session.newSession', workspaceParam(workspaceId)).catch(() => undefined);
+        void coreDeskSessions
+          .create()
+          .then((session) => (session ? coreDeskSessions.setActive(session.id) : undefined))
+          .catch(() => undefined);
+        return;
+      }
+      if (type === 'selectWorkspace') {
+        const id = textOf(frame.workspaceId);
+        if (id) void coreDeskSessions.setActive(id).catch(() => undefined);
         return;
       }
       if (type === 'transcribe') {
@@ -188,7 +205,7 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
           .catch(() => undefined);
       }
     },
-    [coreChat, workspaceId],
+    [coreChat, coreDeskSessions, workspaceId],
   );
 
   const phaseInfo = readConnectedPhaseInfo(connection.snapshot?.phase);
@@ -197,6 +214,46 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
 
   const state = useMemo<MobileState>(() => {
     const sessionId = workspaceId ?? 'mobile-session';
+    const desks = coreDesks.desks.length > 0
+      ? coreDesks.desks
+      : workspaceId
+        ? [{
+            id: workspaceId,
+            name: 'Moxxy Mobile',
+            cwd: '',
+            color: '#ec4899',
+            createdAt: 0,
+            activeSessionId: workspaceId,
+            sessions: [{ id: workspaceId, name: 'Current session', createdAt: 0 }],
+          }]
+        : [];
+    const ownerDesk = deskForWorkspace(desks, workspaceId) ?? activeDesk ?? null;
+    const activeDeskSessions = ownerDesk && coreDeskSessions.sessions.length > 0
+      ? new Map(coreDeskSessions.sessions.map((session) => [session.id, session]))
+      : null;
+    const workspaces = desks.map((desk) => ({
+      id: desk.id,
+      name: desk.name,
+      title: desk.name,
+      cwd: desk.cwd,
+      color: desk.color,
+      unread: false,
+    }));
+    const sessions = desks.flatMap((desk) => {
+      const deskSessions = desk.id === ownerDesk?.id && activeDeskSessions
+        ? [...activeDeskSessions.values()]
+        : desk.sessions;
+      return deskSessions.map((session) => ({
+        id: session.id,
+        workspaceId: desk.id,
+        name: session.name,
+        firstPrompt: session.name,
+        cwd: desk.cwd,
+        live: session.id === workspaceId && connected,
+        readOnly: false,
+        lastActivity: session.createdAt > 0 ? new Date(session.createdAt).toISOString() : '',
+      }));
+    });
     const usage = {
       latestPrompt: contextUsage.contextTokens,
       contextWindow: contextUsage.contextWindow,
@@ -207,20 +264,9 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
       ...emptyMobileState(),
       connected,
       activeWorkspaceId: workspaceId,
-      workspaces: workspaceId
-        ? [{ id: workspaceId, name: 'Moxxy', title: 'Moxxy', color: '#ec4899', unread: false }]
-        : [],
-      sessions: workspaceId
-        ? [{
-            id: workspaceId,
-            workspaceId,
-            name: 'Current session',
-            firstPrompt: 'Moxxy mobile',
-            live: connected,
-            readOnly: false,
-          }]
-        : [],
-      session: workspaceId ? { id: sessionId, workspaceId, live: connected, readOnly: false } : null,
+      workspaces,
+      sessions,
+      session: workspaceId ? { id: sessionId, workspaceId: ownerDesk?.id ?? sessionId, live: connected, readOnly: false } : null,
       pendingAsks: pendingAsks.filter((ask) => ask.workspaceId === workspaceId) as unknown as ReadonlyArray<Record<string, unknown>>,
       chatEvents: coreChat.events as unknown as ReadonlyArray<Record<string, unknown>>,
       streamingText: coreChat.streamingText,
@@ -244,6 +290,8 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
     contextUsage.contextWindow,
     contextUsage.perCall,
     contextUsage.summary,
+    coreDeskSessions.sessions,
+    coreDesks.desks,
     coreChat.activeTurnId,
     coreChat.compacting,
     coreChat.events,
@@ -253,6 +301,7 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
     queuedTurns,
     transcription,
     workspaceId,
+    activeDesk,
   ]);
 
   const session = useSessionSnapshot(state);

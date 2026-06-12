@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { buildAskResponseFrame } from '../clientFrames';
+import type { PermissionResponseMode } from '../permissionResponse';
 import type { MobileState } from '../protocol';
 
 export function usePermissions(
@@ -7,7 +8,7 @@ export function usePermissions(
   sendFrame: (frame: Record<string, unknown>) => void,
 ) {
   const decidePermission = useCallback(
-    (permissionId: string, mode: 'allow_once' | 'allow_session' | 'allow_always' | 'deny') => {
+    (permissionId: string, mode: PermissionResponseMode) => {
       sendFrame({
         type: 'permission.decision',
         id: `decision_${permissionId}_${Date.now()}`,

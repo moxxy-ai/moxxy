@@ -1,10 +1,13 @@
 import Constants from 'expo-constants';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { configurePlatform, configureTransport } from '@moxxy/client-core';
-import { makeWsApi, splitConnectUrl } from '@moxxy/client-transport-ws';
-import { pairWithGatewayCode } from '../pairingClient';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { splitConnectUrl } from '@moxxy/client-transport-ws';
 import { parsePairingQrPayload } from '../pairingQr';
-import { chooseGatewayUrlForPairing, normalizeGatewayUrl } from '../pairingUrl';
+import {
+  openBridgePairingTransport,
+  resolveBridgePairingTarget,
+  type BridgePairingTransportHandle,
+} from '../pairingRuntime';
+import { chooseGatewayUrlForPairing } from '../pairingUrl';
 import { useStorageState } from './storage';
 
 const TOKEN_KEY = 'moxxy.mobile.gateway.token';
@@ -32,15 +35,43 @@ export function usePairing(): PairingState {
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [transportReady, setTransportReady] = useState(false);
+  const transportHandleRef = useRef<BridgePairingTransportHandle | null>(null);
 
-  const normalizedUrl = useMemo(() => normalizeGatewayUrl(gatewayUrl), [gatewayUrl]);
+  const configureBridgeTransport = useCallback((rawUrl: string, pairingToken?: string | null) => {
+    try {
+      const target = resolveBridgePairingTarget(rawUrl, pairingToken);
+      const current = transportHandleRef.current;
+      if (current?.url === target.url && current.token === target.token) {
+        setTransportReady(true);
+        return target;
+      }
+
+      current?.close();
+      const handle = openBridgePairingTransport(target.url, target.token);
+      transportHandleRef.current = handle;
+      setTransportReady(true);
+      return target;
+    } catch (err) {
+      setTransportReady(false);
+      setError(err instanceof Error ? err.message : 'Cannot configure Moxxy mobile bridge.');
+      return null;
+    }
+  }, []);
 
   useEffect(() => {
-    if (!tokenLoading && !urlLoading && token && storedUrl && isBridgeUrl(storedUrl)) {
-      configureBridgeTransport(storedUrl, token);
-      setTransportReady(true);
+    if (!tokenLoading && !urlLoading && token && storedUrl) {
+      const target = configureBridgeTransport(storedUrl, token);
+      if (target) {
+        setGatewayUrlState(target.url);
+        setStoredUrl(target.url);
+      }
     }
-  }, [storedUrl, token, tokenLoading, urlLoading]);
+  }, [configureBridgeTransport, setStoredUrl, storedUrl, token, tokenLoading, urlLoading]);
+
+  useEffect(() => () => {
+    transportHandleRef.current?.close();
+    transportHandleRef.current = null;
+  }, []);
 
   useEffect(() => {
     if (!urlLoading) setGatewayUrlState(chooseGatewayUrlForPairing(storedUrl, expoHostUri));
@@ -49,69 +80,43 @@ export function usePairing(): PairingState {
   const setGatewayUrl = useCallback(
     (value: string) => {
       setGatewayUrlState(value);
-      setStoredUrl(value);
     },
-    [setStoredUrl],
+    [],
   );
 
   const loadPairing = useCallback(async () => {
     setError(null);
-    if (isBridgeUrl(gatewayUrl)) {
+    try {
       const split = splitConnectUrl(gatewayUrl);
-      setGatewayUrlState(split.url);
-      setStoredUrl(split.url);
-      setCode(split.token ?? '');
-      if (!split.token) setError('Paste the full ws:// or wss:// URL printed by moxxy mobile, including ?t=token.');
-      return;
-    }
-    try {
-      const res = await fetch(`${normalizedUrl}/mobile/v1/pairing`);
-      if (!res.ok) {
-        setError(`Pairing failed with ${res.status}`);
+      if (!split.token) {
+        setCode('');
+        setGatewayUrlState(split.url);
+        setError('Paste the full ws:// or wss:// URL printed by moxxy mobile, including ?t=token.');
         return;
       }
-      const body = (await res.json()) as { code?: string };
-      setCode(body.code ?? '');
-    } catch {
-      setError(`Cannot reach gateway at ${normalizedUrl}. Use your Mac LAN URL, for example http://192.168.x.x:17902.`);
+      const target = resolveBridgePairingTarget(gatewayUrl);
+      setGatewayUrlState(target.url);
+      setStoredUrl(target.url);
+      setCode(target.token);
+      return;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Invalid Moxxy mobile bridge URL.');
     }
-  }, [normalizedUrl]);
+  }, [gatewayUrl, setStoredUrl]);
 
-  const pairWithCode = useCallback(async (targetUrl: string, pairingCode: string, refreshOnInvalid: boolean) => {
+  const pairWithCode = useCallback(async (targetUrl: string, pairingCode: string) => {
     setError(null);
-    if (isBridgeUrl(targetUrl)) {
-      if (!pairingCode.trim()) {
-        setError('Missing mobile pairing token. Scan the QR printed by moxxy mobile.');
-        return;
-      }
-      const split = splitConnectUrl(targetUrl);
-      const url = split.url;
-      const token = pairingCode.trim();
-      configureBridgeTransport(url, token);
-      setToken(token);
-      setStoredUrl(url);
-      setGatewayUrlState(url);
-      setCode('');
-      setTransportReady(true);
-      return;
-    }
-    try {
-      const result = await pairWithGatewayCode(targetUrl, pairingCode, { refreshOnInvalid });
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-      setToken(result.token);
-      setStoredUrl(targetUrl);
-      setCode('');
-    } catch {
-      setError(`Cannot pair with gateway at ${targetUrl}. Check Wi-Fi and keep moxxy mobile running.`);
-    }
-  }, [setStoredUrl, setToken]);
+    const target = configureBridgeTransport(targetUrl, pairingCode);
+    if (!target) return;
+    setToken(target.token);
+    setStoredUrl(target.url);
+    setGatewayUrlState(target.url);
+    setCode('');
+  }, [configureBridgeTransport, setStoredUrl, setToken]);
 
   const pair = useCallback(async () => {
-    await pairWithCode(normalizedUrl, code, false);
-  }, [code, normalizedUrl, pairWithCode]);
+    await pairWithCode(gatewayUrl, code);
+  }, [code, gatewayUrl, pairWithCode]);
 
   const pairFromQrPayload = useCallback(async (raw: string) => {
     setError(null);
@@ -120,14 +125,17 @@ export function usePairing(): PairingState {
       setGatewayUrlState(target.gatewayUrl);
       setStoredUrl(target.gatewayUrl);
       setCode(target.code);
-      await pairWithCode(target.gatewayUrl, target.code, true);
+      await pairWithCode(target.gatewayUrl, target.code);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Invalid Moxxy pairing QR code');
     }
   }, [pairWithCode, setStoredUrl]);
 
   const disconnect = useCallback(() => {
+    transportHandleRef.current?.close();
+    transportHandleRef.current = null;
     setToken(null);
+    setCode('');
     setTransportReady(false);
   }, [setToken]);
 
@@ -144,16 +152,6 @@ export function usePairing(): PairingState {
     pairFromQrPayload,
     disconnect,
   };
-}
-
-function configureBridgeTransport(rawUrl: string, token: string): void {
-  const split = splitConnectUrl(rawUrl);
-  configureTransport(makeWsApi({ url: split.url, token: token || split.token }));
-  configurePlatform({});
-}
-
-function isBridgeUrl(value: string | null | undefined): boolean {
-  return typeof value === 'string' && /^wss?:\/\//i.test(value.trim());
 }
 
 function readExpoHostUri(): string | null {

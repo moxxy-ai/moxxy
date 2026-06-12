@@ -44,7 +44,7 @@ export default function ChatScreen() {
 
           {!session.connected ? (
             <View className="absolute z-10" style={{ left: 16, position: 'absolute', right: 16, top: 76, zIndex: 10 }}>
-              <ConnectionBanner paired={Boolean(pairing.token)} connected={session.connected} status={socketStatus} />
+              <ConnectionBanner paired={pairing.transportReady} connected={session.connected} status={socketStatus} />
             </View>
           ) : null}
 

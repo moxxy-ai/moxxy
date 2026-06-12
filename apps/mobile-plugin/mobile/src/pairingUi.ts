@@ -2,6 +2,7 @@ export type CameraPermissionState = 'loading' | 'granted' | 'denied' | 'undeterm
 
 export interface PairingUiInput {
   readonly token: string | null;
+  readonly transportReady?: boolean;
   readonly scanning: boolean;
   readonly permission: CameraPermissionState;
 }
@@ -17,7 +18,7 @@ export interface PairingUiState {
 }
 
 export function buildPairingUiState(input: PairingUiInput): PairingUiState {
-  const paired = Boolean(input.token);
+  const paired = Boolean(input.token) && input.transportReady !== false;
   const permissionDenied = input.permission === 'denied';
   return {
     statusLabel: paired ? 'Paired' : 'Not paired',

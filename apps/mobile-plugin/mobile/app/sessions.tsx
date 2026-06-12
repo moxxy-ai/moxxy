@@ -1,10 +1,12 @@
 import { ScreenFrame } from '@/components/ScreenFrame';
 import { SessionList } from '@/components/SessionList';
 import { useGatewayStore } from '@/hooks/useGatewayStore';
+import { buildWorkspaceMenuSections } from '@/navigation';
 
 export default function SessionsScreen() {
   const { permissions, session, sessions } = useGatewayStore();
   const pendingActions = permissions.pendingAsks.length + permissions.pendingPermissions.length;
+  const sections = buildWorkspaceMenuSections(sessions.workspaces, sessions.sessions, sessions.activeWorkspaceId);
   return (
     <ScreenFrame
       title="Sessions"
@@ -13,9 +15,8 @@ export default function SessionsScreen() {
       pendingActions={pendingActions}
     >
       <SessionList
-        workspaces={sessions.workspaces}
-        activeWorkspaceId={sessions.activeWorkspaceId}
-        onSelectWorkspace={sessions.selectWorkspace}
+        sections={sections}
+        onSelectSession={sessions.selectWorkspace}
         onNewSession={sessions.newSession}
       />
     </ScreenFrame>

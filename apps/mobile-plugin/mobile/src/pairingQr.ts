@@ -1,4 +1,4 @@
-import { normalizeGatewayUrl } from './pairingUrl';
+import { splitConnectUrl } from '@moxxy/client-transport-ws';
 
 export interface PairingQrTarget {
   readonly gatewayUrl: string;
@@ -8,46 +8,17 @@ export interface PairingQrTarget {
 export function parsePairingQrPayload(raw: string): PairingQrTarget {
   const bridgeTarget = parseBridgeConnectUrl(raw);
   if (bridgeTarget) return bridgeTarget;
-
-  let payload: unknown;
-  try {
-    payload = JSON.parse(raw);
-  } catch {
-    throw new Error('Invalid Moxxy pairing QR code');
-  }
-
-  if (!payload || typeof payload !== 'object') {
-    throw new Error('Invalid Moxxy pairing QR code');
-  }
-  const value = payload as Record<string, unknown>;
-  if (value.type !== 'moxxy-mobile-gateway') {
-    throw new Error('Invalid Moxxy pairing QR code');
-  }
-  if (value.version !== 1) {
-    throw new Error('Unsupported Moxxy pairing QR code');
-  }
-  if (typeof value.url !== 'string' || typeof value.code !== 'string' || value.code.trim().length === 0) {
-    throw new Error('Invalid Moxxy pairing QR code');
-  }
-
-  return {
-    gatewayUrl: normalizeGatewayUrl(value.url),
-    code: value.code,
-  };
+  throw new Error('Invalid Moxxy pairing QR code');
 }
 
 function parseBridgeConnectUrl(raw: string): PairingQrTarget | null {
   if (!/^wss?:\/\//i.test(raw.trim())) return null;
-  try {
-    const url = new URL(raw.trim());
-    const token = url.searchParams.get('t')?.trim();
-    if (!token) throw new Error('Invalid Moxxy pairing QR code');
-    url.searchParams.delete('t');
-    return {
-      gatewayUrl: url.toString().replace(/\/$/, ''),
-      code: token,
-    };
-  } catch {
+  const split = splitConnectUrl(raw);
+  if (!split.token?.trim()) {
     throw new Error('Invalid Moxxy pairing QR code');
   }
+  return {
+    gatewayUrl: split.url.replace(/\/$/, ''),
+    code: split.token.trim(),
+  };
 }

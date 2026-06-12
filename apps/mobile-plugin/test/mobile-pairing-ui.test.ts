@@ -28,4 +28,15 @@ describe('mobile pairing UI model', () => {
       scanButtonEnabled: true,
     });
   });
+
+  it('does not treat a stored legacy token as paired before the bridge transport is ready', () => {
+    expect(buildPairingUiState({
+      token: 'mg_token',
+      transportReady: false,
+      scanning: false,
+      permission: 'granted',
+    })).toMatchObject({
+      statusLabel: 'Not paired',
+    });
+  });
 });

@@ -1,5 +1,6 @@
 import { Pressable, Text, View } from 'react-native';
 import { textOf } from '@/utils/record';
+import { permissionResponseForAction } from '../permissionResponse';
 import { MobileIcon } from './MobileIcon';
 
 interface PermissionCardProps {
@@ -24,10 +25,10 @@ export function PermissionCard({ ask, onRespond }: PermissionCardProps) {
         </View>
       </View>
       <View className="flex-row flex-wrap justify-end gap-2">
-        <DecisionButton label="Deny" tone="danger" onPress={() => onRespond({ mode: 'deny' })} />
-        <DecisionButton label="Allow once" tone="primary" onPress={() => onRespond({ mode: 'allow_once' })} />
-        <DecisionButton label="Allow session" onPress={() => onRespond({ mode: 'allow_session' })} />
-        <DecisionButton label="Always allow" onPress={() => onRespond({ mode: 'allow_always' })} />
+        <DecisionButton label="Deny" tone="danger" onPress={() => onRespond(permissionResponseForAction('deny'))} />
+        <DecisionButton label="Allow once" tone="primary" onPress={() => onRespond(permissionResponseForAction('allow_once'))} />
+        <DecisionButton label="Allow session" onPress={() => onRespond(permissionResponseForAction('allow_session'))} />
+        <DecisionButton label="Always allow" onPress={() => onRespond(permissionResponseForAction('allow_always'))} />
       </View>
     </View>
   );

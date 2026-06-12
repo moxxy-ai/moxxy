@@ -13,9 +13,22 @@
     "web": {
       "bundler": "metro"
     },
+    "ios": {
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Connect to the Moxxy runner on your computer over your local Wi-Fi network."
+      }
+    },
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
       [
         "expo-audio",
         {
