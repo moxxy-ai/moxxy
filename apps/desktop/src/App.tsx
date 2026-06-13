@@ -33,6 +33,7 @@ import {
   resolveActiveSessionShell,
   type LastConnectedSession,
 } from './app-readiness';
+import { useSessionInfoReady } from './app-session-readiness';
 
 /**
  * Top-level shell. Three layers of gating, in order:
@@ -57,6 +58,7 @@ export function App(): JSX.Element {
   const { snapshot, hasEverConnected, retry } = useConnection(activeWorkspaceId);
   const { prefs, loading: prefsLoading } = usePrefs();
   const phase = snapshot?.phase;
+  const sessionInfoReady = useSessionInfoReady(activeWorkspaceId, phase);
   const [view, setView] = useState<View>('chat');
   // Context rail starts collapsed. The context button opens a dropdown
   // (terminal / files changed / browser); picking one sets the active pane
@@ -166,6 +168,7 @@ export function App(): JSX.Element {
     activeWorkspaceId,
     snapshot,
     lastConnected,
+    sessionInfoReady,
   });
 
   if (shell.needsInitialSplash || activeWorkspaceId === null) {

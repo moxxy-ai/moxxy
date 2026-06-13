@@ -22,6 +22,7 @@ import { ChipButton } from './ChipButton';
 import { ChipSelect } from './ChipSelect';
 import { ProviderModelPicker } from './ProviderModelPicker';
 import { SESSION_INFO_REFRESH_EVENT, type SessionInfo } from './types';
+import { isSessionInfoReady } from '../../app-session-readiness';
 
 /** Modes hidden from the chat mode chip — collaboration is launched from the
  *  Collaborate tab (single-flight), and its peer modes are internal. */
@@ -163,8 +164,4 @@ export function AgentPicker({
       )}
     </>
   );
-}
-
-function isSessionInfoReady(info: SessionInfo | null): info is SessionInfo {
-  return info !== null && info.providers.length > 0 && info.modes.length > 0;
 }

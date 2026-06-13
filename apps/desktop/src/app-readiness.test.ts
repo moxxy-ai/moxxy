@@ -82,6 +82,23 @@ describe('resolveActiveSessionShell', () => {
     expect(state.phase).toBe(phase);
   });
 
+  it('keeps a connected cold-start session in the loading shell until session.info is ready', () => {
+    const phase = connectedPhase('session-b');
+    const state = resolveActiveSessionShell({
+      activeWorkspaceId: 'session-b',
+      snapshot: snapshot(phase),
+      lastConnected: {
+        workspaceId: 'session-a',
+        phase: connectedPhase('session-a'),
+      },
+      sessionInfoReady: false,
+    });
+
+    expect(state.connected).toBe(true);
+    expect(state.sessionLoading).toBe(true);
+    expect(state.phase).toBe(phase);
+  });
+
   it('does not hide terminal connection errors behind a loading state', () => {
     const state = resolveActiveSessionShell({
       activeWorkspaceId: 'session-b',

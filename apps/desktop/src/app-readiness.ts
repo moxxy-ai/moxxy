@@ -22,10 +22,12 @@ export function resolveActiveSessionShell({
   activeWorkspaceId,
   snapshot,
   lastConnected,
+  sessionInfoReady,
 }: {
   readonly activeWorkspaceId: string | null;
   readonly snapshot: ConnectionSnapshot | null;
   readonly lastConnected: LastConnectedSession | null;
+  readonly sessionInfoReady?: boolean;
 }): ActiveSessionShell {
   if (!activeWorkspaceId) {
     return {
@@ -42,7 +44,9 @@ export function resolveActiveSessionShell({
       needsInitialSplash: false,
       phase: snapshot.phase,
       connected,
-      sessionLoading: isRunnerLoadingPhase(snapshot.phase),
+      sessionLoading:
+        isRunnerLoadingPhase(snapshot.phase) ||
+        (connected && sessionInfoReady === false),
     };
   }
 
