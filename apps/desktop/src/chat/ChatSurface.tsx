@@ -98,6 +98,30 @@ export function ChatSurface({
     return filterEventsBySearch(chat.events, searchIndex, searchQuery);
   }, [chat.events, searchQuery, searchIndex]);
 
+  if (sessionLoading) {
+    return (
+      <main className="col-main col-main--flat">
+        <Header
+          phase={phase}
+          railOpen={railOpen}
+          onShowRail={onShowRail}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          canRename={activeDesk !== undefined}
+          onRename={() => setRenameOpen(true)}
+          onView={onView}
+        />
+        <div
+          key={workspaceId}
+          className="anim-fade-in"
+          style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
+        >
+          <ChatLoading label="Moxxy is loading this session…" />
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="col-main col-main--flat">
       <Header
@@ -118,9 +142,7 @@ export function ChatSurface({
         className="anim-fade-in"
         style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
       >
-        {sessionLoading ? (
-          <ChatLoading label="Moxxy is loading this session…" />
-        ) : chat.loading ? (
+        {chat.loading ? (
           <ChatLoading />
         ) : chat.isEmpty ? (
           <EmptyState ready={ready} />
