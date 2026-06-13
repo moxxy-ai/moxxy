@@ -76,6 +76,13 @@ export function resolveActiveSessionShell({
   };
 }
 
+export function shouldShowProviderRecovery(
+  phase: ConnectionPhase,
+  sessionLoading: boolean,
+): boolean {
+  return phase.phase === 'connected' && phase.activeProvider === null && !sessionLoading;
+}
+
 function isRunnerLoadingPhase(phase: ConnectionPhase): boolean {
   switch (phase.phase) {
     case 'idle':

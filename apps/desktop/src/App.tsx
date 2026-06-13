@@ -31,6 +31,7 @@ import { Splash } from './Splash';
 import { api, toErrorMessage } from '@moxxy/client-core';
 import {
   resolveActiveSessionShell,
+  shouldShowProviderRecovery,
   type LastConnectedSession,
 } from './app-readiness';
 import { useSessionInfoReady } from './app-session-readiness';
@@ -182,8 +183,10 @@ export function App(): JSX.Element {
   }
 
   const cliMissing = shell.phase.phase === 'cli-missing';
-  const connectedWithoutProvider =
-    shell.phase.phase === 'connected' && shell.phase.activeProvider === null;
+  const connectedWithoutProvider = shouldShowProviderRecovery(
+    shell.phase,
+    shell.sessionLoading,
+  );
 
   if (cliMissing || connectedWithoutProvider) {
     return (

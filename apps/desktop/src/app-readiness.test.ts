@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { ConnectionPhase, ConnectionSnapshot } from '@moxxy/desktop-ipc-contract';
-import { resolveActiveSessionShell, type LastConnectedSession } from './app-readiness';
+import {
+  resolveActiveSessionShell,
+  shouldShowProviderRecovery,
+  type LastConnectedSession,
+} from './app-readiness';
 
 const connectedPhase = (sessionId: string): LastConnectedSession['phase'] => ({
   phase: 'connected',
@@ -112,5 +116,20 @@ describe('resolveActiveSessionShell', () => {
     expect(state.connected).toBe(false);
     expect(state.sessionLoading).toBe(false);
     expect(state.phase.phase).toBe('failed');
+  });
+
+  it('does not show provider recovery while the selected cold-start session is still loading', () => {
+    expect(
+      shouldShowProviderRecovery(
+        {
+          phase: 'connected',
+          socket: '/tmp/fresh.sock',
+          sessionId: 'fresh-session',
+          activeProvider: null,
+          activeMode: 'default',
+        },
+        true,
+      ),
+    ).toBe(false);
   });
 });
