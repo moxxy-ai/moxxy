@@ -19,6 +19,7 @@ interface ChatSurfaceProps {
   readonly workspaceId: string;
   readonly railPane: import('../shell/ContextRail').RailPane | null;
   readonly onPickPane: (pane: import('../shell/ContextRail').RailPane) => void;
+  readonly sessionLoading: boolean;
   readonly onView: (v: import('../shell/ViewHeader').View) => void;
 }
 
@@ -76,6 +77,7 @@ export function ChatSurface({
   workspaceId,
   railPane,
   onPickPane,
+  sessionLoading,
   onView,
 }: ChatSurfaceProps): JSX.Element {
   const chat = useChat(workspaceId);
@@ -116,7 +118,9 @@ export function ChatSurface({
         className="anim-fade-in"
         style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
       >
-        {chat.loading ? (
+        {sessionLoading ? (
+          <ChatLoading label="Moxxy is loading this session…" />
+        ) : chat.loading ? (
           <ChatLoading />
         ) : chat.isEmpty ? (
           <EmptyState ready={ready} />

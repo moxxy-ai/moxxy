@@ -1,6 +1,10 @@
 /** Initial-load spinner — shown while the first window of persisted
  *  transcript is read from disk, before EmptyState or the Transcript. */
-export function ChatLoading(): JSX.Element {
+export function ChatLoading({
+  label = 'Loading conversation…',
+}: {
+  readonly label?: string;
+}): JSX.Element {
   return (
     <div style={{ flex: 1, display: 'grid', placeItems: 'center', padding: '2rem' }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
@@ -16,7 +20,7 @@ export function ChatLoading(): JSX.Element {
           }}
         />
         <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-dim)' }}>
-          Loading conversation…
+          {label}
         </p>
       </div>
     </div>

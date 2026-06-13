@@ -29,6 +29,10 @@ import { AppsPanel } from './apps/AppsPanel';
 import { UpdateBanner } from './shell/UpdateBanner';
 import { Splash } from './Splash';
 import { api, toErrorMessage } from '@moxxy/client-core';
+import {
+  resolveActiveSessionShell,
+  type LastConnectedSession,
+} from './app-readiness';
 
 /**
  * Top-level shell. Three layers of gating, in order:
@@ -58,13 +62,18 @@ export function App(): JSX.Element {
   // (terminal / files changed / browser); picking one sets the active pane
   // and opens the rail. Null = collapsed.
   const [railPane, setRailPane] = useState<RailPane | null>(null);
-  const [lastConnected, setLastConnected] = useState<typeof phase>(undefined);
+  const [lastConnected, setLastConnected] = useState<LastConnectedSession | null>(null);
   // Local flag that flips the moment the user clicks "Open my
   // workspaces" in the FirstRunWizard, so we don't re-render the
   // wizard while waiting for prefs.read to round-trip.
   const [justFinishedOnboarding, setJustFinishedOnboarding] = useState(false);
-  if (phase?.phase === 'connected' && phase !== lastConnected) {
-    setLastConnected(phase);
+  if (
+    activeWorkspaceId &&
+    phase?.phase === 'connected' &&
+    (lastConnected?.workspaceId !== activeWorkspaceId ||
+      lastConnected.phase !== phase)
+  ) {
+    setLastConnected({ workspaceId: activeWorkspaceId, phase });
   }
 
   // Mirror the active workspace into the chat store so unread state
@@ -153,7 +162,13 @@ export function App(): JSX.Element {
   // the full-screen Splash there is exactly the flicker the user saw. Keep
   // the shell mounted instead and fall back to `lastConnected` for the
   // chrome phase (see `shellPhase` below).
-  if (activeWorkspaceId === null || (!snapshot && !lastConnected)) {
+  const shell = resolveActiveSessionShell({
+    activeWorkspaceId,
+    snapshot,
+    lastConnected,
+  });
+
+  if (shell.needsInitialSplash || activeWorkspaceId === null) {
     return (
       <>
         <ConnectionBridge />
@@ -163,9 +178,9 @@ export function App(): JSX.Element {
     );
   }
 
-  const cliMissing = phase?.phase === 'cli-missing';
+  const cliMissing = shell.phase.phase === 'cli-missing';
   const connectedWithoutProvider =
-    phase?.phase === 'connected' && phase.activeProvider === null;
+    shell.phase.phase === 'connected' && shell.phase.activeProvider === null;
 
   if (cliMissing || connectedWithoutProvider) {
     return (
@@ -173,7 +188,7 @@ export function App(): JSX.Element {
         <ConnectionBridge />
         <ChatStoreBridge />
         <Onboarding
-          phase={phase}
+          phase={shell.phase}
           // Nothing to do on completion: finishing the recovery gate (CLI
           // installed / provider added) flips the connection phase, which
           // re-renders this gate and drops it on its own.
@@ -183,7 +198,7 @@ export function App(): JSX.Element {
     );
   }
 
-  if (!isConnected(phase) && !hasEverConnected) {
+  if (!shell.connected && !hasEverConnected) {
     // Terminal protocol-incompatible self-heal: update the bundled CLI in
     // place (host `app.updateCli`), then re-run the supervisor connect — which
     // respawns the runner from the now-newer CLI, so the client attaches
@@ -214,8 +229,8 @@ export function App(): JSX.Element {
     );
   }
 
-  const connected = isConnected(phase);
-  const shellPhase = connected ? phase! : lastConnected!;
+  const connected = shell.connected;
+  const shellPhase = shell.phase;
   // (mode + provider were previously surfaced as a chip in the chat
   // header; that's been dropped in favour of the workspace path.
   // Keep this comment so the variable's absence is intentional.)
@@ -233,6 +248,7 @@ export function App(): JSX.Element {
             workspaceId={activeWorkspaceId}
             railPane={railPane}
             onPickPane={setRailPane}
+            sessionLoading={shell.sessionLoading}
             onView={setView}
           />
           <ContextRail
