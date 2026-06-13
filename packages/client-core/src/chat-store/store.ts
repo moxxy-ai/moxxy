@@ -105,6 +105,7 @@ import {
   createSlot,
   EMPTY_QUEUE,
   EMPTY_SNAPSHOT,
+  INITIAL_LOADING_SNAPSHOT,
   type ChatSnapshot,
   type QueuedTurn,
   type Slot,
@@ -149,7 +150,7 @@ class ChatStore {
 
   getChat(workspaceId: string): ChatSnapshot {
     const slot = this.slots.get(workspaceId);
-    if (!slot) return EMPTY_SNAPSHOT;
+    if (!slot) return INITIAL_LOADING_SNAPSHOT;
     return buildSnapshot(slot);
   }
 
@@ -279,7 +280,13 @@ class ChatStore {
    */
   async loadInitial(workspaceId: string): Promise<void> {
     const slot = this.ensure(workspaceId);
-    if (slot.loaded || !this.persistence) return;
+    if (slot.loaded) return;
+    if (!this.persistence) {
+      slot.loaded = true;
+      slot.snap = null;
+      this.emit();
+      return;
+    }
     slot.loaded = true; // set before await so concurrent calls bail
     slot.loadingInitial = true; // show the spinner while the read is in flight
     slot.snap = null;

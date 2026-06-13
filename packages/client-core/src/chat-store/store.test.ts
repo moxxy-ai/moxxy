@@ -289,6 +289,35 @@ describe('chatStore clear/drop', () => {
 });
 
 describe('chatStore initial history loading', () => {
+  it('treats an unseen workspace as loading until its initial history read completes', async () => {
+    const workspaceId = ws();
+    const persisted = userPrompt('loaded after switch');
+    let resolveLoad:
+      | ((value: { events: ReadonlyArray<MoxxyEvent>; prevCursor: number | null }) => void)
+      | null = null;
+    const persistence: ChatPersistence = {
+      loadSegment() {
+        return new Promise((resolve) => {
+          resolveLoad = resolve;
+        });
+      },
+      async append() {},
+      async clear() {},
+    };
+    chatStore.setPersistence(persistence);
+
+    expect(chatStore.getChat(workspaceId).loading).toBe(true);
+
+    const loading = chatStore.loadInitial(workspaceId);
+    expect(chatStore.getChat(workspaceId).loading).toBe(true);
+
+    resolveLoad?.({ events: [persisted], prevCursor: null });
+    await loading;
+
+    expect(chatStore.getChat(workspaceId).loading).toBe(false);
+    expect(chatStore.getChat(workspaceId).events).toEqual([persisted]);
+  });
+
   it('retries initial history loading when the first fallback page was empty', async () => {
     const workspaceId = ws();
     const persisted = userPrompt('stored history');

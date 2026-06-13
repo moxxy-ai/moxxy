@@ -103,6 +103,11 @@ export const EMPTY_SNAPSHOT: ChatSnapshot = Object.freeze({
   compacting: false,
 });
 
+export const INITIAL_LOADING_SNAPSHOT: ChatSnapshot = Object.freeze({
+  ...EMPTY_SNAPSHOT,
+  loading: true,
+});
+
 /** A fresh, empty {@link Slot} for a newly-seen workspace. */
 export function createSlot(): Slot {
   return {

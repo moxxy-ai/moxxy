@@ -1,6 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ChatSurface } from './ChatSurface';
+
+const chatState = vi.hoisted(() => ({
+  loading: false,
+}));
 
 vi.mock('./Composer', () => ({
   Composer: () => (
@@ -20,7 +24,7 @@ vi.mock('@moxxy/client-core', () => ({
     activeTurnId: null,
     error: null,
     isEmpty: true,
-    loading: false,
+    loading: chatState.loading,
     compacting: false,
     send: vi.fn(),
     abort: vi.fn(),
@@ -51,6 +55,10 @@ const loadingPhase = {
 } as const;
 
 describe('ChatSurface session readiness', () => {
+  beforeEach(() => {
+    chatState.loading = false;
+  });
+
   it('hides the composer and agent controls while the selected session runner is loading', () => {
     render(
       <ChatSurface
@@ -64,6 +72,32 @@ describe('ChatSurface session readiness', () => {
     );
 
     expect(screen.getByText('Moxxy is loading this session…')).toBeInTheDocument();
+    expect(screen.queryByTestId('composer-mock')).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Model:/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Attach')).not.toBeInTheDocument();
+  });
+
+  it('hides the composer and agent controls while the selected session history is loading', () => {
+    chatState.loading = true;
+
+    render(
+      <ChatSurface
+        phase={{
+          phase: 'connected',
+          socket: '/tmp/fresh-session.sock',
+          sessionId: 'fresh-session',
+          activeProvider: 'openai-codex',
+          activeMode: 'default',
+        }}
+        workspaceId="fresh-session"
+        sessionLoading={false}
+        railOpen={false}
+        onShowRail={vi.fn()}
+        onView={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Loading conversation…')).toBeInTheDocument();
     expect(screen.queryByTestId('composer-mock')).not.toBeInTheDocument();
     expect(screen.queryByText(/^Model:/)).not.toBeInTheDocument();
     expect(screen.queryByText('Attach')).not.toBeInTheDocument();

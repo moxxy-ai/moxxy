@@ -98,7 +98,9 @@ export function ChatSurface({
     return filterEventsBySearch(chat.events, searchIndex, searchQuery);
   }, [chat.events, searchQuery, searchIndex]);
 
-  if (sessionLoading) {
+  const loading = sessionLoading || chat.loading;
+
+  if (loading) {
     return (
       <main className="col-main col-main--flat">
         <Header
@@ -116,7 +118,9 @@ export function ChatSurface({
           className="anim-fade-in"
           style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
         >
-          <ChatLoading label="Moxxy is loading this session…" />
+          <ChatLoading
+            label={sessionLoading ? 'Moxxy is loading this session…' : undefined}
+          />
         </div>
       </main>
     );
@@ -142,9 +146,7 @@ export function ChatSurface({
         className="anim-fade-in"
         style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
       >
-        {chat.loading ? (
-          <ChatLoading />
-        ) : chat.isEmpty ? (
+        {chat.isEmpty ? (
           <EmptyState ready={ready} />
         ) : (
           <Transcript
