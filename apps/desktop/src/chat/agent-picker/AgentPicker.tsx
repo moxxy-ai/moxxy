@@ -64,7 +64,7 @@ export function AgentPicker({
     let cancelled = false;
     let retryTimer: number | undefined;
     const scheduleRetry = (fetchInfo: () => void): void => {
-      if (!runnerConnected || cancelled) return;
+      if (cancelled) return;
       window.clearTimeout(retryTimer);
       retryTimer = window.setTimeout(fetchInfo, SESSION_INFO_RETRY_MS);
     };

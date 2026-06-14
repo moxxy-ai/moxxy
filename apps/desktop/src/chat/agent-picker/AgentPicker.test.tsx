@@ -98,4 +98,20 @@ describe('AgentPicker', () => {
     expect(screen.getByText('openai-codex')).toBeInTheDocument();
     expect(invoke).toHaveBeenCalledTimes(2);
   });
+
+  it('keeps retrying session.info even when the connected snapshot is missed', async () => {
+    vi.useFakeTimers();
+    const invoke = installInfoSequence([null, info]);
+    render(<AgentPicker workspaceId="missed-snapshot-session" disabled={false} />);
+
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText(/Model:/)).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(750);
+    });
+
+    expect(screen.getByText('openai-codex')).toBeInTheDocument();
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
 });
