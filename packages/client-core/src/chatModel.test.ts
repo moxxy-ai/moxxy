@@ -141,6 +141,13 @@ describe('chat model runtime', () => {
     expect(rt.log.length).toBe(1);
   });
 
+  it('dedupes duplicate initial events by id', () => {
+    const u = userPrompt('loaded twice');
+    const rt = createRuntime([u, { ...u } as MoxxyEvent]);
+    expect(rt.log.length).toBe(1);
+    expect(blocksOf(rt)).toHaveLength(1);
+  });
+
   it('clear() resets seenIds so the same id can be re-added afterwards', () => {
     const rt = createRuntime();
     const u = userPrompt('x');

@@ -318,6 +318,23 @@ describe('chatStore initial history loading', () => {
     expect(chatStore.getChat(workspaceId).events).toEqual([persisted]);
   });
 
+  it('dedupes duplicate event ids inside an initial history page', async () => {
+    const workspaceId = ws();
+    const persisted = userPrompt('loaded once');
+    const persistence: ChatPersistence = {
+      async loadSegment() {
+        return { events: [persisted, { ...persisted } as MoxxyEvent], prevCursor: null };
+      },
+      async append() {},
+      async clear() {},
+    };
+    chatStore.setPersistence(persistence);
+
+    await chatStore.loadInitial(workspaceId);
+
+    expect(chatStore.getChat(workspaceId).events).toEqual([persisted]);
+  });
+
   it('retries initial history loading when the first fallback page was empty', async () => {
     const workspaceId = ws();
     const persisted = userPrompt('stored history');

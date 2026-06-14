@@ -513,6 +513,15 @@ item — the debt it *creates* is logged here on sight:
   the wizard skip the prompt. Deferred (init is one-time; runtime switch is the
   main path).
 
+## 2026-06-14 — desktop transcript dedupe
+
+- **Retired: duplicate event ids in persisted transcript history triggered React key
+  collisions.** Some legacy `~/.moxxy/chats/*.jsonl` mirrors contained adjacent duplicate
+  event ids, and the renderer only de-duped against previously loaded events, not duplicates
+  inside the same loaded page. `ChatRuntime` now de-dupes initial events, `ChatStore`
+  de-dupes every loaded history page before prepending, and `desktop-host`'s `appendEvents`
+  filters duplicate ids inside one append batch so new mirrors do not grow duplicate lines.
+
 ## 2026-06-12 — desktop live registry refresh + interactive provider management
 
 - **Retired (found + fixed same PR): desktop UI went stale after runtime registry

@@ -203,6 +203,12 @@ describe('chat-log NDJSON backend', () => {
     expect(seg.events.map((e) => (e as { text: string }).text)).toEqual(['m0', 'm1', 'm2', 'm3']);
   });
 
+  it('dedupes duplicate ids inside one append batch', async () => {
+    await appendEvents('w1', [ev(0), ev(0), ev(1)]);
+    const seg = await loadSegment('w1', null, 10);
+    expect(seg.events.map((e) => (e as { text: string }).text)).toEqual(['m0', 'm1']);
+  });
+
   it('keeps the pagination cursor stable across a re-appended history', async () => {
     await appendEvents('w1', Array.from({ length: 10 }, (_, i) => ev(i)));
     const before = await loadSegment('w1', null, 4);

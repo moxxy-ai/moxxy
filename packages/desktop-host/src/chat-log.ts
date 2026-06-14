@@ -202,7 +202,12 @@ async function appendEventsLocked(
   events: ReadonlyArray<MoxxyEvent>,
 ): Promise<void> {
   const seen = await knownIds(workspaceId);
-  const fresh = events.filter((e) => !seen.has(e.id));
+  const incoming = new Set<string>();
+  const fresh = events.filter((e) => {
+    if (seen.has(e.id) || incoming.has(e.id)) return false;
+    incoming.add(e.id);
+    return true;
+  });
   if (fresh.length === 0) return;
   await mkdir(chatsDir(), { recursive: true });
   const file = fileFor(workspaceId);

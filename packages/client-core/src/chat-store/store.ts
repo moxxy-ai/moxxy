@@ -16,7 +16,7 @@
  */
 
 import type { MoxxyEvent, UserPromptAttachment } from '@moxxy/sdk';
-import { applyAction, isRenderedEvent, type ChatAction } from '../chatModel.js';
+import { applyAction, isRenderedEvent, uniqueEventsById, type ChatAction } from '../chatModel.js';
 import { INITIAL_WINDOW, OLDER_PAGE, type ChatPersistence } from '../chatPersistence.js';
 
 /**
@@ -432,7 +432,7 @@ class ChatStore {
     // `seenIds` is the authoritative membership set (kept in lockstep with the
     // log by applyEvent + here), so a page that overlaps events already
     // delivered by the runner's replay is de-duped without an O(n) rescan.
-    const fresh = events.filter((e) => !slot.rt.seenIds.has(e.id));
+    const fresh = uniqueEventsById(events).filter((e) => !slot.rt.seenIds.has(e.id));
     if (fresh.length > 0) {
       slot.rt.log.prepend(fresh);
       for (const e of fresh) slot.rt.seenIds.add(e.id);
