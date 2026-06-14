@@ -199,7 +199,6 @@ export function bindWindow(
     const sup = pool.get(id);
     if (!sup) return;
     const phase = sup.snapshot().phase;
-    send('connection.changed', { workspaceId: id, phase });
     if (phase.phase === 'connected') ensureDriverFor(id, sup);
     else {
       // Primary tears down its own driver on disconnect; secondary
@@ -216,6 +215,7 @@ export function bindWindow(
         attachUnsubs.delete(id);
       }
     }
+    send('connection.changed', { workspaceId: id, phase });
   };
 
   pool.on('change', onPoolChange);
@@ -224,8 +224,8 @@ export function bindWindow(
   // each supervisor's connection state into the renderer.
   for (const { id, supervisor } of pool.list()) {
     const phase: ConnectionPhase = supervisor.snapshot().phase;
-    send('connection.changed', { workspaceId: id, phase });
     if (phase.phase === 'connected') ensureDriverFor(id, supervisor);
+    send('connection.changed', { workspaceId: id, phase });
   }
 
   return () => {
