@@ -7,6 +7,10 @@ import { anthropicPlugin } from '@moxxy/plugin-provider-anthropic';
 import { openaiPlugin } from '@moxxy/plugin-provider-openai';
 import { openaiCodexPlugin } from '@moxxy/plugin-provider-openai-codex';
 import { claudeCodePlugin } from '@moxxy/plugin-provider-claude-code';
+import { zaiPlugin } from '@moxxy/plugin-provider-zai';
+import { xaiPlugin } from '@moxxy/plugin-provider-xai';
+import { googlePlugin } from '@moxxy/plugin-provider-google';
+import { localPlugin } from '@moxxy/plugin-provider-local';
 import { buildWhisperPlugin } from '@moxxy/plugin-stt-whisper';
 import { buildWhisperCodexPlugin } from '@moxxy/plugin-stt-whisper-codex';
 import { builtinToolsPlugin } from '@moxxy/tools-builtin';
@@ -79,6 +83,10 @@ export const BUILTIN_REQUIREMENT_DECISIONS: Readonly<Record<string, BuiltinRequi
   '@moxxy/plugin-provider-openai': { hardRequirements: false, reason: 'provider is independently activatable' },
   '@moxxy/plugin-provider-openai-codex': { hardRequirements: false, reason: 'provider owns its OAuth flow' },
   '@moxxy/plugin-provider-claude-code': { hardRequirements: false, reason: 'provider owns its OAuth flow' },
+  '@moxxy/plugin-provider-zai': { hardRequirements: false, reason: 'provider is independently activatable' },
+  '@moxxy/plugin-provider-xai': { hardRequirements: false, reason: 'provider is independently activatable' },
+  '@moxxy/plugin-provider-google': { hardRequirements: false, reason: 'provider is independently activatable' },
+  '@moxxy/plugin-provider-local': { hardRequirements: false, reason: 'local provider needs no credentials; activatable without setup' },
   '@moxxy/plugin-provider-admin': { hardRequirements: false, reason: 'provider registry access is injected by bootstrap closure' },
   '@moxxy/tools-builtin': { hardRequirements: false, reason: 'core tool pack has no plugin dependency' },
   '@moxxy/mode-default': { hardRequirements: false, reason: 'default mode has no plugin dependency' },
@@ -188,6 +196,14 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
     { name: '@moxxy/plugin-provider-openai', plugin: openaiPlugin },
     { name: '@moxxy/plugin-provider-openai-codex', plugin: openaiCodexPlugin },
     { name: '@moxxy/plugin-provider-claude-code', plugin: claudeCodePlugin },
+    // OpenAI-compatible vendors (z.ai api-key mode, xAI, Google Gemini, local
+    // servers) + z.ai's GLM Coding Plan (Anthropic-compatible). Each reuses the
+    // shared OpenAIProvider/AnthropicProvider with its own slug + base URL +
+    // model catalog; see the respective plugin packages.
+    { name: '@moxxy/plugin-provider-zai', plugin: zaiPlugin },
+    { name: '@moxxy/plugin-provider-xai', plugin: xaiPlugin },
+    { name: '@moxxy/plugin-provider-google', plugin: googlePlugin },
+    { name: '@moxxy/plugin-provider-local', plugin: localPlugin },
     { name: '@moxxy/tools-builtin', plugin: builtinToolsPlugin },
     { name: '@moxxy/mode-default', plugin: defaultModePlugin },
     { name: '@moxxy/mode-goal', plugin: goalModePlugin },
