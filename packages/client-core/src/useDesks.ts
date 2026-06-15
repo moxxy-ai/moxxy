@@ -55,6 +55,7 @@ class DesksStore {
   private started = false;
   private listenerCount = 0;
   private unsubscribeChanged: (() => void) | null = null;
+  private pendingActiveSessionId: string | null = null;
 
   private get state(): DesksState {
     return this.store.getSnapshot();
@@ -89,14 +90,44 @@ class DesksStore {
     this.store.set(patch);
   }
 
+  private ownerDeskId(desks: ReadonlyArray<Desk>, sessionId: string): string | null {
+    return (
+      desks.find((desk) => desk.sessions.some((session) => session.id === sessionId))?.id ?? null
+    );
+  }
+
+  private withPendingActiveSession(next: DesksOverview): DesksOverview {
+    const pendingId = this.pendingActiveSessionId;
+    if (!pendingId) return next;
+
+    const ownerDeskId = this.ownerDeskId(next.desks, pendingId);
+    if (!ownerDeskId) return next;
+
+    const hostAlreadyCaughtUp =
+      next.activeId === ownerDeskId &&
+      next.desks.some((desk) => desk.id === ownerDeskId && desk.activeSessionId === pendingId);
+    if (hostAlreadyCaughtUp) {
+      this.pendingActiveSessionId = null;
+      return next;
+    }
+
+    return {
+      activeId: ownerDeskId,
+      desks: next.desks.map((desk) =>
+        desk.id === ownerDeskId ? { ...desk, activeSessionId: pendingId } : desk,
+      ),
+    };
+  }
+
   private applyOverview(next: DesksOverview): void {
+    const overview = this.withPendingActiveSession(next);
     this.set({
-      desks: next.desks,
-      activeId: next.activeId,
+      desks: overview.desks,
+      activeId: overview.activeId,
       error: null,
       loading: false,
     });
-    const activeDesk = next.desks.find((desk) => desk.id === next.activeId);
+    const activeDesk = overview.desks.find((desk) => desk.id === overview.activeId);
     if (activeDesk?.activeSessionId) {
       connectionStore.setActive(activeDesk.activeSessionId);
     }
@@ -223,6 +254,7 @@ class DesksStore {
       connectionStore,
       () => {
         const desk = this.state.desks.find((d) => d.sessions.some((s) => s.id === id));
+        this.pendingActiveSessionId = id;
         if (desk) {
           this.set({
             activeId: desk.id,
@@ -237,7 +269,10 @@ class DesksStore {
         await api().invoke('sessions.setActive', { id });
         await this.refresh();
       },
-      (e) => this.set({ activeId: prevActive, desks: prevDesks, error: toErrorMessage(e) }),
+      (e) => {
+        if (this.pendingActiveSessionId === id) this.pendingActiveSessionId = null;
+        this.set({ activeId: prevActive, desks: prevDesks, error: toErrorMessage(e) });
+      },
     );
   };
 
@@ -271,8 +306,9 @@ class DesksStore {
     this.unsubscribeChanged?.();
     this.unsubscribeChanged = null;
     this.started = false;
-    this.listeners.clear();
-    this.state = INITIAL;
+    this.listenerCount = 0;
+    this.store.replace(INITIAL);
+    this.pendingActiveSessionId = null;
   }
 }
 

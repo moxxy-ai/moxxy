@@ -143,4 +143,64 @@ describe('useDesks', () => {
     });
     expect(result.current.desks[0]?.sessions[0]?.name).toBe('New name');
   });
+
+  it('keeps an optimistic session switch when a stale desks.changed arrives while the host is loading', async () => {
+    let resolveSetActive: ((value: unknown) => void) | null = null;
+    const staleDesk: Desk = {
+      id: 'desk-a',
+      name: 'Desk A',
+      cwd: '/repo',
+      color: '#3b82f6',
+      createdAt: 1,
+      activeSessionId: 'session-test',
+      sessions: [
+        { id: 'session-other', name: 'Other', createdAt: 1 },
+        { id: 'session-test', name: 'test', createdAt: 2 },
+      ],
+    };
+    const freshDesk: Desk = { ...staleDesk, activeSessionId: 'session-other' };
+    let overview: DesksOverview = { desks: [staleDesk], activeId: 'desk-a' };
+    const host = fakeApi(overview);
+    host.invoke.mockImplementation((cmd: string) => {
+      if (cmd === 'desks.list') return Promise.resolve(overview);
+      if (cmd === 'sessions.setActive') {
+        return new Promise((resolve) => {
+          resolveSetActive = resolve;
+        });
+      }
+      throw new Error(`unexpected ${cmd}`);
+    });
+
+    const { result } = renderHook(() => useDesks());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(connectionStore.active$()).toBe('session-test');
+
+    let switchPromise: Promise<void> | null = null;
+    act(() => {
+      switchPromise = result.current.setActiveSession('session-other');
+    });
+
+    expect(result.current.activeId).toBe('desk-a');
+    expect(result.current.desks[0]?.activeSessionId).toBe('session-other');
+    expect(connectionStore.active$()).toBe('session-other');
+
+    act(() => {
+      host.emit('desks.changed', { desks: [staleDesk], activeId: 'desk-a' });
+    });
+
+    expect(result.current.activeId).toBe('desk-a');
+    expect(result.current.desks[0]?.activeSessionId).toBe('session-other');
+    expect(connectionStore.active$()).toBe('session-other');
+
+    overview = { desks: [freshDesk], activeId: 'desk-a' };
+    act(() => {
+      resolveSetActive?.(undefined);
+    });
+    await act(async () => {
+      await switchPromise;
+    });
+
+    expect(result.current.desks[0]?.activeSessionId).toBe('session-other');
+    expect(connectionStore.active$()).toBe('session-other');
+  });
 });
