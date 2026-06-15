@@ -11,14 +11,16 @@ type EventHandler<K extends keyof IpcEvents> = (payload: IpcEvents[K]) => void;
 function fakeApi(initial: DesksOverview): {
   setOverview: (next: DesksOverview) => void;
   emit: <K extends keyof IpcEvents>(channel: K, payload: IpcEvents[K]) => void;
+  invoke: ReturnType<typeof vi.fn>;
 } {
   let overview = initial;
   const handlers = new Map<keyof IpcEvents, EventHandler<keyof IpcEvents>>();
+  const invoke = vi.fn(async (cmd: string) => {
+    if (cmd === 'desks.list') return overview;
+    throw new Error(`unexpected ${cmd}`);
+  });
   const api: MoxxyApi = {
-    invoke: vi.fn(async (cmd: string) => {
-      if (cmd === 'desks.list') return overview;
-      throw new Error(`unexpected ${cmd}`);
-    }) as unknown as MoxxyApi['invoke'],
+    invoke: invoke as unknown as MoxxyApi['invoke'],
     subscribe: ((channel: keyof IpcEvents, handler: EventHandler<keyof IpcEvents>) => {
       handlers.set(channel, handler);
       return () => handlers.delete(channel);
@@ -32,6 +34,7 @@ function fakeApi(initial: DesksOverview): {
     emit: (channel, payload) => {
       handlers.get(channel)?.(payload);
     },
+    invoke,
   };
 }
 
@@ -88,5 +91,56 @@ describe('useDesks', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(connectionStore.active$()).toBe('session-active');
+  });
+
+  it('renames a session in the sidebar store immediately while the host refresh is pending', async () => {
+    let resolveRename: ((value: unknown) => void) | null = null;
+    const desk: Desk = {
+      id: 'desk-a',
+      name: 'Desk A',
+      cwd: '/repo',
+      color: '#3b82f6',
+      createdAt: 1,
+      activeSessionId: 'session-a',
+      sessions: [{ id: 'session-a', name: 'Old name', createdAt: 1 }],
+    };
+    const host = fakeApi({ desks: [desk], activeId: 'desk-a' });
+    const renamedDesk: Desk = {
+      ...desk,
+      sessions: [{ id: 'session-a', name: 'New name', createdAt: 1 }],
+    };
+    host.invoke.mockImplementation((cmd: string) => {
+      if (cmd === 'desks.list') return Promise.resolve({ desks: [desk], activeId: 'desk-a' });
+      if (cmd === 'sessions.rename') {
+        return new Promise((resolve) => {
+          resolveRename = resolve;
+        });
+      }
+      throw new Error(`unexpected ${cmd}`);
+    });
+
+    const { result } = renderHook(() => useDesks());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let renamePromise: Promise<void> | null = null;
+    act(() => {
+      renamePromise = result.current.renameSession('session-a', 'New name');
+    });
+
+    expect(result.current.desks[0]?.sessions[0]?.name).toBe('New name');
+    expect(resolveRename).not.toBeNull();
+
+    host.invoke.mockImplementation((cmd: string) => {
+      if (cmd === 'desks.list') return Promise.resolve({ desks: [renamedDesk], activeId: 'desk-a' });
+      if (cmd === 'sessions.rename') return Promise.resolve(renamedDesk.sessions[0]);
+      throw new Error(`unexpected ${cmd}`);
+    });
+    act(() => {
+      resolveRename?.({ id: 'session-a', name: 'New name', createdAt: 1 });
+    });
+    await act(async () => {
+      await renamePromise;
+    });
+    expect(result.current.desks[0]?.sessions[0]?.name).toBe('New name');
   });
 });

@@ -4,6 +4,8 @@ import { Icon } from '@moxxy/desktop-ui';
 import { usePrefs } from '@moxxy/client-core';
 import { ProfileView } from '../ProfileView';
 
+const HAS_CLERK_KEY = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim());
+
 /**
  * Bottom-of-rail profile row. Doubles as a presence indicator: signed-out
  * renders a "Sign in" prompt that opens Clerk's own modal
@@ -14,6 +16,44 @@ import { ProfileView } from '../ProfileView';
  * from the scrolling workspace list above.
  */
 export function ProfilePill(): JSX.Element {
+  return HAS_CLERK_KEY ? <ClerkProfilePill /> : <KeylessProfilePill />;
+}
+
+function KeylessProfilePill(): JSX.Element {
+  const { prefs } = usePrefs();
+  const displayName = prefs?.clerkDisplayName ?? null;
+  const row = displayName ? (
+    <button
+      type="button"
+      className="row-button"
+      disabled
+      title={displayName}
+      style={profileRowStyle('var(--color-sidebar-text)')}
+    >
+      <span style={profileLabelStyle('var(--color-sidebar-text)')}>{displayName}</span>
+      <span style={tierBadgeStyle('Free')}>Free</span>
+    </button>
+  ) : (
+    <button
+      type="button"
+      className="row-button"
+      disabled
+      style={profileRowStyle('var(--color-primary-strong)')}
+    >
+      <Icon name="agent" size={14} style={{ flexShrink: 0 }} />
+      <span style={profileLabelStyle('var(--color-primary-strong)')}>Sign in</span>
+      <Icon name="chevron-right" size={14} style={{ flexShrink: 0 }} />
+    </button>
+  );
+
+  return (
+    <div style={{ borderTop: '1px solid var(--color-sidebar-border)', padding: '6px 6px 8px' }}>
+      {row}
+    </div>
+  );
+}
+
+function ClerkProfilePill(): JSX.Element {
   const { user, isLoaded } = useUser();
   const { sessionClaims } = useAuth();
   const clerk = useClerk();

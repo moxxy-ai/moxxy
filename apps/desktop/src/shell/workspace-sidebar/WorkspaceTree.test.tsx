@@ -172,6 +172,8 @@ describe('WorkspaceTree', () => {
   it('deletes a session from its ⋯ menu without selecting the row', () => {
     const h = renderTree();
     fireEvent.click(screen.getByLabelText('session actions Fix the login bug'));
+    const menu = screen.getByRole('menu', { name: 'session actions Fix the login bug' });
+    expect(menu.parentElement).toBe(document.body);
     fireEvent.click(screen.getByLabelText('remove session Fix the login bug'));
     expect(h.onRemoveSession).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'a2' }),

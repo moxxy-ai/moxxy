@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from '@moxxy/desktop-ui';
 import type { Desk, DeskSession } from '@moxxy/desktop-ipc-contract';
 import { SectionHeader } from './SectionHeader';
@@ -548,11 +549,19 @@ function RowMenu({
   readonly deleteLabel: 'Delete' | 'Remove';
 }): JSX.Element {
   const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
 
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (e: MouseEvent): void => {
-      if (!rootRef.current?.contains(e.target as Node)) onOpenChange(false);
+      const target = e.target as Node;
+      if (
+        !rootRef.current?.contains(target) &&
+        !menuRef.current?.contains(target)
+      ) {
+        onOpenChange(false);
+      }
     };
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') onOpenChange(false);
@@ -564,6 +573,23 @@ function RowMenu({
       document.removeEventListener('keydown', onKey);
     };
   }, [open, onOpenChange]);
+
+  useEffect(() => {
+    if (!open) {
+      setMenuPosition(null);
+      return;
+    }
+    const updatePosition = (): void => {
+      if (rootRef.current) setMenuPosition(positionMenu(rootRef.current));
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [open]);
 
   const item: React.CSSProperties = {
     display: 'flex',
@@ -578,87 +604,117 @@ function RowMenu({
     cursor: 'pointer',
   };
 
+  const menu =
+    open && menuPosition && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            aria-label={`${kind} actions ${name}`}
+            // A click inside the popover must not bubble to the row (which
+            // would select the session / toggle the folder under the menu).
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'fixed',
+              top: menuPosition.top,
+              left: menuPosition.left,
+              zIndex: 1100,
+              width: menuPosition.width,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 1,
+              padding: 4,
+              background: 'var(--color-sidebar-bg)',
+              border: '1px solid var(--color-sidebar-border)',
+              borderRadius: 10,
+              boxShadow: '0 14px 32px -16px rgba(0, 0, 0, 0.45)',
+            }}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              aria-label={`rename ${kind} ${name}`}
+              className="row-button"
+              onClick={() => {
+                onOpenChange(false);
+                onRename();
+              }}
+              style={{ ...item, color: 'var(--color-sidebar-text)' }}
+            >
+              <Icon name="pencil" size={13} />
+              <span>Rename</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              aria-label={`remove ${kind} ${name}`}
+              className="row-button"
+              onClick={() => {
+                onOpenChange(false);
+                onDelete();
+              }}
+              style={{ ...item, color: 'var(--color-red-text)' }}
+            >
+              <Icon name="x" size={13} />
+              <span>{deleteLabel}</span>
+            </button>
+          </div>,
+          document.body,
+        )
+      : null;
+
   return (
-    <div ref={rootRef} style={{ position: 'relative', display: 'inline-flex', flexShrink: 0 }}>
-      <button
-        type="button"
-        aria-label={`${kind} actions ${name}`}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={(e) => {
-          e.stopPropagation();
-          onOpenChange(!open);
-        }}
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: 24,
-          height: 24,
-          borderRadius: 7,
-          color: 'var(--color-sidebar-text-dim)',
-          opacity: visible ? 0.9 : 0,
-          background: open ? 'var(--color-sidebar-bg-hover)' : 'transparent',
-          transition: 'opacity 120ms ease',
-        }}
-      >
-        <Icon name="more" size={14} />
-      </button>
-      {open && (
-        <div
-          role="menu"
+    <>
+      <div ref={rootRef} style={{ position: 'relative', display: 'inline-flex', flexShrink: 0 }}>
+        <button
+          type="button"
           aria-label={`${kind} actions ${name}`}
-          // A click inside the popover must not bubble to the row (which
-          // would select the session / toggle the folder under the menu).
-          onClick={(e) => e.stopPropagation()}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!open && rootRef.current) setMenuPosition(positionMenu(rootRef.current));
+            onOpenChange(!open);
+          }}
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 4px)',
-            right: 0,
-            zIndex: 40,
-            minWidth: 132,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 1,
-            padding: 4,
-            background: 'var(--color-sidebar-bg)',
-            border: '1px solid var(--color-sidebar-border)',
-            borderRadius: 10,
-            boxShadow: '0 14px 32px -16px rgba(0, 0, 0, 0.45)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 24,
+            height: 24,
+            borderRadius: 7,
+            color: 'var(--color-sidebar-text-dim)',
+            opacity: visible ? 0.9 : 0,
+            background: open ? 'var(--color-sidebar-bg-hover)' : 'transparent',
+            transition: 'opacity 120ms ease',
           }}
         >
-          <button
-            type="button"
-            role="menuitem"
-            aria-label={`rename ${kind} ${name}`}
-            className="row-button"
-            onClick={() => {
-              onOpenChange(false);
-              onRename();
-            }}
-            style={{ ...item, color: 'var(--color-sidebar-text)' }}
-          >
-            <Icon name="pencil" size={13} />
-            <span>Rename</span>
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            aria-label={`remove ${kind} ${name}`}
-            className="row-button"
-            onClick={() => {
-              onOpenChange(false);
-              onDelete();
-            }}
-            style={{ ...item, color: 'var(--color-red-text)' }}
-          >
-            <Icon name="x" size={13} />
-            <span>{deleteLabel}</span>
-          </button>
-        </div>
-      )}
-    </div>
+          <Icon name="more" size={14} />
+        </button>
+      </div>
+      {menu}
+    </>
   );
+}
+
+interface MenuPosition {
+  readonly top: number;
+  readonly left: number;
+  readonly width: number;
+}
+
+const MENU_WIDTH = 144;
+const MENU_MARGIN = 8;
+
+function positionMenu(anchor: HTMLElement): MenuPosition {
+  const rect = anchor.getBoundingClientRect();
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || MENU_WIDTH;
+  const maxLeft = Math.max(MENU_MARGIN, viewportWidth - MENU_WIDTH - MENU_MARGIN);
+  return {
+    top: rect.bottom + 4,
+    left: Math.min(Math.max(MENU_MARGIN, rect.right - MENU_WIDTH), maxLeft),
+    width: MENU_WIDTH,
+  };
 }
 
 const iconButtonStyle: React.CSSProperties = {

@@ -102,6 +102,21 @@ class DesksStore {
     }
   }
 
+  private renameSessionInState(id: string, name: string): void {
+    let changed = false;
+    const desks = this.state.desks.map((desk) => {
+      let deskChanged = false;
+      const sessions = desk.sessions.map((session) => {
+        if (session.id !== id || session.name === name) return session;
+        changed = true;
+        deskChanged = true;
+        return { ...session, name };
+      });
+      return deskChanged ? { ...desk, sessions } : desk;
+    });
+    if (changed) this.set({ desks, error: null });
+  }
+
   private subscribeToHostChanges(): void {
     if (this.unsubscribeChanged) return;
     this.unsubscribeChanged = api().subscribe('desks.changed', (next: DesksOverview) => {
@@ -227,11 +242,13 @@ class DesksStore {
   };
 
   renameSession = async (id: string, name: string): Promise<void> => {
+    const prevDesks = this.state.desks;
+    this.renameSessionInState(id, name);
     try {
       await api().invoke('sessions.rename', { id, name });
       await this.refresh();
     } catch (e) {
-      this.set({ error: toErrorMessage(e) });
+      this.set({ desks: prevDesks, error: toErrorMessage(e) });
     }
   };
 
