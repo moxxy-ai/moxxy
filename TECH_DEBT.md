@@ -37,6 +37,34 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
 
 ---
 
+## 2026-06-15 — built-in providers: z.ai / xAI / Google Gemini / local
+
+- **New (`@moxxy/plugin-provider-{zai,xai,google,local}`):** four first-class
+  built-in providers wired into `setup/builtins.ts`. All reuse the shared
+  `OpenAIProvider` (and `AnthropicProvider` for z.ai's GLM Coding Plan path) with
+  a per-vendor slug + base URL + model catalog — no new provider runtime, no new
+  external deps. `AnthropicProvider.models` was made configurable (mirroring
+  `OpenAIProvider`) so the z.ai plan-mode path advertises GLM models through it.
+  `resolveProviderCredentials` gained a `local` no-key branch (Ollama default,
+  `LOCAL_MODEL_BASE_URL` override), mirroring the `openai-codex`/`claude-code`
+  special-cases.
+- **New (low, freshness): hardcoded model catalogs now span 5 more providers.**
+  This extends the existing P3 #8 debt (Anthropic catalog hand-maintained instead
+  of derived from a Models API). z.ai/xAI/Gemini ship fast-moving IDs and context
+  windows that were correct as of 2026-06-15 but will drift; unlisted IDs still
+  work (passed straight through), so the catalogs only seed the picker + context
+  budgets. A shared "OpenAI-compatible vendor catalog" derivation (or a
+  `/v1/models`-backed refresh) would let all four self-update — same root as P3 #8.
+- **Known limitation (carried from 2026-06-12, now wider):** the desktop Configure
+  sheet still can't edit a built-in provider's `models` array — relevant now that
+  four more catalog-carrying providers ship by default.
+- **Note (wizard UX, low):** `local` is `auth.kind: 'apiKey'` so `moxxy init`'s
+  `collectKey` would prompt for a (non-existent) key if a user picks `local` in
+  the wizard. It still activates keyless on the runtime `/model` path via the
+  credential branch above; a proper `{ kind: 'none' }` auth descriptor would let
+  the wizard skip the prompt. Deferred (init is one-time; runtime switch is the
+  main path).
+
 ## 2026-06-12 — desktop live registry refresh + interactive provider management
 
 - **Retired (found + fixed same PR): desktop UI went stale after runtime registry

@@ -24,6 +24,15 @@ export interface AnthropicProviderConfig {
    */
   readonly name?: string;
   /**
+   * Override the advertised model catalog. Defaults to the Anthropic catalog
+   * ({@link anthropicModels}). An Anthropic-compatible vendor that reuses this
+   * class (e.g. `@moxxy/plugin-provider-zai`'s GLM Coding Plan path, which
+   * points `baseURL` at z.ai's Anthropic Messages endpoint) passes its own
+   * descriptors so context-window lookups (compaction/elision budgets) and
+   * capability gating run against the vendor's models, not Claude's.
+   */
+  readonly models?: ReadonlyArray<ModelDescriptor>;
+  /**
    * OAuth (Claude subscription) mode. When set, the client authenticates
    * with `Authorization: Bearer <oauthToken>` instead of an `x-api-key`,
    * and the request/response is otherwise the standard Messages API. Used
@@ -54,18 +63,23 @@ export interface AnthropicProviderConfig {
 // Hardcoded model catalog (re-exported to @moxxy/plugin-provider-claude-code, which
 // reuses this provider class for the subscription path). Deriving it from the Models
 // API is a larger change (auth + caching) — deliberately deferred (TECH_DEBT P3 #8).
-// Values verified against the current Anthropic model catalog: opus-4-7 and
-// sonnet-4-6 carry a 1M context window (not the old 800k/200k); haiku-4-5 is 200k.
-// maxOutputTokens reflect each model's streaming ceiling.
+// Values verified against the current Anthropic model catalog (2026-06): fable-5,
+// opus-4-8, opus-4-7 and opus-4-6 carry a 1M context window with a 128k streaming
+// ceiling; sonnet-4-6 is 1M/64k; haiku-4-5 is 200k/64k. fable-5 is Anthropic's most
+// capable model (always-on reasoning); the loop never sets `temperature`, which
+// fable-5/opus-4-8/4.7 reject — so they stream cleanly here, same as opus-4-7 already did.
 export const anthropicModels: ReadonlyArray<ModelDescriptor> = [
+  { id: 'claude-fable-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
+  { id: 'claude-opus-4-8', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
   { id: 'claude-opus-4-7', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
+  { id: 'claude-opus-4-6', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
   { id: 'claude-sonnet-4-6', contextWindow: 1_000_000, maxOutputTokens: 64_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
   { id: 'claude-haiku-4-5-20251001', contextWindow: 200_000, maxOutputTokens: 64_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
 ];
 
 export class AnthropicProvider implements LLMProvider {
   readonly name: string;
-  readonly models = anthropicModels;
+  readonly models: ReadonlyArray<ModelDescriptor>;
   // Mutable so OAuth-mode refresh can swap in a client carrying the new
   // bearer token; the plain apiKey client never changes after construction.
   private client: Anthropic;
@@ -82,6 +96,7 @@ export class AnthropicProvider implements LLMProvider {
 
   constructor(config: AnthropicProviderConfig = {}) {
     this.name = config.name ?? 'anthropic';
+    this.models = config.models ?? anthropicModels;
     this.defaultModel = config.defaultModel ?? 'claude-sonnet-4-6';
     if (config.baseURL) this.baseURL = config.baseURL;
 

@@ -1,0 +1,44 @@
+{
+  "name": "@moxxy/plugin-provider-zai",
+  "private": true,
+  "version": "0.0.0",
+  "description": "z.ai (Zhipu GLM) LLMProvider plugin for moxxy. Ships two providers: `zai` (pay-as-you-go, OpenAI-compatible endpoint) and `zai-coding-plan` (GLM Coding Plan, Anthropic-compatible endpoint).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "provider"
+    }
+  },
+  "dependencies": {
+    "@moxxy/plugin-provider-anthropic": "workspace:*",
+    "@moxxy/plugin-provider-openai": "workspace:*",
+    "@moxxy/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "zod": "catalog:"
+  }
+}

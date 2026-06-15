@@ -34,6 +34,19 @@ export async function resolveProviderCredentials(
 ): Promise<Record<string, unknown>> {
   if (providerName === 'openai-codex') return resolveOAuthCodex(vault, opts);
   if (providerName === CLAUDE_CODE_PROVIDER_ID) return resolveClaudeCode(vault);
+  // The `local` provider (Ollama / LM Studio / llama.cpp / vLLM) authenticates
+  // against nothing, so it must activate without a key — never prompting, never
+  // throwing AUTH_NO_CREDENTIALS. Supply a harmless placeholder key (the OpenAI
+  // SDK requires a non-empty one) and pass an optional base-URL override
+  // through; the provider's createClient defaults the endpoint to Ollama when
+  // neither config nor env sets it.
+  if (providerName === 'local') {
+    return {
+      ...(opts.providerConfig ?? {}),
+      apiKey: process.env.LOCAL_API_KEY ?? 'local',
+      ...(process.env.LOCAL_MODEL_BASE_URL ? { baseURL: process.env.LOCAL_MODEL_BASE_URL } : {}),
+    };
+  }
   const storedKeyName = await storedProviderApiKeyName(providerName).catch(() => null);
   const { providerConfig } = await resolveProviderApiKey(providerName, vault, {
     ...opts,
