@@ -32,22 +32,22 @@ afterEach(async () => {
   await rm(homeDir, { recursive: true, force: true });
 });
 
-const ev = (i: number): MoxxyEvent =>
-  ({ id: `e${i}`, type: 'user_prompt', text: `m${i}`, seq: i, ts: i, turnId: 'T', sessionId: 'S', source: 'user' }) as unknown as MoxxyEvent;
+const ev = (i: number, sessionId = 'w1'): MoxxyEvent =>
+  ({ id: `e${i}`, type: 'user_prompt', text: `m${i}`, seq: i, ts: i, turnId: 'T', sessionId, source: 'user' }) as unknown as MoxxyEvent;
 
-const noise = (i: number, type: MoxxyEvent['type']): MoxxyEvent =>
+const noise = (i: number, type: MoxxyEvent['type'], sessionId = 'w1'): MoxxyEvent =>
   ({
     id: `noise-${i}`,
     type,
     seq: i,
     ts: i,
     turnId: 'T',
-    sessionId: 'S',
+    sessionId,
     source: type === 'assistant_chunk' ? 'model' : 'system',
     delta: type === 'assistant_chunk' ? 'chunk' : undefined,
   }) as unknown as MoxxyEvent;
 
-const assistant = (i: number, content: string): MoxxyEvent =>
+const assistant = (i: number, content: string, sessionId = 'w1'): MoxxyEvent =>
   ({
     id: `a${i}`,
     type: 'assistant_message',
@@ -56,7 +56,7 @@ const assistant = (i: number, content: string): MoxxyEvent =>
     seq: i,
     ts: i,
     turnId: 'T',
-    sessionId: 'S',
+    sessionId,
     source: 'model',
   }) as unknown as MoxxyEvent;
 
@@ -74,6 +74,15 @@ describe('chat-log NDJSON backend', () => {
     await appendEvents('w1', [ev(2)]);
     const seg = await loadSegment('w1', null, 10);
     expect(seg.events).toHaveLength(3);
+  });
+
+  it('does not append events that belong to another session id', async () => {
+    await appendEvents('session-a', [ev(0, 'other-session'), ev(1, 'session-a')]);
+
+    const seg = await loadSegment('session-a', null, 10);
+
+    expect(seg.events.map((e) => e.id)).toEqual(['e1']);
+    expect(seg.events.map((e) => e.sessionId)).toEqual(['session-a']);
   });
 
   it('paginates backwards with the cursor', async () => {
@@ -100,7 +109,7 @@ describe('chat-log NDJSON backend', () => {
     await mkdir(sessionsDir, { recursive: true });
     await writeFile(
       path.join(sessionsDir, 'session-with-history.jsonl'),
-      [ev(0), ev(1), ev(2)].map((event) => JSON.stringify(event)).join('\n') + '\n',
+      [ev(0, 'session-with-history'), ev(1, 'session-with-history'), ev(2, 'session-with-history')].map((event) => JSON.stringify(event)).join('\n') + '\n',
       'utf8',
     );
 
@@ -116,7 +125,7 @@ describe('chat-log NDJSON backend', () => {
     await writeFile(path.join(dir, 'session-empty-mirror.jsonl'), '', 'utf8');
     await writeFile(
       path.join(sessionsDir, 'session-empty-mirror.jsonl'),
-      [ev(0), ev(1), ev(2)].map((event) => JSON.stringify(event)).join('\n') + '\n',
+      [ev(0, 'session-empty-mirror'), ev(1, 'session-empty-mirror'), ev(2, 'session-empty-mirror')].map((event) => JSON.stringify(event)).join('\n') + '\n',
       'utf8',
     );
 
@@ -132,7 +141,12 @@ describe('chat-log NDJSON backend', () => {
     await appendEvents('session-stale-mirror', [ev(0)]);
     await writeFile(
       path.join(sessionsDir, 'session-stale-mirror.jsonl'),
-      [ev(0), ev(1), ev(2), ev(3)].map((event) => JSON.stringify(event)).join('\n') + '\n',
+      [
+        ev(0, 'session-stale-mirror'),
+        ev(1, 'session-stale-mirror'),
+        ev(2, 'session-stale-mirror'),
+        ev(3, 'session-stale-mirror'),
+      ].map((event) => JSON.stringify(event)).join('\n') + '\n',
       'utf8',
     );
 
@@ -148,12 +162,12 @@ describe('chat-log NDJSON backend', () => {
     await writeFile(
       path.join(sessionsDir, 'session-with-bookkeeping.jsonl'),
       [
-        ev(0),
-        noise(1, 'provider_response'),
-        noise(2, 'assistant_chunk'),
-        assistant(3, 'answer'),
-        noise(4, 'compaction'),
-        ev(5),
+        ev(0, 'session-with-bookkeeping'),
+        noise(1, 'provider_response', 'session-with-bookkeeping'),
+        noise(2, 'assistant_chunk', 'session-with-bookkeeping'),
+        assistant(3, 'answer', 'session-with-bookkeeping'),
+        noise(4, 'compaction', 'session-with-bookkeeping'),
+        ev(5, 'session-with-bookkeeping'),
       ].map((event) => JSON.stringify(event)).join('\n') + '\n',
       'utf8',
     );
@@ -167,6 +181,35 @@ describe('chat-log NDJSON backend', () => {
     expect(older.prevCursor).toBeNull();
   });
 
+  it('repairs a polluted mirror from the sanitized core session log', async () => {
+    const sessionsDir = path.join(homeDir, 'sessions');
+    await mkdir(sessionsDir, { recursive: true });
+    await writeFile(
+      path.join(sessionsDir, 'session-polluted.jsonl'),
+      [
+        ev(0, 'other-session'),
+        ev(1, 'session-polluted'),
+        assistant(2, 'answer', 'session-polluted'),
+      ].map((event) => JSON.stringify(event)).join('\n') + '\n',
+      'utf8',
+    );
+    await writeFile(
+      path.join(dir, 'session-polluted.jsonl'),
+      [ev(0, 'other-session')].map((event) => JSON.stringify(event)).join('\n') + '\n',
+      'utf8',
+    );
+
+    const seg = await loadSegment('session-polluted', null, 10);
+
+    expect(seg.events.map((e) => e.sessionId)).toEqual(['session-polluted', 'session-polluted']);
+    expect(seg.events.map((e) => e.id)).toEqual(['e1', 'a2']);
+    const repaired = (await readFile(path.join(dir, 'session-polluted.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as MoxxyEvent);
+    expect(repaired.map((e) => e.sessionId)).toEqual(['session-polluted', 'session-polluted']);
+  });
+
   it('clearLog truncates', async () => {
     await appendEvents('w1', [ev(0)]);
     await clearLog('w1');
@@ -177,7 +220,7 @@ describe('chat-log NDJSON backend', () => {
     await appendEvents('w1', [ev(99)]); // pre-existing
     await migrate([
       { workspaceId: 'w1', events: [ev(0)] }, // should be skipped
-      { workspaceId: 'w2', events: [ev(5), ev(6)] }, // should be seeded
+      { workspaceId: 'w2', events: [ev(5, 'w2'), ev(6, 'w2')] }, // should be seeded
     ]);
     expect((await loadSegment('w1', null, 10)).events.map((e) => (e as { text: string }).text)).toEqual(['m99']);
     expect((await loadSegment('w2', null, 10)).events.map((e) => (e as { text: string }).text)).toEqual(['m5', 'm6']);
@@ -235,8 +278,8 @@ describe('chat-log NDJSON backend', () => {
     // never saw these ids — appendEvents must hydrate from the file and dedupe.
     const fs = await import('node:fs/promises');
     const file = path.join(dir, 'w3.jsonl');
-    await fs.writeFile(file, [ev(0), ev(1)].map((e) => JSON.stringify(e)).join('\n') + '\n');
-    await appendEvents('w3', [ev(0), ev(1), ev(2)]);
+    await fs.writeFile(file, [ev(0, 'w3'), ev(1, 'w3')].map((e) => JSON.stringify(e)).join('\n') + '\n');
+    await appendEvents('w3', [ev(0, 'w3'), ev(1, 'w3'), ev(2, 'w3')]);
     const seg = await loadSegment('w3', null, 10);
     expect(seg.events.map((e) => (e as { text: string }).text)).toEqual(['m0', 'm1', 'm2']);
   });

@@ -74,10 +74,12 @@ export class WorkspaceRegistry {
       const raw = await readFile(this.path, 'utf8');
       const parsed = JSON.parse(raw) as { activeId?: string | null; desks?: unknown[] };
       if (!Array.isArray(parsed.desks)) return emptyDoc();
+      const normalized = parsed.desks.filter(isValidDesk).map((desk) => normalizeSessions(desk));
+      const needsSessionIndex = normalized.some((desk) => desk.sessions.some(isImportedSession));
+      const indexedSessions = needsSessionIndex ? await readSessionIndex().catch(() => []) : [];
+      const indexedById = new Map(indexedSessions.map((meta) => [meta.id, meta]));
       const desks = await Promise.all(
-        parsed.desks
-          .filter(isValidDesk)
-          .map((desk) => hydrateLegacySessionNames(normalizeSessions(desk))),
+        normalized.map((desk) => hydrateLegacySessionNames(desk, indexedById)),
       );
       const activeId = desks.some((desk) => desk.id === parsed.activeId)
         ? parsed.activeId ?? null
@@ -362,7 +364,9 @@ function sessionPatchFromMeta(
 ): Partial<DeskSession> {
   return {
     ...metaFields(meta, source),
-    name: shouldRefreshSessionName(existing.name) ? sessionNameFromMeta(meta) : existing.name,
+    name: shouldRefreshSessionNameFromMeta(existing, meta)
+      ? sessionNameFromMeta(meta)
+      : existing.name,
   };
 }
 
@@ -384,6 +388,17 @@ function sessionNameFromMeta(meta: SessionMeta): string {
 
 function shouldRefreshSessionName(name: string): boolean {
   return name === CURRENT_SESSION_NAME || /^Session \d+$/.test(name);
+}
+
+function shouldRefreshSessionNameFromMeta(existing: DeskSession, meta: SessionMeta): boolean {
+  if (shouldRefreshSessionName(existing.name)) return true;
+  const previousPrompt = existing.firstPrompt?.trim();
+  return Boolean(
+    previousPrompt &&
+      meta.firstPrompt?.trim() &&
+      previousPrompt !== meta.firstPrompt.trim() &&
+      existing.name === previousPrompt,
+  );
 }
 
 function timestampFromIso(value: string): number {
@@ -503,19 +518,55 @@ function normalizeSession(session: DeskSession): DeskSession {
   return normalized;
 }
 
-async function hydrateLegacySessionNames(desk: Desk): Promise<Desk> {
-  const sessions = await Promise.all(
+async function hydrateLegacySessionNames(
+  desk: Desk,
+  indexedById: ReadonlyMap<string, SessionMeta>,
+): Promise<Desk> {
+  const hydrated = await Promise.all(
     desk.sessions.map(async (session) => {
+      if (isImportedSession(session)) {
+        const meta = indexedById.get(session.id);
+        if (meta) {
+          if (!shouldImportSessionMeta(meta)) return null;
+          return {
+            ...session,
+            ...metaFields(meta, session.source),
+            name: shouldRefreshSessionNameFromMeta(session, meta)
+              ? sessionNameFromMeta(meta)
+              : session.name,
+          };
+        }
+        if (existsSync(moxxyPath('sessions', `${session.id}.jsonl`))) return null;
+        return session;
+      }
       if (session.firstPrompt?.trim() || !shouldRefreshSessionName(session.name)) return session;
-      const firstPrompt = await firstPromptFromJsonl(moxxyPath('chats', `${session.id}.jsonl`));
+      const firstPrompt = await firstPromptFromJsonl(
+        moxxyPath('chats', `${session.id}.jsonl`),
+        session.id,
+      );
       if (!firstPrompt) return session;
       return { ...session, name: firstPrompt, firstPrompt };
     }),
   );
-  return { ...desk, sessions };
+  let sessions = hydrated.filter((session): session is DeskSession => session !== null);
+  if (sessions.length === 0 && desk.id !== MOXXY_WORKSPACE_ID) {
+    sessions = [
+      {
+        id: desk.id,
+        name: DEFAULT_SESSION_NAME,
+        createdAt: desk.createdAt,
+        cwd: desk.cwd,
+        source: 'desktop',
+      },
+    ];
+  }
+  const activeSessionId = sessions.some((session) => session.id === desk.activeSessionId)
+    ? desk.activeSessionId
+    : sessions[0]?.id ?? null;
+  return { ...desk, sessions, activeSessionId };
 }
 
-async function firstPromptFromJsonl(filePath: string): Promise<string | null> {
+async function firstPromptFromJsonl(filePath: string, sessionId: string): Promise<string | null> {
   let raw: string;
   try {
     raw = await readFile(filePath, 'utf8');
@@ -525,8 +576,12 @@ async function firstPromptFromJsonl(filePath: string): Promise<string | null> {
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
     try {
-      const event = JSON.parse(line) as { type?: unknown; text?: unknown };
-      if (event.type === 'user_prompt' && typeof event.text === 'string') {
+      const event = JSON.parse(line) as { sessionId?: unknown; type?: unknown; text?: unknown };
+      if (
+        event.sessionId === sessionId &&
+        event.type === 'user_prompt' &&
+        typeof event.text === 'string'
+      ) {
         const text = event.text.trim();
         if (text) return text.slice(0, 80);
       }
@@ -539,4 +594,10 @@ async function firstPromptFromJsonl(filePath: string): Promise<string | null> {
 
 function isSessionSource(value: unknown): value is WorkspaceSessionSource {
   return value === 'desktop' || value === 'tui' || value === 'mobile' || value === 'cli';
+}
+
+function isImportedSession(session: DeskSession): session is DeskSession & {
+  source: WorkspaceSessionSource;
+} {
+  return session.source === 'cli' || session.source === 'tui' || session.source === 'mobile';
 }

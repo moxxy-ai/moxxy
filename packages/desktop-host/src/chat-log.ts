@@ -176,7 +176,8 @@ async function readLines(workspaceId: string): Promise<MoxxyEvent[]> {
   for (const line of body.split('\n')) {
     if (!line) continue;
     try {
-      out.push(JSON.parse(line) as MoxxyEvent);
+      const event = JSON.parse(line) as MoxxyEvent;
+      if (eventBelongsToWorkspace(event, workspaceId)) out.push(event);
     } catch {
       /* skip a corrupt line rather than lose the whole transcript */
     }
@@ -201,9 +202,11 @@ async function appendEventsLocked(
   workspaceId: string,
   events: ReadonlyArray<MoxxyEvent>,
 ): Promise<void> {
+  const ownedEvents = events.filter((event) => eventBelongsToWorkspace(event, workspaceId));
+  if (ownedEvents.length === 0) return;
   const seen = await knownIds(workspaceId);
   const incoming = new Set<string>();
-  const fresh = events.filter((e) => {
+  const fresh = ownedEvents.filter((e) => {
     if (seen.has(e.id) || incoming.has(e.id)) return false;
     incoming.add(e.id);
     return true;
@@ -291,7 +294,8 @@ export async function loadSegment(
   for (const line of segment.split('\n')) {
     if (!line) continue;
     try {
-      events.push(JSON.parse(line) as MoxxyEvent);
+      const event = JSON.parse(line) as MoxxyEvent;
+      if (eventBelongsToWorkspace(event, workspaceId)) events.push(event);
     } catch {
       /* skip a corrupt line rather than lose the page */
     }
@@ -311,7 +315,9 @@ async function loadSegmentFromSessionLog(
     return null;
   }
   if (restored.length === 0) return null;
-  const rendered = restored.filter(isChatEvent);
+  const rendered = restored.filter(
+    (event) => eventBelongsToWorkspace(event, workspaceId) && isChatEvent(event),
+  );
   await repairMirrorFromSessionLog(workspaceId, rendered);
   return segmentFromEvents(rendered, before, limit);
 }
@@ -320,9 +326,14 @@ async function repairMirrorFromSessionLog(
   workspaceId: string,
   events: ReadonlyArray<MoxxyEvent>,
 ): Promise<void> {
+  const current = await readLines(workspaceId);
+  if (
+    current.length === events.length &&
+    current.every((event, index) => event.id === events[index]?.id)
+  ) {
+    return;
+  }
   const file = fileFor(workspaceId);
-  const idx = await lineIndexFor(file);
-  if (idx?.offsets.length === events.length) return;
   await mkdir(chatsDir(), { recursive: true });
   const body = events.map((event) => JSON.stringify(event) + '\n').join('');
   await writeFileAtomic(file, body);
@@ -335,6 +346,10 @@ function isChatEvent(event: MoxxyEvent): boolean {
     return (event as { pluginId?: string }).pluginId === SUBAGENT_PLUGIN_ID;
   }
   return CHAT_EVENT_TYPES.has(event.type);
+}
+
+function eventBelongsToWorkspace(event: MoxxyEvent, workspaceId: string): boolean {
+  return event.sessionId === workspaceId;
 }
 
 function segmentFromEvents(
@@ -383,11 +398,12 @@ export async function migrate(
   if (workspaces.length === 0) return;
   await mkdir(chatsDir(), { recursive: true });
   for (const { workspaceId, events } of workspaces) {
-    if (events.length === 0) continue;
+    const ownedEvents = events.filter((event) => eventBelongsToWorkspace(event, workspaceId));
+    if (ownedEvents.length === 0) continue;
     // Per-file lock so the exclusive-create seed + cache invalidation can't
     // interleave with a live appendEvents/clearLog for the same workspace.
     await mutexFor(fileFor(workspaceId)).run(async () => {
-      const lines = events.map((e) => JSON.stringify(e)).join('\n') + '\n';
+      const lines = ownedEvents.map((e) => JSON.stringify(e)).join('\n') + '\n';
       let handle;
       try {
         handle = await open(fileFor(workspaceId), 'wx');

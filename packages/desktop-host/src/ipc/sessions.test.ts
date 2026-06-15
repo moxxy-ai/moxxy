@@ -25,6 +25,7 @@ const deleteSessionMock = vi.fn(async (_id: string) => {});
 vi.mock('@moxxy/core', () => ({
   deleteSession: (id: string) => deleteSessionMock(id),
   defaultSessionsDir: () => '/nonexistent-session-titles-dir',
+  readSessionIndex: async () => [],
 }));
 
 // Chat NDJSON mirror removal — record instead of touching the disk.

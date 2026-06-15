@@ -112,6 +112,47 @@ describe('WorkspaceRegistry session registration', () => {
       eventCount: 3,
     });
   });
+
+  it('refreshes stale imported names when a sanitized first prompt changes', async () => {
+    const registry = new WorkspaceRegistry(registryPath);
+    await registry.registerSessionFromMeta(
+      meta({ id: 'session-stale-title', cwd: tmp, firstPrompt: 'foreign syrup title', eventCount: 4 }),
+      'cli',
+    );
+
+    await registry.registerSessionFromMeta(
+      meta({ id: 'session-stale-title', cwd: tmp, firstPrompt: 'real matching title', eventCount: 2 }),
+      'cli',
+    );
+
+    const moxxy = (await registry.list()).find((desk) => desk.id === MOXXY_WORKSPACE_ID);
+    expect(moxxy?.sessions[0]).toMatchObject({
+      id: 'session-stale-title',
+      name: 'real matching title',
+      firstPrompt: 'real matching title',
+    });
+  });
+
+  it('does not overwrite a manually renamed session when metadata refreshes', async () => {
+    const registry = new WorkspaceRegistry(registryPath);
+    await registry.registerSessionFromMeta(
+      meta({ id: 'session-manual-title', cwd: tmp, firstPrompt: 'initial prompt', eventCount: 1 }),
+      'cli',
+    );
+    await registry.renameSession('session-manual-title', 'My hand-picked title');
+
+    await registry.registerSessionFromMeta(
+      meta({ id: 'session-manual-title', cwd: tmp, firstPrompt: 'new prompt', eventCount: 2 }),
+      'cli',
+    );
+
+    const moxxy = (await registry.list()).find((desk) => desk.id === MOXXY_WORKSPACE_ID);
+    expect(moxxy?.sessions[0]).toMatchObject({
+      id: 'session-manual-title',
+      name: 'My hand-picked title',
+      firstPrompt: 'new prompt',
+    });
+  });
 });
 
 describe('WorkspaceRegistry session-index sync', () => {
@@ -149,6 +190,43 @@ describe('WorkspaceRegistry session-index sync', () => {
       const desks = await registry.list();
       const sessions = desks.flatMap((desk) => desk.sessions);
       expect(sessions.map((session) => session.id)).toEqual(['visible-session']);
+    } finally {
+      if (original === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = original;
+    }
+  });
+
+  it('does not import a session whose visible prompt belongs to another session id', async () => {
+    const original = process.env.MOXXY_HOME;
+    const home = path.join(tmp, 'home');
+    const sessionsDir = path.join(home, 'sessions');
+    const liveCwd = path.join(tmp, 'project');
+    mkdirSync(sessionsDir, { recursive: true });
+    mkdirSync(liveCwd, { recursive: true });
+    process.env.MOXXY_HOME = home;
+    try {
+      writeSessionMeta(sessionsDir, {
+        ...meta({ id: 'foreign-only-session', cwd: liveCwd, firstPrompt: 'foreign syrup' }),
+        eventCount: 1,
+      });
+      writeFileSync(
+        path.join(sessionsDir, 'foreign-only-session.jsonl'),
+        JSON.stringify({
+          id: 'event-foreign',
+          type: 'user_prompt',
+          text: 'foreign syrup',
+          seq: 0,
+          ts: 1,
+          turnId: 'turn-1',
+          sessionId: 'other-session',
+          source: 'user',
+        }) + '\n',
+      );
+
+      const registry = new WorkspaceRegistry(registryPath);
+      await syncSessionIndexIntoRegistry(registry, 'cli');
+
+      expect((await registry.list()).flatMap((desk) => desk.sessions)).toEqual([]);
     } finally {
       if (original === undefined) delete process.env.MOXXY_HOME;
       else process.env.MOXXY_HOME = original;
@@ -287,6 +365,77 @@ describe('WorkspaceRegistry compatibility', () => {
 
       expect(desk?.sessions[0]?.name).toBe('Cześć Moxie, przeanalizuj mi stronę');
       expect(desk?.sessions[0]?.firstPrompt).toBe('Cześć Moxie, przeanalizuj mi stronę');
+    } finally {
+      if (original === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = original;
+    }
+  });
+
+  it('ignores a legacy chat mirror first prompt from another session id', async () => {
+    const original = process.env.MOXXY_HOME;
+    const home = path.join(tmp, 'home');
+    const chatsDir = path.join(home, 'chats');
+    const deskCwd = path.join(tmp, 'a');
+    mkdirSync(chatsDir, { recursive: true });
+    mkdirSync(deskCwd, { recursive: true });
+    process.env.MOXXY_HOME = home;
+    writeFileSync(
+      path.join(chatsDir, 'session-a.jsonl'),
+      [
+        {
+          id: 'event-foreign',
+          type: 'user_prompt',
+          text: 'foreign syrup prompt',
+          seq: 0,
+          ts: 1,
+          turnId: 'turn-1',
+          sessionId: 'other-session',
+          source: 'user',
+        },
+        {
+          id: 'event-real',
+          type: 'user_prompt',
+          text: 'real session prompt',
+          seq: 1,
+          ts: 2,
+          turnId: 'turn-2',
+          sessionId: 'session-a',
+          source: 'user',
+        },
+      ].map((event) => JSON.stringify(event)).join('\n') + '\n',
+    );
+    writeFileSync(
+      registryPath,
+      JSON.stringify({
+        version: 2,
+        activeId: 'desk-a',
+        desks: [
+          {
+            id: 'desk-a',
+            name: 'A',
+            cwd: deskCwd,
+            color: '#3b82f6',
+            createdAt: 111,
+            sessions: [
+              {
+                id: 'session-a',
+                name: 'Current session',
+                createdAt: 111,
+                cwd: deskCwd,
+                source: 'desktop',
+              },
+            ],
+            activeSessionId: 'session-a',
+          },
+        ],
+      }),
+    );
+
+    try {
+      const [desk] = await new WorkspaceRegistry(registryPath).list();
+
+      expect(desk?.sessions[0]?.name).toBe('real session prompt');
+      expect(desk?.sessions[0]?.firstPrompt).toBe('real session prompt');
     } finally {
       if (original === undefined) delete process.env.MOXXY_HOME;
       else process.env.MOXXY_HOME = original;

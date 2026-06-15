@@ -521,6 +521,13 @@ item — the debt it *creates* is logged here on sight:
   inside the same loaded page. `ChatRuntime` now de-dupes initial events, `ChatStore`
   de-dupes every loaded history page before prepending, and `desktop-host`'s `appendEvents`
   filters duplicate ids inside one append batch so new mirrors do not grow duplicate lines.
+- **Retired: shared workspace import trusted foreign-session events.** The first
+  shared-registry pass imported old `~/.moxxy/sessions/*.jsonl` files into Desktop/Mobile
+  without proving that each line belonged to the file's `sessionId`, so polluted logs could
+  clone a foreign first prompt into many sessions. Session persistence now rejects foreign
+  appends, `readIndex` derives titles/event counts only from matching events, `restoreEvents`
+  backs up and repairs polluted logs, workspace-registry drops imported foreign-only entries,
+  and desktop chat mirrors filter/repair by owner before rendering or paginating history.
 
 ## 2026-06-12 — desktop live registry refresh + interactive provider management
 

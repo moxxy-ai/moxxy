@@ -16,7 +16,7 @@
  * best-effort (lose at most the last in-flight event on a crash).
  */
 
-import { promises as fs } from 'node:fs';
+import { constants as fsConstants, promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { createMutex, type Mutex, type MoxxyEvent, type SessionId } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
@@ -192,6 +192,16 @@ export class SessionPersistence {
   }
 
   private enqueueAppend(event: MoxxyEvent): void {
+    const ownedEvent = eventForSession(event, this.id);
+    if (!ownedEvent) {
+      this.logger.warn('session persistence ignored foreign-session event', {
+        path: this.logPath,
+        sessionId: this.id,
+        eventId: event.id,
+        eventSessionId: event.sessionId,
+      });
+      return;
+    }
     // Update in-memory meta synchronously so multiple events in the
     // same tick share one debounced index write.
     this.meta = {
@@ -200,10 +210,10 @@ export class SessionPersistence {
       lastActivity: new Date().toISOString(),
       firstPrompt:
         this.meta.firstPrompt ??
-        (event.type === 'user_prompt' ? event.text.slice(0, 80) : null),
+        (ownedEvent.type === 'user_prompt' ? ownedEvent.text.slice(0, 80) : null),
     };
     this.scheduleIndexWrite();
-    const line = JSON.stringify(event) + '\n';
+    const line = JSON.stringify(ownedEvent) + '\n';
     // Never propagate a write error into the listener chain — but never
     // swallow it silently either: the JSONL is the session's source of
     // truth, so a failing disk must at least be loud.
@@ -383,31 +393,45 @@ export async function readIndex(dir = defaultSessionsDir()): Promise<SessionMeta
 }
 
 async function hydrateMetaFirstPrompt(meta: SessionMeta, dir: string): Promise<SessionMeta> {
-  if (meta.firstPrompt?.trim()) return meta;
-  const firstPrompt = await firstPromptFromLog(path.join(dir, `${meta.id}.jsonl`));
-  return firstPrompt ? { ...meta, firstPrompt } : meta;
+  const stats = await matchingSessionStatsFromLog(meta.id, path.join(dir, `${meta.id}.jsonl`));
+  if (!stats) return meta;
+  if (stats.parsedEvents === 0) return meta;
+  return {
+    ...meta,
+    eventCount: stats.eventCount,
+    firstPrompt: stats.firstPrompt,
+  };
 }
 
-async function firstPromptFromLog(logPath: string): Promise<string | null> {
+async function matchingSessionStatsFromLog(
+  sessionId: string,
+  logPath: string,
+): Promise<{ eventCount: number; firstPrompt: string | null; parsedEvents: number } | null> {
   let raw: string;
   try {
     raw = await fs.readFile(logPath, 'utf8');
   } catch {
     return null;
   }
+  let eventCount = 0;
+  let parsedEvents = 0;
+  let firstPrompt: string | null = null;
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
     try {
-      const event = JSON.parse(line) as { type?: unknown; text?: unknown };
-      if (event.type === 'user_prompt' && typeof event.text === 'string') {
+      const event = JSON.parse(line) as MoxxyEvent;
+      parsedEvents += 1;
+      if (!eventBelongsToSession(event, sessionId)) continue;
+      eventCount += 1;
+      if (firstPrompt === null && event.type === 'user_prompt' && typeof event.text === 'string') {
         const text = event.text.trim();
-        if (text) return text.slice(0, 80);
+        if (text) firstPrompt = text.slice(0, 80);
       }
     } catch {
       // A corrupt line should not hide a later valid prompt.
     }
   }
-  return null;
+  return { eventCount, firstPrompt, parsedEvents };
 }
 
 /**
@@ -448,10 +472,19 @@ export async function restoreEvents(
   }
   const events: MoxxyEvent[] = [];
   let corruptLines = 0;
+  let foreignEvents = 0;
+  let normalizedSessionIds = 0;
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
     try {
-      events.push(JSON.parse(line) as MoxxyEvent);
+      const event = JSON.parse(line) as MoxxyEvent;
+      const ownedEvent = eventForSession(event, sessionId);
+      if (ownedEvent) {
+        if (ownedEvent !== event) normalizedSessionIds += 1;
+        events.push(ownedEvent);
+      } else {
+        foreignEvents += 1;
+      }
     } catch {
       corruptLines += 1;
     }
@@ -467,17 +500,38 @@ export async function restoreEvents(
     }
   }
 
-  if (corruptLines > 0 || resequenced > 0) {
-    logger.warn('session log restored with gaps — re-sequenced to keep full history replayable', {
+  if (corruptLines > 0 || resequenced > 0 || foreignEvents > 0 || normalizedSessionIds > 0) {
+    const message =
+      foreignEvents > 0
+        ? 'session log restored with foreign-session events removed — re-sequenced to keep full history replayable'
+        : 'session log restored with gaps — re-sequenced to keep full history replayable';
+    logger.warn(message, {
       sessionId,
       path: logPath,
       corruptLines,
+      foreignEvents,
+      normalizedSessionIds,
       resequencedEvents: resequenced,
       restoredEvents: events.length,
     });
+    let canRewrite = true;
+    if (foreignEvents > 0) {
+      try {
+        await backupForeignSessionLog(logPath);
+      } catch (err) {
+        canRewrite = false;
+        logger.warn('failed to backup foreign-session log before repair', {
+          sessionId,
+          path: logPath,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
     try {
-      const repaired = events.map((e) => JSON.stringify(e) + '\n').join('');
-      await writeFileAtomic(logPath, repaired);
+      if (canRewrite) {
+        const repaired = events.map((e) => JSON.stringify(e) + '\n').join('');
+        await writeFileAtomic(logPath, repaired);
+      }
     } catch (err) {
       // Restore still succeeds — the in-memory log is repaired; only the
       // next resume would re-run this same repair.
@@ -636,6 +690,26 @@ export async function seedSessionLog(
   const reseq = events.map((e, i) => (e.seq === i ? e : ({ ...e, seq: i } as MoxxyEvent)));
   await writeFileAtomic(logPath, reseq.map((e) => JSON.stringify(e) + '\n').join(''));
   return true;
+}
+
+function eventBelongsToSession(event: MoxxyEvent, sessionId: string): boolean {
+  const eventSessionId = (event as { sessionId?: unknown }).sessionId;
+  return eventSessionId == null || eventSessionId === sessionId;
+}
+
+function eventForSession(event: MoxxyEvent, sessionId: string): MoxxyEvent | null {
+  if (!eventBelongsToSession(event, sessionId)) return null;
+  if ((event as { sessionId?: unknown }).sessionId === sessionId) return event;
+  return { ...event, sessionId: sessionId as SessionId } as MoxxyEvent;
+}
+
+async function backupForeignSessionLog(logPath: string): Promise<void> {
+  try {
+    await fs.copyFile(logPath, `${logPath}.foreign-session.bak`, fsConstants.COPYFILE_EXCL);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') return;
+    throw err;
+  }
 }
 
 /**
