@@ -193,6 +193,13 @@ export class MobileGatewayManager {
     server.setAllowedOrigins(advertisedOrigins(host, port));
   }
 
+  /** Publish a fresh status snapshot after the bridge's live connection count
+   *  changes. The env-gated boot path starts the server outside this manager,
+   *  then calls into this method from the transport callback. */
+  notifyClientCountChanged(): void {
+    this.rt.onChange(this.status());
+  }
+
   /**
    * Re-start the gateway on boot iff the persisted preference says it was on.
    * Best-effort: a start failure is swallowed (logged) so a transient port
@@ -272,6 +279,7 @@ export class MobileGatewayManager {
       port,
       authToken: token,
       host,
+      onClientCountChange: () => this.notifyClientCountChanged(),
       ...(process.env.MOXXY_WS_ALLOW_QUERY_TOKEN === '1' ? { allowQueryToken: true } : {}),
     };
     this.server = await this.rt.wsBridge.startWsBridge(this.rt.wsBus, opts);
@@ -317,14 +325,15 @@ export class MobileGatewayManager {
    *  off→on can't race the bind. */
   async setEnabled(enabled: boolean): Promise<MobileGatewayStatus> {
     return this.runExclusive(async () => {
-      const status = enabled ? await this.startLocked() : await this.stopLocked();
+      await (enabled ? this.startLocked() : this.stopLocked());
       try {
         await this.rt.writeEnabledPref(enabled);
       } catch (e) {
         console.error('[moxxy] mobile gateway: failed to persist preference:', e);
       }
-      this.rt.onChange(status);
-      return status;
+      const fresh = this.status();
+      this.rt.onChange(fresh);
+      return fresh;
     });
   }
 

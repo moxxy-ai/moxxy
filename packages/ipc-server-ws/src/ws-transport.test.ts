@@ -91,6 +91,21 @@ describe('createWebSocketTransportServer', () => {
     ).resolves.toBeDefined();
   });
 
+  it('notifies when the connected-client count changes', async () => {
+    const counts: number[] = [];
+    const server = await startServer({
+      onClientCountChange: (count) => counts.push(count),
+    });
+
+    const ws = await connect(server.address, { headers: bearerHeaders });
+    expect(counts).toEqual([1]);
+
+    ws.close();
+    await new Promise((r) => ws.once('close', r));
+    await waitFor(() => counts.length === 2);
+    expect(counts).toEqual([1, 0]);
+  });
+
   it('setAllowedOrigins admits an origin learned after start (a tunnel URL) without dropping clients', async () => {
     const server = await startServer();
     const existing = await connect(server.address, { headers: bearerHeaders });
@@ -164,6 +179,15 @@ describe('createWebSocketTransportServer', () => {
     ).resolves.toBeDefined();
   });
 });
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  expect(predicate()).toBe(true);
+}
 
 describe('SlowReaderGuard', () => {
   it('allows sends while the backlog stays under the limit', () => {

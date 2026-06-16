@@ -621,6 +621,12 @@ channel end to end (QR pairing → chat → ask round-trip). The production mobi
   only fanned out to WS clients. Host-level desk/session events now use a shared fan-out that
   reaches both bound Electron windows and remote WS clients, so selecting or mutating a session
   from mobile refreshes the desktop sidebar/session state without reopen or manual refresh.
+- **Retired (2026-06-17): Settings → Mobile showed a stale connected-device count after
+  pairing.** The runtime gateway tracked `clientCount()` internally but never emitted
+  `mobileGateway.changed` when a WS client connected or disconnected, so the mobile app could
+  be paired and live while desktop still displayed `0 devices connected`. The WS transport now
+  exposes a connection-count callback and `MobileGatewayManager` republishes a fresh status
+  snapshot for both runtime-toggle and env-start gateway paths.
 - **M2 [low, dx]** the Expo apps consume workspace packages as built `dist` — editing any
   `@moxxy/*` package needs a root `pnpm build` before Metro sees it (documented in the README).
 - **M3 [med, runtime parity] standalone `moxxy mobile` still multiplexes selected

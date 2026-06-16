@@ -3,8 +3,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { splitConnectUrl } from '@moxxy/client-transport-ws';
+import { encodeWsBearerProtocol, MOXXY_WS_SUBPROTOCOL } from '@moxxy/sdk';
 import type { MobileGatewayStatus } from '@moxxy/desktop-ipc-contract';
-import type { WebSocketBridgeServer, WebSocketCommandBus } from '@moxxy/ipc-server-ws';
+import {
+  WebSocketCommandBus,
+  type WebSocketBridgeOptions,
+  type WebSocketBridgeServer,
+} from '@moxxy/ipc-server-ws';
 import {
   MobileGatewayManager,
   resolveWsBridgeConfig,
@@ -305,6 +310,69 @@ describe('MobileGatewayManager', () => {
     expect(mgr.status().clientCount).toBe(2);
   });
 
+  it('notifies the renderer when a mobile client connects or disconnects', async () => {
+    process.env.MOXXY_WS_HOST = '127.0.0.1';
+    process.env.MOXXY_WS_PORT = '0';
+    process.env.MOXXY_WS_TOKEN = 'manager-client-count-token';
+    const wsBridge = await import('@moxxy/ipc-server-ws');
+    const changes: MobileGatewayStatus[] = [];
+    const mgr = new MobileGatewayManager({
+      wsBridge,
+      wsBus: new WebSocketCommandBus(),
+      userDataDir: userData,
+      readEnabledPref: () => false,
+      writeEnabledPref: () => Promise.resolve(),
+      onChange: (status) => changes.push(status),
+    });
+
+    try {
+      const status = await mgr.setEnabled(true);
+      const token = status.token ?? '';
+      const ws = new WebSocket(`ws://127.0.0.1:${status.port}`, [
+        MOXXY_WS_SUBPROTOCOL,
+        encodeWsBearerProtocol(token),
+      ]);
+      await new Promise<void>((resolve, reject) => {
+        ws.addEventListener('open', () => resolve(), { once: true });
+        ws.addEventListener('error', () => reject(new Error('websocket failed to open')), {
+          once: true,
+        });
+      });
+      await waitFor(() => changes.some((s) => s.clientCount === 1));
+
+      ws.close();
+      await new Promise((resolve) => ws.addEventListener('close', resolve, { once: true }));
+      await waitFor(() => changes.some((s) => s.clientCount === 0));
+    } finally {
+      await mgr.setEnabled(false);
+    }
+  });
+
+  it('does not overwrite a connect event with the stale toggle status', async () => {
+    const fake = makeFakeServer();
+    let releaseWrite!: () => void;
+    const { rt, changes, startCalls } = makeRuntime({
+      userData,
+      startSpy: () => fake.server,
+    });
+    (rt as { writeEnabledPref: BridgeRuntime['writeEnabledPref'] }).writeEnabledPref = () =>
+      new Promise<void>((resolve) => {
+        releaseWrite = resolve;
+      });
+    const mgr = new MobileGatewayManager(rt);
+
+    const enabling = mgr.setEnabled(true);
+    await waitFor(() => startCalls.length === 1);
+    const opts = startCalls[0] as WebSocketBridgeOptions;
+    fake.setClients(1);
+    opts.onClientCountChange?.(1);
+    releaseWrite();
+
+    const status = await enabling;
+    expect(status.clientCount).toBe(1);
+    expect(changes.at(-1)?.clientCount).toBe(1);
+  });
+
   it('serializes concurrent start calls so the port binds exactly once', async () => {
     // A slow start: the second concurrent call must wait for the first to settle
     // rather than racing past the `if (this.server)` guard and binding twice.
@@ -378,6 +446,15 @@ describe('MobileGatewayManager', () => {
     expect(after.connectUrl).toBe(before.connectUrl);
   });
 });
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  expect(predicate()).toBe(true);
+}
 
 // ---- The critical integration assertion: the QR the desktop emits is EXACTLY
 // what the shipped mobile app accepts. We import the app's own parser and feed

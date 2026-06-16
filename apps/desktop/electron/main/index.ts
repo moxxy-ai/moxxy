@@ -731,7 +731,10 @@ app.whenReady().then(async () => {
     // Back-compat env-gated boot path: start the bridge once and hand the running
     // server to the runtime controller so status/rotate/stop see it too.
     try {
-      wsServer = await wsBridge.startWsBridge(wsBus, wsConfig);
+      wsServer = await wsBridge.startWsBridge(wsBus, {
+        ...wsConfig,
+        onClientCountChange: () => mobileGateway?.notifyClientCountChanged(),
+      });
       const host = wsConfig.host ?? '127.0.0.1';
       const m = /:(\d+)$/.exec(wsServer.address);
       mobileGateway.adopt(wsServer, host, m ? Number(m[1]) : wsConfig.port);
