@@ -33,7 +33,9 @@ vi.mock('./session-driver', () => ({
 }));
 
 import { bindWindow } from './ipc';
+import { broadcastHostEvent } from './event-bus';
 import { drivers } from './ipc/shared';
+import { sendEvent } from './send-event';
 import type { RunnerPool } from './runner-pool';
 import type { RunnerSupervisor } from './runner-supervisor';
 
@@ -78,6 +80,7 @@ const fakeWindow = {
 afterEach(() => {
   drivers.clear();
   sendState.driverPublishedWhenConnectedSent = [];
+  vi.clearAllMocks();
 });
 
 describe('bindWindow session readiness ordering', () => {
@@ -97,5 +100,22 @@ describe('bindWindow session readiness ordering', () => {
 
     expect(sendState.driverPublishedWhenConnectedSent).toEqual([true]);
     cleanup();
+  });
+
+  it('forwards host-level events to the bound desktop window until cleanup', () => {
+    const pool = new FakePool();
+    const cleanup = bindWindow(pool as unknown as RunnerPool, fakeWindow);
+    const payload = { desks: [], activeId: null };
+    vi.mocked(sendEvent).mockClear();
+
+    broadcastHostEvent('desks.changed', payload);
+
+    expect(sendEvent).toHaveBeenCalledWith(fakeWindow, 'desks.changed', payload);
+
+    vi.mocked(sendEvent).mockClear();
+    cleanup();
+    broadcastHostEvent('desks.changed', payload);
+
+    expect(sendEvent).not.toHaveBeenCalled();
   });
 });

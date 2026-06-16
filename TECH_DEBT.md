@@ -615,6 +615,12 @@ channel end to end (QR pairing → chat → ask round-trip). The production mobi
   Expo session model keeps normal selected sessions writable instead of treating old history
   as read-only. Chat auto-scroll now ignores prepended older-history pages so infinite scroll
   does not jump back to the tail.
+- **Retired (2026-06-17): desktop session UI missed realtime refreshes from mobile-origin
+  session changes.** The desktop gateway registered the same `sessions.*` handlers on Electron
+  IPC and the mobile WebSocket bus, but `desks.changed` broadcasts emitted by those handlers
+  only fanned out to WS clients. Host-level desk/session events now use a shared fan-out that
+  reaches both bound Electron windows and remote WS clients, so selecting or mutating a session
+  from mobile refreshes the desktop sidebar/session state without reopen or manual refresh.
 - **M2 [low, dx]** the Expo apps consume workspace packages as built `dist` — editing any
   `@moxxy/*` package needs a root `pnpm build` before Metro sees it (documented in the README).
 - **M3 [med, runtime parity] standalone `moxxy mobile` still multiplexes selected

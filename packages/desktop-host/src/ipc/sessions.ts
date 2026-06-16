@@ -20,7 +20,7 @@ import { deleteSession } from '@moxxy/core';
 import type { RunnerPool } from '../runner-pool';
 import { cwdForSession, type DeskStore } from '../desks';
 import { clearLog } from '../chat-log';
-import { wsEventBus } from '../event-bus';
+import { broadcastHostEvent } from '../event-bus';
 import { withSessionTitlesOverview } from '../session-titles';
 import { handle } from './shared';
 
@@ -89,5 +89,5 @@ export function registerSessionsHandlers(pool: RunnerPool, desks: DeskStore): vo
 async function broadcastDesksChanged(desks: DeskStore): Promise<void> {
   const list = await desks.list();
   const active = await desks.getActive();
-  wsEventBus.broadcast('desks.changed', { desks: list, activeId: active?.id ?? null });
+  broadcastHostEvent('desks.changed', { desks: list, activeId: active?.id ?? null });
 }

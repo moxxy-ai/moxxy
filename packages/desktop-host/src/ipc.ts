@@ -30,7 +30,7 @@ import type { RunnerPool } from './runner-pool';
 import { SessionDriver } from './session-driver';
 import type { DeskStore } from './desks';
 import { sendEvent } from './send-event';
-import { wsEventBus } from './event-bus';
+import { desktopEventBus, wsEventBus } from './event-bus';
 import type { CommandBus } from '@moxxy/desktop-ipc-contract/bus';
 import { drivers, publishDriver, setActiveBus, unpublishDriver, whenDriverReady } from './ipc/shared';
 import { registerAppHandlers } from './ipc/app';
@@ -127,6 +127,11 @@ export function bindWindow(
   opts: { readonly claimGlobal?: boolean } = {},
 ): () => void {
   const claimGlobal = opts.claimGlobal ?? true;
+  const unbindDesktopEvents = desktopEventBus.addSink({
+    broadcast: (channel, payload) => {
+      sendEvent(window, channel, payload);
+    },
+  });
   const send = <K extends keyof IpcEvents>(channel: K, payload: IpcEvents[K]): void => {
     sendEvent(window, channel, payload);
     // Mirror `connection.changed` to non-Electron transports — but only from
@@ -229,6 +234,7 @@ export function bindWindow(
   }
 
   return () => {
+    unbindDesktopEvents();
     pool.off('change', onPoolChange);
     for (const driver of localDrivers.values()) driver.dispose();
     localDrivers.clear();

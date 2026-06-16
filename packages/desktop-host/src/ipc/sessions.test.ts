@@ -37,6 +37,7 @@ vi.mock('../chat-log', () => ({
 import type { CommandBus } from '@moxxy/desktop-ipc-contract/bus';
 import type { IpcCommandName } from '@moxxy/desktop-ipc-contract';
 import { DeskStore } from '../desks';
+import { desktopEventBus } from '../event-bus';
 import type { RunnerPool } from '../runner-pool';
 import { setActiveBus } from './shared';
 import { registerSessionsHandlers } from './sessions';
@@ -144,6 +145,36 @@ describe('sessions.* handlers', () => {
     expect((await desks.listSessions(desk.id)).activeSessionId).toBe(session.id);
     expect(calls).toContainEqual({ op: 'getOrCreate', id: session.id, cwd: cwdA });
     expect(calls).toContainEqual({ op: 'setActive', id: session.id });
+  });
+
+  it('broadcasts session switches to desktop event sinks for realtime renderer refresh', async () => {
+    const received: Array<{ channel: string; payload: unknown }> = [];
+    const dispose = desktopEventBus.addSink({
+      broadcast: (channel, payload) => {
+        received.push({ channel, payload });
+      },
+    });
+    try {
+      const desk = await desks.create({ name: 'A', cwd: cwdA });
+      const session = (await invoke('sessions.create', { deskId: desk.id })) as { id: string };
+      received.length = 0;
+
+      await invoke('sessions.setActive', { id: session.id });
+
+      expect(received).toEqual([
+        {
+          channel: 'desks.changed',
+          payload: expect.objectContaining({
+            activeId: desk.id,
+            desks: expect.arrayContaining([
+              expect.objectContaining({ id: desk.id, activeSessionId: session.id }),
+            ]),
+          }),
+        },
+      ]);
+    } finally {
+      dispose();
+    }
   });
 
   it('setActive starts a Moxxy workspace session with the session cwd, not the workspace cwd', async () => {
