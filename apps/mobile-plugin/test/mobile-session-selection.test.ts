@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { buildSelectedSessionRecord } from '../mobile/src/mobileSessionSelection';
 
 describe('mobile selected session model', () => {
-  it('marks the selected session read-only when there is no connected runtime snapshot for it', () => {
+  it('keeps the selected session writable even when it was not the original live runtime', () => {
     expect(buildSelectedSessionRecord({
       connected: false,
       ownerWorkspaceId: 'desk-1',
@@ -11,7 +11,7 @@ describe('mobile selected session model', () => {
     })).toEqual({
       id: 'archived-session',
       live: false,
-      readOnly: true,
+      readOnly: false,
       workspaceId: 'desk-1',
     });
   });

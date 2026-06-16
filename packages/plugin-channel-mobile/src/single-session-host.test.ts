@@ -180,16 +180,45 @@ describe('MobileSessionHost', () => {
     expect(done.some((e) => e.payload.turnId === turnId && e.payload.error === null)).toBe(true);
   });
 
-  it('rejects running a turn for a non-live registry session', async () => {
+  it('runs a turn for the selected registry session', async () => {
+    const cwd = path.join(process.env.MOXXY_HOME!, 'project');
+    await mkdir(cwd, { recursive: true });
+    await new WorkspaceRegistry().registerSessionFromMeta(
+      {
+        id: 'old-session',
+        cwd,
+        startedAt: '2026-06-12T10:00:00.000Z',
+        lastActivity: '2026-06-12T10:01:00.000Z',
+        eventCount: 3,
+        firstPrompt: 'Old work',
+        provider: 'openai-codex',
+        model: null,
+      },
+      'cli',
+    );
+
     const bus = new FakeBus();
     const { session, raw } = fakeSession();
     const host = new MobileSessionHost(bus, session);
     host.register();
+    host.wire();
 
-    await expect(bus.invoke('session.runTurn', { workspaceId: 'old-session', prompt: 'hi' })).rejects.toMatchObject({
-      code: 'not-supported',
-    });
-    expect(raw.runTurn).not.toHaveBeenCalled();
+    await bus.invoke('sessions.setActive', { id: 'old-session' });
+
+    const { turnId } = (await bus.invoke('session.runTurn', {
+      workspaceId: 'old-session',
+      prompt: 'hi',
+    })) as { turnId: string };
+
+    expect(raw.runTurn).toHaveBeenCalledWith('hi', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(
+      bus.event('runner.turn.complete').some((event) =>
+        event.payload.workspaceId === 'old-session' &&
+        event.payload.turnId === turnId &&
+        event.payload.error === null,
+      ),
+    ).toBe(true);
   });
 
   it('loads archived transcript pages from the persisted core session log', async () => {
@@ -321,7 +350,7 @@ describe('MobileSessionHost', () => {
     }
   });
 
-  it('does not broadcast archived registry sessions as connected when selected', async () => {
+  it('broadcasts the selected registry session as the connected workspace', async () => {
     const oldHome = process.env.MOXXY_HOME;
     process.env.MOXXY_HOME = mkdtempSync(path.join(os.tmpdir(), 'mobile-host-select-archived-'));
     try {
@@ -347,24 +376,25 @@ describe('MobileSessionHost', () => {
 
       await bus.invoke('sessions.setActive', { id: 'archived-session' });
 
+      expect(await bus.invoke('connection.activeWorkspace')).toBe('archived-session');
       expect(
         bus.event('connection.changed').some((event) =>
           event.payload.workspaceId === 'archived-session' &&
           event.payload.phase?.phase === 'connected',
         ),
-      ).toBe(false);
+      ).toBe(true);
     } finally {
       if (oldHome === undefined) delete process.env.MOXXY_HOME;
       else process.env.MOXXY_HOME = oldHome;
     }
   });
 
-  it('keeps an archived registry session selected for browsing without marking it connected', async () => {
-      const oldHome = process.env.MOXXY_HOME;
-      process.env.MOXXY_HOME = mkdtempSync(path.join(os.tmpdir(), 'mobile-host-browse-archived-'));
-      try {
-        const cwd = path.join(process.env.MOXXY_HOME, 'project');
-        await mkdir(cwd, { recursive: true });
+  it('keeps an archived registry session selected as the active runtime target', async () => {
+    const oldHome = process.env.MOXXY_HOME;
+    process.env.MOXXY_HOME = mkdtempSync(path.join(os.tmpdir(), 'mobile-host-browse-archived-'));
+    try {
+      const cwd = path.join(process.env.MOXXY_HOME, 'project');
+      await mkdir(cwd, { recursive: true });
       const registry = new WorkspaceRegistry();
       await registry.create({ name: 'Project', cwd });
       await registry.registerSessionFromMeta(
@@ -396,13 +426,13 @@ describe('MobileSessionHost', () => {
       const activeDesk = desks.desks.find((desk) => desk.id === desks.activeId);
 
       expect(activeDesk?.activeSessionId).toBe('archived-session');
-      expect(await bus.invoke('connection.activeWorkspace')).toBe('sess-1');
+      expect(await bus.invoke('connection.activeWorkspace')).toBe('archived-session');
       expect(
         bus.event('connection.changed').some((event) =>
           event.payload.workspaceId === 'archived-session' &&
           event.payload.phase?.phase === 'connected',
         ),
-      ).toBe(false);
+      ).toBe(true);
     } finally {
       if (oldHome === undefined) delete process.env.MOXXY_HOME;
       else process.env.MOXXY_HOME = oldHome;

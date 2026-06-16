@@ -10,7 +10,7 @@ export function buildSelectedSessionRecord(input: SelectedSessionInput): Record<
     id: input.workspaceId,
     workspaceId: input.ownerWorkspaceId ?? input.workspaceId,
     live: input.connected,
-    readOnly: !input.connected,
+    readOnly: false,
   };
 }
 
@@ -20,5 +20,5 @@ export function selectedSessionReadOnly(input: {
   readonly connected: boolean;
   readonly readOnly?: boolean;
 }): boolean {
-  return input.readOnly === true || (input.sessionId === input.activeWorkspaceId && !input.connected);
+  return input.readOnly === true;
 }

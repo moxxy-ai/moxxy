@@ -600,14 +600,21 @@ channel end to end (QR pairing → chat → ask round-trip). The production mobi
   matters: add an optional `https.Server` (cert/key) to `WebSocketBridgeOptions` + a dev-build
   (non-Expo-Go) pinning story; until then, treat LAN binds as trusted-network-only.
 - **Retired (2026-06-16): mobile session selection could snap back to the live runtime and
-  archived history could look disconnected.** The standalone mobile host now keeps the
-  selected browsing session separate from the live connected runtime, returns a mobile-local
-  active desk/session in `desks.list`, exposes session rows as accessible buttons, keeps
-  archived composers read-only, and separates gateway connectivity from selected-session
-  liveness in the Chat UI. Chat auto-scroll now ignores prepended older-history pages so
-  infinite scroll does not jump back to the tail.
+  selected sessions could become read-only history.** The standalone mobile host now returns
+  the selected registry session as the active connected workspace, routes asks/events/turn
+  completion through that selected id, allows `runTurn` for the selected session, and the
+  Expo session model keeps normal selected sessions writable instead of treating old history
+  as read-only. Chat auto-scroll now ignores prepended older-history pages so infinite scroll
+  does not jump back to the tail.
 - **M2 [low, dx]** the Expo apps consume workspace packages as built `dist` — editing any
   `@moxxy/*` package needs a root `pnpm build` before Metro sees it (documented in the README).
+- **M3 [med, runtime parity] standalone `moxxy mobile` still multiplexes selected
+  registry sessions over one upstream `ClientSession`.** `MobileSessionHost` now routes the
+  selected session id through connection snapshots, asks, events, and `runTurn` completion,
+  so the mobile contract is writable instead of read-only; unlike the desktop gateway's
+  RunnerPool, it still cannot instantiate/restore a separate runner per selected registry
+  session when started with a single `RemoteSession`. **Action:** give channels a resume-capable
+  session factory or route standalone mobile through the same runner-pool abstraction.
 - **Retired (2026-06-11): real iPhones were rejected by the Origin default-deny.** The A27
   hardening assumed "native clients send no `Origin` header" — false on iOS: React Native's
   WebSocket (SocketRocket) sends an Origin derived from the dialed URL (ws→http, wss→https,
