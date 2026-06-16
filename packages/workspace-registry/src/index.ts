@@ -39,6 +39,10 @@ interface DeskDoc {
 
 export type WorkspaceSessionSource = NonNullable<DeskSession['source']>;
 
+interface RegisterSessionOptions {
+  readonly activate?: boolean;
+}
+
 export function defaultWorkspaceRegistryPath(): string {
   return moxxyPath('desktop', 'desks.json');
 }
@@ -116,12 +120,17 @@ export class WorkspaceRegistry {
   async registerSessionFromMeta(
     meta: SessionMeta,
     source: WorkspaceSessionSource,
+    options: RegisterSessionOptions = {},
   ): Promise<{ desk: Desk; session: DeskSession }> {
     return this.mutex.run(async () => {
       const doc = await this.load();
       const existing = findSession(doc, meta.id);
       if (existing) {
         Object.assign(existing.session, sessionPatchFromMeta(existing.session, meta, source));
+        if (options.activate) {
+          existing.desk.activeSessionId = existing.session.id;
+          doc.activeId = existing.desk.id;
+        }
         await this.save(doc);
         return existing;
       }
@@ -129,8 +138,8 @@ export class WorkspaceRegistry {
       const desk = findBestDeskForCwd(doc, meta.cwd) ?? ensureMoxxyWorkspaceInDoc(doc);
       const session: DeskSession = sessionFromMeta(meta, source);
       desk.sessions.push(session);
-      if (!desk.activeSessionId) desk.activeSessionId = session.id;
-      if (!doc.activeId) doc.activeId = desk.id;
+      if (!desk.activeSessionId || options.activate) desk.activeSessionId = session.id;
+      if (!doc.activeId || options.activate) doc.activeId = desk.id;
       await this.save(doc);
       return { desk, session };
     });
@@ -455,6 +464,7 @@ function shouldImportSessionMeta(meta: SessionMeta): boolean {
 
 function shouldKeepSession(desk: Desk, session: DeskSession): boolean {
   if (session.source == null || session.source === 'desktop' || session.id === desk.id) return true;
+  if (session.source === 'mobile' && session.id === desk.activeSessionId) return true;
   return hasUserVisibleContent(session) && (!session.cwd || existsSync(session.cwd));
 }
 
@@ -524,6 +534,7 @@ async function hydrateLegacySessionNames(
 ): Promise<Desk> {
   const hydrated = await Promise.all(
     desk.sessions.map(async (session) => {
+      if (session.source === 'mobile' && session.id === desk.activeSessionId) return session;
       if (isImportedSession(session)) {
         const meta = indexedById.get(session.id);
         if (meta) {

@@ -153,6 +153,48 @@ describe('WorkspaceRegistry session registration', () => {
       firstPrompt: 'new prompt',
     });
   });
+
+  it('keeps an activated mobile live session before it has a first prompt', async () => {
+    const registry = new WorkspaceRegistry(registryPath);
+
+    await registry.registerSessionFromMeta(meta({ id: 'mobile-live', cwd: tmp }), 'mobile', {
+      activate: true,
+    });
+
+    const [desk] = await registry.list();
+    expect(desk?.activeSessionId).toBe('mobile-live');
+    expect(desk?.sessions).toEqual([
+      expect.objectContaining({
+        id: 'mobile-live',
+        name: 'Current session',
+        source: 'mobile',
+        firstPrompt: null,
+      }),
+    ]);
+  });
+
+  it('keeps an activated mobile live session even when an empty core log already exists', async () => {
+    const original = process.env.MOXXY_HOME;
+    const home = path.join(tmp, 'home');
+    const sessionsDir = path.join(home, 'sessions');
+    mkdirSync(sessionsDir, { recursive: true });
+    process.env.MOXXY_HOME = home;
+    try {
+      writeFileSync(path.join(sessionsDir, 'mobile-live.jsonl'), '', 'utf8');
+      const registry = new WorkspaceRegistry(registryPath);
+
+      await registry.registerSessionFromMeta(meta({ id: 'mobile-live', cwd: tmp }), 'mobile', {
+        activate: true,
+      });
+
+      const [desk] = await registry.list();
+      expect(desk?.activeSessionId).toBe('mobile-live');
+      expect(desk?.sessions.map((session) => session.id)).toEqual(['mobile-live']);
+    } finally {
+      if (original === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = original;
+    }
+  });
 });
 
 describe('WorkspaceRegistry session-index sync', () => {
@@ -310,6 +352,53 @@ describe('WorkspaceRegistry compatibility', () => {
 
     expect(desk?.sessions.map((session) => session.id)).toEqual(['real']);
     expect(desk?.activeSessionId).toBe('real');
+  });
+
+  it('drops inactive empty mobile sessions but preserves the active live one', async () => {
+    const deskCwd = path.join(tmp, 'a');
+    mkdirSync(deskCwd, { recursive: true });
+    writeFileSync(
+      registryPath,
+      JSON.stringify({
+        version: 3,
+        activeId: 'desk-a',
+        desks: [
+          {
+            id: 'desk-a',
+            name: 'A',
+            cwd: deskCwd,
+            color: '#3b82f6',
+            createdAt: 111,
+            sessions: [
+              {
+                id: 'old-mobile',
+                name: 'Current session',
+                createdAt: 111,
+                cwd: deskCwd,
+                source: 'mobile',
+                firstPrompt: null,
+                eventCount: 0,
+              },
+              {
+                id: 'live-mobile',
+                name: 'Current session',
+                createdAt: 222,
+                cwd: deskCwd,
+                source: 'mobile',
+                firstPrompt: null,
+                eventCount: 0,
+              },
+            ],
+            activeSessionId: 'live-mobile',
+          },
+        ],
+      }),
+    );
+
+    const [desk] = await new WorkspaceRegistry(registryPath).list();
+
+    expect(desk?.sessions.map((session) => session.id)).toEqual(['live-mobile']);
+    expect(desk?.activeSessionId).toBe('live-mobile');
   });
 
   it('uses the desktop chat mirror first prompt for legacy placeholder session names', async () => {

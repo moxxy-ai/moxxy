@@ -135,7 +135,9 @@ export class MobileSessionHost {
     this.bus.handle('sessions.setActive', async ({ id }) => {
       await this.syncCurrentSession();
       await this.registry.setActiveSession(id);
-      this.bus.broadcast('connection.changed', { workspaceId: id, phase: this.snapshot(id).phase });
+      if (id === this.workspaceId) {
+        this.bus.broadcast('connection.changed', { workspaceId: id, phase: this.snapshot(id).phase });
+      }
       await this.broadcastDesksChanged();
     });
     this.bus.handle('sessions.remove', async ({ id }) => {
@@ -309,17 +311,12 @@ export class MobileSessionHost {
 
   private async activeWorkspaceId(): Promise<string> {
     await this.syncCurrentSession();
-    const activeDesk = await this.registry.getActive();
-    return activeDesk?.activeSessionId ?? this.workspaceId;
+    return this.workspaceId;
   }
 
   private async connectionSnapshots(): Promise<Array<ConnectionSnapshot & { workspaceId: string }>> {
     await this.syncCurrentSession();
-    const ids = new Set<string>([this.workspaceId]);
-    for (const desk of await this.registry.list()) {
-      if (desk.activeSessionId) ids.add(desk.activeSessionId);
-    }
-    return [...ids].map((id) => ({ workspaceId: id, ...this.snapshot(id) }));
+    return [{ workspaceId: this.workspaceId, ...this.snapshot(this.workspaceId) }];
   }
 
   private async desksOverview(): Promise<DesksOverview> {
@@ -352,6 +349,7 @@ export class MobileSessionHost {
         model: null,
       },
       'mobile',
+      { activate: true },
     );
   }
 

@@ -139,14 +139,26 @@ describe('MobileSessionHost', () => {
             name: 'Moxxy',
             cwd: path.join(process.env.MOXXY_HOME, 'workspaces', 'moxxy'),
             color: '#ec4899',
-            activeSessionId: null,
-            sessions: [],
+            activeSessionId: 'sess-1',
+            sessions: [
+              expect.objectContaining({
+                id: 'sess-1',
+                name: 'Current session',
+                source: 'mobile',
+              }),
+            ],
           }),
         ],
       });
       expect(await bus.invoke('sessions.list', { deskId: 'moxxy' })).toEqual({
-        activeSessionId: null,
-        sessions: [],
+        activeSessionId: 'sess-1',
+        sessions: [
+          expect.objectContaining({
+            id: 'sess-1',
+            name: 'Current session',
+            source: 'mobile',
+          }),
+        ],
       });
     } finally {
       if (oldHome === undefined) delete process.env.MOXXY_HOME;
@@ -253,7 +265,7 @@ describe('MobileSessionHost', () => {
     expect(page.prevCursor).toBe(1);
   });
 
-  it('reports the registry active session as connected for archived session browsing', async () => {
+  it('keeps the live mobile session active when the registry points at an archived session', async () => {
     const oldHome = process.env.MOXXY_HOME;
     process.env.MOXXY_HOME = mkdtempSync(path.join(os.tmpdir(), 'mobile-host-active-session-'));
     try {
@@ -282,13 +294,65 @@ describe('MobileSessionHost', () => {
         phase: { phase: string; sessionId: string };
       }>;
 
-      expect(await bus.invoke('connection.activeWorkspace')).toBe('archived-session');
+      expect(await bus.invoke('connection.activeWorkspace')).toBe('sess-1');
       expect(snapshots).toContainEqual(
         expect.objectContaining({
-          workspaceId: 'archived-session',
-          phase: expect.objectContaining({ phase: 'connected', sessionId: 'archived-session' }),
+          workspaceId: 'sess-1',
+          phase: expect.objectContaining({ phase: 'connected', sessionId: 'sess-1' }),
         }),
       );
+      expect(snapshots).not.toContainEqual(
+        expect.objectContaining({
+          workspaceId: 'archived-session',
+          phase: expect.objectContaining({ phase: 'connected' }),
+        }),
+      );
+
+      const desks = (await bus.invoke('desks.list')) as {
+        activeId: string | null;
+        desks: Array<{ id: string; activeSessionId: string | null }>;
+      };
+      const liveDesk = desks.desks.find((desk) => desk.activeSessionId === 'sess-1');
+      expect(liveDesk).toBeDefined();
+      expect(desks.activeId).toBe(liveDesk?.id);
+    } finally {
+      if (oldHome === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = oldHome;
+    }
+  });
+
+  it('does not broadcast archived registry sessions as connected when selected', async () => {
+    const oldHome = process.env.MOXXY_HOME;
+    process.env.MOXXY_HOME = mkdtempSync(path.join(os.tmpdir(), 'mobile-host-select-archived-'));
+    try {
+      const cwd = path.join(process.env.MOXXY_HOME, 'project');
+      await mkdir(cwd, { recursive: true });
+      await new WorkspaceRegistry().registerSessionFromMeta(
+        {
+          id: 'archived-session',
+          cwd,
+          startedAt: '2026-06-12T10:00:00.000Z',
+          lastActivity: '2026-06-12T10:01:00.000Z',
+          eventCount: 3,
+          firstPrompt: 'Archived work',
+          provider: 'openai-codex',
+          model: null,
+        },
+        'cli',
+      );
+
+      const bus = new FakeBus();
+      const { session } = fakeSession();
+      new MobileSessionHost(bus, session).register();
+
+      await bus.invoke('sessions.setActive', { id: 'archived-session' });
+
+      expect(
+        bus.event('connection.changed').some((event) =>
+          event.payload.workspaceId === 'archived-session' &&
+          event.payload.phase?.phase === 'connected',
+        ),
+      ).toBe(false);
     } finally {
       if (oldHome === undefined) delete process.env.MOXXY_HOME;
       else process.env.MOXXY_HOME = oldHome;

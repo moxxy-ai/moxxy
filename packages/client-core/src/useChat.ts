@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
-import { api } from './transport.js';
+import { api, getTransportRevision, subscribeTransport } from './transport.js';
 import type { MoxxyEvent, UserPromptAttachment } from '@moxxy/sdk';
 import { chatStore, EMPTY_SNAPSHOT } from './chatStore.js';
 import { createIpcPersistence, migrateLegacyChats } from './chatPersistence.js';
@@ -103,6 +103,8 @@ function scheduleSessionTitleRefresh(workspaceId: string): void {
  * persisted transcripts on first mount.
  */
 export function ChatStoreBridge(): null {
+  const transportRevision = useSyncExternalStore(subscribeTransport, getTransportRevision);
+
   useEffect(() => {
     // Wire the durable NDJSON backend, then drain any legacy localStorage
     // transcripts into it (one-time, idempotent).
@@ -139,7 +141,7 @@ export function ChatStoreBridge(): null {
       offComplete();
       offAsk();
     };
-  }, []);
+  }, [transportRevision]);
   return null;
 }
 
