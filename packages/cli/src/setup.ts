@@ -25,6 +25,7 @@ import { buildWebhookRunner } from './setup/webhook-runner.js';
 import { registerPlugins } from './setup/register-plugins.js';
 import { activateProvider } from './setup/activate-provider.js';
 import { applyPreferences } from './setup/apply-preferences.js';
+import { applySessionHeaderPreferences } from './setup/session-header-preferences.js';
 import { attachSessionPersistence } from './setup/persistence.js';
 import { syncSessionIndexIntoRegistry } from '@moxxy/workspace-registry';
 import type { SetupOptions, SetupResult } from './setup/types.js';
@@ -194,6 +195,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   if (config.context?.lazyTools) session.lazyTools = true;
 
   await applyPreferences(session, credentialResolver, logger);
+  await applySessionHeaderPreferences(session, opts.sessionId, credentialResolver, logger);
   progress({ kind: 'prefs-applied' });
 
   const discovered = await discoverSkills({

@@ -110,6 +110,54 @@ describe('SessionPersistence', () => {
     expect(restored?.firstPrompt).toBe('restored from log');
   });
 
+  it('readIndex refreshes provider and model from the latest provider event', async () => {
+    const dir = await makeTempDir();
+    await fs.mkdir(dir, { recursive: true });
+    const id = '01HYDRATEPROVIDER00000000';
+    await fs.writeFile(
+      path.join(dir, `${id}.meta.json`),
+      JSON.stringify({ ...meta(id, 2), provider: 'old-provider', model: 'old-model' }, null, 2),
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(dir, `${id}.jsonl`),
+      [
+        JSON.stringify({
+          id: 'e1',
+          seq: 0,
+          ts: 1,
+          sessionId: id,
+          turnId: 't1',
+          source: 'system',
+          type: 'provider_request',
+          provider: 'first-provider',
+          model: 'first-model',
+        }),
+        JSON.stringify({
+          id: 'e2',
+          seq: 1,
+          ts: 2,
+          sessionId: id,
+          turnId: 't1',
+          source: 'system',
+          type: 'provider_response',
+          provider: 'session-provider',
+          model: 'session-model',
+          inputTokens: 1,
+          outputTokens: 1,
+        }),
+      ].join('\n') + '\n',
+      'utf8',
+    );
+
+    const [restored] = await readIndex(dir);
+
+    expect(restored).toMatchObject({
+      provider: 'session-provider',
+      model: 'session-model',
+    });
+  });
+
   it('readIndex preserves a sidecar firstPrompt when the event log is still empty', async () => {
     const dir = await makeTempDir();
     await fs.mkdir(dir, { recursive: true });

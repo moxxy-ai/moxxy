@@ -211,6 +211,7 @@ export class SessionPersistence {
       firstPrompt:
         this.meta.firstPrompt ??
         (ownedEvent.type === 'user_prompt' ? ownedEvent.text.slice(0, 80) : null),
+      ...providerHeaderFromEvent(ownedEvent),
     };
     this.scheduleIndexWrite();
     const line = JSON.stringify(ownedEvent) + '\n';
@@ -400,13 +401,21 @@ async function hydrateMetaFirstPrompt(meta: SessionMeta, dir: string): Promise<S
     ...meta,
     eventCount: stats.eventCount,
     firstPrompt: stats.firstPrompt,
+    provider: stats.provider ?? meta.provider,
+    model: stats.model ?? meta.model,
   };
 }
 
 async function matchingSessionStatsFromLog(
   sessionId: string,
   logPath: string,
-): Promise<{ eventCount: number; firstPrompt: string | null; parsedEvents: number } | null> {
+): Promise<{
+  eventCount: number;
+  firstPrompt: string | null;
+  parsedEvents: number;
+  provider: string | null;
+  model: string | null;
+} | null> {
   let raw: string;
   try {
     raw = await fs.readFile(logPath, 'utf8');
@@ -416,6 +425,8 @@ async function matchingSessionStatsFromLog(
   let eventCount = 0;
   let parsedEvents = 0;
   let firstPrompt: string | null = null;
+  let provider: string | null = null;
+  let model: string | null = null;
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
     try {
@@ -427,11 +438,22 @@ async function matchingSessionStatsFromLog(
         const text = event.text.trim();
         if (text) firstPrompt = text.slice(0, 80);
       }
+      const header = providerHeaderFromEvent(event);
+      if (header.provider !== undefined) provider = header.provider;
+      if (header.model !== undefined) model = header.model;
     } catch {
       // A corrupt line should not hide a later valid prompt.
     }
   }
-  return { eventCount, firstPrompt, parsedEvents };
+  return { eventCount, firstPrompt, parsedEvents, provider, model };
+}
+
+function providerHeaderFromEvent(event: MoxxyEvent): { provider?: string | null; model?: string | null } {
+  if (event.type !== 'provider_request' && event.type !== 'provider_response') return {};
+  return {
+    provider: event.provider,
+    model: event.model,
+  };
 }
 
 /**

@@ -85,6 +85,7 @@ function attachWorkspaceRegistrySync(
       firstPrompt:
         meta.firstPrompt ??
         (event.type === 'user_prompt' ? event.text.slice(0, 80) : null),
+      ...providerHeaderFromEvent(event),
     };
     sync();
   });
@@ -120,4 +121,15 @@ function sessionSource(): WorkspaceSessionSource {
 
 function hasUserVisibleContent(meta: SessionMeta): boolean {
   return Boolean(meta.firstPrompt?.trim());
+}
+
+function providerHeaderFromEvent(event: { readonly type: string; readonly provider?: unknown; readonly model?: unknown }): {
+  readonly provider?: string | null;
+  readonly model?: string | null;
+} {
+  if (event.type !== 'provider_request' && event.type !== 'provider_response') return {};
+  return {
+    provider: typeof event.provider === 'string' ? event.provider : null,
+    model: typeof event.model === 'string' ? event.model : null,
+  };
 }
