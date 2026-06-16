@@ -16,7 +16,8 @@
     "ios": {
       "infoPlist": {
         "NSLocalNetworkUsageDescription": "Connect to the Moxxy runner on your computer over your local Wi-Fi network."
-      }
+      },
+      "bundleIdentifier": "com.kamiloxen1.moxxy-mobile-gateway"
     },
     "plugins": [
       "expo-router",

@@ -2,12 +2,14 @@ import { Pressable, Text, TextInput, View } from 'react-native';
 import { summarizeAttachment } from '@/attachments';
 import { buildComposerUiState } from '@/composerUi';
 import type { PromptAttachment } from '@/clientFrames';
+import { useComposerToolbarLayout } from '@/hooks/useComposerToolbarLayout';
 import { ComposerActionMenu } from './ComposerActionMenu';
 import { ContextMeter } from './ContextMeter';
 import { MobileIcon } from './MobileIcon';
 
 interface ComposerCardProps {
   readonly text: string;
+  readonly inputResetKey: number;
   readonly sending: boolean;
   readonly compacting: boolean;
   readonly autoApprove: boolean;
@@ -37,6 +39,7 @@ interface ComposerCardProps {
 }
 
 export function ComposerCard(props: ComposerCardProps) {
+  const toolbar = useComposerToolbarLayout();
   const ui = buildComposerUiState({
     text: props.text,
     sending: props.sending,
@@ -115,11 +118,15 @@ export function ComposerCard(props: ComposerCardProps) {
           </View>
         ) : null}
         <TextInput
+          key={`composer-input-${props.inputResetKey}`}
           value={props.text}
           onChangeText={props.onTextChange}
           multiline
+          autoCapitalize="none"
+          autoCorrect={false}
           placeholder={ui.placeholder}
           placeholderTextColor="#94a3b8"
+          returnKeyType="send"
           editable={!ui.disabled}
           className="text-text"
           style={{
@@ -144,18 +151,20 @@ export function ComposerCard(props: ComposerCardProps) {
           </Text>
         ) : null}
 
-        <View className="flex-row flex-wrap items-center" style={{ alignItems: 'center', flexDirection: 'row', gap: 6, marginTop: 8 }}>
+        <View style={{ alignItems: 'center', flexDirection: 'row', gap: 6, marginTop: 8 }}>
           <Pressable
             accessibilityLabel="Open actions"
+            accessibilityRole="button"
             className={ui.actionsTone === 'active' ? 'bg-primarySoft' : 'bg-cardBg'}
+            hitSlop={toolbar.iconHitSlop}
             style={{
               alignItems: 'center',
               borderColor: ui.actionsTone === 'active' ? '#ec4899' : '#e3e5f0',
               borderRadius: 10,
               borderWidth: 1,
-              height: 38,
+              height: toolbar.actionButtonSize,
               justifyContent: 'center',
-              width: 38,
+              width: toolbar.actionButtonSize,
             }}
             onPress={props.onToggleActions}
           >
@@ -164,6 +173,7 @@ export function ComposerCard(props: ComposerCardProps) {
 
           <Pressable
             accessibilityLabel="Voice input"
+            accessibilityRole="button"
             style={{
               alignItems: 'center',
               backgroundColor: ui.voiceTone === 'recording' ? '#fdf2f8' : '#ffffff',
@@ -172,8 +182,10 @@ export function ComposerCard(props: ComposerCardProps) {
               borderWidth: 1,
               flexDirection: 'row',
               gap: 6,
-              height: 38,
+              height: 44,
               justifyContent: 'center',
+              maxWidth: toolbar.voiceMaxWidth,
+              minWidth: 44,
               paddingHorizontal: 10,
             }}
             onPress={props.onVoice}
@@ -186,6 +198,7 @@ export function ComposerCard(props: ComposerCardProps) {
             />
             <Text
               className="text-[12px] font-bold"
+              numberOfLines={1}
               style={{ color: ui.voiceTone === 'neutral' ? '#475569' : '#db2777' }}
             >
               {ui.voiceLabel}
@@ -194,6 +207,7 @@ export function ComposerCard(props: ComposerCardProps) {
 
           <Pressable
             accessibilityLabel="Pick provider and model"
+            accessibilityRole="button"
             disabled={props.modelDisabled}
             style={{
               alignItems: 'center',
@@ -201,12 +215,13 @@ export function ComposerCard(props: ComposerCardProps) {
               borderColor: '#e3e5f0',
               borderRadius: 10,
               borderWidth: 1,
+              flex: 1,
               flexDirection: 'row',
               gap: 6,
-              height: 38,
+              height: 44,
               justifyContent: 'center',
-              maxWidth: 190,
-              minWidth: 116,
+              maxWidth: toolbar.modelMaxWidth,
+              minWidth: toolbar.modelMinWidth,
               opacity: props.modelDisabled ? 0.58 : 1,
               paddingHorizontal: 10,
             }}
@@ -219,7 +234,31 @@ export function ComposerCard(props: ComposerCardProps) {
             <MobileIcon name="chevronDown" size={13} strokeWidth={2.5} color="#64748b" />
           </Pressable>
 
-          <View style={{ flex: 1, minWidth: 8 }} />
+          <Pressable
+            accessibilityLabel={props.sending ? 'Stop response' : 'Send message'}
+            accessibilityRole="button"
+            disabled={!props.sending && !ui.canSubmit}
+            hitSlop={toolbar.iconHitSlop}
+            style={{
+              alignItems: 'center',
+              backgroundColor: sendBackground,
+              borderRadius: 12,
+              height: toolbar.sendButtonSize,
+              justifyContent: 'center',
+              shadowColor: '#ec4899',
+              shadowOffset: { width: 0, height: 8 },
+              shadowOpacity: ui.sendTone === 'disabled' ? 0 : 0.25,
+              shadowRadius: 14,
+              width: toolbar.sendButtonSize,
+            }}
+            onPress={props.sending ? props.onAbort : props.onSubmit}
+          >
+            <MobileIcon name={ui.sendIcon} size={17} strokeWidth={2.55} color={sendIconColor} />
+          </Pressable>
+        </View>
+
+        {ui.statusLabel || toolbar.showContextMeter ? (
+          <View style={{ alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end', marginTop: 8 }}>
           {ui.statusLabel ? (
             <View
               className="rounded-pill bg-primarySoft"
@@ -228,28 +267,9 @@ export function ComposerCard(props: ComposerCardProps) {
               <Text className="text-[11px] font-bold text-primaryStrong">{ui.statusLabel}</Text>
             </View>
           ) : null}
-          <ContextMeter usage={props.usage} />
-
-          <Pressable
-            accessibilityLabel={props.sending ? 'Stop response' : 'Send message'}
-            disabled={!props.sending && !ui.canSubmit}
-            style={{
-              alignItems: 'center',
-              backgroundColor: sendBackground,
-              borderRadius: 12,
-              height: 38,
-              justifyContent: 'center',
-              shadowColor: '#ec4899',
-              shadowOffset: { width: 0, height: 8 },
-              shadowOpacity: ui.sendTone === 'disabled' ? 0 : 0.25,
-              shadowRadius: 14,
-              width: 38,
-            }}
-            onPress={props.sending ? props.onAbort : props.onSubmit}
-          >
-            <MobileIcon name={ui.sendIcon} size={17} strokeWidth={2.55} color={sendIconColor} />
-          </Pressable>
-        </View>
+            {toolbar.showContextMeter ? <ContextMeter usage={props.usage} /> : null}
+          </View>
+        ) : null}
       </View>
     </View>
   );

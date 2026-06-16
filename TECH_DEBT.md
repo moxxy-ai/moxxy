@@ -599,6 +599,15 @@ channel end to end (QR pairing → chat → ask round-trip). The production mobi
   trusted cert) — the PoC README now leads with it. **Action** if direct-LAN encryption ever
   matters: add an optional `https.Server` (cert/key) to `WebSocketBridgeOptions` + a dev-build
   (non-Expo-Go) pinning story; until then, treat LAN binds as trusted-network-only.
+- **Retired (2026-06-16): `moxxy mobile` defaulted to a loopback-only QR that real phones
+  could not use.** The channel now defaults to a LAN-capable wildcard bind, advertises the
+  selected Wi-Fi/hotspot IP in the QR, and keeps explicit `MOXXY_MOBILE_HOST=127.0.0.1`
+  available for simulator/local-only pairing. The cleartext-LAN caveat in M1 remains: default
+  LAN mode is for trusted networks, while tunnels remain the secure cross-network path.
+- **Retired (2026-06-16): mobile composer controls could wrap and keep stale native text.**
+  The Expo composer now keeps primary controls in one responsive row, moves context/status
+  into a secondary row, uses 44px touch targets, and bumps a reset key after submit so iOS
+  cannot leave an autocorrected draft visible after the turn was sent.
 - **Retired (2026-06-16): mobile session selection could snap back to the live runtime and
   selected sessions could become read-only history.** The standalone mobile host now returns
   the selected registry session as the active connected workspace, routes asks/events/turn

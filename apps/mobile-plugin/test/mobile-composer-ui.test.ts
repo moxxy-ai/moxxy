@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { submitComposerDraft } from '../mobile/src/composerDraft';
+import { buildComposerToolbarLayout } from '../mobile/src/composerToolbarLayout';
 import { buildComposerUiState } from '../mobile/src/composerUi';
 
 describe('mobile composer ui model', () => {
@@ -119,5 +121,25 @@ describe('mobile composer ui model', () => {
       disabled: true,
       sendTone: 'disabled',
     });
+  });
+
+  it('clears the native composer draft and bumps the input reset key after submit', () => {
+    expect(submitComposerDraft({ text: 'Napisz OK jeśli aplikacja nadal działa', inputResetKey: 4 })).toEqual({
+      text: '',
+      inputResetKey: 5,
+    });
+  });
+
+  it('keeps the primary composer controls inside one row on a narrow phone', () => {
+    const layout = buildComposerToolbarLayout({ screenWidth: 320 });
+
+    expect(layout).toMatchObject({
+      actionButtonSize: 44,
+      sendButtonSize: 44,
+      modelMinWidth: 0,
+      showContextMeter: false,
+    });
+    expect(layout.voiceMaxWidth).toBeLessThanOrEqual(78);
+    expect(layout.modelMaxWidth).toBeLessThanOrEqual(118);
   });
 });

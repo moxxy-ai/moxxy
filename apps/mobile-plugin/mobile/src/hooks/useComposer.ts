@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { buildAbortTurnFrame, buildRunCommandFrame, buildRunTurnFrame, buildTranscribeFrame } from '../clientFrames';
+import { createComposerDraft, submitComposerDraft, updateComposerDraftText } from '../composerDraft';
 import { useAttachments } from './useAttachments';
 import { useVoiceRecorder } from './useVoiceRecorder';
 
@@ -13,7 +14,11 @@ export function useComposer(
     readonly readOnly?: boolean;
   },
 ) {
-  const [text, setText] = useState('');
+  const [draft, setDraft] = useState(createComposerDraft);
+  const text = draft.text;
+  const setText = useCallback((value: string) => {
+    setDraft((current) => updateComposerDraftText(current, value));
+  }, []);
   const [actionsOpen, setActionsOpen] = useState(false);
   const lastTranscriptionIdRef = useRef<string | null>(null);
   const attachments = useAttachments({ disabled: options.readOnly === true });
@@ -35,7 +40,12 @@ export function useComposer(
     const transcript = options.transcriptionText?.trim();
     if (!id || id === lastTranscriptionIdRef.current) return;
     lastTranscriptionIdRef.current = id;
-    if (transcript) setText((draft) => (draft.trim().length > 0 ? `${draft.trimEnd()} ${transcript}` : transcript));
+    if (transcript) {
+      setDraft((current) => {
+        const nextText = current.text.trim().length > 0 ? `${current.text.trimEnd()} ${transcript}` : transcript;
+        return updateComposerDraftText(current, nextText);
+      });
+    }
     completeVoiceTranscription();
   }, [completeVoiceTranscription, options.transcriptionId, options.transcriptionText]);
 
@@ -48,7 +58,7 @@ export function useComposer(
       prompt: trimmed,
       attachments: attachments.attachments,
     }));
-    setText('');
+    setDraft(submitComposerDraft);
     attachments.clearAttachments();
   }, [attachments, options.readOnly, options.workspaceId, sendFrame, text]);
 
@@ -74,6 +84,7 @@ export function useComposer(
   return {
     text,
     setText,
+    inputResetKey: draft.inputResetKey,
     submit,
     abort,
     actionsOpen,

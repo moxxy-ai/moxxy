@@ -26,6 +26,7 @@ import { usePairing, type PairingState } from './usePairing';
 import { usePermissions } from './usePermissions';
 import { useSessionSnapshot } from './useSessionSnapshot';
 import { useSessions } from './useSessions';
+import { routeSelectWorkspaceFrame } from '../gatewayFrameRouting';
 import { buildSelectedSessionRecord, selectedSessionReadOnly } from '../mobileSessionSelection';
 import { emptyMobileState, type MobileState } from '../protocol';
 import { textOf } from '../utils/record';
@@ -185,11 +186,7 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
           .catch(() => undefined);
         return;
       }
-      if (type === 'selectWorkspace') {
-        const id = textOf(frame.workspaceId);
-        if (id) void coreDeskSessions.setActive(id).catch(() => undefined);
-        return;
-      }
+      if (routeSelectWorkspaceFrame(frame, coreDesks)) return;
       if (type === 'transcribe') {
         const audioBase64 = textOf(frame.audioBase64);
         if (!audioBase64) return;
@@ -202,7 +199,7 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
           .catch(() => undefined);
       }
     },
-    [activeDesk?.id, coreChat, coreDeskSessions, workspaceId],
+    [activeDesk?.id, coreChat, coreDeskSessions, coreDesks, workspaceId],
   );
 
   const activeMode = phaseInfo.activeMode ?? modelSelector.activeMode ?? null;

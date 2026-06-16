@@ -1,6 +1,7 @@
 /**
  * The QR / connect URL must never advertise an address the server isn't
- * reachable on (audit A13: the loopback default used to print the LAN IP).
+ * reachable on (audit A13: loopback binds cannot advertise LAN IPs; phone
+ * pairing defaults must bind on LAN before advertising LAN IPs).
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
@@ -33,12 +34,13 @@ afterEach(() => {
 });
 
 describe('resolveBindHost', () => {
-  it('defaults to loopback — LAN exposure stays an explicit opt-in', () => {
-    expect(resolveBindHost(undefined)).toBe('127.0.0.1');
-    expect(resolveBindHost('  ')).toBe('127.0.0.1');
+  it('defaults to a LAN-capable wildcard bind so moxxy mobile works on real phones', () => {
+    expect(resolveBindHost(undefined)).toBe('0.0.0.0');
+    expect(resolveBindHost('  ')).toBe('0.0.0.0');
   });
 
   it('uses the configured host when set', () => {
+    expect(resolveBindHost('127.0.0.1')).toBe('127.0.0.1');
     expect(resolveBindHost('0.0.0.0')).toBe('0.0.0.0');
   });
 
@@ -89,8 +91,19 @@ describe('host classification', () => {
 });
 
 describe('buildConnectUrl', () => {
-  it('default config: QR host matches the (loopback) bind host', () => {
+  it('default config: QR advertises the LAN address the phone can dial', () => {
     const bindHost = resolveBindHost(undefined);
+    const url = buildConnectUrl({
+      tunnelUrl: null,
+      localHost: advertisedHost(bindHost),
+      port: 8765,
+      token: 'tok',
+    });
+    expect(url).toBe('ws://192.168.1.42:8765/?t=tok');
+  });
+
+  it('explicit loopback opt-in: QR stays local-only for simulators', () => {
+    const bindHost = resolveBindHost('127.0.0.1');
     const url = buildConnectUrl({
       tunnelUrl: null,
       localHost: advertisedHost(bindHost),

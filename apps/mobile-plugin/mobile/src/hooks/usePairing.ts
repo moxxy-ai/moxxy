@@ -7,6 +7,7 @@ import {
   resolveBridgePairingTarget,
   type BridgePairingTransportHandle,
 } from '../pairingRuntime';
+import { planPairingStartup } from '../pairingStartup';
 import { chooseGatewayUrlForPairing } from '../pairingUrl';
 import { useStorageState } from './storage';
 
@@ -31,11 +32,12 @@ export function usePairing(): PairingState {
   const [[tokenLoading, token], setToken] = useStorageState(TOKEN_KEY);
   const [[urlLoading, storedUrl], setStoredUrl] = useStorageState(URL_KEY);
   const expoHostUri = readExpoHostUri();
-  const [gatewayUrl, setGatewayUrlState] = useState(chooseGatewayUrlForPairing(storedUrl, expoHostUri));
+  const [gatewayUrl, setGatewayUrlState] = useState(chooseGatewayUrlForPairing(null, expoHostUri));
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [transportReady, setTransportReady] = useState(false);
   const transportHandleRef = useRef<BridgePairingTransportHandle | null>(null);
+  const startupHandledRef = useRef(false);
 
   const configureBridgeTransport = useCallback((rawUrl: string, pairingToken?: string | null) => {
     try {
@@ -59,14 +61,23 @@ export function usePairing(): PairingState {
   }, []);
 
   useEffect(() => {
-    if (!tokenLoading && !urlLoading && token && storedUrl) {
-      const target = configureBridgeTransport(storedUrl, token);
-      if (target) {
-        setGatewayUrlState(target.url);
-        setStoredUrl(target.url);
-      }
-    }
-  }, [configureBridgeTransport, setStoredUrl, storedUrl, token, tokenLoading, urlLoading]);
+    if (tokenLoading || urlLoading || startupHandledRef.current) return;
+    startupHandledRef.current = true;
+    const startup = planPairingStartup({
+      storedToken: token,
+      storedUrl,
+      expoHostUri,
+    });
+
+    transportHandleRef.current?.close();
+    transportHandleRef.current = null;
+    setCode('');
+    setError(null);
+    setTransportReady(false);
+    setGatewayUrlState(startup.gatewayUrl);
+    if (startup.clearStoredToken) setToken(null);
+    if (startup.clearStoredUrl) setStoredUrl(null);
+  }, [expoHostUri, setStoredUrl, setToken, storedUrl, token, tokenLoading, urlLoading]);
 
   useEffect(() => () => {
     transportHandleRef.current?.close();
@@ -74,8 +85,9 @@ export function usePairing(): PairingState {
   }, []);
 
   useEffect(() => {
-    if (!urlLoading) setGatewayUrlState(chooseGatewayUrlForPairing(storedUrl, expoHostUri));
-  }, [expoHostUri, storedUrl, urlLoading]);
+    if (urlLoading || startupHandledRef.current) return;
+    setGatewayUrlState(chooseGatewayUrlForPairing(null, expoHostUri));
+  }, [expoHostUri, urlLoading]);
 
   const setGatewayUrl = useCallback(
     (value: string) => {
@@ -135,9 +147,11 @@ export function usePairing(): PairingState {
     transportHandleRef.current?.close();
     transportHandleRef.current = null;
     setToken(null);
+    setStoredUrl(null);
     setCode('');
     setTransportReady(false);
-  }, [setToken]);
+    setGatewayUrlState(chooseGatewayUrlForPairing(null, expoHostUri));
+  }, [expoHostUri, setStoredUrl, setToken]);
 
   return {
     gatewayUrl,

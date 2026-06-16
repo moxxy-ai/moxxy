@@ -94,7 +94,7 @@ export function MobileMenuSheet({
             className="h-12 flex-row items-center gap-3 rounded-pill border border-cardBorder bg-cardBg px-3 shadow-card"
             style={{ shadowOpacity: 0.12 }}
           >
-            <Pressable accessibilityLabel="Search sessions" onPress={search.toggle}>
+            <Pressable accessibilityLabel="Search sessions" accessibilityRole="button" onPress={search.toggle}>
               <MobileIcon name="search" size={22} strokeWidth={2.35} color="#0f172a" />
             </Pressable>
             <View className="h-9 w-9 items-center justify-center rounded-pill bg-primary">
@@ -202,6 +202,7 @@ function WorkspaceSection({
       <View className="mb-1 flex-row items-center gap-3">
         <Pressable
           accessibilityLabel={`${collapsed ? 'Expand' : 'Collapse'} workspace ${section.title}`}
+          accessibilityRole="button"
           className="min-w-0 flex-1 flex-row items-center gap-3 rounded-block"
           style={{ paddingVertical: 4 }}
           onPress={onToggleCollapsed}
@@ -223,6 +224,7 @@ function WorkspaceSection({
         </Pressable>
         <Pressable
           accessibilityLabel={`New session in ${section.title}`}
+          accessibilityRole="button"
           className="h-9 w-9 items-center justify-center rounded-pill"
           onPress={onNewSession}
         >
@@ -232,6 +234,7 @@ function WorkspaceSection({
       {collapsed ? (
         <Pressable
           accessibilityLabel={`Expand workspace ${section.title}`}
+          accessibilityRole="button"
           className="ml-11 rounded-block px-3 py-2"
           style={{ backgroundColor: section.active ? '#ffffff' : 'rgba(255,255,255,0.5)' }}
           onPress={onToggleCollapsed}
@@ -261,6 +264,7 @@ function WorkspaceSessionRow({
   return (
     <Pressable
       accessibilityLabel={`Open session ${session.title}`}
+      accessibilityRole="button"
       className="min-h-11 rounded-block"
       style={{
         backgroundColor: session.active ? '#ffffff' : 'transparent',
@@ -313,13 +317,15 @@ function MenuActionRow({
   if (item.kind === 'link' && item.href) {
     return (
       <Link href={item.href} asChild>
-        <Pressable onPress={onClose}>{content}</Pressable>
+        <Pressable accessibilityLabel={item.label} accessibilityRole="button" onPress={onClose}>{content}</Pressable>
       </Link>
     );
   }
 
   return (
     <Pressable
+      accessibilityLabel={item.label}
+      accessibilityRole="button"
       onPress={() => {
         if (item.command) onCommand(item.command, item.commandArgs);
         onClose();

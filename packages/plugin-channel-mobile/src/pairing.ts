@@ -13,11 +13,11 @@
 import os from 'node:os';
 
 /** Bind address resolution, mirroring the channel's env → config → default
- *  convention. Loopback by default — exposing the bridge on the LAN is an
- *  explicit opt-in (`MOXXY_MOBILE_HOST=0.0.0.0` or `channels.mobile.bindHost`). */
+ *  convention. LAN-capable by default so `moxxy mobile` works with a physical
+ *  phone out of the box; explicit loopback remains available for simulators. */
 export function resolveBindHost(configured?: string): string {
   const v = (process.env.MOXXY_MOBILE_HOST ?? configured ?? '').trim();
-  return v.length > 0 ? v : '127.0.0.1';
+  return v.length > 0 ? v : '0.0.0.0';
 }
 
 /** Loopback addresses: only reachable from this machine (incl. simulators). */

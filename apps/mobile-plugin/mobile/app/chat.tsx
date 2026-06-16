@@ -131,6 +131,7 @@ export default function ChatScreen() {
 
           <ComposerCard
             text={composer.text}
+            inputResetKey={composer.inputResetKey}
             sending={chat.sending}
             compacting={chat.compacting}
             autoApprove={autoApprove.enabled}

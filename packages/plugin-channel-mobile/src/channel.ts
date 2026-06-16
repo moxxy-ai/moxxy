@@ -45,9 +45,8 @@ export interface MobileStartOpts extends ChannelStartOptsBase {
 export interface MobileChannelOptions {
   /** TCP port (default 8765 — matches the desktop bridge + the Expo app's default). */
   readonly port?: number;
-  /** Bind address (`MOXXY_MOBILE_HOST` env overrides). Loopback by default —
-   *  good for simulators on this machine; `0.0.0.0` exposes on the LAN for a
-   *  real phone (still token-gated). */
+  /** Bind address (`MOXXY_MOBILE_HOST` env overrides). LAN-capable by default
+   *  for physical phones; use `127.0.0.1` for simulator/local-only pairing. */
   readonly bindHost?: string;
   /** Bearer token. Falls back to env / a persisted secret (see resolveMobileToken). */
   readonly token?: string;
@@ -195,7 +194,7 @@ export class MobileChannel implements Channel<MobileStartOpts> {
       // A QR (+ plain URL) the mobile app scans to connect — token embedded.
       // The URL only ever advertises an address the server is reachable on:
       // the tunnel URL, the LAN IP for a wildcard bind, or the bind host itself
-      // (the loopback default advertises 127.0.0.1 — simulators on this machine).
+      // (explicit loopback advertises 127.0.0.1 — simulators on this machine).
       const connectUrl = buildConnectUrl({
         tunnelUrl,
         localHost: advertisedHost(this.bindHost),
@@ -203,14 +202,19 @@ export class MobileChannel implements Channel<MobileStartOpts> {
         token: this.token,
       });
       const loopbackOnly = !tunnelUrl && isLoopbackHost(this.bindHost);
+      const lanOnly = !tunnelUrl && !loopbackOnly;
       await printConnectInfo(
         connectUrl,
         this.token,
         loopbackOnly
           ? 'Bound to loopback — this QR only works on THIS machine (e.g. an iOS/Android\n' +
-            '  simulator). For a real phone: opt in to a LAN bind with MOXXY_MOBILE_HOST=0.0.0.0\n' +
-            "  (or channels.mobile.bindHost in moxxy.config.ts), or use a tunnel\n" +
+            '  simulator). For a real phone, unset MOXXY_MOBILE_HOST or use MOXXY_MOBILE_HOST=0.0.0.0,\n' +
+            "  or use a tunnel\n" +
             "  (channels.mobile.tunnel: 'cloudflared' | 'ngrok', or MOXXY_MOBILE_TUNNEL)."
+          : lanOnly
+            ? 'LAN mode — this QR works for phones on the same trusted Wi-Fi/hotspot.\n' +
+              '  If the phone is on another network, use MOXXY_MOBILE_TUNNEL=ngrok or cloudflared.\n' +
+              '  For simulator/local-only pairing use MOXXY_MOBILE_HOST=127.0.0.1.'
           : undefined,
       );
       this.expo = await this.startExpoApp(expoOptions);

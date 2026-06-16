@@ -46,6 +46,8 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
           </View>
         </View>
         <Pressable
+          accessibilityLabel={pairingUi.scanButtonLabel}
+          accessibilityRole="button"
           className={`min-h-14 flex-row items-center justify-center gap-2 rounded-block ${pairingUi.scanButtonEnabled ? 'bg-primary' : 'bg-cardBorder'}`}
           disabled={!pairingUi.scanButtonEnabled}
           onPress={props.onScanQr}
@@ -56,6 +58,8 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
           </Text>
         </Pressable>
         <Pressable
+          accessibilityLabel={pairingUi.manualPairingToggleLabel}
+          accessibilityRole="button"
           className="min-h-11 flex-row items-center justify-between rounded-block border border-cardBorder bg-cardBg px-3"
           onPress={props.onToggleManualPairing}
         >
@@ -77,10 +81,17 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
               <Text className="mt-1 text-[34px] font-black text-primaryStrong">{props.code || '------'}</Text>
             </View>
             <View className="flex-row gap-2">
-              <Pressable className="min-h-11 flex-1 items-center justify-center rounded-block border border-cardBorder bg-cardBg" onPress={props.onRefreshPairing}>
+              <Pressable
+                accessibilityLabel="Refresh pairing"
+                accessibilityRole="button"
+                className="min-h-11 flex-1 items-center justify-center rounded-block border border-cardBorder bg-cardBg"
+                onPress={props.onRefreshPairing}
+              >
                 <Text className="text-[13px] font-bold text-muted">Refresh pairing</Text>
               </Pressable>
               <Pressable
+                accessibilityLabel="Pair"
+                accessibilityRole="button"
                 className={`min-h-11 flex-1 items-center justify-center rounded-block ${canPair ? 'bg-primary' : 'bg-cardBorder'}`}
                 onPress={props.onPair}
                 disabled={!canPair}
@@ -96,7 +107,7 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
           </View>
         ) : null}
         {props.token ? (
-          <Pressable className="min-h-11 items-center justify-center rounded-block bg-red" onPress={props.onDisconnect}>
+          <Pressable accessibilityLabel="Disconnect" accessibilityRole="button" className="min-h-11 items-center justify-center rounded-block bg-red" onPress={props.onDisconnect}>
             <Text className="text-[13px] font-bold text-white">Disconnect</Text>
           </Pressable>
         ) : null}

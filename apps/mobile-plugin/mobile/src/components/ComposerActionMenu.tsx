@@ -63,17 +63,17 @@ export function ComposerActionMenu(props: ComposerActionMenuProps) {
         borderColor: '#e3e5f0',
         borderRadius: 12,
         borderWidth: 1,
-        bottom: 126,
+        bottom: 118,
         left: 16,
         padding: 4,
         position: 'absolute',
-        width: 236,
+        right: 16,
         zIndex: 20,
       }}
     >
       <View className="flex-row items-center justify-between" style={{ alignItems: 'center', flexDirection: 'row', paddingHorizontal: 6, paddingVertical: 4 }}>
         <Text className="text-[11px] font-black uppercase text-dim">Actions</Text>
-        <Pressable accessibilityLabel="Close actions" className="h-9 w-9 items-center justify-center rounded-pill" onPress={props.onToggleOpen}>
+        <Pressable accessibilityLabel="Close actions" accessibilityRole="button" className="h-9 w-9 items-center justify-center rounded-pill" onPress={props.onToggleOpen}>
           <MobileIcon name="x" size={18} color="#64748b" />
         </Pressable>
       </View>
@@ -94,6 +94,8 @@ export function ComposerActionMenu(props: ComposerActionMenuProps) {
 function MenuButton({ item, onPress }: { readonly item: ComposerMenuItem | QuickActionItem | ComposerAttachmentActionItem; readonly onPress: () => void }) {
   return (
     <Pressable
+      accessibilityLabel={item.label}
+      accessibilityRole="button"
       className={item.active ? 'bg-primarySoft' : 'bg-transparent'}
       style={{
         alignItems: 'center',

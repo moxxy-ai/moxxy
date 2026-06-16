@@ -26,7 +26,11 @@ export function ConnectionBanner({ paired, connected, status }: ConnectionBanner
         <Text className="mt-0.5 text-[12px] leading-4 text-muted">{body}</Text>
       </View>
       <Link href="/settings" asChild>
-        <Pressable className="min-h-10 justify-center rounded-block bg-primary px-3">
+        <Pressable
+          accessibilityLabel="Open settings"
+          accessibilityRole="button"
+          className="min-h-10 justify-center rounded-block bg-primary px-3"
+        >
           <Text className="text-[12px] font-black text-white">Settings</Text>
         </Pressable>
       </Link>

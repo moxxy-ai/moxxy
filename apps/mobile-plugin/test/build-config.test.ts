@@ -4,6 +4,10 @@ import { describe, expect, it } from 'vitest';
 
 const tsconfigPath = fileURLToPath(new URL('../tsconfig.json', import.meta.url));
 const mobileMetroConfigPath = fileURLToPath(new URL('../mobile/metro.config.cjs', import.meta.url));
+const mobilePodfilePath = fileURLToPath(new URL('../mobile/ios/Podfile', import.meta.url));
+const mobileXcodeProjectPath = fileURLToPath(
+  new URL('../mobile/ios/MoxxyMobileGateway.xcodeproj/project.pbxproj', import.meta.url),
+);
 
 describe('mobile gateway build config', () => {
   it('keeps the plugin runtime build independent from the nested Expo app', () => {
@@ -23,5 +27,21 @@ describe('mobile gateway build config', () => {
     expect(metroConfig).toContain('nodeModulesPaths');
     expect(metroConfig).toContain("const singletons = ['react', 'react-dom']");
     expect(metroConfig).toContain('resolveRequest');
+  });
+
+  it('keeps Expo constants manifest generation working from paths with spaces', () => {
+    const podfile = readFileSync(mobilePodfilePath, 'utf8');
+
+    expect(podfile).toContain('patch_expo_constants_manifest_phase');
+    expect(podfile).toContain('moxxy-exconstants-pods');
+    expect(podfile).toContain('export PROJECT_ROOT=');
+  });
+
+  it('generates the Expo constants manifest into the app bundle', () => {
+    const xcodeProject = readFileSync(mobileXcodeProjectPath, 'utf8');
+
+    expect(xcodeProject).toContain('Generate Expo Constants app.config');
+    expect(xcodeProject).toContain('EXConstants.bundle/app.config');
+    expect(xcodeProject).toContain('getAppConfig.js');
   });
 });
