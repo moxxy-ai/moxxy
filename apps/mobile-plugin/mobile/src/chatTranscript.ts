@@ -85,14 +85,21 @@ export function buildChatTranscript(
   streamingText = '',
 ): TranscriptItem[] {
   const items: TranscriptItem[] = [];
+  const itemIdCounts = new Map<string, number>();
   let assistantStreamId: string | null = null;
   let assistantStreamText = '';
   let tools: ToolTranscriptItem[] = [];
   let systemEvents: SystemEventSummary[] = [];
 
+  const pushItem = (item: TranscriptItem): void => {
+    const count = itemIdCounts.get(item.id) ?? 0;
+    itemIdCounts.set(item.id, count + 1);
+    items.push(count === 0 ? item : { ...item, id: `${item.id}:${count + 1}` });
+  };
+
   const flushAssistant = (): void => {
     if (!assistantStreamId || assistantStreamText.trim().length === 0) return;
-    items.push({
+    pushItem({
       id: `assistant-stream:${assistantStreamId}`,
       kind: 'assistant',
       label: 'Assistant',
@@ -105,7 +112,7 @@ export function buildChatTranscript(
 
   const flushTools = (): void => {
     if (tools.length === 0) return;
-    items.push({
+    pushItem({
       id: `tools:${tools[0]!.id}`,
       kind: 'tool-group',
       title: 'Tools',
@@ -118,7 +125,7 @@ export function buildChatTranscript(
 
   const flushSystem = (): void => {
     if (systemEvents.length === 0) return;
-    items.push({
+    pushItem({
       id: `system:${systemEvents[0]!.id}`,
       kind: 'system-group',
       title: 'Runtime',
@@ -149,7 +156,7 @@ export function buildChatTranscript(
       flushSystem();
       assistantStreamId = null;
       assistantStreamText = '';
-      items.push({
+      pushItem({
         id: eventId(event, `assistant-${index}`),
         kind: 'assistant',
         label: 'Assistant',
@@ -164,7 +171,7 @@ export function buildChatTranscript(
       flushAssistant();
       flushTools();
       flushSystem();
-      items.push({
+      pushItem({
         id: eventId(event, `user-${index}`),
         kind: 'user',
         text: firstText(event.text, event.content, event.message, event.body) || 'User message',
@@ -184,7 +191,7 @@ export function buildChatTranscript(
       flushAssistant();
       flushTools();
       flushSystem();
-      items.push({
+      pushItem({
         id: eventId(event, `error-${index}`),
         kind: 'error',
         label: type,
@@ -209,7 +216,7 @@ export function buildChatTranscript(
   flushSystem();
 
   if (streamingText.trim().length > 0) {
-    items.push({
+    pushItem({
       id: 'assistant-stream:external',
       kind: 'assistant',
       label: 'Assistant',

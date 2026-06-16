@@ -1,5 +1,6 @@
 import { Pressable, Text, View } from 'react-native';
 import { boolOf, recordId, textOf } from '@/utils/record';
+import { buildSessionRowAccessibility } from '@/sessionRowUi';
 
 interface SessionRowProps {
   readonly workspace: Record<string, unknown>;
@@ -16,9 +17,12 @@ export function SessionRow({ workspace, active, onPress }: SessionRowProps) {
   const readOnly = boolOf(workspace.readOnly);
   const eventCount = typeof workspace.eventCount === 'number' ? workspace.eventCount : null;
   const lastActivity = textOf(workspace.lastActivity);
+  const accessibility = buildSessionRowAccessibility(workspace);
 
   return (
     <Pressable
+      accessibilityLabel={accessibility.accessibilityLabel}
+      accessibilityRole={accessibility.accessibilityRole}
       className={`min-h-16 rounded-card border px-4 py-3 ${
         active ? 'border-primary bg-primarySoft' : 'border-cardBorder bg-cardBg'
       }`}

@@ -359,6 +359,56 @@ describe('MobileSessionHost', () => {
     }
   });
 
+  it('keeps an archived registry session selected for browsing without marking it connected', async () => {
+      const oldHome = process.env.MOXXY_HOME;
+      process.env.MOXXY_HOME = mkdtempSync(path.join(os.tmpdir(), 'mobile-host-browse-archived-'));
+      try {
+        const cwd = path.join(process.env.MOXXY_HOME, 'project');
+        await mkdir(cwd, { recursive: true });
+      const registry = new WorkspaceRegistry();
+      await registry.create({ name: 'Project', cwd });
+      await registry.registerSessionFromMeta(
+        {
+          id: 'archived-session',
+          cwd,
+          startedAt: '2026-06-12T10:00:00.000Z',
+          lastActivity: '2026-06-12T10:01:00.000Z',
+          eventCount: 3,
+          firstPrompt: 'Archived work',
+          provider: 'openai-codex',
+          model: null,
+        },
+        'cli',
+      );
+
+      const bus = new FakeBus();
+      const { session } = fakeSession();
+      new MobileSessionHost(bus, session).register();
+
+      await bus.invoke('desks.list');
+      await bus.invoke('sessions.setActive', { id: 'archived-session' });
+      await new WorkspaceRegistry().setActive('moxxy');
+
+      const desks = (await bus.invoke('desks.list')) as {
+        activeId: string | null;
+        desks: Array<{ id: string; activeSessionId: string | null }>;
+      };
+      const activeDesk = desks.desks.find((desk) => desk.id === desks.activeId);
+
+      expect(activeDesk?.activeSessionId).toBe('archived-session');
+      expect(await bus.invoke('connection.activeWorkspace')).toBe('sess-1');
+      expect(
+        bus.event('connection.changed').some((event) =>
+          event.payload.workspaceId === 'archived-session' &&
+          event.payload.phase?.phase === 'connected',
+        ),
+      ).toBe(false);
+    } finally {
+      if (oldHome === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = oldHome;
+    }
+  });
+
   it('mirrors session events to runner.event', () => {
     const bus = new FakeBus();
     const { session, emit } = fakeSession();

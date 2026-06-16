@@ -42,7 +42,12 @@ export function SessionList(props: SessionListProps) {
           </View>
         );
       })}
-      <Pressable className="min-h-12 items-center justify-center rounded-card border border-cardBorder bg-cardBg" onPress={props.onNewSession}>
+      <Pressable
+        accessibilityLabel="Create new session"
+        accessibilityRole="button"
+        className="min-h-12 items-center justify-center rounded-card border border-cardBorder bg-cardBg"
+        onPress={props.onNewSession}
+      >
         <Text className="text-[13px] font-bold text-muted">New session</Text>
       </Pressable>
     </View>

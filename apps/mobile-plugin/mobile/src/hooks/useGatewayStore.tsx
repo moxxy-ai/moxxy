@@ -26,6 +26,7 @@ import { usePairing, type PairingState } from './usePairing';
 import { usePermissions } from './usePermissions';
 import { useSessionSnapshot } from './useSessionSnapshot';
 import { useSessions } from './useSessions';
+import { buildSelectedSessionRecord, selectedSessionReadOnly } from '../mobileSessionSelection';
 import { emptyMobileState, type MobileState } from '../protocol';
 import { textOf } from '../utils/record';
 
@@ -54,6 +55,7 @@ function useDisconnectedGatewayStoreValue(pairing: PairingState) {
 
   return {
     pairing,
+    gatewayConnected: false,
     socketStatus: 'idle' as const,
     snapshot: state,
     session,
@@ -207,7 +209,6 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
   const activeProvider = phaseInfo.activeProvider ?? modelSelector.activeProvider ?? null;
 
   const state = useMemo<MobileState>(() => {
-    const sessionId = workspaceId ?? 'mobile-session';
     const desks = coreDesks.desks;
     const ownerDesk = deskForWorkspace(desks, workspaceId) ?? activeDesk ?? null;
     const activeDeskSessions = ownerDesk && coreDeskSessions.sessions.length > 0
@@ -235,7 +236,11 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
         provider: session.provider ?? null,
         model: session.model ?? null,
         live: session.id === workspaceId && connected,
-        readOnly: false,
+        readOnly: selectedSessionReadOnly({
+          sessionId: session.id,
+          activeWorkspaceId: workspaceId,
+          connected,
+        }),
         lastActivity:
           session.lastActivity ??
           (session.createdAt > 0 ? new Date(session.createdAt).toISOString() : ''),
@@ -253,7 +258,11 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
       activeWorkspaceId: workspaceId,
       workspaces,
       sessions,
-      session: workspaceId ? { id: sessionId, workspaceId: ownerDesk?.id ?? sessionId, live: connected, readOnly: false } : null,
+      session: buildSelectedSessionRecord({
+        workspaceId,
+        ownerWorkspaceId: ownerDesk?.id ?? null,
+        connected,
+      }),
       pendingAsks: pendingAsks.filter((ask) => ask.workspaceId === workspaceId) as unknown as ReadonlyArray<Record<string, unknown>>,
       chatEvents: coreChat.events as unknown as ReadonlyArray<Record<string, unknown>>,
       streamingText: coreChat.streamingText,
@@ -302,7 +311,8 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
 
   return {
     pairing,
-    socketStatus: connected ? 'connected' as const : 'connecting' as const,
+    gatewayConnected: true,
+    socketStatus: 'connected' as const,
     snapshot: state,
     session,
     sessions,

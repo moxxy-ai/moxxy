@@ -184,4 +184,23 @@ describe('mobile chat transcript model', () => {
       },
     ]);
   });
+
+  it('keeps transcript item ids unique when later turns reuse a tool call id', () => {
+    const transcript = buildChatTranscript([
+      { id: 'u1', type: 'user_prompt', text: 'Pierwszy turn' },
+      { id: 't1', type: 'tool_call_requested', callId: 'call-reused', name: 'Read', input: { path: 'a.ts' } },
+      { id: 't2', type: 'tool_result', callId: 'call-reused', ok: true, output: 'ok' },
+      { id: 'u2', type: 'user_prompt', text: 'Drugi turn' },
+      { id: 't3', type: 'tool_call_requested', callId: 'call-reused', name: 'Read', input: { path: 'b.ts' } },
+      { id: 't4', type: 'tool_result', callId: 'call-reused', ok: true, output: 'ok' },
+    ]);
+
+    expect(transcript.map((item) => item.id)).toEqual([
+      'u1',
+      'tools:call-reused',
+      'u2',
+      'tools:call-reused:2',
+    ]);
+    expect(new Set(transcript.map((item) => item.id)).size).toBe(transcript.length);
+  });
 });

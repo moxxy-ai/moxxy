@@ -13,16 +13,22 @@ import { useMessageCopy } from '@/hooks/useMessageCopy';
 import { useMobileChrome } from '@/hooks/useMobileChrome';
 import { useWorkspaceCollapse } from '@/hooks/useWorkspaceCollapse';
 import { buildMobileMenuItems, buildWorkspaceMenuSections } from '@/navigation';
+import { buildChatConnectionUi } from '@/chatConnectionUi';
 import { textOf } from '@/utils/record';
 import { KeyboardAvoidingView, Platform, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function ChatScreen() {
-  const { autoApprove, chat, compact, composer, goals, modelSelector, pairing, permissions, session, sessions, socketStatus } = useGatewayStore();
+  const { autoApprove, chat, compact, composer, gatewayConnected, goals, modelSelector, pairing, permissions, session, sessions, socketStatus } = useGatewayStore();
   const chrome = useMobileChrome();
   const messageCopy = useMessageCopy();
   const pendingActions = permissions.pendingAsks.length + permissions.pendingPermissions.length;
-  const statusLabel = chat.sending ? 'Thinking' : session.connected ? 'Connected' : 'Offline';
+  const connectionUi = buildChatConnectionUi({
+    gatewayConnected,
+    selectedSessionConnected: session.connected,
+    selectedSessionReadOnly: session.readOnly,
+    sending: chat.sending,
+  });
   const sessionLabel = textOf(session.session?.id, 'No active session');
   const menuItems = buildMobileMenuItems(pendingActions);
   const workspaceSections = buildWorkspaceMenuSections(sessions.workspaces, sessions.sessions, sessions.activeWorkspaceId);
@@ -45,9 +51,9 @@ export default function ChatScreen() {
             onCopyMessage={messageCopy.copyMessage}
           />
 
-          {!session.connected ? (
+          {connectionUi.showConnectionBanner ? (
             <View className="absolute z-10" style={{ left: 16, position: 'absolute', right: 16, top: 76, zIndex: 10 }}>
-              <ConnectionBanner paired={pairing.transportReady} connected={session.connected} status={socketStatus} />
+              <ConnectionBanner paired={pairing.transportReady} connected={connectionUi.bannerConnected} status={socketStatus} />
             </View>
           ) : null}
 
@@ -116,7 +122,7 @@ export default function ChatScreen() {
 
           <FloatingChatHeader
             connected={session.connected}
-            statusLabel={statusLabel}
+            statusLabel={connectionUi.statusLabel}
             pendingActions={pendingActions}
             onToggleMenu={chrome.toggleMenu}
             onNewSession={sessions.newSession}

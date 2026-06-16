@@ -13,7 +13,13 @@ import {
   filterWorkspaceMenuSections,
 } from '../mobile/src/navigation';
 import { shouldLoadOlderFromScroll } from '../mobile/src/chatListState';
-import { buildChatListAutoScrollKey } from '../mobile/src/hooks/useChatListAutoScroll';
+import {
+  buildChatListAutoScrollKey,
+  consumeChatListContentSizeScroll,
+  createChatListAutoScrollState,
+  reduceChatListAutoScrollState,
+} from '../mobile/src/hooks/useChatListAutoScroll';
+import { buildSessionRowAccessibility } from '../mobile/src/sessionRowUi';
 
 describe('mobile bottom navigation model', () => {
   it('keeps the mobile tab bar compact, icon-led, and badge-aware', () => {
@@ -296,6 +302,37 @@ describe('mobile chat list paging model', () => {
         newest,
       ], false),
     );
+  });
+
+  it('does not scroll back to the bottom when content grows from older history', () => {
+    const newest = { id: 'newest', kind: 'assistant' as const, label: 'Assistant' as const, text: 'tail', streaming: false };
+    const tailKey = buildChatListAutoScrollKey([newest], false);
+    const olderPrependedKey = buildChatListAutoScrollKey([
+      { id: 'older', kind: 'user' as const, text: 'older' },
+      newest,
+    ], false);
+
+    let state = createChatListAutoScrollState(tailKey);
+    let consumed = consumeChatListContentSizeScroll(state);
+    expect(consumed.shouldScroll).toBe(true);
+    state = consumed.state;
+
+    state = reduceChatListAutoScrollState(state, olderPrependedKey);
+    consumed = consumeChatListContentSizeScroll(state);
+
+    expect(consumed.shouldScroll).toBe(false);
+  });
+});
+
+describe('mobile session row UI model', () => {
+  it('exposes session rows as named buttons so runtime UI automation and assistive tech can select them', () => {
+    expect(buildSessionRowAccessibility({
+      firstPrompt: 'podaj najlepszy przepis na syrop z kwiatów czarnego bzu',
+      cwd: '/Users/kamil/new_moxxy',
+    })).toEqual({
+      accessibilityLabel: 'Open session podaj najlepszy przepis na syrop z kwiatów czarnego bzu',
+      accessibilityRole: 'button',
+    });
   });
 });
 

@@ -599,6 +599,13 @@ channel end to end (QR pairing → chat → ask round-trip). The production mobi
   trusted cert) — the PoC README now leads with it. **Action** if direct-LAN encryption ever
   matters: add an optional `https.Server` (cert/key) to `WebSocketBridgeOptions` + a dev-build
   (non-Expo-Go) pinning story; until then, treat LAN binds as trusted-network-only.
+- **Retired (2026-06-16): mobile session selection could snap back to the live runtime and
+  archived history could look disconnected.** The standalone mobile host now keeps the
+  selected browsing session separate from the live connected runtime, returns a mobile-local
+  active desk/session in `desks.list`, exposes session rows as accessible buttons, keeps
+  archived composers read-only, and separates gateway connectivity from selected-session
+  liveness in the Chat UI. Chat auto-scroll now ignores prepended older-history pages so
+  infinite scroll does not jump back to the tail.
 - **M2 [low, dx]** the Expo apps consume workspace packages as built `dist` — editing any
   `@moxxy/*` package needs a root `pnpm build` before Metro sees it (documented in the README).
 - **Retired (2026-06-11): real iPhones were rejected by the Origin default-deny.** The A27

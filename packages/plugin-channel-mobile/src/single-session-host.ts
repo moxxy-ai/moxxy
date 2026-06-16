@@ -96,6 +96,8 @@ export class MobileSessionHost {
   private autoApprove = false;
   private sessionName = 'Current session';
   private disposed = false;
+  private hasExplicitSelection = false;
+  private selectedSessionId: string;
   private readonly disposers: Array<() => void> = [];
   private readonly registry = new WorkspaceRegistry();
 
@@ -105,6 +107,7 @@ export class MobileSessionHost {
     opts: MobileHostOptions = {},
   ) {
     this.workspaceId = opts.workspaceId ?? session.id;
+    this.selectedSessionId = this.workspaceId;
   }
 
   /** Register the `IpcCommands` subset the mobile client drives. */
@@ -117,6 +120,9 @@ export class MobileSessionHost {
     this.bus.handle('desks.setActive', async ({ id }) => {
       await this.syncCurrentSession();
       await this.registry.setActive(id);
+      const activeDesk = await this.registry.getActive();
+      if (activeDesk?.activeSessionId) this.selectedSessionId = activeDesk.activeSessionId;
+      this.hasExplicitSelection = true;
       await this.broadcastActiveConnectionChanged();
       await this.broadcastDesksChanged();
     });
@@ -135,6 +141,8 @@ export class MobileSessionHost {
     this.bus.handle('sessions.setActive', async ({ id }) => {
       await this.syncCurrentSession();
       await this.registry.setActiveSession(id);
+      this.selectedSessionId = id;
+      this.hasExplicitSelection = true;
       if (id === this.workspaceId) {
         this.bus.broadcast('connection.changed', { workspaceId: id, phase: this.snapshot(id).phase });
       }
@@ -310,32 +318,35 @@ export class MobileSessionHost {
   }
 
   private async activeWorkspaceId(): Promise<string> {
-    await this.syncCurrentSession();
+    await this.syncCurrentSession({ activate: !this.hasExplicitSelection });
     return this.workspaceId;
   }
 
   private async connectionSnapshots(): Promise<Array<ConnectionSnapshot & { workspaceId: string }>> {
-    await this.syncCurrentSession();
+    await this.syncCurrentSession({ activate: !this.hasExplicitSelection });
     return [{ workspaceId: this.workspaceId, ...this.snapshot(this.workspaceId) }];
   }
 
   private async desksOverview(): Promise<DesksOverview> {
-    await this.syncCurrentSession();
+    await this.syncCurrentSession({ activate: this.selectedSessionId === this.workspaceId });
     const desks = await this.registry.list();
+    const selectedDesk = deskForSession(desks, this.selectedSessionId);
     const activeDesk = await this.registry.getActive();
     return {
       desks,
-      activeId: activeDesk?.id ?? null,
+      activeId: selectedDesk?.id ?? activeDesk?.id ?? null,
     };
   }
 
   private async sessionsOverview(deskId?: string): Promise<SessionsOverview> {
-    await this.syncCurrentSession();
+    await this.syncCurrentSession({ activate: this.selectedSessionId === this.workspaceId });
+    const desks = await this.registry.list();
+    const selectedDesk = deskForSession(desks, this.selectedSessionId);
     const activeDesk = await this.registry.getActive();
-    return this.registry.listSessions(deskId ?? activeDesk?.id);
+    return this.registry.listSessions(deskId ?? selectedDesk?.id ?? activeDesk?.id);
   }
 
-  private async syncCurrentSession(): Promise<void> {
+  private async syncCurrentSession(options: { readonly activate?: boolean } = {}): Promise<void> {
     const prompts = this.session.log.ofType?.('user_prompt') ?? [];
     await this.registry.registerSessionFromMeta(
       {
@@ -349,7 +360,7 @@ export class MobileSessionHost {
         model: null,
       },
       'mobile',
-      { activate: true },
+      { activate: options.activate === true },
     );
   }
 
@@ -486,4 +497,11 @@ function segmentFromEvents(
   const start = Math.max(0, end - limit);
   const prevCursor = start > 0 ? start : null;
   return { events: events.slice(start, end), prevCursor };
+}
+
+function deskForSession(
+  desks: ReadonlyArray<{ readonly id: string; readonly sessions: ReadonlyArray<{ readonly id: string }> }>,
+  sessionId: string,
+): { readonly id: string } | null {
+  return desks.find((desk) => desk.sessions.some((session) => session.id === sessionId)) ?? null;
 }

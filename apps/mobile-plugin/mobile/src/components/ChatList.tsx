@@ -51,7 +51,7 @@ export function ChatList({
       className="flex-1"
       contentContainerClassName="gap-4 px-5 pb-5 pt-20"
       contentContainerStyle={{ gap: 16, paddingBottom: 20, paddingHorizontal: 20, paddingTop: 82 }}
-      onContentSizeChange={autoScroll.scrollToEnd}
+      onContentSizeChange={autoScroll.handleContentSizeChange}
       onScroll={handleScroll}
       scrollEventThrottle={80}
     >
