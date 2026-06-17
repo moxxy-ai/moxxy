@@ -376,7 +376,7 @@ export class WebChannel implements Channel<WebStartOpts> {
 
   /**
    * (Re-)open the tunnel via the active provider, closing any prior one FIRST so
-   * a switch never leaks a subprocess. Non-fatal: on failure (e.g. cloudflared
+   * a switch never leaks a subprocess. Non-fatal: on failure (e.g. the relay
    * not installed) we fall back to the local URL.
    */
   private async openTunnel(): Promise<void> {
@@ -392,7 +392,9 @@ export class WebChannel implements Channel<WebStartOpts> {
     const provider = this.getTunnel?.() ?? null;
     if (!provider || provider.name === 'localhost') return;
     try {
-      this.tunnel = await provider.open({ port: this.port, host: this.host });
+      // Route the preview under the `web` path so the relay can multiplex it
+      // alongside the mobile bridge under one uuid subdomain.
+      this.tunnel = await provider.open({ port: this.port, host: this.host, label: 'web' });
       this.tunnelBase = this.tunnel.url;
       this.logger?.info?.('web surface tunnel open', { provider: provider.name, url: this.shareUrl });
     } catch (err) {

@@ -79,8 +79,8 @@ export function defineWebhookCreateTool(deps: ResolvedToolDeps): ToolDef {
         guidance.push(
           'No public URL is configured yet. The trigger is saved but the external ' +
             'system has nowhere to POST until you (a) call `webhook_tunnel_start` to ' +
-            'spawn a free cloudflared tunnel, (b) call `webhook_set_public_url` with a ' +
-            'URL the user already has, or (c) call `webhook_setup_guide` for the walkthrough.',
+            'expose the listener through the proxy relay, (b) call `webhook_set_public_url` ' +
+            'with a URL the user already has, or (c) call `webhook_setup_guide` for the walkthrough.',
         );
       } else {
         guidance.push(`Paste this URL into the external system's webhook config: ${url}`);

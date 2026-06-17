@@ -196,7 +196,7 @@ export class Session implements ClientSession, SessionRuntime {
     this.viewRenderers.register(defaultViewRenderer);
     this.tunnelProviders = new TunnelProviderRegistry();
     // Seed the no-op localhost provider so the web surface always resolves a
-    // URL; plugins (cloudflared) register/setActive a real tunnel.
+    // URL; plugins (the proxy relay) register/setActive a real tunnel.
     this.tunnelProviders.register(localhostTunnel);
     this.channels = new ChannelRegistryImpl();
     this.surfaceRegistry = new SurfaceRegistryImpl();

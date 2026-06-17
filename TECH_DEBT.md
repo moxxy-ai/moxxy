@@ -444,6 +444,33 @@ two deferred `@moxxy/plugin-workflows` items are now resolved.
   onChange={setQuery} placeholder="Search skills…" />` and delete the duplicate.
   Left out of this PR to keep it a pure empty-state alignment.
 
+## 2026-06-17 — self-hosted proxy tunnel (replaces ngrok/cloudflared)
+
+- **Retired: "unify tunnel subprocess management" (cloudflared/ngrok).** The
+  cloudflared/ngrok `TunnelProviderDef`s, the shared `spawnCliTunnel` /
+  `isCliTunnelAvailable` SDK helpers, and the webhooks `TunnelKind` machinery are
+  all gone — `proxy` (native Node, `@moxxy/plugin-tunnel-proxy`, dialing the
+  self-hosted relay) is the sole tunnel provider. No subprocesses to unify.
+- **New: the relay is the SOLE remote path — no fallback.** Mobile pairing, the
+  web/UI preview, and webhook ingress all depend on the relay being up; a lapsed
+  wildcard cert breaks every one at once. Needs uptime monitoring + a quick
+  redeploy story (deploy scripts exist in the private `proxy-relay` repo). Decide
+  whether to keep a hidden emergency escape hatch.
+- **New: relay is single-instance.** Horizontal scaling needs a shared
+  `uuid→instance` registry (Redis) + sticky routing; fine for a personal relay,
+  not for many users.
+- **New: web-preview keep-alive path prefix.** The relay strips the `/<target>`
+  prefix only from the FIRST request line of an ingress connection (the head it
+  reads to route). HTTP apps that issue further sub-resource requests on a
+  kept-alive connection keep the `/web` prefix → either make the web channel
+  base-path-aware or add full L7 path rewriting to the relay. The mobile path
+  (single WS upgrade, path-agnostic) and webhook POSTs (one request each) are
+  unaffected.
+- **Spike outcome:** E2E crypto uses `@noble` (curves/ciphers/hashes) — pure JS,
+  RN-safe; signed-ephemeral-ECDH + XChaCha20-Poly1305 (not literal Noise). RN
+  needs `react-native-get-random-values` + a `TextDecoder` polyfill at app entry
+  (logged for the mobile app).
+
 ## 2026-06-17 — desktop native build (node-gyp) is brittle against runner-image churn
 
 - **Still open — the node-gyp 11 bump was tried (#204) and REVERTED.** `node-gyp@9.4.1`

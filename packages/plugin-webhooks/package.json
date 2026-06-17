@@ -29,6 +29,7 @@
     }
   },
   "dependencies": {
+    "@moxxy/plugin-tunnel-proxy": "workspace:*",
     "@moxxy/sdk": "workspace:*",
     "ulid": "^2.3.0",
     "zod": "catalog:"

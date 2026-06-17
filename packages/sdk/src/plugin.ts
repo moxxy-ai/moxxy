@@ -41,7 +41,7 @@ export interface PluginSpec {
   readonly viewRenderers?: ReadonlyArray<ViewRendererDef>;
   /**
    * Tunnel providers that expose the local web surface publicly (e.g.
-   * cloudflared). One active per session; core seeds a `localhost` no-op.
+   * the proxy relay). One active per session; core seeds a `localhost` no-op.
    */
   readonly tunnelProviders?: ReadonlyArray<TunnelProviderDef>;
   readonly channels?: ReadonlyArray<ChannelDef>;

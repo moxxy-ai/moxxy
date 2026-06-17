@@ -14,6 +14,7 @@
     "@expo/metro-runtime": "~6.1.2",
     "@moxxy/client-core": "workspace:*",
     "@moxxy/client-transport-ws": "workspace:*",
+    "@moxxy/e2e": "workspace:*",
     "@moxxy/sdk": "workspace:*",
     "expo": "~54.0.0",
     "expo-build-properties": "~1.0.10",

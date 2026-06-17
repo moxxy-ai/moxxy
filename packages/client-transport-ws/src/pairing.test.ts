@@ -63,4 +63,19 @@ describe('splitConnectUrl', () => {
       token: 'tok',
     });
   });
+
+  it('extracts the proxy E2E fingerprint and strips both params', () => {
+    expect(splitConnectUrl('wss://abc123.proxy.moxxy.ai/?t=tok&fp=PUBKEY-fp_0')).toEqual({
+      url: 'wss://abc123.proxy.moxxy.ai/',
+      token: 'tok',
+      fingerprint: 'PUBKEY-fp_0',
+    });
+  });
+
+  it('handles a fingerprint with no token', () => {
+    expect(splitConnectUrl('wss://abc.proxy.moxxy.ai/?fp=KEY')).toEqual({
+      url: 'wss://abc.proxy.moxxy.ai/',
+      fingerprint: 'KEY',
+    });
+  });
 });

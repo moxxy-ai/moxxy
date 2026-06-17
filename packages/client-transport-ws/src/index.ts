@@ -24,6 +24,7 @@ import {
   type WebSocketCtor,
   type WsClientStatus,
 } from './json-rpc-client.js';
+import { makeE2EWebSocketCtor } from './e2e-socket.js';
 
 export {
   WsRpcClient,
@@ -33,6 +34,7 @@ export {
   type WsRpcClientOptions,
 } from './json-rpc-client.js';
 export { splitConnectUrl } from './pairing.js';
+export { makeE2EWebSocketCtor } from './e2e-socket.js';
 
 /** Mirrors `MOXXY_WS_SUBPROTOCOL` in `@moxxy/sdk`. */
 const WS_SUBPROTOCOL = 'moxxy.v1';
@@ -53,10 +55,19 @@ function bearerProtocol(token: string): string {
 export interface WsApiOptions {
   /** Bridge URL, e.g. `ws://host:8765` (no token in the URL). */
   readonly url: string;
-  /** Shared secret, presented via the `Sec-WebSocket-Protocol` bearer entry. */
+  /** Shared secret, presented via the `Sec-WebSocket-Protocol` bearer entry
+   *  (or, with `e2e`, as the first encrypted frame). */
   readonly token?: string;
   /** Override the WebSocket implementation (defaults to the global one). */
   readonly WebSocket?: WebSocketCtor;
+  /**
+   * End-to-end-encrypt the connection through an untrusted relay (the proxy
+   * tunnel). `pinnedFingerprint` is the agent's public-key fingerprint from the
+   * QR (`?fp=`); the transport runs the `@moxxy/e2e` handshake, pins it, and
+   * carries the token encrypted. When set, the token is NOT put in the
+   * subprotocol (it would leak to the relay).
+   */
+  readonly e2e?: { readonly pinnedFingerprint: string };
   /** Observe transport lifecycle; the terminal `disconnected` status means the
    *  reconnect budget is exhausted and the app should prompt a re-pair.
    *  Defaults to a console.warn on `disconnected`. */
@@ -64,9 +75,9 @@ export interface WsApiOptions {
 }
 
 export function makeWsApi(opts: WsApiOptions): MoxxyApi {
-  const ctor =
+  const baseCtor =
     opts.WebSocket ?? (globalThis as unknown as { WebSocket?: WebSocketCtor }).WebSocket;
-  if (!ctor) {
+  if (!baseCtor) {
     throw new Error('makeWsApi: no WebSocket implementation available (pass opts.WebSocket)');
   }
   const onStatus =
@@ -76,8 +87,15 @@ export function makeWsApi(opts: WsApiOptions): MoxxyApi {
         console.warn('[moxxy] ws transport gave up reconnecting — re-pair to continue');
       }
     });
+  // E2E: wrap the ctor; the token rides encrypted (no bearer subprotocol).
+  // Plain: present the token via the Sec-WebSocket-Protocol bearer entry.
+  const ctor = opts.e2e
+    ? makeE2EWebSocketCtor(baseCtor, opts.e2e.pinnedFingerprint, opts.token)
+    : baseCtor;
+  const protocols =
+    !opts.e2e && opts.token ? [WS_SUBPROTOCOL, bearerProtocol(opts.token)] : undefined;
   const client = new WsRpcClient(opts.url, ctor, {
-    ...(opts.token ? { protocols: [WS_SUBPROTOCOL, bearerProtocol(opts.token)] } : {}),
+    ...(protocols ? { protocols } : {}),
     onStatus,
   });
   client.connect();

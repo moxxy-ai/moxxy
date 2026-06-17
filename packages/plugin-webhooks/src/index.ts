@@ -41,11 +41,9 @@ import { RateLimiter, type RateLimitOptions } from './rate-limit.js';
 import { describeTrigger, redactVerification } from './describe.js';
 import { renderPrompt, type TemplateContext } from './template.js';
 import {
-  isTunnelCliAvailable,
   startTunnel,
-  webhookTunnelProviders,
+  WEBHOOK_TUNNEL_LABEL,
   type RunningTunnel,
-  type TunnelKind,
   type TunnelStartOptions,
 } from './tunnel.js';
 import { buildWebhookTools, defaultWebhookSecretsDir, type WebhooksToolDeps } from './tools.js';
@@ -77,8 +75,7 @@ export {
   renderPrompt,
   // Tunnel
   startTunnel,
-  isTunnelCliAvailable,
-  webhookTunnelProviders,
+  WEBHOOK_TUNNEL_LABEL,
   // Tools
   buildWebhookTools,
   defaultWebhookSecretsDir,
@@ -102,7 +99,6 @@ export {
   type VerificationInput,
   type VerificationResult,
   type RunningTunnel,
-  type TunnelKind,
   type TunnelStartOptions,
   type WebhooksToolDeps,
   type RateLimitOptions,

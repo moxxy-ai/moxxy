@@ -8,10 +8,10 @@ import { buildWebChannelPlugin, readTunnelSetting, writeTunnelSetting, type Tunn
 const ctx = {} as ToolContext;
 
 /** In-memory tunnel registry for the tools to drive. */
-function fakeTunnels(available = new Set(['localhost', 'cloudflared', 'ngrok'])): TunnelControls {
+function fakeTunnels(available = new Set(['localhost', 'proxy'])): TunnelControls {
   let active = 'localhost';
   return {
-    list: () => ['localhost', 'cloudflared', 'ngrok'],
+    list: () => ['localhost', 'proxy'],
     active: () => active,
     setActive: (n) => {
       active = n;
@@ -41,7 +41,7 @@ function build(opts: Parameters<typeof buildWebChannelPlugin>[0]) {
 describe('web_tunnel_status', () => {
   it('reports the active provider and options', () => {
     const { status } = build({ tunnels: fakeTunnels(), settingsFile: file });
-    expect(status.handler({}, ctx)).toEqual({ active: 'localhost', available: ['none', 'localhost', 'cloudflared', 'ngrok'] });
+    expect(status.handler({}, ctx)).toEqual({ active: 'localhost', available: ['none', 'localhost', 'proxy'] });
   });
 });
 
@@ -55,17 +55,17 @@ describe('web_set_tunnel', () => {
       getControls: () => ({
         retunnel: () => {
           retunnelled++;
-          return Promise.resolve('https://x.trycloudflare.com/?t=k');
+          return Promise.resolve('https://abc123.proxy.moxxy.ai/web');
         },
       }),
     });
-    const r = (await set.handler({ provider: 'cloudflared' }, ctx)) as { ok: boolean; active: string; url?: string };
+    const r = (await set.handler({ provider: 'proxy' }, ctx)) as { ok: boolean; active: string; url?: string };
     expect(r.ok).toBe(true);
-    expect(r.active).toBe('cloudflared');
-    expect(r.url).toContain('trycloudflare');
+    expect(r.active).toBe('proxy');
+    expect(r.url).toContain('proxy.moxxy.ai');
     expect(retunnelled).toBe(1);
-    expect(tunnels.active()).toBe('cloudflared');
-    expect(readTunnelSetting(file)).toBe('cloudflared');
+    expect(tunnels.active()).toBe('proxy');
+    expect(readTunnelSetting(file)).toBe('proxy');
   });
 
   it('maps "none" to localhost', async () => {
@@ -83,12 +83,12 @@ describe('web_set_tunnel', () => {
     expect(r.error).toMatch(/unknown tunnel/);
   });
 
-  it('rejects an unavailable provider with an install hint and does not persist', async () => {
-    const tunnels = fakeTunnels(new Set(['localhost'])); // cloudflared not installed
+  it('rejects an unavailable provider and does not persist', async () => {
+    const tunnels = fakeTunnels(new Set(['localhost'])); // proxy relay unreachable
     const { set } = build({ tunnels, settingsFile: file });
-    const r = (await set.handler({ provider: 'cloudflared' }, ctx)) as { ok: boolean; hint?: string };
+    const r = (await set.handler({ provider: 'proxy' }, ctx)) as { ok: boolean; error?: string };
     expect(r.ok).toBe(false);
-    expect(r.hint).toMatch(/install/i);
+    expect(r.error).toMatch(/not available/i);
     expect(readTunnelSetting(file)).toBeUndefined();
   });
 });
@@ -97,18 +97,18 @@ describe('onInit applies the persisted / default tunnel', () => {
   const fireInit = (hooks: LifecycleHooks | undefined) => (hooks?.onInit as (() => void) | undefined)?.();
 
   it('applies a persisted setting on boot', async () => {
-    await writeTunnelSetting('ngrok', file);
+    await writeTunnelSetting('proxy', file);
     const tunnels = fakeTunnels();
     const { plugin } = build({ tunnels, settingsFile: file });
     fireInit(plugin.hooks);
-    expect(tunnels.active()).toBe('ngrok');
+    expect(tunnels.active()).toBe('proxy');
   });
 
   it('falls back to the configured default when nothing is persisted', () => {
     const tunnels = fakeTunnels();
-    const { plugin } = build({ tunnels, settingsFile: file, defaultTunnel: 'cloudflared' });
+    const { plugin } = build({ tunnels, settingsFile: file, defaultTunnel: 'proxy' });
     fireInit(plugin.hooks);
-    expect(tunnels.active()).toBe('cloudflared');
+    expect(tunnels.active()).toBe('proxy');
   });
 
   it('keeps the seeded default when neither is set', () => {

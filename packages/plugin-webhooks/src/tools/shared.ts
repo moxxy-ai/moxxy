@@ -138,22 +138,3 @@ export function fullUrl(publicUrl: string | undefined, triggerId: string): strin
   if (!publicUrl) return null;
   return `${publicUrl.replace(/\/$/, '')}/webhook/${triggerId}`;
 }
-
-export function installInstructions(kind: 'cloudflared' | 'ngrok'): string {
-  if (kind === 'cloudflared') {
-    return [
-      'macOS:   brew install cloudflared',
-      'Linux:   download from https://github.com/cloudflare/cloudflared/releases',
-      'Windows: winget install --id Cloudflare.cloudflared',
-      '',
-      'After installing, call webhook_tunnel_start again.',
-    ].join('\n');
-  }
-  return [
-    'macOS:   brew install ngrok',
-    'Linux:   download from https://ngrok.com/download',
-    '',
-    'ngrok requires a free authtoken — run `ngrok config add-authtoken <token>` once ' +
-      'after signing up at ngrok.com, then call webhook_tunnel_start again.',
-  ].join('\n');
-}
