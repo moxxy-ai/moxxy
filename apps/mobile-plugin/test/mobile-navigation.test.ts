@@ -219,6 +219,45 @@ describe('mobile chat chrome navigation model', () => {
     expect(sections[0]!.sessions.map((session) => session.id)).toEqual(['persisted-session']);
   });
 
+  it('preserves the desktop session order inside each workspace section', () => {
+    const sections = buildWorkspaceMenuSections([
+      {
+        id: 'desk-tata',
+        name: 'Tata',
+        cwd: '/Users/kamil/Tata',
+        color: '#ef4444',
+      },
+    ], [
+      {
+        id: 'znasz',
+        workspaceId: 'desk-tata',
+        name: 'znasz grę 007 first light ?',
+        cwd: '/Users/kamil/Tata',
+        lastActivity: '2026-06-17T18:00:00.000Z',
+      },
+      {
+        id: 'czesc',
+        workspaceId: 'desk-tata',
+        name: 'cześć',
+        cwd: '/Users/kamil/Tata',
+        lastActivity: '2026-06-17T21:00:00.000Z',
+      },
+      {
+        id: 'wlacz',
+        workspaceId: 'desk-tata',
+        name: 'włącz codex',
+        cwd: '/Users/kamil/Tata',
+        lastActivity: '2026-06-17T19:00:00.000Z',
+      },
+    ], 'wlacz');
+
+    expect(sections[0]!.sessions.map((session) => session.id)).toEqual([
+      'znasz',
+      'czesc',
+      'wlacz',
+    ]);
+  });
+
   it('filters workspace menu sections by workspace title, path, and session title', () => {
     const sections = buildWorkspaceMenuSections([
       {

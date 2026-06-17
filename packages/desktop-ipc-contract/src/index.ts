@@ -71,7 +71,13 @@ export type {
 export type { MobileGatewayStatus } from './mobile.js';
 
 // ---------- Settings -------------------------------------------------------
-export type { ProviderEntry, McpServerEntry, VaultEntryName, SkillFile } from './settings.js';
+export type {
+  ProviderEntry,
+  McpServerEntry,
+  VaultEntryName,
+  SkillFile,
+  ReasoningEffort,
+} from './settings.js';
 
 // ---------- Desks ---------------------------------------------------------
 export type { DeskSession, Desk, DesksOverview, SessionsOverview } from './desks.js';

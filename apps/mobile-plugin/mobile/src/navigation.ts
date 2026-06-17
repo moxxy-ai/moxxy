@@ -187,13 +187,16 @@ export function buildWorkspaceMenuSections(
 
   const sortedSections = [...byWorkspace.values()]
     .map((workspace) => {
-      const sortedSessions = [...workspace.sessions]
-        .sort((a, b) => b.lastActivity.localeCompare(a.lastActivity));
+      const sessions = [...workspace.sessions];
+      const latestActivity = sessions.reduce(
+        (latest, session) => session.lastActivity > latest ? session.lastActivity : latest,
+        '',
+      );
       return {
         ...workspace,
-        active: sortedSessions.some((session) => session.active),
-        latestActivity: sortedSessions[0]?.lastActivity ?? '',
-        sessions: sortedSessions,
+        active: sessions.some((session) => session.active),
+        latestActivity,
+        sessions,
       };
     })
     .filter((section) => section.sessions.length > 0 || section.id !== 'others');

@@ -116,7 +116,7 @@ describe('CodexProvider.stream', () => {
 
     expect(body?.prompt_cache_key).toBe('sess_fixed');
     const end = events.find((e): e is Extract<ProviderEvent, { type: 'message_end' }> => e.type === 'message_end');
-    expect(end?.usage).toEqual({ inputTokens: 100, outputTokens: 20, cacheReadTokens: 80 });
+    expect(end?.usage).toEqual({ inputTokens: 20, outputTokens: 20, cacheReadTokens: 80 });
   });
 
   it('never forwards req.maxTokens or req.temperature', async () => {

@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { mkdirSync, mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
@@ -22,9 +22,12 @@ vi.mock('electron', () => ({ ipcMain: { handle: () => undefined } }));
 // (session-titles.ts) reads meta sidecars from defaultSessionsDir(); point
 // it at a directory that doesn't exist so every stored name passes through.
 const deleteSessionMock = vi.fn(async (_id: string) => {});
+const coreMockState = vi.hoisted(() => ({
+  sessionTitlesDir: '/nonexistent-session-titles-dir',
+}));
 vi.mock('@moxxy/core', () => ({
   deleteSession: (id: string) => deleteSessionMock(id),
-  defaultSessionsDir: () => '/nonexistent-session-titles-dir',
+  defaultSessionsDir: () => coreMockState.sessionTitlesDir,
   readSessionIndex: async () => [],
 }));
 
@@ -91,6 +94,8 @@ let cwdB: string;
 beforeEach(async () => {
   vi.clearAllMocks();
   const tmp = mkdtempSync(path.join(os.tmpdir(), 'sessions-ipc-'));
+  coreMockState.sessionTitlesDir = path.join(tmp, 'session-titles');
+  mkdirSync(coreMockState.sessionTitlesDir, { recursive: true });
   cwdA = path.join(tmp, 'a');
   cwdB = path.join(tmp, 'b');
   mkdirSync(cwdA, { recursive: true });
@@ -172,6 +177,36 @@ describe('sessions.* handlers', () => {
           }),
         },
       ]);
+    } finally {
+      dispose();
+    }
+  });
+
+  it('broadcasts the same derived session titles as desks.list after session switches', async () => {
+    const received: Array<{ channel: string; payload: unknown }> = [];
+    const dispose = desktopEventBus.addSink({
+      broadcast: (channel, payload) => {
+        received.push({ channel, payload });
+      },
+    });
+    try {
+      const desk = await desks.create({ name: 'A', cwd: cwdA });
+      const session = (await invoke('sessions.create', { deskId: desk.id })) as { id: string };
+      writeFileSync(
+        path.join(coreMockState.sessionTitlesDir, `${session.id}.meta.json`),
+        JSON.stringify({ firstPrompt: 'uzyj computer_open i otworz strone' }),
+        'utf8',
+      );
+      received.length = 0;
+
+      await invoke('sessions.setActive', { id: session.id });
+
+      const event = received.find((item) => item.channel === 'desks.changed');
+      const payload = event?.payload as { desks?: Array<{ sessions?: Array<{ id: string; name: string }> }> };
+      const broadcastSession = payload.desks
+        ?.flatMap((item) => item.sessions ?? [])
+        .find((item) => item.id === session.id);
+      expect(broadcastSession?.name).toBe('uzyj computer_open i otworz strone');
     } finally {
       dispose();
     }

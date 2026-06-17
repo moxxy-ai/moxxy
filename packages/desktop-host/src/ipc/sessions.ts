@@ -21,7 +21,7 @@ import type { RunnerPool } from '../runner-pool';
 import { cwdForSession, type DeskStore } from '../desks';
 import { clearLog } from '../chat-log';
 import { broadcastHostEvent } from '../event-bus';
-import { withSessionTitlesOverview } from '../session-titles';
+import { withSessionTitles, withSessionTitlesOverview } from '../session-titles';
 import { handle } from './shared';
 
 export function registerSessionsHandlers(pool: RunnerPool, desks: DeskStore): void {
@@ -89,5 +89,8 @@ export function registerSessionsHandlers(pool: RunnerPool, desks: DeskStore): vo
 async function broadcastDesksChanged(desks: DeskStore): Promise<void> {
   const list = await desks.list();
   const active = await desks.getActive();
-  broadcastHostEvent('desks.changed', { desks: list, activeId: active?.id ?? null });
+  broadcastHostEvent('desks.changed', {
+    desks: await withSessionTitles(list),
+    activeId: active?.id ?? null,
+  });
 }

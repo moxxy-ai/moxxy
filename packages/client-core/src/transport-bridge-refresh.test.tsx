@@ -190,4 +190,19 @@ describe('client bridges after transport replacement', () => {
 
     await waitFor(() => expect(chatStore.getModel('model-sync')).toBe('gpt-5.4'));
   });
+
+  it('mirrors shared auto-approve changes into the local chat store', async () => {
+    const bridge = fakeApi('auto-sync');
+    configureTransport(bridge.api);
+    render(<ChatStoreBridge />);
+
+    act(() => {
+      bridge.emit('session.autoApprove.changed', {
+        workspaceId: 'auto-sync',
+        enabled: true,
+      });
+    });
+
+    await waitFor(() => expect(chatStore.getAutoApprove('auto-sync')).toBe(true));
+  });
 });

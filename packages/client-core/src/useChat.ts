@@ -147,12 +147,19 @@ export function ChatStoreBridge(): null {
         chatStore.setModel(workspaceId, model);
       },
     );
+    const offAutoApprove = api().subscribe(
+      'session.autoApprove.changed',
+      ({ workspaceId, enabled }: { workspaceId: string; enabled: boolean }) => {
+        chatStore.setAutoApprove(workspaceId, enabled);
+      },
+    );
     const offAsk = wireAskBridge();
     return () => {
       offEvent();
       offStarted();
       offComplete();
       offModel();
+      offAutoApprove();
       offAsk();
     };
   }, [transportRevision]);

@@ -5,10 +5,11 @@ vi.mock('electron', () => ({ ipcMain: { handle: () => undefined } }));
 
 import type { CommandBus } from '@moxxy/desktop-ipc-contract/bus';
 import type { IpcCommandName, IpcEvents, SessionInfo } from '@moxxy/desktop-ipc-contract';
-import { setActiveBus } from './shared';
+import { drivers, setActiveBus } from './shared';
 import { registerSessionHandlers } from './session';
 import type { RunnerPool } from '../runner-pool';
 import type { RunnerSupervisor } from '../runner-supervisor';
+import type { SessionDriver } from '../session-driver';
 import { desktopEventBus } from '../event-bus';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
@@ -89,5 +90,39 @@ describe('session.setModel handler', () => {
       payload: { workspaceId: 'ws-model', model: 'gpt-5.4' },
     });
     off();
+  });
+});
+
+describe('session.setAutoApprove handler', () => {
+  it('updates the driver and broadcasts the shared auto-approve state to every surface', async () => {
+    const events: Array<{ channel: keyof IpcEvents; payload: unknown }> = [];
+    const off = desktopEventBus.addSink({
+      broadcast: (channel, payload) => events.push({ channel, payload }),
+    });
+    const setAutoApprove = vi.fn();
+    drivers.set('ws-auto', { setAutoApprove } as unknown as SessionDriver);
+    const pool = {
+      activeWorkspaceId: () => 'ws-auto',
+      get: () => null,
+    } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool);
+
+    try {
+      await handlers.get('session.setAutoApprove')!({
+        workspaceId: 'ws-auto',
+        enabled: true,
+      });
+
+      expect(setAutoApprove).toHaveBeenCalledWith(true);
+      expect(events).toContainEqual({
+        channel: 'session.autoApprove.changed',
+        payload: { workspaceId: 'ws-auto', enabled: true },
+      });
+    } finally {
+      drivers.delete('ws-auto');
+      off();
+    }
   });
 });

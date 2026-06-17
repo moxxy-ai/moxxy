@@ -537,6 +537,20 @@ item — the debt it *creates* is logged here on sight:
   stay readable on narrow screens, and collapse state remains owned by hooks instead of
   presentational components.
 
+## 2026-06-17 — mobile/desktop auto-approve + context meter parity
+
+- **Retired (found + fixed same PR): session-scoped auto-approve could diverge between
+  mobile and desktop.** The phone could render bypass mode locally while the desktop
+  `SessionDriver` and composer stayed off because `session.setAutoApprove` was not on the
+  mobile WS allow-list and no shared event updated `chatStore`. The command is now allowed
+  as a conversation-scoped mutation, broadcasts `session.autoApprove.changed` to Electron
+  and WS surfaces, and both desktop/mobile fold the event into the same client-core store.
+- **Retired (found + fixed same PR): OpenAI/Codex context meters double-counted cached
+  input tokens.** OpenAI reports `cached_tokens` as a subset of `input_tokens`; the adapter
+  passed both through as additive fields, so desktop/mobile could show inflated context
+  usage such as `100%` even when the real prompt was below the model window. The OpenAI and
+  Codex providers now normalize to SDK semantics: fresh input plus cache-read tokens.
+
 ## 2026-06-17 — desktop gateway CI portability
 
 - **Retired (found + fixed same PR): the desktop mobile-gateway connection-count test

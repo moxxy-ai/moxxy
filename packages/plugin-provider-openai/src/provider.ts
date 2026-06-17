@@ -202,9 +202,9 @@ export class OpenAIProvider implements LLMProvider {
         if (raw.usage) {
           usageIn = raw.usage.prompt_tokens ?? usageIn;
           usageOut = raw.usage.completion_tokens ?? usageOut;
-          // `prompt_tokens` already includes the cached portion; surface the
-          // cached count so cache hit-rate accounting works (parity with the
-          // Anthropic provider's cache_read_input_tokens).
+          // OpenAI reports cached tokens as a subset of prompt_tokens. The SDK
+          // TokenUsage shape stores fresh input separately from cache reads, so
+          // subtract the cached portion before emitting usage below.
           usageCacheRead = raw.usage.prompt_tokens_details?.cached_tokens ?? usageCacheRead;
         }
         const choice = raw.choices?.[0];
@@ -286,7 +286,7 @@ export class OpenAIProvider implements LLMProvider {
       usage:
         usageIn > 0 || usageOut > 0
           ? {
-              inputTokens: usageIn,
+              inputTokens: Math.max(0, usageIn - usageCacheRead),
               outputTokens: usageOut,
               ...(usageCacheRead > 0 ? { cacheReadTokens: usageCacheRead } : {}),
             }

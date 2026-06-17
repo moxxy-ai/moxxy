@@ -16,10 +16,15 @@ describe('REMOTE_ALLOWED_COMMANDS', () => {
       'connection.snapshotAll',
       'connection.activeWorkspace',
       'connection.retry',
+      'desks.list',
+      'desks.setActive',
       'session.info',
       'session.runTurn',
       'session.abortTurn',
+      'session.setProvider',
+      'session.setModel',
       'session.setMode',
+      'session.setAutoApprove',
       'session.newSession',
       'session.runCommand',
       'sessions.list',
@@ -43,7 +48,6 @@ describe('REMOTE_ALLOWED_COMMANDS', () => {
 
   it('keeps host-mutating / control commands OFF the allow-list', () => {
     const denied: ReadonlyArray<IpcCommandName> = [
-      'session.setAutoApprove',
       'sessions.remove',
       'desks.create',
       'desks.remove',

@@ -17,24 +17,21 @@ import type { IpcCommandName } from './commands.js';
  * after deciding a paired phone should be able to drive it.
  *
  * The list is exactly the commands a chat client legitimately needs to hold a
- * conversation: read the session snapshot, send/abort a turn, switch mode, run a
- * slash command, reset the conversation, transcribe voice, ANSWER (not bypass)
- * permission prompts, persist the per-workspace transcript, and list/run/read an
- * EXISTING workflow. Everything else — auto-approve toggling, desk/onboarding/
- * settings/vault/app/prefs writes, workflow AUTHORING (save/validateDraft/
- * setEnabled), native pickers, focus-window control, and the gateway-control
- * commands themselves (`mobileGateway.*`) — stays Electron-bus-only (the trusted
- * local UI) and is refused over the wire.
+ * conversation: read the session snapshot, send/abort a turn, switch mode,
+ * toggle the session-scoped auto-approve flag, run a slash command, reset the
+ * conversation, transcribe voice, answer permission prompts, persist the
+ * per-workspace transcript, and list/run/read an EXISTING workflow. Everything
+ * else — desk/onboarding/settings/vault/app/prefs writes, workflow AUTHORING
+ * (save/validateDraft/setEnabled), native pickers, focus-window control, and
+ * the gateway-control commands themselves (`mobileGateway.*`) — stays
+ * Electron-bus-only (the trusted local UI) and is refused over the wire.
  *
  * RULE: add a command here ONLY if a paired phone should be able to invoke it.
  * If it mutates host state beyond the conversation, it almost certainly does not
  * belong.
  */
 export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcCommandName>([
-  // Answer a permission/approval prompt — RESPOND only. Note that
-  // `session.setAutoApprove` (turn the prompt OFF entirely) is deliberately NOT
-  // here: a remote client may answer the desktop user's prompts, never disable
-  // them and run tools unattended.
+  // Answer a permission/approval prompt.
   'ask.respond',
   // Workspace discovery + reconnect (read-only / non-mutating).
   'connection.snapshotAll',
@@ -49,6 +46,9 @@ export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcC
   'session.setProvider',
   'session.setModel',
   'session.setMode',
+  // Session-scoped only: this does NOT persist allow rules to permissions.json,
+  // but it must be shared so desktop and mobile show the same bypass state.
+  'session.setAutoApprove',
   'session.newSession',
   'session.runCommand',
   // Multi-session conversations: list/create/switch/rename are conversation-

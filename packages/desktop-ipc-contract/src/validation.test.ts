@@ -333,4 +333,11 @@ describe('IPC payload validation', () => {
       validateIpcInput('session.setModel', { workspaceId: 'workspace-1', model: '' }),
     ).toThrow();
   });
+
+  it('allows paired mobile clients to toggle session-scoped auto-approve', () => {
+    expect(REMOTE_ALLOWED_COMMANDS.has('session.setAutoApprove')).toBe(true);
+    expect(() =>
+      validateIpcInput('session.setAutoApprove', { workspaceId: 'workspace-1', enabled: true }),
+    ).not.toThrow();
+  });
 });

@@ -104,9 +104,13 @@ export type ProviderEvent =
   | { readonly type: 'reasoning_signature'; readonly signature?: string; readonly redacted?: boolean; readonly encrypted?: string };
 
 export interface TokenUsage {
+  /** Non-cached prompt tokens. Providers whose raw usage includes cached
+   *  tokens inside the prompt total must subtract them before setting this. */
   readonly inputTokens: number;
   readonly outputTokens: number;
+  /** Prompt tokens served from cache, not included in inputTokens. */
   readonly cacheReadTokens?: number;
+  /** Prompt tokens written into cache, not included in inputTokens. */
   readonly cacheCreationTokens?: number;
 }
 

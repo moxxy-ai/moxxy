@@ -3,6 +3,7 @@ import {
   ConnectionBridge,
   api,
   askStore,
+  chatStore,
   deskForWorkspace,
   useActiveWorkspaceId,
   useChat as useCoreChat,
@@ -27,7 +28,8 @@ import { usePermissions } from './usePermissions';
 import { useSessionSnapshot } from './useSessionSnapshot';
 import { useSessions } from './useSessions';
 import { routeSelectWorkspaceFrame } from '../gatewayFrameRouting';
-import { buildSelectedSessionRecord, selectedSessionReadOnly } from '../mobileSessionSelection';
+import { buildSelectedSessionRecord } from '../mobileSessionSelection';
+import { buildMobileWorkspaceSessionRecords } from '../mobileWorkspaceSessions';
 import { emptyMobileState, type MobileState } from '../protocol';
 import { textOf } from '../utils/record';
 
@@ -111,7 +113,9 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
   const coreWorkflows = useCoreWorkflows();
   const contextUsage = useContextUsage(workspaceId);
   const pendingAsks = useSyncExternalStore(askStore.subscribe, askStore.getAll);
-  const [autoApproveEnabled, setAutoApproveEnabled] = useState(false);
+  const autoApproveEnabled = useSyncExternalStore(chatStore.subscribe, () =>
+    workspaceId ? chatStore.getAutoApprove(workspaceId) : false,
+  );
   const [transcription, setTranscription] = useState<{ id: string; text: string } | null>(null);
 
   const connected = connection.snapshot?.phase.phase === 'connected';
@@ -153,7 +157,7 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
       }
       if (type === 'setAutoApprove') {
         const enabled = frame.enabled === true;
-        setAutoApproveEnabled(enabled);
+        if (workspaceId) chatStore.setAutoApprove(workspaceId, enabled);
         void api()
           .invoke('session.setAutoApprove', { ...workspaceParam(workspaceId), enabled })
           .catch(() => undefined);
@@ -208,9 +212,6 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
   const state = useMemo<MobileState>(() => {
     const desks = coreDesks.desks;
     const ownerDesk = deskForWorkspace(desks, workspaceId) ?? activeDesk ?? null;
-    const activeDeskSessions = ownerDesk && coreDeskSessions.sessions.length > 0
-      ? new Map(coreDeskSessions.sessions.map((session) => [session.id, session]))
-      : null;
     const workspaces = desks.map((desk) => ({
       id: desk.id,
       name: desk.name,
@@ -219,29 +220,10 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
       color: desk.color,
       unread: false,
     }));
-    const sessions = desks.flatMap((desk) => {
-      const deskSessions = desk.id === ownerDesk?.id && activeDeskSessions
-        ? [...activeDeskSessions.values()]
-        : desk.sessions;
-      return deskSessions.map((session) => ({
-        id: session.id,
-        workspaceId: desk.id,
-        name: session.name,
-        firstPrompt: session.firstPrompt ?? session.name,
-        cwd: session.cwd ?? desk.cwd,
-        eventCount: session.eventCount ?? 0,
-        provider: session.provider ?? null,
-        model: session.model ?? null,
-        live: session.id === workspaceId && connected,
-        readOnly: selectedSessionReadOnly({
-          sessionId: session.id,
-          activeWorkspaceId: workspaceId,
-          connected,
-        }),
-        lastActivity:
-          session.lastActivity ??
-          (session.createdAt > 0 ? new Date(session.createdAt).toISOString() : ''),
-      }));
+    const sessions = buildMobileWorkspaceSessionRecords({
+      desks,
+      activeSessionId: workspaceId,
+      connected,
     });
     const usage = {
       latestPrompt: contextUsage.contextTokens,
@@ -283,7 +265,6 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
     contextUsage.contextWindow,
     contextUsage.perCall,
     contextUsage.summary,
-    coreDeskSessions.sessions,
     coreDesks.desks,
     coreChat.activeTurnId,
     coreChat.compacting,

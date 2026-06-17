@@ -18,6 +18,7 @@ import { dialog, BrowserWindow as BrowserWindowApi } from 'electron';
 import type { RunnerPool } from '../runner-pool';
 import { authorizeAttachments, rememberPickedAttachment } from '../attachment-authz';
 import { persistImageBlob } from '../attachments.js';
+import { broadcastHostEvent } from '../event-bus.js';
 import { getSessionModel, setSessionModel } from '../session-models.js';
 import {
   getInProcessPlugins,
@@ -97,6 +98,7 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     // The flag lives on the driver (where the permission resolver is set up),
     // not on the RemoteSession — so target the driver directly.
     mustDriver(id).setAutoApprove(enabled);
+    broadcastHostEvent('session.autoApprove.changed', { workspaceId: id, enabled });
   });
   handle('session.runCommand', async ({ workspaceId, name, args }) => {
     const { session } = resolveCtx(pool, { workspaceId });
