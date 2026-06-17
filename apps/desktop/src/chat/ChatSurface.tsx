@@ -105,8 +105,9 @@ export function ChatSurface({
       <main className="col-main col-main--flat">
         <Header
           phase={phase}
-          railOpen={railOpen}
-          onShowRail={onShowRail}
+          workspaceId={workspaceId}
+          railPane={railPane}
+          onPickPane={onPickPane}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           canRename={activeDesk !== undefined}
