@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/config",
   "private": true,
-  "version": "0.0.14",
+  "version": "0.1.0",
   "description": "defineConfig + moxxy.config.ts loader. Walks the file tree from cwd, also reads ~/.moxxy/config.{ts,js,mjs}, merges by precedence, and resolves the final shape the CLI consumes.",
   "type": "module",
   "main": "./dist/index.js",

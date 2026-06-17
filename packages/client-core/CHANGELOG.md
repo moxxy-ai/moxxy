@@ -1,5 +1,65 @@
 # @moxxy/client-core
 
+## 0.6.0
+
+### Minor Changes
+
+- 951f374: Make the model's reasoning visible, and redesign sub-agents as a collapsible group.
+
+  **Reasoning preview (per-provider, Codex-style between calls).** When enabled, the model's
+  thinking now streams live (replacing the silent "thinking…" dots) and is kept as a dim,
+  collapsible "Thinking" block interleaved with the tool calls it precedes — so you can see what
+  the model is doing instead of waiting out a multi-second pause. Because reasoning is finalized
+  once per provider round, summaries land naturally between tool batches.
+
+  It's gated per provider/model via a new `ModelDescriptor.supportsReasoning` capability and turned
+  on with `config.context.reasoning` (`true`, or `{ effort: 'low' | 'medium' | 'high' }`):
+
+  - **Anthropic / Claude Code** — adaptive thinking with summarized display; the signed thinking
+    block round-trips so interleaved-thinking tool-use continuations stay valid.
+  - **OpenAI Codex** — surfaces the reasoning summary it already requests (previously discarded).
+  - **OpenAI** — `reasoning_effort` for the gpt-5 family plus the `reasoning_content` summary that
+    OpenAI-compatible reasoning backends stream.
+
+  New SDK surface: a `reasoning` `ContentBlock`, `reasoning_delta`/`reasoning_signature`
+  `ProviderEvent`s, `reasoning_chunk`/`reasoning_message` events, a `ProviderRequest.reasoning`
+  knob, and `ModelDescriptor.supportsReasoning`. No runner protocol bump — reasoning events ride
+  the existing event channel.
+
+  **Grouped sub-agents view.** A `dispatch_agent` fan-out now renders as one collapsible group —
+  a header (`N Explore agents finished`) over a tree of per-agent rows showing each agent's tool-use
+  count, **token usage**, and status — instead of one block per child. Per-agent token totals and the
+  agent kind are forwarded on the `subagent_*` events; both the desktop and TUI render the new tree.
+
+### Patch Changes
+
+- 7366a09: Add a cross-channel file-diff preview for the Write/Edit tools. Every surface
+  now shows what changed when the agent writes a file — a classic diff of the
+  changed slices (±2 context lines) with line numbers, `+`/`-` markers, and
+  green/red line backgrounds, plus a "Added N lines, removed M lines" summary.
+
+  - The tools return a structured, channel-agnostic payload (`ToolDisplayResult`
+    = `{ forModel, display }`); the model still sees only a short summary line, so
+    the diff never bloats the context window.
+  - TUI: an inline highlight preview; `Ctrl+O` expands the changed files.
+  - Desktop: a diff card; click to expand the full set of hunks.
+  - Web / Telegram / mobile each render the same payload natively.
+
+  New public SDK surface (`@moxxy/sdk` and the dependency-free `@moxxy/sdk/tool-display`
+  subpath for browser/React-Native consumers): `FileDiffDisplay`, `DiffHunk`,
+  `DiffLine`, `DiffRow`, `ToolDisplay`, `ToolDisplayResult`, and the helpers
+  `isToolDisplayResult`, `isFileDiffDisplay`, `fileDiffSummary`, `fileDiffVerb`,
+  `diffGutterNo`, `toDiffRows`.
+
+- Updated dependencies [33e9640]
+- Updated dependencies [143264a]
+- Updated dependencies [7366a09]
+- Updated dependencies [951f374]
+  - @moxxy/sdk@0.12.0
+  - @moxxy/desktop-ipc-contract@0.7.0
+  - @moxxy/chat-model@0.1.0
+  - @moxxy/workflows-builder@0.1.3
+
 ## 0.5.1
 
 ### Patch Changes

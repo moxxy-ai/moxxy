@@ -1,5 +1,36 @@
 # @moxxy/plugin-cli
 
+## 0.1.8
+
+### Patch Changes
+
+- 7366a09: Add a cross-channel file-diff preview for the Write/Edit tools. Every surface
+  now shows what changed when the agent writes a file — a classic diff of the
+  changed slices (±2 context lines) with line numbers, `+`/`-` markers, and
+  green/red line backgrounds, plus a "Added N lines, removed M lines" summary.
+
+  - The tools return a structured, channel-agnostic payload (`ToolDisplayResult`
+    = `{ forModel, display }`); the model still sees only a short summary line, so
+    the diff never bloats the context window.
+  - TUI: an inline highlight preview; `Ctrl+O` expands the changed files.
+  - Desktop: a diff card; click to expand the full set of hunks.
+  - Web / Telegram / mobile each render the same payload natively.
+
+  New public SDK surface (`@moxxy/sdk` and the dependency-free `@moxxy/sdk/tool-display`
+  subpath for browser/React-Native consumers): `FileDiffDisplay`, `DiffHunk`,
+  `DiffLine`, `DiffRow`, `ToolDisplay`, `ToolDisplayResult`, and the helpers
+  `isToolDisplayResult`, `isFileDiffDisplay`, `fileDiffSummary`, `fileDiffVerb`,
+  `diffGutterNo`, `toDiffRows`.
+
+- Updated dependencies [33e9640]
+- Updated dependencies [143264a]
+- Updated dependencies [7366a09]
+- Updated dependencies [951f374]
+  - @moxxy/sdk@0.12.0
+  - @moxxy/chat-model@0.1.0
+  - @moxxy/core@0.2.1
+  - @moxxy/plugin-mcp@0.0.15
+
 ## 0.1.7
 
 ### Patch Changes

@@ -180,7 +180,15 @@ jobs:
         include:
           - os: macos-latest
             artifact: dmg
-          - os: windows-latest
+          # Pinned to windows-2022, NOT windows-latest. `windows-latest` now
+          # resolves to the windows-2025-vs2026 image, which ships Visual
+          # Studio 2026 — and node-gyp@9.4.1 (what @electron/rebuild drives to
+          # compile node-pty against Electron's ABI) only recognises VS up to
+          # 2022, so it fails with "Could not find any Visual Studio
+          # installation to use". windows-2022 carries VS2022, which node-gyp
+          # detects. Revisit when node-gyp is upgraded to a VS2026-aware
+          # release (see TECH_DEBT) and this can return to windows-latest.
+          - os: windows-2022
             artifact: exe
           - os: ubuntu-latest
             artifact: deb-appimage
@@ -205,6 +213,19 @@ jobs:
         with:
           node-version: '22.x'
           cache: pnpm
+
+      # node-pty (a real dep of @moxxy/cli, bundled into the desktop) compiles
+      # from source via node-gyp@9, which imports Python's `distutils`. That
+      # module was removed from the stdlib in Python 3.12 — now the default
+      # `python3` on the current macOS / Ubuntu / Windows runner images — so the
+      # native build fails with "No module named 'distutils'" both at
+      # `pnpm install` (node-pty is in onlyBuiltDependencies) and again at
+      # electron-builder's @electron/rebuild. Pin 3.11, the last release that
+      # still ships distutils, on every leg so node-gyp resolves it.
+      - name: Setup Python (node-gyp needs distutils)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

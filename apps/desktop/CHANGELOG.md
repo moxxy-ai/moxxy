@@ -1,5 +1,101 @@
 # @moxxy/desktop
 
+## 0.8.0
+
+### Minor Changes
+
+- 33e9640: Agentic surfaces: repurpose the desktop context rail into a dropdown of shared,
+  agent-drivable panes.
+
+  - New swappable **Surface** block in the SDK (`defineSurface`, `SurfaceRegistry`,
+    `SurfaceHost`) + runner protocol **v8** (`surface.*` methods + `surface.data`
+    stream) so a runner-owned interactive resource (a PTY, a browser page) streams
+    to a thin client and takes its input back — no reverse RPC.
+  - **Terminal** (`@moxxy/plugin-terminal`): a shared shell the user and the agent
+    drive together via a new `terminal` tool; rendered live with xterm.js. Ships a
+    real PTY via node-pty (optional native dep, N-API) with a dependency-free
+    piped-shell fallback.
+  - **Browser**: a live, in-window view of the agent's Playwright page on
+    `@moxxy/plugin-browser`, streamed over a CDP screencast (`Page.startScreencast`)
+    — the user and agent share one page; clicks/keys/scroll/navigation are proxied
+    to it.
+  - **Files changed**: a git-aware file list with the diff on the right; clicking a
+    file opens a dropdown to Add it to the agent or Open it (diff/content). New
+    `workspace.readFile` + `git.{isRepo,status,diff}` desktop IPC.
+  - The context button now opens a dropdown (Terminal / Files changed / Browser)
+    instead of toggling; the rail is drag-resizable with a persisted width.
+
+- 143264a: Desktop OAuth providers now sign in for real instead of showing a "run `moxxy login` in a terminal" hint.
+
+  Settings → Providers (and the onboarding wizard) drive a shared `OAuthSignIn` flow that spawns `moxxy login <provider>`, opens the browser, and — for out-of-band providers like `claude-code` — collects the pasted `claude setup-token` or `code#state` in the UI (browser-authorize primary, token paste as a fallback). Loopback providers (openai-codex) keep their automatic browser+callback flow.
+
+  Mechanics: `moxxy login --stdin-prompts` relays each interactive prompt to the host as a NUL-bracketed marker on stdout (new `encodeLoginPrompt` / `createLoginStreamScanner` in `@moxxy/sdk`) and reads answers as stdin lines, so a GUI host can drive the paste flow without a TTY. The desktop exposes this via new `provider.login.start` / `answer` / `cancel` IPC commands and `provider.login.prompt` / `output` / `done` events; the dead `onboarding.runProviderLogin` command was removed. `onboarding.providerAuthKind` now derives a provider's auth kind from the runner's registry (fixing `claude-code` being mis-detected as an API-key provider) instead of a hardcoded list.
+
+- 951f374: Make the model's reasoning visible, and redesign sub-agents as a collapsible group.
+
+  **Reasoning preview (per-provider, Codex-style between calls).** When enabled, the model's
+  thinking now streams live (replacing the silent "thinking…" dots) and is kept as a dim,
+  collapsible "Thinking" block interleaved with the tool calls it precedes — so you can see what
+  the model is doing instead of waiting out a multi-second pause. Because reasoning is finalized
+  once per provider round, summaries land naturally between tool batches.
+
+  It's gated per provider/model via a new `ModelDescriptor.supportsReasoning` capability and turned
+  on with `config.context.reasoning` (`true`, or `{ effort: 'low' | 'medium' | 'high' }`):
+
+  - **Anthropic / Claude Code** — adaptive thinking with summarized display; the signed thinking
+    block round-trips so interleaved-thinking tool-use continuations stay valid.
+  - **OpenAI Codex** — surfaces the reasoning summary it already requests (previously discarded).
+  - **OpenAI** — `reasoning_effort` for the gpt-5 family plus the `reasoning_content` summary that
+    OpenAI-compatible reasoning backends stream.
+
+  New SDK surface: a `reasoning` `ContentBlock`, `reasoning_delta`/`reasoning_signature`
+  `ProviderEvent`s, `reasoning_chunk`/`reasoning_message` events, a `ProviderRequest.reasoning`
+  knob, and `ModelDescriptor.supportsReasoning`. No runner protocol bump — reasoning events ride
+  the existing event channel.
+
+  **Grouped sub-agents view.** A `dispatch_agent` fan-out now renders as one collapsible group —
+  a header (`N Explore agents finished`) over a tree of per-agent rows showing each agent's tool-use
+  count, **token usage**, and status — instead of one block per child. Per-agent token totals and the
+  agent kind are forwarded on the `subagent_*` events; both the desktop and TUI render the new tree.
+
+### Patch Changes
+
+- 7366a09: Add a cross-channel file-diff preview for the Write/Edit tools. Every surface
+  now shows what changed when the agent writes a file — a classic diff of the
+  changed slices (±2 context lines) with line numbers, `+`/`-` markers, and
+  green/red line backgrounds, plus a "Added N lines, removed M lines" summary.
+
+  - The tools return a structured, channel-agnostic payload (`ToolDisplayResult`
+    = `{ forModel, display }`); the model still sees only a short summary line, so
+    the diff never bloats the context window.
+  - TUI: an inline highlight preview; `Ctrl+O` expands the changed files.
+  - Desktop: a diff card; click to expand the full set of hunks.
+  - Web / Telegram / mobile each render the same payload natively.
+
+  New public SDK surface (`@moxxy/sdk` and the dependency-free `@moxxy/sdk/tool-display`
+  subpath for browser/React-Native consumers): `FileDiffDisplay`, `DiffHunk`,
+  `DiffLine`, `DiffRow`, `ToolDisplay`, `ToolDisplayResult`, and the helpers
+  `isToolDisplayResult`, `isFileDiffDisplay`, `fileDiffSummary`, `fileDiffVerb`,
+  `diffGutterNo`, `toDiffRows`.
+
+- Updated dependencies [33e9640]
+- Updated dependencies [143264a]
+- Updated dependencies [7366a09]
+- Updated dependencies [951f374]
+  - @moxxy/sdk@0.12.0
+  - @moxxy/cli@0.12.0
+  - @moxxy/desktop-ipc-contract@0.7.0
+  - @moxxy/desktop-host@0.5.0
+  - @moxxy/chat-model@0.1.0
+  - @moxxy/client-core@0.6.0
+  - @moxxy/ipc-server-ws@0.1.9
+  - @moxxy/plugin-channel-mobile@0.1.10
+  - @moxxy/plugin-stt-whisper-codex@0.0.15
+  - @moxxy/plugin-vault@0.0.15
+  - @moxxy/runner@0.2.2
+  - @moxxy/workflows-builder@0.1.3
+  - @moxxy/client-platform-web@0.1.9
+
 ## 0.7.2
 
 ### Patch Changes
