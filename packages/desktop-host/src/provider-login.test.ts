@@ -15,6 +15,11 @@ const h = vi.hoisted(() => ({
   sent: [] as Array<{ channel: string; payload: Record<string, unknown> }>,
 }));
 
+// `electron` is a type-only import in provider-login.ts, but the CI test
+// environment may not have electron's native binary installed (esp. Node 24),
+// so stub it — matching the sibling desktop-host tests — to keep collection
+// from touching the real package.
+vi.mock('electron', () => ({}));
 vi.mock('./cli-resolver', () => ({
   augmentedPaths: () => [],
   resolveMoxxyCli: () => ({ kind: 'direct', bin: '/fake/moxxy' }),

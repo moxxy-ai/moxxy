@@ -15,7 +15,7 @@
  * `saveProviderKey` → `moxxy vault set`); this module is only a relay.
  */
 
-import { type BrowserWindow } from 'electron';
+import type { BrowserWindow } from 'electron';
 import { createLoginStreamScanner } from '@moxxy/sdk';
 import type { ChildProcess } from 'node:child_process';
 import { augmentedPaths, resolveMoxxyCli, spawnCli } from './cli-resolver';
