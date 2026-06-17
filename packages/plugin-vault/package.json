@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-vault",
   "private": true,
-  "version": "0.0.14",
+  "version": "0.0.15",
   "description": "Encrypted secret storage for moxxy. AES-256-GCM at rest. Master key from OS keychain (@napi-rs/keyring) or passphrase fallback.",
   "type": "module",
   "main": "./dist/index.js",
