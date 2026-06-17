@@ -1,15 +1,22 @@
 ---
+"@moxxy/cli": patch
 "@moxxy/desktop": patch
 ---
 
-Desktop terminal surface: fix the prompt rendering one character per line (and
-being hard to type into). The earlier fix guarded xterm's `fit()` but left the
-context rail's width *animation* in place, so `fit()` still measured a mid-slide
-sliver and pushed ~2 columns to the PTY as its first size — the shell drew its
-prompt hard-wrapped to that width, and since xterm only reflows its own
-soft-wraps (not shell-hard-wrapped output) it stayed stacked even after the pane
-was full width. Drop the rail's width transition so the pane is at its real width
-the instant it mounts (the first fit — and the PTY's first resize — is therefore
-correct), keep the rAF-debounced, width-guarded fit for later user resizes, and
-focus the terminal on attach. Verified in a headless-chromium harness: the
-prompt's draw width goes from ~10 cols (animated) to the full 53 (snap-open).
+Fix the desktop agentic surfaces being undrivable: you couldn't type into the
+terminal and the browser wouldn't navigate.
+
+- **Surfaces were destroyed out from under their viewer (core).** A surface is
+  shared (the agent's tool + the viewer drive one PTY/page), but `SurfaceHost`
+  tore the instance down on the first `close`. React StrictMode (dev) makes that
+  routine: it mounts → unmounts → remounts, so the first mount's late-resolving
+  `open` fires a `close` that destroyed the instance the remount had just
+  attached to. Output kept flowing (from the snapshot) so it looked alive, but
+  `surface.input`/`surface.resize` then hit a missing instance and were silently
+  dropped — no typing, no navigation, no resize, no error. Fixed with viewer
+  ref-counting: the instance is only torn down when the last viewer detaches.
+- **Terminal mounted at the wrong width (desktop).** The context rail animated
+  its width open, so xterm's `fit()` measured a mid-slide sliver and the shell
+  drew its prompt hard-wrapped narrow (which xterm won't reflow). The rail now
+  snaps open so the pane is full-width at mount; the fit is rAF-debounced +
+  width-guarded, and the terminal is focused on attach.
