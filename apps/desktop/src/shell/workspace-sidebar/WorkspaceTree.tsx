@@ -19,16 +19,15 @@ import { SectionHeader } from './SectionHeader';
  *  - clicking a folder row (or its chevron) toggles collapse — switching
  *    workspaces happens by picking one of its SESSIONS, the routing unit;
  *  - [+] on a folder row creates a session IN that workspace;
- *  - ⋯ menus carry Rename/Remove for both row kinds, with the same
- *    inline-rename gesture (Enter commits, Escape cancels) sessions
- *    always had;
+ *  - ⋯ menus carry Rename/Remove for both row kinds and delegate the
+ *    actual modal/persistence flow to the sidebar container;
  *  - row actions ([+]/⋯) are hover-only and OVERLAY the right edge of the
  *    name (gradient fade) instead of reserving width — names get the full
  *    row when idle ({@link ActionsOverlay});
  *  - the active desk's active session is the single highlighted row.
  *
  * Purely presentational — the sidebar container owns the stores, the
- * collapse state, and the remove confirmations.
+ * collapse state, and the action modals.
  */
 export function WorkspaceTree({
   desks,
@@ -61,40 +60,12 @@ export function WorkspaceTree({
   readonly onToggleCollapse: (deskId: string) => void;
   readonly onSelectSession: (id: string) => void;
   readonly onCreateSession: (deskId: string) => void;
-  readonly onRenameSession: (id: string, name: string) => void;
+  readonly onRenameSession: (session: DeskSession) => void;
   readonly onRemoveSession: (session: DeskSession) => void;
-  readonly onRenameWorkspace: (id: string, name: string) => void;
+  readonly onRenameWorkspace: (desk: Desk) => void;
   readonly onRemoveWorkspace: (desk: Desk) => void;
   readonly onNewWorkspace: () => void;
 }): JSX.Element {
-  /** Row whose name is being edited inline; null = none. */
-  const [editing, setEditing] = useState<{
-    kind: 'workspace' | 'session';
-    id: string;
-    draft: string;
-  } | null>(null);
-
-  const commitRename = (): void => {
-    if (!editing) return;
-    const name = editing.draft.trim();
-    const prev =
-      editing.kind === 'workspace'
-        ? desks.find((d) => d.id === editing.id)?.name
-        : desks.flatMap((d) => d.sessions).find((s) => s.id === editing.id)?.name;
-    setEditing(null);
-    if (!name || name === prev) return;
-    if (editing.kind === 'workspace') onRenameWorkspace(editing.id, name);
-    else onRenameSession(editing.id, name);
-  };
-
-  const renameProps = (kind: 'workspace' | 'session', id: string, name: string) => ({
-    editing: editing?.kind === kind && editing.id === id ? editing.draft : null,
-    onStartRename: () => setEditing({ kind, id, draft: name }),
-    onDraft: (draft: string) => setEditing({ kind, id, draft }),
-    onCommitRename: commitRename,
-    onCancelRename: () => setEditing(null),
-  });
-
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -141,8 +112,8 @@ export function WorkspaceTree({
                 busy={busyDeskId === desk.id}
                 onToggle={() => onToggleCollapse(desk.id)}
                 onCreateSession={() => onCreateSession(desk.id)}
+                onRename={() => onRenameWorkspace(desk)}
                 onRemove={() => onRemoveWorkspace(desk)}
-                {...renameProps('workspace', desk.id, desk.name)}
               />
               {!isCollapsed && (
                 <ul
@@ -164,8 +135,8 @@ export function WorkspaceTree({
                       active={s.id === activeSessionId && desk.id === activeDeskId}
                       unread={unread.has(s.id)}
                       onSelect={() => onSelectSession(s.id)}
+                      onRename={() => onRenameSession(s)}
                       onRemove={() => onRemoveSession(s)}
-                      {...renameProps('session', s.id, s.name)}
                     />
                   ))}
                 </ul>
@@ -176,15 +147,6 @@ export function WorkspaceTree({
       </ul>
     </div>
   );
-}
-
-interface RenameHandlers {
-  /** Current rename draft, or null when this row isn't being edited. */
-  readonly editing: string | null;
-  readonly onStartRename: () => void;
-  readonly onDraft: (draft: string) => void;
-  readonly onCommitRename: () => void;
-  readonly onCancelRename: () => void;
 }
 
 /** One workspace folder row: chevron + tinted workspace glyph + name,
@@ -198,12 +160,8 @@ function FolderRow({
   busy,
   onToggle,
   onCreateSession,
+  onRename,
   onRemove,
-  editing,
-  onStartRename,
-  onDraft,
-  onCommitRename,
-  onCancelRename,
 }: {
   readonly desk: Desk;
   readonly active: boolean;
@@ -213,8 +171,9 @@ function FolderRow({
   readonly busy: boolean;
   readonly onToggle: () => void;
   readonly onCreateSession: () => void;
+  readonly onRename: () => void;
   readonly onRemove: () => void;
-} & RenameHandlers): JSX.Element {
+}): JSX.Element {
   const [hot, setHot] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const showActions = hot || menuOpen;
@@ -223,7 +182,7 @@ function FolderRow({
     <div
       data-testid={`desk-row-${desk.id}`}
       data-collapsed={collapsed}
-      onClick={editing === null ? onToggle : undefined}
+      onClick={onToggle}
       onMouseEnter={() => setHot(true)}
       onMouseLeave={() => setHot(false)}
       onFocusCapture={() => setHot(true)}
@@ -290,36 +249,20 @@ function FolderRow({
       >
         <Icon name="folder" size={14} />
       </span>
-      {editing !== null ? (
-        <input
-          autoFocus
-          value={editing}
-          aria-label={`rename workspace ${desk.name}`}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => onDraft(e.target.value)}
-          onBlur={onCommitRename}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') onCommitRename();
-            if (e.key === 'Escape') onCancelRename();
-          }}
-          style={renameInputStyle}
-        />
-      ) : (
-        <span
-          style={{
-            flex: 1,
-            minWidth: 0,
-            fontSize: 13,
-            fontWeight: active ? 700 : 600,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-          title={`${desk.name} — ${desk.cwd}`}
-        >
-          {desk.name}
-        </span>
-      )}
+      <span
+        style={{
+          flex: 1,
+          minWidth: 0,
+          fontSize: 13,
+          fontWeight: active ? 700 : 600,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+        title={`${desk.name} — ${desk.cwd}`}
+      >
+        {desk.name}
+      </span>
       {unread && <UnreadDot label={`unread activity in ${desk.name}`} />}
       <ActionsOverlay show={showActions || busy} background={HOVER_ROW_BG}>
         <button
@@ -345,7 +288,7 @@ function FolderRow({
           visible={showActions || busy}
           open={menuOpen}
           onOpenChange={setMenuOpen}
-          onRename={onStartRename}
+          onRename={onRename}
           onDelete={onRemove}
           deleteLabel="Remove"
         />
@@ -360,19 +303,16 @@ function SessionRow({
   active,
   unread,
   onSelect,
+  onRename,
   onRemove,
-  editing,
-  onStartRename,
-  onDraft,
-  onCommitRename,
-  onCancelRename,
 }: {
   readonly session: DeskSession;
   readonly active: boolean;
   readonly unread: boolean;
   readonly onSelect: () => void;
+  readonly onRename: () => void;
   readonly onRemove: () => void;
-} & RenameHandlers): JSX.Element {
+}): JSX.Element {
   const [hot, setHot] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   // Hover/menu only — NOT `active`: actions overlay the name's right edge
@@ -410,35 +350,19 @@ function SessionRow({
           fontWeight: active ? 600 : 400,
         }}
       >
-        {editing !== null ? (
-          <input
-            autoFocus
-            value={editing}
-            aria-label={`rename session ${s.name}`}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => onDraft(e.target.value)}
-            onBlur={onCommitRename}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') onCommitRename();
-              if (e.key === 'Escape') onCancelRename();
-            }}
-            style={renameInputStyle}
-          />
-        ) : (
-          <span
-            style={{
-              flex: 1,
-              minWidth: 0,
-              fontSize: 13,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-            title={s.name}
-          >
-            {s.name}
-          </span>
-        )}
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontSize: 13,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+          title={s.name}
+        >
+          {s.name}
+        </span>
         {unread && <UnreadDot label="unread activity" />}
         <ActionsOverlay
           show={showActions}
@@ -450,7 +374,7 @@ function SessionRow({
             visible={showActions}
             open={menuOpen}
             onOpenChange={setMenuOpen}
-            onRename={onStartRename}
+            onRename={onRename}
             onDelete={onRemove}
             deleteLabel="Delete"
           />
@@ -726,16 +650,4 @@ const iconButtonStyle: React.CSSProperties = {
   borderRadius: 7,
   color: 'var(--color-sidebar-text-dim)',
   flexShrink: 0,
-};
-
-const renameInputStyle: React.CSSProperties = {
-  flex: 1,
-  minWidth: 0,
-  fontSize: 13,
-  padding: '2px 4px',
-  borderRadius: 6,
-  border: '1px solid var(--color-sidebar-text-dim)',
-  background: 'transparent',
-  color: 'var(--color-sidebar-text)',
-  outline: 'none',
 };

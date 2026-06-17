@@ -513,6 +513,14 @@ item — the debt it *creates* is logged here on sight:
   the wizard skip the prompt. Deferred (init is one-time; runtime switch is the
   main path).
 
+## 2026-06-17 — desktop sidebar action modals
+
+- **Retired (found + fixed same PR): sidebar session/workspace rename used tiny inline
+  edits while delete relied on a generic confirmation path.** Sidebar row menus now only
+  request action flows from the presentational tree, `WorkspaceSidebar` owns modal state,
+  rename opens a focused modal form with trimmed-name validation, and session delete copy
+  explicitly calls out irreversible history deletion before the destructive confirm.
+
 ## 2026-06-14 — desktop transcript dedupe
 
 - **Retired: duplicate event ids in persisted transcript history triggered React key
