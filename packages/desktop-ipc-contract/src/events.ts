@@ -52,6 +52,8 @@ export interface IpcEvents {
    *  on its EventBus so every info-derived view (Settings tabs, mode badge,
    *  action catalog) refreshes without polling or an app restart. */
   'session.info.changed': { workspaceId: string };
+  /** The shared per-session model override changed. */
+  'session.model.changed': { workspaceId: string; model: string | null };
   /** A running interactive provider login (`provider.login.start`) needs a
    *  pasted answer — the out-of-band token or `code#state` claude-code's flow
    *  asks for. The renderer renders an input (masked when `mask`) and replies

@@ -10,6 +10,7 @@ import { api } from './transport.js';
  */
 
 let asks: ReadonlyArray<AskRequest> = Object.freeze([]);
+const resolvedIds = new Set<string>();
 const listeners = new Set<() => void>();
 
 function emit(): void {
@@ -27,8 +28,15 @@ export const askStore = {
     return asks;
   },
   add(req: AskRequest): void {
+    if (resolvedIds.has(req.requestId)) return;
     if (asks.some((a) => a.requestId === req.requestId)) return;
     asks = Object.freeze([...asks, req]);
+    emit();
+  },
+  resolve(requestId: string): void {
+    resolvedIds.add(requestId);
+    if (!asks.some((a) => a.requestId === requestId)) return;
+    asks = Object.freeze(asks.filter((a) => a.requestId !== requestId));
     emit();
   },
   /**
@@ -42,12 +50,14 @@ export const askStore = {
   respond(requestId: string, response: AskResponse): void {
     const pending = asks.find((a) => a.requestId === requestId);
     if (!pending) return;
+    resolvedIds.add(requestId);
     asks = Object.freeze(asks.filter((a) => a.requestId !== requestId));
     emit();
     void api()
       .invoke('ask.respond', { requestId, response })
       .catch((e: unknown) => {
         // Re-surface the ask so the user can retry instead of a wedged turn.
+        resolvedIds.delete(requestId);
         if (!asks.some((a) => a.requestId === requestId)) {
           asks = Object.freeze([...asks, pending]);
           emit();
@@ -63,7 +73,14 @@ export const askStore = {
 
 /** Subscribe the store to incoming `ask.request` events. Call once at boot. */
 export function wireAskBridge(): () => void {
-  return api().subscribe('ask.request', (req: AskRequest) => askStore.add(req));
+  const offRequest = api().subscribe('ask.request', (req: AskRequest) => askStore.add(req));
+  const offResolved = api().subscribe('ask.resolved', ({ requestId }) => {
+    askStore.resolve(requestId);
+  });
+  return () => {
+    offRequest();
+    offResolved();
+  };
 }
 
 /** First pending ask for a workspace, or null. */

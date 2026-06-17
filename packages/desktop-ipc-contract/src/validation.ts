@@ -124,6 +124,10 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   }),
   'sessions.list': z.object({ deskId: z.string().min(1).max(256).optional() }).optional(),
   'session.setProvider': z.object({ workspaceId: optionalWorkspace, provider: providerName }),
+  'session.setModel': z.object({
+    workspaceId: optionalWorkspace,
+    model: z.string().min(1).max(256).nullable(),
+  }),
   'session.setMode': z.object({ workspaceId: optionalWorkspace, mode: z.string().min(1).max(64) }),
   'session.newSession': z.object({ workspaceId: optionalWorkspace }),
   // A turn's prompt + optional attachments cross from the renderer into the

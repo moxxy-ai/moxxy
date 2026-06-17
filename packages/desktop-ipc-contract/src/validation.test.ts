@@ -320,4 +320,17 @@ describe('IPC payload validation', () => {
       validateIpcInput('session.setProvider', { workspaceId: 'workspace-1', provider: 'openai-codex' }),
     ).not.toThrow();
   });
+
+  it('allows paired mobile clients to switch the shared active model', () => {
+    expect(REMOTE_ALLOWED_COMMANDS.has('session.setModel')).toBe(true);
+    expect(() =>
+      validateIpcInput('session.setModel', { workspaceId: 'workspace-1', model: 'gpt-5.4' }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('session.setModel', { workspaceId: 'workspace-1', model: null }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('session.setModel', { workspaceId: 'workspace-1', model: '' }),
+    ).toThrow();
+  });
 });

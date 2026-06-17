@@ -4,11 +4,12 @@ import { EventEmitter } from 'node:events';
 vi.mock('electron', () => ({ ipcMain: { handle: () => undefined } }));
 
 import type { CommandBus } from '@moxxy/desktop-ipc-contract/bus';
-import type { IpcCommandName, SessionInfo } from '@moxxy/desktop-ipc-contract';
+import type { IpcCommandName, IpcEvents, SessionInfo } from '@moxxy/desktop-ipc-contract';
 import { setActiveBus } from './shared';
 import { registerSessionHandlers } from './session';
 import type { RunnerPool } from '../runner-pool';
 import type { RunnerSupervisor } from '../runner-supervisor';
+import { desktopEventBus } from '../event-bus';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 
@@ -64,5 +65,29 @@ describe('session.info handler', () => {
       activeProvider: 'openai-codex',
       activeMode: 'default',
     });
+  });
+});
+
+describe('session.setModel handler', () => {
+  it('broadcasts the shared per-session model choice to every surface', async () => {
+    const events: Array<{ channel: keyof IpcEvents; payload: unknown }> = [];
+    const off = desktopEventBus.addSink({
+      broadcast: (channel, payload) => events.push({ channel, payload }),
+    });
+    const pool = {
+      activeWorkspaceId: () => 'ws-model',
+      get: (id: string) => (id === 'ws-model' ? ({ remote: () => null } as RunnerSupervisor) : null),
+    } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool);
+
+    await handlers.get('session.setModel')!({ workspaceId: 'ws-model', model: 'gpt-5.4' });
+
+    expect(events).toContainEqual({
+      channel: 'session.model.changed',
+      payload: { workspaceId: 'ws-model', model: 'gpt-5.4' },
+    });
+    off();
   });
 });

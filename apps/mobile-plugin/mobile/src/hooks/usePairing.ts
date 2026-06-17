@@ -44,14 +44,31 @@ export function usePairing(): PairingState {
       const target = resolveBridgePairingTarget(rawUrl, pairingToken);
       const current = transportHandleRef.current;
       if (current?.url === target.url && current.token === target.token) {
-        setTransportReady(true);
-        return target;
+        if (current.status() === 'open') {
+          setTransportReady(true);
+          setError(null);
+          return target;
+        }
+        transportHandleRef.current = null;
+        current.close();
       }
 
+      transportHandleRef.current = null;
       current?.close();
-      const handle = openBridgePairingTransport(target.url, target.token);
+      setTransportReady(false);
+      let nextHandle: BridgePairingTransportHandle | null = null;
+      const handle = openBridgePairingTransport(target.url, target.token, undefined, (status) => {
+        if (transportHandleRef.current !== nextHandle) return;
+        const open = status === 'open';
+        setTransportReady(open);
+        if (open) {
+          setError(null);
+        } else if (status === 'disconnected') {
+          setError('Mobile bridge disconnected. Re-pair this device to continue.');
+        }
+      });
+      nextHandle = handle;
       transportHandleRef.current = handle;
-      setTransportReady(true);
       return target;
     } catch (err) {
       setTransportReady(false);

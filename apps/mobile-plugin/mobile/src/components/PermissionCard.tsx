@@ -54,7 +54,12 @@ function DecisionButton({
       ? 'text-red'
       : 'text-muted';
   return (
-    <Pressable className={`min-h-9 justify-center rounded-block border px-3 ${cls}`} onPress={onPress}>
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      className={`min-h-9 justify-center rounded-block border px-3 ${cls}`}
+      onPress={onPress}
+    >
       <Text className={`text-[13px] font-bold ${textCls}`}>{label}</Text>
     </Pressable>
   );

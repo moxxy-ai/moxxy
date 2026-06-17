@@ -5,9 +5,9 @@
  *
  * The Model chip is a single entry point that opens a two-column
  * modal (providers on the left, models on the right). Switching a
- * provider hits the workspace's session over IPC (session.setProvider)
- * and resets the sticky model; picking a model commits it to the
- * chatStore for that workspace and is passed to every runTurn.
+ * provider hits the workspace's session over IPC (session.setProvider);
+ * picking a model commits the shared per-session model override
+ * (session.setModel), which every attached surface mirrors.
  *
  * The Mode chip stays as a flat native-select chip because there's no
  * sub-list to disclose — modes are flat.
@@ -125,6 +125,11 @@ export function AgentPicker({
       } catch {
         return;
       }
+    }
+    try {
+      await api().invoke('session.setModel', { workspaceId, model });
+    } catch {
+      return;
     }
     chatStore.setModel(workspaceId, model);
     setPickerOpen(false);

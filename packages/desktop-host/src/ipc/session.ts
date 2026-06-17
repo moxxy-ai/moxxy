@@ -18,6 +18,7 @@ import { dialog, BrowserWindow as BrowserWindowApi } from 'electron';
 import type { RunnerPool } from '../runner-pool';
 import { authorizeAttachments, rememberPickedAttachment } from '../attachment-authz';
 import { persistImageBlob } from '../attachments.js';
+import { getSessionModel, setSessionModel } from '../session-models.js';
 import {
   getInProcessPlugins,
   handle,
@@ -55,19 +56,26 @@ export function registerSessionHandlers(pool: RunnerPool): void {
       }
       safe = authorized;
     }
-    return driver.runTurn(prompt, model, safe);
+    if (model !== undefined) setSessionModel(id, model);
+    const selectedModel = model ?? getSessionModel(id) ?? undefined;
+    return driver.runTurn(prompt, selectedModel, safe);
   });
   handle('session.abortTurn', async ({ workspaceId, turnId }) => {
     // Active-workspace fallback lives in resolveDriver, not inline here.
     resolveDriver(pool, workspaceId)?.abortTurn(turnId);
   });
   handle('session.setProvider', async ({ workspaceId, provider }) => {
-    const { session, supervisor } = resolveCtx(pool, { workspaceId });
+    const { workspaceId: id, session, supervisor } = resolveCtx(pool, { workspaceId });
     session.providers.setActive(provider);
     await waitForSessionState(session, (info) => info.activeProvider === provider);
+    setSessionModel(id, null, { force: true });
     // Re-emit the connection phase so the renderer sees the new activeProvider
     // — otherwise the onboarding `connectedWithoutProvider` gate never clears.
     supervisor.refreshConnectedInfo();
+  });
+  handle('session.setModel', async ({ workspaceId, model }) => {
+    const { workspaceId: id } = resolveCtx(pool, { workspaceId }, { requireSession: false });
+    setSessionModel(id, model, { force: true });
   });
   handle('session.setMode', async ({ workspaceId, mode }) => {
     const { session, supervisor } = resolveCtx(pool, { workspaceId });

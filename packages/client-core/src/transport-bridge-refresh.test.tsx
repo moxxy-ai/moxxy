@@ -6,6 +6,7 @@ import type { MoxxyEvent } from '@moxxy/sdk';
 import { configureTransport } from './transport.js';
 import { ChatStoreBridge } from './useChat.js';
 import { chatStore } from './chatStore.js';
+import { askStore } from './askStore.js';
 import { ConnectionBridge, connectionStore } from './useConnection.js';
 
 type EventHandler<K extends keyof IpcEvents> = (payload: IpcEvents[K]) => void;
@@ -123,5 +124,70 @@ describe('client bridges after transport replacement', () => {
       ]),
     );
     expect(second.subscriptions.get('runner.event')?.size).toBe(1);
+  });
+
+  it('mirrors shared turn starts so every attached client shows thinking state', async () => {
+    const bridge = fakeApi('turn-sync');
+    configureTransport(bridge.api);
+    render(<ChatStoreBridge />);
+
+    act(() => {
+      bridge.emit('runner.turn.started', { workspaceId: 'turn-sync', turnId: 'turn-1' });
+    });
+
+    await waitFor(() => {
+      const snap = chatStore.getChat('turn-sync');
+      expect(snap.sending).toBe(true);
+      expect(snap.activeTurnId).toBe('turn-1');
+    });
+
+    act(() => {
+      bridge.emit('runner.turn.complete', {
+        workspaceId: 'turn-sync',
+        turnId: 'turn-1',
+        error: null,
+      });
+    });
+
+    await waitFor(() => expect(chatStore.getChat('turn-sync').sending).toBe(false));
+  });
+
+  it('drops permission prompts resolved by another attached client', async () => {
+    const bridge = fakeApi('ask-sync');
+    configureTransport(bridge.api);
+    render(<ChatStoreBridge />);
+
+    act(() => {
+      bridge.emit('ask.request', {
+        requestId: 'ask-sync-1',
+        workspaceId: 'ask-sync',
+        kind: 'permission',
+        tool: { name: 'Write', input: {} },
+      });
+    });
+
+    await waitFor(() =>
+      expect(askStore.getAll().some((ask) => ask.requestId === 'ask-sync-1')).toBe(true),
+    );
+
+    act(() => {
+      bridge.emit('ask.resolved', { workspaceId: 'ask-sync', requestId: 'ask-sync-1' });
+    });
+
+    await waitFor(() =>
+      expect(askStore.getAll().some((ask) => ask.requestId === 'ask-sync-1')).toBe(false),
+    );
+  });
+
+  it('mirrors shared model selection changes into the local chat store', async () => {
+    const bridge = fakeApi('model-sync');
+    configureTransport(bridge.api);
+    render(<ChatStoreBridge />);
+
+    act(() => {
+      bridge.emit('session.model.changed', { workspaceId: 'model-sync', model: 'gpt-5.4' });
+    });
+
+    await waitFor(() => expect(chatStore.getModel('model-sync')).toBe('gpt-5.4'));
   });
 });

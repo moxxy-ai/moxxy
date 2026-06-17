@@ -189,7 +189,7 @@ export class SessionDriver {
     const id = randomUUID();
     const controller = new AbortController();
 
-    const pump = (async () => {
+    const pump = Promise.resolve().then(async () => {
       let error: string | null = null;
       try {
         let built: ReadonlyArray<UserPromptAttachment> = [];
@@ -228,9 +228,13 @@ export class SessionDriver {
           error,
         });
       }
-    })();
+    });
 
     this.turns.set(id, { controller, pump });
+    this.send('runner.turn.started', {
+      workspaceId: this.workspaceId,
+      turnId: id,
+    });
     return { turnId: id };
   }
 

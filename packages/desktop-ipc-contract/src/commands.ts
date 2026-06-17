@@ -205,6 +205,12 @@ export interface IpcCommands {
     workspaceId?: string;
     provider: string;
   }) => Promise<void>;
+  /** Switch the per-session model override. `null` means use the provider's
+   *  default / runner-sticky model. Broadcasts `session.model.changed`. */
+  'session.setModel': (args: {
+    workspaceId?: string;
+    model: string | null;
+  }) => Promise<void>;
   /** Switch the active mode. */
   'session.setMode': (args: { workspaceId?: string; mode: string }) => Promise<void>;
   /** Start a fresh conversation (the `/new` command): wipe the workspace's

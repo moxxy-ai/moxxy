@@ -1,5 +1,9 @@
 import { configurePlatform, configureTransport } from '@moxxy/client-core';
-import { makeWsApiHandle, splitConnectUrl } from '@moxxy/client-transport-ws';
+import {
+  makeWsApiHandle,
+  splitConnectUrl,
+  type WsClientStatus,
+} from '@moxxy/client-transport-ws';
 
 export interface BridgePairingTarget {
   readonly url: string;
@@ -7,6 +11,7 @@ export interface BridgePairingTarget {
 }
 
 export interface BridgePairingTransportHandle extends BridgePairingTarget {
+  status(): WsClientStatus;
   close(): void;
 }
 
@@ -42,13 +47,23 @@ export function openBridgePairingTransport(
     configureTransport,
     makeWsApiHandle,
   },
+  onStatus?: (status: WsClientStatus) => void,
 ): BridgePairingTransportHandle {
   const target = resolveBridgePairingTarget(rawUrl, manualToken);
-  const handle = deps.makeWsApiHandle({ url: target.url, token: target.token });
+  let status: WsClientStatus = 'connecting';
+  const handle = deps.makeWsApiHandle({
+    url: target.url,
+    token: target.token,
+    onStatus: (next) => {
+      status = next;
+      onStatus?.(next);
+    },
+  });
   deps.configureTransport(handle.api);
   deps.configurePlatform({});
   return {
     ...target,
+    status: () => status,
     close: handle.close,
   };
 }

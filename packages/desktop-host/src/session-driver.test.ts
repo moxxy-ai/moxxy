@@ -202,6 +202,10 @@ describe('SessionDriver approval-gate survival', () => {
 
     const { turnId } = await driver.runTurn('do the work');
     expect(turnId).toBeTruthy();
+    expect(sent).toContainEqual({
+      channel: 'runner.turn.started',
+      payload: { workspaceId: 'ws', turnId },
+    });
 
     await waitFor(() =>
       remote.log
@@ -219,6 +223,28 @@ describe('SessionDriver approval-gate survival', () => {
     expect(turnEvents.length).toBeGreaterThan(0);
     expect(turnEvents.every((e) => e.turnId === turnId)).toBe(true);
     stop();
+    driver.dispose();
+  });
+
+  it('broadcasts ask.resolved after any surface answers a permission prompt', async () => {
+    const { remote, captured } = fakeRemote();
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-ask');
+
+    const decision = captured.permission!.check(
+      { name: 'Write', input: { file_path: 'out.txt' } },
+      { toolDescription: 'write a file' },
+    );
+    await waitFor(() => sent.some((f) => f.channel === 'ask.request'));
+
+    const req = sent.find((f) => f.channel === 'ask.request')!.payload as AskRequest;
+    answerAsk(req.requestId, { mode: 'allow_session' } as never);
+
+    await expect(decision).resolves.toEqual({ mode: 'allow_session' });
+    expect(sent).toContainEqual({
+      channel: 'ask.resolved',
+      payload: { workspaceId: 'ws-ask', requestId: req.requestId },
+    });
     driver.dispose();
   });
 

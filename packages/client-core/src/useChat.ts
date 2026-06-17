@@ -117,6 +117,12 @@ export function ChatStoreBridge(): null {
         if (event.type === 'user_prompt') scheduleSessionTitleRefresh(workspaceId);
       },
     );
+    const offStarted = api().subscribe(
+      'runner.turn.started',
+      ({ workspaceId, turnId }: { workspaceId: string; turnId: string }) => {
+        chatStore.dispatch(workspaceId, { type: 'send_started', turnId });
+      },
+    );
     const offComplete = api().subscribe(
       'runner.turn.complete',
       ({
@@ -135,10 +141,18 @@ export function ChatStoreBridge(): null {
         }
       },
     );
+    const offModel = api().subscribe(
+      'session.model.changed',
+      ({ workspaceId, model }: { workspaceId: string; model: string | null }) => {
+        chatStore.setModel(workspaceId, model);
+      },
+    );
     const offAsk = wireAskBridge();
     return () => {
       offEvent();
+      offStarted();
       offComplete();
+      offModel();
       offAsk();
     };
   }, [transportRevision]);

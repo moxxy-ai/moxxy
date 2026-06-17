@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { __setApiOverride, connectionStore } from '@moxxy/client-core';
 import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
 import { AgentPicker } from './AgentPicker';
@@ -113,5 +113,27 @@ describe('AgentPicker', () => {
 
     expect(screen.getByText('openai-codex')).toBeInTheDocument();
     expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it('persists a picked model through the shared session.setModel command', async () => {
+    const invoke = vi.fn(async (cmd: string) => {
+      if (cmd === 'session.info') return info;
+      if (cmd === 'settings.adminProviders') return [];
+      if (cmd === 'session.setModel') return undefined;
+      throw new Error(`unexpected ${cmd}`);
+    });
+    __setApiOverride({ invoke, subscribe: () => () => {} } as unknown as MoxxyApi);
+
+    render(<AgentPicker workspaceId="session-model" disabled={false} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Model:/i }));
+    fireEvent.click(await screen.findByRole('option', { name: 'gpt-5' }));
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('session.setModel', {
+        workspaceId: 'session-model',
+        model: 'gpt-5',
+      }),
+    );
   });
 });

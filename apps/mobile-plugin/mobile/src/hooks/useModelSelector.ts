@@ -120,6 +120,7 @@ export function useModelSelector({
           ? Promise.resolve()
           : api().invoke('session.setProvider', { workspaceId, provider });
       void switchProvider
+        .then(() => api().invoke('session.setModel', { workspaceId, model }))
         .then(() => {
           chatStore.setModel(workspaceId, model);
           setSelectedProvider(provider);

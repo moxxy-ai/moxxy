@@ -254,6 +254,7 @@ export function applyAction(rt: ChatRuntime, action: ChatAction): boolean {
     case 'event':
       return applyEvent(rt, action.event);
     case 'send_started':
+      if (rt.sending && rt.activeTurnId === action.turnId) return false;
       rt.activeTurnId = action.turnId;
       rt.sending = true;
       rt.error = null;

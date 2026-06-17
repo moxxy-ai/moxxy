@@ -47,6 +47,7 @@ export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcC
   'session.runTurn',
   'session.abortTurn',
   'session.setProvider',
+  'session.setModel',
   'session.setMode',
   'session.newSession',
   'session.runCommand',

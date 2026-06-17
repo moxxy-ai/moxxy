@@ -17,6 +17,7 @@ import type { AskRequest, AskResponse } from '@moxxy/desktop-ipc-contract';
 
 interface Pending {
   readonly workspaceId: string;
+  readonly send: (channel: 'ask.resolved', payload: { workspaceId: string; requestId: string }) => void;
   resolve(response: AskResponse): void;
 }
 
@@ -34,11 +35,18 @@ const CANCELLED: AskResponse = { mode: 'deny' };
  */
 export function openAsk(
   req: Omit<AskRequest, 'requestId'>,
-  send: (channel: 'ask.request', payload: AskRequest) => void,
+  send: (
+    channel: 'ask.request' | 'ask.resolved',
+    payload: AskRequest | { workspaceId: string; requestId: string },
+  ) => void,
 ): Promise<AskResponse> {
   const requestId = `ask-${++counter}`;
   return new Promise<AskResponse>((resolve) => {
-    pending.set(requestId, { workspaceId: req.workspaceId, resolve });
+    pending.set(requestId, {
+      workspaceId: req.workspaceId,
+      send: (channel, payload) => send(channel, payload),
+      resolve,
+    });
     send('ask.request', { ...req, requestId });
   });
 }
@@ -48,6 +56,7 @@ export function answerAsk(requestId: string, response: AskResponse): void {
   const p = pending.get(requestId);
   if (!p) return;
   pending.delete(requestId);
+  p.send('ask.resolved', { workspaceId: p.workspaceId, requestId });
   p.resolve(response);
 }
 
@@ -57,6 +66,7 @@ export function cancelAsksFor(workspaceId: string): void {
   for (const [id, p] of pending) {
     if (p.workspaceId === workspaceId) {
       pending.delete(id);
+      p.send('ask.resolved', { workspaceId: p.workspaceId, requestId: id });
       p.resolve(CANCELLED);
     }
   }
