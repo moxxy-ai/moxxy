@@ -71,16 +71,18 @@ rail + git "Files changed" diff pane. Reviewed this journal before/while doing
 the work; the change is purely additive infrastructure, so it retires no existing
 item — the debt it *creates* is logged here on sight:
 
-- **Browser surface streams via polled JPEG frames, not CDP screencast.** The
-  `browser` surface polls the sidecar's new `frame` method ~2 fps and proxies
-  input by coordinate. Low-fps + a round-trip per frame. Follow-up: swap in
-  `Page.startScreencast` (CDP) for a real push stream + smoother input. File:
-  `packages/plugin-browser/src/browser-surface.ts`.
-- **node-pty is an optional peer dep and is NOT installed by default**, so the
-  terminal surface runs on the dependency-free piped-shell fallback (no full TTY:
-  vim/top/line-editing degrade). To ship the real PTY, add node-pty to the CLI's
-  packaged deps + an `onlyBuiltDependencies` allowlist so its native build runs.
-  Files: `packages/plugin-terminal/src/pty.ts`, `packages/cli/tsup.config.ts`.
+- **Browser surface uses a real CDP screencast** (`Page.startScreencast` →
+  `Page.screencastFrame`, JPEG) pushed over a new unsolicited sidecar event
+  channel — not polling. Chromium-only; falls back to no frames (the
+  `browser_session` tool is unaffected) if CDP is unavailable. Files:
+  `packages/plugin-browser/src/{browser-surface.ts,sidecar/dispatch.ts}`.
+- **node-pty ships as an optional native dep of the CLI** (`@moxxy/cli`
+  optionalDependencies + root `pnpm.onlyBuiltDependencies`), so the terminal uses
+  a real PTY when the binary builds (it's N-API, ABI-stable like
+  `@napi-rs/keyring`, so the desktop's `pnpm deploy --prod` bundle works without
+  electron-rebuild). Falls back to the dependency-free piped shell when absent.
+  **Remaining:** verify the real PTY in a *packaged* desktop launch (Electron-as-
+  node ABI) — can't be checked in the normal gate.
 - **Surfaces are desktop-only — deliberately off the mobile WS allow-list**
   (`REMOTE_ALLOWED_COMMANDS`). A sandboxed shell/browser over a tunnel is a real
   feature with its own threat model; revisit when mobile needs it.

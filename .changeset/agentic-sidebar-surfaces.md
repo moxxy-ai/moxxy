@@ -12,11 +12,13 @@ agent-drivable panes.
   stream) so a runner-owned interactive resource (a PTY, a browser page) streams
   to a thin client and takes its input back — no reverse RPC.
 - **Terminal** (`@moxxy/plugin-terminal`): a shared shell the user and the agent
-  drive together via a new `terminal` tool (node-pty when available, a piped
-  shell otherwise); rendered live with xterm.js.
+  drive together via a new `terminal` tool; rendered live with xterm.js. Ships a
+  real PTY via node-pty (optional native dep, N-API) with a dependency-free
+  piped-shell fallback.
 - **Browser**: a live, in-window view of the agent's Playwright page on
-  `@moxxy/plugin-browser` — the user and agent share one page; clicks/keys/
-  navigation are proxied to it.
+  `@moxxy/plugin-browser`, streamed over a CDP screencast (`Page.startScreencast`)
+  — the user and agent share one page; clicks/keys/scroll/navigation are proxied
+  to it.
 - **Files changed**: a git-aware file list with the diff on the right; clicking a
   file opens a dropdown to Add it to the agent or Open it (diff/content). New
   `workspace.readFile` + `git.{isRepo,status,diff}` desktop IPC.

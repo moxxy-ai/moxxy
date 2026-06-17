@@ -104,6 +104,9 @@ class Sidecar {
    *  install-progress feedback in their own logger/UI. A Set (not a single
    *  slot) so concurrent browser_session calls don't clobber each other. */
   private readonly stderrListeners = new Set<(line: string) => void>();
+  /** Listeners for unsolicited sidecar EVENT lines (no `id`) — the browser
+   *  surface's screencast frame push. */
+  private readonly eventListeners = new Set<(event: { event: string } & Record<string, unknown>) => void>();
   /** Last few sidecar stderr lines, kept so the `exit` handler can put the
    *  ACTUAL failure (e.g. "Cannot find module …" or Playwright's "Executable
    *  doesn't exist, run npx playwright install") into the error instead of a
@@ -119,6 +122,13 @@ class Sidecar {
   onStderr(fn: (line: string) => void): () => void {
     this.stderrListeners.add(fn);
     return () => this.stderrListeners.delete(fn);
+  }
+
+  /** Subscribe to unsolicited sidecar EVENT lines (no `id`) — e.g. the browser
+   *  surface's `screencastFrame` push. Returns an unsubscribe function. */
+  onEvent(fn: (event: { event: string } & Record<string, unknown>) => void): () => void {
+    this.eventListeners.add(fn);
+    return () => this.eventListeners.delete(fn);
   }
 
   async ensure(): Promise<void> {
@@ -175,19 +185,31 @@ class Sidecar {
 
   private handleLine(line: string): void {
     let reply: {
-      id: string;
-      ok: boolean;
+      id?: string;
+      ok?: boolean;
       result?: unknown;
       error?: { message: string };
       notice?: string;
+      event?: string;
     };
     try {
       reply = JSON.parse(line);
     } catch {
       return; // ignore garbage
     }
-    const p = this.pending.get(reply.id);
-    if (!p) return;
+    // Unsolicited event line (no id) — e.g. a screencast frame push.
+    if (reply.event && !reply.id) {
+      for (const fn of this.eventListeners) {
+        try {
+          fn(reply as { event: string } & Record<string, unknown>);
+        } catch {
+          /* a bad listener must not break the stream */
+        }
+      }
+      return;
+    }
+    const p = reply.id ? this.pending.get(reply.id) : undefined;
+    if (!p || !reply.id) return;
     this.pending.delete(reply.id);
     if (reply.ok) {
       // Attach the optional sidecar-supplied notice (e.g. "Auto-installed
@@ -380,6 +402,15 @@ export function browserSidecarCall(
   deps?: BrowserSessionDeps,
 ): Promise<unknown> {
   return getSidecar(deps).call(method, params);
+}
+
+/** Subscribe to unsolicited sidecar event lines (screencast frames). Returns an
+ *  unsubscribe function. Used by the browser surface's live view. */
+export function browserSidecarOnEvent(
+  fn: (event: { event: string } & Record<string, unknown>) => void,
+  deps?: BrowserSessionDeps,
+): () => void {
+  return getSidecar(deps).onEvent(fn);
 }
 
 /** Closes the singleton sidecar — wired to plugin `onShutdown`. */
