@@ -206,6 +206,19 @@ jobs:
           node-version: '22.x'
           cache: pnpm
 
+      # node-pty (a real dep of @moxxy/cli, bundled into the desktop) compiles
+      # from source via node-gyp@9, which imports Python's `distutils`. That
+      # module was removed from the stdlib in Python 3.12 — now the default
+      # `python3` on macos-latest, ubuntu-24.04, and windows-latest — so the
+      # native build fails with "No module named 'distutils'" both at
+      # `pnpm install` (node-pty is in onlyBuiltDependencies) and again at
+      # electron-builder's @electron/rebuild. Pin 3.11, the last release that
+      # still ships distutils, on every leg so node-gyp resolves it.
+      - name: Setup Python (node-gyp needs distutils)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
