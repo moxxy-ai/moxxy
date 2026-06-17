@@ -106,6 +106,7 @@
     "@moxxy/plugin-stt-whisper-codex": "workspace:*",
     "@moxxy/plugin-subagents": "workspace:*",
     "@moxxy/plugin-telegram": "workspace:*",
+    "@moxxy/plugin-terminal": "workspace:*",
     "@moxxy/plugin-usage-stats": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/plugin-webhooks": "workspace:*",

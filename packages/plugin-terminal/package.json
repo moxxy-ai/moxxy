@@ -1,0 +1,50 @@
+{
+  "name": "@moxxy/plugin-terminal",
+  "private": true,
+  "version": "0.0.0",
+  "description": "A shared terminal surface for moxxy: an embedded PTY the user and the agent drive together (the `terminal` tool runs commands; the desktop renders the live session).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "skills"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "skills": "./skills"
+    }
+  },
+  "dependencies": {
+    "@moxxy/sdk": "workspace:*"
+  },
+  "peerDependencies": {
+    "node-pty": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "node-pty": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

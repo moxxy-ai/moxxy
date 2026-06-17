@@ -22,6 +22,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
  *                       shipped as an optionalDependency
  *   - playwright      huge; install-on-demand (browser plugin throws a clear hint if absent)
  *   - @huggingface/transformers  huge; install-on-demand (embedder falls back to TF-IDF)
+ *   - node-pty        native; optional (terminal surface falls back to a piped shell)
  * All three are loaded via dynamic import() with graceful fallback already, so
  * playwright/transformers stay external (bundled plugins import them lazily)
  * even though they are no longer installed by default; @moxxy/sdk + zod ship as
@@ -53,7 +54,7 @@ export default defineConfig({
   clean: true,
   dts: false, // a binary ships no types; `tsc --noEmit` still typechecks
   shims: false, // code uses import.meta.url directly; no __dirname shims
-  external: ['@moxxy/sdk', 'zod', '@napi-rs/keyring', 'playwright', '@huggingface/transformers'],
+  external: ['@moxxy/sdk', 'zod', '@napi-rs/keyring', 'playwright', '@huggingface/transformers', 'node-pty'],
   // Several bundled CJS deps (ulid, jiti, …) call require() for node builtins.
   // ESM output has no `require`, so esbuild's __require stub throws. Inject a
   // real createRequire-backed `require` so those calls resolve. esbuild keeps
