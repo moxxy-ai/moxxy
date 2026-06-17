@@ -37,6 +37,21 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
 
 ---
 
+## 2026-06-17 — desktop native build (node-gyp) is brittle against runner-image churn
+
+- **`node-gyp@9.4.1` is too old for the current GitHub runner images, and the desktop
+  release build (electron-builder → `@electron/rebuild` → node-gyp, rebuilding `node-pty`
+  against Electron's ABI) papers over it with two CI pins rather than fixing the root.**
+  Two breakages, same cause: (1) macOS/Linux runners default to Python 3.12, which dropped
+  `distutils` that node-gyp@9 imports → pinned Python 3.11 in `release.yml` (#200); (2)
+  `windows-latest` moved to the `windows-2025-vs2026` image (Visual Studio 2026), which
+  node-gyp@9's VS finder doesn't recognise → pinned the Windows leg to `windows-2022`
+  (this change). **Real fix:** bump `node-gyp` to a VS2026-aware / Python-3.12-native
+  release (≥10, likely 11) via a `pnpm.overrides` entry + lockfile regen, verify
+  `@electron/rebuild@3.6.1` drives it cleanly on all three legs, then drop the Python pin
+  and return the Windows leg to `windows-latest`. Until then both pins will silently rot
+  as the pinned images age out.
+
 ## 2026-06-17 — desktop OAuth provider sign-in (claude-code) + de-hardcoded auth kind
 
 - **Retired: Settings → Providers showed a dead "run `moxxy login <provider>` in a
