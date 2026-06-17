@@ -1,9 +1,34 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import type { ClientSession, MoxxyEvent } from '@moxxy/sdk';
-import { freeTcpPortIfMoxxy, WebChannel, type FreePortDeps } from './channel.js';
+import {
+  freeTcpPortIfMoxxy,
+  WebChannel,
+  basePathFromUrl,
+  injectBaseHtml,
+  type FreePortDeps,
+} from './channel.js';
 import type { ServerFrame } from './protocol.js';
 import type { TunnelProviderDef } from '@moxxy/sdk';
+
+describe('base-path helpers', () => {
+  it('derives the base path from a tunnel URL', () => {
+    expect(basePathFromUrl('https://uuid.proxy.moxxy.ai/web')).toBe('/web');
+    expect(basePathFromUrl('https://uuid.proxy.moxxy.ai/web/')).toBe('/web');
+    expect(basePathFromUrl('https://uuid.proxy.moxxy.ai')).toBe('');
+    expect(basePathFromUrl('http://127.0.0.1:4040')).toBe('');
+    expect(basePathFromUrl('not a url')).toBe('');
+  });
+
+  it('injects the base href + client global, leaving root unchanged', () => {
+    const tpl = '<head><!--moxxy:base--></head><body><script src="app.js"></script></body>';
+    const web = injectBaseHtml(tpl, '/web');
+    expect(web).toContain('<base href="/web/" />');
+    expect(web).toContain('window.__MOXXY_BASE__="/web"');
+    expect(injectBaseHtml(tpl, '')).toContain('<base href="/" />');
+    expect(injectBaseHtml(tpl, '')).toContain('window.__MOXXY_BASE__=""');
+  });
+});
 
 const sampleDoc = { root: { kind: 'element', tag: 'view', props: { title: 'hi' }, children: [] } };
 
@@ -189,7 +214,7 @@ describe('WebChannel', () => {
     let published: { url: string; nextViewId: () => string } | null = null;
     const badTunnel: TunnelProviderDef = {
       name: 'bad',
-      open: () => Promise.reject(new Error('cloudflared not installed')),
+      open: () => Promise.reject(new Error('relay unreachable')),
     };
     channel = new WebChannel({
       port: 0,
@@ -204,6 +229,35 @@ describe('WebChannel', () => {
     expect(published).not.toBeNull();
     expect(published!.url).toContain('http://127.0.0.1:');
     expect(published!.url).toContain('?t=tkn');
+  });
+
+  it('opens a WS handshake under the relay base path (proxy /web)', async () => {
+    const token = 'tkn';
+    const webTunnel: TunnelProviderDef = {
+      name: 'proxy',
+      open: () =>
+        Promise.resolve({ url: 'https://uuid.proxy.moxxy.ai/web', close: () => Promise.resolve() }),
+    };
+    channel = new WebChannel({ port: 0, host: '127.0.0.1', authToken: token, getTunnel: () => webTunnel });
+    handle = await channel.start({ session: fakeSession().session });
+    const port = new URL(channel.url).port;
+
+    const openWs = (path: string, t: string) =>
+      new Promise<boolean>((resolve) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${port}${path}?t=${t}`);
+        ws.on('open', () => {
+          resolve(true);
+          ws.close();
+        });
+        ws.on('error', () => resolve(false));
+        ws.on('unexpected-response', () => resolve(false));
+      });
+
+    // Under the base path AND root (relay may or may not strip) both open.
+    expect(await openWs('/web/ws', token)).toBe(true);
+    expect(await openWs('/ws', token)).toBe(true);
+    // Token still gates under the prefix.
+    expect(await openWs('/web/ws', 'wrong')).toBe(false);
   });
 
   it('rejects a view action while a turn is in flight (busy)', async () => {

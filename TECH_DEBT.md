@@ -459,13 +459,16 @@ two deferred `@moxxy/plugin-workflows` items are now resolved.
 - **New: relay is single-instance.** Horizontal scaling needs a shared
   `uuid→instance` registry (Redis) + sticky routing; fine for a personal relay,
   not for many users.
-- **New: web-preview keep-alive path prefix.** The relay strips the `/<target>`
-  prefix only from the FIRST request line of an ingress connection (the head it
-  reads to route). HTTP apps that issue further sub-resource requests on a
-  kept-alive connection keep the `/web` prefix → either make the web channel
-  base-path-aware or add full L7 path rewriting to the relay. The mobile path
-  (single WS upgrade, path-agnostic) and webhook POSTs (one request each) are
-  unaffected.
+- **Resolved (web preview) / partial (generic): path-prefix under multi-target.**
+  The relay strips `/<target>` from the first ingress request line. The web
+  channel is now **base-path-aware** (injects `<base href="/web/">` + a client
+  `__MOXXY_BASE__` global, and base-strips inbound paths tolerantly), so the
+  browser preview works whether or not the relay stripped a given request — no
+  keep-alive gap. Mobile (single WS upgrade) and webhook POSTs (one request) are
+  fine on the first-line strip alone. **Still open:** a *future arbitrary* HTTP
+  app served via proxy that ISN'T base-path-aware would need full L7 path
+  rewriting in the relay (keep-alive-aware) — only build that if such an app
+  appears.
 - **Spike outcome:** E2E crypto uses `@noble` (curves/ciphers/hashes) — pure JS,
   RN-safe; signed-ephemeral-ECDH + XChaCha20-Poly1305 (not literal Noise). RN
   needs `react-native-get-random-values` + a `TextDecoder` polyfill at app entry
