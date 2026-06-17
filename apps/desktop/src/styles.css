@@ -293,16 +293,20 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 
 /* Right-hand context rail variant: border lives on the left edge so
  * the column reads as separate from the chat instead of bleeding into
- * the workspace sidebar. The width + opacity transition turns the
- * open/close into a smooth slide rather than a jarring mount.  */
+ * the workspace sidebar.
+ *
+ * NOTE: width is intentionally NOT transitioned. Animating it meant the pane
+ * spent ~260ms at a sub-full width while opening, and xterm's fit() (in
+ * TerminalPane) measured that sliver and locked the terminal — and its PTY — to
+ * a couple of columns. A snap-open keeps the pane at its real width from the
+ * first frame so fit() is always correct; only opacity/border fade. Drag-resize
+ * is instant for the same reason. */
 .col-rail--right {
   border-left: 1px solid var(--color-card-border);
   width: 296px;
   transition:
-    width 260ms cubic-bezier(0.4, 0, 0.2, 1),
     opacity 200ms ease,
     border-color 200ms ease;
-  will-change: width;
 }
 .col-rail--right[data-open='false'] {
   width: 0;
@@ -310,11 +314,6 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   pointer-events: none;
   overflow: hidden;
   border-left-color: transparent;
-}
-/* While the user is dragging the handle, kill the width transition so the rail
- * tracks the pointer 1:1 instead of chasing it through the 260ms ease. */
-.col-rail--right[data-resizing='true'] {
-  transition: none;
 }
 
 /* Left-hand rails keep the right border. (Kept around in case any

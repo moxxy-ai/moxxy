@@ -48,34 +48,37 @@ export function TerminalPane({ workspaceId }: { readonly workspaceId: string | n
     termRef.current = term;
     fitRef.current = fit;
 
-    // Only fit once the host actually has layout. The rail slides open with a
-    // width transition, so an eager fit() on mount measures a near-zero width
-    // and locks xterm (and, via onResize below, the PTY) to ~1–2 columns —
-    // which is what made the output wrap after every character. Skipping the
-    // fit until there's real width keeps xterm at its 80-col default until the
-    // ResizeObserver can size it correctly.
-    const doFit = (): void => {
-      if (host.clientWidth < 8 || host.clientHeight < 8) return;
-      try {
-        fit.fit();
-      } catch {
-        /* element detached mid-resize */
-      }
+    // Fit only when the pane has a real width, and debounce to a single rAF.
+    // Two traps this avoids: (1) the rail used to slide open, so an eager fit
+    // measured a near-zero width and locked xterm — and, via onResize, the PTY —
+    // to ~2 columns (every char wrapped); the 120px floor means we never fit at
+    // a transient sliver. (2) fit() nudges layout, which can re-enter a
+    // synchronous ResizeObserver and make the browser drop the *final*
+    // full-width notification ("ResizeObserver loop" throttling) — leaving it
+    // stuck small. Coalescing to one rAF breaks that re-entry so the last fit
+    // always lands.
+    let rafId = 0;
+    const scheduleFit = (): void => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        if (host.clientWidth < 120 || host.clientHeight < 40) return;
+        try {
+          fit.fit();
+        } catch {
+          /* element detached mid-resize */
+        }
+      });
     };
 
     const dataSub = term.onData((d) => surfaceRef.current.input({ type: 'data', data: d }));
     const resizeSub = term.onResize(({ cols, rows }) => surfaceRef.current.resize({ cols, rows }));
-    const ro = new ResizeObserver(doFit);
+    const ro = new ResizeObserver(scheduleFit);
     ro.observe(host);
-    // First fit after layout/paint (and again next frame — the open transition
-    // may still be animating on the first).
-    const raf1 = requestAnimationFrame(() => {
-      doFit();
-      requestAnimationFrame(doFit);
-    });
+    scheduleFit();
 
     return () => {
-      cancelAnimationFrame(raf1);
+      if (rafId) cancelAnimationFrame(rafId);
       dataSub.dispose();
       resizeSub.dispose();
       ro.disconnect();
@@ -93,7 +96,7 @@ export function TerminalPane({ workspaceId }: { readonly workspaceId: string | n
     const fit = fitRef.current;
     if (!term || !fit) return;
     const host = hostRef.current;
-    if (host && host.clientWidth >= 8 && host.clientHeight >= 8) {
+    if (host && host.clientWidth >= 120 && host.clientHeight >= 40) {
       try {
         fit.fit();
       } catch {
@@ -111,7 +114,11 @@ export function TerminalPane({ workspaceId }: { readonly workspaceId: string | n
           Terminal unavailable: {surface.error}
         </div>
       )}
-      <div ref={hostRef} style={{ flex: 1, minHeight: 0, padding: 8, background: '#0b0f17' }} />
+      <div
+        ref={hostRef}
+        onMouseDown={() => termRef.current?.focus()}
+        style={{ flex: 1, minHeight: 0, padding: 8, background: '#0b0f17' }}
+      />
     </div>
   );
 }
