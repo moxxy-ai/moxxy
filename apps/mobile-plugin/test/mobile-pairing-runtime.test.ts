@@ -42,9 +42,16 @@ describe('mobile bridge pairing runtime', () => {
       makeWsApiHandle,
     });
 
-    expect(makeWsApiHandle).toHaveBeenCalledWith({ url: 'ws://127.0.0.1:8765', token: 'secret' });
+    expect(makeWsApiHandle).toHaveBeenCalledWith({
+      url: 'ws://127.0.0.1:8765',
+      token: 'secret',
+      onStatus: expect.any(Function),
+    });
     expect(configureTransport).toHaveBeenCalledWith(api);
     expect(configurePlatform).toHaveBeenCalledWith({});
+    expect(handle.status()).toBe('connecting');
+    makeWsApiHandle.mock.calls[0]?.[0].onStatus?.('open');
+    expect(handle.status()).toBe('open');
 
     handle.close();
     expect(close).toHaveBeenCalledTimes(1);
