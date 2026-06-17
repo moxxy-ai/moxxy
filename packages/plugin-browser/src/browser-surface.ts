@@ -1,23 +1,37 @@
 import { defineSurface, type SurfaceInstance } from '@moxxy/sdk';
-import {
-  browserSidecarCall,
-  browserSidecarOnEvent,
-  type BrowserSessionDeps,
-} from './browser-session.js';
+import { browserSidecarCall, type BrowserSessionDeps } from './browser-session.js';
 
 /**
  * The `browser` surface: a live, in-window view of the SAME Playwright page the
- * `browser_session` tool drives. Frames are pushed over a CDP screencast
- * (`Page.startScreencast` → `Page.screencastFrame`, JPEG) — a real stream that
- * only sends bytes when the page changes, not a fixed poll. The user's
- * clicks/keys/scroll/navigate are proxied back onto the page by coordinate. So
- * the agent and the user operate ONE shared page — agent navigations show up in
- * the pane, and the user can take over.
+ * `browser_session` tool drives. We "stream" the page by polling a JPEG frame
+ * (`frame` sidecar method) a few times a second and forwarding it as a
+ * `surface.data` payload; the user's clicks/keys/scroll/navigate are proxied
+ * back onto the page via the sidecar's coordinate-based input methods. So the
+ * agent and the user operate ONE shared page — agent navigations show up in the
+ * pane, and the user can take over.
  *
- * Chromium-only (CDP). If the sidecar reports CDP is unavailable, the surface
- * still opens but no frames arrive; the agent's `browser_session` tool is
- * unaffected.
+ * Why polling and not a CDP `Page.startScreencast` push: the screencast only
+ * emits on visual change, so a freshly-opened (blank / static / headless) page
+ * produces no frames at all — the pane sat on "Loading…" forever with the
+ * underlying error swallowed. A screenshot poll always yields a frame (even a
+ * blank one), so the view comes up reliably and a real launch/install failure
+ * surfaces as a status line instead of an indefinite spinner. Polling rides the
+ * existing sidecar RPC surface and works on every Playwright browser, not just
+ * Chromium.
  */
+
+const FRAME_INTERVAL_MS = 450;
+/** Consecutive `frame` failures (with no frame ever seen) before we stop
+ *  assuming "still launching" and show the error. ~4 × 450ms ≈ 1.8s grace. */
+const FAIL_GRACE = 4;
+
+interface Frame {
+  mediaType: string;
+  base64: string;
+  url: string;
+  width: number;
+  height: number;
+}
 
 export function buildBrowserSurface(deps?: BrowserSessionDeps) {
   return defineSurface({
@@ -25,44 +39,39 @@ export function buildBrowserSurface(deps?: BrowserSessionDeps) {
     description: "A live view of the agent's browser; click, type, and navigate.",
     open: (): SurfaceInstance => {
       const dataSubs = new Set<(payload: unknown) => void>();
-      let lastBase64: string | null = null;
-      let lastUrl = '';
-      // Page viewport, refreshed lazily so click coords map correctly.
-      let vw = 1280;
-      let vh = 800;
+      let last: Frame | null = null;
+      let timer: ReturnType<typeof setInterval> | null = null;
+      let inFlight = false;
+      let fails = 0;
 
       const emit = (payload: unknown): void => {
         for (const cb of dataSubs) cb(payload);
       };
 
-      // Push frames as the sidecar streams them.
-      const offEvent = browserSidecarOnEvent((event) => {
-        if (event.event !== 'screencastFrame') return;
-        const data = typeof event.data === 'string' ? event.data : null;
-        if (!data) return;
-        lastBase64 = data;
-        if (typeof event.url === 'string') lastUrl = event.url;
-        emit({ type: 'frame', base64: data, mime: 'image/jpeg', url: lastUrl });
-      }, deps);
-
-      const refreshViewport = async (): Promise<void> => {
+      const tick = async (): Promise<void> => {
+        if (inFlight) return; // don't pile up frames if the page is busy
+        inFlight = true;
         try {
-          const f = (await browserSidecarCall('frame', {}, deps)) as {
-            width?: number;
-            height?: number;
-            url?: string;
-          };
-          if (f.width) vw = f.width;
-          if (f.height) vh = f.height;
-          if (typeof f.url === 'string') lastUrl = f.url;
-        } catch {
-          /* sidecar starting / page busy — keep last known size */
+          const frame = (await browserSidecarCall('frame', {}, deps)) as Frame;
+          last = frame;
+          fails = 0;
+          emit({ type: 'frame', base64: frame.base64, mime: frame.mediaType, url: frame.url });
+        } catch (err) {
+          // The first failures are usually the browser still launching (or a
+          // one-time binary install). Only surface a hard error once it's
+          // clearly not transient, so the user isn't left on a silent spinner.
+          if (++fails === FAIL_GRACE && !last) {
+            const message = err instanceof Error ? err.message : String(err);
+            emit({ type: 'status', text: `Browser unavailable: ${message}` });
+          }
+        } finally {
+          inFlight = false;
         }
       };
 
-      // Kick the screencast + grab an initial frame/viewport (idempotent).
-      void browserSidecarCall('startScreencast', {}, deps).catch(() => undefined);
-      void refreshViewport();
+      // Kick an immediate frame (launches the browser), then poll.
+      void tick();
+      timer = setInterval(() => void tick(), FRAME_INTERVAL_MS);
 
       return {
         id: 'browser',
@@ -72,29 +81,34 @@ export function buildBrowserSurface(deps?: BrowserSessionDeps) {
           return () => dataSubs.delete(cb);
         },
         snapshot: () =>
-          lastBase64
-            ? { type: 'frame', base64: lastBase64, mime: 'image/jpeg', url: lastUrl }
-            : { type: 'frame', url: lastUrl },
+          last
+            ? { type: 'frame', base64: last.base64, mime: last.mediaType, url: last.url }
+            : { type: 'status', text: 'Starting browser…' },
         input: async (msg) => {
+          const vw = last?.width ?? 1280;
+          const vh = last?.height ?? 720;
           if (msg.type === 'navigate' && typeof msg.url === 'string') {
             // The sidecar's goto re-runs the SSRF guard (loopback/private/
             // metadata blocked), so a hostile URL never navigates.
             await browserSidecarCall('goto', { url: msg.url }, deps).catch(() => undefined);
-            void refreshViewport();
+            void tick();
           } else if (msg.type === 'click' && typeof msg.fx === 'number' && typeof msg.fy === 'number') {
             await browserSidecarCall('mouse', { x: msg.fx * vw, y: msg.fy * vh }, deps).catch(() => undefined);
+            void tick();
           } else if (msg.type === 'key' && typeof msg.key === 'string') {
             await browserSidecarCall('key', { key: msg.key }, deps).catch(() => undefined);
+            void tick();
           } else if (msg.type === 'scroll' && typeof msg.dy === 'number') {
             await browserSidecarCall('scroll', { dy: msg.dy }, deps).catch(() => undefined);
+            void tick();
           }
         },
         close: () => {
-          offEvent();
+          if (timer) clearInterval(timer);
+          timer = null;
           dataSubs.clear();
-          // Stop the stream; the page stays alive for the agent's browser_session
-          // tool (torn down on session shutdown via closeBrowserSidecar).
-          void browserSidecarCall('stopScreencast', {}, deps).catch(() => undefined);
+          // The underlying page stays alive for the agent's browser_session tool;
+          // it's torn down on session shutdown (closeBrowserSidecar).
         },
       };
     },

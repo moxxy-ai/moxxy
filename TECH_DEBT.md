@@ -123,11 +123,18 @@ rail + git "Files changed" diff pane. Reviewed this journal before/while doing
 the work; the change is purely additive infrastructure, so it retires no existing
 item — the debt it *creates* is logged here on sight:
 
-- **Browser surface uses a real CDP screencast** (`Page.startScreencast` →
-  `Page.screencastFrame`, JPEG) pushed over a new unsolicited sidecar event
-  channel — not polling. Chromium-only; falls back to no frames (the
-  `browser_session` tool is unaffected) if CDP is unavailable. Files:
-  `packages/plugin-browser/src/{browser-surface.ts,sidecar/dispatch.ts}`.
+- **Browser surface reverted from CDP screencast → screenshot polling.** The CDP
+  `Page.startScreencast` push only emits frames on *visual change*, so a freshly-
+  opened blank/static/headless page produced **no frames at all** and the pane sat
+  on "Loading…" forever (the failure was swallowed). The surface now polls a JPEG
+  `frame` again (always yields a frame, works on any Playwright browser) and emits
+  a `{ type: 'status' }` payload so a real launch/install failure surfaces instead
+  of an indefinite spinner. **Dormant debt:** the CDP plumbing the screencast
+  needed — `startScreencast`/`stopScreencast` + `cdp` state in `sidecar/dispatch.ts`,
+  the `CDPSession` type in `sidecar/types.ts`, and the unsolicited-event channel
+  (`emit` in `sidecar.ts`, `onEvent`/`browserSidecarOnEvent` in `browser-session.ts`)
+  — is now **unused**. Remove it if the screencast isn't revived; if it is, gate it
+  behind a polling fallback so a no-frame page still shows something.
 - **node-pty ships as an optional native dep of the CLI** (`@moxxy/cli`
   optionalDependencies + root `pnpm.onlyBuiltDependencies`), so the terminal uses
   a real PTY when the binary builds (it's N-API, ABI-stable like

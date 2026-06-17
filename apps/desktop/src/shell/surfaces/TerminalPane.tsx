@@ -33,9 +33,10 @@ export function TerminalPane({ workspaceId }: { readonly workspaceId: string | n
   surfaceRef.current = surface;
 
   useEffect(() => {
-    if (!hostRef.current) return;
+    const host = hostRef.current;
+    if (!host) return;
     const term = new Terminal({
-      fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
       fontSize: 12,
       cursorBlink: true,
       theme: { background: '#0b0f17', foreground: '#d6deeb' },
@@ -43,25 +44,38 @@ export function TerminalPane({ workspaceId }: { readonly workspaceId: string | n
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.open(hostRef.current);
-    fit.fit();
+    term.open(host);
     termRef.current = term;
     fitRef.current = fit;
 
-    const dataSub = term.onData((d) => surfaceRef.current.input({ type: 'data', data: d }));
-    const resizeSub = term.onResize(({ cols, rows }) =>
-      surfaceRef.current.resize({ cols, rows }),
-    );
-    const ro = new ResizeObserver(() => {
+    // Only fit once the host actually has layout. The rail slides open with a
+    // width transition, so an eager fit() on mount measures a near-zero width
+    // and locks xterm (and, via onResize below, the PTY) to ~1–2 columns —
+    // which is what made the output wrap after every character. Skipping the
+    // fit until there's real width keeps xterm at its 80-col default until the
+    // ResizeObserver can size it correctly.
+    const doFit = (): void => {
+      if (host.clientWidth < 8 || host.clientHeight < 8) return;
       try {
         fit.fit();
       } catch {
         /* element detached mid-resize */
       }
+    };
+
+    const dataSub = term.onData((d) => surfaceRef.current.input({ type: 'data', data: d }));
+    const resizeSub = term.onResize(({ cols, rows }) => surfaceRef.current.resize({ cols, rows }));
+    const ro = new ResizeObserver(doFit);
+    ro.observe(host);
+    // First fit after layout/paint (and again next frame — the open transition
+    // may still be animating on the first).
+    const raf1 = requestAnimationFrame(() => {
+      doFit();
+      requestAnimationFrame(doFit);
     });
-    ro.observe(hostRef.current);
 
     return () => {
+      cancelAnimationFrame(raf1);
       dataSub.dispose();
       resizeSub.dispose();
       ro.disconnect();
@@ -71,11 +85,23 @@ export function TerminalPane({ workspaceId }: { readonly workspaceId: string | n
     };
   }, []);
 
-  // Push the initial size once the surface is ready.
+  // Once the surface is attached, fit to the real size, push it to the PTY, and
+  // focus so the user can type immediately.
   useEffect(() => {
-    if (surface.ready && termRef.current) {
-      surface.resize({ cols: termRef.current.cols, rows: termRef.current.rows });
+    if (!surface.ready) return;
+    const term = termRef.current;
+    const fit = fitRef.current;
+    if (!term || !fit) return;
+    const host = hostRef.current;
+    if (host && host.clientWidth >= 8 && host.clientHeight >= 8) {
+      try {
+        fit.fit();
+      } catch {
+        /* detached */
+      }
     }
+    surface.resize({ cols: term.cols, rows: term.rows });
+    term.focus();
   }, [surface.ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (

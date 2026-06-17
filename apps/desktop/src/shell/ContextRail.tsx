@@ -47,12 +47,15 @@ export function ContextRail({ pane, onClose, workspaceId }: Props): JSX.Element 
   // pointer-down so the math survives the rail itself resizing mid-drag.
   const startDrag = (e: React.PointerEvent): void => {
     e.preventDefault();
-    const right = railRef.current?.getBoundingClientRect().right ?? window.innerWidth;
+    const rail = railRef.current;
+    const right = rail?.getBoundingClientRect().right ?? window.innerWidth;
+    rail?.setAttribute('data-resizing', 'true');
     const onMove = (ev: PointerEvent): void => setRailWidth(right - ev.clientX);
     const onUp = (): void => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       document.body.style.userSelect = '';
+      rail?.removeAttribute('data-resizing');
     };
     document.body.style.userSelect = 'none';
     window.addEventListener('pointermove', onMove);
@@ -78,11 +81,15 @@ export function ContextRail({ pane, onClose, workspaceId }: Props): JSX.Element 
           onPointerDown={startDrag}
           title="Drag to resize"
           style={{
+            // Sit just inside the rail's left edge. The rail clips horizontal
+            // overflow (overflow-y:auto ⇒ overflow-x:auto), so a negative-left
+            // handle would be clipped and unclickable; left:0 keeps the whole
+            // grab strip live over the border.
             position: 'absolute',
-            left: -3,
+            left: 0,
             top: 0,
             bottom: 0,
-            width: 6,
+            width: 8,
             cursor: 'col-resize',
             zIndex: 2,
           }}

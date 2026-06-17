@@ -276,6 +276,11 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 
 .col-rail {
+  /* position: relative anchors the absolutely-positioned resize handle
+   * (ContextRail) to the rail's own left edge. Without it the handle resolves
+   * against a far ancestor and lands off-screen, so the divider looks draggable
+   * but nothing grabs it. */
+  position: relative;
   width: 296px;
   flex-shrink: 0;
   padding: 0;
@@ -305,6 +310,11 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   pointer-events: none;
   overflow: hidden;
   border-left-color: transparent;
+}
+/* While the user is dragging the handle, kill the width transition so the rail
+ * tracks the pointer 1:1 instead of chasing it through the 260ms ease. */
+.col-rail--right[data-resizing='true'] {
+  transition: none;
 }
 
 /* Left-hand rails keep the right border. (Kept around in case any
