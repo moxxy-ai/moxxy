@@ -35,10 +35,7 @@
       "electron",
       "electron-winstaller",
       "node-pty"
-    ],
-    "overrides": {
-      "node-gyp": "^11.5.0"
-    }
+    ]
   },
   "license": "MIT"
 }
