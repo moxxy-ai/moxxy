@@ -37,6 +37,19 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
 
 ---
 
+## 2026-06-17 — Skills gallery reimplements the shared settings `SearchBox`
+
+- **`SkillGallery` hand-rolls its own search input** (the `display:flex` row with
+  the magnifier `Icon` + `<input type="search">` in `apps/desktop/src/settings/skills/SkillGallery.tsx`)
+  instead of using the `SearchBox` primitive already exported from
+  `apps/desktop/src/settings/settings-primitives.tsx` for the MCP/Vault/Providers
+  tabs. The markup is a near-verbatim copy, so styling drift between the Skills
+  search and the other tabs' search is a when-not-if. Noticed while aligning the
+  Skills empty state to the shared `EmptyState` (this change retired the bespoke
+  `EmptyHero` logo). **Fix:** swap the inline block for `<SearchBox value={query}
+  onChange={setQuery} placeholder="Search skills…" />` and delete the duplicate.
+  Left out of this PR to keep it a pure empty-state alignment.
+
 ## 2026-06-17 — desktop native build (node-gyp) is brittle against runner-image churn
 
 - **`node-gyp@9.4.1` is too old for the current GitHub runner images, and the desktop
