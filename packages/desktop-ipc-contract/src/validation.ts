@@ -16,6 +16,10 @@ import type { IpcCommandName } from './index.js';
  *  provider name can't inject a CLI flag or traverse the vault keyspace. */
 const providerName = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/, 'invalid provider name');
 
+/** Renderer-supplied correlation id for an interactive login (a UUID). A plain
+ *  token so it can't smuggle a path or shell text into the host's run map. */
+const loginId = z.string().min(1).max(64).regex(/^[A-Za-z0-9-]+$/, 'invalid login id');
+
 const httpUrl = z
   .string()
   .refine((s) => {
@@ -92,7 +96,13 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     secret: z.string().min(1).max(8192),
   }),
   'onboarding.providerAuthKind': z.object({ provider: providerName }),
-  'onboarding.runProviderLogin': z.object({ provider: providerName }),
+  // Interactive provider sign-in spawns `moxxy login <provider>` and feeds it
+  // the user's pasted answers over stdin — guard the provider slug and the
+  // correlation id, and bound the answer (a token / `code#state`) so a hostile
+  // renderer can't OOM the host or smuggle a flag.
+  'provider.login.start': z.object({ loginId, provider: providerName }),
+  'provider.login.answer': z.object({ loginId, value: z.string().max(8192) }),
+  'provider.login.cancel': z.object({ loginId }),
   'session.transcribe': z.object({
     audioBase64: z.string().max(MAX_AUDIO_BASE64),
     mimeType: z.string().max(128).optional(),

@@ -13,6 +13,7 @@ import type { useSettings } from '@moxxy/client-core';
 import { Button, Icon, IconButton, Modal, TextInput } from '@moxxy/desktop-ui';
 import { Section, CardList, Row, Tile, StatusDot, Switch, Badge, EmptyState } from './settings-primitives';
 import { AgentTaskModal } from './shared/AgentTaskModal';
+import { OAuthSignIn } from './shared/OAuthSignIn';
 import { PROVIDER_PROMPT_TEMPLATE } from './provider-prompt';
 
 type ProviderRow = ReturnType<typeof useSettings>['providers'][number];
@@ -110,6 +111,7 @@ export function ProvidersTab({
           provider={configuring}
           onConfigure={onConfigure}
           onSetKey={onSetKey}
+          onRefresh={onRefresh}
           onClose={() => setConfiguring(null)}
         />
       )}
@@ -121,7 +123,7 @@ function subtitleFor(p: ProviderRow): string {
   if (!p.enabled) return 'Disabled · excluded from activation';
   if (p.ready) return 'Active · credentials resolved';
   return p.authKind === 'oauth'
-    ? 'Inactive · sign in with `moxxy login` to use'
+    ? 'Inactive · sign in to connect'
     : 'Inactive · add a key to use';
 }
 
@@ -137,6 +139,7 @@ function ConfigureProviderModal({
   provider,
   onConfigure,
   onSetKey,
+  onRefresh,
   onClose,
 }: {
   readonly provider: ProviderRow;
@@ -145,6 +148,7 @@ function ConfigureProviderModal({
     patch: { baseURL?: string; defaultModel?: string },
   ) => Promise<void>;
   readonly onSetKey: (keyName: string, value: string) => Promise<void>;
+  readonly onRefresh: () => Promise<void>;
   readonly onClose: () => void;
 }): JSX.Element {
   const [key, setKey] = useState('');
@@ -178,11 +182,18 @@ function ConfigureProviderModal({
     <Modal title={`Configure ${provider.name}`} onClose={onClose} width={420}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {provider.authKind === 'oauth' ? (
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.55 }}>
-            This provider signs in with OAuth — run{' '}
-            <code style={{ fontSize: 12.5 }}>moxxy login {provider.name}</code> in a terminal to
-            connect it. There is no API key to store.
-          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.55 }}>
+              This provider signs in with OAuth — no API key to store. We'll open your browser to
+              finish; any pasted token stays in the encrypted vault.
+            </p>
+            <OAuthSignIn
+              provider={provider.name}
+              onSignedIn={() => {
+                void onRefresh();
+              }}
+            />
+          </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <label style={fieldLabelStyle}>

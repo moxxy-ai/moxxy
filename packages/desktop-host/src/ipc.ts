@@ -38,6 +38,7 @@ import { registerUpdateHandlers, type UpdateConfig } from './ipc/update';
 import { registerAskHandlers } from './ipc/ask';
 import { registerConnectionHandlers } from './ipc/connection';
 import { registerOnboardingHandlers } from './ipc/onboarding';
+import { registerProviderLoginHandlers } from './ipc/provider-login';
 import { registerSessionHandlers } from './ipc/session';
 import { registerSessionsHandlers } from './ipc/sessions';
 import { registerWorkspaceFsHandlers } from './ipc/workspace-fs';
@@ -74,6 +75,7 @@ export function registerIpcHandlers(
     registerUpdateHandlers(opts.update ?? { publicKeyPem: '' });
     registerConnectionHandlers(pool);
     registerOnboardingHandlers(pool);
+    registerProviderLoginHandlers(pool);
     registerSessionHandlers(pool);
     registerSessionsHandlers(pool, desks);
     registerWorkspaceFsHandlers(desks);

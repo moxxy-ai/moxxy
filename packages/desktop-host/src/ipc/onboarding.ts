@@ -48,19 +48,14 @@ export function registerOnboardingHandlers(pool: RunnerPool): void {
     if (session) session.providers.setActive(provider);
   });
   handle('onboarding.providerAuthKind', async ({ provider }) => {
-    // The only built-in OAuth provider today is openai-codex; admin-
-    // registered providers in providers.json are all api-key. Keep
-    // this list as the source of truth until the runner exposes
-    // provider auth metadata over RPC.
-    const OAUTH_PROVIDERS = new Set(['openai-codex']);
-    return OAUTH_PROVIDERS.has(provider) ? 'oauth' : 'api-key';
-  });
-  handle('onboarding.runProviderLogin', async ({ provider }) => {
-    const { runProviderLogin } = await import('../installer');
-    const target = BrowserWindowApi.getFocusedWindow() ?? BrowserWindowApi.getAllWindows()[0];
-    if (!target) throw new Error('no window to stream login progress to');
-    const code = await runProviderLogin(provider, target);
-    if (code === 0) pool.active()?.forceRetry();
-    return code;
+    // Prefer the runner's own registry metadata — it knows every provider's
+    // declared auth kind (including OAuth ones like claude-code), so no list
+    // here can drift. Fall back to the known built-in OAuth providers only
+    // when the runner isn't reachable yet (early in onboarding).
+    const info = pool.active()?.remote()?.getInfo();
+    const known = info?.providers.find((p) => p.name === provider);
+    if (known) return known.authKind;
+    const OAUTH_FALLBACK = new Set(['openai-codex', 'claude-code']);
+    return OAUTH_FALLBACK.has(provider) ? 'oauth' : 'api-key';
   });
 }

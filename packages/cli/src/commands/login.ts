@@ -44,6 +44,7 @@ function buildHelp(session: Session | null): string {
         rows: [
           ['--browser', 'force the loopback/browser flow even without a TTY (opens the browser automatically)'],
           ['--no-browser', 'force the headless device-code flow (auto when no TTY)'],
+          ['--stdin-prompts', 'GUI-host mode: relay paste prompts over stdout markers + stdin lines (desktop app)'],
         ],
       },
     ],
@@ -111,18 +112,29 @@ async function loginProvider(argv: ParsedArgv, providerName: string): Promise<nu
   // flow that's about to start.
   await vault.open();
 
+  // `--stdin-prompts` is the desktop GUI's mode: the provider's prompts are
+  // relayed to the host over the pipe (markers on stdout, answers as stdin
+  // lines) so the out-of-band paste flow (claude-code) works without a TTY.
+  // It implies an interactive (non-headless) flow — the host IS the terminal.
+  const stdinPrompts = hasBoolFlag(argv, 'stdin-prompts');
+
   // Headless (device-code) mode triggers when:
   //   - the user passes `--no-browser` (e.g. running on a remote box and
   //     wanting to complete the flow from their laptop's browser), OR
   //   - stdin isn't a TTY (CI, ssh -T, docker exec without -t) AND the
-  //     caller didn't force the browser flow with `--browser`.
+  //     caller didn't force the browser flow with `--browser` / drive it over
+  //     `--stdin-prompts`.
   // `--browser` lets a GUI host (the desktop app) spawn `moxxy login` with
   // piped stdio yet still get the loopback flow that opens the browser
   // automatically — no manual code copying.
   const headless =
-    hasBoolFlag(argv, 'no-browser') ||
-    (!hasBoolFlag(argv, 'browser') && process.stdin.isTTY !== true);
-  const ctx = buildProviderAuthContext(vault, { headless });
+    !stdinPrompts &&
+    (hasBoolFlag(argv, 'no-browser') ||
+      (!hasBoolFlag(argv, 'browser') && process.stdin.isTTY !== true));
+  const ctx = buildProviderAuthContext(vault, {
+    headless,
+    ...(stdinPrompts ? { promptMode: 'stdin' as const } : {}),
+  });
 
   try {
     const result = await def.auth.login(ctx);

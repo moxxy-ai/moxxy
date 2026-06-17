@@ -9,9 +9,23 @@ describe('IPC payload validation', () => {
   });
 
   it('confines provider names to a slug', () => {
-    expect(() => validateIpcInput('onboarding.runProviderLogin', { provider: 'openai-codex' })).not.toThrow();
-    expect(() => validateIpcInput('onboarding.runProviderLogin', { provider: '--flag' })).toThrow();
+    expect(() => validateIpcInput('provider.login.start', { loginId: 'abc', provider: 'openai-codex' })).not.toThrow();
+    expect(() => validateIpcInput('provider.login.start', { loginId: 'abc', provider: '--flag' })).toThrow();
     expect(() => validateIpcInput('onboarding.saveProviderKey', { provider: '../x', secret: 'k' })).toThrow();
+  });
+
+  it('guards interactive-login ids + bounds the pasted answer', () => {
+    expect(() =>
+      validateIpcInput('provider.login.start', { loginId: 'A1-b2', provider: 'claude-code' }),
+    ).not.toThrow();
+    // loginId must be a plain token — no path/shell text.
+    expect(() => validateIpcInput('provider.login.cancel', { loginId: '../x' })).toThrow();
+    expect(() => validateIpcInput('provider.login.cancel', { loginId: '' })).toThrow();
+    // Empty answer is valid (the "take the browser branch" choice).
+    expect(() => validateIpcInput('provider.login.answer', { loginId: 'x', value: '' })).not.toThrow();
+    expect(() =>
+      validateIpcInput('provider.login.answer', { loginId: 'x', value: 'y'.repeat(8193) }),
+    ).toThrow();
   });
 
   it('blocks skill-name path traversal', () => {

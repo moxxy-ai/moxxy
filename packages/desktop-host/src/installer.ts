@@ -15,7 +15,6 @@ import path, { dirname } from 'node:path';
 import { type BrowserWindow } from 'electron';
 import type { NodeProbe } from '@moxxy/desktop-ipc-contract';
 import { augmentedPaths, findExecutable, resolveMoxxyCli, spawnCli, spawnPath } from './cli-resolver';
-import { assertSafeProviderName } from './security';
 import { sendEvent } from './send-event';
 import { wsEventBus } from './event-bus';
 
@@ -162,39 +161,6 @@ export async function updateCli(userDataDir: string, window: BrowserWindow): Pro
       // shebang needs node, which lives in npm's own dir.
       env: { ...process.env, PATH: spawnPath([dirname(npm)]) },
     });
-    proc.stdout?.on('data', (b: Buffer) => stream(window, b.toString()));
-    proc.stderr?.on('data', (b: Buffer) => stream(window, b.toString()));
-    proc.on('error', reject);
-    proc.on('exit', (code) => resolve(code ?? -1));
-  });
-}
-
-/**
- * Spawn `moxxy login <provider>`. The CLI runs the provider's OAuth
- * flow — opens the system browser to the provider's auth page and
- * listens for the loopback callback — then stores the resulting
- * tokens in the vault.
- *
- * stdout + stderr stream back to the renderer via the same channel
- * the npm install uses (`onboarding.install.progress`). Resolves
- * with the exit code; the wizard treats 0 as "logged in".
- */
-export async function runProviderLogin(
-  provider: string,
-  window: BrowserWindow,
-): Promise<number> {
-  assertSafeProviderName(provider);
-  const cli = resolveMoxxyCli({ extraPaths: augmentedPaths() });
-  if (!cli) throw new Error('moxxy CLI not found — run the install step first');
-
-  emit(window, `$ moxxy login ${provider} --browser`);
-
-  // `--browser` forces the loopback flow (which opens the system browser
-  // automatically + catches the localhost callback) instead of the headless
-  // device-code flow `moxxy login` would otherwise pick because we spawn it
-  // with piped stdio (no TTY). The desktop is a GUI — no code copying.
-  const proc = spawnCli(cli, ['login', provider, '--browser']);
-  return new Promise<number>((resolve, reject) => {
     proc.stdout?.on('data', (b: Buffer) => stream(window, b.toString()));
     proc.stderr?.on('data', (b: Buffer) => stream(window, b.toString()));
     proc.on('error', reject);

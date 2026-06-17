@@ -542,6 +542,16 @@ export interface IpcEvents {
    *  on its EventBus so every info-derived view (Settings tabs, mode badge,
    *  action catalog) refreshes without polling or an app restart. */
   'session.info.changed': { workspaceId: string };
+  /** A running interactive provider login (`provider.login.start`) needs a
+   *  pasted answer — the out-of-band token or `code#state` claude-code's flow
+   *  asks for. The renderer renders an input (masked when `mask`) and replies
+   *  via `provider.login.answer`. Loopback providers never emit this. */
+  'provider.login.prompt': { loginId: string; question: string; mask: boolean };
+  /** Streamed stdout/stderr text from a running provider login (progress, the
+   *  authorize URL, the final summary). One event per chunk. */
+  'provider.login.output': { loginId: string; text: string };
+  /** A provider login finished. `code === 0` ⇒ signed in. */
+  'provider.login.done': { loginId: string; code: number };
 }
 
 // ---------- Invokable commands (renderer → main) --------------------------
@@ -648,10 +658,22 @@ export interface IpcCommands {
   /** Returns how a provider authenticates so the wizard can pick the
    *  right UI affordance: a key field vs an OAuth button. */
   'onboarding.providerAuthKind': (args: { provider: string }) => Promise<'oauth' | 'api-key'>;
-  /** Spawn `moxxy login <provider>`. The CLI opens the browser and
-   *  runs the OAuth flow. stdout/stderr are streamed via
-   *  `onboarding.install.progress`. Resolves with the exit code. */
-  'onboarding.runProviderLogin': (args: { provider: string }) => Promise<number>;
+
+  // ---- Interactive provider sign-in (OAuth) ------------------------------
+  /** Begin an interactive sign-in for `provider`, correlated by the
+   *  renderer-supplied `loginId`. Spawns `moxxy login <provider>`, which opens
+   *  the browser; the CLI streams progress via `provider.login.output` and —
+   *  for out-of-band providers (claude-code) — asks for a pasted token /
+   *  `code#state` via `provider.login.prompt`. Resolves once the subprocess is
+   *  spawned; completion arrives as `provider.login.done`. Used by both the
+   *  onboarding wizard and Settings → Providers. */
+  'provider.login.start': (args: { loginId: string; provider: string }) => Promise<void>;
+  /** Answer the current `provider.login.prompt` with one line (a pasted token,
+   *  a `code#state`, or empty to take the browser branch). */
+  'provider.login.answer': (args: { loginId: string; value: string }) => Promise<void>;
+  /** Abort a running login (the sign-in modal was closed). No-op if it already
+   *  finished. */
+  'provider.login.cancel': (args: { loginId: string }) => Promise<void>;
 
   'desks.list': () => Promise<DesksOverview>;
   'desks.create': (args: { name: string; cwd: string }) => Promise<Desk>;

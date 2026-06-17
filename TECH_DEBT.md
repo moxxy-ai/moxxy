@@ -37,6 +37,30 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
 
 ---
 
+## 2026-06-17 — desktop OAuth provider sign-in (claude-code) + de-hardcoded auth kind
+
+- **Retired: Settings → Providers showed a dead "run `moxxy login <provider>` in a
+  terminal" comment for OAuth providers.** It now drives a real sign-in: a shared
+  `OAuthSignIn` component spawns `moxxy login <provider>` in the host and relays the
+  flow, opening the browser and collecting any pasted value. Onboarding's `ProviderStep`
+  was migrated onto the same component, so both surfaces behave identically.
+- **Retired the `onboarding.providerAuthKind` hardcode** (`OAUTH_PROVIDERS = new
+  Set(['openai-codex'])`, which mis-classified `claude-code` as api-key and showed it a
+  key field). It now reads the runner's own registry metadata
+  (`getInfo().providers[].authKind`) — the source of truth that already feeds Settings —
+  and only falls back to a static set (now both OAuth providers) when the runner isn't
+  reachable yet. One fewer place a new OAuth provider must be registered by hand.
+- **Removed dead code:** `installer.ts#runProviderLogin` and the
+  `onboarding.runProviderLogin` IPC command (+ its validation schema), superseded by the
+  generic `provider.login.start/answer/cancel` commands.
+- **New seam (not debt, noted for the next reader):** out-of-band providers like
+  `claude-code` ask the user to paste a token / `code#state`, which a GUI host can't do
+  over a clack TTY. The CLI's `moxxy login --stdin-prompts` now relays each `ctx.prompt`
+  as a NUL-bracketed marker on stdout (parsed by `@moxxy/sdk`'s
+  `createLoginStreamScanner`) and reads answers as stdin lines — so the desktop drives the
+  paste flow without re-implementing the OAuth dance. Loopback providers (openai-codex)
+  emit no markers and are unaffected.
+
 ## 2026-06-15 — built-in providers: z.ai / xAI / Google Gemini / local
 
 - **New (`@moxxy/plugin-provider-{zai,xai,google,local}`):** four first-class

@@ -136,6 +136,12 @@ export type {
   ProviderOAuthStatus,
   ProviderAuthDescriptor,
 } from './provider.js';
+export {
+  encodeLoginPrompt,
+  decodeLoginPrompt,
+  createLoginStreamScanner,
+} from './provider-login-bridge.js';
+export type { LoginPromptRequest, LoginStreamItem } from './provider-login-bridge.js';
 export type { CacheStrategyDef, CacheStrategyContext } from './cache-strategy.js';
 export type {
   ViewNode,

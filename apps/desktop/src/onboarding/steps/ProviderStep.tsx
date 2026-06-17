@@ -1,9 +1,10 @@
 /**
  * The provider-connect step — pick a provider from the catalog, then
- * either paste an API key (api-key providers) or run the browser OAuth
- * login (oauth providers), streaming the login subprocess's stdout to a
- * log box. The auth kind re-resolves whenever the provider changes.
- * Applies on first run and whenever the recovery gate finds no provider.
+ * either paste an API key (api-key providers) or run the real OAuth login
+ * (oauth providers) via the shared {@link OAuthSignIn} flow, which opens the
+ * browser and collects any pasted token / code. The auth kind re-resolves
+ * whenever the provider changes. Applies on first run and whenever the
+ * recovery gate finds no provider.
  */
 
 import { useEffect, useState } from 'react';
@@ -11,6 +12,7 @@ import { decodeError, toErrorMessage } from '@moxxy/client-core';
 import { api } from '@moxxy/client-core';
 import { retryWhileReconnecting } from '@moxxy/client-core';
 import { StepCard, Nav, PrimaryButton, SuccessRow, inputStyle } from '../chrome';
+import { OAuthSignIn } from '../../settings/shared/OAuthSignIn';
 
 export function ProviderStep({
   onNext,
@@ -23,6 +25,7 @@ export function ProviderStep({
     'anthropic',
     'openai',
     'openai-codex',
+    'claude-code',
   ]);
   const [provider, setProvider] = useState('anthropic');
   const [authKind, setAuthKind] = useState<'oauth' | 'api-key'>('api-key');
@@ -30,7 +33,6 @@ export function ProviderStep({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
-  const [loginLog, setLoginLog] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,16 +69,6 @@ export function ProviderStep({
       cancelled = true;
     };
   }, [provider]);
-
-  // Reuse the install-progress channel so the OAuth subprocess's
-  // stdout (the URL prompt, success row, etc.) streams to the
-  // log box.
-  useEffect(() => {
-    const off = api().subscribe('onboarding.install.progress', (line: string) => {
-      setLoginLog((cur) => [...cur.slice(-80), line]);
-    });
-    return off;
-  }, []);
 
   // After a credential lands in the vault, tell the RUNNING runner to activate
   // this provider. The runner booted with no active provider (no creds existed
@@ -116,23 +108,17 @@ export function ProviderStep({
     }
   };
 
-  const runOauthLogin = async (): Promise<void> => {
-    setSaving(true);
-    setError(null);
-    setLoginLog([]);
-    try {
-      const code = await api().invoke('onboarding.runProviderLogin', { provider });
-      if (code !== 0) {
-        setError(`moxxy login exit ${code}`);
-        return;
+  // OAuth providers sign in through the shared flow; once it reports success
+  // we activate the provider (same vault→runner handoff as the key path).
+  const onOauthSignedIn = (): void => {
+    void (async () => {
+      try {
+        await activateProvider();
+        setDone(true);
+      } catch (e) {
+        setError(toErrorMessage(e));
       }
-      await activateProvider();
-      setDone(true);
-    } catch (e) {
-      setError(toErrorMessage(e));
-    } finally {
-      setSaving(false);
-    }
+    })();
   };
 
   return (
@@ -167,7 +153,7 @@ export function ProviderStep({
             {catalog.map((name) => (
               <option key={name} value={name}>
                 {name}
-                {name === 'openai-codex' ? ' · OAuth' : ''}
+                {name === 'openai-codex' || name === 'claude-code' ? ' · OAuth' : ''}
               </option>
             ))}
           </select>
@@ -193,41 +179,13 @@ export function ProviderStep({
             {error}
           </p>
         )}
-        {done && (
-          <SuccessRow
-            text={
-              authKind === 'oauth'
-                ? `Signed in to ${provider}.`
-                : 'Key saved to the vault.'
-            }
-          />
-        )}
+        {done && authKind === 'api-key' && <SuccessRow text="Key saved to the vault." />}
         {authKind === 'oauth' ? (
-          <PrimaryButton onClick={() => void runOauthLogin()} disabled={saving}>
-            {saving ? 'Waiting for browser…' : done ? `Re-link ${provider}` : `Sign in with ${provider}`}
-          </PrimaryButton>
+          <OAuthSignIn provider={provider} onSignedIn={onOauthSignedIn} />
         ) : (
           <PrimaryButton onClick={() => void saveKey()} disabled={saving || !secret.trim()}>
             {saving ? 'Saving…' : done ? 'Update key' : 'Save key'}
           </PrimaryButton>
-        )}
-        {authKind === 'oauth' && loginLog.length > 0 && (
-          <pre
-            className="mono"
-            style={{
-              margin: 0,
-              padding: 10,
-              background: '#0f172a',
-              color: '#e2e8f0',
-              borderRadius: 10,
-              fontSize: 11,
-              maxHeight: 140,
-              overflow: 'auto',
-              whiteSpace: 'pre-wrap',
-            }}
-          >
-            {loginLog.slice(-20).join('\n')}
-          </pre>
         )}
       </div>
       <Nav onBack={onBack} onNext={onNext} nextLabel={done ? 'Continue' : 'Skip for now'} />

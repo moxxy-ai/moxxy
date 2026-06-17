@@ -106,10 +106,15 @@ describe('ProvidersTab', () => {
     );
   });
 
-  it('shows a login hint instead of a key form for OAuth providers', () => {
+  it('offers a real sign-in (not a key form) for OAuth providers', () => {
+    // The OAuthSignIn flow subscribes to provider.login.* on mount, so the
+    // configure sheet needs a transport even though the buttons aren't clicked.
+    __setApiOverride({ invoke: vi.fn(() => Promise.resolve()), subscribe: vi.fn(() => () => {}) } as never);
     renderTab();
     fireEvent.click(screen.getByRole('button', { name: /configure openai-codex/i }));
     expect(screen.getByText(/signs in with OAuth/i)).toBeTruthy();
     expect(screen.queryByTestId('provider-key-input')).toBeNull();
+    // The dead "run moxxy login in a terminal" hint is gone — there's a button.
+    expect(screen.getByRole('button', { name: /sign in with openai-codex/i })).toBeTruthy();
   });
 });
