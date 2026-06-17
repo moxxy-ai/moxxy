@@ -139,7 +139,7 @@ export function Transcript({
     // `align: 'end'` on the LAST index also accounts for the Footer (the
     // in-flight streaming bubble), landing fully at the bottom — which
     // flips `atBottom` back on and resumes `followOutput`.
-    virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'smooth' });
+    virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' });
   }, []);
 
   // Track how many rows have been prepended so far and shift

@@ -119,7 +119,7 @@ describe('Transcript stick-to-bottom wiring', () => {
     expect(screen.queryByTestId('scroll-to-bottom')).not.toBeInTheDocument();
   });
 
-  it('shows the jump button when scrolled up; clicking scrolls to LAST and it hides at bottom', () => {
+  it('shows the jump button when scrolled up; clicking jumps instantly to LAST and it hides at bottom', () => {
     renderTranscript();
     act(() => captured.props?.atBottomStateChange(false));
     const btn = screen.getByTestId('scroll-to-bottom');
@@ -127,7 +127,7 @@ describe('Transcript stick-to-bottom wiring', () => {
     expect(captured.scrollToIndex).toHaveBeenCalledWith({
       index: 'LAST',
       align: 'end',
-      behavior: 'smooth',
+      behavior: 'auto',
     });
     // Landing at the bottom re-enables stick-to-bottom and hides the button.
     act(() => captured.props?.atBottomStateChange(true));

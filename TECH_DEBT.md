@@ -513,6 +513,25 @@ item — the debt it *creates* is logged here on sight:
   the wizard skip the prompt. Deferred (init is one-time; runtime switch is the
   main path).
 
+## 2026-06-17 — desktop stress-session transcript stability
+
+- **Retired (found + fixed same PR): huge desktop transcripts could require multiple
+  jump-to-latest clicks and briefly blank during selected-session runner reconnects.**
+  The floating jump button now uses an instant Virtuoso `LAST` scroll instead of a
+  long smooth animation over virtualized 100k-event logs, and `ChatSurface` only shows
+  the full loading state before any transcript is available. Existing session history
+  remains mounted while the runner catches up, with the composer kept non-ready until
+  the session is actually connected.
+
+## 2026-06-17 — mobile session tree parity
+
+- **Retired (found + fixed same PR): mobile rendered the sessions screen as detached
+  workspace cards while desktop used a folder tree.** The mobile session picker now uses
+  a shared dumb workspace tree component for both the Sessions tab and hamburger menu:
+  workspace folders keep desktop colors, sessions sit as indented children, active rows
+  stay readable on narrow screens, and collapse state remains owned by hooks instead of
+  presentational components.
+
 ## 2026-06-17 — desktop sidebar action modals
 
 - **Retired (found + fixed same PR): sidebar session/workspace rename used tiny inline

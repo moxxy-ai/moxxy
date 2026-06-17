@@ -83,7 +83,7 @@ export function ChatSurface({
   const chat = useChat(workspaceId);
   const desks = useDesks();
   const activeAsk = useActiveAsk(workspaceId);
-  const ready = phase.phase === 'connected';
+  const ready = phase.phase === 'connected' && !sessionLoading && !chat.loading;
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
   // workspaceId is a SESSION id (the runner-pool routing key) — resolve the
@@ -98,9 +98,9 @@ export function ChatSurface({
     return filterEventsBySearch(chat.events, searchIndex, searchQuery);
   }, [chat.events, searchQuery, searchIndex]);
 
-  const loading = sessionLoading || chat.loading;
+  const showBlockingLoading = (sessionLoading || chat.loading) && chat.isEmpty;
 
-  if (loading) {
+  if (showBlockingLoading) {
     return (
       <main className="col-main col-main--flat">
         <Header

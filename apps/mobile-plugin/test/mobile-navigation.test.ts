@@ -20,6 +20,7 @@ import {
   reduceChatListAutoScrollState,
 } from '../mobile/src/hooks/useChatListAutoScroll';
 import { buildSessionRowAccessibility } from '../mobile/src/sessionRowUi';
+import { buildWorkspaceSessionTreeState } from '../mobile/src/workspaceSessionTreeUi';
 
 describe('mobile bottom navigation model', () => {
   it('keeps the mobile tab bar compact, icon-led, and badge-aware', () => {
@@ -333,6 +334,97 @@ describe('mobile session row UI model', () => {
       accessibilityLabel: 'Open session podaj najlepszy przepis na syrop z kwiatów czarnego bzu',
       accessibilityRole: 'button',
     });
+  });
+});
+
+describe('mobile workspace session tree UI model', () => {
+  it('keeps the desktop-style workspace folder hierarchy while preserving responsive session rows', () => {
+    const state = buildWorkspaceSessionTreeState([
+      {
+        id: 'moxxy',
+        title: 'moxxy workspace',
+        subtitle: '/Users/kamil/new_moxxy',
+        color: '#3b82f6',
+        active: true,
+        latestActivity: '2026-06-17T08:00:00.000Z',
+        sessions: [
+          {
+            id: 'active-session',
+            title: 'Przeanalizuj aplikację',
+            subtitle: '/Users/kamil/new_moxxy',
+            active: true,
+            live: true,
+            readOnly: false,
+            lastActivity: '2026-06-17T08:00:00.000Z',
+            shortcutLabel: null,
+          },
+          {
+            id: 'history-session',
+            title: 'Poznaj strukturę aplikacji',
+            subtitle: '/Users/kamil/new_moxxy',
+            active: false,
+            live: false,
+            readOnly: false,
+            lastActivity: '2026-06-16T08:00:00.000Z',
+            shortcutLabel: null,
+          },
+        ],
+      },
+      {
+        id: 'tata',
+        title: 'Tata',
+        subtitle: '/Users/kamil/Tata',
+        color: '#ef4444',
+        active: false,
+        latestActivity: '2026-06-15T08:00:00.000Z',
+        sessions: [
+          {
+            id: 'hidden-session',
+            title: 'hejoo',
+            subtitle: '/Users/kamil/Tata',
+            active: false,
+            live: false,
+            readOnly: false,
+            lastActivity: '2026-06-15T08:00:00.000Z',
+            shortcutLabel: null,
+          },
+        ],
+      },
+    ], ['tata']);
+
+    expect(state.sections).toEqual([
+      expect.objectContaining({
+        id: 'moxxy',
+        title: 'moxxy workspace',
+        expanded: true,
+        sessionCountLabel: '2',
+        toggleAccessibilityLabel: 'Collapse workspace moxxy workspace',
+        visibleSessions: [
+          expect.objectContaining({
+            id: 'active-session',
+            title: 'Przeanalizuj aplikację',
+            active: true,
+            accessibilityLabel: 'Open session Przeanalizuj aplikację',
+            statusLabel: 'Live',
+          }),
+          expect.objectContaining({
+            id: 'history-session',
+            title: 'Poznaj strukturę aplikacji',
+            active: false,
+            statusLabel: null,
+          }),
+        ],
+      }),
+      expect.objectContaining({
+        id: 'tata',
+        title: 'Tata',
+        expanded: false,
+        sessionCountLabel: '1',
+        collapsedSummary: '1 session hidden',
+        toggleAccessibilityLabel: 'Expand workspace Tata',
+        visibleSessions: [],
+      }),
+    ]);
   });
 });
 
