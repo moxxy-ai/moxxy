@@ -54,6 +54,39 @@ describe('EventProjector', () => {
     expect(p.project(ev({ type: 'tool_result', callId: 'x', ok: true, output: { ast: sampleDoc } }))).toEqual([]);
   });
 
+  it('emits a file-diff frame from a Write/Edit tool_result carrying a display', () => {
+    const p = new EventProjector();
+    const display = {
+      kind: 'file-diff',
+      path: 'src/foo.ts',
+      mode: 'update',
+      added: 2,
+      removed: 1,
+      hunks: [
+        {
+          oldStart: 1,
+          oldLines: 2,
+          newStart: 1,
+          newLines: 3,
+          lines: [
+            { kind: 'context', text: 'a', oldNo: 1, newNo: 1 },
+            { kind: 'del', text: 'b', oldNo: 2 },
+            { kind: 'add', text: 'b2', newNo: 2 },
+            { kind: 'add', text: 'c', newNo: 3 },
+          ],
+        },
+      ],
+    };
+    const frames = p.project(ev({ type: 'tool_result', callId: 'w1', name: 'Write', ok: true, output: { forModel: 'Updated', display } }));
+    expect(frames).toEqual([{ kind: 'file-diff', turnId: 't1', display }]);
+  });
+
+  it('does NOT emit a file-diff frame for a failed write result', () => {
+    const p = new EventProjector();
+    const display = { kind: 'file-diff', path: 'x', mode: 'create', added: 1, removed: 0, hunks: [] };
+    expect(p.project(ev({ type: 'tool_result', callId: 'w2', ok: false, output: { display } }))).toEqual([]);
+  });
+
   it('hides synthesized [ui-action] prompts but shows real ones', () => {
     const p = new EventProjector();
     expect(p.project(ev({ type: 'user_prompt', text: '[ui-action] ...' }))).toEqual([]);

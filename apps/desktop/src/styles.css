@@ -61,6 +61,12 @@
   --color-red-border:   #fecaca;
   --color-red-text:     #dc2626;
   --color-green-soft:   #ecfdf5;   /* success tile fill (emerald-50) */
+  /* File-diff rows — line backgrounds + accents for added/removed code. */
+  --color-diff-add-bg:   #e3f7ea;
+  --color-diff-add-text: #15803d;
+  --color-diff-del-bg:   #fdecee;
+  --color-diff-del-text: #b91c1c;
+  --color-diff-gutter:   #94a3b8;
   /* Onboarding SuccessRow chip — a stronger green-100/200/800 set. */
   --color-success-soft:        #dcfce7;
   --color-success-soft-border: #bbf7d0;
@@ -159,6 +165,11 @@
   --color-red-border:   #5c2b33;
   --color-red-text:     #f87171;
   --color-green-soft:   #11261e;
+  --color-diff-add-bg:   #10301e;
+  --color-diff-add-text: #86efac;
+  --color-diff-del-bg:   #3a1620;
+  --color-diff-del-text: #fca5a5;
+  --color-diff-gutter:   #697091;
   --color-success-soft:        #0e2a1c;
   --color-success-soft-border: #1c4532;
   --color-success-soft-text:   #7ce0a8;

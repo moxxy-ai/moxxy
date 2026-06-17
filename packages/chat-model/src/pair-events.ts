@@ -1,4 +1,5 @@
 import type { MoxxyEvent, PluginEvent, ToolCompactPresentation } from '@moxxy/sdk';
+import { isFileDiffDisplay } from '@moxxy/sdk/tool-display';
 import type {
   Block,
   LiveToolBlockData,
@@ -10,6 +11,28 @@ import type {
 import { oneLine } from './format.js';
 
 const SUBAGENT_PLUGIN_ID = '@moxxy/subagents';
+
+/**
+ * Tools whose results carry a `file-diff` display. They render as their own
+ * standalone block (with an inline diff preview) rather than folding into a
+ * compact "Writing 1 file…" live aggregate — so the user sees what changed
+ * without expanding. Diff *rendering* is shape-driven (`isFileDiffResult`),
+ * so a plugin tool emitting the same payload still renders richly; this set
+ * only governs the request-time aggregation decision (no outcome yet then).
+ */
+export const FILE_DIFF_TOOL_NAMES: ReadonlySet<string> = new Set(['Write', 'Edit']);
+
+/** Does this settled outcome carry a renderable file diff? */
+export function isFileDiffResult(
+  outcome: ToolCallBlockData['outcome'],
+): outcome is import('@moxxy/sdk').ToolResultEvent {
+  return (
+    outcome !== null &&
+    outcome.type === 'tool_result' &&
+    outcome.ok &&
+    isFileDiffDisplay((outcome.output as { display?: unknown } | undefined)?.display)
+  );
+}
 
 /**
  * Fold a subagent `plugin_event` into the `subagents` map / `root` array.
@@ -225,7 +248,8 @@ export function pairToolEvents(
         root.push(openScope);
         continuationSkillEvent = null;
       }
-      const compact = compactByName.get(e.name);
+      // File-edit tools never aggregate — each renders its own diff inline.
+      const compact = FILE_DIFF_TOOL_NAMES.has(e.name) ? undefined : compactByName.get(e.name);
       if (compact) {
         // Compact tool — aggregate into an open live block, or start one.
         if (!openLive) {

@@ -1,4 +1,5 @@
 import type { MoxxyEvent } from './events.js';
+import { isToolDisplayResult } from './tool-display.js';
 
 /**
  * Shared elision decision logic — the single source of truth for "is this event
@@ -16,6 +17,10 @@ export const TINY_TURN_CHARS = 200;
 export function toolResultBytes(output: unknown, errorMessage?: string): number {
   if (errorMessage !== undefined) return errorMessage.length;
   if (typeof output === 'string') return output.length;
+  // Rich results (e.g. file diffs) only ever send their short `forModel`
+  // string to the model — measure THAT so the estimate matches projection
+  // and the bulky `display` payload never trips elision.
+  if (isToolDisplayResult(output)) return output.forModel.length;
   try {
     return JSON.stringify(output ?? '').length;
   } catch {

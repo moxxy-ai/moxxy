@@ -1,4 +1,4 @@
-import type { MoxxyEvent, ViewDoc } from '@moxxy/sdk';
+import { isFileDiffDisplay, type MoxxyEvent, type ViewDoc } from '@moxxy/sdk';
 import type { ServerFrame } from './protocol.js';
 
 /**
@@ -30,6 +30,12 @@ export class EventProjector {
         return [{ kind: 'status', turnId: String(event.turnId), phase: 'tool', text: `${event.name}…` }];
       }
       case 'tool_result': {
+        // Rich tool results (Write/Edit) carry a structured `display`; render
+        // the diff in the chat stream, independent of present_view correlation.
+        const display = (event.output as { display?: unknown } | undefined)?.display;
+        if (event.ok && isFileDiffDisplay(display)) {
+          return [{ kind: 'file-diff', turnId: String(event.turnId), display }];
+        }
         const pending = this.presentCalls.get(String(event.callId));
         if (!pending) return [];
         this.presentCalls.delete(String(event.callId));

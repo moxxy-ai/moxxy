@@ -11,12 +11,15 @@
 
 import { useState } from 'react';
 import {
+  isFileDiffResult,
   oneLine,
   summarizeArgs,
   type Block as FoldedBlock,
   type ToolCallBlockData,
 } from '@moxxy/chat-model';
+import { isFileDiffDisplay, type FileDiffDisplay } from '@moxxy/sdk/tool-display';
 import { Icon } from '@moxxy/desktop-ui';
+import { FileDiffBlock } from './blocks/FileDiffBlock';
 
 type SkillScope = Extract<FoldedBlock, { kind: 'skill-scope' }>;
 
@@ -134,6 +137,17 @@ function Avatar(): JSX.Element {
 
 export function ToolRow({ tool }: { readonly tool: ToolRowData }): JSX.Element {
   const [open, setOpen] = useState(false);
+  // A settled Write/Edit inside a skill scope renders as a diff card.
+  if (isFileDiffResult(tool.outcome)) {
+    const display = (tool.outcome.output as { display: FileDiffDisplay }).display;
+    if (isFileDiffDisplay(display)) {
+      return (
+        <li style={{ listStyle: 'none', marginTop: 4 }}>
+          <FileDiffBlock display={display} />
+        </li>
+      );
+    }
+  }
   const status = statusOf(tool.outcome);
   const accent =
     status === 'error' ? 'var(--color-red)' : status === 'ok' ? 'var(--color-green)' : 'var(--color-primary)';

@@ -20,6 +20,7 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import type { MoxxyEvent } from '@moxxy/sdk';
+import { isFileDiffDisplay, type FileDiffDisplay } from '@moxxy/sdk/tool-display';
 import {
   askStore,
   ChatStoreBridge,
@@ -30,6 +31,7 @@ import {
   useConnection,
 } from '@moxxy/client-core';
 import { bootMobile } from './boot';
+import { FileDiffView } from './FileDiffView';
 
 // If a URL is baked in via env, connect straight away; otherwise show the QR
 // scanner so the user pairs by scanning the code `moxxy mobile` prints.
@@ -151,7 +153,11 @@ function Chat(): React.JSX.Element {
         renderItem={({ item }) => (
           <View style={[styles.event, item.line.who === 'you' && styles.eventUser]}>
             <Text style={styles.eventWho}>{item.line.who}</Text>
-            <Text style={styles.eventText}>{item.line.text}</Text>
+            {item.line.diff ? (
+              <FileDiffView display={item.line.diff} />
+            ) : (
+              <Text style={styles.eventText}>{item.line.text}</Text>
+            )}
           </View>
         )}
         ListFooterComponent={
@@ -225,6 +231,8 @@ function AskPrompt({ workspaceId }: { workspaceId: string | null }): React.JSX.E
 interface Line {
   readonly who: 'you' | 'moxxy' | 'tool' | 'error';
   readonly text: string;
+  /** When set, render a diff card instead of the one-line `text` fallback. */
+  readonly diff?: FileDiffDisplay;
 }
 
 /** Human-readable line for the transcript-bearing events; null skips the rest
@@ -237,8 +245,15 @@ function renderLine(event: MoxxyEvent): Line | null {
       return event.content.trim() ? { who: 'moxxy', text: event.content } : null;
     case 'tool_call_requested':
       return { who: 'tool', text: `→ ${event.name}` };
-    case 'tool_result':
+    case 'tool_result': {
+      // Write/Edit results carry `output: { forModel, display }`; when the
+      // display is a file-diff, render it as a card (see FileDiffView).
+      const display = (event.output as { display?: unknown } | undefined)?.display;
+      if (event.ok && isFileDiffDisplay(display)) {
+        return { who: 'tool', text: '', diff: display };
+      }
       return { who: 'tool', text: event.ok ? '✓ done' : `✗ ${event.error?.message ?? 'failed'}` };
+    }
     case 'error':
       return { who: 'error', text: event.message };
     default:

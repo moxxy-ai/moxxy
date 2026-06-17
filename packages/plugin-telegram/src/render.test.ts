@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { asPluginId, asSessionId, asToolCallId, asTurnId, type MoxxyEvent } from '@moxxy/sdk';
 import { splitForTelegram, TurnRenderer } from './render.js';
+import { composeFrame } from './channel/html.js';
+import type { FileDiffDisplay } from '@moxxy/sdk';
 
 const sid = asSessionId('s');
 const tid = asTurnId('t');
@@ -57,6 +59,96 @@ describe('TurnRenderer', () => {
     );
     expect(after.activityHtml).toContain('✗');
     expect(after.activityHtml).toContain('threw');
+  });
+
+  it('renders a file-diff tool_result as a diff fence + summary in the composed frame', () => {
+    const r = new TurnRenderer();
+    const display: FileDiffDisplay = {
+      kind: 'file-diff',
+      path: 'src/app.ts',
+      mode: 'update',
+      added: 2,
+      removed: 1,
+      hunks: [
+        {
+          oldStart: 10,
+          oldLines: 2,
+          newStart: 10,
+          newLines: 3,
+          lines: [
+            { kind: 'context', text: 'const a = 1;', oldNo: 10, newNo: 10 },
+            { kind: 'del', text: 'const b = 2;', oldNo: 11 },
+            { kind: 'add', text: 'const b = 3;', newNo: 11 },
+            { kind: 'add', text: 'const c = 4;', newNo: 12 },
+          ],
+        },
+      ],
+    };
+    r.accept(baseEvent({ type: 'tool_call_requested', callId: c1, name: 'Edit', input: { file_path: 'src/app.ts' }, source: 'model' }, 0));
+    const frame = r.accept(
+      baseEvent({ type: 'tool_result', callId: c1, ok: true, output: { forModel: 'edited', display }, source: 'tool' }, 1),
+    );
+
+    // Frame carries the pre-formatted diff HTML.
+    expect(frame.diffHtml).toContain('<pre><code class="language-diff">');
+    expect(frame.diffHtml).toContain('@@ -10,2 +10,3 @@');
+    expect(frame.diffHtml).toContain('-const b = 2;');
+    expect(frame.diffHtml).toContain('+const b = 3;');
+    expect(frame.diffHtml).toContain('<b>Update src/app.ts</b>');
+    expect(frame.diffHtml).toContain('Added 2 lines, removed 1 line');
+
+    // Composed frame includes the diff block after the (empty) body.
+    const composed = composeFrame(frame);
+    expect(composed).toContain('language-diff');
+    expect(composed).toContain('@@ -10,2 +10,3 @@');
+  });
+
+  it('shows only the summary line for a truncated file-diff with no hunks', () => {
+    const r = new TurnRenderer();
+    const display: FileDiffDisplay = {
+      kind: 'file-diff',
+      path: 'big.json',
+      mode: 'create',
+      added: 5000,
+      removed: 0,
+      hunks: [],
+      truncated: true,
+    };
+    r.accept(baseEvent({ type: 'tool_call_requested', callId: c1, name: 'Write', input: { file_path: 'big.json' }, source: 'model' }, 0));
+    const frame = r.accept(
+      baseEvent({ type: 'tool_result', callId: c1, ok: true, output: { forModel: 'wrote', display }, source: 'tool' }, 1),
+    );
+    expect(frame.diffHtml).toContain('<b>Create big.json</b>');
+    expect(frame.diffHtml).toContain('Added 5000 lines');
+    expect(frame.diffHtml).toContain('(diff truncated)');
+    // No empty code block when there are no hunks.
+    expect(frame.diffHtml).not.toContain('<pre>');
+  });
+
+  it('escapes HTML special chars inside the diff fence body', () => {
+    const r = new TurnRenderer();
+    const display: FileDiffDisplay = {
+      kind: 'file-diff',
+      path: 'x.tsx',
+      mode: 'update',
+      added: 1,
+      removed: 0,
+      hunks: [
+        {
+          oldStart: 1,
+          oldLines: 0,
+          newStart: 1,
+          newLines: 1,
+          lines: [{ kind: 'add', text: 'const x = <Foo a={b && c} />;', newNo: 1 }],
+        },
+      ],
+    };
+    r.accept(baseEvent({ type: 'tool_call_requested', callId: c1, name: 'Edit', input: {}, source: 'model' }, 0));
+    const frame = r.accept(
+      baseEvent({ type: 'tool_result', callId: c1, ok: true, output: { forModel: 'ok', display }, source: 'tool' }, 1),
+    );
+    expect(frame.diffHtml).toContain('+const x = &lt;Foo a={b &amp;&amp; c} /&gt;;');
+    expect(frame.diffHtml).not.toContain('<Foo');
   });
 
   it('appends an error footer when an error event arrives', () => {

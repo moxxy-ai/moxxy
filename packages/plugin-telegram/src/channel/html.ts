@@ -16,6 +16,11 @@ export function composeFrame(snap: RenderedFrame): string {
   const parts: string[] = [];
   if (snap.activityHtml) parts.push(snap.activityHtml);
   if (snap.body) parts.push(markdownToTelegramHtml(snap.body));
+  // File-diff blocks are already Telegram HTML (summary line + a
+  // <pre><code class="language-diff"> fence), so they skip the markdown
+  // converter. Append after the body; the frame pump's `splitForTelegram`
+  // handles the 4000-char cap, sending overflow as follow-up messages.
+  if (snap.diffHtml) parts.push(snap.diffHtml);
   if (snap.errorHtml) parts.push(snap.errorHtml);
   return parts.join('\n\n');
 }

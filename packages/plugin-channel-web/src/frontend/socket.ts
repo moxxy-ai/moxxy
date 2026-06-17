@@ -1,12 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ViewDoc } from '@moxxy/sdk';
+import type { FileDiffDisplay, ViewDoc } from '@moxxy/sdk';
 import type { ClientFrame, ServerFrame } from '../protocol';
 import { applyView, canGoBack, currentEntry, goBack, initialNav, navigateTo, type NavState } from './view-store';
 
-export interface TranscriptMessage {
+/** A prose turn from the user or assistant, mirrored into the transcript. */
+export interface TranscriptText {
   readonly role: 'assistant' | 'user';
   readonly text: string;
 }
+
+/** A structured file diff (from a Write/Edit tool result) shown inline in the stream. */
+export interface TranscriptDiff {
+  readonly role: 'diff';
+  readonly display: FileDiffDisplay;
+}
+
+/** One entry in the chat stream — prose or a rendered diff. */
+export type TranscriptMessage = TranscriptText | TranscriptDiff;
 
 export interface ViewSocket {
   readonly connected: boolean;
@@ -68,6 +78,8 @@ export function useViewSocket(): ViewSocket {
         setStatus(null);
       } else if (frame.kind === 'message') {
         setMessages((prev) => [...prev, { role: frame.role, text: frame.text }]);
+      } else if (frame.kind === 'file-diff') {
+        setMessages((prev) => [...prev, { role: 'diff', display: frame.display }]);
       } else if (frame.kind === 'status') {
         if (frame.phase === 'done') setStatus(null);
         else if (frame.phase === 'error') setStatus({ text: frame.text || 'error', error: true });

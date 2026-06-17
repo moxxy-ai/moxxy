@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { oneLine, summarizeArgs, type ToolCallBlockData } from '@moxxy/chat-model';
+import { isFileDiffResult, oneLine, summarizeArgs, type ToolCallBlockData } from '@moxxy/chat-model';
+import { isFileDiffDisplay, type FileDiffDisplay } from '@moxxy/sdk/tool-display';
 import { Icon } from '@moxxy/desktop-ui';
 import { preStyle, pretty } from './block-shared';
+import { FileDiffBlock } from './FileDiffBlock';
 
 export function ToolBlock({
   name,
@@ -13,6 +15,11 @@ export function ToolBlock({
   readonly outcome: ToolCallBlockData['outcome'];
 }): JSX.Element {
   const [open, setOpen] = useState(false);
+  // A settled Write/Edit result renders as a diff card instead of raw JSON.
+  if (isFileDiffResult(outcome)) {
+    const display = (outcome.output as { display: FileDiffDisplay }).display;
+    if (isFileDiffDisplay(display)) return <FileDiffBlock display={display} />;
+  }
   const status: 'running' | 'ok' | 'error' =
     outcome === null
       ? 'running'

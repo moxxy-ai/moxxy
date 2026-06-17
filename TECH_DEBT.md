@@ -929,6 +929,21 @@ macOS 26) — or better, resolve a real `node` from PATH for the unit and only f
 the Electron binary. Low blast radius today (services are normally installed from a real
 terminal CLI), but silently wrong when it happens.
 
+### 13. `@moxxy/sdk` barrel re-exports node-only code → browser/RN bundles break — OPEN (partially mitigated)
+**Observed 2026-06-17** building the cross-channel file-diff preview. The `@moxxy/sdk`
+index barrel re-exports node-coupled modules (e.g. `tunnel.js` → `node:child_process` via
+`spawnCliTunnel`), so ANY browser/React-Native consumer that imports a **runtime value**
+from `@moxxy/sdk` pulls those built-ins and fails to bundle: the desktop vite renderer
+errored `"spawn" is not exported by "__vite-browser-external"`, and Metro would hit the
+same. Type-only imports are fine (erased); the trap is value imports (here the pure diff
+helpers `toDiffRows`/`fileDiffSummary`/`isFileDiffDisplay`/…). Mitigated for this feature
+by adding a **dependency-free `@moxxy/sdk/tool-display` subpath export** and importing the
+helpers from there in chat-model/desktop/mobile. But the trap recurs every time a new pure
+SDK helper is needed by a renderer. Fix shape: either split the SDK into a browser-safe
+pure core entry + a node-only entry, or systematically expose each pure leaf module as its
+own subpath export (and lint/forbid renderer code importing the barrel for values). Low
+blast radius today (one-off per helper) but a sharp edge for every future shared helper.
+
 ---
 
 ## Resolved ledger (verified still in place 2026-06-08)

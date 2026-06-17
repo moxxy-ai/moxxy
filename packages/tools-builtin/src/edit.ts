@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { MoxxyError, defineTool, writeFileAtomic, z } from '@moxxy/sdk';
+import { buildFileDiffDisplay } from './file-diff.js';
 import { resolvePath } from './util.js';
 
 export const editTool = defineTool({
@@ -33,14 +34,9 @@ export const editTool = defineTool({
     }
     const original = await fs.readFile(resolved, 'utf8');
     let updated: string;
-    // Number of replace_all occurrences, derived from the same split that
-    // produces `updated` so large files are only split once. -1 when the
-    // single-replacement branch ran (occurrence count is always 1 there).
-    let replaceAllOccurrences = -1;
     if (replace_all) {
       const parts = original.split(old_string);
       updated = parts.join(new_string);
-      replaceAllOccurrences = parts.length - 1;
       if (updated === original)
         throw new MoxxyError({ code: 'TOOL_ERROR', message: `old_string not found in ${resolved}` });
     } else {
@@ -59,7 +55,8 @@ export const editTool = defineTool({
     // Atomic whole-file write (tmp + rename) so a crash/abort mid-write can't
     // leave a truncated file.
     await writeFileAtomic(resolved, updated);
-    const occurrences = replace_all ? replaceAllOccurrences : 1;
-    return `edited ${resolved}: ${occurrences} replacement${occurrences === 1 ? '' : 's'}`;
+    // Rich result: the model gets a short summary line; channels render the
+    // diff slices (line numbers, +/- markers, green/red backgrounds).
+    return buildFileDiffDisplay({ cwd: ctx.cwd, absPath: resolved, before: original, after: updated, mode: 'update' });
   },
 });

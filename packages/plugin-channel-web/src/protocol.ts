@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ViewDoc } from '@moxxy/sdk';
+import type { FileDiffDisplay, ViewDoc } from '@moxxy/sdk';
 
 /**
  * Wire protocol between the web surface server and the browser. Plain JSON over
@@ -32,6 +32,8 @@ export type ServerFrame =
     }
   /** Assistant or user prose, mirrored into the transcript. */
   | { readonly kind: 'message'; readonly turnId: string; readonly role: 'assistant' | 'user'; readonly text: string }
+  /** A structured file diff (from a Write/Edit tool result), rendered in the chat stream. */
+  | { readonly kind: 'file-diff'; readonly turnId: string; readonly display: FileDiffDisplay }
   /** Acknowledge an inbound action. */
   | { readonly kind: 'ack'; readonly actionId: string; readonly accepted: boolean; readonly reason?: string };
 

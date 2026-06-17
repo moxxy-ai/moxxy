@@ -26,7 +26,9 @@ export const BlockLine: React.FC<BlockLineProps> = memo(
   function BlockLine({ block, expandToolOutputs }) {
     if (block.kind === 'event') return <EventLine event={block.event} />;
     if (block.kind === 'tool-call') {
-      return <ToolCallBlock request={block.request} outcome={block.outcome} />;
+      return (
+        <ToolCallBlock request={block.request} outcome={block.outcome} expanded={expandToolOutputs} />
+      );
     }
     if (block.kind === 'subagent') {
       return <SubagentScopeView scope={block} />;

@@ -138,6 +138,23 @@ export type {
 } from './provider.js';
 export type { CacheStrategyDef, CacheStrategyContext } from './cache-strategy.js';
 export type {
+  DiffLine,
+  DiffHunk,
+  DiffRow,
+  FileDiffDisplay,
+  ToolDisplay,
+  ToolDisplayResult,
+} from './tool-display.js';
+export {
+  isToolDisplayResult,
+  isToolDisplay,
+  isFileDiffDisplay,
+  fileDiffSummary,
+  fileDiffVerb,
+  diffGutterNo,
+  toDiffRows,
+} from './tool-display.js';
+export type {
   ViewNode,
   ViewAction,
   ViewDoc,

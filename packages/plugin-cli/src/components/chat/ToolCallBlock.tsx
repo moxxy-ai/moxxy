@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
-import type { ToolCallRequestedEvent, ToolResultEvent } from '@moxxy/sdk';
+import { isFileDiffDisplay, type FileDiffDisplay, type ToolCallRequestedEvent, type ToolResultEvent } from '@moxxy/sdk';
 import { Colors, Glyphs } from '../../theme.js';
-import { dotColorForTool, oneLine, stringify, summarizeArgs, truncate } from '@moxxy/chat-model';
+import { dotColorForTool, isFileDiffResult, oneLine, stringify, summarizeArgs, truncate } from '@moxxy/chat-model';
+import { FileDiffView } from './FileDiffView.js';
 
 
 /**
@@ -35,7 +36,17 @@ const NAME_DISPLAY_MAX = 48;
 export const ToolCallBlock: React.FC<{
   request: ToolCallRequestedEvent;
   outcome: ToolResultEvent | { type: 'denied'; reason: string } | null;
-}> = ({ request, outcome }) => {
+  /** Global Ctrl+O toggle — expands file-diff previews to their full set. */
+  expanded?: boolean;
+}> = ({ request, outcome, expanded = false }) => {
+  // A settled Write/Edit result renders as a full diff card (its own header,
+  // summary, and changed slices) instead of the generic outcome line.
+  if (isFileDiffResult(outcome)) {
+    const display = (outcome.output as { display: FileDiffDisplay }).display;
+    if (isFileDiffDisplay(display)) {
+      return <FileDiffView display={display} expanded={expanded} />;
+    }
+  }
   const status: 'pending' | 'ok' | 'err' =
     outcome === null
       ? 'pending'

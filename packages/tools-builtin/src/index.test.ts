@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { asSessionId, asToolCallId, asTurnId } from '@moxxy/sdk';
-import type { ToolContext } from '@moxxy/sdk';
+import { asSessionId, asToolCallId, asTurnId, isToolDisplayResult } from '@moxxy/sdk';
+import type { ToolContext, ToolDisplayResult } from '@moxxy/sdk';
 import { readTool } from './read.js';
 import { writeTool } from './write.js';
 import { editTool } from './edit.js';
@@ -60,13 +60,17 @@ describe('writeTool', () => {
 });
 
 describe('editTool', () => {
-  it('replaces a unique occurrence', async () => {
+  it('replaces a unique occurrence and returns a file-diff display', async () => {
     await fs.writeFile(path.join(tmp, 'a.txt'), 'foo bar baz');
-    await editTool.handler(
+    const result = await editTool.handler(
       { file_path: 'a.txt', old_string: 'bar', new_string: 'qux', replace_all: false },
       baseCtx(),
     );
     expect(await fs.readFile(path.join(tmp, 'a.txt'), 'utf8')).toBe('foo qux baz');
+    expect(isToolDisplayResult(result)).toBe(true);
+    const r = result as ToolDisplayResult;
+    expect(r.display.kind).toBe('file-diff');
+    expect(r.forModel).toContain('a.txt');
   });
 
   it('errors when old_string is not unique without replace_all', async () => {

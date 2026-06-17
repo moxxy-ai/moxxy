@@ -1,4 +1,6 @@
+import { promises as fs } from 'node:fs';
 import { MoxxyError, defineTool, writeFileAtomic, z } from '@moxxy/sdk';
+import { buildFileDiffDisplay } from './file-diff.js';
 import { resolvePath } from './util.js';
 
 export const writeTool = defineTool({
@@ -28,9 +30,21 @@ export const writeTool = defineTool({
     if (ctx.signal.aborted) {
       throw new MoxxyError({ code: 'ABORTED', message: `Write aborted before start: ${resolved}` });
     }
+    // Read any existing content first so we can show a real diff (and tell
+    // "create" from "overwrite"). Missing file → create from empty.
+    let before = '';
+    let mode: 'create' | 'update' = 'create';
+    try {
+      before = await fs.readFile(resolved, 'utf8');
+      mode = 'update';
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
     // Atomic whole-file write (tmp + rename) so a crash/abort mid-write can't
     // leave a truncated file. writeFileAtomic creates parent dirs.
     await writeFileAtomic(resolved, content);
-    return `wrote ${content.length} chars to ${resolved}`;
+    // Rich result: the model gets a short summary line; channels render the
+    // diff slices (line numbers, +/- markers, green/red backgrounds).
+    return buildFileDiffDisplay({ cwd: ctx.cwd, absPath: resolved, before, after: content, mode });
   },
 });

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { TranscriptMessage } from './socket';
+import { FileDiffView } from './render-diff';
 
 /**
  * On-demand chat panel (opened from the floating button) for refining the
@@ -30,11 +31,15 @@ export function ChatPanel(props: {
         {messages.length === 0 && (
           <div className="chat-hint">Ask the agent to change this view — e.g. “add a price filter” or “sort by departure time”.</div>
         )}
-        {messages.map((m, i) => (
-          <div key={i} className={`chat-msg ${m.role}`}>
-            {m.text}
-          </div>
-        ))}
+        {messages.map((m, i) =>
+          m.role === 'diff' ? (
+            <FileDiffView key={i} display={m.display} />
+          ) : (
+            <div key={i} className={`chat-msg ${m.role}`}>
+              {m.text}
+            </div>
+          ),
+        )}
         {status && <div className={status.error ? 'chat-status err' : 'chat-status'}>{status.error ? `⚠ ${status.text}` : status.text}</div>}
         <div ref={endRef} />
       </div>

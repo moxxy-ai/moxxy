@@ -18,6 +18,7 @@
 import type { MoxxyEvent } from '@moxxy/sdk';
 import {
   ChunkedBlockLog,
+  FILE_DIFF_TOOL_NAMES,
   newBlockId,
   pairToolEvents,
   type Block as FoldedBlock,
@@ -74,7 +75,13 @@ export function groupToolNodes(nodes: ReadonlyArray<RenderNode>): RenderNode[] {
     run = [];
   };
   for (const n of nodes) {
-    if (n.kind === 'block' && n.block.kind === 'tool-call') {
+    // File edits (Write/Edit) render as their own diff card — never folded
+    // into a "Tools · N" group — so the diff preview stays visible inline.
+    if (
+      n.kind === 'block' &&
+      n.block.kind === 'tool-call' &&
+      !FILE_DIFF_TOOL_NAMES.has(n.block.request.name)
+    ) {
       run.push(n.block);
     } else {
       flush();

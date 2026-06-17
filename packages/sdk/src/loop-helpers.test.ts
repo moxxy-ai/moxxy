@@ -151,6 +151,46 @@ describe('projectMessagesFromLog', () => {
       content: [{ type: 'text', text: 'running it now' }],
     });
   });
+
+  it('projects only `forModel` for a rich tool result (file diff), never the display payload', () => {
+    // A Write/Edit returns { forModel, display:{kind:'file-diff', hunks:[…]} }.
+    // The model must see ONLY the short summary — the bulky hunks stay
+    // channel-side, so the context window never carries the full diff.
+    const display = {
+      forModel: 'edited /repo/a.ts — added 1 line, removed 1 line',
+      display: {
+        kind: 'file-diff' as const,
+        path: 'a.ts',
+        mode: 'update' as const,
+        added: 1,
+        removed: 1,
+        hunks: [
+          {
+            oldStart: 1,
+            oldLines: 1,
+            newStart: 1,
+            newLines: 1,
+            lines: [{ kind: 'del' as const, text: 'before', oldNo: 1 }, { kind: 'add' as const, text: 'after', newNo: 1 }],
+          },
+        ],
+      },
+    };
+    const log = reader([
+      event(0, { type: 'user_prompt', turnId: t1, source: 'user', text: 'edit it' }),
+      event(1, { type: 'tool_call_requested', turnId: t1, source: 'model', callId: 'c1', name: 'Edit', input: {} }),
+      event(2, { type: 'tool_result', turnId: t1, source: 'tool', callId: 'c1', ok: true, output: display }),
+    ]);
+
+    const messages = projectMessagesFromLog({ log });
+    const toolResult = messages.find((m) => m.role === 'tool_result');
+    const block = toolResult!.content[0]!;
+    expect(block).toMatchObject({ type: 'tool_result', content: display.forModel });
+    // The hunks / file content must NOT leak into the projected text.
+    if (block.type === 'tool_result') {
+      expect(block.content).not.toContain('hunks');
+      expect(block.content).not.toContain('before');
+    }
+  });
 });
 
 function reader(events: ReadonlyArray<MoxxyEvent>): EventLogReader {

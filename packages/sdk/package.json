@@ -44,6 +44,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./tool-display": {
+      "types": "./dist/tool-display.d.ts",
+      "import": "./dist/tool-display.js"
     }
   },
   "files": [

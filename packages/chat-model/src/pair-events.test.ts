@@ -19,6 +19,7 @@ import {
 import {
   blocksEquivalent,
   countToolCalls,
+  isFileDiffResult,
   isSettled,
   pairToolEvents,
   type CompactToolMap,
@@ -528,5 +529,47 @@ describe('countToolCalls — mixed tree', () => {
     );
     // 1 verbose + 1 scope-child + 2 live = 4.
     expect(countToolCalls(blocks)).toBe(4);
+  });
+});
+
+describe('pairToolEvents — file-edit tools', () => {
+  const fileDiffOutput = {
+    forModel: 'edited /a.ts — added 1 line, removed 1 line',
+    display: {
+      kind: 'file-diff' as const,
+      path: 'a.ts',
+      mode: 'update' as const,
+      added: 1,
+      removed: 1,
+      hunks: [],
+    },
+  };
+
+  it('keeps Write/Edit as standalone tool-call blocks even with a compact map present', () => {
+    // 'Write' would otherwise look compactable; file edits must NOT aggregate
+    // so each renders its own inline diff.
+    const writeCompact: ToolCompactPresentation = { verb: 'Writing', noun: { one: 'file', other: 'files' } };
+    const blocks = pairToolEvents(
+      [
+        toolRequest('w1', 'Write', { file_path: '/a.ts' }),
+        toolResult('w1', fileDiffOutput),
+        toolRequest('e1', 'Edit', { file_path: '/b.ts' }),
+        toolResult('e1', fileDiffOutput),
+      ],
+      new Map([
+        ['Write', writeCompact],
+        ['Edit', writeCompact],
+      ]),
+    );
+    expect(blocks.map((b) => b.kind)).toEqual(['tool-call', 'tool-call']);
+  });
+
+  it('isFileDiffResult detects a settled file-edit result', () => {
+    const blocks = pairToolEvents([toolRequest('w1', 'Write', { file_path: '/a.ts' }), toolResult('w1', fileDiffOutput)]);
+    const block = asToolCall(blocks[0]);
+    expect(isFileDiffResult(block.outcome)).toBe(true);
+    // A plain string result (e.g. bash) is not a file diff.
+    const plain = pairToolEvents([toolRequest('b1', 'bash'), toolResult('b1', 'ok')]);
+    expect(isFileDiffResult(asToolCall(plain[0]).outcome)).toBe(false);
   });
 });

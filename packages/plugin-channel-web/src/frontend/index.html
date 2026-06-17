@@ -125,6 +125,30 @@
         border-radius: 10px; padding: 9px 11px; font: inherit; }
       .chat-input button { background: var(--accent); color: #fff; border: 0; border-radius: 10px;
         padding: 0 14px; font: inherit; font-weight: 600; cursor: pointer; }
+      /* file diff */
+      .v-diff { align-self: stretch; border: 1px solid var(--line); border-radius: var(--radius);
+        overflow: hidden; background: var(--panel); font-size: 12.5px; }
+      .v-diff-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+        padding: 6px 10px; background: var(--panel2); border-bottom: 1px solid var(--line); }
+      .v-diff-path { font-weight: 600; word-break: break-all; }
+      .v-diff-sum { color: var(--ok); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        white-space: nowrap; }
+      .v-diff-body { overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        line-height: 1.45; }
+      .v-diff-row { display: flex; white-space: pre; }
+      .v-diff-no { flex: 0 0 auto; width: 3.5em; padding: 0 8px; text-align: right; color: var(--muted);
+        user-select: none; border-right: 1px solid var(--line); }
+      .v-diff-mark { flex: 0 0 auto; width: 1.5em; text-align: center; user-select: none; color: var(--muted); }
+      .v-diff-text { flex: 1 1 auto; padding-right: 10px; }
+      .v-diff-ctx { color: var(--muted); }
+      .v-diff-add { background: rgba(63, 185, 80, 0.16); }
+      .v-diff-add .v-diff-mark, .v-diff-add .v-diff-text { color: var(--ok); }
+      .v-diff-del { background: rgba(248, 81, 73, 0.16); }
+      .v-diff-del .v-diff-mark, .v-diff-del .v-diff-text { color: var(--danger); }
+      .v-diff-gap { color: var(--muted); opacity: 0.6; }
+      .v-diff-gap .v-diff-mark { color: var(--muted); }
+      .v-diff-trunc { padding: 4px 10px; color: var(--warn); font-size: 12px;
+        border-top: 1px solid var(--line); background: var(--panel2); }
     </style>
   </head>
   <body>

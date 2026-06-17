@@ -11,6 +11,7 @@ import {
   toolResultStub,
   toolResultStubbed,
 } from './elision-state.js';
+import { isToolDisplayResult } from './tool-display.js';
 import { applyLazyTools } from './tool-gating.js';
 import { runCompactionIfNeeded } from './compactor-helpers.js';
 import { runElisionIfNeeded } from './elision-helpers.js';
@@ -330,6 +331,10 @@ export function projectMessages(
           text = toolResultStub(e.callId, toolResultBytes(e.output), recalled);
         } else if (e.error) {
           text = `[error:${e.error.kind}] ${e.error.message}`;
+        } else if (isToolDisplayResult(e.output)) {
+          // Rich result (e.g. a file diff): the model only needs the short
+          // `forModel` summary — the structured `display` is for channels.
+          text = e.output.forModel;
         } else {
           text = typeof e.output === 'string' ? e.output : JSON.stringify(e.output ?? '');
         }
