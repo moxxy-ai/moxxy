@@ -182,12 +182,14 @@ jobs:
             artifact: dmg
           # Pinned to windows-2022, NOT windows-latest. `windows-latest` now
           # resolves to the windows-2025-vs2026 image, which ships Visual
-          # Studio 2026 — and node-gyp@9.4.1 (what @electron/rebuild drives to
-          # compile node-pty against Electron's ABI) only recognises VS up to
-          # 2022, so it fails with "Could not find any Visual Studio
-          # installation to use". windows-2022 carries VS2022, which node-gyp
-          # detects. Revisit when node-gyp is upgraded to a VS2026-aware
-          # release (see TECH_DEBT) and this can return to windows-latest.
+          # Studio 2026 — and node-gyp's VS finder (what @electron/rebuild drives
+          # to compile node-pty against Electron's ABI) can't detect VS2026 even
+          # on the node-gyp 11 we now pin (it reads VS's 18.x version as
+          # undefined; no released node-gyp handles it yet — nodejs/node-gyp#3282).
+          # So it fails with "Could not find any Visual Studio installation to
+          # use". windows-2022 carries VS2022, which node-gyp detects. Revisit
+          # once node-gyp ships VS2026 support (see TECH_DEBT); the other pin
+          # (Python) is already gone now that node-gyp 11 is Python-3.12-native.
           - os: windows-2022
             artifact: exe
           - os: ubuntu-latest
@@ -215,18 +217,11 @@ jobs:
           cache: pnpm
 
       # node-pty (a real dep of @moxxy/cli, bundled into the desktop) compiles
-      # from source via node-gyp@9, which imports Python's `distutils`. That
-      # module was removed from the stdlib in Python 3.12 — now the default
-      # `python3` on the current macOS / Ubuntu / Windows runner images — so the
-      # native build fails with "No module named 'distutils'" both at
-      # `pnpm install` (node-pty is in onlyBuiltDependencies) and again at
-      # electron-builder's @electron/rebuild. Pin 3.11, the last release that
-      # still ships distutils, on every leg so node-gyp resolves it.
-      - name: Setup Python (node-gyp needs distutils)
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
+      # from source via node-gyp at both `pnpm install` (it's in
+      # onlyBuiltDependencies) and electron-builder's @electron/rebuild. A root
+      # `pnpm.overrides` pins node-gyp 11, which is Python-3.12-native (it dropped
+      # the `distutils` import that broke node-gyp 9 on the runners' default
+      # Python 3.12), so no Python pin is needed on any leg.
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
