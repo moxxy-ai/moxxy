@@ -50,11 +50,15 @@ export function emitInsertPath(detail: FileInsertDetail): void {
 export function WorkspaceFiles({
   workspaceId,
   reloadSignal = 0,
+  onPickFile,
 }: {
   readonly workspaceId: string;
   /** Increment to re-read the root + every expanded folder (the rail's
    *  reload button) — picks up files the agent wrote / the user added. */
   readonly reloadSignal?: number;
+  /** When provided, a file click calls this (the Files pane opens its
+   *  Add-to-agent / Open dropdown) instead of immediately inserting the path. */
+  readonly onPickFile?: (detail: FileInsertDetail, anchor: { x: number; y: number }) => void;
 }): JSX.Element {
   const [cwd, setCwd] = useState<string | null>(null);
   const [nodes, setNodes] = useState<Record<string, DirNode>>({});
@@ -144,6 +148,7 @@ export function WorkspaceFiles({
         nodes={nodes}
         onToggle={toggle}
         cwd={cwd}
+        onPickFile={onPickFile}
       />
     </div>
   );
@@ -156,6 +161,7 @@ function DirRow({
   nodes,
   onToggle,
   cwd,
+  onPickFile,
 }: {
   readonly path: string;
   readonly level: number;
@@ -163,6 +169,7 @@ function DirRow({
   readonly nodes: Record<string, DirNode>;
   readonly onToggle: (path: string) => void;
   readonly cwd: string | null;
+  readonly onPickFile?: (detail: FileInsertDetail, anchor: { x: number; y: number }) => void;
 }): JSX.Element {
   const node = nodes[path];
   const open = expanded.has(path);
@@ -206,6 +213,7 @@ function DirRow({
                   nodes={nodes}
                   onToggle={onToggle}
                   cwd={cwd}
+                  onPickFile={onPickFile}
                 />
               );
             }
@@ -216,6 +224,7 @@ function DirRow({
                 path={child}
                 level={path === '.' ? 0 : level + 1}
                 cwd={cwd}
+                onPickFile={onPickFile}
               />
             );
           })}
@@ -230,11 +239,13 @@ function FileRow({
   path,
   level,
   cwd,
+  onPickFile,
 }: {
   readonly name: string;
   readonly path: string;
   readonly level: number;
   readonly cwd: string | null;
+  readonly onPickFile?: (detail: FileInsertDetail, anchor: { x: number; y: number }) => void;
 }): JSX.Element {
   return (
     <Row
@@ -243,14 +254,18 @@ function FileRow({
       level={level}
       kind="file"
       title={path}
-      onClick={() => {
+      onClick={(e) => {
         // Build the absolute path locally so the composer doesn't
         // need to know the workspace cwd. cwd is filled in on the
         // first listDir response; if for any reason it hasn't loaded
         // yet, fall back to the relative path (still usable as a
         // mention, the agent's cwd-rooted tools will resolve it).
         const absPath = cwd ? `${cwd.replace(/\/+$/, '')}/${path}` : path;
-        emitInsertPath({ relPath: path, absPath, name });
+        const detail: FileInsertDetail = { relPath: path, absPath, name };
+        // The Files pane opens a dropdown (Add to agent / Open); without a
+        // handler, fall back to the original "click = insert" behavior.
+        if (onPickFile) onPickFile(detail, { x: e.clientX, y: e.clientY });
+        else emitInsertPath(detail);
       }}
     />
   );
@@ -267,7 +282,7 @@ function Row({
   readonly icon: React.ReactNode;
   readonly name: string;
   readonly level: number;
-  readonly onClick: () => void;
+  readonly onClick: (e: React.MouseEvent) => void;
   readonly kind: 'file' | 'dir';
   readonly title?: string;
 }): JSX.Element {

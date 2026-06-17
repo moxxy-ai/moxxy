@@ -43,6 +43,8 @@
     "@moxxy/runner": "workspace:*",
     "@moxxy/sdk": "workspace:*",
     "@moxxy/workflows-builder": "workspace:*",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
     "electron-updater": "^6.8.3",
     "qrcode": "^1.5.4",
     "react": "catalog:",

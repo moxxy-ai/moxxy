@@ -38,7 +38,11 @@ export type IconName =
   | 'settings'
   | 'agent'
   | 'workspace'
-  | 'folder';
+  | 'folder'
+  | 'terminal'
+  | 'globe'
+  | 'file'
+  | 'diff';
 
 export interface IconProps extends SVGProps<SVGSVGElement> {
   readonly name: IconName;
@@ -242,5 +246,32 @@ const paths: Record<IconName, JSX.Element> = {
   ),
   folder: (
     <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+  ),
+  terminal: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="m7 9 3 3-3 3" />
+      <path d="M13 15h4" />
+    </>
+  ),
+  globe: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18" />
+      <path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z" />
+    </>
+  ),
+  file: (
+    <>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5" />
+    </>
+  ),
+  diff: (
+    <>
+      <path d="M12 3v6" />
+      <path d="M9 6h6" />
+      <path d="M9 18h6" />
+    </>
   ),
 };

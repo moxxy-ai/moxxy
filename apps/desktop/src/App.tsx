@@ -20,7 +20,7 @@ import { Onboarding } from './onboarding/Onboarding';
 import { ChatSurface } from './chat/ChatSurface';
 import { WorkspaceSidebar } from './shell/WorkspaceSidebar';
 import type { View } from './shell/ViewHeader';
-import { ContextRail } from './shell/ContextRail';
+import { ContextRail, type RailPane } from './shell/ContextRail';
 import { WorkflowsPanel } from './workflows/WorkflowsPanel';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { UpdateBanner } from './shell/UpdateBanner';
@@ -51,10 +51,10 @@ export function App(): JSX.Element {
   const { prefs, loading: prefsLoading } = usePrefs();
   const phase = snapshot?.phase;
   const [view, setView] = useState<View>('chat');
-  // Context rail starts collapsed — the chat surface is what matters
-  // on first launch; the user can open the rail when they want to
-  // browse files / inspect the workspace.
-  const [railOpen, setRailOpen] = useState(false);
+  // Context rail starts collapsed. The context button opens a dropdown
+  // (terminal / files changed / browser); picking one sets the active pane
+  // and opens the rail. Null = collapsed.
+  const [railPane, setRailPane] = useState<RailPane | null>(null);
   const [lastConnected, setLastConnected] = useState<typeof phase>(undefined);
   // Local flag that flips the moment the user clicks "Open my
   // workspaces" in the FirstRunWizard, so we don't re-render the
@@ -224,13 +224,13 @@ export function App(): JSX.Element {
           <ChatSurface
             phase={shellPhase}
             workspaceId={activeWorkspaceId}
-            railOpen={railOpen}
-            onShowRail={() => setRailOpen(true)}
+            railPane={railPane}
+            onPickPane={setRailPane}
             onView={setView}
           />
           <ContextRail
-            open={railOpen}
-            onClose={() => setRailOpen(false)}
+            pane={railPane}
+            onClose={() => setRailPane(null)}
             workspaceId={activeWorkspaceId}
           />
         </>
