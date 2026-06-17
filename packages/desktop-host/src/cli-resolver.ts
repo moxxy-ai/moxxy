@@ -124,8 +124,8 @@ export function augmentedPaths(platform: NodeJS.Platform = process.platform): st
 export function spawnPath(extraDirs: ReadonlyArray<string> = []): string {
   const dirs = [
     ...extraDirs,
-    ...augmentedPaths(),
     ...(process.env.PATH ?? '').split(delimiter),
+    ...augmentedPaths(),
   ].filter(Boolean);
   return [...new Set(dirs)].join(delimiter);
 }

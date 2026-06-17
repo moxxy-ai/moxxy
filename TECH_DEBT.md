@@ -522,6 +522,11 @@ item — the debt it *creates* is logged here on sight:
   the full loading state before any transcript is available. Existing session history
   remains mounted while the runner catches up, with the composer kept non-ready until
   the session is actually connected.
+- **Retired (found + fixed same PR): desktop runner startup could pick an older GUI
+  fallback Node before the user's shell Node.** `spawnPath` now keeps explicit CLI dirs
+  first, then the inherited shell `PATH`, then macOS GUI fallback paths, so `moxxy serve`
+  no longer crashes under an old `/usr/local/bin/node` when dev desktop is launched from
+  Electron.
 
 ## 2026-06-17 — mobile session tree parity
 

@@ -9,6 +9,7 @@ import {
   augmentedPaths,
   electronNodeBinary,
   findExecutable,
+  spawnPath,
 } from './cli-resolver';
 
 let tmp: string;
@@ -159,6 +160,18 @@ describe('augmentedPaths', () => {
   it('adds no platform dirs on linux', () => {
     delete process.env.HOME;
     expect(augmentedPaths('linux')).toEqual([]);
+  });
+});
+
+describe('spawnPath', () => {
+  it('keeps the inherited shell PATH ahead of GUI fallbacks', () => {
+    const cliDir = path.join(tmp, 'cli-bin');
+    const shellNode = path.join(tmp, 'nvm-node');
+    process.env.PATH = [shellNode, '/usr/bin'].join(path.delimiter);
+
+    const paths = spawnPath([cliDir]).split(path.delimiter);
+
+    expect(paths.slice(0, 4)).toEqual([cliDir, shellNode, '/usr/bin', '/usr/local/bin']);
   });
 });
 
