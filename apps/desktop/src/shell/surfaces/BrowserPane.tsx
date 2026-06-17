@@ -7,6 +7,8 @@ interface BrowserFrame {
   readonly base64?: string;
   readonly mime?: string;
   readonly url?: string;
+  /** Carried by `{ type: 'status' }` payloads — launch progress or a hard error. */
+  readonly text?: string;
 }
 
 /**
@@ -19,6 +21,7 @@ interface BrowserFrame {
  */
 export function BrowserPane({ workspaceId }: { readonly workspaceId: string | null }): JSX.Element {
   const [frame, setFrame] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
   const [url, setUrl] = useState('');
   const [editingUrl, setEditingUrl] = useState('');
   const imgRef = useRef<HTMLDivElement | null>(null);
@@ -27,6 +30,9 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
     const p = payload as BrowserFrame;
     if (p?.type === 'frame' && typeof p.base64 === 'string') {
       setFrame(`data:${p.mime ?? 'image/jpeg'};base64,${p.base64}`);
+      setStatus(null);
+    } else if (p?.type === 'status') {
+      setStatus(typeof p.text === 'string' ? p.text : null);
     }
     if (typeof p?.url === 'string') {
       setUrl(p.url);
@@ -126,8 +132,8 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
         {frame ? (
           <img src={frame} alt={url || 'browser'} style={{ width: '100%', height: 'auto', display: 'block' }} />
         ) : (
-          <div style={{ padding: 24, fontSize: 12, color: 'var(--color-text-dim)' }}>
-            {surface.ready ? 'Loading…' : 'Starting browser…'}
+          <div style={{ padding: 24, fontSize: 12, color: 'var(--color-text-dim)', textAlign: 'center' }}>
+            {status ?? (surface.ready ? 'Loading…' : 'Starting browser…')}
           </div>
         )}
       </div>
