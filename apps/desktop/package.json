@@ -107,6 +107,7 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
+      "artifactName": "moxxy-desktop-${version}-${arch}.${ext}",
       "target": [
         "dmg",
         "zip"
@@ -146,7 +147,8 @@
     },
     "win": {
       "target": "nsis",
-      "icon": "public/logo.png"
+      "icon": "public/logo.png",
+      "artifactName": "moxxy-desktop-${version}-setup.${ext}"
     }
   }
 }

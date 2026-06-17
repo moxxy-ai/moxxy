@@ -39,18 +39,42 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
 
 ## 2026-06-17 — desktop native build (node-gyp) is brittle against runner-image churn
 
-- **`node-gyp@9.4.1` is too old for the current GitHub runner images, and the desktop
-  release build (electron-builder → `@electron/rebuild` → node-gyp, rebuilding `node-pty`
-  against Electron's ABI) papers over it with two CI pins rather than fixing the root.**
-  Two breakages, same cause: (1) macOS/Linux runners default to Python 3.12, which dropped
-  `distutils` that node-gyp@9 imports → pinned Python 3.11 in `release.yml` (#200); (2)
-  `windows-latest` moved to the `windows-2025-vs2026` image (Visual Studio 2026), which
-  node-gyp@9's VS finder doesn't recognise → pinned the Windows leg to `windows-2022`
-  (this change). **Real fix:** bump `node-gyp` to a VS2026-aware / Python-3.12-native
-  release (≥10, likely 11) via a `pnpm.overrides` entry + lockfile regen, verify
-  `@electron/rebuild@3.6.1` drives it cleanly on all three legs, then drop the Python pin
-  and return the Windows leg to `windows-latest`. Until then both pins will silently rot
-  as the pinned images age out.
+- **Partly retired — node-gyp modernised, Python pin dropped, one CI pin remains.**
+  `node-gyp@9.4.1` was too old for the current GitHub runner images (electron-builder →
+  `@electron/rebuild` → node-gyp rebuilds `node-pty` against Electron's ABI). A root
+  `pnpm.overrides` now pins **node-gyp `^11.5.0`** (lockfile regenerated); 11.x is
+  Python-3.12-native, so the **Python 3.11 pin from #200 is removed** from `release.yml`
+  on every leg. `@electron/rebuild@3.6.1` (which declares node-gyp `^9.0.0`) drives the
+  overridden 11.x fine.
+- **Residual (1): the Windows leg is still pinned to `windows-2022`.** Even node-gyp 11
+  can't detect Visual Studio 2026 on the `windows-2025-vs2026` image (it reads VS's 18.x
+  version as `undefined`); no released node-gyp handles it yet (nodejs/node-gyp#3282 /
+  #3250). `windows-2022` (VS2022) is the required mitigation until node-gyp ships VS2026
+  support — then this can return to `windows-latest`.
+- **Residual (2): node-gyp can't advance past 11.x without raising the repo's Node floor.**
+  node-gyp 12 needs Node `>=20.17`, node-gyp 13 needs `>=22.22.2`; the repo declares
+  `engines.node: ">=20.10.0"` and node-pty compiles via node-gyp at install time, so a
+  newer node-gyp would break `pnpm install` on supported Node versions. Revisit if/when the
+  minimum Node bumps (e.g. when dropping Node 20).
+
+## 2026-06-17 — desktop self-update URL broke on product-name spaces (mac + win)
+
+- **Retired: `app.updateShell` (Tier-2) 404'd on macOS and Windows because the updater
+  feed referenced an asset name GitHub had renamed.** `productName` is `"MoxxyAI
+  Workspaces"` (a space); mac/win had no explicit `artifactName`, so the default templates
+  produced spaced names. electron-builder wrote the space as a hyphen into
+  `latest-mac.yml` / `latest.yml` (`MoxxyAI-Workspaces-…`), while GitHub rewrote the space
+  in the uploaded asset to a dot (`MoxxyAI.Workspaces-…`) — so electron-updater built a
+  download URL that didn't exist (e.g.
+  `…/desktop-v0.8.0/MoxxyAI-Workspaces-0.8.0-arm64-mac.zip`). Linux was unaffected because
+  it already had a space-free `artifactName`. Fixed by giving mac
+  (`moxxy-desktop-${version}-${arch}.${ext}`) and win
+  (`moxxy-desktop-${version}-setup.${ext}`) the same space-free convention, so the feed
+  path, the on-disk file, and the GitHub asset name all match.
+- **Residual: already-published releases (≤ desktop-v0.8.0) keep the broken asset names**
+  — this fix only corrects releases built after it, so 0.7.x→0.8.0 in-app updates stay
+  broken. Repairing an old release means renaming its assets to match its own `latest*.yml`
+  (or re-uploading), a manual GitHub op done outside this change.
 
 ## 2026-06-17 — desktop OAuth provider sign-in (claude-code) + de-hardcoded auth kind
 
