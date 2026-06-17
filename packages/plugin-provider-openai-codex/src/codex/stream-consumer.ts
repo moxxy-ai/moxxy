@@ -13,6 +13,7 @@ export function toErrorEvent(err: unknown): ProviderEvent {
 export async function* consumeResponsesSse(
   body: ReadableStream<Uint8Array>,
   signal: AbortSignal | undefined,
+  emitReasoning = false,
 ): AsyncIterable<ProviderEvent> {
   const reader = body.getReader();
   const decoder = new TextDecoder('utf-8');
@@ -62,7 +63,7 @@ export async function* consumeResponsesSse(
             } catch {
               continue;
             }
-            const result = handleSseEvent(json, pending);
+            const result = handleSseEvent(json, pending, emitReasoning);
             if (result.events) {
               for (const ev of result.events) {
                 if (ev.type === 'tool_use_end') sawToolCall = true;

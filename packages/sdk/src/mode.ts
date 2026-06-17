@@ -77,6 +77,13 @@ export interface ModeContext {
   readonly elision?: ElisionSettings;
   /** When true, send only always-on + loaded tool schemas; index the rest. */
   readonly lazyTools?: boolean;
+  /**
+   * Per-provider reasoning/thinking preference, resolved from the active
+   * provider's config at session build. Forwarded to the provider as
+   * `ProviderRequest.reasoning` by {@link collectProviderStream}, gated on the
+   * active model's `supportsReasoning`. Absent/false → reasoning off.
+   */
+  readonly reasoning?: { readonly effort?: 'low' | 'medium' | 'high' } | boolean;
   readonly permissions: PermissionResolver;
   /**
    * Optional generic "ask the user a question" gate. Any loop strategy can

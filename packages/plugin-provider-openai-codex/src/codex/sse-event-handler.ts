@@ -17,11 +17,27 @@ import type { PendingFunctionCall, ResponsesSseEvent, SseStepResult } from './st
 export function handleSseEvent(
   ev: ResponsesSseEvent,
   pending: Map<string, PendingFunctionCall>,
+  emitReasoning = false,
 ): SseStepResult {
   const type = ev.type ?? '';
 
   if (type === 'response.output_text.delta' && typeof ev.delta === 'string' && ev.delta) {
     return { events: [{ type: 'text_delta', delta: ev.delta }] };
+  }
+
+  // Reasoning summary text (Codex requests `summary: 'auto'`) → reasoning_delta.
+  // The streamed summary is the visible "thinking" between tool calls. Gated on
+  // the per-provider reasoning toggle; off → discard as before.
+  if (emitReasoning && type === 'response.reasoning_summary_text.delta' && typeof ev.delta === 'string' && ev.delta) {
+    return { events: [{ type: 'reasoning_delta', delta: ev.delta }] };
+  }
+
+  // A `reasoning` output item carries the encrypted_content we must replay
+  // verbatim on the next request (Codex requests `include: ['reasoning.encrypted_content']`).
+  if (emitReasoning && type === 'response.output_item.added' && ev.item?.type === 'reasoning') {
+    return ev.item.encrypted_content
+      ? { events: [{ type: 'reasoning_signature', encrypted: ev.item.encrypted_content }] }
+      : {};
   }
 
   if (type === 'response.output_item.added' && ev.item?.type === 'function_call') {

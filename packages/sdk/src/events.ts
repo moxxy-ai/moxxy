@@ -49,6 +49,40 @@ export interface AssistantMessageEvent extends EventBase {
   readonly stopReason: 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence' | 'error';
 }
 
+/**
+ * A live reasoning/thinking delta. Parallels {@link AssistantChunkEvent}: it is
+ * streamed for the UI's live "thinking…" preview and is NOT retained in the
+ * display log (renderers accumulate it ephemerally, clearing on the matching
+ * {@link ReasoningMessageEvent} or the turn's `assistant_message`). Only
+ * emitted when the active provider+model supports reasoning AND it is enabled
+ * in that provider's config.
+ */
+export interface ReasoningChunkEvent extends EventBase {
+  readonly type: 'reasoning_chunk';
+  readonly delta: string;
+}
+
+/**
+ * A finalized reasoning summary for ONE provider call. Parallels
+ * {@link AssistantMessageEvent}: it is persisted + replayed, and because
+ * `collectProviderStream` runs once per loop round these land between tool
+ * batches (the "summary of the work done between calls" behavior). The
+ * `signature`/`redacted`/`encrypted` fields exist purely for history
+ * round-trip — Anthropic requires the signed `thinking` block be replayed
+ * first on a tool-use continuation; Codex/Anthropic redacted thinking carries
+ * an opaque blob replayed verbatim and never shown.
+ */
+export interface ReasoningMessageEvent extends EventBase {
+  readonly type: 'reasoning_message';
+  readonly content: string;
+  /** Anthropic thinking-block signature; absent for providers that don't sign. */
+  readonly signature?: string;
+  /** True when the reasoning is redacted/encrypted and must not be displayed. */
+  readonly redacted?: boolean;
+  /** Opaque provider blob (Anthropic redacted_thinking data / Codex encrypted_content) replayed as-is. */
+  readonly encrypted?: string;
+}
+
 export interface ToolCallRequestedEvent extends EventBase {
   readonly type: 'tool_call_requested';
   readonly callId: ToolCallId;
@@ -226,6 +260,8 @@ export type MoxxyEvent =
   | UserPromptEvent
   | AssistantChunkEvent
   | AssistantMessageEvent
+  | ReasoningChunkEvent
+  | ReasoningMessageEvent
   | ToolCallRequestedEvent
   | ToolCallApprovedEvent
   | ToolCallDeniedEvent

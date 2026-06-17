@@ -23,7 +23,13 @@ import {
   pairToolEvents,
   type CompactToolMap,
 } from './pair-events.js';
-import type { LiveToolBlockData, SkillScopeBlock, SubagentBlock, ToolCallBlockData } from './types.js';
+import type {
+  LiveToolBlockData,
+  SkillScopeBlock,
+  SubagentBlock,
+  SubagentGroupBlock,
+  ToolCallBlockData,
+} from './types.js';
 
 // ---------------------------------------------------------------------------
 // Synthetic-event builders. Each returns a fully-typed MoxxyEvent so we drive
@@ -136,11 +142,15 @@ const asLive = (b: unknown): LiveToolBlockData => {
   expect(block.kind).toBe('live-tools');
   return block;
 };
-const asSubagent = (b: unknown): SubagentBlock => {
-  const block = b as SubagentBlock;
-  expect(block.kind).toBe('subagent');
+const asSubagentGroup = (b: unknown): SubagentGroupBlock => {
+  const block = b as SubagentGroupBlock;
+  expect(block.kind).toBe('subagent-group');
   return block;
 };
+
+// Every projection folds even a lone agent into a group; unwrap to its first
+// member so the per-agent assertions below read naturally.
+const asSubagent = (b: unknown): SubagentBlock => asSubagentGroup(b).agents[0]!;
 
 describe('pairToolEvents — verbose tool pairing', () => {
   it('pairs a tool_call_requested with its tool_result into one settled block', () => {
@@ -431,6 +441,58 @@ describe('pairToolEvents — subagent lifecycle accretion', () => {
   it('ignores subagent events with no matching started block', () => {
     const blocks = pairToolEvents([subagentEvent('subagent_tool_call', { childSessionId: 'ghost' })]);
     expect(blocks).toHaveLength(0);
+  });
+
+  it('folds two consecutive sibling agents into ONE group', () => {
+    const blocks = pairToolEvents([
+      subagentEvent('subagent_started', { childSessionId: 'cs1', label: 'a', agentType: 'Explore' }),
+      subagentEvent('subagent_started', { childSessionId: 'cs2', label: 'b', agentType: 'Explore' }),
+      subagentEvent('subagent_tool_call', { childSessionId: 'cs1' }),
+      subagentEvent('subagent_completed', { childSessionId: 'cs2', stopReason: 'end_turn', tokensUsed: 65300 }),
+      subagentEvent('subagent_completed', { childSessionId: 'cs1', stopReason: 'end_turn', tokensUsed: 1200 }),
+    ]);
+    expect(blocks).toHaveLength(1);
+    const group = asSubagentGroup(blocks[0]);
+    expect(group.agentType).toBe('Explore');
+    expect(group.agents).toHaveLength(2);
+    // Each child accretes independently by childSessionId.
+    expect(group.agents[0]!.toolCallCount).toBe(1);
+    expect(group.agents[0]!.tokensUsed).toBe(1200);
+    expect(group.agents[1]!.tokensUsed).toBe(65300);
+    expect(isSettled(group)).toBe(true);
+  });
+
+  it('breaks the group when a non-subagent block interrupts the run', () => {
+    const blocks = pairToolEvents([
+      subagentEvent('subagent_started', { childSessionId: 'cs1', label: 'a' }),
+      subagentEvent('subagent_completed', { childSessionId: 'cs1', stopReason: 'end_turn' }),
+      toolRequest('t1', 'bash', { command: 'ls' }),
+      subagentEvent('subagent_started', { childSessionId: 'cs2', label: 'b' }),
+      subagentEvent('subagent_completed', { childSessionId: 'cs2', stopReason: 'end_turn' }),
+    ]);
+    const groups = blocks.filter((b) => b.kind === 'subagent-group');
+    expect(groups).toHaveLength(2);
+  });
+
+  it('marks a group as mixed when member agent types differ', () => {
+    const group = asSubagentGroup(
+      pairToolEvents([
+        subagentEvent('subagent_started', { childSessionId: 'cs1', label: 'a', agentType: 'Explore' }),
+        subagentEvent('subagent_started', { childSessionId: 'cs2', label: 'b', agentType: 'Plan' }),
+      ])[0],
+    );
+    expect(group.agentType).toBe('mixed');
+  });
+
+  it('keeps a group unsettled while any member is still running', () => {
+    const group = asSubagentGroup(
+      pairToolEvents([
+        subagentEvent('subagent_started', { childSessionId: 'cs1', label: 'a' }),
+        subagentEvent('subagent_completed', { childSessionId: 'cs1', stopReason: 'end_turn' }),
+        subagentEvent('subagent_started', { childSessionId: 'cs2', label: 'b' }),
+      ])[0],
+    );
+    expect(isSettled(group)).toBe(false);
   });
 });
 

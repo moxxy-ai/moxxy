@@ -19,6 +19,8 @@ export type {
   UserPromptAttachment,
   AssistantChunkEvent,
   AssistantMessageEvent,
+  ReasoningChunkEvent,
+  ReasoningMessageEvent,
   ToolCallRequestedEvent,
   ToolCallApprovedEvent,
   ToolCallDeniedEvent,

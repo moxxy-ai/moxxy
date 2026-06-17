@@ -18,6 +18,49 @@ import { PROVIDER_PROMPT_TEMPLATE } from './provider-prompt';
 
 type ProviderRow = ReturnType<typeof useSettings>['providers'][number];
 
+/** Reasoning-effort levels offered for providers whose models support it.
+ *  Mirrors the CLI's proven `config.context.reasoning` path. */
+const REASONING_LEVELS = ['off', 'low', 'medium', 'high'] as const;
+type ReasoningLevel = (typeof REASONING_LEVELS)[number];
+
+// TODO(reasoning): this control persists the per-provider effort to
+// localStorage only — the runner doesn't yet pick it up live. The proven
+// functional path is the CLI's `config.context.reasoning`; wiring the desktop
+// session to it needs a typed `DesktopPrefs.reasoning` field (+ a
+// `ProviderEntry.supportsReasoning` flag) in @moxxy/desktop-ipc-contract and a
+// runner config-apply step — both outside this app/src change. Until then this
+// is a UI placeholder that round-trips the user's choice.
+const REASONING_PREF_KEY = 'moxxy.reasoning.effort';
+
+function reasoningEffortFor(providerName: string): ReasoningLevel {
+  try {
+    const raw = localStorage.getItem(REASONING_PREF_KEY);
+    const map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    const v = map[providerName];
+    return REASONING_LEVELS.includes(v as ReasoningLevel) ? (v as ReasoningLevel) : 'off';
+  } catch {
+    return 'off';
+  }
+}
+
+function setReasoningEffortFor(providerName: string, level: ReasoningLevel): void {
+  try {
+    const raw = localStorage.getItem(REASONING_PREF_KEY);
+    const map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    map[providerName] = level;
+    localStorage.setItem(REASONING_PREF_KEY, JSON.stringify(map));
+  } catch {
+    // best-effort; a missing localStorage just means the choice doesn't persist
+  }
+}
+
+/** The runner's model descriptors carry `supportsReasoning?: boolean`; it is
+ *  not yet surfaced on `ProviderEntry`, so read it defensively from whatever
+ *  the row exposes (forward-compatible once the contract plumbs it through). */
+function providerSupportsReasoning(p: ProviderRow): boolean {
+  return (p as { supportsReasoning?: boolean }).supportsReasoning === true;
+}
+
 export function ProvidersTab({
   providers,
   onToggle,
@@ -154,6 +197,7 @@ function ConfigureProviderModal({
   const [key, setKey] = useState('');
   const [baseURL, setBaseURL] = useState(provider.baseURL ?? '');
   const [defaultModel, setDefaultModel] = useState(provider.defaultModel ?? '');
+  const [reasoning, setReasoning] = useState<ReasoningLevel>(() => reasoningEffortFor(provider.name));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -281,6 +325,31 @@ function ConfigureProviderModal({
           <p style={{ margin: 0, fontSize: 12.5, color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
             Built-in provider — endpoint and model list ship with moxxy; only the key is configurable.
           </p>
+        )}
+
+        {providerSupportsReasoning(provider) && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <label style={fieldLabelStyle}>Reasoning effort</label>
+            <select
+              value={reasoning}
+              onChange={(e) => {
+                const next = e.target.value as ReasoningLevel;
+                setReasoning(next);
+                setReasoningEffortFor(provider.name, next);
+              }}
+              style={selectStyle}
+              data-testid="provider-reasoning-select"
+            >
+              {REASONING_LEVELS.map((level) => (
+                <option key={level} value={level}>
+                  {level === 'off' ? 'Off' : level[0]!.toUpperCase() + level.slice(1)}
+                </option>
+              ))}
+            </select>
+            <p style={{ margin: 0, fontSize: 11.5, color: 'var(--color-text-dim)', lineHeight: 1.5 }}>
+              How much the model thinks before answering. Higher effort is slower but deeper.
+            </p>
+          </div>
         )}
 
         {error && (

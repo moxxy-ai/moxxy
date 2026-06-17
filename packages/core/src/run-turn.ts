@@ -75,6 +75,9 @@ export async function* runTurn(
       cacheStrategy: session.cacheStrategies.getActive(),
       ...(session.elisionSettings ? { elision: session.elisionSettings } : {}),
       ...(session.lazyTools ? { lazyTools: true } : {}),
+      // Reasoning preference (effort) — honored only by providers/models that
+      // advertise `supportsReasoning` (gated in collectProviderStream).
+      ...(session.reasoning ? { reasoning: session.reasoning } : {}),
       permissions: session.resolver,
       ...(session.approvalResolver ? { approval: session.approvalResolver } : {}),
       hooks: session.dispatcher,

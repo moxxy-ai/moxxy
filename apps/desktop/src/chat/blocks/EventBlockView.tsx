@@ -1,6 +1,7 @@
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { UserBlock } from './UserBlock';
 import { AssistantBlock } from './AssistantBlock';
+import { ReasoningBlock } from './ReasoningBlock';
 
 export function EventBlockView({ event }: { readonly event: MoxxyEvent }): JSX.Element | null {
   switch (event.type) {
@@ -8,6 +9,8 @@ export function EventBlockView({ event }: { readonly event: MoxxyEvent }): JSX.E
       return <UserBlock text={event.text} attachments={event.attachments} />;
     case 'assistant_message':
       return <AssistantBlock text={event.content} streaming={false} stopReason={event.stopReason} />;
+    case 'reasoning_message':
+      return <ReasoningBlock event={event} />;
     case 'error':
       return <SystemBlock text={event.message} tone="error" />;
     case 'abort':

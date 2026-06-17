@@ -18,6 +18,8 @@ export interface UseChat {
   readonly extensions: ReadonlyArray<Extension>;
   /** In-flight assistant text, rendered as a live preview at the tail. */
   readonly streamingText: string;
+  /** In-flight reasoning/thinking text, rendered as a dim live preview. */
+  readonly streamingReasoning: string;
   readonly sending: boolean;
   readonly activeTurnId: string | null;
   readonly error: string | null;
@@ -205,6 +207,7 @@ export function useChat(workspaceId: string | null): UseChat {
     events: snap.events,
     extensions: snap.extensions,
     streamingText: snap.streamingText,
+    streamingReasoning: snap.streamingReasoning,
     sending: snap.sending,
     activeTurnId: snap.activeTurnId,
     error: snap.error,

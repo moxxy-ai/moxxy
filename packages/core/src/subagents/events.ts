@@ -36,6 +36,7 @@ export async function emitSubagentStart(
       childSessionId: String(childSessionId),
       prompt: spec.prompt,
       mode,
+      agentType: spec.agentType ?? 'default',
       ...(spec.model ? { model: spec.model } : {}),
     },
   });
@@ -49,6 +50,8 @@ export async function emitSubagentCompleted(
   text: string,
   stopReason: StopReason,
   errorMessage: string | null,
+  agentType: string,
+  tokensUsed: number,
 ): Promise<void> {
   await parentSession.log.append({
     type: 'plugin_event',
@@ -62,6 +65,8 @@ export async function emitSubagentCompleted(
       childSessionId: String(childSessionId),
       text,
       stopReason,
+      agentType,
+      tokensUsed,
       ...(errorMessage ? { error: errorMessage } : {}),
     },
   });

@@ -72,10 +72,14 @@ export async function* runDefaultMode(ctx: ModeContext): AsyncIterable<MoxxyEven
       model: ctx.model,
     });
 
-    const { text, toolUses, stopReason, error, usage } = await collectProviderStream(ctx, messages, {
-      iteration,
-      stablePrefixIndex,
-    });
+    const { text, toolUses, stopReason, error, usage, reasoning } = await collectProviderStream(
+      ctx,
+      messages,
+      {
+        iteration,
+        stablePrefixIndex,
+      },
+    );
 
     yield await ctx.emit({
       type: 'provider_response',
@@ -123,6 +127,23 @@ export async function* runDefaultMode(ctx: ModeContext): AsyncIterable<MoxxyEven
     }
     // Clean provider call — reset the overflow-recovery budget.
     reactiveCompactions = 0;
+
+    // Finalize the reasoning summary for THIS call BEFORE the tool/assistant
+    // emits, so the log order is reasoning → tool_use → text (projection
+    // attaches the signed thinking block as content[0] of the same assistant
+    // turn). collectProviderStream already guards on non-empty text / encrypted.
+    if (reasoning) {
+      yield await ctx.emit({
+        type: 'reasoning_message',
+        sessionId: ctx.sessionId,
+        turnId: ctx.turnId,
+        source: 'model',
+        content: reasoning.text,
+        ...(reasoning.signature ? { signature: reasoning.signature } : {}),
+        ...(reasoning.redacted ? { redacted: true } : {}),
+        ...(reasoning.encrypted ? { encrypted: reasoning.encrypted } : {}),
+      });
+    }
 
     const stuck = yield* emitRequestsAndDetectStuck(ctx, toolUses, detector, {
       abortedResultMessage: 'default mode loop aborted (stuck pattern) before this call ran',

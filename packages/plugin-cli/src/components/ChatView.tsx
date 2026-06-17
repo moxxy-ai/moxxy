@@ -8,6 +8,8 @@ import { StreamingPreview, tailForViewport } from './chat/StreamingPreview.js';
 export interface ChatViewProps {
   readonly events: ReadonlyArray<MoxxyEvent>;
   readonly streamingDelta?: string;
+  /** Live (un-persisted) thinking stream; shown dim when no assistant text yet. */
+  readonly reasoningDelta?: string;
   /** Global Ctrl+O toggle — expand every live-tools block at once. */
   readonly expandToolOutputs?: boolean;
   /** Per-tool compact-presentation metadata from the active tool registry. */
@@ -36,6 +38,7 @@ export interface ChatViewProps {
 export const ChatView: React.FC<ChatViewProps> = ({
   events,
   streamingDelta,
+  reasoningDelta,
   expandToolOutputs,
   compactTools,
   hideLive,
@@ -106,6 +109,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
           ))}
           {streamingDelta && streamingDelta.trim() ? (
             <StreamingPreview content={tailForViewport(streamingDelta)} />
+          ) : reasoningDelta && reasoningDelta.trim() ? (
+            // Dim live-thinking preview, only while there's no assistant text
+            // yet. Prefix lands on the same single visual row as the content
+            // tail, preserving StreamingPreview's no-stacking invariant.
+            <StreamingPreview content={`thinking · ${tailForViewport(reasoningDelta)}`} dim />
           ) : null}
         </Box>
       )}

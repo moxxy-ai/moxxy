@@ -7,12 +7,16 @@ import { BlockView, StreamingAssistant } from './BlockView';
 import { ToolGroupView } from './ToolGroupView';
 import { ExtensionCard } from './ExtensionCard';
 import { ThinkingIndicator } from './ThinkingIndicator';
+import { StreamingReasoning } from './blocks/StreamingReasoning';
 import { JumpToLatest, useNewContentBelow } from './JumpToLatest';
 
 interface TranscriptProps {
   readonly events: ReadonlyArray<MoxxyEvent>;
   readonly extensions: ReadonlyArray<Extension>;
   readonly streamingText: string;
+  /** Live thinking text for the active turn (reasoning models); shown as a
+   *  dim preview before the answer text starts arriving. */
+  readonly streamingReasoning?: string;
   readonly sending?: boolean;
   /** Forwarded into ExtensionCard for the dismiss control. */
   readonly workspaceId?: string;
@@ -74,6 +78,7 @@ export function Transcript({
   events,
   extensions,
   streamingText,
+  streamingReasoning = '',
   sending,
   workspaceId,
   hasOlder,
@@ -146,8 +151,13 @@ export function Transcript({
         components={{
           Footer: () => (
             <div style={{ padding: '0 24px 12px' }}>
-              {streamingText && <StreamingAssistant text={streamingText} />}
-              {sending && streamingText === '' && <ThinkingIndicator />}
+              {streamingText ? (
+                <StreamingAssistant text={streamingText} />
+              ) : streamingReasoning ? (
+                <StreamingReasoning text={streamingReasoning} />
+              ) : sending ? (
+                <ThinkingIndicator />
+              ) : null}
             </div>
           ),
         }}

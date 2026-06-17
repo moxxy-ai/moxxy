@@ -115,6 +115,14 @@ export const contextConfigSchema = z.object({
   elision: elisionConfigSchema.optional(),
   /** Lazy tool loading: send only core + loaded tool schemas, index the rest. Default false. */
   lazyTools: z.boolean().optional(),
+  /**
+   * Reasoning/thinking preview. `true` enables it at the model's default depth;
+   * `{ effort }` sets the depth. Honored only by providers/models that support
+   * reasoning (Anthropic adaptive thinking, OpenAI/Codex reasoning). Default off.
+   */
+  reasoning: z
+    .union([z.boolean(), z.object({ effort: z.enum(['low', 'medium', 'high']).optional() })])
+    .optional(),
 });
 
 export const moxxyConfigSchema = z.object({

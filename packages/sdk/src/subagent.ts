@@ -27,6 +27,12 @@ export interface SubagentSpec {
   /** Human-readable label surfaced in `subagent_*` event payloads. */
   readonly label?: string;
   /**
+   * Named kind this child was spawned as (e.g. `'Explore'`, `'code-reviewer'`).
+   * Surfaced in `subagent_*` payloads so sibling agents of the same kind group
+   * under one collapsible header. Defaults to `'default'`.
+   */
+  readonly agentType?: string;
+  /**
    * When true, the child session stays alive after the first turn for
    * {@link SubagentSpawner.continue}. `subagent_completed` is deferred until
    * continue or release. Used by the workflow `awaitInput` pause/resume flow.

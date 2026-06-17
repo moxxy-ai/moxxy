@@ -5,6 +5,7 @@ import { EventLine } from './EventLine.js';
 import { LiveToolBlock } from './LiveToolBlock.js';
 import { ToolCallBlock } from './ToolCallBlock.js';
 import { SubagentScopeView } from './SubagentScopeView.js';
+import { SubagentGroupView } from './SubagentGroupView.js';
 import {
   blocksEquivalent,
   countToolCalls,
@@ -24,9 +25,13 @@ export interface BlockLineProps {
 
 export const BlockLine: React.FC<BlockLineProps> = memo(
   function BlockLine({ block, expandToolOutputs }) {
-    if (block.kind === 'event') return <EventLine event={block.event} />;
+    if (block.kind === 'event')
+      return <EventLine event={block.event} expandToolOutputs={expandToolOutputs} />;
     if (block.kind === 'tool-call') {
       return <ToolCallBlock request={block.request} outcome={block.outcome} />;
+    }
+    if (block.kind === 'subagent-group') {
+      return <SubagentGroupView group={block} expandToolOutputs={expandToolOutputs} />;
     }
     if (block.kind === 'subagent') {
       return <SubagentScopeView scope={block} />;
