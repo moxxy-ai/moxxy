@@ -126,6 +126,17 @@ rail + git "Files changed" diff pane. Reviewed this journal before/while doing
 the work; the change is purely additive infrastructure, so it retires no existing
 item — the debt it *creates* is logged here on sight:
 
+- **Terminal sizing depends on the pane being full-width at mount (no width
+  animation).** Root cause of the "prompt renders one char per line" bug: when
+  the rail animated its width open, xterm's `fit()` measured a mid-slide sliver
+  and pushed ~2 columns to the PTY as its *first* resize; the shell hard-wrapped
+  its prompt to that width and xterm never reflows shell-hard-wrapped output, so
+  it stayed stacked. Fixed by dropping the rail's width transition (snap-open) +
+  a rAF-debounced, width-guarded fit. **Constraint to preserve:** never push a
+  transient/sub-full column count to a PTY-backed surface — the shell draws at
+  whatever width it's first told and won't necessarily redraw. If the rail's
+  open animation is ever reinstated, gate the first `fit()`/resize on the pane
+  having reached its final width.
 - **Browser surface reverted from CDP screencast → screenshot polling.** The CDP
   `Page.startScreencast` push only emits frames on *visual change*, so a freshly-
   opened blank/static/headless page produced **no frames at all** and the pane sat
