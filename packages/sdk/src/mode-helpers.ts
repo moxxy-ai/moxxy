@@ -197,6 +197,14 @@ export function projectMessages(
 
   let pendingAssistant: ProviderMessage | null = null;
   let pendingAssistantMaxSeq = -1;
+  // Reasoning block awaiting attachment to the current assistant turn. Only set
+  // for REPLAYABLE reasoning (Anthropic signature / redacted-or-Codex encrypted
+  // blob) — render-only reasoning is never sent back. Attached as content[0] of
+  // the turn's assistant message (Anthropic requires the signed thinking block
+  // first on an interleaved-thinking tool-use continuation; a missing/unsigned
+  // one is a hard 400). Dropped at any turn/compaction boundary it doesn't reach.
+  let pendingReasoning: Extract<ContentBlock, { type: 'reasoning' }> | null = null;
+  let pendingReasoningSeq = -1;
   const flush = (): void => {
     if (!pendingAssistant) return;
     const flushed = pendingAssistant;
@@ -238,6 +246,7 @@ export function projectMessages(
       if (!emittedCompactions.has(compaction)) {
         emittedCompactions.add(compaction);
         flush();
+        pendingReasoning = null;
         messages.push({
           role: 'user',
           content: [{ type: 'text', text: `[summary of earlier turns]\n${compaction.summary}` }],
@@ -250,6 +259,7 @@ export function projectMessages(
     switch (e.type) {
       case 'user_prompt': {
         flush();
+        pendingReasoning = null;
         // Elided + conversational: collapse to a stub (anchor/tiny kept full).
         if (conversationalStubbed(e, el)) {
           messages.push({
@@ -287,9 +297,26 @@ export function projectMessages(
         recordStable(e.seq);
         break;
       }
+      case 'reasoning_message': {
+        // Render-only reasoning (no signature/encrypted) is never replayed —
+        // it exists only for the live/scrollback "Thinking" view. Replayable
+        // reasoning is stashed for content[0] of this turn's assistant message.
+        if (e.signature || e.encrypted) {
+          pendingReasoning = {
+            type: 'reasoning',
+            text: e.content,
+            ...(e.signature ? { signature: e.signature } : {}),
+            ...(e.redacted ? { redacted: true } : {}),
+            ...(e.encrypted ? { encrypted: e.encrypted } : {}),
+          };
+          pendingReasoningSeq = e.seq;
+        }
+        break;
+      }
       case 'assistant_message':
         flush();
         if (conversationalStubbed(e, el)) {
+          pendingReasoning = null;
           messages.push({
             role: 'assistant',
             content: [{ type: 'text', text: conversationalStub('assistant', e.seq) }],
@@ -304,14 +331,31 @@ export function projectMessages(
         // tool_use blocks are projected from tool_call_requested events —
         // which also un-wedges historical logs that already contain one.
         if (e.content.trim().length === 0) {
+          pendingReasoning = null;
           recordStable(e.seq);
           break;
         }
-        messages.push({ role: 'assistant', content: [{ type: 'text', text: e.content }] });
+        {
+          const content: Array<ProviderMessage['content'][number]> = [];
+          if (pendingReasoning) {
+            content.push(pendingReasoning);
+            pendingReasoning = null;
+          }
+          content.push({ type: 'text', text: e.content });
+          messages.push({ role: 'assistant', content });
+        }
         recordStable(e.seq);
         break;
       case 'tool_call_requested': {
-        pendingAssistant ??= { role: 'assistant', content: [] };
+        if (!pendingAssistant) {
+          // Seed the assistant turn so the signed reasoning block is content[0],
+          // ahead of every tool_use (Anthropic's interleaved-thinking ordering).
+          pendingAssistant = { role: 'assistant', content: pendingReasoning ? [pendingReasoning] : [] };
+          if (pendingReasoning) {
+            pendingAssistantMaxSeq = Math.max(pendingAssistantMaxSeq, pendingReasoningSeq);
+            pendingReasoning = null;
+          }
+        }
         pendingAssistantMaxSeq = Math.max(pendingAssistantMaxSeq, e.seq);
         (pendingAssistant.content as Array<ProviderMessage['content'][number]>).push({
           type: 'tool_use',
@@ -366,6 +410,18 @@ export interface StreamResult {
   readonly error: { readonly message: string; readonly retryable: boolean } | null;
   /** Token usage reported by the provider on `message_end`, including cache hits/writes. */
   readonly usage?: TokenUsage;
+  /**
+   * Reasoning/thinking summary for this provider call, when the model emitted
+   * any. The mode emits it as a `reasoning_message` event (so it persists and
+   * round-trips). `signature`/`encrypted` carry Anthropic's signed thinking
+   * block / redacted blob; `redacted` marks display-suppressed reasoning.
+   */
+  readonly reasoning?: {
+    readonly text: string;
+    readonly signature?: string;
+    readonly redacted?: boolean;
+    readonly encrypted?: string;
+  };
 }
 
 /**
@@ -436,12 +492,17 @@ export async function collectProviderStream(
   // message-derived system text. Prefilling it would duplicate the prompt.
   // It stays as the side channel `onBeforeProviderCall` hooks use to inject
   // per-request system text (e.g. the memory consolidation nudge).
+  // Forward the per-provider reasoning preference, but only when THIS model
+  // advertises `supportsReasoning` — providers ignore the knob otherwise, but
+  // gating here keeps requests clean and avoids unsupported-param errors.
+  const reqReasoning = descriptor?.supportsReasoning ? ctx.reasoning : undefined;
   const req = {
     model: ctx.model,
     messages: effectiveMessages,
     ...(toolList ? { tools: toolList } : {}),
     ...(cacheHints && cacheHints.length > 0 ? { cacheHints } : {}),
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
+    ...(reqReasoning ? { reasoning: reqReasoning } : {}),
     signal: ctx.signal,
   };
   const transformed = await ctx.hooks.dispatchBeforeProviderCall(req, {
@@ -458,6 +519,14 @@ export async function collectProviderStream(
   let stopReason: StopReason = 'end_turn';
   let error: StreamResult['error'] = null;
   let usage: TokenUsage | undefined;
+  // Reasoning/thinking accumulation for this single provider call. Emitted as a
+  // finalized `reasoning_message` by the mode (turn-iterator / goal-loop) so it
+  // persists and round-trips; `signature`/`encrypted` carry Anthropic's signed
+  // thinking block / redacted blob for replay.
+  let reasoningText = '';
+  let reasoningSignature: string | undefined;
+  let reasoningRedacted = false;
+  let reasoningEncrypted: string | undefined;
 
   let stream: AsyncIterable<ProviderEvent>;
   try {
@@ -503,6 +572,25 @@ export async function collectProviderStream(
           error = { message: event.message, retryable: event.retryable };
           break;
         }
+        case 'reasoning_delta': {
+          reasoningText += event.delta;
+          // Live preview only — parallels `assistant_chunk`; renderers
+          // accumulate ephemerally and clear on the finalized reasoning_message.
+          await ctx.emit({
+            type: 'reasoning_chunk',
+            sessionId: ctx.sessionId,
+            turnId: ctx.turnId,
+            source: 'model',
+            delta: event.delta,
+          });
+          break;
+        }
+        case 'reasoning_signature': {
+          if (event.signature) reasoningSignature = event.signature;
+          if (event.encrypted) reasoningEncrypted = event.encrypted;
+          if (event.redacted) reasoningRedacted = true;
+          break;
+        }
         case 'message_start':
         case 'tool_use_delta':
         default:
@@ -521,7 +609,25 @@ export async function collectProviderStream(
     if (!partial.name) continue;
     finalToolUses.push({ id, name: partial.name, input: partial.input ?? {} });
   }
-  return { text, toolUses: finalToolUses, stopReason, error, ...(usage ? { usage } : {}) };
+  // Surface reasoning when there's visible text OR an opaque blob to replay
+  // (a redacted_thinking block has no text but must still round-trip).
+  const reasoning =
+    reasoningText.trim().length > 0 || reasoningEncrypted
+      ? {
+          text: reasoningText,
+          ...(reasoningSignature ? { signature: reasoningSignature } : {}),
+          ...(reasoningRedacted ? { redacted: true } : {}),
+          ...(reasoningEncrypted ? { encrypted: reasoningEncrypted } : {}),
+        }
+      : undefined;
+  return {
+    text,
+    toolUses: finalToolUses,
+    stopReason,
+    error,
+    ...(usage ? { usage } : {}),
+    ...(reasoning ? { reasoning } : {}),
+  };
 }
 
 /**

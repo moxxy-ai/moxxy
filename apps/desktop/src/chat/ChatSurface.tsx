@@ -97,6 +97,7 @@ export function ChatSurface({
             events={filteredEvents}
             extensions={searchQuery ? EMPTY_EXTENSIONS : chat.extensions}
             streamingText={searchQuery ? '' : chat.streamingText}
+            streamingReasoning={searchQuery ? '' : chat.streamingReasoning}
             sending={chat.sending}
             workspaceId={workspaceId}
             hasOlder={!searchQuery && chat.hasOlder}

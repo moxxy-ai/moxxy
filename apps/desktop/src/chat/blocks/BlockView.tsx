@@ -3,6 +3,7 @@ import { SkillGroupView } from '../SkillGroupView';
 import { EventBlockView } from './EventBlockView';
 import { ToolBlock } from './ToolBlock';
 import { SubagentView } from './SubagentView';
+import { SubagentGroupView } from './SubagentGroupView';
 
 /**
  * One transcript block, rendered from the shared @moxxy/chat-model fold.
@@ -13,6 +14,7 @@ import { SubagentView } from './SubagentView';
  *   - tool-call               → mono summary with status-coloured bar.
  *   - skill-scope             → SkillGroupView (banner + nested children).
  *   - subagent                → one-line agent row.
+ *   - subagent-group          → collapsible tree of folded sibling agents.
  *   - live-tools              → each call rendered as a tool row.
  *
  * The in-flight streaming assistant text is NOT a block — Transcript
@@ -34,6 +36,8 @@ export function BlockView({ block }: { readonly block: FoldedBlock }): JSX.Eleme
       return <SkillGroupView scope={block} />;
     case 'subagent':
       return <SubagentView block={block} />;
+    case 'subagent-group':
+      return <SubagentGroupView block={block} />;
     case 'live-tools':
       return <LiveToolsBlock block={block} />;
   }

@@ -2,9 +2,13 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { Colors, Glyphs } from '../../theme.js';
+import { truncate } from '@moxxy/chat-model';
 import { AssistantBlock } from './AssistantBlock.js';
 
-export const EventLine: React.FC<{ event: MoxxyEvent }> = ({ event }) => {
+export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolean }> = ({
+  event,
+  expandToolOutputs,
+}) => {
   switch (event.type) {
     case 'user_prompt':
       // System-injected context notes (e.g. the /vault reference) aren't user
@@ -48,6 +52,37 @@ export const EventLine: React.FC<{ event: MoxxyEvent }> = ({ event }) => {
       );
     case 'assistant_message':
       return <AssistantBlock content={event.content} />;
+    case 'reasoning_message': {
+      // Redacted/encrypted thinking is display-suppressed and can never be
+      // expanded — show a static withheld marker.
+      if (event.redacted) {
+        return (
+          <Box marginTop={1}>
+            <Text dimColor>{`${Glyphs.pending} reasoning withheld`}</Text>
+          </Box>
+        );
+      }
+      const content = event.content ?? '';
+      // Collapsed (default): one dim line — the diamond + first content line.
+      // Ctrl+O (the global expandToolOutputs toggle) reveals the full text,
+      // since Ink has no native collapse affordance.
+      if (expandToolOutputs) {
+        return (
+          <Box flexDirection="column" marginTop={1}>
+            <Text dimColor>{`${Glyphs.pending} thinking`}</Text>
+            <Box marginLeft={2}>
+              <Text dimColor>{content}</Text>
+            </Box>
+          </Box>
+        );
+      }
+      const firstLine = content.split('\n').find((l) => l.trim()) ?? '';
+      return (
+        <Box marginTop={1}>
+          <Text dimColor>{`${Glyphs.pending} thinking · ${truncate(firstLine, 100)}`}</Text>
+        </Box>
+      );
+    }
     case 'skill_invoked':
       // SkillScopeView owns this render; if we reach here it means the
       // event escaped grouping (defensive fallback only).

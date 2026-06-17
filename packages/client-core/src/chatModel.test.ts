@@ -75,6 +75,34 @@ describe('chat model runtime', () => {
     expect(blocksOf(rt)).toEqual([]);
   });
 
+  it('accumulates reasoning chunks into streamingReasoning — never into the log', () => {
+    const rt = createRuntime();
+    applyEvent(rt, evt('reasoning_chunk', { delta: 'think' }));
+    applyEvent(rt, evt('reasoning_chunk', { delta: 'ing…' }));
+    expect(rt.streamingReasoning).toBe('thinking…');
+    expect(rt.log.length).toBe(0);
+  });
+
+  it('commits reasoning_message + clears the live reasoning preview', () => {
+    const rt = createRuntime();
+    applyEvent(rt, evt('reasoning_chunk', { delta: 'pondering' }));
+    applyEvent(rt, evt('reasoning_message', { content: 'pondering' }));
+    expect(rt.streamingReasoning).toBe('');
+    const blocks = blocksOf(rt);
+    expect(blocks).toHaveLength(1);
+    expect((blocks[0] as Extract<FoldedBlock, { kind: 'event' }>).event).toMatchObject({
+      type: 'reasoning_message',
+      content: 'pondering',
+    });
+  });
+
+  it('assistant_message clears any live reasoning preview too', () => {
+    const rt = createRuntime();
+    applyEvent(rt, evt('reasoning_chunk', { delta: 'hmm' }));
+    applyEvent(rt, assistant('done.', 'end_turn'));
+    expect(rt.streamingReasoning).toBe('');
+  });
+
   it('commits the streamed text on assistant_message and clears the stream', () => {
     const rt = createRuntime();
     applyEvent(rt, chunk('hi'));

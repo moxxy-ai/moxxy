@@ -124,6 +124,9 @@ const RENDERED_EVENT_TYPES: ReadonlySet<MoxxyEvent['type']> = new Set([
   'skill_invoked',
   'error',
   'abort',
+  // Finalized per-call reasoning summary — committed + rendered as a collapsible
+  // "Thinking" block. `reasoning_chunk` (the live delta) is handled separately.
+  'reasoning_message',
 ]);
 
 const SUBAGENT_PLUGIN_ID = '@moxxy/subagents';
@@ -145,6 +148,10 @@ export interface ChatRuntime {
   readonly seenIds: Set<string>;
   extensions: Extension[];
   streamingText: string;
+  /** Live reasoning/thinking preview for the active turn (parallels
+   *  `streamingText`); cleared on the matching reasoning_message / the turn's
+   *  assistant_message / turn completion. Never committed to the log. */
+  streamingReasoning: string;
   activeTurnId: string | null;
   sending: boolean;
   error: string | null;
@@ -157,6 +164,7 @@ export function createRuntime(initialEvents: ReadonlyArray<MoxxyEvent> = []): Ch
     seenIds: new Set(initialEvents.map((e) => e.id)),
     extensions: [],
     streamingText: '',
+    streamingReasoning: '',
     activeTurnId: null,
     sending: false,
     error: null,
@@ -179,18 +187,41 @@ export function applyEvent(rt: ChatRuntime, event: MoxxyEvent): boolean {
     rt.rev += 1;
     return true;
   }
+  if (event.type === 'reasoning_chunk') {
+    // Live thinking preview — accumulate ephemerally like assistant_chunk.
+    rt.streamingReasoning += event.delta;
+    rt.rev += 1;
+    return true;
+  }
+  if (event.type === 'reasoning_message') {
+    // Finalized reasoning summary: clear the live preview and commit it as a
+    // rendered block. Drop a replayed/duplicate, still clearing any live preview.
+    if (rt.seenIds.has(event.id)) {
+      if (rt.streamingReasoning === '') return false;
+      rt.streamingReasoning = '';
+      rt.rev += 1;
+      return true;
+    }
+    rt.log.append(event);
+    rt.seenIds.add(event.id);
+    rt.streamingReasoning = '';
+    rt.rev += 1;
+    return true;
+  }
   if (event.type === 'assistant_message') {
     // Drop a replayed/duplicate message, but still clear any live streaming
     // preview it corresponds to so a re-attach mid-reply doesn't strand it.
     if (rt.seenIds.has(event.id)) {
-      if (rt.streamingText === '') return false;
+      if (rt.streamingText === '' && rt.streamingReasoning === '') return false;
       rt.streamingText = '';
+      rt.streamingReasoning = '';
       rt.rev += 1;
       return true;
     }
     rt.log.append(event);
     rt.seenIds.add(event.id);
     rt.streamingText = '';
+    rt.streamingReasoning = '';
     rt.rev += 1;
     return true;
   }
@@ -227,6 +258,7 @@ export function applyAction(rt: ChatRuntime, action: ChatAction): boolean {
         rt.seenIds.add(synth.id);
       }
       rt.streamingText = '';
+      rt.streamingReasoning = '';
       rt.sending = false;
       rt.activeTurnId = null;
       if (action.error) {
@@ -271,6 +303,7 @@ export function applyAction(rt: ChatRuntime, action: ChatAction): boolean {
       rt.seenIds.clear();
       rt.extensions = [];
       rt.streamingText = '';
+      rt.streamingReasoning = '';
       rt.activeTurnId = null;
       rt.sending = false;
       rt.error = null;

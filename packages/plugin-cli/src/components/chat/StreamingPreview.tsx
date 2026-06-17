@@ -27,9 +27,8 @@ import { Glyphs } from '../../theme.js';
  * full Markdown pipeline only kicks in once the `assistant_message` event lands
  * and the message becomes a settled `<Static>` block.
  */
-export const StreamingPreview: React.FC<{ content: string }> = memo(function StreamingPreview({
-  content,
-}) {
+export const StreamingPreview: React.FC<{ content: string; dim?: boolean }> = memo(
+  function StreamingPreview({ content, dim }) {
   const cols = process.stdout.columns ?? 80;
   // Room for the marker column (glyph + 1-col margin) plus a little slack.
   const innerCols = Math.max(20, cols - 4);
@@ -55,7 +54,7 @@ export const StreamingPreview: React.FC<{ content: string }> = memo(function Str
       <Box marginRight={1}>
         <Text dimColor>{Glyphs.filled}</Text>
       </Box>
-      <Text>{shown || ' '}</Text>
+      <Text dimColor={dim}>{shown || ' '}</Text>
     </Box>
   );
 });

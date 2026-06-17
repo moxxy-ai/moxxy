@@ -7,6 +7,10 @@ export interface EventStreamHandle {
   streamingDelta: string;
   setStreamingDelta: React.Dispatch<React.SetStateAction<string>>;
   streamingBufferRef: React.MutableRefObject<string>;
+  /** Live (un-persisted) thinking stream, throttled like `streamingDelta`. */
+  reasoningDelta: string;
+  setReasoningDelta: React.Dispatch<React.SetStateAction<string>>;
+  reasoningBufferRef: React.MutableRefObject<string>;
   /** Cancel any pending flush (used on /clear, /new, manual resets). */
   cancelStreamFlush: () => void;
 }
@@ -23,6 +27,9 @@ export function useEventStream(session: Session): EventStreamHandle {
   const [streamingDelta, setStreamingDelta] = useState('');
   const streamingBufferRef = useRef('');
   const streamFlushRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [reasoningDelta, setReasoningDelta] = useState('');
+  const reasoningBufferRef = useRef('');
+  const reasoningFlushRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const scheduleStreamFlush = React.useCallback(() => {
     if (streamFlushRef.current) return;
@@ -32,10 +39,22 @@ export function useEventStream(session: Session): EventStreamHandle {
     }, 33);
   }, []);
 
+  const scheduleReasoningFlush = React.useCallback(() => {
+    if (reasoningFlushRef.current) return;
+    reasoningFlushRef.current = setTimeout(() => {
+      reasoningFlushRef.current = null;
+      setReasoningDelta(reasoningBufferRef.current);
+    }, 33);
+  }, []);
+
   const cancelStreamFlush = React.useCallback(() => {
     if (streamFlushRef.current) {
       clearTimeout(streamFlushRef.current);
       streamFlushRef.current = null;
+    }
+    if (reasoningFlushRef.current) {
+      clearTimeout(reasoningFlushRef.current);
+      reasoningFlushRef.current = null;
     }
   }, []);
 
@@ -59,17 +78,32 @@ export function useEventStream(session: Session): EventStreamHandle {
         scheduleStreamFlush();
         return;
       }
+      // reasoning_chunk mirrors assistant_chunk: a high-frequency live
+      // thinking stream that never enters `events` (it isn't persisted).
+      // Buffer + throttle it onto its own delta.
+      if (event.type === 'reasoning_chunk') {
+        reasoningBufferRef.current += event.delta;
+        scheduleReasoningFlush();
+        return;
+      }
       setEvents((prev) => [...prev, event]);
-      if (event.type === 'assistant_message') {
+      if (event.type === 'assistant_message' || event.type === 'reasoning_message') {
         // Cancel any pending flush — the message is in `events` now,
         // so leaving the streaming delta visible would double-render.
+        // The finalized reasoning_message (persisted) supersedes the
+        // live thinking stream, so clear that too here; assistant_message
+        // ends the turn and clears both.
         cancelStreamFlush();
+        reasoningBufferRef.current = '';
+        setReasoningDelta('');
+      }
+      if (event.type === 'assistant_message') {
         streamingBufferRef.current = '';
         setStreamingDelta('');
       }
     });
     return unsub;
-  }, [session, scheduleStreamFlush, cancelStreamFlush]);
+  }, [session, scheduleStreamFlush, scheduleReasoningFlush, cancelStreamFlush]);
 
   return {
     events,
@@ -77,6 +111,9 @@ export function useEventStream(session: Session): EventStreamHandle {
     streamingDelta,
     setStreamingDelta,
     streamingBufferRef,
+    reasoningDelta,
+    setReasoningDelta,
+    reasoningBufferRef,
     cancelStreamFlush,
   };
 }

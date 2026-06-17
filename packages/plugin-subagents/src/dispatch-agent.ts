@@ -127,6 +127,8 @@ function resolveSpec(input: AgentSpecInput, deps: DispatchAgentDeps): SubagentSp
   const merged: SubagentSpec = {
     prompt: input.prompt,
     label: input.label ?? def.name,
+    // The requested kind, surfaced in subagent_* payloads for group rendering.
+    agentType: requested,
   };
   const systemPrompt = input.systemPrompt ?? def.systemPrompt;
   if (systemPrompt !== undefined) (merged as { systemPrompt?: string }).systemPrompt = systemPrompt;

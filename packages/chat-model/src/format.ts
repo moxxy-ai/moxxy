@@ -30,6 +30,17 @@ export function formatElapsed(ms: number): string {
   return `${hr}h ${remMin.toString().padStart(2, '0')}m`;
 }
 
+/**
+ * Compact token count for tree rows: `65.3k` for ≥ 1000, the raw count below
+ * that. Returns `null` for null/negative input so callers can omit the segment
+ * (e.g. a still-running agent with no total yet).
+ */
+export function formatTokensK(n: number | null | undefined): string | null {
+  if (n == null || n < 0) return null;
+  if (n < 1000) return String(n);
+  return `${(n / 1000).toFixed(1)}k`;
+}
+
 // Hard cap on the full argument-summary string. Joining lots of fields
 // (especially MCP tools with `query`, `user_intent`, `design_type`, …)
 // produces a multi-line wrap that dwarfs the rest of the chat. Cap at

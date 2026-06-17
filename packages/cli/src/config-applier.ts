@@ -94,6 +94,11 @@ export function buildSessionConfigApplier(
       applied.push('lazyTools');
     }
 
+    if (next.context?.reasoning !== last.context?.reasoning) {
+      session.reasoning = next.context?.reasoning;
+      applied.push('reasoning');
+    }
+
     if (next.hookTimeoutMs !== last.hookTimeoutMs) {
       // The dispatcher reads its timeout at construction. v0: pending.
       pending.push('hookTimeoutMs (restart required)');

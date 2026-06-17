@@ -6,6 +6,7 @@ import type {
   LiveToolCall,
   SkillScopeBlock,
   SubagentBlock,
+  SubagentGroupBlock,
   ToolCallBlockData,
 } from './types.js';
 import { oneLine } from './format.js';
@@ -45,26 +46,46 @@ function handleSubagentEvent(
   e: PluginEvent,
   subagents: Map<string, SubagentBlock>,
   root: Block[],
+  groupRef: { current: SubagentGroupBlock | null },
 ): void {
   const payload = (e.payload ?? {}) as Record<string, unknown>;
   const childSessionId = String(payload.childSessionId ?? '');
   if (!childSessionId) return;
   if (e.subtype === 'subagent_started') {
+    const agentType = String(payload.agentType ?? 'default');
     const block: SubagentBlock = {
       kind: 'subagent',
       id: e.id,
       childSessionId,
       label: String(payload.label ?? 'agent'),
+      agentType,
       startedAtMs: new Date(e.ts).getTime(),
       completedAtMs: null,
       toolCallCount: 0,
+      tokensUsed: null,
       toolCalls: [],
       stopReason: null,
       finalPreview: null,
       error: null,
     };
     subagents.set(childSessionId, block);
-    root.push(block);
+    // Fold consecutive sibling agents (a dispatch_agent fan-out) into one
+    // group. The run is broken by any non-subagent block (see pushBlock /
+    // boundary resets), so a fresh `subagent_started` after that opens a new
+    // group. A lone agent renders as a group of one.
+    if (groupRef.current) {
+      groupRef.current.agents.push(block);
+      if (groupRef.current.agentType !== agentType) groupRef.current.agentType = 'mixed';
+    } else {
+      const group: SubagentGroupBlock = {
+        kind: 'subagent-group',
+        id: `subagentgroup:${e.id}`,
+        agentType,
+        agents: [block],
+      };
+      groupRef.current = group;
+      root.push(group);
+    }
     return;
   }
   const block = subagents.get(childSessionId);
@@ -77,6 +98,7 @@ function handleSubagentEvent(
   if (e.subtype === 'subagent_completed') {
     block.completedAtMs = new Date(e.ts).getTime();
     block.stopReason = String(payload.stopReason ?? '');
+    block.tokensUsed = typeof payload.tokensUsed === 'number' ? payload.tokensUsed : 0;
     const text = typeof payload.text === 'string' ? payload.text : '';
     if (text) block.finalPreview = oneLine(text);
     if (typeof payload.error === 'string') block.error = payload.error;
@@ -137,8 +159,13 @@ export function pairToolEvents(
   // into it until something non-compact closes it.
   let openLive: LiveToolBlockData | null = null;
   const subagents = new Map<string, SubagentBlock>();
+  // Open subagent group, if any. Consecutive `subagent_started` events accrete
+  // into it; any non-subagent block (or a turn/scope boundary) closes the run.
+  const subagentGroup: { current: SubagentGroupBlock | null } = { current: null };
 
   const pushBlock = (block: Block): void => {
+    // Any non-subagent block breaks a run of sibling subagents.
+    subagentGroup.current = null;
     if (openScope) {
       openScope.children.push(block);
     } else {
@@ -205,6 +232,7 @@ export function pairToolEvents(
       // skill scope). Clearing it at the turn boundary stops a later turn that
       // happens to reuse a callId from having its tool_result silently dropped.
       suppressedCallIds.clear();
+      subagentGroup.current = null;
       root.push({ kind: 'event', id: e.id, event: e });
       continue;
     }
@@ -219,6 +247,7 @@ export function pairToolEvents(
         removeBlockByCallId(pendingLoadSkillCallId);
         pendingLoadSkillCallId = null;
       }
+      subagentGroup.current = null;
       openScope = {
         kind: 'skill-scope',
         id: e.id,
@@ -317,14 +346,15 @@ export function pairToolEvents(
         // stale skill banner two messages later.
         continuationSkillEvent = null;
       }
+      subagentGroup.current = null;
       root.push({ kind: 'event', id: e.id, event: e });
       continue;
     }
-    // Subagent events fold into one-line scope blocks so a fleet of
-    // children doesn't drown the main chat. The SubagentSpawner emits
-    // them as plugin_event with pluginId='@moxxy/subagents'.
+    // Subagent events fold into a collapsible group so a fleet of children
+    // doesn't drown the main chat. The SubagentSpawner emits them as
+    // plugin_event with pluginId='@moxxy/subagents'.
     if (e.type === 'plugin_event' && e.pluginId === SUBAGENT_PLUGIN_ID) {
-      handleSubagentEvent(e, subagents, root);
+      handleSubagentEvent(e, subagents, root, subagentGroup);
       continue;
     }
     pushBlock({ kind: 'event', id: e.id, event: e });
@@ -343,6 +373,7 @@ export function isSettled(block: Block): boolean {
   if (block.kind === 'event') return true;
   if (block.kind === 'tool-call') return block.outcome !== null;
   if (block.kind === 'subagent') return block.completedAtMs !== null || block.error !== null;
+  if (block.kind === 'subagent-group') return block.agents.every(isSettled);
   if (block.kind === 'skill-scope') {
     return block.closed && block.children.every(isSettled);
   }
@@ -368,13 +399,22 @@ export function blocksEquivalent(a: Block, b: Block): boolean {
     return a.request === b.request && a.outcome === b.outcome;
   }
   if (a.kind === 'subagent' && b.kind === 'subagent') {
-    // Subagent updates: tool count, completion timestamp, preview, error.
+    // Subagent updates: tool count, tokens, completion timestamp, preview, error.
     return (
       a.completedAtMs === b.completedAtMs &&
       a.toolCallCount === b.toolCallCount &&
+      a.tokensUsed === b.tokensUsed &&
       a.finalPreview === b.finalPreview &&
       a.error === b.error
     );
+  }
+  if (a.kind === 'subagent-group' && b.kind === 'subagent-group') {
+    if (a.agentType !== b.agentType) return false;
+    if (a.agents.length !== b.agents.length) return false;
+    for (let i = 0; i < a.agents.length; i += 1) {
+      if (!blocksEquivalent(a.agents[i]!, b.agents[i]!)) return false;
+    }
+    return true;
   }
   if (a.kind === 'skill-scope' && b.kind === 'skill-scope') {
     if (a.closed !== b.closed) return false;
@@ -402,6 +442,9 @@ export function countToolCalls(blocks: ReadonlyArray<Block>): number {
     if (b.kind === 'tool-call') n += 1;
     else if (b.kind === 'skill-scope') n += countToolCalls(b.children);
     else if (b.kind === 'live-tools') n += b.calls.length;
+    else if (b.kind === 'subagent-group') {
+      for (const a of b.agents) n += a.toolCallCount;
+    }
   }
   return n;
 }

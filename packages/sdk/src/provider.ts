@@ -19,7 +19,24 @@ export type ContentBlock =
    * to a text placeholder. Text/Office files are inlined as `text` instead — only
    * formats a model ingests as bytes become `document` blocks.
    */
-  | { readonly type: 'document'; readonly mediaType: string; readonly data: string; readonly name?: string };
+  | { readonly type: 'document'; readonly mediaType: string; readonly data: string; readonly name?: string }
+  /**
+   * A model reasoning/thinking block, preserved in conversation history so it
+   * can be replayed on the next request. Anthropic REQUIRES the signed
+   * `thinking` block be sent back (as the first block of an assistant turn that
+   * also carries tool_use) on an interleaved-thinking continuation — a missing
+   * or unsigned block is a hard 400, so the loop drops unsigned reasoning from
+   * what it replays. `redacted` blocks carry only `encrypted` (the opaque blob)
+   * and `text: ''`; they are replayed verbatim, never shown. Providers without
+   * reasoning ignore this block.
+   */
+  | {
+      readonly type: 'reasoning';
+      readonly text: string;
+      readonly signature?: string;
+      readonly redacted?: boolean;
+      readonly encrypted?: string;
+    };
 
 /**
  * Provider-neutral instruction for where a prompt-cache breakpoint should be
@@ -56,6 +73,15 @@ export interface ProviderRequest {
   readonly signal?: AbortSignal;
   /** Where to place prompt-cache breakpoints. Set by the active CacheStrategy. */
   readonly cacheHints?: ReadonlyArray<CacheHint>;
+  /**
+   * Request reasoning/thinking from the model. `false`/absent = off. Providers
+   * gate on this AND the model descriptor's `supportsReasoning`; unsupported
+   * providers/models ignore it. The loop sets it from the active provider's
+   * reasoning config (see the per-provider reasoning setting). `effort` maps to
+   * each provider's native knob (Anthropic thinking budget, OpenAI/Codex
+   * `reasoning.effort`).
+   */
+  readonly reasoning?: { readonly effort?: 'low' | 'medium' | 'high' } | boolean;
 }
 
 export type ProviderEvent =
@@ -65,7 +91,17 @@ export type ProviderEvent =
   | { readonly type: 'tool_use_delta'; readonly id: string; readonly partialInput: string }
   | { readonly type: 'tool_use_end'; readonly id: string; readonly input: unknown }
   | { readonly type: 'message_end'; readonly stopReason: 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence' | 'error'; readonly usage?: TokenUsage }
-  | { readonly type: 'error'; readonly message: string; readonly retryable: boolean };
+  | { readonly type: 'error'; readonly message: string; readonly retryable: boolean }
+  /** A streamed reasoning/thinking text delta (visible summary). */
+  | { readonly type: 'reasoning_delta'; readonly delta: string }
+  /**
+   * End-of-reasoning-block metadata for history round-trip, emitted once per
+   * reasoning block. `signature` is Anthropic's thinking-block signature;
+   * `encrypted` carries an opaque blob (Anthropic redacted_thinking data /
+   * Codex reasoning encrypted_content) that must be replayed verbatim;
+   * `redacted` marks reasoning that must never be displayed.
+   */
+  | { readonly type: 'reasoning_signature'; readonly signature?: string; readonly redacted?: boolean; readonly encrypted?: string };
 
 export interface TokenUsage {
   readonly inputTokens: number;
@@ -101,6 +137,13 @@ export interface ModelDescriptor {
    * the transcript as text instead.
    */
   readonly supportsAudio?: boolean;
+  /**
+   * Whether this model can emit reasoning/thinking summaries (Anthropic
+   * extended thinking, OpenAI o-series / Codex reasoning). Gates the
+   * per-provider reasoning config UI and whether the loop requests reasoning
+   * for this model. When false, `ProviderRequest.reasoning` is ignored.
+   */
+  readonly supportsReasoning?: boolean;
 }
 
 export interface LLMProvider {

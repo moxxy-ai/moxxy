@@ -1,12 +1,16 @@
 import { useState } from 'react';
-import { oneLine, summarizeArgs, type Block as FoldedBlock } from '@moxxy/chat-model';
+import { oneLine, summarizeArgs, type SubagentBlock } from '@moxxy/chat-model';
 import { Icon } from '@moxxy/desktop-ui';
 import { preStyle } from './block-shared';
+
+/** Violet accents mark subagents as a different KIND of actor than tool
+ *  calls — shared with SubagentGroupView so the group reads the same. */
+export const SUBAGENT_TILE_FG = 'var(--color-purple-strong)';
 
 export function SubagentView({
   block,
 }: {
-  readonly block: Extract<FoldedBlock, { kind: 'subagent' }>;
+  readonly block: SubagentBlock;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const running = block.completedAtMs === null && block.error === null;
@@ -18,10 +22,8 @@ export function SubagentView({
   // Subagents get a distinct violet tile so they read as a different KIND of
   // actor than tool calls (which are status-tinted green/pink/red).
   const tileBg = 'color-mix(in srgb, var(--color-purple) 14%, transparent)';
-  const tileFg = 'var(--color-purple-strong)';
+  const tileFg = SUBAGENT_TILE_FG;
   const statusText = running ? 'running' : block.error ? 'failed' : 'done';
-  const elapsed =
-    block.completedAtMs !== null ? Math.round((block.completedAtMs - block.startedAtMs) / 100) / 10 : null;
   return (
     <div
       data-testid="block-subagent"
@@ -94,79 +96,94 @@ export function SubagentView({
             <Icon name="chevron-right" size={14} />
           </span>
         </button>
-        {open && (
-          <div
-            style={{
-              marginTop: 6,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 6,
-              fontSize: 12,
-              color: 'var(--color-text-muted)',
-            }}
-          >
-            <div className="mono" style={{ fontSize: 11, color: 'var(--color-text-dim)' }}>
-              {block.toolCallCount} tool {block.toolCallCount === 1 ? 'call' : 'calls'}
-              {block.stopReason ? ` · ${block.stopReason}` : ''}
-              {elapsed !== null ? ` · ${elapsed}s` : ''}
-            </div>
-            {block.toolCalls.length > 0 && (
-              <ul
-                className="mono"
+        {open && <SubagentDetail block={block} />}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The expanded detail body for one subagent — its tool-call list + final
+ * preview (or error). Shared so SubagentGroupView's per-agent rows show the
+ * exact same "expand to see tool calls + final output" view as a standalone
+ * SubagentView.
+ */
+export function SubagentDetail({ block }: { readonly block: SubagentBlock }): JSX.Element {
+  const running = block.completedAtMs === null && block.error === null;
+  const elapsed =
+    block.completedAtMs !== null ? Math.round((block.completedAtMs - block.startedAtMs) / 100) / 10 : null;
+  return (
+    <div
+      style={{
+        marginTop: 6,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        fontSize: 12,
+        color: 'var(--color-text-muted)',
+      }}
+    >
+      <div className="mono" style={{ fontSize: 11, color: 'var(--color-text-dim)' }}>
+        {block.toolCallCount} tool {block.toolCallCount === 1 ? 'call' : 'calls'}
+        {block.stopReason ? ` · ${block.stopReason}` : ''}
+        {elapsed !== null ? ` · ${elapsed}s` : ''}
+      </div>
+      {block.toolCalls.length > 0 && (
+        <ul
+          className="mono"
+          style={{
+            listStyle: 'none',
+            margin: 0,
+            padding: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 3,
+          }}
+        >
+          {block.toolCalls.map((tc, i) => {
+            const sum = oneLine(summarizeArgs(tc.input));
+            return (
+              <li
+                key={i}
                 style={{
-                  listStyle: 'none',
-                  margin: 0,
-                  padding: 0,
                   display: 'flex',
-                  flexDirection: 'column',
-                  gap: 3,
+                  gap: 7,
+                  alignItems: 'baseline',
+                  padding: '4px 8px',
+                  background: 'color-mix(in srgb, var(--color-purple) 7%, transparent)',
+                  borderRadius: 7,
+                  fontSize: 11,
                 }}
               >
-                {block.toolCalls.map((tc, i) => {
-                  const sum = oneLine(summarizeArgs(tc.input));
-                  return (
-                    <li
-                      key={i}
-                      style={{
-                        display: 'flex',
-                        gap: 7,
-                        alignItems: 'baseline',
-                        padding: '4px 8px',
-                        background: 'color-mix(in srgb, var(--color-purple) 7%, transparent)',
-                        borderRadius: 7,
-                        fontSize: 11,
-                      }}
-                    >
-                      <span style={{ color: tileFg, fontWeight: 600, flexShrink: 0 }}>{tc.name}</span>
-                      {sum && (
-                        <span
-                          style={{
-                            color: 'var(--color-text-dim)',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}
-                        >
-                          {sum}
-                        </span>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            {block.error ? (
-              <pre style={{ ...preStyle, color: 'var(--color-red)' }}>{block.error}</pre>
-            ) : block.finalPreview ? (
-              <pre style={preStyle}>{block.finalPreview}</pre>
-            ) : (
-              <div style={{ fontStyle: 'italic', color: 'var(--color-text-dim)' }}>
-                {running ? 'Working…' : 'No output captured.'}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+                <span style={{ color: SUBAGENT_TILE_FG, fontWeight: 600, flexShrink: 0 }}>
+                  {tc.name}
+                </span>
+                {sum && (
+                  <span
+                    style={{
+                      color: 'var(--color-text-dim)',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    {sum}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {block.error ? (
+        <pre style={{ ...preStyle, color: 'var(--color-red)' }}>{block.error}</pre>
+      ) : block.finalPreview ? (
+        <pre style={preStyle}>{block.finalPreview}</pre>
+      ) : (
+        <div style={{ fontStyle: 'italic', color: 'var(--color-text-dim)' }}>
+          {running ? 'Working…' : 'No output captured.'}
+        </div>
+      )}
     </div>
   );
 }

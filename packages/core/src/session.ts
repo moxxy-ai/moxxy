@@ -141,6 +141,12 @@ export class Session implements ClientSession, SessionRuntime {
   /** Lazy tool loading toggle, from `config.context.lazyTools`. Default off. */
   lazyTools = false;
   /**
+   * Reasoning/thinking preference, from `config.context.reasoning`. Forwarded
+   * to each turn's ModeContext and on to the provider, which honors it only
+   * when the active model advertises `supportsReasoning`. Undefined → off.
+   */
+  reasoning: { readonly effort?: 'low' | 'medium' | 'high' } | boolean | undefined = undefined;
+  /**
    * Model id resolved by the most recent `runTurn()` (see SessionRuntime).
    * Last-writer-wins for concurrent turns; null until the first turn runs.
    */

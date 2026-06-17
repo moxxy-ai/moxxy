@@ -34,6 +34,8 @@ export interface ChatSnapshot {
   readonly events: ReadonlyArray<MoxxyEvent>;
   readonly extensions: ReadonlyArray<Extension>;
   readonly streamingText: string;
+  /** Live reasoning/thinking preview for the active turn (empty when none). */
+  readonly streamingReasoning: string;
   readonly sending: boolean;
   readonly activeTurnId: string | null;
   readonly error: string | null;
@@ -82,6 +84,7 @@ export const EMPTY_SNAPSHOT: ChatSnapshot = Object.freeze({
   events: EMPTY_EVENTS,
   extensions: EMPTY_EXTENSIONS,
   streamingText: '',
+  streamingReasoning: '',
   sending: false,
   activeTurnId: null,
   error: null,
@@ -129,6 +132,7 @@ export function buildSnapshot(slot: Slot): ChatSnapshot {
     events,
     extensions: rt.extensions,
     streamingText: rt.streamingText,
+    streamingReasoning: rt.streamingReasoning,
     sending: rt.sending,
     activeTurnId: rt.activeTurnId,
     error: rt.error,

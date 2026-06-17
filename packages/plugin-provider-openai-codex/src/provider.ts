@@ -96,6 +96,12 @@ export class CodexProvider implements LLMProvider {
     }
 
     const sessionId = this.sessionIdProvider();
+    // Reasoning preview is gated by the per-provider toggle (`req.reasoning`):
+    // when off we behave exactly as before (discard reasoning). The per-call
+    // effort, when set, overrides the instance default from provider config.
+    const emitReasoning = req.reasoning != null && req.reasoning !== false;
+    const reqEffort = typeof req.reasoning === 'object' ? req.reasoning.effort : undefined;
+    const reasoningEffort = reqEffort ?? this.reasoningEffort;
     // Pass the session id as the Responses prefix-cache key so repeated turns
     // in a session reuse the cached prefix (cheaper + faster). Codex DOES
     // support this even though the Chat-Completions providers ignore cacheHints.
@@ -103,7 +109,7 @@ export class CodexProvider implements LLMProvider {
       { ...req, model },
       {
         sessionHint: sessionId,
-        ...(this.reasoningEffort ? { reasoningEffort: this.reasoningEffort } : {}),
+        ...(reasoningEffort ? { reasoningEffort } : {}),
       },
     );
 
@@ -143,7 +149,7 @@ export class CodexProvider implements LLMProvider {
       return;
     }
 
-    yield* consumeResponsesSse(response.body, req.signal);
+    yield* consumeResponsesSse(response.body, req.signal, emitReasoning);
   }
 
   async countTokens(

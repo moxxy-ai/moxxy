@@ -205,6 +205,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
     stream.cancelStreamFlush();
     stream.setStreamingDelta('');
     stream.streamingBufferRef.current = '';
+    stream.setReasoningDelta('');
+    stream.reasoningBufferRef.current = '';
     if (action === 'clear') {
       if (notice) setSystemNotice(notice);
       return;
@@ -331,6 +333,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
       <ChatView
         events={stream.events}
         streamingDelta={stream.streamingDelta}
+        reasoningDelta={stream.reasoningDelta}
         expandToolOutputs={expandToolOutputs}
         compactTools={compactTools}
         hideLive={

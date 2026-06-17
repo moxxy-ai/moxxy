@@ -68,12 +68,15 @@ export interface AnthropicProviderConfig {
 // ceiling; sonnet-4-6 is 1M/64k; haiku-4-5 is 200k/64k. fable-5 is Anthropic's most
 // capable model (always-on reasoning); the loop never sets `temperature`, which
 // fable-5/opus-4-8/4.7 reject — so they stream cleanly here, same as opus-4-7 already did.
+// `supportsReasoning` marks models that accept adaptive thinking (`thinking:
+// {type:'adaptive', display:'summarized'}`) — fable-5/opus-4-8/4-7/4-6 and sonnet-4-6
+// do; haiku-4-5 does not (effort/adaptive-thinking error there), so it stays off.
 export const anthropicModels: ReadonlyArray<ModelDescriptor> = [
-  { id: 'claude-fable-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
-  { id: 'claude-opus-4-8', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
-  { id: 'claude-opus-4-7', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
-  { id: 'claude-opus-4-6', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
-  { id: 'claude-sonnet-4-6', contextWindow: 1_000_000, maxOutputTokens: 64_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
+  { id: 'claude-fable-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  { id: 'claude-opus-4-8', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  { id: 'claude-opus-4-7', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  { id: 'claude-opus-4-6', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  { id: 'claude-sonnet-4-6', contextWindow: 1_000_000, maxOutputTokens: 64_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
   { id: 'claude-haiku-4-5-20251001', contextWindow: 200_000, maxOutputTokens: 64_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
 ];
 
@@ -240,6 +243,22 @@ export class AnthropicProvider implements LLMProvider {
       ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
     };
 
+    // Reasoning: on supported models (gated upstream by `supportsReasoning`),
+    // enable adaptive thinking with summarized display so the model streams a
+    // readable reasoning summary (`display: 'omitted'` — the default — would
+    // stream empty thinking blocks). Adaptive thinking auto-enables interleaved
+    // thinking on the 4.6+ catalog, so no beta header is needed. `effort` maps
+    // to `output_config.effort`. Fields are attached via a cast because the
+    // pinned SDK's `MessageStreamParams` predates these params (same hand-rolled
+    // approach used for system/messages/tools above).
+    const reasoningOn = req.reasoning !== undefined && req.reasoning !== false;
+    if (reasoningOn) {
+      const effort = typeof req.reasoning === 'object' ? req.reasoning.effort : undefined;
+      const body = requestBody as unknown as Record<string, unknown>;
+      body.thinking = { type: 'adaptive', display: 'summarized' };
+      if (effort) body.output_config = { effort };
+    }
+
     // A 401 always arrives before any SSE body, so in OAuth mode we can force
     // a single refresh and replay the request with no risk of duplicate output.
     try {
@@ -284,6 +303,10 @@ export class AnthropicProvider implements LLMProvider {
     // we used to return the first key in `pendingToolUses` for every event,
     // causing two parallel blocks to overwrite each other's partial JSON.
     const blockIndexToId = new Map<number, string>();
+    // Track which block indices are `thinking` blocks so their signature_delta
+    // accumulates and flushes as a reasoning_signature at content_block_stop.
+    const thinkingBlockIndices = new Set<number>();
+    let pendingThinkingSig = '';
     let stopReason: StopReason = 'end_turn';
     let usage: { inputTokens: number; outputTokens: number } | undefined;
 
@@ -322,6 +345,12 @@ export class AnthropicProvider implements LLMProvider {
               const idx = typeof event.index === 'number' ? event.index : blockIndexToId.size;
               blockIndexToId.set(idx, block.id);
               yield { type: 'tool_use_start', id: block.id, name: block.name };
+            } else if (block && block.type === 'thinking') {
+              if (typeof event.index === 'number') thinkingBlockIndices.add(event.index);
+              pendingThinkingSig = '';
+            } else if (block && block.type === 'redacted_thinking') {
+              // No readable text — replay the opaque blob verbatim on round-trip.
+              yield { type: 'reasoning_signature', redacted: true, ...(block.data ? { encrypted: block.data } : {}) };
             }
             break;
           }
@@ -330,6 +359,10 @@ export class AnthropicProvider implements LLMProvider {
             if (!delta) break;
             if (delta.type === 'text_delta' && typeof delta.text === 'string') {
               yield { type: 'text_delta', delta: delta.text };
+            } else if (delta.type === 'thinking_delta' && typeof delta.thinking === 'string') {
+              yield { type: 'reasoning_delta', delta: delta.thinking };
+            } else if (delta.type === 'signature_delta' && typeof delta.signature === 'string') {
+              pendingThinkingSig += delta.signature;
             } else if (delta.type === 'input_json_delta' && typeof delta.partial_json === 'string') {
               const id = idOfBlock(event, blockIndexToId);
               if (id) {
@@ -343,6 +376,12 @@ export class AnthropicProvider implements LLMProvider {
             break;
           }
           case 'content_block_stop': {
+            if (typeof event.index === 'number' && thinkingBlockIndices.has(event.index)) {
+              thinkingBlockIndices.delete(event.index);
+              if (pendingThinkingSig) yield { type: 'reasoning_signature', signature: pendingThinkingSig };
+              pendingThinkingSig = '';
+              break;
+            }
             const id = idOfBlock(event, blockIndexToId);
             if (id) {
               const t = pendingToolUses.get(id);
@@ -441,12 +480,22 @@ interface AnthropicStreamEvent {
       cache_creation_input_tokens?: number;
     };
   };
-  content_block?: { type: 'text' | 'tool_use'; id: string; name: string };
+  content_block?: {
+    type: 'text' | 'tool_use' | 'thinking' | 'redacted_thinking';
+    id: string;
+    name: string;
+    /** redacted_thinking carries an opaque encrypted blob (no readable text). */
+    data?: string;
+  };
   index?: number;
   delta?: {
-    type?: 'text_delta' | 'input_json_delta';
+    type?: 'text_delta' | 'input_json_delta' | 'thinking_delta' | 'signature_delta';
     text?: string;
     partial_json?: string;
+    /** thinking_delta payload (the summarized reasoning text). */
+    thinking?: string;
+    /** signature_delta payload (the thinking-block signature for round-trip). */
+    signature?: string;
     stop_reason?: string;
   };
   usage?: { output_tokens?: number };

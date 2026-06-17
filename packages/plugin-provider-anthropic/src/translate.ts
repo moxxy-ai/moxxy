@@ -28,7 +28,12 @@ export type AnthropicContentBlock =
       source: { type: 'base64'; media_type: string; data: string };
       title?: string;
       cache_control?: CacheControl;
-    };
+    }
+  // Reasoning round-trip: a signed `thinking` block (replayed verbatim on the
+  // same model so Anthropic accepts an interleaved-thinking tool-use turn) or a
+  // `redacted_thinking` block carrying only the opaque encrypted blob.
+  | { type: 'thinking'; thinking: string; signature: string; cache_control?: CacheControl }
+  | { type: 'redacted_thinking'; data: string; cache_control?: CacheControl };
 
 export interface AnthropicToolDef {
   name: string;
@@ -153,6 +158,18 @@ function toAnthropicBlock(block: ContentBlock): AnthropicContentBlock {
         type: 'text',
         text: `[audio attachment dropped: ${block.mediaType} not supported by this model]`,
       };
+    case 'reasoning':
+      // Replayed verbatim so Anthropic accepts an interleaved-thinking tool-use
+      // continuation. `redacted` → the opaque encrypted blob; otherwise the
+      // signed thinking block (projection only forwards reasoning that carries a
+      // signature or encrypted blob, so the text fallback below is unreachable).
+      if (block.redacted && block.encrypted) {
+        return { type: 'redacted_thinking', data: block.encrypted };
+      }
+      if (block.signature) {
+        return { type: 'thinking', thinking: block.text, signature: block.signature };
+      }
+      return { type: 'text', text: block.text };
   }
 }
 

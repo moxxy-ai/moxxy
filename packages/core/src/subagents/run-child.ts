@@ -211,12 +211,21 @@ async function executeChildLoop(args: {
   } = args;
   const { parentSession, parentTurnId } = rt;
 
-  const capture = { text: '', stopReason: 'end_turn' as StopReason, error: null as string | null };
+  const capture = {
+    text: '',
+    stopReason: 'end_turn' as StopReason,
+    error: null as string | null,
+    tokensUsed: 0,
+  };
 
   const unsubCapture = childLog.subscribe((e) => {
     if (e.type === 'assistant_message') {
       if (e.content) capture.text = e.content;
       if (e.stopReason) capture.stopReason = e.stopReason;
+    } else if (e.type === 'provider_response') {
+      // Sum every provider call's tokens so the parent can show how much this
+      // child consumed (input + output, matching a context-meter reading).
+      capture.tokensUsed += (e.inputTokens ?? 0) + (e.outputTokens ?? 0);
     } else if (e.type === 'error' && e.kind === 'fatal') {
       capture.error = e.message;
     }
@@ -267,6 +276,8 @@ async function executeChildLoop(args: {
       capture.text,
       result.stopReason,
       capture.error,
+      spec.agentType ?? 'default',
+      capture.tokensUsed,
     );
   }
 
@@ -305,7 +316,7 @@ async function resolveStrategy(
   // No default mode either — that's a config error, not a model mistake.
   await emitSubagentStart(parentSession, parentTurnId, label, childSessionId, spec, requestedStrategy);
   const errorMsg = `Subagent failed: unknown mode "${requestedStrategy}" and no fallback available`;
-  await emitSubagentCompleted(parentSession, parentTurnId, label, childSessionId, '', 'error', errorMsg);
+  await emitSubagentCompleted(parentSession, parentTurnId, label, childSessionId, '', 'error', errorMsg, spec.agentType ?? 'default', 0);
   return {
     failure: {
       label,

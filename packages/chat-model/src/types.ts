@@ -11,6 +11,7 @@ export type Block =
   | ToolCallBlockData
   | SkillScopeBlock
   | SubagentBlock
+  | SubagentGroupBlock
   | LiveToolBlockData;
 
 /**
@@ -26,10 +27,14 @@ export interface SubagentBlock {
   readonly id: string;
   readonly childSessionId: string;
   readonly label: string;
+  /** The kind this child was spawned as (e.g. `Explore`); `default` when unset. */
+  agentType: string;
   readonly startedAtMs: number;
   /** ms timestamp of completion, or null while running. */
   completedAtMs: number | null;
   toolCallCount: number;
+  /** Total tokens the child consumed (input + output), null until completion. */
+  tokensUsed: number | null;
   /** The agent's tool calls in order (name + input), accumulated live from
    *  `subagent_tool_call` events — lets a surface show what it's doing. */
   readonly toolCalls: Array<{ readonly name: string; readonly input: unknown }>;
@@ -39,6 +44,21 @@ export interface SubagentBlock {
   finalPreview: string | null;
   /** Error message if the agent failed (subagent_error/abort or non-OK stopReason). */
   error: string | null;
+}
+
+/**
+ * A run of consecutive sibling subagents (a `dispatch_agent` fan-out) folded
+ * into one collapsible group. Rendered as a header (`N Explore agents
+ * finished`) over a tree of per-agent rows (`label · N tool uses · NN.Nk
+ * tokens` + a status sub-line). A lone agent still folds into a group of one.
+ */
+export interface SubagentGroupBlock {
+  kind: 'subagent-group';
+  readonly id: string;
+  /** Shared kind across the group, or `'mixed'` when members differ. */
+  agentType: string;
+  /** Member agents, mutated in place as their events accrete. */
+  agents: SubagentBlock[];
 }
 
 export interface EventBlock {

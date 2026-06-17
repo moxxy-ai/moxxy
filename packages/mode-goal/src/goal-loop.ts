@@ -146,7 +146,7 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
       model: goalCtx.model,
     });
 
-    const { text, toolUses, stopReason, error, usage } = await collectProviderStream(
+    const { text, toolUses, stopReason, error, usage, reasoning } = await collectProviderStream(
       goalCtx,
       messages,
       {
@@ -225,6 +225,22 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
         stopReason: 'end_turn',
       });
       return;
+    }
+
+    // Finalize the reasoning summary for THIS call before the tool/assistant
+    // emits so the log order is reasoning → tool_use → text (projection
+    // attaches the signed thinking block as content[0] of the same turn).
+    if (reasoning) {
+      yield await ctx.emit({
+        type: 'reasoning_message',
+        sessionId: ctx.sessionId,
+        turnId: ctx.turnId,
+        source: 'model',
+        content: reasoning.text,
+        ...(reasoning.signature ? { signature: reasoning.signature } : {}),
+        ...(reasoning.redacted ? { redacted: true } : {}),
+        ...(reasoning.encrypted ? { encrypted: reasoning.encrypted } : {}),
+      });
     }
 
     const stuck = yield* emitRequestsAndDetectStuck(ctx, toolUses, detector, {

@@ -41,24 +41,29 @@ export interface OpenAIProviderConfig {
  * 2026; verify against https://developers.openai.com/api/docs/models when
  * picking a model for a long-context workload.
  */
+// The gpt-5.x family are reasoning models (`supportsReasoning`): they accept
+// `reasoning_effort` and, on backends that stream a summary, surface reasoning
+// deltas. Official OpenAI Chat Completions doesn't stream a reasoning summary
+// (Responses-API only), so the flag mainly gates the config UI + effort there;
+// OpenAI-compatible reasoning backends (DeepSeek/z.ai/local) do stream it.
 export const openAIModels: ReadonlyArray<ModelDescriptor> = [
   // GPT-5.5 family (released April 23, 2026): newest frontier class.
-  { id: 'gpt-5.5', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
-  { id: 'gpt-5.5-pro', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
+  { id: 'gpt-5.5', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  { id: 'gpt-5.5-pro', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
 
   // GPT-5.4 family: cheaper general-purpose tier; -mini and -nano are the
   // new sweet-spot defaults for high-volume agentic workloads.
-  { id: 'gpt-5.4', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
-  { id: 'gpt-5.4-pro', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
-  { id: 'gpt-5.4-mini', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
-  { id: 'gpt-5.4-nano', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
+  { id: 'gpt-5.4', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  { id: 'gpt-5.4-pro', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  { id: 'gpt-5.4-mini', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  { id: 'gpt-5.4-nano', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
 
   // GPT-5.3-Codex: agentic coding specialist. Vision-capable.
-  { id: 'gpt-5.3-codex', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
+  { id: 'gpt-5.3-codex', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
 
   // GPT-5.2 and GPT-5: prior reasoning models, configurable effort.
-  { id: 'gpt-5.2', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
-  { id: 'gpt-5', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
+  { id: 'gpt-5.2', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  { id: 'gpt-5', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
 
   // GPT-4 family: kept for explicit-pin use cases.
   // 4.1 is text-only; 4o/4o-mini are vision + document capable; 4-turbo predates file inputs.
@@ -118,6 +123,13 @@ export class OpenAIProvider implements LLMProvider {
     const usesCompletionTokens = /^(?:gpt-5|o1|o3)/.test(model);
     const tokenLimitKey = usesCompletionTokens ? 'max_completion_tokens' : 'max_tokens';
 
+    // Reasoning preview is gated by the per-provider toggle (`req.reasoning`).
+    // When on, request `reasoning_effort` for OpenAI reasoning models (improves
+    // depth + makes a summary available where the backend streams one) and
+    // surface the streamed reasoning/reasoning_content deltas.
+    const emitReasoning = req.reasoning != null && req.reasoning !== false;
+    const reasoningEffort = typeof req.reasoning === 'object' ? req.reasoning.effort : undefined;
+
     let stream: AsyncIterable<unknown>;
     try {
       stream = (await this.client.chat.completions.create(
@@ -127,6 +139,9 @@ export class OpenAIProvider implements LLMProvider {
           ...(tools ? { tools: tools as never } : {}),
           ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
           ...(req.maxTokens ? { [tokenLimitKey]: req.maxTokens } : {}),
+          ...(emitReasoning && usesCompletionTokens && reasoningEffort
+            ? { reasoning_effort: reasoningEffort }
+            : {}),
           stream: true,
           // OpenAI only emits the final `usage` chunk when this is set;
           // without it `raw.usage` is null on every chunk and token usage
@@ -174,6 +189,13 @@ export class OpenAIProvider implements LLMProvider {
 
         if (typeof delta.content === 'string' && delta.content) {
           yield { type: 'text_delta', delta: delta.content };
+        }
+
+        if (emitReasoning) {
+          const reasoning = delta.reasoning_content ?? delta.reasoning;
+          if (typeof reasoning === 'string' && reasoning) {
+            yield { type: 'reasoning_delta', delta: reasoning };
+          }
         }
 
         if (delta.tool_calls) {
@@ -256,6 +278,12 @@ interface OpenAIStreamChunk {
     index?: number;
     delta?: {
       content?: string | null;
+      // Reasoning summary streamed by OpenAI-compatible reasoning backends
+      // (DeepSeek-R1, z.ai/GLM, vLLM, Ollama, …). The field name varies by
+      // vendor — handle both. Official OpenAI Chat Completions doesn't stream
+      // it (Responses-API only), so it's simply absent there.
+      reasoning_content?: string | null;
+      reasoning?: string | null;
       tool_calls?: Array<{
         index?: number;
         id?: string;

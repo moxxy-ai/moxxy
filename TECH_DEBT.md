@@ -1043,6 +1043,37 @@ regressions. Restore the detail from git history (`TECH_DEBT.md` @ `b014c3a`) if
 
 ---
 
+## Reasoning + sub-agent-groups intake (2026-06-17)
+
+Logged while shipping visible per-provider reasoning + the grouped sub-agents view. Reviewed the
+provider stream parsers, `chat-model` projection, and the subagent event bridge in passing.
+
+- **R1 — built-in reasoning config isn't wired live to the runner from the desktop.** The functional
+  path is `config.context.reasoning` (CLI + the desktop's runner read it). The desktop Settings →
+  Providers reasoning-effort control persists to local state only with a `TODO`; making it live needs
+  a typed `DesktopPrefs.reasoning` + `ProviderEntry.supportsReasoning` in `@moxxy/desktop-ipc-contract`
+  and a runner config-apply step. Until then the desktop control stays hidden (no row reports
+  `supportsReasoning`). `apps/desktop/src/settings/ProvidersTab.tsx`.
+- **R2 — reasoning config is session-level, not per-provider-granular.** `session.reasoning` is one
+  value applied to whichever provider is active (gated by `supportsReasoning`), not a per-provider
+  map. Good enough for one PR ("only supporting providers honor it"); a true `{ [provider]: effort }`
+  map is the follow-up. `packages/core/src/session.ts`, `cli/src/config-applier.ts`.
+- **R3 — Codex/OpenAI reasoning isn't round-tripped.** Codex captures `encrypted_content` into the
+  `reasoning_message` event (and the log), but `toResponsesInput` drops the `reasoning` block rather
+  than replaying it as a `reasoning` input item; OpenAI Chat Completions can't accept reasoning back at
+  all. Display works; reasoning continuity across turns is deferred. Only Anthropic round-trips today.
+- **R4 — Anthropic multi-block thinking collapses to one round-trip block.** A single provider call
+  with multiple interleaved `thinking` blocks is captured as one accumulated block carrying the last
+  signature. Correct for the common single-block case; multi-block could mis-validate on replay.
+  `packages/plugin-provider-anthropic/src/provider.ts` (`streamOnce`).
+- **R5 — sub-agent grouping lives in the shared `pair-events` fold; tool grouping lives in client-core
+  (`groupToolNodes`).** Intentional (the TUI has no render-node layer), but the two grouping homes are
+  a candidate to unify. Nested grandchild agents render as additional groups, not a recursive tree (out
+  of scope). The standalone `SubagentView`/`SubagentScopeView` now duplicate the group's per-agent row —
+  collapse standalone into a group-of-one later.
+
+---
+
 ## Blocked items (fix agents declined to do mechanically — sound calls)
 
 - **B6.** mcp `wrap.ts` `throw new Error('aborted')` ×3 — internal abort control-flow, not
