@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { Button, Icon } from '@moxxy/desktop-ui';
 import type { useSettings } from '@moxxy/client-core';
 import { TabHeader } from '../TabHeader';
-import { EmptyHero } from './heroes';
+import { EmptyState } from '../settings-primitives';
 
 export function SkillGallery({
   skills,
@@ -85,7 +85,7 @@ export function SkillGallery({
       )}
 
       {skills.length === 0 ? (
-        <EmptyHero onCreate={onCreate} onGenerate={onGenerate} />
+        <EmptyState icon="spark" text="No skills yet." />
       ) : shown.length === 0 ? (
         <p style={{ margin: 0, padding: '24px 4px', fontSize: 13, color: 'var(--color-text-dim)' }}>
           No skills match “{query}”.

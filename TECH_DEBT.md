@@ -37,20 +37,60 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
 
 ---
 
+## 2026-06-17 — Skills gallery reimplements the shared settings `SearchBox`
+
+- **`SkillGallery` hand-rolls its own search input** (the `display:flex` row with
+  the magnifier `Icon` + `<input type="search">` in `apps/desktop/src/settings/skills/SkillGallery.tsx`)
+  instead of using the `SearchBox` primitive already exported from
+  `apps/desktop/src/settings/settings-primitives.tsx` for the MCP/Vault/Providers
+  tabs. The markup is a near-verbatim copy, so styling drift between the Skills
+  search and the other tabs' search is a when-not-if. Noticed while aligning the
+  Skills empty state to the shared `EmptyState` (this change retired the bespoke
+  `EmptyHero` logo). **Fix:** swap the inline block for `<SearchBox value={query}
+  onChange={setQuery} placeholder="Search skills…" />` and delete the duplicate.
+  Left out of this PR to keep it a pure empty-state alignment.
+
 ## 2026-06-17 — desktop native build (node-gyp) is brittle against runner-image churn
 
-- **`node-gyp@9.4.1` is too old for the current GitHub runner images, and the desktop
-  release build (electron-builder → `@electron/rebuild` → node-gyp, rebuilding `node-pty`
-  against Electron's ABI) papers over it with two CI pins rather than fixing the root.**
-  Two breakages, same cause: (1) macOS/Linux runners default to Python 3.12, which dropped
-  `distutils` that node-gyp@9 imports → pinned Python 3.11 in `release.yml` (#200); (2)
-  `windows-latest` moved to the `windows-2025-vs2026` image (Visual Studio 2026), which
-  node-gyp@9's VS finder doesn't recognise → pinned the Windows leg to `windows-2022`
-  (this change). **Real fix:** bump `node-gyp` to a VS2026-aware / Python-3.12-native
-  release (≥10, likely 11) via a `pnpm.overrides` entry + lockfile regen, verify
-  `@electron/rebuild@3.6.1` drives it cleanly on all three legs, then drop the Python pin
-  and return the Windows leg to `windows-latest`. Until then both pins will silently rot
-  as the pinned images age out.
+- **Still open — the node-gyp 11 bump was tried (#204) and REVERTED.** `node-gyp@9.4.1`
+  is too old for the current runner images (electron-builder → `@electron/rebuild` →
+  node-gyp rebuilds `node-pty` against Electron's ABI) and is propped up by two CI pins
+  (Python 3.11 + `windows-2022`). #204 pinned **node-gyp `^11.5.0`** via `pnpm.overrides`
+  and dropped the Python pin — but `@electron/rebuild@3.6.1` (bundled by electron-builder
+  25, declares node-gyp `^9.0.0`) **HANGS at "preparing node-pty" when driven with
+  node-gyp 11**, deadlocking the rebuild on ALL THREE legs (mac/ubuntu/windows; observed
+  >18 min vs the ~3.5 min node-gyp-9 "Package installers" step before it). Reverted to
+  9.4.1 + restored the Python pin; the artifact-name fix from #204 (next section) is kept.
+- **Lesson:** a `pnpm.overrides` node-gyp bump that skips `@electron/rebuild` is NOT enough,
+  and `pnpm build` does NOT exercise the Electron-ABI rebuild (only electron-builder
+  packaging does — use the `verify-desktop-packaged` skill / a `--dir` package run to test
+  any node-gyp change before merging).
+- **Real fix (still TODO):** bump `@electron/rebuild` to a node-gyp-11-compatible release
+  (4.x wants node-gyp `^12.2.0`) — which means bumping `electron-builder` 25→26 (it bundles
+  @electron/rebuild) AND node-gyp 12, and node-gyp 12 needs Node `>=20.17` / 13 needs
+  `>=22.22.2` vs the repo's `engines.node: ">=20.10.0"` (node-pty compiles at install time,
+  so a newer node-gyp would break `pnpm install` on supported Node). So this is a coupled
+  electron-builder + @electron/rebuild + node-gyp + Node-floor bump, verified by an actual
+  electron-builder package run — not a one-line override. Until then both CI pins stay.
+
+## 2026-06-17 — desktop self-update URL broke on product-name spaces (mac + win)
+
+- **Retired: `app.updateShell` (Tier-2) 404'd on macOS and Windows because the updater
+  feed referenced an asset name GitHub had renamed.** `productName` is `"MoxxyAI
+  Workspaces"` (a space); mac/win had no explicit `artifactName`, so the default templates
+  produced spaced names. electron-builder wrote the space as a hyphen into
+  `latest-mac.yml` / `latest.yml` (`MoxxyAI-Workspaces-…`), while GitHub rewrote the space
+  in the uploaded asset to a dot (`MoxxyAI.Workspaces-…`) — so electron-updater built a
+  download URL that didn't exist (e.g.
+  `…/desktop-v0.8.0/MoxxyAI-Workspaces-0.8.0-arm64-mac.zip`). Linux was unaffected because
+  it already had a space-free `artifactName`. Fixed by giving mac
+  (`moxxy-desktop-${version}-${arch}.${ext}`) and win
+  (`moxxy-desktop-${version}-setup.${ext}`) the same space-free convention, so the feed
+  path, the on-disk file, and the GitHub asset name all match.
+- **Residual: already-published releases (≤ desktop-v0.8.0) keep the broken asset names**
+  — this fix only corrects releases built after it, so 0.7.x→0.8.0 in-app updates stay
+  broken. Repairing an old release means renaming its assets to match its own `latest*.yml`
+  (or re-uploading), a manual GitHub op done outside this change.
 
 ## 2026-06-17 — desktop OAuth provider sign-in (claude-code) + de-hardcoded auth kind
 

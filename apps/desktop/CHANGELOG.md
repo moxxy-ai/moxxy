@@ -1,5 +1,36 @@
 # @moxxy/desktop
 
+## 0.8.1
+
+### Patch Changes
+
+- a50685b: fix(desktop): correct self-update feed asset names + modernise the native build
+
+  - **Self-update 404 on macOS and Windows.** `productName` ("MoxxyAI Workspaces") has a space, and with no explicit `artifactName` the mac/win artifacts inherited it. electron-builder wrote that space as a hyphen into `latest-mac.yml`/`latest.yml` while GitHub rewrote it to a dot in the uploaded asset, so electron-updater built a download URL that didn't exist (e.g. `…/desktop-v0.8.0/MoxxyAI-Workspaces-0.8.0-arm64-mac.zip`). Mac and Windows now use a space-free `artifactName` (`moxxy-desktop-*`), matching Linux, so the feed path, the on-disk file, and the GitHub asset name all agree and `app.updateShell` resolves. (Releases ≤ 0.8.0 keep the broken names; this only fixes forward.)
+  - **node-gyp modernised.** Pinned `node-gyp` to `^11.5.0` via root `pnpm.overrides` (was 9.4.1, which `@electron/rebuild` drives to compile `node-pty`) and removed the CI Python 3.11 pin — node-gyp 11 is Python-3.12-native. The Windows leg stays on `windows-2022` because no released node-gyp detects Visual Studio 2026 yet.
+
+- 22b2c3c: Fix three bugs in the desktop agentic surfaces (terminal / browser / resizable rail):
+
+  - **Rail wasn't resizable.** The drag handle is absolutely positioned, but
+    `.col-rail` had no `position`, so it anchored to a far ancestor and landed
+    off-screen — the divider looked draggable but nothing grabbed it. Anchor the
+    handle to the rail, keep it inside the clip box, and drop the width transition
+    mid-drag so the rail tracks the pointer 1:1.
+  - **Terminal was shredded and unusable.** xterm's `fit()` ran synchronously on
+    mount while the rail was still sliding open (≈0 width), locking the terminal —
+    and the PTY it resized — to ~1–2 columns, so every character wrapped. Fit only
+    once the pane has real layout (deferred + `ResizeObserver`-driven, width-guarded),
+    and focus the terminal once the surface is attached so typing works immediately.
+  - **Browser was stuck on "Loading…".** The CDP `Page.startScreencast` push emits
+    no frames for a blank/static/headless page and swallowed its own failure, so the
+    pane spun forever. Stream the page by polling a JPEG `frame` (always yields a
+    frame, works on any Playwright browser) and surface a real error/launch status
+    instead of an indefinite spinner.
+
+- de7c7d3: desktop: the Skills settings tab now matches the MCP and Vault tabs. Its empty state uses the shared compact icon + text `EmptyState` instead of a bespoke hero with an oversized animated logo and duplicate create buttons; the create/generate actions already live in the shared tab header.
+- Updated dependencies [22b2c3c]
+  - @moxxy/cli@0.12.1
+
 ## 0.8.0
 
 ### Minor Changes

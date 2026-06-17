@@ -222,6 +222,12 @@ jobs:
       # `pnpm install` (node-pty is in onlyBuiltDependencies) and again at
       # electron-builder's @electron/rebuild. Pin 3.11, the last release that
       # still ships distutils, on every leg so node-gyp resolves it.
+      #
+      # NOTE: a `pnpm.overrides` bump of node-gyp to 11 (to drop this pin) was
+      # tried (#204) and REVERTED — @electron/rebuild@3.6.1 (electron-builder 25)
+      # declares node-gyp@^9 and HANGS at "preparing node-pty" when driven with
+      # node-gyp 11, deadlocking the rebuild on all three legs. Modernising node-gyp
+      # needs a matching @electron/rebuild/electron-builder bump (see TECH_DEBT).
       - name: Setup Python (node-gyp needs distutils)
         uses: actions/setup-python@v5
         with:
