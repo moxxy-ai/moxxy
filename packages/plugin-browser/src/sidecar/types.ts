@@ -40,6 +40,17 @@ export interface PageHandle {
   evaluate(fn: string): Promise<unknown>;
   url(): string;
   close(): Promise<void>;
+  // Coordinate-based input for the live browser surface (loosely typed — the
+  // real Playwright Page provides all of these).
+  viewportSize(): { width: number; height: number } | null;
+  readonly mouse: {
+    click(x: number, y: number, opts?: unknown): Promise<void>;
+    wheel(dx: number, dy: number): Promise<void>;
+  };
+  readonly keyboard: {
+    press(key: string): Promise<void>;
+    type(text: string): Promise<void>;
+  };
 }
 
 /** Minimal slice of Playwright's `Request` used by the navigation SSRF guard. */

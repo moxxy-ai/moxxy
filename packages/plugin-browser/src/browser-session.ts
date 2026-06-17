@@ -370,6 +370,18 @@ export function buildBrowserSessionTool(deps?: BrowserSessionDeps) {
   });
 }
 
+/**
+ * Call a method on the shared sidecar (used by the browser SURFACE so it drives
+ * the SAME page the `browser_session` tool does — agent + user share one page).
+ */
+export function browserSidecarCall(
+  method: string,
+  params: Record<string, unknown> = {},
+  deps?: BrowserSessionDeps,
+): Promise<unknown> {
+  return getSidecar(deps).call(method, params);
+}
+
 /** Closes the singleton sidecar — wired to plugin `onShutdown`. */
 export async function closeBrowserSidecar(): Promise<void> {
   if (SIDECAR_INSTANCE) {

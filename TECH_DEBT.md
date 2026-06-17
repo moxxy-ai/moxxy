@@ -61,6 +61,37 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
   paste flow without re-implementing the OAuth dance. Loopback providers (openai-codex)
   emit no markers and are unaffected.
 
+## 2026-06-17 — agentic surfaces (shared terminal · in-window browser · files+diff)
+
+New `Surface` block (SDK `defineSurface` + `SurfaceRegistry`/`SurfaceHost` in
+core), runner protocol **v8** (`surface.*` methods + `surface.data` notification),
+desktop IPC relay, `@moxxy/plugin-terminal` (shared PTY) and a `browser` surface
+on `@moxxy/plugin-browser`, plus the repurposed context dropdown + resizable
+rail + git "Files changed" diff pane. Reviewed this journal before/while doing
+the work; the change is purely additive infrastructure, so it retires no existing
+item — the debt it *creates* is logged here on sight:
+
+- **Browser surface streams via polled JPEG frames, not CDP screencast.** The
+  `browser` surface polls the sidecar's new `frame` method ~2 fps and proxies
+  input by coordinate. Low-fps + a round-trip per frame. Follow-up: swap in
+  `Page.startScreencast` (CDP) for a real push stream + smoother input. File:
+  `packages/plugin-browser/src/browser-surface.ts`.
+- **node-pty is an optional peer dep and is NOT installed by default**, so the
+  terminal surface runs on the dependency-free piped-shell fallback (no full TTY:
+  vim/top/line-editing degrade). To ship the real PTY, add node-pty to the CLI's
+  packaged deps + an `onlyBuiltDependencies` allowlist so its native build runs.
+  Files: `packages/plugin-terminal/src/pty.ts`, `packages/cli/tsup.config.ts`.
+- **Surfaces are desktop-only — deliberately off the mobile WS allow-list**
+  (`REMOTE_ALLOWED_COMMANDS`). A sandboxed shell/browser over a tunnel is a real
+  feature with its own threat model; revisit when mobile needs it.
+- **"Add to agent" on a git-changed file assumes cwd === repo root.** `git status`
+  paths are repo-root-relative; the absolute path is built from the workspace cwd.
+  Correct for the common case; wrong when the workspace cwd is a repo subdir.
+  File: `apps/desktop/src/shell/surfaces/FilesPane.tsx`.
+- **The `terminal` tool's sentinel-based completion is best-effort** in a shared,
+  input-echoing shell (it strips the echoed command + sentinel lines heuristically).
+  Good enough for run-and-read; a structured exec channel would be cleaner.
+
 ## 2026-06-15 — built-in providers: z.ai / xAI / Google Gemini / local
 
 - **New (`@moxxy/plugin-provider-{zai,xai,google,local}`):** four first-class

@@ -14,8 +14,7 @@
   },
   "files": [
     "dist",
-    "src",
-    "skills"
+    "src"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -25,8 +24,7 @@
   },
   "moxxy": {
     "plugin": {
-      "entry": "./dist/index.js",
-      "skills": "./skills"
+      "entry": "./dist/index.js"
     }
   },
   "dependencies": {

@@ -138,6 +138,46 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       const buf = await h.page.screenshot({ fullPage: fullPage ?? false });
       return { id: req.id, ok: true, result: { mediaType: 'image/png', base64: buf.toString('base64') } };
     }
+    case 'frame': {
+      // Combined live-view frame for the browser SURFACE: a JPEG screenshot
+      // plus the current url + viewport size, so the renderer can map clicks
+      // back onto the page. One round-trip per frame.
+      const h = await ensurePlaywright(state, {});
+      const buf = await h.page.screenshot({ type: 'jpeg', quality: 55 });
+      const vp = h.page.viewportSize() ?? { width: 1280, height: 720 };
+      return {
+        id: req.id,
+        ok: true,
+        result: {
+          mediaType: 'image/jpeg',
+          base64: buf.toString('base64'),
+          url: h.page.url(),
+          width: vp.width,
+          height: vp.height,
+        },
+      };
+    }
+    case 'mouse': {
+      const h = await ensurePlaywright(state, {});
+      const { x, y } = (req.params ?? {}) as { x: number; y: number };
+      await h.page.mouse.click(x, y);
+      return { id: req.id, ok: true, result: { url: h.page.url() } };
+    }
+    case 'key': {
+      const h = await ensurePlaywright(state, {});
+      const { key } = (req.params ?? {}) as { key: string };
+      if (!key) throw badParams('key is required');
+      // A single printable char is typed (inserts it); a named key is pressed.
+      if (key.length === 1) await h.page.keyboard.type(key);
+      else await h.page.keyboard.press(key);
+      return { id: req.id, ok: true };
+    }
+    case 'scroll': {
+      const h = await ensurePlaywright(state, {});
+      const { dy } = (req.params ?? {}) as { dy: number };
+      await h.page.mouse.wheel(0, dy ?? 0);
+      return { id: req.id, ok: true };
+    }
     case 'eval': {
       const h = await ensurePlaywright(state, {});
       const { expression } = (req.params ?? {}) as { expression: string };
