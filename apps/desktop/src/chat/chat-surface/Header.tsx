@@ -2,11 +2,14 @@ import { useState } from 'react';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { Icon } from '@moxxy/desktop-ui';
 import { ViewHeader, ViewSwitcher, type View } from '../../shell/ViewHeader';
+import { RailMenu } from './RailMenu';
+import type { RailPane } from '../../shell/ContextRail';
 
 export function Header({
   phase: _phase,
-  railOpen,
-  onShowRail,
+  workspaceId,
+  railPane,
+  onPickPane,
   searchQuery,
   onSearchChange,
   canRename,
@@ -14,8 +17,9 @@ export function Header({
   onView,
 }: {
   readonly phase: ConnectionPhase;
-  readonly railOpen: boolean;
-  readonly onShowRail: () => void;
+  readonly workspaceId: string;
+  readonly railPane: RailPane | null;
+  readonly onPickPane: (pane: RailPane) => void;
   readonly searchQuery: string | null;
   readonly onSearchChange: (q: string | null) => void;
   readonly canRename: boolean;
@@ -75,11 +79,7 @@ export function Header({
       >
         <Icon name="pencil" size={18} />
       </IconButton>
-      {!railOpen && (
-        <IconButton aria-label="Show context rail" onClick={onShowRail}>
-          <Icon name="workspace" size={18} />
-        </IconButton>
-      )}
+      <RailMenu workspaceId={workspaceId} current={railPane} onPick={onPickPane} />
     </ViewHeader>
   );
 }

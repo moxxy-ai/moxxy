@@ -33,7 +33,8 @@
     "onlyBuiltDependencies": [
       "esbuild",
       "electron",
-      "electron-winstaller"
+      "electron-winstaller",
+      "node-pty"
     ]
   },
   "license": "MIT"

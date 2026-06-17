@@ -17,8 +17,8 @@ import { deriveSuggestions } from './chat-surface/suggestions';
 interface ChatSurfaceProps {
   readonly phase: ConnectionPhase;
   readonly workspaceId: string;
-  readonly railOpen: boolean;
-  readonly onShowRail: () => void;
+  readonly railPane: import('../shell/ContextRail').RailPane | null;
+  readonly onPickPane: (pane: import('../shell/ContextRail').RailPane) => void;
   readonly onView: (v: import('../shell/ViewHeader').View) => void;
 }
 
@@ -38,8 +38,8 @@ const EMPTY_EXTENSIONS: ReadonlyArray<import('@moxxy/client-core').Extension> = 
 export function ChatSurface({
   phase,
   workspaceId,
-  railOpen,
-  onShowRail,
+  railPane,
+  onPickPane,
   onView,
 }: ChatSurfaceProps): JSX.Element {
   const chat = useChat(workspaceId);
@@ -73,8 +73,9 @@ export function ChatSurface({
     <main className="col-main col-main--flat">
       <Header
         phase={phase}
-        railOpen={railOpen}
-        onShowRail={onShowRail}
+        workspaceId={workspaceId}
+        railPane={railPane}
+        onPickPane={onPickPane}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         canRename={activeDesk !== undefined}

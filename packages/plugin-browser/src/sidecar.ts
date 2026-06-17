@@ -87,6 +87,11 @@ let queue: Promise<void> = Promise.resolve();
 
 async function main(): Promise<void> {
   startParentWatchdog();
+  // Lets dispatch handlers push unsolicited event lines (no `id`) — the live
+  // browser surface's screencast frames ride this channel.
+  state.emit = (event) => {
+    process.stdout.write(JSON.stringify(event) + '\n');
+  };
   const rl = readline.createInterface({ input: process.stdin });
   rl.on('line', (line) => {
     if (!line.trim()) return;

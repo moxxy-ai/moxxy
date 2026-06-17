@@ -8,8 +8,11 @@
  * disk just because someone passed `../../etc/passwd` as `path`.
  */
 
-import { readdir, realpath, stat } from 'node:fs/promises';
+import { readFile as fsReadFile, readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
+
+/** Cap a single "Open" read so a giant log can't stream MBs into the renderer. */
+const MAX_READ_BYTES = 1_000_000;
 
 const HIDDEN_PREFIX = '.';
 const IGNORED_DIRS = new Set([
@@ -63,6 +66,38 @@ async function resolveInside(root: string, relPath: string | undefined): Promise
     throw new Error(`path "${relPath ?? '.'}" escapes the workspace root via a symlink`);
   }
   return real;
+}
+
+export interface ReadFileResult {
+  readonly path: string;
+  readonly content: string;
+  readonly truncated: boolean;
+  readonly text: boolean;
+}
+
+/**
+ * Read a workspace file's UTF-8 contents for the "Open" file viewer, with the
+ * SAME cwd-scoping + symlink guard as {@link listDir}. Binary files (a NUL byte
+ * in the first chunk) return a placeholder rather than mojibake; oversized files
+ * are truncated to a head excerpt. `relPath` must resolve inside the workspace.
+ */
+export async function readFile(cwd: string, relPath: string): Promise<ReadFileResult> {
+  const root = await realpath(cwd).catch(() => path.resolve(cwd));
+  const abs = await resolveInside(root, relPath);
+  const rel = path.relative(root, abs) || path.basename(abs);
+  const info = await stat(abs).catch(() => null);
+  if (!info || !info.isFile()) {
+    return { path: rel, content: '', truncated: false, text: false };
+  }
+  const buf = await fsReadFile(abs);
+  const slice = buf.subarray(0, MAX_READ_BYTES);
+  const truncated = buf.length > MAX_READ_BYTES;
+  // A NUL byte in the read window is the same binary heuristic buildAttachments
+  // uses — text decode would otherwise produce unreadable replacement chars.
+  if (slice.includes(0)) {
+    return { path: rel, content: `[binary file — ${buf.length} bytes]`, truncated: false, text: false };
+  }
+  return { path: rel, content: slice.toString('utf8'), truncated, text: true };
 }
 
 export async function listDir(cwd: string, relPath?: string): Promise<ListDirResult> {

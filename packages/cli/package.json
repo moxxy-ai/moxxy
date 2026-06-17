@@ -62,7 +62,8 @@
     "zod": "catalog:"
   },
   "optionalDependencies": {
-    "@napi-rs/keyring": "^1.3.0"
+    "@napi-rs/keyring": "^1.3.0",
+    "node-pty": "^1.0.0"
   },
   "devDependencies": {
     "@clack/prompts": "catalog:",
@@ -106,6 +107,7 @@
     "@moxxy/plugin-stt-whisper-codex": "workspace:*",
     "@moxxy/plugin-subagents": "workspace:*",
     "@moxxy/plugin-telegram": "workspace:*",
+    "@moxxy/plugin-terminal": "workspace:*",
     "@moxxy/plugin-usage-stats": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/plugin-webhooks": "workspace:*",

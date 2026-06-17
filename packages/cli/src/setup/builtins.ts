@@ -30,6 +30,7 @@ import { httpChannelPlugin } from '@moxxy/plugin-channel-http';
 import { buildWebChannelPlugin } from '@moxxy/plugin-channel-web';
 import { mobileChannelPlugin } from '@moxxy/plugin-channel-mobile';
 import { browserPlugin } from '@moxxy/plugin-browser';
+import { terminalPlugin } from '@moxxy/plugin-terminal';
 import { buildSubagentsPlugin } from '@moxxy/plugin-subagents';
 import {
   buildPluginsAdminPlugin,
@@ -105,6 +106,7 @@ export const BUILTIN_REQUIREMENT_DECISIONS: Readonly<Record<string, BuiltinRequi
   '@moxxy/plugin-channel-mobile': { hardRequirements: false, reason: 'mobile WS bridge is standalone; token auto-generated' },
   '@moxxy/plugin-telegram': { hardRequirements: false, reason: 'vault is injected by bootstrap closure' },
   '@moxxy/plugin-browser': { hardRequirements: false, reason: 'browser runtime is diagnosed at tool/runtime level' },
+  '@moxxy/plugin-terminal': { hardRequirements: false, reason: 'node-pty is optional; falls back to a piped shell' },
   '@moxxy/plugin-computer-control': { hardRequirements: false, reason: 'platform constraints are handled by tools' },
   '@moxxy/plugin-oauth': { hardRequirements: false, reason: 'vault is injected by bootstrap closure' },
   '@moxxy/plugin-commands': { hardRequirements: false, reason: 'slash commands have no plugin dependency' },
@@ -255,6 +257,10 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
     { name: '@moxxy/plugin-channel-mobile', plugin: mobileChannelPlugin },
     { name: '@moxxy/plugin-telegram', plugin: buildTelegramPlugin({ vault }) },
     { name: '@moxxy/plugin-browser', plugin: browserPlugin },
+    // Shared terminal surface + `terminal` tool. node-pty is an optional native
+    // peer dep, so the surface availability (real PTY vs piped fallback) is
+    // diagnosed at runtime — the tool always registers for a stable tool list.
+    { name: '@moxxy/plugin-terminal', plugin: terminalPlugin },
     // macOS-only computer control: screenshot, click, type, key,
     // open, clipboard, applescript. Plugin always registers (so the
     // model's tool list is stable across hosts); handlers throw a

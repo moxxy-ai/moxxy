@@ -12,6 +12,7 @@ import type {
   RequirementCheck,
   RequirementIssue,
   ResolvedPluginManifest,
+  SurfaceDef,
   ToolDef,
   TranscriberDef,
   SynthesizerDef,
@@ -25,6 +26,7 @@ import type { Logger } from '../logger.js';
 import type { AgentRegistry } from '../registries/agents.js';
 import type { CommandRegistry } from '../registries/commands.js';
 import type { ChannelRegistryImpl } from '../registries/channels.js';
+import type { SurfaceRegistryImpl } from '../registries/surfaces.js';
 import type { CacheStrategyRegistry } from '../registries/cache-strategies.js';
 import type { ViewRendererRegistry } from '../registries/view-renderers.js';
 import type { TunnelProviderRegistry } from '../registries/tunnel-providers.js';
@@ -53,6 +55,7 @@ export interface PluginHostOptions {
   readonly viewRenderers: ViewRendererRegistry;
   readonly tunnelProviders: TunnelProviderRegistry;
   readonly channels: ChannelRegistryImpl;
+  readonly surfaces: SurfaceRegistryImpl;
   readonly agents: AgentRegistry;
   readonly commands: CommandRegistry;
   readonly transcribers: TranscriberRegistry;
@@ -135,6 +138,7 @@ interface LoadedRecord {
   readonly viewRendererNames: ReadonlyArray<string>;
   readonly tunnelProviderNames: ReadonlyArray<string>;
   readonly channelNames: ReadonlyArray<string>;
+  readonly surfaceNames: ReadonlyArray<string>;
   readonly agentNames: ReadonlyArray<string>;
   readonly commandNames: ReadonlyArray<string>;
   readonly transcriberNames: ReadonlyArray<string>;
@@ -265,6 +269,7 @@ export class PluginHost implements PluginHostHandle {
     for (const vrName of record.viewRendererNames) this.opts.viewRenderers.unregister(vrName);
     for (const tpName of record.tunnelProviderNames) this.opts.tunnelProviders.unregister(tpName);
     for (const channelName of record.channelNames) this.opts.channels.unregister(channelName);
+    for (const surfaceName of record.surfaceNames) this.opts.surfaces.unregister(surfaceName);
     for (const agentName of record.agentNames) this.opts.agents.unregister(agentName);
     for (const cmdName of record.commandNames) this.opts.commands.unregister(cmdName);
     for (const transcriberName of record.transcriberNames) this.opts.transcribers.unregister(transcriberName);
@@ -312,6 +317,7 @@ export class PluginHost implements PluginHostHandle {
     const viewRendererNames = (plugin.viewRenderers ?? []).map((v: ViewRendererDef) => v.name);
     const tunnelProviderNames = (plugin.tunnelProviders ?? []).map((t: TunnelProviderDef) => t.name);
     const channelNames = (plugin.channels ?? []).map((c: ChannelDef) => c.name);
+    const surfaceNames = (plugin.surfaces ?? []).map((s: SurfaceDef) => s.kind);
     const agentNames = (plugin.agents ?? []).map((a: AgentDef) => a.name);
     const commandNames = (plugin.commands ?? []).map((c: CommandDef) => c.name);
     const transcriberNames = (plugin.transcribers ?? []).map((t: TranscriberDef) => t.name);
@@ -333,6 +339,7 @@ export class PluginHost implements PluginHostHandle {
     for (const tunnelProvider of plugin.tunnelProviders ?? [])
       this.opts.tunnelProviders.replace(tunnelProvider);
     for (const channel of plugin.channels ?? []) this.opts.channels.register(channel);
+    for (const surface of plugin.surfaces ?? []) this.opts.surfaces.register(surface);
     for (const agent of plugin.agents ?? []) this.opts.agents.register(agent);
     for (const cmd of plugin.commands ?? []) this.opts.commands.register(cmd);
     for (const transcriber of plugin.transcribers ?? []) this.opts.transcribers.register(transcriber);
@@ -353,6 +360,7 @@ export class PluginHost implements PluginHostHandle {
       viewRendererNames,
       tunnelProviderNames,
       channelNames,
+      surfaceNames,
       agentNames,
       commandNames,
       transcriberNames,
@@ -431,6 +439,7 @@ function contributionKinds(r: LoadedRecord): ReadonlyArray<string> {
   if (r.providerNames.length) kinds.push('provider');
   if (r.modeNames.length) kinds.push('mode');
   if (r.channelNames.length) kinds.push('channel');
+  if (r.surfaceNames.length) kinds.push('surface');
   if (r.embedderNames.length) kinds.push('embedder');
   if (r.transcriberNames.length) kinds.push('transcriber');
   if (r.synthesizerNames.length) kinds.push('synthesizer');

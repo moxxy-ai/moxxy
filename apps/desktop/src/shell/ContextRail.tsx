@@ -1,110 +1,114 @@
 /**
- * Right-hand context rail. Lives next to the chat and surfaces
- * supplementary, side-of-stream content:
+ * Right-hand context rail — repurposed into a router for agentic surfaces.
  *
- *   - Output preview — skill / tool outputs that benefit from a
- *     persistent viewer (charts, HTML, file previews).
- *   - Future zones: pinned references, agent scratchpad, deep-link
- *     to the workspace's files, etc.
+ * The chevron/context button no longer just toggles the rail; it opens a
+ * dropdown (see {@link RailMenu}) to pick what the rail shows:
+ *   - Terminal — a shared shell the user and the agent drive together.
+ *   - Files changed — git-changed files with a diff (only in a git repo).
+ *   - Browser — a live, in-window view of the agent's browser.
  *
- * Sections are intentionally empty stubs today; they'll be wired as
- * the corresponding chat events ("present_view", "skill_output", etc.)
- * land.
+ * The rail is drag-resizable (left edge) and its width persists across
+ * restarts (see {@link useRailWidth}).
  */
 
-import { useState } from 'react';
+import { useRef } from 'react';
 import { deskForWorkspace, useDesks } from '@moxxy/client-core';
 import { Icon } from '@moxxy/desktop-ui';
-import { WorkspaceFiles } from './WorkspaceFiles';
+import { RAIL_MAX_WIDTH, RAIL_MIN_WIDTH, setRailWidth, useRailWidth } from '../lib/useRailWidth';
+import { TerminalPane } from './surfaces/TerminalPane';
+import { FilesPane } from './surfaces/FilesPane';
+import { BrowserPane } from './surfaces/BrowserPane';
+
+export type RailPane = 'terminal' | 'files' | 'browser';
+
+const PANE_TITLE: Record<RailPane, string> = {
+  terminal: 'Terminal',
+  files: 'Files changed',
+  browser: 'Browser',
+};
 
 interface Props {
+  /** Active pane, or null when the rail is collapsed. */
+  readonly pane: RailPane | null;
   readonly onClose: () => void;
-  /** Controlled open state. The rail stays mounted in both states
-   *  so the CSS width transition can play; content is hidden via
-   *  the `data-open="false"` selector that also collapses the
-   *  border. Keeps the workspace + file tree alive between toggles
-   *  so re-open is instant. */
-  readonly open: boolean;
-  /** The workspace the rest of the UI is showing. The rail is
-   *  workspace-scoped (info + file tree), so it must track the SAME id
-   *  the chat does — deriving its own from `desks.activeId` let it lag
-   *  behind a switch and show the wrong workspace's (empty) files. */
+  /** The workspace (session id) the rest of the UI is showing. */
   readonly workspaceId: string | null;
 }
 
-export function ContextRail({ onClose, open, workspaceId }: Props): JSX.Element {
+export function ContextRail({ pane, onClose, workspaceId }: Props): JSX.Element {
   const desks = useDesks();
-  // workspaceId is a SESSION id — resolve the desk that owns it.
   const active = deskForWorkspace(desks.desks, workspaceId);
-  // Bumping this re-reads the file tree (the button next to the FILES heading).
-  const [filesReload, setFilesReload] = useState(0);
+  const width = useRailWidth();
+  const railRef = useRef<HTMLElement | null>(null);
+  const open = pane !== null;
+
+  // Drag the left edge to resize. The rail is pinned to the window's right
+  // edge, so width = (rail right edge) − pointer x. Capture the right edge at
+  // pointer-down so the math survives the rail itself resizing mid-drag.
+  const startDrag = (e: React.PointerEvent): void => {
+    e.preventDefault();
+    const right = railRef.current?.getBoundingClientRect().right ?? window.innerWidth;
+    const onMove = (ev: PointerEvent): void => setRailWidth(right - ev.clientX);
+    const onUp = (): void => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      document.body.style.userSelect = '';
+    };
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
 
   return (
     <section
+      ref={railRef}
       className="col-rail col-rail--right"
       data-open={open}
-      aria-hidden={!open}>
-      <Header onClose={onClose} />
+      aria-hidden={!open}
+      style={open ? { width } : undefined}
+    >
+      {open && (
+        <div
+          role="separator"
+          aria-label="Resize panel"
+          aria-orientation="vertical"
+          aria-valuemin={RAIL_MIN_WIDTH}
+          aria-valuemax={RAIL_MAX_WIDTH}
+          aria-valuenow={width}
+          onPointerDown={startDrag}
+          title="Drag to resize"
+          style={{
+            position: 'absolute',
+            left: -3,
+            top: 0,
+            bottom: 0,
+            width: 6,
+            cursor: 'col-resize',
+            zIndex: 2,
+          }}
+        />
+      )}
 
-      <Section title="Workspace">
-        {active ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <Row
-              icon={<ColorDot color={active.color} />}
-              title={active.name}
-              subtitle="Active workspace"
-            />
-            <Path text={active.cwd} />
-          </div>
-        ) : (
-          <Row
-            icon={<Icon name="workspace" size={14} />}
-            title="No workspace bound"
-            subtitle="Create one in the sidebar"
-          />
-        )}
-      </Section>
+      <Header pane={pane} cwd={active?.cwd ?? null} onClose={onClose} />
 
-      <Divider />
-
-      <Section
-        title="Files"
-        action={
-          active ? (
-            <button
-              type="button"
-              className="btn-icon"
-              aria-label="Reload files"
-              title="Reload files"
-              onClick={() => setFilesReload((k) => k + 1)}
-              style={{
-                width: 22,
-                height: 22,
-                borderRadius: 6,
-                color: 'var(--color-text-dim)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Icon name="rotate" size={13} />
-            </button>
-          ) : undefined
-        }
-      >
-        {active ? (
-          <WorkspaceFiles workspaceId={active.id} reloadSignal={filesReload} />
-        ) : (
-          <div style={{ fontSize: 11.5, color: 'var(--color-text-dim)' }}>
-            Pick a workspace to browse its files.
-          </div>
-        )}
-      </Section>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        {pane === 'terminal' && <TerminalPane workspaceId={workspaceId} />}
+        {pane === 'files' && <FilesPane workspaceId={workspaceId} cwd={active?.cwd ?? null} />}
+        {pane === 'browser' && <BrowserPane workspaceId={workspaceId} />}
+      </div>
     </section>
   );
 }
 
-function Header({ onClose }: { readonly onClose: () => void }): JSX.Element {
+function Header({
+  pane,
+  cwd,
+  onClose,
+}: {
+  readonly pane: RailPane | null;
+  readonly cwd: string | null;
+  readonly onClose: () => void;
+}): JSX.Element {
   return (
     <div
       style={{
@@ -115,158 +119,43 @@ function Header({ onClose }: { readonly onClose: () => void }): JSX.Element {
         minHeight: 64,
         flexShrink: 0,
         boxSizing: 'border-box',
-        padding: '0 16px',
+        padding: '0 14px',
         borderBottom: '1px solid var(--color-card-border)',
-        position: 'sticky',
-        top: 0,
         background: 'var(--color-card-bg)',
-        zIndex: 1,
       }}
     >
-      <button
-        type="button"
-        aria-label="Collapse context"
-        onClick={onClose}
-        style={iconBtnStyle}
-      >
+      <button type="button" aria-label="Collapse panel" onClick={onClose} style={iconBtnStyle}>
         <Icon name="chevron-right" size={14} />
       </button>
-      <span
-        style={{
-          fontSize: 11.5,
-          fontWeight: 700,
-          color: 'var(--color-text-muted)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.07em',
-        }}
-      >
-        Context
-      </span>
-    </div>
-  );
-}
-
-function Section({
-  title,
-  action,
-  children,
-}: {
-  readonly title: string;
-  readonly action?: React.ReactNode;
-  readonly children: React.ReactNode;
-}): JSX.Element {
-  return (
-    <section style={{ padding: '14px 16px 16px' }}>
-      <header
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          fontSize: 10.5,
-          fontWeight: 700,
-          color: 'var(--color-text-dim)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.08em',
-          marginBottom: 10,
-        }}
-      >
-        <span>{title}</span>
-        {action && (
-          <>
-            <span style={{ flex: 1 }} />
-            {action}
-          </>
-        )}
-      </header>
-      {children}
-    </section>
-  );
-}
-
-function Row({
-  icon,
-  title,
-  subtitle,
-}: {
-  readonly icon: React.ReactNode;
-  readonly title: string;
-  readonly subtitle?: string;
-}): JSX.Element {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <span
-        aria-hidden
-        style={{
-          width: 26,
-          height: 26,
-          borderRadius: 8,
-          background: 'var(--color-primary-soft)',
-          color: 'var(--color-primary-strong)',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
-        }}
-      >
-        {icon}
-      </span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>
-          {title}
-        </div>
-        {subtitle && (
-          <div style={{ fontSize: 11.5, color: 'var(--color-text-dim)' }}>{subtitle}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+        <span
+          style={{
+            fontSize: 11.5,
+            fontWeight: 700,
+            color: 'var(--color-text-muted)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.07em',
+          }}
+        >
+          {pane ? PANE_TITLE[pane] : 'Context'}
+        </span>
+        {cwd && (
+          <span
+            className="mono"
+            title={cwd}
+            style={{
+              fontSize: 10.5,
+              color: 'var(--color-text-dim)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {cwd}
+          </span>
         )}
       </div>
     </div>
-  );
-}
-
-function Path({ text }: { readonly text: string }): JSX.Element {
-  return (
-    <div
-      className="mono"
-      title={text}
-      style={{
-        fontSize: 11.5,
-        color: 'var(--color-text-muted)',
-        background: 'var(--color-input-soft)',
-        padding: '8px 10px',
-        borderRadius: 8,
-        border: '1px solid var(--color-card-border)',
-        whiteSpace: 'nowrap',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-      }}
-    >
-      {text}
-    </div>
-  );
-}
-
-function ColorDot({ color }: { readonly color: string }): JSX.Element {
-  return (
-    <span
-      aria-hidden
-      style={{
-        width: 12,
-        height: 12,
-        borderRadius: '50%',
-        background: color,
-      }}
-    />
-  );
-}
-
-function Divider(): JSX.Element {
-  return (
-    <hr
-      style={{
-        border: 'none',
-        borderTop: '1px solid var(--color-card-border)',
-        margin: '0 16px',
-      }}
-    />
   );
 }
 
@@ -280,4 +169,5 @@ const iconBtnStyle: React.CSSProperties = {
   justifyContent: 'center',
   border: '1px solid var(--color-card-border)',
   background: 'var(--color-surface)',
+  flexShrink: 0,
 };

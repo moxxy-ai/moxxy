@@ -328,6 +328,7 @@ function fakeRemote(): {
       infoListeners.add(fn);
       return () => infoListeners.delete(fn);
     },
+    onSurfaceData: () => () => undefined,
   };
   return {
     remote: remote as unknown as RemoteSession,

@@ -40,6 +40,17 @@ export interface PageHandle {
   evaluate(fn: string): Promise<unknown>;
   url(): string;
   close(): Promise<void>;
+  // Coordinate-based input for the live browser surface (loosely typed — the
+  // real Playwright Page provides all of these).
+  viewportSize(): { width: number; height: number } | null;
+  readonly mouse: {
+    click(x: number, y: number, opts?: unknown): Promise<void>;
+    wheel(dx: number, dy: number): Promise<void>;
+  };
+  readonly keyboard: {
+    press(key: string): Promise<void>;
+    type(text: string): Promise<void>;
+  };
 }
 
 /** Minimal slice of Playwright's `Request` used by the navigation SSRF guard. */
@@ -55,6 +66,14 @@ export interface RouteHandle {
   continue(): Promise<void>;
 }
 
+/** Minimal slice of a Chrome DevTools Protocol session (Playwright's
+ *  `CDPSession`) — used for the live browser-surface screencast. */
+export interface CDPSession {
+  send(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  on(event: string, handler: (params: unknown) => void): void;
+  detach(): Promise<void>;
+}
+
 export interface PlaywrightHandle {
   // Loosely typed so we can avoid importing the playwright types at compile time —
   // they're an optional peer dependency.
@@ -64,6 +83,8 @@ export interface PlaywrightHandle {
     close(): Promise<void>;
     /** Optional because the type is a loose projection; real Playwright contexts always have it. */
     route?(pattern: string, handler: (route: RouteHandle) => Promise<void> | void): Promise<void>;
+    /** Chromium-only CDP session for screencast (the live browser surface). */
+    newCDPSession?(page: PageHandle): Promise<CDPSession>;
   };
   readonly page: PageHandle;
 }

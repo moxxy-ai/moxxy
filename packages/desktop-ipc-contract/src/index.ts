@@ -27,6 +27,11 @@ import type {
   ApprovalOption,
   PermissionMode,
   ModeBadge,
+  OpenSurfaceResult,
+  SurfaceDataMessage,
+  SurfaceInfo,
+  SurfaceInputMessage,
+  SurfaceSize,
   UserPromptAttachment,
 } from '@moxxy/sdk';
 
@@ -552,6 +557,11 @@ export interface IpcEvents {
   'provider.login.output': { loginId: string; text: string };
   /** A provider login finished. `code === 0` ⇒ signed in. */
   'provider.login.done': { loginId: string; code: number };
+  /** A frame from an open agentic surface (terminal bytes, a browser frame, a
+   *  url/title update) for `workspaceId`. The renderer routes it to the
+   *  matching pane by `data.surfaceId` and ignores frames for panes it isn't
+   *  showing. Forwarded verbatim from the runner's `surface.data`. */
+  'surface.data': { workspaceId: string; data: SurfaceDataMessage };
 }
 
 // ---------- Invokable commands (renderer → main) --------------------------
@@ -802,6 +812,59 @@ export interface IpcCommands {
       readonly kind: 'file' | 'dir';
     }>;
   }>;
+  /** Read a workspace file's full UTF-8 contents for the "Open" file viewer.
+   *  Same cwd-scoping + symlink guard as `workspace.listDir`. Returns
+   *  `{ truncated: true }` + a head excerpt for very large / binary files
+   *  rather than streaming megabytes into the renderer. */
+  'workspace.readFile': (args: {
+    workspaceId: string;
+    path: string;
+  }) => Promise<{
+    readonly path: string;
+    readonly content: string;
+    readonly truncated: boolean;
+    /** False when the file is detected as binary (content is a placeholder). */
+    readonly text: boolean;
+  }>;
+
+  // ---- Git (Files-changed pane + diff viewer) ---------------------------
+  /** Whether `workspaceId`'s cwd is inside a git work tree. Gates the
+   *  "Files changed" dropdown entry. */
+  'git.isRepo': (args: { workspaceId: string }) => Promise<boolean>;
+  /** Changed files (porcelain): staged + unstaged + untracked, relative to the
+   *  repo root, each with a two-letter status code. Empty when not a repo. */
+  'git.status': (args: { workspaceId: string }) => Promise<
+    ReadonlyArray<{ readonly path: string; readonly status: string }>
+  >;
+  /** Unified diff for one changed file (HEAD vs working tree; untracked files
+   *  diff against /dev/null). Capped in size like `workspace.readFile`. */
+  'git.diff': (args: { workspaceId: string; path: string }) => Promise<{
+    readonly path: string;
+    readonly diff: string;
+    readonly truncated: boolean;
+  }>;
+
+  // ---- Agentic surfaces (terminal · browser; runner protocol v8) --------
+  /** Available surface kinds + availability for `workspaceId`. Empty when no
+   *  surface plugin is loaded (or the runner predates v8). */
+  'surface.list': (args: { workspaceId: string }) => Promise<ReadonlyArray<SurfaceInfo>>;
+  /** Open (or attach to the shared) surface instance; returns a catch-up
+   *  snapshot. The runner then streams frames via the `surface.data` event. */
+  'surface.open': (args: { workspaceId: string; kind: string }) => Promise<OpenSurfaceResult>;
+  /** Relay a viewer input message (keystroke, mouse, navigate) to a surface. */
+  'surface.input': (args: {
+    workspaceId: string;
+    surfaceId: string;
+    message: SurfaceInputMessage;
+  }) => Promise<void>;
+  /** Resize an open surface's viewport. */
+  'surface.resize': (args: {
+    workspaceId: string;
+    surfaceId: string;
+    size: SurfaceSize;
+  }) => Promise<void>;
+  /** Detach an open surface instance. */
+  'surface.close': (args: { workspaceId: string; surfaceId: string }) => Promise<void>;
 
   // ---- Chat transcript log (main-process append-only NDJSON) ------------
   /** Append committed runner events to the workspace's durable log.

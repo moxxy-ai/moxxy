@@ -9,6 +9,7 @@ import type { LifecycleHooks } from './hooks.js';
 import type { ModeDef } from './mode.js';
 import type { ProviderDef } from './provider.js';
 import type { MoxxyRequirement } from './requirements.js';
+import type { SurfaceDef } from './surface.js';
 import type { ToolDef } from './tool.js';
 import type { TranscriberDef } from './transcriber.js';
 import type { SynthesizerDef } from './synthesizer.js';
@@ -16,7 +17,7 @@ import type { ViewRendererDef } from './view-renderer.js';
 import type { TunnelProviderDef } from './tunnel.js';
 import type { WorkflowExecutorDef } from './workflow.js';
 
-export type PluginKind = 'tools' | 'provider' | 'mode' | 'compactor' | 'cache-strategy' | 'view-renderer' | 'tunnel-provider' | 'mcp' | 'cli' | 'channel' | 'hooks' | 'agent' | 'command' | 'transcriber' | 'synthesizer' | 'embedder' | 'isolator' | 'workflow-executor';
+export type PluginKind = 'tools' | 'provider' | 'mode' | 'compactor' | 'cache-strategy' | 'view-renderer' | 'tunnel-provider' | 'mcp' | 'cli' | 'channel' | 'surface' | 'hooks' | 'agent' | 'command' | 'transcriber' | 'synthesizer' | 'embedder' | 'isolator' | 'workflow-executor';
 
 export interface PluginSpec {
   readonly name: string;
@@ -44,6 +45,14 @@ export interface PluginSpec {
    */
   readonly tunnelProviders?: ReadonlyArray<TunnelProviderDef>;
   readonly channels?: ReadonlyArray<ChannelDef>;
+  /**
+   * Interactive surfaces contributed by the plugin — long-lived panes a human
+   * and the agent drive together (an embedded terminal, an in-window browser).
+   * Registered into the session's `SurfaceRegistry`; the runner exposes them to
+   * thin clients over the `surface.*` protocol family. The plugin's own tools
+   * reach the same underlying resource through module state. See {@link SurfaceDef}.
+   */
+  readonly surfaces?: ReadonlyArray<SurfaceDef>;
   /**
    * Speech-to-text backends contributed by the plugin. Selected by name via
    * `session.transcribers.setActive(name)`; channels with audio input use

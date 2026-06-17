@@ -61,6 +61,39 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
   paste flow without re-implementing the OAuth dance. Loopback providers (openai-codex)
   emit no markers and are unaffected.
 
+## 2026-06-17 — agentic surfaces (shared terminal · in-window browser · files+diff)
+
+New `Surface` block (SDK `defineSurface` + `SurfaceRegistry`/`SurfaceHost` in
+core), runner protocol **v8** (`surface.*` methods + `surface.data` notification),
+desktop IPC relay, `@moxxy/plugin-terminal` (shared PTY) and a `browser` surface
+on `@moxxy/plugin-browser`, plus the repurposed context dropdown + resizable
+rail + git "Files changed" diff pane. Reviewed this journal before/while doing
+the work; the change is purely additive infrastructure, so it retires no existing
+item — the debt it *creates* is logged here on sight:
+
+- **Browser surface uses a real CDP screencast** (`Page.startScreencast` →
+  `Page.screencastFrame`, JPEG) pushed over a new unsolicited sidecar event
+  channel — not polling. Chromium-only; falls back to no frames (the
+  `browser_session` tool is unaffected) if CDP is unavailable. Files:
+  `packages/plugin-browser/src/{browser-surface.ts,sidecar/dispatch.ts}`.
+- **node-pty ships as an optional native dep of the CLI** (`@moxxy/cli`
+  optionalDependencies + root `pnpm.onlyBuiltDependencies`), so the terminal uses
+  a real PTY when the binary builds (it's N-API, ABI-stable like
+  `@napi-rs/keyring`, so the desktop's `pnpm deploy --prod` bundle works without
+  electron-rebuild). Falls back to the dependency-free piped shell when absent.
+  **Remaining:** verify the real PTY in a *packaged* desktop launch (Electron-as-
+  node ABI) — can't be checked in the normal gate.
+- **Surfaces are desktop-only — deliberately off the mobile WS allow-list**
+  (`REMOTE_ALLOWED_COMMANDS`). A sandboxed shell/browser over a tunnel is a real
+  feature with its own threat model; revisit when mobile needs it.
+- **"Add to agent" on a git-changed file assumes cwd === repo root.** `git status`
+  paths are repo-root-relative; the absolute path is built from the workspace cwd.
+  Correct for the common case; wrong when the workspace cwd is a repo subdir.
+  File: `apps/desktop/src/shell/surfaces/FilesPane.tsx`.
+- **The `terminal` tool's sentinel-based completion is best-effort** in a shared,
+  input-echoing shell (it strips the echoed command + sentinel lines heuristically).
+  Good enough for run-and-read; a structured exec channel would be cleaner.
+
 ## 2026-06-15 — built-in providers: z.ai / xAI / Google Gemini / local
 
 - **New (`@moxxy/plugin-provider-{zai,xai,google,local}`):** four first-class
