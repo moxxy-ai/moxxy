@@ -169,7 +169,7 @@ describe('spawnPath', () => {
     const shellNode = path.join(tmp, 'nvm-node');
     process.env.PATH = [shellNode, '/usr/bin'].join(path.delimiter);
 
-    const paths = spawnPath([cliDir]).split(path.delimiter);
+    const paths = spawnPath([cliDir], 'darwin').split(path.delimiter);
 
     expect(paths.slice(0, 4)).toEqual([cliDir, shellNode, '/usr/bin', '/usr/local/bin']);
   });

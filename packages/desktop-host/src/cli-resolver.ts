@@ -119,13 +119,17 @@ export function augmentedPaths(platform: NodeJS.Platform = process.platform): st
  * `moxxy login <provider>` dies with "env: node: No such file or directory".
  *
  * Prepend the caller-supplied dirs (typically the resolved binary's own
- * directory) plus the known install locations, then the inherited PATH.
+ * directory), keep the inherited shell PATH ahead of GUI fallbacks, then add
+ * known install locations for GUI-only launches.
  */
-export function spawnPath(extraDirs: ReadonlyArray<string> = []): string {
+export function spawnPath(
+  extraDirs: ReadonlyArray<string> = [],
+  platform: NodeJS.Platform = process.platform,
+): string {
   const dirs = [
     ...extraDirs,
     ...(process.env.PATH ?? '').split(delimiter),
-    ...augmentedPaths(),
+    ...augmentedPaths(platform),
   ].filter(Boolean);
   return [...new Set(dirs)].join(delimiter);
 }
