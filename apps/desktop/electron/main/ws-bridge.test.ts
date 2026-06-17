@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import WebSocket from 'ws';
 import { splitConnectUrl } from '@moxxy/client-transport-ws';
 import { encodeWsBearerProtocol, MOXXY_WS_SUBPROTOCOL } from '@moxxy/sdk';
 import type { MobileGatewayStatus } from '@moxxy/desktop-ipc-contract';

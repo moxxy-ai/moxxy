@@ -532,6 +532,16 @@ item — the debt it *creates* is logged here on sight:
   stay readable on narrow screens, and collapse state remains owned by hooks instead of
   presentational components.
 
+## 2026-06-17 — desktop gateway CI portability
+
+- **Retired (found + fixed same PR): the desktop mobile-gateway connection-count test
+  depended on Node's global WebSocket.** Node 20 CI does not expose that global, so the
+  test now imports the same explicit `ws` client used by other Node-side WebSocket tests
+  and `@moxxy/desktop` declares the test dependency directly.
+- **Retired (found during verification): workspace-registry tests used Vitest defaults
+  instead of the repo preset.** The package now opts into `@moxxy/vitest-preset`, so its
+  filesystem-heavy registry tests get the same CI timeout budget as the rest of the repo.
+
 ## 2026-06-17 — desktop sidebar action modals
 
 - **Retired (found + fixed same PR): sidebar session/workspace rename used tiny inline
