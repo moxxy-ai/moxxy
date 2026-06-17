@@ -31,6 +31,11 @@ import type {
   Skill,
   SkillInfo,
   SkillsClientView,
+  OpenSurfaceResult,
+  SurfaceDataMessage,
+  SurfaceInfo,
+  SurfaceInputMessage,
+  SurfaceSize,
   ToolDef,
   ToolInfo,
   ToolsClientView,
@@ -57,6 +62,8 @@ import {
   type PermissionCheckParams,
   type ReplayStartNotification,
   type RunTurnResult,
+  type SurfaceDataNotification,
+  type SurfaceListResult,
   type SynthesizeResult,
   type TurnCompleteNotification,
 } from './protocol.js';
@@ -182,6 +189,8 @@ export class RemoteSession implements ClientSession {
   private info: SessionInfo | null = null;
   /** Subscribers to `info.changed` pushes (see {@link onInfoChanged}). */
   private readonly infoListeners = new Set<(info: SessionInfo) => void>();
+  /** Subscribers to `surface.data` frames (see {@link onSurfaceData}). */
+  private readonly surfaceDataListeners = new Set<(data: SurfaceDataMessage) => void>();
   /**
    * The protocol version the SERVER reported at attach. Defaults to our own
    * version until the handshake resolves. Version-specific client methods (the
@@ -215,6 +224,19 @@ export class RemoteSession implements ClientSession {
       for (const fn of this.infoListeners) {
         try {
           fn(this.info);
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+    this.peer.on(RunnerNotification.SurfaceData, (params) => {
+      // A frame from an open surface (v8). Fan out to pane subscribers (the
+      // desktop's SessionDriver forwards each to the renderer). Listener errors
+      // are swallowed so a bad pane can't break the stream.
+      const { data } = params as SurfaceDataNotification;
+      for (const fn of this.surfaceDataListeners) {
+        try {
+          fn(data);
         } catch {
           /* ignore */
         }
@@ -365,6 +387,50 @@ export class RemoteSession implements ClientSession {
   onInfoChanged(fn: (info: SessionInfo) => void): () => void {
     this.infoListeners.add(fn);
     return () => this.infoListeners.delete(fn);
+  }
+
+  // --- Surfaces (protocol v8) ----------------------------------------------
+  // Backs the desktop's agentic panes (shared terminal, in-window browser).
+  // Gated on the SERVER's reported version so a v8 client attached to an older
+  // runner (a desktop whose JS hot-update outran its bundled CLI) gets a clear
+  // "update the CLI" error instead of a raw method-not-found.
+
+  /** Subscribe to `surface.data` frames from every open surface. Returns an
+   *  unsubscribe fn. */
+  onSurfaceData(fn: (data: SurfaceDataMessage) => void): () => void {
+    this.surfaceDataListeners.add(fn);
+    return () => this.surfaceDataListeners.delete(fn);
+  }
+
+  /** Available surface kinds + availability. Empty when no surface plugin is
+   *  loaded (or the runner predates v8). */
+  async listSurfaces(): Promise<ReadonlyArray<SurfaceInfo>> {
+    if (this.serverProtocolVersion !== null && this.serverProtocolVersion < 8) return [];
+    return this.peer.request<SurfaceListResult>(RunnerMethod.SurfaceList, {});
+  }
+
+  /** Open (or attach to the shared) surface instance for a kind. */
+  async openSurface(kind: string): Promise<OpenSurfaceResult> {
+    this.requireServerProtocol(8, 'Opening a surface');
+    return this.peer.request<OpenSurfaceResult>(RunnerMethod.SurfaceOpen, { kind });
+  }
+
+  /** Relay a viewer input message (keystroke, mouse, navigate) to a surface. */
+  async inputSurface(surfaceId: string, message: SurfaceInputMessage): Promise<void> {
+    this.requireServerProtocol(8, 'Driving a surface');
+    await this.peer.request(RunnerMethod.SurfaceInput, { surfaceId, message });
+  }
+
+  /** Resize an open surface's viewport. */
+  async resizeSurface(surfaceId: string, size: SurfaceSize): Promise<void> {
+    this.requireServerProtocol(8, 'Resizing a surface');
+    await this.peer.request(RunnerMethod.SurfaceResize, { surfaceId, size });
+  }
+
+  /** Detach an open surface instance. */
+  async closeSurface(surfaceId: string): Promise<void> {
+    this.requireServerProtocol(8, 'Closing a surface');
+    await this.peer.request(RunnerMethod.SurfaceClose, { surfaceId });
   }
 
   async *runTurn(prompt: string, opts: RunTurnOptions = {}): AsyncIterable<MoxxyEvent> {

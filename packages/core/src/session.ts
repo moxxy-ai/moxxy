@@ -22,6 +22,8 @@ import { TunnelProviderRegistry } from './registries/tunnel-providers.js';
 import { localhostTunnel } from './tunnel/localhost.js';
 import { CompactorRegistry } from './registries/compactors.js';
 import { ChannelRegistryImpl } from './registries/channels.js';
+import { SurfaceRegistryImpl } from './registries/surfaces.js';
+import { SurfaceHostImpl } from './surfaces/host.js';
 import { SkillRegistryImpl } from './registries/skills.js';
 import { ToolRegistryImpl, type ToolRegistry } from './registries/tools.js';
 import { AgentRegistry } from './registries/agents.js';
@@ -112,6 +114,14 @@ export class Session implements ClientSession, SessionRuntime {
   readonly viewRenderers: ViewRendererRegistry;
   readonly tunnelProviders: TunnelProviderRegistry;
   readonly channels: ChannelRegistryImpl;
+  /** Registry of surface defs (terminal, browser, …) contributed by plugins. */
+  readonly surfaceRegistry: SurfaceRegistryImpl;
+  /**
+   * Manages the live, open surface instances for this session. The runner
+   * drives it for thin clients; the agent's tools reach the same resources via
+   * plugin module state. See {@link SurfaceHostImpl}.
+   */
+  readonly surfaces: SurfaceHostImpl;
   readonly skills: SkillRegistryImpl;
   readonly agents: AgentRegistry;
   readonly commands: CommandRegistry;
@@ -190,6 +200,8 @@ export class Session implements ClientSession, SessionRuntime {
     // URL; plugins (cloudflared) register/setActive a real tunnel.
     this.tunnelProviders.register(localhostTunnel);
     this.channels = new ChannelRegistryImpl();
+    this.surfaceRegistry = new SurfaceRegistryImpl();
+    this.surfaces = new SurfaceHostImpl(this.surfaceRegistry, { cwd: this.cwd, logger: this.logger }, this.logger);
     this.skills = new SkillRegistryImpl();
     this.agents = new AgentRegistry();
     this.commands = new CommandRegistry();
@@ -238,6 +250,7 @@ export class Session implements ClientSession, SessionRuntime {
       viewRenderers: this.viewRenderers,
       tunnelProviders: this.tunnelProviders,
       channels: this.channels,
+      surfaces: this.surfaceRegistry,
       agents: this.agents,
       commands: this.commands,
       transcribers: this.transcribers,
@@ -313,6 +326,9 @@ export class Session implements ClientSession, SessionRuntime {
     if (this.closed) return;
     this.closed = true;
     try {
+      // Tear down any open surfaces (PTYs, browser screencasts) before the
+      // plugin shutdown hooks dispose their underlying resources.
+      await this.surfaces.closeAll();
       await this.dispatcher.dispatchShutdown(this.appContext());
     } finally {
       // Drop any retained child sessions (the workflow `awaitInput` flow keeps

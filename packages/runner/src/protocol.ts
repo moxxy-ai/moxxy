@@ -7,7 +7,12 @@ import type {
   PendingToolCall,
   PermissionContext,
   PermissionDecision,
+  OpenSurfaceResult,
   SessionInfo,
+  SurfaceDataMessage,
+  SurfaceInfo,
+  SurfaceInputMessage,
+  SurfaceSize,
   TranscriptionResult,
   UserPromptAttachment,
 } from '@moxxy/sdk';
@@ -98,11 +103,26 @@ import type {
  *   re-render from that push instead of requiring an app restart. A v7
  *   client gates the new methods on the server's reported version.
  *
- * Every change v1→v7 has been ADDITIVE, so MIN_COMPATIBLE stays at 1: today's
+ * v8: adds the `surface.*` method family + the `surface.data` notification,
+ * backing the desktop's agentic surfaces (an embedded shared terminal, an
+ * in-window browser). A surface is a runner-owned interactive resource (a PTY,
+ * a Playwright page) that the agent's tools and a thin client drive together:
+ *   - `surface.list` enumerates the available kinds + availability.
+ *   - `surface.open` opens (or attaches to the shared) instance for a kind and
+ *     returns a catch-up snapshot; the server starts broadcasting that
+ *     instance's frames as `surface.data` notifications.
+ *   - `surface.input` / `surface.resize` relay a viewer's keystrokes / mouse /
+ *     navigate / viewport changes back to the instance.
+ *   - `surface.close` detaches one instance.
+ *   All degrade cleanly when no surface plugin is loaded: `surface.list`
+ *   returns `[]` and `surface.open` throws a clear "no surface" error. A v8
+ *   client gates the family on the server's reported version.
+ *
+ * Every change v1→v8 has been ADDITIVE, so MIN_COMPATIBLE stays at 1: today's
  * server can serve any client back to v1, and any client v1+ can attach. Bump
  * MIN_COMPATIBLE to N only when landing a breaking change at version N.
  */
-export const RUNNER_PROTOCOL_VERSION = 7;
+export const RUNNER_PROTOCOL_VERSION = 8;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -175,6 +195,16 @@ export const RunnerMethod = {
    * reported version so an older runner returns an actionable error.
    */
   WorkflowResume: 'workflow.resume',
+  /** client->server: list available surface kinds + availability (v8). */
+  SurfaceList: 'surface.list',
+  /** client->server: open (or attach to the shared) surface instance (v8). */
+  SurfaceOpen: 'surface.open',
+  /** client->server: relay a viewer input message to an open surface (v8). */
+  SurfaceInput: 'surface.input',
+  /** client->server: resize an open surface's viewport (v8). */
+  SurfaceResize: 'surface.resize',
+  /** client->server: detach an open surface instance (v8). */
+  SurfaceClose: 'surface.close',
   /** server->client: ask this client to decide a tool-call permission. */
   PermissionCheck: 'permission.check',
   /** server->client: ask this client to confirm an approval checkpoint. */
@@ -204,6 +234,13 @@ export const RunnerNotification = {
    * `{ tail }`) ingests contiguously instead of dropping every event.
    */
   ReplayStart: 'replay.start',
+  /**
+   * One outbound frame from an open surface (PTY bytes, a browser frame, a
+   * url/title update). Multiplexed by `surfaceId`; the client routes it to the
+   * matching pane. Broadcast to every attached client — a client that hasn't
+   * opened that surface simply ignores frames it has no pane for (v8).
+   */
+  SurfaceData: 'surface.data',
 } as const;
 export type RunnerNotification = (typeof RunnerNotification)[keyof typeof RunnerNotification];
 
@@ -349,6 +386,28 @@ export interface WorkflowResumeResult {
   /** `paused` when the run pauses AGAIN at a later awaitInput step. */
   readonly status?: 'completed' | 'paused' | 'failed';
   readonly runId?: string;
+}
+
+// Surfaces (v8). Open/relay shape mirrors the SDK's SurfaceHost.
+export type SurfaceListResult = ReadonlyArray<SurfaceInfo>;
+export interface SurfaceOpenParams {
+  readonly kind: string;
+}
+export type SurfaceOpenResult = OpenSurfaceResult;
+export interface SurfaceInputParams {
+  readonly surfaceId: string;
+  readonly message: SurfaceInputMessage;
+}
+export interface SurfaceResizeParams {
+  readonly surfaceId: string;
+  readonly size: SurfaceSize;
+}
+export interface SurfaceCloseParams {
+  readonly surfaceId: string;
+}
+/** One `surface.data` notification: a frame from an open surface instance. */
+export interface SurfaceDataNotification {
+  readonly data: SurfaceDataMessage;
 }
 
 export interface PermissionCheckParams {
@@ -519,4 +578,34 @@ export const workflowGetRunParamsSchema = z.object({ name: z.string().min(1).max
 export const workflowResumeParamsSchema = z.object({
   runId: z.string().min(1).max(120),
   reply: z.string().min(1).max(100_000),
+});
+
+// Surface params (v8). The viewer message + size are surface-specific, so the
+// shapes are intentionally loose (passthrough) — each kind defines its payload.
+// The surfaceId and kind are bounded like the other id-bearing params; the
+// input message is capped so a hostile client can't OOM the runner with a giant
+// "paste" frame (a real paste is far below 1 MB).
+export const surfaceOpenParamsSchema = z.object({
+  kind: z.string().min(1).max(64),
+});
+export const surfaceInputParamsSchema = z.object({
+  surfaceId: z.string().min(1).max(120),
+  message: z
+    .object({ type: z.string().min(1).max(64) })
+    .passthrough()
+    .refine((m) => JSON.stringify(m).length <= 1_000_000, {
+      message: 'surface input message too large',
+    }),
+});
+export const surfaceResizeParamsSchema = z.object({
+  surfaceId: z.string().min(1).max(120),
+  size: z.object({
+    cols: z.number().int().positive().max(10_000).optional(),
+    rows: z.number().int().positive().max(10_000).optional(),
+    width: z.number().int().positive().max(100_000).optional(),
+    height: z.number().int().positive().max(100_000).optional(),
+  }),
+});
+export const surfaceCloseParamsSchema = z.object({
+  surfaceId: z.string().min(1).max(120),
 });

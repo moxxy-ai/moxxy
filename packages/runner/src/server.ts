@@ -35,6 +35,10 @@ import {
   providerSetEnabledParamsSchema,
   runTurnParamsSchema,
   setResolverParamsSchema,
+  surfaceOpenParamsSchema,
+  surfaceInputParamsSchema,
+  surfaceResizeParamsSchema,
+  surfaceCloseParamsSchema,
   transcribeParamsSchema,
   synthesizeParamsSchema,
   workflowRunParamsSchema,
@@ -92,6 +96,7 @@ export class RunnerServer {
   private readonly logUnsub: () => void;
   private readonly logClearUnsub: () => void;
   private readonly modesUnsub: () => void;
+  private readonly surfacesUnsub: () => void;
   /**
    * Resolvers for unscoped (local) turns - the fall-through path. Seeded from
    * whatever was installed before we wrapped the session, then kept current by
@@ -122,6 +127,12 @@ export class RunnerServer {
     // Mirror active-mode changes to clients — covers both the SetMode RPC and a
     // mode handing off to another mode post-turn.
     this.modesUnsub = session.modes.onActiveChange(() => this.broadcastInfo());
+    // Multiplex every open surface's output to all attached clients (v8). The
+    // host emits one SurfaceDataMessage per frame; a client routes it to the
+    // matching pane by surfaceId and ignores surfaces it isn't showing.
+    this.surfacesUnsub = session.surfaces.onData((data) =>
+      this.broadcast(RunnerNotification.SurfaceData, { data }),
+    );
   }
 
   get address(): string {
@@ -134,6 +145,8 @@ export class RunnerServer {
     this.logUnsub();
     this.logClearUnsub();
     this.modesUnsub();
+    this.surfacesUnsub();
+    void this.session.surfaces.closeAll();
     for (const client of this.clients) client.peer.close();
     this.clients.clear();
     await this.transport.close();
@@ -184,6 +197,11 @@ export class RunnerServer {
     peer.handle(RunnerMethod.WorkflowSave, (raw) => this.handleWorkflowSave(raw));
     peer.handle(RunnerMethod.WorkflowGetRun, (raw) => this.handleWorkflowGetRun(raw));
     peer.handle(RunnerMethod.WorkflowResume, (raw) => this.handleWorkflowResume(raw));
+    peer.handle(RunnerMethod.SurfaceList, () => this.handleSurfaceList());
+    peer.handle(RunnerMethod.SurfaceOpen, (raw) => this.handleSurfaceOpen(raw));
+    peer.handle(RunnerMethod.SurfaceInput, (raw) => this.handleSurfaceInput(raw));
+    peer.handle(RunnerMethod.SurfaceResize, (raw) => this.handleSurfaceResize(raw));
+    peer.handle(RunnerMethod.SurfaceClose, (raw) => this.handleSurfaceClose(raw));
 
     peer.onClose(() => this.onDisconnect(client));
   }
@@ -594,6 +612,38 @@ export class RunnerServer {
     const view = this.session.workflows;
     if (!view?.resume) throw new Error('workflow resume not supported on this runner');
     return view.resume(params.runId, params.reply);
+  }
+
+  // --- Surfaces (v8; delegate to the session's SurfaceHost) ----------------
+  // Output streams back as `surface.data` notifications (subscribed in the
+  // ctor). All degrade cleanly when no surface plugin is loaded: list → [],
+  // open → throws a clear "no surface" error.
+
+  private async handleSurfaceList(): Promise<unknown[]> {
+    return [...(await this.session.surfaces.list())];
+  }
+
+  private async handleSurfaceOpen(raw: unknown): Promise<unknown> {
+    const { kind } = surfaceOpenParamsSchema.parse(raw);
+    return this.session.surfaces.open(kind);
+  }
+
+  private async handleSurfaceInput(raw: unknown): Promise<Record<string, never>> {
+    const { surfaceId, message } = surfaceInputParamsSchema.parse(raw);
+    await this.session.surfaces.input(surfaceId, message);
+    return {};
+  }
+
+  private async handleSurfaceResize(raw: unknown): Promise<Record<string, never>> {
+    const { surfaceId, size } = surfaceResizeParamsSchema.parse(raw);
+    await this.session.surfaces.resize(surfaceId, size);
+    return {};
+  }
+
+  private async handleSurfaceClose(raw: unknown): Promise<Record<string, never>> {
+    const { surfaceId } = surfaceCloseParamsSchema.parse(raw);
+    await this.session.surfaces.close(surfaceId);
+    return {};
   }
 
   private broadcastInfo(): void {

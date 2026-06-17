@@ -74,6 +74,14 @@ export class SessionDriver {
     });
     this.disposes.push(infoUnsub);
 
+    // Forward agentic-surface frames (terminal bytes, browser frames) so the
+    // renderer's pane can render them. Tagged with workspaceId so a background
+    // workspace's surface never paints into the foreground one (v8).
+    const surfaceUnsub = this.session.onSurfaceData((data) => {
+      this.send('surface.data', { workspaceId, data });
+    });
+    this.disposes.push(surfaceUnsub);
+
     // Forward the runner's permission + approval decisions to the renderer's
     // bottom sheet. Declaring these resolvers tells the runner this client
     // handles permissions/approvals, so loop strategies (research)

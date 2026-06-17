@@ -359,6 +359,22 @@ export type {
 export type { EmbeddingProvider, EmbedderDef } from './embedding.js';
 export { CachedEmbeddingProvider } from './embedding-cache.js';
 
+export { defineSurface } from './surface.js';
+export type {
+  SurfaceKind,
+  SurfaceDataMessage,
+  SurfaceInputMessage,
+  SurfaceSize,
+  SurfaceInstance,
+  SurfaceAvailability,
+  SurfaceContext,
+  SurfaceDef,
+  SurfaceRegistry,
+  SurfaceInfo,
+  OpenSurfaceResult,
+  SurfaceHost,
+} from './surface.js';
+
 export type {
   RequirementKind,
   RequirementState,

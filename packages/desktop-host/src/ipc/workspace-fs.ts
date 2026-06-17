@@ -11,23 +11,32 @@
 import type { DeskStore } from '../desks';
 import { handle } from './shared';
 
+/**
+ * Resolve a workspace id to its cwd. The routing id is a SESSION id (the pool
+ * key), so match a desk by id OR by owning the session — first sessions share
+ * their desk's id, so both arms hit. Falls back to the active desk, then
+ * `process.cwd()`. Exported so the git handlers resolve cwd identically.
+ */
+export async function cwdForWorkspace(desks: DeskStore, workspaceId?: string): Promise<string> {
+  const all = await desks.list();
+  const desk =
+    all.find((d) => d.id === workspaceId || d.sessions.some((s) => s.id === workspaceId)) ??
+    (await desks.getActive());
+  return desk?.cwd ?? process.cwd();
+}
+
 export function registerWorkspaceFsHandlers(desks: DeskStore): void {
   // ---- Workspace filesystem browsing --------------------------------------
 
   handle('workspace.listDir', async ({ workspaceId, path: relPath }) => {
     const { listDir } = await import('../workspace-fs');
-    // Look up the cwd by the workspace id so background workspaces
-    // can be browsed too; fall back to the active desk. The routing id is
-    // a SESSION id (the pool key), so match a desk by id OR by owning the
-    // session — first sessions share their desk's id, so both arms hit.
-    const all = await desks.list();
-    const desk =
-      all.find(
-        (d) => d.id === workspaceId || d.sessions.some((s) => s.id === workspaceId),
-      ) ?? (await desks.getActive());
-    if (!desk) {
-      return { cwd: process.cwd(), path: '.', entries: [] };
-    }
-    return listDir(desk.cwd, relPath);
+    const cwd = await cwdForWorkspace(desks, workspaceId);
+    return listDir(cwd, relPath);
+  });
+
+  handle('workspace.readFile', async ({ workspaceId, path: relPath }) => {
+    const { readFile } = await import('../workspace-fs');
+    const cwd = await cwdForWorkspace(desks, workspaceId);
+    return readFile(cwd, relPath);
   });
 }
