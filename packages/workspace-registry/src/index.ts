@@ -37,6 +37,14 @@ interface DeskDoc {
   desks: Desk[];
 }
 
+interface ActivePointerSnapshot {
+  readonly activeId: string | null;
+  readonly desks: ReadonlyArray<{
+    readonly id: string;
+    readonly activeSessionId: string | null;
+  }>;
+}
+
 export type WorkspaceSessionSource = NonNullable<DeskSession['source']>;
 
 interface RegisterSessionOptions {
@@ -59,10 +67,10 @@ export async function syncSessionIndexIntoRegistry(
   registry: WorkspaceRegistry = new WorkspaceRegistry(),
   source: WorkspaceSessionSource = 'cli',
 ): Promise<void> {
-  for (const meta of await readSessionIndex()) {
-    if (!shouldImportSessionMeta(meta)) continue;
-    await registry.registerSessionFromMeta(meta, source);
-  }
+  await registry.registerSessionsFromMeta(
+    (await readSessionIndex()).filter(shouldImportSessionMeta),
+    source,
+  );
 }
 
 export class WorkspaceRegistry {
@@ -124,24 +132,23 @@ export class WorkspaceRegistry {
   ): Promise<{ desk: Desk; session: DeskSession }> {
     return this.mutex.run(async () => {
       const doc = await this.load();
-      const existing = findSession(doc, meta.id);
-      if (existing) {
-        Object.assign(existing.session, sessionPatchFromMeta(existing.session, meta, source));
-        if (options.activate) {
-          existing.desk.activeSessionId = existing.session.id;
-          doc.activeId = existing.desk.id;
-        }
-        await this.save(doc);
-        return existing;
-      }
+      const registered = registerSessionInDoc(doc, meta, source, options);
+      await this.saveRegistrationDoc(doc, options);
+      return registered;
+    });
+  }
 
-      const desk = findBestDeskForCwd(doc, meta.cwd) ?? ensureMoxxyWorkspaceInDoc(doc);
-      const session: DeskSession = sessionFromMeta(meta, source);
-      desk.sessions.push(session);
-      if (!desk.activeSessionId || options.activate) desk.activeSessionId = session.id;
-      if (!doc.activeId || options.activate) doc.activeId = desk.id;
-      await this.save(doc);
-      return { desk, session };
+  async registerSessionsFromMeta(
+    metas: ReadonlyArray<SessionMeta>,
+    source: WorkspaceSessionSource,
+  ): Promise<void> {
+    if (metas.length === 0) return;
+    await this.mutex.run(async () => {
+      const doc = await this.load();
+      for (const meta of metas) {
+        registerSessionInDoc(doc, meta, source);
+      }
+      await this.saveRegistrationDoc(doc, {});
     });
   }
 
@@ -299,6 +306,20 @@ export class WorkspaceRegistry {
     if (!id) return null;
     return doc.desks.find((desk) => desk.id === id) ?? null;
   }
+
+  private async saveRegistrationDoc(
+    doc: DeskDoc,
+    options: RegisterSessionOptions,
+  ): Promise<void> {
+    if (!options.activate) {
+      preserveLatestActivePointers(doc, await this.loadActivePointerSnapshot());
+    }
+    await this.save(doc);
+  }
+
+  protected async loadActivePointerSnapshot(): Promise<ActivePointerSnapshot | null> {
+    return readActivePointerSnapshot(this.path);
+  }
 }
 
 export { WorkspaceRegistry as DeskStore };
@@ -357,6 +378,80 @@ function findSession(
   return null;
 }
 
+function registerSessionInDoc(
+  doc: DeskDoc,
+  meta: SessionMeta,
+  source: WorkspaceSessionSource,
+  options: RegisterSessionOptions = {},
+): { desk: Desk; session: DeskSession } {
+  const existing = findSession(doc, meta.id);
+  if (existing) {
+    Object.assign(existing.session, sessionPatchFromMeta(existing.session, meta, source));
+    if (options.activate) {
+      existing.desk.activeSessionId = existing.session.id;
+      doc.activeId = existing.desk.id;
+    }
+    return existing;
+  }
+
+  const desk = findBestDeskForCwd(doc, meta.cwd) ?? ensureMoxxyWorkspaceInDoc(doc);
+  const session: DeskSession = sessionFromMeta(meta, source);
+  desk.sessions.push(session);
+  if (!desk.activeSessionId || options.activate) desk.activeSessionId = session.id;
+  if (!doc.activeId || options.activate) doc.activeId = desk.id;
+  return { desk, session };
+}
+
+async function readActivePointerSnapshot(filePath: string): Promise<ActivePointerSnapshot | null> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object') return null;
+  const value = parsed as { activeId?: unknown; desks?: unknown[] };
+  return {
+    activeId: typeof value.activeId === 'string' ? value.activeId : null,
+    desks: Array.isArray(value.desks)
+      ? value.desks.flatMap((desk) => {
+          if (!desk || typeof desk !== 'object') return [];
+          const candidate = desk as { id?: unknown; activeSessionId?: unknown };
+          if (typeof candidate.id !== 'string') return [];
+          return [
+            {
+              id: candidate.id,
+              activeSessionId:
+                typeof candidate.activeSessionId === 'string'
+                  ? candidate.activeSessionId
+                  : null,
+            },
+          ];
+        })
+      : [],
+  };
+}
+
+function preserveLatestActivePointers(
+  doc: DeskDoc,
+  latest: ActivePointerSnapshot | null,
+): void {
+  if (!latest) return;
+  if (latest.activeId && doc.desks.some((desk) => desk.id === latest.activeId)) {
+    doc.activeId = latest.activeId;
+  }
+  for (const desk of doc.desks) {
+    const latestDesk = latest.desks.find((candidate) => candidate.id === desk.id);
+    const latestActiveSessionId = latestDesk?.activeSessionId;
+    if (
+      latestActiveSessionId &&
+      desk.sessions.some((session) => session.id === latestActiveSessionId)
+    ) {
+      desk.activeSessionId = latestActiveSessionId;
+    }
+  }
+}
+
 function sessionFromMeta(meta: SessionMeta, source: WorkspaceSessionSource): DeskSession {
   return {
     id: meta.id,
@@ -371,24 +466,40 @@ function sessionPatchFromMeta(
   meta: SessionMeta,
   source: WorkspaceSessionSource,
 ): Partial<DeskSession> {
+  const partialResume = isPartialResumeMeta(existing, meta);
   return {
-    ...metaFields(meta, source),
-    name: shouldRefreshSessionNameFromMeta(existing, meta)
-      ? sessionNameFromMeta(meta)
-      : existing.name,
+    ...metaFields(meta, source, partialResume ? existing : null),
+    name: partialResume
+      ? existing.name
+      : shouldRefreshSessionNameFromMeta(existing, meta)
+        ? sessionNameFromMeta(meta)
+        : existing.name,
   };
 }
 
-function metaFields(meta: SessionMeta, source: WorkspaceSessionSource): Partial<DeskSession> {
+function metaFields(
+  meta: SessionMeta,
+  source: WorkspaceSessionSource,
+  preserve?: Pick<DeskSession, 'firstPrompt' | 'eventCount'> | null,
+): Partial<DeskSession> {
   return {
     cwd: meta.cwd,
-    firstPrompt: meta.firstPrompt,
+    firstPrompt: preserve ? preserve.firstPrompt : meta.firstPrompt,
     lastActivity: meta.lastActivity,
-    eventCount: meta.eventCount,
+    eventCount: preserve ? preserve.eventCount : meta.eventCount,
     provider: meta.provider,
     model: meta.model,
     source,
   };
+}
+
+function isPartialResumeMeta(existing: DeskSession, meta: SessionMeta): boolean {
+  if (!hasUserVisibleContent(existing)) return false;
+  if (!meta.firstPrompt?.trim()) return false;
+  if (meta.firstPrompt.trim() === existing.firstPrompt?.trim()) return false;
+  if (typeof existing.eventCount !== 'number') return false;
+  if (meta.eventCount >= existing.eventCount) return false;
+  return timestampFromIso(meta.startedAt) > existing.createdAt;
 }
 
 function sessionNameFromMeta(meta: SessionMeta): string {
@@ -538,7 +649,11 @@ async function hydrateLegacySessionNames(
       if (isImportedSession(session)) {
         const meta = indexedById.get(session.id);
         if (meta) {
-          if (!shouldImportSessionMeta(meta)) return null;
+          if (!shouldImportSessionMeta(meta)) {
+            return hasUserVisibleContent(session) || session.id === desk.activeSessionId
+              ? session
+              : null;
+          }
           return {
             ...session,
             ...metaFields(meta, session.source),

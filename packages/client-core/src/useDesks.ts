@@ -56,6 +56,7 @@ class DesksStore {
   private listenerCount = 0;
   private unsubscribeChanged: (() => void) | null = null;
   private pendingActiveSessionId: string | null = null;
+  private mutationEpoch = 0;
 
   private get state(): DesksState {
     return this.store.getSnapshot();
@@ -107,7 +108,6 @@ class DesksStore {
       next.activeId === ownerDeskId &&
       next.desks.some((desk) => desk.id === ownerDeskId && desk.activeSessionId === pendingId);
     if (hostAlreadyCaughtUp) {
-      this.pendingActiveSessionId = null;
       return next;
     }
 
@@ -156,11 +156,14 @@ class DesksStore {
   }
 
   refresh = async (): Promise<void> => {
+    const epoch = this.mutationEpoch;
     this.set({ loading: true });
     try {
       const next: DesksOverview = await api().invoke('desks.list');
+      if (epoch !== this.mutationEpoch) return;
       this.applyOverview(next);
     } catch (e) {
+      if (epoch !== this.mutationEpoch) return;
       this.set({ error: toErrorMessage(e), loading: false });
     }
   };
@@ -168,6 +171,7 @@ class DesksStore {
   pickFolder = async (): Promise<string | null> => api().invoke('desks.pickFolder');
 
   create = async (name: string, cwd: string): Promise<Desk | null> => {
+    this.mutationEpoch += 1;
     try {
       const desk = await api().invoke('desks.create', { name, cwd });
       await this.refresh();
@@ -179,6 +183,7 @@ class DesksStore {
   };
 
   remove = async (id: string): Promise<void> => {
+    this.mutationEpoch += 1;
     try {
       await api().invoke('desks.remove', { id });
       await this.refresh();
@@ -200,6 +205,7 @@ class DesksStore {
       connectionStore,
       () => {
         const desk = this.state.desks.find((d) => d.id === id);
+        this.mutationEpoch += 1;
         this.set({ activeId: id });
         connectionStore.setActive(desk?.activeSessionId ?? id);
       },
@@ -216,6 +222,7 @@ class DesksStore {
   };
 
   rename = async (id: string, name: string): Promise<void> => {
+    this.mutationEpoch += 1;
     try {
       await api().invoke('desks.rename', { id, name });
       await this.refresh();
@@ -230,6 +237,7 @@ class DesksStore {
   // id instead of going through that store's single tracked desk.
 
   createSession = async (deskId: string, name?: string): Promise<DeskSession | null> => {
+    this.mutationEpoch += 1;
     try {
       const session = await api().invoke('sessions.create', {
         deskId,
@@ -254,6 +262,7 @@ class DesksStore {
       connectionStore,
       () => {
         const desk = this.state.desks.find((d) => d.sessions.some((s) => s.id === id));
+        this.mutationEpoch += 1;
         this.pendingActiveSessionId = id;
         if (desk) {
           this.set({
@@ -268,6 +277,7 @@ class DesksStore {
       async () => {
         await api().invoke('sessions.setActive', { id });
         await this.refresh();
+        if (this.pendingActiveSessionId === id) this.pendingActiveSessionId = null;
       },
       (e) => {
         if (this.pendingActiveSessionId === id) this.pendingActiveSessionId = null;
@@ -278,6 +288,7 @@ class DesksStore {
 
   renameSession = async (id: string, name: string): Promise<void> => {
     const prevDesks = this.state.desks;
+    this.mutationEpoch += 1;
     this.renameSessionInState(id, name);
     try {
       await api().invoke('sessions.rename', { id, name });
@@ -288,6 +299,7 @@ class DesksStore {
   };
 
   removeSession = async (id: string): Promise<void> => {
+    this.mutationEpoch += 1;
     try {
       await api().invoke('sessions.remove', { id });
       await this.refresh();
@@ -309,6 +321,7 @@ class DesksStore {
     this.listenerCount = 0;
     this.store.replace(INITIAL);
     this.pendingActiveSessionId = null;
+    this.mutationEpoch = 0;
   }
 }
 

@@ -536,6 +536,14 @@ item — the debt it *creates* is logged here on sight:
   workspace folders keep desktop colors, sessions sit as indented children, active rows
   stay readable on narrow screens, and collapse state remains owned by hooks instead of
   presentational components.
+- **Retired (found + fixed same PR): delayed desk overviews could roll back a
+  freshly selected session.** A `desks.list` response that started before a
+  mobile/desktop `sessions.setActive` mutation could land after the optimistic
+  switch and overwrite `connectionStore` with the old active session. The
+  shared desks store now gates stale refresh responses by mutation epoch and
+  keeps the pending active session pinned until the switching command's own
+  refresh completes, so phone and desktop no longer snap back to the previous
+  conversation.
 
 ## 2026-06-17 — mobile/desktop auto-approve + context meter parity
 

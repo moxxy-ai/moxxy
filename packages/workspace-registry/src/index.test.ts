@@ -154,6 +154,115 @@ describe('WorkspaceRegistry session registration', () => {
     });
   });
 
+  it('does not rename a resumed visible session from a partial fresh runner meta', async () => {
+    const registry = new WorkspaceRegistry(registryPath);
+    await registry.registerSessionFromMeta(
+      {
+        ...meta({ id: 'resumed-session', cwd: tmp, firstPrompt: 'cześć', eventCount: 37 }),
+        startedAt: '2026-06-12T10:00:00.000Z',
+        lastActivity: '2026-06-12T10:05:00.000Z',
+      },
+      'cli',
+    );
+
+    await registry.registerSessionFromMeta(
+      {
+        ...meta({
+          id: 'resumed-session',
+          cwd: tmp,
+          firstPrompt: 'QA ping po fixie sesji: odpowiedz tylko OK.',
+          eventCount: 2,
+        }),
+        startedAt: '2026-06-17T20:40:00.000Z',
+        lastActivity: '2026-06-17T20:40:10.000Z',
+      },
+      'desktop',
+    );
+
+    const [desk] = await registry.list();
+    expect(desk?.sessions[0]).toMatchObject({
+      id: 'resumed-session',
+      name: 'cześć',
+      firstPrompt: 'cześć',
+      eventCount: 37,
+      lastActivity: '2026-06-17T20:40:10.000Z',
+      source: 'desktop',
+    });
+  });
+
+  it('preserves the latest active session when stale metadata refreshes are saved late', async () => {
+    const staleDoc = {
+      version: 3,
+      activeId: 'desk-a',
+      desks: [
+        {
+          id: 'desk-a',
+          name: 'A',
+          cwd: tmp,
+          color: '#3b82f6',
+          createdAt: 111,
+          sessions: [
+            {
+              id: 'old-session',
+              name: 'Old',
+              createdAt: 111,
+              cwd: tmp,
+              source: 'desktop' as const,
+            },
+            {
+              id: 'new-session',
+              name: 'New',
+              createdAt: 222,
+              cwd: tmp,
+              source: 'desktop' as const,
+            },
+          ],
+          activeSessionId: 'old-session',
+        },
+      ],
+    };
+    const latestDoc = {
+      ...staleDoc,
+      desks: [
+        {
+          ...staleDoc.desks[0]!,
+          activeSessionId: 'new-session',
+        },
+      ],
+    };
+    let loadCount = 0;
+    let savedDoc: unknown = null;
+    class RacingRegistry extends WorkspaceRegistry {
+      override async load(): Promise<unknown> {
+        loadCount += 1;
+        return structuredClone(staleDoc);
+      }
+
+      protected override async loadActivePointerSnapshot(): Promise<unknown> {
+        return {
+          activeId: latestDoc.activeId,
+          desks: latestDoc.desks.map((desk) => ({
+            id: desk.id,
+            activeSessionId: desk.activeSessionId,
+          })),
+        };
+      }
+
+      override async save(doc: unknown): Promise<void> {
+        savedDoc = structuredClone(doc);
+      }
+    }
+
+    await new RacingRegistry(registryPath).registerSessionFromMeta(
+      meta({ id: 'old-session', cwd: tmp, firstPrompt: 'Old updated', eventCount: 9 }),
+      'desktop',
+    );
+
+    const saved = savedDoc as typeof staleDoc;
+    expect(loadCount).toBe(1);
+    expect(saved.desks[0]?.activeSessionId).toBe('new-session');
+  });
+
   it('keeps an activated mobile live session before it has a first prompt', async () => {
     const registry = new WorkspaceRegistry(registryPath);
 
@@ -232,6 +341,49 @@ describe('WorkspaceRegistry session-index sync', () => {
       const desks = await registry.list();
       const sessions = desks.flatMap((desk) => desk.sessions);
       expect(sessions.map((session) => session.id)).toEqual(['visible-session']);
+    } finally {
+      if (original === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = original;
+    }
+  });
+
+  it('syncs visible session metadata in one registry load', async () => {
+    const original = process.env.MOXXY_HOME;
+    const home = path.join(tmp, 'home');
+    const sessionsDir = path.join(home, 'sessions');
+    const liveCwd = path.join(tmp, 'project');
+    mkdirSync(sessionsDir, { recursive: true });
+    mkdirSync(liveCwd, { recursive: true });
+    process.env.MOXXY_HOME = home;
+    class CountingRegistry extends WorkspaceRegistry {
+      loadCount = 0;
+
+      override async load(): Promise<unknown> {
+        this.loadCount += 1;
+        return super.load();
+      }
+    }
+    try {
+      for (const id of ['visible-a', 'visible-b', 'visible-c']) {
+        writeSessionMeta(sessionsDir, {
+          ...meta({ id, cwd: liveCwd, firstPrompt: `prompt ${id}` }),
+          eventCount: 2,
+        });
+      }
+      const registry = new CountingRegistry(registryPath);
+
+      await syncSessionIndexIntoRegistry(registry, 'cli');
+
+      const body = JSON.parse(readFileSync(registryPath, 'utf8')) as {
+        desks?: Array<{ sessions?: Array<{ id: string }> }>;
+      };
+      expect(registry.loadCount).toBe(1);
+      expect(
+        body.desks
+          ?.flatMap((desk) => desk.sessions ?? [])
+          .map((session) => session.id)
+          .sort(),
+      ).toEqual(['visible-a', 'visible-b', 'visible-c']);
     } finally {
       if (original === undefined) delete process.env.MOXXY_HOME;
       else process.env.MOXXY_HOME = original;
@@ -352,6 +504,67 @@ describe('WorkspaceRegistry compatibility', () => {
 
     expect(desk?.sessions.map((session) => session.id)).toEqual(['real']);
     expect(desk?.activeSessionId).toBe('real');
+  });
+
+  it('keeps a visible imported session when its sidecar meta is temporarily empty', async () => {
+    const original = process.env.MOXXY_HOME;
+    const home = path.join(tmp, 'home');
+    const sessionsDir = path.join(home, 'sessions');
+    const deskCwd = path.join(tmp, 'a');
+    mkdirSync(sessionsDir, { recursive: true });
+    mkdirSync(deskCwd, { recursive: true });
+    process.env.MOXXY_HOME = home;
+    writeSessionMeta(sessionsDir, {
+      ...meta({ id: 'visible-existing', cwd: deskCwd, firstPrompt: null }),
+      eventCount: 0,
+    });
+    writeFileSync(
+      registryPath,
+      JSON.stringify({
+        version: 3,
+        activeId: 'desk-a',
+        desks: [
+          {
+            id: 'desk-a',
+            name: 'A',
+            cwd: deskCwd,
+            color: '#3b82f6',
+            createdAt: 111,
+            sessions: [
+              {
+                id: 'fallback',
+                name: 'Fallback',
+                createdAt: 111,
+                cwd: deskCwd,
+                source: 'cli',
+                firstPrompt: 'Fallback',
+                eventCount: 1,
+              },
+              {
+                id: 'visible-existing',
+                name: 'cześć',
+                createdAt: 222,
+                cwd: deskCwd,
+                source: 'cli',
+                firstPrompt: 'cześć',
+                eventCount: 37,
+              },
+            ],
+            activeSessionId: 'visible-existing',
+          },
+        ],
+      }),
+    );
+
+    try {
+      const [desk] = await new WorkspaceRegistry(registryPath).list();
+
+      expect(desk?.sessions.map((session) => session.id)).toContain('visible-existing');
+      expect(desk?.activeSessionId).toBe('visible-existing');
+    } finally {
+      if (original === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = original;
+    }
   });
 
   it('drops inactive empty mobile sessions but preserves the active live one', async () => {

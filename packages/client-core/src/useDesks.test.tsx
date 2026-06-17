@@ -203,4 +203,66 @@ describe('useDesks', () => {
     expect(result.current.desks[0]?.activeSessionId).toBe('session-other');
     expect(connectionStore.active$()).toBe('session-other');
   });
+
+  it('does not roll back a confirmed session switch when an older overview arrives late', async () => {
+    let resolveSetActive: ((value: unknown) => void) | null = null;
+    const oldDesk: Desk = {
+      id: 'desk-a',
+      name: 'Desk A',
+      cwd: '/repo',
+      color: '#3b82f6',
+      createdAt: 1,
+      activeSessionId: 'session-one',
+      sessions: [
+        { id: 'session-one', name: 'one', createdAt: 1 },
+        { id: 'session-two', name: 'two', createdAt: 2 },
+      ],
+    };
+    const newDesk: Desk = { ...oldDesk, activeSessionId: 'session-two' };
+    let overview: DesksOverview = { desks: [oldDesk], activeId: 'desk-a' };
+    const host = fakeApi(overview);
+    host.invoke.mockImplementation((cmd: string) => {
+      if (cmd === 'desks.list') return Promise.resolve(overview);
+      if (cmd === 'sessions.setActive') {
+        return new Promise((resolve) => {
+          resolveSetActive = resolve;
+        });
+      }
+      throw new Error(`unexpected ${cmd}`);
+    });
+
+    const { result } = renderHook(() => useDesks());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(connectionStore.active$()).toBe('session-one');
+    overview = { desks: [newDesk], activeId: 'desk-a' };
+
+    let switchPromise: Promise<void> | null = null;
+    act(() => {
+      switchPromise = result.current.setActiveSession('session-two');
+    });
+
+    act(() => {
+      host.emit('desks.changed', { desks: [newDesk], activeId: 'desk-a' });
+    });
+
+    expect(result.current.desks[0]?.activeSessionId).toBe('session-two');
+    expect(connectionStore.active$()).toBe('session-two');
+
+    act(() => {
+      host.emit('desks.changed', { desks: [oldDesk], activeId: 'desk-a' });
+    });
+
+    expect(result.current.desks[0]?.activeSessionId).toBe('session-two');
+    expect(connectionStore.active$()).toBe('session-two');
+
+    act(() => {
+      resolveSetActive?.(undefined);
+    });
+    await act(async () => {
+      await switchPromise;
+    });
+
+    expect(result.current.desks[0]?.activeSessionId).toBe('session-two');
+    expect(connectionStore.active$()).toBe('session-two');
+  });
 });
