@@ -1,5 +1,14 @@
 # @moxxy/plugin-provider-zai
 
+## 0.0.7
+
+### Patch Changes
+
+- Updated dependencies [897a1fc]
+  - @moxxy/sdk@0.14.4
+  - @moxxy/plugin-provider-anthropic@0.1.15
+  - @moxxy/plugin-provider-openai@0.0.21
+
 ## 0.0.6
 
 ### Patch Changes

@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-embeddings-transformers",
   "private": true,
-  "version": "0.0.20",
+  "version": "0.0.21",
   "description": "Local neural EmbeddingProvider for moxxy via @huggingface/transformers (Xenova/all-MiniLM-L6-v2 by default). No API key, runs offline after first model fetch.",
   "type": "module",
   "main": "./dist/index.js",
