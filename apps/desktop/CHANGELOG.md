@@ -1,5 +1,40 @@
 # @moxxy/desktop
 
+## 0.8.8
+
+### Patch Changes
+
+- e070b38: feat(desktop): Files explorer in the context rail
+
+  Adds a **Files** option to the context-rail dropdown — a workspace file explorer
+  that browses the full directory tree and previews any file's contents (via
+  `workspace.readFile`). Unlike the existing **Files changed** option, it is always
+  available (no git repo required) so you can read/preview workspace files in any
+  project. Clicking a file opens the shared menu to Add it to the agent or Open it
+  in the viewer.
+
+  The click menu + list chrome shared by the two file panes are factored out into
+  `FilePaneShared.tsx` so "Files changed" and "Files" can't drift apart.
+
+- ff73468: Quality sweep, wave 5 (safe longtail — coverage + mechanical consistency/perf)
+
+  The additive/mechanical slice of the audit's low-severity long-tail; subjective
+  nitpicks and anything behavior-risky were deferred (tracked in `TECH_DEBT.md`).
+  Behavior-preserving except the small fixes noted, each covered by a test.
+
+  - **Coverage:** focused unit tests for previously-untested pure logic —
+    command-palette parsers, chat suggestions, prompt reducer + escape-sequence
+    matcher, slash-command matcher, config appliers, provider-admin `configure`,
+    url-safety scheme table, vault placeholder resolution, and more.
+  - **Mechanical consistency/perf:** resolve vault object properties concurrently
+    (key-order preserved), hoist per-row `stdout.columns`/`descWidth` reads out of
+    the TUI tool list, drop a no-op identity `useMemo`, and a few small bounded
+    fixes. A desktop latest-block cache-key bug (64-char-prefix collision) was
+    fixed while adding its test.
+
+- Updated dependencies [ff73468]
+  - @moxxy/cli@0.12.7
+
 ## 0.8.7
 
 ### Patch Changes
