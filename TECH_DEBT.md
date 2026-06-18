@@ -107,9 +107,19 @@ that must not be rushed, because rushing it would *lower* quality, not raise it:
    its log is the complete authoritative history (no more renderer-only synth).
    The client method is version-gated (`requireServerProtocol(10)`); against an
    older runner it throws an actionable error the renderer can catch to fall back
-   to NDJSON, and the desktop FLOOR was deliberately NOT raised. **Remaining:** the
-   renderer migration to read history from the runner (with the NDJSON read
-   fallback retained) — a separate desktop-facing PR.
+   to NDJSON, and the desktop FLOOR was deliberately NOT raised.
+   **Renderer migration landed (2026-06-18):** the desktop now READS history from
+   the runner — IPC `chat.loadHistory` proxies to the workspace's `RemoteSession`
+   and returns `null` (→ NDJSON fallback) for a `<v10`/disconnected runner or a
+   legacy-only chat; `ChatPersistence.loadHistory` + a chat-store "page-until-K-
+   rendered" cursor walk the runner's RAW pages and filter with `isRenderedEvent`,
+   with the source pinned per slot so the runner `seq` and NDJSON line cursors
+   never mix. A GOLDEN render-equivalence test pins runner-stream+filter ==
+   NDJSON across stream-without-seal / reasoning / tool / compaction / multi-page
+   fixtures. **Remaining (separate PRs, gated on packaged-desktop live-verify):**
+   (a) stop the NDJSON double-WRITE once v10 is the floor, then (b) physically
+   retire the NDJSON store. The renderer still WRITES NDJSON today so it stays a
+   working read fallback + the home of legacy-only chats.
 4. **One-shot CLI exit hygiene** (`moxxy -p` / `schedule run` / `doctor` / `login` /
    `init` boot a full session and never `close()`) — minor; a correct fix must drain
    persistence before exit (premature exit would drop the last event).

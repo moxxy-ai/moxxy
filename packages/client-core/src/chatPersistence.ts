@@ -24,6 +24,19 @@ export interface ChatPersistence {
     before: number | null,
     limit: number,
   ): Promise<{ events: ReadonlyArray<MoxxyEvent>; prevCursor: number | null }>;
+  /**
+   * Page history from the RUNNER's authoritative log (protocol v10) instead of
+   * the NDJSON mirror. `before` is a `seq` cursor and the page is RAW events
+   * (the caller filters to rendered rows). Resolves `null` when the runner can't
+   * serve it (no connected runner / a `<v10` runner) — the store then falls back
+   * to {@link loadSegment}. Optional so a backend without a runner path (or a
+   * test fake) simply degrades to NDJSON.
+   */
+  loadHistory?(
+    workspaceId: string,
+    before: number | null,
+    limit: number,
+  ): Promise<{ events: ReadonlyArray<MoxxyEvent>; prevCursor: number | null } | null>;
   append(workspaceId: string, events: ReadonlyArray<MoxxyEvent>): Promise<void>;
   clear(workspaceId: string): Promise<void>;
 }
@@ -39,6 +52,16 @@ export function createIpcPersistence(): ChatPersistence {
         return await api().invoke('chat.loadSegment', { workspaceId, before, limit });
       } catch {
         return { events: [], prevCursor: null };
+      }
+    },
+    async loadHistory(workspaceId, before, limit) {
+      try {
+        // null result = the runner can't serve it (no connected runner / <v10);
+        // a thrown transport error is treated the same. Either way the store
+        // falls back to loadSegment (NDJSON), so no transcript goes blank.
+        return await api().invoke('chat.loadHistory', { workspaceId, before, limit });
+      } catch {
+        return null;
       }
     },
     async append(workspaceId, events) {

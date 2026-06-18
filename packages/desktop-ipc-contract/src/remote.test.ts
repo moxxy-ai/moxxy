@@ -30,6 +30,7 @@ describe('REMOTE_ALLOWED_COMMANDS', () => {
       'session.transcribe',
       'chat.append',
       'chat.loadSegment',
+      'chat.loadHistory',
       'chat.clearLog',
       'chat.migrate',
       'workflows.list',

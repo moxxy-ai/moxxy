@@ -92,7 +92,7 @@ export function registerIpcHandlers(
     registerPrefsHandlers();
     registerSettingsHandlers(pool);
     registerVaultHandlers();
-    registerChatHandlers();
+    registerChatHandlers(pool);
     registerMobileGatewayHandlers(opts.mobileGateway ?? null);
   }
 }

@@ -65,6 +65,7 @@ export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcC
   // these; they're scoped to a workspace's NDJSON log, not host config).
   'chat.append',
   'chat.loadSegment',
+  'chat.loadHistory',
   'chat.clearLog',
   'chat.migrate',
   // Workflows: READ + run an existing one only. Authoring (`workflows.save`,

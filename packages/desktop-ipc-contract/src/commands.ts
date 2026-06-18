@@ -373,6 +373,19 @@ export interface IpcCommands {
     before: number | null;
     limit: number;
   }) => Promise<{ events: ReadonlyArray<MoxxyEvent>; prevCursor: number | null }>;
+  /** Page the workspace's history from the RUNNER's authoritative log
+   *  (`session.loadHistory`, protocol v10) instead of the NDJSON mirror.
+   *  `before` is a `seq` cursor (NOT the line-index cursor `chat.loadSegment`
+   *  uses); the page is RAW events (includes non-rendered events like
+   *  `assistant_chunk`), so the renderer filters with `isRenderedEvent` and
+   *  pages until it has enough rendered rows. Returns `null` when the runner
+   *  can't serve it — no connected runner for the workspace, or a `<v10`
+   *  runner — so the caller falls back to `chat.loadSegment` (NDJSON). */
+  'chat.loadHistory': (args: {
+    workspaceId: string;
+    before: number | null;
+    limit: number;
+  }) => Promise<{ events: ReadonlyArray<MoxxyEvent>; prevCursor: number | null } | null>;
   /** Truncate a workspace's log (Clear conversation). */
   'chat.clearLog': (args: { workspaceId: string }) => Promise<void>;
   /** One-time migration: the renderer hands up the events it parsed from

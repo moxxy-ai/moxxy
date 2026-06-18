@@ -16,8 +16,23 @@
  */
 
 import type { MoxxyEvent } from '@moxxy/sdk';
-import { applyAction, type ChatAction } from '../chatModel.js';
+import { applyAction, isRenderedEvent, type ChatAction } from '../chatModel.js';
 import { INITIAL_WINDOW, OLDER_PAGE, type ChatPersistence } from '../chatPersistence.js';
+
+/**
+ * Runner-history paging (the `session.loadHistory` path). The runner's pages are
+ * RAW events — they include non-rendered events (assistant_chunk deltas,
+ * provider bookends) that the renderer filters out — so one page yields fewer
+ * RENDERED rows than its size. {@link ChatStore.loadRunnerWindow} therefore
+ * walks several raw pages until it has enough rendered rows.
+ */
+// Raw events fetched per `session.loadHistory` round-trip (well under the
+// runner's MAX_HISTORY_PAGE_LIMIT of 2000).
+const RUNNER_RAW_PAGE = 200;
+// Safety bound on the raw-page walk for ONE window: a window dominated by a long
+// streamed reply (hundreds of assistant_chunks) can't spin forever — after this
+// many pages we return what we have and let the next scroll-up continue.
+const MAX_RUNNER_PAGES = 25;
 import {
   buildSnapshot,
   createSlot,
@@ -183,6 +198,13 @@ class ChatStore {
    * Load the most-recent window of a workspace's history on first open.
    * Idempotent — guarded by `loaded`. Loaded events are prepended (with
    * id-dedup) so any turn that raced ahead of the load stays newest.
+   *
+   * Prefers the RUNNER's authoritative log (`session.loadHistory`): the first
+   * load decides the slot's {@link Slot.historySource}. When the runner can't
+   * serve it (no connected runner for the workspace, a `<v10` runner, or a
+   * legacy-only chat with no runner session) it falls back to the NDJSON store —
+   * so no transcript goes blank. The two cursor spaces (runner `seq` vs NDJSON
+   * line-index) never mix within a slot.
    */
   async loadInitial(workspaceId: string): Promise<void> {
     const slot = this.ensure(workspaceId);
@@ -192,14 +214,23 @@ class ChatStore {
     slot.snap = null;
     this.emit();
     try {
-      const { events, prevCursor } = await this.persistence.loadSegment(
-        workspaceId,
-        null,
-        INITIAL_WINDOW,
-      );
-      this.prependFresh(slot, events);
-      slot.oldestCursor = prevCursor;
-      slot.hasOlder = prevCursor !== null;
+      const runner = await this.loadRunnerWindow(workspaceId, null, INITIAL_WINDOW);
+      if (runner) {
+        slot.historySource = 'runner';
+        this.prependFresh(slot, runner.events);
+        slot.oldestCursor = runner.prevCursor;
+        slot.hasOlder = runner.prevCursor !== null;
+      } else {
+        slot.historySource = 'ndjson';
+        const { events, prevCursor } = await this.persistence.loadSegment(
+          workspaceId,
+          null,
+          INITIAL_WINDOW,
+        );
+        this.prependFresh(slot, events);
+        slot.oldestCursor = prevCursor;
+        slot.hasOlder = prevCursor !== null;
+      }
     } catch {
       slot.loaded = false; // allow a retry on the next open
     } finally {
@@ -209,20 +240,33 @@ class ChatStore {
     }
   }
 
-  /** Fetch the page preceding the in-memory window (scroll-up). */
+  /** Fetch the page preceding the in-memory window (scroll-up), from whichever
+   *  source {@link loadInitial} settled on for this slot. */
   async loadOlder(workspaceId: string): Promise<void> {
     const slot = this.slots.get(workspaceId);
     if (!slot || !slot.hasOlder || slot.loadingOlder || !this.persistence) return;
     slot.loadingOlder = true;
     try {
-      const { events, prevCursor } = await this.persistence.loadSegment(
-        workspaceId,
-        slot.oldestCursor,
-        OLDER_PAGE,
-      );
-      this.prependFresh(slot, events);
-      slot.oldestCursor = prevCursor;
-      slot.hasOlder = prevCursor !== null;
+      if (slot.historySource === 'runner') {
+        const runner = await this.loadRunnerWindow(workspaceId, slot.oldestCursor, OLDER_PAGE);
+        if (runner) {
+          this.prependFresh(slot, runner.events);
+          slot.oldestCursor = runner.prevCursor;
+          slot.hasOlder = runner.prevCursor !== null;
+        }
+        // runner === null here means the runner dropped mid-scroll; leave the
+        // cursor/hasOlder untouched so a later scroll retries — we never switch
+        // cursor spaces to NDJSON mid-slot (its line-index cursor is unrelated).
+      } else {
+        const { events, prevCursor } = await this.persistence.loadSegment(
+          workspaceId,
+          slot.oldestCursor,
+          OLDER_PAGE,
+        );
+        this.prependFresh(slot, events);
+        slot.oldestCursor = prevCursor;
+        slot.hasOlder = prevCursor !== null;
+      }
     } catch {
       /* leave hasOlder set so the user can retry by scrolling */
     } finally {
@@ -233,6 +277,45 @@ class ChatStore {
       slot.snap = null;
       this.emit();
     }
+  }
+
+  /**
+   * Page the RUNNER's authoritative log into a window of at least `minRendered`
+   * RENDERED events (newest-first), filtering each raw page with
+   * {@link isRenderedEvent}. Walks `session.loadHistory`'s `seq` cursor until it
+   * has enough rendered rows, reaches the start of history, or the runner stops
+   * serving.
+   *
+   * Returns `null` (→ caller falls back to NDJSON) when the runner can't serve
+   * the FIRST page — no `loadHistory` backend, no connected runner, or a `<v10`
+   * runner. A `null` on a LATER page (the runner dropped mid-walk) just ends the
+   * window early with whatever rendered rows were gathered, keeping the `seq`
+   * cursor so the next scroll-up can resume.
+   */
+  private async loadRunnerWindow(
+    workspaceId: string,
+    before: number | null,
+    minRendered: number,
+  ): Promise<{ events: MoxxyEvent[]; prevCursor: number | null } | null> {
+    const loadHistory = this.persistence?.loadHistory?.bind(this.persistence);
+    if (!loadHistory) return null;
+    const rendered: MoxxyEvent[] = [];
+    let cursor = before;
+    let renderedCount = 0;
+    for (let page = 0; page < MAX_RUNNER_PAGES; page += 1) {
+      const result = await loadHistory(workspaceId, cursor, RUNNER_RAW_PAGE);
+      if (result === null) {
+        if (page === 0) return null; // runner can't serve → NDJSON fallback
+        break; // dropped mid-walk → return what we have
+      }
+      // Pages arrive newest-first; prepend each older page ahead of the ones we
+      // already have so `rendered` stays ascending (oldest-first) for prepend.
+      rendered.unshift(...result.events.filter(isRenderedEvent));
+      renderedCount = rendered.length;
+      cursor = result.prevCursor;
+      if (cursor === null || renderedCount >= minRendered) break;
+    }
+    return { events: rendered, prevCursor: cursor };
   }
 
   private prependFresh(slot: Slot, events: ReadonlyArray<MoxxyEvent>): void {
