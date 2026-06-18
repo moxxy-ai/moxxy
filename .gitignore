@@ -20,3 +20,4 @@ pnpm-debug.log*
 
 # transient backup written by cli prepack, restored by postpack
 package.json.prepack-backup
+*.timestamp-*.mjs

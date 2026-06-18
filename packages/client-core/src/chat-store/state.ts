@@ -59,17 +59,10 @@ export interface Slot {
   autoApprove: boolean;
   lastSeenRev: number;
   queue: ReadonlyArray<QueuedTurn>;
-  /** Cursor for the next-older page, or null at the start of history. Its space
-   *  depends on {@link historySource}: a runner `seq` cursor (source 'runner')
-   *  or an NDJSON line-index cursor (source 'ndjson'). The two never mix within
-   *  a slot — the source is decided once, on the first load. */
+  /** Runner `seq` cursor for the next-older page, or null at the start of
+   *  history. */
   oldestCursor: number | null;
   hasOlder: boolean;
-  /** Which backend this slot's history is paged from. Decided on first load:
-   *  'runner' when the workspace's runner served a v10 page, else 'ndjson'
-   *  (older runner / no connected runner / legacy-only chat). 'unknown' until
-   *  the first load resolves it. */
-  historySource: 'unknown' | 'runner' | 'ndjson';
   /** Whether the initial window has been loaded from disk. */
   loaded: boolean;
   /** True while the first on-open disk read is in flight (drives the
@@ -113,7 +106,6 @@ export function createSlot(): Slot {
     queue: EMPTY_QUEUE,
     oldestCursor: null,
     hasOlder: false,
-    historySource: 'unknown',
     loaded: false,
     loadingInitial: false,
     loadingOlder: false,

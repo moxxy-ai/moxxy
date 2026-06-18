@@ -2,7 +2,7 @@ import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { api } from './transport.js';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { chatStore, EMPTY_SNAPSHOT } from './chatStore.js';
-import { createIpcPersistence, migrateLegacyChats } from './chatPersistence.js';
+import { createIpcPersistence } from './chatPersistence.js';
 import { wireAskBridge } from './askStore.js';
 import { toErrorMessage } from './errors.js';
 import { desksStore } from './useDesks.js';
@@ -101,10 +101,9 @@ function scheduleSessionTitleRefresh(workspaceId: string): void {
  */
 export function ChatStoreBridge(): null {
   useEffect(() => {
-    // Wire the durable NDJSON backend, then drain any legacy localStorage
-    // transcripts into it (one-time, idempotent).
+    // Wire the runner-history backend (the renderer pages transcript history
+    // from the runner's authoritative log).
     chatStore.setPersistence(createIpcPersistence());
-    void migrateLegacyChats();
     const offEvent = api().subscribe(
       'runner.event',
       ({ workspaceId, event }: { workspaceId: string; event: MoxxyEvent }) => {

@@ -267,38 +267,13 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'mobileGateway.status': z.undefined(),
   'mobileGateway.rotateToken': z.undefined(),
   'mobileGateway.setEnabled': z.object({ enabled: z.boolean() }).strict(),
-  'chat.append': z.object({
-    workspaceId: z.string().min(1).max(256),
-    events: z.array(z.unknown()).max(10_000),
-  }),
-  'chat.loadSegment': z.object({
-    workspaceId: z.string().min(1).max(256),
-    before: z.number().int().nonnegative().nullable(),
-    limit: z.number().int().positive().max(1000),
-  }),
-  // Same shape as chat.loadSegment, but `before` is a runner `seq` cursor and
-  // the page is RAW events; the runner itself re-validates and caps at its own
-  // MAX_HISTORY_PAGE_LIMIT (2000), so bound the renderer's raw-window request to
-  // that ceiling.
+  // `before` is a runner `seq` cursor; the page is RAW events. The runner itself
+  // re-validates and caps at its own MAX_HISTORY_PAGE_LIMIT (2000), so bound the
+  // renderer's raw-window request to that ceiling.
   'chat.loadHistory': z.object({
     workspaceId: z.string().min(1).max(256),
     before: z.number().int().nonnegative().nullable(),
     limit: z.number().int().positive().max(2000),
-  }),
-  'chat.clearLog': z.object({ workspaceId: z.string().min(1).max(256) }),
-  // chat.migrate writes the supplied events straight into per-workspace NDJSON
-  // logs on disk, so it's a filesystem-touching command: bound both the number
-  // of workspaces and the events per workspace, and lock the workspaceId to a
-  // non-empty bounded slug so it can't traverse out of the log directory.
-  'chat.migrate': z.object({
-    workspaces: z
-      .array(
-        z.object({
-          workspaceId: z.string().min(1).max(256),
-          events: z.array(z.unknown()).max(10_000),
-        }),
-      )
-      .max(100),
   }),
   // Vault writes are security-sensitive: lock the key name to a safe slug
   // (letters/digits + . _ / - , no traversal) and bound the secret size.

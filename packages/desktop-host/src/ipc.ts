@@ -52,7 +52,6 @@ import { registerPrefsHandlers } from './ipc/prefs';
 import { registerSettingsHandlers } from './ipc/settings';
 import { registerVaultHandlers } from './ipc/vault';
 import { registerChatHandlers } from './ipc/chat';
-import { migrateAllChatsToSessions } from './chat-log';
 import { registerMobileGatewayHandlers, type MobileGatewayController } from './ipc/mobile-gateway';
 
 export function registerIpcHandlers(
@@ -96,13 +95,6 @@ export function registerIpcHandlers(
     registerChatHandlers(pool);
     registerMobileGatewayHandlers(opts.mobileGateway ?? null);
   }
-  // Eagerly migrate every NDJSON-only chat into the runner's authoritative log,
-  // completing the dual-history consolidation for chats the user hasn't opened
-  // yet (opened chats already migrate via the runner pool). Fire-and-forget +
-  // idempotent + non-destructive — only seeds sessions the runner doesn't yet
-  // own, never blocks startup, and getOrCreate still seeds on open as the
-  // per-chat guarantee.
-  void migrateAllChatsToSessions().catch(() => {});
 }
 
 /**

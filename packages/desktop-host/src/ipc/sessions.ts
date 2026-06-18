@@ -19,7 +19,6 @@ import { deleteSession } from '@moxxy/core';
 
 import type { RunnerPool } from '../runner-pool';
 import type { DeskStore } from '../desks';
-import { clearLog } from '../chat-log';
 import { withSessionTitlesOverview } from '../session-titles';
 import { handle } from './shared';
 
@@ -53,7 +52,7 @@ export function registerSessionsHandlers(pool: RunnerPool, desks: DeskStore): vo
     // Drop it from the registry first (this also seeds a fresh replacement
     // when it was the desk's last session), then tear down + erase its
     // on-disk state: the runner's sticky session log (else the conversation
-    // would resurrect if the id were ever reused) and the chat NDJSON mirror.
+    // would resurrect if the id were ever reused).
     const desk = await desks.removeSession(id);
     await pool.remove(id);
     try {
@@ -61,7 +60,6 @@ export function registerSessionsHandlers(pool: RunnerPool, desks: DeskStore): vo
     } catch {
       // Best-effort: a missing file just means there was nothing to clear.
     }
-    await clearLog(id);
     if (!desk) return;
     // If the removed session belonged to the ACTIVE desk, foreground the
     // desk's (possibly freshly-seeded) active session so the user never

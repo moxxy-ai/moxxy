@@ -27,12 +27,6 @@ vi.mock('@moxxy/core', () => ({
   defaultSessionsDir: () => '/nonexistent-session-titles-dir',
 }));
 
-// Chat NDJSON mirror removal — record instead of touching the disk.
-const clearLogMock = vi.fn(async (_id: string) => {});
-vi.mock('../chat-log', () => ({
-  clearLog: (id: string) => clearLogMock(id),
-}));
-
 import type { CommandBus } from '@moxxy/desktop-ipc-contract/bus';
 import type { IpcCommandName } from '@moxxy/desktop-ipc-contract';
 import { DeskStore } from '../desks';
@@ -145,7 +139,6 @@ describe('sessions.* handlers', () => {
     await invoke('sessions.remove', { id: session.id });
     expect(calls).toContainEqual({ op: 'remove', id: session.id });
     expect(deleteSessionMock).toHaveBeenCalledWith(session.id);
-    expect(clearLogMock).toHaveBeenCalledWith(session.id);
     expect((await desks.listSessions(desk.id)).sessions.map((s) => s.id)).toEqual([desk.id]);
   });
 
@@ -172,11 +165,10 @@ describe('sessions.* handlers', () => {
     expect(calls.find((c) => c.op === 'getOrCreate')).toBeUndefined();
   });
 
-  it('remove of an unknown session still best-effort clears its logs', async () => {
+  it('remove of an unknown session still best-effort clears its runner log', async () => {
     await desks.create({ name: 'A', cwd: '/a' });
     await invoke('sessions.remove', { id: 'ghost' });
     expect(deleteSessionMock).toHaveBeenCalledWith('ghost');
-    expect(clearLogMock).toHaveBeenCalledWith('ghost');
     expect(calls.find((c) => c.op === 'setActive')).toBeUndefined();
   });
 
