@@ -301,8 +301,18 @@ describe('IPC payload validation', () => {
   });
 
   it('is a no-op for commands without a schema', () => {
-    expect(() => validateIpcInput('desks.list', undefined)).not.toThrow();
     expect(() => validateIpcInput('connection.snapshotAll', undefined)).not.toThrow();
+  });
+
+  it('pins the remote-reachable desks.list command to no payload', () => {
+    expect(() => validateIpcInput('desks.list', undefined)).not.toThrow();
+    expect(() => validateIpcInput('desks.list', { sneaky: 1 })).toThrow();
+  });
+
+  it('bounds the remote-reachable desks.setActive id', () => {
+    expect(() => validateIpcInput('desks.setActive', { id: 'desk-1' })).not.toThrow();
+    expect(() => validateIpcInput('desks.setActive', { id: '' })).toThrow();
+    expect(() => validateIpcInput('desks.setActive', { id: 'd'.repeat(257) })).toThrow();
   });
 
   it('allows remote mobile clients to list/switch desks without destructive workspace access', () => {

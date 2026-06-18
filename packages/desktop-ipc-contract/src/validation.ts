@@ -231,6 +231,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     suggestedName: z.string().min(1).max(255),
     content: z.string().max(20_000_000),
   }),
+  'desks.list': z.undefined(),
   'desks.create': z.object({ name: z.string().min(1).max(200), cwd: z.string().min(1).max(4096) }),
   // Mirror desks.create's name bounds — rename writes the name into the desks
   // JSON, so an unbounded string would let a renderer bloat the state file.
@@ -238,6 +239,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     id: z.string().min(1).max(256),
     name: z.string().min(1).max(200),
   }),
+  'desks.setActive': z.object({ id: z.string().min(1).max(256) }),
   // Sessions: create/rename persist the name into the desks JSON (bound it
   // like desks.create/rename); setActive spawns a runner and remove deletes
   // the session's on-disk logs, so their ids are bounded too. These commands
