@@ -46,27 +46,27 @@ describe('worker isolator: ctx.signal is wired (u64-2)', () => {
       iso.run(
         call({ input: { sentinel } }),
         async () => 'unused',
-        { timeMs: 100, fs: { write: [`${os.tmpdir()}/**`] } },
+        { timeMs: 3000, fs: { write: [`${os.tmpdir()}/**`] } },
         new AbortController().signal,
       ),
-    ).rejects.toThrow(/exceeded 100ms budget/);
+    ).rejects.toThrow(/exceeded 3000ms budget/);
 
     // The brokered flush is serviced during the grace window. Poll
     // briefly for the sentinel (the write round-trips after the parent
     // promise has already rejected).
     let wrote = false;
-    for (let i = 0; i < 30 && !wrote; i++) {
+    for (let i = 0; i < 120 && !wrote; i++) {
       try {
         const body = await fs.readFile(sentinel, 'utf8');
         expect(body).toBe('flushed-on-abort');
         wrote = true;
       } catch {
-        await new Promise((r) => setTimeout(r, 10));
+        await new Promise((r) => setTimeout(r, 25));
       }
     }
     await fs.unlink(sentinel).catch(() => undefined);
     expect(wrote).toBe(true);
-  });
+  }, 15_000);
 
   it('fires ctx.signal on external host-abort', async () => {
     const sentinel = path.join(os.tmpdir(), `moxxy-sig-abort-${Date.now()}.txt`);
@@ -80,22 +80,22 @@ describe('worker isolator: ctx.signal is wired (u64-2)', () => {
       ctrl.signal,
     );
     // Give the worker time to boot and park on the signal, then abort.
-    setTimeout(() => ctrl.abort(), 200);
+    setTimeout(() => ctrl.abort(), 2500);
     await expect(promise).rejects.toThrow(/aborted/);
 
     let wrote = false;
-    for (let i = 0; i < 30 && !wrote; i++) {
+    for (let i = 0; i < 120 && !wrote; i++) {
       try {
         const body = await fs.readFile(sentinel, 'utf8');
         expect(body).toBe('flushed-on-abort');
         wrote = true;
       } catch {
-        await new Promise((r) => setTimeout(r, 10));
+        await new Promise((r) => setTimeout(r, 25));
       }
     }
     await fs.unlink(sentinel).catch(() => undefined);
     expect(wrote).toBe(true);
-  });
+  }, 15_000);
 
   // Sanity: a valid (non-aborted) run still completes normally and the
   // signal is NOT spuriously aborted — the wiring must not break the

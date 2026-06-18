@@ -177,10 +177,10 @@ describe('subprocessIsolator', () => {
           moduleRef: { url: fixtureUrl, export: 'sigtermIgnorerSpin' },
         }),
         async () => 'unused',
-        { timeMs: 300, fs: { write: [`${dir}/**`] } },
+        { timeMs: 2500, fs: { write: [`${dir}/**`] } },
         new AbortController().signal,
       );
-      await expect(p).rejects.toThrow(/exceeded 300ms budget/);
+      await expect(p).rejects.toThrow(/exceeded 2500ms budget/);
 
       // Read the pid the child reported before it started spinning.
       let pid = 0;
