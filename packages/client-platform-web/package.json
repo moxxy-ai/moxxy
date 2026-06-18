@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/client-platform-web",
   "private": true,
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "Web implementations of the @moxxy/client-core platform capabilities: mic capture (getUserMedia + MediaRecorder + PCM16), text-to-speech (Web Speech API), a localStorage key-value store, and a window-event bus. The desktop renderer registers these via configurePlatform(webPlatform).",
   "type": "module",
   "main": "./dist/index.js",
