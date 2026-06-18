@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { bootSessionWithConfig } from '../argv-helpers.js';
+import { closeSession } from '../setup/close-session.js';
 import { canonicalKey } from '../provider-keys.js';
 import { validateProviderKey } from '../validate-key.js';
 import type { ParsedArgv } from '../argv.js';
@@ -36,16 +37,32 @@ export async function runInitCommand(argv: ParsedArgv): Promise<number> {
   // `passphrasePrompt` (TTY only) swaps the vault's bare readline prompt for
   // a @clack/prompts step, so the first-run passphrase reads as part of the
   // setup wizard rather than an unstyled prompt before it.
-  const { session, vault } = await bootSessionWithConfig(argv, {
+  const { session, vault, persistence } = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,
     skipProviderActivation: true,
     ...(interactive ? { passphrasePrompt: promptVaultPassphrase } : {}),
   });
 
-  if (!interactive) {
-    return await runHeadlessInit(session, vault);
+  // Tear the session down on every NORMAL exit so the boot daemons (scheduler
+  // poller, webhooks listener) don't keep the process alive after the wizard
+  // returns. The passphrase-cancel path inside `vault.open()` does a hard
+  // `process.exit(1)` (preserving the original cancel UX) — that intentionally
+  // bypasses this finally, which is fine because the process is terminating and
+  // no turn ran, so there is nothing to drain.
+  try {
+    if (!interactive) {
+      return await runHeadlessInit(session, vault);
+    }
+    return await runInteractiveInit(session, vault);
+  } finally {
+    await closeSession(session, persistence);
   }
+}
 
+async function runInteractiveInit(
+  session: import('@moxxy/core').Session,
+  vault: import('@moxxy/plugin-vault').VaultStore,
+): Promise<number> {
   // Logo first, so the whole flow reads as one screen: the (first-run only)
   // vault passphrase step and the wizard's `intro()` both render beneath it.
   process.stdout.write(renderLogo());

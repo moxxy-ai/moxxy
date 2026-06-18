@@ -2,12 +2,16 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Session } from '@moxxy/core';
+import type { MoxxyConfig } from '@moxxy/config';
+import type { VaultStore } from '@moxxy/plugin-vault';
+import type { MemoryStore } from '@moxxy/plugin-memory';
 import { checkVoiceCaptureAvailable } from '@moxxy/plugin-cli';
 import { corePreflight, detectCoreInstall } from '@moxxy/plugin-self-update';
 import type { RequirementIssue } from '@moxxy/sdk';
 import type { RequirementCheck } from '@moxxy/sdk';
 import type { ParsedArgv } from '../argv.js';
 import { setupSessionWithConfig } from '../setup.js';
+import { closeSession } from '../setup/close-session.js';
 import type { RegistrationResult } from '../setup/register-plugins.js';
 import { canonicalKey } from '../provider-keys.js';
 import { colors } from '../colors.js';
@@ -66,7 +70,43 @@ export async function runDoctorCommand(argv: ParsedArgv): Promise<number> {
     return emit(checks, asJson);
   }
 
-  const { session, config, configSources, vault, memory, pluginRegistration } = setupResult.value;
+  const { session, config, configSources, vault, memory, pluginRegistration, persistence } =
+    setupResult.value;
+
+  try {
+    return await runDoctorChecks({
+      session,
+      config,
+      configSources,
+      vault,
+      memory,
+      pluginRegistration,
+      checks,
+      checkKeys,
+      asJson,
+    });
+  } finally {
+    // Drain persistence + fire onShutdown hooks / stop the boot daemons so the
+    // process exits promptly. Best-effort — never masks the doctor exit code.
+    await closeSession(session, persistence);
+  }
+}
+
+interface DoctorChecksDeps {
+  readonly session: Session;
+  readonly config: MoxxyConfig;
+  readonly configSources: ReadonlyArray<{ scope: 'project' | 'user' | 'explicit'; path: string }>;
+  readonly vault: VaultStore;
+  readonly memory: MemoryStore;
+  readonly pluginRegistration: RegistrationResult;
+  readonly checks: Check[];
+  readonly checkKeys: boolean;
+  readonly asJson: boolean;
+}
+
+async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
+  const { session, config, configSources, vault, memory, pluginRegistration, checks, checkKeys, asJson } =
+    deps;
 
   // Config
   if (configSources.length > 0) {
@@ -148,8 +188,8 @@ export async function runDoctorCommand(argv: ParsedArgv): Promise<number> {
   }
 
   // Channels
-  const deps = { cwd: process.cwd(), vault, logger: session.logger, options: {} };
-  const channelEntries = await session.channels.listWithAvailability(deps);
+  const channelDeps = { cwd: process.cwd(), vault, logger: session.logger, options: {} };
+  const channelEntries = await session.channels.listWithAvailability(channelDeps);
   for (const { def, availability } of channelEntries) {
     if (availability.ok) {
       checks.push({ id: `channel:${def.name}`, status: 'ok', message: 'available' });

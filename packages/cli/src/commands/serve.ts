@@ -1,3 +1,4 @@
+import { startChannelWith } from '@moxxy/sdk';
 import type { Channel, ChannelDef, ChannelHandle } from '@moxxy/sdk';
 import { startRunnerServer, runnerSocketPath, type RunnerServer } from '@moxxy/runner';
 import type { ParsedArgv } from '../argv.js';
@@ -357,7 +358,7 @@ async function startChannel(
   if (installResolver) {
     session.setPermissionResolver(channel.permissionResolver);
   }
-  return channel.start({ session, ...channelOpts } as never);
+  return startChannelWith(channel, { session, ...channelOpts });
 }
 
 interface StartupSummary {

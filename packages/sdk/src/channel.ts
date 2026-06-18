@@ -38,6 +38,43 @@ export interface ChannelHandle {
   stop(reason?: string): Promise<void>;
 }
 
+/**
+ * Start options accepted by {@link startChannelWith}. The `session` is typed —
+ * proving the runner/thin-client seam end-to-end — while the remaining
+ * forwarded flags stay loosely typed (a dispatcher merges config + CLI flags it
+ * can't know the shape of).
+ */
+export type ChannelStartArgs = { readonly session: ClientSession } & Record<string, unknown>;
+
+/**
+ * The single, audited dispatch boundary between a CLI/runner caller and a
+ * channel's `start()`.
+ *
+ * `ChannelDef` (and therefore the {@link Channel} a dispatcher gets back from
+ * `create`) is intentionally NOT generic over its start-options type: a
+ * dispatcher looks channels up by string name, so it can only ever hold a
+ * `Channel<unknown>` whose `start` takes `unknown`. Making the registry fully
+ * generic would ripple through `ChannelRegistry` and every `defineChannel`
+ * call, so it stays out of scope. The structural hand-off from a typed
+ * `{ session, ...overrides }` bag to `start(opts: unknown)` is therefore erased
+ * here — in ONE place — instead of an inline `as never` at each call site.
+ *
+ * What this helper *proves*, and what each caller now states at the type level
+ * by handing in a `ChannelStartArgs`, is the load-bearing half of the
+ * runner/thin-client seam: `session` is a real {@link ClientSession}. Every
+ * channel's concrete `StartOpts.session` is typed `ClientSession`, and
+ * `RemoteSession` (the thin-client proxy) `implements ClientSession`, so a bare
+ * `RemoteSession` is provably assignable end-to-end. The only thing the cast
+ * drops is the loosely-typed *rest* of the forwarded-flag bag, which channels
+ * already read defensively.
+ */
+export function startChannelWith(channel: Channel, opts: ChannelStartArgs): Promise<ChannelHandle> {
+  // Audited erasure: `Channel.start` takes `unknown` (the registry is
+  // non-generic, see above). `opts` is a proven { session: ClientSession } bag;
+  // the cast only erases its loose extra keys, not the typed session.
+  return channel.start(opts as never);
+}
+
 /** Common base shape for channel start options. */
 export interface ChannelStartOptsBase {
   readonly model?: string;

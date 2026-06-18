@@ -1,10 +1,12 @@
 import type { ParsedArgv } from '../argv.js';
 import { bootSessionWithConfig, hasBoolFlag } from '../argv-helpers.js';
+import { closeSession } from '../setup/close-session.js';
 import { colors } from '../colors.js';
 import { buildProviderAuthContext } from '../wizard/auth-context.js';
 import { formatHelp } from './help-format.js';
 import type { ProviderDef } from '@moxxy/sdk';
 import type { Session } from '@moxxy/core';
+import type { VaultStore } from '@moxxy/plugin-vault';
 
 /**
  * `moxxy login` — generic OAuth driver. Walks the session's provider
@@ -66,14 +68,22 @@ export async function runLoginCommand(argv: ParsedArgv): Promise<number> {
     // boot fails for any reason fall back to a generic help body.
     let session: Session | null = null;
     try {
-      const { session: s } = await bootSessionWithConfig(argv, {
+      const { session: s, persistence } = await bootSessionWithConfig(argv, {
         skipKeyPrompt: true,
         skipProviderActivation: true,
         tolerateNoProvider: true,
       });
       session = s;
+      // Read the registry for the help body, then tear the throwaway session
+      // down so its boot daemons don't keep the process alive.
+      try {
+        process.stdout.write(buildHelp(session));
+      } finally {
+        await closeSession(s, persistence);
+      }
+      return sub ? 0 : 2;
     } catch {
-      // ignore
+      // ignore — fall through to a generic help body
     }
     process.stdout.write(buildHelp(session));
     return sub ? 0 : 2;
@@ -87,11 +97,24 @@ export async function runLoginCommand(argv: ParsedArgv): Promise<number> {
 }
 
 async function loginProvider(argv: ParsedArgv, providerName: string): Promise<number> {
-  const { session, vault } = await bootSessionWithConfig(argv, {
+  const { session, vault, persistence } = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,
     skipProviderActivation: true,
     tolerateNoProvider: true,
   });
+  try {
+    return await runLoginProvider(argv, providerName, session, vault);
+  } finally {
+    await closeSession(session, persistence);
+  }
+}
+
+async function runLoginProvider(
+  argv: ParsedArgv,
+  providerName: string,
+  session: Session,
+  vault: VaultStore,
+): Promise<number> {
   const def = session.providers.list().find((d) => d.name === providerName);
   if (!def) {
     process.stderr.write(
@@ -165,11 +188,19 @@ async function loginProvider(argv: ParsedArgv, providerName: string): Promise<nu
 }
 
 async function loginStatus(argv: ParsedArgv): Promise<number> {
-  const { session, vault } = await bootSessionWithConfig(argv, {
+  const { session, vault, persistence } = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,
     skipProviderActivation: true,
     tolerateNoProvider: true,
   });
+  try {
+    return await runLoginStatus(argv, session, vault);
+  } finally {
+    await closeSession(session, persistence);
+  }
+}
+
+async function runLoginStatus(argv: ParsedArgv, session: Session, vault: VaultStore): Promise<number> {
   await vault.open();
   const ctx = buildProviderAuthContext(vault, { headless: true });
   const filter = argv.positional[1];
@@ -236,11 +267,23 @@ async function loginLogout(argv: ParsedArgv): Promise<number> {
     );
     return 2;
   }
-  const { session, vault } = await bootSessionWithConfig(argv, {
+  const { session, vault, persistence } = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,
     skipProviderActivation: true,
     tolerateNoProvider: true,
   });
+  try {
+    return await runLoginLogout(providerName, session, vault);
+  } finally {
+    await closeSession(session, persistence);
+  }
+}
+
+async function runLoginLogout(
+  providerName: string,
+  session: Session,
+  vault: VaultStore,
+): Promise<number> {
   await vault.open();
   const def = session.providers.list().find((d) => d.name === providerName);
   if (!def || def.auth?.kind !== 'oauth') {

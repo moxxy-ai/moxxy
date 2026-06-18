@@ -1,6 +1,7 @@
 import { collectTurn, createAllowListResolver, denyByDefaultResolver, runTurn } from '@moxxy/core';
 import type { MoxxyEvent } from '@moxxy/sdk';
-import { setupSession } from '../setup.js';
+import { setupSessionWithConfig } from '../setup.js';
+import { closeSession } from '../setup/close-session.js';
 import { argvToSetupOptions, hasBoolFlag, stringFlag } from '../argv-helpers.js';
 import { printError } from '../errors.js';
 import type { ParsedArgv } from '../argv.js';
@@ -34,7 +35,7 @@ export async function runPromptCommand(argv: ParsedArgv): Promise<number> {
       ? createAllowListResolver(allowTools)
       : denyByDefaultResolver;
 
-  const session = await setupSession({
+  const { session, persistence } = await setupSessionWithConfig({
     ...argvToSetupOptions(argv),
     resolver,
   });
@@ -71,7 +72,12 @@ export async function runPromptCommand(argv: ParsedArgv): Promise<number> {
     }
   } catch (err) {
     printError(`fatal: ${err instanceof Error ? err.message : String(err)}`);
-    return 1;
+    exitCode = 1;
+  } finally {
+    // Drain persistence (last event + final index row) then fire onShutdown
+    // hooks / stop daemons so the process exits promptly. Best-effort — never
+    // masks the command's exit code.
+    await closeSession(session, persistence);
   }
   return exitCode;
 }

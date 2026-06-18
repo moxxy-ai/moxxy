@@ -350,9 +350,11 @@ export type {
   ResolvedPluginManifest,
 } from './plugin.js';
 
+export { startChannelWith } from './channel.js';
 export type {
   Channel,
   ChannelHandle,
+  ChannelStartArgs,
   ChannelStartOptsBase,
   ChannelFactoryDeps,
   ChannelDef,

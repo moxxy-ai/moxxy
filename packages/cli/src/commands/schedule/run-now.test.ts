@@ -58,7 +58,9 @@ describe('runScheduleNow lifecycle (u24-1)', () => {
   it('closes the session after a successful run', async () => {
     await runScheduleNow(argv('s1'));
     expect(closeSpy).toHaveBeenCalledTimes(1);
-    expect(closeSpy).toHaveBeenCalledWith('schedule-run');
+    // Teardown now flows through the shared `closeSession` helper, which closes
+    // with a uniform 'cli-exit' reason after draining persistence.
+    expect(closeSpy).toHaveBeenCalledWith('cli-exit');
   });
 
   it('still closes the session when runSchedule throws', async () => {

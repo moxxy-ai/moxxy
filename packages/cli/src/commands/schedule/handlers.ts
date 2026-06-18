@@ -3,6 +3,7 @@ import type { ScheduleStore } from '@moxxy/plugin-scheduler';
 import type { ParsedArgv } from '../../argv.js';
 import { colors } from '../../colors.js';
 import { setupSessionWithConfig } from '../../setup.js';
+import { closeSession } from '../../setup/close-session.js';
 import { fmtNext, flag } from './format.js';
 
 export async function listSchedules(store: ScheduleStore): Promise<number> {
@@ -106,8 +107,9 @@ export async function runScheduleNow(argv: ParsedArgv): Promise<number> {
   // independently fire a due schedule mid-`run` (double-dispatch), and the
   // webhooks listener would bind its port for an abandoned session. So skip
   // init hooks (provider activation runs before that gate) and close the
-  // session in a finally so onShutdown hooks (vault flush, etc.) fire.
-  const { session, scheduler: full } = await setupSessionWithConfig({
+  // session in a finally so persistence drains + onShutdown hooks (vault
+  // flush, etc.) fire and the process exits promptly.
+  const { session, scheduler: full, persistence } = await setupSessionWithConfig({
     cwd: process.cwd(),
     skipInitHooks: true,
   });
@@ -136,6 +138,6 @@ export async function runScheduleNow(argv: ParsedArgv): Promise<number> {
     );
     return outcome.ok ? 0 : 1;
   } finally {
-    await session.close('schedule-run').catch(() => undefined);
+    await closeSession(session, persistence);
   }
 }

@@ -3,8 +3,12 @@ import {
   isRunnerUp,
   runnerSocketPath,
   startRunnerServer,
+  type RemoteSession,
   type RunnerServer,
 } from '@moxxy/runner';
+import type { Session } from '@moxxy/core';
+import { startChannelWith } from '@moxxy/sdk';
+import type { ClientSession, SessionLike } from '@moxxy/sdk';
 import {
   argvToSetupOptions,
   bootSessionWithConfig,
@@ -16,6 +20,21 @@ import { printError } from '../errors.js';
 import type { ParsedArgv } from '../argv.js';
 import { chooseClientMode, collectExtraFlags } from './client-mode.js';
 import { coAttachWebSurface } from './web-surface.js';
+
+/**
+ * Compile-time conformance lock for the runner/thin-client seam. Both session
+ * implementations a channel ever receives — the thin-client `RemoteSession`
+ * proxy and the in-process `@moxxy/core` `Session` — MUST stay assignable to
+ * the typed views every channel is written against (`ClientSession`, and
+ * through it `SessionLike`). If a future change narrows either implementation
+ * or widens a *ClientView, this turns the regression into a compile error here
+ * instead of forcing a cast back onto a dispatch call site below.
+ */
+type _AssertAssignable<_T extends _U, _U> = true;
+type _RemoteIsClientSession = _AssertAssignable<RemoteSession, ClientSession>;
+type _RemoteIsSessionLike = _AssertAssignable<RemoteSession, SessionLike>;
+type _SessionIsClientSession = _AssertAssignable<Session, ClientSession>;
+type _SessionIsSessionLike = _AssertAssignable<Session, SessionLike>;
 
 /**
  * Run a registered channel by name, headlessly (no wizard, no TUI hand-off).
@@ -70,11 +89,12 @@ async function runAttachedChannel(name: string, argv: ParsedArgv): Promise<numbe
   });
   remote.setPermissionResolver(channel.permissionResolver);
 
-  const handle = await channel.start({
+  // RemoteSession is a ClientSession (thin-client proxy); the seam holds.
+  const handle = await startChannelWith(channel, {
     session: remote,
     model: stringFlag(argv, 'model'),
     ...collectExtraFlags(argv),
-  } as never);
+  });
 
   let stopping = false;
   const shutdown = async (code: number): Promise<void> => {
@@ -137,11 +157,12 @@ async function runSelfHostedChannel(
     }
   }
 
-  const handle = await channel.start({
+  // The in-process Session satisfies ClientSession; the seam holds.
+  const handle = await startChannelWith(channel, {
     session,
     model: stringFlag(argv, 'model'),
     ...collectExtraFlags(argv),
-  } as never);
+  });
 
   // Co-attach the web surface to the SAME session (on by default) so
   // present_view renders and the agent can hand the user a URL even when the

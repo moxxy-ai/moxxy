@@ -1,3 +1,4 @@
+import { startChannelWith } from '@moxxy/sdk';
 import type { ChannelHandle } from '@moxxy/sdk';
 import type { Session } from '@moxxy/core';
 import type { MoxxyConfig } from '@moxxy/config';
@@ -49,7 +50,7 @@ export async function coAttachWebSurface(opts: CoAttachWebOptions): Promise<Chan
 
   try {
     const web = def.create({ cwd: process.cwd(), vault, logger: session.logger, options: webCfg });
-    const handle = await web.start({ session } as never);
+    const handle = await startChannelWith(web, { session });
     const url = (web as { shareUrl?: string }).shareUrl;
     if (url) write(`  web surface  ${url}\n`);
     return handle;
