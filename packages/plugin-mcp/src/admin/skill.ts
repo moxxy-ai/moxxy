@@ -1,5 +1,6 @@
 import * as path from 'node:path';
-import { writeFileAtomic, type Skill } from '@moxxy/sdk';
+import { type Skill } from '@moxxy/sdk';
+import { writeFileAtomic } from '@moxxy/sdk/server';
 import type { McpServerConfig, McpToolDescriptor } from '../types.js';
 import type { AdminSkillRegistryLike } from './types.js';
 

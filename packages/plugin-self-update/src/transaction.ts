@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { writeFileAtomic } from '@moxxy/sdk';
+import { writeFileAtomic } from '@moxxy/sdk/server';
 
 /**
  * Transactional bookkeeping for self-update. Every change to a user-scope

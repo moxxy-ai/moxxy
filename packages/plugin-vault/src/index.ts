@@ -2,13 +2,13 @@ import {
   z,
   defineTool,
   definePlugin,
-  moxxyPath,
   MoxxyError,
   type Plugin,
   type CommandDef,
   type EmittedEvent,
   type TurnId,
 } from '@moxxy/sdk';
+import { moxxyPath } from '@moxxy/sdk/server';
 import { createCombinedKeySource, type MasterKeySource } from './keysource.js';
 import { VaultStore } from './store.js';
 

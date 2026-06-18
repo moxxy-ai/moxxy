@@ -6,6 +6,12 @@
  * does the job). Plus the peak + base64 helpers the capture path needs.
  */
 
+/** The MIME tag the moxxy whisper helpers use to flag "raw PCM16 mono 24 kHz".
+ *  The Codex transcriber sees this and wraps the bytes in a WAV header.
+ *  Re-exported from the SDK's zero-dep `./transcriber` subpath (the cross-package
+ *  source of truth) via a browser-safe entry that never pulls node built-ins. */
+export { MOXXY_PCM16_24KHZ_MIME } from '@moxxy/sdk/transcriber';
+
 const TARGET_SAMPLE_RATE = 24_000;
 
 /**
@@ -20,10 +26,6 @@ export function getAudioContextCtor(): typeof AudioContext | undefined {
     (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
   );
 }
-
-/** The MIME tag the moxxy whisper helpers use to flag "raw PCM16 mono 24 kHz".
- *  The Codex transcriber sees this and wraps the bytes in a WAV header. */
-export const MOXXY_PCM16_24KHZ_MIME = 'audio/x-moxxy-pcm16-24khz';
 
 export async function audioToPcm16(blob: Blob): Promise<Uint8Array> {
   const arrayBuffer = await blob.arrayBuffer();

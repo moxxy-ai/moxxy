@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { type MoxxyConfig, moxxyConfigSchema } from '@moxxy/config';
-import { createMutex, moxxyPath, writeFileAtomic } from '@moxxy/sdk';
+import { createMutex } from '@moxxy/sdk';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { parse, stringify } from 'yaml';
 
 /**

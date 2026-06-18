@@ -37,4 +37,41 @@ describe('@moxxy/sdk package root', () => {
 
     expect(check.issues[0]?.requirement.name).toBe('auth:provider:openai-codex');
   });
+
+  // The main barrel is the browser/RN-safe surface: a value import of any of
+  // these would drag a node:* builtin into a Metro/browser bundle. They live on
+  // the './server' subpath instead. This pins the split so a future accidental
+  // re-export on the main barrel is caught (see .dependency-cruiser.cjs
+  // `no-node-builtins-in-renderer`).
+  const NODE_ONLY_VALUE_EXPORTS = [
+    'spawnCliTunnel',
+    'isCliTunnelAvailable',
+    'writeFileAtomic',
+    'writeFileAtomicSync',
+    'moxxyHome',
+    'moxxyPath',
+    'readRequestBody',
+    'bearerTokenMatches',
+    'resolveChannelToken',
+    'rotateChannelToken',
+    'bearerGuard',
+    'encodeWsBearerProtocol',
+    'tokenFromWsProtocolHeader',
+    'MOXXY_WS_SUBPROTOCOL',
+    'MOXXY_WS_BEARER_PROTOCOL_PREFIX',
+  ] as const;
+
+  it('does NOT expose Node-runtime values on the browser/RN-safe main barrel', async () => {
+    const sdk: Record<string, unknown> = await import('@moxxy/sdk');
+    for (const name of NODE_ONLY_VALUE_EXPORTS) {
+      expect(sdk[name], `${name} must not be on the @moxxy/sdk main barrel`).toBeUndefined();
+    }
+  });
+
+  it('exposes the Node-runtime helpers on the @moxxy/sdk/server subpath', async () => {
+    const server: Record<string, unknown> = await import('@moxxy/sdk/server');
+    for (const name of NODE_ONLY_VALUE_EXPORTS) {
+      expect(server[name], `${name} must be exported from @moxxy/sdk/server`).toBeDefined();
+    }
+  });
 });

@@ -1,4 +1,5 @@
-import { definePlugin, moxxyPath, type Plugin } from '@moxxy/sdk';
+import { definePlugin, type Plugin } from '@moxxy/sdk';
+import { moxxyPath } from '@moxxy/sdk/server';
 import { readMcpConfig } from './config-io.js';
 import { createMcpRuntime } from './runtime.js';
 import { createMcpUsageSkillWriter } from './skill.js';

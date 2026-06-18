@@ -1,5 +1,6 @@
 import { defaultProjectSkillsDir, defaultUserSkillsDir, discoverSkills, silentLogger } from '@moxxy/core';
-import { createMutex, writeFileAtomic } from '@moxxy/sdk';
+import { createMutex } from '@moxxy/sdk';
+import { writeFileAtomic } from '@moxxy/sdk/server';
 import { BUILTIN_SKILLS_DIR_RESOLVED } from '../setup/builtin-skills-dir.js';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';

@@ -71,11 +71,53 @@ const EMPTY_STATE: ElisionState = {
 };
 
 /**
+ * Single-slot memo of the most recent {@link computeElisionState} result,
+ * keyed on the IDENTITY of the events array it was folded from.
+ *
+ * The event log is append-only and every held event is immutable (invariant
+ * #6: events at/below the HWM never change), so a given snapshot array is a
+ * stable, never-mutated value: the same array reference always denotes the
+ * same content and therefore the same state. A new turn produces a NEW snapshot
+ * array (the live `log.slice()` returns a fresh array each call), so the memo
+ * self-invalidates the moment the log changes — there is no way for it to serve
+ * a state that is stale for the array it is keyed on.
+ *
+ * Keying on identity (not a content hash of `id`/`seq`/payload) is the only
+ * SOUND single-slot choice for a pure fold over an arbitrary array: two
+ * logically-different logs can share ids/seqs (e.g. a test that rebuilds the
+ * same prefix with different payload, or a re-config), and a content hash that
+ * missed a payload field would serve a stale state — a correctness bug. Array
+ * identity can never collide across distinct values.
+ *
+ * The win: callers that re-ask over the SAME snapshot within an iteration
+ * (e.g. the elision/compaction gates and the estimate, when they thread the
+ * one `log.slice()` array — see `estimateContextTokens`) fold it only once;
+ * `WeakMap` would also help a held snapshot survive GC pressure, but a single
+ * slot keeps it allocation-free and matches the "one live snapshot at a time"
+ * access pattern. Threading a precomputed state is the explicit zero-cost fast
+ * path; this memo covers callers that re-pass the same array but can't thread.
+ */
+let memoEvents: ReadonlyArray<MoxxyEvent> | null = null;
+let memoState: ElisionState | null = null;
+
+/**
  * Derive elision state purely from the log: the active high-water mark + flags
  * (from the latest ElisionEvent), the callId→tool map, recall bookkeeping, the
  * adaptive conversational auto-disable, and which pinned recalls exceed the cap.
+ *
+ * Memoized on the input array's identity (see above) so repeated calls over the
+ * same immutable snapshot fold it only once. The returned state is identical
+ * (and `===` on a cache hit) to a fresh fold.
  */
 export function computeElisionState(events: ReadonlyArray<MoxxyEvent>): ElisionState {
+  if (memoEvents === events && memoState !== null) return memoState;
+  const state = computeElisionStateUncached(events);
+  memoEvents = events;
+  memoState = state;
+  return state;
+}
+
+function computeElisionStateUncached(events: ReadonlyArray<MoxxyEvent>): ElisionState {
   let hwm = -1;
   let elideConversational = false;
   let conversationalRecallThreshold = Number.POSITIVE_INFINITY;

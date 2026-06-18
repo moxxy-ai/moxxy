@@ -8,7 +8,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { readFile, readdir, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { writeFileAtomic } from '@moxxy/sdk';
+import { writeFileAtomic } from '@moxxy/sdk/server';
 import type { SkillFile } from '@moxxy/desktop-ipc-contract';
 
 /** Pull the frontmatter `description` (cheap regex — no YAML dep) so the

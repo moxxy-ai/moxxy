@@ -26,7 +26,14 @@ export async function runStep(
   scope: TemplateScope,
   ctx: ExecutorContext,
 ): Promise<StepOutcome> {
-  const attempts = 1 + Math.max(0, step.retries);
+  // Retries are gated on the three-valued `onError` contract:
+  //   - 'retry'           → run 1 + step.retries attempts (the count is honored).
+  //   - 'fail' / 'continue' → run EXACTLY ONE attempt, regardless of `retries`.
+  // This makes the `'retry'` enum value behaviorally distinct from `'fail'`
+  // (previously retries fired whenever `retries > 0` independent of onError, so
+  // `onError: 'fail' + retries: 3` silently retried — a latent semantic trap).
+  // `retries` only takes effect in retry mode now.
+  const attempts = step.onError === 'retry' ? 1 + Math.max(0, step.retries) : 1;
   let lastError = '';
   for (let attempt = 0; attempt < attempts; attempt++) {
     if (ctx.deps.signal.aborted) return { ok: false, output: '', error: 'aborted' };

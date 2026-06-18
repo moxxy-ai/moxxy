@@ -3,11 +3,10 @@ import * as path from 'node:path';
 import { createSubagentSpawner, type Session } from '@moxxy/core';
 import {
   asPluginId,
-  moxxyPath,
-  writeFileAtomic,
   type EmittedEvent,
   type WorkflowRunResult,
 } from '@moxxy/sdk';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import {
   WORKFLOWS_PLUGIN_NAME,
   type WorkflowStore,

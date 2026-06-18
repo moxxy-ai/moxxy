@@ -52,6 +52,31 @@ describe('PermissionEngine', () => {
     expect(e.check(call('Bash', { cmd: 'rm -rf /' }))).toBeNull();
   });
 
+  it('inputMatches is an unanchored substring match by design (u40-2)', () => {
+    // Documented, stable contract: `inputMatches` values are UNANCHORED regexes
+    // (re.test → substring match). An author who needs a full match anchors
+    // their own pattern. We pin both halves of that contract so it can never be
+    // silently changed (anchoring it would break existing permission files).
+    const substring = new PermissionEngine({
+      allow: [{ name: 'Read', inputMatches: { path: 'config' } }],
+      deny: [],
+    });
+    // Substring pattern matches anywhere in the candidate — by design.
+    expect(substring.check(call('Read', { path: '/etc/config' }))?.mode).toBe('allow');
+    expect(substring.check(call('Read', { path: '/etc/config-evil' }))?.mode).toBe('allow');
+    expect(substring.check(call('Read', { path: '~/.ssh/config-backup' }))?.mode).toBe('allow');
+    // A path that does not contain the pattern at all is not matched.
+    expect(substring.check(call('Read', { path: '/etc/passwd' }))).toBeNull();
+
+    // An author who wants a full match supplies their own ^…$ anchors.
+    const anchored = new PermissionEngine({
+      allow: [{ name: 'Read', inputMatches: { path: '^/etc/config$' } }],
+      deny: [],
+    });
+    expect(anchored.check(call('Read', { path: '/etc/config' }))?.mode).toBe('allow');
+    expect(anchored.check(call('Read', { path: '/etc/config-evil' }))).toBeNull();
+  });
+
   it('deny rule with an invalid-regex inputMatches still denies (fails closed)', () => {
     // Unbalanced bracket = uncompilable regex. The user clearly intended to
     // block `rm -rf`; the old fallback (literal !== equality) silently turned

@@ -11,7 +11,7 @@
 
 import { readFileSync } from 'node:fs';
 
-import { moxxyPath, writeFileAtomicSync } from '@moxxy/sdk';
+import { moxxyPath, writeFileAtomicSync } from '@moxxy/sdk/server';
 
 import { fetchLatest, type FetchLatestOpts } from './registry.js';
 

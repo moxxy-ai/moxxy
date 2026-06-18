@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
-import { MoxxyError, defineTool, writeFileAtomic, z } from '@moxxy/sdk';
+import { MoxxyError, defineTool, z } from '@moxxy/sdk';
+import { writeFileAtomic } from '@moxxy/sdk/server';
 import { buildFileDiffDisplay } from './file-diff.js';
 import { resolvePath } from './util.js';
 

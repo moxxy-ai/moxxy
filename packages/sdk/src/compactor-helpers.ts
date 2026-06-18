@@ -7,9 +7,11 @@ import {
   toolResultStubbed,
   type ElisionState,
 } from './elision-state.js';
+import type { CompactorDef, TokenBudget } from './compactor.js';
 import type { EmittedEvent, MoxxyEvent } from './events.js';
 import type { EventLogReader } from './log.js';
 import type { ModeContext } from './mode.js';
+import type { LLMProvider } from './provider.js';
 
 /**
  * Cheap, no-network estimate of how many tokens the current event log
@@ -168,9 +170,15 @@ export async function runCompactionIfNeeded(
   const events = ctx.log.slice();
   if (events.length === 0) return false;
 
+  // Derive the elision state ONCE for this snapshot and thread it into the
+  // estimate — `computeElisionState` is memoized on the log version, but
+  // threading skips even the memo lookup and guarantees the estimate folds the
+  // exact same state the rest of this iteration uses.
+  const elisionState = computeElisionState(events);
+
   const budget = {
     contextWindow: resolved?.contextWindow ?? Number.MAX_SAFE_INTEGER,
-    estimatedTokens: estimateContextTokens(ctx.log),
+    estimatedTokens: estimateContextTokens(ctx.log, elisionState),
     reserveForOutput: resolved?.reserveForOutput ?? 0,
   } as const;
 
@@ -231,6 +239,122 @@ export async function runCompactionIfNeeded(
     });
     return false;
   }
+}
+
+/**
+ * Outcome of {@link runManualCompaction}. `compacted` is false (with the other
+ * counts at 0) whenever there was nothing to compact — empty log, no usable
+ * summary, or `tokensSaved <= 0` — so a caller can format "nothing to compact"
+ * vs "compacted N events" without re-deriving the gate.
+ */
+export interface ManualCompactionResult {
+  /** Did a CompactionEvent get appended? */
+  readonly compacted: boolean;
+  /** Estimated tokens the summary saves vs the replaced range. */
+  readonly tokensSaved: number;
+  /** Count of events whose `seq` fell inside the (inclusive) replaced range. */
+  readonly eventsCompacted: number;
+}
+
+const NO_COMPACTION: ManualCompactionResult = {
+  compacted: false,
+  tokensSaved: 0,
+  eventsCompacted: 0,
+};
+
+/**
+ * Shape a manual `/compact` needs from the session, kept structural so callers
+ * (plugin-commands) stay free of a `@moxxy/core` dependency — the host always
+ * passes a real Session that satisfies it. Mirrors the fields
+ * {@link runCompactionIfNeeded} reads off `ModeContext`, but log-first because
+ * a manual compaction has no live turn/mode context.
+ */
+export interface ManualCompactionInput {
+  readonly compactor: CompactorDef;
+  /** Authoring log the CompactionEvent is appended to. */
+  readonly log: EventLogReader & {
+    append(event: EmittedEvent): Promise<MoxxyEvent>;
+  };
+  /** Active provider/model so the default compactor writes a real summary. */
+  readonly provider?: LLMProvider;
+  readonly model?: string;
+  /** Active model's resolved context window (for `shouldCompact`). */
+  readonly contextWindow?: number;
+  readonly reserveForOutput?: number;
+  /** Cancellation signal; a fresh one is used when omitted. */
+  readonly signal?: AbortSignal;
+  /** Override the appended event's sessionId/turnId (else taken from the log tail). */
+  readonly sessionId?: string;
+  readonly turnId?: string;
+}
+
+/**
+ * Run ONE compaction now, unconditionally (the `/compact` command's force
+ * semantics — the threshold gate is skipped). The single shared implementation
+ * of the manual-compaction flow that `compactSession` in `@moxxy/plugin-commands`
+ * used to hand-roll: build the {@link TokenBudget} (with the same `estimate`
+ * + context-window fallback as the auto path), call `compactor.compact`, guard
+ * on an empty/zero-saving result, defensively fill the event's
+ * sessionId/turnId/source, append it, and report `{ compacted, tokensSaved,
+ * eventsCompacted }` so the caller only formats the message.
+ *
+ * Distinct from {@link runCompactionIfNeeded}, which is the per-iteration
+ * auto-compaction hook bound to a live `ModeContext` and gated by
+ * `shouldCompact` (unless forced). This one is log-first and always runs,
+ * matching how a user-invoked `/compact` works. Errors propagate to the caller
+ * (the command formats them); a no-op returns {@link NO_COMPACTION}.
+ */
+export async function runManualCompaction(
+  input: ManualCompactionInput,
+): Promise<ManualCompactionResult> {
+  const { compactor, log } = input;
+  const events = log.slice();
+  if (events.length === 0) return NO_COMPACTION;
+
+  // Match the auto path's window fallback: an unresolved window degrades to
+  // MAX_SAFE_INTEGER (manual compaction ignores the threshold anyway).
+  const contextWindow =
+    input.contextWindow && input.contextWindow > 0
+      ? input.contextWindow
+      : Number.MAX_SAFE_INTEGER;
+  const budget: TokenBudget = {
+    contextWindow,
+    estimatedTokens: estimateContextTokens(log),
+    reserveForOutput: input.reserveForOutput ?? 0,
+  };
+
+  const result = await compactor.compact(events, {
+    log,
+    budget,
+    signal: input.signal ?? new AbortController().signal,
+    ...(input.provider ? { provider: input.provider } : {}),
+    ...(input.model !== undefined ? { model: input.model } : {}),
+  });
+  if (result.tokensSaved <= 0 || result.summary.trim().length === 0) {
+    return NO_COMPACTION;
+  }
+
+  // Defensive-fill identity fields a spec-compliant compactor may omit
+  // (`compact` declares `Omit<CompactionEvent, keyof EventBase>`). The
+  // compactor's own values win (result spreads last). Mirrors
+  // `runCompactionIfNeeded`.
+  const lastEvent = events[events.length - 1];
+  const emittable: EmittedEvent = {
+    sessionId: input.sessionId ?? lastEvent?.sessionId,
+    turnId: input.turnId ?? lastEvent?.turnId,
+    source: 'compactor',
+    ...result,
+  } as EmittedEvent;
+  await log.append(emittable);
+
+  // `replacedRange` is an INCLUSIVE [fromSeq, toSeq] of event `seq` VALUES, not
+  // array indices — and `seq === arrayIndex` is not guaranteed for
+  // mirrors/partial views. Count the events actually inside the range rather
+  // than differencing the seqs (which would overstate across any seq gap).
+  const [fromSeq, toSeq] = result.replacedRange;
+  const eventsCompacted = events.filter((e) => e.seq >= fromSeq && e.seq <= toSeq).length;
+
+  return { compacted: true, tokensSaved: result.tokensSaved, eventsCompacted };
 }
 
 /**

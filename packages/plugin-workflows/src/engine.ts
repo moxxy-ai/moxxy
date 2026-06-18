@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { moxxyPath, type Workflow, type WorkflowExecutorDef, type WorkflowRunDeps, type WorkflowRunResult } from '@moxxy/sdk';
+import { type Workflow, type WorkflowExecutorDef, type WorkflowRunDeps, type WorkflowRunResult } from '@moxxy/sdk';
+import { moxxyPath } from '@moxxy/sdk/server';
 import { ulid } from 'ulid';
 import { dagExecutor } from './executor/dag.js';
 

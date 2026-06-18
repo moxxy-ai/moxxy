@@ -55,6 +55,8 @@ const stepSchema = z
     needs: z.array(z.string().min(1)).default([]),
     when: z.string().min(1).optional(),
     onError: z.enum(['fail', 'continue', 'retry']).default('fail'),
+    // `retries` only takes effect when `onError: 'retry'`; with 'fail'/'continue'
+    // the step runs exactly one attempt (see runStep in executor/steps.ts).
     retries: z.number().int().min(0).max(3).default(0),
     label: z.string().max(60).optional(),
     format: z.enum(['json', 'plain']).optional(),

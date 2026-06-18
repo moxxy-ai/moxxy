@@ -1,4 +1,5 @@
-import { createMutex, writeFileAtomic, type Mutex, type PendingToolCall, type PermissionDecision } from '@moxxy/sdk';
+import { createMutex, type Mutex, type PendingToolCall, type PermissionDecision } from '@moxxy/sdk';
+import { writeFileAtomic } from '@moxxy/sdk/server';
 import { promises as fs } from 'node:fs';
 import { z } from 'zod';
 
@@ -10,6 +11,20 @@ import { z } from 'zod';
  */
 export interface PolicyRule {
   readonly name: string;
+  /**
+   * Map of tool-input field name → regex source string. Each value is compiled
+   * with `new RegExp(value)` and tested with `.test(candidate)`, which is an
+   * UNANCHORED (substring / partial) match by design: the pattern matches if it
+   * occurs anywhere in the field's string form, not only when it spans the whole
+   * value. This is a deliberate, stable contract — existing user permission
+   * files rely on it, so it is never silently anchored.
+   *
+   * Consequence: an allow rule like `{ Read: { path: 'config' } }` matches
+   * `/etc/passwd#config` and `~/.ssh/config-backup` too. A rule that wants a
+   * FULL match must supply its own anchors, e.g. `'^/safe/dir/.*$'`. (Note this
+   * differs from {@link nameMatches}, which anchors its glob with `^...$`
+   * because a glob is a whole-name convention, not an author-supplied regex.)
+   */
   readonly inputMatches?: Record<string, string>;
   readonly reason?: string;
 }
@@ -157,6 +172,12 @@ function matchRule(rule: PolicyRule, call: PendingToolCall, intent: 'allow' | 'd
       const candidate = stringifyCandidate(input[k]);
       let re: RegExp;
       try {
+        // `inputMatches` values are UNANCHORED regexes by design: `.test` does a
+        // substring/partial match, so the pattern matches if it occurs anywhere
+        // in `candidate`. This is the documented, stable contract (see
+        // PolicyRule.inputMatches) — never wrap it in `^(?:…)$`, as that would
+        // silently break existing permission files. Authors who need a full
+        // match anchor their own pattern with `^…$`.
         re = new RegExp(v);
       } catch (err) {
         warnBadPattern(rule.name, k, v, intent, err);

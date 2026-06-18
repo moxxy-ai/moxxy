@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { moxxyPath } from '@moxxy/sdk';
+import { moxxyPath } from '@moxxy/sdk/server';
 import type { DetectedImagePath } from './image-attachments.js';
 
 /**

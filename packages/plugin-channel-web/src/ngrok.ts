@@ -1,4 +1,5 @@
-import { defineTunnelProvider, isCliTunnelAvailable, spawnCliTunnel, type TunnelHandle } from '@moxxy/sdk';
+import { defineTunnelProvider, type TunnelHandle } from '@moxxy/sdk';
+import { isCliTunnelAvailable, spawnCliTunnel } from '@moxxy/sdk/server';
 
 const NGROK_URL_RE = /https:\/\/[a-z0-9-]+\.ngrok(?:-free)?\.(?:app|io|dev)/i;
 const URL_TIMEOUT_MS = 30_000;

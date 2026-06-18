@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ClientSession as Session } from '@moxxy/sdk';
-import { getInstallHint, type RequirementCheck, type RequirementIssue, type Transcriber } from '@moxxy/sdk';
+import { getInstallHint, MOXXY_PCM16_24KHZ_MIME, type RequirementCheck, type RequirementIssue, type Transcriber } from '@moxxy/sdk';
 import type { ExternalInsert } from '../components/prompt/external-insert.js';
 import {
   startVoiceRecording,
@@ -12,7 +12,6 @@ import {
 } from '../voice-input.js';
 
 const CODEX_TRANSCRIBER_NAME = 'openai-codex-transcribe';
-const MOXXY_PCM16_24KHZ_MIME = 'audio/x-moxxy-pcm16-24khz';
 
 export interface UseVoiceInputOptions {
   readonly session: Session;

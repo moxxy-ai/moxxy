@@ -18,7 +18,7 @@
 import type { IncomingMessage } from 'node:http';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
 
-import { MOXXY_WS_SUBPROTOCOL } from '@moxxy/sdk';
+import { MOXXY_WS_SUBPROTOCOL } from '@moxxy/sdk/server';
 import type { Transport, TransportServer } from '@moxxy/runner';
 import { checkWsAuth, checkWsOrigin } from './auth.js';
 

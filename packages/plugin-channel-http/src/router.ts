@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { readRequestBody, bearerTokenMatches } from '@moxxy/sdk';
+import { readRequestBody, bearerTokenMatches } from '@moxxy/sdk/server';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type { MoxxyEvent } from '@moxxy/sdk';
 

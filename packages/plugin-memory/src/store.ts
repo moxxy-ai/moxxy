@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { createMutex, moxxyPath, writeFileAtomic, type EmbeddingProvider, type Mutex } from '@moxxy/sdk';
+import { createMutex, type EmbeddingProvider, type Mutex } from '@moxxy/sdk';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { renderFrontmatter } from './parse.js';
 import { TfIdfEmbedder } from './tfidf.js';
 import { EmbeddingIndex } from './embedding-cache.js';

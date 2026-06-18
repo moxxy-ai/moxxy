@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { createAllowListResolver, bearerTokenMatches } from '@moxxy/sdk';
+import { createAllowListResolver } from '@moxxy/sdk';
+import { bearerTokenMatches } from '@moxxy/sdk/server';
 import type {
   Channel,
   ChannelHandle,

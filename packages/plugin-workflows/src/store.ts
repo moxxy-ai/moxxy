@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { createMutex, writeFileAtomic, type Mutex, type Workflow } from '@moxxy/sdk';
+import { createMutex, type Mutex, type Workflow } from '@moxxy/sdk';
+import { writeFileAtomic } from '@moxxy/sdk/server';
 import {
   defaultProjectWorkflowsDir,
   defaultUserWorkflowsDir,

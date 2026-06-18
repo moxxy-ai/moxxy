@@ -5,8 +5,8 @@ import {
   type ModelDescriptor,
   type ProviderEvent,
   type ProviderRequest,
-  writeFileAtomic,
 } from '@moxxy/sdk';
+import { writeFileAtomic } from '@moxxy/sdk/server';
 import { hashRequest } from './hash.js';
 
 export type FixtureMode = 'replay' | 'record' | 'passthrough';

@@ -1,5 +1,5 @@
 import { estimateContextTokens, resolveModelContext } from './compactor-helpers.js';
-import { toolResultBytes } from './elision-state.js';
+import { computeElisionState, toolResultBytes } from './elision-state.js';
 import type { EmittedEvent, MoxxyEvent } from './events.js';
 import type { ElisionSettings, ModeContext } from './mode.js';
 
@@ -67,12 +67,21 @@ export async function runElisionIfNeeded(ctx: ModeContext): Promise<void> {
     if (!resolved) return;
     const contextWindow = resolved.contextWindow;
 
-    // Gate: below this fill the whole history fits comfortably — eliding would
-    // only add missed-context risk for no token benefit.
-    if (estimateContextTokens(ctx.log) < s.minContextRatioToElide * contextWindow) return;
-
     const events = ctx.log.slice();
     if (events.length === 0) return;
+
+    // Derive the elision state ONCE for this snapshot and thread it into the
+    // gate's estimate. The same `computeElisionState` fold otherwise runs again
+    // inside `estimateContextTokens` (and a third time in projection this
+    // iteration); threading shares the one fold. Order vs the slice is
+    // irrelevant — both read the same immutable snapshot.
+    const elisionState = computeElisionState(events);
+
+    // Gate: below this fill the whole history fits comfortably — eliding would
+    // only add missed-context risk for no token benefit.
+    if (estimateContextTokens(ctx.log, elisionState) < s.minContextRatioToElide * contextWindow) {
+      return;
+    }
 
     const priorHWM = events.reduce(
       (max, e) => (e.type === 'elision' ? Math.max(max, e.elidedThrough) : max),

@@ -2,12 +2,12 @@ import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import {
   defineCommand,
-  writeFileAtomic,
   type CommandContext,
   type CommandDef,
   type CommandOutput,
   type WorkflowRunResult,
 } from '@moxxy/sdk';
+import { writeFileAtomic } from '@moxxy/sdk/server';
 import { defaultUserWorkflowsDir } from './loader.js';
 import { serializeWorkflow } from './schema.js';
 import { slugify, triggerSummary } from './format.js';

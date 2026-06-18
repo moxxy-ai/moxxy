@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { writeFileAtomic, moxxyPath } from '@moxxy/sdk';
+import { writeFileAtomic, moxxyPath } from '@moxxy/sdk/server';
 import { deriveKey } from './crypto.js';
 
 const KEYCHAIN_SERVICE = 'moxxy';

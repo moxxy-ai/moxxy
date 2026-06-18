@@ -18,6 +18,20 @@
  *     used by models that advertise `supportsAudio: true`.
  */
 
+/**
+ * Wire MIME tag for raw 16-bit little-endian PCM mono at 24 kHz — the lossless
+ * format the desktop/web mic capture path produces and that the Codex
+ * transcriber keys on to wrap the bytes in a WAV header before upload.
+ *
+ * This is a cross-package PROTOCOL value: client-platform-web stamps it onto
+ * the captured blob, plugin-cli forwards it as the attachment `mimeType`, and
+ * plugin-stt-whisper switches on it. It lived as an independently-redeclared
+ * literal in all three (silent transcription breakage if any drifted), so it is
+ * hoisted here to the SDK's single zero-dep typed surface as the source of
+ * truth. Consumers should import this rather than re-spell the literal.
+ */
+export const MOXXY_PCM16_24KHZ_MIME = 'audio/x-moxxy-pcm16-24khz';
+
 export interface TranscriptionSegment {
   /** Segment start, in seconds from the start of the clip. */
   readonly start: number;

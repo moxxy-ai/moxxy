@@ -1,4 +1,5 @@
-import { createJsonFileStore, moxxyPath, type JsonFileStore } from '@moxxy/sdk';
+import { createJsonFileStore, type JsonFileStore } from '@moxxy/sdk';
+import { moxxyPath } from '@moxxy/sdk/server';
 import { ulid } from 'ulid';
 import { z } from 'zod';
 import { isValidCron } from './cron.js';

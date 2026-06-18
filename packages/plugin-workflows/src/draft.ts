@@ -48,7 +48,7 @@ A workflow is a DAG of steps. Schema:
     - args: templated args object for tool/workflow steps
     - needs: [ <upstream step ids> ]  (defines the DAG; omit only for true sources)
     - when (optional, legacy): simple guards only — '{{ steps.x.output }} is not empty'. Do NOT use when for semantic decisions (use condition/switch).
-    - onError (optional): fail | continue | retry ; retries (optional, 0-3)
+    - onError (optional): fail | continue | retry ; retries (optional, 0-3 — only applies when onError is retry; fail/continue always run exactly one attempt)
 
 Operator data — two ways: declare a value the operator can supply UP FRONT as an \`inputs\` field (filled in before Run). To PAUSE mid-run and ask a question whose answer depends on earlier steps, set \`awaitInput: true\` on a prompt or skill step: the workflow pauses, surfaces the step's prompt to the operator, and resumes with their reply once they answer. Prefer \`inputs\` for known-up-front values; use \`awaitInput\` only for genuinely mid-run questions.
 

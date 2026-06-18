@@ -1,10 +1,9 @@
 import {
   defineTunnelProvider,
-  isCliTunnelAvailable,
-  spawnCliTunnel,
   type CliTunnelHandle,
   type TunnelProviderDef,
 } from '@moxxy/sdk';
+import { isCliTunnelAvailable, spawnCliTunnel } from '@moxxy/sdk/server';
 
 /**
  * Tunnel support for the webhooks listener.

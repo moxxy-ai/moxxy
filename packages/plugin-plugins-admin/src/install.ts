@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { defineTool, moxxyPath, writeFileAtomic, z } from '@moxxy/sdk';
+import { defineTool, z } from '@moxxy/sdk';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { assertSafeNpmSpec, diffSnapshot, NPM_NAME_RE, type PluginSnapshot } from './shared.js';
 
 export type { PluginSnapshot } from './shared.js';

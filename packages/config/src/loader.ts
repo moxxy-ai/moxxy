@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { moxxyHome } from '@moxxy/sdk';
+import { moxxyHome } from '@moxxy/sdk/server';
 import { mergeConfigs } from './merge.js';
 import { moxxyConfigSchema, type MoxxyConfig } from './schema.js';
 

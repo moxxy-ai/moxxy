@@ -5,7 +5,7 @@
  * SDK helper so every channel resolves auth the same way.
  */
 
-import { resolveChannelToken, rotateChannelToken } from '@moxxy/sdk';
+import { resolveChannelToken, rotateChannelToken } from '@moxxy/sdk/server';
 
 const TOKEN_FILE = 'mobile-token';
 

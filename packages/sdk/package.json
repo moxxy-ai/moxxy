@@ -45,9 +45,17 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
     "./tool-display": {
       "types": "./dist/tool-display.d.ts",
       "import": "./dist/tool-display.js"
+    },
+    "./transcriber": {
+      "types": "./dist/transcriber.d.ts",
+      "import": "./dist/transcriber.js"
     }
   },
   "files": [

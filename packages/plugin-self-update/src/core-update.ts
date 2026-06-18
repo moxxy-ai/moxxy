@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, promises as fs, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { writeFileAtomic } from '@moxxy/sdk';
+import { writeFileAtomic } from '@moxxy/sdk/server';
 import { newTxnId } from './transaction.js';
 
 /**

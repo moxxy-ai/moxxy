@@ -61,6 +61,15 @@ export interface ProjectMessagesOptions {
   readonly systemPrompt?: string;
   /** Optional trailing user message — useful for plan-execute's "Focus on this step now: X". */
   readonly trailingUserText?: string;
+  /**
+   * Optional precomputed elision state for THIS exact log snapshot. When a
+   * caller already derived it within the same loop iteration (e.g. the
+   * compaction/elision gates), threading it here skips a redundant
+   * `computeElisionState` fold. MUST be the state of the same log — a stale one
+   * would mis-render stubs — so it is purely an opt-in fast path; omitting it
+   * recomputes (memoized on the log version), byte-identically.
+   */
+  readonly precomputedElisionState?: ElisionState;
 }
 
 interface CompactionRange {
@@ -260,7 +269,10 @@ export function projectMessages(
   const compactions = activeCompactionRanges(allEvents);
   const compactionFor = makeCompactionLookup(compactions);
   const emittedCompactions = new Set<CompactionRange>();
-  const el = computeElisionState(allEvents);
+  // Reuse a threaded state when the caller already derived it for this exact
+  // snapshot; otherwise `computeElisionState` is memoized on the log version so
+  // the in-iteration projection still folds only once.
+  const el = opts.precomputedElisionState ?? computeElisionState(allEvents);
 
   const messages: ProviderMessage[] = [];
   // The stable prefix is every message produced from events at/below the

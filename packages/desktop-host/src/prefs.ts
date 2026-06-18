@@ -12,7 +12,8 @@
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { createMutex, writeFileAtomic } from '@moxxy/sdk';
+import { createMutex } from '@moxxy/sdk';
+import { writeFileAtomic } from '@moxxy/sdk/server';
 import type { DesktopPrefs } from '@moxxy/desktop-ipc-contract';
 
 const DEFAULTS: DesktopPrefs = {

@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
-import { createMutex, moxxyPath, writeFileAtomic } from '@moxxy/sdk';
+import { createMutex } from '@moxxy/sdk';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { mcpStoredConfigRootSchema, mcpStoredServerSchema } from './config-schema.js';
 import type { McpStoredConfig, McpStoredServer } from './types.js';
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { moxxyHome } from '@moxxy/sdk';
+import { moxxyHome } from '@moxxy/sdk/server';
 import { finalizeStagedCoreUpdate } from '@moxxy/plugin-self-update';
 import { parseArgv, type ParsedArgv } from './argv.js';
 import { runPromptCommand } from './commands/prompt.js';

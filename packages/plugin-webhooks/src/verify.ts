@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { bearerTokenMatches } from '@moxxy/sdk';
+import { bearerTokenMatches } from '@moxxy/sdk/server';
 import type { WebhookTrigger, WebhookVerification } from './store.js';
 
 /**

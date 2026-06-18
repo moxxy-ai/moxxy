@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { moxxyPath, writeFileAtomic, type Workflow, type WorkflowRunDeps } from '@moxxy/sdk';
+import { type Workflow, type WorkflowRunDeps } from '@moxxy/sdk';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { ulid } from 'ulid';
 
 /**

@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
-import { writeFileAtomic, createMutex, MoxxyError, type Mutex } from '@moxxy/sdk';
+import { createMutex, MoxxyError, type Mutex } from '@moxxy/sdk';
+import { writeFileAtomic } from '@moxxy/sdk/server';
 import { decrypt, encrypt, generateSalt, type EncryptedBlob } from './crypto.js';
 import type { MasterKeySource } from './keysource.js';
 

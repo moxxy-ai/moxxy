@@ -23,7 +23,8 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "@moxxy/client-core": "workspace:*"
+    "@moxxy/client-core": "workspace:*",
+    "@moxxy/sdk": "workspace:*"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",

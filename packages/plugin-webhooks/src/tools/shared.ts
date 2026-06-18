@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { moxxyPath, writeFileAtomic, z } from '@moxxy/sdk';
+import { z } from '@moxxy/sdk';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import type { WebhookConfigStore } from '../config.js';
 import type { WebhookDispatcher } from '../runner.js';
 import { filterRuleSchema, type WebhookStore, type WebhookVerification } from '../store.js';

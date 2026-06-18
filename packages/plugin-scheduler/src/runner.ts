@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { moxxyPath, writeFileAtomic } from '@moxxy/sdk';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { nextFireTime } from './cron.js';
 import type { ScheduleEntry, ScheduleStore } from './store.js';
 

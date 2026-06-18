@@ -623,6 +623,9 @@ importers:
       '@moxxy/client-core':
         specifier: workspace:*
         version: link:../client-core
+      '@moxxy/sdk':
+        specifier: workspace:*
+        version: link:../sdk
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*

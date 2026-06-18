@@ -14,7 +14,8 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { createMutex, writeFileAtomic, type Mutex } from '@moxxy/sdk';
+import { createMutex, type Mutex } from '@moxxy/sdk';
+import { writeFileAtomic } from '@moxxy/sdk/server';
 import type { Desk, DeskSession, SessionsOverview } from '@moxxy/desktop-ipc-contract';
 
 /**

@@ -255,3 +255,81 @@ describe('computeElisionState (golden: fused == 4-pass reference)', () => {
     assertSameState(state, computeElisionStateOld(events));
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Memo correctness (complexity-hotspots-7 / u122-2): the single-slot memo keyed
+// on the input array's IDENTITY must (a) return the cached state for the same
+// immutable snapshot (a cache HIT — the identical reference), and (b) RECOMPUTE
+// — never serve a stale state — for any different array, including a new event
+// appended past the HWM or a re-config that reuses the same ids/seqs.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('computeElisionState (memo correctness)', () => {
+  const baseLog = (): MoxxyEvent[] => [
+    event(0, { type: 'user_prompt', turnId: t1, source: 'user', text: 'the task' }),
+    event(1, { type: 'tool_call_requested', turnId: t1, source: 'model', callId: asToolCallId('ra'), name: 'recall', input: { callId: 'x' } }),
+    event(2, { type: 'tool_result', turnId: t1, source: 'tool', callId: asToolCallId('ra'), ok: true, output: 'A'.repeat(300) }),
+    event(3, {
+      type: 'elision', turnId: t2, source: 'system', elidedThrough: 2, stubbedRanges: [[0, 2]],
+      elideConversational: true, conversationalRecallThreshold: 4, maxRecallBytes: 1000, neverElideTools: [], tokensSaved: 100,
+    }),
+    event(4, { type: 'user_prompt', turnId: t2, source: 'user', text: 'recent' }),
+  ];
+
+  it('returns the cached state for the same snapshot, equal to a fresh fold', () => {
+    const events = baseLog();
+    const a = computeElisionState(events);
+    // Same array reference → memo HIT → the identical cached reference.
+    expect(computeElisionState(events)).toBe(a);
+    // …and it equals an uncached fresh fold of the same snapshot.
+    assertSameState(a, computeElisionStateOld(events));
+  });
+
+  it('invalidates (recomputes) when a new event is appended past the HWM', () => {
+    const events = baseLog();
+    const before = computeElisionState(events);
+    expect(before.hwm).toBe(2);
+    // A NEW snapshot array with one more tail event must NOT serve `before`.
+    const grown = [
+      ...events,
+      event(5, { type: 'tool_call_requested', turnId: t2, source: 'model', callId: asToolCallId('rb'), name: 'recall', input: { callId: 'y' } }),
+    ];
+    const after = computeElisionState(grown);
+    expect(after).not.toBe(before); // recomputed, not the cached ref
+    // `rb` only exists in the grown log → its presence proves invalidation.
+    expect(after.recallResultCallIds.has('rb')).toBe(true);
+    expect(before.recallResultCallIds.has('rb')).toBe(false);
+    assertSameState(after, computeElisionStateOld(grown));
+    // A new ElisionEvent that advances the HWM also invalidates.
+    const reElided = [
+      ...grown,
+      event(6, { type: 'tool_result', turnId: t2, source: 'tool', callId: asToolCallId('rb'), ok: true, output: 'B'.repeat(50) }),
+      event(7, {
+        type: 'elision', turnId: t2, source: 'system', elidedThrough: 6, stubbedRanges: [[3, 6]],
+        elideConversational: true, conversationalRecallThreshold: 4, maxRecallBytes: 1000, neverElideTools: [], tokensSaved: 200,
+      }),
+    ];
+    const advanced = computeElisionState(reElided);
+    expect(advanced.hwm).toBe(6);
+    assertSameState(advanced, computeElisionStateOld(reElided));
+  });
+
+  it('never serves a stale state for a re-config that reuses the same ids/seqs', () => {
+    // Two logically-distinct logs with byte-identical ids/seqs but different
+    // elision config — the exact case a content hash of id+seq would collide on
+    // and serve stale. Distinct array instances → distinct memo keys → correct.
+    const mk = (threshold: number): MoxxyEvent[] => [
+      event(0, { type: 'user_prompt', turnId: t1, source: 'user', text: 'the task' }),
+      event(1, { type: 'tool_call_requested', turnId: t1, source: 'model', callId: asToolCallId('s1'), name: 'recall', input: { seq: 0 } }),
+      event(2, { type: 'tool_call_requested', turnId: t1, source: 'model', callId: asToolCallId('s2'), name: 'recall', input: { seq: 0 } }),
+      event(3, {
+        type: 'elision', turnId: t2, source: 'system', elidedThrough: 2, stubbedRanges: [[0, 2]],
+        elideConversational: true, conversationalRecallThreshold: threshold, maxRecallBytes: 1000, neverElideTools: [], tokensSaved: 10,
+      }),
+      event(4, { type: 'user_prompt', turnId: t2, source: 'user', text: 'next' }),
+    ];
+    const on = computeElisionState(mk(3)); // threshold 3 > 2 seq-recalls → ON
+    const off = computeElisionState(mk(2)); // threshold 2 == 2 → OFF
+    expect(on.effectiveElideConversational).toBe(true);
+    expect(off.effectiveElideConversational).toBe(false);
+  });
+});

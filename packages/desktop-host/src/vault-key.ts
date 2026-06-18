@@ -25,7 +25,7 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { moxxyPath } from '@moxxy/sdk';
+import { moxxyPath } from '@moxxy/sdk/server';
 
 /** AES-256 master key length, matching the vault's `deriveKey` output. */
 const KEY_BYTES = 32;

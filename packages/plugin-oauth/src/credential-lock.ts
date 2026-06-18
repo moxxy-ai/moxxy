@@ -26,7 +26,8 @@
 
 import { mkdir, open, rm, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { MoxxyError, createMutex, moxxyPath, type Mutex } from '@moxxy/sdk';
+import { MoxxyError, createMutex, type Mutex } from '@moxxy/sdk';
+import { moxxyPath } from '@moxxy/sdk/server';
 
 export interface CredentialLockOptions {
   /** Directory holding the lock files. Default `<moxxy home>/locks`. */

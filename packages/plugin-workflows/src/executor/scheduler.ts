@@ -110,15 +110,28 @@ export async function runExecutorLoop(
 
     // 3. Run a wave. `concurrency` caps the BATCH SIZE per scheduler pass; the
     //    steps in a wave are then executed STRICTLY SEQUENTIALLY (one awaited
-    //    `runStep` at a time below) — there is no actual parallelism today.
-    //    This is deliberate and load-bearing: logic/branch/pause steps mutate
-    //    shared state (vars, branch skips, checkpoints) and emit ordered
-    //    `workflow_step_*` events, and a hard failure must abort the rest of the
-    //    wave deterministically. Independent (pure tool/prompt/skill) steps
-    //    COULD overlap, but proving identical event ordering / vars-merge order
-    //    / error semantics is a behavior change deferred to a future pass — see
-    //    the executor description. `concurrency` therefore only bounds how many
-    //    ready steps are drained per pass, not wall-clock latency.
+    //    `runStep` at a time below) — there is NO actual parallelism, and
+    //    `concurrency` therefore bounds only how many ready steps are drained per
+    //    pass, not wall-clock latency.
+    //
+    //    Sequential execution is deliberate and load-bearing, NOT merely
+    //    deferred: overlapping even the "pure" tool/prompt/skill steps cannot
+    //    preserve the current observable contract, so parity is unprovable here:
+    //      - Event ordering: each step emits `workflow_step_started` then its
+    //        terminal `workflow_step_completed`/`workflow_step_failed` as an
+    //        atomic, non-interleaved pair, in declared wave order. Consumers
+    //        (progress UIs) rely on this; concurrent steps would interleave them.
+    //      - Error semantics: a hard failure (onError≠'continue') earlier in the
+    //        wave aborts the run and STOPS later same-wave steps from starting at
+    //        all (see the loop below + the "hard failure breaks the rest of the
+    //        wave" test). Concurrency would have already launched those steps,
+    //        changing which steps run, which events fire, and the spend.
+    //      - vars merge: logic-step `vars` merge into shared `ctx.vars` in wave
+    //        order; reordering merges is observable when keys collide.
+    //    Because these are all externally observable, no concurrent execution is
+    //    provably identical to the sequential one — so we keep it sequential and
+    //    the executor description states the sequential behavior plainly rather
+    //    than promising parallelism.
     const wave = ready.slice(0, Math.max(1, workflow.concurrency));
     const scope = buildScope(ctx, new Date(ctx.now()).toISOString());
 

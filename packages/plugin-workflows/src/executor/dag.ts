@@ -14,6 +14,6 @@ export { resumeWorkflowRun } from './scheduler.js';
 export const dagExecutor: WorkflowExecutorDef = defineWorkflowExecutor({
   name: DAG_EXECUTOR_NAME,
   description:
-    'DAG runner: steps with settled dependencies are scheduled in waves of up to `concurrency` ready steps, then executed sequentially within each wave (no overlap yet — `concurrency` caps the batch size, not wall-clock latency).',
+    'DAG runner: steps with settled dependencies are scheduled in waves of up to `concurrency` ready steps, then executed sequentially within each wave (no overlap — `concurrency` caps the batch size drained per pass, not wall-clock latency).',
   run: runExecutor,
 });

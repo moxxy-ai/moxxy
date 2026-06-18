@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { readRequestBody } from '@moxxy/sdk';
+import { readRequestBody } from '@moxxy/sdk/server';
 import { DeliveryDedupeCache } from './dedupe.js';
 import { shouldFire } from './filter.js';
 import type { WebhookDispatcher } from './runner.js';

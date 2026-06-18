@@ -9,6 +9,7 @@ import {
   isContextOverflowError,
   runCompactionIfNeeded,
   runElisionIfNeeded,
+  runManualCompaction,
   type CompactorDef,
   type EmittedEvent,
   type EventLogReader,
@@ -295,6 +296,111 @@ describe('runCompactionIfNeeded', () => {
     expect(did).toBe(true);
     expect(compact).toHaveBeenCalledOnce();
     expect(ctx.emitted.some((e) => e.type === 'compaction')).toBe(true);
+  });
+});
+
+describe('runManualCompaction', () => {
+  // An appendable reader matching ManualCompactionInput.log — records the
+  // appended event so we can assert defensive identity-fill.
+  function appendableLog(seed: ReadonlyArray<MoxxyEvent>): EventLogReader & {
+    append(event: EmittedEvent): Promise<MoxxyEvent>;
+    appended: EmittedEvent[];
+  } {
+    const events = [...seed];
+    const appended: EmittedEvent[] = [];
+    return {
+      ...reader(events),
+      appended,
+      append: async (e: EmittedEvent) => {
+        appended.push(e);
+        const mat = { ...e, id: asEventId(`a${appended.length}`), seq: events.length, ts: events.length, sessionId: sid } as MoxxyEvent;
+        events.push(mat);
+        return mat;
+      },
+    };
+  }
+
+  const seed: MoxxyEvent[] = [
+    event(0, { type: 'user_prompt', turnId: tid, source: 'user', text: 'x'.repeat(400) }),
+    event(1, { type: 'assistant_message', turnId: tid, source: 'model', content: 'y'.repeat(400), stopReason: 'end_turn' }),
+  ];
+
+  it('returns the no-op result for an empty log', async () => {
+    const log = appendableLog([]);
+    const compactor: CompactorDef = {
+      name: 'never',
+      shouldCompact: () => false,
+      compact: async () => { throw new Error('should not run'); },
+    };
+    const res = await runManualCompaction({ compactor, log });
+    expect(res).toEqual({ compacted: false, tokensSaved: 0, eventsCompacted: 0 });
+    expect(log.appended).toHaveLength(0);
+  });
+
+  it('compacts unconditionally (no shouldCompact gate) and reports counts', async () => {
+    const log = appendableLog(seed);
+    const shouldCompact = vi.fn().mockReturnValue(false); // would block the auto path
+    const compactor: CompactorDef = {
+      name: 'fake',
+      shouldCompact,
+      compact: async () => ({
+        type: 'compaction',
+        compactor: 'fake',
+        replacedRange: [0, 1],
+        summary: 'compressed',
+        tokensSaved: 123,
+      }),
+    };
+    const res = await runManualCompaction({ compactor, log });
+    // shouldCompact is NEVER consulted — manual compaction always runs.
+    expect(shouldCompact).not.toHaveBeenCalled();
+    expect(res).toEqual({ compacted: true, tokensSaved: 123, eventsCompacted: 2 });
+    expect(log.appended).toHaveLength(1);
+    // Defensive identity fill from the log tail + source=compactor.
+    expect(log.appended[0]).toMatchObject({ type: 'compaction', source: 'compactor', sessionId: sid, turnId: tid });
+  });
+
+  it('counts only events inside the inclusive replacedRange, not the seq span', async () => {
+    // A range [0, 999] spanning a gap: only the two real events fall inside.
+    const log = appendableLog([
+      event(0, { type: 'user_prompt', turnId: tid, source: 'user', text: 'x'.repeat(400) }),
+      event(500, { type: 'assistant_message', turnId: tid, source: 'model', content: 'z'.repeat(400), stopReason: 'end_turn' }),
+    ]);
+    const compactor: CompactorDef = {
+      name: 'wide',
+      shouldCompact: () => false,
+      compact: async () => ({
+        type: 'compaction', compactor: 'wide', replacedRange: [0, 999], summary: 's', tokensSaved: 50,
+      }),
+    };
+    const res = await runManualCompaction({ compactor, log });
+    expect(res.eventsCompacted).toBe(2);
+  });
+
+  it('reports no-op (no append) when the summary is empty / tokensSaved <= 0', async () => {
+    const log = appendableLog(seed);
+    const compactor: CompactorDef = {
+      name: 'empty',
+      shouldCompact: () => true,
+      compact: async () => ({
+        type: 'compaction', compactor: 'empty', replacedRange: [0, 1], summary: '   ', tokensSaved: 0,
+      }),
+    };
+    const res = await runManualCompaction({ compactor, log });
+    expect(res.compacted).toBe(false);
+    expect(log.appended).toHaveLength(0);
+  });
+
+  it('caller-supplied sessionId/turnId override the log-tail fallback', async () => {
+    const log = appendableLog(seed);
+    const compactor: CompactorDef = {
+      name: 'fake', shouldCompact: () => false,
+      compact: async () => ({ type: 'compaction', compactor: 'fake', replacedRange: [0, 1], summary: 'ok', tokensSaved: 10 }),
+    };
+    await runManualCompaction({
+      compactor, log, sessionId: asSessionId('other'), turnId: asTurnId('explicit'),
+    });
+    expect(log.appended[0]).toMatchObject({ sessionId: 'other', turnId: 'explicit' });
   });
 });
 

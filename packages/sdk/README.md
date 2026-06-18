@@ -52,6 +52,8 @@ The package exports:
 - Lifecycle hook signatures (`onTurnStart`, `onAssistantMessage`, and so on).
 - Small helper utilities that do not pull the runtime along: token accounting, compactor helpers, zod-to-JSON-Schema, tool gating, embedding caching, retryable-error classification.
 
+The main barrel and the `./tool-display` subpath are free of Node builtins, so they are safe to value-import from a browser or React-Native bundle. Helpers that need a Node runtime (atomic file writes, the `~/.moxxy` path helpers, the CLI-tunnel spawner, the HTTP/WebSocket channel-auth toolkit) live on the **`@moxxy/sdk/server`** subpath instead — import those only from Node-side code.
+
 It is the only moxxy package safe to depend on from a published plugin. `@moxxy/core` is the runtime, and plugins never import it.
 
 ## Why depend on the SDK

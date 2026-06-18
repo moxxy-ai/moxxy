@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
-import { createMutex, moxxyPath, writeFileAtomic, z } from '@moxxy/sdk';
+import { createMutex, z } from '@moxxy/sdk';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import type { StoredProvider, StoredProvidersConfig } from './types.js';
 
 /**

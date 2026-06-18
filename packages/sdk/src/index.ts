@@ -181,15 +181,12 @@ export type {
   SpawnCliTunnelOptions,
   CliTunnelHandle,
 } from './tunnel.js';
-export { spawnCliTunnel, isCliTunnelAvailable } from './tunnel.js';
+// Node-runtime helpers (spawnCliTunnel/isCliTunnelAvailable, writeFileAtomic*,
+// moxxyHome/moxxyPath, readRequestBody/bearerTokenMatches, channel-auth) are
+// exported from the './server' subpath, NOT the main barrel — they statically
+// reach node:* builtins and would break a browser/RN bundle. See ./server.ts.
 export { isRetryableError, toFriendlyError, zodToJsonSchema, estimateTextTokens, type StopReason } from './provider-utils.js';
-export {
-  writeFileAtomic,
-  writeFileAtomicSync,
-  moxxyHome,
-  moxxyPath,
-  type WriteFileAtomicOptions,
-} from './fs-utils.js';
+export type { WriteFileAtomicOptions } from './fs-utils.js';
 export { createMutex, type Mutex } from './mutex.js';
 export {
   createJsonFileStore,
@@ -198,17 +195,9 @@ export {
 } from './json-file-store.js';
 export { assertNever } from './assert.js';
 export { compareSemver, parseSemverCore } from './semver.js';
-export { readRequestBody, bearerTokenMatches } from './http-utils.js';
-export {
-  resolveChannelToken,
-  rotateChannelToken,
-  bearerGuard,
-  encodeWsBearerProtocol,
-  tokenFromWsProtocolHeader,
-  MOXXY_WS_SUBPROTOCOL,
-  MOXXY_WS_BEARER_PROTOCOL_PREFIX,
-  type ChannelTokenOptions,
-} from './channel-auth.js';
+// readRequestBody/bearerTokenMatches (http-utils) and the channel-auth value
+// helpers live on the './server' subpath — they reach node:http/crypto/fs/path.
+export type { ChannelTokenOptions } from './channel-auth.js';
 export {
   autoAllowResolver,
   denyByDefaultResolver,
@@ -254,7 +243,11 @@ export type { TokenBudget, CompactContext, CompactorDef } from './compactor.js';
 export {
   estimateContextTokens,
   runCompactionIfNeeded,
+  runManualCompaction,
+  resolveModelContext,
   isContextOverflowError,
+  type ManualCompactionInput,
+  type ManualCompactionResult,
 } from './compactor-helpers.js';
 export {
   runElisionIfNeeded,
@@ -403,6 +396,7 @@ export type {
   TranscriptionSegment,
   TranscribeOptions,
 } from './transcriber.js';
+export { MOXXY_PCM16_24KHZ_MIME } from './transcriber.js';
 
 export type {
   Synthesizer,

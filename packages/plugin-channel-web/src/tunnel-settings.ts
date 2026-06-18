@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { createMutex, moxxyPath, writeFileAtomic, z } from '@moxxy/sdk';
+import { createMutex, z } from '@moxxy/sdk';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 
 /** Validates the on-disk web.json shape; a corrupt/foreign file is discarded. */
 const webSettingsSchema = z.object({ tunnel: z.string().optional() });

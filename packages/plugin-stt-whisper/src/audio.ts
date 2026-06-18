@@ -6,11 +6,15 @@
  * them here keeps the wrapper plugins thin.
  */
 
+import { MOXXY_PCM16_24KHZ_MIME } from '@moxxy/sdk';
+
 /** A custom MIME tag used by the TUI voice recorder to flag raw PCM16
  *  mono @ 24kHz bytes (ffmpeg's `-f s16le` output) so the transcriber
  *  knows to wrap them in a WAV header before upload. Public so other
- *  recorders / channels can mark their captures identically. */
-export const MOXXY_PCM16_24KHZ_MIME = 'audio/x-moxxy-pcm16-24khz';
+ *  recorders / channels can mark their captures identically. Sourced from
+ *  the SDK's zero-dep cross-package source of truth; re-exported here so the
+ *  existing `@moxxy/plugin-stt-whisper` surface stays stable. */
+export { MOXXY_PCM16_24KHZ_MIME };
 
 /** Default filename per MIME type, used to set the upload `filename` so
  *  the vendor's content sniffer routes to the right decoder. Defaults to

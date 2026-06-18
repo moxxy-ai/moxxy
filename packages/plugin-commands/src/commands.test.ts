@@ -233,6 +233,50 @@ describe('@moxxy/plugin-commands', () => {
     expect(seenCtx?.model).toBe('claude-x');
   });
 
+  // u80-2: compactSession now delegates to the shared SDK runManualCompaction
+  // helper. The active model's real contextWindow must reach the budget the
+  // helper builds (it used to be resolved by the plugin's own duplicate
+  // resolveActiveContextWindow); a no-op formats "nothing to compact yet".
+  it('/compact forwards the active model contextWindow into the budget', async () => {
+    const existing = [
+      { type: 'user_prompt', seq: 0, sessionId: 'sess-1', turnId: 'turn-1', source: 'user', text: 'old' },
+    ] as unknown as MoxxyEvent[];
+    const fakeProvider = { name: 'anthropic', models: [{ id: 'claude-x', contextWindow: 123_456 }] };
+    let seenBudget: { contextWindow?: number } | undefined;
+    const session = {
+      ...fakeSession,
+      signal: new AbortController().signal,
+      providers: { getActiveName: () => 'anthropic', getActive: () => fakeProvider },
+      log: {
+        length: existing.length,
+        slice: () => existing,
+        append: async (event: EmittedEvent) => event as unknown as MoxxyEvent,
+      },
+      compactors: {
+        getActive: () => ({
+          name: 'fake-compact',
+          shouldCompact: () => false,
+          compact: async (_events: ReadonlyArray<MoxxyEvent>, ctx: { budget?: { contextWindow?: number } }) => {
+            seenBudget = ctx.budget;
+            return {
+              type: 'compaction',
+              compactor: 'fake-compact',
+              replacedRange: [0, 0],
+              summary: 's',
+              tokensSaved: 10,
+            } as const;
+          },
+        }),
+      },
+    };
+
+    const compact = (commandsPlugin.commands ?? []).find((c) => c.name === 'compact');
+    if (!compact) throw new Error('missing command: compact');
+    await compact.handler({ channel: 'tui', sessionId: 'sess-1' as never, args: '', session });
+
+    expect(seenBudget?.contextWindow).toBe(123_456);
+  });
+
   // Regression for u80-3: a spec-compliant compactor may return ONLY the
   // Omit<CompactionEvent, keyof EventBase> fields. The appended event must
   // still carry sessionId/turnId/source so replay/projection accepts it.

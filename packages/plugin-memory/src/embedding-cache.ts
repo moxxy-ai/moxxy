@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { writeFileAtomic } from '@moxxy/sdk';
+import { writeFileAtomic } from '@moxxy/sdk/server';
 
 const INDEX_FILE = '.embeddings.json';
 const INDEX_VERSION = 1;

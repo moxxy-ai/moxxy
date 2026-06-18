@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { z, createMutex, defineTool, definePlugin, moxxyPath, writeFileAtomic, type Plugin } from '@moxxy/sdk';
+import { z, createMutex, defineTool, definePlugin, type Plugin } from '@moxxy/sdk';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { findUpward, loadConfig } from './loader.js';
 import { moxxyConfigSchema, type MoxxyConfig } from './schema.js';
 

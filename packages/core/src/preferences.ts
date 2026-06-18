@@ -1,7 +1,8 @@
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { createMutex, migrateModeName, writeFileAtomic } from '@moxxy/sdk';
+import { createMutex, migrateModeName } from '@moxxy/sdk';
+import { writeFileAtomic } from '@moxxy/sdk/server';
 
 /**
  * User-level runtime preferences persisted at ~/.moxxy/preferences.json.

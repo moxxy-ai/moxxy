@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
-import { createMutex, moxxyPath, writeFileAtomic, type Mutex } from '@moxxy/sdk';
+import { createMutex, type Mutex } from '@moxxy/sdk';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { z } from 'zod';
 
 /**

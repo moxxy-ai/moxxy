@@ -19,7 +19,8 @@
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { createMutex, writeFileAtomic, type Mutex, type MoxxyEvent, type SessionId } from '@moxxy/sdk';
+import { createMutex, type Mutex, type MoxxyEvent, type SessionId } from '@moxxy/sdk';
+import { writeFileAtomic } from '@moxxy/sdk/server';
 import type { EventLog } from '../events/log.js';
 import { createLogger, type Logger } from '../logger.js';
 

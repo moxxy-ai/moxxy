@@ -1,6 +1,6 @@
 import {
   definePlugin,
-  estimateContextTokens,
+  runManualCompaction,
   type CommandDef,
   type CompactorDef,
   type EmittedEvent,
@@ -147,86 +147,52 @@ async function compactSession(session: unknown) {
   const compactor = s.compactors?.getActive?.();
   if (!compactor) return { kind: 'error' as const, message: 'no active compactor configured' };
 
+  // Distinguish an empty log up front so we can keep the specific
+  // message — `runManualCompaction` collapses every no-op (empty log,
+  // zero saving, blank summary) into the same `compacted: false`.
   const events = s.log?.slice?.() ?? [];
   if (events.length === 0) {
     return { kind: 'text' as const, text: 'nothing to compact: event log is empty' };
   }
 
-  // Resolve the active model's real contextWindow. The previous
-  // hardcoded Number.MAX_SAFE_INTEGER made `shouldCompact` always see
-  // a comfortable budget — fine for `/compact` since we ignore that
-  // gate manually, but it also meant compactors that want to size
-  // their summary against the real window couldn't. When no provider
-  // is wired (rare; only in tests), fall back to MAX_SAFE_INTEGER.
-  const providerCtxWindow = resolveActiveContextWindow(s);
   // Resolve the active provider/model so the default summarize compactor
-  // writes a REAL model summary instead of degrading to a lossy digest
-  // truncation. `runCompactionIfNeeded` forwards these too; omitting them
-  // here made every manual `/compact` strictly worse than the auto path.
+  // writes a REAL model summary (degrades to a lossy truncation otherwise),
+  // plus the model's real context window. We don't know which model id the
+  // user picked from this surface, so use the first-listed model's window as
+  // the conventional default (matches resolveContextWindow in plugin-cli).
+  // When no provider is wired (rare; tests), the helper falls back to a
+  // MAX_SAFE_INTEGER window — fine, since `/compact` forces past the gate.
   const provider = safe(() => s.providers?.getActive()) ?? undefined;
   const model = provider?.models[0]?.id;
+  const contextWindow = provider?.models[0]?.contextWindow;
 
   try {
-    const result = await compactor.compact(events, {
-      log: s.log.asReader ? s.log.asReader() : s.log,
-      budget: {
-        contextWindow: providerCtxWindow,
-        estimatedTokens: estimateContextTokens(s.log.asReader ? s.log.asReader() : s.log),
-        reserveForOutput: 0,
-      },
-      signal: s.signal ?? new AbortController().signal,
+    // Delegate the whole pipeline (budget build, compact(), no-op guard,
+    // defensive sessionId/turnId/source fill, append, replaced-range count)
+    // to the single shared SDK helper. The plugin only formats the message.
+    const result = await runManualCompaction({
+      compactor,
+      log: s.log,
+      signal: s.signal,
       ...(provider ? { provider } : {}),
-      ...(model ? { model } : {}),
+      ...(model !== undefined ? { model } : {}),
+      ...(contextWindow !== undefined ? { contextWindow } : {}),
+      ...(s.id !== undefined ? { sessionId: s.id } : {}),
     });
 
-    if (result.tokensSaved <= 0 || result.summary.trim().length === 0) {
+    if (!result.compacted) {
       return { kind: 'text' as const, text: 'nothing to compact yet' };
     }
 
-    // `compactor.compact` declares `Omit<CompactionEvent, keyof EventBase>`,
-    // so a spec-compliant compactor need not provide sessionId/turnId/source.
-    // Defensive-fill them (mirrors runCompactionIfNeeded) so a type-compliant
-    // compactor still emits a valid event that replay/projection accepts. The
-    // compactor's own values win if it supplied them (result spreads last).
-    const lastEvent = events[events.length - 1];
-    const emittable: EmittedEvent = {
-      sessionId: s.id ?? lastEvent?.sessionId,
-      turnId: lastEvent?.turnId,
-      source: 'compactor',
-      ...result,
-    } as EmittedEvent;
-    await s.log.append(emittable);
-    // `replacedRange` is an INCLUSIVE [fromSeq, toSeq] of event `seq` VALUES,
-    // not array indices — and `seq === arrayIndex` is not guaranteed for
-    // mirrors/partial views. Differencing the seqs would OVERSTATE the count
-    // across any seq gap. Count the events actually inside the range instead.
-    const [fromSeq, toSeq] = result.replacedRange;
-    const compactedEvents = events.filter(
-      (e) => e.seq >= fromSeq && e.seq <= toSeq,
-    ).length;
     return {
       kind: 'text' as const,
-      text: `context compacted: ${formatCount(compactedEvents)} ${plural(compactedEvents, 'event')}, ~${formatTokenCount(result.tokensSaved)} tokens saved`,
+      text: `context compacted: ${formatCount(result.eventsCompacted)} ${plural(result.eventsCompacted, 'event')}, ~${formatTokenCount(result.tokensSaved)} tokens saved`,
     };
   } catch (err) {
     return {
       kind: 'error' as const,
       message: err instanceof Error ? err.message : String(err),
     };
-  }
-}
-
-function resolveActiveContextWindow(s: CompactSessionShape): number {
-  try {
-    const provider = s.providers?.getActive();
-    if (!provider) return Number.MAX_SAFE_INTEGER;
-    // We don't know which model id the user picked from this surface,
-    // so use the first-listed model's window as the conventional
-    // default (matches resolveContextWindow in plugin-cli/helpers.ts).
-    const window = provider.models[0]?.contextWindow;
-    return window && window > 0 ? window : Number.MAX_SAFE_INTEGER;
-  } catch {
-    return Number.MAX_SAFE_INTEGER;
   }
 }
 

@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { writeFileAtomic } from '@moxxy/sdk';
+import { writeFileAtomic } from '@moxxy/sdk/server';
 import { parseMdFile } from '../parse.js';
 import {
   memoryFrontmatterSchema,

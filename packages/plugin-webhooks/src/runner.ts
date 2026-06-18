@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { moxxyPath, writeFileAtomic } from '@moxxy/sdk';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import type { WebhookStore, WebhookTrigger } from './store.js';
 
 /**

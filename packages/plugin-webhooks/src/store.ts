@@ -1,5 +1,6 @@
 import { rename } from 'node:fs/promises';
-import { createJsonFileStore, moxxyPath, writeFileAtomic, type JsonFileStore } from '@moxxy/sdk';
+import { createJsonFileStore, type JsonFileStore } from '@moxxy/sdk';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { ulid } from 'ulid';
 import { z } from 'zod';
 

@@ -30,7 +30,7 @@
 
 import path from 'node:path';
 
-import { resolveChannelToken, rotateChannelToken } from '@moxxy/sdk';
+import { resolveChannelToken, rotateChannelToken } from '@moxxy/sdk/server';
 import {
   advertisedHost,
   advertisedOrigins,

@@ -1,7 +1,8 @@
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { addModelTotals, createMutex, writeFileAtomic, type ModelUsageTotals } from '@moxxy/sdk';
+import { addModelTotals, createMutex, type ModelUsageTotals } from '@moxxy/sdk';
+import { writeFileAtomic } from '@moxxy/sdk/server';
 
 /**
  * Cross-session token usage, persisted at ~/.moxxy/usage.json. A forward-going

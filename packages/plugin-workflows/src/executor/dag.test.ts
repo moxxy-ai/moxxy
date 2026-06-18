@@ -296,6 +296,87 @@ describe('dag executor', () => {
     expect(result.steps[0]!.status).toBe('completed');
   });
 
+  // Retry contract (u117-3): `retries` is gated on `onError: 'retry'`. The three
+  // modes below pin the exact attempt count so 'retry' is behaviorally distinct
+  // from 'fail' and an author can't accidentally retry by setting retries on a
+  // non-retry mode.
+  it('onError=retry runs 1 + retries attempts when the step keeps failing', async () => {
+    let attempts = 0;
+    const h = makeHarness({
+      tools: {
+        get: () => ({}),
+        execute: async () => {
+          attempts += 1;
+          throw new Error('always');
+        },
+      },
+    });
+    const result = await dagExecutor.run(
+      wf({
+        name: 'retry-exhaust',
+        description: 'x',
+        steps: [{ id: 'a', tool: 'x', onError: 'retry', retries: 2 }],
+      }),
+      h.deps,
+    );
+    expect(result.ok).toBe(false);
+    expect(attempts).toBe(3); // 1 initial + 2 retries
+    expect(result.steps[0]!.status).toBe('failed');
+  });
+
+  it('onError=fail runs exactly ONE attempt even with retries set', async () => {
+    let attempts = 0;
+    const h = makeHarness({
+      tools: {
+        get: () => ({}),
+        execute: async () => {
+          attempts += 1;
+          throw new Error('boom');
+        },
+      },
+    });
+    const result = await dagExecutor.run(
+      wf({
+        name: 'fail-no-retry',
+        description: 'x',
+        steps: [{ id: 'a', tool: 'x', onError: 'fail', retries: 2 }],
+      }),
+      h.deps,
+    );
+    expect(result.ok).toBe(false);
+    expect(attempts).toBe(1); // retries ignored outside retry mode
+    expect(result.steps[0]!.status).toBe('failed');
+  });
+
+  it('onError=continue runs exactly ONE attempt even with retries set', async () => {
+    let attempts = 0;
+    const h = makeHarness({
+      tools: {
+        get: () => ({}),
+        execute: async () => {
+          attempts += 1;
+          throw new Error('boom');
+        },
+      },
+    });
+    const result = await dagExecutor.run(
+      wf({
+        name: 'continue-no-retry',
+        description: 'x',
+        steps: [
+          { id: 'a', tool: 'x', onError: 'continue', retries: 3 },
+          { id: 'b', needs: ['a'], prompt: 'b' },
+        ],
+      }),
+      h.deps,
+    );
+    expect(result.ok).toBe(true); // tolerated
+    expect(attempts).toBe(1); // retries ignored outside retry mode
+    const byId = Object.fromEntries(result.steps.map((s) => [s.id, s.status]));
+    expect(byId.a).toBe('failed');
+    expect(byId.b).toBe('completed');
+  });
+
   it('runs a nested workflow and captures its output', async () => {
     const inner = wf({ name: 'inner', description: 'x', steps: [{ id: 'i', prompt: 'hi' }] });
     const h = makeHarness();

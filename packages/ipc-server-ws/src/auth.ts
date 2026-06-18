@@ -23,7 +23,7 @@
  */
 
 import type { IncomingMessage } from 'node:http';
-import { bearerGuard, tokenFromWsProtocolHeader } from '@moxxy/sdk';
+import { bearerGuard, tokenFromWsProtocolHeader } from '@moxxy/sdk/server';
 
 const BEARER = 'Bearer ';
 
