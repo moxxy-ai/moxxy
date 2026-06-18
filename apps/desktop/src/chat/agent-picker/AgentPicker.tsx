@@ -24,6 +24,14 @@ import { ChipSelect } from './ChipSelect';
 import { ProviderModelPicker } from './ProviderModelPicker';
 import { SESSION_INFO_REFRESH_EVENT, type SessionInfo } from './types';
 
+/** Modes hidden from the chat mode chip — collaboration is launched from the
+ *  Collaborate tab (single-flight), and its peer modes are internal. */
+const COLLAB_MODES: ReadonlySet<string> = new Set([
+  'collaborative',
+  'collab-architect',
+  'collab-peer',
+]);
+
 export function AgentPicker({
   workspaceId,
   disabled,
@@ -115,7 +123,9 @@ export function AgentPicker({
       <ChipSelect
         label="Mode"
         value={info.activeMode ?? ''}
-        options={[...info.modes]}
+        // Collaboration is launched from the Collaborate tab (one at a time),
+        // not as a chat mode — hide collaborative + its internal peer modes.
+        options={info.modes.filter((m) => !COLLAB_MODES.has(m))}
         badge={info.activeModeBadge}
         disabled={disabled || info.modes.length === 0}
         onChange={(v) => void onMode(v)}

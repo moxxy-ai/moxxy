@@ -177,12 +177,11 @@ function handleCollabEvent(
     root.push(block);
     return;
   }
-  let block = ref.current;
-  if (!block) {
-    block = newCollabBlock(e.id, atMs);
-    ref.current = block;
-    root.push(block);
-  }
+  // Only collab_started opens a run. Stray events with no open block — e.g. a
+  // `collab_blocked` from a refused start (its assistant_message carries the
+  // reason) — never create an empty block.
+  const block = ref.current;
+  if (!block) return;
   switch (e.subtype) {
     case 'collab_fallback_sequential':
       block.fallbackReason = String(p.reason ?? '');
