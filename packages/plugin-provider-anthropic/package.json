@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-provider-anthropic",
   "private": true,
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "Anthropic LLMProvider plugin for moxxy.",
   "type": "module",
   "main": "./dist/index.js",
