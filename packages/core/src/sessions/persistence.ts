@@ -166,6 +166,18 @@ export class SessionPersistence {
   }
 
   /**
+   * Resolve once every event-log write queued so far has settled. Appends are
+   * enqueued fire-and-forget (`enqueueAppend`), so callers that need to observe
+   * the on-disk result of prior appends — graceful shutdown, or a test that
+   * mutates the filesystem between writes — await this to drain the queue
+   * rather than guessing at timing. Enqueues a no-op at the tail of the same
+   * mutex, so it can only resolve after all earlier appends/truncates have run.
+   */
+  async settleWrites(): Promise<void> {
+    await this.writeQueue.run(() => undefined);
+  }
+
+  /**
    * Manually update header fields (provider/model) when the user
    * switches mid-session. The /model picker calls this so the index
    * reflects the active model when the session is resumed.
