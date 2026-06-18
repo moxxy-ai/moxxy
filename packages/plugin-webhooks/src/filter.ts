@@ -34,14 +34,28 @@ function readHeader(
   return v ?? null;
 }
 
-function readJsonPath(body: Buffer, path: string): string | null {
-  let parsed: unknown;
+/**
+ * A `JSON.parse(body)` failure is indistinguishable from "valid JSON that is
+ * the literal `null`" by the parsed value alone, so we carry an explicit `ok`
+ * flag. `ok=false` means the body did not parse — every jsonPath lookup then
+ * returns null, exactly as the per-rule parse did.
+ */
+interface ParsedBody {
+  readonly ok: boolean;
+  readonly value: unknown;
+}
+
+function parseBody(body: Buffer): ParsedBody {
   try {
-    parsed = JSON.parse(body.toString('utf8'));
+    return { ok: true, value: JSON.parse(body.toString('utf8')) };
   } catch {
-    return null;
+    return { ok: false, value: null };
   }
-  let cur: unknown = parsed;
+}
+
+function readJsonPath(parsed: ParsedBody, path: string): string | null {
+  if (!parsed.ok) return null;
+  let cur: unknown = parsed.value;
   for (const seg of path.split('.')) {
     if (cur === null || cur === undefined || typeof cur !== 'object') return null;
     cur = (cur as Record<string, unknown>)[seg];
@@ -49,9 +63,9 @@ function readJsonPath(body: Buffer, path: string): string | null {
   return asString(cur);
 }
 
-function ruleMatches(rule: FilterRule, input: FilterInput): boolean {
+function ruleMatches(rule: FilterRule, input: FilterInput, parsed: ParsedBody): boolean {
   const value =
-    rule.source === 'header' ? readHeader(input.headers, rule.name) : readJsonPath(input.body, rule.path);
+    rule.source === 'header' ? readHeader(input.headers, rule.name) : readJsonPath(parsed, rule.path);
   if (value === null) return false;
   if (rule.equals && rule.equals.includes(value)) return true;
   if (rule.matches) {
@@ -67,7 +81,12 @@ function ruleMatches(rule: FilterRule, input: FilterInput): boolean {
 }
 
 export function shouldFire(filter: WebhookFilter, input: FilterInput): boolean {
-  if (filter.exclude.some((r) => ruleMatches(r, input))) return false;
+  // Parse the (up-to-1MB) body ONCE per evaluation and thread it through every
+  // rule, instead of re-decoding + re-parsing it per jsonPath rule on the hot
+  // pre-ACK delivery path. Result is identical: JSON.parse is deterministic, so
+  // one parse threaded everywhere yields the same per-rule lookups as N parses.
+  const parsed = parseBody(input.body);
+  if (filter.exclude.some((r) => ruleMatches(r, input, parsed))) return false;
   if (filter.include.length === 0) return true;
-  return filter.include.some((r) => ruleMatches(r, input));
+  return filter.include.some((r) => ruleMatches(r, input, parsed));
 }

@@ -31,7 +31,10 @@ export function runProcess(
 ): Promise<ProcResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, [...args], { stdio: ['pipe', 'pipe', 'pipe'] });
-    let stdout = Buffer.alloc(0);
+    // Collect stdout chunks and concat ONCE at close — re-concatenating the
+    // whole accumulated buffer on every 'data' event is O(n^2) and churns the
+    // GC (the sibling runProcessBinary already does it this way).
+    const stdoutChunks: Buffer[] = [];
     let stderr = '';
     let settled = false;
 
@@ -57,7 +60,7 @@ export function runProcess(
       : null;
 
     child.stdout.on('data', (chunk: Buffer) => {
-      stdout = Buffer.concat([stdout, chunk]);
+      stdoutChunks.push(chunk);
     });
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString('utf8');
@@ -76,7 +79,7 @@ export function runProcess(
       opts.signal?.removeEventListener('abort', onAbort);
       resolve({
         exitCode: code ?? -1,
-        stdout: stdout.toString('utf8'),
+        stdout: Buffer.concat(stdoutChunks).toString('utf8'),
         stderr,
       });
     });

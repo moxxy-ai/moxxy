@@ -10,9 +10,13 @@ import {
   applyEvent,
   buildRenderNodes,
   createRuntime,
+  groupToolNodes,
   type ChatRuntime,
+  type Extension,
   type FoldedBlock,
+  type RenderNode,
 } from './chatModel.js';
+import type { ToolCallBlockData } from '@moxxy/chat-model';
 
 let n = 0;
 function evt(type: MoxxyEvent['type'], extra: Record<string, unknown>): MoxxyEvent {
@@ -247,5 +251,86 @@ describe('buildRenderNodes', () => {
     const changed = applyAction(rt, { type: 'dismiss_block', blockId: id });
     expect(changed).toBe(true);
     expect(rt.extensions).toEqual([]);
+  });
+
+});
+
+// ---------------------------------------------------------------------------
+// groupToolNodes — run-collapsing of consecutive standalone tool calls.
+// ---------------------------------------------------------------------------
+
+let g = 0;
+/** Minimal tool-call block; `name` drives the FILE_DIFF exclusion. */
+function toolBlock(name: string): ToolCallBlockData {
+  g += 1;
+  return {
+    kind: 'tool-call',
+    id: `tc${g}`,
+    request: { type: 'tool_call_requested', name, callId: `call${g}` } as ToolCallBlockData['request'],
+    outcome: null,
+  };
+}
+const blockNode = (block: FoldedBlock): RenderNode => ({ kind: 'block', block });
+const toolNode = (name: string): RenderNode => blockNode(toolBlock(name));
+const eventNode = (): RenderNode =>
+  blockNode({
+    kind: 'event',
+    id: `ev${(g += 1)}`,
+    event: { type: 'assistant_message', content: 'x' } as MoxxyEvent,
+  });
+const extNode = (): RenderNode => ({
+  kind: 'ext',
+  ext: { kind: 'notice', id: `x${(g += 1)}`, afterCount: 0, tone: 'info', text: 'hi' } as Extension,
+});
+
+describe('groupToolNodes', () => {
+  it('collapses ≥2 consecutive non-diff tool blocks into one tool-group keyed on the first id', () => {
+    const a = toolNode('bash');
+    const b = toolNode('grep');
+    const out = groupToolNodes([a, b]);
+    expect(out).toHaveLength(1);
+    const group = out[0]!;
+    expect(group.kind).toBe('tool-group');
+    if (group.kind !== 'tool-group') throw new Error('unreachable');
+    expect(group.id).toBe(`toolgroup:${(a as { block: ToolCallBlockData }).block.id}`);
+    expect(group.tools).toHaveLength(2);
+  });
+
+  it('keeps a lone tool as its own block (run of 1 is not grouped)', () => {
+    const out = groupToolNodes([toolNode('bash')]);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.kind).toBe('block');
+  });
+
+  it('never folds a Write/Edit (FILE_DIFF) tool into a group', () => {
+    // Two file-edit tools each render as their own inline diff card.
+    const out = groupToolNodes([toolNode('Write'), toolNode('Edit')]);
+    expect(out.map((n) => n.kind)).toEqual(['block', 'block']);
+
+    // A Write between two bash calls breaks the run on both sides.
+    const out2 = groupToolNodes([toolNode('bash'), toolNode('Write'), toolNode('bash')]);
+    // bash(lone) + Write(lone) + bash(lone) — no run reaches length 2.
+    expect(out2.map((n) => n.kind)).toEqual(['block', 'block', 'block']);
+  });
+
+  it('breaks a run on a non-tool node into two singletons', () => {
+    const out = groupToolNodes([toolNode('bash'), eventNode(), toolNode('grep')]);
+    // tool(lone) + event + tool(lone)
+    expect(out.map((n) => n.kind)).toEqual(['block', 'block', 'block']);
+  });
+
+  it('flushes a trailing run at the end of the list', () => {
+    const out = groupToolNodes([eventNode(), toolNode('bash'), toolNode('grep'), toolNode('ls')]);
+    // event + one tool-group of 3
+    expect(out.map((n) => n.kind)).toEqual(['block', 'tool-group']);
+    const group = out[1]!;
+    if (group.kind !== 'tool-group') throw new Error('unreachable');
+    expect(group.tools).toHaveLength(3);
+  });
+
+  it('flushes the run BEFORE an interrupting node, then emits that node', () => {
+    const out = groupToolNodes([toolNode('bash'), toolNode('grep'), extNode(), toolNode('ls'), toolNode('cat')]);
+    // group(2) + ext + group(2)
+    expect(out.map((n) => n.kind)).toEqual(['tool-group', 'ext', 'tool-group']);
   });
 });

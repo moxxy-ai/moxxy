@@ -140,6 +140,18 @@ function modelBreakdownRows(
     .sort((a, b) => b.prompt - a.prompt);
 }
 
+/**
+ * Max of a numeric series without spreading it as call arguments. The series
+ * grows one entry per provider response with no cap (see {@link perCallPrompt}),
+ * so `Math.max(...series)` blows the JS engine argument limit and RangeErrors in
+ * long sessions — a reduce is O(n) and unbounded-safe.
+ */
+export function peak(series: ReadonlyArray<number>, seed = 0): number {
+  let m = seed;
+  for (const v of series) if (v > m) m = v;
+  return m;
+}
+
 /** Per-call prompt sizes (input + cache read + cache write) in call order. */
 function perCallPrompt(events: ReadonlyArray<MoxxyEvent>): number[] {
   const out: number[] = [];
@@ -314,7 +326,7 @@ export const UsagePanel: React.FC<UsagePanelProps> = ({
           <Box marginTop={1} flexDirection="column">
             <Box>
               <Text bold>Per-call prompt </Text>
-              <Text dimColor>{`peak ${fmt(Math.max(...series, 0))}`}</Text>
+              <Text dimColor>{`peak ${fmt(peak(series))}`}</Text>
             </Box>
             <Box>
               <Text>{sparkline(series)}</Text>

@@ -17,7 +17,7 @@
  */
 
 import { usePrefs } from '@moxxy/client-core';
-import { useOnboarding } from '@moxxy/client-core';
+import { useOnboarding, type UseOnboarding } from '@moxxy/client-core';
 import { useStepFlow } from '@moxxy/client-core';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 
@@ -61,7 +61,7 @@ export function Onboarding({ phase, onComplete }: Props): JSX.Element {
 
   return (
     <Shell steps={flow.steps} currentIndex={flow.index}>
-      {renderStep(flow.currentId, flow.next, flow.isFirst ? null : flow.back, onComplete)}
+      {renderStep(flow.currentId, flow.next, flow.isFirst ? null : flow.back, onComplete, ob)}
     </Shell>
   );
 }
@@ -71,13 +71,17 @@ function renderStep(
   next: () => void,
   back: (() => void) | null,
   onComplete: () => void,
+  ob: UseOnboarding,
 ): JSX.Element {
   const onBack = back ?? ((): void => undefined);
   switch (id) {
     case 'welcome':
       return <WelcomeStep onNext={next} />;
     case 'node':
-      return <NodeStep onNext={next} onBack={onBack} />;
+      // Pass the SINGLE onboarding instance down — NodeStep must not mount its
+      // own `useOnboarding()` (that doubled the probe IPCs + progress
+      // subscription and diverged on phase changes).
+      return <NodeStep onNext={next} onBack={onBack} ob={ob} />;
     case 'cli':
       return <CliStep onNext={next} onBack={onBack} />;
     case 'provider':

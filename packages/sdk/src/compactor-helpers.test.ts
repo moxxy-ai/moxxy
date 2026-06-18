@@ -4,6 +4,7 @@ import {
   asSessionId,
   asToolCallId,
   asTurnId,
+  computeElisionState,
   estimateContextTokens,
   isContextOverflowError,
   runCompactionIfNeeded,
@@ -90,6 +91,26 @@ describe('estimateContextTokens', () => {
     // never the thousands of tokens the stringified display would imply.
     const tokens = estimateContextTokens(log);
     expect(tokens).toBeLessThan(50);
+  });
+
+  it('an explicitly-passed elision state yields the byte-identical estimate', () => {
+    // The optional precomputed-state fast path must equal recomputation. Build a
+    // log with elision + a recall so the state is non-trivial.
+    const events: MoxxyEvent[] = [
+      event(0, { type: 'user_prompt', turnId: tid, source: 'user', text: 'the task' }),
+      event(1, { type: 'tool_call_requested', turnId: tid, source: 'model', callId: asToolCallId('c1'), name: 'Read', input: { file_path: '/a' } }),
+      event(2, { type: 'tool_result', turnId: tid, source: 'tool', callId: asToolCallId('c1'), ok: true, output: 'Z'.repeat(5000) }),
+      event(3, { type: 'assistant_message', turnId: tid, source: 'model', content: 'answer '.repeat(50), stopReason: 'end_turn' }),
+      event(4, {
+        type: 'elision', turnId: asTurnId('t2'), source: 'system', elidedThrough: 3, stubbedRanges: [[0, 3]],
+        elideConversational: true, conversationalRecallThreshold: 4, maxRecallBytes: 32_768, neverElideTools: [], tokensSaved: 1200,
+      }),
+      event(5, { type: 'user_prompt', turnId: asTurnId('t2'), source: 'user', text: 'next' }),
+    ];
+    const log = reader(events);
+    const recomputed = estimateContextTokens(log);
+    const withState = estimateContextTokens(log, computeElisionState(events));
+    expect(withState).toBe(recomputed);
   });
 });
 

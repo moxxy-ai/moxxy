@@ -3,6 +3,26 @@ import * as path from 'node:path';
 import { MoxxyError, defineTool, z } from '@moxxy/sdk';
 import { clampString, globToRegExp, IGNORED_DIR_NAMES, resolvePath } from './util.js';
 
+/**
+ * Skip files larger than this — a multi-hundred-MB log, a SQLite db, or a media
+ * blob would otherwise be slurped fully into the heap and split into a giant
+ * line array on a path the model invokes constantly. Result clamping bounds the
+ * OUTPUT, not the per-file working set; this bounds the working set.
+ */
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+
+/** Treat a file as binary (and skip it) if its leading bytes contain a NUL —
+ *  the same cheap heuristic ripgrep/grep use to avoid scanning binary garbage. */
+function looksBinary(content: string): boolean {
+  // A real text file never contains U+0000; reading binary as utf8 yields NULs
+  // for the raw zero bytes. Check only a bounded prefix so this stays cheap.
+  const limit = Math.min(content.length, 8192);
+  for (let i = 0; i < limit; i += 1) {
+    if (content.charCodeAt(i) === 0) return true;
+  }
+  return false;
+}
+
 export const grepTool = defineTool({
   name: 'Grep',
   description: 'Recursively search files for a regex pattern. Returns lines as `path:line:text`.',
@@ -72,12 +92,25 @@ async function walk(
     }
     if (!entry.isFile()) continue;
     if (fileRe && !fileRe.test(entry.name)) continue;
+    // Skip oversized files before reading so a giant log / db / media blob can't
+    // be slurped into the heap. Bounds the per-file working set (result clamping
+    // only bounds the OUTPUT).
+    try {
+      const st = await fs.stat(full);
+      if (st.size > MAX_FILE_BYTES) continue;
+    } catch {
+      continue;
+    }
     let content: string;
     try {
       content = await fs.readFile(full, 'utf8');
     } catch {
       continue;
     }
+    // Skip binaries (NUL byte in the prefix) — scanning binary-as-utf8 yields
+    // useless matches and mojibake. Normal text files are unaffected, so match
+    // output for them is byte-identical to before.
+    if (looksBinary(content)) continue;
     const lines = content.split('\n');
     for (let i = 0; i < lines.length; i++) {
       if (re.test(lines[i]!)) {

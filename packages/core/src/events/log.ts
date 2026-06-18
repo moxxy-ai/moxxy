@@ -16,6 +16,22 @@ export class EventLog implements EventLogReader {
   private readonly clearListeners = new Set<() => void>();
   private readonly now: () => number;
   /**
+   * Lazy secondary indexes so `ofType`/`byTurn` are O(matches) instead of an
+   * O(n) full-array `filter` per call (these back hot paths: token-accounting's
+   * `ofType('provider_response')`, lazy-tool gating's
+   * `ofType('tool_call_requested')`, and remote-session's per-turn
+   * `byTurn(turnId)` priming). Built lazily on first query so a cold/seeded log
+   * pays the one-time O(n) build only if anything ever queries it, then kept
+   * O(1) per append/ingest. Reset to `null` (rebuild-on-next-query) by
+   * `clear`/`rebase`, which mutate `events` wholesale.
+   *
+   * Each index holds the SAME event object references in their original
+   * append order — so a query returns an array deep-equal to the old
+   * `events.filter(...)` for every input.
+   */
+  private byType: Map<MoxxyEventType, MoxxyEvent[]> | null = null;
+  private byTurnId: Map<TurnId, MoxxyEvent[]> | null = null;
+  /**
    * Seq of the FIRST event this log holds. 0 for an authoring log; a mirror
    * primed by a partial attach replay (runner protocol v6 `replay.start`)
    * rebases to the first replayed seq so `ingest`'s contiguity gate lines up
@@ -50,12 +66,53 @@ export class EventLog implements EventLogReader {
     return this.events.slice(Math.max(0, from - this.base), Math.max(0, to - this.base));
   }
 
+  /** Build both secondary indexes from the current `events` array, preserving
+   * append order. Bucket arrays hold the original event references. */
+  private buildIndexes(): void {
+    const byType = new Map<MoxxyEventType, MoxxyEvent[]>();
+    const byTurnId = new Map<TurnId, MoxxyEvent[]>();
+    for (const e of this.events) {
+      let typeBucket = byType.get(e.type);
+      if (!typeBucket) byType.set(e.type, (typeBucket = []));
+      typeBucket.push(e);
+      let turnBucket = byTurnId.get(e.turnId);
+      if (!turnBucket) byTurnId.set(e.turnId, (turnBucket = []));
+      turnBucket.push(e);
+    }
+    this.byType = byType;
+    this.byTurnId = byTurnId;
+  }
+
+  /** Append one event to the live indexes (no-op while they're cold). Called
+   * after the event is pushed to `events`, so order is preserved. */
+  private indexEvent(e: MoxxyEvent): void {
+    if (this.byType) {
+      const bucket = this.byType.get(e.type);
+      if (bucket) bucket.push(e);
+      else this.byType.set(e.type, [e]);
+    }
+    if (this.byTurnId) {
+      const bucket = this.byTurnId.get(e.turnId);
+      if (bucket) bucket.push(e);
+      else this.byTurnId.set(e.turnId, [e]);
+    }
+  }
+
   ofType<T extends MoxxyEventType>(type: T): ReadonlyArray<MoxxyEventOfType<T>> {
-    return this.events.filter((e): e is MoxxyEventOfType<T> => e.type === type);
+    if (!this.byType) this.buildIndexes();
+    // The bucket already holds exactly the matching events in append order —
+    // identical to the old `events.filter(e => e.type === type)`. Return a copy
+    // so callers can't mutate the index (filter() also returned a fresh array).
+    const bucket = this.byType!.get(type);
+    // Bucket holds only events whose `type === T`, so the cast is sound; route
+    // through `unknown` because TS can't narrow the heterogeneous union here.
+    return (bucket ? [...bucket] : []) as unknown as ReadonlyArray<MoxxyEventOfType<T>>;
   }
 
   byTurn(turnId: TurnId): ReadonlyArray<MoxxyEvent> {
-    return this.events.filter((e) => e.turnId === turnId);
+    if (!this.byTurnId) this.buildIndexes();
+    const bucket = this.byTurnId!.get(turnId);
+    return bucket ? [...bucket] : [];
   }
 
   toJSON(): ReadonlyArray<MoxxyEvent> {
@@ -65,6 +122,7 @@ export class EventLog implements EventLogReader {
   async append(partial: EmittedEvent): Promise<MoxxyEvent> {
     const event = materializeEvent(partial, this.base + this.events.length, this.now);
     this.events.push(event);
+    this.indexEvent(event);
     // Snapshot listeners so a subscribe/unsubscribe during dispatch (e.g.,
     // a runTurn finishing and unsubscribing while we're still mid-fanout)
     // doesn't change the iteration target.
@@ -104,6 +162,7 @@ export class EventLog implements EventLogReader {
     // transport, so refusing one is fail-safe.
     if (event.seq !== this.base + this.events.length) return;
     this.events.push(event);
+    this.indexEvent(event);
     const snapshot = [...this.listeners];
     for (const fn of snapshot) {
       try {
@@ -149,10 +208,19 @@ export class EventLog implements EventLogReader {
       throw new Error(`EventLog.rebase(${seq}): seq must be a non-negative integer`);
     }
     this.base = seq;
+    // Rebase only runs on an empty log, so the indexes (if warm) are already
+    // empty — but null them to stay defensive about the events-array invariant.
+    this.byType = null;
+    this.byTurnId = null;
   }
 
   clear(): void {
     this.events.length = 0;
+    // The secondary indexes mirror `events`; drop them so the next query
+    // rebuilds from the now-empty array (cheap) rather than serving stale
+    // buckets.
+    this.byType = null;
+    this.byTurnId = null;
     // A session reset restarts the authoritative stream at seq 0 — a rebased
     // mirror must follow, or it would wait forever for seqs that never come.
     this.base = 0;

@@ -53,6 +53,14 @@ function defaultShell(): string {
 
 /** Cap retained scrollback so a chatty process can't grow the buffer forever. */
 const MAX_SCROLLBACK = 200_000;
+/**
+ * Hysteresis margin: let the live buffer grow this far past the cap before
+ * trimming back down to it, so we amortize the (expensive) slice over many
+ * chunks instead of copying ~MAX_SCROLLBACK bytes on every chunk once
+ * saturated. `scrollback()` masks the slack by always returning the last
+ * MAX_SCROLLBACK chars.
+ */
+const SCROLLBACK_SLACK = 100_000;
 
 export type TerminalBackend = 'pty' | 'pipe';
 
@@ -70,7 +78,9 @@ export interface TerminalProcess {
   readonly alive: boolean;
 }
 
-class TerminalProcessImpl implements TerminalProcess {
+/** Exported for tests: lets a suite drive `emitData`/`scrollback` directly
+ *  without spawning a real shell. Not part of the plugin's public surface. */
+export class TerminalProcessImpl implements TerminalProcess {
   private readonly dataListeners = new Set<(d: string) => void>();
   private readonly exitListeners = new Set<(c: number) => void>();
   private buffer = '';
@@ -93,7 +103,15 @@ class TerminalProcessImpl implements TerminalProcess {
   }
 
   private emitData(d: string): void {
-    this.buffer = (this.buffer + d).slice(-MAX_SCROLLBACK);
+    // Append, and only trim when we exceed the cap by a hysteresis margin —
+    // trimming all the way back to the cap. The previous code sliced the full
+    // 200KB buffer on EVERY chunk once saturated (O(total_output * cap) churn);
+    // amortizing the trim makes appends ~O(1). `scrollback()` always returns the
+    // last MAX_SCROLLBACK chars, so the observable tail is unchanged.
+    this.buffer += d;
+    if (this.buffer.length > MAX_SCROLLBACK + SCROLLBACK_SLACK) {
+      this.buffer = this.buffer.slice(-MAX_SCROLLBACK);
+    }
     for (const cb of this.dataListeners) {
       try {
         cb(d);
@@ -126,7 +144,12 @@ class TerminalProcessImpl implements TerminalProcess {
   }
 
   scrollback(): string {
-    return this.buffer;
+    // The buffer may hold up to MAX_SCROLLBACK + SCROLLBACK_SLACK chars between
+    // trims (see emitData); always hand back exactly the last MAX_SCROLLBACK so
+    // a late-joining viewer sees the same tail as before the hysteresis change.
+    return this.buffer.length > MAX_SCROLLBACK
+      ? this.buffer.slice(-MAX_SCROLLBACK)
+      : this.buffer;
   }
 
   write(data: string): void {

@@ -282,3 +282,152 @@ describe('EventLog', () => {
   void z;
   void asToolCallId;
 });
+
+describe('EventLog indexed ofType/byTurn equal the naive filter (property test)', () => {
+  // The lazy type/turn indexes must return arrays deep-equal to the prior
+  // `events.filter(...)` for ANY sequence of append/ingest/rebase/clear — same
+  // matching events, same append order, fresh copy each call.
+  const turns = [asTurnId('t1'), asTurnId('t2'), asTurnId('t3')];
+
+  // A tiny deterministic PRNG so the "random" sequences are reproducible.
+  function rng(seed: number): () => number {
+    let s = seed >>> 0;
+    return () => {
+      s = (s * 1664525 + 1013904329) >>> 0;
+      return s / 0x100000000;
+    };
+  }
+
+  // Reference oracle: the exact semantics ofType/byTurn had before the index.
+  const naiveOfType = (events: ReadonlyArray<{ type: string }>, type: string) =>
+    events.filter((e) => e.type === type);
+  const naiveByTurn = (events: ReadonlyArray<{ turnId: unknown }>, turnId: unknown) =>
+    events.filter((e) => e.turnId === turnId);
+
+  function mkPartial(rand: () => number) {
+    const turnId = turns[Math.floor(rand() * turns.length)]!;
+    const kind = rand();
+    if (kind < 0.34) {
+      return { type: 'user_prompt', sessionId: sid, turnId, source: 'user', text: 'u' } as const;
+    }
+    if (kind < 0.67) {
+      return {
+        type: 'assistant_message',
+        sessionId: sid,
+        turnId,
+        source: 'model',
+        content: 'a',
+        stopReason: 'end_turn',
+      } as const;
+    }
+    return {
+      type: 'tool_call_requested',
+      sessionId: sid,
+      turnId,
+      source: 'model',
+      callId: asToolCallId(`c${Math.floor(rand() * 1000)}`),
+      name: rand() < 0.5 ? 'load_tool' : 'Read',
+      input: { name: 'x' },
+    } as const;
+  }
+
+  const checkInvariant = (log: EventLog, mirror: { type: string; turnId: unknown }[]) => {
+    for (const t of ['user_prompt', 'assistant_message', 'tool_call_requested', 'elision']) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect(log.ofType(t as any)).toEqual(naiveOfType(mirror, t));
+    }
+    for (const tid2 of [...turns, asTurnId('absent')]) {
+      expect(log.byTurn(tid2)).toEqual(naiveByTurn(mirror, tid2));
+    }
+  };
+
+  it('append-driven authoring log matches the filter at every step', async () => {
+    for (let seed = 1; seed <= 12; seed++) {
+      const rand = rng(seed);
+      const log = new EventLog();
+      const mirror: { type: string; turnId: unknown }[] = [];
+      const steps = 5 + Math.floor(rand() * 40);
+      for (let i = 0; i < steps; i++) {
+        // Occasionally clear mid-stream to exercise the index reset.
+        if (rand() < 0.06 && mirror.length > 0) {
+          log.clear();
+          mirror.length = 0;
+          checkInvariant(log, mirror);
+          continue;
+        }
+        const ev = await log.append(mkPartial(rand));
+        mirror.push(ev);
+        // Query (cold→warm and warm) every few appends so the lazy build,
+        // first-query, and incremental-maintenance paths all get exercised.
+        if (i % 3 === 0) checkInvariant(log, mirror);
+      }
+      checkInvariant(log, mirror);
+    }
+  });
+
+  it('ingest-driven mirror (with rebase) matches the filter at every step', async () => {
+    for (let seed = 100; seed <= 110; seed++) {
+      const rand = rng(seed);
+      // Author an authoritative source so seqs are real.
+      const source = new EventLog();
+      const authored: MoxxyEventForTest[] = [];
+      const n = 5 + Math.floor(rand() * 40);
+      for (let i = 0; i < n; i++) {
+        authored.push((await source.append(mkPartial(rand))) as MoxxyEventForTest);
+      }
+      // Mirror rebased to a random tail start, then ingest from there.
+      const start = Math.floor(rand() * authored.length);
+      const mirror = new EventLog();
+      mirror.rebase(authored[start]!.seq);
+      const mirrorRef: { type: string; turnId: unknown }[] = [];
+      for (let i = start; i < authored.length; i++) {
+        // Throw in a duplicate ingest occasionally — must be de-duped (no
+        // double-indexing) so the index still equals the filter.
+        if (rand() < 0.2 && i > start) mirror.ingest(authored[i - 1]!);
+        mirror.ingest(authored[i]!);
+        mirrorRef.push(authored[i]!);
+        if (i % 2 === 0) checkInvariant(mirror, mirrorRef);
+      }
+      checkInvariant(mirror, mirrorRef);
+      // A clear re-arms at seq 0; fresh ingests still index correctly.
+      mirror.clear();
+      mirrorRef.length = 0;
+      source.clear();
+      const fresh = (await source.append(mkPartial(rand))) as MoxxyEventForTest;
+      mirror.ingest(fresh);
+      mirrorRef.push(fresh);
+      checkInvariant(mirror, mirrorRef);
+    }
+  });
+
+  it('seeded (cold) log builds the index lazily and matches the filter', async () => {
+    // A log constructed from a seed array must index correctly on first query
+    // (the build runs over the pre-existing array, not just future appends).
+    const author = new EventLog();
+    const seed: MoxxyEventForTest[] = [];
+    const rand = rng(7);
+    for (let i = 0; i < 20; i++) seed.push((await author.append(mkPartial(rand))) as MoxxyEventForTest);
+    const log = new EventLog(seed);
+    const mirror = [...seed] as { type: string; turnId: unknown }[];
+    checkInvariant(log, mirror);
+    // A further append on top of the warmed index must extend correctly.
+    const more = await log.append(mkPartial(rand));
+    mirror.push(more);
+    checkInvariant(log, mirror);
+  });
+
+  // ofType/byTurn must hand back a defensive copy (the old filter() did), so a
+  // caller mutating the result can't corrupt the index.
+  it('returns a fresh array the caller cannot use to mutate the index', async () => {
+    const log = new EventLog();
+    await log.append({ type: 'user_prompt', sessionId: sid, turnId: tid, source: 'user', text: 'a' });
+    const first = log.ofType('user_prompt');
+    (first as unknown[]).push('garbage');
+    expect(log.ofType('user_prompt')).toHaveLength(1);
+    const byT = log.byTurn(tid);
+    (byT as unknown[]).push('garbage');
+    expect(log.byTurn(tid)).toHaveLength(1);
+  });
+});
+
+type MoxxyEventForTest = { seq: number } & Record<string, unknown>;

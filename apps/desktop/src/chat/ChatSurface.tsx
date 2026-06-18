@@ -26,6 +26,42 @@ interface ChatSurfaceProps {
  *  while a search filter is active). */
 const EMPTY_EXTENSIONS: ReadonlyArray<import('@moxxy/client-core').Extension> = Object.freeze([]);
 
+type ChatEvent = import('@moxxy/sdk').MoxxyEvent;
+
+/**
+ * Per-event lowercased searchable haystacks, computed ONCE per events change so
+ * a keystroke in the search box doesn't re-`JSON.stringify` every tool input
+ * (then throw it away) over the whole log. Each entry holds exactly the strings
+ * the old per-event predicate tested with `.includes(q)`.
+ */
+export function buildSearchIndex(
+  events: ReadonlyArray<ChatEvent>,
+): ReadonlyArray<ReadonlyArray<string>> {
+  return events.map((e) => {
+    if (e.type === 'user_prompt') return [e.text.toLowerCase()];
+    if (e.type === 'assistant_message') return [e.content.toLowerCase()];
+    if (e.type === 'tool_call_requested') {
+      return [e.name.toLowerCase(), JSON.stringify(e.input).toLowerCase()];
+    }
+    if (e.type === 'error') return [e.message.toLowerCase()];
+    return [];
+  });
+}
+
+/**
+ * Filter `events` by `query` using a prebuilt {@link buildSearchIndex}. Result
+ * is byte-identical to the prior inline predicate: `[X].some(includes)` ===
+ * `X.includes(q)` and `[X,Y].some(...)` === `X.includes(q) || Y.includes(q)`.
+ */
+export function filterEventsBySearch(
+  events: ReadonlyArray<ChatEvent>,
+  index: ReadonlyArray<ReadonlyArray<string>>,
+  query: string,
+): ReadonlyArray<ChatEvent> {
+  const q = query.toLowerCase();
+  return events.filter((_, i) => index[i]!.some((h) => h.includes(q)));
+}
+
 /**
  * Chat pane — the rightmost column. Card-style transcript with a
  * sticky header, suggested-action chips below the latest assistant
@@ -52,22 +88,13 @@ export function ChatSurface({
   // desk that owns it (first sessions share their desk's id, so old ids work).
   const activeDesk = deskForWorkspace(desks.desks, workspaceId);
 
+  // Precompute the searchable index ONCE per events change; the per-keystroke
+  // filter then just scans it (no JSON.stringify on the keystroke path).
+  const searchIndex = useMemo(() => buildSearchIndex(chat.events), [chat.events]);
   const filteredEvents = useMemo(() => {
     if (!searchQuery) return chat.events;
-    const q = searchQuery.toLowerCase();
-    return chat.events.filter((e) => {
-      if (e.type === 'user_prompt') return e.text.toLowerCase().includes(q);
-      if (e.type === 'assistant_message') return e.content.toLowerCase().includes(q);
-      if (e.type === 'tool_call_requested') {
-        return (
-          e.name.toLowerCase().includes(q) ||
-          JSON.stringify(e.input).toLowerCase().includes(q)
-        );
-      }
-      if (e.type === 'error') return e.message.toLowerCase().includes(q);
-      return false;
-    });
-  }, [chat.events, searchQuery]);
+    return filterEventsBySearch(chat.events, searchIndex, searchQuery);
+  }, [chat.events, searchQuery, searchIndex]);
 
   return (
     <main className="col-main col-main--flat">

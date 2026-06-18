@@ -22,6 +22,7 @@ import {
   newBlockId,
   pairToolEvents,
   type Block as FoldedBlock,
+  type IncrementalFold,
   type ToolCallBlockData,
 } from '@moxxy/chat-model';
 
@@ -325,23 +326,45 @@ export function applyAction(rt: ChatRuntime, action: ChatAction): boolean {
 export function buildRenderNodes(
   events: ReadonlyArray<MoxxyEvent>,
   extensions: ReadonlyArray<Extension>,
+  /**
+   * Optional incremental fold owned by the caller (the chat store / Transcript)
+   * and reused across committed events. When supplied AND no extension splits
+   * the event log, the fold is extended by only its unsettled tail instead of
+   * re-folding the whole array from index 0 (the O(n²)/turn bug). The result is
+   * byte-identical to the un-cached path — {@link IncrementalFold.syncTo} drives
+   * the same `stepFold` over the same events — so it's a pure perf seam.
+   *
+   * When extensions split the log into 2+ independently-folded slices, the
+   * whole-log fold would NOT match (each slice is its own fresh fold), so we
+   * fall back to the exact slice path below. Extension cards (error notices /
+   * slash-command results) are rare, so the fast path covers the common case.
+   */
+  fold?: IncrementalFold,
 ): RenderNode[] {
+  // Fast path: no extension cards → one contiguous fold over all events. Reuse
+  // the caller's IncrementalFold so a freshly-committed event re-folds only the
+  // open tail. (`syncTo` rebuilds from scratch if the prefix shifted.)
+  if (extensions.length === 0 && fold) {
+    const out: RenderNode[] = [];
+    for (const block of fold.syncTo(events)) out.push({ kind: 'block', block });
+    return out;
+  }
   const out: RenderNode[] = [];
   const sorted = [...extensions].sort((a, b) => a.afterCount - b.afterCount);
   let cursor = 0;
-  const fold = (slice: ReadonlyArray<MoxxyEvent>): void => {
+  const foldSlice = (slice: ReadonlyArray<MoxxyEvent>): void => {
     if (slice.length === 0) return;
     for (const block of pairToolEvents(slice)) out.push({ kind: 'block', block });
   };
   for (const ext of sorted) {
     const at = Math.min(Math.max(ext.afterCount, 0), events.length);
     if (at > cursor) {
-      fold(events.slice(cursor, at));
+      foldSlice(events.slice(cursor, at));
       cursor = at;
     }
     out.push({ kind: 'ext', ext });
   }
-  fold(events.slice(cursor));
+  foldSlice(events.slice(cursor));
   return out;
 }
 

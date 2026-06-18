@@ -24,6 +24,16 @@ export interface UsageSnapshot {
   readonly totalOutput: number;
 }
 
+/**
+ * Cap on {@link UsageSnapshot.perCall} — the only unbounded field. It feeds a
+ * growth sparkline, which shows a fixed-width trailing window, so keeping more
+ * than this many points is invisible. The cumulative `total*`/`calls` counters
+ * still fold EVERY call, so head-trimming `perCall` is lossless for the meter.
+ * Head-evict (drop the oldest) past this so a multi-hour session can't grow the
+ * array (and its per-call copy) without bound.
+ */
+export const PER_CALL_CAP = 200;
+
 export const EMPTY_USAGE: UsageSnapshot = Object.freeze({
   latestPrompt: null,
   perCall: Object.freeze([]),
@@ -57,9 +67,17 @@ export function recordUsage(prev: UsageSnapshot, e: ProviderResponse): UsageSnap
     e.cacheReadTokens !== undefined ||
     e.cacheCreationTokens !== undefined;
   const prompt = (e.inputTokens ?? 0) + (e.cacheReadTokens ?? 0) + (e.cacheCreationTokens ?? 0);
+  // Append the new prompt size, then head-evict so the sparkline source stays
+  // bounded at PER_CALL_CAP. `slice(-cap)` keeps the most recent window; the
+  // cumulative counters below are unaffected, so the meter loses nothing.
+  let perCall = prev.perCall;
+  if (hasPrompt) {
+    const next = [...prev.perCall, prompt];
+    perCall = next.length > PER_CALL_CAP ? next.slice(next.length - PER_CALL_CAP) : next;
+  }
   return {
     latestPrompt: hasPrompt ? prompt : prev.latestPrompt,
-    perCall: hasPrompt ? [...prev.perCall, prompt] : prev.perCall,
+    perCall,
     calls: prev.calls + 1,
     totalInput: prev.totalInput + (e.inputTokens ?? 0),
     totalCacheRead: prev.totalCacheRead + (e.cacheReadTokens ?? 0),

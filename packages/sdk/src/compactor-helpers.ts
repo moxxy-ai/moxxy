@@ -5,6 +5,7 @@ import {
   toolResultBytes,
   toolResultStub,
   toolResultStubbed,
+  type ElisionState,
 } from './elision-state.js';
 import type { EmittedEvent, MoxxyEvent } from './events.js';
 import type { EventLogReader } from './log.js';
@@ -24,12 +25,21 @@ import type { ModeContext } from './mode.js';
  * provider's `countTokens(req)`; this is the fast path that doesn't
  * touch the network and is safe to run on every iteration.
  */
-export function estimateContextTokens(log: EventLogReader): number {
+export function estimateContextTokens(
+  log: EventLogReader,
+  // Optional precomputed elision state for THIS exact log snapshot. When a
+  // caller already derived it (e.g. within a single loop iteration that also
+  // projects), threading it here skips a redundant full `computeElisionState`
+  // fold. MUST be the state of the same log — passing a stale one would
+  // mis-size the estimate — so it is purely an opt-in fast path; omitting it
+  // recomputes, byte-identically.
+  precomputedElisionState?: ElisionState,
+): number {
   const events = log.slice();
   // Share the exact stub decision with projection so the estimate matches what
   // is actually sent — pinned recalls / never-elide / tiny turns counted full,
   // not undercounted (which would let the context overflow before compaction).
-  const el = computeElisionState(events);
+  const el = precomputedElisionState ?? computeElisionState(events);
   let chars = 0;
   const compactedSeqs = new Set<number>();
   for (const e of events) {

@@ -137,7 +137,7 @@ export function buildTerminalTool() {
  * until the sentinel line appears. Returns the captured output (best-effort
  * stripped of the echoed sentinel command) + the exit code parsed from it.
  */
-function runCommand(
+export function runCommand(
   proc: TerminalProcess,
   command: string,
   marker: string,
@@ -153,13 +153,31 @@ function runCommand(
       clearTimeout(timer);
       resolve({ output: cleanOutput(acc, command, marker), exitCode, timedOut });
     };
+    // Compile the sentinel matcher ONCE — `marker` is fixed for this call. The
+    // sentinel is `<marker> <digits>`; nothing in `marker` is a regex
+    // metacharacter (it's `__MOXXY_DONE_<base36>_<n>__`), so it needs no
+    // escaping. Rebuilding this RegExp per chunk was pure waste.
+    const sentinel = new RegExp(`${marker} (\\d+)`);
+    // Re-scanning the whole accumulated buffer per chunk is O(n^2). The sentinel
+    // appears exactly once (unique marker) and we finish on first match, so it
+    // suffices to scan only the new chunk plus a carry-over of the previous
+    // tail long enough to catch a sentinel split across the chunk boundary:
+    // marker + space + up to a generous run of digits, minus one.
+    const carry = marker.length + 32;
+    let scanFrom = 0;
     const unsub = proc.onData((d) => {
+      // Begin the scan window just before the bytes that could only now have
+      // completed a sentinel that started in an earlier chunk.
+      const from = Math.max(scanFrom, acc.length - carry, 0);
       acc += d;
       // The sentinel prints "<marker> <exit>" on its own line once the command
       // finishes. Match the VALUE form (not the echoed command that contains
       // `$?`), so the literal command line doesn't false-trigger completion.
-      const m = new RegExp(`${marker} (\\d+)`).exec(acc);
+      sentinel.lastIndex = 0;
+      const m = sentinel.exec(from > 0 ? acc.slice(from) : acc);
       if (m) finish(Number(m[1]), false);
+      // Everything before this point can never start a future sentinel match.
+      scanFrom = Math.max(0, acc.length - carry);
     });
     const timer = setTimeout(() => finish(null, true), timeoutMs);
     // Two lines to the interactive shell: the command, then the sentinel whose
