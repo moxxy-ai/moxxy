@@ -173,6 +173,30 @@ export function zodToJsonSchema(schema: unknown): unknown {
     const items = zodToJsonSchema((def as unknown as { type: unknown }).type);
     return { type: 'array', items };
   }
+  if (typeName === 'ZodRecord') {
+    // `z.record(keyType, valueType)` — an open-ended object whose values share
+    // one schema. Carry the value schema through `additionalProperties` rather
+    // than discarding it to the permissive fallback below.
+    const valueType = (def as unknown as { valueType: unknown }).valueType;
+    return { type: 'object', additionalProperties: zodToJsonSchema(valueType) };
+  }
+  if (typeName === 'ZodTuple') {
+    // ZodTuple._def.items is the ordered element schemas; `rest` (if set) is the
+    // variadic tail. Emit a fixed-position `items` array + an `additionalItems`
+    // schema for the rest, mirroring JSON-schema's positional-tuple form.
+    const tupleDef = def as unknown as { items: ReadonlyArray<unknown>; rest?: unknown };
+    const items = tupleDef.items.map((i) => zodToJsonSchema(i));
+    return {
+      type: 'array',
+      items,
+      ...(tupleDef.rest != null ? { additionalItems: zodToJsonSchema(tupleDef.rest) } : {}),
+    };
+  }
+  if (typeName === 'ZodAny' || typeName === 'ZodUnknown') {
+    // Genuinely unconstrained — advertise an empty (permissive) schema instead
+    // of a false `object` shape that would reject non-object values.
+    return {};
+  }
   // Truly unknown — fall back to a permissive "any object" but spell out
   // `properties: {}` and `additionalProperties: true` so strict validators
   // accept the schema instead of bailing on a missing `properties` field.

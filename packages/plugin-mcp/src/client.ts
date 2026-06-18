@@ -6,7 +6,14 @@
  * `admin.ts → index.ts → admin.ts` import cycle.
  */
 
-import type { McpClientLike, McpPluginOptions, McpServerConfig } from './types.js';
+import type {
+  McpCallResult,
+  McpClientLike,
+  McpContentBlock,
+  McpPluginOptions,
+  McpServerConfig,
+  McpToolDescriptor,
+} from './types.js';
 
 export async function defaultClientFactory(
   server: McpServerConfig,
@@ -15,36 +22,53 @@ export async function defaultClientFactory(
   const { Client } = (await import('@modelcontextprotocol/sdk/client/index.js')) as {
     Client: new (info: { name: string; version: string }, capabilities: { capabilities: Record<string, unknown> }) => McpClientUntyped;
   };
-  const client = new Client(
+  // Type the SDK boundary ONCE here; the rest of the factory works against the
+  // typed `McpClientUntyped` so a signature change in the SDK surfaces as a
+  // compile error rather than being papered over by per-call casts.
+  const client: McpClientUntyped = new Client(
     { name: options.clientName ?? 'moxxy', version: options.clientVersion ?? '0.0.0' },
     { capabilities: {} },
   );
 
   const transport = await createTransport(server);
-  await (client as unknown as McpClientUntyped).connect(transport);
+  await client.connect(transport);
 
   return {
     async listTools() {
-      const result = await (client as unknown as McpClientUntyped).listTools();
-      return { tools: (result.tools ?? []) as ReadonlyArray<{ name: string; description?: string; inputSchema: unknown }> };
+      const result = await client.listTools();
+      return { tools: (result.tools ?? []).map(toToolDescriptor) };
     },
     async callTool(args) {
-      const result = await (client as unknown as McpClientUntyped).callTool(args);
-      return {
-        content: result.content as ReadonlyArray<{ type: string } & Record<string, unknown>> | undefined,
-        isError: result.isError as boolean | undefined,
-      } as never;
+      const result = await client.callTool(args);
+      const out: McpCallResult = {
+        content: result.content?.map(toContentBlock),
+        isError: result.isError,
+      };
+      return out;
     },
     async close() {
-      await (client as unknown as McpClientUntyped).close();
+      await client.close();
     },
   };
 }
 
+/** Narrow one SDK tool entry to our internal descriptor at the single boundary. */
+function toToolDescriptor(t: { name: string; description?: string; inputSchema: unknown }): McpToolDescriptor {
+  return t;
+}
+
+/** Narrow one SDK content block to our internal union at the single boundary. */
+function toContentBlock(block: { type: string } & Record<string, unknown>): McpContentBlock {
+  return block as McpContentBlock;
+}
+
 interface McpClientUntyped {
   connect(transport: unknown): Promise<void>;
-  listTools(): Promise<{ tools?: unknown[] }>;
-  callTool(args: { name: string; arguments: unknown }): Promise<{ content?: unknown[]; isError?: boolean }>;
+  listTools(): Promise<{ tools?: Array<{ name: string; description?: string; inputSchema: unknown }> }>;
+  callTool(args: {
+    name: string;
+    arguments: unknown;
+  }): Promise<{ content?: Array<{ type: string } & Record<string, unknown>>; isError?: boolean }>;
   close(): Promise<void>;
 }
 

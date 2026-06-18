@@ -94,4 +94,29 @@ describe('WhisperTranscriber', () => {
     const plugin = buildWhisperPlugin({ model: 'gpt-4o-mini-transcribe' });
     expect(plugin.transcribers![0]!.name).toBe('openai-gpt-4o-mini-transcribe');
   });
+
+  it('throws PROVIDER_UNKNOWN_RESPONSE when verbose_json lacks a string text', async () => {
+    const client = fakeOpenAI(() => ({ language: 'en', segments: [] }));
+    const t = new WhisperTranscriber({ client });
+    await expect(
+      t.transcribe(new Uint8Array([1, 2, 3]), { mimeType: 'audio/ogg' }),
+    ).rejects.toMatchObject({ code: 'PROVIDER_UNKNOWN_RESPONSE' });
+  });
+
+  it('throws PROVIDER_UNKNOWN_RESPONSE when the gpt-4o response lacks text', async () => {
+    const client = fakeOpenAI(() => ({ foo: 'bar' }));
+    const t = new WhisperTranscriber({ client, model: 'gpt-4o-transcribe' });
+    await expect(
+      t.transcribe(new Uint8Array([1, 2, 3]), { mimeType: 'audio/wav' }),
+    ).rejects.toMatchObject({ code: 'PROVIDER_UNKNOWN_RESPONSE' });
+  });
+
+  it('ignores a non-string language/duration in verbose_json', async () => {
+    const client = fakeOpenAI(() => ({ text: 'ok', language: 123, duration: 'nope' }));
+    const t = new WhisperTranscriber({ client });
+    const result = await t.transcribe(new Uint8Array([1]), { mimeType: 'audio/ogg' });
+    expect(result.text).toBe('ok');
+    expect(result.language).toBeUndefined();
+    expect(result.durationSec).toBeUndefined();
+  });
 });

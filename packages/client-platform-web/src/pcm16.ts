@@ -8,15 +8,26 @@
 
 const TARGET_SAMPLE_RATE = 24_000;
 
+/**
+ * Resolve the AudioContext constructor, falling back to the vendor-prefixed
+ * `webkitAudioContext` on older WebKit. Centralized so the (necessarily
+ * cast-laden) reach for the prefixed global lives in exactly one place.
+ */
+export function getAudioContextCtor(): typeof AudioContext | undefined {
+  if (typeof window === 'undefined') return undefined;
+  return (
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+  );
+}
+
 /** The MIME tag the moxxy whisper helpers use to flag "raw PCM16 mono 24 kHz".
  *  The Codex transcriber sees this and wraps the bytes in a WAV header. */
 export const MOXXY_PCM16_24KHZ_MIME = 'audio/x-moxxy-pcm16-24khz';
 
 export async function audioToPcm16(blob: Blob): Promise<Uint8Array> {
   const arrayBuffer = await blob.arrayBuffer();
-  const Ctor =
-    window.AudioContext ??
-    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  const Ctor = getAudioContextCtor();
   if (!Ctor) throw new Error('AudioContext is not available');
 
   // OfflineAudioContext lets us decode at any source rate first, then OFFLINE-

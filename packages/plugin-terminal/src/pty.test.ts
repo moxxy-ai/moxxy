@@ -55,3 +55,73 @@ describe('TerminalProcessImpl scrollback (hysteresis trim)', () => {
     expect(term.scrollback()).toBe('hello world');
   });
 });
+
+describe('TerminalProcessImpl exit lifecycle', () => {
+  it('emitExit fires listeners exactly once and flips alive (idempotent)', () => {
+    const { proc } = fakeChild();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const term = new TerminalProcessImpl('pipe', null, proc as any);
+    const codes: number[] = [];
+    term.onExit((c) => codes.push(c));
+    expect(term.alive).toBe(true);
+
+    // A real child can emit both 'exit' and 'error'; only the first must win.
+    proc.emit('exit', 7);
+    proc.emit('exit', 9);
+    proc.emit('error', new Error('late'));
+
+    expect(codes).toEqual([7]);
+    expect(term.alive).toBe(false);
+  });
+
+  it('kill() emits exit once and is a no-op after the process already died', () => {
+    const { proc } = fakeChild();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const term = new TerminalProcessImpl('pipe', null, proc as any);
+    const codes: number[] = [];
+    term.onExit((c) => codes.push(c));
+
+    term.kill();
+    term.kill();
+    proc.emit('exit', 3); // already dead — ignored
+
+    expect(codes).toEqual([0]);
+    expect(term.alive).toBe(false);
+  });
+
+  it('a throwing data listener does not break delivery to the others', () => {
+    const { stdout, proc } = fakeChild();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const term = new TerminalProcessImpl('pipe', null, proc as any);
+    const seen: string[] = [];
+    term.onData(() => {
+      throw new Error('bad viewer');
+    });
+    term.onData((d) => seen.push(d));
+
+    stdout.emit('data', Buffer.from('payload', 'utf8'));
+    expect(seen).toEqual(['payload']);
+    // The buffer still accumulates despite the throwing listener.
+    expect(term.scrollback()).toBe('payload');
+  });
+
+  it('write() after exit is a no-op (does not throw)', () => {
+    const { proc } = fakeChild();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const term = new TerminalProcessImpl('pipe', null, proc as any);
+    proc.emit('exit', 0);
+    expect(() => term.write('ignored')).not.toThrow();
+  });
+
+  it('unsubscribe stops further data delivery', () => {
+    const { stdout, proc } = fakeChild();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const term = new TerminalProcessImpl('pipe', null, proc as any);
+    const seen: string[] = [];
+    const unsub = term.onData((d) => seen.push(d));
+    stdout.emit('data', Buffer.from('a', 'utf8'));
+    unsub();
+    stdout.emit('data', Buffer.from('b', 'utf8'));
+    expect(seen).toEqual(['a']);
+  });
+});

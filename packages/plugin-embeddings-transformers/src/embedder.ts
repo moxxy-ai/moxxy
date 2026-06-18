@@ -32,9 +32,19 @@ export interface TransformersEmbedderOptions {
   readonly pipelineFactory?: PipelineFactory;
   /** Force model files to load from a local directory (set HF_HOME or equivalent). */
   readonly cacheDir?: string;
+  /**
+   * Max inputs sent to the ONNX extractor per call. Bounds peak RAM and keeps a
+   * large memory-consolidation batch from stalling the event loop on-device.
+   * Defaults to a conservative on-device size; mirrors the OpenAI sibling's
+   * chunking. Output order/length is preserved across chunks.
+   */
+  readonly batchSize?: number;
 }
 
 const DEFAULT_MODEL = 'Xenova/all-MiniLM-L6-v2';
+// Conservative on-device default: small enough to bound ONNX peak memory and
+// keep each synchronous extractor call short, large enough to amortize overhead.
+const DEFAULT_BATCH_SIZE = 32;
 
 export class TransformersEmbedder implements EmbeddingProvider {
   /**
@@ -46,6 +56,7 @@ export class TransformersEmbedder implements EmbeddingProvider {
   readonly model: string;
   private readonly explicitDim?: number;
   private readonly pipelineFactory: PipelineFactory | null;
+  private readonly batchSize: number;
   private extractor: Awaited<ReturnType<PipelineFactory>> | null = null;
   private extractorPromise: Promise<Awaited<ReturnType<PipelineFactory>>> | null = null;
 
@@ -54,6 +65,7 @@ export class TransformersEmbedder implements EmbeddingProvider {
     this.name = `transformers:${this.model}`;
     this.explicitDim = opts.dimensions;
     this.pipelineFactory = opts.pipelineFactory ?? null;
+    this.batchSize = opts.batchSize && opts.batchSize > 0 ? opts.batchSize : DEFAULT_BATCH_SIZE;
     if (opts.cacheDir) {
       // Honor HF caching env var so users can pin where models land.
       process.env.HF_HOME = opts.cacheDir;
@@ -86,9 +98,16 @@ export class TransformersEmbedder implements EmbeddingProvider {
   async embed(texts: ReadonlyArray<string>): Promise<ReadonlyArray<ReadonlyArray<number>>> {
     if (texts.length === 0) return [];
     const extractor = await this.ensureExtractor();
-    const result = await extractor([...texts], { pooling: 'mean', normalize: true });
-    const list = result.tolist();
-    return normalizeShape(list, texts.length);
+    // Chunk by batchSize so a large corpus can't spike ONNX RAM or stall the
+    // event loop in one giant synchronous-ish call. Accumulate in input order.
+    const out: ReadonlyArray<number>[] = [];
+    for (let i = 0; i < texts.length; i += this.batchSize) {
+      const chunk = texts.slice(i, i + this.batchSize);
+      const result = await extractor([...chunk], { pooling: 'mean', normalize: true });
+      const list = result.tolist();
+      for (const vec of normalizeShape(list, chunk.length)) out.push(vec);
+    }
+    return out;
   }
 }
 

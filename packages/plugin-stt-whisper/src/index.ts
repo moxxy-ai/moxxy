@@ -12,7 +12,6 @@ export {
   WHISPER_FILENAME_BY_MIME,
   normalizeWhisperUpload,
   pcm16MonoToWav,
-  whisperFilenameFor,
   type NormalizedAudioUpload,
 } from './audio.js';
 

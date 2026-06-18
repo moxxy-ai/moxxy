@@ -42,4 +42,18 @@ describe('fixture-recorder argv parsing', () => {
       /--prompt requires a value/,
     );
   });
+
+  it('rejects a non-numeric --max-iterations instead of silently dropping it', () => {
+    // `Number('abc')` is NaN, which is falsy — without validation the cap would
+    // be silently ignored and the recorder would run unbounded.
+    expect(() =>
+      parseFlags(['--prompt', 'p', '--name', 'n', '--out', 'd', '--max-iterations', 'abc']),
+    ).toThrow(/--max-iterations must be a positive integer/);
+  });
+
+  it('rejects a non-positive --max-iterations', () => {
+    expect(() =>
+      parseFlags(['--prompt', 'p', '--name', 'n', '--out', 'd', '--max-iterations', '0']),
+    ).toThrow(/--max-iterations must be a positive integer/);
+  });
 });

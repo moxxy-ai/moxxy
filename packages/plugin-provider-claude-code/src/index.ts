@@ -45,4 +45,3 @@ export {
   type FreshClaudeTokens,
 } from './login.js';
 export { createClaudeCodeClient, type ClaudeCodeProviderConfig } from './provider.js';
-export { claudeOauthProfile } from './profile.js';

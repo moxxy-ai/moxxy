@@ -92,4 +92,28 @@ describe('OpenAIEmbedder', () => {
     });
     expect(e.dim).toBe(768);
   });
+
+  it('ignores dimensions for ada-002 (API does not support it) and keeps dim 1536', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const client = fakeClient([[[1, 2]]]) as unknown as OpenAI;
+      const e = new OpenAIEmbedder({
+        client,
+        model: 'text-embedding-ada-002',
+        dimensions: 512,
+      });
+      // dim/name must reflect what the API actually returns, not the dropped override.
+      expect(e.dim).toBe(1536);
+      expect(e.name).toBe('openai:text-embedding-ada-002');
+      expect(warn).toHaveBeenCalledTimes(1);
+
+      await e.embed(['x']);
+      const create = client.embeddings.create as unknown as { mock: { calls: unknown[][] } };
+      const args = create.mock.calls[0]?.[0] as Record<string, unknown>;
+      // The unsupported `dimensions` parameter is not forwarded to the API.
+      expect(args.dimensions).toBeUndefined();
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });

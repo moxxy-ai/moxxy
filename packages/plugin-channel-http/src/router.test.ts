@@ -10,8 +10,10 @@ import {
   handleHealth,
   handleTurn,
   handleTurnAudio,
+  driveTurn,
   turnRequestSchema,
 } from './router.js';
+import type { MoxxyEvent } from '@moxxy/sdk';
 
 function makeIncoming(opts: { method: string; url: string; headers?: Record<string, string>; body?: string }): IncomingMessage {
   const readable = Readable.from(opts.body ? [Buffer.from(opts.body)] : []);
@@ -245,6 +247,78 @@ describe('handleTurn — client-disconnect abort (u70-1)', () => {
     await handlerDone;
     // The close listener is detached after the turn settles (no leak).
     res._emit('close'); // would throw if listener double-fired on a dead res
+  });
+});
+
+describe('driveTurn', () => {
+  const fakeSession = (gen: () => AsyncGenerator<MoxxyEvent>): ClientSession =>
+    ({ runTurn: () => gen() }) as unknown as ClientSession;
+
+  const asst = (content: string): MoxxyEvent =>
+    ({ type: 'assistant_message', content }) as unknown as MoxxyEvent;
+
+  it('drains all events and extracts the LAST assistant message', async () => {
+    const session = fakeSession(async function* () {
+      yield asst('first');
+      yield { type: 'tool_call_requested' } as unknown as MoxxyEvent;
+      yield asst('final');
+    });
+    const res = makeResponse();
+    const { events, assistant } = await driveTurn(session, 'hi', {}, res);
+    expect(events).toHaveLength(3);
+    expect(assistant).toBe('final');
+  });
+
+  it('returns empty assistant when no assistant_message is emitted', async () => {
+    const session = fakeSession(async function* () {
+      yield { type: 'tool_call_requested' } as unknown as MoxxyEvent;
+    });
+    const res = makeResponse();
+    const { assistant } = await driveTurn(session, 'hi', {}, res);
+    expect(assistant).toBe('');
+  });
+
+  it('forwards an abort signal and aborts it when the client disconnects', async () => {
+    let signal: AbortSignal | undefined;
+    let started!: () => void;
+    const inFlight = new Promise<void>((r) => (started = r));
+    const session = {
+      runTurn: (_p: string, opts?: { signal?: AbortSignal }) => {
+        signal = opts?.signal;
+        started();
+        return (async function* () {
+          await new Promise<void>((resolve) => opts?.signal?.addEventListener('abort', () => resolve()));
+        })();
+      },
+    } as unknown as ClientSession;
+
+    const res = makeResponse();
+    const done = driveTurn(session, 'hi', {}, res);
+    await inFlight;
+    expect(signal!.aborted).toBe(false);
+    res._emit('close');
+    expect(signal!.aborted).toBe(true);
+    await done;
+  });
+
+  it('detaches the close listener after the turn settles', async () => {
+    const session = fakeSession(async function* () {
+      yield asst('ok');
+    });
+    const res = makeResponse();
+    await driveTurn(session, 'hi', {}, res);
+    // Listener removed -> a late close does not abort anything / throw.
+    expect(() => res._emit('close')).not.toThrow();
+  });
+
+  it('re-throws when the turn fails (and still detaches the listener)', async () => {
+    const session = fakeSession(async function* () {
+      yield asst('partial');
+      throw new Error('boom');
+    });
+    const res = makeResponse();
+    await expect(driveTurn(session, 'hi', {}, res)).rejects.toThrow('boom');
+    expect(() => res._emit('close')).not.toThrow();
   });
 });
 

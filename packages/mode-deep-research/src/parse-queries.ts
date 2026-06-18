@@ -21,21 +21,18 @@ export function parseFollowups(text: string): string[] {
 function parseNumberedBlock(text: string, headerRegex: RegExp): string[] {
   const lines = text.split('\n');
   const items: string[] = [];
-  let inBlock = false;
   for (const raw of lines) {
     const line = raw.trim();
     if (!line) continue;
     if (headerRegex.test(line)) {
-      inBlock = true;
       continue;
     }
     const m = /^(?:\d+[.)]|[-*•])\s*(.+)$/.exec(line);
     if (m) {
       items.push(m[1]!.trim());
-      inBlock = true;
-    } else if (inBlock && items.length > 0 && !/^[A-Z]/.test(line)) {
-      // continuation indented under previous item — skip
     }
+    // Non-list lines (incl. wrapped continuations of a prior item) are
+    // dropped: queries/followups are single-line by spec.
   }
   return items;
 }

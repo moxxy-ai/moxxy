@@ -48,7 +48,7 @@ export function readPrefs(): DesktopPrefs {
   return { ...DEFAULTS };
 }
 
-export async function writePrefs(next: DesktopPrefs): Promise<void> {
+async function writePrefs(next: DesktopPrefs): Promise<void> {
   await writeFileAtomic(prefsPath(), JSON.stringify(next, null, 2));
 }
 

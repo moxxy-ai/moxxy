@@ -73,12 +73,9 @@ export class WebhookConfigStore {
       const raw = await readFile(this.file, 'utf8');
       const parsed = fileSchema.safeParse(JSON.parse(raw));
       this.cache = parsed.success ? parsed.data.config : webhookConfigSchema.parse({});
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        this.cache = webhookConfigSchema.parse({});
-      } else {
-        this.cache = webhookConfigSchema.parse({});
-      }
+    } catch {
+      // No file yet (ENOENT) or an unreadable/corrupt file: fall back to defaults.
+      this.cache = webhookConfigSchema.parse({});
     }
   }
 

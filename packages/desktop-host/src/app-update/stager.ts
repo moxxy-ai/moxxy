@@ -332,7 +332,7 @@ export async function downloadAndStage(
   const res = await fetchImpl(downloadUrl, { redirect: 'follow' });
   if (!res.ok) throw new Error(`bundle download failed (HTTP ${res.status})`);
   const total = Number(res.headers.get('content-length')) || undefined;
-  const gz = await readAll(res, total, (received) => report({ phase: 'download', received, total }));
+  const gz = await readAll(res, (received) => report({ phase: 'download', received, total }));
 
   // 2. Integrity: the gzip's hash must equal the signed manifest's.
   report({ phase: 'verify', message: 'Verifying…' });
@@ -411,7 +411,6 @@ export async function downloadAndStage(
 /** Drain a fetch Response body into one Buffer, reporting cumulative bytes. */
 async function readAll(
   res: Response,
-  _total: number | undefined,
   onChunk: (received: number) => void,
 ): Promise<Buffer> {
   if (!res.body) {

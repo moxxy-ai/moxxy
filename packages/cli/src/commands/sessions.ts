@@ -146,7 +146,7 @@ function formatSessions(all: ReadonlyArray<SessionMeta>): string {
  * Falls back to the raw input so the existing not-found error path
  * still fires with a meaningful message.
  */
-function resolveId(input: string, all: ReadonlyArray<SessionMeta>): string {
+export function resolveId(input: string, all: ReadonlyArray<SessionMeta>): string {
   const trimmed = input.trim();
   // Numeric index into the list, 1-based to match `sessions list`.
   if (/^\d+$/.test(trimmed)) {

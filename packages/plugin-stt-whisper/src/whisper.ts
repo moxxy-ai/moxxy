@@ -84,11 +84,11 @@ export class WhisperTranscriber implements Transcriber {
         ),
       );
       // OpenAI verbose-json response: { text, language, duration, segments[] }
-      const r = response as unknown as {
+      const r = requireTextResponse(response) as {
         text: string;
-        language?: string;
-        duration?: number;
-        segments?: Array<{ start: number; end: number; text: string }>;
+        language?: unknown;
+        duration?: unknown;
+        segments?: unknown;
       };
       const result: {
         text: string;
@@ -96,9 +96,13 @@ export class WhisperTranscriber implements Transcriber {
         durationSec?: number;
         segments?: Array<{ start: number; end: number; text: string }>;
       } = { text: r.text };
-      if (r.language) result.language = r.language;
+      if (typeof r.language === 'string') result.language = r.language;
       if (typeof r.duration === 'number') result.durationSec = r.duration;
-      if (r.segments) result.segments = r.segments.map((s) => ({ start: s.start, end: s.end, text: s.text }));
+      if (Array.isArray(r.segments)) {
+        result.segments = (r.segments as Array<{ start: number; end: number; text: string }>).map(
+          (s) => ({ start: s.start, end: s.end, text: s.text }),
+        );
+      }
       return result;
     }
     const response = await this.run(() =>
@@ -112,7 +116,7 @@ export class WhisperTranscriber implements Transcriber {
         { signal: opts.signal },
       ),
     );
-    return { text: (response as { text: string }).text };
+    return { text: requireTextResponse(response).text };
   }
 
   /**
@@ -146,6 +150,28 @@ export class WhisperTranscriber implements Transcriber {
       throw err;
     }
   }
+}
+
+/**
+ * Validate that an OpenAI transcription response carries a string `text`
+ * field before we trust it. The SDK's union return type is wider than what
+ * we consume, so we narrow it here; a response missing `text` (or whose
+ * `text` isn't a string) is a real contract violation worth surfacing as a
+ * structured error rather than silently returning `{ text: undefined }`.
+ */
+function requireTextResponse(response: unknown): { text: string } & Record<string, unknown> {
+  if (
+    !response ||
+    typeof response !== 'object' ||
+    typeof (response as { text?: unknown }).text !== 'string'
+  ) {
+    throw new MoxxyError({
+      code: 'PROVIDER_UNKNOWN_RESPONSE',
+      message: 'OpenAI transcription response was missing a text field.',
+      context: { provider: WHISPER_PROVIDER_ID },
+    });
+  }
+  return response as { text: string } & Record<string, unknown>;
 }
 
 export function createWhisperTranscriber(opts: WhisperTranscriberOptions = {}): WhisperTranscriber {

@@ -40,9 +40,6 @@ const okFetch = (bytes: Uint8Array) =>
 describe('handleVoiceMessage', () => {
   const baseDeps = (token = TOKEN) => ({
     pairing: { isAuthorized: () => true } as never,
-    approvalResolver: {} as never,
-    permissionResolver: {} as never,
-    framePump: {} as never,
     token,
   });
 
@@ -53,12 +50,7 @@ describe('handleVoiceMessage', () => {
       ctx,
       {
         session: makeSession(),
-        model: undefined,
-        activeModelOverride: null,
-        yolo: false,
         busy: false,
-        turnController: null,
-        handle: null,
       },
       { ...baseDeps(), pairing: { isAuthorized: () => false } as never },
       { runUserTurn, fetchAudio: okFetch(new Uint8Array([1])) },
@@ -75,12 +67,7 @@ describe('handleVoiceMessage', () => {
       ctx,
       {
         session,
-        model: undefined,
-        activeModelOverride: null,
-        yolo: false,
         busy: false,
-        turnController: null,
-        handle: null,
       },
       baseDeps(),
       { runUserTurn, fetchAudio: okFetch(new Uint8Array([1])) },
@@ -109,12 +96,7 @@ describe('handleVoiceMessage', () => {
       ctx,
       {
         session,
-        model: undefined,
-        activeModelOverride: null,
-        yolo: false,
         busy: false,
-        turnController: null,
-        handle: null,
       },
       baseDeps(),
       { runUserTurn, fetchAudio: okFetch(audio) },
@@ -142,12 +124,7 @@ describe('handleVoiceMessage', () => {
       ctx,
       {
         session,
-        model: undefined,
-        activeModelOverride: null,
-        yolo: false,
         busy: true,
-        turnController: null,
-        handle: null,
       },
       baseDeps(),
       { runUserTurn, fetchAudio: okFetch(new Uint8Array([1])) },
@@ -171,12 +148,7 @@ describe('handleVoiceMessage', () => {
       ctx,
       {
         session,
-        model: undefined,
-        activeModelOverride: null,
-        yolo: false,
         busy: false,
-        turnController: null,
-        handle: null,
       },
       baseDeps(),
       { runUserTurn, fetchAudio: okFetch(new Uint8Array([1])) },
@@ -200,12 +172,7 @@ describe('handleVoiceMessage', () => {
       ctx,
       {
         session,
-        model: undefined,
-        activeModelOverride: null,
-        yolo: false,
         busy: false,
-        turnController: null,
-        handle: null,
       },
       baseDeps(),
       { runUserTurn, fetchAudio: okFetch(new Uint8Array([9])) },

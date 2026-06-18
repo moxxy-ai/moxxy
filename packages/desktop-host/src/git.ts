@@ -9,6 +9,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { devNull } from 'node:os';
 
 /** Cap a single diff so a massive generated-file change can't stream MBs. */
 const MAX_DIFF_BYTES = 1_000_000;
@@ -89,13 +90,22 @@ export async function status(cwd: string): Promise<ReadonlyArray<ChangedFile>> {
     // keeps the stable two-column XY status prefix.
     const { stdout } = await git(cwd, ['status', '--porcelain=v1', '-z']);
     const out: ChangedFile[] = [];
-    for (const entry of stdout.split('\0')) {
-      if (entry.length < 4) continue;
+    // `-z` emits NUL-terminated fields. A normal entry is `XY <path>\0`. A
+    // rename/copy (`R`/`C` in either column) is `XY <newpath>\0<oldpath>\0` —
+    // the new path lives in the entry's own field and the old path follows in
+    // its OWN field, which must be consumed so it isn't mis-parsed as a status
+    // line (its leading bytes would become a phantom `XY` + truncated path).
+    const fields = stdout.split('\0');
+    for (let i = 0; i < fields.length; i++) {
+      const entry = fields[i];
+      if (!entry || entry.length < 4) continue;
       const code = entry.slice(0, 2);
-      // Renames encode "old -> new" with the new path in a following NUL field;
-      // the simple split keeps the first field, which is good enough for display.
       const filePath = entry.slice(3);
       if (filePath) out.push({ path: filePath, status: code });
+      // Skip the trailing old-path field that renames/copies append.
+      if (code[0] === 'R' || code[0] === 'C' || code[1] === 'R' || code[1] === 'C') {
+        i++;
+      }
     }
     return out;
   } catch {
@@ -115,10 +125,11 @@ export async function diff(cwd: string, filePath: string): Promise<FileDiff> {
   } catch {
     /* fall through to the untracked path */
   }
-  // Untracked / new file: diff against /dev/null. `--no-index` exits 1 when
-  // there's a difference (that's expected), so don't treat non-zero as failure.
+  // Untracked / new file: diff against the platform null device (`/dev/null`
+  // on POSIX, `\\.\nul` on Windows). `--no-index` exits 1 when there's a
+  // difference (that's expected), so don't treat non-zero as failure.
   try {
-    const untracked = await git(cwd, ['diff', '--no-index', '--', '/dev/null', filePath], {
+    const untracked = await git(cwd, ['diff', '--no-index', '--', devNull, filePath], {
       allowNonZero: true,
     });
     return { path: filePath, diff: untracked.stdout, truncated: untracked.truncated };

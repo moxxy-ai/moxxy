@@ -17,7 +17,11 @@ export async function runPromptCommand(argv: ParsedArgv): Promise<number> {
 
   const allowTools = parseList(argv.flags['allow-tools']);
   const allowAll = hasBoolFlag(argv, 'allow-all');
-  const outputFormat = (stringFlag(argv, 'output-format') ?? 'text') as 'text' | 'json' | 'stream-json';
+  const outputFormat = parseOutputFormat(stringFlag(argv, 'output-format'));
+  if (outputFormat === null) {
+    printError(`--output-format must be one of: ${OUTPUT_FORMATS.join(', ')}`);
+    return 2;
+  }
   const model = stringFlag(argv, 'model');
 
   // For --allow-all, derive the allow-list from the active session's tools
@@ -70,6 +74,16 @@ export async function runPromptCommand(argv: ParsedArgv): Promise<number> {
     return 1;
   }
   return exitCode;
+}
+
+const OUTPUT_FORMATS = ['text', 'json', 'stream-json'] as const;
+type OutputFormat = (typeof OUTPUT_FORMATS)[number];
+
+/** Validate the --output-format flag. Returns the default `'text'` when
+ *  unset, or null for an unrecognized value (so the caller can error). */
+export function parseOutputFormat(raw: string | undefined): OutputFormat | null {
+  if (raw === undefined) return 'text';
+  return (OUTPUT_FORMATS as readonly string[]).includes(raw) ? (raw as OutputFormat) : null;
 }
 
 function parseList(v: unknown): string[] {

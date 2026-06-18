@@ -64,9 +64,9 @@ function bail(): never {
   process.exit(1);
 }
 
-function guard<T>(value: T | symbol): T {
+function guard<T>(value: T): Exclude<T, symbol> {
   if (isCancel(value)) bail();
-  return value as T;
+  return value as Exclude<T, symbol>;
 }
 
 function toOptions(
@@ -113,7 +113,7 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
     options: providerOptions,
     initialValue: providerOptions[0]!.value,
   });
-  const provider = guard(providerRaw) as string;
+  const provider = guard(providerRaw);
 
   // Step 2 — credentials. An API-key provider prompts for a key (with optional
   // live validation); an OAuth provider runs its full sign-in flow inline.
@@ -141,7 +141,7 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
       options: toOptions(modelChoices),
       initialValue: modelChoices[0]!.id,
     });
-    model = guard(modelRaw) as string;
+    model = guard(modelRaw);
   }
 
   // Step 4 — mode
@@ -150,7 +150,7 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
     options: toOptions(opts.modes),
     initialValue: opts.modes[0]?.id ?? 'default',
   });
-  const mode = guard(modeRaw) as string;
+  const mode = guard(modeRaw);
 
   // Step 5 — embedder
   const embedderRaw = await select({
@@ -158,7 +158,7 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
     options: toOptions(opts.embedders),
     initialValue: opts.embedders[0]?.id ?? 'tfidf',
   });
-  const embedder = guard(embedderRaw) as string;
+  const embedder = guard(embedderRaw);
 
   // Step 6 — plugin-security opt-in. Default off — declared
   // capabilities on individual tools remain advisory unless the user
@@ -169,7 +169,7 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
       colors.dim('(per-tool capability isolation; off by default)'),
     initialValue: false,
   });
-  const securityEnabled = guard(securityRaw) as boolean;
+  const securityEnabled = guard(securityRaw);
 
   const selections: Selections = {
     providers: [provider],
@@ -191,7 +191,7 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
     message: 'Save config and store keys in the vault?',
     initialValue: true,
   });
-  const confirmed = guard(confirmedRaw) as boolean;
+  const confirmed = guard(confirmedRaw);
   if (!confirmed) bail();
 
   // Persist. An OAuth provider's tokens were stored inline in step 2 (the
@@ -230,7 +230,7 @@ async function collectOAuth(
       message: `Retry ${providerId} sign-in?`,
       initialValue: true,
     });
-    const retry = guard(retryRaw) as boolean;
+    const retry = guard(retryRaw);
     if (!retry) bail();
   }
 }
@@ -242,7 +242,7 @@ async function collectKey(providerId: string, controller: SetupWizardController)
       // Reject empty so users don't accidentally skip — esc cancels the wizard.
       validate: (v) => (v && v.trim().length > 0 ? undefined : 'Paste your API key (esc to cancel).'),
     });
-    const value = (guard(valueRaw) as string).trim();
+    const value = guard(valueRaw).trim();
 
     if (!controller.testKey) return value;
 
@@ -269,7 +269,7 @@ async function collectKey(providerId: string, controller: SetupWizardController)
       message: 'Try a different key?',
       initialValue: true,
     });
-    const retry = guard(retryRaw) as boolean;
+    const retry = guard(retryRaw);
     if (!retry) {
       // Accept the unvalidated value rather than bailing — sometimes the
       // network is the problem, not the key.

@@ -27,7 +27,7 @@ const PANEL_BORDER = '1px solid rgba(15, 23, 42, 0.14)';
 
 // ---- Styles --------------------------------------------------------------
 
-export const style: Record<string, React.CSSProperties> = {
+export const style = {
   // ---- inactive --------------------------------------------------------
   inactiveRoot: {
     width: '100%',
@@ -215,11 +215,11 @@ export const style: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
     flexShrink: 0,
   },
-};
+} satisfies Record<string, React.CSSProperties>;
 
 // ---- Keyframes + theme vars ----------------------------------------------
-// Injected once on module load so the spinner dots + mic-pulse animations
-// resolve regardless of which stage mounts first. The focus document loads
+// Injected once on module load so the spinner-dot animation resolves
+// regardless of which stage mounts first. The focus document loads
 // its own bundle and does NOT import the app's styles.css (that would set a
 // non-transparent body background and break the floating window), so the
 // handful of CSS custom properties MarkdownBody reads are mirrored here —
@@ -242,26 +242,6 @@ if (typeof document !== 'undefined' && !document.getElementById('focus-keyframes
     @keyframes focus-thinking {
       0%, 100% { transform: translateY(0); opacity: 0.4; }
       50%      { transform: translateY(-3px); opacity: 1; }
-    }
-    /* Mic-button breathing ring — the inner gradient stays put,
-     * the outer ring pulses to signal active recording. */
-    @keyframes focus-mic-pulse {
-      0%, 100% {
-        box-shadow:
-          0 0 0 4px rgba(255, 255, 255, 0.85),
-          0 0 0 9px rgba(239, 68, 68, 0.35),
-          0 14px 36px -6px rgba(239, 68, 68, 0.6),
-          inset 0 -6px 14px rgba(190, 18, 60, 0.45),
-          inset 0 4px 6px rgba(255, 255, 255, 0.55);
-      }
-      50% {
-        box-shadow:
-          0 0 0 4px rgba(255, 255, 255, 0.85),
-          0 0 0 14px rgba(239, 68, 68, 0.12),
-          0 14px 36px -6px rgba(239, 68, 68, 0.6),
-          inset 0 -6px 14px rgba(190, 18, 60, 0.45),
-          inset 0 4px 6px rgba(255, 255, 255, 0.55);
-      }
     }
   `;
   document.head.appendChild(styleTag);

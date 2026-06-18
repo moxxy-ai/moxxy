@@ -23,7 +23,6 @@ import {
   type RunnerServer,
 } from '@moxxy/runner';
 import { existsSync, unlinkSync } from 'node:fs';
-import { Socket } from 'node:net';
 import { spawn } from 'node:child_process';
 import { probeSession, setupSessionWithConfig, type BootStep } from '../setup.js';
 
@@ -74,7 +73,6 @@ async function killStaleRunnerAt(socketPath: string): Promise<void> {
   } catch {
     /* may already be gone */
   }
-  void Socket; // kept for parity with the desktop sweep helper.
 }
 import { argvToSetupOptions, hasBoolFlag, stringFlag } from '../argv-helpers.js';
 import { chooseClientMode } from './client-mode.js';

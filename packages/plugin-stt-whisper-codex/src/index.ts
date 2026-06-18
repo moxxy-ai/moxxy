@@ -38,12 +38,28 @@ export function buildWhisperCodexPlugin(
         name: OPENAI_CODEX_TRANSCRIBER_NAME,
         displayName: 'OpenAI Codex transcription (OAuth)',
         createClient: (config) => {
+          // Only `baseUrl`/`sessionIdProvider` are caller-overridable; the
+          // host-wired `vault`/`fetch` stay authoritative so a stray config
+          // key cannot shadow a required dependency. Read narrow, typed keys
+          // off the untrusted `config` rather than spreading it wholesale.
+          const cfg = (config ?? {}) as {
+            baseUrl?: unknown;
+            sessionIdProvider?: unknown;
+          };
+          const configBaseUrl =
+            typeof cfg.baseUrl === 'string' ? cfg.baseUrl : undefined;
+          const configSessionIdProvider =
+            typeof cfg.sessionIdProvider === 'function'
+              ? (cfg.sessionIdProvider as () => string)
+              : undefined;
+          const baseUrl = configBaseUrl ?? opts.baseUrl;
+          const sessionIdProvider =
+            configSessionIdProvider ?? opts.sessionIdProvider;
           const merged: CodexOAuthTranscriberOptions = {
             vault: opts.vault,
-            ...(opts.baseUrl ? { baseUrl: opts.baseUrl } : {}),
+            ...(baseUrl ? { baseUrl } : {}),
             ...(opts.fetch ? { fetch: opts.fetch } : {}),
-            ...(opts.sessionIdProvider ? { sessionIdProvider: opts.sessionIdProvider } : {}),
-            ...(config as Partial<CodexOAuthTranscriberOptions>),
+            ...(sessionIdProvider ? { sessionIdProvider } : {}),
           };
           return new CodexOAuthTranscriber(merged);
         },

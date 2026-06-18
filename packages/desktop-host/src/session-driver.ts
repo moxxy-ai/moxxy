@@ -16,7 +16,8 @@ import { randomUUID } from 'node:crypto';
 import type { BrowserWindow } from 'electron';
 
 import type { RemoteSession } from '@moxxy/runner';
-import type { UserPromptAttachment } from '@moxxy/sdk';
+import { asTurnId } from '@moxxy/sdk';
+import type { RunTurnOptions, UserPromptAttachment } from '@moxxy/sdk';
 
 import type { IpcEvents } from '@moxxy/desktop-ipc-contract';
 import { openAsk, cancelAsksFor } from './ask-broker.js';
@@ -191,30 +192,27 @@ export class SessionDriver {
     const pump = (async () => {
       let error: string | null = null;
       try {
-        const opts: {
-          signal: AbortSignal;
-          turnId: string;
-          model?: string;
-          attachments?: ReadonlyArray<UserPromptAttachment>;
-        } = {
+        let built: ReadonlyArray<UserPromptAttachment> = [];
+        if (attachments && attachments.length > 0) {
+          // Read each file in the main process and build a real attachment
+          // (image base64 / inline text) — the renderer only had the path.
+          built = await buildAttachments(attachments);
+        }
+        const opts: RunTurnOptions = {
           signal: controller.signal,
           // Run the turn under the id we just returned to the renderer
           // (protocol v6): its per-turn event filters (skill-generation
           // preview, turn hiding) only match when the runner's events carry
-          // THIS id, not a server-minted one.
-          turnId: id,
+          // THIS id, not a server-minted one. `asTurnId` brands the plain
+          // uuid to the SDK's TurnId without widening the field's type.
+          turnId: asTurnId(id),
+          ...(model ? { model } : {}),
+          ...(built.length > 0 ? { attachments: built } : {}),
         };
-        if (model) opts.model = model;
-        if (attachments && attachments.length > 0) {
-          // Read each file in the main process and build a real attachment
-          // (image base64 / inline text) — the renderer only had the path.
-          const built = await buildAttachments(attachments);
-          if (built.length > 0) opts.attachments = built;
-        }
         // RemoteSession's runTurn forwards opts.attachments verbatim
         // to the runner's RunTurnParams, where each becomes a
         // UserPromptAttachment on the resulting user_prompt event.
-        for await (const event of this.session.runTurn(prompt, opts as never)) {
+        for await (const event of this.session.runTurn(prompt, opts)) {
           // Events also arrive through log.subscribe; this loop just
           // drains so we know when the turn finishes (the AsyncIterable
           // throws on error and returns on clean end).

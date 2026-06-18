@@ -204,18 +204,10 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
       ctx,
       {
         session: this.session,
-        model: this.model,
-        activeModelOverride: this.activeModelOverride,
-        yolo: this.yolo,
         busy: this.busy,
-        turnController: this.turnController,
-        handle: this.handle,
       },
       {
         pairing: this.pairing,
-        approvalResolver: this.approvalResolver,
-        permissionResolver: this.permissionResolver,
-        framePump: this.framePump,
         token,
         ...(this.opts.logger ? { logger: this.opts.logger } : {}),
       },

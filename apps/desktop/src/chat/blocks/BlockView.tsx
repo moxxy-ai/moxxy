@@ -40,6 +40,12 @@ export function BlockView({ block }: { readonly block: FoldedBlock }): JSX.Eleme
       return <SubagentGroupView block={block} />;
     case 'live-tools':
       return <LiveToolsBlock block={block} />;
+    default: {
+      // Exhaustiveness guard: a new Block kind in @moxxy/chat-model must be
+      // handled here or this becomes a compile error rather than rendering blank.
+      const _exhaustive: never = block;
+      return null;
+    }
   }
 }
 

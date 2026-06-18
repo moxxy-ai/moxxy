@@ -224,6 +224,168 @@ describe('CodexOAuthTranscriber', () => {
   });
 });
 
+describe('CodexOAuthTranscriber rich response fields', () => {
+  it('surfaces language/duration/segments when the backend reports them', async () => {
+    const vault = await makeVault();
+    await persistCodexTokens(vault, {
+      access: 'access-token',
+      refresh: 'refresh-token',
+      expires: Date.now() + 3_600_000,
+    });
+
+    const server = await startServer((_request, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          text: '  hi there  ',
+          language: 'en',
+          duration: 2.5,
+          segments: [
+            { start: 0, end: 1.2, text: 'hi' },
+            { start: 1.2, end: 2.5, text: 'there' },
+            { start: 'bad', end: 3, text: 'dropped' },
+          ],
+        }),
+      );
+    });
+
+    try {
+      const transcriber = new CodexOAuthTranscriber({ vault, baseUrl: server.baseUrl });
+      const result = await transcriber.transcribe(new Uint8Array([1, 2, 3]), {
+        mimeType: 'audio/wav',
+      });
+
+      expect(result.text).toBe('hi there');
+      expect(result.language).toBe('en');
+      expect(result.durationSec).toBe(2.5);
+      // Malformed segment (non-numeric start) is filtered out.
+      expect(result.segments).toEqual([
+        { start: 0, end: 1.2, text: 'hi' },
+        { start: 1.2, end: 2.5, text: 'there' },
+      ]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('returns only text when the backend omits the rich fields', async () => {
+    const vault = await makeVault();
+    await persistCodexTokens(vault, {
+      access: 'access-token',
+      refresh: 'refresh-token',
+      expires: Date.now() + 3_600_000,
+    });
+
+    const server = await startServer((_request, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ text: 'plain' }));
+    });
+
+    try {
+      const transcriber = new CodexOAuthTranscriber({ vault, baseUrl: server.baseUrl });
+      const result = await transcriber.transcribe(new Uint8Array([1]), { mimeType: 'audio/wav' });
+      expect(result).toEqual({ text: 'plain' });
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+describe('buildWhisperCodexPlugin createClient config merge', () => {
+  it('keeps the host-wired vault/fetch authoritative when config tries to override them', async () => {
+    const hostVault = await makeVault();
+    await persistCodexTokens(hostVault, {
+      access: 'host-token',
+      refresh: 'refresh-token',
+      expires: Date.now() + 3_600_000,
+      accountId: 'host-acct',
+    });
+
+    let captured: CapturedRequest | null = null;
+    const server = await startServer((request, res) => {
+      captured = request;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ text: 'host wins' }));
+    });
+
+    // A vault that, if used, would yield different (attacker) credentials.
+    const evilVault = await makeVault();
+    await persistCodexTokens(evilVault, {
+      access: 'evil-token',
+      refresh: 'evil-refresh',
+      expires: Date.now() + 3_600_000,
+      accountId: 'evil-acct',
+    });
+    const evilFetch = (() => {
+      throw new Error('config-supplied fetch must not be used');
+    }) as unknown as typeof fetch;
+
+    try {
+      const plugin = buildWhisperCodexPlugin({
+        vault: hostVault,
+        baseUrl: server.baseUrl,
+        sessionIdProvider: () => 'host-session',
+      });
+      const def = plugin.transcribers?.[0];
+
+      // Untrusted registry config attempts to shadow host-wired dependencies.
+      const transcriber = def!.createClient({
+        vault: evilVault,
+        fetch: evilFetch,
+      });
+      const result = await transcriber.transcribe(new Uint8Array([1, 2, 3, 4]), {
+        mimeType: 'audio/wav',
+      });
+
+      expect(result.text).toBe('host wins');
+      // Host vault credentials were used, not the config-supplied ones.
+      expect(captured?.req.headers.authorization).toBe('Bearer host-token');
+      expect(captured?.req.headers['chatgpt-account-id']).toBe('host-acct');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('still honours the caller-overridable baseUrl/sessionIdProvider from config', async () => {
+    const hostVault = await makeVault();
+    await persistCodexTokens(hostVault, {
+      access: 'host-token',
+      refresh: 'refresh-token',
+      expires: Date.now() + 3_600_000,
+    });
+
+    let captured: CapturedRequest | null = null;
+    const configServer = await startServer((request, res) => {
+      captured = request;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ text: 'from config server' }));
+    });
+
+    try {
+      // Host baseUrl points elsewhere; config must win for these whitelisted keys.
+      const plugin = buildWhisperCodexPlugin({
+        vault: hostVault,
+        baseUrl: 'http://127.0.0.1:9',
+        sessionIdProvider: () => 'host-session',
+      });
+      const def = plugin.transcribers?.[0];
+      const transcriber = def!.createClient({
+        baseUrl: configServer.baseUrl,
+        sessionIdProvider: () => 'config-session',
+      });
+
+      const result = await transcriber.transcribe(new Uint8Array([1, 2, 3, 4]), {
+        mimeType: 'audio/wav',
+      });
+
+      expect(result.text).toBe('from config server');
+      expect(captured?.req.headers.session_id).toBe('config-session');
+    } finally {
+      await configServer.close();
+    }
+  });
+});
+
 describe('Codex transcribe helpers', () => {
   it('builds the ChatGPT and local transcribe URLs', () => {
     expect(buildCodexTranscribeUrl()).toBe('https://chatgpt.com/backend-api/transcribe');

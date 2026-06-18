@@ -1,7 +1,6 @@
 import type {
   AppContext,
   ClientSession,
-  LifecycleHooks,
   MoxxyEvent,
   RunTurnOptions,
   SessionId,
@@ -435,11 +434,6 @@ export class Session implements ClientSession, SessionRuntime {
       hasSynthesizer: this.synthesizers.list().length > 0,
       activeSynthesizer: this.synthesizers.getActiveName(),
     };
-  }
-
-  registerHookOptions(_hooks: LifecycleHooks): void {
-    // For tests: allows attaching a one-off hook bundle through a synthetic plugin if needed.
-    // Implementation-detail helper, intentionally minimal.
   }
 }
 

@@ -131,7 +131,17 @@ export function parseFlags(argv: ReadonlyArray<string>): Flags | { help: true } 
     else if (a === '--name') flags.name = takeValue();
     else if (a === '--out') flags.out = takeValue();
     else if (a === '--model') flags.model = takeValue();
-    else if (a === '--max-iterations') flags.maxIterations = Number(takeValue());
+    else if (a === '--max-iterations') {
+      // Validate up-front: a malformed `--max-iterations abc` would otherwise
+      // become NaN and be silently dropped at the call site's truthiness guard,
+      // letting the recorder run unbounded against the real paid Anthropic API.
+      const raw = takeValue();
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n < 1) {
+        throw new Error('--max-iterations must be a positive integer');
+      }
+      flags.maxIterations = n;
+    }
     else if (a === '--allow-tools') flags.allowTools = takeValue().split(',').map((s) => s.trim()).filter(Boolean);
     else throw new Error(`unknown flag: ${a}`);
   }

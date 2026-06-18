@@ -20,6 +20,10 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { resolveMoxxyCli, augmentedPaths, spawnCli } from './cli-resolver';
 
+/** Bound the live `/v1/models` request so a hung provider can't wedge the
+ *  IPC handler (and the Settings model picker) indefinitely. */
+const MODELS_FETCH_TIMEOUT_MS = 15_000;
+
 interface StoredProvider {
   readonly kind: 'openai-compat';
   readonly name: string;
@@ -133,10 +137,7 @@ function vaultGet(key: string): Promise<string> {
  * unless the user overrode `envVar` when adding it.
  */
 function envVarFor(provider: StoredProvider): string {
-  return (
-    provider.envVar ??
-    `${provider.name.toUpperCase().replace(/-/g, '_')}_API_KEY`
-  );
+  return provider.envVar ?? builtinProviderKeyName(provider.name);
 }
 
 /**
@@ -169,6 +170,7 @@ export async function fetchProviderModels(
       Authorization: `Bearer ${apiKey}`,
       Accept: 'application/json',
     },
+    signal: AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
     throw new Error(`GET ${url} → ${res.status} ${res.statusText}`);

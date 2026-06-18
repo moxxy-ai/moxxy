@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PassThrough } from 'node:stream';
 import { asSessionId, asToolCallId, asTurnId } from '@moxxy/sdk';
 import type { ToolContext } from '@moxxy/sdk';
-import { buildBrowserSessionTool, closeBrowserSidecar, type SidecarStream } from './browser-session.js';
+import {
+  buildBrowserSessionTool,
+  closeBrowserSidecar,
+  type SidecarStream,
+} from './browser-session.js';
 import { setSsrfDnsResolver } from './ssrf-guard.js';
 
 // Hermetic DNS for the parent-side SSRF guard on `goto`: every hostname

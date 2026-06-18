@@ -1,14 +1,19 @@
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  detectCoreInstall,
   detectNewDeps,
   findRepoPkgDir,
   listCoreTxns,
   overlayPackages,
+  provisionWorkspace,
   readCoreJournal,
+  repoDir,
   restoreOverlay,
+  run,
   safeRepoPath,
   shortName,
   writeCoreJournal,
@@ -123,6 +128,138 @@ describe('detectNewDeps', () => {
 
     const news = await detectNewDeps(repo, install, ['@moxxy/core']);
     expect(news).toEqual(['missing']);
+  });
+});
+
+describe('detectCoreInstall', () => {
+  /** Write a @moxxy/core/package.json at `scopeDir/core`. */
+  async function writeCorePkg(
+    scopeDir: string,
+    pkg: Record<string, unknown>,
+  ): Promise<void> {
+    await fs.mkdir(path.join(scopeDir, 'core'), { recursive: true });
+    await fs.writeFile(path.join(scopeDir, 'core', 'package.json'), JSON.stringify(pkg), 'utf8');
+  }
+
+  it('resolves the global-install layout (a parent IS the @moxxy scope dir)', async () => {
+    // node_modules/@moxxy/<pkg>/dist/x.js → the scope dir is an ancestor named @moxxy.
+    const root = await tmp();
+    const scopeDir = path.join(root, 'node_modules', '@moxxy');
+    await writeCorePkg(scopeDir, {
+      version: '2.3.4',
+      gitHead: 'deadbeef',
+      repository: { url: 'git+https://github.com/acme/moxxy.git' },
+    });
+    const fromUrl = pathToFileURL(path.join(scopeDir, 'cli', 'dist', 'index.js')).href;
+
+    const info = detectCoreInstall(fromUrl);
+    expect(info).not.toBeNull();
+    expect(info?.scopeDir).toBe(scopeDir);
+    expect(info?.version).toBe('2.3.4');
+    expect(info?.gitHead).toBe('deadbeef');
+    // git+https:// is normalized to https://
+    expect(info?.repoUrl).toBe('https://github.com/acme/moxxy.git');
+  });
+
+  it('resolves the workspace layout (an ancestor has node_modules/@moxxy)', async () => {
+    const root = await tmp();
+    const scopeDir = path.join(root, 'node_modules', '@moxxy');
+    await writeCorePkg(scopeDir, { version: '0.1.0', repository: 'git://example.com/x.git' });
+    // Caller lives deep in the workspace, not under node_modules.
+    const fromUrl = pathToFileURL(path.join(root, 'apps', 'cli', 'dist', 'main.js')).href;
+
+    const info = detectCoreInstall(fromUrl);
+    expect(info?.scopeDir).toBe(scopeDir);
+    expect(info?.version).toBe('0.1.0');
+    expect(info?.gitHead).toBeUndefined();
+    // string `repository` + git:// normalization
+    expect(info?.repoUrl).toBe('https://example.com/x.git');
+  });
+
+  it('returns null when no @moxxy/core can be located', async () => {
+    const root = await tmp();
+    const fromUrl = pathToFileURL(path.join(root, 'nowhere', 'index.js')).href;
+    expect(detectCoreInstall(fromUrl)).toBeNull();
+  });
+
+  it('returns null on a corrupt core/package.json', async () => {
+    const root = await tmp();
+    const scopeDir = path.join(root, 'node_modules', '@moxxy');
+    await fs.mkdir(path.join(scopeDir, 'core'), { recursive: true });
+    await fs.writeFile(path.join(scopeDir, 'core', 'package.json'), '{ not json', 'utf8');
+    const fromUrl = pathToFileURL(path.join(root, 'index.js')).href;
+    expect(detectCoreInstall(fromUrl)).toBeNull();
+  });
+
+  it('defaults version to 0.0.0 when package.json omits it', async () => {
+    const root = await tmp();
+    const scopeDir = path.join(root, 'node_modules', '@moxxy');
+    await writeCorePkg(scopeDir, {});
+    const fromUrl = pathToFileURL(path.join(root, 'index.js')).href;
+    expect(detectCoreInstall(fromUrl)?.version).toBe('0.0.0');
+  });
+});
+
+describe('provisionWorkspace HEAD pin', () => {
+  /** Init a throwaway git repo with one commit; return its dir + commit sha. */
+  async function gitFixture(): Promise<{ dir: string; head: string }> {
+    const dir = await tmp();
+    await run('git', ['init', '-q'], dir);
+    await run('git', ['config', 'user.email', 't@t'], dir);
+    await run('git', ['config', 'user.name', 't'], dir);
+    await fs.writeFile(path.join(dir, 'README.md'), 'hi\n', 'utf8');
+    await run('git', ['add', '.'], dir);
+    await run('git', ['commit', '-qm', 'init'], dir);
+    const head = (await run('git', ['rev-parse', 'HEAD'], dir)).output.trim();
+    return { dir, head };
+  }
+
+  /** Seed an existing clone at moxxyDir/repo from a local source repo. */
+  async function seedClone(moxxyDir: string, srcDir: string): Promise<void> {
+    const target = repoDir(moxxyDir);
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    const clone = await run('git', ['clone', '-q', srcDir, target], path.dirname(target));
+    expect(clone.code).toBe(0);
+  }
+
+  it('rejects with a source-mismatch message when the installed gitHead is not the clone HEAD', async () => {
+    const { dir: src } = await gitFixture();
+    const moxxy = await tmp();
+    await seedClone(moxxy, src);
+
+    const install: CoreInstallInfo = {
+      version: '1.0.0',
+      gitHead: '0000000000000000000000000000000000000000', // a commit the clone can't reach
+      repoUrl: src,
+      scopeDir: path.join(moxxy, 'node_modules', '@moxxy'),
+    };
+    const res = await provisionWorkspace({ moxxyDir: moxxy, install, repoUrlOverride: src });
+    expect(res.ok).toBe(false);
+    expect(res.message).toContain('source mismatch');
+  });
+
+  it('fails fast with no gitHead to pin to', async () => {
+    const moxxy = await tmp();
+    const install: CoreInstallInfo = {
+      version: '1.0.0',
+      repoUrl: 'https://example.com/x.git',
+      scopeDir: path.join(moxxy, 'node_modules', '@moxxy'),
+    };
+    const res = await provisionWorkspace({ moxxyDir: moxxy, install });
+    expect(res.ok).toBe(false);
+    expect(res.message).toContain('gitHead');
+  });
+
+  it('fails fast with no repository url', async () => {
+    const moxxy = await tmp();
+    const install: CoreInstallInfo = {
+      version: '1.0.0',
+      gitHead: 'abc',
+      scopeDir: path.join(moxxy, 'node_modules', '@moxxy'),
+    };
+    const res = await provisionWorkspace({ moxxyDir: moxxy, install });
+    expect(res.ok).toBe(false);
+    expect(res.message).toContain('repository url');
   });
 });
 

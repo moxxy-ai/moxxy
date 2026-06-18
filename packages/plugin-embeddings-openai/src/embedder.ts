@@ -35,6 +35,17 @@ export class OpenAIEmbedder implements EmbeddingProvider {
   constructor(opts: OpenAIEmbedderOptions = {}) {
     this.model = opts.model ?? 'text-embedding-3-small';
     this.explicitDim = opts.dimensions;
+    // `dimensions` truncation is only supported by the text-embedding-3-* family.
+    // ada-002 rejects the parameter (the API 400s), and forwarding it would also
+    // make `dim`/`name` report a size the API will never produce. Drop it + warn
+    // so dim/embed stay consistent with what ada-002 actually returns (1536).
+    if (this.model === 'text-embedding-ada-002' && this.explicitDim !== undefined) {
+      console.warn(
+        `@moxxy/plugin-embeddings-openai: 'dimensions' (${this.explicitDim}) is not ` +
+          "supported by 'text-embedding-ada-002'; ignoring it (dim stays 1536).",
+      );
+      this.explicitDim = undefined;
+    }
     // Reject an unknown model unless the caller supplies an explicit dim. Otherwise
     // `dim` would be undefined and the memory index would be built with no
     // dimensionality check — silently corruptible. selectEmbedder catches this

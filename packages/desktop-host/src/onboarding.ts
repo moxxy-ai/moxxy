@@ -12,6 +12,7 @@ import path from 'node:path';
 
 import type { OnboardingStatus } from '@moxxy/desktop-ipc-contract';
 import { augmentedPaths, resolveMoxxyCli, spawnCli, type CliInvocation } from './cli-resolver';
+import { builtinProviderKeyName } from './provider-discovery';
 import { assertSafeProviderName } from './security';
 
 export async function probeOnboarding(): Promise<OnboardingStatus> {
@@ -24,9 +25,7 @@ export async function probeOnboarding(): Promise<OnboardingStatus> {
   const activeProvider = prefs?.providerName ?? null;
   const vaultKeys = await readVaultKeys(home);
 
-  const expectedKey = activeProvider
-    ? `${activeProvider.toUpperCase().replace(/-/g, '_')}_API_KEY`
-    : null;
+  const expectedKey = activeProvider ? builtinProviderKeyName(activeProvider) : null;
   const hasProvider =
     activeProvider !== null &&
     expectedKey !== null &&
@@ -69,7 +68,7 @@ export async function saveProviderKey(provider: string, secret: string): Promise
   assertSafeProviderName(provider);
   const cli = resolveMoxxyCli({ extraPaths: augmentedPaths() });
   if (!cli) throw new Error('moxxy CLI not found');
-  const key = `${provider.toUpperCase().replace(/-/g, '_')}_API_KEY`;
+  const key = builtinProviderKeyName(provider);
   await runCli(cli, ['vault', 'set', key], secret);
 }
 
