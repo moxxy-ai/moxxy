@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-collab",
   "private": true,
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Cross-process collaboration hub for agentic-collaborative mode: a unix-socket message bus + task board (file-lock arbiter) + contract registry + peer-read, plus the peer-side collab_* tools and the collab_say command.",
   "type": "module",
   "main": "./dist/index.js",
