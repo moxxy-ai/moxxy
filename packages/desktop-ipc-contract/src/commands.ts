@@ -33,6 +33,7 @@ import type {
   AppUpdateDiagnostics,
 } from './app-update.js';
 import type { DeepLinkPayload } from './deep-link.js';
+import type { AppInstallStatus, AnonymizerParseResult } from './apps.js';
 
 // ---------- Invokable commands (renderer → main) --------------------------
 
@@ -236,6 +237,15 @@ export interface IpcCommands {
   /** True when the runner has an active transcriber plugin. UI uses
    *  this to enable/disable the mic button. */
   'session.hasTranscriber': () => Promise<boolean>;
+  /** The globally-active collaboration (only one runs at a time), or inactive.
+   *  Read from the single-flight lock file so it spans all workspaces' runners;
+   *  the Collaborate tab uses it to disable Start while one is running. */
+  'collab.active': () => Promise<{
+    readonly active: boolean;
+    readonly sessionId?: string;
+    readonly task?: string;
+    readonly startedAtMs?: number;
+  }>;
   /** Forward an audio blob to the runner's active transcriber.
    *  Audio must be base64-encoded; returns the recognised text. */
   'session.transcribe': (args: {
@@ -383,6 +393,35 @@ export interface IpcCommands {
    * run result. Throws a coded error when the host predates the resume path.
    */
   'workflows.resume': (args: { runId: string; reply: string }) => Promise<WorkflowRun>;
+
+  // ---- Desktop apps gallery (install lifecycle) ------------------------
+  // All host-only (native pickers + filesystem + a network download). They are
+  // deliberately NOT in REMOTE_ALLOWED_COMMANDS — a paired phone can't trigger
+  // a desktop download or read/write local files.
+  /** Current install state of an app's local assets. */
+  'apps.status': (args: { appId: string }) => Promise<AppInstallStatus>;
+  /** Download + install an app's local assets (e.g. the anonymizer's NER
+   *  model). Streams `apps.install.progress`; resolves with the final status. */
+  'apps.install': (args: { appId: string }) => Promise<AppInstallStatus>;
+  /** Remove an app's installed local assets. */
+  'apps.uninstall': (args: { appId: string }) => Promise<AppInstallStatus>;
+
+  // ---- Document anonymizer (offline; the first app) --------------------
+  /** Open a native picker scoped to anonymizable documents; returns the
+   *  absolute path (remembered for authz) or null if cancelled. */
+  'anonymizer.pickDocument': () => Promise<string | null>;
+  /** Parse a user-picked / workspace document to plain text in main (reusing
+   *  the attachment officeparser pipeline) so the renderer can redact it
+   *  locally. The file is read ONLY if its provenance is authorized (picked or
+   *  under a workspace cwd). No provider, no runner, no network. */
+  'anonymizer.parseDocument': (args: { path: string }) => Promise<AnonymizerParseResult>;
+  /** Save renderer-produced redacted text to a user-chosen location via a
+   *  native Save dialog. Main writes ONLY where the user pointed; returns the
+   *  path or null if cancelled. */
+  'anonymizer.saveRedacted': (args: {
+    suggestedName: string;
+    content: string;
+  }) => Promise<string | null>;
 
   // Settings
   // Desktop preferences (separate from runner preferences).

@@ -107,6 +107,32 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     });
     return result;
   });
+  handle('collab.active', async () => {
+    // Read the global single-flight lock the collaborative coordinator writes
+    // (~/.moxxy/collab/active.lock). Read directly here (no runner round-trip)
+    // so the Collaborate tab sees a collaboration running in ANY workspace.
+    try {
+      const { readFileSync } = await import('node:fs');
+      const { homedir } = await import('node:os');
+      const { join } = await import('node:path');
+      const lockPath = process.env.MOXXY_COLLAB_LOCK || join(homedir(), '.moxxy', 'collab', 'active.lock');
+      const info = JSON.parse(readFileSync(lockPath, 'utf8')) as {
+        pid: number;
+        sessionId: string;
+        task: string;
+        startedAtMs: number;
+      };
+      // Liveness: a dead holder pid means the lock is stale → not active.
+      try {
+        process.kill(info.pid, 0);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EPERM') return { active: false };
+      }
+      return { active: true, sessionId: info.sessionId, task: info.task, startedAtMs: info.startedAtMs };
+    } catch {
+      return { active: false };
+    }
+  });
   handle('session.hasTranscriber', async () => {
     // Voice is wired through the desktop's *in-process* Codex
     // transcriber (mirrors the TUI's self-host setup: same vault,

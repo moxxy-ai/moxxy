@@ -342,23 +342,36 @@ export function clerkCspHostSources(publishableKey?: string | null): string[] {
  * Clerk-compatible CSP for the packaged app. Scripts stay strict
  * (`'self'` + the Clerk/Cloudflare-Turnstile origins clerk-js needs —
  * no `'unsafe-inline'`/`'unsafe-eval'` because the bundle ships only
- * external module scripts). Styles allow `'unsafe-inline'` because the
- * UI uses inline style objects + the splash `<style>` block + Google
- * Fonts. `extraClerkHosts` are the prod Frontend API sources derived from
- * the publishable key (see {@link clerkCspHostSources}); empty for test keys.
+ * external module scripts). `'wasm-unsafe-eval'` is the ONE narrow
+ * exception: it permits WebAssembly compilation (and nothing else — it does
+ * NOT re-enable `eval`/`new Function`), which onnxruntime-web needs to run the
+ * anonymizer's on-device NER model in a worker. Styles allow `'unsafe-inline'`
+ * because the UI uses inline style objects + the splash `<style>` block +
+ * Google Fonts. `extraClerkHosts` are the prod Frontend API sources derived
+ * from the publishable key (see {@link clerkCspHostSources}); empty for test
+ * keys.
+ *
+ * `connect-src` additionally allows the `moxxy-app:` scheme: the anonymizer's
+ * renderer worker fetches its locally installed model files over
+ * `moxxy-app://assets/<appId>/...`. That scheme is served by a confined,
+ * GET/HEAD-only handler that reads files under `userData/moxxy-apps` and reaches
+ * NO network host (see {@link ../apps/assets-protocol.ts}) — so it enables zero
+ * network egress and the anonymizer's offline guarantee at use time still holds.
+ * It is deliberately NOT a real http(s) host: `connect-src` is not widened.
  */
 function buildCspDirectives(extraClerkHosts: readonly string[]): string {
   const extra = extraClerkHosts.length ? ` ${extraClerkHosts.join(' ')}` : '';
   return [
     "default-src 'self'",
-    `script-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
+    `script-src 'self' 'wasm-unsafe-eval' https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     `img-src 'self' data: blob: https://img.clerk.com https://*.clerk.com${extra}`,
     "font-src 'self' data: https://fonts.gstatic.com",
     // challenges.cloudflare.com: Clerk's bot-protection (Turnstile) runs on
     // sign-up — Clerk's documented CSP needs it in connect-src too, not just
     // script/frame-src, or the captcha can fail and sign-up dead-ends.
-    `connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
+    // moxxy-app:: the anonymizer worker's local-only model fetches (above).
+    `connect-src 'self' moxxy-app: https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
     "worker-src 'self' blob:",
     `frame-src https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
     "object-src 'none'",

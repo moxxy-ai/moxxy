@@ -73,6 +73,35 @@ async function extractText(buf: Buffer, name: string): Promise<string | null> {
   }
 }
 
+/**
+ * Read a file and return its plain text, mirroring {@link buildAttachments}'
+ * per-file text logic WITHOUT the attachment/size machinery: PDFs and Office /
+ * OpenDocument files go through officeparser; any other file is returned as
+ * UTF-8 when it isn't binary (a NUL byte ⇒ binary ⇒ null). Returns null on a
+ * read failure, on a binary/unsupported file, or when no text could be
+ * extracted.
+ *
+ * Reused by the offline anonymizer (`anonymizer.parseDocument`): no provider, no
+ * runner, no network — just readFile + officeparser.
+ */
+export async function parseFileToText(absPath: string): Promise<string | null> {
+  const ext = path.extname(absPath).toLowerCase();
+  const name = path.basename(absPath);
+  let buf: Buffer;
+  try {
+    buf = await readFile(absPath);
+  } catch {
+    return null;
+  }
+  // PDF (by extension or magic bytes) or Office/ODF → officeparser.
+  if (isPdf(buf, ext) || OFFICE_EXTENSIONS.has(ext)) {
+    return extractText(buf, name);
+  }
+  // Anything else: UTF-8 text, unless it looks binary.
+  if (buf.includes(0)) return null;
+  return buf.toString('utf8');
+}
+
 export async function buildAttachments(
   files: ReadonlyArray<{ path: string; name: string }>,
 ): Promise<UserPromptAttachment[]> {

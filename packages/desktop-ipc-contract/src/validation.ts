@@ -65,6 +65,11 @@ const commandName = z
   .max(64)
   .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, 'invalid command name');
 
+/** Desktop-app id — a registry slug keying both the renderer app registry and
+ *  the main installer/asset directory (`userData/moxxy-apps/<appId>`), so it
+ *  must never traverse: lowercase letters/digits/hyphen only. */
+const appId = z.string().min(1).max(64).regex(/^[a-z][a-z0-9-]*$/, 'invalid app id');
+
 /** Workflow names come from workflow filenames — bounded, no traversal. */
 const workflowName = z
   .string()
@@ -190,6 +195,20 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'settings.writeSkill': z.object({ name: skillName, body: z.string().max(1_000_000) }),
   'settings.readSkill': z.object({ name: skillName }),
   'settings.deleteSkill': z.object({ name: skillName }),
+  // Desktop apps: appId keys the per-app install dir + a network download, so
+  // pin it to a non-traversing slug. (pickDocument is no-arg → see below.)
+  'apps.status': z.object({ appId }),
+  'apps.install': z.object({ appId }),
+  'apps.uninstall': z.object({ appId }),
+  // Anonymizer: parseDocument reads a file (bound the path), saveRedacted writes
+  // one (bound name + cap content so a renderer can't OOM main). pickDocument
+  // takes nothing — pin it to "nothing" so no args can be smuggled across.
+  'anonymizer.pickDocument': z.undefined(),
+  'anonymizer.parseDocument': z.object({ path: z.string().min(1).max(4096) }),
+  'anonymizer.saveRedacted': z.object({
+    suggestedName: z.string().min(1).max(255),
+    content: z.string().max(20_000_000),
+  }),
   'desks.create': z.object({ name: z.string().min(1).max(200), cwd: z.string().min(1).max(4096) }),
   // Mirror desks.create's name bounds — rename writes the name into the desks
   // JSON, so an unbounded string would let a renderer bloat the state file.

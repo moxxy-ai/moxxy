@@ -2,9 +2,9 @@ import type { ReactNode } from 'react';
 import { PanelLeftIcon } from './PanelLeftIcon';
 import { setSidebarCollapsed, useSidebarCollapsed } from '@/lib/useSidebarCollapsed';
 
-/** Top-level main-content views. Chat ↔ Workflows switch via the header's
- *  `ViewSwitcher`; Settings is reached from the sidebar. */
-export type View = 'chat' | 'workflows' | 'collaborate' | 'settings';
+/** Top-level main-content views. Chat ↔ Workflows ↔ Collaborate ↔ Apps switch
+ *  via the header's `ViewSwitcher`; Settings is reached from the sidebar. */
+export type View = 'chat' | 'workflows' | 'collaborate' | 'settings' | 'apps';
 
 /**
  * Shared section header — one 64px chrome bar so Chat / Workflows /
@@ -114,13 +114,17 @@ export function Segmented<T extends string>({
   );
 }
 
-const SWITCH_ITEMS: ReadonlyArray<{ readonly id: 'chat' | 'workflows' | 'collaborate'; readonly label: string }> = [
+const SWITCH_ITEMS: ReadonlyArray<{
+  readonly id: 'chat' | 'workflows' | 'collaborate' | 'apps';
+  readonly label: string;
+}> = [
   { id: 'chat', label: 'Chat' },
   { id: 'workflows', label: 'Workflows' },
   { id: 'collaborate', label: 'Collaborate' },
+  { id: 'apps', label: 'Apps' },
 ];
 
-/** Chat ↔ Workflows segmented switcher — the leading element of every
+/** Chat ↔ Workflows ↔ Apps segmented switcher — the leading element of every
  *  unified header, standing in for a per-view title. */
 export function ViewSwitcher({
   view,

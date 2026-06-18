@@ -58,6 +58,43 @@ codebase keeps accruing debt; the audit backlog itself is cleared.
 
 ---
 
+## 2026-06-18 — Desktop Apps gallery + offline document anonymizer
+
+Added a registry-backed **Apps** section (new top-level header tab) with a
+predefined per-app **Install** lifecycle, and shipped an offline document
+anonymizer as the first app. New pure engine `@moxxy/anonymizer` (zero deps,
+network-free, enforced by `offline.test.ts`); main-process generic installer +
+hardened `moxxy-app://` asset scheme (`packages/desktop-host/src/apps/`); renderer
+gallery + NER worker (`@huggingface/transformers`, wasm).
+
+**Retired:** the per-file text-extraction logic was factored out of
+`attachments.ts` (`buildAttachments`/`extractText`) into an exported
+`parseFileToText(absPath)` reused by the anonymizer handler — one copy, two
+callers.
+
+**New debt logged on sight:**
+- **NER model E2E is verified only in unit tests** — the structured engine, the
+  installer/scheme (stubbed-fetch + temp-dir tests), the gallery, and the BIO
+  aggregation are covered, but the actual ~109 MB model download + transformers.js
+  wasm inference over `moxxy-app://` can only be confirmed in a **packaged/dev
+  Electron run** (no model is exercised in CI). Verify: install the app, confirm
+  the model loads from `moxxy-app://` (DevTools Network) with **zero** real
+  network, and that names redact. Until then NER degrades gracefully (structured
+  redaction always works; the toggle shows `unavailable`).
+- **transformers.js ↔ ORT wasm version coupling.** The ORT wasm runtime is bundled
+  by Vite from `@huggingface/transformers@^3.8.1` (loads from `'self'`); the model
+  is `Xenova/bert-base-NER` q8. Bumping the transformers.js dep can change the ORT
+  wasm and the expected model layout — re-verify the packaged NER run on any bump.
+- **Asset path coupling.** The installer `dest` mirrors the HF resolve path
+  verbatim because the worker's `remoteHost` rewrite maps 1:1 to it
+  (`packages/desktop-host/src/apps/registry.ts`). Changing one side silently 404s
+  the model; keep them in lockstep (commented at both ends).
+- **No on-disk integrity check.** Install assets have no sha256 pin (Content-Length
+  drives progress only); a corrupt/partial model surfaces as a runtime NER error,
+  not an install failure. Add per-asset hashes when the model set stabilizes.
+
+---
+
 ## 2026-06-18 — Repo-wide quality + performance sweep (audit-driven)
 
 A 240-agent, adversarially-verified audit of the whole monorepo produced

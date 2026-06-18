@@ -42,6 +42,8 @@ import { registerProviderLoginHandlers } from './ipc/provider-login';
 import { registerSessionHandlers } from './ipc/session';
 import { registerSessionsHandlers } from './ipc/sessions';
 import { registerWorkspaceFsHandlers } from './ipc/workspace-fs';
+import { registerAppsHandlers } from './ipc/apps';
+import { registerAnonymizerHandlers } from './ipc/anonymizer';
 import { registerGitHandlers } from './ipc/git';
 import { registerSurfaceHandlers } from './ipc/surfaces';
 import { registerDesksHandlers } from './ipc/desks';
@@ -81,6 +83,8 @@ export function registerIpcHandlers(
     registerSessionHandlers(pool);
     registerSessionsHandlers(pool, desks);
     registerWorkspaceFsHandlers(desks);
+    registerAppsHandlers();
+    registerAnonymizerHandlers(pool, desks);
     registerGitHandlers(desks);
     registerSurfaceHandlers(pool);
     registerDesksHandlers(pool, desks);

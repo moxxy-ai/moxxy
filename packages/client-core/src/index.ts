@@ -38,3 +38,5 @@ export * from './useMobileGateway.js';
 export * from './useVoiceRecorder.js';
 export * from './useActiveModeBadge.js';
 export * from './useSessionInfoBridge.js';
+export * from './useApps.js';
+export * from './useAnonymizer.js';

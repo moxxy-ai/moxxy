@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +11,18 @@ import { git } from './worktrees.js';
 
 const IDENT = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
 const cleanups: Array<() => void> = [];
+
+beforeEach(() => {
+  // Isolate the global single-flight lock to a temp file so the e2e runs never
+  // touch (or get blocked by) a real ~/.moxxy collaboration lock.
+  const lockDir = mkdtempSync(join(tmpdir(), 'mc-loop-lock-'));
+  process.env.MOXXY_COLLAB_LOCK = join(lockDir, 'active.lock');
+  cleanups.push(() => {
+    delete process.env.MOXXY_COLLAB_LOCK;
+    rmSync(lockDir, { recursive: true, force: true });
+  });
+});
+
 afterEach(() => {
   for (const fn of cleanups.splice(0)) fn();
 });

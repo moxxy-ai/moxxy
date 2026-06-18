@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { buildAttachments, persistImageBlob } from './attachments';
+import { buildAttachments, parseFileToText, persistImageBlob } from './attachments';
 
 /** Temp files persistImageBlob writes; cleaned up after each test. */
 const written: string[] = [];
@@ -132,5 +132,26 @@ describe('buildAttachments', () => {
   it('drops an unreadable path without throwing', async () => {
     const out = await buildAttachments([{ path: '/no/such/file.txt', name: 'file.txt' }]);
     expect(out).toEqual([]);
+  });
+});
+
+describe('parseFileToText', () => {
+  it('returns UTF-8 text for a plain text file', async () => {
+    const { path: p } = await tmpFile('notes.txt', 'Alice met Bob in Berlin.');
+    expect(await parseFileToText(p)).toBe('Alice met Bob in Berlin.');
+  });
+
+  it('returns null for a binary (NUL-containing) file', async () => {
+    const { path: p } = await tmpFile('blob.bin', Buffer.from([0x00, 0x01, 0x02, 0x00]));
+    expect(await parseFileToText(p)).toBeNull();
+  });
+
+  it('returns null for a corrupt Office file rather than throwing', async () => {
+    const { path: p } = await tmpFile('broken.docx', Buffer.from('not really a docx'));
+    expect(await parseFileToText(p)).toBeNull();
+  });
+
+  it('returns null for an unreadable path', async () => {
+    expect(await parseFileToText('/no/such/file.txt')).toBeNull();
   });
 });

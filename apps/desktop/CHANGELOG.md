@@ -1,5 +1,77 @@
 # @moxxy/desktop
 
+## 0.11.0
+
+### Minor Changes
+
+- f8b0c63: feat(collaborative): launch collaborations from the Collaborate tab; one at a time
+
+  Collaboration is no longer started as a chat mode (any chat in a workspace could
+  have kicked one off, clobbering the same repo's worktrees). It is launched from
+  the Collaborate tab, and only ONE runs at a time across the app to save
+  resources.
+
+  - **Global single-flight lock** (`~/.moxxy/collab/active.lock`, cross-process,
+    with dead-pid reclaim): the coordinator acquires it before a run and refuses a
+    second with a clear message; released in `finally`.
+  - **Collaborate tab Start composer** — type a goal → it sets the active
+    workspace's session to collaborative mode and runs it; a `＋ New` affordance
+    after a run finishes. A new read-only `collab.active` IPC lets the tab disable
+    Start (with a notice) while a collaboration runs in any workspace.
+  - **Removed from the chat mode pickers** — `collaborative` and the internal
+    `collab-architect`/`collab-peer` modes no longer appear in the desktop
+    AgentPicker or the TUI `/mode` picker; `/mode collab*` points to `/collab`.
+  - chat-model: a refused start no longer leaves an empty collaboration block.
+
+### Patch Changes
+
+- Updated dependencies [f8b0c63]
+  - @moxxy/chat-model@0.2.2
+  - @moxxy/desktop-ipc-contract@0.9.0
+  - @moxxy/desktop-host@0.7.0
+  - @moxxy/cli@0.13.1
+  - @moxxy/client-core@0.8.1
+  - @moxxy/ipc-server-ws@0.1.17
+  - @moxxy/plugin-channel-mobile@0.1.18
+  - @moxxy/client-platform-web@0.1.18
+
+## 0.10.0
+
+### Minor Changes
+
+- c058735: feat(desktop): Apps gallery with install lifecycle + offline document anonymizer
+
+  Adds an **Apps** section (a new top-level header tab next to Chat / Workflows) — a
+  registry-backed gallery of self-contained mini-applications. Apps that need local
+  assets show a predefined **Install** step that downloads everything they need
+  before first use; installation is the only time the network is touched, runs in
+  the main process, and is gated behind an explicit click.
+
+  The first app is an **offline document anonymizer**. Paste text or open a
+  document (PDF / Office / text, parsed locally via the existing officeparser
+  pipeline) and it detects + redacts PII — emails, phone numbers, credit cards
+  (Luhn), SSNs, IPs, MACs, IBANs (mod-97), URLs — plus a custom-terms list and an
+  **on-device NER** model (`Xenova/bert-base-NER`, ~109 MB, downloaded on install)
+  for names, organizations and locations. Redaction runs entirely in the renderer
+  (`@moxxy/anonymizer`, a new pure, dependency-free, network-free engine) with
+  labeled / pseudonym / hash styles. **Documents never leave the machine**: the
+  analyze path touches no provider/runner/network, the CSP `connect-src` stays
+  local-only (the NER model is served from a confined `moxxy-app://` scheme over
+  `userData/moxxy-apps`), and the engine's emptiness of dependencies is enforced by
+  a unit test.
+
+### Patch Changes
+
+- Updated dependencies [c058735]
+  - @moxxy/anonymizer@0.1.0
+  - @moxxy/desktop-ipc-contract@0.8.0
+  - @moxxy/desktop-host@0.6.0
+  - @moxxy/client-core@0.8.0
+  - @moxxy/ipc-server-ws@0.1.16
+  - @moxxy/plugin-channel-mobile@0.1.17
+  - @moxxy/client-platform-web@0.1.17
+  - @moxxy/cli@0.13.1
+
 ## 0.9.1
 
 ### Patch Changes

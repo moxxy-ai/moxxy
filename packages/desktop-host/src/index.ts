@@ -42,6 +42,7 @@ export {
   type LoopbackServer,
   type LoopbackServerOptions,
 } from './loopback-server.js';
+export { installAppAssetProtocol, APP_ASSET_SCHEME } from './apps/assets-protocol.js';
 export {
   DESKTOP_APP_HOST,
   generateSelfSignedCert,
