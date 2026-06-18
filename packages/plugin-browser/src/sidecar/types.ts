@@ -46,10 +46,15 @@ export interface PageHandle {
   evaluate(fn: string): Promise<unknown>;
   url(): string;
   close(): Promise<void>;
-  // Coordinate-based input for the live browser surface (loosely typed — the
-  // real Playwright Page provides all of these).
+  // Coordinate-based input + viewport control for the live browser surface
+  // (loosely typed — the real Playwright Page provides all of these).
   viewportSize(): { width: number; height: number } | null;
+  setViewportSize(size: { width: number; height: number }): Promise<void>;
+  goBack(opts?: unknown): Promise<unknown>;
+  goForward(opts?: unknown): Promise<unknown>;
+  reload(opts?: unknown): Promise<unknown>;
   readonly mouse: {
+    move(x: number, y: number, opts?: unknown): Promise<void>;
     click(x: number, y: number, opts?: unknown): Promise<void>;
     wheel(dx: number, dy: number): Promise<void>;
   };

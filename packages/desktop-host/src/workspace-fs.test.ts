@@ -63,18 +63,48 @@ describe('readFile shaping', () => {
     expect(r.content.length).toBe(1_000_000);
   });
 
-  it('returns a binary placeholder for a file with a NUL byte', async () => {
+  it('gates a NUL-byte file behind a binary confirm, then forces it to text', async () => {
     await writeFile(path.join(root, 'data.bin'), Buffer.from([1, 2, 0, 3, 4]));
     const r = await readFile(root, 'data.bin');
+    expect(r.kind).toBe('confirm');
+    expect(r.reason).toBe('binary');
     expect(r.text).toBe(false);
-    expect(r.content).toMatch(/^\[binary file — \d+ bytes\]$/);
+    // …and `force` decodes it as text anyway.
+    const forced = await readFile(root, 'data.bin', { force: true });
+    expect(forced.kind).toBe('text');
+    expect(forced.text).toBe(true);
   });
 
-  it('returns an empty non-text result for a non-file path', async () => {
+  it('gates a very large file behind a large confirm', async () => {
+    // Just over CONFIRM_BYTES (2MB) but not binary.
+    await writeFile(path.join(root, 'huge.txt'), 'a'.repeat(2_000_050));
+    const r = await readFile(root, 'huge.txt');
+    expect(r.kind).toBe('confirm');
+    expect(r.reason).toBe('large');
+  });
+
+  it('returns an image inline as base64', async () => {
+    // Minimal 1×1 PNG header is enough to exercise the image branch by ext.
+    await writeFile(path.join(root, 'pic.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]));
+    const r = await readFile(root, 'pic.png');
+    expect(r.kind).toBe('image');
+    expect(r.mediaType).toBe('image/png');
+    expect(typeof r.base64).toBe('string');
+  });
+
+  it('returns a pdf inline as base64', async () => {
+    await writeFile(path.join(root, 'doc.pdf'), Buffer.from('%PDF-1.4\n...'));
+    const r = await readFile(root, 'doc.pdf');
+    expect(r.kind).toBe('pdf');
+    expect(r.mediaType).toBe('application/pdf');
+    expect(typeof r.base64).toBe('string');
+  });
+
+  it('returns empty text for a non-file path', async () => {
     await mkdir(path.join(root, 'adir'));
     const r = await readFile(root, 'adir');
-    expect(r.text).toBe(false);
     expect(r.content).toBe('');
+    expect(r.kind).toBe('text');
   });
 });
 

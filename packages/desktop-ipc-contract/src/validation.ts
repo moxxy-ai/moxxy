@@ -191,6 +191,11 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     workspaceId: z.string().min(1).max(256),
     path: z.string().max(4096).optional(),
   }),
+  'workspace.readFile': z.object({
+    workspaceId: z.string().min(1).max(256),
+    path: z.string().min(1).max(4096),
+    force: z.boolean().optional(),
+  }),
   'settings.fetchProviderModels': z.object({ provider: providerName }),
   // Session config mutation — pin the effort to the known enum so a renderer
   // can't push an arbitrary string through to the runner / provider request.

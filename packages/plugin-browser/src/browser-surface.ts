@@ -113,6 +113,14 @@ export function buildBrowserSurface(deps?: BrowserSessionDeps) {
         }
       };
 
+      // After an interaction, grab a frame now and once more shortly after, so a
+      // click/keypress that kicks off async work (a navigation, a menu opening,
+      // an animation) shows up promptly instead of waiting for the next poll.
+      const bump = (): void => {
+        void tick();
+        setTimeout(() => void tick(), 140);
+      };
+
       // Kick an immediate frame (launches the browser), then poll.
       startPolling();
 
@@ -159,6 +167,15 @@ export function buildBrowserSurface(deps?: BrowserSessionDeps) {
             : last
               ? { type: 'frame', base64: last.base64, mime: last.mediaType, url: last.url }
               : { type: 'status', text: 'Starting browser…' },
+        resize: async (size) => {
+          // Match the page viewport to the pane so the live view fills the
+          // container (no letterboxing) and click coords map 1:1.
+          if (!size.width || !size.height) return;
+          await browserSidecarCall('setviewport', { width: size.width, height: size.height }, deps).catch(
+            () => undefined,
+          );
+          void tick();
+        },
         input: async (msg) => {
           if (msg.type === 'install') {
             await runInstall();
@@ -178,16 +195,33 @@ export function buildBrowserSurface(deps?: BrowserSessionDeps) {
               const text = err instanceof Error ? err.message : String(err);
               emit({ type: 'status', text });
             }
-            void tick();
-          } else if (msg.type === 'click' && typeof msg.fx === 'number' && typeof msg.fy === 'number') {
-            await browserSidecarCall('mouse', { x: msg.fx * vw, y: msg.fy * vh }, deps).catch(() => undefined);
+            bump();
+          } else if (
+            (msg.type === 'click' || msg.type === 'dblclick') &&
+            typeof msg.fx === 'number' &&
+            typeof msg.fy === 'number'
+          ) {
+            const count = msg.type === 'dblclick' ? 2 : 1;
+            await browserSidecarCall('mouse', { x: msg.fx * vw, y: msg.fy * vh, count }, deps).catch(
+              () => undefined,
+            );
+            bump();
+          } else if (msg.type === 'move' && typeof msg.fx === 'number' && typeof msg.fy === 'number') {
+            // Hover — drive the pointer so :hover styles/tooltips render. A single
+            // follow-up frame (not a bump) keeps the cost down at move frequency.
+            await browserSidecarCall('mousemove', { x: msg.fx * vw, y: msg.fy * vh }, deps).catch(
+              () => undefined,
+            );
             void tick();
           } else if (msg.type === 'key' && typeof msg.key === 'string') {
             await browserSidecarCall('key', { key: msg.key }, deps).catch(() => undefined);
-            void tick();
+            bump();
           } else if (msg.type === 'scroll' && typeof msg.dy === 'number') {
             await browserSidecarCall('scroll', { dy: msg.dy }, deps).catch(() => undefined);
-            void tick();
+            bump();
+          } else if (msg.type === 'back' || msg.type === 'forward' || msg.type === 'reload') {
+            await browserSidecarCall(msg.type, {}, deps).catch(() => undefined);
+            bump();
           }
         },
         close: () => {

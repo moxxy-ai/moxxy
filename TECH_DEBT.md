@@ -397,6 +397,22 @@ item — the debt it *creates* is logged here on sight:
   progress, then restarts the sidecar. **Constraint:** the install runs in the
   runner via PATH-resolved `npm`/`npx` (same assumption as the existing browser-
   binary auto-install) — a GUI launch must keep node/npm on the runner's PATH.
+- **Browser surface is now interactive + viewport-fitted (still polled JPEG).**
+  Added sidecar `mousemove`/`setviewport`/`back`/`forward`/`reload` + clickCount;
+  the surface `resize()` matches the page viewport to the pane (fills the
+  container, 1:1 click mapping) and bursts a follow-up frame after each input for
+  responsiveness. **Dormant debt:** it's still screenshot-polling, so there's no
+  true cursor/video and hover costs an RPC+frame per (throttled) move — if this
+  needs to feel fully native, revisit CDP screencast *with* a polling fallback
+  (the no-frame-on-blank-page trap that reverted it the first time).
+- **Files viewer renders images + PDFs inline; binary/large files gated.**
+  `workspace.readFile` gained a discriminated result (`kind: text|image|pdf|
+  confirm` + `mediaType`/`base64`/`reason`/`byteLength`) and a `force` arg;
+  it reads only a head window via a file handle (a multi-GB file never loads
+  whole). PDFs render in a `blob:` iframe — required adding `blob:` to the CSP
+  `frame-src` (`security.ts`). **Dormant debt:** non-PDF office docs (docx/xlsx)
+  still fall to the binary `confirm` → open-as-text (garbled); a real office
+  preview would need a converter.
 - **Surfaces are desktop-only — deliberately off the mobile WS allow-list**
   (`REMOTE_ALLOWED_COMMANDS`). A sandboxed shell/browser over a tunnel is a real
   feature with its own threat model; revisit when mobile needs it.

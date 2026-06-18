@@ -239,7 +239,7 @@ describe('browser surface input mapping', () => {
     await surface.input({ type: 'click', fx: 0.5, fy: 0.2 });
     await flush();
     const mouseCall = sidecar.received.find((r) => r.method === 'mouse');
-    expect(mouseCall?.params).toEqual({ x: 500, y: 100 });
+    expect(mouseCall?.params).toEqual({ x: 500, y: 100, count: 1 });
 
     surface.close();
   });
@@ -255,8 +255,39 @@ describe('browser surface input mapping', () => {
     await surface.input({ type: 'click', fx: 1, fy: 1 });
     await flush();
     const mouseCall = sidecar.received.find((r) => r.method === 'mouse');
-    expect(mouseCall?.params).toEqual({ x: 1280, y: 720 });
+    expect(mouseCall?.params).toEqual({ x: 1280, y: 720, count: 1 });
 
+    surface.close();
+  });
+
+  it('resize sets the page viewport so the view fills the pane', async () => {
+    vi.useFakeTimers();
+    const sidecar = makeControllableSpawn();
+    sidecar.setHandler(() => ({ ok: true, result: frame() }));
+    const surface = buildBrowserSurface({ sidecarPath: '/fake.js', spawnFn: sidecar.spawn }).open();
+    await flush();
+    await surface.resize?.({ width: 900, height: 600 });
+    await flush();
+    const vp = sidecar.received.find((r) => r.method === 'setviewport');
+    expect(vp?.params).toEqual({ width: 900, height: 600 });
+    surface.close();
+  });
+
+  it('dblclick forwards clickCount 2; hover + nav reach their sidecar methods', async () => {
+    vi.useFakeTimers();
+    const sidecar = makeControllableSpawn();
+    sidecar.setHandler((method) => (method === 'frame' ? { ok: true, result: frame({ width: 1000, height: 500 }) } : { ok: true, result: {} }));
+    const surface = buildBrowserSurface({ sidecarPath: '/fake.js', spawnFn: sidecar.spawn }).open();
+    await flush();
+
+    await surface.input({ type: 'dblclick', fx: 0.5, fy: 0.5 });
+    await surface.input({ type: 'move', fx: 0.1, fy: 0.2 });
+    await surface.input({ type: 'reload' });
+    await flush();
+
+    expect(sidecar.received.find((r) => r.method === 'mouse')?.params).toEqual({ x: 500, y: 250, count: 2 });
+    expect(sidecar.received.find((r) => r.method === 'mousemove')?.params).toEqual({ x: 100, y: 100 });
+    expect(sidecar.received.some((r) => r.method === 'reload')).toBe(true);
     surface.close();
   });
 
