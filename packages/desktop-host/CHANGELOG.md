@@ -1,5 +1,13 @@
 # @moxxy/desktop-host
 
+## 0.7.7
+
+### Patch Changes
+
+- Updated dependencies [4bdd6f8]
+  - @moxxy/core@0.5.0
+  - @moxxy/runner@0.2.13
+
 ## 0.7.6
 
 ### Patch Changes
