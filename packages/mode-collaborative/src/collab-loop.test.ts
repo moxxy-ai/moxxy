@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { getEventListeners } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -158,6 +158,11 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
     expect(existsSync(join(repo, 'api.test.ts'))).toBe(true);
     // the agreed contracts landed too
     expect(existsSync(join(repo, '.moxxy-collab', 'CONTRACTS.md'))).toBe(true);
+    // the coordinator distilled a shared brief (goal + intent) into the scaffold
+    const briefPath = join(repo, '.moxxy-collab', 'BRIEF.md');
+    expect(existsSync(briefPath)).toBe(true);
+    expect(readFileSync(briefPath, 'utf8')).toContain('build the thing');
+    expect(subtypes).toContain('collab_brief_written');
 
     // final synthesis names both agents
     const finalMsg = events.filter((e) => e.type === 'assistant_message').pop() as { content: string } | undefined;

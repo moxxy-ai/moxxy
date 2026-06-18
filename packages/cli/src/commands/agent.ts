@@ -27,7 +27,17 @@ export async function runAgentCommand(argv: ParsedArgv): Promise<number> {
   const sessionId = process.env.MOXXY_SESSION_ID?.trim();
   const mode = process.env.MOXXY_MODE?.trim() || 'collab-peer';
   const subtask = process.env.MOXXY_COLLAB_SUBTASK ?? '';
+  const parentTask = process.env.MOXXY_COLLAB_PARENT_TASK?.trim() ?? '';
+  const role = process.env.MOXXY_COLLAB_ROLE?.trim() ?? '';
   const model = process.env.MOXXY_MODEL?.trim();
+
+  // Seed the turn with the WHOLE picture, not just this agent's narrow subtask:
+  // the overall team goal (previously plumbed into the env but never read) plus a
+  // pointer to the shared brief + contracts the coordinator/architect wrote. An
+  // implementer that knows the real goal builds the right thing instead of
+  // guessing from a one-line task. The architect's subtask already IS the goal,
+  // so it just gets the brief pointer.
+  const seededTurn = buildSeedTurn({ role, parentTask, subtask });
 
   const setup = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,
@@ -59,7 +69,7 @@ export async function runAgentCommand(argv: ParsedArgv): Promise<number> {
   // Drive the sub-task turn (autonomous loop). Errors surface on the event log.
   const turnDone = (async () => {
     try {
-      for await (const _ of session.runTurn(subtask)) void _;
+      for await (const _ of session.runTurn(seededTurn)) void _;
     } catch {
       // the loop already emitted an error event
     }
@@ -85,6 +95,25 @@ export async function runAgentCommand(argv: ParsedArgv): Promise<number> {
 
   await runUntilSignal(runnerServer, session, turnDone);
   return 0;
+}
+
+/**
+ * Compose the first-turn prompt for a collaboration agent. The architect's
+ * subtask already is the full goal, so it only needs the brief pointer; an
+ * implementer is framed with the overall goal first, then its slice, then where
+ * to find the shared context. The pointer is cheap (one line) and the agent only
+ * pays for the brief's tokens if it actually reads the file.
+ */
+export function buildSeedTurn(args: { role: string; parentTask: string; subtask: string }): string {
+  const { role, parentTask, subtask } = args;
+  const pointer =
+    'Shared team context is in `.moxxy-collab/BRIEF.md` (the user\'s overall goal + ' +
+    'the conversation/intent) and `.moxxy-collab/CONTRACTS.md` (the agreed interfaces). ' +
+    'Read them before you start so your work fits the real goal.';
+  if (role === 'architect' || !parentTask || parentTask === subtask) {
+    return subtask ? `${subtask}\n\n${pointer}` : pointer;
+  }
+  return `Overall team goal: ${parentTask}\n\nYour sub-task: ${subtask}\n\n${pointer}`;
 }
 
 async function runUntilSignal(

@@ -18,6 +18,9 @@ export const COLLAB_SCAFFOLD_DIR = '.moxxy-collab';
 export const CONTRACTS_FILENAME = 'CONTRACTS.md';
 /** Architect's machine-readable roster proposal, read by the coordinator. */
 export const ROSTER_FILENAME = 'roster.json';
+/** Coordinator-written brief: the overall goal + the user's conversation/intent,
+ *  so every spawned agent inherits the full picture (not just its subtask). */
+export const BRIEF_FILENAME = 'BRIEF.md';
 
 /** A short, filesystem-safe run id from the session + turn ids. */
 export function collabRunId(sessionId: string, turnId: string): string {
