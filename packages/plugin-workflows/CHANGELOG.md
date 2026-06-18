@@ -1,5 +1,12 @@
 # @moxxy/plugin-workflows
 
+## 0.2.5
+
+### Patch Changes
+
+- Updated dependencies [89ad994]
+  - @moxxy/sdk@0.13.0
+
 ## 0.2.4
 
 ### Patch Changes

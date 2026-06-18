@@ -1,5 +1,12 @@
 # @moxxy/plugin-vault
 
+## 0.0.16
+
+### Patch Changes
+
+- Updated dependencies [89ad994]
+  - @moxxy/sdk@0.13.0
+
 ## 0.0.15
 
 ### Patch Changes

@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-provider-google",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Google Gemini LLMProvider plugin for moxxy. Streams the Gemini OpenAI-compatible endpoint (generativelanguage.googleapis.com/v1beta/openai).",
   "type": "module",
   "main": "./dist/index.js",

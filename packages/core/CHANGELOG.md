@@ -1,5 +1,12 @@
 # @moxxy/core
 
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies [89ad994]
+  - @moxxy/sdk@0.13.0
+
 ## 0.2.1
 
 ### Patch Changes
