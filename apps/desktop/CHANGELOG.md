@@ -1,5 +1,70 @@
 # @moxxy/desktop
 
+## 0.9.0
+
+### Minor Changes
+
+- 27bfaf6: feat(collaborative): agentic collaborative mode — a team of separate agents working in parallel
+
+  A new selectable `collaborative` mode runs a _team_ of full, **separate** agent
+  runner processes on one task (instead of in-process subagents). An **architect**
+  agent designs the plan + shared **contracts** and proposes the roster (you
+  approve/adjust); **implementer** agents then build in parallel, each in its own
+  git **worktree**, coordinating over a new cross-process **collaboration hub**:
+
+  - **`@moxxy/plugin-collab`** — the hub: a unix-socket message bus, a task board
+    that doubles as an exclusive **file-lock** arbiter, a **contract registry**
+    (publish → propose-change → ack → commit), **peer-read** (one agent reads
+    another's in-progress files), crash detection, and **human step-in**
+    (pause / resume / directive) — plus the peer `collab_*` tools and the
+    `/collab_say` `/collab_direct` `/collab_pause` `/collab_resume` commands.
+  - **`@moxxy/mode-collaborative`** — the coordinator (`collaborative`) + the
+    internal `collab-architect` / `collab-peer` modes, the peer-process supervisor,
+    the git worktree + **staged, ownership-resolved merge** engine (the user's
+    branch is only advanced on a clean, atomic promote; conflicts never leave
+    markers), and a user-configurable `CollabConfig`. Falls back to a **sequential
+    single-workspace** run when git is unavailable (e.g. desktop users without git).
+  - **`moxxy agent`** — an internal headless peer-runner subcommand.
+  - **UI** — a folded `CollaborationBlock` in `@moxxy/chat-model`; an inline
+    team-summary card in chat; and a dedicated **Collaborate** desktop workspace
+    (agents · tasks · contracts rail, a `# All` / `@agent` channel selector, and a
+    step-in composer) plus a compact TUI `collab` view.
+
+  No runner-protocol bump (the hub has its own versioned protocol; collaboration
+  events ride the existing `plugin_event` stream).
+
+### Patch Changes
+
+- 0c86701: fix(surfaces): make the terminal a real PTY + offer to install the browser engine
+
+  **Terminal — the root cause it never accepted input.** node-pty ships its macOS
+  `spawn-helper` binary without the executable bit, and several install/repack
+  paths (npm into the desktop's CLI prefix, pnpm's content store) keep it that way.
+  node-pty then loads fine but `pty.spawn` throws `posix_spawnp failed`, which was
+  silently swallowed into the piped fallback — a shell with no TTY line discipline,
+  so a viewer's Enter (`\r`) never reaches it and nothing echoes. The pane looked
+  alive (it showed a prompt) but ignored every keystroke. This affected dev and
+  packaged builds alike, which is why earlier UI/sizing/ref-count fixes didn't
+  help. Fix: `pty.ts` now repairs the `spawn-helper` exec bit before spawning and
+  retries once; the installer chmods it after `npm install` too. When a real PTY
+  genuinely can't start, the pane shows an honest "Terminal unavailable" status
+  instead of a silently-dead box.
+
+  **Browser — offer to install Playwright instead of erroring.** When the
+  `playwright` npm package is missing, the browser surface now reports a distinct
+  `needs-install` state and shows an **Install browser engine (~200MB)** button.
+  On click it installs the npm package + the Chromium engine with live progress in
+  the pane, restarts the sidecar, and resumes — no manual `npm i playwright` in the
+  install dir.
+
+- Updated dependencies [27bfaf6]
+- Updated dependencies [0c86701]
+  - @moxxy/cli@0.13.0
+  - @moxxy/chat-model@0.2.0
+  - @moxxy/client-core@0.7.0
+  - @moxxy/desktop-host@0.5.6
+  - @moxxy/client-platform-web@0.1.15
+
 ## 0.8.9
 
 ### Patch Changes
