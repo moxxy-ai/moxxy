@@ -1,5 +1,12 @@
 # @moxxy/ipc-server-ws
 
+## 0.1.20
+
+### Patch Changes
+
+- Updated dependencies [82b8be9]
+  - @moxxy/desktop-ipc-contract@0.9.3
+
 ## 0.1.19
 
 ### Patch Changes

@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/desktop-ipc-contract",
   "private": true,
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "The single source of truth for the moxxy IPC boundary: channel names, request/response types, the MoxxyApi client surface, Zod runtime validation, the transport-neutral CommandBus/EventSink seam, and the shared dispatch core. Shared by the Electron main process, the preload bridge, the renderer, the WebSocket bridge, and future remote clients.",
   "type": "module",
   "main": "./dist/index.js",

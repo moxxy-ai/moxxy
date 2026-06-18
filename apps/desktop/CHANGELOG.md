@@ -1,5 +1,62 @@
 # @moxxy/desktop
 
+## 0.12.1
+
+### Patch Changes
+
+- 82b8be9: feat(surfaces): interactive in-window browser + richer file preview
+
+  **Browser — a genuinely interactive, full-bleed view.** The live view now behaves
+  like a real browser: click / double-click, hover (`:hover` styles + tooltips via
+  pointer move), scroll, full keyboard incl. modifier shortcuts, and
+  back/forward/reload — with a snappier refresh that bursts a fresh frame after each
+  interaction. The page viewport is resized to the pane (`surface.resize` →
+  `setviewport`) so the view fills the whole container instead of being letterboxed,
+  and clicks map 1:1. The install/loading states are on-brand (spinner, primary
+  Button, indeterminate progress bar, condensed progress line) instead of dumping
+  raw npm output.
+
+  **Files — preview opens far more types.** Images and PDFs render inline (PDF via
+  Chromium's viewer in a `blob:` iframe — `frame-src blob:` added to the CSP);
+  text/code open directly; binary-looking or very large files prompt before opening
+  as text (a huge blob in a `<pre>` can crash the renderer). `workspace.readFile`
+  gained a discriminated result (`kind: text | image | pdf | confirm` plus
+  `mediaType` / `base64` / `reason` / `byteLength`) and a `force` flag, and reads
+  only a head window via a file handle so a multi-GB file never loads whole.
+
+- 43d3874: Security + correctness audit of the newly-merged features (collab / anonymizer / mini-apps)
+
+  Applied the quality sweep to the features that landed during it. Real bugs fixed,
+  each with a regression test:
+
+  - **mode-collaborative (security, high):** path-traversal / arbitrary-file-read in
+    the peer-read confinement — a `startsWith(dir)` prefix check let a peer agent
+    read sibling-dir files outside its worktree. Replaced with segment-aware
+    containment (`resolve`+`relative`). Also fixed abort-listener leaks in the poll
+    loops.
+  - **plugin-collab (security/correctness):** `boardRelease`/`boardClaim` by public
+    id skipped the owner check (lock-stealing + ownership-hijack across peers), and
+    a crashed agent's file locks were never freed (deadlock). Ownership now enforced
+    on the id path; crashed/killed agents release their claims.
+  - **anonymizer (security/perf):** NER span aggregation mislocated short entities
+    (a **PII-leak** — redacted the wrong region, left real PII), the worker leaked
+    in-flight promises on teardown/error, and overlap resolution was O(n²). Fixed.
+  - **app installer (security):** the asset download had no source allow-list (SSRF)
+    and no size cap (disk-fill DoS); both added. The `moxxy-app://` protocol handler
+    was audited and confirmed escape-proof.
+  - mini-apps framework + collaborate UI: worker-leak fix, IPC boundary Zod test
+    coverage, and extracted/tested pure render helpers.
+
+- Updated dependencies [82b8be9]
+- Updated dependencies [43d3874]
+  - @moxxy/desktop-host@0.7.3
+  - @moxxy/desktop-ipc-contract@0.9.3
+  - @moxxy/cli@0.14.1
+  - @moxxy/client-core@0.8.4
+  - @moxxy/ipc-server-ws@0.1.20
+  - @moxxy/plugin-channel-mobile@0.1.21
+  - @moxxy/client-platform-web@0.1.21
+
 ## 0.12.0
 
 ### Minor Changes
