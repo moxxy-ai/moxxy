@@ -161,6 +161,14 @@ export interface SubprocessIsolatorOptions {
 const DEFAULT_ENV: ReadonlyArray<string> = ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'LC_ALL', 'TERM'];
 
 /**
+ * Grace period after a cooperative SIGTERM before escalating to an
+ * unmaskable SIGKILL. Bounds a runaway/SIGTERM-ignoring handler so the
+ * `timeMs` budget actually stops work rather than just rejecting the
+ * Promise while the child keeps burning a core.
+ */
+const KILL_GRACE_MS = 2_000;
+
+/**
  * Subprocess-based Isolator.
  *
  * **What this enforces (in addition to everything `worker` does):**
@@ -207,6 +215,7 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
       }
 
       const child = spawn(nodePath, ['--input-type=module', '-e', SHIM_SOURCE], {
+        cwd: call.cwd,
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
@@ -215,6 +224,8 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
         let stderr = '';
         let stdoutBuffer = '';
         let settled = false;
+        let exited = false;
+        let killEscalation: ReturnType<typeof setTimeout> | undefined;
         const cleanup = new Set<() => void>();
         const finish = (action: () => void): void => {
           if (settled) return;
@@ -222,7 +233,21 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
           cleanup.forEach((fn) => fn());
           cleanup.clear();
           action();
-          if (!child.killed) child.kill('SIGTERM');
+          if (!exited) {
+            child.kill('SIGTERM');
+            // SIGTERM is cooperative: a handler stuck in a synchronous CPU
+            // loop, or one that traps/ignores SIGTERM, would otherwise keep
+            // running unbounded after the budget (note `child.killed` only
+            // records that a signal was *sent*, not that the process
+            // died). Escalate to an unmaskable SIGKILL after a short grace
+            // period if it still hasn't exited. The timer is cleared on the
+            // 'exit' event so a child that honours SIGTERM is never
+            // needlessly SIGKILLed.
+            killEscalation = setTimeout(() => {
+              if (!exited) child.kill('SIGKILL');
+            }, KILL_GRACE_MS);
+            killEscalation.unref?.();
+          }
         };
 
         if (signal.aborted) {
@@ -329,6 +354,10 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
         });
 
         child.once('exit', (code) => {
+          // The child has been reaped (possibly in response to SIGTERM); no
+          // need to escalate to SIGKILL.
+          exited = true;
+          if (killEscalation) clearTimeout(killEscalation);
           if (!settled) {
             const msg = stderr.trim() || `subprocess exited with code ${code}`;
             finish(() =>

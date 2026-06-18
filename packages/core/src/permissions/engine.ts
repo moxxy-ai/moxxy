@@ -59,12 +59,12 @@ export class PermissionEngine {
 
   check(call: PendingToolCall): PermissionDecision | null {
     for (const rule of this.policy.deny) {
-      if (matchRule(rule, call)) {
+      if (matchRule(rule, call, 'deny')) {
         return { mode: 'deny', reason: rule.reason ?? `Denied by policy: ${rule.name}` };
       }
     }
     for (const rule of this.policy.allow) {
-      if (matchRule(rule, call)) {
+      if (matchRule(rule, call, 'allow')) {
         return { mode: 'allow', reason: rule.reason ?? `Allowed by policy: ${rule.name}` };
       }
     }
@@ -135,21 +135,58 @@ function sanitizeRule(rule: PolicyRule): PolicyRule {
   return out;
 }
 
-function matchRule(rule: PolicyRule, call: PendingToolCall): boolean {
+/**
+ * Evaluate a rule against a call. `intent` is the list the rule lives on so we
+ * can fail in the safe direction when a pattern is uncompilable:
+ *
+ * - A DENY rule with an invalid `inputMatches` regex fails CLOSED — the bad
+ *   pattern is treated as a match so a malformed deny rule (e.g. an unbalanced
+ *   bracket like `rm -rf [`) keeps denying instead of silently becoming a no-op
+ *   that lets dangerous commands through.
+ * - An ALLOW rule with an invalid regex fails to match — it never over-grants.
+ *
+ * Either way the bad pattern is surfaced on stderr so the misconfiguration is
+ * visible rather than silent.
+ */
+function matchRule(rule: PolicyRule, call: PendingToolCall, intent: 'allow' | 'deny'): boolean {
   if (!nameMatches(rule.name, call.name)) return false;
   if (rule.inputMatches) {
     const input = call.input as Record<string, unknown> | null;
     if (!input || typeof input !== 'object') return false;
     for (const [k, v] of Object.entries(rule.inputMatches)) {
       const candidate = String(input[k] ?? '');
+      let re: RegExp;
       try {
-        if (!new RegExp(v).test(candidate)) return false;
-      } catch {
-        if (candidate !== v) return false;
+        re = new RegExp(v);
+      } catch (err) {
+        warnBadPattern(rule.name, k, v, intent, err);
+        // Uncompilable pattern: a deny rule must still deny (fail closed),
+        // an allow rule must not grant (this field fails to match).
+        if (intent === 'deny') continue;
+        return false;
       }
+      if (!re.test(candidate)) return false;
     }
   }
   return true;
+}
+
+function warnBadPattern(
+  ruleName: string,
+  field: string,
+  pattern: string,
+  intent: 'allow' | 'deny',
+  err: unknown,
+): void {
+  const detail = err instanceof Error ? err.message : String(err);
+  const resolution =
+    intent === 'deny'
+      ? 'failing closed (rule still denies)'
+      : 'this field cannot match (rule will not grant)';
+  process.stderr.write(
+    `moxxy: invalid regex in ${intent} permission rule "${ruleName}" ` +
+      `(inputMatches.${field} = ${JSON.stringify(pattern)}): ${detail} — ${resolution}\n`,
+  );
 }
 
 function nameMatches(pattern: string, candidate: string): boolean {

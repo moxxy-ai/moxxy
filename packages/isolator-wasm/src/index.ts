@@ -258,25 +258,40 @@ export function buildWasmHostImports(
     },
 
     /**
-     * `broker_fs_write_file(pathPtr, pathLen, dataPtr, dataLen) -> i32`
-     * Writes UTF-8 bytes to a file. No out-pointer pair (no result data).
-     * Returns 0 on success, 1 on cap-deny or IO error.
+     * `broker_fs_write_file(pathPtr, pathLen, dataPtr, dataLen, outPtrOut, outLenOut) -> i32`
+     *
+     * Slightly extended ABI (6 args instead of 4) because the write
+     * carries both a path string and a data payload, and — like every
+     * other bridge — surfaces a descriptive error to the caller on
+     * failure. On success no result bytes are produced (the host still
+     * writes a zero-length `(0, 0)` pair to the out-pointers). On
+     * cap-deny or IO error the out-pointer pair points at the error
+     * message bytes. Returns 0 on success, 1 on error.
      */
     broker_fs_write_file: (
       pathPtr: number,
       pathLen: number,
       dataPtr: number,
       dataLen: number,
+      outPtrOut: number,
+      outLenOut: number,
     ): number => {
       const filePath = readStr(pathPtr, pathLen);
       const data = readStr(dataPtr, dataLen);
-      if (!pathInScope(filePath, caps.fs, cwd, 'write')) return ERROR;
+      if (!pathInScope(filePath, caps.fs, cwd, 'write')) {
+        return sendErr(
+          outPtrOut,
+          outLenOut,
+          `[broker:fs.writeFile] path '${filePath}' is outside the tool's declared fs.write capability`,
+        );
+      }
       try {
         mkdirSync(path.dirname(filePath), { recursive: true });
         writeFileSync(filePath, data, 'utf8');
+        writePtrPair(memOf(), outPtrOut, outLenOut, 0, 0);
         return SUCCESS;
-      } catch {
-        return ERROR;
+      } catch (e) {
+        return sendErr(outPtrOut, outLenOut, `[broker:fs.writeFile] ${(e as Error).message}`);
       }
     },
 

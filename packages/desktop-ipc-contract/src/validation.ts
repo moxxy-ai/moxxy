@@ -107,6 +107,17 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     audioBase64: z.string().max(MAX_AUDIO_BASE64),
     mimeType: z.string().max(128).optional(),
   }),
+  // Read-only snapshots and the abort RPC are reachable over the remote (WS)
+  // bridge — they carry free-form ids/workspaceId, so bound them like the
+  // sibling validated commands so a hostile remote can't OOM/log-bloat the host
+  // with an oversized string. All currently-valid payloads (a short turn id, an
+  // optional workspace slug, an optional desk id, or no arg at all) still pass.
+  'session.info': z.object({ workspaceId: optionalWorkspace }).optional(),
+  'session.abortTurn': z.object({
+    workspaceId: optionalWorkspace,
+    turnId: z.string().min(1).max(256),
+  }),
+  'sessions.list': z.object({ deskId: z.string().min(1).max(256).optional() }).optional(),
   'session.setProvider': z.object({ workspaceId: optionalWorkspace, provider: providerName }),
   'session.setMode': z.object({ workspaceId: optionalWorkspace, mode: z.string().min(1).max(64) }),
   'session.newSession': z.object({ workspaceId: optionalWorkspace }),

@@ -75,6 +75,33 @@ export async function slowHandler(input) {
   return 'done';
 }
 
+// Returns the child's own working directory. Used to prove the spawn
+// honours `call.cwd` (otherwise process.cwd() would be the parent's dir).
+export async function reportCwd() {
+  return { cwd: process.cwd() };
+}
+
+// Traps SIGTERM (so the cooperative kill is a no-op) and then spins in a
+// tight synchronous CPU loop forever. Used to prove the isolator
+// escalates to an unmaskable SIGKILL after the grace period. The child's
+// pid is written through the broker first so the test can observe that
+// the OS actually reaps the process.
+export async function sigtermIgnorerSpin(input, ctx) {
+  process.on('SIGTERM', () => {
+    /* swallow the cooperative signal */
+  });
+  if (input?.pidFile) {
+    await ctx.fs.writeFile(input.pidFile, String(process.pid));
+  }
+  // Busy-loop synchronously — the event loop never turns again, so a
+  // SIGTERM handler can't run and the process can only be stopped by
+  // SIGKILL.
+  // eslint-disable-next-line no-constant-condition
+  for (;;) {
+    Math.sqrt(Math.random());
+  }
+}
+
 // Reads a parent-thread global. Should always come back null in the
 // subprocess child (separate OS process = separate heap).
 export async function readParentGlobal() {

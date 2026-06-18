@@ -3,6 +3,7 @@ import type { ToolDef, ToolContext } from '@moxxy/sdk';
 import {
   buildSecurityPlugin,
   wrapWithIsolator,
+  isSecurityWrapped,
   IsolatorRegistry,
   type SecurityToolRegistryLike,
 } from './index.js';
@@ -160,6 +161,72 @@ describe('buildSecurityPlugin', () => {
   });
 });
 
+// u105-2 regression: re-running onInit must NOT double-wrap.
+describe('wrapDeclaredTools idempotency (u105-2)', () => {
+  const onInit = async (handle: ReturnType<typeof buildSecurityPlugin>): Promise<void> => {
+    await handle.plugin.hooks?.onInit?.({
+      sessionId: 's1' as ToolContext['sessionId'],
+      cwd: '/work',
+      log: {
+        length: 0,
+        at: () => undefined,
+        slice: () => [],
+        ofType: () => [],
+        byTurn: () => [],
+        toJSON: () => [],
+      },
+      env: {},
+    });
+  };
+
+  it('invokes the underlying handler exactly once after two onInit passes', async () => {
+    let calls = 0;
+    const reg = new FakeToolRegistry().add(
+      fakeTool({
+        handler: async (input: unknown) => {
+          calls++;
+          return input;
+        },
+        isolation: { capabilities: { fs: { read: ['$cwd/**'] } } },
+      }),
+    );
+    const handle = buildSecurityPlugin({
+      config: { enabled: true, isolator: 'inproc' },
+      toolRegistry: reg,
+    });
+    await onInit(handle);
+    await onInit(handle); // second pass — must be a no-op for already-wrapped tools
+
+    const wrapped = reg.get('echo')!;
+    await expect(wrapped.handler({ file: '/work/ok.ts' }, fakeCtx())).resolves.toEqual({
+      file: '/work/ok.ts',
+    });
+    // A double-wrap would run the real handler twice (nested iso.run); assert once.
+    expect(calls).toBe(1);
+  });
+
+  it('produces a single timeout layer after two onInit passes', async () => {
+    const reg = new FakeToolRegistry().add(
+      fakeTool({
+        // Never resolves on its own — only the isolation timeout ends it.
+        handler: () => new Promise(() => undefined),
+        isolation: { capabilities: { timeMs: 20 } },
+      }),
+    );
+    const handle = buildSecurityPlugin({
+      config: { enabled: true, isolator: 'inproc' },
+      toolRegistry: reg,
+    });
+    await onInit(handle);
+    await onInit(handle);
+
+    const wrapped = reg.get('echo')!;
+    // Single isolation layer → exactly one "exceeded budget" rejection. A
+    // double-wrap would nest two timers/promises.
+    await expect(wrapped.handler({}, fakeCtx())).rejects.toThrow(/exceeded 20ms budget/);
+  });
+});
+
 describe('wrapWithIsolator', () => {
   it('returns the tool unchanged when no isolation is declared', () => {
     const t = fakeTool();
@@ -169,5 +236,14 @@ describe('wrapWithIsolator', () => {
   it('returns the tool unchanged when the isolator name is unknown', () => {
     const t = fakeTool({ isolation: { capabilities: {} } });
     expect(wrapWithIsolator(t, new IsolatorRegistry(), 'no-such-thing')).toBe(t);
+  });
+
+  it('marks a wrapped tool so a second wrap pass skips it', () => {
+    const reg = new IsolatorRegistry();
+    const t = fakeTool({ isolation: { capabilities: { timeMs: 100 } } });
+    const wrapped = wrapWithIsolator(t, reg, 'inproc');
+    expect(wrapped).not.toBe(t);
+    expect(isSecurityWrapped(t)).toBe(false);
+    expect(isSecurityWrapped(wrapped)).toBe(true);
   });
 });

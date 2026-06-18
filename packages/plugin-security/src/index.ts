@@ -112,14 +112,19 @@ export function buildSecurityPlugin(opts: BuildSecurityPluginOptions): SecurityP
   /**
    * Wrap every tool that declared an `isolation` spec so its handler
    * runs through the configured isolator. Tools without a declaration
-   * are left untouched. Idempotent — re-running after a hot plugin
-   * reload would replace previous wrappers cleanly because each
-   * wrapping closes over the same registry.
+   * are left untouched.
+   *
+   * Idempotent: an already-wrapped tool carries a non-enumerable
+   * `__moxxySecurityWrapped` marker (see {@link isSecurityWrapped}) and is
+   * skipped on subsequent passes. Without this guard a second `onInit` (e.g.
+   * after a hot plugin reload) would re-wrap each tool — nesting `iso.run()`
+   * inside `iso.run()` and doubling cap-checks/timeouts/handler invocations.
    */
   const wrapDeclaredTools = (): void => {
     if (!cfg.enabled) return;
     for (const t of tools.list()) {
       if (!t.isolation) continue;
+      if (isSecurityWrapped(t)) continue;
       const wrapped = wrapWithIsolator(t, registry, pickIsolatorName(t.name));
       if (wrapped !== t) {
         tools.unregister(t.name);
@@ -224,10 +229,42 @@ export function wrapWithIsolator(
         cwd: ctx.cwd,
         ...(moduleRef ? { moduleRef } : {}),
       };
-      const bound = (i: unknown): Promise<unknown> =>
-        Promise.resolve(tool.handler(i, ctx));
+      // The isolator may pass a DERIVED signal (e.g. inproc's timeout-aware
+      // controller) so it can actually abort the handler on overrun. Bind the
+      // handler to a ctx whose `signal` is that derived signal when provided,
+      // falling back to the call's own `ctx.signal`. This is what lets a
+      // timed-out handler observe `ctx.signal.aborted` and cancel its in-flight
+      // fs/net/exec work, rather than running on past the budget.
+      const bound = (i: unknown, derived?: AbortSignal): Promise<unknown> =>
+        Promise.resolve(
+          tool.handler(i, derived ? { ...ctx, signal: derived } : ctx),
+        );
       return iso.run(call, bound, caps, ctx.signal);
     },
   };
+  markWrapped(wrapped);
   return wrapped;
+}
+
+/**
+ * Non-enumerable marker stamped on a tool that `wrapWithIsolator` has already
+ * wrapped. `wrapDeclaredTools` checks it so a second `onInit` (e.g. after a hot
+ * plugin reload) does NOT re-wrap an already-wrapped tool — re-wrapping would
+ * nest `iso.run()` inside `iso.run()`, double-counting cap checks/timeouts and
+ * running the real handler under two isolation layers.
+ */
+const WRAPPED_MARKER = '__moxxySecurityWrapped';
+
+function markWrapped(tool: ToolDef): void {
+  Object.defineProperty(tool, WRAPPED_MARKER, {
+    value: true,
+    enumerable: false,
+    configurable: true,
+    writable: false,
+  });
+}
+
+/** True when `wrapWithIsolator` has already wrapped this tool. */
+export function isSecurityWrapped(tool: ToolDef): boolean {
+  return (tool as unknown as Record<string, unknown>)[WRAPPED_MARKER] === true;
 }

@@ -4,6 +4,7 @@ import {
   VIEW_COMPONENTS,
   DEFAULT_VIEW_TAGS,
   countNodes,
+  isSafeViewUrl,
   defineViewRenderer,
   defineTunnelProvider,
   type ViewNode,
@@ -112,5 +113,35 @@ describe('define factories freeze their specs', () => {
   it('defineTunnelProvider', () => {
     const def = defineTunnelProvider({ name: 't', open: () => Promise.resolve({ url: 'http://x', close: () => Promise.resolve() }) });
     expect(Object.isFrozen(def)).toBe(true);
+  });
+});
+
+describe('isSafeViewUrl', () => {
+  it('rejects javascript/vbscript/data-text schemes', () => {
+    expect(isSafeViewUrl('javascript:alert(1)', 'href')).toBe(false);
+    expect(isSafeViewUrl('vbscript:msgbox', 'href')).toBe(false);
+    expect(isSafeViewUrl('data:text/html,<x>', 'src')).toBe(false);
+  });
+
+  it('rejects schemes split by whitespace/control chars (audit u72-1)', () => {
+    // a browser strips tab/newline/CR before scheme resolution, so these
+    // collapse to javascript: on click; the gate must normalize the same way
+    expect(isSafeViewUrl('java\tscript:alert(1)', 'href')).toBe(false);
+    expect(isSafeViewUrl('java\nscript:alert(1)', 'href')).toBe(false);
+    expect(isSafeViewUrl('java\rscript:alert(1)', 'href')).toBe(false);
+    expect(isSafeViewUrl('\u0000javascript:alert(1)', 'href')).toBe(false);
+    expect(isSafeViewUrl('  javascript:alert(1)', 'href')).toBe(false);
+  });
+
+  it('allows safe schemes + relative + data-image src', () => {
+    expect(isSafeViewUrl('https://example.com/x', 'href')).toBe(true);
+    expect(isSafeViewUrl('http://example.com', 'href')).toBe(true);
+    expect(isSafeViewUrl('mailto:a@b.com', 'href')).toBe(true);
+    expect(isSafeViewUrl('tel:+1555', 'href')).toBe(true);
+    expect(isSafeViewUrl('/relative/path', 'href')).toBe(true);
+    expect(isSafeViewUrl('#frag', 'href')).toBe(true);
+    expect(isSafeViewUrl('  https://example.com  ', 'href')).toBe(true);
+    expect(isSafeViewUrl('data:image/png;base64,AAAA', 'src')).toBe(true);
+    expect(isSafeViewUrl('data:image/png;base64,AAAA', 'href')).toBe(false);
   });
 });

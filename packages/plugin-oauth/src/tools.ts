@@ -15,7 +15,11 @@ import {
   readStoredCreds,
   storeTokenSet,
   validateProvider,
+  type OAuthVault,
+  type StoredCreds,
 } from './storage.js';
+import { isAuthRejection, withCredentialLock } from './credential-lock.js';
+import { classifyNetworkError } from '@moxxy/sdk';
 
 export interface OAuthToolDeps {
   readonly vault: VaultStore;
@@ -233,32 +237,31 @@ export function buildOauthGetTokenTool(deps: OAuthToolDeps) {
           context: { provider },
         });
       }
-      let tokens = stored.tokenSet;
-      if (forceRefresh || isExpired(tokens)) {
-        if (!tokens.refreshToken) {
-          throw new MoxxyError({
-            code: 'AUTH_EXPIRED',
-            message: `OAuth token for "${provider}" expired and no refresh_token is stored. Re-run oauth_authorize.`,
-            context: { provider },
-          });
-        }
-        const refreshed = await refreshAccessToken({
-          tokenUrl: stored.tokenUrl,
-          clientId: stored.clientId,
-          ...(stored.clientSecret ? { clientSecret: stored.clientSecret } : {}),
-          refreshToken: tokens.refreshToken,
-        });
-        // Providers MAY rotate refresh_token; preserve the prior one if not.
-        tokens = {
-          ...refreshed,
-          refreshToken: refreshed.refreshToken ?? tokens.refreshToken,
-        };
-        await storeTokenSet(deps.vault, provider, tokens, {
-          clientId: stored.clientId,
-          ...(stored.clientSecret ? { clientSecret: stored.clientSecret } : {}),
-          tokenUrl: stored.tokenUrl,
+      // Fast path: a still-fresh token needs no lock and no network. Refreshing
+      // a rotating single-use refresh_token, on the other hand, MUST serialize
+      // per credential (a second concurrent refresher — another oauth_get_token
+      // call OR a provider's ensureFreshTokens sharing this vault credential —
+      // would otherwise burn the now-rotated token and log the user out). Route
+      // the refresh+persist critical section through the same per-credential
+      // lock ensure-fresh.ts uses, re-reading inside the lock so a queued
+      // waiter reuses the winner's rotated token instead of re-racing.
+      if (!forceRefresh && !isExpired(stored.tokenSet)) {
+        return summarizeTokens(provider, stored.tokenSet, {
+          includeAccess: true,
+          ...(includeRefresh ? { includeRefresh: true } : {}),
         });
       }
+      const tokens = await withCredentialLock(`oauth-${provider}`, async () => {
+        // Re-read under the lock: another consumer/process may have refreshed
+        // while we queued. Reuse a now-fresh token even under forceRefresh,
+        // which exists for 401 recovery and is satisfied by ANY rotation.
+        const current = (await readStoredCreds(deps.vault, provider)) ?? stored;
+        const rotatedMeanwhile = current.tokenSet.accessToken !== stored.tokenSet.accessToken;
+        if (!isExpired(current.tokenSet) && (!forceRefresh || rotatedMeanwhile)) {
+          return current.tokenSet;
+        }
+        return refreshAndStoreCreds(deps.vault, provider, current);
+      });
       return summarizeTokens(provider, tokens, {
         includeAccess: true,
         ...(includeRefresh ? { includeRefresh: true } : {}),
@@ -281,6 +284,69 @@ export function buildOauthClearTool(deps: OAuthToolDeps) {
       return { ok: true, provider, removedKeys: removed };
     },
   });
+}
+
+/**
+ * Refresh + persist for `oauth_get_token`, mirroring ensure-fresh.ts's
+ * `refreshAndStore` but keyed off raw StoredCreds (the tool has no provider
+ * profile). MUST run inside `withCredentialLock` — it is a second writer to the
+ * same `oauth/<provider>/*` keys that ensure-fresh.ts guards. Preserves a
+ * rotated-or-prior refresh_token (RFC 6749 §6) and recovers once from an
+ * invalid_grant when another process rotated our refresh_token away after we
+ * read it. Re-persists the stored extras so a store-layer change can't silently
+ * wipe account_id on a tool-driven refresh.
+ */
+async function refreshAndStoreCreds(
+  vault: OAuthVault,
+  provider: string,
+  stored: StoredCreds,
+  retried = false,
+): Promise<TokenSet> {
+  if (!stored.tokenSet.refreshToken) {
+    throw new MoxxyError({
+      code: 'AUTH_EXPIRED',
+      message: `OAuth token for "${provider}" expired and no refresh_token is stored. Re-run oauth_authorize.`,
+      context: { provider },
+    });
+  }
+  let refreshed: TokenSet;
+  try {
+    refreshed = await refreshAccessToken({
+      tokenUrl: stored.tokenUrl,
+      clientId: stored.clientId,
+      ...(stored.clientSecret ? { clientSecret: stored.clientSecret } : {}),
+      refreshToken: stored.tokenSet.refreshToken,
+    });
+  } catch (err) {
+    // Rotation-race recovery: an invalid_grant-style rejection with a DIFFERENT
+    // refresh_token now on disk means another process rotated ours away after
+    // we read it. Retry once with the fresher token before surfacing the error.
+    // Transient (network/5xx) failures aren't evidence of rotation — don't loop.
+    if (!retried && isAuthRejection(err)) {
+      const latest = await readStoredCreds(vault, provider);
+      if (
+        latest?.tokenSet.refreshToken &&
+        latest.tokenSet.refreshToken !== stored.tokenSet.refreshToken
+      ) {
+        return refreshAndStoreCreds(vault, provider, latest, true);
+      }
+    }
+    const net = classifyNetworkError(err, { url: stored.tokenUrl, provider });
+    if (net) throw net;
+    throw err;
+  }
+  // Providers MAY rotate refresh_token; preserve the prior one if not.
+  const merged: TokenSet = {
+    ...refreshed,
+    refreshToken: refreshed.refreshToken ?? stored.tokenSet.refreshToken,
+  };
+  await storeTokenSet(vault, provider, merged, {
+    clientId: stored.clientId,
+    ...(stored.clientSecret ? { clientSecret: stored.clientSecret } : {}),
+    tokenUrl: stored.tokenUrl,
+    ...(Object.keys(stored.extras).length > 0 ? { extras: stored.extras } : {}),
+  });
+  return merged;
 }
 
 function summarizeTokens(

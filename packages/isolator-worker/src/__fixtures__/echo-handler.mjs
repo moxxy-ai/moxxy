@@ -10,6 +10,27 @@ export async function slowHandler(input) {
   return 'done';
 }
 
+// Proves the synthetic ctx.signal is actually wired to the parent's
+// abort/timeout. The handler blocks until ctx.signal fires, then — as
+// its cooperative cleanup — writes a sentinel file THROUGH the broker
+// (ctx.fs.writeFile). The parent services that brokered write during
+// the abort grace window, so the test can observe the sentinel on disk
+// and know the in-worker signal genuinely fired (rather than the
+// worker being blindly hard-killed with a permanently-inert signal).
+//
+// `input.sentinel` is the path to write; it must be inside the declared
+// fs.write cap. A permanently-inert signal would leave this handler
+// parked forever and the sentinel would never appear.
+export async function signalFlushHandler(input, ctx) {
+  if (!ctx.signal.aborted) {
+    await new Promise((resolve) => {
+      ctx.signal.addEventListener('abort', () => resolve(), { once: true });
+    });
+  }
+  await ctx.fs.writeFile(input.sentinel, 'flushed-on-abort');
+  return { flushed: true };
+}
+
 export async function throwHandler() {
   throw new Error('intentional failure');
 }

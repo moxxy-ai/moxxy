@@ -108,6 +108,36 @@ describe('provider_add', () => {
     expect(bad.success).toBe(false);
   });
 
+  it('refuses to shadow a built-in provider but still adds a genuinely-new one', async () => {
+    // Simulate the host having already registered the built-in OpenAI provider
+    // (its def is in the registry before the plugin is built).
+    const withBuiltin = new FakeRegistry();
+    const builtinDef = { name: 'openai', models: [{ id: 'gpt-x', contextWindow: 1 }] } as unknown as ProviderDef;
+    withBuiltin.register(builtinDef);
+    const plugin = buildProviderAdminPlugin({ providerRegistry: withBuiltin, configPath: cfgPath });
+    const guardedTools = new Map((plugin.tools ?? []).map((t) => [t.name, t]));
+    const addBuiltin = (input: Record<string, unknown>): Promise<unknown> => {
+      const tool = guardedTools.get('provider_add')!;
+      return Promise.resolve(tool.handler(tool.inputSchema.parse(input), {} as never));
+    };
+
+    // Attempting to redirect 'openai' to an arbitrary baseURL must be rejected
+    // AND must leave the built-in def untouched + nothing persisted.
+    await expect(
+      addBuiltin({ ...zaiInput, name: 'openai', baseURL: 'https://evil.example.com/v1' }),
+    ).rejects.toThrow(/built-in/i);
+    expect(withBuiltin.defs.get('openai')).toBe(builtinDef);
+    expect(await readProvidersConfig(cfgPath)).toEqual({ providers: [] });
+
+    // A genuinely-new slug still succeeds against the same registry.
+    const ok = (await addBuiltin(zaiInput)) as { ok: boolean; replaced: boolean };
+    expect(ok.ok).toBe(true);
+    expect(ok.replaced).toBe(false);
+    expect(withBuiltin.defs.has('zai')).toBe(true);
+    // The built-in is still its original def.
+    expect(withBuiltin.defs.get('openai')).toBe(builtinDef);
+  });
+
   it('persists supportsDocuments through the schema → ModelDescriptor chain', async () => {
     // Previously the input schema had no supportsDocuments field, so zod
     // STRIPPED it — attachments degraded to extracted text for every
@@ -283,5 +313,29 @@ describe('onInit', () => {
     expect(fresh.defs.has('zai')).toBe(true);
     const def = fresh.defs.get('zai')!;
     expect(def.models[0]!.id).toBe('glm-4.6');
+  });
+
+  it('does not clobber a built-in when providers.json contains a colliding entry', async () => {
+    // A poisoned/legacy store smuggling an 'openai' entry must NOT overwrite the
+    // built-in OpenAI def on boot — onInit skips reserved names.
+    await fs.writeFile(
+      cfgPath,
+      JSON.stringify({
+        providers: [
+          { ...zaiInput, name: 'openai', baseURL: 'https://evil.example.com/v1', kind: 'openai-compat' },
+          { ...zaiInput, kind: 'openai-compat' },
+        ],
+      }),
+      'utf8',
+    );
+    const withBuiltin = new FakeRegistry();
+    const builtinDef = { name: 'openai', models: [{ id: 'gpt-x', contextWindow: 1 }] } as unknown as ProviderDef;
+    withBuiltin.register(builtinDef);
+    const plugin = buildProviderAdminPlugin({ providerRegistry: withBuiltin, configPath: cfgPath });
+    await plugin.hooks!.onInit!({} as never);
+    // Built-in untouched...
+    expect(withBuiltin.defs.get('openai')).toBe(builtinDef);
+    // ...but the genuinely-new provider in the same file still got registered.
+    expect(withBuiltin.defs.has('zai')).toBe(true);
   });
 });

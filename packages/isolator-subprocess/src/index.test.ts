@@ -136,6 +136,105 @@ describe('subprocessIsolator', () => {
     delete (globalThis as Record<string, unknown>)['__MOXXY_PARENT_FLAG__'];
   });
 
+  // u62-3: the child must run with process.cwd() === call.cwd, not the
+  // parent test-runner's cwd. We use a freshly-created tmp dir distinct
+  // from process.cwd() so a regression (omitted spawn cwd) is detectable.
+  it('honors call.cwd as the child working directory', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-cwd-'));
+    // macOS tmp paths are symlinked (/var -> /private/var); process.cwd()
+    // resolves to the realpath, so normalise both sides before comparing.
+    const expected = await fs.realpath(dir);
+    try {
+      const iso = createSubprocessIsolator();
+      const out = (await iso.run(
+        baseCall('reportCwd', {}, {
+          cwd: dir,
+          moduleRef: { url: fixtureUrl, export: 'reportCwd' },
+        }),
+        async () => 'unused',
+        {},
+        new AbortController().signal,
+      )) as { cwd: string };
+      expect(out.cwd).toBe(expected);
+      // Sanity: the child's cwd is NOT the parent runner's cwd.
+      expect(out.cwd).not.toBe(process.cwd());
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  // u62-1: a handler that traps SIGTERM and busy-loops must still be
+  // stopped — the isolator escalates to SIGKILL after the grace period.
+  // The grace is 2s, so this test waits a few seconds past the budget.
+  it('SIGKILLs a SIGTERM-ignoring runaway child after the grace period', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-kill-'));
+    const pidFile = path.join(dir, 'pid');
+    try {
+      const iso = createSubprocessIsolator();
+      const p = iso.run(
+        baseCall('sigtermIgnorerSpin', { pidFile }, {
+          cwd: dir,
+          moduleRef: { url: fixtureUrl, export: 'sigtermIgnorerSpin' },
+        }),
+        async () => 'unused',
+        { timeMs: 300, fs: { write: [`${dir}/**`] } },
+        new AbortController().signal,
+      );
+      await expect(p).rejects.toThrow(/exceeded 300ms budget/);
+
+      // Read the pid the child reported before it started spinning.
+      let pid = 0;
+      for (let i = 0; i < 50 && !pid; i++) {
+        try {
+          pid = Number((await fs.readFile(pidFile, 'utf8')).trim());
+        } catch {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+      }
+      expect(pid).toBeGreaterThan(0);
+
+      // The process is still busy-looping right after the budget (SIGTERM
+      // was trapped). It must be gone after the SIGKILL grace window.
+      const alive = (target: number): boolean => {
+        try {
+          process.kill(target, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      let dead = false;
+      for (let i = 0; i < 60 && !dead; i++) {
+        if (!alive(pid)) {
+          dead = true;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(dead).toBe(true);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  // Counterpart to the SIGKILL test: a child that exits cleanly on
+  // SIGTERM (the slowHandler simply sleeps, so its process honours the
+  // cooperative kill) must NOT be needlessly escalated — and the suite
+  // must not leak a pending SIGKILL timer.
+  it('lets a well-behaved child exit on SIGTERM without escalation', async () => {
+    const iso = createSubprocessIsolator();
+    await expect(
+      iso.run(
+        baseCall('slowHandler', { ms: 5000 }, {
+          moduleRef: { url: fixtureUrl, export: 'slowHandler' },
+        }),
+        async () => 'unused',
+        { timeMs: 200 },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/exceeded 200ms budget/);
+  });
+
   it('runs exec through the broker', async () => {
     const iso = createSubprocessIsolator();
     const out = (await iso.run(

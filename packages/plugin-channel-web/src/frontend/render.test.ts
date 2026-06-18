@@ -50,6 +50,40 @@ describe('frontend renderNode — security (the second wall)', () => {
     expect(html).not.toContain('data:text');
   });
 
+  it('neutralizes a javascript: href split by ASCII whitespace/control chars (browser strips them on click)', () => {
+    // The HTML5 URL parser strips tab/newline/CR (and leading C0 controls)
+    // before scheme resolution, so each of these executes as `javascript:` on
+    // click. The render-time gate must block them all → plain text, no href.
+    for (const href of [
+      'java\tscript:alert(1)',
+      'java\nscript:alert(1)',
+      'java\rscript:alert(1)',
+      'jav ascript:alert(1)',
+      'javascript:alert(1)',
+    ]) {
+      const html = render(el('view', {}, [el('link', { href }, [txt('click me')])]));
+      expect(html).toContain('click me');
+      expect(html).not.toContain('href=');
+      expect(html.toLowerCase()).not.toContain('script:');
+    }
+  });
+
+  it('blocks an <img> whose src scheme is split by whitespace/control chars', () => {
+    for (const src of ['java\tscript:alert(1)', 'javascript:alert(1)']) {
+      const html = render(el('view', {}, [el('image', { src })]));
+      expect(html).not.toContain('<img');
+      expect(html.toLowerCase()).toContain('blocked image');
+    }
+  });
+
+  it('still renders an https/relative link untouched (valid flows unchanged)', () => {
+    const a = render(el('view', {}, [el('link', { href: 'https://example.com/p?q=1' }, [txt('site')])]));
+    expect(a).toContain('href="https://example.com/p?q=1"');
+    // a relative href stays a clickable external anchor
+    const rel = render(el('view', {}, [el('link', { href: '/local/path' }, [txt('local')])]));
+    expect(rel).toContain('href="/local/path"');
+  });
+
   it('blocks an <img> with a non-image data: or javascript: src', () => {
     for (const src of ['javascript:alert(1)', 'data:text/html,<script>1</script>']) {
       const html = render(el('view', {}, [el('image', { src })]));

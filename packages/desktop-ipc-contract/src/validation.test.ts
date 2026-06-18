@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { validateIpcInput } from './validation.js';
+import { validateIpcInput, ipcInputSchemas } from './validation.js';
+import { REMOTE_ALLOWED_COMMANDS } from './index.js';
 
 describe('IPC payload validation', () => {
   it('rejects non-http(s) openExternal URLs', () => {
@@ -152,6 +153,67 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('prefs.update', { theme: 'system' })).not.toThrow();
     expect(() => validateIpcInput('prefs.update', { theme: 'hotdog' })).toThrow();
     expect(() => validateIpcInput('prefs.update', { theme: true })).toThrow();
+  });
+
+  it('bounds the remote-reachable session.abortTurn turnId', () => {
+    // Valid: a short turn id, with or without an explicit workspaceId.
+    expect(() =>
+      validateIpcInput('session.abortTurn', { turnId: 't-123' }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('session.abortTurn', { workspaceId: 'ws', turnId: 't-123' }),
+    ).not.toThrow();
+    // turnId is required and bounded — empty / missing / oversized is rejected.
+    expect(() => validateIpcInput('session.abortTurn', { turnId: '' })).toThrow();
+    expect(() => validateIpcInput('session.abortTurn', {})).toThrow();
+    expect(() =>
+      validateIpcInput('session.abortTurn', { turnId: 't'.repeat(257) }),
+    ).toThrow();
+    // workspaceId, when present, is also bounded.
+    expect(() =>
+      validateIpcInput('session.abortTurn', { workspaceId: 'w'.repeat(257), turnId: 't' }),
+    ).toThrow();
+  });
+
+  it('bounds the remote-reachable session.info workspaceId', () => {
+    // Valid: no arg (active workspace) or a bounded workspaceId.
+    expect(() => validateIpcInput('session.info', undefined)).not.toThrow();
+    expect(() => validateIpcInput('session.info', {})).not.toThrow();
+    expect(() => validateIpcInput('session.info', { workspaceId: 'ws' })).not.toThrow();
+    expect(() =>
+      validateIpcInput('session.info', { workspaceId: 'w'.repeat(257) }),
+    ).toThrow();
+    // An empty workspaceId (not undefined) is rejected.
+    expect(() => validateIpcInput('session.info', { workspaceId: '' })).toThrow();
+  });
+
+  it('bounds the remote-reachable sessions.list deskId', () => {
+    // Valid: no arg (active desk) or a bounded deskId.
+    expect(() => validateIpcInput('sessions.list', undefined)).not.toThrow();
+    expect(() => validateIpcInput('sessions.list', {})).not.toThrow();
+    expect(() => validateIpcInput('sessions.list', { deskId: 'd1' })).not.toThrow();
+    expect(() =>
+      validateIpcInput('sessions.list', { deskId: 'd'.repeat(257) }),
+    ).toThrow();
+    expect(() => validateIpcInput('sessions.list', { deskId: '' })).toThrow();
+  });
+
+  it('schematizes every remote-reachable, arg-carrying command', () => {
+    // Commands reachable over the WS bridge that accept a structured payload
+    // MUST have a bounded schema so a hostile remote can't send garbage. The
+    // few genuinely no-arg ones (probes / non-mutating reads with no payload)
+    // are allow-listed here.
+    const NO_ARG: ReadonlySet<string> = new Set([
+      'connection.snapshotAll',
+      'connection.activeWorkspace',
+      'connection.retry',
+      'session.hasTranscriber',
+      'workflows.list',
+    ]);
+    for (const cmd of REMOTE_ALLOWED_COMMANDS) {
+      if (NO_ARG.has(cmd)) continue;
+      expect(ipcInputSchemas[cmd], `missing schema for remote command "${cmd}"`).toBeDefined();
+    }
   });
 
   it('is a no-op for commands without a schema', () => {

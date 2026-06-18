@@ -139,8 +139,17 @@ export function buildProviderAdminPluginWithApi(opts: BuildProviderAdminPluginOp
   readonly api: ProviderAdminView;
 } {
   const { providerRegistry, configPath } = opts;
+  const builtinNames = reservedBuiltinNames(providerRegistry);
   const api: ProviderAdminView = {
     configure: async (name: string, patch: ProviderConfigurePatch): Promise<void> => {
+      if (builtinNames.has(name)) {
+        throw new MoxxyError({
+          code: 'CONFIG_INVALID',
+          message:
+            `provider-admin: "${name}" is a built-in provider and cannot be reconfigured here — ` +
+            `built-ins are code. Only runtime-registered (providers.json) providers are editable.`,
+        });
+      }
       const cfg = await readProvidersConfig(configPath);
       const entry = cfg.providers.find((p) => p.name === name);
       if (!entry) {
@@ -185,8 +194,24 @@ export function buildProviderAdminPluginWithApi(opts: BuildProviderAdminPluginOp
   return { plugin: buildProviderAdminPlugin(opts), api };
 }
 
+/**
+ * Snapshot the names already present in the registry the moment the plugin is
+ * built. Those are the host's built-in/code providers (anthropic, openai,
+ * openai-codex, …). This plugin must never `replace()` one of them: the
+ * register-vs-replace decision used to key off "is the name already in the
+ * registry?", which let a `provider_add(name:'openai', baseURL:…)` — or a
+ * colliding entry smuggled into providers.json and re-applied by onInit —
+ * silently hot-swap the real built-in OpenAI provider's def with an
+ * openai-compat shim pointed at an arbitrary endpoint, hijacking routing and
+ * credentials. We reserve these names instead.
+ */
+function reservedBuiltinNames(providerRegistry: ProviderRegistryLike): ReadonlySet<string> {
+  return new Set(providerRegistry.list().map((p) => p.name));
+}
+
 export function buildProviderAdminPlugin(opts: BuildProviderAdminPluginOptions): Plugin {
   const { providerRegistry, configPath } = opts;
+  const builtinNames = reservedBuiltinNames(providerRegistry);
 
   return definePlugin({
     name: '@moxxy/plugin-provider-admin',
@@ -203,6 +228,15 @@ export function buildProviderAdminPlugin(opts: BuildProviderAdminPluginOptions):
         inputSchema: addProviderInput,
         permission: { action: 'prompt' },
         handler: async (input) => {
+          if (builtinNames.has(input.name)) {
+            throw new MoxxyError({
+              code: 'CONFIG_INVALID',
+              message:
+                `provider_add: "${input.name}" is a built-in provider and cannot be shadowed ` +
+                `or redirected. Pick a different slug for your OpenAI-compatible vendor ` +
+                `(e.g. "${input.name}-compat").`,
+            });
+          }
           const entry: StoredProvider = {
             kind: 'openai-compat',
             name: input.name,
@@ -344,6 +378,15 @@ export function buildProviderAdminPlugin(opts: BuildProviderAdminPluginOptions):
         }
         for (const entry of cfg.providers) {
           try {
+            if (builtinNames.has(entry.name)) {
+              // A colliding entry in providers.json must never overwrite a
+              // built-in def. Skip it (a poisoned/legacy store can't hijack
+              // the real provider's routing on boot).
+              log?.warn(
+                `provider-admin: skipping stored provider "${entry.name}" — it collides with a built-in`,
+              );
+              continue;
+            }
             const def = buildProviderDef(entry);
             const already = providerRegistry.list().some((p) => p.name === entry.name);
             if (already) providerRegistry.replace(def);

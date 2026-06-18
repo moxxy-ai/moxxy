@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, statSync, unlinkSync } from 'node:fs';
+import { mkdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { moxxyPath } from '@moxxy/sdk';
 import type { DetectedImagePath } from './image-attachments.js';
@@ -105,8 +105,7 @@ function readClipboardImageLinux(): DetectedImagePath | null {
     if (result.status === 0 && result.stdout && result.stdout.length > 0) {
       const target = nextCachePath();
       try {
-        const fs = require('node:fs') as typeof import('node:fs');
-        fs.writeFileSync(target, result.stdout);
+        writeFileSync(target, result.stdout);
       } catch {
         return null;
       }

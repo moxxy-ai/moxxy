@@ -95,7 +95,7 @@ describe('wasm broker: broker_fs_write_file', () => {
   it('writes when in scope', async () => {
     const tmp = path.join(os.tmpdir(), `wasm-bridge-write-${Date.now()}.txt`);
     try {
-      const { memory, imports } = setupBridges({
+      const { memory, imports, outPtrOut, outLenOut } = setupBridges({
         fs: { write: [`${os.tmpdir()}/**`] },
       });
       const pathPtr = 128;
@@ -107,16 +107,20 @@ describe('wasm broker: broker_fs_write_file', () => {
         pathLen,
         dataPtr,
         dataLen,
+        outPtrOut,
+        outLenOut,
       );
       expect(rc).toBe(0);
+      // Success yields a zero-length result pair (no diagnostics).
+      expect(readResult(memory, outPtrOut, outLenOut)).toBe('');
       expect(await fs.readFile(tmp, 'utf8')).toBe('wasm-wrote-this');
     } finally {
       await fs.unlink(tmp).catch(() => undefined);
     }
   });
 
-  it('denies out-of-scope writes (return 1)', () => {
-    const { memory, imports } = setupBridges({
+  it('denies out-of-scope writes with code 1 + error message', () => {
+    const { memory, imports, outPtrOut, outLenOut } = setupBridges({
       fs: { write: ['/tmp/**'] },
     });
     const pathPtr = 128;
@@ -128,8 +132,39 @@ describe('wasm broker: broker_fs_write_file', () => {
       pathLen,
       dataPtr,
       dataLen,
+      outPtrOut,
+      outLenOut,
     );
     expect(rc).toBe(1);
+    expect(readResult(memory, outPtrOut, outLenOut)).toMatch(/fs\.write capability/);
+  });
+
+  it('surfaces a descriptive IO error on a failed in-scope write', () => {
+    // In scope per caps, but the path is a directory that already exists,
+    // so writeFileSync raises EISDIR. The caller must see the reason, not a
+    // bare code 1.
+    const dir = os.tmpdir();
+    const { memory, imports, outPtrOut, outLenOut } = setupBridges({
+      fs: { write: [`${os.tmpdir()}/**`] },
+    });
+    const pathPtr = 128;
+    const pathLen = writeStr(memory, pathPtr, dir);
+    const dataPtr = 1024;
+    const dataLen = writeStr(memory, dataPtr, 'nope');
+    const rc = (imports.broker_fs_write_file as Function)(
+      pathPtr,
+      pathLen,
+      dataPtr,
+      dataLen,
+      outPtrOut,
+      outLenOut,
+    );
+    expect(rc).toBe(1);
+    const message = readResult(memory, outPtrOut, outLenOut);
+    expect(message).toMatch(/\[broker:fs\.writeFile\]/);
+    expect(message.length).toBeGreaterThan(0);
+    // Carries the underlying errno reason rather than swallowing it.
+    expect(message).toMatch(/EISDIR|illegal operation|directory/i);
   });
 });
 

@@ -45,8 +45,21 @@ register(loaderUrl, import.meta.url);
 let nextId = 1;
 const pending = new Map();
 
+// Cooperative-cancel signal handed to the handler as ctx.signal. The
+// parent posts { type: 'abort' } on timeout / host-abort (before the
+// hard worker.terminate()), giving a well-behaved handler that wired
+// ctx.signal into fetch / long loops a chance to bail out and flush.
+const abortController = new AbortController();
+
 parentPort.on('message', (msg) => {
-  if (msg && msg.type === 'broker-response') {
+  if (!msg) return;
+  if (msg.type === 'abort') {
+    abortController.abort(
+      new DOMException('aborted by isolator', 'AbortError'),
+    );
+    return;
+  }
+  if (msg.type === 'broker-response') {
     const p = pending.get(msg.id);
     if (!p) return;
     pending.delete(msg.id);
@@ -95,7 +108,7 @@ try {
       turnId: syntheticCtx.turnId,
       callId: syntheticCtx.callId,
       cwd: syntheticCtx.cwd,
-      signal: new AbortController().signal,
+      signal: abortController.signal,
       log: { length: 0, at: () => undefined, slice: () => [], ofType: () => [], byTurn: () => [], toJSON: () => [] },
       logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
       fs: broker.fs,
@@ -156,23 +169,36 @@ export interface WorkerIsolatorOptions {
  *   re-checked against `caps.net` on the parent side before the
  *   socket is opened.
  *
- * **What this still does NOT enforce** (Phase 2.2+):
- * - **Direct `node:fs`** — a handler can `import('node:fs').then(fs => fs.readFileSync('/etc/passwd'))`
- *   and bypass the broker. The broker is advisory; tools opt in by
- *   using `ctx.fs` instead of `node:fs`. A future loader-hook layer
- *   could block direct imports, but that's complex and Node doesn't
- *   yet have a stable API for it.
- * - **Other fs ops** — only `readFile` is brokered. `writeFile`,
- *   `readdir`, `stat`, etc. will land in Phase 2.2.
- * - **`child_process` / raw `net`** — not brokered. Tools that need
- *   subprocess access should declare `caps.subprocess: true` and
- *   accept that the worker can spawn anything; a future broker can
- *   add `child_process.spawn` with command-allowlist enforcement.
- * - **Env** — the worker inherits `process.env`.
+ * **Direct-import escape is closed (loader hook):** the shim registers
+ * an ESM loader hook (`LOADER_HOOK_SOURCE`, `BLOCKED_HANDLER_MODULES`)
+ * via `module.register()` BEFORE importing the handler module, so a
+ * handler that does `import('node:fs')` / `import('node:child_process')`
+ * / `import('node:net')` / `import('node:http'/'tls'/...)` (both
+ * `node:`-prefixed and bare specifiers) throws at resolution time
+ * rather than bypassing the broker. The full broker surface
+ * (`fs.readFile` / `fs.writeFile` / `fs.readdir` / `fs.stat` / `fetch`
+ * / `exec`) is mediated on the parent side. The loader-hook describe
+ * block in `broker-e2e.test.ts` pins this — if you change the blocked
+ * set or the brokered ops, keep this doc and that test in sync.
  *
- * **Documenting the gap honestly** is more important than pretending
- * to close it. The threat model is "well-behaved handler that opts
- * into the broker," not "adversarial handler trying to escape."
+ * **What this still does NOT enforce** (the genuinely-open gaps):
+ * - **Env** — the worker inherits the parent's `process.env`. Unlike
+ *   the subprocess isolator, there is no env allowlist; secrets in the
+ *   parent environment are visible to the handler. Use the subprocess
+ *   isolator if you need a curated env.
+ * - **No VM / heap isolation beyond V8 limits** — isolation is the
+ *   worker's own V8 heap + module cache + globals, plus the
+ *   `resourceLimits` heap ceiling. There is no separate VM realm; a
+ *   handler that exhausts CPU is only bounded by the wall-clock timer.
+ * - **Loader covers ESM resolution only** — it intercepts `import` /
+ *   dynamic `import()`. It does NOT close `eval`, `Function`,
+ *   `module.createRequire`, `process.binding`, or other reflective
+ *   escapes that reach native APIs without going through ESM resolve.
+ *
+ * The threat model remains "well-behaved handler that opts into the
+ * broker," hardened so that the common direct-import bypass is blocked;
+ * it is NOT a sandbox against an adversarial handler determined to
+ * escape via the reflective gaps above.
  */
 export function createWorkerIsolator(opts: WorkerIsolatorOptions = {}): Isolator {
   const defaultMemMb = opts.defaultMemMb ?? 256;
@@ -224,53 +250,99 @@ export function createWorkerIsolator(opts: WorkerIsolatorOptions = {}): Isolator
       return new Promise<unknown>((resolve, reject) => {
         const cleanup = new Set<() => void>();
         let settled = false;
-        const finish = (action: () => void): void => {
+        // True once we've hard-terminated (or scheduled the immediate,
+        // non-graceful terminate). While settled-but-not-yet-terminated
+        // (the graceful abort grace window) we keep servicing brokered
+        // requests so a cooperative handler can flush within the caps
+        // it already holds — `handleBrokerRequest` still cap-checks
+        // every op, so this grants no new authority.
+        let terminated = false;
+        const hardTerminate = (): void => {
+          terminated = true;
+          void worker.terminate();
+        };
+        /**
+         * Settle the parent promise and tear the worker down. When
+         * `graceful` is set (timeout / host-abort — the handler may
+         * still be running), first post `{ type: 'abort' }` so the
+         * in-worker `ctx.signal` fires, giving a cooperative handler a
+         * short window to bail out and flush, THEN hard-terminate. The
+         * parent promise still rejects immediately — the grace window
+         * is only about letting in-flight async work clean up before
+         * V8 kills the thread, never about delaying the caller.
+         */
+        const finish = (action: () => void, graceful = false): void => {
           if (settled) return;
           settled = true;
           cleanup.forEach((fn) => fn());
           cleanup.clear();
           action();
-          void worker.terminate();
+          if (graceful) {
+            // Best-effort: wake ctx.signal, then terminate after a
+            // short grace period. If postMessage throws (worker
+            // already gone) just terminate.
+            try {
+              worker.postMessage({ type: 'abort' });
+            } catch {
+              // worker already torn down; fall through to terminate.
+            }
+            const grace = setTimeout(hardTerminate, 150);
+            // Don't keep the event loop alive on the grace timer alone.
+            grace.unref?.();
+          } else {
+            hardTerminate();
+          }
         };
 
         if (signal.aborted) {
-          finish(() =>
-            reject(new Error(`[security:worker] tool '${call.toolName}' aborted`)),
+          finish(
+            () =>
+              reject(new Error(`[security:worker] tool '${call.toolName}' aborted`)),
+            true,
           );
           return;
         }
 
         const timer = setTimeout(() => {
-          finish(() =>
-            reject(
-              new Error(
-                `[security:worker] tool '${call.toolName}' exceeded ${timeMs}ms budget`,
+          finish(
+            () =>
+              reject(
+                new Error(
+                  `[security:worker] tool '${call.toolName}' exceeded ${timeMs}ms budget`,
+                ),
               ),
-            ),
+            true,
           );
         }, timeMs);
         cleanup.add(() => clearTimeout(timer));
 
         const onAbort = (): void => {
-          finish(() =>
-            reject(new Error(`[security:worker] tool '${call.toolName}' aborted`)),
+          finish(
+            () =>
+              reject(new Error(`[security:worker] tool '${call.toolName}' aborted`)),
+            true,
           );
         };
         signal.addEventListener('abort', onAbort, { once: true });
         cleanup.add(() => signal.removeEventListener('abort', onAbort));
 
         worker.on('message', (msg: WorkerMessage) => {
-          if (settled) return;
           if (msg.type === 'broker-request') {
+            // Service brokered ops until the worker is actually
+            // terminated — including during the abort grace window so a
+            // cooperative handler can flush. Every op is still
+            // cap-checked by `handleBrokerRequest`.
+            if (terminated) return;
             void handleBrokerRequest(msg, {
               caps,
               cwd: call.cwd,
               signal,
             }).then((response) => {
-              if (!settled) worker.postMessage(response);
+              if (!terminated) worker.postMessage(response);
             });
             return;
           }
+          if (settled) return;
           // type === 'result' — the terminal message
           if (msg.ok) {
             finish(() => resolve(msg.value));

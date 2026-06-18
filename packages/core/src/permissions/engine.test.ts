@@ -52,6 +52,51 @@ describe('PermissionEngine', () => {
     expect(e.check(call('Bash', { cmd: 'rm -rf /' }))).toBeNull();
   });
 
+  it('deny rule with an invalid-regex inputMatches still denies (fails closed)', () => {
+    // Unbalanced bracket = uncompilable regex. The user clearly intended to
+    // block `rm -rf`; the old fallback (literal !== equality) silently turned
+    // this into a no-op deny, letting the dangerous command through.
+    const e = new PermissionEngine({
+      allow: [],
+      deny: [{ name: 'Bash', inputMatches: { cmd: 'rm -rf [' } }],
+    });
+    // A call whose input contains that substring (and any other call to the
+    // named tool) must still be denied — never silently allowed.
+    expect(e.check(call('Bash', { cmd: 'rm -rf /' }))?.mode).toBe('deny');
+    expect(e.check(call('Bash', { cmd: 'echo rm -rf [' }))?.mode).toBe('deny');
+    // A call to a different tool is unaffected by the bad rule.
+    expect(e.check(call('Read', { cmd: 'whatever' }))).toBeNull();
+  });
+
+  it('allow rule with an invalid-regex inputMatches does NOT over-grant', () => {
+    const e = new PermissionEngine({
+      allow: [{ name: 'Bash', inputMatches: { cmd: 'ls [' } }],
+      deny: [],
+    });
+    // The bad pattern can never compile, so the allow rule must not grant —
+    // not even for a call whose input literally contains the broken text.
+    expect(e.check(call('Bash', { cmd: 'ls -la' }))).toBeNull();
+    expect(e.check(call('Bash', { cmd: 'ls [' }))).toBeNull();
+  });
+
+  it('valid-regex deny rule still behaves exactly as before', () => {
+    const e = new PermissionEngine({
+      allow: [],
+      deny: [{ name: 'Bash', inputMatches: { cmd: '^rm ' } }],
+    });
+    expect(e.check(call('Bash', { cmd: 'rm -rf /' }))?.mode).toBe('deny');
+    expect(e.check(call('Bash', { cmd: 'ls -la' }))).toBeNull();
+  });
+
+  it('valid-regex allow rule still behaves exactly as before', () => {
+    const e = new PermissionEngine({
+      allow: [{ name: 'Bash', inputMatches: { cmd: '^ls' } }],
+      deny: [],
+    });
+    expect(e.check(call('Bash', { cmd: 'ls -la' }))?.mode).toBe('allow');
+    expect(e.check(call('Bash', { cmd: 'rm -rf /' }))).toBeNull();
+  });
+
   it('loads policy from disk and handles ENOENT', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-perm-'));
     const file = path.join(tmp, 'permissions.json');

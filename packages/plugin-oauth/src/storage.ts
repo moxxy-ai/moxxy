@@ -67,20 +67,28 @@ export async function storeTokenSet(
   validateProvider(provider);
   const tag = `oauth:${provider}`;
   const base = `oauth/${provider}`;
+  // Write each optional field when present, but DELETE the stored key when the
+  // new TokenSet omits it, so the persisted bundle exactly mirrors the live
+  // TokenSet. A refresh response that omits expires_in/scope/id_token (RFC 6749
+  // §5.1 permits this) must not leave a stale expires_at (which would make
+  // isExpired() loop forever or trust a token off dead data) or a stale OIDC
+  // id_token (which extractAccountId/extractExtras might re-derive identity
+  // from). Callers preserve a rotated-or-prior refresh_token BEFORE calling us
+  // (RFC 6749 §6: a refresh MAY omit refresh_token), so an undefined
+  // refreshToken here genuinely means "no refresh token" — mirror that too.
+  const upsert = async (key: string, value: string | undefined): Promise<void> => {
+    if (value !== undefined) {
+      await vault.set(`${base}/${key}`, value, [tag]);
+    } else {
+      await vault.delete?.(`${base}/${key}`);
+    }
+  };
   await vault.set(`${base}/access_token`, tokens.accessToken, [tag]);
-  if (tokens.refreshToken !== undefined) {
-    await vault.set(`${base}/refresh_token`, tokens.refreshToken, [tag]);
-  }
-  if (tokens.expiresAt !== undefined) {
-    await vault.set(`${base}/expires_at`, String(tokens.expiresAt), [tag]);
-  }
-  if (tokens.scope !== undefined) {
-    await vault.set(`${base}/scope`, tokens.scope, [tag]);
-  }
+  await upsert('refresh_token', tokens.refreshToken);
+  await upsert('expires_at', tokens.expiresAt !== undefined ? String(tokens.expiresAt) : undefined);
+  await upsert('scope', tokens.scope);
   await vault.set(`${base}/token_type`, tokens.tokenType, [tag]);
-  if (tokens.idToken !== undefined) {
-    await vault.set(`${base}/id_token`, tokens.idToken, [tag]);
-  }
+  await upsert('id_token', tokens.idToken);
   await vault.set(`${base}/client_id`, meta.clientId, [tag]);
   if (meta.clientSecret) {
     await vault.set(`${base}/client_secret`, meta.clientSecret, [tag]);

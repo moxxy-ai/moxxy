@@ -47,6 +47,16 @@ describe('skills', () => {
     await expect(writeSkill('plain.txt', 'x')).rejects.toThrow(/invalid/);
   });
 
+  it('rejects a Windows backslash separator (subdir slip)', async () => {
+    // `sub\evil.md` has no `/`, no `..`, and ends `.md`, so it used to pass —
+    // but `\` is a path separator on Windows, so it would escape into a subdir.
+    await expect(writeSkill('sub\\evil.md', 'x')).rejects.toThrow(/invalid/);
+    await expect(readSkill('sub\\evil.md')).rejects.toThrow(/invalid/);
+    // A plain, separator-free `.md` name still round-trips.
+    await writeSkill('ok.md', 'fine');
+    expect(await readSkill('ok.md')).toBe('fine');
+  });
+
   it('only lists .md files, sorted', async () => {
     await writeSkill('zebra.md', 'z');
     await writeSkill('apple.md', 'a');

@@ -68,7 +68,17 @@ export async function deleteSkill(name: string): Promise<void> {
 }
 
 function assertSafeName(name: string): void {
-  if (name.includes('/') || name.includes('..') || !name.endsWith('.md')) {
+  // Reject BOTH path separators (`/` POSIX, `\` Windows) explicitly — a bare
+  // `path.basename` check can't catch `\` on a POSIX host (it isn't a
+  // separator there), so a name like `sub\evil.md` would slip through and land
+  // in a subdir once the file lands on a Windows box. `..` blocks traversal and
+  // the `.md` suffix keeps the keyspace to skill files.
+  if (
+    name.includes('/') ||
+    name.includes('\\') ||
+    name.includes('..') ||
+    !name.endsWith('.md')
+  ) {
     throw new Error(`invalid skill name: ${name}`);
   }
 }
