@@ -28,6 +28,8 @@
   "dependencies": {
     "@clerk/clerk-react": "^5.0.0",
     "@clerk/themes": "^2.4.57",
+    "@huggingface/transformers": "^3.8.1",
+    "@moxxy/anonymizer": "workspace:*",
     "@moxxy/chat-model": "workspace:*",
     "@moxxy/cli": "workspace:*",
     "@moxxy/client-core": "workspace:*",

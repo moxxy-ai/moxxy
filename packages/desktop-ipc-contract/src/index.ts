@@ -91,6 +91,14 @@ export type {
 // ---------- Deep links (moxxy:// URLs) -------------------------------------
 export type { DeepLinkPayload } from './deep-link.js';
 
+// ---------- Desktop apps gallery (install lifecycle + anonymizer) ----------
+export type {
+  AppInstallState,
+  AppInstallStatus,
+  AppInstallProgress,
+  AnonymizerParseResult,
+} from './apps.js';
+
 // ---------- Events the renderer subscribes to ------------------------------
 export type { IpcEvents } from './events.js';
 
