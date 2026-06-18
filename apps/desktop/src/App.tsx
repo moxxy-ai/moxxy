@@ -21,6 +21,7 @@ import { ChatSurface } from './chat/ChatSurface';
 import { WorkspaceSidebar } from './shell/WorkspaceSidebar';
 import type { View } from './shell/ViewHeader';
 import { ContextRail, type RailPane } from './shell/ContextRail';
+import { useAgentSurfaceReveal } from './shell/surfaces/useAgentSurfaceReveal';
 import { WorkflowsPanel } from './workflows/WorkflowsPanel';
 import { CollaboratePanel } from './collaborate/CollaboratePanel';
 import { SettingsPanel } from './settings/SettingsPanel';
@@ -71,6 +72,10 @@ export function App(): JSX.Element {
   useEffect(() => {
     chatStore.setActive(activeWorkspaceId);
   }, [activeWorkspaceId]);
+
+  // When the agent drives the browser / terminal, open the matching rail
+  // pane so its work is shown to the user (once per session per pane).
+  useAgentSurfaceReveal(activeWorkspaceId, setRailPane);
 
   // Cmd/Ctrl+B toggles the workspace sidebar (same window-level keydown
   // pattern as WorkflowCanvas's Delete handling). Skipped while typing —
