@@ -1,21 +1,30 @@
 /**
- * The collaboration BRIEF — a compact, token-efficient digest of the user's
- * conversation that the coordinator writes into the scaffold (`.moxxy-collab/
- * BRIEF.md`) so EVERY spawned agent inherits the overall goal + intent, not just
- * its one-line subtask. Without it, peers boot fresh sessions that have never
- * seen the dialogue, clarifications, or constraints that produced the task.
+ * The collaboration BRIEF + the full-conversation recall file.
  *
- * Kept a pure function over the event log so it is unit-testable and cheap: it
- * distills (not dumps) — the most recent turns, each clipped — to stay well
- * under a few KB regardless of how long the conversation ran.
+ * BRIEF.md is a CONCISE summary (goal + key requirements/constraints/decisions)
+ * that every spawned agent reads up front — NOT the raw transcript, so the N
+ * peers don't each re-ingest the whole dialogue. The summary is normally written
+ * by a single coordinator LLM call (`summarize.ts`); `heuristicSummary` here is
+ * the deterministic fallback when no provider is available.
+ *
+ * CONVERSATION.md holds the full (clipped) transcript for ON-DEMAND recall — it
+ * is never loaded into an agent's context by default; an agent reads or greps it
+ * only when it needs a detail the summary omits.
+ *
+ * Pure functions over the event log, so they stay cheap + unit-testable.
  */
 
-/** How many recent user/assistant turns to include. */
+/** Heuristic-summary window (the fallback brief): recent turns, clipped, capped. */
 const MAX_TURNS = 12;
-/** Per-message clip (chars) — enough to convey intent, not the whole turn. */
 const MAX_MSG_CHARS = 600;
-/** Overall cap (chars) so a huge conversation still yields a small brief. */
 const MAX_TOTAL_CHARS = 6000;
+
+/** The recall file is allowed to be much bigger (it's read on demand, not in context). */
+const CONVERSATION_MSG_CHARS = 1200;
+const CONVERSATION_TOTAL_CHARS = 48_000;
+
+/** Guard on the (already-small) summary embedded into BRIEF.md. */
+const SUMMARY_GUARD_CHARS = 4000;
 
 interface DigestTurn {
   readonly role: 'user' | 'assistant';
@@ -46,44 +55,82 @@ export function digestTurns(events: ReadonlyArray<unknown>): DigestTurn[] {
   return out;
 }
 
-/**
- * Build the markdown brief. `task` is the headline goal (the last user prompt);
- * `events` is the coordinator's event log (`ctx.log.slice()`). The result is the
- * goal plus the tail of the conversation, clipped and total-capped.
- */
-export function buildBrief(task: string, events: ReadonlyArray<unknown>): string {
-  const turns = digestTurns(events);
-  // The headline goal is already `task`; avoid repeating the identical last user
-  // turn in the conversation section.
-  const trimmed =
-    turns.length > 0 && turns[turns.length - 1]!.role === 'user' && turns[turns.length - 1]!.text.trim() === task.trim()
-      ? turns.slice(0, -1)
-      : turns;
-  const recent = trimmed.slice(-MAX_TURNS);
+/** Drop the trailing user turn when it's identical to the goal headline. */
+function withoutGoalTail(turns: DigestTurn[], task: string): DigestTurn[] {
+  const last = turns[turns.length - 1];
+  return turns.length > 0 && last!.role === 'user' && last!.text.trim() === task.trim()
+    ? turns.slice(0, -1)
+    : turns;
+}
 
-  const lines: string[] = [
+/**
+ * The BRIEF.md document: the goal + a concise SUMMARY (produced upstream). It no
+ * longer carries the raw conversation — that's CONVERSATION.md.
+ */
+export function buildBrief(task: string, summary: string): string {
+  const lines = [
     '# Collaboration brief',
     '',
-    'This is the shared context for the whole team. It is the user\'s goal and the',
-    'conversation that led to it — read it before planning so your work fits the',
-    'real intent, not just your narrow sub-task.',
+    "This is the team's shared brief — the goal and the key requirements,",
+    "constraints, and decisions distilled from the user's conversation. The full",
+    'transcript is NOT in your context; if you need a specific detail this summary',
+    'omits, read or grep `.moxxy-collab/CONVERSATION.md` (do not load it wholesale).',
     '',
     '## Goal',
     '',
     clip(task, 1500) || '(no goal text)',
+    '',
+    '## Summary',
+    '',
+    clip(summary, SUMMARY_GUARD_CHARS) || '(no summary available)',
   ];
+  return `${lines.join('\n')}\n`;
+}
 
-  if (recent.length > 0) {
-    lines.push('', '## Conversation so far', '');
-    for (const t of recent) {
-      const who = t.role === 'user' ? 'User' : 'Assistant';
-      lines.push(`- **${who}:** ${clip(t.text, MAX_MSG_CHARS)}`);
+/**
+ * The deterministic fallback summary (used when the LLM summarizer is
+ * unavailable): the most recent turns, clipped + capped. Returned as the
+ * `summary` argument to {@link buildBrief}.
+ */
+export function heuristicSummary(task: string, events: ReadonlyArray<unknown>): string {
+  const recent = withoutGoalTail(digestTurns(events), task).slice(-MAX_TURNS);
+  if (recent.length === 0) return '(no prior conversation to summarize)';
+  const lines = ['(heuristic summary — LLM summarizer unavailable; recent turns:)'];
+  for (const t of recent) {
+    lines.push(`- **${t.role === 'user' ? 'User' : 'Assistant'}:** ${clip(t.text, MAX_MSG_CHARS)}`);
+  }
+  let body = lines.join('\n');
+  if (body.length > MAX_TOTAL_CHARS) body = `${body.slice(0, MAX_TOTAL_CHARS - 1)}…`;
+  return body;
+}
+
+/**
+ * The CONVERSATION.md recall file: the full (clipped) transcript. Generous caps
+ * because it's read on demand, never auto-loaded into an agent's context.
+ */
+export function buildConversation(task: string, events: ReadonlyArray<unknown>): string {
+  const turns = digestTurns(events);
+  const lines = [
+    '# Full conversation (recall-only)',
+    '',
+    'Not loaded into any agent by default. Read or grep this only when you need a',
+    'specific detail the brief summary omits.',
+    '',
+    '## Goal',
+    '',
+    clip(task, 1500) || '(no goal text)',
+    '',
+    '## Conversation',
+    '',
+  ];
+  if (turns.length === 0) {
+    lines.push('(no prior conversation)');
+  } else {
+    for (const t of turns) {
+      lines.push(`- **${t.role === 'user' ? 'User' : 'Assistant'}:** ${clip(t.text, CONVERSATION_MSG_CHARS)}`);
     }
   }
-
-  let brief = lines.join('\n');
-  if (brief.length > MAX_TOTAL_CHARS) {
-    brief = `${brief.slice(0, MAX_TOTAL_CHARS - 1)}…`;
-  }
-  return `${brief}\n`;
+  let body = lines.join('\n');
+  if (body.length > CONVERSATION_TOTAL_CHARS) body = `${body.slice(0, CONVERSATION_TOTAL_CHARS - 1)}…`;
+  return `${body}\n`;
 }

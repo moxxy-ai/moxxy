@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildBrief, digestTurns } from './brief.js';
+import { buildBrief, buildConversation, digestTurns, heuristicSummary } from './brief.js';
 
 const ev = (o: Record<string, unknown>): unknown => o;
 
@@ -20,42 +20,56 @@ describe('digestTurns', () => {
   });
 });
 
-describe('buildBrief', () => {
-  it('always includes the goal', () => {
-    const brief = buildBrief('Ship the onboarding flow', []);
+describe('buildBrief (summary document)', () => {
+  it('renders the goal + the provided summary, and points at the recall file', () => {
+    const brief = buildBrief('Ship onboarding', '- must be mobile-first\n- no analytics');
     expect(brief).toContain('# Collaboration brief');
     expect(brief).toContain('## Goal');
-    expect(brief).toContain('Ship the onboarding flow');
+    expect(brief).toContain('Ship onboarding');
+    expect(brief).toContain('## Summary');
+    expect(brief).toContain('mobile-first');
+    // points at the recall file, does NOT embed the transcript
+    expect(brief).toContain('.moxxy-collab/CONVERSATION.md');
   });
 
-  it('includes the conversation but does not repeat the goal as the last user turn', () => {
-    const brief = buildBrief('next.js please', [
+  it('guards an oversized summary', () => {
+    const brief = buildBrief('goal', 'x'.repeat(9000));
+    expect(brief.length).toBeLessThan(5000);
+  });
+});
+
+describe('heuristicSummary (fallback)', () => {
+  it('summarizes the recent turns and flags itself as the fallback', () => {
+    const s = heuristicSummary('next.js please', [
       ev({ type: 'user_prompt', text: 'build a blog' }),
       ev({ type: 'assistant_message', source: 'model', content: 'what stack?' }),
       ev({ type: 'user_prompt', text: 'next.js please' }),
     ]);
-    expect(brief).toContain('## Conversation so far');
-    expect(brief).toContain('build a blog');
-    expect(brief).toContain('what stack?');
-    // the trailing user turn equals the goal → not duplicated in the conversation
-    expect(brief.match(/next\.js please/g)?.length).toBe(1);
+    expect(s).toContain('heuristic summary');
+    expect(s).toContain('build a blog');
+    // trailing user turn == goal is not duplicated
+    expect(s.match(/next\.js please/g)).toBeNull();
   });
 
-  it('keeps only the most recent turns (window)', () => {
+  it('handles an empty conversation', () => {
+    expect(heuristicSummary('goal', [])).toContain('no prior conversation');
+  });
+});
+
+describe('buildConversation (recall file)', () => {
+  it('includes EVERY turn (full transcript), not just a window', () => {
     const events = Array.from({ length: 40 }, (_, i) =>
-      ev({ type: 'user_prompt', text: `[i=${i}] short message` }),
+      ev({ type: 'user_prompt', text: `[i=${i}] message` }),
     );
-    const brief = buildBrief('goal', events);
-    // last 12 turns survive; older ones are dropped
-    expect(brief).toContain('[i=39]');
-    expect(brief).toContain('[i=28]');
-    expect(brief).not.toContain('[i=10]');
+    const conv = buildConversation('goal', events);
+    expect(conv).toContain('recall-only');
+    // the recall file keeps far more than the 12-turn brief window
+    expect(conv).toContain('[i=0]');
+    expect(conv).toContain('[i=39]');
   });
 
   it('caps total size even for a huge conversation', () => {
-    const huge = 'x'.repeat(5000);
-    const events = Array.from({ length: 40 }, () => ev({ type: 'user_prompt', text: huge }));
-    const brief = buildBrief('goal', events);
-    expect(brief.length).toBeLessThanOrEqual(6001);
+    const events = Array.from({ length: 200 }, () => ev({ type: 'user_prompt', text: 'x'.repeat(2000) }));
+    expect(buildConversation('goal', events).length).toBeLessThanOrEqual(48_001);
   });
 });

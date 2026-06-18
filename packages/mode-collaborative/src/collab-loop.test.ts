@@ -166,10 +166,12 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
     expect(existsSync(join(repo, 'api.test.ts'))).toBe(true);
     // the agreed contracts landed too
     expect(existsSync(join(repo, '.moxxy-collab', 'CONTRACTS.md'))).toBe(true);
-    // the coordinator distilled a shared brief (goal + intent) into the scaffold
+    // the coordinator distilled a shared brief (goal + summary) into the scaffold,
+    // and wrote the full conversation to the on-demand recall file
     const briefPath = join(repo, '.moxxy-collab', 'BRIEF.md');
     expect(existsSync(briefPath)).toBe(true);
     expect(readFileSync(briefPath, 'utf8')).toContain('build the thing');
+    expect(existsSync(join(repo, '.moxxy-collab', 'CONVERSATION.md'))).toBe(true);
     expect(subtypes).toContain('collab_brief_written');
 
     // final synthesis names both agents
