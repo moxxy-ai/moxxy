@@ -15,10 +15,11 @@
  * search across thousands of messages later becomes a hard requirement.
  */
 
-import { appendFile, mkdir, open, readFile, rm, stat } from 'node:fs/promises';
+import { access, appendFile, mkdir, open, readFile, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { createMutex, type Mutex, type MoxxyEvent } from '@moxxy/sdk';
+import { defaultSessionsDir, seedSessionLog } from '@moxxy/core';
 
 /** Chats directory — env-overridable so tests can point at a tmp dir. */
 function chatsDir(): string {
@@ -335,4 +336,33 @@ export async function migrate(
       }
     });
   }
+}
+
+/**
+ * Migrate ONE workspace's history out of this NDJSON mirror into the runner's
+ * authoritative session log, IFF the runner doesn't already own that session
+ * (no `~/.moxxy/sessions/<id>.jsonl`). After this the renderer reads the chat
+ * from `session.loadHistory` like any native session, closing the dual-history
+ * split for legacy / localStorage-migrated chats whose history previously lived
+ * only here.
+ *
+ * Called from the runner pool BEFORE a workspace's runner resumes its session
+ * id, so the seed is in place when the runner reads it (no race). Idempotent +
+ * non-destructive: skips a session the runner already owns and never touches the
+ * NDJSON file (which stays the read fallback until the store is retired).
+ * Returns whether it seeded.
+ */
+export async function seedChatIntoSession(
+  workspaceId: string,
+  sessionsDir: string = defaultSessionsDir(),
+): Promise<boolean> {
+  try {
+    await access(path.join(sessionsDir, `${workspaceId}.jsonl`));
+    return false; // runner already owns this session → nothing to migrate
+  } catch {
+    /* no runner session yet → seed it from the NDJSON mirror below */
+  }
+  const events = await readLines(workspaceId);
+  if (events.length === 0) return false;
+  return seedSessionLog(workspaceId, events, sessionsDir);
 }

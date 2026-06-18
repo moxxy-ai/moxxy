@@ -116,10 +116,16 @@ that must not be rushed, because rushing it would *lower* quality, not raise it:
    with the source pinned per slot so the runner `seq` and NDJSON line cursors
    never mix. A GOLDEN render-equivalence test pins runner-stream+filter ==
    NDJSON across stream-without-seal / reasoning / tool / compaction / multi-page
-   fixtures. **Remaining (separate PRs, gated on packaged-desktop live-verify):**
-   (a) stop the NDJSON double-WRITE once v10 is the floor, then (b) physically
-   retire the NDJSON store. The renderer still WRITES NDJSON today so it stays a
-   working read fallback + the home of legacy-only chats.
+   fixtures. **Legacy migration landed (2026-06-18, the keystone):** core
+   `seedSessionLog` + the runner pool's `seedChatIntoSession` migrate a chat whose
+   history lived ONLY in the NDJSON mirror into the runner's authoritative log,
+   BEFORE that workspace's runner resumes its session id — so the runner owns
+   every chat (a legacy chat is no longer stranded when continued). Idempotent +
+   non-destructive (skips a session the runner already owns; NDJSON left intact).
+   **Remaining (separate PRs, each gated on packaged-desktop live-verify, IN
+   ORDER):** (a) stop the NDJSON double-WRITE; (b) raise desktop FLOOR to 10; (c)
+   physically retire the NDJSON store. The renderer still WRITES NDJSON today so
+   it stays the read fallback until (a)–(c) ship and verify.
 4. **One-shot CLI exit hygiene** (`moxxy -p` / `schedule run` / `doctor` / `login` /
    `init` boot a full session and never `close()`) — minor; a correct fix must drain
    persistence before exit (premature exit would drop the last event).

@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { MoxxyEvent } from '@moxxy/sdk';
-import { pageEvents, readEventPage } from './persistence.js';
+import { pageEvents, readEventPage, restoreEvents, seedSessionLog } from './persistence.js';
 
 const tempDirs: string[] = [];
 
@@ -175,5 +175,36 @@ describe('readEventPage (paged JSONL reader)', () => {
     await readEventPage(id, { before: null, limit: 10 }, dir);
     const after = await fs.readFile(path.join(dir, `${id}.jsonl`), 'utf8');
     expect(after).toBe(before);
+  });
+});
+
+describe('seedSessionLog (NDJSON → runner-log migration)', () => {
+  it('writes a fresh session log, re-sequenced to 0..n-1, ids + content preserved', async () => {
+    const dir = await makeTempDir();
+    // Gapped original seqs — as rendered events pulled from the desktop mirror
+    // (which dropped the interleaved chunk/bookend events) would have.
+    const events = [
+      { id: 'a', seq: 3, ts: 0, sessionId: 'sess', turnId: 't0', source: 'user', type: 'user_prompt', text: 'q' },
+      { id: 'b', seq: 7, ts: 1, sessionId: 'sess', turnId: 't0', source: 'model', type: 'assistant_message', content: 'reply' },
+    ] as unknown as MoxxyEvent[];
+    expect(await seedSessionLog('sess', events, dir)).toBe(true);
+    // The runner restores it like any native log: contiguous seqs, ids preserved.
+    const restored = await restoreEvents('sess', dir);
+    expect(restored.map((e) => e.id)).toEqual(['a', 'b']);
+    expect(restored.map((e) => e.seq)).toEqual([0, 1]);
+    expect((restored[1] as { content?: string }).content).toBe('reply');
+  });
+
+  it('never overwrites a session the runner already owns', async () => {
+    const dir = await makeTempDir();
+    await writeLog(dir, 'sess', makeLog(2, 'sess')); // the runner already owns it
+    expect(await seedSessionLog('sess', makeLog(5, 'sess'), dir)).toBe(false);
+    const restored = await restoreEvents('sess', dir);
+    expect(restored).toHaveLength(2); // untouched
+  });
+
+  it('is a no-op for an empty event list', async () => {
+    const dir = await makeTempDir();
+    expect(await seedSessionLog('sess', [], dir)).toBe(false);
   });
 });

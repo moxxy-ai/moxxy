@@ -67,6 +67,7 @@ export {
   restoreEvents as restoreSessionEvents,
   readEventPage as readSessionEventPage,
   pageEvents,
+  seedSessionLog,
   deleteSession,
   type SessionMeta,
   type SessionPersistenceOpts,

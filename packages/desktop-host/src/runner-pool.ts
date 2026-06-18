@@ -19,6 +19,7 @@ import path from 'node:path';
 import { platformSocket } from '@moxxy/runner';
 
 import { RunnerSupervisor } from './runner-supervisor';
+import { seedChatIntoSession } from './chat-log';
 
 /** Workspace id used for the "no workspace bound" runner. Stable across
  *  runs so the same socket is reused. */
@@ -46,6 +47,17 @@ export class RunnerPool extends EventEmitter {
       return existing.supervisor;
     }
     const socketPath = socketFor(id);
+    // Migrate a legacy / localStorage-only chat into the runner's authoritative
+    // log BEFORE the runner resumes this session id, so the runner owns its full
+    // history (else continuing the chat would strand the old history in the
+    // NDJSON mirror). Idempotent + non-destructive — skips a session the runner
+    // already owns and leaves the NDJSON file intact. Best-effort: a failed seed
+    // must not block opening the workspace (NDJSON stays the read fallback).
+    try {
+      await seedChatIntoSession(id);
+    } catch {
+      /* best-effort migration; the NDJSON read fallback still covers this chat */
+    }
     // Pass the workspace id as the runner's sticky session id so each
     // workspace resumes its own conversation + model context across app
     // restarts (the runner persists to ~/.moxxy/sessions/<id>.jsonl and

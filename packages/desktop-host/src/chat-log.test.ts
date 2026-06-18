@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { MoxxyEvent } from '@moxxy/sdk';
-import { appendEvents, loadSegment, clearLog, migrate } from './chat-log';
+import { appendEvents, loadSegment, clearLog, migrate, seedChatIntoSession } from './chat-log';
 
 let dir: string;
 
@@ -275,5 +275,41 @@ describe('chat-log concurrency (per-file write mutex)', () => {
     const ids = seg.events.map((e) => (e as { id: string }).id);
     expect(new Set(ids).size).toBe(ids.length);
     await assertCursorsConsistent('w1', ids.length);
+  });
+});
+
+describe('seedChatIntoSession (NDJSON → runner session migration)', () => {
+  let sessionsDir: string;
+  beforeEach(async () => {
+    sessionsDir = await mkdtemp(path.join(tmpdir(), 'moxxy-sessions-'));
+  });
+  afterEach(async () => {
+    await rm(sessionsDir, { recursive: true, force: true });
+  });
+
+  it('seeds the runner session log from the NDJSON mirror when the runner has none', async () => {
+    await appendEvents('w1', [ev(0), ev(1), ev(2)]);
+    expect(await seedChatIntoSession('w1', sessionsDir)).toBe(true);
+    const body = await readFile(path.join(sessionsDir, 'w1.jsonl'), 'utf8');
+    const lines = body
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as { text: string; seq: number });
+    expect(lines.map((e) => e.text)).toEqual(['m0', 'm1', 'm2']);
+    expect(lines.map((e) => e.seq)).toEqual([0, 1, 2]);
+  });
+
+  it('never overwrites a session the runner already owns; leaves the NDJSON intact', async () => {
+    await appendEvents('w1', [ev(0)]);
+    await mkdir(sessionsDir, { recursive: true });
+    await writeFile(path.join(sessionsDir, 'w1.jsonl'), '{"existing":true}\n', 'utf8');
+    expect(await seedChatIntoSession('w1', sessionsDir)).toBe(false);
+    expect(await readFile(path.join(sessionsDir, 'w1.jsonl'), 'utf8')).toBe('{"existing":true}\n');
+    // NDJSON untouched — still the read fallback.
+    expect((await loadSegment('w1', null, 10)).events).toHaveLength(1);
+  });
+
+  it('is a no-op when the workspace has no NDJSON history', async () => {
+    expect(await seedChatIntoSession('never-chatted', sessionsDir)).toBe(false);
   });
 });
