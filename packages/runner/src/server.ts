@@ -408,21 +408,35 @@ export class RunnerServer {
   /**
    * If this turn streamed assistant text (`assistant_chunk`) that no
    * `assistant_message` ever sealed, append a REAL `assistant_message` to the
-   * authoritative log so it persists + replays like any other reply. Mirrors
-   * the desktop renderer's old turn-complete synthesis exactly: it accumulates
-   * chunk deltas and clears them on an `assistant_message`, then synthesizes
-   * from whatever text remains — so we seal only the trailing run of chunks
-   * AFTER the turn's last `assistant_message` (an empty/whitespace remainder is
-   * a no-op, which is the normal sealed path). The append flows through
-   * `session.log` → persistence + the broadcast stream, so mirrors ingest it as
-   * a normal event and never need to synthesize their own.
+   * authoritative log so it persists + replays like any other reply. It
+   * accumulates chunk deltas and seals whatever text remains at turn end — so a
+   * cleanly sealed reply (the normal path) leaves an empty remainder and this is
+   * a no-op.
+   *
+   * The accumulator resets on BOTH per-iteration boundaries — an
+   * `assistant_message` (a reply was sealed) AND a `provider_request` (a fresh
+   * provider iteration begins). Resetting on `provider_request` is what scopes
+   * the seal to the FINAL iteration: a retryable provider error can abandon a
+   * partially-streamed iteration WITHOUT sealing it (the mode loop emits the
+   * error and `continue`s), and a later iteration then streams fresh text and
+   * may itself end unsealed (a fatal error / abort / max-iterations). Without
+   * the `provider_request` reset, the abandoned attempt's chunks would be
+   * concatenated INTO the sealed reply ("ABANDONED-final" instead of "final"),
+   * durably corrupting authoritative/replayed history. (This is a deliberate
+   * improvement over the desktop renderer's old turn-complete synthesis, which
+   * accumulated across iterations and had exactly that defect — and which this
+   * seal retires.)
+   *
+   * The append flows through `session.log` → persistence + the broadcast stream,
+   * so mirrors ingest it as a normal event and never need to synthesize their
+   * own.
    */
   private async sealUnsealedStreamedText(turnId: TurnId): Promise<void> {
     const events = this.session.log.byTurn(turnId);
     if (events.length === 0) return;
     let unsealed = '';
     for (const event of events) {
-      if (event.type === 'assistant_message') unsealed = '';
+      if (event.type === 'assistant_message' || event.type === 'provider_request') unsealed = '';
       else if (event.type === 'assistant_chunk') unsealed += event.delta;
     }
     if (!unsealed.trim()) return; // normal sealed path (or no text) — nothing to do
@@ -434,7 +448,7 @@ export class RunnerServer {
         source: 'model',
         content: unsealed,
         // The turn ended without the provider sealing the message (error/abort
-        // after partial text); 'end_turn' matches the renderer's prior synth.
+        // after partial text); record it as a normal completed reply.
         stopReason: 'end_turn',
       });
     } catch {

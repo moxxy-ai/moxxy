@@ -130,6 +130,20 @@ describe('readEventPage (paged JSONL reader)', () => {
     });
   });
 
+  it('agrees with pageEvents on an empty/missing log for any before/limit (incl. limit 0)', async () => {
+    // The disk reader delegates clamping to pageEvents, so the two paths cannot
+    // diverge — pin it, including the limit===0 corner the wire schema forbids
+    // but a direct in-process caller could still hit.
+    const dir = await makeTempDir();
+    for (const before of [null, 5] as const) {
+      for (const limit of [0, 3]) {
+        await expect(readEventPage('missing', { before, limit }, dir)).resolves.toEqual(
+          pageEvents([], before, limit),
+        );
+      }
+    }
+  });
+
   it('skips a corrupt line and pages the survivors deterministically', async () => {
     const dir = await makeTempDir();
     const id = 'disk4';

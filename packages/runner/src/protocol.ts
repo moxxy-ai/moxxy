@@ -353,7 +353,7 @@ export interface SessionSetReasoningParams {
  * Params for `session.loadHistory` (v10). `before` is a `seq` cursor: `null`
  * requests the NEWEST page; a number requests the page of events strictly OLDER
  * than that seq (pass a prior result's `prevCursor` to step back). `limit`
- * bounds the page size.
+ * bounds the page size in RAW events (see {@link SessionLoadHistoryResult}).
  */
 export interface SessionLoadHistoryParams {
   readonly before: number | null;
@@ -364,6 +364,13 @@ export interface SessionLoadHistoryParams {
  * `seq` order (oldest-first within the page). `prevCursor` is the cursor to
  * pass as `before` for the NEXT older page — the seq of this page's oldest
  * event — or `null` once the start of history is reached (no older page).
+ *
+ * `events` is the RAW authoritative log: it includes non-rendered events
+ * (e.g. `assistant_chunk` deltas, `provider_request`/`provider_response`
+ * bookends), and `limit` counts those too. So a page of `limit` raw events can
+ * project to far fewer rendered messages — the renderer filters with
+ * `isRenderedEvent` and keeps paging until it has enough RENDERED events
+ * ("page-until-K-rendered"), rather than assuming one page == K messages.
  */
 export interface SessionLoadHistoryResult {
   readonly events: ReadonlyArray<MoxxyEvent>;

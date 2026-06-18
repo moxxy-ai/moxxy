@@ -1367,6 +1367,18 @@ function streamThenError(chunks: ReadonlyArray<string>): ReadonlyArray<ProviderE
   ];
 }
 
+/** Like {@link streamThenError} but the mid-stream error is RETRYABLE, so the
+ *  default-mode loop backs off and RETRIES (consuming the NEXT scripted reply)
+ *  instead of ending the turn — leaving this iteration's streamed chunks in the
+ *  log with no sealing `assistant_message`. */
+function streamThenRetryable(chunks: ReadonlyArray<string>): ReadonlyArray<ProviderEvent> {
+  return [
+    { type: 'message_start', model: 'fake' },
+    ...chunks.map<ProviderEvent>((c) => ({ type: 'text_delta', delta: c })),
+    { type: 'error', message: 'transient blip — retry', retryable: true },
+  ];
+}
+
 describe('session.loadHistory paging (protocol v10)', () => {
   it('returns the newest page and walks older pages via prevCursor to a null start', async () => {
     // Build a multi-turn conversation so the log has many events to page.
@@ -1567,5 +1579,28 @@ describe('log completeness: stream-without-seal', () => {
     const sealed = session.log.ofType('assistant_message');
     expect(sealed.length).toBe(1);
     expect((sealed[0] as AssistantMessageEvent).content).toBe('hello');
+  });
+
+  it('seals only the FINAL iteration text, not an abandoned retryable attempt', async () => {
+    // A turn can stream text, hit a RETRYABLE provider error (transient
+    // 429/outage), retry, stream MORE text, then end without a clean
+    // assistant_message. The seal must keep only the final attempt's text — the
+    // abandoned attempt's chunks must NOT bleed into the sealed reply, which
+    // would durably corrupt the authoritative log ("ABANDONED-final").
+    const { session, socketPath } = await serve(
+      new FakeProvider({
+        // iter 1: streams "ABANDONED-" then a RETRYABLE error → the loop retries.
+        // iter 2: streams "final" then a NON-retryable error → turn ends unsealed.
+        script: [streamThenRetryable(['ABAN', 'DONED-']), streamThenError(['fin', 'al'])],
+      }),
+    );
+    const remote = await attach(socketPath);
+    // One retryable retry incurs a single ~500ms back-off; the turn still ends
+    // in a fatal error event.
+    for await (const _e of remote.runTurn('go')) void _e;
+
+    const sealed = session.log.ofType('assistant_message');
+    expect(sealed.length).toBe(1);
+    expect((sealed[0] as AssistantMessageEvent).content).toBe('final');
   });
 });

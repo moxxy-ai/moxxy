@@ -1,5 +1,6 @@
 ---
 "@moxxy/core": minor
+"@moxxy/runner": patch
 "@moxxy/cli": patch
 ---
 

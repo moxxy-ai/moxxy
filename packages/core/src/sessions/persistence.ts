@@ -496,8 +496,12 @@ export interface EventPage {
  * Corrupt lines are skipped (matching {@link restoreEvents}); unlike
  * `restoreEvents` this is a READ-ONLY reader — it never rewrites the file, so
  * it preserves the JSONL exactly (no atomic-write / mutex needed: there is no
- * mutation). Paging keys on each event's on-disk `seq`, so a not-yet-repaired
- * gapped log still pages deterministically (the next resume repairs it).
+ * mutation). Paging keys on each event's on-disk `seq`. Determinism holds for a
+ * MONOTONICALLY-INCREASING seq sequence — including a gapped-but-increasing one
+ * (the append path guarantees this; the next resume re-sequences to contiguous
+ * 0..n-1 anyway). DUPLICATE / non-strictly-increasing seqs are only reachable
+ * via external file corruption, and a backward `prevCursor` walk over them can
+ * drop events page-size-dependently until that next resume repairs the log.
  *
  * A missing log file is treated as an EMPTY history (`{ events: [], prevCursor:
  * null }`), not an error — a freshly-created session whose JSONL hasn't been
@@ -508,9 +512,6 @@ export async function readEventPage(
   opts: { before: number | null; limit: number },
   dir = defaultSessionsDir(),
 ): Promise<EventPage> {
-  const limit = Math.max(0, Math.floor(opts.limit));
-  if (limit === 0) return { events: [], prevCursor: opts.before };
-
   const logPath = path.join(dir, `${sessionId}.jsonl`);
   let raw: string;
   try {
@@ -531,7 +532,10 @@ export async function readEventPage(
       // skip a malformed/half-written line, same as restoreEvents
     }
   }
-  return pageEvents(all, opts.before, limit);
+  // Delegate ALL paging (including the limit/cursor clamping) to pageEvents so
+  // the disk and in-memory paths are identical by construction — no separate
+  // limit handling here that could diverge from the in-memory page.
+  return pageEvents(all, opts.before, opts.limit);
 }
 
 /**
