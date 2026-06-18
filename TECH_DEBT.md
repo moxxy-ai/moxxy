@@ -96,6 +96,20 @@ standing backlog — pick from it, newest-audit-first, on the next pass).
   `t3-test-harness`, and the long-tail review/test/consistency/perf/dead-code/
   types/atomicity/completion clusters). Triage newest-first.
 
+**Update — 2026-06-18 (sweep wave 2):** a second PR retired more of the deferred
+backlog above — the generic `createJsonFileStore` (scheduler/webhooks/run-store
+migrated; vault + provider-admin deliberately left bespoke), the shared
+frontmatter parser (core + plugin-memory), `moxxy-home-paths`, `shared-oauth-
+helpers`, `external-store-dup`, `oneshot-stream-helper`, and ~50 of the confirmed
+logic/correctness bugs (`t2-confirmed-logic-bugs`, `t2-more-logic-bugs`,
+`t2-embedding-correctness`, `t2-lifecycle-shutdown`), each with a regression
+test. **Still open:** the perf rewrites (chat-model O(n²) fold, EventLog
+indexing, `t2-perf-quadratic-misc`, bounded live window), the SDK `./server`
+subpath split, and Tier-3 (god-file splits, the test-harness gap, and the
+long-tail clusters). Ambiguous logic findings (e.g. `u117-3` retry semantics,
+`u129-3` cycle-guard breadth) were left unchanged on purpose — they need product
+intent, not a guess.
+
 ## 2026-06-17 — Skills gallery reimplements the shared settings `SearchBox`
 
 - **`SkillGallery` hand-rolls its own search input** (the `display:flex` row with

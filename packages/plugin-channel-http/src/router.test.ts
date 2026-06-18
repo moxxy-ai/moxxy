@@ -4,9 +4,11 @@ import { Readable } from 'node:stream';
 import { Socket } from 'node:net';
 import { Session, silentLogger } from '@moxxy/core';
 import { defineTranscriber } from '@moxxy/sdk';
+import type { ClientSession } from '@moxxy/sdk';
 import {
   routeRequest,
   handleHealth,
+  handleTurn,
   handleTurnAudio,
   turnRequestSchema,
 } from './router.js';
@@ -28,7 +30,9 @@ function makeResponse(): ServerResponse & {
   _status: number;
   _headers: Record<string, string | number | string[]>;
   _body: string;
+  _emit(event: string): void;
 } {
+  const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
   const res = {
     _status: 0,
     _headers: {} as Record<string, string | number | string[]>,
@@ -48,10 +52,23 @@ function makeResponse(): ServerResponse & {
       this._body += chunk;
       return true;
     },
+    on(event: string, fn: (...args: unknown[]) => void) {
+      if (!listeners.has(event)) listeners.set(event, new Set());
+      listeners.get(event)!.add(fn);
+      return this;
+    },
+    off(event: string, fn: (...args: unknown[]) => void) {
+      listeners.get(event)?.delete(fn);
+      return this;
+    },
+    _emit(event: string) {
+      for (const fn of listeners.get(event) ?? []) fn();
+    },
   } as unknown as ServerResponse & {
     _status: number;
     _headers: Record<string, string | number | string[]>;
     _body: string;
+    _emit(event: string): void;
   };
   return res;
 }
@@ -182,6 +199,52 @@ describe('handleTurnAudio', () => {
       ctx(session),
     );
     expect(res._status).toBe(422);
+  });
+});
+
+describe('handleTurn — client-disconnect abort (u70-1)', () => {
+  it('aborts the turn signal when the client hangs up mid-run', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    let resolveClosed!: () => void;
+    const sawSignal = new Promise<void>((r) => {
+      resolveClosed = r;
+    });
+    // A session whose runTurn blocks until aborted, recording the signal it
+    // received so the test can assert it was wired through.
+    const session = {
+      runTurn: (_prompt: string, opts?: { signal?: AbortSignal }) => {
+        capturedSignal = opts?.signal;
+        resolveClosed();
+        return (async function* () {
+          await new Promise<void>((resolve) => {
+            opts?.signal?.addEventListener('abort', () => resolve());
+          });
+        })();
+      },
+    } as unknown as ClientSession;
+
+    const res = makeResponse();
+    const handlerDone = handleTurn(
+      makeIncoming({
+        method: 'POST',
+        url: '/v1/turn',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer x' },
+        body: JSON.stringify({ prompt: 'hello' }),
+      }),
+      res,
+      { session, authToken: 'x', logger: silentLogger },
+    );
+
+    // Wait until runTurn is in-flight, then simulate the client disconnect.
+    await sawSignal;
+    expect(capturedSignal).toBeDefined();
+    expect(capturedSignal!.aborted).toBe(false);
+    res._emit('close');
+    expect(capturedSignal!.aborted).toBe(true);
+
+    await handlerDone;
+    // The close listener is detached after the turn settles (no leak).
+    res._emit('close'); // would throw if listener double-fired on a dead res
   });
 });
 

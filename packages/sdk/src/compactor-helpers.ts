@@ -76,8 +76,12 @@ function eventChars(e: MoxxyEvent): number {
       return e.name.length + safeJsonLen(e.input);
     case 'tool_result':
       if (e.error) return (e.error.message?.length ?? 0) + 12;
-      if (typeof e.output === 'string') return e.output.length;
-      return safeJsonLen(e.output);
+      // Use the shared sizing helper so the estimate matches projection: a
+      // ToolDisplayResult (file diff) only ever sends its short `forModel`
+      // string, so `toolResultBytes` measures THAT rather than the bulky
+      // `display` payload — which would otherwise trip elision/compaction
+      // thresholds prematurely. Strings/JSON collapse into the same path.
+      return toolResultBytes(e.output);
     default:
       return 0;
   }

@@ -14,7 +14,7 @@
  */
 
 import type { WorkflowStepErrorMode } from '@moxxy/sdk';
-import { deriveEdges, loopExitTarget } from './serialize.js';
+import { deriveEdges } from './serialize.js';
 import {
   type BuilderLoop,
   type BuilderNode,
@@ -156,8 +156,17 @@ export function selectNode(state: BuilderState, id: string | null): BuilderState
 /** Add a `needs` dependency edge (idempotent; ignores self/unknown/cyclic). */
 export function connectNeeds(state: BuilderState, from: string, to: string): BuilderState {
   if (from === to) return state;
-  const exists = state.nodes.some((n) => n.id === from) && state.nodes.some((n) => n.id === to);
+  const fromNode = state.nodes.find((n) => n.id === from);
+  const exists = fromNode != null && state.nodes.some((n) => n.id === to);
   if (!exists) return state;
+  // A non-body step that `needs` a loop IS that loop's exit (the exit connector
+  // is modeled implicitly as `needs:[loop]`). Authoring such an edge here as a
+  // plain `needs` would create a SECOND non-body needs:[loop] that the renderer
+  // can't disambiguate from the real exit — route it through setLoopExit so the
+  // loop keeps exactly one, deterministic exit.
+  if (fromNode.kind === 'loop' && !(fromNode.loop?.body ?? []).includes(to)) {
+    return setLoopExit(state, from, to);
+  }
   // `to` would `needs: [from]`, i.e. `from` must run before `to`. If `from`
   // already (transitively) depends on `to`, that edge closes a cycle the engine
   // can never schedule — refuse it here so the canvas can't author an invalid
@@ -282,13 +291,19 @@ export function setLoopExit(state: BuilderState, loopId: string, targetId: strin
   if (targetId && (targetId === loopId || (loopNode.loop?.body ?? []).includes(targetId))) {
     return state; // a body step can't also be the exit
   }
-  const prev = loopExitTarget(loopNode, state.nodes);
+  // Scrub EVERY non-body `needs:[loop]` edge before wiring the new target.
+  // `loopExitTarget` only reports the FIRST such node by array order, so if a
+  // second non-body step also carried `needs:[loop]` (e.g. authored via
+  // connectNeeds), clearing just that one would leave a second, ambiguous exit
+  // — and which one renders as `loop-exit` would then depend on node order.
+  // Clearing all of them keeps exactly one exit and makes it deterministic.
+  const body = new Set(loopNode.loop?.body ?? []);
   const nodes = state.nodes.map((n) => {
-    if (prev && n.id === prev && n.id !== targetId) {
-      return { ...n, needs: n.needs.filter((d) => d !== loopId) };
+    if (n.id === targetId) {
+      return n.needs.includes(loopId) ? n : { ...n, needs: [...n.needs, loopId] };
     }
-    if (targetId && n.id === targetId && !n.needs.includes(loopId)) {
-      return { ...n, needs: [...n.needs, loopId] };
+    if (!body.has(n.id) && n.id !== loopId && n.needs.includes(loopId)) {
+      return { ...n, needs: n.needs.filter((d) => d !== loopId) };
     }
     return n;
   });

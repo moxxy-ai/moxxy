@@ -43,19 +43,28 @@ export function SkillsView({
   const [createOpen, setCreateOpen] = useState<{ initial?: string } | null>(null);
   const [generateOpen, setGenerateOpen] = useState(false);
 
+  const readSkill = s.readSkill;
   useEffect(() => {
     if (!active) {
       setBody('');
       setServerBody('');
       return;
     }
+    let cancelled = false;
     setLoading(true);
-    void s.readSkill(active).then((b) => {
+    void readSkill(active).then((b) => {
+      if (cancelled) return;
       setBody(b);
       setServerBody(b);
       setLoading(false);
     });
-  }, [active, s]);
+    return () => {
+      cancelled = true;
+    };
+    // Depend on the stable `readSkill` callback, not the whole `s` object —
+    // `useSettings()` returns a fresh object literal every render, so `[active, s]`
+    // re-runs this effect (and clobbers in-progress edits) on any unrelated refresh.
+  }, [active, readSkill]);
 
   const dirty = body !== serverBody;
 

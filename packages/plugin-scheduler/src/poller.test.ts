@@ -2,8 +2,35 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { Skill, SkillRegistry } from '@moxxy/sdk';
+import { asSkillId } from '@moxxy/sdk';
 import { isDue, SchedulerPoller } from './poller.js';
+import { syncSkillSchedules } from './skill-sync.js';
 import { ScheduleStore } from './store.js';
+
+function fakeRegistry(skills: ReadonlyArray<Skill>): SkillRegistry {
+  const map = new Map(skills.map((s) => [s.frontmatter.name, s] as const));
+  return {
+    list: () => [...map.values()],
+    get: (id: string) => skills.find((s) => s.id === id),
+    byName: (name: string) => map.get(name),
+    filterByTriggers: () => [],
+  };
+}
+
+function mkSkill(name: string, schedule: NonNullable<Skill['frontmatter']['schedule']> | undefined, body = 'do the thing'): Skill {
+  return {
+    id: asSkillId(name),
+    path: `/skills/${name}.md`,
+    scope: 'user',
+    body,
+    frontmatter: {
+      name,
+      description: 'test skill',
+      ...(schedule ? { schedule } : {}),
+    },
+  };
+}
 
 describe('isDue', () => {
   const now = new Date(2026, 4, 11, 10, 0, 0).getTime();
@@ -164,5 +191,47 @@ describe('SchedulerPoller integration', () => {
     const after = await store.list();
     expect(after[0]!.lastResult).toBe('error');
     expect(after[0]!.lastError).toContain('provider exploded');
+  });
+
+  // Regression for u103-2: skill edits/deletes must propagate on a tick,
+  // not only on skill_created/boot. The poller, when primed with `skills`,
+  // reconciles skill rows each tick.
+  it('re-syncs skill schedules every tick: removes a dropped skill row', async () => {
+    // Skill exists with a schedule; seed the store as boot would.
+    let reg = fakeRegistry([mkSkill('briefing', { cron: '0 9 * * *' })]);
+    await syncSkillSchedules(reg, store);
+    expect((await store.list()).length).toBe(1);
+
+    // Skill is removed from the registry afterwards.
+    reg = fakeRegistry([]);
+    const poller = new SchedulerPoller({
+      store,
+      runner: { runPrompt: async () => ({ text: 'done' }) },
+      inbox: { dir: inboxDir },
+      skills: reg,
+    });
+    await poller.tickOnce();
+    expect(await store.list()).toEqual([]);
+  });
+
+  it('re-syncs skill schedules every tick: updates an in-place cron edit', async () => {
+    const skills = [mkSkill('briefing', { cron: '0 9 * * *' }, 'first')];
+    const reg = fakeRegistry(skills);
+    await syncSkillSchedules(reg, store);
+
+    // Edit the skill's cron in place (no skill_created re-emit). Rebuild the
+    // registry view over the edited skill.
+    const editedReg = fakeRegistry([mkSkill('briefing', { cron: '0 18 * * *' }, 'second')]);
+    const poller = new SchedulerPoller({
+      store,
+      runner: { runPrompt: async () => ({ text: 'done' }) },
+      inbox: { dir: inboxDir },
+      skills: editedReg,
+    });
+    await poller.tickOnce();
+    const stored = await store.list();
+    expect(stored).toHaveLength(1);
+    expect(stored[0]!.cron).toBe('0 18 * * *');
+    expect(stored[0]!.prompt).toBe('second');
   });
 });

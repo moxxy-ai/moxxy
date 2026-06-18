@@ -20,7 +20,7 @@
 
 import { classifyHttpStatus, MoxxyError } from '@moxxy/sdk';
 import type { TokenSet } from '../oauth/types.js';
-import { parseTokenResponse } from '../oauth/token-exchange.js';
+import { exchangeCodeForToken } from '../oauth/token-exchange.js';
 import type {
   DeviceFlowAdapter,
   DeviceFlowInit,
@@ -77,14 +77,16 @@ export function openaiDeviceFlow(opts: OpenaiDeviceFlowOpts): DeviceFlowAdapter 
         interval?: string | number;
         expires_in?: string | number;
       };
-      const intervalSec = Math.max(
-        typeof data.interval === 'string' ? parseInt(data.interval, 10) : data.interval ?? 5,
-        1,
-      );
-      const expiresInSec =
-        typeof data.expires_in === 'string'
-          ? parseInt(data.expires_in, 10)
-          : data.expires_in ?? 600;
+      // Coerce-then-validate: a malformed server value (e.g. interval:"" or a
+      // non-numeric string) parses to NaN, which would poison the poll timing
+      // (`setTimeout(_, NaN)` busy-loops; a NaN deadline aborts the flow). Only
+      // accept a finite number; otherwise fall back to the RFC-style defaults.
+      const rawInterval =
+        typeof data.interval === 'string' ? parseInt(data.interval, 10) : data.interval;
+      const intervalSec = Math.max(Number.isFinite(rawInterval) ? (rawInterval as number) : 5, 1);
+      const rawExpiresIn =
+        typeof data.expires_in === 'string' ? parseInt(data.expires_in, 10) : data.expires_in;
+      const expiresInSec = Number.isFinite(rawExpiresIn) ? (rawExpiresIn as number) : 600;
       return {
         userCode: data.user_code,
         verificationUri: opts.verificationUri,
@@ -113,34 +115,17 @@ export function openaiDeviceFlow(opts: OpenaiDeviceFlowOpts): DeviceFlowAdapter 
         // Two-step: poll returns a server-side authorization_code we
         // exchange via the standard token endpoint. The redirect_uri
         // here is the issuer's device callback — a registered value,
-        // not a URI we listen on.
-        const exchangeRes = await fetch(opts.tokenUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            grant_type: 'authorization_code',
+        // not a URI we listen on. Route through the shared exchange
+        // helper so this dialect can't drift from browser-flow.
+        return {
+          done: await exchangeCodeForToken({
+            tokenUrl: opts.tokenUrl,
             code: data.authorization_code,
-            redirect_uri: exchangeRedirectUri,
-            client_id: clientId,
-            code_verifier: data.code_verifier,
-          }).toString(),
-        });
-        if (!exchangeRes.ok) {
-          const text = await exchangeRes.text().catch(() => '');
-          throw (
-            classifyHttpStatus(exchangeRes.status, {
-              url: opts.tokenUrl,
-              body: text || exchangeRes.statusText,
-            }) ??
-            new MoxxyError({
-              code: 'AUTH_INVALID',
-              message: `Token endpoint returned ${exchangeRes.status}: ${text || exchangeRes.statusText}`,
-              context: { status: exchangeRes.status, url: opts.tokenUrl },
-            })
-          );
-        }
-        const json = (await exchangeRes.json()) as Record<string, unknown>;
-        return { done: parseTokenResponse(json) };
+            redirectUri: exchangeRedirectUri,
+            clientId,
+            codeVerifier: data.code_verifier,
+          }),
+        };
       }
       // OpenAI's "still waiting" signal — 403 or 404 with no further detail.
       if (res.status === 403 || res.status === 404) {

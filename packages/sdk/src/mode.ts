@@ -64,6 +64,16 @@ export interface ElisionSettings {
 export interface ModeContext {
   readonly sessionId: SessionId;
   readonly turnId: TurnId;
+  /**
+   * The session's working directory and environment, mirrored from
+   * {@link AppContext}. Threaded into the `dispatchToolCall` hook context so
+   * `onToolCall` hooks that gate on cwd/env (path-based policy/security hooks)
+   * see the real per-session values rather than empty placeholders. Tools
+   * themselves get cwd via the tool registry's default; this carries the same
+   * truth to the hook layer so the two never disagree.
+   */
+  readonly cwd: string;
+  readonly env: Readonly<Record<string, string | undefined>>;
   readonly model: string;
   readonly systemPrompt?: string;
   readonly provider: LLMProvider;

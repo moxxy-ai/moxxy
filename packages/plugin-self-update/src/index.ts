@@ -235,6 +235,11 @@ function verifyTool(deps: SelfUpdateDeps): ToolDef {
         }
         const cap = failedAttemptCount(journal) >= MAX_FAILED_ATTEMPTS;
         if (cap) {
+          // We may have just restored the snapshot above. Tell escalate() the
+          // rollback is done so it doesn't repeat the recursive filesystem copy
+          // + plugin-host rescan (escalate skips its restore when already
+          // rolled_back). It still flips state to 'escalated' and persists.
+          if (recovered) journal.state = 'rolled_back';
           await escalate(deps, ctx, journal, result.message);
         } else {
           await writeJournal(deps.moxxyDir, journal);

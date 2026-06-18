@@ -18,6 +18,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { api } from './transport.js';
 import { toErrorMessage } from './errors.js';
+import { createPatchStore, runOptimistic, type PatchStore } from './externalStore.js';
 import { connectionStore } from './useConnection.js';
 import { desksStore } from './useDesks.js';
 import type { DeskSession, SessionsOverview } from '@moxxy/desktop-ipc-contract';
@@ -54,29 +55,24 @@ const INITIAL: SessionsState = {
 };
 
 class SessionsStore {
-  private state: SessionsState = INITIAL;
-  private listeners = new Set<() => void>();
+  private readonly store: PatchStore<SessionsState> = createPatchStore(INITIAL);
+  private get state(): SessionsState {
+    return this.store.getSnapshot();
+  }
 
-  subscribe = (fn: () => void): (() => void) => {
-    this.listeners.add(fn);
-    return () => {
-      this.listeners.delete(fn);
-    };
-  };
+  subscribe = this.store.subscribe;
 
   /** Cached snapshot — referentially stable until {@link set} swaps it. */
-  getSnapshot = (): SessionsState => this.state;
+  getSnapshot = this.store.getSnapshot;
 
   private set(patch: Partial<SessionsState>): void {
-    this.state = { ...this.state, ...patch };
-    for (const l of this.listeners) l();
+    this.store.set(patch);
   }
 
   /** Point the store at a desk (null clears it). Triggers a load. */
   setDesk(deskId: string | null): void {
     if (this.state.deskId === deskId) return;
-    this.state = { ...INITIAL, deskId, loading: deskId !== null };
-    for (const l of this.listeners) l();
+    this.store.replace({ ...INITIAL, deskId, loading: deskId !== null });
     if (deskId) void this.refresh();
   }
 
@@ -122,16 +118,18 @@ class SessionsStore {
     // surface + chat store via the activeWorkspaceId mirror) immediately —
     // exactly the desks-store switch gesture / mobile's selectWorkspace.
     const prevActive = this.state.activeSessionId;
-    const prevConn = connectionStore.active$();
-    this.set({ activeSessionId: id });
-    connectionStore.setActive(id);
-    try {
-      await api().invoke('sessions.setActive', { id });
-      await this.refresh();
-    } catch (e) {
-      this.set({ activeSessionId: prevActive, error: toErrorMessage(e) });
-      if (prevConn) connectionStore.setActive(prevConn);
-    }
+    await runOptimistic(
+      connectionStore,
+      () => {
+        this.set({ activeSessionId: id });
+        connectionStore.setActive(id);
+      },
+      async () => {
+        await api().invoke('sessions.setActive', { id });
+        await this.refresh();
+      },
+      (e) => this.set({ activeSessionId: prevActive, error: toErrorMessage(e) }),
+    );
   };
 
   remove = async (id: string): Promise<void> => {

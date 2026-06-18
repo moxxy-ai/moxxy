@@ -136,6 +136,12 @@ export async function consolidateMemory(
   const all = await store.list();
   const plan = planConsolidation(all, { tag: opts.tag });
   const byName = new Map(all.map((e) => [e.frontmatter.name, e]));
+  // Names produced by merges earlier in THIS run. They aren't in `byName`
+  // (which is a snapshot of the initial store), so without tracking them a
+  // later cluster could pick the same name and silently clobber an
+  // already-consolidated entry — the very data loss the collision guard exists
+  // to prevent.
+  const produced = new Set<string>();
   const outcomes: Array<{
     key: string;
     merged: ReadonlyArray<string>;
@@ -182,7 +188,10 @@ export async function consolidateMemory(
     // the merge and record the cluster as not-merged rather than destroy
     // data.
     const clusterNames = new Set(cluster.members);
-    if (byName.has(parsed.name) && !clusterNames.has(parsed.name)) {
+    if (
+      (byName.has(parsed.name) || produced.has(parsed.name)) &&
+      !clusterNames.has(parsed.name)
+    ) {
       outcomes.push({
         key: cluster.key,
         merged: cluster.members,
@@ -199,6 +208,7 @@ export async function consolidateMemory(
       body: parsed.body,
       ...(parsed.tags ? { tags: parsed.tags } : {}),
     });
+    produced.add(parsed.name);
     // Delete merged entries except the one we just saved (if it overlaps).
     for (const member of members) {
       if (member.frontmatter.name !== parsed.name) {
@@ -224,7 +234,10 @@ function extractJson(text: string): unknown {
   const candidate = fenced ? fenced[1]! : text;
   const start = candidate.indexOf('{');
   const end = candidate.lastIndexOf('}');
-  if (start === -1 || end === -1) throw new Error('consolidate: model returned no JSON object');
+  // `end <= start` (e.g. a stray `}` before the first `{`) means there's no
+  // well-formed object span; surface the intended message instead of letting
+  // slice() yield garbage that JSON.parse fails on with an opaque error.
+  if (start === -1 || end <= start) throw new Error('consolidate: model returned no JSON object');
   return JSON.parse(candidate.slice(start, end + 1));
 }
 

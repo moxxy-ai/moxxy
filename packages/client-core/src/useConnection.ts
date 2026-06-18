@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { api } from './transport.js';
+import { createListenerSet } from './externalStore.js';
 import type { ConnectionPhase, ConnectionSnapshot } from '@moxxy/desktop-ipc-contract';
 
 /**
@@ -13,17 +14,12 @@ class ConnectionStore {
   private snapshots = new Map<string, ConnectionSnapshot>();
   private active: string | null = null;
   private hasEverConnected = false;
-  private listeners = new Set<() => void>();
+  private readonly listeners = createListenerSet();
 
-  subscribe = (fn: () => void): (() => void) => {
-    this.listeners.add(fn);
-    return () => {
-      this.listeners.delete(fn);
-    };
-  };
+  subscribe = this.listeners.subscribe;
 
   private emit(): void {
-    for (const l of this.listeners) l();
+    this.listeners.emit();
   }
 
   setSnapshot(workspaceId: string, snapshot: ConnectionSnapshot): void {

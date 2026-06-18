@@ -106,7 +106,7 @@ export async function record(flags: Flags): Promise<{ fixtureFiles: string[]; ev
   return { fixtureFiles: fixtures.map((f) => path.resolve(flags.out, f)), events: events.length };
 }
 
-function parseFlags(argv: ReadonlyArray<string>): Flags | { help: true } {
+export function parseFlags(argv: ReadonlyArray<string>): Flags | { help: true } {
   if (argv.length === 0) return { help: true };
   const flags: Partial<Flags> & { allowTools?: string[]; verbose?: boolean } = {
     allowTools: [],
@@ -114,14 +114,25 @@ function parseFlags(argv: ReadonlyArray<string>): Flags | { help: true } {
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
+    // Consume the value following a value-bearing flag, rejecting a missing or
+    // flag-shaped token so a typo (`--prompt --name x`) yields a clear
+    // "requires a value" error instead of swallowing the next flag.
+    const takeValue = (): string => {
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith('-')) {
+        throw new Error(`${a} requires a value`);
+      }
+      i += 1;
+      return next;
+    };
     if (a === '--help' || a === '-h') return { help: true };
     if (a === '--verbose') flags.verbose = true;
-    else if (a === '--prompt') flags.prompt = argv[++i];
-    else if (a === '--name') flags.name = argv[++i];
-    else if (a === '--out') flags.out = argv[++i];
-    else if (a === '--model') flags.model = argv[++i];
-    else if (a === '--max-iterations') flags.maxIterations = Number(argv[++i] ?? '0');
-    else if (a === '--allow-tools') flags.allowTools = (argv[++i] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    else if (a === '--prompt') flags.prompt = takeValue();
+    else if (a === '--name') flags.name = takeValue();
+    else if (a === '--out') flags.out = takeValue();
+    else if (a === '--model') flags.model = takeValue();
+    else if (a === '--max-iterations') flags.maxIterations = Number(takeValue());
+    else if (a === '--allow-tools') flags.allowTools = takeValue().split(',').map((s) => s.trim()).filter(Boolean);
     else throw new Error(`unknown flag: ${a}`);
   }
   if (!flags.prompt) throw new Error('--prompt is required');

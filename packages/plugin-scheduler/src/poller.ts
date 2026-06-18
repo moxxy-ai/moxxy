@@ -1,5 +1,7 @@
+import type { SkillRegistry } from '@moxxy/sdk';
 import { nextFireTime } from './cron.js';
 import { runSchedule, type InboxOptions, type SchedulePromptRunner } from './runner.js';
+import { syncSkillSchedules } from './skill-sync.js';
 import type { ScheduleEntry, ScheduleStore } from './store.js';
 
 /**
@@ -27,6 +29,14 @@ export interface SchedulerPollerOptions {
   readonly intervalMs?: number;
   /** Optional inbox-directory override (tests). */
   readonly inbox?: InboxOptions;
+  /**
+   * Optional skill registry. When set, each tick first reconciles
+   * `source='skill'` rows against the registry (via `syncSkillSchedules`)
+   * so a skill whose `schedule:` frontmatter was edited, dropped, or whose
+   * file was deleted propagates without a restart. The reconcile is
+   * idempotent (no store write when nothing changed), so it is cheap.
+   */
+  readonly skills?: SkillRegistry;
   /** Optional logger; `undefined` => silent. */
   readonly logger?: {
     info?(msg: string, meta?: Record<string, unknown>): void;
@@ -110,6 +120,17 @@ export class SchedulerPoller {
 
   private async tickWith(onFired: SchedulerPollerOptions['onFired']): Promise<void> {
     const now = Date.now();
+    // Reconcile skill-driven schedules first so edits/deletes to skill
+    // frontmatter propagate every tick (not only on skill_created / boot).
+    if (this.opts.skills) {
+      try {
+        await syncSkillSchedules(this.opts.skills, this.opts.store);
+      } catch (err) {
+        this.opts.logger?.warn?.('scheduler: skill sync during tick failed', {
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
     let schedules: ReadonlyArray<ScheduleEntry>;
     try {
       schedules = await this.opts.store.list();

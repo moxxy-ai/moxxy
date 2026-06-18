@@ -224,6 +224,11 @@ export const SessionView: React.FC<SessionViewProps> = ({
     setYolo(false);
     turn.queueRef.current = [];
     turn.setQueueCount(0);
+    // Drop any force-sent priority message too. Aborting the turn above runs
+    // its finally, which drains the priority slot — without this, a message
+    // force-sent (Ctrl+T) before /new would execute AFTER the wipe and
+    // re-seed the just-cleared context.
+    turn.setPriority(null);
     // Wipe the history at its source. `session.reset` is the authoritative
     // path on both session kinds: a local Session clears its EventLog AND
     // truncates the persistence sidecar (so --resume can't resurrect the

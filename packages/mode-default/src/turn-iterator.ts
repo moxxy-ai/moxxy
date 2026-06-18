@@ -16,6 +16,55 @@ import {
 
 export const DEFAULT_MODE_NAME = 'default';
 
+/**
+ * Bounded back-off for a *retryable* provider error (rate-limit/429,
+ * overloaded, transient 5xx, ECONNRESET/ETIMEDOUT). Without it, a sustained
+ * retryable condition becomes a tight busy-loop: the loop rebuilds the message
+ * set and re-hits the provider with zero delay up to `maxIterations` times,
+ * burning rate-limit budget and worsening the throttle. We back off
+ * exponentially (abort-aware) and give up with a fatal error after
+ * {@link MAX_CONSECUTIVE_RETRIES} consecutive failures — the counter resets on
+ * any clean provider call, so a long turn can still recover from transient
+ * blips. (The context-overflow path keeps its own MAX_REACTIVE_COMPACTIONS
+ * budget and is handled before this.)
+ */
+export const MAX_CONSECUTIVE_RETRIES = 6;
+
+/** Exponential schedule, capped — base*2^(attempt-1), attempt is 1-based. */
+function retryBackoffMs(attempt: number): number {
+  const base = 500;
+  const cap = 30_000;
+  return Math.min(cap, base * 2 ** Math.max(0, attempt - 1));
+}
+
+// Abort-aware sleep, injectable for tests so the back-off path runs instantly
+// and deterministically. Production uses a real timer that clears on abort so a
+// pending back-off never outlives a cancelled turn.
+let sleepImpl = (ms: number, signal: AbortSignal): Promise<void> =>
+  new Promise<void>((resolve) => {
+    if (signal.aborted) return resolve();
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+
+/** Override the retry back-off sleep (test seam). Returns a restore fn. */
+export function __setRetrySleepForTests(
+  fn: (ms: number, signal: AbortSignal) => Promise<void>,
+): () => void {
+  const prev = sleepImpl;
+  sleepImpl = fn;
+  return () => {
+    sleepImpl = prev;
+  };
+}
+
 export async function* runDefaultMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> {
   // High soft cap as a safety net against truly runaway modes (network
   // glitch causing an infinite retry, bad prompt, etc.) — primary
@@ -29,6 +78,9 @@ export async function* runDefaultMode(ctx: ModeContext): AsyncIterable<MoxxyEven
   // provider call so a long turn can recover from multiple overflow episodes.
   const MAX_REACTIVE_COMPACTIONS = 2;
   let reactiveCompactions = 0;
+  // Consecutive retryable-error count; reset on any clean provider call. Caps
+  // the busy-loop a sustained retryable condition would otherwise create.
+  let consecutiveRetries = 0;
 
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
     if (ctx.signal.aborted) {
@@ -114,19 +166,58 @@ export async function* runDefaultMode(ctx: ModeContext): AsyncIterable<MoxxyEven
           continue;
         }
       }
+      if (!error.retryable) {
+        yield await ctx.emit({
+          type: 'error',
+          sessionId: ctx.sessionId,
+          turnId: ctx.turnId,
+          source: 'system',
+          kind: 'fatal',
+          message: error.message,
+        });
+        return;
+      }
+      // Retryable: surface it, then back off before retrying. A persistent
+      // retryable condition (sustained 429 / outage) must NOT busy-loop the
+      // provider — give up with a fatal error after the bounded retry count.
+      consecutiveRetries += 1;
       yield await ctx.emit({
         type: 'error',
         sessionId: ctx.sessionId,
         turnId: ctx.turnId,
         source: 'system',
-        kind: error.retryable ? 'retryable' : 'fatal',
+        kind: 'retryable',
         message: error.message,
       });
-      if (!error.retryable) return;
+      if (consecutiveRetries >= MAX_CONSECUTIVE_RETRIES) {
+        yield await ctx.emit({
+          type: 'error',
+          sessionId: ctx.sessionId,
+          turnId: ctx.turnId,
+          source: 'system',
+          kind: 'fatal',
+          message:
+            `provider kept returning a retryable error ${consecutiveRetries} times in a row ` +
+            `(last: ${error.message}); giving up rather than hammering the provider.`,
+        });
+        return;
+      }
+      await sleepImpl(retryBackoffMs(consecutiveRetries), ctx.signal);
+      if (ctx.signal.aborted) {
+        yield await ctx.emit({
+          type: 'abort',
+          sessionId: ctx.sessionId,
+          turnId: ctx.turnId,
+          source: 'system',
+          reason: 'signal aborted during retry back-off',
+        });
+        return;
+      }
       continue;
     }
-    // Clean provider call — reset the overflow-recovery budget.
+    // Clean provider call — reset the overflow-recovery + retry budgets.
     reactiveCompactions = 0;
+    consecutiveRetries = 0;
 
     // Finalize the reasoning summary for THIS call BEFORE the tool/assistant
     // emits, so the log order is reasoning → tool_use → text (projection

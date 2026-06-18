@@ -36,6 +36,13 @@ export function OAuthSignIn({
   const [error, setError] = useState<string | null>(null);
   const loginIdRef = useRef<string | null>(null);
 
+  // Keep the latest onSignedIn so the []-dep subscription below (which captures
+  // its closure at mount) always calls the current callback — callers pass a
+  // fresh inline arrow every render, so reading it from a ref avoids firing a
+  // stale version when the login completes.
+  const onSignedInRef = useRef(onSignedIn);
+  onSignedInRef.current = onSignedIn;
+
   const append = (text: string): void =>
     setLog((cur) => {
       // Split on newlines so the log renders line-by-line; drop empties.
@@ -61,7 +68,7 @@ export function OAuthSignIn({
         setPrompt(null);
         if (p.code === 0) {
           setPhase('done');
-          onSignedIn?.();
+          onSignedInRef.current?.();
         } else {
           setPhase('error');
           setError(`Sign-in did not complete (exit ${p.code}).`);
@@ -69,8 +76,8 @@ export function OAuthSignIn({
       }),
     ];
     return () => offs.forEach((off) => off());
-    // onSignedIn is captured per-mount; callers pass a stable handler.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Subscriptions live for the component's lifetime; onSignedIn is read from
+    // a ref (above) so we never re-subscribe and never fire a stale closure.
   }, []);
 
   // Abort a still-running login if the component unmounts (modal closed).

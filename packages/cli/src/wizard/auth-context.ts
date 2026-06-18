@@ -23,6 +23,12 @@ export interface BuildAuthContextOptions {
    * work identically; only the input transport differs.
    */
   readonly promptMode?: 'clack' | 'stdin';
+  /**
+   * Input stream for `promptMode: 'stdin'`. Defaults to `process.stdin`.
+   * Injectable for tests (a script of lines) so a login round-trip can be
+   * exercised without the real TTY.
+   */
+  readonly stdin?: NodeJS.ReadableStream;
 }
 
 export function buildProviderAuthContext(
@@ -33,7 +39,11 @@ export function buildProviderAuthContext(
   // 'clack' only when there's a TTY. Headless with no prompt makes paste flows
   // fail fast with a "set the env var instead" message rather than hang.
   const prompt =
-    opts.promptMode === 'stdin' ? stdinLinePrompt : opts.headless ? undefined : clackPrompt;
+    opts.promptMode === 'stdin'
+      ? makeStdinLinePrompt(opts.stdin ?? process.stdin)
+      : opts.headless
+        ? undefined
+        : clackPrompt;
   return {
     headless: opts.headless,
     write: opts.write ?? ((s) => process.stdout.write(s)),
@@ -48,47 +58,54 @@ export function buildProviderAuthContext(
 
 // --- stdin-driven prompt (GUI host over a subprocess) ----------------------
 //
-// One readline over the process's stdin, shared across the (sequential) prompt
+// One readline over the input stream, shared across the (sequential) prompt
 // calls a single login makes. The host writes one line per prompt; we hand
 // each line to the next waiting prompt, or queue it if it arrives early.
+//
+// The reader + queue + waiters are scoped PER `buildProviderAuthContext` call
+// (a closure), not module globals: a second login in the same process must
+// start fresh — stale queued lines or a permanently-true `stdinEnded` from a
+// previous login would otherwise poison it (a closed-stdin trap that makes
+// every future prompt return '' = cancellation).
 
-let lineReader: Interface | null = null;
-let stdinEnded = false;
-const lineQueue: string[] = [];
-const lineWaiters: Array<(line: string) => void> = [];
+function makeStdinLinePrompt(
+  input: NodeJS.ReadableStream,
+): (question: string, opts?: { readonly mask?: boolean }) => Promise<string> {
+  let lineReader: Interface | null = null;
+  let stdinEnded = false;
+  const lineQueue: string[] = [];
+  const lineWaiters: Array<(line: string) => void> = [];
 
-function ensureLineReader(): void {
-  if (lineReader) return;
-  lineReader = createInterface({ input: process.stdin });
-  lineReader.on('line', (line) => {
-    const waiter = lineWaiters.shift();
-    if (waiter) waiter(line);
-    else lineQueue.push(line);
-  });
-  // If the host closes stdin, don't leave a prompt hanging forever — resolve
-  // pending + future reads as empty (treated as a cancellation by callers).
-  lineReader.on('close', () => {
-    stdinEnded = true;
-    for (const w of lineWaiters.splice(0)) w('');
-  });
-}
+  const ensureLineReader = (): void => {
+    if (lineReader) return;
+    lineReader = createInterface({ input });
+    lineReader.on('line', (line) => {
+      const waiter = lineWaiters.shift();
+      if (waiter) waiter(line);
+      else lineQueue.push(line);
+    });
+    // If the host closes stdin, don't leave a prompt hanging forever — resolve
+    // pending + future reads as empty (treated as a cancellation by callers).
+    lineReader.on('close', () => {
+      stdinEnded = true;
+      for (const w of lineWaiters.splice(0)) w('');
+    });
+  };
 
-function readStdinLine(): Promise<string> {
-  ensureLineReader();
-  const queued = lineQueue.shift();
-  if (queued !== undefined) return Promise.resolve(queued);
-  if (stdinEnded) return Promise.resolve('');
-  return new Promise<string>((resolve) => lineWaiters.push(resolve));
-}
+  const readStdinLine = (): Promise<string> => {
+    ensureLineReader();
+    const queued = lineQueue.shift();
+    if (queued !== undefined) return Promise.resolve(queued);
+    if (stdinEnded) return Promise.resolve('');
+    return new Promise<string>((resolve) => lineWaiters.push(resolve));
+  };
 
-async function stdinLinePrompt(
-  question: string,
-  opts?: { readonly mask?: boolean },
-): Promise<string> {
-  // Emit a structured marker the host parses to render its own input field,
-  // then await the answer as one stdin line. `mask` only hints the host's UI.
-  process.stdout.write(encodeLoginPrompt({ question, mask: opts?.mask === true }));
-  return await readStdinLine();
+  return async (question, promptOpts) => {
+    // Emit a structured marker the host parses to render its own input field,
+    // then await the answer as one stdin line. `mask` only hints the host's UI.
+    process.stdout.write(encodeLoginPrompt({ question, mask: promptOpts?.mask === true }));
+    return await readStdinLine();
+  };
 }
 
 async function clackPrompt(question: string, opts?: { readonly mask?: boolean }): Promise<string> {

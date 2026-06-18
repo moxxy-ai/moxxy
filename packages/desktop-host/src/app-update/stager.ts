@@ -90,6 +90,25 @@ interface DesktopRelease {
 }
 
 const DESKTOP_TAG_PREFIX = 'desktop-v';
+/** Cap how many release pages we walk: bounds the work when a repo has a very
+ *  long release history and no desktop-v* tag is published. 3 × per_page=100 =
+ *  300 releases of headroom. */
+const MAX_RELEASE_PAGES = 3;
+
+interface DesktopCandidate {
+  version: string;
+  assets: Array<{ name?: unknown; browser_download_url?: unknown }>;
+}
+
+/** Parse a GitHub `Link` header and return the `rel="next"` URL, if any. */
+function nextLink(header: string | null): string | undefined {
+  if (!header) return undefined;
+  for (const part of header.split(',')) {
+    const m = /<([^>]+)>\s*;\s*rel="next"/.exec(part);
+    if (m) return m[1];
+  }
+  return undefined;
+}
 
 /**
  * Find the newest published `desktop-v*` release via the GitHub Releases API and
@@ -99,43 +118,58 @@ const DESKTOP_TAG_PREFIX = 'desktop-v';
  * the most recent published release of the WHOLE repo — in a monorepo that also
  * cuts `@moxxy/cli@x` npm releases, that's usually NOT the desktop, so the fixed
  * `releases/latest/...` URL 404s. We instead pick the highest `desktop-v*` tag.
+ *
+ * We page with `per_page=100` and follow `Link: rel="next"` up to
+ * {@link MAX_RELEASE_PAGES} so a burst of newer non-desktop releases (frequent
+ * `@moxxy/cli` npm cuts) can't bury the latest `desktop-v*` below the first page
+ * and make a real update masquerade as "no release found".
  */
 async function resolveDesktopRelease(
   repo: string,
   fetchImpl: typeof fetch,
 ): Promise<DesktopRelease | null> {
-  const api = `https://api.github.com/repos/${repo}/releases?per_page=30`;
-  if (!isAllowedUpdateHost(api)) return null;
-  let releases: unknown;
-  try {
-    const res = await fetchImpl(api, {
-      redirect: 'follow',
-      // GitHub's API rejects requests without a User-Agent.
-      headers: { accept: 'application/vnd.github+json', 'user-agent': 'moxxy-desktop' },
-    });
-    if (!res.ok) return null;
-    releases = await res.json();
-  } catch {
-    return null;
-  }
-  if (!Array.isArray(releases)) return null;
+  let url: string | undefined = `https://api.github.com/repos/${repo}/releases?per_page=100`;
+  const candidates: DesktopCandidate[] = [];
+  for (let page = 0; page < MAX_RELEASE_PAGES && url; page++) {
+    if (!isAllowedUpdateHost(url)) return null;
+    let releases: unknown;
+    let linkHeader: string | null;
+    try {
+      const res = await fetchImpl(url, {
+        redirect: 'follow',
+        // GitHub's API rejects requests without a User-Agent.
+        headers: { accept: 'application/vnd.github+json', 'user-agent': 'moxxy-desktop' },
+      });
+      if (!res.ok) return null;
+      linkHeader = res.headers.get('link');
+      releases = await res.json();
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(releases)) return null;
 
-  const candidates = releases
-    .filter(
-      (r): r is { tag_name: string; assets: unknown } =>
+    for (const r of releases) {
+      if (
         !!r &&
         typeof (r as { tag_name?: unknown }).tag_name === 'string' &&
         !(r as { draft?: unknown }).draft &&
         !(r as { prerelease?: unknown }).prerelease &&
-        (r as { tag_name: string }).tag_name.startsWith(DESKTOP_TAG_PREFIX),
-    )
-    .map((r) => ({
-      version: r.tag_name.slice(DESKTOP_TAG_PREFIX.length),
-      assets: Array.isArray(r.assets) ? (r.assets as Array<{ name?: unknown; browser_download_url?: unknown }>) : [],
-    }))
-    .filter((r) => isSafeVersion(r.version))
-    .sort((a, b) => compareSemver(a.version, b.version));
+        (r as { tag_name: string }).tag_name.startsWith(DESKTOP_TAG_PREFIX)
+      ) {
+        const version = (r as { tag_name: string }).tag_name.slice(DESKTOP_TAG_PREFIX.length);
+        if (!isSafeVersion(version)) continue;
+        candidates.push({
+          version,
+          assets: Array.isArray((r as { assets?: unknown }).assets)
+            ? ((r as { assets: Array<{ name?: unknown; browser_download_url?: unknown }> }).assets)
+            : [],
+        });
+      }
+    }
+    url = nextLink(linkHeader);
+  }
 
+  candidates.sort((a, b) => compareSemver(a.version, b.version));
   const latest = candidates[candidates.length - 1];
   if (!latest) return null;
 

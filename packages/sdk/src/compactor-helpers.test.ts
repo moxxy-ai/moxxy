@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   asEventId,
   asSessionId,
+  asToolCallId,
   asTurnId,
   estimateContextTokens,
   isContextOverflowError,
@@ -38,6 +39,57 @@ describe('estimateContextTokens', () => {
     // 400-char user_prompt is covered by the compaction; only the 40-char
     // summary should count.
     expect(estimateContextTokens(log)).toBe(10);
+  });
+
+  it('measures a ToolDisplayResult by its short forModel, not the bulky display', () => {
+    // A recent (not-yet-elided) file-diff tool_result: the model only ever
+    // sees the short `forModel` string, but a previous version of eventChars
+    // JSON.stringified the whole `display` payload — wildly over-counting and
+    // tripping compaction/elision thresholds prematurely. The estimate must
+    // match what projection actually sends (forModel only).
+    const forModel = 'Updated src/foo.ts (42 lines)'; // 29 chars
+    // A large display payload: many diff lines whose stringified form dwarfs
+    // forModel. If counted, the estimate would balloon.
+    const lines = Array.from({ length: 200 }, (_, i) => ({
+      kind: 'add' as const,
+      text: 'x'.repeat(80),
+      newNo: i + 1,
+    }));
+    const output = {
+      forModel,
+      display: {
+        kind: 'file-diff' as const,
+        path: 'src/foo.ts',
+        mode: 'update' as const,
+        added: 200,
+        removed: 0,
+        hunks: [{ oldStart: 1, oldLines: 0, newStart: 1, newLines: 200, lines }],
+      },
+    };
+    const log = reader([
+      event(0, { type: 'user_prompt', turnId: tid, source: 'user', text: 'hi' }),
+      event(1, {
+        type: 'tool_call_requested',
+        turnId: tid,
+        source: 'model',
+        callId: asToolCallId('c1'),
+        name: 'Edit',
+        input: {},
+      }),
+      event(2, {
+        type: 'tool_result',
+        turnId: tid,
+        source: 'tool',
+        callId: asToolCallId('c1'),
+        ok: true,
+        output,
+      }),
+    ]);
+    // forModel is 29 chars; the bulky display (>16 KB stringified) must NOT be
+    // counted. Estimate must stay within a couple tokens of forModel.length/4,
+    // never the thousands of tokens the stringified display would imply.
+    const tokens = estimateContextTokens(log);
+    expect(tokens).toBeLessThan(50);
   });
 });
 

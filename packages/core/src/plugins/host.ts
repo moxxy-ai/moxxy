@@ -199,7 +199,15 @@ export class PluginHost implements PluginHostHandle {
     this.loaded.set(manifest.packageName, record);
     this.clearSkip(plugin.name);
     this.clearSkip(manifest.packageName);
-    this.opts.requirements.registerPlugin(plugin.name, plugin.version);
+    // Register the requirement under the PACKAGE name, not the declared
+    // plugin.name. `kind:'plugin'` requirements are resolved by package name —
+    // toposort keys `byPackage` by `manifest.packageName`, so the readiness
+    // gate (`requirements.plugins.get(name)`) must agree. Keying by plugin.name
+    // here meant a dependent's `{kind:'plugin', name:<packageName>}` would pass
+    // toposort ordering but fail the readiness gate whenever a plugin's
+    // declared name differed from its package name (host.ts documents that they
+    // can differ).
+    this.opts.requirements.registerPlugin(manifest.packageName, plugin.version);
     this.refreshDispatcher();
   }
 
@@ -279,7 +287,9 @@ export class PluginHost implements PluginHostHandle {
     for (const wfxName of record.workflowExecutorNames)
       this.opts.workflowExecutors.unregister(wfxName);
     this.loaded.delete(name);
-    this.opts.requirements.unregisterPlugin(record.plugin.name);
+    // Unregister under the SAME key registration used: package name for
+    // discovered plugins (see registerDiscovered), declared name for statics.
+    this.opts.requirements.unregisterPlugin(record.manifest?.packageName ?? record.plugin.name);
     this.refreshDispatcher();
   }
 

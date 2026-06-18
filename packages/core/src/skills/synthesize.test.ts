@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { LLMProvider, ProviderEvent } from '@moxxy/sdk';
 import { Session } from '../session.js';
-import { defineProvider, definePlugin } from '@moxxy/sdk';
+import { asSkillId, asTurnId, defineProvider, definePlugin } from '@moxxy/sdk';
 import { synthesizeSkill, buildSynthesizeSkillPlugin } from './synthesize.js';
 
 const DRAFT_DELTA =
@@ -78,6 +78,27 @@ describe('synthesizeSkill', () => {
     expect(audit).toContain('refactor-component');
   });
 
+  it('stamps skill_created with the active turnId, not a fresh orphan turn', async () => {
+    const provider = new InlineProvider([draftReply()]);
+    const session = newSessionWithProvider(provider);
+    const turnId = asTurnId('active-turn-1');
+
+    await synthesizeSkill(
+      session,
+      'split component up',
+      'user',
+      { userDir: path.join(tmp, 'skills'), auditPath: path.join(tmp, 'audit.jsonl') },
+      turnId,
+    );
+
+    const createdEvents = session.log.ofType('skill_created');
+    expect(createdEvents).toHaveLength(1);
+    // Must carry the active turn's id so run-turn's per-turn subscriber filter
+    // (event.turnId !== turnId → drop) doesn't discard it. A fresh startTurn()
+    // id would never match the running turn.
+    expect(createdEvents[0].turnId).toBe(turnId);
+  });
+
   it('uses project dir when scope=project', async () => {
     const provider = new InlineProvider([draftReply()]);
     const session = newSessionWithProvider(provider);
@@ -115,5 +136,35 @@ describe('buildSynthesizeSkillPlugin', () => {
     session.pluginHost.registerStatic(plugin);
     expect(session.tools.has('synthesize_skill')).toBe(true);
     expect(session.tools.has('reload_skills')).toBe(true);
+  });
+
+  it('load_skill emits skill_invoked with the active turnId from ctx', async () => {
+    const provider = new InlineProvider([]);
+    const session = newSessionWithProvider(provider);
+    session.pluginHost.registerStatic(buildSynthesizeSkillPlugin(session));
+    // A pre-authored skill load_skill can resolve.
+    session.skills.register({
+      id: asSkillId('user/demo'),
+      path: '/demo.md',
+      scope: 'user',
+      frontmatter: { name: 'demo', description: 'd' },
+      body: 'steps',
+    });
+
+    const turnId = asTurnId('active-turn-2');
+    // Drive the tool through the registry exactly as the loop does: the
+    // ToolContext is built with the running turn's id, so the handler must
+    // stamp skill_invoked with THAT id (not a fresh startTurn() orphan that the
+    // run-turn subscriber filter would drop).
+    await session.tools.execute(
+      'load_skill',
+      { name: 'demo' },
+      session.signal,
+      { turnId: String(turnId), sessionId: String(session.id), callId: 'c1' },
+    );
+
+    const invoked = session.log.ofType('skill_invoked');
+    expect(invoked).toHaveLength(1);
+    expect(invoked[0].turnId).toBe(turnId);
   });
 });

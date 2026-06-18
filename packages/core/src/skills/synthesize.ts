@@ -8,6 +8,7 @@ import {
   type Plugin,
   type Skill,
   type SkillScope,
+  type TurnId,
 } from '@moxxy/sdk';
 import { z } from 'zod';
 import { defaultProjectSkillsDir, defaultUserSkillsDir } from './loader.js';
@@ -41,6 +42,14 @@ export async function synthesizeSkill(
   intent: string,
   scope: 'user' | 'project',
   opts: SynthesizeOptions = {},
+  /**
+   * The active turn's id, threaded from the tool's `ctx.turnId`. The
+   * `skill_created` event MUST carry it so run-turn's per-turn subscriber
+   * (`event.turnId !== turnId → drop`) doesn't filter the event out of the
+   * running turn's stream. Falls back to a fresh turn only for legacy callers
+   * that invoke this outside a turn.
+   */
+  turnId?: TurnId,
 ): Promise<SynthesizedSkill> {
   const provider = session.providers.getActive();
   // Prefer the model the conversation last ran on over the provider's first
@@ -94,7 +103,7 @@ export async function synthesizeSkill(
   await session.log.append({
     type: 'skill_created',
     sessionId: session.id,
-    turnId: session.startTurn().turnId,
+    turnId: turnId ?? session.startTurn().turnId,
     source: 'system',
     skillId: skill.id,
     name: skill.frontmatter.name,
@@ -177,8 +186,8 @@ export function buildSynthesizeSkillPlugin(
             ),
         }),
         permission: { action: 'prompt' },
-        handler: async ({ intent, scope }) => {
-          const result = await synthesizeSkill(session, intent, scope, opts);
+        handler: async ({ intent, scope }, ctx) => {
+          const result = await synthesizeSkill(session, intent, scope, opts, ctx.turnId);
           return {
             path: result.path,
             scope: result.scope,
@@ -200,7 +209,7 @@ export function buildSynthesizeSkillPlugin(
             .min(1)
             .describe('The exact skill name from the "Available skills" list in the system prompt.'),
         }),
-        handler: async ({ name }) => {
+        handler: async ({ name }, ctx) => {
           const skill = session.skills.byName(name);
           if (!skill) {
             const known = session.skills
@@ -214,11 +223,13 @@ export function buildSynthesizeSkillPlugin(
           }
           // Emit a skill_invoked event so the audit log captures which
           // skills were actually exercised in this turn — useful for
-          // routing analytics and for the self-improver agent later.
+          // routing analytics and for the self-improver agent later. Use the
+          // active turn's id (ctx.turnId) so run-turn's per-turn subscriber
+          // filter doesn't drop it (a fresh startTurn() id wouldn't match).
           await session.log.append({
             type: 'skill_invoked',
             sessionId: session.id,
-            turnId: session.startTurn().turnId,
+            turnId: ctx.turnId,
             source: 'model',
             skillId: skill.id,
             name: skill.frontmatter.name,

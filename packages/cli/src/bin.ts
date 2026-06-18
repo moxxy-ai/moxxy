@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-import * as os from 'node:os';
-import * as path from 'node:path';
+import { moxxyHome } from '@moxxy/sdk';
 import { finalizeStagedCoreUpdate } from '@moxxy/plugin-self-update';
 import { parseArgv, type ParsedArgv } from './argv.js';
 import { runPromptCommand } from './commands/prompt.js';
@@ -225,7 +224,7 @@ async function main(): Promise<number> {
   // Reaching this point means the (possibly overlaid) core code imported
   // cleanly, so commit any staged Tier-2 core patch. Best-effort — never
   // block boot on it.
-  await finalizeStagedCoreUpdate(path.join(os.homedir(), '.moxxy')).catch(() => undefined);
+  await finalizeStagedCoreUpdate(moxxyHome()).catch(() => undefined);
 
   const handler = COMMANDS[argv.command];
   if (handler) return handler(argv);

@@ -31,12 +31,33 @@ export const askStore = {
     asks = Object.freeze([...asks, req]);
     emit();
   },
-  /** Send the user's decision back to the runner and drop the ask. */
+  /**
+   * Send the user's decision back to the runner and drop the ask.
+   *
+   * Drops optimistically (so the sheet advances immediately) but re-inserts
+   * the ask if the IPC round-trip fails: the runner blocks parked on the ask
+   * until `ask.respond` lands, so silently swallowing a transport/handler
+   * failure would strand the turn forever with no way to re-answer.
+   */
   respond(requestId: string, response: AskResponse): void {
-    if (!asks.some((a) => a.requestId === requestId)) return;
+    const pending = asks.find((a) => a.requestId === requestId);
+    if (!pending) return;
     asks = Object.freeze(asks.filter((a) => a.requestId !== requestId));
     emit();
-    void api().invoke('ask.respond', { requestId, response }).catch(() => {});
+    void api()
+      .invoke('ask.respond', { requestId, response })
+      .catch((e: unknown) => {
+        // Re-surface the ask so the user can retry instead of a wedged turn.
+        if (!asks.some((a) => a.requestId === requestId)) {
+          asks = Object.freeze([...asks, pending]);
+          emit();
+        }
+        // Best-effort diagnostic (this package is DOM-/Node-global-free).
+        (globalThis as { console?: { error(...args: unknown[]): void } }).console?.error(
+          '[askStore] ask.respond failed; re-surfacing ask',
+          e,
+        );
+      });
   },
 };
 

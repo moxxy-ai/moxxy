@@ -35,6 +35,10 @@ export interface TurnRunnerHandle {
   forceSendFirst: () => boolean;
   /** Remove the head of the queue without running it. */
   dropFirst: () => boolean;
+  /** Clear (or set) the single priority slot. Used by session resets
+   *  (/new, /clear) to drop a force-sent message that must NOT survive the
+   *  wipe. Keeps the mirrored ref + state in sync. */
+  setPriority: (value: QueuedMessage | null) => void;
 }
 
 export function useTurnRunner(opts: TurnRunnerOptions): TurnRunnerHandle {
@@ -45,8 +49,18 @@ export function useTurnRunner(opts: TurnRunnerOptions): TurnRunnerHandle {
   const queueRef = useRef<QueuedMessage[]>([]);
   const [queueCount, setQueueCount] = useState(0);
   // Single "send this next, alone" slot. Held in state (not just a ref)
-  // so the QueueView re-renders when the user force-sends.
+  // so the QueueView re-renders when the user force-sends. Mirrored into a
+  // ref so the (unmemoized) runTurnWith drain block reads the LATEST value
+  // rather than the value captured by the closure that started the in-flight
+  // turn — otherwise a mid-turn force-send is stranded (it was already
+  // shifted out of queueRef, so the stale `priorityMessage===null` branch
+  // never runs it). Mirrors the busy/busyRef pattern.
   const [priorityMessage, setPriorityMessage] = useState<QueuedMessage | null>(null);
+  const priorityRef = useRef<QueuedMessage | null>(null);
+  const setPriority = (value: QueuedMessage | null): void => {
+    priorityRef.current = value;
+    setPriorityMessage(value);
+  };
   const busyRef = useRef(false);
   // Per-turn abort controller. Esc while busy aborts THIS turn without
   // poisoning the session's own controller, so the next prompt still
@@ -91,9 +105,9 @@ export function useTurnRunner(opts: TurnRunnerOptions): TurnRunnerHandle {
       // else-if rather than an early `return` inside finally (a return in
       // finally is unsafe — it would swallow the try/catch outcome). The else
       // gives the same "priority runs alone, otherwise drain the queue".
-      if (priorityMessage) {
-        const p = priorityMessage;
-        setPriorityMessage(null);
+      if (priorityRef.current) {
+        const p = priorityRef.current;
+        setPriority(null);
         await runTurnWith(p.text, p.attachments);
       } else if (queueRef.current.length > 0) {
         const batch = queueRef.current.splice(0);
@@ -109,7 +123,7 @@ export function useTurnRunner(opts: TurnRunnerOptions): TurnRunnerHandle {
     if (queueRef.current.length === 0) return false;
     const first = queueRef.current.shift()!;
     setQueueCount(queueRef.current.length);
-    setPriorityMessage(first);
+    setPriority(first);
     return true;
   };
 
@@ -134,5 +148,6 @@ export function useTurnRunner(opts: TurnRunnerOptions): TurnRunnerHandle {
     priorityMessage,
     forceSendFirst,
     dropFirst,
+    setPriority,
   };
 }

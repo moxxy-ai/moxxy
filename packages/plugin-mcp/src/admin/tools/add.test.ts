@@ -47,12 +47,14 @@ describe('admin/tools/add (mcp_add_server)', () => {
   const makeDeps = (over: Partial<AddServerToolDeps> = {}): {
     deps: AddServerToolDeps;
     attach: ReturnType<typeof vi.fn>;
+    detach: ReturnType<typeof vi.fn>;
     writeSkill: ReturnType<typeof vi.fn>;
   } => {
     const attach = vi.fn(async (_server: McpServerConfig) => ({
       toolNames: ['mcp__demo__ping'],
       descriptors: [PING] as ReadonlyArray<McpToolDescriptor>,
     }));
+    const detach = vi.fn(async (_name: string) => true);
     const writeSkill = vi.fn(async (_s: McpServerConfig, _d: ReadonlyArray<McpToolDescriptor>) => ({
       path: join(home, 'skills', 'demo-mcp.md'),
       skillName: 'demo-mcp',
@@ -60,10 +62,11 @@ describe('admin/tools/add (mcp_add_server)', () => {
     const deps: AddServerToolDeps = {
       registry: fakeRegistry(),
       attachServer: attach as never,
+      detachServer: detach as never,
       writeMcpUsageSkill: writeSkill as never,
       ...over,
     };
-    return { deps, attach, writeSkill };
+    return { deps, attach, detach, writeSkill };
   };
 
   it('rejects a duplicate name before attaching anything', async () => {
@@ -107,6 +110,32 @@ describe('admin/tools/add (mcp_add_server)', () => {
     await expect(tool.handler(stdioInput(), ctx())).rejects.toThrow(/connect failed/);
     expect(writeSkill).not.toHaveBeenCalled();
     expect((await readMcpConfig()).servers).toEqual([]);
+  });
+
+  it('rolls back the live attach (detachServer) when the persist-time re-check loses a name race (u85-2)', async () => {
+    // attachServer succeeds (live tools registered), but a concurrent add for
+    // the same name lands between the initial read and the mutate, so the
+    // mutate's duplicate re-check throws. The registry must be rolled back.
+    const attach = vi.fn(async (_server: McpServerConfig) => {
+      // Simulate the racing add winning between read and mutate.
+      await writeMcpConfig({ servers: [{ kind: 'stdio', name: 'demo', command: 'other' }] });
+      return {
+        toolNames: ['mcp__demo__ping'],
+        descriptors: [PING] as ReadonlyArray<McpToolDescriptor>,
+      };
+    });
+    const { deps, detach, writeSkill } = makeDeps({ attachServer: attach as never });
+    const tool = buildAddServerTool(deps);
+    await expect(tool.handler(stdioInput(), ctx())).rejects.toThrow(/already exists/);
+    expect(attach).toHaveBeenCalledTimes(1);
+    // The orphaned registration + open client must be torn down.
+    expect(detach).toHaveBeenCalledWith('demo');
+    // No usage skill written, and the racing winner's entry is left intact
+    // (exactly one entry, command from the winner — not ours).
+    expect(writeSkill).not.toHaveBeenCalled();
+    const cfg = await readMcpConfig();
+    expect(cfg.servers).toHaveLength(1);
+    expect(cfg.servers[0]).toMatchObject({ name: 'demo', command: 'other' });
   });
 
   it('skips the usage skill when autoSkill is false', async () => {

@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { moxxyPath, type Workflow, type WorkflowRunDeps } from '@moxxy/sdk';
+import { moxxyPath, writeFileAtomic, type Workflow, type WorkflowRunDeps } from '@moxxy/sdk';
 import { ulid } from 'ulid';
 
 /**
@@ -42,12 +42,12 @@ export class WorkflowRunStore {
 
   async save(checkpoint: Omit<WorkflowRunCheckpoint, 'runId'>): Promise<string> {
     const runId = ulid();
-    await fs.mkdir(this.dir, { recursive: true });
     const file = path.join(this.dir, `${runId}.json`);
     const payload: WorkflowRunCheckpoint = { ...checkpoint, runId };
-    const tmp = `${file}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(payload), 'utf8');
-    await fs.rename(tmp, file);
+    // The shared atomic helper writes a pid+uuid-unique temp then renames
+    // (and mkdir's the parent), so two concurrent saves never collide on a
+    // fixed `${file}.tmp` and a failed write leaves no orphan temp behind.
+    await writeFileAtomic(file, JSON.stringify(payload));
     return runId;
   }
 

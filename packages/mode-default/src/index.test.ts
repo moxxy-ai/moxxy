@@ -1,9 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { definePlugin, defineTool } from '@moxxy/sdk';
+import { definePlugin, defineTool, type ProviderEvent } from '@moxxy/sdk';
 import { Session, autoAllowResolver, collectTurn, silentLogger } from '@moxxy/core';
 import { FakeProvider, textReply, toolUseReply, createFakeSession } from '@moxxy/testing';
 import { defaultModePlugin } from './index.js';
+import { MAX_CONSECUTIVE_RETRIES, __setRetrySleepForTests } from './turn-iterator.js';
+
+/** A scripted provider reply that surfaces a retryable error (e.g. a 429). */
+const retryableErrorReply = (message = 'rate limited (429)'): ReadonlyArray<ProviderEvent> => [
+  { type: 'message_start', model: 'fake' },
+  { type: 'error', message, retryable: true },
+  { type: 'message_end', stopReason: 'end_turn' },
+];
 
 const sessionWith = (provider: FakeProvider): Session => {
   const session = createFakeSession({ provider });
@@ -321,6 +329,63 @@ describe('defaultMode end-to-end', () => {
       expect(result.error?.kind === 'aborted' || result.error?.kind === 'threw').toBe(true);
     } else {
       expect(aborted).toBeDefined();
+    }
+  });
+
+  it('backs off then recovers when a retryable provider error precedes a clean call', async () => {
+    const sleep = vi.fn(async () => {});
+    const restore = __setRetrySleepForTests(sleep);
+    try {
+      const provider = new FakeProvider({
+        script: [retryableErrorReply(), textReply('recovered')],
+      });
+      const session = sessionWith(provider);
+
+      const events = await collectTurn(session, 'hi');
+      // The retryable error was surfaced...
+      const retryable = events.filter((e) => e.type === 'error' && e.kind === 'retryable');
+      expect(retryable).toHaveLength(1);
+      // ...the loop waited before retrying (back-off applied, not a busy-loop)...
+      expect(sleep).toHaveBeenCalledTimes(1);
+      expect(sleep.mock.calls[0]![0]).toBeGreaterThan(0);
+      // ...and the next clean call succeeded.
+      const last = events[events.length - 1];
+      if (last.type !== 'assistant_message') throw new Error('expected assistant_message last');
+      expect(last.content).toBe('recovered');
+    } finally {
+      restore();
+    }
+  });
+
+  it('gives up with a fatal error after the bounded retry count, not maxIterations', async () => {
+    const delays: number[] = [];
+    const restore = __setRetrySleepForTests(async (ms) => {
+      delays.push(ms);
+    });
+    try {
+      // The provider returns a retryable error forever — without a bound this
+      // would busy-loop up to maxIterations (500) times.
+      const provider = new FakeProvider({
+        script: Array.from({ length: 50 }, () => retryableErrorReply()),
+      });
+      const session = sessionWith(provider);
+
+      const events = await collectTurn(session, 'hi');
+      const fatal = events.filter((e) => e.type === 'error' && e.kind === 'fatal');
+      expect(fatal).toHaveLength(1);
+      if (fatal[0]?.type !== 'error') throw new Error();
+      expect(fatal[0].message).toMatch(/giving up/i);
+      // It hit the provider exactly MAX_CONSECUTIVE_RETRIES times (one provider
+      // call per retry), nowhere near the 500-iteration cap.
+      expect(provider.received).toHaveLength(MAX_CONSECUTIVE_RETRIES);
+      // Back-off delays increased (exponential), proving real back-off ran on
+      // each attempt before the final give-up.
+      expect(delays).toHaveLength(MAX_CONSECUTIVE_RETRIES - 1);
+      for (let i = 1; i < delays.length; i++) {
+        expect(delays[i]!).toBeGreaterThan(delays[i - 1]!);
+      }
+    } finally {
+      restore();
     }
   });
 });

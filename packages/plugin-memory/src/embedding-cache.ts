@@ -30,6 +30,7 @@ interface IndexEntry {
 export class EmbeddingIndex {
   private cache: Map<string, IndexEntry> = new Map();
   private dirty = false;
+  private loaded = false;
 
   constructor(
     private readonly dir: string,
@@ -46,9 +47,15 @@ export class EmbeddingIndex {
   }
 
   async load(): Promise<void> {
+    // Read the on-disk cache at most once per instance. The store memoizes this
+    // index for its lifetime and is the single writer (flush() keeps disk in
+    // sync for our own writes), so re-reading + re-parsing the whole file on
+    // every recall is pure overhead — the in-memory Map is already authoritative.
+    if (this.loaded) return;
     try {
       const raw = await fs.readFile(this.filePath, 'utf8');
       const parsed = JSON.parse(raw) as IndexFile;
+      this.loaded = true;
       if (parsed.version !== INDEX_VERSION) return; // unknown format, ignore
       if (parsed.embedder !== this.embedderName) return; // embedder changed, invalidate
       // Dim mismatch (incl. an old file written before dim was tracked) → the
@@ -59,6 +66,9 @@ export class EmbeddingIndex {
       }
     } catch (err) {
       if (!isEnoent(err)) throw err;
+      // No file on disk yet — still treat as loaded so subsequent recalls don't
+      // re-stat. This process is the single writer; flush() creates the file.
+      this.loaded = true;
     }
   }
 

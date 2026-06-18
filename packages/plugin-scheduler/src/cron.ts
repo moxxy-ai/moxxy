@@ -130,12 +130,25 @@ export function nextFireTime(
   start.setSeconds(0, 0);
   const limit = new Date(start.getTime() + 366 * 24 * 60 * 60_000);
 
+  // The field-by-field jump helpers mutate the cursor with system-local
+  // `Date` methods, so they are only correct when matching is also done in
+  // the host's local zone. For an explicit (non-local) IANA zone we walk
+  // minute-by-minute on the absolute instant instead — slower, but advancing
+  // the cursor by a fixed 60_000 ms is zone-independent, whereas the local
+  // setHours/setDate jumps would land on the wrong wall-clock instant in the
+  // target zone (off-by-offset / DST errors). The 1-year cap still bounds it.
+  const explicitZone = !!timeZone && timeZone !== 'local';
+
   const cursor = new Date(start);
   while (cursor <= limit) {
     const parts = decomposeInZone(cursor, timeZone);
     if (!cron.month.values.has(parts.month)) {
-      // Jump to the first day of the next candidate month.
-      jumpToNextMonth(cursor, parts, cron.month.values, timeZone);
+      if (explicitZone) {
+        cursor.setTime(cursor.getTime() + 60_000);
+      } else {
+        // Jump to the first day of the next candidate month.
+        jumpToNextMonth(cursor, parts, cron.month.values, timeZone);
+      }
       continue;
     }
     const domOk = cron.dom.values.has(parts.dom);
@@ -145,15 +158,18 @@ export function nextFireTime(
       ? domOk || dowOk
       : domOk && dowOk;
     if (!dayMatches) {
-      jumpToNextDay(cursor, timeZone);
+      if (explicitZone) cursor.setTime(cursor.getTime() + 60_000);
+      else jumpToNextDay(cursor, timeZone);
       continue;
     }
     if (!cron.hour.values.has(parts.hour)) {
-      jumpToNextHour(cursor, timeZone);
+      if (explicitZone) cursor.setTime(cursor.getTime() + 60_000);
+      else jumpToNextHour(cursor, timeZone);
       continue;
     }
     if (!cron.minute.values.has(parts.minute)) {
-      cursor.setMinutes(cursor.getMinutes() + 1, 0, 0);
+      if (explicitZone) cursor.setTime(cursor.getTime() + 60_000);
+      else cursor.setMinutes(cursor.getMinutes() + 1, 0, 0);
       continue;
     }
     return new Date(cursor.getTime());

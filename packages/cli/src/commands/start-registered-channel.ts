@@ -148,7 +148,14 @@ async function runSelfHostedChannel(
   // primary channel is e.g. telegram. The primary's permission resolver governs.
   const webHandle = name === 'web' ? null : await coAttachWebSurface({ primary: name, session, vault, config });
 
+  // Re-entrancy guard (mirrors runAttachedChannel): a second Ctrl-C, or
+  // SIGINT+SIGTERM arriving close together, must not run teardown twice —
+  // session.close() firing twice can double-flush plugin state (memory
+  // journal, vault) and a second process.exit would race the first.
+  let stopping = false;
   const shutdown = async (): Promise<void> => {
+    if (stopping) return;
+    stopping = true;
     await webHandle?.stop('SIGINT').catch(() => undefined);
     await runnerServer?.close().catch(() => undefined);
     await handle.stop('SIGINT');

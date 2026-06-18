@@ -7,24 +7,12 @@ import {
   type TranscribeOptions,
   type TranscriptionResult,
 } from '@moxxy/sdk';
+import { normalizeWhisperUpload } from './audio.js';
 
 export type WhisperModel = 'whisper-1' | 'gpt-4o-transcribe' | 'gpt-4o-mini-transcribe';
 
 /** Provider tag attached to classified errors for logs/debug context. */
 const WHISPER_PROVIDER_ID = 'openai';
-
-const DEFAULT_FILENAMES: Record<string, string> = {
-  'audio/ogg': 'audio.ogg',
-  'audio/opus': 'audio.opus',
-  'audio/mpeg': 'audio.mp3',
-  'audio/mp3': 'audio.mp3',
-  'audio/wav': 'audio.wav',
-  'audio/x-wav': 'audio.wav',
-  'audio/webm': 'audio.webm',
-  'audio/m4a': 'audio.m4a',
-  'audio/mp4': 'audio.mp4',
-  'audio/flac': 'audio.flac',
-};
 
 export interface WhisperTranscriberOptions {
   readonly apiKey?: string;
@@ -70,13 +58,14 @@ export class WhisperTranscriber implements Transcriber {
     audio: Uint8Array | ArrayBuffer,
     opts: TranscribeOptions = {},
   ): Promise<TranscriptionResult> {
-    const bytes = audio instanceof Uint8Array ? audio : new Uint8Array(audio);
-    const mimeType = opts.mimeType ?? 'audio/ogg';
-    const filename = DEFAULT_FILENAMES[mimeType] ?? 'audio.bin';
+    // Route through the shared Whisper-family preprocessor so the project's
+    // raw-PCM16 contract (MOXXY_PCM16_24KHZ_MIME) gets WAV-wrapped and filename
+    // inference stays in lockstep with the Codex sibling. Default the MIME to
+    // `audio/ogg` to preserve prior behavior for callers that omit it.
+    const upload = normalizeWhisperUpload(audio, opts.mimeType ?? 'audio/ogg');
     // Node 20.10+ exposes File globally; the OpenAI SDK accepts it as
-    // an `Uploadable`. Casting via `unknown` to satisfy the SDK's
-    // `FileLike` overload without pulling in node:stream / openai/uploads.
-    const file = new File([bytes], filename, { type: mimeType });
+    // an `Uploadable`.
+    const file = new File([upload.bytes], upload.filename, { type: upload.mimeType });
     const language = opts.language ?? this.defaultLanguage;
     // verbose_json is only supported by whisper-1; the gpt-4o family
     // returns plain JSON. Branch so callers get rich segments when

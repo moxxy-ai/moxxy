@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Context } from 'grammy';
+
+// savePreferences (a read-modify-write of the prefs file) can reject on
+// disk/permission/lock. Mock it so we can drive the failure path.
+const savePreferences = vi.fn(async () => {});
+vi.mock('@moxxy/core', () => ({ savePreferences: (...a: unknown[]) => savePreferences(...a) }));
+
 import { handleCallback, type CallbackState, type CallbackCallbacks } from './callback-handler.js';
 
 /**
@@ -86,5 +92,89 @@ describe('handleCallback — pairing gate (A46)', () => {
       expect(getPending).not.toHaveBeenCalled();
       expect(answerCallbackQuery).toHaveBeenCalledTimes(1);
     }
+  });
+});
+
+describe('handleCallback — model/mode persistence failure (u110-5)', () => {
+  const fakeSession = () =>
+    ({
+      readyProviders: new Set(['openai']),
+      providers: {
+        getActiveName: () => 'openai',
+        list: () => [{ name: 'openai' }],
+        replace: vi.fn(),
+        setActive: vi.fn(),
+      },
+      modes: { setActive: vi.fn() },
+      credentialResolver: undefined,
+    }) as unknown as CallbackState['session'];
+
+  const ctxWithEdit = (data: string) => {
+    const editMessageText = vi.fn(async () => true);
+    const answerCallbackQuery = vi.fn(async () => true);
+    const chat = { id: 42 };
+    return {
+      ctx: {
+        chat,
+        callbackQuery: { data, message: { chat } },
+        answerCallbackQuery,
+        editMessageText,
+        editMessageReplyMarkup: vi.fn(async () => true),
+      } as unknown as Context,
+      editMessageText,
+      answerCallbackQuery,
+    };
+  };
+
+  const stateFor = (session: CallbackState['session']): CallbackState => ({
+    bot: null,
+    session,
+    chatId: null,
+    permissionResolver: { resolvePending: vi.fn() } as never,
+    approvalResolver: { getPending: () => undefined, resolvePending: vi.fn() } as never,
+    pairing: { isAuthorized: () => true },
+  });
+
+  it('does NOT claim "✓ switched" when savePreferences rejects (model)', async () => {
+    savePreferences.mockReset();
+    savePreferences.mockRejectedValueOnce(new Error('EROFS'));
+    const { ctx, editMessageText, answerCallbackQuery } = ctxWithEdit('model:openai::gpt-x');
+    await handleCallback(ctx, stateFor(fakeSession()), cb);
+
+    expect(savePreferences).toHaveBeenCalledWith({ providerName: 'openai', model: 'gpt-x' });
+    // The success edit must NOT have fired; the failure surfaces via the toast.
+    const successEdits = editMessageText.mock.calls.filter((c) =>
+      String(c[0]).includes('✓ switched'),
+    );
+    expect(successEdits).toHaveLength(0);
+    expect(
+      answerCallbackQuery.mock.calls.some((c) => /failed/i.test(String((c[0] as { text?: string } | undefined)?.text))),
+    ).toBe(true);
+  });
+
+  it('does NOT claim "✓ mode →" when savePreferences rejects (mode)', async () => {
+    savePreferences.mockReset();
+    savePreferences.mockRejectedValueOnce(new Error('EROFS'));
+    const { ctx, editMessageText, answerCallbackQuery } = ctxWithEdit('mode:goal');
+    await handleCallback(ctx, stateFor(fakeSession()), cb);
+
+    expect(savePreferences).toHaveBeenCalledWith({ mode: 'goal' });
+    const successEdits = editMessageText.mock.calls.filter((c) =>
+      String(c[0]).includes('✓ mode'),
+    );
+    expect(successEdits).toHaveLength(0);
+    expect(
+      answerCallbackQuery.mock.calls.some((c) => /failed/i.test(String((c[0] as { text?: string } | undefined)?.text))),
+    ).toBe(true);
+  });
+
+  it('persists and confirms success when savePreferences resolves (model)', async () => {
+    savePreferences.mockReset();
+    savePreferences.mockResolvedValueOnce(undefined);
+    const { ctx, editMessageText } = ctxWithEdit('model:openai::gpt-x');
+    await handleCallback(ctx, stateFor(fakeSession()), cb);
+    expect(
+      editMessageText.mock.calls.some((c) => String(c[0]).includes('✓ switched')),
+    ).toBe(true);
   });
 });

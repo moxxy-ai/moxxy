@@ -125,6 +125,26 @@ async function runCmd(deps: WorkflowCommandDeps, name: string): Promise<CommandO
   }
   const result = await deps.runNow({ name, trigger: 'manual' });
   const steps = result.steps.map((s) => `  ${statusMark(s.status)} ${s.id}${s.error ? ` — ${s.error}` : ''}`).join('\n');
+  // A run that pauses on an `awaitInput` step returns ok:true with
+  // status:'paused' — it is NOT finished. Render the pause distinctly (naming
+  // the pending step + how to resume) rather than claiming completion.
+  if (result.status === 'paused') {
+    const pending = result.pendingStepId
+      ? result.steps.find((s) => s.id === result.pendingStepId)
+      : undefined;
+    const ask = (pending?.output ?? '').trim();
+    const lines = [
+      `⏸ workflow "${name}" is awaiting input` +
+        (result.pendingStepId ? ` at step "${result.pendingStepId}"` : ''),
+      steps,
+      '',
+      ask ? `Question: ${truncate(ask, 1200)}` : '',
+      result.runId
+        ? `Reply to continue it (run id ${result.runId}).`
+        : 'Reply to continue it.',
+    ].filter((l) => l !== '');
+    return { kind: 'text', text: lines.join('\n') };
+  }
   const head = result.ok ? `✓ workflow "${name}" completed` : `✗ workflow "${name}" failed${result.error ? `: ${result.error}` : ''}`;
   return { kind: 'text', text: `${head}\n${steps}\n\n${truncate(result.output, 1200)}` };
 }
@@ -217,20 +237,28 @@ async function readLastRun(dir: string | undefined, name: string): Promise<strin
   } catch {
     return null;
   }
-  const matches = files.filter((f) => f.includes(`-${name}-`) && f.endsWith('.jsonl')).sort();
-  const latest = matches[matches.length - 1];
-  if (!latest) return null;
-  try {
-    const raw = await fs.readFile(path.join(dir, latest), 'utf8');
-    const lines = raw.trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>);
-    const run = lines.find((l) => l.kind === 'run');
-    const steps = lines.filter((l) => l.kind === 'step');
-    const head = `${run?.ok ? '✓' : '✗'} ${new Date(Number(run?.startedAt ?? 0)).toISOString()} (${String(run?.trigger ?? '?')})`;
-    const stepLines = steps.map((s) => `  ${statusMark(String(s.status))} ${String(s.id)}`).join('\n');
-    return `${head}\n${stepLines}`;
-  } catch {
-    return null;
+  // The run-record filename is `<stamp>-<workflow.name>-<ulid>.jsonl`. A plain
+  // `-${name}-` substring filter is ambiguous: for `report` it also matches
+  // `daily-report` (…-daily-report-…). The stamp is an ISO timestamp, so the
+  // filename sort is chronological — walk newest→oldest and pick the first
+  // record whose parsed `workflow` field EQUALS the requested name.
+  const candidates = files.filter((f) => f.includes(`-${name}-`) && f.endsWith('.jsonl')).sort().reverse();
+  for (const file of candidates) {
+    try {
+      const raw = await fs.readFile(path.join(dir, file), 'utf8');
+      const lines = raw.trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>);
+      const run = lines.find((l) => l.kind === 'run');
+      if (run?.workflow !== name) continue; // a sibling workflow's record — skip
+      const steps = lines.filter((l) => l.kind === 'step');
+      const head = `${run.ok ? '✓' : '✗'} ${new Date(Number(run.startedAt ?? 0)).toISOString()} (${String(run.trigger ?? '?')})`;
+      const stepLines = steps.map((s) => `  ${statusMark(String(s.status))} ${String(s.id)}`).join('\n');
+      return `${head}\n${stepLines}`;
+    } catch {
+      // Unreadable/garbled record — try the next candidate rather than bail.
+      continue;
+    }
   }
+  return null;
 }
 
 function truncate(s: string, max: number): string {

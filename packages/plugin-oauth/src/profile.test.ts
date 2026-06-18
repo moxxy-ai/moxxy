@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { MoxxyError } from '@moxxy/sdk';
 import {
   openaiDeviceFlow,
   pollUntil,
@@ -43,23 +44,38 @@ describe('pollUntil', () => {
     expect(calls).toBe(3);
   });
 
-  it('throws when the deadline elapses', async () => {
-    await expect(
-      pollUntil<string>(
-        async () => ({ pending: true }),
-        { intervalMs: 1, timeoutMs: 5, leadingWait: false },
-      ),
-    ).rejects.toThrow(/timed out/);
+  it('throws a typed OAUTH_FLOW_TIMEOUT MoxxyError when the deadline elapses', async () => {
+    const err = await pollUntil<string>(
+      async () => ({ pending: true }),
+      { intervalMs: 1, timeoutMs: 5, leadingWait: false },
+    ).catch((e) => e);
+    expect(MoxxyError.isMoxxyError(err)).toBe(true);
+    expect((err as MoxxyError).code).toBe('OAUTH_FLOW_TIMEOUT');
+    expect((err as MoxxyError).message).toMatch(/timed out/);
   });
 
-  it('respects an in-flight abort signal', async () => {
+  it('respects an in-flight abort signal (typed NETWORK_ABORTED MoxxyError)', async () => {
     const ctrl = new AbortController();
     const p = pollUntil<string>(
       async () => ({ pending: true }),
       { intervalMs: 100, timeoutMs: 1000, signal: ctrl.signal, leadingWait: false },
     );
     setTimeout(() => ctrl.abort(), 10);
-    await expect(p).rejects.toThrow(/aborted/);
+    const err = await p.catch((e) => e);
+    expect(MoxxyError.isMoxxyError(err)).toBe(true);
+    expect((err as MoxxyError).code).toBe('NETWORK_ABORTED');
+    expect((err as MoxxyError).message).toMatch(/aborted/);
+  });
+
+  it('throws a typed NETWORK_ABORTED MoxxyError when the signal is already aborted', async () => {
+    const ctrl = new AbortController();
+    ctrl.abort();
+    const err = await pollUntil<string>(
+      async () => ({ pending: true }),
+      { intervalMs: 1, timeoutMs: 1000, signal: ctrl.signal },
+    ).catch((e) => e);
+    expect(MoxxyError.isMoxxyError(err)).toBe(true);
+    expect((err as MoxxyError).code).toBe('NETWORK_ABORTED');
   });
 
   it('lets the polling fn bump state.intervalMs', async () => {
@@ -272,6 +288,42 @@ describe('openaiDeviceFlow adapter', () => {
       >;
       expect(done.done.accessToken).toBe('AT');
       expect(done.done.refreshToken).toBe('RT');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('poll() surfaces a classified MoxxyError when the shared exchange returns non-ok', async () => {
+    const adapter = openaiDeviceFlow({
+      issuer: 'https://issuer.test',
+      tokenUrl: 'https://issuer.test/oauth/token',
+      verificationUri: 'https://issuer.test/codex/device',
+    });
+    const init = {
+      userCode: 'XYZ',
+      verificationUri: 'https://issuer.test/codex/device',
+      intervalMs: 4000,
+      expiresInMs: 600_000,
+      providerData: { deviceAuthId: 'DA', userCode: 'XYZ', clientId: 'CID' },
+    };
+
+    const realFetch = globalThis.fetch;
+    let call = 0;
+    globalThis.fetch = (async () => {
+      call += 1;
+      // 1st: poll returns the authorization_code; 2nd: the exchange rejects.
+      if (call === 1) {
+        return new Response(
+          JSON.stringify({ authorization_code: 'CODE', code_verifier: 'V' }),
+          { status: 200 },
+        );
+      }
+      return new Response('bad request', { status: 400 });
+    }) as unknown as typeof fetch;
+    try {
+      const state = { intervalMs: 4000 };
+      const err = await adapter.poll(init, state).catch((e) => e);
+      expect(MoxxyError.isMoxxyError(err)).toBe(true);
     } finally {
       globalThis.fetch = realFetch;
     }

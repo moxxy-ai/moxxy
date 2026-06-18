@@ -1,5 +1,5 @@
-import { readFile, rename } from 'node:fs/promises';
-import { createMutex, moxxyPath, writeFileAtomic, type Mutex } from '@moxxy/sdk';
+import { rename } from 'node:fs/promises';
+import { createJsonFileStore, moxxyPath, writeFileAtomic, type JsonFileStore } from '@moxxy/sdk';
 import { ulid } from 'ulid';
 import { z } from 'zod';
 
@@ -152,17 +152,35 @@ export function defaultWebhooksFile(): string {
 export class WebhookStore {
   private readonly file: string;
   private readonly logger: WebhookStoreLogger | undefined;
-  private cache: WebhookTrigger[] | null = null;
   private loadWarningMsg: string | null = null;
-  private readonly mutex: Mutex = createMutex();
+  // Generic id-collection store owns the cache, write mutex, RMW `.slice()`
+  // copy, and crash-atomic `{ version: 1, triggers: [...] }` write. Corruption
+  // policy (preserve aside / quarantine / refuse-on-unreadable) stays here in
+  // the `load`/`onReadError` hooks, byte-for-byte as before.
+  private readonly store: JsonFileStore<WebhookTrigger>;
 
   constructor(opts: WebhookStoreOptions = {}) {
     this.file = opts.file ?? defaultWebhooksFile();
     this.logger = opts.logger;
+    this.store = createJsonFileStore<WebhookTrigger>({
+      file: this.file,
+      itemsKey: 'triggers',
+      load: (raw) => this.parseFile(raw),
+      onReadError: (err) => {
+        // Present but unreadable (permissions, I/O, ...): refuse to operate.
+        // Treating this as empty would let the next persist() overwrite the
+        // only copy of every trigger and its secrets.
+        throw new Error(
+          `webhooks store: cannot read ${this.file}: ` +
+            `${err instanceof Error ? err.message : String(err)} — ` +
+            'refusing to load (and write) until the file is readable again',
+        );
+      },
+    });
   }
 
   invalidate(): void {
-    this.cache = null;
+    this.store.invalidate();
     this.loadWarningMsg = null;
   }
 
@@ -173,23 +191,21 @@ export class WebhookStore {
    * the user learns about it instead of silently losing triggers.
    */
   async loadWarning(): Promise<string | null> {
-    await this.ensureLoaded();
+    await this.store.read();
     return this.loadWarningMsg;
   }
 
   async list(): Promise<ReadonlyArray<WebhookTrigger>> {
-    await this.ensureLoaded();
-    return this.cache!.slice();
+    return this.store.read();
   }
 
   async get(id: string): Promise<WebhookTrigger | null> {
-    await this.ensureLoaded();
-    return this.cache!.find((t) => t.id === id) ?? null;
+    return this.store.get(id);
   }
 
   async getByName(name: string): Promise<WebhookTrigger | null> {
-    await this.ensureLoaded();
-    return this.cache!.find((t) => t.name === name) ?? null;
+    const all = await this.store.read();
+    return all.find((t) => t.name === name) ?? null;
   }
 
   async create(
@@ -205,7 +221,7 @@ export class WebhookStore {
       enabled: input.enabled ?? true,
       fireCount: 0,
     });
-    await this.mutate((triggers) => {
+    await this.store.mutate((triggers) => {
       triggers.push(entry);
       return triggers;
     });
@@ -214,7 +230,7 @@ export class WebhookStore {
 
   async update(id: string, patch: Partial<WebhookTrigger>): Promise<WebhookTrigger | null> {
     let updated: WebhookTrigger | null = null;
-    await this.mutate((triggers) => {
+    await this.store.mutate((triggers) => {
       const idx = triggers.findIndex((t) => t.id === id);
       if (idx < 0) return triggers;
       const next = webhookTriggerSchema.parse({ ...triggers[idx], ...patch });
@@ -227,7 +243,7 @@ export class WebhookStore {
 
   async delete(id: string): Promise<boolean> {
     let removed = false;
-    await this.mutate((triggers) => {
+    await this.store.mutate((triggers) => {
       const before = triggers.length;
       const after = triggers.filter((t) => t.id !== id);
       removed = after.length < before;
@@ -242,7 +258,7 @@ export class WebhookStore {
     outcome: { ok: boolean; error?: string },
   ): Promise<WebhookTrigger | null> {
     let updated: WebhookTrigger | null = null;
-    await this.mutate((triggers) => {
+    await this.store.mutate((triggers) => {
       const idx = triggers.findIndex((t) => t.id === id);
       if (idx < 0) return triggers;
       const current = triggers[idx]!;
@@ -262,43 +278,29 @@ export class WebhookStore {
     return updated;
   }
 
-  private async ensureLoaded(): Promise<void> {
-    if (this.cache) return;
+  /**
+   * Parse + validate the file contents into the trigger array, owning all
+   * corruption policy. Called by the generic store on load with the raw
+   * UTF-8 string, or `null` when the file is absent (a legitimate fresh
+   * start). A present-but-unreadable file is handled upstream by the
+   * generic's `onReadError` hook (which throws to refuse operation).
+   */
+  private async parseFile(raw: string | null): Promise<WebhookTrigger[]> {
     this.loadWarningMsg = null;
-
-    let raw: string;
-    try {
-      raw = await readFile(this.file, 'utf8');
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        // File absent = legitimate fresh start.
-        this.cache = [];
-        return;
-      }
-      // Present but unreadable (permissions, I/O, ...): refuse to operate.
-      // Treating this as empty would let the next persist() overwrite the
-      // only copy of every trigger and its secrets.
-      throw new Error(
-        `webhooks store: cannot read ${this.file}: ` +
-          `${err instanceof Error ? err.message : String(err)} — ` +
-          'refusing to load (and write) until the file is readable again',
-      );
-    }
+    if (raw === null) return [];
 
     let json: unknown;
     try {
       json = JSON.parse(raw);
     } catch {
-      await this.preserveCorruptFile('is not valid JSON');
-      return;
+      return this.preserveCorruptFile('is not valid JSON');
     }
 
     const file = looseFileSchema.safeParse(json);
     if (!file.success) {
-      await this.preserveCorruptFile(
+      return this.preserveCorruptFile(
         'does not match the expected { version: 1, triggers: [...] } shape',
       );
-      return;
     }
 
     const valid: WebhookTrigger[] = [];
@@ -318,7 +320,7 @@ export class WebhookStore {
       }
     });
     if (invalid.length > 0) await this.quarantineEntries(invalid);
-    this.cache = valid;
+    return valid;
   }
 
   /**
@@ -328,7 +330,7 @@ export class WebhookStore {
    * rename itself fails the error propagates and the store refuses to
    * operate, which is the safe direction.
    */
-  private async preserveCorruptFile(reason: string): Promise<void> {
+  private async preserveCorruptFile(reason: string): Promise<WebhookTrigger[]> {
     const preserved = `${this.file}.corrupt-${timestampSlug()}`;
     await rename(this.file, preserved);
     this.loadWarningMsg =
@@ -340,7 +342,7 @@ export class WebhookStore {
       preserved,
       reason,
     });
-    this.cache = [];
+    return [];
   }
 
   /**
@@ -375,21 +377,6 @@ export class WebhookStore {
     });
   }
 
-  private async mutate(
-    fn: (triggers: WebhookTrigger[]) => WebhookTrigger[],
-  ): Promise<void> {
-    await this.mutex.run(async () => {
-      await this.ensureLoaded();
-      const updated = fn(this.cache!.slice());
-      this.cache = updated;
-      await this.persist(updated);
-    });
-  }
-
-  private async persist(triggers: WebhookTrigger[]): Promise<void> {
-    const payload = JSON.stringify({ version: 1, triggers }, null, 2);
-    await writeFileAtomic(this.file, payload);
-  }
 }
 
 /** Filesystem-safe timestamp for `.corrupt-*` / `.quarantine-*` sidecars. */

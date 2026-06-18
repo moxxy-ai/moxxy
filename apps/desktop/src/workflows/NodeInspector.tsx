@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { TextArea, TextInput } from '@moxxy/desktop-ui';
 import {
   stepKindMeta,
@@ -215,25 +216,67 @@ function renderAction(
               <TextInput value={node.action} onChange={(e) => patch({ action: e.target.value })} data-testid="field-action" />
             </Field>
           )}
-          <Field label="Args (JSON)">
-            <TextArea
-              rows={3}
-              value={JSON.stringify(node.args ?? {}, null, 2)}
-              onChange={(e) => {
-                try {
-                  patch({ args: JSON.parse(e.target.value) as Record<string, unknown> });
-                } catch {
-                  /* keep typing; invalid JSON is just not committed */
-                }
-              }}
-              data-testid="field-args"
-            />
-          </Field>
+          <ArgsField nodeId={node.id} args={node.args} onChange={(args) => patch({ args })} />
         </>
       );
     case 'loop':
       return null; // handled by LoopEditor
   }
+}
+
+/**
+ * Args (JSON) editor. The textarea is uncontrolled-by-draft: it renders a local
+ * string the user types into, parsing on every change and only committing the
+ * parsed object when it's valid JSON. This lets the user pass through invalid
+ * intermediate states (a half-typed key, a deleted brace) without the field
+ * snapping back to the last-valid pretty-print. The draft re-seeds from the
+ * node's args only when the selected node changes (node.id).
+ */
+function ArgsField({
+  nodeId,
+  args,
+  onChange,
+}: {
+  nodeId: string;
+  args?: Record<string, unknown>;
+  onChange: (args: Record<string, unknown>) => void;
+}): JSX.Element {
+  const [draft, setDraft] = useState(() => JSON.stringify(args ?? {}, null, 2));
+  const [invalid, setInvalid] = useState(false);
+
+  // Re-seed from the node only when the selection changes, so committing a valid
+  // edit (which re-renders with new args) doesn't clobber what the user is typing.
+  useEffect(() => {
+    setDraft(JSON.stringify(args ?? {}, null, 2));
+    setInvalid(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodeId]);
+
+  return (
+    <Field label="Args (JSON)">
+      <TextArea
+        rows={3}
+        value={draft}
+        onChange={(e) => {
+          const next = e.target.value;
+          setDraft(next);
+          try {
+            onChange(JSON.parse(next) as Record<string, unknown>);
+            setInvalid(false);
+          } catch {
+            // Keep the keystrokes in the draft; just don't commit invalid JSON.
+            setInvalid(true);
+          }
+        }}
+        data-testid="field-args"
+      />
+      {invalid && (
+        <span data-testid="field-args-invalid" style={{ ...emptyHint, color: 'var(--color-red)' }}>
+          Invalid JSON — fix to save.
+        </span>
+      )}
+    </Field>
+  );
 }
 
 /**

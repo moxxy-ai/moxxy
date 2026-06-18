@@ -34,6 +34,18 @@ export class OpenAIEmbedder implements EmbeddingProvider {
 
   constructor(opts: OpenAIEmbedderOptions = {}) {
     this.model = opts.model ?? 'text-embedding-3-small';
+    this.explicitDim = opts.dimensions;
+    // Reject an unknown model unless the caller supplies an explicit dim. Otherwise
+    // `dim` would be undefined and the memory index would be built with no
+    // dimensionality check — silently corruptible. selectEmbedder catches this
+    // and falls back to TF-IDF with a warning.
+    if (this.explicitDim === undefined && MODEL_DIM[this.model] === undefined) {
+      throw new Error(
+        `@moxxy/plugin-embeddings-openai: unknown embedding model '${this.model}'; ` +
+          'set embeddings.dimensions or use a known model ' +
+          `(${Object.keys(MODEL_DIM).join(', ')}).`,
+      );
+    }
     this.client =
       opts.client ??
       new OpenAI({
@@ -41,7 +53,6 @@ export class OpenAIEmbedder implements EmbeddingProvider {
         ...(opts.baseURL ? { baseURL: opts.baseURL } : {}),
       });
     this.batchSize = opts.batchSize ?? DEFAULT_BATCH_SIZE;
-    this.explicitDim = opts.dimensions;
   }
 
   /**

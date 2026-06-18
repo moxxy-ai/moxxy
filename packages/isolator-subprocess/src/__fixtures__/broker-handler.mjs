@@ -102,6 +102,17 @@ export async function sigtermIgnorerSpin(input, ctx) {
   }
 }
 
+// Reports the child process's curated environment: whether specific keys
+// are visible. Used to prove the isolator's headline env-restriction
+// property — a parent var NOT in the allowlist (or caps.env) must be
+// absent in the child, while the default allowlist (e.g. PATH) is present.
+export async function reportEnv(input) {
+  const keys = input?.keys ?? [];
+  const present = {};
+  for (const k of keys) present[k] = k in process.env;
+  return { present, count: Object.keys(process.env).length };
+}
+
 // Reads a parent-thread global. Should always come back null in the
 // subprocess child (separate OS process = separate heap).
 export async function readParentGlobal() {

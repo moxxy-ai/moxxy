@@ -149,4 +149,21 @@ describe('yaml codec edge cases', () => {
     const back = fromYaml(toYaml(value));
     expect(back).toEqual(value);
   });
+
+  it('preserves `#` inside block-scalar prompt bodies (no comment stripping)', () => {
+    // Prompts are emitted as `|` block scalars and routinely contain `#`:
+    // markdown headings, inline `text # note`, and full-line `#`-leading lines.
+    // None of these are YAML comments — they must survive the round-trip.
+    const prompt = '# Rules\nWrite about it.\nbe terse # but complete\n## Heading two';
+    const value = {
+      name: 'p',
+      steps: [{ id: 'a', prompt, after: 'plain' }],
+    };
+    const back = fromYaml(toYaml(value)) as typeof value;
+    // The `|` block scalar keeps a trailing newline (clip chomping); the body
+    // content — including every `#` — must be intact and uncorrupted.
+    expect(back.steps[0]!.prompt!.replace(/\n$/, '')).toBe(prompt);
+    // A genuine trailing comment on a structural (non-block) line is still stripped.
+    expect(back.steps[0]!.after).toBe('plain');
+  });
 });

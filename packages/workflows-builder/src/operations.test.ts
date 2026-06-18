@@ -153,6 +153,31 @@ describe('loop node body + exit model', () => {
     expect(s).toBe(before); // no-op
   });
 
+  it('keeps exactly one deterministic loop exit even when a second exit is authored', () => {
+    let s = loopFixture();
+    s = setLoopBody(s, 'loop', ['improve']);
+    // Wire an exit, then try to author a SECOND non-body needs:[loop] via
+    // connectNeeds. Previously this produced two non-body needs:[loop] nodes,
+    // one rendered as loop-exit and the other as a plain needs arrow, with the
+    // choice depending on node array order. The exit must stay single + the one
+    // explicitly chosen last.
+    s = setLoopExit(s, 'loop', 'finish');
+    s = connectNeeds(s, 'loop', 'seed'); // routed through setLoopExit → re-points
+    expect(s.edges.filter((e) => e.kind === 'loop-exit')).toHaveLength(1);
+    expect(s.edges).toContainEqual(expect.objectContaining({ kind: 'loop-exit', from: 'loop', to: 'seed' }));
+    expect(loopExitTarget(s.nodes.find((n) => n.id === 'loop')!, s.nodes)).toBe('seed');
+    // the prior exit ('finish') lost its loop dependency entirely — so it can no
+    // longer be mistaken for a second exit.
+    expect(s.nodes.find((n) => n.id === 'finish')!.needs).not.toContain('loop');
+    // exactly one non-body node still depends on the loop (the chosen exit).
+    const dependsOnLoop = s.nodes.filter(
+      (n) => n.id !== 'improve' && n.needs.includes('loop'),
+    );
+    expect(dependsOnLoop.map((n) => n.id)).toEqual(['seed']);
+    // body membership untouched.
+    expect(s.nodes.find((n) => n.id === 'improve')!.needs).toEqual(['loop']);
+  });
+
   it('setLoopConfig clamps maxIterations to 1..50', () => {
     let s = loopFixture();
     s = setLoopConfig(s, 'loop', { maxIterations: 999, condition: 'good enough?' });

@@ -87,9 +87,32 @@ export class HttpChannel implements Channel<HttpStartOpts> {
 
     this.server = server;
 
+    // `running` rejects on a post-listen server error and resolves on a clean
+    // close. Declared up front so the persistent error handler installed below
+    // (after the listen-scoped one is detached) can settle it.
+    let rejectRunning!: (err: unknown) => void;
+    let resolveRunning!: () => void;
+    const running = new Promise<void>((resolve, reject) => {
+      resolveRunning = resolve;
+      rejectRunning = reject;
+    });
+
     const listening = new Promise<void>((resolve, reject) => {
-      server.once('error', reject);
+      // Scoped to the listen handshake only — detached once we're listening so
+      // it can't no-op on the already-settled promise (and swallow runtime
+      // errors). The persistent handler below takes over afterwards.
+      const onListenError = (err: unknown): void => reject(err);
+      server.once('error', onListenError);
       server.listen(this.port, this.host, () => {
+        server.off('error', onListenError);
+        // A runtime server error after listen would otherwise be unhandled
+        // (Node re-throws an 'error' with no listener). Log it and fail the
+        // `running` promise so callers awaiting it observe the crash instead of
+        // mistaking it for a clean shutdown.
+        server.on('error', (err: unknown) => {
+          this.logger?.warn?.('http server error', { err: String(err) });
+          rejectRunning(err);
+        });
         const addr = server.address();
         this.boundPortValue = typeof addr === 'object' && addr ? addr.port : this.port;
         this.logger?.info?.('http channel listening', {
@@ -103,9 +126,7 @@ export class HttpChannel implements Channel<HttpStartOpts> {
 
     await listening;
 
-    const running = new Promise<void>((resolve) => {
-      server.once('close', () => resolve());
-    });
+    server.once('close', () => resolveRunning());
 
     return {
       running,

@@ -5,7 +5,6 @@ import type { TelegramApprovalResolver } from '../approval.js';
 import type { TelegramPermissionResolver } from '../permission.js';
 import type { FramePump } from './frame-pump.js';
 import type { PairingHandler } from './pairing-handler.js';
-import type { AwaitingApprovalText } from './callback-handler.js';
 
 export interface VoiceHandlerState {
   readonly session: Session | null;
@@ -14,7 +13,11 @@ export interface VoiceHandlerState {
   readonly yolo: boolean;
   readonly busy: boolean;
   readonly turnController: AbortController | null;
-  readonly awaitingApprovalText: AwaitingApprovalText | null;
+  // NB: voice-as-approval-text is intentionally unsupported — a voice note
+  // never satisfies an awaiting approval-text prompt (the text handler owns
+  // that path). The previously-declared `awaitingApprovalText` field here was
+  // dead (never read) and has been removed to avoid implying parity that the
+  // handler doesn't provide.
   readonly handle: ChannelHandle | null;
 }
 

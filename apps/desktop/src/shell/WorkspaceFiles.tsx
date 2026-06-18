@@ -10,7 +10,7 @@
  * (node_modules, .git, dist, …) are filtered server-side.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toErrorMessage } from '@moxxy/client-core';
 import { api } from '@moxxy/client-core';
 import { Icon } from '@moxxy/desktop-ui';
@@ -63,6 +63,11 @@ export function WorkspaceFiles({
   const [cwd, setCwd] = useState<string | null>(null);
   const [nodes, setNodes] = useState<Record<string, DirNode>>({});
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set(['.']));
+  // Mirror of `expanded` so the reload effect can read the current set without
+  // doing side-effects inside a `setExpanded` updater (updaters must be pure;
+  // StrictMode double-invokes them, which would double the listDir IPC calls).
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
 
   const load = useCallback(
     async (relPath: string): Promise<void> => {
@@ -120,10 +125,7 @@ export function WorkspaceFiles({
   useEffect(() => {
     if (reloadSignal === 0) return;
     void load('.');
-    setExpanded((cur) => {
-      for (const p of cur) if (p !== '.') void load(p);
-      return cur;
-    });
+    for (const p of expandedRef.current) if (p !== '.') void load(p);
   }, [reloadSignal, load]);
 
   const toggle = (relPath: string): void => {

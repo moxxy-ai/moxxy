@@ -94,4 +94,24 @@ describe('Registry consistency (PR3-1)', () => {
     r.replace({ ...skill, body: 'two' });
     expect(r.get('project/foo' as never)?.body).toBe('two');
   });
+
+  it('SkillRegistryImpl: replace() drops the old name index entry when frontmatter.name changes', () => {
+    const r = new SkillRegistryImpl();
+    const skill = {
+      id: 'project/x' as never,
+      path: '/a.md',
+      scope: 'project' as const,
+      frontmatter: { name: 'foo', description: 'd' },
+      body: 'one',
+    };
+    r.register(skill);
+    expect(r.byName('foo')?.id).toBe('project/x');
+    // Same id, new frontmatter.name (an edited skill re-registered).
+    r.replace({ ...skill, frontmatter: { name: 'bar', description: 'd' }, body: 'two' });
+    // The stale old-name index entry must be reclaimed — two live names for
+    // one id was the bug.
+    expect(r.byName('foo')).toBeUndefined();
+    expect(r.byName('bar')?.body).toBe('two');
+    expect(r.list()).toHaveLength(1);
+  });
 });

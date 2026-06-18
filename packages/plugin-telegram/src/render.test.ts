@@ -178,4 +178,69 @@ describe('splitForTelegram', () => {
     for (const part of parts) expect(part.length).toBeLessThanOrEqual(2500);
     expect(parts.join('')).toBe(text);
   });
+
+  // A minimal balanced-tag check: every opened tag (non-self-closing) is closed
+  // and no `<` / `&` is left dangling without its `>` / `;` terminator.
+  const isBalancedHtml = (html: string): boolean => {
+    const stack: string[] = [];
+    const re = /<\s*(\/?)\s*([a-zA-Z][a-zA-Z0-9]*)[^>]*?>/g;
+    let m: RegExpExecArray | null;
+    let lastIndex = 0;
+    while ((m = re.exec(html))) {
+      // No bare '<' between the previous tag and this one.
+      if (html.slice(lastIndex, m.index).includes('<')) return false;
+      lastIndex = re.lastIndex;
+      const closing = m[1] === '/';
+      const name = m[2]!.toLowerCase();
+      if (m[0].endsWith('/>')) continue;
+      if (closing) {
+        if (stack.pop() !== name) return false;
+      } else {
+        stack.push(name);
+      }
+    }
+    if (html.slice(lastIndex).includes('<')) return false;
+    if (stack.length !== 0) return false;
+    // No truncated entity: every '&'-prefixed entity-looking run is `;`-terminated.
+    for (const em of html.matchAll(/&[a-zA-Z0-9#]+/g)) {
+      const after = html[em.index! + em[0].length];
+      if (after !== ';') return false;
+    }
+    return true;
+  };
+
+  it('never cuts inside an HTML tag (each part is balanced HTML)', () => {
+    // Force the limit to land right where a tag straddles the boundary. Sweep
+    // limits comfortably larger than any single tag (a 4-char cap can't hold
+    // even `<b>`; the real Telegram cap is 4000).
+    const html = '<b>' + 'x'.repeat(50) + '</b>' + '<i>' + 'y'.repeat(50) + '</i>';
+    for (let limit = 4; limit < html.length; limit++) {
+      const parts = splitForTelegram(html, limit);
+      for (const part of parts) {
+        expect(isBalancedHtml(part)).toBe(true);
+      }
+    }
+  });
+
+  it('closes and reopens a <pre><code> diff fence across the cut (no broken fence)', () => {
+    const body = 'd'.repeat(120);
+    const html =
+      'before\n\n<pre><code class="language-diff">' + body + '</code></pre>\n\nafter';
+    const parts = splitForTelegram(html, 60);
+    expect(parts.length).toBeGreaterThan(1);
+    for (const part of parts) {
+      expect(isBalancedHtml(part)).toBe(true);
+    }
+    // The fence content survives once we strip the reopened/closed wrapper tags.
+    const recombined = parts.join('').replace(/<\/?(pre|code)[^>]*>/g, '');
+    expect(recombined).toContain(body);
+  });
+
+  it('never cuts inside an &amp; entity', () => {
+    const html = 'a'.repeat(30) + '&amp;' + 'b'.repeat(30);
+    for (let limit = 10; limit < html.length; limit++) {
+      const parts = splitForTelegram(html, limit);
+      for (const part of parts) expect(isBalancedHtml(part)).toBe(true);
+    }
+  });
 });

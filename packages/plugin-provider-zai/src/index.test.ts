@@ -50,4 +50,14 @@ describe('@moxxy/plugin-provider-zai', () => {
     expect(zaiProviderDef.auth).toMatchObject({ kind: 'apiKey' });
     expect(zaiCodingPlanProviderDef.auth).toMatchObject({ kind: 'apiKey' });
   });
+
+  it('the GLM-5 family + glm-4.6 advertise supportsReasoning so reasoning is requested', () => {
+    // Reasoning is gated upstream on descriptor.supportsReasoning; without it
+    // ProviderRequest.reasoning is always undefined for these reasoning models
+    // and the streamed reasoning summary the OpenAIProvider plumbs is never
+    // surfaced.
+    for (const id of ['glm-5.2', 'glm-5.1', 'glm-5', 'glm-4.6']) {
+      expect(glmModels.find((m) => m.id === id)?.supportsReasoning, id).toBe(true);
+    }
+  });
 });

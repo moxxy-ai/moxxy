@@ -235,6 +235,48 @@ describe('subprocessIsolator', () => {
     ).rejects.toThrow(/exceeded 200ms budget/);
   });
 
+  // u62-4: the isolator's headline security property over `worker` is env
+  // curation — the child sees only the allowlisted keys, not the parent's full
+  // environment (which carries host API keys / tokens).
+  it('curates the child env: a non-allowlisted parent var is not inherited', async () => {
+    process.env['MOXXY_SECRET'] = 'leak';
+    try {
+      const iso = createSubprocessIsolator();
+      const out = (await iso.run(
+        baseCall('reportEnv', { keys: ['MOXXY_SECRET', 'PATH'] }, {
+          moduleRef: { url: fixtureUrl, export: 'reportEnv' },
+        }),
+        async () => 'unused',
+        {},
+        new AbortController().signal,
+      )) as { present: Record<string, boolean> };
+      // The secret must NOT cross into the child with the default allowlist…
+      expect(out.present['MOXXY_SECRET']).toBe(false);
+      // …but a default-allowlisted key (PATH) does.
+      expect(out.present['PATH']).toBe(true);
+    } finally {
+      delete process.env['MOXXY_SECRET'];
+    }
+  });
+
+  it('admits a parent var into the child when caps.env names it', async () => {
+    process.env['MOXXY_SECRET'] = 'leak';
+    try {
+      const iso = createSubprocessIsolator();
+      const out = (await iso.run(
+        baseCall('reportEnv', { keys: ['MOXXY_SECRET'] }, {
+          moduleRef: { url: fixtureUrl, export: 'reportEnv' },
+        }),
+        async () => 'unused',
+        { env: ['MOXXY_SECRET'] },
+        new AbortController().signal,
+      )) as { present: Record<string, boolean> };
+      expect(out.present['MOXXY_SECRET']).toBe(true);
+    } finally {
+      delete process.env['MOXXY_SECRET'];
+    }
+  });
+
   it('runs exec through the broker', async () => {
     const iso = createSubprocessIsolator();
     const out = (await iso.run(

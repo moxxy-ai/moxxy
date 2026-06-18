@@ -21,6 +21,86 @@ import { isAuthRejection, withCredentialLock } from './credential-lock.js';
 import type { TokenSet } from './oauth/types.js';
 import type { OAuthProviderProfile } from './profile.js';
 
+/**
+ * Single refresh-and-persist critical section shared by `ensureFreshTokens`
+ * (provider profiles) and `oauth_get_token` (raw stored creds). Encodes the
+ * security-critical sequence ONCE — refresh-token guard, rotation-race
+ * recovery, refresh_token preservation (RFC 6749 §6), atomic re-persist —
+ * and lets each caller plug in its own provider key, error wording, and
+ * extras handling via a {@link RefreshSpec}. MUST run inside
+ * `withCredentialLock`: it is a writer to the `oauth/<provider>/*` keys.
+ */
+export interface RefreshSpec {
+  /** Vault namespace + lock key for this credential. */
+  readonly provider: string;
+  /** Raised when the stored creds carry no refresh_token to spend. */
+  noRefreshTokenError(): MoxxyError;
+  /**
+   * Wrap a non-network refresh failure (after `classifyNetworkError` declined
+   * it). Return a MoxxyError to surface a friendly message, or the original
+   * error to re-throw it verbatim.
+   */
+  wrapRefreshFailure(err: unknown): unknown;
+  /**
+   * Compute the extras to persist alongside the refreshed tokens, given the
+   * merged token set and the previously-stored extras. Return `undefined` to
+   * omit the extras key entirely (matching `storeTokenSet`'s present-only
+   * write semantics).
+   */
+  resolveExtras(merged: TokenSet, storedExtras: Readonly<Record<string, string>>): Record<string, string> | undefined;
+}
+
+export async function refreshAndStore(
+  vault: OAuthVault,
+  spec: RefreshSpec,
+  stored: StoredCreds,
+  retried = false,
+): Promise<{ tokens: TokenSet; extras: Readonly<Record<string, string>> }> {
+  if (!stored.tokenSet.refreshToken) {
+    throw spec.noRefreshTokenError();
+  }
+  let refreshed: TokenSet;
+  try {
+    refreshed = await refreshAccessToken({
+      tokenUrl: stored.tokenUrl,
+      clientId: stored.clientId,
+      ...(stored.clientSecret ? { clientSecret: stored.clientSecret } : {}),
+      refreshToken: stored.tokenSet.refreshToken,
+    });
+  } catch (err) {
+    // Rotation-race recovery: an invalid_grant-style rejection with a
+    // DIFFERENT refresh_token now on disk means another process rotated ours
+    // away after we read it. Retry once with the fresher token before
+    // declaring re-auth necessary. Transient (network/5xx) failures are not
+    // recovered here — they aren't evidence of rotation.
+    if (!retried && isAuthRejection(err)) {
+      const latest = await readStoredCreds(vault, spec.provider);
+      if (
+        latest?.tokenSet.refreshToken &&
+        latest.tokenSet.refreshToken !== stored.tokenSet.refreshToken
+      ) {
+        return refreshAndStore(vault, spec, latest, true);
+      }
+    }
+    const net = classifyNetworkError(err, { url: stored.tokenUrl, provider: spec.provider });
+    if (net) throw net;
+    throw spec.wrapRefreshFailure(err);
+  }
+  // Providers MAY rotate refresh_token — preserve the prior one if not.
+  const merged: TokenSet = {
+    ...refreshed,
+    refreshToken: refreshed.refreshToken ?? stored.tokenSet.refreshToken,
+  };
+  const extras = spec.resolveExtras(merged, stored.extras);
+  await storeTokenSet(vault, spec.provider, merged, {
+    clientId: stored.clientId,
+    ...(stored.clientSecret ? { clientSecret: stored.clientSecret } : {}),
+    tokenUrl: stored.tokenUrl,
+    ...(extras ? { extras } : {}),
+  });
+  return { tokens: merged, extras: extras ?? stored.extras };
+}
+
 export interface EnsureFreshOptions {
   /** Force a refresh even if the access token hasn't expired. */
   readonly force?: boolean;
@@ -60,77 +140,39 @@ export async function ensureFreshTokens(
     if (!isExpired(current.tokenSet, opts.skewMs) && (!opts.force || rotatedMeanwhile)) {
       return { tokens: current.tokenSet, extras: current.extras };
     }
-    return refreshAndStore(profile, vault, current);
+    return refreshAndStore(vault, profileRefreshSpec(profile), current);
   });
 }
 
-async function refreshAndStore(
-  profile: OAuthProviderProfile,
-  vault: OAuthVault,
-  stored: StoredCreds,
-  retried = false,
-): Promise<EnsureFreshResult> {
-  if (!stored.tokenSet.refreshToken) {
-    throw new MoxxyError({
-      code: 'AUTH_EXPIRED',
-      message: `OAuth token for "${profile.id}" expired and no refresh_token is stored.`,
-      hint: `Re-run \`moxxy login ${profile.id}\` to sign in again.`,
-      context: { provider: profile.id },
-    });
-  }
-  let refreshed: TokenSet;
-  try {
-    refreshed = await refreshAccessToken({
-      tokenUrl: stored.tokenUrl,
-      clientId: stored.clientId,
-      ...(stored.clientSecret ? { clientSecret: stored.clientSecret } : {}),
-      refreshToken: stored.tokenSet.refreshToken,
-    });
-  } catch (err) {
-    // Rotation-race recovery: an invalid_grant-style rejection with a
-    // DIFFERENT refresh_token now on disk means another process rotated ours
-    // away after we read it. Retry once with the fresher token before
-    // declaring re-auth necessary. Transient (network/5xx) failures are not
-    // recovered here — they aren't evidence of rotation.
-    if (!retried && isAuthRejection(err)) {
-      const latest = await readStoredCreds(vault, profile.id);
-      if (
-        latest?.tokenSet.refreshToken &&
-        latest.tokenSet.refreshToken !== stored.tokenSet.refreshToken
-      ) {
-        return refreshAndStore(profile, vault, latest, true);
-      }
-    }
-    const net = classifyNetworkError(err, { url: stored.tokenUrl, provider: profile.id });
-    if (net) throw net;
-    throw new MoxxyError({
-      code: 'AUTH_EXPIRED',
-      message: `Couldn't refresh the OAuth token for "${profile.id}".`,
-      hint: `Re-run \`moxxy login ${profile.id}\` to sign in again.`,
-      context: { provider: profile.id },
-      cause: err,
-    });
-  }
-  // Providers MAY rotate refresh_token — preserve the prior one if not.
-  const merged: TokenSet = {
-    ...refreshed,
-    refreshToken: refreshed.refreshToken ?? stored.tokenSet.refreshToken,
+/**
+ * RefreshSpec for a provider profile: friendly `moxxy login`-flavored errors
+ * and extras re-derived from the fresh tokens (id_token re-issuance varies by
+ * provider, so fall back to stored extras for fields like account_id).
+ */
+function profileRefreshSpec(profile: OAuthProviderProfile): RefreshSpec {
+  return {
+    provider: profile.id,
+    noRefreshTokenError: () =>
+      new MoxxyError({
+        code: 'AUTH_EXPIRED',
+        message: `OAuth token for "${profile.id}" expired and no refresh_token is stored.`,
+        hint: `Re-run \`moxxy login ${profile.id}\` to sign in again.`,
+        context: { provider: profile.id },
+      }),
+    wrapRefreshFailure: (err) =>
+      new MoxxyError({
+        code: 'AUTH_EXPIRED',
+        message: `Couldn't refresh the OAuth token for "${profile.id}".`,
+        hint: `Re-run \`moxxy login ${profile.id}\` to sign in again.`,
+        context: { provider: profile.id },
+        cause: err,
+      }),
+    resolveExtras: (merged, storedExtras) => {
+      const freshAccountId = profile.extractAccountId?.(merged);
+      const freshExtras = profile.extractExtras?.(merged) ?? {};
+      const mergedExtras: Record<string, string> = { ...storedExtras, ...freshExtras };
+      if (freshAccountId) mergedExtras.account_id = freshAccountId;
+      return mergedExtras;
+    },
   };
-
-  // Re-derive extras from the fresh tokens. id_token re-issuance varies by
-  // provider; when the refresh response omits id_token, fall back to the
-  // previously stored extras so things like account_id survive refreshes.
-  const freshAccountId = profile.extractAccountId?.(merged);
-  const freshExtras = profile.extractExtras?.(merged) ?? {};
-  const mergedExtras: Record<string, string> = { ...stored.extras, ...freshExtras };
-  if (freshAccountId) mergedExtras.account_id = freshAccountId;
-
-  await storeTokenSet(vault, profile.id, merged, {
-    clientId: stored.clientId,
-    ...(stored.clientSecret ? { clientSecret: stored.clientSecret } : {}),
-    tokenUrl: stored.tokenUrl,
-    extras: mergedExtras,
-  });
-
-  return { tokens: merged, extras: mergedExtras };
 }

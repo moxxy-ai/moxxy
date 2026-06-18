@@ -209,7 +209,6 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
         yolo: this.yolo,
         busy: this.busy,
         turnController: this.turnController,
-        awaitingApprovalText: this.awaitingApprovalText,
         handle: this.handle,
       },
       {

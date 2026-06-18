@@ -115,6 +115,66 @@ describe('checkForUpdate', () => {
     expect(res.bundleUrl).toBe(manifest.bundleUrl);
     expect(res.error).toBeUndefined();
   });
+
+  it('follows Link:next to find a desktop-v* release buried past the first page', async () => {
+    const { manifest, manifestJson, bundleGz } = buildAppBundle({
+      version: '0.0.9',
+      minElectron: '33.0.0',
+      nodeAbi: '',
+      bundleUrl: 'https://github.com/moxxy-ai/moxxy/releases/download/desktop-v0.0.9/moxxy-app-bundle-0.0.9.json.gz',
+      privateKeyPem: PRIVKEY,
+      files: { 'dist/index.html': Buffer.from('x') },
+    });
+    const manifestAssetUrl =
+      'https://github.com/moxxy-ai/moxxy/releases/download/desktop-v0.0.9/moxxy-app-manifest.json';
+    // Page 1: a full page of unrelated npm-package releases, no desktop-v*.
+    const page1 = JSON.stringify(
+      Array.from({ length: 100 }, (_, i) => ({
+        tag_name: `@moxxy/cli@1.0.${i}`,
+        draft: false,
+        prerelease: false,
+        assets: [],
+      })),
+    );
+    // Page 2: the desktop release lives here.
+    const page2 = JSON.stringify([
+      {
+        tag_name: 'desktop-v0.0.9',
+        draft: false,
+        prerelease: false,
+        assets: [
+          { name: 'moxxy-app-manifest.json', browser_download_url: manifestAssetUrl },
+          { name: 'moxxy-app-bundle-0.0.9.json.gz', browser_download_url: manifest.bundleUrl },
+        ],
+      },
+    ]);
+    const page2Url = 'https://api.github.com/repos/moxxy-ai/moxxy/releases?per_page=100&page=2';
+    let apiCalls = 0;
+    const fetchImpl = (async (url: string | URL): Promise<Response> => {
+      const u = String(url);
+      if (u === page2Url) {
+        apiCalls++;
+        return new Response(page2);
+      }
+      if (u.startsWith('https://api.github.com/')) {
+        apiCalls++;
+        // First page advertises a next page via the Link header.
+        return new Response(page1, { headers: { link: `<${page2Url}>; rel="next"` } });
+      }
+      if (u === manifestAssetUrl) return new Response(manifestJson);
+      if (u === manifest.bundleUrl) return new Response(new Uint8Array(bundleGz));
+      return new Response('not found', { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const res = await checkForUpdate(
+      { repo: 'moxxy-ai/moxxy', currentVersion: '0.0.7', publicKeyPem: PUBKEY, shell: SHELL },
+      { fetchImpl },
+    );
+    expect(res.available).toBe(true);
+    expect(res.latestVersion).toBe('0.0.9');
+    expect(res.error).toBeUndefined();
+    expect(apiCalls).toBe(2); // walked page 1 then followed Link:next to page 2
+  });
 });
 
 describe('checkForUpdate runner-protocol gate', () => {
