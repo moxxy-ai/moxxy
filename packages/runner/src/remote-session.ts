@@ -1,17 +1,11 @@
 import { EventLog } from '@moxxy/core';
-import { asSkillId, z } from '@moxxy/sdk';
 import type {
   AgentsClientView,
   ApprovalDecision,
   ApprovalRequest,
   ApprovalResolver,
   ClientSession,
-  CommandDef,
-  CommandInfo,
   CommandsClientView,
-  LLMProvider,
-  ModeDef,
-  ModelDescriptor,
   ModesClientView,
   MoxxyEvent,
   PermissionContext,
@@ -19,34 +13,41 @@ import type {
   PendingToolCall,
   PermissionResolver,
   PermissionsClientView,
-  ProviderAdminView,
-  ProviderDef,
-  ProviderInfo,
   ProvidersClientView,
   RequirementsClientView,
   RunTurnOptions,
   SessionId,
   SessionInfo,
   SessionLogReader,
-  Skill,
-  SkillInfo,
   SkillsClientView,
   OpenSurfaceResult,
   SurfaceDataMessage,
   SurfaceInfo,
   SurfaceInputMessage,
   SurfaceSize,
-  ToolDef,
-  ToolInfo,
   ToolsClientView,
-  Transcriber,
   TranscribersClientView,
-  TranscriptionResult,
-  Synthesizer,
   SynthesizersClientView,
   TurnId,
 } from '@moxxy/sdk';
 import { JsonRpcPeer } from './jsonrpc.js';
+import {
+  makeProvidersView,
+  makeModesView,
+  makeToolsView,
+  makeCommandsView,
+  makeSkillsView,
+  makeTranscribersView,
+  makeSynthesizersView,
+  makePermissionsView,
+  makeMcpAdminView,
+  makeProviderAdminView,
+  makeWorkflowsView,
+  type ViewContext,
+  type McpAdminClientView,
+  type ProviderAdminClientView,
+  type WorkflowsClientView,
+} from './client-views/index.js';
 import type { Transport } from './transport.js';
 import { connectUnixSocket } from './unix-socket.js';
 import { runnerSocketPath } from './socket-path.js';
@@ -64,7 +65,6 @@ import {
   type RunTurnResult,
   type SurfaceDataNotification,
   type SurfaceListResult,
-  type SynthesizeResult,
   type TurnCompleteNotification,
 } from './protocol.js';
 
@@ -299,19 +299,28 @@ export class RemoteSession implements ClientSession {
       this.completedTurns.clear();
     });
 
-    this.providers = this.makeProvidersView();
-    this.modes = this.makeModesView();
-    this.tools = this.makeToolsView();
-    this.commands = this.makeCommandsView();
-    this.skills = this.makeSkillsView();
+    // Each sub-surface facade lives in its own module under `client-views/`;
+    // they share only this thin context (peer + info mirror + protocol gate).
+    const view: ViewContext = {
+      peer: this.peer,
+      info: () => this.info,
+      requireInfo: () => this.requireInfo(),
+      requireServerProtocol: (minVersion, feature) =>
+        this.requireServerProtocol(minVersion, feature),
+    };
+    this.providers = makeProvidersView(view);
+    this.modes = makeModesView(view);
+    this.tools = makeToolsView(view);
+    this.commands = makeCommandsView(view);
+    this.skills = makeSkillsView(view);
     this.agents = { list: () => [] };
-    this.transcribers = this.makeTranscribersView();
-    this.synthesizers = this.makeSynthesizersView();
+    this.transcribers = makeTranscribersView(view);
+    this.synthesizers = makeSynthesizersView(view);
     this.requirements = { check: () => ({ ready: false, issues: [] }) };
-    this.permissions = this.makePermissionsView();
-    this.mcpAdmin = this.makeMcpAdminView();
-    this.providerAdmin = this.makeProviderAdminView();
-    this.workflows = this.makeWorkflowsView();
+    this.permissions = makePermissionsView(view);
+    this.mcpAdmin = makeMcpAdminView(view);
+    this.providerAdmin = makeProviderAdminView(view);
+    this.workflows = makeWorkflowsView(view);
   }
 
   /**
@@ -546,371 +555,6 @@ export class RemoteSession implements ClientSession {
     if (!this.info) throw new Error('RemoteSession not attached yet - call connectRemoteSession()');
     return this.info;
   }
-
-  // --- registry facades ----------------------------------------------------
-
-  private makeProvidersView(): ProvidersClientView {
-    return {
-      getActive: () => {
-        const info = this.requireInfo();
-        const name = info.activeProvider ?? info.providers[0]?.name ?? 'unknown';
-        return fakeProvider(name, info.providers.find((p) => p.name === name)?.models ?? []);
-      },
-      getActiveName: () => this.requireInfo().activeProvider,
-      list: () => this.requireInfo().providers.map(fakeProviderDef),
-      setActive: (name, config) => {
-        void this.peer
-          .request(RunnerMethod.ProviderSetActive, { name, ...(config ? { config } : {}) })
-          .catch(() => undefined);
-        const models = this.requireInfo().providers.find((p) => p.name === name)?.models ?? [];
-        return fakeProvider(name, models);
-      },
-      // Provider re-instantiation happens server-side as part of setActive.
-      replace: () => undefined,
-    };
-  }
-
-  private makeModesView(): ModesClientView {
-    return {
-      list: () => this.requireInfo().modes.map(fakeMode),
-      getActive: () => fakeMode(this.requireInfo().activeMode ?? 'unknown'),
-      setActive: (name) => {
-        void this.peer.request(RunnerMethod.ModeSetActive, { name }).catch(() => undefined);
-      },
-    };
-  }
-
-  private makeToolsView(): ToolsClientView {
-    return {
-      list: () => this.requireInfo().tools.map(fakeTool),
-      get: (name) => {
-        const info = this.requireInfo().tools.find((t) => t.name === name);
-        return info ? fakeTool(info) : undefined;
-      },
-    };
-  }
-
-  private makeCommandsView(): CommandsClientView {
-    const build = (info: CommandInfo): CommandDef => ({
-      name: info.name,
-      description: info.description,
-      ...(info.aliases ? { aliases: info.aliases } : {}),
-      ...(info.channels ? { channels: info.channels } : {}),
-      ...(info.pendingNotice ? { pendingNotice: info.pendingNotice } : {}),
-      // Execute the real command on the runner and apply its result locally.
-      handler: (ctx) =>
-        this.peer.request(RunnerMethod.CommandRun, {
-          name: info.name,
-          args: ctx.args,
-          channel: ctx.channel,
-        }),
-    });
-    return {
-      get: (name) => {
-        const info = this.requireInfo().commands.find(
-          (c) => c.name === name || c.aliases?.includes(name),
-        );
-        return info ? build(info) : undefined;
-      },
-      listForChannel: (channel) =>
-        this.requireInfo()
-          .commands.filter((c) => !c.channels || c.channels.includes(channel))
-          .map(build),
-    };
-  }
-
-  private makeSkillsView(): SkillsClientView {
-    return { list: () => this.requireInfo().skills.map(fakeSkill) };
-  }
-
-  private makeTranscribersView(): TranscribersClientView {
-    // Transcription is a server-side capability; a thin client routes audio
-    // through runTurn attachments instead.
-    // When the runner has an active transcriber, expose a proxy whose
-    // transcribe() ships the audio to the runner over the `transcribe` RPC.
-    // Channel code (`tryGetActive()?.transcribe(bytes)`) is unchanged - audio
-    // input "just works" while attached, transcribed server-side.
-    const proxy = (): Transcriber => ({
-      name: this.info?.activeTranscriber ?? 'runner',
-      transcribe: (audio, opts) => {
-        const bytes = audio instanceof ArrayBuffer ? new Uint8Array(audio) : audio;
-        return this.peer.request<TranscriptionResult>(RunnerMethod.Transcribe, {
-          audio: Buffer.from(bytes).toString('base64'),
-          ...(opts?.mimeType ? { mimeType: opts.mimeType } : {}),
-          ...(opts?.language ? { language: opts.language } : {}),
-          ...(opts?.prompt ? { prompt: opts.prompt } : {}),
-        });
-      },
-    });
-    return {
-      getActiveName: () => this.info?.activeTranscriber ?? null,
-      has: (name) => name === this.info?.activeTranscriber,
-      getActive: () => {
-        if (!this.info?.activeTranscriber) {
-          throw new Error('no active transcriber on the runner');
-        }
-        return proxy();
-      },
-      tryGetActive: () => (this.info?.activeTranscriber ? proxy() : null),
-      setActive: () => {
-        throw new Error('switch the active transcriber on the runner, not the attached client');
-      },
-    };
-  }
-
-  private makeSynthesizersView(): SynthesizersClientView {
-    // TTS is a server-side capability. When the runner has an active
-    // synthesizer, expose a proxy whose synthesize() ships the text to the
-    // runner over the `synthesize` RPC and decodes the base64 audio it returns.
-    // Read-aloud surfaces (`tryGetActive()?.synthesize(text)`) "just work"
-    // while attached; absent → the caller falls back to the OS voice.
-    const proxy = (): Synthesizer => ({
-      name: this.info?.activeSynthesizer ?? 'runner',
-      synthesize: async (text, opts) => {
-        const res = await this.peer.request<SynthesizeResult>(RunnerMethod.Synthesize, {
-          text,
-          ...(opts?.voice ? { voice: opts.voice } : {}),
-          ...(opts?.language ? { language: opts.language } : {}),
-          ...(typeof opts?.rate === 'number' ? { rate: opts.rate } : {}),
-        });
-        return {
-          audio: new Uint8Array(Buffer.from(res.audio, 'base64')),
-          mimeType: res.mimeType,
-        };
-      },
-    });
-    return {
-      getActiveName: () => this.info?.activeSynthesizer ?? null,
-      has: (name) => name === this.info?.activeSynthesizer,
-      getActive: () => {
-        if (!this.info?.activeSynthesizer) {
-          throw new Error('no active synthesizer on the runner');
-        }
-        return proxy();
-      },
-      tryGetActive: () => (this.info?.activeSynthesizer ? proxy() : null),
-      setActive: () => {
-        throw new Error('switch the active synthesizer on the runner, not the attached client');
-      },
-    };
-  }
-
-  private makePermissionsView(): PermissionsClientView {
-    return {
-      addAllow: async (rule) => {
-        await this.peer
-          .request(RunnerMethod.PermissionAddAllow, {
-            name: rule.name,
-            ...(rule.reason ? { reason: rule.reason } : {}),
-          })
-          .catch(() => undefined);
-      },
-    };
-  }
-
-  private makeMcpAdminView(): McpAdminClientView {
-    return {
-      listServers: () =>
-        this.peer.request<ReadonlyArray<McpServerStatus>>(
-          RunnerMethod.McpListServers,
-        ),
-      enableAndAttach: (name) =>
-        this.peer.request<{ toolNames: ReadonlyArray<string> } | null>(
-          RunnerMethod.McpEnableAndAttach,
-          { name },
-        ),
-      detach: (name) =>
-        this.peer.request<boolean>(RunnerMethod.McpDetach, { name }),
-    };
-  }
-
-  // Provider management (protocol v7): backs the desktop's interactive
-  // Settings → Providers tab. Gated on the SERVER's reported version so a v7
-  // client attached to an older runner (a desktop whose JS hot-update outran
-  // its bundled CLI) gets a clear "update the CLI" error instead of a raw
-  // method-not-found.
-  private makeProviderAdminView(): ProviderAdminClientView {
-    return {
-      setEnabled: async (name, enabled) => {
-        this.requireServerProtocol(7, 'Enabling/disabling a provider');
-        await this.peer.request(RunnerMethod.ProviderSetEnabled, { name, enabled });
-      },
-      refreshReady: async () => {
-        this.requireServerProtocol(7, 'Re-probing provider credentials');
-        await this.peer.request(RunnerMethod.ProviderRefreshReady, {});
-      },
-      configure: async (name, patch) => {
-        this.requireServerProtocol(7, 'Configuring a provider');
-        await this.peer.request(RunnerMethod.ProviderConfigure, { name, patch });
-      },
-    };
-  }
-
-  private makeWorkflowsView(): WorkflowsClientView {
-    return {
-      list: () =>
-        this.peer.request<ReadonlyArray<WorkflowSummary>>(
-          RunnerMethod.WorkflowList,
-        ),
-      setEnabled: async (name, enabled) => {
-        await this.peer.request(RunnerMethod.WorkflowSetEnabled, {
-          name,
-          enabled,
-        });
-      },
-      run: (name) =>
-        this.peer.request<WorkflowRunResult>(RunnerMethod.WorkflowRun, { name }),
-      // Builder methods (protocol v4): forward to the runner so the desktop's
-      // RemoteSession-backed visual builder can validate/save/load drafts.
-      // Gated on the SERVER's reported version so a v4 client on a v3 runner
-      // (a desktop whose JS hot-update outran its bundled CLI) gets a clear
-      // "update the CLI" error instead of a raw method-not-found.
-      validateDraft: async (yaml) => {
-        this.requireServerProtocol(4, 'The workflows builder');
-        return this.peer.request<WorkflowValidateResult>(RunnerMethod.WorkflowValidateDraft, {
-          yaml,
-        });
-      },
-      save: async (yaml, previousName) => {
-        this.requireServerProtocol(4, 'Saving a workflow from the builder');
-        return this.peer.request<WorkflowSaveResult>(RunnerMethod.WorkflowSave, {
-          yaml,
-          ...(previousName ? { previousName } : {}),
-        });
-      },
-      getRun: async (name) => {
-        this.requireServerProtocol(4, 'Loading a workflow into the builder');
-        return this.peer.request<WorkflowDetailResult | null>(RunnerMethod.WorkflowGetRun, { name });
-      },
-      // Human-in-the-loop resume (protocol v5). Gated on the SERVER's reported
-      // version so a v5 client attached to a v4 runner (a desktop whose JS
-      // hot-update outran its bundled CLI) gets a clear "update the CLI" error
-      // rather than a raw method-not-found.
-      resume: async (runId, reply) => {
-        this.requireServerProtocol(5, 'Resuming a paused workflow');
-        return this.peer.request<WorkflowRunResult>(RunnerMethod.WorkflowResume, {
-          runId,
-          reply,
-        });
-      },
-    };
-  }
-}
-
-interface McpServerStatus {
-  readonly name: string;
-  readonly enabled: boolean;
-  readonly connected: boolean;
-}
-interface McpAdminClientView {
-  listServers(): Promise<ReadonlyArray<McpServerStatus>>;
-  enableAndAttach(name: string): Promise<{ toolNames: ReadonlyArray<string> } | null>;
-  detach(name: string): Promise<boolean>;
-}
-
-interface ProviderAdminClientView extends ProviderAdminView {
-  /** Enable/disable a provider on the runner (persists to preferences). */
-  setEnabled(name: string, enabled: boolean): Promise<void>;
-  /** Re-probe every provider's credentials → fresh readyProviders. */
-  refreshReady(): Promise<void>;
-}
-
-interface WorkflowSummary {
-  readonly name: string;
-  readonly description: string;
-  readonly enabled: boolean;
-  readonly scope: string;
-  readonly steps: number;
-  readonly triggers: string;
-}
-interface WorkflowRunResult {
-  readonly ok: boolean;
-  readonly output: string;
-  readonly error?: string;
-  readonly steps: ReadonlyArray<{ readonly id: string; readonly status: string; readonly error?: string }>;
-  /** `paused` when the run parked on an awaitInput step (resume via `runId`). */
-  readonly status?: 'completed' | 'paused' | 'failed';
-  readonly runId?: string;
-}
-interface WorkflowValidateResult {
-  readonly ok: boolean;
-  readonly errors: ReadonlyArray<string>;
-}
-interface WorkflowSaveResult {
-  readonly name: string;
-  readonly scope: string;
-  readonly path: string;
-}
-interface WorkflowDetailResult {
-  readonly name: string;
-  readonly scope: string;
-  readonly path: string;
-  readonly yaml: string;
-}
-interface WorkflowsClientView {
-  list(): Promise<ReadonlyArray<WorkflowSummary>>;
-  setEnabled(name: string, enabled: boolean): Promise<void>;
-  run(name: string): Promise<WorkflowRunResult>;
-  validateDraft(yaml: string): Promise<WorkflowValidateResult>;
-  save(yaml: string, previousName?: string): Promise<WorkflowSaveResult>;
-  getRun(name: string): Promise<WorkflowDetailResult | null>;
-  resume(runId: string, reply: string): Promise<WorkflowRunResult>;
-}
-
-// --- snapshot -> display-object reconstruction --------------------------------
-// The TUI reads display fields off these; behavioral fields (stream, run,
-// handler, inputSchema) are stubbed because that work lives on the runner.
-
-function fakeProvider(name: string, models: ReadonlyArray<ModelDescriptor>): LLMProvider {
-  return {
-    name,
-    models,
-    stream() {
-      throw new Error('provider streaming runs on the runner');
-    },
-    async countTokens() {
-      throw new Error('token counting runs on the runner');
-    },
-  };
-}
-
-function fakeProviderDef(info: ProviderInfo): ProviderDef {
-  return {
-    name: info.name,
-    models: info.models,
-    createClient: () => fakeProvider(info.name, info.models),
-  };
-}
-
-function fakeMode(name: string): ModeDef {
-  return {
-    name,
-    run() {
-      throw new Error('modes run on the runner');
-    },
-  };
-}
-
-function fakeTool(info: ToolInfo): ToolDef {
-  return {
-    name: info.name,
-    description: info.description,
-    inputSchema: z.any(),
-    ...(info.compact ? { compact: info.compact } : {}),
-    handler() {
-      throw new Error('tools execute on the runner');
-    },
-  };
-}
-
-function fakeSkill(info: SkillInfo): Skill {
-  return {
-    id: asSkillId(info.id),
-    path: '',
-    scope: 'plugin',
-    frontmatter: { name: info.name, description: '' },
-    body: '',
-  };
 }
 
 function defaultApproval(request: ApprovalRequest): ApprovalDecision {

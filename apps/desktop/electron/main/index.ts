@@ -35,7 +35,6 @@ import {
   installMediaPermissions,
   lockDownNavigation,
   isSafeExternalUrl,
-  clerkFrontendApiHost,
   clerkAccountPortalHost,
   installAccountPortalRecovery,
   preferredCliEntry,
@@ -43,9 +42,6 @@ import {
   activateManagedNode,
   startLoopbackServer,
   loadOrCreateSelfSignedCert,
-  isTrustedLoopbackCert,
-  isTrustedLoopbackCertByHost,
-  DESKTOP_APP_HOST,
   sendEvent,
   readPrefs,
   updatePrefs,
@@ -66,6 +62,11 @@ import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
 import { FLOOR_RUNNER_PROTOCOL } from './floor-runner-protocol.js';
 import { readConfirmed, markConfirmed, markBad, appendBootLog } from '@moxxy/desktop-host/app-update';
 import { initShellUpdater, installFullAppUpdate } from './shell-updater.js';
+import { DeepLinkRouter } from './deep-link.js';
+import { buildOAuthHostPatterns, cleanOAuthUserAgent } from './oauth-window.js';
+import { makeCertVerifyProc, makeCertificateErrorHandler } from './loopback-tls.js';
+import { armBootProbe } from './boot-probe.js';
+import { installApplicationMenu } from './menus.js';
 
 // In a packaged build there is no global `moxxy` (and a GUI launch has no
 // shell PATH / system `node`). Point the CLI resolver at a self-contained,
@@ -121,15 +122,6 @@ const LOOPBACK_PORTS = [51789, 51790, 51791, 51792] as const;
 
 // ---- moxxy:// deep-link transport -----------------------------------------
 
-// `moxxy://` links that arrived before the renderer's DeepLinkBridge was
-// listening (cold-start launch, or before the bridge mounted). Drained via
-// the `deepLink:drain` IPC on mount; live links thereafter push directly.
-const pendingDeepLinks: DeepLinkPayload[] = [];
-// Flips true once the renderer's bridge drains (it subscribes THEN drains in
-// one synchronous effect, so by the time this is true the live-event listener
-// exists — no lost-link race). Reset on every (re)load so links re-buffer.
-let rendererReady = false;
-
 /** Bring the main window to the foreground (deep-link / second-instance). */
 function focusMain(): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -139,48 +131,10 @@ function focusMain(): void {
   if (process.platform === 'darwin') app.focus({ steal: true });
 }
 
-/** Parse a `moxxy://host/path?a=b` URL into its transport payload, or null
- *  if it isn't a well-formed moxxy URL. */
-function parseDeepLink(url: string): DeepLinkPayload | null {
-  try {
-    const u = new URL(url);
-    if (u.protocol !== 'moxxy:') return null;
-    const params: Record<string, string> = {};
-    u.searchParams.forEach((v, k) => {
-      params[k] = v;
-    });
-    return { url, host: u.hostname, path: u.pathname || '/', params };
-  } catch {
-    return null;
-  }
-}
-
-/** Route an opened `moxxy://` URL: focus the window, then push it to the
- *  renderer live (if the bridge is listening) or buffer it for the next
- *  drain. */
-function handleDeepLink(url: string): void {
-  const payload = parseDeepLink(url);
-  if (!payload) return;
-  focusMain();
-  if (rendererReady && mainWindow && !mainWindow.isDestroyed()) {
-    sendEvent(mainWindow, 'deepLink:received', payload);
-  } else {
-    pendingDeepLinks.push(payload);
-  }
-}
-
-/** Strip the Electron + app product tokens from a user-agent, leaving a plain
- *  desktop-Chrome UA. Google blocks OAuth from "embedded" user-agents
- *  ("this browser may not be secure"); presenting a clean UA lets the in-app
- *  sign-in popup through. Harmless for our own + Clerk requests. */
-function cleanOAuthUserAgent(ua: string): string {
-  const name = app.getName().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return ua
-    .replace(new RegExp(`\\s*${name}(?:/\\S+)?`, 'i'), '')
-    .replace(/\s*Electron\/\S+/i, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
+// The deep-link transport (URL parsing + cold-start buffering) lives in
+// ./deep-link; it reads the current window + focuses it through these injected
+// accessors so it stays decoupled from the `mainWindow` singleton.
+const deepLinks = new DeepLinkRouter(() => mainWindow, focusMain);
 
 async function createWindow(): Promise<void> {
   // The renderer is served either from Vite's dev server or from the
@@ -192,34 +146,11 @@ async function createWindow(): Promise<void> {
     ? path.join(__dirname, '..', '..', '..', 'public', 'logo.png')
     : path.join(__dirname, '..', '..', 'dist', 'logo.png');
 
-  // Hosts where Clerk's OAuth popup is allowed to open. Anything else
-  // returns `action: 'deny'` so we don't accidentally let arbitrary
-  // window.open() calls spawn full Electron windows.
-  const OAUTH_HOST_PATTERNS = [
-    /^https:\/\/.*\.clerk\.accounts\.dev$/,
-    /^https:\/\/.*\.clerk\.com$/,
-    /^https:\/\/accounts\.google\.com$/,
-    /^https:\/\/appleid\.apple\.com$/,
-    /^https:\/\/github\.com$/,
-  ];
-  // A `pk_live_` instance runs OAuth through its OWN Frontend API host
-  // (e.g. clerk.acme.com) and account portal (accounts.acme.com), neither
-  // covered above — add the exact host plus a wildcard on its parent domain
-  // so the prod sign-in popup isn't denied. Test keys resolve to a host
-  // already matched above, so this adds nothing for them.
-  const clerkFapiHost = clerkFrontendApiHost(CLERK_PUBLISHABLE_KEY);
-  if (
-    clerkFapiHost &&
-    !clerkFapiHost.endsWith('.clerk.accounts.dev') &&
-    !clerkFapiHost.endsWith('.clerk.com')
-  ) {
-    const reEsc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    OAUTH_HOST_PATTERNS.push(new RegExp(`^https://${reEsc(clerkFapiHost)}$`));
-    const parent = clerkFapiHost.split('.').slice(1).join('.');
-    if (parent.split('.').length >= 2) {
-      OAUTH_HOST_PATTERNS.push(new RegExp(`^https://(?:[a-z0-9-]+\\.)+${reEsc(parent)}$`));
-    }
-  }
+  // Hosts where Clerk's OAuth popup is allowed to open (static set + the
+  // `pk_live_` instance's own Frontend API host + parent-domain wildcard).
+  // Anything else returns `action: 'deny'` so we don't accidentally let
+  // arbitrary window.open() calls spawn full Electron windows.
+  const OAUTH_HOST_PATTERNS = buildOAuthHostPatterns(CLERK_PUBLISHABLE_KEY);
 
   mainWindow = new BrowserWindow({
     title: 'MoxxyAI Workspaces',
@@ -302,7 +233,7 @@ async function createWindow(): Promise<void> {
   // Buffer deep-links until the renderer's bridge has drained, so none are
   // lost across a load / reload. Resets on every load start.
   mainWindow.webContents.on('did-start-loading', () => {
-    rendererReady = false;
+    deepLinks.markLoading();
   });
 
   // Recovery net for the OAuth return leg: when Clerk's FAPI loses the
@@ -529,174 +460,11 @@ async function createWindow(): Promise<void> {
   }
 }
 
-function installApplicationMenu(
-  toggleFocus: () => void,
-  openMain: () => void,
-  focusEnabled: boolean,
-): void {
-  const isMac = process.platform === 'darwin';
-  const template: Electron.MenuItemConstructorOptions[] = [
-    ...(isMac
-      ? ([
-          {
-            label: 'MoxxyAI Workspaces',
-            submenu: [
-              { role: 'about' as const },
-              { type: 'separator' as const },
-              { role: 'services' as const },
-              { type: 'separator' as const },
-              { role: 'hide' as const },
-              { role: 'hideOthers' as const },
-              { role: 'unhide' as const },
-              { type: 'separator' as const },
-              { role: 'quit' as const },
-            ],
-          },
-        ] satisfies Electron.MenuItemConstructorOptions[])
-      : []),
-    {
-      label: 'File',
-      submenu: [
-        { label: 'Open main window', click: openMain },
-        { type: 'separator' },
-        isMac ? { role: 'close' } : { role: 'quit' },
-      ],
-    },
-    {
-      label: 'Edit',
-      submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
-        { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
-      ],
-    },
-    {
-      label: 'View',
-      submenu: [
-        {
-          label: 'Toggle Focus Mode',
-          accelerator: 'CommandOrControl+Shift+M',
-          enabled: focusEnabled,
-          click: toggleFocus,
-        },
-        { type: 'separator' },
-        { role: 'reload' },
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' },
-      ],
-    },
-    {
-      label: 'Window',
-      submenu: isMac
-        ? [
-            { role: 'minimize' },
-            { role: 'zoom' },
-            { type: 'separator' },
-            { role: 'front' },
-          ]
-        : [{ role: 'minimize' }, { role: 'close' }],
-    },
-  ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-}
-
 let trayInstance: Tray | null = null;
 
-/** How long a hot-updated bundle has to prove a healthy render before the probe
- *  assumes it white-screened and reverts to the floor. Generous so a slow cold
- *  start / Clerk network round-trip can't false-trip it. */
-const BOOT_PROBE_TIMEOUT_MS = 15_000;
-/** How often the probe polls the renderer DOM for a healthy mount. */
-const BOOT_PROBE_POLL_MS = 1_500;
-
-/**
- * In-session safety net for a hot-updated bundle: confirm it reached a healthy
- * render, else poison it and relaunch onto the previous-good bundle (or floor).
- *
- * Health is judged from the MAIN process by inspecting the renderer DOM — NOT by
- * waiting for the renderer's `app.appBooted` IPC heartbeat. That heartbeat proved
- * unreliable in packaged builds: it could fail to land on a perfectly healthy
- * bundle, so the old "no heartbeat in 15s ⇒ poison" logic poisoned *every* update
- * (see the boot-log / `bad.json` evidence) and self-update never stuck. The DOM
- * check has no such dependency: `index.html` ships a static `#splash-fallback`
- * inside `#root`, and React replaces it on mount — so "`#splash-fallback` is gone"
- * is a direct, renderer-cooperation-free signal that the app rendered. The IPC
- * heartbeat (`app.appBooted` → `confirmed.json`) is kept only as a fast path.
- *
- * No-op on the bundled floor (no override version), so there's no relaunch loop.
- * The cross-launch `recoverFromFailedBoot` is the belt to this braces.
- */
-function armBootProbe(window: BrowserWindow): void {
-  const version = process.env.MOXXY_APP_BUNDLE_VERSION;
-  if (!version) return; // running the floor — nothing to probe
-  const userData = app.getPath('userData');
-  const shell = { electron: process.versions.electron, nodeAbi: process.versions.modules ?? '' };
-
-  window.webContents.once('did-finish-load', () => {
-    const deadline = Date.now() + BOOT_PROBE_TIMEOUT_MS;
-
-    const reactMounted = async (): Promise<boolean> =>
-      window.webContents
-        .executeJavaScript(
-          // True once React has taken over #root (it replaces the static
-          // #splash-fallback on mount). Defensive: never throws into the probe.
-          "(()=>{try{return !!document.getElementById('root')" +
-            " && !document.getElementById('splash-fallback')" +
-            " && document.getElementById('root').childElementCount>0;}catch(e){return false;}})()",
-          true,
-        )
-        .catch(() => false);
-
-    const tick = async (): Promise<void> => {
-      if (window.isDestroyed()) return;
-      // Fast path: the renderer's heartbeat already confirmed it.
-      if (readConfirmed(userData) === version) return;
-
-      if (await reactMounted()) {
-        // The bundle rendered — confirm from the main process, independent of the
-        // (flaky) renderer heartbeat that was poisoning healthy updates.
-        try {
-          markConfirmed(userData, version);
-        } catch {
-          /* best effort */
-        }
-        appendBootLog(userData, { phase: 'confirm', picked: version, reason: 'main-side-dom', ...shell });
-        return;
-      }
-
-      if (window.isDestroyed() || readConfirmed(userData) === version) return;
-      if (Date.now() < deadline) {
-        setTimeout(() => void tick(), BOOT_PROBE_POLL_MS);
-        return;
-      }
-
-      // Never rendered within the window — treat as a real white-screen.
-      console.error(
-        `[moxxy] boot-probe: bundle ${version} never rendered within ` +
-          `${BOOT_PROBE_TIMEOUT_MS}ms; reverting to the previous bundle`,
-      );
-      appendBootLog(userData, { phase: 'probe', picked: version, reason: 'no-render-within-timeout', ...shell });
-      try {
-        markBad(userData, version);
-      } catch {
-        /* best effort */
-      }
-      app.relaunch();
-      app.quit();
-    };
-
-    void tick();
-  });
-}
+// installApplicationMenu lives in ./menus; armBootProbe lives in ./boot-probe
+// (with its persistence + relaunch deps injected so the state machine is
+// unit-testable). Both are imported at the top.
 
 // Single-instance lock — required for `moxxy://` deep-links: a link opened
 // while the app is already running must hand its URL to the existing instance
@@ -718,14 +486,14 @@ if (!gotSingleInstanceLock) {
   // handler buffers until the renderer drains).
   app.on('open-url', (event, url) => {
     event.preventDefault();
-    handleDeepLink(url);
+    deepLinks.handle(url);
   });
   // Windows/Linux: a link opened while running relaunches with the URL in
   // argv, delivered here to the primary instance.
   app.on('second-instance', (_event, argv) => {
     focusMain();
     const url = argv.find((a) => a.startsWith('moxxy://'));
-    if (url) handleDeepLink(url);
+    if (url) deepLinks.handle(url);
   });
 }
 
@@ -750,7 +518,7 @@ app.whenReady().then(async () => {
   // user-agents ("this browser may not be secure"); a clean UA lets the
   // in-app sign-in popup through. Set before any window so the very first
   // request carries it. Harmless for our own + Clerk requests.
-  app.userAgentFallback = cleanOAuthUserAgent(app.userAgentFallback);
+  app.userAgentFallback = cleanOAuthUserAgent(app.userAgentFallback, app.getName());
 
   // Serve the packaged renderer over an HTTPS loopback origin at
   // `https://desktop.moxxy.ai:<port>` — a Chromium secure context AND, crucially,
@@ -789,45 +557,16 @@ app.whenReady().then(async () => {
   // is installed on the default session BEFORE the window loads the URL (this
   // block runs ahead of createWindow()), and `loopbackCert` is already assigned
   // above, so there is no null-at-fire-time race.
-  const certVerifyProc = (
-    request: Electron.Request,
-    callback: (verificationResult: number) => void,
-  ): void => {
-    if (
-      loopbackCert &&
-      isTrustedLoopbackCertByHost({
-        hostname: request.hostname,
-        fingerprint: request.certificate.fingerprint,
-        expectedFingerprint: loopbackCert.fingerprint256,
-      })
-    ) {
-      callback(0); // 0 = trust this cert (our minted loopback cert)
-      return;
-    }
-    callback(-3); // -3 = defer to Chromium's own verification result
-  };
-  session.defaultSession.setCertificateVerifyProc(certVerifyProc);
+  // The scoped-trust hooks (host + port + fingerprint) live in ./loopback-tls;
+  // they read `loopbackCert` through the accessor so there is no
+  // null-at-fire-time race (it is assigned above, before the window loads).
+  session.defaultSession.setCertificateVerifyProc(makeCertVerifyProc(() => loopbackCert));
 
   // Belt-and-braces: keep the `certificate-error` handler too. It rarely fires
   // for the loopback load (see above) but costs nothing and covers any path the
   // verify-proc doesn't, with the identical scoped trust (host + port +
   // fingerprint). Everything else gets normal verification.
-  app.on('certificate-error', (event, _wc, url, _error, certificate, callback) => {
-    if (
-      loopbackCert &&
-      isTrustedLoopbackCert({
-        url,
-        fingerprint: certificate.fingerprint,
-        expectedFingerprint: loopbackCert.fingerprint256,
-        allowedPorts: LOOPBACK_PORTS,
-      })
-    ) {
-      event.preventDefault();
-      callback(true); // trust it
-      return;
-    }
-    callback(false); // normal verification (reject)
-  });
+  app.on('certificate-error', makeCertificateErrorHandler(() => loopbackCert, LOOPBACK_PORTS));
 
   // Apply the Content-Security-Policy to our own document responses
   // before any window loads. Skipped in dev (Vite HMR needs a loose
@@ -981,23 +720,32 @@ app.whenReady().then(async () => {
 
   // The renderer's DeepLinkBridge calls this once on mount: it returns +
   // clears any `moxxy://` links buffered before the renderer was listening
-  // (cold-start), and flips `rendererReady` so subsequent links push live.
+  // (cold-start), and flips the ready flag so subsequent links push live.
   // Because the bridge subscribes to `deepLink:received` BEFORE invoking this
   // (one synchronous effect), no link can slip through between the two.
   ipcMain.removeHandler('deepLink:drain');
-  ipcMain.handle('deepLink:drain', (): DeepLinkPayload[] => {
-    rendererReady = true;
-    return pendingDeepLinks.splice(0);
-  });
+  ipcMain.handle('deepLink:drain', (): DeepLinkPayload[] => deepLinks.drain());
 
   await createWindow();
-  if (mainWindow) armBootProbe(mainWindow);
+  if (mainWindow) {
+    armBootProbe(mainWindow, {
+      version: process.env.MOXXY_APP_BUNDLE_VERSION,
+      userData: app.getPath('userData'),
+      shell: { electron: process.versions.electron, nodeAbi: process.versions.modules ?? '' },
+      readConfirmed,
+      markConfirmed,
+      markBad,
+      appendBootLog,
+      relaunch: () => app.relaunch(),
+      quit: () => app.quit(),
+    });
+  }
 
   // Cold-start deep-link: Windows/Linux pass a `moxxy://` URL as an argv
   // token (macOS uses open-url, already buffered above). Buffer it for the
   // renderer's first drain.
   const argvUrl = process.argv.find((a) => a.startsWith('moxxy://'));
-  if (argvUrl) handleDeepLink(argvUrl);
+  if (argvUrl) deepLinks.handle(argvUrl);
 
   // Tier-2: background download of a new native shell where supported
   // (Windows/Linux); a no-op on dev + unsigned macOS. Tier-1 JS hot-updates

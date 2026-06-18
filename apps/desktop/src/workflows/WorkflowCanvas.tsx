@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   STEP_KINDS,
   stepKindMeta,
-  uniqueId,
-  wouldCreateCycle,
   type BuilderAction,
   type BuilderEdge,
   type BuilderNode,
@@ -11,6 +9,28 @@ import {
   type StepKind,
 } from '@moxxy/workflows-builder';
 import { accentHex } from './accents';
+import {
+  ANCHOR_OFFSET,
+  NODE_H,
+  NODE_W,
+  disconnectEdge,
+  isEditableTarget,
+  preview,
+  type PortKind,
+  // Re-exported below so `./WorkflowCanvas` keeps its existing public surface
+  // (WorkflowCanvas.test.tsx imports these by name).
+  topoOrder,
+  topologySignature,
+} from './canvas/canvas-graph';
+import { GRID_SIZE, useCanvasCamera } from './canvas/useCanvasCamera';
+import {
+  useDragConnect,
+  type InsertMenuState,
+} from './canvas/useDragConnect';
+
+// Keep the canvas' historical public surface: these pure helpers were defined
+// here and are imported elsewhere (e.g. WorkflowCanvas.test.tsx) by name.
+export { topoOrder, topologySignature };
 
 /**
  * The builder canvas: an absolute-positioned layer of draggable step-node
@@ -64,51 +84,19 @@ import { accentHex } from './accents';
  *                 step errors.
  */
 
-const NODE_W = 200;
-const NODE_H = 88;
-const ANCHOR_OFFSET = NODE_H / 2;
+// NODE_W / NODE_H / ANCHOR_OFFSET live in ./canvas/canvas-graph (shared with the
+// pure hit-testing + geometry helpers); GRID_SIZE + the zoom math live in
+// ./canvas/useCanvasCamera. Imported above.
 const HANDLE_R = 7;
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
 /** Multiplicative step for the +/− buttons. */
 const ZOOM_STEP = 1.2;
-/** Base spacing of the dotted background grid at 100% zoom. */
-const GRID_SIZE = 24;
-/** Viewport padding around the graph for zoom-to-fit. */
-const FIT_PAD = 60;
-
-function clampZoom(z: number): number {
-  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
-}
 
 interface Props {
   readonly state: BuilderState;
   readonly dispatch: (action: BuilderAction) => void;
-}
-
-/** What a handle emits when its drag is dropped on a target node. */
-type PortKind = 'needs' | 'then' | 'else' | 'loop-exit';
-
-interface PendingConnection {
-  readonly nodeId: string;
-  readonly port: PortKind;
-  /** Handle origin in surface coords (where the temp line starts). */
-  readonly ox: number;
-  readonly oy: number;
-}
-
-/** A connection dropped on empty canvas, parked while the insert menu is open. */
-interface InsertMenuState {
-  /** Source node + port of the pending edge. */
-  readonly nodeId: string;
-  readonly port: PortKind;
-  /** Drop point in content coords (the new node's input anchor lands here). */
-  readonly x: number;
-  readonly y: number;
-  /** Pending-edge origin, kept so the preview line stays drawn. */
-  readonly ox: number;
-  readonly oy: number;
 }
 
 /** Loop-exit edges use violet-600 — a deliberate step darker than
@@ -137,21 +125,7 @@ const LOOP_BODY_COLOR = 'var(--color-purple)';
 export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
   const surfaceRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: string; dx: number; dy: number } | null>(null);
-  const connect = useRef<PendingConnection | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
-  const [pending, setPending] = useState<PendingConnection | null>(null);
-  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
-  const [hoverTarget, setHoverTarget] = useState<string | null>(null);
-  const [reject, setReject] = useState<string | null>(null);
-  const rejectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** Background drag-to-pan: last pointer position (deltas apply incrementally
-   *  to the viewport), cumulative travel, and whether it actually moved (a
-   *  still pan is a click and must keep deselecting). */
-  const pan = useRef<{ lx: number; ly: number; dist: number; moved: boolean } | null>(null);
-  const [panning, setPanning] = useState(false);
-  /** Set on pan end so the synthetic click that follows doesn't deselect. */
-  const suppressClick = useRef(false);
-  const [insertMenu, setInsertMenu] = useState<InsertMenuState | null>(null);
 
   /** The pan/zoom transform — the builder state's persisted viewport. */
   const view = state.viewport;
@@ -159,6 +133,16 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
     (viewport: BuilderState['viewport']) => dispatch({ type: 'set-viewport', viewport }),
     [dispatch],
   );
+
+  // Camera: world↔client transform, cursor-anchored zoom, zoom-to-fit, the
+  // non-passive wheel listener, and the background drag-to-pan gesture.
+  const camera = useCanvasCamera(surfaceRef, view, setView, state.nodes);
+  const { surfacePoint, applyZoom, zoomToFit, panning, suppressClick } = camera;
+
+  // Drag-to-connect: the pending edge, hover highlighting, cycle-reject flash,
+  // and the drop-on-empty insert menu.
+  const conn = useDragConnect(state, dispatch);
+  const { pending, cursor, hoverTarget, reject, insertMenu, setInsertMenu } = conn;
 
   const byId = useMemo(() => new Map(state.nodes.map((n) => [n.id, n])), [state.nodes]);
 
@@ -180,80 +164,6 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const order = useMemo(() => topoOrder(state.nodes), [topoSig]);
 
-  /** Pointer position in WORLD coords (node space, pre-transform). */
-  const surfacePoint = useCallback(
-    (e: { clientX: number; clientY: number }) => {
-      const rect = surfaceRef.current?.getBoundingClientRect();
-      const cx = rect ? e.clientX - rect.left : e.clientX;
-      const cy = rect ? e.clientY - rect.top : e.clientY;
-      return { x: (cx - view.x) / view.zoom, y: (cy - view.y) / view.zoom };
-    },
-    [view],
-  );
-
-  /** Zoom to `next`, keeping `anchor` (client coords; defaults to the
-   *  viewport centre) over the same world point: solve the pan from
-   *  anchor = world·z + pan. */
-  const applyZoom = useCallback(
-    (next: number, anchor?: { x: number; y: number }) => {
-      const z = clampZoom(next);
-      if (z === view.zoom) return;
-      const rect = surfaceRef.current?.getBoundingClientRect();
-      const ax = anchor ? anchor.x - (rect?.left ?? 0) : (rect?.width ?? 0) / 2;
-      const ay = anchor ? anchor.y - (rect?.top ?? 0) : (rect?.height ?? 0) / 2;
-      setView({
-        x: ax - ((ax - view.x) / view.zoom) * z,
-        y: ay - ((ay - view.y) / view.zoom) * z,
-        zoom: z,
-      });
-    },
-    [setView, view],
-  );
-
-  /** Frame all nodes in the viewport (centered, padded, capped at 100%). */
-  const zoomToFit = useCallback(() => {
-    const rect = surfaceRef.current?.getBoundingClientRect();
-    if (!rect || rect.width <= 0 || rect.height <= 0 || state.nodes.length === 0) {
-      setView({ x: 0, y: 0, zoom: 1 });
-      return;
-    }
-    const minX = Math.min(...state.nodes.map((n) => n.x));
-    const minY = Math.min(...state.nodes.map((n) => n.y));
-    const maxX = Math.max(...state.nodes.map((n) => n.x + NODE_W));
-    const maxY = Math.max(...state.nodes.map((n) => n.y + NODE_H));
-    const z = clampZoom(
-      Math.min(
-        (rect.width - FIT_PAD * 2) / Math.max(1, maxX - minX),
-        (rect.height - FIT_PAD * 2) / Math.max(1, maxY - minY),
-        1, // frame, don't magnify — a lone node shouldn't fill the screen
-      ),
-    );
-    setView({
-      x: (rect.width - (maxX - minX) * z) / 2 - minX * z,
-      y: (rect.height - (maxY - minY) * z) / 2 - minY * z,
-      zoom: z,
-    });
-  }, [setView, state.nodes]);
-
-  // Wheel: plain wheel / two-finger trackpad scroll PANS both axes;
-  // ctrl/cmd+wheel (macOS pinch arrives as ctrl+wheel) ZOOMS at the cursor.
-  // Native non-passive listener — React's root wheel listener is passive, so
-  // a synthetic onWheel can't preventDefault (and the page would scroll).
-  useEffect(() => {
-    const el = surfaceRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent): void => {
-      e.preventDefault();
-      if (e.ctrlKey || e.metaKey) {
-        applyZoom(view.zoom * Math.exp(-e.deltaY * 0.0018), { x: e.clientX, y: e.clientY });
-      } else {
-        setView({ x: view.x - e.deltaX, y: view.y - e.deltaY, zoom: view.zoom });
-      }
-    };
-    el.addEventListener('wheel', onWheel, { passive: false });
-    return () => el.removeEventListener('wheel', onWheel);
-  }, [applyZoom, setView, view]);
-
   // Keyboard: Delete/Backspace removes the selected node + its edges (same op
   // as the inspector's Delete button); Escape dismisses the insert menu,
   // cancelling its pending edge. Skipped while typing in a field so editing
@@ -273,22 +183,7 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [dispatch, state.selected]);
-
-  const flashReject = useCallback((msg: string) => {
-    setReject(msg);
-    if (rejectTimer.current) clearTimeout(rejectTimer.current);
-    rejectTimer.current = setTimeout(() => setReject(null), 2600);
-  }, []);
-
-  // Clear a pending reject-flash timer on unmount so it can't fire setReject
-  // after the canvas is gone.
-  useEffect(
-    () => () => {
-      if (rejectTimer.current) clearTimeout(rejectTimer.current);
-    },
-    [],
-  );
+  }, [dispatch, setInsertMenu, state.selected]);
 
   // --- node move (body drag) ---
   const onBodyPointerDown = useCallback(
@@ -301,23 +196,15 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
       setDragging(node.id);
       dispatch({ type: 'select', id: node.id });
     },
-    [dispatch, surfacePoint],
+    [dispatch, setInsertMenu, surfacePoint],
   );
 
   // --- connection drag (handle pointerdown) ---
   const onHandlePointerDown = useCallback(
     (e: React.PointerEvent, node: BuilderNode, port: PortKind) => {
-      e.stopPropagation();
-      (e.target as Element).setPointerCapture?.(e.pointerId);
-      setInsertMenu(null);
-      const origin = portOrigin(node, port);
-      const start: PendingConnection = { nodeId: node.id, port, ox: origin.x, oy: origin.y };
-      connect.current = start;
-      setPending(start);
-      const p = surfacePoint(e);
-      setCursor(p);
+      conn.onHandlePointerDown(e, node, port, surfacePoint(e));
     },
-    [surfacePoint],
+    [conn, surfacePoint],
   );
 
   // --- background pan (canvas drag) ---
@@ -335,12 +222,12 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
         return;
       }
       (e.target as Element).setPointerCapture?.(e.pointerId);
-      pan.current = { lx: e.clientX, ly: e.clientY, dist: 0, moved: false };
-      setPanning(true);
+      camera.beginPan(e);
     },
-    [insertMenu],
+    [camera, insertMenu, setInsertMenu],
   );
 
+  // Gesture priority: node move > connection > pan (the original ordering).
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
       const p = surfacePoint(e);
@@ -349,113 +236,10 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
         dispatch({ type: 'move-node', id: drag.current.id, x: p.x - drag.current.dx, y: p.y - drag.current.dy });
         return;
       }
-      if (connect.current) {
-        setCursor(p);
-        setHoverTarget(nodeAt(state.nodes, p, connect.current.nodeId));
-        return;
-      }
-      if (pan.current) {
-        const dx = e.clientX - pan.current.lx;
-        const dy = e.clientY - pan.current.ly;
-        pan.current.lx = e.clientX;
-        pan.current.ly = e.clientY;
-        pan.current.dist += Math.abs(dx) + Math.abs(dy);
-        if (pan.current.dist > 3) pan.current.moved = true;
-        setView({ x: view.x + dx, y: view.y + dy, zoom: view.zoom });
-      }
+      if (conn.moveConnect(p)) return;
+      camera.movePan(e);
     },
-    [dispatch, setView, state.nodes, surfacePoint, view],
-  );
-
-  const finishConnection = useCallback(
-    (p: { x: number; y: number }) => {
-      const c = connect.current;
-      connect.current = null;
-      setPending(null);
-      setCursor(null);
-      setHoverTarget(null);
-      if (!c) return;
-      const targetId = nodeAt(state.nodes, p, c.nodeId);
-      if (!targetId) {
-        // Dropped on empty canvas → offer to insert a node right there, wired
-        // to the pending connection (Escape / click-away cancels).
-        setInsertMenu({ nodeId: c.nodeId, port: c.port, x: p.x, y: p.y, ox: c.ox, oy: c.oy });
-        return;
-      }
-      const target = byId.get(targetId);
-      const source = byId.get(c.nodeId);
-      if (!target || !source || target.id === source.id) return;
-
-      switch (c.port) {
-        case 'needs': {
-          // Dropping a plain output onto a LOOP is ambiguous, so we read the
-          // drop sub-region: the lower "body" half adds the source to the loop
-          // body (it runs INSIDE the loop); the upper half wires a plain `needs`
-          // (the source runs BEFORE the loop).
-          if (target.kind === 'loop' && target.loop) {
-            if (inBodyRegion(target, p)) {
-              if (target.loop.body.includes(source.id)) return;
-              dispatch({ type: 'set-loop-body', loopId: target.id, body: [...target.loop.body, source.id] });
-              return;
-            }
-          }
-          if (wouldCreateCycle(state, source.id, target.id)) {
-            flashReject(`Can't connect ${labelOf(source)} → ${labelOf(target)}: it would create a cycle.`);
-            return;
-          }
-          dispatch({ type: 'connect-needs', from: source.id, to: target.id });
-          return;
-        }
-        case 'then':
-        case 'else': {
-          const current = (c.port === 'then' ? source.then : source.else) ?? [];
-          if (current.includes(target.id)) return;
-          dispatch({ type: 'set-branch', nodeId: source.id, slot: c.port, targets: [...current, target.id] });
-          return;
-        }
-        case 'loop-exit': {
-          // Source is the loop; target becomes its single exit (on done/error → next).
-          dispatch({ type: 'set-loop-exit', loopId: source.id, targetId: target.id });
-          return;
-        }
-      }
-    },
-    [byId, dispatch, flashReject, state],
-  );
-
-  // Insert a node of `kind` at the menu's drop point and wire the pending edge
-  // to it, through the same ops the drop-on-node path dispatches. The id is
-  // precomputed (uniqueId) because dispatch can't return the id add-step picks;
-  // sequential dispatches reduce in order, so the wire op sees the new node.
-  const insertFromMenu = useCallback(
-    (kind: StepKind) => {
-      const menu = insertMenu;
-      setInsertMenu(null);
-      if (!menu) return;
-      const source = byId.get(menu.nodeId);
-      if (!source) return;
-      const id = uniqueId(state, kind);
-      const x = menu.x;
-      // Offset so the new node's left input anchor lands at the drop point.
-      const y = menu.y - ANCHOR_OFFSET;
-      switch (menu.port) {
-        case 'needs':
-          dispatch({ type: 'add-step', input: { kind, id, x, y, after: source.id } });
-          return;
-        case 'then':
-        case 'else': {
-          dispatch({ type: 'add-step', input: { kind, id, x, y } });
-          const current = (menu.port === 'then' ? source.then : source.else) ?? [];
-          dispatch({ type: 'set-branch', nodeId: source.id, slot: menu.port, targets: [...current, id] });
-          return;
-        }
-        case 'loop-exit':
-          dispatch({ type: 'add-step', input: { kind, id, x, y } });
-          dispatch({ type: 'set-loop-exit', loopId: source.id, targetId: id });
-          return;
-      }
-    },
-    [byId, dispatch, insertMenu, state],
+    [camera, conn, dispatch, surfacePoint],
   );
 
   const onPointerUp = useCallback(
@@ -465,34 +249,20 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
         setDragging(null);
         return;
       }
-      if (connect.current) {
-        finishConnection(surfacePoint(e));
+      if (conn.connectActive()) {
+        conn.finishConnection(surfacePoint(e));
         return;
       }
-      if (pan.current) {
-        // A pan that moved must not read as a background click (deselect) —
-        // swallow the click that follows this pointerup.
-        suppressClick.current = pan.current.moved;
-        pan.current = null;
-        setPanning(false);
-      }
+      camera.endPan();
     },
-    [finishConnection, surfacePoint],
+    [camera, conn, surfacePoint],
   );
 
   // Pointer leaving the surface mid-connection cancels cleanly (no stuck line).
   const onPointerLeave = useCallback(() => {
-    if (connect.current) {
-      connect.current = null;
-      setPending(null);
-      setCursor(null);
-      setHoverTarget(null);
-    }
-    if (pan.current) {
-      pan.current = null;
-      setPanning(false);
-    }
-  }, []);
+    conn.cancelConnect();
+    camera.cancelPan();
+  }, [camera, conn]);
 
   return (
     <div style={{ position: 'relative', flex: 1, minHeight: 0, minWidth: 0, display: 'flex' }}>
@@ -604,7 +374,7 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
         ))}
 
         {insertMenu && byId.has(insertMenu.nodeId) && (
-          <InsertNodeMenu menu={insertMenu} zoom={view.zoom} onPick={insertFromMenu} />
+          <InsertNodeMenu menu={insertMenu} zoom={view.zoom} onPick={conn.insertFromMenu} />
         )}
       </div>
 
@@ -1229,138 +999,8 @@ function BodyDropHandle({
   );
 }
 
-/** Compute the surface-space origin of a node's output handle for the temp line. */
-function portOrigin(node: BuilderNode, port: PortKind): { x: number; y: number } {
-  switch (port) {
-    case 'then':
-      return { x: node.x + NODE_W, y: node.y + ANCHOR_OFFSET - 14 };
-    case 'else':
-      return { x: node.x + NODE_W, y: node.y + ANCHOR_OFFSET + 14 };
-    case 'loop-exit':
-    case 'needs':
-    default:
-      return { x: node.x + NODE_W, y: node.y + ANCHOR_OFFSET };
-  }
-}
-
-/** The lower half of a loop card is its "body" drop region (vs the upper input). */
-function inBodyRegion(loop: BuilderNode, p: { x: number; y: number }): boolean {
-  return p.y >= loop.y + ANCHOR_OFFSET;
-}
-
-/**
- * Dispatch the correct disconnect for an edge's kind, reversing whatever wiring
- * op produced it. Each case routes through an EXISTING shared op (no new graph
- * logic in the desktop layer): branch/loop edges re-set their target list with
- * the one target filtered out; `needs`/`loop-exit` have direct inverse ops.
- * `from` is the edge's source node, needed to read its current target lists.
- */
-function disconnectEdge(dispatch: (a: BuilderAction) => void, edge: BuilderEdge, from: BuilderNode): void {
-  switch (edge.kind) {
-    case 'needs':
-      dispatch({ type: 'disconnect-needs', from: edge.from, to: edge.to });
-      return;
-    case 'then':
-    case 'else': {
-      const current = (edge.kind === 'then' ? from.then : from.else) ?? [];
-      dispatch({ type: 'set-branch', nodeId: edge.from, slot: edge.kind, targets: current.filter((t) => t !== edge.to) });
-      return;
-    }
-    case 'default': {
-      const current = from.default ?? [];
-      dispatch({ type: 'set-branch', nodeId: edge.from, slot: 'default', targets: current.filter((t) => t !== edge.to) });
-      return;
-    }
-    case 'case': {
-      const caseId = edge.caseId ?? '';
-      const current = from.cases?.[caseId] ?? [];
-      dispatch({ type: 'set-case', nodeId: edge.from, caseId, targets: current.filter((t) => t !== edge.to) });
-      return;
-    }
-    case 'loop-body': {
-      const body = from.loop?.body ?? [];
-      dispatch({ type: 'set-loop-body', loopId: edge.from, body: body.filter((b) => b !== edge.to) });
-      return;
-    }
-    case 'loop-exit':
-      dispatch({ type: 'set-loop-exit', loopId: edge.from, targetId: null });
-      return;
-  }
-}
-
-/** True when a key event originated in a text-editing element (don't delete). */
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable) return true;
-  const tag = target.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
-}
-
-/** The node whose card contains the point (excluding `exclude`), or null. */
-function nodeAt(
-  nodes: ReadonlyArray<BuilderNode>,
-  p: { x: number; y: number },
-  exclude: string,
-): string | null {
-  // Iterate in reverse so a node drawn on top wins when cards overlap.
-  for (let i = nodes.length - 1; i >= 0; i--) {
-    const n = nodes[i]!;
-    if (n.id === exclude) continue;
-    if (p.x >= n.x && p.x <= n.x + NODE_W && p.y >= n.y && p.y <= n.y + NODE_H) return n.id;
-  }
-  return null;
-}
-
-/**
- * A geometry-FREE signature of the inputs {@link topoOrder} actually reads —
- * each node's id and its `needs` list, in array order. Two `state.nodes`
- * arrays that differ only in node positions (a drag) produce the SAME string,
- * so the `order` memo keyed on this skips the O(V+E) recompute during a drag
- * (when `moveNode` allocates a fresh array every pointer-move). Changes only
- * when a node is added/removed/reordered or a `needs` edge is wired/unwired —
- * exactly when the topological order can change.
- */
-export function topologySignature(nodes: ReadonlyArray<BuilderNode>): string {
-  let sig = '';
-  for (const n of nodes) sig += `${n.id}:${(n.needs ?? []).join(',')};`;
-  return sig;
-}
-
-/**
- * A 1-based topological index per node over the `needs` DAG (longest-path
- * layering, ties broken by array order). Makes the execution order legible on
- * the cards. Cyclic graphs (which the connect guard prevents, but a loaded YAML
- * could still contain) just fall back to insertion order for the affected nodes.
- */
-export function topoOrder(nodes: ReadonlyArray<BuilderNode>): Map<string, number> {
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  const depth = new Map<string, number>();
-  const resolve = (id: string, seen: Set<string>): number => {
-    const cached = depth.get(id);
-    if (cached != null) return cached;
-    if (seen.has(id)) return 0; // cycle guard
-    seen.add(id);
-    const needs = byId.get(id)?.needs ?? [];
-    const d = needs.length === 0 ? 0 : Math.max(...needs.map((n) => (byId.has(n) ? resolve(n, seen) + 1 : 0)));
-    seen.delete(id);
-    depth.set(id, d);
-    return d;
-  };
-  for (const n of nodes) resolve(n.id, new Set());
-  // Rank by (depth, insertion index) then assign 1..N.
-  const ranked = [...nodes]
-    .map((n, idx) => ({ id: n.id, depth: depth.get(n.id) ?? 0, idx }))
-    .sort((a, b) => a.depth - b.depth || a.idx - b.idx);
-  const order = new Map<string, number>();
-  ranked.forEach((r, i) => order.set(r.id, i + 1));
-  return order;
-}
-
-function preview(text: string): string {
-  const t = (text ?? '').trim().replace(/\s+/g, ' ');
-  return t.length > 0 ? t : '(empty)';
-}
-
-function labelOf(node: BuilderNode): string {
-  return node.label || node.id;
-}
+// portOrigin / inBodyRegion / disconnectEdge / isEditableTarget / nodeAt /
+// topologySignature / topoOrder / preview / labelOf moved to
+// ./canvas/canvas-graph (pure, independently unit-tested). topoOrder +
+// topologySignature are re-exported from this module's top so the canvas'
+// historical public surface is unchanged.

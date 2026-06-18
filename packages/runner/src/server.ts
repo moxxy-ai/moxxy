@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Session } from '@moxxy/core';
-import { loadPreferences, newTurnId, savePreferences } from '@moxxy/core';
+import { newTurnId } from '@moxxy/core';
 import { asTurnId, createMutex } from '@moxxy/sdk';
 import type {
   ApprovalDecision,
@@ -25,34 +25,38 @@ import {
   RunnerNotification,
   abortParamsSchema,
   attachParamsSchema,
-  commandRunParamsSchema,
-  mcpDetachParamsSchema,
-  mcpEnableAndAttachParamsSchema,
-  modeSetActiveParamsSchema,
-  permissionAddAllowParamsSchema,
-  providerConfigureParamsSchema,
-  providerSetActiveParamsSchema,
-  providerSetEnabledParamsSchema,
   runTurnParamsSchema,
   setResolverParamsSchema,
-  surfaceOpenParamsSchema,
-  surfaceInputParamsSchema,
-  surfaceResizeParamsSchema,
-  surfaceCloseParamsSchema,
-  transcribeParamsSchema,
-  synthesizeParamsSchema,
-  workflowRunParamsSchema,
-  workflowSetEnabledParamsSchema,
-  workflowValidateDraftParamsSchema,
-  workflowSaveParamsSchema,
-  workflowGetRunParamsSchema,
-  workflowResumeParamsSchema,
   type AttachResult,
-  type CommandRunResult,
   type RunTurnResult,
-  type TranscribeResult,
-  type SynthesizeResult,
 } from './protocol.js';
+import {
+  handleProviderSetActive,
+  handleProviderSetEnabled,
+  handleProviderRefreshReady,
+  handleProviderConfigure,
+  handleTranscribe,
+  handleSynthesize,
+  handleMcpListServers,
+  handleMcpEnableAndAttach,
+  handleMcpDetach,
+  handleWorkflowList,
+  handleWorkflowSetEnabled,
+  handleWorkflowRun,
+  handleWorkflowValidateDraft,
+  handleWorkflowSave,
+  handleWorkflowGetRun,
+  handleWorkflowResume,
+  handleSurfaceList,
+  handleSurfaceOpen,
+  handleSurfaceInput,
+  handleSurfaceResize,
+  handleSurfaceClose,
+  handleModeSetActive,
+  handlePermissionAddAllow,
+  handleCommandRun,
+  type HandlerContext,
+} from './handlers/index.js';
 
 /** One attached client and what it has opted into answering. */
 interface ConnectedClient {
@@ -123,11 +127,24 @@ export class RunnerServer {
    * cross-runner prefs writes remain best-effort behind the atomic rename.)
    */
   private readonly prefsMutex = createMutex();
+  /**
+   * The shared context handed to every per-domain handler module under
+   * `handlers/`. The handlers used to be private methods on this class closing
+   * over `this`; they now take this slice (session + prefs mutex + the
+   * broadcast-snapshot helper) so each domain lives in its own file while this
+   * class keeps the dispatch wiring + turn/attach/resolver logic.
+   */
+  private readonly handlerCtx: HandlerContext;
 
   constructor(
     private readonly session: Session,
     private readonly transport: TransportServer,
   ) {
+    this.handlerCtx = {
+      session,
+      prefsMutex: this.prefsMutex,
+      broadcastInfo: () => this.broadcastInfo(),
+    };
     this.fallbackPermission = session.resolver;
     this.fallbackApproval = session.approvalResolver;
     this.installRoutingResolvers();
@@ -183,42 +200,39 @@ export class RunnerServer {
     };
     this.clients.add(client);
 
+    const ctx = this.handlerCtx;
+    // Turn / attach / resolver routing stay on the class (they touch per-client
+    // and per-turn state). Every domain handler delegates to its module.
     peer.handle(RunnerMethod.Attach, (raw) => this.handleAttach(client, raw));
     peer.handle(RunnerMethod.GetInfo, () => this.session.getInfo());
     peer.handle(RunnerMethod.RunTurn, (raw) => this.handleRunTurn(client, raw));
     peer.handle(RunnerMethod.Abort, (raw) => this.handleAbort(client, raw));
     peer.handle(RunnerMethod.SessionReset, () => this.handleSessionReset());
     peer.handle(RunnerMethod.SetResolver, (raw) => this.handleSetResolver(client, raw));
-    peer.handle(RunnerMethod.ModeSetActive, (raw) => this.handleModeSetActive(raw));
-    peer.handle(RunnerMethod.ProviderSetActive, (raw) => this.handleProviderSetActive(raw));
-    peer.handle(RunnerMethod.ProviderSetEnabled, (raw) => this.handleProviderSetEnabled(raw));
-    peer.handle(RunnerMethod.ProviderRefreshReady, () => this.handleProviderRefreshReady());
-    peer.handle(RunnerMethod.ProviderConfigure, (raw) => this.handleProviderConfigure(raw));
-    peer.handle(RunnerMethod.PermissionAddAllow, (raw) => this.handlePermissionAddAllow(raw));
-    peer.handle(RunnerMethod.CommandRun, (raw) => this.handleCommandRun(raw));
-    peer.handle(RunnerMethod.Transcribe, (raw) => this.handleTranscribe(raw));
-    peer.handle(RunnerMethod.Synthesize, (raw) => this.handleSynthesize(raw));
-    peer.handle(RunnerMethod.McpListServers, () => this.handleMcpListServers());
-    peer.handle(RunnerMethod.McpEnableAndAttach, (raw) =>
-      this.handleMcpEnableAndAttach(raw),
-    );
-    peer.handle(RunnerMethod.McpDetach, (raw) => this.handleMcpDetach(raw));
-    peer.handle(RunnerMethod.WorkflowList, () => this.handleWorkflowList());
-    peer.handle(RunnerMethod.WorkflowSetEnabled, (raw) =>
-      this.handleWorkflowSetEnabled(raw),
-    );
-    peer.handle(RunnerMethod.WorkflowRun, (raw) => this.handleWorkflowRun(raw));
-    peer.handle(RunnerMethod.WorkflowValidateDraft, (raw) =>
-      this.handleWorkflowValidateDraft(raw),
-    );
-    peer.handle(RunnerMethod.WorkflowSave, (raw) => this.handleWorkflowSave(raw));
-    peer.handle(RunnerMethod.WorkflowGetRun, (raw) => this.handleWorkflowGetRun(raw));
-    peer.handle(RunnerMethod.WorkflowResume, (raw) => this.handleWorkflowResume(raw));
-    peer.handle(RunnerMethod.SurfaceList, () => this.handleSurfaceList());
-    peer.handle(RunnerMethod.SurfaceOpen, (raw) => this.handleSurfaceOpen(raw));
-    peer.handle(RunnerMethod.SurfaceInput, (raw) => this.handleSurfaceInput(raw));
-    peer.handle(RunnerMethod.SurfaceResize, (raw) => this.handleSurfaceResize(raw));
-    peer.handle(RunnerMethod.SurfaceClose, (raw) => this.handleSurfaceClose(raw));
+    peer.handle(RunnerMethod.ModeSetActive, (raw) => handleModeSetActive(ctx, raw));
+    peer.handle(RunnerMethod.ProviderSetActive, (raw) => handleProviderSetActive(ctx, raw));
+    peer.handle(RunnerMethod.ProviderSetEnabled, (raw) => handleProviderSetEnabled(ctx, raw));
+    peer.handle(RunnerMethod.ProviderRefreshReady, () => handleProviderRefreshReady(ctx));
+    peer.handle(RunnerMethod.ProviderConfigure, (raw) => handleProviderConfigure(ctx, raw));
+    peer.handle(RunnerMethod.PermissionAddAllow, (raw) => handlePermissionAddAllow(ctx, raw));
+    peer.handle(RunnerMethod.CommandRun, (raw) => handleCommandRun(ctx, raw));
+    peer.handle(RunnerMethod.Transcribe, (raw) => handleTranscribe(ctx, raw));
+    peer.handle(RunnerMethod.Synthesize, (raw) => handleSynthesize(ctx, raw));
+    peer.handle(RunnerMethod.McpListServers, () => handleMcpListServers(ctx));
+    peer.handle(RunnerMethod.McpEnableAndAttach, (raw) => handleMcpEnableAndAttach(ctx, raw));
+    peer.handle(RunnerMethod.McpDetach, (raw) => handleMcpDetach(ctx, raw));
+    peer.handle(RunnerMethod.WorkflowList, () => handleWorkflowList(ctx));
+    peer.handle(RunnerMethod.WorkflowSetEnabled, (raw) => handleWorkflowSetEnabled(ctx, raw));
+    peer.handle(RunnerMethod.WorkflowRun, (raw) => handleWorkflowRun(ctx, raw));
+    peer.handle(RunnerMethod.WorkflowValidateDraft, (raw) => handleWorkflowValidateDraft(ctx, raw));
+    peer.handle(RunnerMethod.WorkflowSave, (raw) => handleWorkflowSave(ctx, raw));
+    peer.handle(RunnerMethod.WorkflowGetRun, (raw) => handleWorkflowGetRun(ctx, raw));
+    peer.handle(RunnerMethod.WorkflowResume, (raw) => handleWorkflowResume(ctx, raw));
+    peer.handle(RunnerMethod.SurfaceList, () => handleSurfaceList(ctx));
+    peer.handle(RunnerMethod.SurfaceOpen, (raw) => handleSurfaceOpen(ctx, raw));
+    peer.handle(RunnerMethod.SurfaceInput, (raw) => handleSurfaceInput(ctx, raw));
+    peer.handle(RunnerMethod.SurfaceResize, (raw) => handleSurfaceResize(ctx, raw));
+    peer.handle(RunnerMethod.SurfaceClose, (raw) => handleSurfaceClose(ctx, raw));
 
     peer.onClose(() => this.onDisconnect(client));
   }
@@ -381,292 +395,6 @@ export class RunnerServer {
     const params = setResolverParamsSchema.parse(raw);
     if (params.permission !== undefined) client.handlesPermission = params.permission;
     if (params.approval !== undefined) client.handlesApproval = params.approval;
-    return {};
-  }
-
-  private handleModeSetActive(raw: unknown): Record<string, never> {
-    const { name } = modeSetActiveParamsSchema.parse(raw);
-    // setActive fires onActiveChange → broadcastInfo (wired in the ctor), so
-    // no explicit broadcast needed here.
-    this.session.modes.setActive(name);
-    return {};
-  }
-
-  private async handleProviderSetActive(raw: unknown): Promise<Record<string, never>> {
-    const { name, config } = providerSetActiveParamsSchema.parse(raw);
-    // Mirror the in-process picker: resolve credentials (the CLI stashes a
-    // resolver on the session at boot), drop any cached instance, re-activate.
-    const resolver = this.session.credentialResolver;
-    const cfg = config ?? (resolver ? await resolver(name) : {});
-    const def = this.session.providers.list().find((p) => p.name === name);
-    if (def) this.session.providers.replace(def);
-    this.session.providers.setActive(name, cfg);
-    // Persist the pick to ~/.moxxy/preferences.json so it survives to the NEXT
-    // freshly-spawned runner. Without this, a remote client (e.g. the desktop)
-    // that switches provider only mutates THIS runner's in-memory state — so
-    // spawning another runner (the desktop spawns one `moxxy serve` per
-    // workspace) boots back on the default provider with no key, comes up
-    // `connected` but provider-less, and bounces the user to "Connect a
-    // provider". Mirrors the TUI / Telegram pickers, which already persist.
-    // Best-effort: savePreferences swallows its own write errors and never
-    // throws, so a read-only home can't fail the setActive RPC. Run under the
-    // shared `prefsMutex` so this write serializes against the disabledProviders
-    // RMW in handleProviderSetEnabled (invariant #5): a setActive racing a
-    // toggle must not interleave with that handler's load→compute→save.
-    void this.prefsMutex.run(() => savePreferences({ providerName: name }));
-    this.broadcastInfo();
-    return {};
-  }
-
-  private async handleProviderSetEnabled(raw: unknown): Promise<Record<string, never>> {
-    const { name, enabled } = providerSetEnabledParamsSchema.parse(raw);
-    if (!this.session.providers.list().some((p) => p.name === name)) {
-      throw new Error(`Provider not registered: ${name}`);
-    }
-    // Throws when disabling the ACTIVE provider — surface that verbatim.
-    this.session.providers.setEnabled(name, enabled);
-    // Persist so the next boot's activation walk skips it (setup.ts seeds the
-    // registry from this list). Read-merge so concurrent writers of other
-    // preference fields aren't clobbered; best-effort like every prefs write.
-    // The load→compute→save is run under `prefsMutex` so it serializes against
-    // the other prefs-writing handler — without it, two overlapping toggles (or
-    // a setActive racing a toggle) could both read the same `disabledProviders`
-    // set and the second clobber the first (invariant #5).
-    void this.prefsMutex.run(async () => {
-      const prefs = await loadPreferences();
-      const current = new Set(prefs.disabledProviders ?? []);
-      if (enabled) current.delete(name);
-      else current.add(name);
-      await savePreferences({ disabledProviders: [...current] });
-    });
-    this.broadcastInfo();
-    return {};
-  }
-
-  private async handleProviderRefreshReady(): Promise<Record<string, never>> {
-    // Re-probe every registered provider's credentials (vault keys / env /
-    // OAuth tokens) so a key the user just saved flips readiness without a
-    // runner restart. The resolver is the same non-interactive probe boot
-    // uses; absent resolver (bare test sessions) → leave the set untouched.
-    const resolver = this.session.credentialResolver;
-    if (resolver) {
-      const ready = new Set<string>();
-      const active = this.session.providers.getActiveName();
-      if (active) ready.add(active);
-      for (const p of this.session.providers.list()) {
-        if (ready.has(p.name)) continue;
-        try {
-          await resolver(p.name);
-          ready.add(p.name);
-        } catch {
-          // not ready — leave out
-        }
-      }
-      this.session.readyProviders = ready;
-    }
-    this.broadcastInfo();
-    return {};
-  }
-
-  private async handleProviderConfigure(raw: unknown): Promise<Record<string, never>> {
-    const { name, patch } = providerConfigureParamsSchema.parse(raw);
-    const admin = this.session.providerAdmin;
-    if (!admin) throw new Error('provider admin not supported on this runner');
-    await admin.configure(name, patch as Parameters<typeof admin.configure>[1]);
-    this.broadcastInfo();
-    return {};
-  }
-
-  private async handlePermissionAddAllow(raw: unknown): Promise<Record<string, never>> {
-    const { name, reason } = permissionAddAllowParamsSchema.parse(raw);
-    await this.session.permissions.addAllow({ name, ...(reason ? { reason } : {}) });
-    return {};
-  }
-
-  private async handleCommandRun(raw: unknown): Promise<CommandRunResult> {
-    const { name, args, channel } = commandRunParamsSchema.parse(raw);
-    const cmd = this.session.commands.get(name);
-    if (!cmd) return { kind: 'error', message: `unknown command: /${name}` };
-    const result = await cmd.handler({
-      channel,
-      sessionId: this.session.id,
-      args,
-      session: this.session,
-    });
-    // A command may have changed registries (e.g. /model-ish plugins).
-    this.broadcastInfo();
-    return result;
-  }
-
-  private async handleTranscribe(raw: unknown): Promise<TranscribeResult> {
-    const params = transcribeParamsSchema.parse(raw);
-    const audio = new Uint8Array(Buffer.from(params.audio, 'base64'));
-    const opts = {
-      ...(params.mimeType ? { mimeType: params.mimeType } : {}),
-      ...(params.language ? { language: params.language } : {}),
-      ...(params.prompt ? { prompt: params.prompt } : {}),
-    };
-    // Build an ordered list of candidates: the active transcriber
-    // first (if any), then every other registered one — that way an
-    // "active but uncredentialled" transcriber (e.g. plain Whisper
-    // without OPENAI_API_KEY) doesn't shadow an OAuth-backed one
-    // that would actually succeed. Identical to what the TUI does
-    // by hardcoding to Codex, but agnostic to transcriber name.
-    const candidates = this.transcribeCandidates();
-    if (candidates.length === 0) throw new Error('no active transcriber on the runner');
-    let lastErr: unknown = new Error('no active transcriber on the runner');
-    for (const name of candidates) {
-      try {
-        const transcriber = this.session.transcribers.setActive(name);
-        const result = await transcriber.transcribe(audio, opts);
-        // Surface the change so remote clients observe activeTranscriber
-        // tracking the one that actually worked.
-        this.broadcastInfo();
-        return result;
-      } catch (err) {
-        lastErr = err;
-      }
-    }
-    throw lastErr;
-  }
-
-  private async handleSynthesize(raw: unknown): Promise<SynthesizeResult> {
-    const params = synthesizeParamsSchema.parse(raw);
-    const synth = this.session.synthesizers.tryGetActive();
-    if (!synth) throw new Error('no active synthesizer on the runner');
-    const opts = {
-      ...(params.voice ? { voice: params.voice } : {}),
-      ...(params.language ? { language: params.language } : {}),
-      ...(typeof params.rate === 'number' ? { rate: params.rate } : {}),
-    };
-    const result = await synth.synthesize(params.text, opts);
-    return {
-      audio: Buffer.from(result.audio).toString('base64'),
-      mimeType: result.mimeType,
-    };
-  }
-
-  /** Ordered candidate list for a transcribe call.
-   *  - First the active one (if any) — respects an explicit host /
-   *    user choice.
-   *  - Then every other registered transcriber. */
-  private transcribeCandidates(): ReadonlyArray<string> {
-    const activeName = this.session.transcribers.getActiveName();
-    const names = this.session.transcribers.list().map((d) => d.name);
-    if (!activeName || !names.includes(activeName)) return names;
-    return [activeName, ...names.filter((n) => n !== activeName)];
-  }
-
-  // --- MCP (delegates to session.mcpAdmin if the plugin is loaded) ----------
-
-  private async handleMcpListServers(): Promise<unknown[]> {
-    const admin = this.session.mcpAdmin;
-    if (!admin) return [];
-    return [...(await admin.listServers())];
-  }
-
-  private async handleMcpEnableAndAttach(
-    raw: unknown,
-  ): Promise<{ toolNames: ReadonlyArray<string> } | null> {
-    const params = mcpEnableAndAttachParamsSchema.parse(raw);
-    const admin = this.session.mcpAdmin;
-    if (!admin) throw new Error('mcp admin not available on this runner');
-    return admin.enableAndAttach(params.name);
-  }
-
-  private async handleMcpDetach(raw: unknown): Promise<boolean> {
-    const params = mcpDetachParamsSchema.parse(raw);
-    const admin = this.session.mcpAdmin;
-    if (!admin) throw new Error('mcp admin not available on this runner');
-    return admin.detach(params.name);
-  }
-
-  // --- Workflows (delegates to session.workflows if the plugin is loaded) ---
-
-  private async handleWorkflowList(): Promise<unknown[]> {
-    const view = this.session.workflows;
-    if (!view) return [];
-    return [...(await view.list())];
-  }
-
-  private async handleWorkflowSetEnabled(raw: unknown): Promise<void> {
-    const params = workflowSetEnabledParamsSchema.parse(raw);
-    const view = this.session.workflows;
-    if (!view) throw new Error('workflows plugin not loaded');
-    await view.setEnabled(params.name, params.enabled);
-  }
-
-  private async handleWorkflowRun(raw: unknown): Promise<unknown> {
-    const params = workflowRunParamsSchema.parse(raw);
-    const view = this.session.workflows;
-    if (!view) throw new Error('workflows plugin not loaded');
-    return view.run(params.name);
-  }
-
-  // --- Workflows builder (validate / save / getRun) ------------------------
-  // Optional on the view (older hosts / pre-builder plugins lack them), so
-  // feature-check and throw a clear error rather than calling undefined.
-
-  private async handleWorkflowValidateDraft(raw: unknown): Promise<unknown> {
-    const params = workflowValidateDraftParamsSchema.parse(raw);
-    const view = this.session.workflows;
-    if (!view?.validateDraft) throw new Error('workflows builder not supported on this runner');
-    return view.validateDraft(params.yaml);
-  }
-
-  private async handleWorkflowSave(raw: unknown): Promise<unknown> {
-    const params = workflowSaveParamsSchema.parse(raw);
-    const view = this.session.workflows;
-    if (!view?.save) throw new Error('workflows builder not supported on this runner');
-    return view.save(params.yaml, params.previousName);
-  }
-
-  private async handleWorkflowGetRun(raw: unknown): Promise<unknown> {
-    const params = workflowGetRunParamsSchema.parse(raw);
-    const view = this.session.workflows;
-    if (!view?.getRun) throw new Error('workflows builder not supported on this runner');
-    return (await view.getRun(params.name)) ?? null;
-  }
-
-  // --- Workflows human-in-the-loop (resume a paused awaitInput run) ---------
-  // v5. Optional on the view (older hosts lack it), so feature-check and throw a
-  // clear error rather than calling undefined.
-  private async handleWorkflowResume(raw: unknown): Promise<unknown> {
-    const params = workflowResumeParamsSchema.parse(raw);
-    const view = this.session.workflows;
-    if (!view?.resume) throw new Error('workflow resume not supported on this runner');
-    return view.resume(params.runId, params.reply);
-  }
-
-  // --- Surfaces (v8; delegate to the session's SurfaceHost) ----------------
-  // Output streams back as `surface.data` notifications (subscribed in the
-  // ctor). All degrade cleanly when no surface plugin is loaded: list → [],
-  // open → throws a clear "no surface" error.
-
-  private async handleSurfaceList(): Promise<unknown[]> {
-    return [...(await this.session.surfaces.list())];
-  }
-
-  private async handleSurfaceOpen(raw: unknown): Promise<unknown> {
-    const { kind } = surfaceOpenParamsSchema.parse(raw);
-    return this.session.surfaces.open(kind);
-  }
-
-  private async handleSurfaceInput(raw: unknown): Promise<Record<string, never>> {
-    const { surfaceId, message } = surfaceInputParamsSchema.parse(raw);
-    await this.session.surfaces.input(surfaceId, message);
-    return {};
-  }
-
-  private async handleSurfaceResize(raw: unknown): Promise<Record<string, never>> {
-    const { surfaceId, size } = surfaceResizeParamsSchema.parse(raw);
-    await this.session.surfaces.resize(surfaceId, size);
-    return {};
-  }
-
-  private async handleSurfaceClose(raw: unknown): Promise<Record<string, never>> {
-    const { surfaceId } = surfaceCloseParamsSchema.parse(raw);
-    await this.session.surfaces.close(surfaceId);
     return {};
   }
 

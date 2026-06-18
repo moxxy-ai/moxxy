@@ -1,51 +1,7 @@
-import * as os from 'node:os';
-import * as path from 'node:path';
-import { buildSynthesizeSkillPlugin, runTurn, type Session } from '@moxxy/core';
-import { asPluginId, definePlugin, defineTool, z, type Plugin } from '@moxxy/sdk';
+import { runTurn, type Session } from '@moxxy/core';
+import { type Plugin } from '@moxxy/sdk';
 import type { MoxxyConfig } from '@moxxy/config';
-import { anthropicPlugin } from '@moxxy/plugin-provider-anthropic';
-import { openaiPlugin } from '@moxxy/plugin-provider-openai';
-import { openaiCodexPlugin } from '@moxxy/plugin-provider-openai-codex';
-import { claudeCodePlugin } from '@moxxy/plugin-provider-claude-code';
-import { zaiPlugin } from '@moxxy/plugin-provider-zai';
-import { xaiPlugin } from '@moxxy/plugin-provider-xai';
-import { googlePlugin } from '@moxxy/plugin-provider-google';
-import { localPlugin } from '@moxxy/plugin-provider-local';
-import { buildWhisperPlugin } from '@moxxy/plugin-stt-whisper';
-import { buildWhisperCodexPlugin } from '@moxxy/plugin-stt-whisper-codex';
-import { builtinToolsPlugin } from '@moxxy/tools-builtin';
-import { defaultModePlugin } from '@moxxy/mode-default';
-import { goalModePlugin } from '@moxxy/mode-goal';
-import { deepResearchModePlugin } from '@moxxy/mode-deep-research';
-import { summarizeCompactorPlugin } from '@moxxy/compactor-summarize';
-import { stablePrefixCacheStrategyPlugin } from '@moxxy/cache-strategy-stable-prefix';
-import {
-  buildMemoryConsolidatePlugin,
-  type MemoryStore,
-} from '@moxxy/plugin-memory';
-import { buildTelegramPlugin } from '@moxxy/plugin-telegram';
-import { buildMcpAdminPluginWithApi } from '@moxxy/plugin-mcp';
-import { cliPlugin } from '@moxxy/plugin-cli';
-import { httpChannelPlugin } from '@moxxy/plugin-channel-http';
-import { buildWebChannelPlugin } from '@moxxy/plugin-channel-web';
-import { mobileChannelPlugin } from '@moxxy/plugin-channel-mobile';
-import { browserPlugin } from '@moxxy/plugin-browser';
-import { terminalPlugin } from '@moxxy/plugin-terminal';
-import { buildSubagentsPlugin } from '@moxxy/plugin-subagents';
-import {
-  buildPluginsAdminPlugin,
-  setPluginEnabled,
-  INSTALLABLE_PLUGIN_CATALOG,
-} from '@moxxy/plugin-plugins-admin';
-import { buildSelfUpdatePlugin } from '@moxxy/plugin-self-update';
-import { buildProviderAdminPluginWithApi } from '@moxxy/plugin-provider-admin';
-import { buildUsageStatsPlugin } from '@moxxy/plugin-usage-stats';
-import { commandsPlugin } from '@moxxy/plugin-commands';
-import { buildViewPlugin } from '@moxxy/plugin-view';
-import { computerControlPlugin } from '@moxxy/plugin-computer-control';
-import { buildOauthPlugin } from '@moxxy/plugin-oauth';
-import { resolveString } from '@moxxy/plugin-vault';
-import type { VaultStore } from '@moxxy/plugin-vault';
+import { INSTALLABLE_PLUGIN_CATALOG } from '@moxxy/plugin-plugins-admin';
 import {
   buildSchedulerPlugin,
   type SchedulerPoller,
@@ -65,14 +21,21 @@ import {
 import { workerIsolator } from '@moxxy/isolator-worker';
 import { subprocessIsolator } from '@moxxy/isolator-subprocess';
 import { wasmIsolator } from '@moxxy/isolator-wasm';
+import type { VaultStore } from '@moxxy/plugin-vault';
+import type { MemoryStore } from '@moxxy/plugin-memory';
 import type { WorkflowStore } from '@moxxy/plugin-workflows';
-import { BUILTIN_SKILLS_DIR_RESOLVED } from './builtin-skills-dir.js';
+import {
+  buildBuiltinEntries,
+  type BuiltinEntry,
+  type ViewSurfaceRef,
+  type WebControlsRef,
+} from './builtin-entries.js';
+import { buildSetPluginEnabledLive } from './plugin-toggle.js';
 import { buildWorkflowsIntegration } from './workflows.js';
 
-export interface BuiltinEntry {
-  readonly name: string;
-  readonly plugin: Plugin;
-}
+// Re-exported so existing consumers (register-plugins.ts) keep importing the
+// shape from here unchanged.
+export type { BuiltinEntry };
 
 export interface BuiltinRequirementDecision {
   readonly hardRequirements: boolean;
@@ -155,348 +118,15 @@ export interface BuiltBuiltinsCore {
   readonly workflows: { readonly store: WorkflowStore; readonly stop: () => void };
 }
 
-/**
- * Assemble the static builtin plugin list (everything except the
- * config plugin, which needs the rest as input). The returned `scheduler`
- * handle is surfaced upstream so the `moxxy schedule …` subcommands
- * can drive the store/poller without going through a model turn.
- */
-export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
-  const { session, rawConfig, vault, vaultPlugin, memory, memoryPlugin, schedulerRunner, webhookRunner, disabledPackages, logger } = args;
-
-  // Shared handle linking the web surface to present_view: the web channel
-  // publishes its live URL + view-id minter here on start; the view tool reads
-  // it so it can return the public URL for the agent to relay on any channel.
-  const viewSurface: { current: { url: string; nextViewId: () => string } | null } = { current: null };
-  // Live web-surface controls (set when the surface starts) so the web_set_tunnel
-  // tool can switch the tunnel without a restart.
-  const webControls: { current: { retunnel(): Promise<string | null> } | null } = { current: null };
-
-  // Plug/unplug a plugin from the live session AND persist it. Backs both the
-  // enable_plugin / disable_plugin model tools and the TUI `/plugins` picker.
-  // Disable → record + unload (a builtin or a discovered plugin). Enable →
-  // record + re-register a builtin or reload to re-discover an installed
-  // plugin. `disabledPackages` is the same set the PluginHost reload predicate
-  // reads, so a disable is never resurrected by a later reload. Defined before
-  // `entries` but only invoked later, so the `entries.find` lookup is safe.
-  const setPluginEnabledLive = async (packageName: string, enabled: boolean): Promise<void> => {
-    await setPluginEnabled(packageName, enabled);
-    if (!enabled) {
-      disabledPackages.add(packageName);
-      await session.pluginHost.unload(packageName);
-      return;
-    }
-    disabledPackages.delete(packageName);
-    if (session.pluginHost.list().some((p) => p.name === packageName)) return;
-    const builtin = entries.find((e) => e.name === packageName);
-    if (builtin) session.pluginHost.registerStatic(builtin.plugin);
-    else await session.pluginHost.reload();
-  };
-
-  const entries: BuiltinEntry[] = [
-    { name: '@moxxy/plugin-provider-anthropic', plugin: anthropicPlugin },
-    { name: '@moxxy/plugin-provider-openai', plugin: openaiPlugin },
-    { name: '@moxxy/plugin-provider-openai-codex', plugin: openaiCodexPlugin },
-    { name: '@moxxy/plugin-provider-claude-code', plugin: claudeCodePlugin },
-    // OpenAI-compatible vendors (z.ai api-key mode, xAI, Google Gemini, local
-    // servers) + z.ai's GLM Coding Plan (Anthropic-compatible). Each reuses the
-    // shared OpenAIProvider/AnthropicProvider with its own slug + base URL +
-    // model catalog; see the respective plugin packages.
-    { name: '@moxxy/plugin-provider-zai', plugin: zaiPlugin },
-    { name: '@moxxy/plugin-provider-xai', plugin: xaiPlugin },
-    { name: '@moxxy/plugin-provider-google', plugin: googlePlugin },
-    { name: '@moxxy/plugin-provider-local', plugin: localPlugin },
-    { name: '@moxxy/tools-builtin', plugin: builtinToolsPlugin },
-    { name: '@moxxy/mode-default', plugin: defaultModePlugin },
-    { name: '@moxxy/mode-goal', plugin: goalModePlugin },
-    { name: '@moxxy/mode-deep-research', plugin: deepResearchModePlugin },
-    { name: '@moxxy/compactor-summarize', plugin: summarizeCompactorPlugin },
-    { name: '@moxxy/cache-strategy-stable-prefix', plugin: stablePrefixCacheStrategyPlugin },
-    { name: '@moxxy/plugin-vault', plugin: vaultPlugin },
-    { name: '@moxxy/plugin-stt-whisper', plugin: buildWhisperPlugin() },
-    {
-      name: '@moxxy/plugin-stt-whisper-codex',
-      plugin: buildWhisperCodexPlugin({ vault }),
-    },
-    { name: '@moxxy/plugin-memory', plugin: memoryPlugin },
-    {
-      name: '@moxxy/memory-consolidate',
-      plugin: buildMemoryConsolidatePlugin(memory, () => session.providers.getActive()),
-    },
-    { name: '@moxxy/plugin-cli', plugin: cliPlugin },
-    // Cross-session token usage. onShutdown folds this run's provider_response
-    // usage by provider/model into ~/.moxxy/usage.json (a forward-going
-    // aggregate). Surfaced in the /usage panel; reset via /usage clear.
-    { name: '@moxxy/plugin-usage-stats', plugin: buildUsageStatsPlugin() },
-    { name: '@moxxy/plugin-channel-http', plugin: httpChannelPlugin },
-    {
-      name: '@moxxy/plugin-channel-web',
-      plugin: buildWebChannelPlugin({
-        getTunnel: () => session.tunnelProviders.getActive(),
-        publishSurface: (s) => {
-          viewSurface.current = s;
-        },
-        publishControls: (c) => {
-          webControls.current = c;
-        },
-        getControls: () => webControls.current,
-        tunnels: {
-          list: () => session.tunnelProviders.list().map((p) => p.name),
-          active: () => session.tunnelProviders.getActive()?.name ?? null,
-          setActive: (n) => session.tunnelProviders.setActive(n),
-          isAvailable: async (n) => {
-            const p = session.tunnelProviders.list().find((x) => x.name === n);
-            return p?.isAvailable ? p.isAvailable() : true;
-          },
-        },
-        ...(typeof (rawConfig.channels as { web?: { tunnel?: unknown } } | undefined)?.web?.tunnel === 'string'
-          ? { defaultTunnel: (rawConfig.channels as { web?: { tunnel?: string } }).web!.tunnel }
-          : {}),
-      }),
-    },
-    { name: '@moxxy/plugin-channel-mobile', plugin: mobileChannelPlugin },
-    { name: '@moxxy/plugin-telegram', plugin: buildTelegramPlugin({ vault }) },
-    { name: '@moxxy/plugin-browser', plugin: browserPlugin },
-    // Shared terminal surface + `terminal` tool. node-pty is an optional native
-    // peer dep, so the surface availability (real PTY vs piped fallback) is
-    // diagnosed at runtime — the tool always registers for a stable tool list.
-    { name: '@moxxy/plugin-terminal', plugin: terminalPlugin },
-    // macOS-only computer control: screenshot, click, type, key,
-    // open, clipboard, applescript. Plugin always registers (so the
-    // model's tool list is stable across hosts); handlers throw a
-    // clear "macOS only" error on Linux/Windows.
-    { name: '@moxxy/plugin-computer-control', plugin: computerControlPlugin },
-    // Generic OAuth 2.0 + PKCE client. Adds oauth_authorize /
-    // oauth_get_token / oauth_clear_token tools that any skill can
-    // chain (Google OAuth → MCP env, GitHub OAuth → API calls, …).
-    { name: '@moxxy/plugin-oauth', plugin: buildOauthPlugin({ vault }) },
-    // Universal slash commands (/info, /clear, /new, /exit, /help)
-    // shared across every channel via session.commands. Disable to
-    // hide them everywhere — channel-local commands keep working.
-    { name: '@moxxy/plugin-commands', plugin: commandsPlugin },
-    // Agent-authored UIs: present_view parses the model's JSX-like view-spec
-    // (via the session's active, swappable view renderer) into a validated AST
-    // that the web surface renders as interactive UI. The renderer is reached
-    // through a closure since ToolContext exposes no session handle.
-    {
-      name: '@moxxy/plugin-view',
-      plugin: buildViewPlugin({
-        getRenderer: () => session.viewRenderers.getActive(),
-        getSurface: () => viewSurface.current,
-      }),
-    },
-    // Subagents are a swappable block: this plugin owns the
-    // dispatch_agent tool and the auto-detection skill. Drop it
-    // (`config.plugins['@moxxy/plugin-subagents'].enabled = false`) and
-    // the model can't spawn children — the normal single-loop flow runs.
-    // Agent kinds (researcher, code-reviewer, ...) come from OTHER plugins
-    // via `PluginSpec.agents`; the closure here reads the live registry.
-    {
-      name: '@moxxy/plugin-subagents',
-      plugin: buildSubagentsPlugin({
-        getAgent: (name) => session.agents.get(name),
-      }),
-    },
-    // Runtime plugin management — exposes install_plugin / uninstall_plugin
-    // (npm into ~/.moxxy/plugins) and enable_plugin / disable_plugin (config-
-    // backed plug/unplug of any registered plugin). Hot-reloads via
-    // session.pluginHost.reload() so changes drop into the active registries
-    // without restart. Drop this plugin to lock the plugin set (e.g. for
-    // production deployments).
-    {
-      name: '@moxxy/plugin-plugins-admin',
-      plugin: buildPluginsAdminPlugin({
-        reload: () => session.pluginHost.reload(),
-        snapshot: () => ({
-          tools: session.tools.list().map((t) => t.name),
-          agents: session.agents.list().map((a) => a.name),
-          providers: session.providers.list().map((p) => p.name),
-          modes: session.modes.list().map((l) => l.name),
-          compactors: session.compactors.list().map((c) => c.name),
-          channels: session.channels.list().map((c) => c.name),
-        }),
-        setEnabled: setPluginEnabledLive,
-      }),
-    },
-    // Self-update — exposes self_update_* tools so the model can author
-    // and apply guardrailed, transactional changes to its OWN plugins /
-    // skills (Tier 1, hot-reloaded) under ~/.moxxy. Every code write is
-    // permission-gated; verify builds+tests+loads the change and a failed
-    // modify auto-restores the previous version. Disable this plugin
-    // (`config.plugins['@moxxy/plugin-self-update'].enabled = false`) to
-    // lock the code base.
-    {
-      name: '@moxxy/plugin-self-update',
-      plugin: buildSelfUpdatePlugin({
-        moxxyDir: path.join(os.homedir(), '.moxxy'),
-        reload: () => session.pluginHost.reload(),
-        unload: (name) => session.pluginHost.unload(name),
-        snapshot: () => ({
-          tools: session.tools.list().map((t) => t.name),
-          agents: session.agents.list().map((a) => a.name),
-          providers: session.providers.list().map((p) => p.name),
-          modes: session.modes.list().map((l) => l.name),
-          compactors: session.compactors.list().map((c) => c.name),
-          channels: session.channels.list().map((c) => c.name),
-        }),
-        skipped: () =>
-          session.pluginHost.listSkipped().map((s) => ({
-            pluginName: s.pluginName,
-            ...(s.packageName ? { packageName: s.packageName } : {}),
-            message: s.message,
-          })),
-        emit: (e) =>
-          session.log
-            .append({
-              type: 'plugin_event',
-              pluginId: asPluginId('@moxxy/plugin-self-update'),
-              subtype: e.subtype,
-              payload: e.payload,
-              sessionId: e.sessionId,
-              turnId: e.turnId,
-              source: 'plugin',
-            })
-            .then(() => undefined),
-        ...(typeof rawConfig.plugins?.['@moxxy/plugin-self-update']?.options?.maxTxnRetained === 'number'
-          ? {
-              maxTxnRetained: rawConfig.plugins['@moxxy/plugin-self-update'].options
-                .maxTxnRetained as number,
-            }
-          : {}),
-        // Tier-2 core-patching is on by default; set
-        // options.allowCoreUpdate = false to hide the self_update_core_* tools.
-        // options.repoUrl overrides the git source (needed if @moxxy/core's
-        // published package.json lacks a `repository` field).
-        //
-        // MOXXY_NO_CORE_UPDATE=1 hard-disables Tier-2 regardless of config —
-        // the desktop sets this on the runner spawn because core patches
-        // (git clone + build + dist overlay + restart) can't work inside a
-        // read-only, packaged .app and would only confuse the model.
-        coreUpdate: {
-          enabled:
-            process.env.MOXXY_NO_CORE_UPDATE !== '1' &&
-            rawConfig.plugins?.['@moxxy/plugin-self-update']?.options?.allowCoreUpdate !== false,
-          ...(typeof rawConfig.plugins?.['@moxxy/plugin-self-update']?.options?.repoUrl === 'string'
-            ? { repoUrlOverride: rawConfig.plugins['@moxxy/plugin-self-update'].options.repoUrl as string }
-            : {}),
-        },
-      }),
-    },
-    // Voice/TTS control — lets the agent switch which text-to-speech backend
-    // read-aloud surfaces (the desktop's speaker button) use, without a
-    // settings UI. `set_voice` activates a registered synthesizer by name, or
-    // 'system' to deactivate (fall back to the OS voice). `list_voices` reports
-    // what's available + which is active. A synthesizer authored via
-    // self-update auto-activates on load, so this is for switching afterwards.
-    {
-      name: '@moxxy/voice-admin',
-      plugin: (() => {
-        // 'system' (the OS voice) plus every registered synthesizer — the one
-        // list both tools speak in terms of (list_voices' result and
-        // set_voice's "unknown name" hint).
-        const voiceNames = (): string[] => [
-          'system',
-          ...session.synthesizers.list().map((s) => s.name),
-        ];
-        return definePlugin({
-          name: '@moxxy/voice-admin',
-          version: '0.0.0',
-          tools: [
-            defineTool({
-              name: 'list_voices',
-              description:
-                'List the text-to-speech (synthesizer) backends registered on this ' +
-                'session and which one is active. "system" means the OS voice (no ' +
-                'plugin synthesizer active).',
-              inputSchema: z.object({}),
-              permission: { action: 'allow' },
-              handler: () => ({
-                active: session.synthesizers.getActiveName() ?? 'system',
-                available: voiceNames(),
-              }),
-            }),
-            defineTool({
-              name: 'set_voice',
-              description:
-                'Choose which text-to-speech backend read-aloud uses. Pass a ' +
-                'registered synthesizer name (see list_voices) to activate it, or ' +
-                '"system" to fall back to the OS voice. Use this to switch between ' +
-                'an installed TTS plugin (e.g. ElevenLabs) and the built-in voice.',
-              inputSchema: z.object({
-                synthesizer: z
-                  .string()
-                  .min(1)
-                  .describe('Synthesizer name to activate, or "system" for the OS voice.'),
-              }),
-              permission: { action: 'allow' },
-              handler: ({ synthesizer }) => {
-                if (synthesizer === 'system') {
-                  session.synthesizers.clearActive();
-                  return { active: 'system' };
-                }
-                if (!session.synthesizers.has(synthesizer)) {
-                  throw new Error(
-                    `No synthesizer named "${synthesizer}". Available: ${voiceNames().join(', ')}.`,
-                  );
-                }
-                session.synthesizers.setActive(synthesizer);
-                return { active: synthesizer };
-              },
-            }),
-          ],
-        });
-      })(),
-    },
-    // Provider admin tools (provider_add, provider_list, provider_remove,
-    // provider_test). Persists OpenAI-compatible vendor registrations to
-    // ~/.moxxy/providers.json; the plugin's onInit re-registers them on
-    // every boot. Pairs with the `add-provider` skill which walks the
-    // model through gathering baseURL + models + key.
-    (() => {
-      const { plugin, api } = buildProviderAdminPluginWithApi({ providerRegistry: session.providers });
-      // Stash the api on the session so the desktop (via the runner's
-      // `provider.configure`) can edit a stored provider without going
-      // through the model. Mirrors the mcpAdmin stash below.
-      session.providerAdmin = api;
-      return { name: '@moxxy/plugin-provider-admin', plugin };
-    })(),
-    // Admin tools (mcp_add_server, mcp_list_servers, mcp_remove_server,
-    // mcp_test_server) plus the boot-time lazy attach. Passing the
-    // session's live tool registry enables both hot-attach for runtime
-    // adds AND lazy stub registration in onInit for saved servers.
-    (() => {
-      const { plugin, api } = buildMcpAdminPluginWithApi({
-        toolRegistry: session.tools,
-        skillRegistry: session.skills,
-        userSkillsDir: rawConfig.skills?.userDir,
-        // Resolve `${vault:NAME}` placeholders in MCP env/header values at
-        // connect time. The persisted catalog (and tool args the model sees)
-        // keep the placeholder; the plaintext never leaves the connect path.
-        secretResolver: (value) => resolveString(value, vault),
-      });
-      // Stash the api on the session so the TUI / CLI can call
-      // enableAndAttach + detach without going through the model. `mcpAdmin` is
-      // a typed optional capability on Session (McpAdminView); McpAdminApi
-      // structurally satisfies it.
-      session.mcpAdmin = api;
-      return { name: '@moxxy/plugin-mcp-admin', plugin };
-    })(),
-    {
-      name: '@moxxy/synthesize-skill',
-      // Thread the SAME directory set the boot scan uses so reload_skills
-      // doesn't drop builtin/plugin skills when invoked at runtime.
-      plugin: buildSynthesizeSkillPlugin(session, {
-        builtinDir: BUILTIN_SKILLS_DIR_RESOLVED,
-        ...(rawConfig.skills?.extraDirs ? { pluginDirs: rawConfig.skills.extraDirs } : {}),
-        ...(rawConfig.skills?.projectDir ? { projectDir: rawConfig.skills.projectDir } : {}),
-        ...(rawConfig.skills?.userDir ? { userDir: rawConfig.skills.userDir } : {}),
-      }),
-    },
-  ];
-
-  // Plugin-management slice backing the TUI `/plugins` picker: the live
-  // disabled-set, the installable catalog, and the same plug/unplug closure the
-  // model tools use. A RemoteSession leaves this undefined; the picker guards.
+/** Wire the plugin-management slice that backs the TUI `/plugins` picker. */
+function wirePluginsAdminView(
+  session: Session,
+  disabledPackages: Set<string>,
+  setPluginEnabledLive: (packageName: string, enabled: boolean) => Promise<void>,
+): void {
+  // The live disabled-set, the installable catalog, and the same plug/unplug
+  // closure the model tools use. A RemoteSession leaves this undefined; the
+  // picker guards.
   session.pluginsAdmin = {
     loaded: () =>
       session.pluginHost.list().map((p) => ({
@@ -516,49 +146,55 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
       })),
     setEnabled: setPluginEnabledLive,
   };
+}
 
-  // Scheduler — fires recurring/one-shot prompts at user-defined times.
-  // The runner reuses the active session for v1; scheduled prompts
-  // appear in conversation history so the user sees what fired. An
-  // isolated child-session runner is the obvious follow-up to avoid
-  // context pollution.
-  const { plugin: schedulerPlugin, store: scheduleStore, poller: schedulerPoller } =
-    buildSchedulerPlugin({
-      runner: schedulerRunner,
-      skills: session.skills,
-      logger,
-    });
-  entries.push({ name: '@moxxy/plugin-scheduler', plugin: schedulerPlugin });
+/** Scheduler — fires recurring/one-shot prompts at user-defined times. */
+function buildSchedulerSlice(
+  session: Session,
+  schedulerRunner: SchedulePromptRunner,
+  logger: BuildBuiltinsArgs['logger'],
+): { entry: BuiltinEntry; store: ScheduleStore; poller: SchedulerPoller } {
+  // The runner reuses the active session for v1; scheduled prompts appear in
+  // conversation history so the user sees what fired. An isolated child-session
+  // runner is the obvious follow-up to avoid context pollution.
+  const { plugin, store, poller } = buildSchedulerPlugin({
+    runner: schedulerRunner,
+    skills: session.skills,
+    logger,
+  });
+  return { entry: { name: '@moxxy/plugin-scheduler', plugin }, store, poller };
+}
 
-  // Workflows — saved DAGs of skills/prompts/tools. Reuses the scheduler store
-  // for time triggers (no new timer), the EventLog for afterWorkflow, and the
-  // subagent spawner for step execution. Stashes a `WorkflowsView` on the
-  // session (in onReady) backing the `/workflows` modal.
-  const workflows = buildWorkflowsIntegration({ session, scheduleStore, logger });
-  entries.push({ name: '@moxxy/plugin-workflows', plugin: workflows.plugin });
-
-  // Webhooks — generic external-event triggers. Listens on its own port
-  // (default 3738) and dispatches verified deliveries to runTurn via
-  // the supplied runner. Agent-facing tools (webhook_create,
-  // webhook_tunnel_start, webhook_setup_guide, …) let a non-technical
-  // user walk through tunnel + provider setup in conversation.
-  const {
-    plugin: webhooksPlugin,
-    store: webhookStore,
-    config: webhookConfig,
-    stop: stopWebhooks,
-  } = buildWebhooksPlugin({
+/** Webhooks — generic external-event triggers on their own port. */
+function buildWebhooksSlice(
+  webhookRunner: WebhookPromptRunner,
+  logger: BuildBuiltinsArgs['logger'],
+): {
+  entry: BuiltinEntry;
+  store: WebhookStore;
+  config: WebhookConfigStore;
+  stop: () => Promise<void>;
+} {
+  // Listens on its own port (default 3738) and dispatches verified deliveries
+  // to runTurn via the supplied runner. Agent-facing tools (webhook_create,
+  // webhook_tunnel_start, webhook_setup_guide, …) let a non-technical user walk
+  // through tunnel + provider setup in conversation.
+  const { plugin, store, config, stop } = buildWebhooksPlugin({
     runner: webhookRunner,
     logger,
   });
-  entries.push({ name: '@moxxy/plugin-webhooks', plugin: webhooksPlugin });
+  return { entry: { name: '@moxxy/plugin-webhooks', plugin }, store, config, stop };
+}
 
-  // Security plugin — always registered, but a no-op unless
-  // `security.enabled: true` in the loaded config. Its onInit hook
-  // fires AFTER every other plugin has registered, so it sees the
-  // fully-populated tool registry when wrapping declared-isolation
-  // tools. Tools without an `isolation` declaration pass through
-  // untouched (unless `security.requireDeclaration` is set).
+/** Security plugin — always registered, no-op unless `security.enabled`. */
+function buildSecuritySlice(
+  session: Session,
+  rawConfig: MoxxyConfig,
+): { entry: BuiltinEntry; security: SecurityPluginHandle } {
+  // Its onInit hook fires AFTER every other plugin has registered, so it sees
+  // the fully-populated tool registry when wrapping declared-isolation tools.
+  // Tools without an `isolation` declaration pass through untouched (unless
+  // `security.requireDeclaration` is set).
   const security = buildSecurityPlugin({
     config: {
       enabled: rawConfig.security?.enabled ?? false,
@@ -576,13 +212,70 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
     // `none` + `inproc` isolators; unused isolators have no runtime cost.
     isolators: [workerIsolator, subprocessIsolator, wasmIsolator],
   });
-  entries.push({ name: '@moxxy/plugin-security', plugin: security.plugin });
+  return { entry: { name: '@moxxy/plugin-security', plugin: security.plugin }, security };
+}
+
+/**
+ * Assemble the static builtin plugin list (everything except the
+ * config plugin, which needs the rest as input). The returned `scheduler`
+ * handle is surfaced upstream so the `moxxy schedule …` subcommands
+ * can drive the store/poller without going through a model turn.
+ */
+export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
+  const { session, rawConfig, vault, vaultPlugin, memory, memoryPlugin, schedulerRunner, webhookRunner, disabledPackages, logger } = args;
+
+  // Shared handle linking the web surface to present_view: the web channel
+  // publishes its live URL + view-id minter here on start; the view tool reads
+  // it so it can return the public URL for the agent to relay on any channel.
+  const viewSurface: ViewSurfaceRef = { current: null };
+  // Live web-surface controls (set when the surface starts) so the web_set_tunnel
+  // tool can switch the tunnel without a restart.
+  const webControls: WebControlsRef = { current: null };
+
+  // Plug/unplug a plugin from the live session AND persist it. Backs both the
+  // model tools and the TUI `/plugins` picker. Resolves `entries` lazily (it is
+  // defined below) so the `entries.find` lookup is safe at call time.
+  const setPluginEnabledLive = buildSetPluginEnabledLive({
+    session,
+    disabledPackages,
+    getEntries: () => entries,
+  });
+
+  const entries: BuiltinEntry[] = buildBuiltinEntries({
+    session,
+    rawConfig,
+    vault,
+    vaultPlugin,
+    memory,
+    memoryPlugin,
+    viewSurface,
+    webControls,
+    setPluginEnabledLive,
+  });
+
+  wirePluginsAdminView(session, disabledPackages, setPluginEnabledLive);
+
+  const scheduler = buildSchedulerSlice(session, schedulerRunner, logger);
+  entries.push(scheduler.entry);
+
+  // Workflows — saved DAGs of skills/prompts/tools. Reuses the scheduler store
+  // for time triggers (no new timer), the EventLog for afterWorkflow, and the
+  // subagent spawner for step execution. Stashes a `WorkflowsView` on the
+  // session (in onReady) backing the `/workflows` modal.
+  const workflows = buildWorkflowsIntegration({ session, scheduleStore: scheduler.store, logger });
+  entries.push({ name: '@moxxy/plugin-workflows', plugin: workflows.plugin });
+
+  const webhooks = buildWebhooksSlice(webhookRunner, logger);
+  entries.push(webhooks.entry);
+
+  const security = buildSecuritySlice(session, rawConfig);
+  entries.push(security.entry);
 
   return {
     entries,
-    scheduler: { store: scheduleStore, poller: schedulerPoller },
-    webhooks: { store: webhookStore, config: webhookConfig, stop: stopWebhooks },
-    security,
+    scheduler: { store: scheduler.store, poller: scheduler.poller },
+    webhooks: { store: webhooks.store, config: webhooks.config, stop: webhooks.stop },
+    security: security.security,
     workflows: { store: workflows.store, stop: workflows.stop },
   };
 }

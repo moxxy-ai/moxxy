@@ -1,93 +1,21 @@
 import type {
-  AgentDef,
-  CacheStrategyDef,
-  ChannelDef,
-  CommandDef,
-  CompactorDef,
-  ModeDef,
   MoxxyRequirement,
   Plugin,
   PluginHostHandle,
-  ProviderDef,
   RequirementCheck,
   RequirementIssue,
   ResolvedPluginManifest,
-  SurfaceDef,
-  ToolDef,
-  TranscriberDef,
-  SynthesizerDef,
-  EmbedderDef,
-  Isolator,
-  ViewRendererDef,
-  TunnelProviderDef,
-  WorkflowExecutorDef,
 } from '@moxxy/sdk';
-import type { Logger } from '../logger.js';
-import type { AgentRegistry } from '../registries/agents.js';
-import type { CommandRegistry } from '../registries/commands.js';
-import type { ChannelRegistryImpl } from '../registries/channels.js';
-import type { SurfaceRegistryImpl } from '../registries/surfaces.js';
-import type { CacheStrategyRegistry } from '../registries/cache-strategies.js';
-import type { ViewRendererRegistry } from '../registries/view-renderers.js';
-import type { TunnelProviderRegistry } from '../registries/tunnel-providers.js';
-import type { CompactorRegistry } from '../registries/compactors.js';
-import type { ModeRegistry } from '../registries/modes.js';
-import type { ProviderRegistry } from '../registries/providers.js';
-import type { ToolRegistry } from '../registries/tools.js';
-import type { TranscriberRegistry } from '../registries/transcribers.js';
-import type { SynthesizerRegistry } from '../registries/synthesizers.js';
-import type { EmbedderRegistry } from '../registries/embedders.js';
-import type { IsolatorRegistry } from '../registries/isolators.js';
-import type { WorkflowExecutorRegistry } from '../registries/workflow-executors.js';
-import type { HookDispatcherImpl } from './lifecycle.js';
-import type { RequirementRegistry } from '../requirements.js';
 import { discoverPlugins } from './discovery.js';
 import { toposortPluginManifests, PluginCycleError } from './toposort.js';
+import { REGISTRY_KINDS, type RegistryNameRecord } from './registry-kinds.js';
 
-export interface PluginHostOptions {
-  readonly cwd: string;
-  readonly logger: Logger;
-  readonly tools: ToolRegistry;
-  readonly providers: ProviderRegistry;
-  readonly modes: ModeRegistry;
-  readonly compactors: CompactorRegistry;
-  readonly cacheStrategies: CacheStrategyRegistry;
-  readonly viewRenderers: ViewRendererRegistry;
-  readonly tunnelProviders: TunnelProviderRegistry;
-  readonly channels: ChannelRegistryImpl;
-  readonly surfaces: SurfaceRegistryImpl;
-  readonly agents: AgentRegistry;
-  readonly commands: CommandRegistry;
-  readonly transcribers: TranscriberRegistry;
-  readonly synthesizers: SynthesizerRegistry;
-  readonly embedders: EmbedderRegistry;
-  readonly isolators: IsolatorRegistry;
-  readonly workflowExecutors: WorkflowExecutorRegistry;
-  readonly requirements: RequirementRegistry;
-  readonly dispatcher: HookDispatcherImpl;
-  readonly loader?: PluginLoader;
-  /**
-   * Extra discovery roots beyond the cwd-rooted `node_modules` walk (e.g.
-   * `~/.moxxy/plugins` and its `node_modules`). Stored so `reload()` reuses
-   * them — otherwise a reload would compute its "wanted" set without these
-   * paths and unload every user plugin, then fail to rediscover them.
-   */
-  readonly userPaths?: ReadonlyArray<string>;
-  /**
-   * Predicate consulted (by PACKAGE name) for discovered plugins on every
-   * `discoverAndLoad`/`reload`. Returning `true` keeps the package out of the
-   * "wanted" set, so a plugin the user disabled (config `plugins[name].enabled
-   * = false`) is never re-loaded by a reload and, if currently loaded, is
-   * unloaded. Boot-time builtins are filtered separately by register-plugins;
-   * this closes the runtime-toggle / reload hole. Reads live state, so a
-   * runtime enable/disable takes effect on the next reload without a restart.
-   */
-  readonly isDisabled?: (packageName: string) => boolean;
-}
-
-export interface PluginLoader {
-  load(manifest: ResolvedPluginManifest): Promise<Plugin>;
-}
+// PluginHostOptions + PluginLoader live in ./host-options.js (a leaf shared with
+// registry-kinds.ts to avoid an import cycle). Imported for local use and
+// re-exported so existing `import { PluginHostOptions } from './host.js'` call
+// sites keep working.
+import type { PluginHostOptions, PluginLoader } from './host-options.js';
+export type { PluginHostOptions, PluginLoader };
 
 export interface RegisterStaticOptions {
   /**
@@ -127,25 +55,9 @@ export class PluginRequirementError extends Error {
   }
 }
 
-interface LoadedRecord {
+interface LoadedRecord extends RegistryNameRecord {
   readonly plugin: Plugin;
   readonly manifest?: ResolvedPluginManifest;
-  readonly toolNames: ReadonlyArray<string>;
-  readonly providerNames: ReadonlyArray<string>;
-  readonly modeNames: ReadonlyArray<string>;
-  readonly compactorNames: ReadonlyArray<string>;
-  readonly cacheStrategyNames: ReadonlyArray<string>;
-  readonly viewRendererNames: ReadonlyArray<string>;
-  readonly tunnelProviderNames: ReadonlyArray<string>;
-  readonly channelNames: ReadonlyArray<string>;
-  readonly surfaceNames: ReadonlyArray<string>;
-  readonly agentNames: ReadonlyArray<string>;
-  readonly commandNames: ReadonlyArray<string>;
-  readonly transcriberNames: ReadonlyArray<string>;
-  readonly synthesizerNames: ReadonlyArray<string>;
-  readonly embedderNames: ReadonlyArray<string>;
-  readonly isolatorNames: ReadonlyArray<string>;
-  readonly workflowExecutorNames: ReadonlyArray<string>;
 }
 
 export class PluginHost implements PluginHostHandle {
@@ -269,23 +181,12 @@ export class PluginHost implements PluginHostHandle {
   async unload(name: string): Promise<void> {
     const record = this.loaded.get(name);
     if (!record) return;
-    for (const toolName of record.toolNames) this.opts.tools.unregister(toolName);
-    for (const provName of record.providerNames) this.opts.providers.unregister(provName);
-    for (const modeName of record.modeNames) this.opts.modes.unregister(modeName);
-    for (const compName of record.compactorNames) this.opts.compactors.unregister(compName);
-    for (const csName of record.cacheStrategyNames) this.opts.cacheStrategies.unregister(csName);
-    for (const vrName of record.viewRendererNames) this.opts.viewRenderers.unregister(vrName);
-    for (const tpName of record.tunnelProviderNames) this.opts.tunnelProviders.unregister(tpName);
-    for (const channelName of record.channelNames) this.opts.channels.unregister(channelName);
-    for (const surfaceName of record.surfaceNames) this.opts.surfaces.unregister(surfaceName);
-    for (const agentName of record.agentNames) this.opts.agents.unregister(agentName);
-    for (const cmdName of record.commandNames) this.opts.commands.unregister(cmdName);
-    for (const transcriberName of record.transcriberNames) this.opts.transcribers.unregister(transcriberName);
-    for (const synthName of record.synthesizerNames) this.opts.synthesizers.unregister(synthName);
-    for (const embedderName of record.embedderNames) this.opts.embedders.unregister(embedderName);
-    for (const isolatorName of record.isolatorNames) this.opts.isolators.unregister(isolatorName);
-    for (const wfxName of record.workflowExecutorNames)
-      this.opts.workflowExecutors.unregister(wfxName);
+    // Iterate REGISTRY_KINDS in its declared order — the exact set + order the
+    // original hand-written unregister sequence used — so register/unregister
+    // stay in lockstep and a new kind is one table entry, not edits here.
+    for (const kind of REGISTRY_KINDS) {
+      for (const recordedName of record[kind.recordField]) kind.unregister(this.opts, recordedName);
+    }
     this.loaded.delete(name);
     // Unregister under the SAME key registration used: package name for
     // discovered plugins (see registerDiscovered), declared name for statics.
@@ -319,65 +220,25 @@ export class PluginHost implements PluginHostHandle {
   }
 
   private applyPlugin(plugin: Plugin, manifest?: ResolvedPluginManifest): LoadedRecord {
-    const toolNames = (plugin.tools ?? []).map((t: ToolDef) => t.name);
-    const providerNames = (plugin.providers ?? []).map((p: ProviderDef) => p.name);
-    const modeNames = (plugin.modes ?? []).map((m: ModeDef) => m.name);
-    const compactorNames = (plugin.compactors ?? []).map((c: CompactorDef) => c.name);
-    const cacheStrategyNames = (plugin.cacheStrategies ?? []).map((c: CacheStrategyDef) => c.name);
-    const viewRendererNames = (plugin.viewRenderers ?? []).map((v: ViewRendererDef) => v.name);
-    const tunnelProviderNames = (plugin.tunnelProviders ?? []).map((t: TunnelProviderDef) => t.name);
-    const channelNames = (plugin.channels ?? []).map((c: ChannelDef) => c.name);
-    const surfaceNames = (plugin.surfaces ?? []).map((s: SurfaceDef) => s.kind);
-    const agentNames = (plugin.agents ?? []).map((a: AgentDef) => a.name);
-    const commandNames = (plugin.commands ?? []).map((c: CommandDef) => c.name);
-    const transcriberNames = (plugin.transcribers ?? []).map((t: TranscriberDef) => t.name);
-    const synthesizerNames = (plugin.synthesizers ?? []).map((s: SynthesizerDef) => s.name);
-    const embedderNames = (plugin.embedders ?? []).map((e: EmbedderDef) => e.name);
-    const isolatorNames = (plugin.isolators ?? []).map((i: Isolator) => i.name);
-    const workflowExecutorNames = (plugin.workflowExecutors ?? []).map(
-      (w: WorkflowExecutorDef) => w.name,
-    );
+    // Snapshot the contributed names BEFORE registering (same as the original
+    // two-phase order), keyed by REGISTRY_KINDS field. Building the names from
+    // the same table the registration loop uses keeps the two in lockstep.
+    const names = {} as Record<keyof RegistryNameRecord, ReadonlyArray<string>>;
+    for (const kind of REGISTRY_KINDS) {
+      names[kind.recordField] = kind.defs(plugin).map((def) => kind.nameOf(def));
+    }
 
-    for (const tool of plugin.tools ?? []) this.opts.tools.register(tool);
-    for (const provider of plugin.providers ?? []) this.opts.providers.register(provider);
-    for (const mode of plugin.modes ?? []) this.opts.modes.register(mode);
-    for (const compactor of plugin.compactors ?? []) this.opts.compactors.register(compactor);
-    for (const cacheStrategy of plugin.cacheStrategies ?? [])
-      this.opts.cacheStrategies.register(cacheStrategy);
-    for (const viewRenderer of plugin.viewRenderers ?? [])
-      this.opts.viewRenderers.replace(viewRenderer);
-    for (const tunnelProvider of plugin.tunnelProviders ?? [])
-      this.opts.tunnelProviders.replace(tunnelProvider);
-    for (const channel of plugin.channels ?? []) this.opts.channels.register(channel);
-    for (const surface of plugin.surfaces ?? []) this.opts.surfaces.register(surface);
-    for (const agent of plugin.agents ?? []) this.opts.agents.register(agent);
-    for (const cmd of plugin.commands ?? []) this.opts.commands.register(cmd);
-    for (const transcriber of plugin.transcribers ?? []) this.opts.transcribers.register(transcriber);
-    for (const synth of plugin.synthesizers ?? []) this.opts.synthesizers.register(synth);
-    for (const embedder of plugin.embedders ?? []) this.opts.embedders.register(embedder);
-    for (const isolator of plugin.isolators ?? []) this.opts.isolators.register(isolator);
-    for (const wfx of plugin.workflowExecutors ?? [])
-      this.opts.workflowExecutors.register(wfx);
+    // Register in REGISTRY_KINDS order — the exact set + order the original
+    // hand-written register sequence used (incl. viewRenderers/tunnelProviders
+    // via `replace`).
+    for (const kind of REGISTRY_KINDS) {
+      for (const def of kind.defs(plugin)) kind.register(this.opts, def);
+    }
 
     return {
       plugin,
       manifest,
-      toolNames,
-      providerNames,
-      modeNames,
-      compactorNames,
-      cacheStrategyNames,
-      viewRendererNames,
-      tunnelProviderNames,
-      channelNames,
-      surfaceNames,
-      agentNames,
-      commandNames,
-      transcriberNames,
-      synthesizerNames,
-      embedderNames,
-      isolatorNames,
-      workflowExecutorNames,
+      ...(names as RegistryNameRecord),
     };
   }
 

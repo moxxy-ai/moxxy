@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type ClipboardEvent,
   type KeyboardEvent,
 } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
@@ -15,47 +14,24 @@ import { useVoiceRecorder } from '@moxxy/client-core';
 import { useActiveModeBadge } from '@moxxy/client-core';
 import { chatStore } from '@moxxy/client-core';
 import { AgentPicker } from './AgentPicker';
-import { SESSION_INFO_REFRESH_EVENT } from './agent-picker/types';
 import { ModeBanner } from './composer/ModeBanner';
 import { ContextMeter } from './ContextMeter';
 import { CommandPalette } from './CommandPalette';
-import { FILE_INSERT_EVENT, type FileInsertDetail } from '@/shell/WorkspaceFiles';
 import { ToolChip } from './composer/ToolChip';
 import { OverflowMenu } from './composer/OverflowMenu';
 import { GoalModal } from './composer/GoalModal';
 import { QueuedChip } from './composer/QueuedChip';
 import { AttachmentChip } from './composer/AttachmentChip';
 import { sendBtn } from './composer/composer-styles';
-import { toErrorMessage } from '@moxxy/client-core';
-
-interface ComposerAttachment {
-  readonly path: string;
-  readonly name: string;
-}
+import {
+  useComposerAttachments,
+  type ComposerAttachment,
+} from './composer/useComposerAttachments';
+import { useComposerSubmit } from './composer/useComposerSubmit';
 
 /** Past this height the composer textarea stops growing and scrolls
  *  internally (≈ 8 lines at the composer's font/line metrics). */
 const MAX_TEXTAREA_HEIGHT = 190;
-
-/** Read a Blob/File as base64 (no `data:` prefix) so image bytes can
- *  ride across IPC. FileReader streams large blobs without the
- *  binary-string pitfalls of `btoa(String.fromCharCode(...))`. */
-function fileToBase64(file: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error('read failed'));
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result !== 'string') {
-        reject(new Error('unexpected FileReader result'));
-        return;
-      }
-      const comma = result.indexOf(',');
-      resolve(comma >= 0 ? result.slice(comma + 1) : result);
-    };
-    reader.readAsDataURL(file);
-  });
-}
 
 interface ComposerProps {
   readonly ready: boolean;
@@ -100,30 +76,34 @@ export function Composer({
   const [draft, setDraft] = useState('');
   const [hasTranscriber, setHasTranscriber] = useState(false);
   const [noTranscriberMsg, setNoTranscriberMsg] = useState<string | null>(null);
-  /** Transient error surfaced under the composer when a pasted image
-   *  can't be attached (too large / unreadable). */
-  const [attachError, setAttachError] = useState<string | null>(null);
   const voice = useVoiceRecorder({
     onTranscript: (t) => setDraft((d) => (d ? `${d.trimEnd()} ${t}` : t)),
   });
   const [actionsOpen, setActionsOpen] = useState(false);
   const [goalOpen, setGoalOpen] = useState(false);
-  /** Files the user picked from the rail or the native picker. Each
-   *  one ships as a UserPromptAttachment with kind: 'file' + content:
-   *  absolute path so the agent's read_file / cat tools find it. */
-  const [attachments, setAttachments] = useState<ReadonlyArray<ComposerAttachment>>([]);
   const taRef = useRef<HTMLTextAreaElement>(null);
   // The "no transcriber" toast auto-clears after a delay; track the timer so
   // repeated voice clicks don't stack timers and so it can't fire setState
   // after the composer unmounts (workspace switch).
   const noTranscriberTimer = useRef<number | undefined>(undefined);
 
-  const addAttachment = (att: ComposerAttachment): void => {
-    setAttachments((cur) => (cur.some((a) => a.path === att.path) ? cur : [...cur, att]));
-  };
-  const removeAttachment = (path: string): void => {
-    setAttachments((cur) => cur.filter((a) => a.path !== path));
-  };
+  /** Stable callback for the attachment hooks to refocus the textarea. */
+  const focusInput = useCallback(() => taRef.current?.focus(), []);
+
+  // Attachment handling (rail file-insert, native picker, image paste) lives
+  // in its own hook so the attach path is independently testable.
+  const {
+    attachments,
+    removeAttachment,
+    clearAttachments,
+    attachError,
+    onAttach,
+    onPaste,
+  } = useComposerAttachments(focusInput);
+
+  const setDraftEmpty = useCallback(() => setDraft(''), []);
+  const closeGoal = useCallback(() => setGoalOpen(false), []);
+
   const inFlight = activeTurnId !== null || sending;
   // The user can type / submit even while a turn is running — the
   // send() call queues it; the drainer ships it the moment the
@@ -142,20 +122,19 @@ export function Composer({
   // knows an autonomous mode is driving the session.
   const modeBadge = useActiveModeBadge(workspaceId);
 
-  // The context rail's file tree fires a CustomEvent when the user
-  // clicks a file. We treat it as an attachment, not text — the
-  // absolute path is what the agent needs, the chip in the input
-  // is what the user wants to see.
-  useEffect(() => {
-    const handler = (ev: Event): void => {
-      const detail = (ev as CustomEvent<FileInsertDetail>).detail;
-      if (!detail?.absPath) return;
-      addAttachment({ path: detail.absPath, name: detail.name });
-      window.setTimeout(() => taRef.current?.focus(), 0);
-    };
-    window.addEventListener(FILE_INSERT_EVENT, handler);
-    return () => window.removeEventListener(FILE_INSERT_EVENT, handler);
-  }, []);
+  // Send orchestration (submit / auto-approve / one-click goal) lives in its
+  // own hook; the composer still owns the draft + attachment state.
+  const { submit, setAutoApprove, startGoal } = useComposerSubmit({
+    ready,
+    canSubmit,
+    draft,
+    attachments,
+    workspaceId,
+    onSend,
+    clearDraft: setDraftEmpty,
+    clearAttachments,
+    closeGoal,
+  });
 
   // Probe transcriber availability when the connection comes up.
   useEffect(() => {
@@ -199,81 +178,6 @@ export function Composer({
     ta.style.height = `${Math.min(MAX_TEXTAREA_HEIGHT, ta.scrollHeight)}px`;
   }, [draft]);
 
-  const submit = useCallback(() => {
-    if (!canSubmit) return;
-    onSend(draft, attachments.length > 0 ? attachments : undefined);
-    setDraft('');
-    setAttachments([]);
-  }, [canSubmit, draft, attachments, onSend]);
-
-  const setAutoApprove = useCallback(
-    (enabled: boolean): void => {
-      chatStore.setAutoApprove(workspaceId, enabled);
-      void api()
-        .invoke('session.setAutoApprove', { workspaceId, enabled })
-        .catch(() => {});
-    },
-    [workspaceId],
-  );
-
-  // One-click goal: switch to goal mode, turn auto-approve ON, and start
-  // working on the typed objective. Mirrors the TUI's `/goal <objective>`
-  // (switch mode + yolo + submit). Needs an objective in the draft.
-  const startGoal = useCallback(
-    (objective: string): void => {
-      if (!ready) return;
-      const trimmed = objective.trim();
-      if (!trimmed) return;
-      void api().invoke('session.setMode', { workspaceId, mode: 'goal' }).catch(() => {});
-      setAutoApprove(true);
-      // Refresh the Mode chip so it reflects the switch immediately.
-      window.dispatchEvent(new CustomEvent(SESSION_INFO_REFRESH_EVENT));
-      onSend(trimmed, attachments.length > 0 ? attachments : undefined);
-      setDraft('');
-      setAttachments([]);
-      setGoalOpen(false);
-    },
-    [ready, attachments, workspaceId, onSend, setAutoApprove],
-  );
-
-  /** Persist a pasted/dropped image blob to a temp file via the main
-   *  process, then add the returned path as a regular attachment so it
-   *  rides the same send pipeline as picked files. */
-  const attachImageFile = useCallback(async (file: File): Promise<void> => {
-    try {
-      const dataBase64 = await fileToBase64(file);
-      const att = await api().invoke('session.saveImageAttachment', {
-        dataBase64,
-        mediaType: file.type,
-        ...(file.name ? { name: file.name } : {}),
-      });
-      addAttachment(att);
-      taRef.current?.focus();
-    } catch (err) {
-      setAttachError(toErrorMessage(err));
-      window.setTimeout(() => setAttachError(null), 3000);
-    }
-  }, []);
-
-  const onPaste = useCallback(
-    (e: ClipboardEvent<HTMLTextAreaElement>): void => {
-      // Grab image blobs off the clipboard (screenshots, copied images).
-      // If there are none, fall through to the browser's default paste so
-      // text keeps working untouched.
-      const images = Array.from(e.clipboardData.items).filter(
-        (it) => it.kind === 'file' && it.type.startsWith('image/'),
-      );
-      if (images.length === 0) return;
-      e.preventDefault();
-      for (const item of images) {
-        const file = item.getAsFile();
-        if (file) void attachImageFile(file);
-      }
-    },
-    [attachImageFile],
-  );
-
-
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
     // Enter alone submits; Shift+Enter inserts a newline (the browser
     // default). ⌘↵ / Ctrl+↵ also submit so terminal-muscle-memory
@@ -288,18 +192,6 @@ export function Composer({
       setDraft('');
     }
   };
-
-  const onAttach = useCallback(async () => {
-    try {
-      const path = await api().invoke('session.pickAttachment');
-      if (!path) return;
-      const name = path.split('/').pop() ?? path;
-      addAttachment({ path, name });
-      taRef.current?.focus();
-    } catch {
-      /* noop — file picker errors are non-fatal */
-    }
-  }, []);
 
   const onVoiceClick = useCallback(() => {
     if (voice.phase === 'recording') {

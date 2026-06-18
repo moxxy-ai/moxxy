@@ -1,14 +1,10 @@
-import { promises as fs } from 'node:fs';
-import * as path from 'node:path';
 import {
   definePlugin,
   defineTool,
   z,
   type Plugin,
-  type SessionId,
   type ToolContext,
   type ToolDef,
-  type TurnId,
 } from '@moxxy/sdk';
 import {
   MAX_FAILED_ATTEMPTS,
@@ -26,22 +22,10 @@ import {
 } from './transaction.js';
 import { classify, gatherSignals } from './classify.js';
 import { verifyPluginBuild, verifySkillFile, type StageResult } from './verify.js';
-import {
-  corePreflight,
-  coreTxnDir,
-  detectCoreInstall,
-  listCoreTxns,
-  newCoreTxnId,
-  overlayPackages,
-  provisionWorkspace,
-  readCoreJournal,
-  restoreOverlay,
-  safeRepoPath,
-  verifyCorePackages,
-  writeCoreJournal,
-  type CoreInstallInfo,
-  type CoreJournal,
-} from './core-update.js';
+import { PLUGIN_ID, emitSafe, findSkip, readJsonName, type SelfUpdateDeps } from './deps.js';
+import { coreTools } from './core-tools/index.js';
+
+export type { SelfUpdateDeps, SelfUpdateEmit, SkipInfo } from './deps.js';
 
 export {
   beginTransaction,
@@ -63,69 +47,6 @@ export {
   type CoreInstallInfo,
 } from './core-update.js';
 
-export interface SkipInfo {
-  readonly pluginName: string;
-  readonly packageName?: string;
-  readonly message: string;
-}
-
-export interface SelfUpdateEmit {
-  readonly subtype: string;
-  readonly payload: unknown;
-  readonly sessionId: SessionId;
-  readonly turnId: TurnId;
-}
-
-export interface SelfUpdateDeps {
-  /** Base user dir, normally `~/.moxxy`. Overridable for tests. */
-  readonly moxxyDir: string;
-  /** Hot-reload the plugin host (rescans user plugin dirs). */
-  readonly reload: () => Promise<void>;
-  /** Unload a plugin by name so a modified version re-imports fresh on reload. */
-  readonly unload: (name: string) => Promise<void>;
-  /** Current registered contribution names per kind. */
-  readonly snapshot: () => RegistrySnapshot;
-  /** Plugins the host failed to load (so we can surface a load error). */
-  readonly skipped: () => ReadonlyArray<SkipInfo>;
-  /** Append a `plugin_event` audit record. Best-effort. */
-  readonly emit: (e: SelfUpdateEmit) => Promise<void>;
-  /** How many terminal transactions to keep on GC. Default 5. */
-  readonly maxTxnRetained?: number;
-  /** Tier-2 core-patching config. Omit or set enabled:false to hide core tools. */
-  readonly coreUpdate?: {
-    /** Enable the Tier-2 core-update tools. Default true. */
-    readonly enabled?: boolean;
-    /** Module URL used to resolve the live @moxxy/core install. Default import.meta.url. */
-    readonly fromUrl?: string;
-    /** Override the git repository URL (else read from @moxxy/core package.json). */
-    readonly repoUrlOverride?: string;
-  };
-}
-
-const PLUGIN_ID = '@moxxy/plugin-self-update';
-
-async function readJsonName(dir: string): Promise<string | undefined> {
-  try {
-    const pkg = JSON.parse(await fs.readFile(path.join(dir, 'package.json'), 'utf8')) as {
-      name?: string;
-    };
-    return pkg.name;
-  } catch {
-    return undefined;
-  }
-}
-
-function findSkip(skipped: ReadonlyArray<SkipInfo>, names: ReadonlyArray<string>): SkipInfo | undefined {
-  const want = new Set(names.filter(Boolean));
-  return skipped.find((s) => want.has(s.pluginName) || (s.packageName ? want.has(s.packageName) : false));
-}
-
-async function emitSafe(deps: SelfUpdateDeps, ctx: ToolContext, subtype: string, payload: unknown): Promise<void> {
-  await deps
-    .emit({ subtype, payload, sessionId: ctx.sessionId, turnId: ctx.turnId })
-    .catch(() => undefined);
-}
-
 export function buildSelfUpdatePlugin(deps: SelfUpdateDeps): Plugin {
   const tools: ToolDef[] = [
     classifyTool(deps),
@@ -135,12 +56,8 @@ export function buildSelfUpdatePlugin(deps: SelfUpdateDeps): Plugin {
     rollbackTool(deps),
     statusTool(deps),
   ];
-  if (deps.coreUpdate?.enabled !== false) tools.push(...coreTools(deps));
+  if (deps.coreUpdate?.enabled !== false) tools.push(...coreTools(deps, import.meta.url));
   return definePlugin({ name: PLUGIN_ID, version: '0.0.0', tools });
-}
-
-function resolveCoreInstall(deps: SelfUpdateDeps): CoreInstallInfo | null {
-  return detectCoreInstall(deps.coreUpdate?.fromUrl ?? import.meta.url);
 }
 
 // ── self_update_classify ────────────────────────────────────────────────────
@@ -397,237 +314,6 @@ function statusTool(deps: SelfUpdateDeps): ToolDef {
       return { transactions: rows };
     },
   });
-}
-
-// ── Tier 2: core-update tools ──────────────────────────────────────────────────
-function coreTools(deps: SelfUpdateDeps): ToolDef[] {
-  const snapshotDir = (txnId: string): string => path.join(coreTxnDir(deps.moxxyDir, txnId), 'snapshot');
-
-  const preflight = defineTool({
-    name: 'self_update_core_preflight',
-    description:
-      'Read-only. Check whether a Tier-2 core patch is even possible: git + pnpm present, @moxxy/core resolvable, a pinned source commit (gitHead) and repo URL in its published metadata. Run this BEFORE attempting to patch @moxxy/core; if any check fails, do not start — tell the user.',
-    inputSchema: z.object({}),
-    permission: { action: 'allow' },
-    handler: async () => corePreflight(resolveCoreInstall(deps)),
-  });
-
-  const begin = defineTool({
-    name: 'self_update_core_begin',
-    description:
-      'Start a Tier-2 core patch: provision a source clone pinned to the EXACT installed commit (git clone/fetch + checkout gitHead + pnpm install — this can take minutes) and open a transaction. Returns a coreTxnId and the repo path. Edit files ONLY via self_update_core_write / self_update_core_edit, then self_update_core_verify. Prefer a Tier-1 plugin override first — only patch core when truly unavoidable.',
-    inputSchema: z.object({
-      packages: z
-        .array(z.string().min(1))
-        .min(1)
-        .describe('Affected @moxxy/* package names, e.g. ["@moxxy/core"].'),
-    }),
-    permission: { action: 'prompt' },
-    handler: async (input, ctx: ToolContext) => {
-      const install = resolveCoreInstall(deps);
-      if (!install) throw new Error('could not resolve the installed @moxxy/core — cannot self-update core');
-
-      // Serialize core transactions: only ONE may be in flight at a time. Every
-      // txn shares the single provisioned workspace (repoDir), so a second
-      // concurrent txn would clobber the first's edits + build. Refuse rather
-      // than corrupt — the active txn must be finished (verify → commit) or
-      // released (self_update_core_rollback, which is a no-op overlay restore +
-      // marks it rolled_back even when nothing was applied yet).
-      const active = (await listCoreTxns(deps.moxxyDir)).find(
-        (j) => j.state !== 'committed' && j.state !== 'rolled_back',
-      );
-      if (active) {
-        throw new Error(
-          `a core update is already in progress (txn ${active.txnId}, state "${active.state}"). ` +
-            `Finish it (self_update_core_verify → self_update_commit) or release it with ` +
-            `self_update_core_rollback({ coreTxnId: "${active.txnId}" }) before starting another.`,
-        );
-      }
-
-      const pf = await corePreflight(install);
-      if (!pf.ok) {
-        throw new Error(
-          `core update preflight failed: ${pf.checks.filter((c) => !c.ok).map((c) => `${c.id} (${c.detail})`).join('; ')}`,
-        );
-      }
-      const prov = await provisionWorkspace({
-        moxxyDir: deps.moxxyDir,
-        install,
-        ...(deps.coreUpdate?.repoUrlOverride ? { repoUrlOverride: deps.coreUpdate.repoUrlOverride } : {}),
-      });
-      if (!prov.ok) throw new Error(`provisioning failed (escalate to the user): ${prov.message}`);
-
-      const txnId = newCoreTxnId();
-      const journal: CoreJournal = {
-        txnId,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        packages: [...input.packages],
-        version: install.version,
-        ...(install.gitHead ? { gitHead: install.gitHead } : {}),
-        repoDir: prov.repoDir,
-        state: 'provisioned',
-        attempts: [],
-      };
-      await writeCoreJournal(deps.moxxyDir, journal);
-      await emitSafe(deps, ctx, 'core_begin', { txnId, packages: journal.packages, version: install.version });
-      return {
-        coreTxnId: txnId,
-        repoDir: prov.repoDir,
-        next: 'Edit files under the repo with self_update_core_write / self_update_core_edit (paths relative to the repo), then call self_update_core_verify.',
-      };
-    },
-  });
-
-  const write = defineTool({
-    name: 'self_update_core_write',
-    description:
-      'Write a file inside the provisioned core clone for a transaction (paths are relative to the repo root and cannot escape it). This is an approval-gated code write — show the user the content first.',
-    inputSchema: z.object({
-      coreTxnId: z.string().min(1),
-      file: z.string().min(1).describe('Path relative to the repo root, e.g. packages/core/src/foo.ts'),
-      content: z.string(),
-    }),
-    permission: { action: 'prompt' },
-    handler: async (input, ctx: ToolContext) => {
-      const journal = await readCoreJournal(deps.moxxyDir, input.coreTxnId);
-      const abs = safeRepoPath(journal.repoDir, input.file);
-      await fs.mkdir(path.dirname(abs), { recursive: true });
-      await fs.writeFile(abs, input.content, 'utf8');
-      await emitSafe(deps, ctx, 'core_write', { txnId: input.coreTxnId, file: input.file });
-      return { ok: true, wrote: input.file };
-    },
-  });
-
-  const edit = defineTool({
-    name: 'self_update_core_edit',
-    description:
-      'Find-and-replace a unique string in a file inside the provisioned core clone (path relative to the repo root). Approval-gated.',
-    inputSchema: z.object({
-      coreTxnId: z.string().min(1),
-      file: z.string().min(1),
-      oldString: z.string().min(1),
-      newString: z.string(),
-    }),
-    permission: { action: 'prompt' },
-    handler: async (input, ctx: ToolContext) => {
-      const journal = await readCoreJournal(deps.moxxyDir, input.coreTxnId);
-      const abs = safeRepoPath(journal.repoDir, input.file);
-      const cur = await fs.readFile(abs, 'utf8');
-      const count = cur.split(input.oldString).length - 1;
-      if (count === 0) throw new Error(`oldString not found in ${input.file}`);
-      if (count > 1) throw new Error(`oldString is not unique in ${input.file} (${count} matches)`);
-      await fs.writeFile(abs, cur.replace(input.oldString, input.newString), 'utf8');
-      await emitSafe(deps, ctx, 'core_edit', { txnId: input.coreTxnId, file: input.file });
-      return { ok: true, edited: input.file };
-    },
-  });
-
-  const verify = defineTool({
-    name: 'self_update_core_verify',
-    description:
-      'Build, typecheck and test the affected core packages (and their dependents) in the clone, and confirm the patch adds no new runtime dependency. Returns stage results. Run AFTER edits; nothing in the live install changes here.',
-    inputSchema: z.object({ coreTxnId: z.string().min(1) }),
-    permission: { action: 'prompt' },
-    handler: async (input, ctx: ToolContext) => {
-      const journal = await readCoreJournal(deps.moxxyDir, input.coreTxnId);
-      const install = resolveCoreInstall(deps);
-      if (!install) throw new Error('could not resolve @moxxy/core');
-      const res = await verifyCorePackages(journal.repoDir, install, journal.packages);
-      journal.attempts.push({
-        at: new Date().toISOString(),
-        stage: 'verify',
-        ok: res.ok,
-        message: res.ok ? 'build/typecheck/test ok' : res.stages.find((s) => !s.ok)?.message ?? 'failed',
-      });
-      journal.state = res.ok ? 'verified' : journal.state;
-      await writeCoreJournal(deps.moxxyDir, journal);
-      await emitSafe(deps, ctx, res.ok ? 'core_verify_ok' : 'core_verify_failed', { txnId: input.coreTxnId });
-      return {
-        ok: res.ok,
-        stages: res.stages,
-        newDeps: res.newDeps,
-        next: res.ok
-          ? 'Passed — call self_update_core_apply to overlay it into the live install (a restart is then required).'
-          : 'Fix the errors and re-verify, or escalate to the user.',
-      };
-    },
-  });
-
-  const apply = defineTool({
-    name: 'self_update_core_apply',
-    description:
-      'Overlay the verified build into the live global install (snapshotting the previous dist for rollback) and stage a restart. The new core code only activates after moxxy restarts. Requires a prior successful self_update_core_verify.',
-    inputSchema: z.object({ coreTxnId: z.string().min(1) }),
-    permission: { action: 'prompt' },
-    handler: async (input, ctx: ToolContext) => {
-      const journal = await readCoreJournal(deps.moxxyDir, input.coreTxnId);
-      if (journal.state !== 'verified') {
-        throw new Error(`core txn ${input.coreTxnId} is "${journal.state}", not "verified" — run self_update_core_verify first`);
-      }
-      const install = resolveCoreInstall(deps);
-      if (!install) throw new Error('could not resolve @moxxy/core');
-      const res = await overlayPackages({
-        repo: journal.repoDir,
-        install,
-        pkgNames: journal.packages,
-        snapshotDir: snapshotDir(input.coreTxnId),
-      });
-      if (!res.ok) {
-        await restoreOverlay({ install, pkgNames: journal.packages, snapshotDir: snapshotDir(input.coreTxnId) }).catch(() => undefined);
-        throw new Error(`overlay failed and was rolled back: ${res.message}`);
-      }
-      journal.state = 'staged_restart';
-      await writeCoreJournal(deps.moxxyDir, journal);
-      await emitSafe(deps, ctx, 'core_apply', { txnId: input.coreTxnId, applied: res.applied });
-      return {
-        ok: true,
-        applied: res.applied,
-        restartRequired: true,
-        message:
-          'Core patch overlaid. RESTART moxxy to activate it (re-run `moxxy`, or it restarts on the next launch under a supervisor). It will be committed automatically on a clean boot; use self_update_core_rollback if needed.',
-      };
-    },
-  });
-
-  const rollback = defineTool({
-    name: 'self_update_core_rollback',
-    description:
-      'Undo a core overlay: restore the previous dist from the snapshot. A restart is required to drop the patched code. Use if a core patch built+loaded but misbehaves.',
-    inputSchema: z.object({ coreTxnId: z.string().min(1), reason: z.string().optional() }),
-    permission: { action: 'allow' },
-    handler: async (input, ctx: ToolContext) => {
-      const journal = await readCoreJournal(deps.moxxyDir, input.coreTxnId);
-      const install = resolveCoreInstall(deps);
-      if (!install) throw new Error('could not resolve @moxxy/core');
-      await restoreOverlay({ install, pkgNames: journal.packages, snapshotDir: snapshotDir(input.coreTxnId) });
-      journal.state = 'rolled_back';
-      await writeCoreJournal(deps.moxxyDir, journal);
-      await emitSafe(deps, ctx, 'core_rollback', { txnId: input.coreTxnId, reason: input.reason ?? null });
-      return { ok: true, restored: journal.packages, restartRequired: true };
-    },
-  });
-
-  const status = defineTool({
-    name: 'self_update_core_status',
-    description: 'List Tier-2 core-update transactions and their state.',
-    inputSchema: z.object({}),
-    permission: { action: 'allow' },
-    handler: async () => {
-      const all = await listCoreTxns(deps.moxxyDir);
-      return {
-        transactions: all.map((j) => ({
-          coreTxnId: j.txnId,
-          state: j.state,
-          packages: j.packages,
-          version: j.version,
-          updatedAt: j.updatedAt,
-        })),
-      };
-    },
-  });
-
-  return [preflight, begin, write, edit, verify, apply, rollback, status];
 }
 
 async function escalate(deps: SelfUpdateDeps, ctx: ToolContext, journal: Journal, reason: string): Promise<void> {
