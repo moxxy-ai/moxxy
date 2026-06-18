@@ -1,5 +1,12 @@
 # @moxxy/client-transport-ws
 
+## 0.1.22
+
+### Patch Changes
+
+- Updated dependencies [f070207]
+  - @moxxy/desktop-ipc-contract@0.10.0
+
 ## 0.1.21
 
 ### Patch Changes
