@@ -33,6 +33,73 @@ const RUNNER_RAW_PAGE = 200;
 // streamed reply (hundreds of assistant_chunks) can't spin forever — after this
 // many pages we return what we have and let the next scroll-up continue.
 const MAX_RUNNER_PAGES = 25;
+
+/**
+ * Project a RAW runner window (all event types, ascending `seq`) into the
+ * rendered transcript the chat shows — the read-time equivalent of what the live
+ * reducer commits. Keeps {@link isRenderedEvent} events AND reconstructs the
+ * reply for a turn that streamed assistant text but ended UNSEALED (a fatal
+ * error / abort with no `assistant_message`).
+ *
+ * Why the synth: the runner seals such turns into a real `assistant_message`
+ * (`sealUnsealedStreamedText`) and the live renderer used to synthesize one on
+ * `turn_complete` — but a LEGACY runner log written BEFORE the seal feature
+ * holds chunks + the terminal error/abort and NO message, so filtering with
+ * `isRenderedEvent` alone would silently drop the reply text. We detect the
+ * unsealed turn by its TERMINAL fatal-error/abort row (NOT a turn boundary — a
+ * SEALED reply whose chunks merely span a window edge must not be re-synthesized)
+ * and emit the reconstructed reply right after it, matching the runner's own seq
+ * order. The accumulator resets on a sealing `assistant_message` or a fresh
+ * `provider_request` (a new iteration), so only the final iteration's unsealed
+ * text is reconstructed — identical to the runner's seal.
+ */
+export function projectRunnerWindow(raw: ReadonlyArray<MoxxyEvent>): MoxxyEvent[] {
+  // Turns that carry a REAL sealing assistant_message anywhere in this window
+  // must never be reconstructed — a POST-seal runner errored turn holds chunks,
+  // the error, AND the seal the runner appended at turn end, so synthesizing at
+  // the error would double the reply. Only a LEGACY (pre-seal) turn lacks the
+  // message and needs reconstruction.
+  const sealedTurns = new Set<string>();
+  for (const e of raw) if (e.type === 'assistant_message') sealedTurns.add(e.turnId);
+
+  const out: MoxxyEvent[] = [];
+  const unsealed = new Map<string, string>();
+  for (const e of raw) {
+    if (e.type === 'assistant_chunk') {
+      const delta = (e as { delta?: string }).delta ?? '';
+      unsealed.set(e.turnId, (unsealed.get(e.turnId) ?? '') + delta);
+      continue;
+    }
+    // A sealing message or a new provider iteration drops the pending run.
+    if (e.type === 'assistant_message' || e.type === 'provider_request') unsealed.delete(e.turnId);
+    if (!isRenderedEvent(e)) continue;
+    out.push(e);
+    // Terminal unsealed end → reconstruct the reply after the error/abort row,
+    // but ONLY for a turn the runner never sealed (a legacy log).
+    const terminal =
+      e.type === 'abort' || (e.type === 'error' && (e as { kind?: string }).kind === 'fatal');
+    if (terminal && !sealedTurns.has(e.turnId)) {
+      const text = unsealed.get(e.turnId);
+      if (text && text.trim()) {
+        out.push({
+          type: 'assistant_message',
+          content: text,
+          stopReason: 'end_turn',
+          // Stable per-turn id: the terminal event is unique to the turn, so this
+          // synth is produced in exactly one window (no cross-window dup).
+          id: `synth-unsealed:${e.turnId}`,
+          seq: e.seq,
+          ts: (e as { ts?: number }).ts ?? e.seq,
+          sessionId: e.sessionId,
+          turnId: e.turnId,
+          source: 'model',
+        } as unknown as MoxxyEvent);
+      }
+      unsealed.delete(e.turnId);
+    }
+  }
+  return out;
+}
 import {
   buildSnapshot,
   createSlot,
@@ -220,6 +287,17 @@ class ChatStore {
         this.prependFresh(slot, runner.events);
         slot.oldestCursor = runner.prevCursor;
         slot.hasOlder = runner.prevCursor !== null;
+        // Defend the extreme case where the newest window was ALL non-rendered
+        // raw events (e.g. the tail of one very long streamed reply): never leave
+        // the transcript blank-but-has-more — pull older windows (bounded) until
+        // something renders or we reach the start of history.
+        for (let pump = 0; pump < 10 && slot.rt.log.length === 0 && slot.hasOlder; pump += 1) {
+          const more = await this.loadRunnerWindow(workspaceId, slot.oldestCursor, INITIAL_WINDOW);
+          if (!more) break;
+          this.prependFresh(slot, more.events);
+          slot.oldestCursor = more.prevCursor;
+          slot.hasOlder = more.prevCursor !== null;
+        }
       } else {
         slot.historySource = 'ndjson';
         const { events, prevCursor } = await this.persistence.loadSegment(
@@ -299,9 +377,11 @@ class ChatStore {
   ): Promise<{ events: MoxxyEvent[]; prevCursor: number | null } | null> {
     const loadHistory = this.persistence?.loadHistory?.bind(this.persistence);
     if (!loadHistory) return null;
-    const rendered: MoxxyEvent[] = [];
+    // Accumulate the RAW window (ascending seq) and project it as a whole, so
+    // an unsealed-turn reconstruction (projectRunnerWindow) sees a turn's chunks
+    // and its terminal row together rather than split per page.
+    const raw: MoxxyEvent[] = [];
     let cursor = before;
-    let renderedCount = 0;
     for (let page = 0; page < MAX_RUNNER_PAGES; page += 1) {
       const result = await loadHistory(workspaceId, cursor, RUNNER_RAW_PAGE);
       if (result === null) {
@@ -309,13 +389,12 @@ class ChatStore {
         break; // dropped mid-walk → return what we have
       }
       // Pages arrive newest-first; prepend each older page ahead of the ones we
-      // already have so `rendered` stays ascending (oldest-first) for prepend.
-      rendered.unshift(...result.events.filter(isRenderedEvent));
-      renderedCount = rendered.length;
+      // already have so `raw` stays ascending (oldest-first).
+      raw.unshift(...result.events);
       cursor = result.prevCursor;
-      if (cursor === null || renderedCount >= minRendered) break;
+      if (cursor === null || projectRunnerWindow(raw).length >= minRendered) break;
     }
-    return { events: rendered, prevCursor: cursor };
+    return { events: projectRunnerWindow(raw), prevCursor: cursor };
   }
 
   private prependFresh(slot: Slot, events: ReadonlyArray<MoxxyEvent>): void {
