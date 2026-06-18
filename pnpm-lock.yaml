@@ -540,6 +540,9 @@ importers:
       '@moxxy/plugin-view':
         specifier: workspace:*
         version: link:../plugin-view
+      '@moxxy/plugin-voice-admin':
+        specifier: workspace:*
+        version: link:../plugin-voice-admin
       '@moxxy/plugin-webhooks':
         specifier: workspace:*
         version: link:../plugin-webhooks
@@ -2108,6 +2111,34 @@ importers:
         version: 1.3.0
 
   packages/plugin-view:
+    dependencies:
+      '@moxxy/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+      zod:
+        specifier: 'catalog:'
+        version: 3.25.76
+    devDependencies:
+      '@moxxy/core':
+        specifier: workspace:*
+        version: link:../core
+      '@moxxy/tsconfig':
+        specifier: workspace:*
+        version: link:../../tooling/tsconfig
+      '@moxxy/vitest-preset':
+        specifier: workspace:*
+        version: link:../../tooling/vitest-preset
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.19.18
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 2.1.9(@types/node@22.19.18)(jsdom@25.0.1)(lightningcss@1.32.0)(terser@5.48.0)
+
+  packages/plugin-voice-admin:
     dependencies:
       '@moxxy/sdk':
         specifier: workspace:*

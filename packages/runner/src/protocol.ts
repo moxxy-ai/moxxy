@@ -118,11 +118,20 @@ import type {
  *   returns `[]` and `surface.open` throws a clear "no surface" error. A v8
  *   client gates the family on the server's reported version.
  *
- * Every change v1→v8 has been ADDITIVE, so MIN_COMPATIBLE stays at 1: today's
+ * v9: adds `session.setReasoning` — sets the session's reasoning/thinking
+ * effort live (`off` | `low` | `medium` | `high`), mirroring the CLI's proven
+ * `config.context.reasoning` path: the handler maps the level onto
+ * `session.reasoning`, which `run-turn` forwards to each turn's ModeContext and
+ * on to the provider (honored only by models that advertise `supportsReasoning`,
+ * gated in collectProviderStream). Backs the desktop's Settings → Providers
+ * reasoning-effort selector. A v9 client gates the method on the server's
+ * reported version. (Additive — a v8 server simply lacks this one method.)
+ *
+ * Every change v1→v9 has been ADDITIVE, so MIN_COMPATIBLE stays at 1: today's
  * server can serve any client back to v1, and any client v1+ can attach. Bump
  * MIN_COMPATIBLE to N only when landing a breaking change at version N.
  */
-export const RUNNER_PROTOCOL_VERSION = 8;
+export const RUNNER_PROTOCOL_VERSION = 9;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -155,6 +164,8 @@ export const RunnerMethod = {
   SetResolver: 'setResolver',
   /** client->server: switch the active mode. */
   ModeSetActive: 'mode.setActive',
+  /** client->server: set the session's reasoning/thinking effort (v9). */
+  SessionSetReasoning: 'session.setReasoning',
   /** client->server: switch the active provider (server resolves credentials). */
   ProviderSetActive: 'provider.setActive',
   /** client->server: enable/disable a provider (v7; persists to preferences). */
@@ -305,6 +316,15 @@ export interface SetResolverParams {
 
 export interface ModeSetActiveParams {
   readonly name: string;
+}
+
+/** Reasoning-effort levels accepted by `session.setReasoning` (v9). `off` clears
+ *  the preference (no reasoning requested); the others map to
+ *  `session.reasoning = { effort }`, the CLI's proven `config.context.reasoning`
+ *  shape. */
+export type ReasoningEffortLevel = 'off' | 'low' | 'medium' | 'high';
+export interface SessionSetReasoningParams {
+  readonly effort: ReasoningEffortLevel;
 }
 
 export interface ProviderSetActiveParams {
@@ -490,6 +510,10 @@ export const setResolverParamsSchema = z.object({
 });
 
 export const modeSetActiveParamsSchema = z.object({ name: z.string() });
+
+export const sessionSetReasoningParamsSchema = z.object({
+  effort: z.enum(['off', 'low', 'medium', 'high']),
+});
 
 export const providerSetActiveParamsSchema = z.object({
   name: z.string(),

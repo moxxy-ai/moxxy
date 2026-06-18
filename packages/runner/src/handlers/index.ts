@@ -29,6 +29,7 @@ export {
 } from './surface-handlers.js';
 export {
   handleModeSetActive,
+  handleSessionSetReasoning,
   handlePermissionAddAllow,
   handleCommandRun,
 } from './session-handlers.js';

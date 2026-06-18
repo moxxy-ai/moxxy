@@ -94,6 +94,7 @@
     "@moxxy/plugin-plugins-admin": "workspace:*",
     "@moxxy/plugin-provider-admin": "workspace:*",
     "@moxxy/plugin-view": "workspace:*",
+    "@moxxy/plugin-voice-admin": "workspace:*",
     "@moxxy/plugin-provider-anthropic": "workspace:*",
     "@moxxy/plugin-provider-openai": "workspace:*",
     "@moxxy/plugin-provider-openai-codex": "workspace:*",

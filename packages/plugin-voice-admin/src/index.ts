@@ -9,9 +9,9 @@ import { definePlugin, defineTool, z, type Plugin } from '@moxxy/sdk';
  * + which is active. A synthesizer authored via self-update auto-activates on
  * load, so this is for switching afterwards.
  *
- * NOTE: this lives inline in cli for now; promoting it to its own
- * `@moxxy/voice-admin` package (so it joins `entries` like every other plugin)
- * is deferred — it is a cross-package boundary change.
+ * The synthesizer registry lives on the live Session, so this is built via a
+ * factory closing over it (mirroring `buildViewPlugin` / `buildSubagentsPlugin`)
+ * and wired into the cli's builtin `entries` list.
  */
 export function buildVoiceAdminPlugin(session: Session): Plugin {
   // 'system' (the OS voice) plus every registered synthesizer — the one

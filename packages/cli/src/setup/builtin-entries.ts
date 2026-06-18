@@ -42,10 +42,10 @@ import { commandsPlugin } from '@moxxy/plugin-commands';
 import { buildViewPlugin } from '@moxxy/plugin-view';
 import { computerControlPlugin } from '@moxxy/plugin-computer-control';
 import { buildOauthPlugin } from '@moxxy/plugin-oauth';
+import { buildVoiceAdminPlugin } from '@moxxy/plugin-voice-admin';
 import { resolveString } from '@moxxy/plugin-vault';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { BUILTIN_SKILLS_DIR_RESOLVED } from './builtin-skills-dir.js';
-import { buildVoiceAdminPlugin } from './voice-admin-plugin.js';
 
 export interface BuiltinEntry {
   readonly name: string;

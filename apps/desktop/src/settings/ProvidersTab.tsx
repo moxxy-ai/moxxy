@@ -9,7 +9,7 @@
  */
 
 import { useState } from 'react';
-import type { useSettings } from '@moxxy/client-core';
+import { api, type useSettings } from '@moxxy/client-core';
 import { Button, Icon, IconButton, Modal, TextInput } from '@moxxy/desktop-ui';
 import { Section, CardList, Row, Tile, StatusDot, Switch, Badge, EmptyState } from './settings-primitives';
 import { AgentTaskModal } from './shared/AgentTaskModal';
@@ -19,17 +19,16 @@ import { PROVIDER_PROMPT_TEMPLATE } from './provider-prompt';
 type ProviderRow = ReturnType<typeof useSettings>['providers'][number];
 
 /** Reasoning-effort levels offered for providers whose models support it.
- *  Mirrors the CLI's proven `config.context.reasoning` path. */
+ *  Mirrors the CLI's proven `config.context.reasoning` path. The order +
+ *  values match the contract's `ReasoningEffort` (and the runner protocol's
+ *  `ReasoningEffortLevel`), so the chosen level forwards verbatim. */
 const REASONING_LEVELS = ['off', 'low', 'medium', 'high'] as const;
 type ReasoningLevel = (typeof REASONING_LEVELS)[number];
 
-// TODO(reasoning): this control persists the per-provider effort to
-// localStorage only — the runner doesn't yet pick it up live. The proven
-// functional path is the CLI's `config.context.reasoning`; wiring the desktop
-// session to it needs a typed `DesktopPrefs.reasoning` field (+ a
-// `ProviderEntry.supportsReasoning` flag) in @moxxy/desktop-ipc-contract and a
-// runner config-apply step — both outside this app/src change. Until then this
-// is a UI placeholder that round-trips the user's choice.
+// The runner's `session.reasoning` is session-scoped and resets when its runner
+// restarts, so we remember the user's per-provider pick here to seed the
+// selector on reopen and to re-apply it. The LIVE effect comes from the
+// `settings.setReasoning` IPC call below — this is just the UI's memory.
 const REASONING_PREF_KEY = 'moxxy.reasoning.effort';
 
 function reasoningEffortFor(providerName: string): ReasoningLevel {
@@ -54,11 +53,11 @@ function setReasoningEffortFor(providerName: string, level: ReasoningLevel): voi
   }
 }
 
-/** The runner's model descriptors carry `supportsReasoning?: boolean`; it is
- *  not yet surfaced on `ProviderEntry`, so read it defensively from whatever
- *  the row exposes (forward-compatible once the contract plumbs it through). */
+/** True when the provider's model catalog advertises reasoning support — now a
+ *  typed field on `ProviderEntry`, populated runner-side from the model
+ *  descriptors (see `settings.providers` in @moxxy/desktop-host). */
 function providerSupportsReasoning(p: ProviderRow): boolean {
-  return (p as { supportsReasoning?: boolean }).supportsReasoning === true;
+  return p.supportsReasoning === true;
 }
 
 export function ProvidersTab({
@@ -336,6 +335,11 @@ function ConfigureProviderModal({
                 const next = e.target.value as ReasoningLevel;
                 setReasoning(next);
                 setReasoningEffortFor(provider.name, next);
+                // Apply it live on the runner (maps onto config.context.reasoning).
+                void run(
+                  () => api().invoke('settings.setReasoning', { effort: next }),
+                  next === 'off' ? 'Reasoning effort cleared.' : `Reasoning effort set to ${next}.`,
+                );
               }}
               style={selectStyle}
               data-testid="provider-reasoning-select"
