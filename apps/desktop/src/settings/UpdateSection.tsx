@@ -7,7 +7,10 @@
  *     hot-updates and applies on the next launch — or, when a hot-update can't
  *     deliver, downloads the full installer and restarts into it.
  *
- * Both versions are shown for transparency. The download/verify/install all run
+ * The resting card mirrors the Appearance row: the app version on the left, the
+ * single Update action on the right. The runner version + on-disk path and the
+ * boot-log diagnostics live behind a "Get more details" disclosure so the
+ * common case stays a single, calm line. The download/verify/install all run
  * main-side (signature-checked); this is the front end of {@link useAppUpdate}
  * and only orchestrates + reflects status via `runUpdateAll`.
  */
@@ -77,52 +80,66 @@ export function UpdateSection(): JSX.Element {
       description="One update for everything — the desktop app and its bundled runner come to the latest version together, no reinstall. A new app version applies on the next launch; the runner restarts live."
     >
       <div style={card}>
-        {/* App / dashboard version */}
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-muted)' }}>
-            App version
-          </span>
-          <span
-            className="mono"
-            style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--color-text)' }}
-          >
-            {info ? info.version : '…'}
-          </span>
-          {info && (
-            <span style={badge(info.source === 'updated')}>
-              {info.source === 'updated' ? 'updated' : 'bundled'}
+        {/* Header row — app version on the left, the single Update action on the
+            right, mirroring the Appearance/Theme row's left-label / right-control
+            alignment. The runner version + diagnostics move into "Get more
+            details" below so the resting state shows just the app version. */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 14,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+              App version
             </span>
-          )}
-        </div>
-
-        {/* Runner (CLI) version */}
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-muted)' }}>
-            Runner version
-          </span>
-          <span
-            className="mono"
-            style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--color-text)' }}
-          >
-            {cliInfo ? (cliInfo.version ?? 'unknown') : '…'}
-          </span>
-        </div>
-        {cliInfo?.path && (
-          <div
-            className="mono"
-            title={cliInfo.path}
-            style={{
-              fontSize: 11.5,
-              marginTop: -6,
-              color: 'var(--color-text-dim)',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {cliInfo.path}
+            <span
+              className="mono"
+              style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--color-text)' }}
+            >
+              {info ? info.version : '…'}
+            </span>
+            {info && (
+              <span style={badge(info.source === 'updated')}>
+                {info.source === 'updated' ? 'updated' : 'bundled'}
+              </span>
+            )}
           </div>
-        )}
+
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            {state === 'staged' ? (
+              <button type="button" data-testid="relaunch-app" style={primaryBtn(false)} onClick={relaunch}>
+                Relaunch now
+              </button>
+            ) : (
+              <button
+                type="button"
+                data-testid="update-all"
+                style={primaryBtn(updating)}
+                disabled={updating}
+                onClick={() => void runUpdateAll()}
+              >
+                {updateLabel}
+              </button>
+            )}
+            {/* The full-installer path is handled inside runUpdateAll. Only when
+                that automatic attempt failed (e.g. unsigned build) do we offer the
+                release page as a manual fallback. */}
+            {state === 'requires-full-update' && error && check?.releaseUrl && (
+              <button
+                type="button"
+                style={primaryBtn(false)}
+                onClick={() => void api().invoke('onboarding.openExternal', { url: check.releaseUrl! })}
+              >
+                Get it manually
+              </button>
+            )}
+          </div>
+        </div>
 
         {!configured && info && (
           <p style={{ margin: 0, fontSize: 12.5, color: 'var(--color-text-dim)', lineHeight: 1.5 }}>
@@ -177,44 +194,17 @@ export function UpdateSection(): JSX.Element {
           </p>
         )}
 
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          {state === 'staged' ? (
-            <button type="button" data-testid="relaunch-app" style={primaryBtn(false)} onClick={relaunch}>
-              Relaunch now
-            </button>
-          ) : (
-            <button
-              type="button"
-              data-testid="update-all"
-              style={primaryBtn(updating)}
-              disabled={updating}
-              onClick={() => void runUpdateAll()}
-            >
-              {updateLabel}
-            </button>
-          )}
-          {/* The full-installer path is handled inside runUpdateAll. Only when
-              that automatic attempt failed (e.g. unsigned build) do we offer the
-              release page as a manual fallback. */}
-          {state === 'requires-full-update' && error && check?.releaseUrl && (
-            <button
-              type="button"
-              style={primaryBtn(false)}
-              onClick={() => void api().invoke('onboarding.openExternal', { url: check.releaseUrl! })}
-            >
-              Get it manually
-            </button>
-          )}
-        </div>
-
         {stagedVersion && state === 'staged' && (
           <p style={{ margin: 0, fontSize: 11.5, color: 'var(--color-text-dim)' }}>
             v{stagedVersion} will load on the next start.
           </p>
         )}
 
-        {/* Troubleshooting: if an update "downloads but the app stays old", the
-            boot-log here names the exact reason (the previously-silent revert). */}
+        {/* Secondary detail: the runner (CLI) version + path and the boot-log
+            diagnostics. Tucked behind a disclosure so the resting card stays a
+            single "App version + Update" line. Troubleshooting note: if an update
+            "downloads but the app stays old", the boot-log here names the exact
+            reason (the previously-silent revert). */}
         <details
           style={{ marginTop: 2 }}
           onToggle={(e) => {
@@ -222,60 +212,93 @@ export function UpdateSection(): JSX.Element {
           }}
         >
           <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--color-text-dim)' }}>
-            Diagnostics
+            Get more details
           </summary>
-          {diagnostics ? (
-            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {(() => {
-                // Surface the last boot-time rejection prominently: a staged
-                // update the bootstrap declined (e.g. runner-protocol-skew)
-                // used to be visible only by decoding the raw log below.
-                const lastBoot = [...diagnostics.log].reverse().find((e) => e.phase === 'boot');
-                const reason =
-                  lastBoot?.picked === 'floor' &&
-                  lastBoot.reason &&
-                  !['disabled', 'no-active'].includes(lastBoot.reason)
-                    ? lastBoot.reason
-                    : null;
-                return reason ? (
-                  <p role="alert" style={{ margin: 0, fontSize: 12, color: 'var(--color-red)', lineHeight: 1.5 }}>
-                    Last launch declined the staged update ({reason}
-                    {REASON_HINTS[reason] ? `: ${REASON_HINTS[reason]}` : ''}).
-                  </p>
-                ) : null;
-              })()}
-              <div style={{ fontSize: 11.5, color: 'var(--color-text-dim)', lineHeight: 1.6 }}>
-                running <b className="mono">{diagnostics.running}</b> · active{' '}
-                <span className="mono">{diagnostics.active ?? '—'}</span> · confirmed{' '}
-                <span className="mono">{diagnostics.confirmed ?? '—'}</span>
-                <br />
-                staged <span className="mono">{diagnostics.staged.join(', ') || '—'}</span> · bad{' '}
-                <span className="mono">{diagnostics.bad.join(', ') || '—'}</span>
+          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* Runner (CLI) version + on-disk path */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+                  Runner version
+                </span>
+                <span
+                  className="mono"
+                  style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--color-text)' }}
+                >
+                  {cliInfo ? (cliInfo.version ?? 'unknown') : '…'}
+                </span>
               </div>
-              <pre style={logBox}>
-                {diagnostics.log.length === 0
-                  ? '(no boot-log entries yet)'
-                  : diagnostics.log
-                      .map(
-                        (e) =>
-                          `${new Date(e.ts).toISOString()}  ${e.phase.padEnd(11)} ${e.picked ?? ''}` +
-                          describeReason(e.reason) +
-                          (e.recoveredTo ? `  → ${e.recoveredTo}` : '') +
-                          (e.error ? `  error=${e.error}` : ''),
-                      )
-                      .join('\n')}
-              </pre>
-              <button
-                type="button"
-                style={{ ...primaryBtn(false), background: 'var(--color-card-border-strong)' }}
-                onClick={() => void navigator.clipboard.writeText(JSON.stringify(diagnostics, null, 2)).catch(() => undefined)}
-              >
-                Copy diagnostics
-              </button>
+              {cliInfo?.path && (
+                <div
+                  className="mono"
+                  title={cliInfo.path}
+                  style={{
+                    fontSize: 11.5,
+                    color: 'var(--color-text-dim)',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {cliInfo.path}
+                </div>
+              )}
             </div>
-          ) : (
-            <p style={{ marginTop: 8, fontSize: 11.5, color: 'var(--color-text-dim)' }}>Loading…</p>
-          )}
+
+            {/* Boot-log diagnostics */}
+            {diagnostics ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {(() => {
+                  // Surface the last boot-time rejection prominently: a staged
+                  // update the bootstrap declined (e.g. runner-protocol-skew)
+                  // used to be visible only by decoding the raw log below.
+                  const lastBoot = [...diagnostics.log].reverse().find((e) => e.phase === 'boot');
+                  const reason =
+                    lastBoot?.picked === 'floor' &&
+                    lastBoot.reason &&
+                    !['disabled', 'no-active'].includes(lastBoot.reason)
+                      ? lastBoot.reason
+                      : null;
+                  return reason ? (
+                    <p role="alert" style={{ margin: 0, fontSize: 12, color: 'var(--color-red)', lineHeight: 1.5 }}>
+                      Last launch declined the staged update ({reason}
+                      {REASON_HINTS[reason] ? `: ${REASON_HINTS[reason]}` : ''}).
+                    </p>
+                  ) : null;
+                })()}
+                <div style={{ fontSize: 11.5, color: 'var(--color-text-dim)', lineHeight: 1.6 }}>
+                  running <b className="mono">{diagnostics.running}</b> · active{' '}
+                  <span className="mono">{diagnostics.active ?? '—'}</span> · confirmed{' '}
+                  <span className="mono">{diagnostics.confirmed ?? '—'}</span>
+                  <br />
+                  staged <span className="mono">{diagnostics.staged.join(', ') || '—'}</span> · bad{' '}
+                  <span className="mono">{diagnostics.bad.join(', ') || '—'}</span>
+                </div>
+                <pre style={logBox}>
+                  {diagnostics.log.length === 0
+                    ? '(no boot-log entries yet)'
+                    : diagnostics.log
+                        .map(
+                          (e) =>
+                            `${new Date(e.ts).toISOString()}  ${e.phase.padEnd(11)} ${e.picked ?? ''}` +
+                            describeReason(e.reason) +
+                            (e.recoveredTo ? `  → ${e.recoveredTo}` : '') +
+                            (e.error ? `  error=${e.error}` : ''),
+                        )
+                        .join('\n')}
+                </pre>
+                <button
+                  type="button"
+                  style={{ ...primaryBtn(false), background: 'var(--color-card-border-strong)' }}
+                  onClick={() => void navigator.clipboard.writeText(JSON.stringify(diagnostics, null, 2)).catch(() => undefined)}
+                >
+                  Copy diagnostics
+                </button>
+              </div>
+            ) : (
+              <p style={{ margin: 0, fontSize: 11.5, color: 'var(--color-text-dim)' }}>Loading…</p>
+            )}
+          </div>
         </details>
       </div>
     </Section>
