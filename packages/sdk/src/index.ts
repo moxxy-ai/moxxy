@@ -191,6 +191,11 @@ export {
   type WriteFileAtomicOptions,
 } from './fs-utils.js';
 export { createMutex, type Mutex } from './mutex.js';
+export {
+  createJsonFileStore,
+  type JsonFileStore,
+  type JsonFileStoreOptions,
+} from './json-file-store.js';
 export { assertNever } from './assert.js';
 export { compareSemver, parseSemverCore } from './semver.js';
 export { readRequestBody, bearerTokenMatches } from './http-utils.js';
@@ -442,6 +447,13 @@ export {
   type PluginManifestInput,
   type MoxxyPackageInput,
 } from './schemas.js';
+
+export {
+  parseFrontmatterFile,
+  parseFrontmatter,
+  renderFrontmatter,
+  type ParsedFrontmatter,
+} from './frontmatter.js';
 
 export {
   getInstallHint,

@@ -38,6 +38,21 @@ describe('WorkflowRunStore', () => {
     const loaded = await store.load(runId);
     expect(loaded?.vars).toEqual({ email: 'ops@example.com' });
     expect(loaded?.pendingStepId).toBe('ask');
+    // The atomic write leaves no orphan temp file behind (proves the rename
+    // completed; the shared helper uses a pid+uuid-unique tmp).
+    const leftovers = (await fs.readdir(dir)).filter((n) => n.includes('.tmp'));
+    expect(leftovers).toEqual([]);
+  });
+
+  it('concurrent saves both land intact with no temp collision', async () => {
+    const [a, b] = await Promise.all([
+      store.save(checkpoint({ k: 'a' })),
+      store.save(checkpoint({ k: 'b' })),
+    ]);
+    expect((await store.load(a))?.vars).toEqual({ k: 'a' });
+    expect((await store.load(b))?.vars).toEqual({ k: 'b' });
+    const leftovers = (await fs.readdir(dir)).filter((n) => n.includes('.tmp'));
+    expect(leftovers).toEqual([]);
   });
 
   it('removes a checkpoint', async () => {

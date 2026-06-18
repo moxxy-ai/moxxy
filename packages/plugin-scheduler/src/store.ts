@@ -1,5 +1,4 @@
-import { readFile } from 'node:fs/promises';
-import { createMutex, moxxyPath, writeFileAtomic, type Mutex } from '@moxxy/sdk';
+import { createJsonFileStore, moxxyPath, type JsonFileStore } from '@moxxy/sdk';
 import { ulid } from 'ulid';
 import { z } from 'zod';
 import { isValidCron } from './cron.js';
@@ -85,27 +84,43 @@ export function defaultSchedulesFile(): string {
 }
 
 export class ScheduleStore {
-  private readonly file: string;
-  private cache: ScheduleEntry[] | null = null;
-  private readonly mutex: Mutex = createMutex();
+  // Generic id-collection store owns the cache, write mutex, RMW `.slice()`
+  // copy, and crash-atomic `{ version: 1, schedules: [...] }` write. A corrupt
+  // or unreadable file resets to empty and is left in place for inspection —
+  // same behavior as before, now via the shared `load` hook.
+  private readonly store: JsonFileStore<ScheduleEntry>;
 
   constructor(opts: ScheduleStoreOptions = {}) {
-    this.file = opts.file ?? defaultSchedulesFile();
+    this.store = createJsonFileStore<ScheduleEntry>({
+      file: opts.file ?? defaultSchedulesFile(),
+      itemsKey: 'schedules',
+      load: (raw) => {
+        if (raw === null) return [];
+        try {
+          const parsed = fileSchema.safeParse(JSON.parse(raw));
+          return parsed.success ? [...parsed.data.schedules] : [];
+        } catch {
+          // Corrupt file — start fresh rather than crash. The bad file is
+          // left in place so the user can inspect it.
+          return [];
+        }
+      },
+      // Non-ENOENT read errors were previously swallowed to an empty store too.
+      onReadError: () => [],
+    });
   }
 
   /** Force a re-read on the next access. Tests use this. */
   invalidate(): void {
-    this.cache = null;
+    this.store.invalidate();
   }
 
   async list(): Promise<ReadonlyArray<ScheduleEntry>> {
-    await this.ensureLoaded();
-    return this.cache!.slice();
+    return this.store.read();
   }
 
   async get(id: string): Promise<ScheduleEntry | null> {
-    await this.ensureLoaded();
-    return this.cache!.find((s) => s.id === id) ?? null;
+    return this.store.get(id);
   }
 
   async create(
@@ -119,7 +134,7 @@ export class ScheduleStore {
       enabled: input.enabled ?? true,
       source: input.source ?? 'manual',
     });
-    await this.mutate((schedules) => {
+    await this.store.mutate((schedules) => {
       schedules.push(entry);
       return schedules;
     });
@@ -128,7 +143,7 @@ export class ScheduleStore {
 
   async update(id: string, patch: Partial<ScheduleEntry>): Promise<ScheduleEntry | null> {
     let updated: ScheduleEntry | null = null;
-    await this.mutate((schedules) => {
+    await this.store.mutate((schedules) => {
       const idx = schedules.findIndex((s) => s.id === id);
       if (idx < 0) return schedules;
       const next = scheduleEntrySchema.parse({ ...schedules[idx], ...patch });
@@ -141,7 +156,7 @@ export class ScheduleStore {
 
   async delete(id: string): Promise<boolean> {
     let removed = false;
-    await this.mutate((schedules) => {
+    await this.store.mutate((schedules) => {
       const before = schedules.length;
       const after = schedules.filter((s) => s.id !== id);
       removed = after.length < before;
@@ -157,7 +172,7 @@ export class ScheduleStore {
    * untouched.
    */
   async syncSkillSchedule(skillName: string, entry: ScheduleEntry | null): Promise<void> {
-    await this.mutate((schedules) => {
+    await this.store.mutate((schedules) => {
       const filtered = schedules.filter(
         (s) => !(s.source === 'skill' && s.skillName === skillName),
       );
@@ -176,7 +191,7 @@ export class ScheduleStore {
    * into the shared poller without a separate timer.
    */
   async syncWorkflowSchedule(workflowName: string, entry: ScheduleEntry | null): Promise<void> {
-    await this.mutate((schedules) => {
+    await this.store.mutate((schedules) => {
       const filtered = schedules.filter(
         (s) => !(s.source === 'workflow' && s.workflowName === workflowName),
       );
@@ -185,43 +200,5 @@ export class ScheduleStore {
       }
       return filtered;
     });
-  }
-
-  private async ensureLoaded(): Promise<void> {
-    if (this.cache) return;
-    try {
-      const raw = await readFile(this.file, 'utf8');
-      const parsed = fileSchema.safeParse(JSON.parse(raw));
-      this.cache = parsed.success ? [...parsed.data.schedules] : [];
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        this.cache = [];
-      } else {
-        // Corrupt file — start fresh rather than crash. The bad file is
-        // left in place so the user can inspect it.
-        this.cache = [];
-      }
-    }
-  }
-
-  /**
-   * Read-modify-write the cached array under the write mutex. The
-   * mutator receives a fresh shallow copy; whatever it returns becomes
-   * the new state. Persists atomically.
-   */
-  private async mutate(
-    fn: (schedules: ScheduleEntry[]) => ScheduleEntry[],
-  ): Promise<void> {
-    await this.mutex.run(async () => {
-      await this.ensureLoaded();
-      const updated = fn(this.cache!.slice());
-      this.cache = updated;
-      await this.persist(updated);
-    });
-  }
-
-  private async persist(schedules: ScheduleEntry[]): Promise<void> {
-    const payload = JSON.stringify({ version: 1, schedules }, null, 2);
-    await writeFileAtomic(this.file, payload);
   }
 }
