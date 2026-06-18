@@ -99,6 +99,10 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
         if (width > 0 && height > 0) surfaceRef.current.resize({ width, height });
       });
     };
+    send(); // push an initial size (and cover envs without ResizeObserver)
+    // ResizeObserver is absent in some test/headless environments — degrade to
+    // the one-shot size above rather than throwing on mount.
+    if (typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(send);
     ro.observe(host);
     return () => {
