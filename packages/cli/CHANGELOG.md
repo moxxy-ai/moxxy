@@ -1,5 +1,27 @@
 # @moxxy/cli
 
+## 0.14.0
+
+### Minor Changes
+
+- 2673fa0: Wire the desktop Providers reasoning-effort selector live: it now maps onto the runner's `config.context.reasoning` instead of dead-ending in localStorage. Adds a `session.setReasoning` runner protocol method (v9) + a `settings.setReasoning` IPC command, surfaces `supportsReasoning` on `ProviderEntry` (derived from the runner's model catalog) so the selector only renders where it's honored, and removes the unchecked `(p as { supportsReasoning? })` cast.
+
+### Patch Changes
+
+- 2673fa0: Quality sweep: close the last deferred audit items
+
+  - **`RequirementChecker.targetInfo`** is now table-driven (`TARGET_DESCRIPTORS`
+    record, byte-identical to the old per-kind switch, with compile-time
+    exhaustiveness). Closes the types-generics-5 table-drive item.
+  - **Voice-admin** is extracted into a first-class `@moxxy/plugin-voice-admin`
+    package (tools moved verbatim, registered via the cli builtin entries like the
+    other plugins). Closes u28-3.
+  - **Reasoning-effort** is now wired end to end: the desktop Providers selector
+    flows through a typed IPC command to the runner's `config.context.reasoning`
+    (runner protocol bumped to v9 in lockstep with the desktop floor), instead of
+    persisting to local state and silently doing nothing. Closes the long-standing
+    reasoning TODO (audit c15 / R1).
+
 ## 0.13.2
 
 ### Patch Changes

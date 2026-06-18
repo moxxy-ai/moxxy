@@ -1,5 +1,89 @@
 # @moxxy/desktop
 
+## 0.12.0
+
+### Minor Changes
+
+- 2673fa0: Wire the desktop Providers reasoning-effort selector live: it now maps onto the runner's `config.context.reasoning` instead of dead-ending in localStorage. Adds a `session.setReasoning` runner protocol method (v9) + a `settings.setReasoning` IPC command, surfaces `supportsReasoning` on `ProviderEntry` (derived from the runner's model catalog) so the selector only renders where it's honored, and removes the unchecked `(p as { supportsReasoning? })` cast.
+
+### Patch Changes
+
+- 72d89f3: fix(desktop): anonymizer NER runs fully offline + reads every common document type
+
+  Two fixes to the offline document anonymizer:
+
+  - **ORT wasm backend no longer hits a CDN.** The NER model failed with
+    `no available backend found … Failed to fetch … cdn.jsdelivr.net/…/ort-wasm-simd-threaded.jsep.mjs`:
+    transformers.js / onnxruntime-web resolved its WASM runtime glue from jsdelivr
+    by default, which broke the offline guarantee and failed outright (CSP-blocked /
+    offline). The onnxruntime-web artifacts (`ort-wasm-simd-threaded.jsep.{mjs,wasm}`)
+    are now shipped as part of the app shell (copied from `@huggingface/transformers`
+    into the renderer build at `/ort/`, served from the app's own origin in dev,
+    loopback, and `file://`), and the worker pins `env.backends.onnx.wasm.wasmPaths`
+    at that local base before the ORT session is created — nothing is fetched from a
+    CDN. The renderer CSP already permits this (it all rides on `'self'`); no real
+    network origin was opened.
+
+  - **Reads all common document types.** The anonymizer now accepts PDF, Word
+    (`.doc`/`.docx`), RTF, OpenDocument (`.odt`/`.ods`/`.odp`), spreadsheets,
+    slides, and plain text. PDF/Office/ODF go through the existing officeparser
+    pipeline; legacy binary `.doc` and `.rtf` (which officeparser doesn't handle)
+    get dependency-free local extractors in a shared `parseBufferToText` core (so
+    chat attachments benefit too). The "Open document" pane also accepts
+    drag-and-drop: the renderer reads the dropped file's BYTES (which it already
+    holds — no filesystem access) and sends them to a new host-only
+    `anonymizer.parseDocumentBytes` IPC for extraction. It deliberately sends bytes
+    rather than a path, so a compromised renderer can't forge a path to read an
+    arbitrary file — the picker's provenance gate (which guards `parseDocument`)
+    stays the only way main ever opens a renderer-named path. Everything stays
+    local — no provider, runner, or network.
+
+- 72d89f3: fix(desktop): stop the `moxxy-app://` scheme registration from crashing hot-updates (0.10 → 0.8 downgrade)
+
+  The Apps feature registered its `moxxy-app://` privileged scheme with a
+  top-level `protocol.registerSchemesAsPrivileged` call in the hot-updatable
+  `index.ts`. Electron only honors that API **before** `app` is ready, but the
+  immutable bootstrap loads the real main via `import()` **after** `whenReady` —
+  so every hot-updated bundle threw `"protocol.registerSchemesAsPrivileged should
+be called before app is ready"` on load, got poisoned, and reverted to the baked
+  floor. Observed live as a 0.10.0 → 0.8.x downgrade.
+
+  - Register the privileged scheme in the bootstrap's synchronous pre-ready
+    prologue (the one place guaranteed to run before ready); the privileges are
+    single-sourced in a new `app-scheme` module so the bootstrap and `index.ts`
+    can't disagree. The call in `index.ts` is now a defensive no-op post-ready, so
+    a new override no longer crashes even on an already-installed older bootstrap.
+  - Pruning after staging now also keeps the last `confirmed` bundle — the exact
+    rollback target `recoverFromFailedBoot` needs — so a genuinely failed boot
+    rolls back to the last-good override instead of falling all the way to the
+    floor.
+
+- 2673fa0: Quality sweep: close the last deferred audit items
+
+  - **`RequirementChecker.targetInfo`** is now table-driven (`TARGET_DESCRIPTORS`
+    record, byte-identical to the old per-kind switch, with compile-time
+    exhaustiveness). Closes the types-generics-5 table-drive item.
+  - **Voice-admin** is extracted into a first-class `@moxxy/plugin-voice-admin`
+    package (tools moved verbatim, registered via the cli builtin entries like the
+    other plugins). Closes u28-3.
+  - **Reasoning-effort** is now wired end to end: the desktop Providers selector
+    flows through a typed IPC command to the runner's `config.context.reasoning`
+    (runner protocol bumped to v9 in lockstep with the desktop floor), instead of
+    persisting to local state and silently doing nothing. Closes the long-standing
+    reasoning TODO (audit c15 / R1).
+
+- Updated dependencies [72d89f3]
+- Updated dependencies [2673fa0]
+- Updated dependencies [72d89f3]
+- Updated dependencies [2673fa0]
+  - @moxxy/desktop-ipc-contract@0.9.2
+  - @moxxy/desktop-host@0.7.2
+  - @moxxy/client-core@0.8.3
+  - @moxxy/cli@0.14.0
+  - @moxxy/ipc-server-ws@0.1.19
+  - @moxxy/plugin-channel-mobile@0.1.20
+  - @moxxy/client-platform-web@0.1.20
+
 ## 0.11.1
 
 ### Patch Changes

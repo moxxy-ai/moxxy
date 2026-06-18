@@ -1,5 +1,13 @@
 # @moxxy/mobile-poc
 
+## 0.0.16
+
+### Patch Changes
+
+- Updated dependencies [72d89f3]
+  - @moxxy/client-core@0.8.3
+  - @moxxy/client-transport-ws@0.1.19
+
 ## 0.0.15
 
 ### Patch Changes
